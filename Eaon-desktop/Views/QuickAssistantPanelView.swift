@@ -85,34 +85,36 @@ struct QuickAssistantPanelView: View {
     // MARK: - Pill
 
     private var pill: some View {
-        HStack(spacing: 10) {
-            plusButton
-
-            inputField
-
-            modelNameButton
-
-            sendButton
-        }
-        .padding(.horizontal, 20)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
         // A true capsule (radius = half the height, the CSS
         // `border-radius: 9999px` equivalent) — not a rounded rect.
-        .background(glassBackground(in: Capsule(style: .continuous)))
+        glassPanel(shape: Capsule(style: .continuous)) {
+            HStack(spacing: 10) {
+                plusButton
+
+                inputField
+
+                modelNameButton
+
+                sendButton
+            }
+            .padding(.horizontal, 20)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
     }
 
     // MARK: - Expanded panel
 
     private var expandedPanel: some View {
-        VStack(spacing: 0) {
-            header
-            Divider().overlay(Color.white.opacity(0.08))
-            transcriptList
-            Divider().overlay(Color.white.opacity(0.08))
-            footer
+        glassPanel(shape: RoundedRectangle(cornerRadius: 20, style: .continuous)) {
+            VStack(spacing: 0) {
+                header
+                Divider().overlay(Color.white.opacity(0.08))
+                transcriptList
+                Divider().overlay(Color.white.opacity(0.08))
+                footer
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(glassBackground(in: RoundedRectangle(cornerRadius: 20, style: .continuous)))
     }
 
     private var header: some View {
@@ -357,7 +359,36 @@ struct QuickAssistantPanelView: View {
         }
     }
 
-    /// VisionOS-style glass, translated from CSS to native layers:
+    /// On macOS 26+, real system Liquid Glass — the same compositor-level
+    /// material Control Center and the Dock use, not an approximation of
+    /// it. That's what actually produces the reference's live refraction
+    /// of whatever sits behind the panel and the light-catching specular
+    /// edge: neither is reproducible by layering SwiftUI views, since both
+    /// depend on the window server compositing against the desktop in real
+    /// time. Below macOS 26 (this app's minimum is 14), `.glassEffect`
+    /// doesn't exist, so a hand-rolled approximation stands in — see
+    /// `legacyGlassBackground` for exactly what that's built from.
+    ///
+    /// Generic over shape so the collapsed pill can be a true `Capsule`
+    /// while the expanded panel stays a rounded rectangle. Content is
+    /// passed in (rather than applied as a `.background()`) because
+    /// `glassEffect(_:in:)` clips and renders in one step — the same
+    /// reason it replaces `.background(shape.fill(...))` entirely instead
+    /// of layering underneath it.
+    private static let glassTint = Color(red: 15.0 / 255, green: 22.0 / 255, blue: 42.0 / 255).opacity(0.22)
+
+    @ViewBuilder
+    private func glassPanel<Content: View, S: InsettableShape>(shape: S, @ViewBuilder content: () -> Content) -> some View {
+        if #available(macOS 26.0, *) {
+            content()
+                .glassEffect(.regular.tint(Self.glassTint), in: shape)
+        } else {
+            content()
+                .background(legacyGlassBackground(in: shape))
+        }
+    }
+
+    /// The pre-26 approximation, translated from CSS to native layers:
     ///
     /// - Backdrop: `.ultraThinMaterial` — `NSVisualEffectView`-backed, so a
     ///   real ~30px-class backdrop blur *with* the vibrancy saturation boost
@@ -368,24 +399,17 @@ struct QuickAssistantPanelView: View {
     ///   pile on their own grey luminosity layer, which fights the wallpaper
     ///   colors this is supposed to let bleed through.
     /// - Tint: `rgba(15, 22, 42, 0.22)` slate-950, applied ONCE over the
-    ///   material. No top sheen anymore — the previous silvery wash across
-    ///   the top half came from it, and Gemini's reference has none.
+    ///   material.
     /// - Rim: 1px gradient hairline, white 0.18 → 0.06 top-to-bottom (the
-    ///   CSS `border-image` gradient). Dramatically subtler than the old
-    ///   0.6-white edge, which read as a drawn outline instead of glass
-    ///   catching light.
+    ///   CSS `border-image` gradient) — stands in for the real glass's
+    ///   specular edge, which this fallback has no way to reproduce.
     ///
     /// The CSS spec's dual box-shadows are deliberately NOT drawn here: the
     /// glass fills its borderless window edge-to-edge, so any SwiftUI-drawn
     /// shadow would be clipped off invisibly at the window bounds. Depth
     /// comes from the panel's real window-server shadow instead
     /// (`hasShadow = true` in `DesktopAssistantController.ensurePanel`).
-    ///
-    /// Generic over shape so the collapsed pill can be a true `Capsule`
-    /// while the expanded panel stays a rounded rectangle.
-    private static let glassTint = Color(red: 15.0 / 255, green: 22.0 / 255, blue: 42.0 / 255).opacity(0.22)
-
-    private func glassBackground(in shape: some InsettableShape) -> some View {
+    private func legacyGlassBackground(in shape: some InsettableShape) -> some View {
         shape
             .fill(.ultraThinMaterial)
             .overlay(shape.fill(Self.glassTint))
