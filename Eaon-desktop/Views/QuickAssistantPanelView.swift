@@ -376,12 +376,25 @@ struct QuickAssistantPanelView: View {
     /// reason it replaces `.background(shape.fill(...))` entirely instead
     /// of layering underneath it.
     private static let glassTint = Color(red: 15.0 / 255, green: 22.0 / 255, blue: 42.0 / 255).opacity(0.22)
+    /// A much lighter pass of the same hue, for real glass only — `.clear`
+    /// glass (see below) is already close to Apple's own answer, so
+    /// tinting it as heavily as the pre-26 approximation needed just
+    /// re-introduces the flat, opaque look real glass was supposed to fix.
+    private static let nativeGlassTint = Color(red: 15.0 / 255, green: 22.0 / 255, blue: 42.0 / 255).opacity(0.08)
 
     @ViewBuilder
     private func glassPanel<Content: View, S: InsettableShape>(shape: S, @ViewBuilder content: () -> Content) -> some View {
         if #available(macOS 26.0, *) {
+            // `.clear`, not `.regular`: per Apple's own guidance, `.regular`
+            // is the adaptive, legibility-first glass most system chrome
+            // uses (toolbars, sidebars) — it biases toward *more* opaque to
+            // protect contrast. `.clear` is the variant meant for exactly
+            // this situation, glass floating over rich, colorful content
+            // (photos, video, a wallpaper) where the point is to let that
+            // content show through, which is what the reference is doing
+            // and `.regular` was reading flatter and darker than.
             content()
-                .glassEffect(.regular.tint(Self.glassTint), in: shape)
+                .glassEffect(.clear.tint(Self.nativeGlassTint), in: shape)
         } else {
             content()
                 .background(legacyGlassBackground(in: shape))
