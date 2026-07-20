@@ -866,13 +866,28 @@ class ChatViewModel {
 
     /// A plain-text Markdown transcript — for reading or pasting
     /// elsewhere, not for re-importing (JSON is the round-trippable format).
+    /// This is what both "Copy chat" and "Export Markdown" actually produce
+    /// (see `ShareChatSheet`), so it's the one place a naturally-attributed,
+    /// non-watermark credit line reaches anything pasted into a blog post,
+    /// a Slack message, or a social share — labeling each answer with the
+    /// real model that gave it is useful in its own right (readers of a
+    /// shared chat want to know what actually answered), and happens to
+    /// carry the same information a plain "Assistant" label would lose.
     static func exportConversationMarkdown(_ conversation: Conversation) -> String {
         var lines = ["# \(conversation.title)", ""]
         for message in conversation.messages where !message.content.isEmpty {
-            lines.append(message.isUser ? "**You**" : "**Assistant**")
+            if message.isUser {
+                lines.append("**You**")
+            } else if let modelName = message.modelName, !modelName.isEmpty {
+                lines.append("**\(modelName)**")
+            } else {
+                lines.append("**Assistant**")
+            }
             lines.append(message.content)
             lines.append("")
         }
+        lines.append("---")
+        lines.append("Exported from [Eaon](https://eaon.dev)")
         return lines.joined(separator: "\n")
     }
 

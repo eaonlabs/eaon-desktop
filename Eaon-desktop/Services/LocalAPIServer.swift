@@ -267,6 +267,15 @@ final class LocalAPIServer {
             return
         }
 
+        // Reachable even with an API key configured, same as any service's
+        // unauthenticated health check — a tool probing whether something
+        // is listening on this port before it has (or needs) a key
+        // shouldn't have to authenticate just to find out.
+        if request.method == "GET", path == "/" {
+            handleRoot(on: connection)
+            return
+        }
+
         if LocalAPIServerStore.shared.requireAPIKey {
             let expected = "Bearer \(LocalAPIServerStore.shared.apiKey)"
             let provided = request.headers["authorization"] ?? ""
@@ -284,6 +293,20 @@ final class LocalAPIServer {
         default:
             writeErrorResponse(connection, status: "404 Not Found", message: "No such endpoint: \(request.method) \(path). Eaon's local server serves GET /v1/models and POST /v1/chat/completions.")
         }
+    }
+
+    // MARK: - GET / (discovery/health-check)
+
+    /// What a script or a tool's "test connection" button sees before it
+    /// commits to using this server — enough to confirm "this is Eaon, and
+    /// here's what it speaks" without requiring the caller to already know
+    /// the two real routes.
+    private func handleRoot(on connection: NWConnection) {
+        writeJSONResponse(connection, status: "200 OK", json: [
+            "name": "Eaon Local API Server",
+            "openai_compatible": true,
+            "endpoints": ["GET /v1/models", "POST /v1/chat/completions"],
+        ])
     }
 
     // MARK: - GET /v1/models
