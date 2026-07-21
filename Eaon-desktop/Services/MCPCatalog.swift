@@ -275,6 +275,207 @@ enum MCPCatalog {
             tokenAccount: "mcp-oauth-slack",
             logoAssetName: "slack"
         ),
+        .init(
+            id: "clickup", displayName: "ClickUp",
+            summary: "Tasks, docs, and spaces.",
+            endpoint: URL(string: "https://mcp.clickup.com/mcp"),
+            authMode: .oauth,
+            authScheme: "Bearer", extraHeaders: [:],
+            tokenCreationURL: nil, tokenCreationURLIsPrefilled: false,
+            tokenFieldPlaceholder: "", tokenHint: nil,
+            manualClientIdSetupURL: nil, manualClientIdHint: nil,
+            tokenAccount: "mcp-oauth-clickup",
+            logoAssetName: "clickup"
+        ),
+        .init(
+            id: "trello", displayName: "Trello",
+            summary: "Boards, cards, and lists.",
+            endpoint: URL(string: "https://mcp.trello.com/v1"),
+            authMode: .oauth,
+            authScheme: "Bearer", extraHeaders: [:],
+            tokenCreationURL: nil, tokenCreationURLIsPrefilled: false,
+            tokenFieldPlaceholder: "", tokenHint: nil,
+            manualClientIdSetupURL: nil, manualClientIdHint: nil,
+            tokenAccount: "mcp-oauth-trello",
+            logoAssetName: "trello"
+        ),
+        .init(
+            id: "airtable", displayName: "Airtable",
+            summary: "Bases, tables, and records.",
+            endpoint: URL(string: "https://mcp.airtable.com/mcp"),
+            authMode: .pastedToken,
+            authScheme: "Bearer", extraHeaders: [:],
+            tokenCreationURL: URL(string: "https://airtable.com/create/tokens"), tokenCreationURLIsPrefilled: false,
+            tokenFieldPlaceholder: "Paste an Airtable personal access token",
+            tokenHint: "Needs data.records:read/write, schema.bases:read/write, and workspacesAndBases:read — pick these scopes on Airtable's token creation page before generating it.",
+            manualClientIdSetupURL: nil, manualClientIdHint: nil,
+            tokenAccount: "mcp-token-airtable",
+            logoAssetName: "airtable"
+        ),
+        .init(
+            id: "monday", displayName: "monday.com",
+            summary: "Boards, items, and updates.",
+            endpoint: URL(string: "https://mcp.monday.com/mcp"),
+            authMode: .oauth,
+            authScheme: "Bearer", extraHeaders: [:],
+            tokenCreationURL: nil, tokenCreationURLIsPrefilled: false,
+            tokenFieldPlaceholder: "", tokenHint: nil,
+            manualClientIdSetupURL: nil, manualClientIdHint: nil,
+            tokenAccount: "mcp-oauth-monday",
+            logoAssetName: "monday"
+        ),
+        .init(
+            id: "asana", displayName: "Asana",
+            summary: "Tasks, projects, and portfolios.",
+            endpoint: URL(string: "https://mcp.asana.com/v2/mcp"),
+            authMode: .oauth,
+            authScheme: "Bearer", extraHeaders: [:],
+            tokenCreationURL: nil, tokenCreationURLIsPrefilled: false,
+            tokenFieldPlaceholder: "", tokenHint: nil,
+            // Verified live: Asana's authorization server (app.asana.com)
+            // has no registration_endpoint — no self-service registration,
+            // so this needs a client ID from an app created first.
+            manualClientIdSetupURL: URL(string: "https://app.asana.com/0/my-apps"),
+            manualClientIdHint: "Create new app → type \"MCP app\" → add redirect URL \(MCPOAuth.redirectURI.absoluteString) → copy the Client ID.",
+            tokenAccount: "mcp-oauth-asana",
+            logoAssetName: "asana"
+        ),
+        .init(
+            id: "hubspot", displayName: "HubSpot",
+            summary: "Contacts, deals, and tickets.",
+            endpoint: URL(string: "https://mcp.hubspot.com"),
+            authMode: .oauth,
+            authScheme: "Bearer", extraHeaders: [:],
+            tokenCreationURL: nil, tokenCreationURLIsPrefilled: false,
+            tokenFieldPlaceholder: "", tokenHint: nil,
+            // Verified live: HubSpot's discovery doc has no
+            // registration_endpoint — needs an app created first.
+            manualClientIdSetupURL: URL(string: "https://app.hubspot.com/"),
+            manualClientIdHint: "Development → MCP Auth Apps → Create MCP auth app → add redirect URL \(MCPOAuth.redirectURI.absoluteString) → copy the Client ID.",
+            tokenAccount: "mcp-oauth-hubspot",
+            logoAssetName: "hubspot"
+        ),
+        .init(
+            id: "intercom", displayName: "Intercom",
+            summary: "Conversations, contacts, and tickets.",
+            endpoint: URL(string: "https://mcp.intercom.com/mcp"),
+            authMode: .oauth,
+            authScheme: "Bearer", extraHeaders: [:],
+            tokenCreationURL: nil, tokenCreationURLIsPrefilled: false,
+            tokenFieldPlaceholder: "", tokenHint: nil,
+            manualClientIdSetupURL: nil, manualClientIdHint: nil,
+            tokenAccount: "mcp-oauth-intercom",
+            logoAssetName: "intercom"
+        ),
+        .init(
+            id: "attio", displayName: "Attio",
+            summary: "Records, lists, and notes.",
+            endpoint: URL(string: "https://mcp.attio.com/mcp"),
+            authMode: .oauth,
+            authScheme: "Bearer", extraHeaders: [:],
+            tokenCreationURL: nil, tokenCreationURLIsPrefilled: false,
+            tokenFieldPlaceholder: "", tokenHint: nil,
+            manualClientIdSetupURL: nil, manualClientIdHint: nil,
+            tokenAccount: "mcp-oauth-attio",
+            logoAssetName: "attio"
+        ),
+        .init(
+            id: "gitlab", displayName: "GitLab",
+            summary: "Repos, issues, and merge requests.",
+            endpoint: URL(string: "https://gitlab.com/api/v4/mcp"),
+            authMode: .oauth,
+            authScheme: "Bearer", extraHeaders: [:],
+            tokenCreationURL: nil, tokenCreationURLIsPrefilled: false,
+            tokenFieldPlaceholder: "", tokenHint: nil,
+            manualClientIdSetupURL: nil, manualClientIdHint: nil,
+            tokenAccount: "mcp-oauth-gitlab",
+            logoAssetName: "gitlab"
+        ),
+        .init(
+            id: "pagerduty", displayName: "PagerDuty",
+            summary: "Incidents, on-call, and services.",
+            endpoint: URL(string: "https://mcp.pagerduty.com/mcp"),
+            authMode: .oauth,
+            authScheme: "Bearer", extraHeaders: [:],
+            tokenCreationURL: nil, tokenCreationURLIsPrefilled: false,
+            tokenFieldPlaceholder: "", tokenHint: nil,
+            // Verified live: no registration_endpoint, and PagerDuty's own
+            // docs say Dynamic Client Registration isn't supported — needs
+            // an app created first, with a fixed redirect URI.
+            manualClientIdSetupURL: URL(string: "https://developer.pagerduty.com/apps"),
+            manualClientIdHint: "Create a new app → OAuth 2.0 → add redirect URL \(MCPOAuth.redirectURI.absoluteString) → copy the Client ID.",
+            tokenAccount: "mcp-oauth-pagerduty",
+            logoAssetName: "pagerduty"
+        ),
+        .init(
+            id: "digitalocean", displayName: "DigitalOcean",
+            summary: "App Platform deploys and management.",
+            endpoint: URL(string: "https://apps.mcp.digitalocean.com/mcp"),
+            authMode: .pastedToken,
+            authScheme: "Bearer", extraHeaders: [:],
+            tokenCreationURL: URL(string: "https://cloud.digitalocean.com/account/api/tokens"), tokenCreationURLIsPrefilled: false,
+            tokenFieldPlaceholder: "Paste a DigitalOcean personal access token",
+            tokenHint: "This connects App Platform specifically — DigitalOcean also runs separate MCP endpoints per resource (Droplets, Databases, Kubernetes, and more) that aren't wired up here yet.",
+            manualClientIdSetupURL: nil, manualClientIdHint: nil,
+            tokenAccount: "mcp-token-digitalocean",
+            logoAssetName: "digitalocean"
+        ),
+        .init(
+            id: "figma", displayName: "Figma",
+            summary: "Files, frames, and comments.",
+            endpoint: URL(string: "https://mcp.figma.com/mcp"),
+            authMode: .oauth,
+            authScheme: "Bearer", extraHeaders: [:],
+            tokenCreationURL: nil, tokenCreationURLIsPrefilled: false,
+            tokenFieldPlaceholder: "", tokenHint: nil,
+            manualClientIdSetupURL: nil, manualClientIdHint: nil,
+            tokenAccount: "mcp-oauth-figma",
+            logoAssetName: "figma"
+        ),
+        .init(
+            id: "exa", displayName: "Exa",
+            summary: "AI-native web search.",
+            endpoint: URL(string: "https://mcp.exa.ai/mcp"),
+            authMode: .oauth,
+            authScheme: "Bearer", extraHeaders: [:],
+            tokenCreationURL: nil, tokenCreationURLIsPrefilled: false,
+            tokenFieldPlaceholder: "", tokenHint: nil,
+            manualClientIdSetupURL: nil, manualClientIdHint: nil,
+            tokenAccount: "mcp-oauth-exa",
+            logoAssetName: "exa"
+        ),
+        .init(
+            id: "apify", displayName: "Apify",
+            summary: "Web scraping and automation actors.",
+            endpoint: URL(string: "https://mcp.apify.com"),
+            authMode: .oauth,
+            authScheme: "Bearer", extraHeaders: [:],
+            tokenCreationURL: nil, tokenCreationURLIsPrefilled: false,
+            tokenFieldPlaceholder: "", tokenHint: nil,
+            manualClientIdSetupURL: nil, manualClientIdHint: nil,
+            tokenAccount: "mcp-oauth-apify",
+            logoAssetName: "apify"
+        ),
+        .init(
+            id: "dropbox", displayName: "Dropbox",
+            summary: "Files, folders, and sharing.",
+            endpoint: URL(string: "https://mcp.dropbox.com/mcp"),
+            authMode: .oauth,
+            authScheme: "Bearer", extraHeaders: [:],
+            tokenCreationURL: nil, tokenCreationURLIsPrefilled: false,
+            tokenFieldPlaceholder: "", tokenHint: nil,
+            // Dropbox's discovery doc advertises a registration_endpoint,
+            // but self-registration for a client not already on their
+            // known-client allowlist is unconfirmed — a manual app is the
+            // safe default rather than risking a silent failure on first
+            // connect. If DCR does work for this client, the live
+            // discovery check elsewhere finds that out and this hint
+            // simply never surfaces.
+            manualClientIdSetupURL: URL(string: "https://www.dropbox.com/developers/apps/"),
+            manualClientIdHint: "Create app → Scoped access → add redirect URI \(MCPOAuth.redirectURI.absoluteString) → copy the App key.",
+            tokenAccount: "mcp-oauth-dropbox",
+            logoAssetName: "dropbox"
+        ),
     ]
 
     /// The built-in, individually-verified catalog plus whatever custom
