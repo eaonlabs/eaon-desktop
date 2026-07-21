@@ -61,7 +61,7 @@ struct ModeSegmentedControl: View {
     private func label(for mode: EaonMode) -> String {
         switch mode {
         case .chat: return "Chat"
-        case .agent: return "Agent"
+        case .agent: return "Eaon Work"
         case .code: return "Code"
         }
     }
@@ -73,7 +73,7 @@ struct ModeSegmentedControl: View {
         case .chat:
             return "Chat — just talk and ask anything. Never touches your files or runs commands."
         case .agent:
-            return "Agent — writes, runs, and debugs real code on your Mac, and (with Device Control on) organizes files, drives apps, and researches for you."
+            return "Eaon Work — writes, runs, and debugs real code on your Mac, and (with Device Control on) organizes files, drives apps, and researches for you."
         case .code:
             return "Code — a real terminal running Eaon's CLI agent, for git, test runners, and the developer workflows a chat window doesn't fit."
         }

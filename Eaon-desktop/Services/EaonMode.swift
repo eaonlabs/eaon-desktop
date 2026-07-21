@@ -59,7 +59,7 @@ enum EaonMode: String, CaseIterable, Identifiable {
     var title: String {
         switch self {
         case .chat: return "Chat"
-        case .agent: return "Agent"
+        case .agent: return "Eaon Work"
         case .code: return "Code"
         }
     }
