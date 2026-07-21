@@ -74,8 +74,29 @@ struct Conversation: Identifiable, Codable, Equatable {
     /// non-optional default here would silently wipe every older
     /// conversation on decode.
     var isPinned: Bool?
+    /// A cached (and incrementally extended) summary of this conversation's
+    /// older turns, once it's grown large enough that `ContextCompressor`
+    /// has replaced them with this instead of sending them verbatim on
+    /// every message. Optional, same decode-safety reasoning as `isPinned`
+    /// — nil just means nothing has been compressed (yet, or ever, for a
+    /// conversation that never grew long enough to need it).
+    var contextSummary: ConversationSummary?
 
     static func placeholderTitle() -> String { "New chat" }
+}
+
+/// See `Conversation.contextSummary` and `ContextCompressor`.
+struct ConversationSummary: Codable, Equatable {
+    /// Plain prose, written to stand on its own as context — never shown
+    /// to the user, only ever fed back in as a system turn.
+    var text: String
+    /// How many of the conversation's messages (counting from the start)
+    /// this summary already accounts for. Anything after this index still
+    /// rides along verbatim. Extending the summary later re-reads only the
+    /// messages between this index and the new cutoff, not the whole
+    /// conversation from scratch.
+    var coversMessagesUpTo: Int
+    var updatedAt: Date
 }
 
 /// A plain folder for grouping chats — just a name, nothing else. No
@@ -2781,6 +2802,67 @@ class ChatViewModel {
     - The same hard limits apply here as everywhere: never enter passwords, never buy anything or move money, never sign in on the user's behalf. If a task needs that, stop and hand it back to the user.
     """
 
+    /// Shared by all three routing paths: turns `priorMessages` (already
+    /// the conversation's history minus the newest turn, which each call
+    /// site appends separately) into request-ready `HistoryTurn`s, folding
+    /// the oldest span into a compact summary once the conversation has
+    /// grown large enough for `ContextCompressor` to say so — otherwise
+    /// this is a plain passthrough and nothing behaves differently from
+    /// before compression existed.
+    private func compressedHistoryTurns(
+        for conversationId: UUID,
+        priorMessages: [ChatMessage],
+        modelId: String,
+        customConfig: CustomProviderConfig?,
+        localRecord: LocalModelRecord?,
+        aquaApiKey: String?
+    ) async -> [HistoryTurn] {
+        let existingSummary = conversations.first(where: { $0.id == conversationId })?.contextSummary
+        let estimatedTokens = StatisticsTracker.approxTokens(characters: priorMessages.reduce(0) { $0 + $1.content.utf8.count })
+        guard ContextCompressor.shouldCompress(
+            messageCount: priorMessages.count,
+            estimatedTokens: estimatedTokens,
+            contextLimitTokens: contextLimitTokens
+        ) else {
+            return priorMessages.map { historyTurn(for: $0, modelId: modelId) }
+        }
+
+        let cutoff = ContextCompressor.verbatimCutoff(messageCount: priorMessages.count)
+        let summary = await ContextCompressor.compress(
+            messages: priorMessages,
+            upTo: cutoff,
+            existingSummary: existingSummary,
+            modelId: modelId,
+            customConfig: customConfig,
+            localRecord: localRecord,
+            aquaApiKey: aquaApiKey
+        )
+        if let summary, summary != existingSummary {
+            updateContextSummary(for: conversationId, to: summary)
+        }
+
+        var turns: [HistoryTurn] = []
+        if let summaryText = summary?.text, !summaryText.isEmpty {
+            turns.append(HistoryTurn(
+                role: "system",
+                content: "Summary of the earlier part of this conversation, from before it grew long enough to compress:\n\(summaryText)"
+            ))
+        }
+        turns += priorMessages.suffix(from: min(cutoff, priorMessages.count)).map { historyTurn(for: $0, modelId: modelId) }
+        return turns
+    }
+
+    /// Updates conversation `id`'s cached compression summary directly.
+    /// Unlike `messages`, there's no separate "live" copy of this field to
+    /// keep in sync with `conversations` — a plain lookup, mutate, and
+    /// persist is everything needed, regardless of whether this
+    /// conversation happens to be the one on screen right now.
+    private func updateContextSummary(for id: UUID, to summary: ConversationSummary) {
+        guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
+        conversations[index].contextSummary = summary
+        persistConversations()
+    }
+
     /// Builds one request-ready history turn from a chat message: real
     /// image parts for attachments the active model can actually see
     /// (`ModelCatalog.supportsVision`), and a plain "[Attached: x]"
@@ -2815,7 +2897,14 @@ class ChatViewModel {
     ) async throws {
         var history: [HistoryTurn] = systemPromptHistory(for: conversationId, modelId: modelId)
         let priorMessages = withMessages(for: conversationId, { $0 }) ?? []
-        history += priorMessages.dropLast().map { historyTurn(for: $0, modelId: modelId) }
+        history += await compressedHistoryTurns(
+            for: conversationId,
+            priorMessages: Array(priorMessages.dropLast()),
+            modelId: modelId,
+            customConfig: config,
+            localRecord: nil,
+            aquaApiKey: nil
+        )
         try await CustomProviderAPIService().streamCompletion(
             config: config,
             apiKey: apiKey,
@@ -2867,7 +2956,14 @@ class ChatViewModel {
 
         var history: [HistoryTurn] = systemPromptHistory(for: conversationId, modelId: record.id)
         let priorMessages = withMessages(for: conversationId, { $0 }) ?? []
-        history += priorMessages.dropLast().map { historyTurn(for: $0, modelId: record.requestModelId) }
+        history += await compressedHistoryTurns(
+            for: conversationId,
+            priorMessages: Array(priorMessages.dropLast()),
+            modelId: record.requestModelId,
+            customConfig: nil,
+            localRecord: record,
+            aquaApiKey: nil
+        )
         // Local servers render the model's own embedded chat template,
         // which is frequently strict about history shape — see
         // `flattenedForStrictChatTemplates`' own doc for the live failure
@@ -2988,7 +3084,14 @@ class ChatViewModel {
 
         var apiMessages: [[String: Any]] = systemPromptHistory(for: conversationId, modelId: modelId).map(\.openAICompatibleJSON)
         let priorMessages = withMessages(for: conversationId, { $0 }) ?? []
-        apiMessages += priorMessages.dropLast().map { historyTurn(for: $0, modelId: modelId).openAICompatibleJSON }
+        apiMessages += await compressedHistoryTurns(
+            for: conversationId,
+            priorMessages: Array(priorMessages.dropLast()),
+            modelId: modelId,
+            customConfig: nil,
+            localRecord: nil,
+            aquaApiKey: apiKey
+        ).map(\.openAICompatibleJSON)
 
         let sampling = samplingOverride ?? ModelParametersStore.shared.effectiveParameters
 
