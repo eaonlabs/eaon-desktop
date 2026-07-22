@@ -230,8 +230,18 @@ struct EaonPetView: View {
         guard !didStartAmbient else { return }
         didStartAmbient = true
         if !reduceMotion {
-            withAnimation(.easeInOut(duration: 3.6).repeatForever(autoreverses: true)) { floatUp = true }
-            withAnimation(.easeInOut(duration: 3.6).repeatForever(autoreverses: true)) { breathe = 1.02 }
+            // Deferred a tick: kicking off a `repeatForever` animation
+            // synchronously inside the same `onAppear` that mounts the view
+            // is a known SwiftUI trap — with no enclosing Scene transaction
+            // (this view is hosted directly in a raw NSPanel, not a normal
+            // WindowGroup), SwiftUI can bake the end state into the very
+            // first layout instead of animating into it, so the loop never
+            // visibly starts. Starting it on the next runloop turn, after
+            // the view has actually appeared, avoids that.
+            DispatchQueue.main.async {
+                withAnimation(.easeInOut(duration: 3.6).repeatForever(autoreverses: true)) { floatUp = true }
+                withAnimation(.easeInOut(duration: 3.6).repeatForever(autoreverses: true)) { breathe = 1.02 }
+            }
         }
         scheduleBlink()
         scheduleSaccade()
