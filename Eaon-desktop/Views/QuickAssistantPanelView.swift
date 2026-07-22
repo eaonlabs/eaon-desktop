@@ -87,7 +87,7 @@ struct QuickAssistantPanelView: View {
     private var pill: some View {
         // A true capsule (radius = half the height, the CSS
         // `border-radius: 9999px` equivalent) — not a rounded rect.
-        glassPanel(shape: Capsule(style: .continuous)) {
+        glassPanel(shape: Capsule(style: .continuous), intensity: .pill) {
             HStack(spacing: 10) {
                 plusButton
 
@@ -105,7 +105,7 @@ struct QuickAssistantPanelView: View {
     // MARK: - Expanded panel
 
     private var expandedPanel: some View {
-        glassPanel(shape: RoundedRectangle(cornerRadius: 20, style: .continuous)) {
+        glassPanel(shape: RoundedRectangle(cornerRadius: 20, style: .continuous), intensity: .panel) {
             VStack(spacing: 0) {
                 header
                 Divider().overlay(Color.white.opacity(0.08))
@@ -368,6 +368,48 @@ struct QuickAssistantPanelView: View {
         }
     }
 
+    /// The two glass treatments in this panel, deliberately different —
+    /// verified live against reference screenshots after the shared, lighter
+    /// treatment both used before read as "too see-through" for the compact
+    /// pill and not obscuring enough behind the expanded chat panel (the
+    /// desktop pet was showing through as a sharp, distracting shape at 0.08
+    /// tint). `pill` is a light touch — small, glanceable, most of what's
+    /// behind it is just desktop. `panel` carries a lot of readable text
+    /// over whatever's behind it (including the pet), so it leans hard into
+    /// `.regular`'s own "adaptive, legibility-first, more opaque" design
+    /// intent, with an extra dimming pass on top for real glass since
+    /// `.tint(_:)` alone tops out short of "the desktop behind this should
+    /// read as an indistinct blur."
+    private enum GlassIntensity {
+        case pill, panel
+
+        var nativeTint: Color {
+            switch self {
+            case .pill: Color(red: 15.0 / 255, green: 22.0 / 255, blue: 42.0 / 255).opacity(0.30)
+            case .panel: Color(red: 15.0 / 255, green: 22.0 / 255, blue: 42.0 / 255).opacity(0.62)
+            }
+        }
+
+        /// Extra flat dimming layered ON TOP of the native glass (inside the
+        /// same shape) — `.glassEffect`'s own tint biases toward staying
+        /// "glass" rather than fully opaque, so pushing the panel the rest
+        /// of the way to "all blurred" needs a second pass rather than a
+        /// single more-extreme tint value.
+        var extraDim: Color {
+            switch self {
+            case .pill: .clear
+            case .panel: Color(red: 8.0 / 255, green: 10.0 / 255, blue: 16.0 / 255).opacity(0.30)
+            }
+        }
+
+        var legacyTint: Color {
+            switch self {
+            case .pill: Color(red: 15.0 / 255, green: 22.0 / 255, blue: 42.0 / 255).opacity(0.34)
+            case .panel: Color(red: 10.0 / 255, green: 12.0 / 255, blue: 20.0 / 255).opacity(0.66)
+            }
+        }
+    }
+
     /// On macOS 26+, real system Liquid Glass — the same compositor-level
     /// material Control Center and the Dock use, not an approximation of
     /// it. That's what actually produces the reference's live refraction
@@ -384,29 +426,21 @@ struct QuickAssistantPanelView: View {
     /// `glassEffect(_:in:)` clips and renders in one step — the same
     /// reason it replaces `.background(shape.fill(...))` entirely instead
     /// of layering underneath it.
-    private static let glassTint = Color(red: 15.0 / 255, green: 22.0 / 255, blue: 42.0 / 255).opacity(0.22)
-    /// A much lighter pass of the same hue, for real glass only — `.clear`
-    /// glass (see below) is already close to Apple's own answer, so
-    /// tinting it as heavily as the pre-26 approximation needed just
-    /// re-introduces the flat, opaque look real glass was supposed to fix.
-    private static let nativeGlassTint = Color(red: 15.0 / 255, green: 22.0 / 255, blue: 42.0 / 255).opacity(0.08)
-
     @ViewBuilder
-    private func glassPanel<Content: View, S: InsettableShape>(shape: S, @ViewBuilder content: () -> Content) -> some View {
+    private func glassPanel<Content: View, S: InsettableShape>(shape: S, intensity: GlassIntensity, @ViewBuilder content: () -> Content) -> some View {
         if #available(macOS 26.0, *) {
-            // `.clear`, not `.regular`: per Apple's own guidance, `.regular`
+            // `.regular`, not `.clear`: per Apple's own guidance `.regular`
             // is the adaptive, legibility-first glass most system chrome
-            // uses (toolbars, sidebars) — it biases toward *more* opaque to
-            // protect contrast. `.clear` is the variant meant for exactly
-            // this situation, glass floating over rich, colorful content
-            // (photos, video, a wallpaper) where the point is to let that
-            // content show through, which is what the reference is doing
-            // and `.regular` was reading flatter and darker than.
+            // (toolbars, sidebars, Control Center) uses, biasing toward
+            // *more* opaque to protect contrast — matching what both
+            // reference screenshots actually show far better than `.clear`,
+            // which is meant for glass meant to stay mostly see-through.
             content()
-                .glassEffect(.clear.tint(Self.nativeGlassTint), in: shape)
+                .glassEffect(.regular.tint(intensity.nativeTint), in: shape)
+                .overlay(shape.fill(intensity.extraDim))
         } else {
             content()
-                .background(legacyGlassBackground(in: shape))
+                .background(legacyGlassBackground(in: shape, tint: intensity.legacyTint))
         }
     }
 
@@ -420,8 +454,8 @@ struct QuickAssistantPanelView: View {
     ///   from going muddy). The *lightest* material on purpose: heavier ones
     ///   pile on their own grey luminosity layer, which fights the wallpaper
     ///   colors this is supposed to let bleed through.
-    /// - Tint: `rgba(15, 22, 42, 0.22)` slate-950, applied ONCE over the
-    ///   material.
+    /// - Tint: slate-950, applied ONCE over the material — strength set by
+    ///   `intensity.legacyTint` (pill vs. panel, see `GlassIntensity`).
     /// - Rim: 1px gradient hairline, white 0.18 → 0.06 top-to-bottom (the
     ///   CSS `border-image` gradient) — stands in for the real glass's
     ///   specular edge, which this fallback has no way to reproduce.
@@ -431,10 +465,10 @@ struct QuickAssistantPanelView: View {
     /// shadow would be clipped off invisibly at the window bounds. Depth
     /// comes from the panel's real window-server shadow instead
     /// (`hasShadow = true` in `DesktopAssistantController.ensurePanel`).
-    private func legacyGlassBackground(in shape: some InsettableShape) -> some View {
+    private func legacyGlassBackground(in shape: some InsettableShape, tint: Color) -> some View {
         shape
             .fill(.ultraThinMaterial)
-            .overlay(shape.fill(Self.glassTint))
+            .overlay(shape.fill(tint))
             .overlay(
                 shape.strokeBorder(
                     LinearGradient(

@@ -271,8 +271,19 @@ final class QuickAssistantViewModel {
             if !instructions.isEmpty {
                 history.append(HistoryTurn(role: "system", content: instructions))
             }
+            // Only the MOST RECENT attachment-bearing turn sends its images
+            // as real image data — earlier ones fall back to a text note
+            // (same as a non-vision model already gets). Seen live: a
+            // screen-capture question that failed and got retried kept
+            // BOTH attempts' full-size screenshots in history, and the
+            // combined payload for the retry came back "413 Payload Too
+            // Large" — a failure caused entirely by carrying forward images
+            // nobody was still asking about. Capping to the latest keeps
+            // the conversation honest (the model still sees a note that
+            // something was attached) without unbounded payload growth.
+            let lastAttachmentTurnId = transcript.prefix(replyIndex).last(where: { !$0.attachments.isEmpty })?.id
             for turn in transcript.prefix(replyIndex) where !turn.isError && (!turn.text.isEmpty || !turn.attachments.isEmpty) {
-                history.append(historyTurn(for: turn, modelId: modelId))
+                history.append(historyTurn(for: turn, modelId: modelId, includeImages: turn.id == lastAttachmentTurnId))
             }
 
             let route = try await resolveRoute(modelId: modelId, history: &history)
@@ -332,10 +343,11 @@ final class QuickAssistantViewModel {
     /// Mirrors `ChatViewModel.historyTurn(for:modelId:)`: real image parts
     /// for attachments the active model can actually see, a plain
     /// "[Attached: x]" fallback note for anything it can't (a non-image
-    /// file, or a model without vision) — so the same picture behaves
-    /// identically whether it's sent from the main window or the quick
-    /// panel.
-    private func historyTurn(for turn: QuickTurn, modelId: String) -> HistoryTurn {
+    /// file, a model without vision, or — `includeImages: false` — an
+    /// older turn whose image is no longer the one being asked about) — so
+    /// the same picture behaves identically whether it's sent from the main
+    /// window or the quick panel.
+    private func historyTurn(for turn: QuickTurn, modelId: String, includeImages: Bool) -> HistoryTurn {
         let role = turn.isUser ? "user" : "assistant"
         guard !turn.attachments.isEmpty else {
             return HistoryTurn(role: role, content: turn.text)
@@ -343,7 +355,7 @@ final class QuickAssistantViewModel {
 
         var images: [HistoryImage] = []
         var sentIds: Set<UUID> = []
-        if ModelCatalog.supportsVision(for: modelId) {
+        if includeImages, ModelCatalog.supportsVision(for: modelId) {
             for attachment in turn.attachments where attachment.kind == .image {
                 guard let image = ImagePayloadBuilder.build(for: attachment) else { continue }
                 images.append(image)
