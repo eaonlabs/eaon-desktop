@@ -81,21 +81,76 @@ final class QuickAssistantViewModel {
     }
 
     func send() {
-        let text = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !text.isEmpty || !pendingAttachments.isEmpty, !isStreaming else { return }
+        let raw = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !raw.isEmpty || !pendingAttachments.isEmpty, !isStreaming else { return }
         inputText = ""
+        // Set immediately (before the async /screen branch, if any) so a
+        // second Enter mid-capture can't double-fire — matches the
+        // already-true value `dispatchSend` sets for the plain-text path.
+        isStreaming = true
+
+        if let question = Self.screenCommandQuestion(from: raw) {
+            task = Task { [weak self] in await self?.runScreenCommand(question: question) }
+            return
+        }
+
+        dispatchSend(text: raw)
+    }
+
+    /// Shared tail of a real send — appends the turn, reacts, and kicks the
+    /// actual generation. Assumes `isStreaming` is already true.
+    private func dispatchSend(text: String) {
         let attachments = pendingAttachments
         pendingAttachments = []
         let screenCapture = pendingScreenCapture
         pendingScreenCapture = nil
         transcript.append(QuickTurn(text: text, isUser: true, attachments: attachments))
-        isStreaming = true
         // The desktop pet listens to this surface too: it reacts to the
         // tone of what was just said, then settles into its working state
         // while the reply streams. (Both no-ops when the pet is off.)
         EaonPetController.shared.reactToUserMessage(text)
         EaonPetController.shared.noteGenerationStarted()
         task = Task { [weak self] in await self?.run(screenCapture: screenCapture) }
+    }
+
+    /// `/screen` (optionally followed by a question) — a typed shortcut for
+    /// "+ → My screen" that ALSO switches to whichever model last actually
+    /// answered a screen question successfully, before capturing. Plain
+    /// attaching (the + menu button) deliberately does NOT do this model
+    /// switch — it stays a predictable "just attach, use whatever I have
+    /// selected" action; `/screen` is the power-shortcut that additionally
+    /// fixes the model, since the app's model selection is one shared value
+    /// that can drift to something non-vision from other activity.
+    ///
+    /// Matches only the whole word "/screen" (exact, or followed by
+    /// whitespace) — `hasPrefix` alone would misfire on an unrelated future
+    /// word like "/screenshot".
+    private static func screenCommandQuestion(from text: String) -> String? {
+        let lower = text.lowercased()
+        guard lower == "/screen" || lower.hasPrefix("/screen ") || lower.hasPrefix("/screen\n") else { return nil }
+        let rest = text.dropFirst("/screen".count).trimmingCharacters(in: .whitespacesAndNewlines)
+        return rest.isEmpty ? "What's on my screen right now?" : rest
+    }
+
+    private func runScreenCommand(question: String) async {
+        if let remembered = Self.lastScreenVisionModel, remembered != selectedModelId {
+            chatViewModel?.selectModel(remembered)
+        }
+        // Attach even if this fails — a permission denial still leaves the
+        // typed question sendable as plain text, with the notice explaining
+        // why (same forgiving behavior a failed paste already gets).
+        await attachScreenCapture()
+        dispatchSend(text: question)
+    }
+
+    /// The last model that successfully answered a screen-capture question
+    /// with real vision (not just a graceful non-vision fallback) — set in
+    /// `run()`, read by `runScreenCommand`. Persisted across launches like
+    /// every other model preference in this app.
+    private static let screenVisionModelKey = "eaon_screen_vision_model"
+    private static var lastScreenVisionModel: String? {
+        get { UserDefaults.standard.string(forKey: screenVisionModelKey) }
+        set { UserDefaults.standard.set(newValue, forKey: screenVisionModelKey) }
     }
 
     func stop() {
@@ -249,14 +304,19 @@ final class QuickAssistantViewModel {
         let hadError = reply?.isError == true
         EaonPetController.shared.noteGenerationEnded(hadError: hadError, replyText: hadError ? nil : reply?.text)
 
-        // This turn included a live screen capture and got a real answer —
-        // fire a silent, never-shown follow-up asking where to point, and
-        // fly the pet over if it found something. Fully async: doesn't
-        // block `isStreaming` clearing, so the panel stays responsive while
-        // the pet catches up a moment later.
+        // This turn included a live screen capture and got a real answer
+        // FROM A MODEL THAT COULD ACTUALLY SEE IT (not the graceful
+        // non-vision text-only fallback) — remember it as the model
+        // `/screen` should switch to next time, and fire a silent,
+        // never-shown follow-up asking where to point, flying the pet over
+        // if it found something. Fully async: doesn't block `isStreaming`
+        // clearing, so the panel stays responsive while the pet catches up
+        // a moment later.
         if let screenCapture, let reply, !hadError, !reply.text.isEmpty,
+           ModelCatalog.supportsVision(for: selectedModelId),
            let image = ImagePayloadBuilder.build(for: screenCapture.attachment) {
             let modelId = selectedModelId
+            Self.lastScreenVisionModel = modelId
             let answerText = reply.text
             Task { [screenCapture] in
                 guard let normalized = await EaonPetSight.locate(
