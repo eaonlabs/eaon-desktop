@@ -373,6 +373,19 @@ struct RootView: View {
                 withAnimation(.linear(duration: 0.2)) { sidebarCollapsed = false }
             }
         }
+        // Drive the desktop pet's mood off the visible conversation's
+        // generation lifecycle: it drifts to a new spot and works while a
+        // reply streams, winks when one lands cleanly, and wears the error
+        // face when a run fails. No-op unless the pet is enabled.
+        .onChange(of: chatViewModel.isGenerating) { wasGenerating, isGenerating in
+            if isGenerating {
+                EaonPetController.shared.noteGenerationStarted()
+            } else if wasGenerating {
+                EaonPetController.shared.noteGenerationEnded(
+                    hadError: chatViewModel.messages.last?.isError == true
+                )
+            }
+        }
     }
 
     @ViewBuilder

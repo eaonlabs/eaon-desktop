@@ -68,6 +68,18 @@ struct GeneralSettingsView: View {
                     .toggleStyle(.switch)
                     .tint(AppearanceSettings.toggleTint)
             }
+
+            SettingsSectionRowDivider()
+
+            SettingsSectionRow(
+                title: "Desktop pet",
+                description: "A little companion that sits on your screen and reacts to what Eaon is doing — it works while you wait, winks when a reply lands, and dozes off when idle. Click it to say hi; drag it anywhere."
+            ) {
+                Toggle("", isOn: Bindable(EaonPetStore.shared).isEnabled)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .tint(AppearanceSettings.toggleTint)
+            }
         }
     }
 

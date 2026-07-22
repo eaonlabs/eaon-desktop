@@ -18,6 +18,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Menu bar sparkle + floating "Ask Eaon" panel (⌥Space) — created
         // here so it exists even before (or without) the main window.
         MainActor.assumeIsolated { DesktopAssistantController.shared.applyEnabledState() }
+        // The desktop pet (the on-screen companion) — same deal: it lives in
+        // its own floating panel independent of the main window, so it's
+        // brought up here from its saved on/off setting (off by default).
+        MainActor.assumeIsolated { EaonPetController.shared.applyEnabledState() }
         // Forces the bundled curated-model JSON to load and validate right
         // now, at launch — rather than lazily whenever a user first opens
         // the Models tab — so a bad entry (missing file, bad JSON, an
