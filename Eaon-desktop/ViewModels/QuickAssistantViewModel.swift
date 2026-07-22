@@ -82,6 +82,11 @@ final class QuickAssistantViewModel {
         pendingAttachments = []
         transcript.append(QuickTurn(text: text, isUser: true, attachments: attachments))
         isStreaming = true
+        // The desktop pet listens to this surface too: it reacts to the
+        // tone of what was just said, then settles into its working state
+        // while the reply streams. (Both no-ops when the pet is off.)
+        EaonPetController.shared.reactToUserMessage(text)
+        EaonPetController.shared.noteGenerationStarted()
         task = Task { [weak self] in await self?.run() }
     }
 
@@ -195,6 +200,13 @@ final class QuickAssistantViewModel {
 
         activeTypewriter = nil
         isStreaming = false
+        // Let the pet react to how this turn ended: the reply's own tone,
+        // or the error face if it failed.
+        let reply = transcript.indices.contains(replyIndex) ? transcript[replyIndex] : nil
+        EaonPetController.shared.noteGenerationEnded(
+            hadError: reply?.isError == true,
+            replyText: reply?.isError == true ? nil : reply?.text
+        )
     }
 
     /// Mirrors `ChatViewModel.historyTurn(for:modelId:)`: real image parts

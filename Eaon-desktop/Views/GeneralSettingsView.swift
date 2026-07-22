@@ -73,7 +73,7 @@ struct GeneralSettingsView: View {
 
             SettingsSectionRow(
                 title: "Desktop pet",
-                description: "A little companion that sits on your screen and reacts to what Eaon is doing — it works while you wait, winks when a reply lands, and dozes off when idle. Click it to say hi; drag it anywhere."
+                description: "A little companion that roams your screen and reacts to your conversations — it works while you wait, gets happy or hurt depending on what's said, and dozes off when idle. Click it to ask about what's on your screen: it takes one look (Screen Recording permission, your current vision model) and can point at what it finds."
             ) {
                 Toggle("", isOn: Bindable(EaonPetStore.shared).isEnabled)
                     .labelsHidden()

@@ -373,17 +373,21 @@ struct RootView: View {
                 withAnimation(.linear(duration: 0.2)) { sidebarCollapsed = false }
             }
         }
-        // Drive the desktop pet's mood off the visible conversation's
-        // generation lifecycle: it drifts to a new spot and works while a
-        // reply streams, winks when one lands cleanly, and wears the error
-        // face when a run fails. No-op unless the pet is enabled.
+        // Drive the desktop pet off the visible conversation's generation
+        // lifecycle: it reacts to the tone of what the user just said,
+        // drifts to a new spot and works while a reply streams, reacts to
+        // the reply's own tone when it lands (wink by default), and wears
+        // the error face when a run fails. No-op unless the pet is enabled.
         .onChange(of: chatViewModel.isGenerating) { wasGenerating, isGenerating in
             if isGenerating {
+                if let userText = chatViewModel.messages.last(where: { $0.isUser })?.content {
+                    EaonPetController.shared.reactToUserMessage(userText)
+                }
                 EaonPetController.shared.noteGenerationStarted()
             } else if wasGenerating {
-                EaonPetController.shared.noteGenerationEnded(
-                    hadError: chatViewModel.messages.last?.isError == true
-                )
+                let hadError = chatViewModel.messages.last?.isError == true
+                let reply = chatViewModel.messages.last(where: { !$0.isUser && $0.isToolResult != true && !$0.isError })?.content
+                EaonPetController.shared.noteGenerationEnded(hadError: hadError, replyText: hadError ? nil : reply)
             }
         }
     }
