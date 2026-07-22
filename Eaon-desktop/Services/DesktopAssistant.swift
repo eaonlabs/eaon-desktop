@@ -161,6 +161,13 @@ final class DesktopAssistantController: NSObject {
         panel?.orderOut(nil)
     }
 
+    /// The panel's window number and current screen — read by the desktop
+    /// pet so a screen capture taken for "My screen" can exclude the
+    /// assistant's own chrome and target the display it's actually sitting
+    /// on, without this controller needing to know anything about the pet.
+    var panelWindowNumber: Int? { panel?.windowNumber }
+    var currentScreen: NSScreen? { panel?.screen ?? NSScreen.main }
+
     /// Switches pill ↔ chat panel: flips the view model's state and animates
     /// the window to match, keeping the bottom-right corner planted where
     /// the user has it (so the panel grows upward out of the pill).

@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 /// The engine behind the floating desktop assistant (the Gemini-style
@@ -57,6 +58,11 @@ final class QuickAssistantViewModel {
 
     private var task: Task<Void, Never>?
     private var activeTypewriter: TypewriterStreamController?
+    /// Set by `attachScreenCapture()`, consumed by `send()` — marks the
+    /// queued attachment as a LIVE screen grab (not a paste or file) and
+    /// remembers which physical screen it came from, which is what makes a
+    /// "fly over and point" follow-up meaningful once the reply lands.
+    private var pendingScreenCapture: (attachment: MessageAttachment, screen: NSScreen?)?
 
     private init() {}
 
@@ -80,6 +86,8 @@ final class QuickAssistantViewModel {
         inputText = ""
         let attachments = pendingAttachments
         pendingAttachments = []
+        let screenCapture = pendingScreenCapture
+        pendingScreenCapture = nil
         transcript.append(QuickTurn(text: text, isUser: true, attachments: attachments))
         isStreaming = true
         // The desktop pet listens to this surface too: it reacts to the
@@ -87,7 +95,7 @@ final class QuickAssistantViewModel {
         // while the reply streams. (Both no-ops when the pet is off.)
         EaonPetController.shared.reactToUserMessage(text)
         EaonPetController.shared.noteGenerationStarted()
-        task = Task { [weak self] in await self?.run() }
+        task = Task { [weak self] in await self?.run(screenCapture: screenCapture) }
     }
 
     func stop() {
@@ -102,6 +110,7 @@ final class QuickAssistantViewModel {
         transcript = []
         inputText = ""
         pendingAttachments = []
+        pendingScreenCapture = nil
         composerNotice = nil
     }
 
@@ -135,6 +144,39 @@ final class QuickAssistantViewModel {
 
     func removePendingAttachment(id: UUID) {
         pendingAttachments.removeAll { $0.id == id }
+        if pendingScreenCapture?.attachment.id == id { pendingScreenCapture = nil }
+    }
+
+    /// The "My screen" attach: grabs the display this panel is on right
+    /// now (never the pet's — it may have wandered off to a different one)
+    /// and queues it exactly like any other picked or pasted image. Asking
+    /// Screen Recording permission is a system prompt the OS itself owns;
+    /// after a denial there's nothing more specific this can do than point
+    /// at where to fix it.
+    func attachScreenCapture() async {
+        guard CGPreflightScreenCaptureAccess() else {
+            CGRequestScreenCaptureAccess()
+            composerNotice = "Allow Eaon to record your screen — System Settings → Privacy & Security → Screen Recording — then try again."
+            return
+        }
+        let screen = DesktopAssistantController.shared.currentScreen
+        let excluded = [DesktopAssistantController.shared.panelWindowNumber, EaonPetController.shared.windowNumber]
+            .compactMap { $0 }
+        do {
+            let attachment = try await EaonPetSight.captureScreenAttachment(on: screen, excludingWindowNumbers: excluded)
+            pendingAttachments.append(attachment)
+            pendingScreenCapture = (attachment, screen)
+            // Say so now, not after a wasted round-trip: without this, the
+            // capture still attaches fine (same graceful fallback any
+            // attachment gets with a non-vision model — a text note instead
+            // of the real image) but the model can only reply that it can't
+            // see it, which a user has no way to anticipate up front.
+            composerNotice = ModelCatalog.supportsVision(for: selectedModelId)
+                ? nil
+                : "Captured — but \(modelDisplayName) can't see images. Switch to a vision model to actually ask about it."
+        } catch {
+            composerNotice = "Couldn't capture the screen: \(error.localizedDescription)"
+        }
     }
 
     // MARK: - Generation
@@ -150,8 +192,9 @@ final class QuickAssistantViewModel {
         let requestModelId: String
     }
 
-    private func run() async {
+    private func run(screenCapture: (attachment: MessageAttachment, screen: NSScreen?)? = nil) async {
         let replyIndex = transcript.count
+        let question = transcript.indices.contains(replyIndex - 1) ? transcript[replyIndex - 1].text : ""
         transcript.append(QuickTurn(text: "", isUser: false))
 
         let typewriter = TypewriterStreamController { [weak self] text in
@@ -203,10 +246,27 @@ final class QuickAssistantViewModel {
         // Let the pet react to how this turn ended: the reply's own tone,
         // or the error face if it failed.
         let reply = transcript.indices.contains(replyIndex) ? transcript[replyIndex] : nil
-        EaonPetController.shared.noteGenerationEnded(
-            hadError: reply?.isError == true,
-            replyText: reply?.isError == true ? nil : reply?.text
-        )
+        let hadError = reply?.isError == true
+        EaonPetController.shared.noteGenerationEnded(hadError: hadError, replyText: hadError ? nil : reply?.text)
+
+        // This turn included a live screen capture and got a real answer —
+        // fire a silent, never-shown follow-up asking where to point, and
+        // fly the pet over if it found something. Fully async: doesn't
+        // block `isStreaming` clearing, so the panel stays responsive while
+        // the pet catches up a moment later.
+        if let screenCapture, let reply, !hadError, !reply.text.isEmpty,
+           let image = ImagePayloadBuilder.build(for: screenCapture.attachment) {
+            let modelId = selectedModelId
+            let answerText = reply.text
+            Task { [screenCapture] in
+                guard let normalized = await EaonPetSight.locate(
+                    question: question, answer: answerText, image: image, modelId: modelId
+                ), let screen = screenCapture.screen else { return }
+                let f = screen.frame
+                let point = CGPoint(x: f.minX + normalized.x * f.width, y: f.maxY - normalized.y * f.height)
+                EaonPetController.shared.pointAt(screenPoint: point)
+            }
+        }
     }
 
     /// Mirrors `ChatViewModel.historyTurn(for:modelId:)`: real image parts

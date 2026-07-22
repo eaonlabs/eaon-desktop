@@ -31,6 +31,12 @@ struct ComposerAttachmentMenu: View {
     let onPickImage: () -> Void
     let onPickFile: () -> Void
     let onPasteImage: () -> Void
+    /// Captures the current screen and attaches it, so the desktop pet can
+    /// fly over and point at whatever the reply is about. nil (the default)
+    /// hides the row entirely — only the Quick Assistant panel passes this;
+    /// it's specifically a "point at my screen" capability, not a general
+    /// chat one.
+    var onAttachScreen: (() -> Void)? = nil
     var onComingSoon: (String) -> Void = { _ in }
     /// Inserts a prompt template's text into the composer — "Deep research"
     /// and "Shopping research" use this instead of the coming-soon stub;
@@ -48,6 +54,9 @@ struct ComposerAttachmentMenu: View {
         VStack(alignment: .leading, spacing: 2) {
             AttachmentMenuRow(icon: "paperclip", title: "Add photos & files") { onPickFile() }
             AttachmentMenuRow(icon: "doc.on.clipboard", title: "Paste image") { onPasteImage() }
+            if let onAttachScreen {
+                AttachmentMenuRow(icon: "macwindow", title: "My screen") { onAttachScreen() }
+            }
 
             Divider()
                 .overlay(colors.borderSubtle)

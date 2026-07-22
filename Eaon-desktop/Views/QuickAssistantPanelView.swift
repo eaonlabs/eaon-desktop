@@ -322,6 +322,15 @@ struct QuickAssistantPanelView: View {
                     if !vm.pendingAttachments.isEmpty {
                         DesktopAssistantController.shared.setExpanded(true)
                     }
+                },
+                onAttachScreen: {
+                    showingAttachMenu = false
+                    Task {
+                        await vm.attachScreenCapture()
+                        if !vm.pendingAttachments.isEmpty {
+                            DesktopAssistantController.shared.setExpanded(true)
+                        }
+                    }
                 }
             )
         }

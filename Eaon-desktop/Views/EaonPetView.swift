@@ -5,8 +5,10 @@ import SwiftUI
 // springs out when the pet has something on screen to show you. Ported from
 // the motion spec: every state is a transform/opacity/shape change, layered
 // so the ambient life (float, breathe, blink, idle glances) never fights the
-// mood transitions. Mood, pointing angle and the ask session are owned by
-// `EaonPetController.shared`; these views only render and animate them.
+// mood transitions. Mood and pointing angle are owned by
+// `EaonPetController.shared`; this view only renders and animates them.
+// Asking the pet about the screen is NOT a view here — it's the Quick
+// Assistant's own "My screen" attach (see `QuickAssistantViewModel`).
 
 // MARK: - Geometry
 
@@ -346,118 +348,5 @@ struct EaonPetRootView: View {
         EaonPetView()
             .frame(width: EaonPetController.petSize.width,
                    height: EaonPetController.petSize.height)
-    }
-}
-
-// MARK: - Ask bubble
-
-/// The pet's speech bubble: a small dark card with a one-line question
-/// field, the "looking at your screen…" thinking state, and the answer.
-/// Lives in its own key-capable panel (`EaonPetBubblePanel`) so typing here
-/// never activates the main app.
-struct EaonPetBubbleView: View {
-    @Bindable private var controller = EaonPetController.shared
-    @FocusState private var fieldFocused: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 7) {
-                Circle()
-                    .fill(LinearGradient(colors: [Color(red: 0.93, green: 0.5, blue: 0.36),
-                                                  Color(red: 0.86, green: 0.38, blue: 0.22)],
-                                         startPoint: .top, endPoint: .bottom))
-                    .frame(width: 10, height: 10)
-                Text("ASK ABOUT YOUR SCREEN")
-                    .font(AppFont.mono(10, weight: .semibold))
-                    .kerning(1.2)
-                    .foregroundColor(.white.opacity(0.55))
-                Spacer()
-                Button {
-                    EaonPetController.shared.endAsk()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 10, weight: .bold))
-                        .foregroundColor(.white.opacity(0.55))
-                        .frame(width: 20, height: 20)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-
-            Group {
-                if controller.isThinking {
-                    HStack(spacing: 8) {
-                        ProgressView().controlSize(.small).tint(.white)
-                        Text("Looking at your screen…")
-                            .font(AppFont.mono(12, weight: .regular))
-                            .foregroundColor(.white.opacity(0.75))
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                } else if let answer = controller.answerText {
-                    ScrollView {
-                        Text(answer)
-                            .font(AppFont.mono(12.5, weight: .regular))
-                            .foregroundColor(.white.opacity(0.92))
-                            .lineSpacing(3)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .textSelection(.enabled)
-                    }
-                } else {
-                    Text("I'll take one look at this screen and answer — ask me to find things and I'll point at them.")
-                        .font(AppFont.mono(11.5, weight: .regular))
-                        .foregroundColor(.white.opacity(0.45))
-                        .lineSpacing(3)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-            .frame(maxHeight: .infinity, alignment: .topLeading)
-
-            HStack(spacing: 8) {
-                TextField("Where's the sign-in button?", text: $controller.askText)
-                    .textFieldStyle(.plain)
-                    .font(AppFont.mono(12.5, weight: .regular))
-                    .foregroundColor(.white)
-                    .focused($fieldFocused)
-                    .onSubmit { EaonPetController.shared.submitAsk() }
-                Button {
-                    EaonPetController.shared.submitAsk()
-                } label: {
-                    Image(systemName: "arrow.up")
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundColor(.white)
-                        .frame(width: 24, height: 24)
-                        .background(
-                            Circle().fill(LinearGradient(
-                                colors: [Color(red: 0.93, green: 0.5, blue: 0.36),
-                                         Color(red: 0.86, green: 0.38, blue: 0.22)],
-                                startPoint: .top, endPoint: .bottom))
-                        )
-                        .contentShape(Circle())
-                }
-                .buttonStyle(.plain)
-                .disabled(controller.isThinking)
-            }
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .background(
-                RoundedRectangle(cornerRadius: 11)
-                    .fill(Color.white.opacity(0.07))
-                    .overlay(RoundedRectangle(cornerRadius: 11).stroke(Color.white.opacity(0.1), lineWidth: 1))
-            )
-        }
-        .padding(14)
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: 18)
-                .fill(Color(red: 0.09, green: 0.085, blue: 0.09).opacity(0.96))
-                .overlay(RoundedRectangle(cornerRadius: 18).stroke(Color.white.opacity(0.09), lineWidth: 1))
-        )
-        .onExitCommand { EaonPetController.shared.endAsk() }
-        .onReceive(NotificationCenter.default.publisher(for: EaonPetController.focusAskNotification)) { _ in
-            fieldFocused = true
-        }
-        .onAppear {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { fieldFocused = true }
-        }
     }
 }

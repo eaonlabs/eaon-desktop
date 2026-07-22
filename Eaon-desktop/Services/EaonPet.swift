@@ -98,22 +98,18 @@ final class EaonPetPanel: NSPanel {
     override var canBecomeMain: Bool { false }
 }
 
-/// The ask/answer speech bubble's own panel. Unlike the pet it CAN become
-/// key — its text field needs the keyboard — but stays non-activating so
-/// typing a question never yanks the whole app in front of what the user is
-/// looking at (the exact Spotlight-style trick `QuickAssistantPanel` uses).
-final class EaonPetBubblePanel: NSPanel {
-    override var canBecomeKey: Bool { true }
-    override var canBecomeMain: Bool { false }
-}
-
-/// Owns the pet: its floating windows, where it roams, its pointing hand,
-/// and — the observable bits the views read — its current `mood`, pointing
-/// angle, and ask-session state. Callers never set mood directly; they call
-/// the semantic `note…`/`react…`/`wake`/`handleTap` methods so the whole
-/// state machine (react to tone, drift while working, wander when bored,
-/// point at things it found on screen, doze off when idle) lives in exactly
-/// one place.
+/// Owns the pet: its floating window, where it roams, its pointing hand,
+/// and — the observable bits the view reads — its current `mood` and
+/// pointing angle. Callers never set mood directly; they call the semantic
+/// `note…`/`react…`/`wake`/`handleTap`/`pointAt` methods so the whole state
+/// machine (react to tone, drift while working, wander when bored, point at
+/// things found on screen, doze off when idle) lives in exactly one place.
+///
+/// Asking it about your screen is deliberately NOT a separate popup here —
+/// that's the Quick Assistant's "My screen" attach
+/// (`QuickAssistantViewModel.attachScreenCapture`); this controller just
+/// supplies the pointing follow-up once that reply lands. One text surface
+/// for the whole app, the pet as its animated face.
 @MainActor
 @Observable
 final class EaonPetController {
@@ -127,26 +123,16 @@ final class EaonPetController {
     /// matching SwiftUI's y-down `rotationEffect`).
     private(set) var pointingAngle: Double?
 
-    // Ask-session state, rendered by `EaonPetBubbleView`.
-    private(set) var isAsking = false
-    var askText = ""
-    private(set) var answerText: String?
-    private(set) var isThinking = false
-
-    /// Posted right after the ask bubble becomes key so its SwiftUI text
-    /// field grabs focus — same scoped pattern as the Quick Assistant.
-    static let focusAskNotification = Notification.Name("eaon.pet.focus-ask")
-
     // Distributed hooks: any script/launcher (Shortcuts, Raycast, a shell
-    // one-liner) can make the pet react, point somewhere, or answer a
-    // question about the screen — the same external-integration convention
-    // `DesktopAssistantController.distributedToggleName` established.
+    // one-liner) can make the pet react, point somewhere, or ask a question
+    // about the screen through the Quick Assistant — the same external-
+    // integration convention `DesktopAssistantController.distributedToggleName`
+    // established.
     static let distributedReactName = Notification.Name("dev.eaon.desktop.pet-react")
     static let distributedPointName = Notification.Name("dev.eaon.desktop.pet-point")
     static let distributedAskName = Notification.Name("dev.eaon.desktop.pet-ask")
 
     @ObservationIgnored private var panel: EaonPetPanel?
-    @ObservationIgnored private var bubblePanel: EaonPetBubblePanel?
     @ObservationIgnored private var idleWork: DispatchWorkItem?
     @ObservationIgnored private var holdWork: DispatchWorkItem?
     @ObservationIgnored private var driftWork: DispatchWorkItem?
@@ -162,7 +148,6 @@ final class EaonPetController {
     /// ~105pt from center) never clips at the window edge — the extra area
     /// is fully transparent and click-through.
     static let petSize = NSSize(width: 224, height: 236)
-    private static let bubbleSize = NSSize(width: 330, height: 196)
     private static let idleToSleep: TimeInterval = 90
 
     private init() {}
@@ -193,10 +178,14 @@ final class EaonPetController {
 
     private func hide() {
         cancelAllTimers()
-        endAsk()
         pointingAngle = nil
         panel?.orderOut(nil)
     }
+
+    /// The panel's window number — read by `QuickAssistantViewModel` so a
+    /// "My screen" capture excludes the pet's own chrome (body + pointing
+    /// hand) from the shot.
+    var windowNumber: Int? { panel?.windowNumber }
 
     private func ensurePanel() -> EaonPetPanel {
         if let panel { return panel }
@@ -223,29 +212,6 @@ final class EaonPetController {
         panel.contentView = hosting
         self.panel = panel
         return panel
-    }
-
-    private func ensureBubblePanel() -> EaonPetBubblePanel {
-        if let bubblePanel { return bubblePanel }
-        let bubble = EaonPetBubblePanel(
-            contentRect: NSRect(origin: .zero, size: Self.bubbleSize),
-            styleMask: [.borderless, .nonactivatingPanel],
-            backing: .buffered,
-            defer: false
-        )
-        bubble.level = .floating
-        bubble.isOpaque = false
-        bubble.backgroundColor = .clear
-        bubble.hasShadow = true
-        bubble.hidesOnDeactivate = false
-        bubble.isMovableByWindowBackground = false
-        bubble.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        bubble.isReleasedWhenClosed = false
-        let hosting = NSHostingView(rootView: EaonPetBubbleView())
-        hosting.sizingOptions = []
-        bubble.contentView = hosting
-        bubblePanel = bubble
-        return bubble
     }
 
     // MARK: - Mood API (the only way in)
@@ -303,12 +269,14 @@ final class EaonPetController {
     }
 
     /// A click on the body: squish feedback happens view-side; here it
-    /// wakes a sleeping pet, and otherwise toggles the ask bubble — the
-    /// pet's whole "help me with my screen" surface hangs off this tap.
+    /// wakes a sleeping pet and opens (or closes) the Quick Assistant — the
+    /// pet's face IS the assistant's, so tapping it is how you talk to it.
+    /// Asking about the screen itself happens there too, via its "My
+    /// screen" attach — not a second popup.
     func handleTap() {
         guard EaonPetStore.shared.isEnabled else { return }
         if mood == .sleep { becomeReady() }
-        if isAsking { endAsk() } else { beginAsk() }
+        DesktopAssistantController.shared.toggle()
     }
 
     /// Show an emotion, hold it for a feeling-appropriate beat, then settle
@@ -362,11 +330,6 @@ final class EaonPetController {
             panel.setFrame(dest, display: true, animate: true)
             self.setMood(arrival)
             if arrival == .ready { self.armWander() }
-            // The bubble follows its pet (window animation runs ~0.2–0.4s;
-            // reposition after it lands).
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { [weak self] in
-                self?.repositionBubble(animated: true)
-            }
         }
         driftWork = move
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.28, execute: move)
@@ -398,14 +361,13 @@ final class EaonPetController {
     }
 
     /// Boredom stroll: while just sitting ready, occasionally wander to a
-    /// new spot. Suppressed during conversations, emotions, pointing, and
-    /// open ask sessions; strolling does NOT reset the doze-off timer, so a
-    /// bored pet still falls asleep eventually.
+    /// new spot. Suppressed during conversations, emotions, and pointing;
+    /// strolling does NOT reset the doze-off timer, so a bored pet still
+    /// falls asleep eventually.
     private func armWander() {
         cancelWander()
         let work = DispatchWorkItem { [weak self] in
-            guard let self, self.mood == .ready, !self.isAsking,
-                  self.pointingAngle == nil else { return }
+            guard let self, self.mood == .ready, self.pointingAngle == nil else { return }
             self.drift(arrival: .ready)
         }
         wanderWork = work
@@ -452,7 +414,6 @@ final class EaonPetController {
             let dx = target.x - center.x
             let dyUp = target.y - center.y
             self.pointingAngle = atan2(-dyUp, dx)
-            self.repositionBubble(animated: true)
         }
         pointingWork = extend
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.75, execute: extend)
@@ -464,99 +425,6 @@ final class EaonPetController {
             if self.mood == .ready { self.becomeReady() }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.75 + holdSeconds, execute: retract)
-    }
-
-    // MARK: - Ask ("what am I looking at?")
-
-    func beginAsk(prefill: String? = nil, autoSubmit: Bool = false) {
-        guard EaonPetStore.shared.isEnabled else { return }
-        if panel?.isVisible != true { show() }
-        if mood == .sleep { becomeReady() }
-        cancelWander()
-        isAsking = true
-        askText = prefill ?? askText
-        let bubble = ensureBubblePanel()
-        repositionBubble(animated: false)
-        bubble.makeKeyAndOrderFront(nil)
-        bubble.orderFrontRegardless()
-        NotificationCenter.default.post(name: Self.focusAskNotification, object: nil)
-        if autoSubmit, !(prefill ?? "").isEmpty { submitAsk() }
-    }
-
-    func endAsk() {
-        isAsking = false
-        isThinking = false
-        answerText = nil
-        askText = ""
-        bubblePanel?.orderOut(nil)
-        if EaonPetStore.shared.isEnabled, panel?.isVisible == true, mood == .ready {
-            becomeReady()
-        }
-    }
-
-    /// Capture the screen (minus the pet's own windows), ask the current
-    /// model about it, react to the answer's tone — and if the model
-    /// located what the user asked about, fly over and point at it.
-    func submitAsk() {
-        let question = askText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !question.isEmpty, !isThinking else { return }
-        askText = ""
-        answerText = nil
-        isThinking = true
-        setMood(.working)
-        cancelWander()
-        cancelIdle()
-
-        let excluded = [panel, bubblePanel].compactMap { $0?.windowNumber }
-        let screen = panel?.screen ?? NSScreen.main
-
-        Task { [weak self] in
-            guard let self else { return }
-            let modelId = QuickAssistantViewModel.shared.selectedModelId
-            let result = await EaonPetSight.answer(
-                question: question,
-                modelId: modelId,
-                on: screen,
-                excludingWindowNumbers: excluded
-            )
-            self.isThinking = false
-            switch result {
-            case .success(let answer):
-                self.answerText = answer.text
-                self.react(EaonPetTone.forReply(answer.text) ?? .wink)
-                if let normalized = answer.normalizedTarget, let screen {
-                    let f = screen.frame
-                    let point = CGPoint(
-                        x: f.minX + normalized.x * f.width,
-                        y: f.maxY - normalized.y * f.height
-                    )
-                    self.pointAt(screenPoint: point)
-                }
-            case .failure(let failure):
-                self.answerText = failure.message
-                self.react(failure.isSetupProblem ? .sad : .error)
-            }
-            self.repositionBubble(animated: true)
-        }
-    }
-
-    /// Keeps the speech bubble glued above (or, near the top edge, below)
-    /// its pet, wherever the pet has roamed or been dragged to.
-    private func repositionBubble(animated: Bool) {
-        guard isAsking, let panel, let bubble = bubblePanel else { return }
-        let size = Self.bubbleSize
-        let pet = panel.frame
-        let v = (panel.screen ?? NSScreen.main)?.visibleFrame
-            ?? NSRect(x: 0, y: 0, width: 1440, height: 900)
-        var x = pet.midX - size.width / 2
-        x = min(max(x, v.minX + 8), v.maxX - size.width - 8)
-        var y = pet.maxY - 26 // the panel has transparent headroom; tuck in close
-        if y + size.height > v.maxY - 8 {
-            y = pet.minY - size.height + 34
-        }
-        y = min(max(y, v.minY + 8), v.maxY - size.height - 8)
-        bubble.setFrame(NSRect(x: x, y: y, width: size.width, height: size.height),
-                        display: true, animate: animated)
     }
 
     // MARK: - Distributed hooks
@@ -584,8 +452,15 @@ final class EaonPetController {
             forName: Self.distributedAskName, object: nil, queue: .main
         ) { note in
             guard let question = note.object as? String, !question.isEmpty else { return }
+            // Routed through the real assistant, exactly as if the user had
+            // clicked "My screen" and typed the question themselves.
             Task { @MainActor in
-                EaonPetController.shared.beginAsk(prefill: question, autoSubmit: true)
+                let vm = QuickAssistantViewModel.shared
+                DesktopAssistantController.shared.showPanel()
+                DesktopAssistantController.shared.setExpanded(true)
+                await vm.attachScreenCapture()
+                vm.inputText = question
+                vm.send()
             }
         }
     }
@@ -595,7 +470,7 @@ final class EaonPetController {
     private func armIdleTimer() {
         cancelIdle()
         let work = DispatchWorkItem { [weak self] in
-            guard let self, self.mood == .ready, !self.isAsking else { return }
+            guard let self, self.mood == .ready else { return }
             self.cancelWander()
             self.setMood(.sleep)
         }
