@@ -5,8 +5,8 @@ import SwiftUI
 /// actually doing or feeling, so the face reads as a status indicator rather
 /// than decoration. `working` renders as a two-frame seesaw in the view;
 /// `lookLeft`/`lookRight` double as the glance the pet throws in the
-/// direction it's about to drift; `happy`/`sad` are the tone reactions
-/// (praise, jokes, apologies, insults) classified from conversation text.
+/// direction it's about to drift; the rest are tone reactions classified
+/// from conversation text (praise, jokes, insults, apologies, surprise…).
 enum EaonPetMood: Equatable, Sendable {
     case sleep      // idle — no active conversation
     case ready      // awake, waiting for a prompt
@@ -15,6 +15,10 @@ enum EaonPetMood: Equatable, Sendable {
     case lookRight
     case wink       // finished a reply cleanly / playful
     case happy      // praised, or the reply itself is upbeat
+    case laughing   // something funny — lol / haha / 😂
+    case love       // adored — ❤️ / "i love you" / "you're the best"
+    case surprised  // startled — wow / omg / ?! / 🤯
+    case confused   // puzzled — huh / wdym / "makes no sense"
     case sad        // insulted, or the reply is apologetic/regretful
     case angry      // refusal / firm pushback
     case error      // a run failed
@@ -27,10 +31,17 @@ enum EaonPetMood: Equatable, Sendable {
 /// failure. Emoji outrank keywords because they're the sender's own explicit
 /// emotional signal.
 enum EaonPetTone {
-    /// How the pet feels about something the USER said to it.
+    /// How the pet feels about something the USER said to it. Order matters:
+    /// emoji (the sender's explicit signal) first, then the most specific
+    /// keyword groups, so "i love this, lol" lands on the stronger feeling.
     static func forUserMessage(_ raw: String) -> EaonPetMood? {
-        if containsAny(raw, ["❤️", "😍", "🥰", "💖"]) { return .happy }
-        if containsAny(raw, ["😡", "😠", "🖕"]) { return .sad } // yelled at → hurt
+        // Emoji — explicit and unambiguous.
+        if containsAny(raw, ["❤️", "😍", "🥰", "💖", "😘", "💕"]) { return .love }
+        if containsAny(raw, ["😂", "🤣", "😹"]) { return .laughing }
+        if containsAny(raw, ["😮", "😲", "🤯", "😱", "😳"]) { return .surprised }
+        if containsAny(raw, ["😡", "😠", "🖕", "😤"]) { return .sad } // yelled at → hurt
+        if containsAny(raw, ["😕", "😟", "🫤"]) { return .confused }
+
         let text = " " + raw.lowercased() + " "
         let insults = [
             "annoying", "stupid", "dumb", "useless", "shut up", "hate you",
@@ -38,10 +49,27 @@ enum EaonPetTone {
             "trash", "garbage", "idiot", "bad bot",
         ]
         if insults.contains(where: text.contains) { return .sad }
+        let love = [
+            "i love you", "love you", "love u", "adorable", "you're the best",
+            "youre the best", "best bot", "so cute", "ur cute", "you're cute", "marry",
+        ]
+        if love.contains(where: text.contains) { return .love }
+        let laughing = [
+            " lol ", " lmao", " lmfao", "haha", "hehe", " rofl", "so funny", "hilarious", " lolol",
+        ]
+        if laughing.contains(where: text.contains) { return .laughing }
+        let surprised = [
+            " wow ", " woah", " whoa", " omg ", "no way", "oh my", "what?!", "?!", "unbelievable",
+        ]
+        if surprised.contains(where: text.contains) { return .surprised }
+        let confused = [
+            "huh", "wdym", "what do you mean", "i don't understand", "i dont understand",
+            "makes no sense", "confusing", "confused", "i'm lost", "im lost", "what??",
+        ]
+        if confused.contains(where: text.contains) { return .confused }
         let praise = [
-            "thank", "love you", "love u", "awesome", "amazing", "great job",
-            "good job", "well done", "perfect", "you're the best", "youre the best",
-            "good boy", "good bot", "nice work",
+            "thank", "awesome", "amazing", "great job", "good job", "well done",
+            "perfect", "good boy", "good bot", "nice work", "brilliant", "genius",
         ]
         if praise.contains(where: text.contains) { return .happy }
         return nil
@@ -49,14 +77,19 @@ enum EaonPetTone {
 
     /// The mood carried by a reply the model generated.
     static func forReply(_ raw: String) -> EaonPetMood? {
+        if containsAny(raw, ["🥰", "❤️", "😍"]) { return .love }
+        if containsAny(raw, ["😂", "🤣"]) { return .laughing }
         if containsAny(raw, ["🎉", "😄", "😊", "🥳", "😁", "✅"]) { return .happy }
         if containsAny(raw, ["😅", "😉", "😜"]) { return .wink }
+        if containsAny(raw, ["😮", "🤯", "😲"]) { return .surprised }
         if containsAny(raw, ["😢", "😔", "☹️", "😞"]) { return .sad }
         if containsAny(raw, ["😠", "😡"]) { return .angry }
         let text = raw.lowercased()
         if ["i can't help", "i cannot help", "i won't", "i refuse"].contains(where: text.contains) { return .angry }
         if ["sorry", "unfortunately", "apolog", "my mistake", "ouch"].contains(where: text.contains) { return .sad }
-        if ["done!", "all set", "you're welcome", "glad", "haha", "lol"].contains(where: text.contains) { return .happy }
+        if ["could you clarify", "not sure what you mean", "did you mean", "can you clarify"].contains(where: text.contains) { return .confused }
+        if [" haha", " lol ", "hilarious"].contains(where: text.contains) { return .laughing }
+        if ["done!", "all set", "you're welcome", "glad", "happy to help"].contains(where: text.contains) { return .happy }
         return nil
     }
 
@@ -230,22 +263,33 @@ final class EaonPetController {
         react(reaction)
     }
 
-    /// A new generation started — the pet drifts to a fresh spot (glancing
-    /// that way first), then settles into its working seesaw. If it's
-    /// mid-emotion (the user just insulted it, say), the drift waits out
-    /// the feeling briefly instead of cutting it off.
+    /// A new generation started — the pet reacts INSTANTLY, flipping to its
+    /// working face in place the moment you hit send. It no longer glances-
+    /// then-drifts-to-a-new-spot first (that ~0.3s+ of animation before any
+    /// visible change is exactly the "it lags when I ask it something" the
+    /// pet was called out for, and wandering away from the assistant panel
+    /// while you're reading the reply was disruptive anyway). Roaming still
+    /// happens when it's bored (`armWander`) and when it flies over to point.
+    ///
+    /// The one deliberate exception: if you JUST triggered an emotion (praise
+    /// or an insult a beat ago), that feeling is allowed to finish its short
+    /// hold before working takes over, so a "thanks!"→happy doesn't get
+    /// stomped to working in the same frame.
     func noteGenerationStarted() {
         guard EaonPetStore.shared.isEnabled else { return }
         cancelIdle()
         cancelWander()
-        holdWork?.cancel()
-        let emotionDelay = min(max(0, emotionUntil.timeIntervalSinceNow), 1.2)
         driftWork?.cancel()
-        let start = DispatchWorkItem { [weak self] in
-            self?.drift(arrival: .working)
+        let remaining = emotionUntil.timeIntervalSinceNow
+        if remaining > 0.1 {
+            holdWork?.cancel()
+            let work = DispatchWorkItem { [weak self] in self?.setMood(.working) }
+            holdWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + min(remaining, 1.0), execute: work)
+        } else {
+            holdWork?.cancel()
+            setMood(.working)
         }
-        driftWork = start
-        DispatchQueue.main.asyncAfter(deadline: .now() + emotionDelay, execute: start)
     }
 
     /// A generation finished. The reply's own tone picks the reaction
@@ -289,7 +333,11 @@ final class EaonPetController {
         switch reaction {
         case .sad, .angry: hold = 3.0
         case .error: hold = 2.4
+        case .laughing: hold = 2.6
+        case .love: hold = 2.4
         case .happy: hold = 1.8
+        case .surprised: hold = 1.6
+        case .confused: hold = 1.8
         default: hold = 1.2
         }
         emotionUntil = Date().addingTimeInterval(hold)

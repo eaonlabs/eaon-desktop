@@ -9,10 +9,13 @@ import ScreenCaptureKit
 /// 1. `captureScreenAttachment` — grabs a fresh screenshot and saves it as a
 ///    normal `MessageAttachment`, indistinguishable downstream from a pasted
 ///    or uploaded image, wired to the composer's "My screen" row.
-/// 2. `locate` — once that message's reply has already streamed to the
-///    user, a silent follow-up call (never shown in the transcript) asking
-///    specifically where to point, so the pet can fly over and show the
-///    answer instead of just describing it.
+/// 2. `locate` — a silent call (never shown in the transcript) asking
+///    specifically where on the screenshot to point, so the pet can fly
+///    over and show the answer instead of just describing it. Fired
+///    CONCURRENTLY with the main reply (not after it), so the hand appears
+///    as soon as this short lookup returns — often while the answer is
+///    still streaming — instead of waiting out a second sequential round-
+///    trip on top of the first.
 ///
 /// One screenshot per question, never a standing feed: that's the honest
 /// privacy story (backed by the OS's own Screen Recording permission) and
@@ -51,18 +54,21 @@ enum EaonPetSight {
         return try AttachmentStore.importImageData(jpeg, fileName: "Screen.jpg")
     }
 
-    /// Given the screenshot that was already part of a visible turn, plus
-    /// the question and the (already-displayed) answer, asks specifically
-    /// where the single best thing to point at is. Returns fractions of
-    /// image width/height from the top-left, or nil if the model found
-    /// nothing worth pointing at, can't see images, or the call fails
-    /// outright — every one of which just means the pet stays put, never a
-    /// visible error (the real answer already reached the user normally).
-    static func locate(question: String, answer: String, image: HistoryImage, modelId: String) async -> CGPoint? {
+    /// Given the screenshot and the user's question, asks specifically where
+    /// the single best thing to point at is. Returns fractions of image
+    /// width/height from the top-left, or nil if the model found nothing
+    /// worth pointing at, can't see images, or the call fails outright —
+    /// every one of which just means the pet stays put, never a visible
+    /// error (the real answer reaches the user through the normal reply).
+    ///
+    /// Takes only the question + image, NOT the answer, so it can run in
+    /// parallel with the main reply instead of waiting for it — the question
+    /// alone is enough to find "the chat channel" or "the sign-in button".
+    static func locate(question: String, image: HistoryImage, modelId: String) async -> CGPoint? {
         guard !modelId.isEmpty, ModelCatalog.supportsVision(for: modelId) else { return nil }
         let history = [
             HistoryTurn(role: "system", content: locateSystemPrompt),
-            HistoryTurn(role: "user", content: "Question: \(question)\nAnswer already given: \(answer)", images: [image]),
+            HistoryTurn(role: "user", content: "Question: \(question)", images: [image]),
         ]
         // Same three-way route resolution `QuickAssistantViewModel` uses —
         // passing all three is safe: `BackgroundCompletion` only takes the
@@ -79,13 +85,12 @@ enum EaonPetSight {
     }
 
     private static let locateSystemPrompt = """
-    A user asked a question about a screenshot and already received an \
-    answer. Reply with ONLY compact JSON, no prose, no markdown, \
-    identifying the single best UI element to point at to show that answer, \
-    as fractions of the image's width and height measured from the \
-    top-left corner: {"x":0.42,"y":0.18}. If nothing in the image is worth \
-    pointing at (the question wasn't about a specific on-screen location), \
-    reply with exactly: {"found":false}
+    A user asked a question about the attached screenshot. Reply with ONLY \
+    compact JSON, no prose, no markdown, identifying the single best UI \
+    element to point at to answer them, as fractions of the image's width \
+    and height measured from the top-left corner: {"x":0.42,"y":0.18}. If \
+    nothing in the image is worth pointing at (the question wasn't about a \
+    specific on-screen location), reply with exactly: {"found":false}
     """
 
     /// Tolerant of a reasoning model's `<think>` preamble and of any prose

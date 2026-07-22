@@ -258,10 +258,27 @@ final class QuickAssistantViewModel {
         }
         activeTypewriter = typewriter
 
+        // "Where should the pet point?" runs CONCURRENTLY with the main
+        // reply, kicked off here rather than after it. Previously this was a
+        // second, sequential round-trip that only started once the whole
+        // answer had streamed — so on a slow model the pointing hand could
+        // take a minute-plus to appear (two full model calls back to back,
+        // reported as "the hand shows after a solid 2 mins"). Firing it in
+        // parallel means it's usually already done by the time the answer
+        // lands. (We still only ACT on the result after a successful reply,
+        // below, so the pet never points at a failed turn or before the
+        // user has an answer to go with the point.)
+        var locateTask: Task<CGPoint?, Never>?
+
         do {
             let modelId = selectedModelId
             guard !modelId.isEmpty else {
                 throw QuickAssistantError(message: "No model selected — pick one from the model name above.")
+            }
+
+            if let screenCapture, ModelCatalog.supportsVision(for: modelId),
+               let image = ImagePayloadBuilder.build(for: screenCapture.attachment) {
+                locateTask = Task { await EaonPetSight.locate(question: question, image: image, modelId: modelId) }
             }
 
             // Same opt-in system instruction the main app sends, read from
@@ -318,25 +335,23 @@ final class QuickAssistantViewModel {
         // This turn included a live screen capture and got a real answer
         // FROM A MODEL THAT COULD ACTUALLY SEE IT (not the graceful
         // non-vision text-only fallback) — remember it as the model
-        // `/screen` should switch to next time, and fire a silent,
-        // never-shown follow-up asking where to point, flying the pet over
-        // if it found something. Fully async: doesn't block `isStreaming`
-        // clearing, so the panel stays responsive while the pet catches up
-        // a moment later.
+        // `/screen` should switch to next time, and consume the already-
+        // running location lookup: await its (usually finished) result and
+        // fly the pet over if it found something. If it's still running we
+        // wait only for it, never a fresh call.
         if let screenCapture, let reply, !hadError, !reply.text.isEmpty,
-           ModelCatalog.supportsVision(for: selectedModelId),
-           let image = ImagePayloadBuilder.build(for: screenCapture.attachment) {
-            let modelId = selectedModelId
-            Self.lastScreenVisionModel = modelId
-            let answerText = reply.text
-            Task { [screenCapture] in
-                guard let normalized = await EaonPetSight.locate(
-                    question: question, answer: answerText, image: image, modelId: modelId
-                ), let screen = screenCapture.screen else { return }
-                let f = screen.frame
-                let point = CGPoint(x: f.minX + normalized.x * f.width, y: f.maxY - normalized.y * f.height)
-                EaonPetController.shared.pointAt(screenPoint: point)
+           ModelCatalog.supportsVision(for: selectedModelId) {
+            Self.lastScreenVisionModel = selectedModelId
+            if let locateTask {
+                Task { [screenCapture] in
+                    guard let normalized = await locateTask.value, let screen = screenCapture.screen else { return }
+                    let f = screen.frame
+                    let point = CGPoint(x: f.minX + normalized.x * f.width, y: f.maxY - normalized.y * f.height)
+                    EaonPetController.shared.pointAt(screenPoint: point)
+                }
             }
+        } else {
+            locateTask?.cancel()
         }
     }
 

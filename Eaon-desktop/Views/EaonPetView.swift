@@ -63,6 +63,13 @@ struct EyeShape: Shape {
     }
 }
 
+/// A whole-shape override that the rounded-rect `EyeShape` can't express —
+/// the crossed bars of `error` and the heart of `love`. `.none` uses the
+/// normal morphable `EyeShape`.
+enum EyeSpecial: Equatable {
+    case none, x, heart
+}
+
 /// Everything about one eye in one pose. Interpolating between two of these
 /// (via the mood animation) is what produces every morph.
 struct EyePose: Equatable {
@@ -72,7 +79,7 @@ struct EyePose: Equatable {
     var w: CGFloat
     var h: CGFloat
     var radii: CornerRadii
-    var isX: Bool
+    var special: EyeSpecial = .none
 }
 
 /// Left eye, right eye, head tilt, and horizontal gaze offset for a mood.
@@ -81,42 +88,61 @@ private func eyePoses(_ mood: EaonPetMood, phase: Int) -> (EyePose, EyePose, Dou
     let gap: CGFloat = 26
     switch mood {
     case .ready:
-        return (EyePose(dx: -gap, dy: -4, rot: 0, w: 22, h: 44, radii: .all(11), isX: false),
-                EyePose(dx: gap, dy: -4, rot: 0, w: 22, h: 44, radii: .all(11), isX: false), 0, 0)
+        return (EyePose(dx: -gap, dy: -4, rot: 0, w: 22, h: 44, radii: .all(11)),
+                EyePose(dx: gap, dy: -4, rot: 0, w: 22, h: 44, radii: .all(11)), 0, 0)
     case .sleep:
-        return (EyePose(dx: -gap + 2, dy: 4, rot: 0, w: 20, h: 6, radii: .all(3), isX: false),
-                EyePose(dx: gap - 2, dy: 4, rot: 0, w: 20, h: 6, radii: .all(3), isX: false), 0, 0)
+        return (EyePose(dx: -gap + 2, dy: 4, rot: 0, w: 20, h: 6, radii: .all(3)),
+                EyePose(dx: gap - 2, dy: 4, rot: 0, w: 20, h: 6, radii: .all(3)), 0, 0)
     case .working:
         let up: CGFloat = -12, down: CGFloat = 7
-        return (EyePose(dx: -gap, dy: phase == 0 ? up : down, rot: 0, w: 22, h: 44, radii: .all(8), isX: false),
-                EyePose(dx: gap, dy: phase == 0 ? down : up, rot: 0, w: 22, h: 44, radii: .all(8), isX: false), 0, 0)
+        return (EyePose(dx: -gap, dy: phase == 0 ? up : down, rot: 0, w: 22, h: 44, radii: .all(8)),
+                EyePose(dx: gap, dy: phase == 0 ? down : up, rot: 0, w: 22, h: 44, radii: .all(8)), 0, 0)
     case .lookLeft:
-        return (EyePose(dx: -31, dy: -8, rot: -11, w: 22, h: 44, radii: .all(7), isX: false),
-                EyePose(dx: 6, dy: -8, rot: -11, w: 22, h: 44, radii: .all(7), isX: false), -6, -9)
+        return (EyePose(dx: -31, dy: -8, rot: -11, w: 22, h: 44, radii: .all(7)),
+                EyePose(dx: 6, dy: -8, rot: -11, w: 22, h: 44, radii: .all(7)), -6, -9)
     case .lookRight:
-        return (EyePose(dx: -6, dy: -8, rot: 11, w: 22, h: 44, radii: .all(7), isX: false),
-                EyePose(dx: 31, dy: -8, rot: 11, w: 22, h: 44, radii: .all(7), isX: false), 6, 9)
+        return (EyePose(dx: -6, dy: -8, rot: 11, w: 22, h: 44, radii: .all(7)),
+                EyePose(dx: 31, dy: -8, rot: 11, w: 22, h: 44, radii: .all(7)), 6, 9)
     case .wink:
-        return (EyePose(dx: -27, dy: 7, rot: 0, w: 18, h: 6, radii: .all(3), isX: false),
-                EyePose(dx: 27, dy: -8, rot: 0, w: 22, h: 44, radii: .all(11), isX: false), -5, 0)
+        return (EyePose(dx: -27, dy: 7, rot: 0, w: 18, h: 6, radii: .all(3)),
+                EyePose(dx: 27, dy: -8, rot: 0, w: 22, h: 44, radii: .all(11)), -5, 0)
     case .happy:
         // Two domes (⌒ ⌒) — closed, upward-curved delight.
         return (EyePose(dx: -gap, dy: -4, rot: 0, w: 24, h: 13,
-                        radii: CornerRadii(tl: 12, tr: 12, br: 2, bl: 2), isX: false),
+                        radii: CornerRadii(tl: 12, tr: 12, br: 2, bl: 2)),
                 EyePose(dx: gap, dy: -4, rot: 0, w: 24, h: 13,
-                        radii: CornerRadii(tl: 12, tr: 12, br: 2, bl: 2), isX: false), 0, 0)
+                        radii: CornerRadii(tl: 12, tr: 12, br: 2, bl: 2)), 0, 0)
+    case .laughing:
+        // Upturned smile-eyes (‿ ‿) — flat top, round bottom: the big
+        // squeezed-shut laugh, distinct from happy's ⌒ domes.
+        return (EyePose(dx: -gap, dy: -2, rot: 0, w: 27, h: 15,
+                        radii: CornerRadii(tl: 2, tr: 2, br: 13, bl: 13)),
+                EyePose(dx: gap, dy: -2, rot: 0, w: 27, h: 15,
+                        radii: CornerRadii(tl: 2, tr: 2, br: 13, bl: 13)), 0, 0)
+    case .love:
+        return (EyePose(dx: -gap, dy: -3, rot: 0, w: 28, h: 26, radii: .all(0), special: .heart),
+                EyePose(dx: gap, dy: -3, rot: 0, w: 28, h: 26, radii: .all(0), special: .heart), 0, 0)
+    case .surprised:
+        // Wide round eyes, pulled slightly apart — the classic startle.
+        return (EyePose(dx: -gap - 1, dy: -2, rot: 0, w: 31, h: 31, radii: .all(16)),
+                EyePose(dx: gap + 1, dy: -2, rot: 0, w: 31, h: 31, radii: .all(16)), 0, 0)
+    case .confused:
+        // Asymmetric — one normal eye, one small and raised — with a head
+        // tilt: reads as "huh?".
+        return (EyePose(dx: -gap, dy: -2, rot: 0, w: 22, h: 40, radii: .all(11)),
+                EyePose(dx: gap, dy: -12, rot: 0, w: 17, h: 21, radii: .all(9)), 9, 3)
     case .sad:
         // Droopy dashes, outer ends sagging down.
-        return (EyePose(dx: -gap, dy: 6, rot: -16, w: 21, h: 7, radii: .all(3.5), isX: false),
-                EyePose(dx: gap, dy: 6, rot: 16, w: 21, h: 7, radii: .all(3.5), isX: false), 0, 0)
+        return (EyePose(dx: -gap, dy: 6, rot: -16, w: 21, h: 7, radii: .all(3.5)),
+                EyePose(dx: gap, dy: 6, rot: 16, w: 21, h: 7, radii: .all(3.5)), 0, 0)
     case .angry:
         return (EyePose(dx: -24, dy: -2, rot: -24, w: 21, h: 51,
-                        radii: CornerRadii(tl: 2, tr: 11, br: 11, bl: 11), isX: false),
+                        radii: CornerRadii(tl: 2, tr: 11, br: 11, bl: 11)),
                 EyePose(dx: 24, dy: -2, rot: 24, w: 21, h: 51,
-                        radii: CornerRadii(tl: 11, tr: 2, br: 11, bl: 11), isX: false), 0, 0)
+                        radii: CornerRadii(tl: 11, tr: 2, br: 11, bl: 11)), 0, 0)
     case .error:
-        return (EyePose(dx: -gap, dy: -4, rot: 0, w: 27, h: 27, radii: .all(4), isX: true),
-                EyePose(dx: gap, dy: -4, rot: 0, w: 27, h: 27, radii: .all(4), isX: true), 0, 0)
+        return (EyePose(dx: -gap, dy: -4, rot: 0, w: 27, h: 27, radii: .all(4), special: .x),
+                EyePose(dx: gap, dy: -4, rot: 0, w: 27, h: 27, radii: .all(4), special: .x), 0, 0)
     }
 }
 
@@ -137,6 +163,27 @@ private struct PetXEyes: View {
     }
 }
 
+/// A classic two-lobe heart, filled — the `love` eyes.
+private struct HeartShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        let w = rect.width, h = rect.height
+        var p = Path()
+        p.move(to: CGPoint(x: rect.midX, y: rect.minY + h))
+        p.addCurve(to: CGPoint(x: rect.minX, y: rect.minY + h / 4),
+                   control1: CGPoint(x: rect.midX, y: rect.minY + h * 3 / 4),
+                   control2: CGPoint(x: rect.minX, y: rect.minY + h / 2))
+        p.addArc(center: CGPoint(x: rect.minX + w / 4, y: rect.minY + h / 4), radius: w / 4,
+                 startAngle: .degrees(180), endAngle: .degrees(0), clockwise: false)
+        p.addArc(center: CGPoint(x: rect.minX + w * 3 / 4, y: rect.minY + h / 4), radius: w / 4,
+                 startAngle: .degrees(180), endAngle: .degrees(0), clockwise: false)
+        p.addCurve(to: CGPoint(x: rect.midX, y: rect.minY + h),
+                   control1: CGPoint(x: rect.maxX, y: rect.minY + h / 2),
+                   control2: CGPoint(x: rect.midX, y: rect.minY + h * 3 / 4))
+        p.closeSubpath()
+        return p
+    }
+}
+
 private struct EyeView: View {
     let pose: EyePose
     var body: some View {
@@ -144,9 +191,13 @@ private struct EyeView: View {
             EyeShape(radii: pose.radii)
                 .fill(Color.white)
                 .frame(width: pose.w, height: pose.h)
-                .opacity(pose.isX ? 0 : 1)
+                .opacity(pose.special == .none ? 1 : 0)
             PetXEyes()
-                .opacity(pose.isX ? 1 : 0)
+                .opacity(pose.special == .x ? 1 : 0)
+            HeartShape()
+                .fill(Color.white)
+                .frame(width: pose.w, height: pose.h)
+                .opacity(pose.special == .heart ? 1 : 0)
         }
         .rotationEffect(.degrees(pose.rot))
         .offset(x: pose.dx, y: pose.dy)
@@ -165,6 +216,9 @@ struct EaonPetView: View {
     @State private var workPhase = 0
     @State private var saccade: CGFloat = 0
     @State private var poke: CGFloat = 1
+    /// Transient whole-body scale for reaction punctuation — a startle pop
+    /// on `surprised`, a bounce on `laughing`, a heartbeat on `love`.
+    @State private var reactPop: CGFloat = 1
     @State private var didStartAmbient = false
 
     // Fixed cadence for the working seesaw — only applied while working.
@@ -208,7 +262,7 @@ struct EaonPetView: View {
             .frame(width: 120, height: 120)
             .contentShape(Circle())
             .onTapGesture { tapped() }
-            .scaleEffect(breathe * poke)
+            .scaleEffect(breathe * poke * reactPop)
             .offset(y: floatUp ? -6 : 0)
         }
         .animation(.spring(response: 0.42, dampingFraction: 0.68), value: pointing)
@@ -219,6 +273,9 @@ struct EaonPetView: View {
             withAnimation(.easeInOut(duration: 0.55)) {
                 workPhase = workPhase == 0 ? 1 : 0
             }
+        }
+        .onChange(of: controller.mood) { _, newMood in
+            reactToMoodChange(newMood)
         }
     }
 
@@ -234,10 +291,81 @@ struct EaonPetView: View {
             )
             .overlay(Circle().stroke(Color.white.opacity(0.10), lineWidth: 1).blur(radius: 0.5))
             .frame(width: 120, height: 120)
-            .saturation(mood == .angry ? 1.2 : (mood == .error ? 0.5 : (mood == .sad ? 0.88 : 1.0)))
-            .brightness(mood == .error ? -0.05 : 0)
+            .saturation(bodySaturation(mood))
+            .brightness(bodyBrightness(mood))
             .shadow(color: Color(red: 0.82, green: 0.33, blue: 0.17).opacity(0.5), radius: 14, x: 0, y: 10)
             .animation(.easeOut(duration: 0.35), value: mood)
+    }
+
+    private func bodySaturation(_ mood: EaonPetMood) -> Double {
+        switch mood {
+        case .angry: 1.2
+        case .love: 1.18   // flushed and warm
+        case .error: 0.5
+        case .sad: 0.88
+        default: 1.0
+        }
+    }
+
+    private func bodyBrightness(_ mood: EaonPetMood) -> Double {
+        switch mood {
+        case .error: -0.05
+        case .love: 0.04
+        default: 0
+        }
+    }
+
+    /// Reaction punctuation: a quick physical beat on the emotions that read
+    /// better with motion than shape alone. Guarded by reduce-motion.
+    private func reactToMoodChange(_ mood: EaonPetMood) {
+        guard !reduceMotion else { return }
+        switch mood {
+        case .surprised:
+            // Startle: snap bigger, spring back.
+            withAnimation(.spring(response: 0.16, dampingFraction: 0.5)) { reactPop = 1.12 }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.16) {
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.62)) { reactPop = 1 }
+            }
+        case .laughing:
+            // A couple of giddy bounces.
+            bounce(count: 3)
+        case .love:
+            // Double heartbeat.
+            heartbeat()
+        default:
+            if reactPop != 1 {
+                withAnimation(.easeOut(duration: 0.2)) { reactPop = 1 }
+            }
+        }
+    }
+
+    private func bounce(count: Int, index: Int = 0) {
+        guard index < count else {
+            withAnimation(.easeOut(duration: 0.18)) { reactPop = 1 }
+            return
+        }
+        withAnimation(.easeOut(duration: 0.14)) { reactPop = 1.08 }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) {
+            withAnimation(.easeIn(duration: 0.14)) { reactPop = 0.97 }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.14) {
+                if EaonPetController.shared.mood == .laughing {
+                    bounce(count: count, index: index + 1)
+                } else {
+                    withAnimation(.easeOut(duration: 0.16)) { reactPop = 1 }
+                }
+            }
+        }
+    }
+
+    private func heartbeat() {
+        func beat(_ then: @escaping () -> Void) {
+            withAnimation(.easeOut(duration: 0.12)) { reactPop = 1.1 }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+                withAnimation(.easeIn(duration: 0.16)) { reactPop = 1 }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.16, execute: then)
+            }
+        }
+        beat { beat {} }
     }
 
     private func eyes(leftPose: EyePose, rightPose: EyePose, tilt: Double,
@@ -310,7 +438,10 @@ struct EaonPetView: View {
 
     private func blinkOnce() {
         let mood = controller.mood
-        guard mood != .sleep, mood != .error, mood != .happy, !reduceMotion else { return }
+        // Skip moods whose eyes are already closed, special-shaped, or held
+        // wide — blinking any of them looks wrong.
+        let noBlink: [EaonPetMood] = [.sleep, .error, .happy, .laughing, .love, .surprised]
+        guard !noBlink.contains(mood), !reduceMotion else { return }
         withAnimation(.easeOut(duration: 0.09)) { blink = 0.08 }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
             withAnimation(.easeOut(duration: 0.11)) { blink = 1 }
