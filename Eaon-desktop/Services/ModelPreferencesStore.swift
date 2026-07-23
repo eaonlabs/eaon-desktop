@@ -9,11 +9,17 @@ import Foundation
 /// BYOK connection's toggle only ever affects that connection's own models.
 enum ModelProviderKey: Hashable {
     case aqua
+    /// The Free Trial — a genuinely separate connection from `.aqua`, not a
+    /// fallback nested inside it: it has its own toggle state, its own
+    /// provider-group row in the picker, and keeps working even when
+    /// `.aqua` has a saved key of its own.
+    case trial
     case custom(UUID)
 
     fileprivate var storageKey: String {
         switch self {
         case .aqua: return "aqua"
+        case .trial: return "trial"
         case .custom(let id): return "custom:\(id.uuidString)"
         }
     }

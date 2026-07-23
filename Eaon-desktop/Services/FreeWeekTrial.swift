@@ -26,6 +26,31 @@ enum FreeWeekTrial {
 
     static let keyPrefix = "eaon-trial-"
 
+    /// Appended to a hosted model's id when it's listed/selected under the
+    /// "Eaon Free Trial" provider group rather than "Eaon" — the two groups
+    /// otherwise offer the exact same catalog, so this is what keeps them
+    /// from colliding into one entry everywhere ids get compared (model-list
+    /// dedup, the picker's per-row selection, `chatModels.contains(where:)`).
+    /// Stripped back off before a model id is ever sent to a real API, or
+    /// used to look up a display name — the wire format and the hand-
+    /// maintained catalog have no idea this exists.
+    ///
+    /// A SUFFIX, not a prefix: several existing capability checks key off
+    /// `id.hasPrefix("gpt")` / `.hasPrefix("sonnet")` / etc. (see
+    /// `ModelCatalog.supportsVision`), and a leading tag would silently
+    /// break every one of them. Appending at the end leaves those intact —
+    /// only an EXACT id match (the display-name catalog lookup) needs the
+    /// explicit strip below.
+    static let trialModelSuffix = "#trial"
+
+    static func isTrialTaggedModelId(_ modelId: String) -> Bool {
+        modelId.hasSuffix(trialModelSuffix)
+    }
+
+    static func strippingTrialSuffix(_ modelId: String) -> String {
+        isTrialTaggedModelId(modelId) ? String(modelId.dropLast(trialModelSuffix.count)) : modelId
+    }
+
     /// True when this apiKey string is a trial credential — how request
     /// builders decide to attach signing headers (see `authorize`).
     static func isTrialKey(_ apiKey: String) -> Bool {
@@ -337,9 +362,14 @@ struct EaonAccess {
     var chatCompletionsURL: URL { baseURL.appendingPathComponent("chat/completions") }
     var modelsURL: URL { baseURL.appendingPathComponent("models") }
 
-    /// A user-entered key always wins — the trial is the no-key on-ramp,
-    /// not a competitor to the user's own account. Nonisolated (reads the
-    /// lock-box, not MainActor state) so streaming paths resolve freely.
+    /// A user-entered key always wins — for background/auxiliary features
+    /// (memory extraction, backfill, the `/reasoning` panel) that aren't
+    /// tied to a specific selected model's provider identity, and just want
+    /// "whatever hosted access is available right now." The main chat send
+    /// path does NOT use this for a trial-tagged selection — see `trial`
+    /// below and `ChatViewModel.resolveRoutingForSelectedModel`. Nonisolated
+    /// (reads the lock-box, not MainActor state) so streaming paths resolve
+    /// freely.
     static var current: EaonAccess? {
         if let key = APIKeyStore.loadAPIKey(), !key.isEmpty {
             return EaonAccess(baseURL: EaonHostedAPI.baseURL, apiKey: key, isTrial: false)
@@ -348,6 +378,17 @@ struct EaonAccess {
             return EaonAccess(baseURL: FreeWeekTrial.baseURL, apiKey: credential.key, isTrial: true)
         }
         return nil
+    }
+
+    /// Always the trial's own access when a valid credential exists —
+    /// independent of whether a user key is ALSO saved, unlike `current`.
+    /// This is what makes "Eaon Free Trial" a genuinely separate provider
+    /// rather than a fallback a saved key silently shadows: picking a model
+    /// from that group routes here explicitly, every time, regardless of
+    /// what else is configured.
+    static var trial: EaonAccess? {
+        guard let credential = TrialCredentialBox.current, credential.expiresAt > Date() else { return nil }
+        return EaonAccess(baseURL: FreeWeekTrial.baseURL, apiKey: credential.key, isTrial: true)
     }
 
     /// Attach authorization to a fully-built request. MUST be called after

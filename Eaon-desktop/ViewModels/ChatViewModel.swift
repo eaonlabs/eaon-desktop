@@ -54,6 +54,14 @@ struct ChatMessage: Identifiable, Codable, Equatable {
     /// Optional, like the other flags on this struct, so older persisted
     /// messages decode fine without the key.
     var invokedSkillName: String?
+    /// Set on a user message that invoked `/reasoning` — like
+    /// `invokedSkillName`, purely for the small badge shown above the
+    /// bubble; `content` is already the command-stripped question, and the
+    /// debate transcript itself lives embedded in the FOLLOWING assistant
+    /// message's own content (see `ReasoningPanelExtractor`), not here.
+    /// Optional, like the other flags on this struct, so older persisted
+    /// messages decode fine without the key.
+    var invokedReasoningPanel: Bool?
 }
 
 /// A single saved conversation, shown in the "Your chats" sidebar list.
@@ -186,6 +194,14 @@ class ChatViewModel {
     /// that excludes them entirely; this reads the live `type == "image"`
     /// field directly instead. See `AquaImageModels`.
     var aquaImageModels: [APIModel] = []
+    /// The "Eaon Free Trial" provider's own model list — fetched separately
+    /// from `availableModels` (see `EaonHostedAPIService.fetchTrialModels`)
+    /// so a saved Eaon API key can never suppress it. Each id carries
+    /// `FreeWeekTrial.trialModelSuffix` so it never collides with the same
+    /// model's entry under "Eaon" in the picker, dedup, or provider routing.
+    /// Empty whenever there's no active trial — which is what makes the
+    /// whole group disappear once the trial ends, everywhere it's shown.
+    var trialModels: [APIModel] = []
     var isLoadingModels = false
     var modelsLoadError: String?
     var pendingAttachments: [MessageAttachment] = []
@@ -443,6 +459,11 @@ class ChatViewModel {
         let aquaModels = availableModels
             .filter(\.isChatModel)
             .filter { !ModelPreferencesStore.shared.isHidden($0.id) }
+        // Already suffix-tagged (see `fetchModels`) so these never collide
+        // with `aquaModels`'s bare ids in the dedup pass below, even though
+        // it's frequently the exact same underlying catalog.
+        let trialModelsFiltered = trialModels
+            .filter { !ModelPreferencesStore.shared.isHidden($0.id) }
         let customModels = CustomProviderStore.shared.syntheticModels
             .filter { !ModelPreferencesStore.shared.isHidden($0.id) }
         let localModels = LocalAIManager.shared.syntheticModels
@@ -455,7 +476,7 @@ class ChatViewModel {
         // ForEach corrupt LazyVStack's layout (the blank-gap /
         // vanishing-rows-on-scroll bug). Collapsing changes no behavior;
         // which copy answers a request was already decided by id alone.
-        return Self.deduplicated(aquaModels + customModels + localModels)
+        return Self.deduplicated(aquaModels + trialModelsFiltered + customModels + localModels)
     }
 
     /// The actually-selectable set: `allChatCapableModels` minus anything
@@ -478,6 +499,7 @@ class ChatViewModel {
     func providerKey(forModelId modelId: String) -> ModelProviderKey? {
         if LocalAIManager.shared.owns(modelId) { return nil }
         if let config = CustomProviderStore.shared.config(owning: modelId) { return .custom(config.id) }
+        if FreeWeekTrial.isTrialTaggedModelId(modelId) { return .trial }
         return .aqua
     }
 
@@ -1206,6 +1228,23 @@ class ChatViewModel {
             print("Failed to fetch models: \(error)")
         }
 
+        // The Free Trial's own list — independent of the fetch above, and
+        // of any saved Eaon key. Its own failure doesn't touch
+        // `modelsLoadError`: "Eaon" loaded fine, so the picker shouldn't
+        // report an error over a trial-only hiccup (or over there simply
+        // being no active trial, which isn't a failure at all).
+        if TrialStore.shared.isActive {
+            do {
+                trialModels = Self.deduplicated(try await apiService.fetchTrialModels())
+                    .map { APIModel(id: $0.id + FreeWeekTrial.trialModelSuffix, name: $0.name, type: $0.type, tier: $0.tier) }
+            } catch {
+                trialModels = []
+            }
+        } else {
+            trialModels = []
+        }
+        reconcileSelectedModel()
+
         aquaImageModels = await AquaImageModels.fetchAvailable()
 
         // Refresh what's runnable locally alongside the remote catalog.
@@ -1505,12 +1544,45 @@ class ChatViewModel {
         return (skill, rest.isEmpty ? "Use the \"\(skill.name)\" skill." : rest)
     }
 
+    /// `/reasoning` is a reserved, built-in command — checked before skill
+    /// extraction so a skill can never be installed under this name and
+    /// shadow it. Returns whether it matched and the text with the leading
+    /// token removed (same shape as `extractSkillInvocation`); a bare
+    /// `/reasoning` with nothing after it is rejected (returns false) rather
+    /// than substituting a generic question the way a skill invocation does
+    /// — there's no sensible default question for a multi-model debate to
+    /// argue over.
+    static func extractReasoningInvocation(from text: String) -> (matched: Bool, text: String) {
+        guard text.hasPrefix("/reasoning") else { return (false, text) }
+        let rest = text.dropFirst("/reasoning".count)
+        guard rest.isEmpty || rest.first?.isWhitespace == true else { return (false, text) }
+        let question = rest.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !question.isEmpty else { return (false, text) }
+        return (true, question)
+    }
+
+    /// Set fresh per turn in `sendMessage()` — the finished debate a
+    /// `/reasoning` invocation ran, or nil for an ordinary message. Read by
+    /// `systemPromptHistory` to brief the model on the debate, and by
+    /// `sendMessage()` itself to embed the transcript in the reply's own
+    /// content once generation finishes (see `ReasoningPanelExtractor`).
+    private var activeReasoningTranscriptForTurn: ReasoningTranscript?
+
     func sendMessage() async {
         let rawInput = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let (invokedSkill, text) = Self.extractSkillInvocation(from: rawInput)
+        let (invokedReasoning, afterReasoning) = Self.extractReasoningInvocation(from: rawInput)
+        let (invokedSkill, text) = invokedReasoning
+            ? (nil, afterReasoning)
+            : Self.extractSkillInvocation(from: rawInput)
         activeSkillForTurn = invokedSkill
+        activeReasoningTranscriptForTurn = nil
         let attachments = pendingAttachments
         guard (!text.isEmpty || !attachments.isEmpty), !isGenerating else { return }
+
+        if invokedReasoning, EaonAccess.current == nil {
+            composerNotice = "/reasoning needs an Eaon account or API key — the debate panel runs on hosted models. Set one up in Settings, or just ask your question normally."
+            return
+        }
 
         // Image models never appear in `chatModels` at all — this has to be
         // checked before that guard, not inside it.
@@ -1519,12 +1591,12 @@ class ChatViewModel {
             return
         }
 
-        guard let routing = resolveRoutingForSelectedModel() else { return }
+        guard let routing = await resolveRoutingForSelectedModel() else { return }
         let customConfig = routing.customConfig
         let localRecord = routing.localRecord
         let apiKey = routing.apiKey
 
-        let userMsg = ChatMessage(content: text, isUser: true, attachments: attachments, invokedSkillName: invokedSkill?.name)
+        let userMsg = ChatMessage(content: text, isUser: true, attachments: attachments, invokedSkillName: invokedSkill?.name, invokedReasoningPanel: invokedReasoning ? true : nil)
         messages.append(userMsg)
         StatisticsTracker.shared.recordUserPrompt(modelId: selectedModel)
         inputText = ""
@@ -1553,7 +1625,48 @@ class ChatViewModel {
         let conversationId = currentConversationId!
         let modelId = selectedModel
 
+        if invokedReasoning, let eaonAccess = EaonAccess.current {
+            // Marked generating NOW, before the debate — otherwise
+            // `isGenerating`/the composer's busy state wouldn't flip true
+            // until `runGenerationLoop` does it below, letting the user fire
+            // a second message while the panel is still arguing. Harmless
+            // for `runGenerationLoop` to set the identical value again.
+            let generationSession = session(for: conversationId)
+            generationSession.task = pendingSendTask
+            let panel = ReasoningStore.shared.panel(from: aquaOnlyChatModels)
+            let transcript = await ReasoningRunner.run(question: text, panel: panel, apiKey: eaonAccess.apiKey) { [weak self] status in
+                self?.session(for: conversationId).agentActivityText = status
+            }
+            generationSession.agentActivityText = nil
+            // An all-errored panel (e.g. no network) has nothing useful to
+            // brief the model with — let it just answer the question
+            // directly rather than injecting a transcript that's all
+            // failures, and skip embedding an empty-looking panel card.
+            if transcript.takes.contains(where: { !$0.round1.isEmpty }) {
+                activeReasoningTranscriptForTurn = transcript
+            }
+        }
+
+        let messageCountBeforeGeneration = withMessages(for: conversationId) { $0.count } ?? 0
+
         await runGenerationLoop(conversationId: conversationId, customConfig: customConfig, localRecord: localRecord, apiKey: apiKey, modelId: modelId)
+
+        // Embed the transcript in the reply's own content — see
+        // `ReasoningPanelExtractor` — so the collapsible debate card
+        // persists and redisplays with the message forever, no schema
+        // change needed. Targets the first NEW non-user, non-tool-result
+        // message (the synthesized answer); done after the fact rather than
+        // seeding the streamed content up front so none of the live
+        // per-token streaming path needed touching for this feature.
+        if let transcript = activeReasoningTranscriptForTurn {
+            withMessages(for: conversationId) { msgs in
+                guard msgs.indices.contains(messageCountBeforeGeneration) else { return }
+                let target = msgs[messageCountBeforeGeneration]
+                guard !target.isUser, target.isToolResult != true else { return }
+                msgs[messageCountBeforeGeneration].content = ReasoningPanelExtractor.encode(transcript) + target.content
+            }
+            persistGeneration(for: conversationId)
+        }
     }
 
     // MARK: - Regenerate & edit
@@ -1610,7 +1723,7 @@ class ChatViewModel {
         guard didTruncate else { pendingSendTask = nil; return }
         persistGeneration(for: conversationId)
 
-        guard let routing = resolveRoutingForSelectedModel() else { pendingSendTask = nil; return }
+        guard let routing = await resolveRoutingForSelectedModel() else { pendingSendTask = nil; return }
         await runGenerationLoop(conversationId: conversationId, customConfig: routing.customConfig, localRecord: routing.localRecord, apiKey: routing.apiKey, modelId: selectedModel)
     }
 
@@ -1720,7 +1833,18 @@ class ChatViewModel {
     /// key). Routing precedence: BYOK config → local model → Aqua. Shared by
     /// the initial send and the regenerate/edit re-runs so all three route
     /// identically.
-    private func resolveRoutingForSelectedModel() -> GenerationRouting? {
+    ///
+    /// Async: when nothing else is configured and there's no active trial
+    /// yet, this transparently mints one (see `autoStartTrialIfNeeded`)
+    /// before giving up — the free tier used to only start from an explicit
+    /// onboarding button, so anyone who skipped that screen (or is on a
+    /// build from before it existed) hit a bare 401 on their very first
+    /// message instead of just... chatting for free. One extra network
+    /// round-trip, invisible on success. Only fires for a device that has
+    /// NEVER held a credential (see that function) — a device whose trial
+    /// already expired locally skips straight to the honest "free week has
+    /// ended" message below, unchanged, with no pointless re-mint attempt.
+    private func resolveRoutingForSelectedModel() async -> GenerationRouting? {
         guard !selectedModel.isEmpty, chatModels.contains(where: { $0.id == selectedModel }) else {
             if isLoadingModels {
                 appendSystemError("Still loading models — wait a moment, then pick one from the menu.")
@@ -1744,20 +1868,52 @@ class ChatViewModel {
         } else if localRecord != nil {
             // Local servers don't authenticate; they ignore the header.
             return GenerationRouting(customConfig: nil, localRecord: localRecord, apiKey: "local-no-key")
+        } else if FreeWeekTrial.isTrialTaggedModelId(selectedModel) {
+            // A model explicitly picked from the "Eaon Free Trial" group —
+            // ALWAYS the trial credential, never the user's own key, even
+            // when one exists. That's the whole point of it being its own
+            // provider: the two are independent, so having a key doesn't
+            // disable this one. (No auto-start here: reaching this branch
+            // at all means a trial model was selectable, which means a
+            // credential already existed when the picker was last built.)
+            guard let access = EaonAccess.trial else {
+                appendSystemError("Your Free Week has ended — pick a different model, or add your Eaon API key in Settings → Eaon API. Your own key still works from the Eaon API provider.")
+                return nil
+            }
+            return GenerationRouting(customConfig: nil, localRecord: nil, apiKey: access.apiKey)
         } else {
             // User key first, else an active free-week trial (which routes
-            // to Eaon's own gateway) — see EaonAccess.
+            // to Eaon's own gateway) — see EaonAccess. This branch is now
+            // ONLY reached for a plain "Eaon" selection (not a Free-Trial-
+            // tagged one, handled above), so the trial fallback here just
+            // covers a device that hasn't discovered the separate Free
+            // Trial provider yet — see `autoStartTrialIfNeeded`.
+            if EaonAccess.current == nil {
+                await autoStartTrialIfNeeded()
+            }
             guard let access = EaonAccess.current else {
                 appendSystemError(
                     TrialStore.shared.isExpired
                         ? "Your free week has ended. Add your Eaon API key in Settings → Eaon API to keep chatting."
-                        : "Start your free week (Settings → Eaon API) or add your Eaon API key to start chatting."
+                        : (TrialStore.shared.lastError ?? "Couldn't start your free week — check your connection, or add your Eaon API key in Settings → Eaon API.")
                 )
                 NSHapticFeedbackManager.defaultPerformer.perform(.generic, performanceTime: .default)
                 return nil
             }
             return GenerationRouting(customConfig: nil, localRecord: nil, apiKey: access.apiKey)
         }
+    }
+
+    /// Mints a free-week credential with no user action, the first time
+    /// it's needed — see `resolveRoutingForSelectedModel`'s doc comment.
+    /// A no-op (returns immediately) once this device has ever held a
+    /// credential, expired or not: only a device that's NEVER minted one
+    /// (a skipped-onboarding or pre-existing install) gets the silent
+    /// assist, so this can never look like it's "restarting" an already-
+    /// used, already-expired week behind the user's back.
+    private func autoStartTrialIfNeeded() async {
+        guard TrialStore.shared.credential == nil, !TrialStore.shared.isStarting else { return }
+        await TrialStore.shared.start()
     }
 
     /// Fires a silent, best-effort background extraction after a turn
@@ -2090,12 +2246,24 @@ class ChatViewModel {
 
     /// An empty/whitespace-only body is a valid "no arguments" call — only
     /// text that's actually present and NOT valid JSON is an error.
+    /// Before giving up, one deterministic repair is tried: escaping literal
+    /// control characters inside string literals (real newlines in a
+    /// "command"/"search" value — the most common way model JSON goes
+    /// invalid, and the one repair with no ambiguity).
     private static func parseJSONObject(_ text: String) -> [String: Any]? {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [:] }
-        guard let data = trimmed.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
-        return object
+        if let data = trimmed.data(using: .utf8),
+           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            return object
+        }
+        let repaired = WorkspaceParser.repairedJSONControlCharacters(trimmed)
+        if repaired != trimmed,
+           let data = repaired.data(using: .utf8),
+           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            return object
+        }
+        return nil
     }
 
     /// Source-code fence languages a model might use for a bare,
@@ -2470,7 +2638,7 @@ class ChatViewModel {
                     WorkspaceRunner.shared.note("✗ image generation failed: \(prompt) — \(error.localizedDescription)\n", kind: .stderr)
                 }
 
-            case .computerCall(let toolName, let argumentsJSON):
+            case .computerCall(let call):
                 // Same belt-and-suspenders as web search: the teaching block
                 // and native definitions are withheld outside Agent mode,
                 // but a model can still imitate the fence from history —
@@ -2485,11 +2653,11 @@ class ChatViewModel {
                 // e.g. a replayed app/browser-driving fence from before
                 // device control was turned on in Settings shouldn't
                 // execute just because it's sitting in history.
-                if let toolName, let t = DesktopControlTool.tool(named: toolName), !agentAvailableTools.contains(t) {
+                if let toolName = call.tool, let t = DesktopControlTool.tool(named: toolName), !agentAvailableTools.contains(t) {
                     sections.append("### \(toolName)\nERROR: \"\(toolName)\" isn't one of your current tools — use \(agentAvailableTools.map(\.rawValue).joined(separator: ", ")).")
                     continue
                 }
-                guard let toolName else {
+                guard let toolName = call.tool else {
                     sections.append("### computer\nERROR: missing tool=\"...\" attribute — e.g. ```eaon:computer tool=\"list_directory\"")
                     continue
                 }
@@ -2498,14 +2666,43 @@ class ChatViewModel {
                     sections.append("### \(toolName)\nERROR: no computer tool named \"\(toolName)\" — nothing was done. The tools are exactly: \(names)")
                     continue
                 }
-                guard let arguments = Self.parseJSONObject(argumentsJSON) else {
-                    // The #1 cause, especially for write_file with real code:
-                    // literal line breaks inside a JSON string. Say so
-                    // explicitly and set a failure signature so the same
-                    // mistake three times running stops the loop instead of
-                    // grinding to a gateway 502.
+                // Argument recovery ladder for write_file — the tool whose
+                // payload is a whole source file, where "escape it all into
+                // one JSON string" reliably breaks on real code (inner
+                // quotes, real newlines, output truncation). The raw fence
+                // form and the salvage below exist so a first honest
+                // attempt lands instead of error-looping.
+                var parsedArguments = Self.parseJSONObject(call.body)
+                if tool == .writeFile {
+                    let hasProperArgs = parsedArguments?["path"] is String && parsedArguments?["content"] is String
+                    if !hasProperArgs {
+                        // Covers: raw-form body (fence path + literal file
+                        // text — including a body that happens to be valid
+                        // JSON because the FILE is JSON, e.g. package.json),
+                        // and the broken JSON-wrapper shape.
+                        switch WorkspaceParser.salvageWriteFileBody(fencePath: call.fencePath, body: call.body, sawClosingFence: call.sawClosingFence) {
+                        case .arguments(let path, let content):
+                            var recovered: [String: Any] = ["path": path, "content": content]
+                            if call.fenceAppend || (parsedArguments?["append"] as? Bool == true) { recovered["append"] = true }
+                            parsedArguments = recovered
+                        case .truncated:
+                            sections.append("### write_file\nERROR: the write_file block was cut off before its closing ``` fence — NOTHING was written (no partial file). Send it again; if the file is long, send the first part as a raw write fence (ending with its own closing ```), then continue with ```eaon:write_file path=\"…\" append=\"true\" fences for the rest.")
+                            failureSignature = "computer-truncated-write_file"
+                            continue
+                        case nil:
+                            break
+                        }
+                    } else if call.fenceAppend {
+                        parsedArguments?["append"] = true
+                    }
+                }
+                guard let arguments = parsedArguments else {
+                    // Still unrecoverable. Teach the format that cannot fail
+                    // this way (raw body, no escaping) for write_file; plain
+                    // JSON guidance for everything else. The failure
+                    // signature stops the loop after 3 identical strikes.
                     let hint = tool == .writeFile
-                        ? " For write_file, the whole file goes in \"content\" as ONE JSON string with every line break written as \\n (not a real newline), and inner quotes as \\\". Example: {\"path\": \"~/p/main.py\", \"content\": \"import sys\\nprint('hi')\\n\"}"
+                        ? " For write_file, do NOT put the file inside JSON. Put the path in the fence and the file's raw text as the body:\n```eaon:write_file path=\"~/project/file.py\"\n<the complete file exactly as it should be on disk — real lines, real quotes, no escaping>\n```"
                         : " Put the arguments as one valid JSON object, escaping any newline inside a string as \\n."
                     sections.append("### \(toolName)\nERROR: the block body wasn't valid JSON — nothing was done.\(hint)")
                     failureSignature = "computer-badjson-\(toolName)"
@@ -2513,7 +2710,10 @@ class ChatViewModel {
                 }
                 let missingArgs = tool.requiredParameterNames.filter { arguments[$0] == nil }
                 guard missingArgs.isEmpty else {
-                    sections.append("### \(toolName)\nERROR: missing required argument\(missingArgs.count == 1 ? "" : "s"): \(missingArgs.joined(separator: ", ")) — nothing was done.")
+                    let writeHint = tool == .writeFile
+                        ? " Simplest fix: use the raw form — ```eaon:write_file path=\"~/project/file.py\" with the file's raw text as the body, then a closing ``` line."
+                        : ""
+                    sections.append("### \(toolName)\nERROR: missing required argument\(missingArgs.count == 1 ? "" : "s"): \(missingArgs.joined(separator: ", ")) — nothing was done.\(writeHint)")
                     continue
                 }
                 // ask_user never goes near the confirmation gate or the
@@ -2735,6 +2935,13 @@ class ChatViewModel {
                 role: "system",
                 content: "The user has explicitly invoked the \"\(activeSkillForTurn.name)\" skill for this request — follow its instructions:\n\n\(activeSkillForTurn.instructions)"
             ))
+        }
+
+        // A `/reasoning` debate for this exact turn — freshest of all, same
+        // reasoning as the skill block above: an explicit, deliberate
+        // per-message request belongs right before the user's own message.
+        if let activeReasoningTranscriptForTurn {
+            entries.append(HistoryTurn(role: "system", content: ReasoningPanelExtractor.synthesisInstruction(for: activeReasoningTranscriptForTurn)))
         }
 
         return entries
@@ -3066,7 +3273,7 @@ class ChatViewModel {
     private func streamCompletion(
         apiKey: String,
         aiMessageId: UUID,
-        modelId: String,
+        modelId rawModelId: String,
         conversationId: UUID,
         typewriter: TypewriterStreamController,
         nativeTools: NativeToolConfig? = nil,
@@ -3074,6 +3281,14 @@ class ChatViewModel {
         // passes an explicit value (empty) to drop them, see below.
         samplingOverride: SamplingParameters? = nil
     ) async throws {
+        // `selectedModel` (what callers pass as `modelId`) may carry the
+        // app-internal Free Trial disambiguation suffix — see
+        // `FreeWeekTrial.trialModelSuffix`. Stripped once, here, so nothing
+        // below this line (the wire "model" field, system-prompt/history
+        // building) ever has to know it exists; `apiKey` alone (its
+        // `eaon-trial-` shape) is what actually decides trial vs. user-key
+        // routing just below, unaffected by this.
+        let modelId = FreeWeekTrial.strippingTrialSuffix(rawModelId)
         // Free-week trials route to Eaon's own gateway; a user key goes to
         // the Aqua API as always. Authorization is attached AFTER the body
         // below — trial signatures cover the exact request bytes.

@@ -80,6 +80,7 @@ struct SettingsRootView: View {
             .init(id: "modelParameters", title: "Model Parameters",    icon: "slider.horizontal.3"),
             .init(id: "memory",          title: "Memory",              icon: "brain"),
             .init(id: "skills",          title: "Skills",              icon: "bolt.fill", isBeta: true),
+            .init(id: "reasoning",       title: "Reasoning",           icon: "person.2.fill", isBeta: true),
         ]),
         .init(title: "Tools", categories: [
             .init(id: "plugins",        title: "Plugins",         icon: "puzzlepiece.extension"),
@@ -98,6 +99,7 @@ struct SettingsRootView: View {
     private let providerCategories: [SettingsCategory] = [
         .init(id: "aqua", title: "Eaon API", icon: "drop.fill"),
     ]
+    private let trialCategory = SettingsCategory(id: "trial", title: "Eaon Free Trial", icon: "gift.fill")
 
     private func customProviderSelectionId(_ config: CustomProviderConfig) -> String {
         "custom-provider:\(config.id.uuidString)"
@@ -190,6 +192,8 @@ struct SettingsRootView: View {
             switch selectedId {
             case "aqua":
                 AquaProviderSettingsView(chatViewModel: chatViewModel)
+            case "trial":
+                TrialProviderSettingsView(chatViewModel: chatViewModel)
             case "statistics":
                 StatisticsView(chatViewModel: chatViewModel)
             case "instructions":
@@ -202,6 +206,8 @@ struct SettingsRootView: View {
                 PluginsSettingsView()
             case "skills":
                 SkillsSettingsView()
+            case "reasoning":
+                ReasoningSettingsView(availableModels: chatViewModel.aquaOnlyChatModels)
             case "imageProviders":
                 ImageProvidersSettingsView()
             case "computer":
@@ -288,6 +294,15 @@ struct SettingsRootView: View {
                 }
             } else {
                 AddAquaRow { isAddingProvider = true }
+            }
+
+            // A genuinely separate row from "Eaon API" above, not folded
+            // into it — gated strictly on `isActive` (not "ever held a
+            // credential") so it disappears from here the moment the trial
+            // ends, exactly like it does from the model picker.
+            if TrialStore.shared.isActive {
+                SettingsSidebarRow(category: trialCategory, isSelected: selectedId == trialCategory.id)
+                    .onTapGesture { selectedId = trialCategory.id }
             }
 
             ForEach(customStore.sortedConfigs) { config in

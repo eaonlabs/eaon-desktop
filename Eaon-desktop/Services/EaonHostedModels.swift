@@ -65,7 +65,12 @@ enum EaonHostedModels {
         if let apiName, !apiName.isEmpty {
             return apiName
         }
-        return catalog[modelId] ?? modelId
+        // The catalog is keyed by the bare hosted-model id — a Free Trial
+        // row's id carries an extra app-internal suffix (see
+        // `FreeWeekTrial.trialModelSuffix`) that would otherwise miss this
+        // lookup and fall through to showing the raw, suffixed id as text.
+        let bare = FreeWeekTrial.strippingTrialSuffix(modelId)
+        return catalog[bare] ?? bare
     }
 
     static func displayName(for modelId: String, apiName: String?) -> String {

@@ -188,6 +188,23 @@ struct ModelPickerPopoverContent: View {
             ))
         }
 
+        // Its own group, not folded into "Eaon" above — exists only while
+        // there's an active trial (`viewModel.trialModels` is empty
+        // otherwise), which is what makes it disappear everywhere the
+        // moment the trial ends, with no separate expiry check needed here.
+        let trialModelsForGroup = (grouped[.trial] ?? []).filter(matches)
+        if !viewModel.trialModels.isEmpty, query.isEmpty || !trialModelsForGroup.isEmpty {
+            groups.append(ProviderGroup(
+                id: "trial",
+                key: .trial,
+                settingsSelectionId: "trial",
+                brand: .aqua,
+                title: "Eaon Free Trial",
+                isEnabled: !modelPrefs.isProviderDisabled(.trial),
+                models: trialModelsForGroup.sorted(by: modelNameSort)
+            ))
+        }
+
         for config in customConfigs {
             let key = ModelProviderKey.custom(config.id)
             let models = (grouped[key] ?? []).filter(matches)

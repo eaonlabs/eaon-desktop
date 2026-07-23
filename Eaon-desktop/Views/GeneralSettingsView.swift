@@ -221,7 +221,6 @@ struct GeneralSettingsView: View {
     @ViewBuilder
     private var freeWeekGiftRow: some View {
         let trial = TrialStore.shared
-        let hasUserKey = APIKeyStore.hasAPIKey
 
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 8) {
@@ -232,18 +231,20 @@ struct GeneralSettingsView: View {
                     .font(AppFont.mono(14, weight: .semibold))
                     .foregroundColor(colors.textPrimary)
                 Spacer()
-                giftBadge(trial: trial, hasUserKey: hasUserKey)
+                giftBadge(trial: trial)
             }
 
-            Text(giftDescription(trial: trial, hasUserKey: hasUserKey))
+            Text(giftDescription(trial: trial))
                 .font(AppFont.sans(12))
                 .foregroundColor(colors.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            // Only the "never redeemed, no key of your own" state has
-            // anything actionable to show — every other state is purely
-            // informational (see giftDescription).
-            if trial.credential == nil, !hasUserKey {
+            // Only "never redeemed yet" has anything actionable to show —
+            // every other state is purely informational (see
+            // giftDescription). Redeeming no longer depends on whether a
+            // key is saved: the trial is its own independent provider now,
+            // not something a key makes redundant.
+            if trial.credential == nil {
                 if let giftStatus, !giftStatus.available {
                     Text("Email \(giftStatus.supportEmail) with the subject \u{201c}extra usage\u{201d} if you need access.")
                         .font(AppFont.sans(11.5))
@@ -282,13 +283,11 @@ struct GeneralSettingsView: View {
     }
 
     @ViewBuilder
-    private func giftBadge(trial: TrialStore, hasUserKey: Bool) -> some View {
+    private func giftBadge(trial: TrialStore) -> some View {
         if trial.isActive {
             badgePill("\(trial.daysLeft) day\(trial.daysLeft == 1 ? "" : "s") left", color: Color(hex: "#34C759"))
         } else if trial.isExpired {
             badgePill("Claimed", color: colors.textTertiary)
-        } else if hasUserKey {
-            badgePill("Not needed", color: colors.textTertiary)
         } else if let giftStatus, !giftStatus.available {
             badgePill("Closed", color: colors.textTertiary)
         }
@@ -303,23 +302,17 @@ struct GeneralSettingsView: View {
             .background(Capsule().fill(color.opacity(0.14)))
     }
 
-    private func giftDescription(trial: TrialStore, hasUserKey: Bool) -> String {
+    private func giftDescription(trial: TrialStore) -> String {
         if trial.isActive {
-            if hasUserKey {
-                return "Your own API key is saved, so it's being used instead of the trial."
-            }
-            return "Hosted models are on the house through \(trial.credential.map { Self.giftExpiryFormatter.string(from: $0.expiresAt) } ?? "the end of the week")."
+            return "Hosted models are on the house through \(trial.credential.map { Self.giftExpiryFormatter.string(from: $0.expiresAt) } ?? "the end of the week") — works alongside your own Eaon API key, if you have one, as its own separate provider."
         }
         if trial.isExpired {
-            return "Your free week has ended. Add your own Eaon API key in Providers to keep going."
-        }
-        if hasUserKey {
-            return "You're using your own API key, so there's nothing to redeem right now."
+            return "Your free week has ended. Your own Eaon API key (if you have one) is unaffected."
         }
         if let giftStatus, !giftStatus.available {
             return "The first \(giftStatus.total) free weeks have all been claimed, or the offer window has closed."
         }
-        return "7 days of every hosted model, free — one click, no account, no card. Limited to the first \(giftStatus?.total ?? 100) people to redeem, through \(giftStatus.map { Self.giftExpiryFormatter.string(from: $0.expiresAt) } ?? "the offer's deadline")."
+        return "7 days of every hosted model, free — one click, no account, no card, and it keeps working even if you already have your own Eaon API key. Limited to the first \(giftStatus?.total ?? 100) people to redeem, through \(giftStatus.map { Self.giftExpiryFormatter.string(from: $0.expiresAt) } ?? "the offer's deadline")."
     }
 
     private static let giftExpiryFormatter: DateFormatter = {
