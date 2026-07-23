@@ -12,7 +12,6 @@ enum EaonHostedModels {
         "deepseek-v4": "DeepSeek V4 Flash",
         "deepseek-v4-pro": "DeepSeek V4 Pro",
         "diffusion-gemma": "Diffusion Gemma 26B",
-        "fable-5": "Claude Fable 5",
         "gemini-3": "Gemini 3.0 Flash",
         "gemini-3.1-lite": "Gemini 3.1 Flash Lite",
         "gemini-3.1-pro": "Gemini 3.1 Pro",
