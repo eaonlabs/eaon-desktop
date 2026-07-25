@@ -1,0 +1,1095 @@
+/* Settings view + all pane styling. Consumes tokens.css variables only —
+   no hex literals (design rule). Class names are settings-scoped to avoid
+   collisions with feature CSS elsewhere.
+
+   This is a page, not a modal: it fills the same main-content slot as
+   ChatView/ModelsPage/ProjectsPage (no scrim, no floating card, no
+   centering) so it reads as part of the app rather than an overlay. */
+
+.settings-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  background: var(--stage);
+}
+
+/* --- Left nav ------------------------------------------------------------ */
+
+.settings-nav {
+  width: 264px;
+  flex-shrink: 0;
+  background: var(--sidebar);
+  border-right: 1px solid var(--border);
+  padding: 16px 12px;
+  overflow-y: auto;
+}
+
+.settings-nav-title {
+  font-size: 15px;
+  font-weight: 650;
+  padding: 2px 10px 8px;
+}
+
+.settings-nav-section {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+  padding: 16px 10px 5px;
+}
+
+.settings-nav-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 12px;
+  border-radius: 8px;
+  font-size: 14.5px;
+  /* Every row reads the same white as the active one — the highlighted
+     background alone signals selection, so unselected rows don't need to
+     look dimmed/disabled to tell them apart. */
+  color: var(--text);
+  transition: background var(--t-fast) var(--ease-out);
+}
+.settings-nav-row:hover {
+  background: var(--hover);
+}
+.settings-nav-row.active {
+  background: var(--active);
+  color: var(--text);
+}
+.settings-nav-row svg {
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+/* The dynamic "Model Providers" section label carries its own "+" — unlike
+   the static section labels above, which are label-only. */
+.settings-nav-section-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 10px 5px;
+}
+.settings-nav-section-row .settings-nav-section {
+  padding: 0;
+  margin: 0;
+}
+.nav-add-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  color: var(--text-muted);
+  transition: background var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out);
+}
+.nav-add-btn:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+/* A provider row's small identity icon — a brand logo for BYOK connections,
+   or the fixed-orange Eaon droplet for the hosted one. */
+.nav-provider-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--chip);
+  overflow: hidden;
+}
+.nav-provider-icon.eaon-tinted {
+  background: var(--brand);
+  color: #fff;
+}
+
+/* --- Pane area ----------------------------------------------------------- */
+
+.settings-pane-wrap {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-pane {
+  flex: 1;
+  overflow-y: auto;
+  padding: 30px 36px 40px;
+}
+
+.pane-header {
+  margin-bottom: 24px;
+}
+.pane-title {
+  font-size: 25px;
+  font-weight: 700;
+}
+.pane-sub {
+  font-size: 14px;
+  color: var(--text-muted);
+  margin-top: 4px;
+  line-height: 1.45;
+}
+
+/* --- Cards --------------------------------------------------------------- */
+
+.settings-card {
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: 24px 26px;
+}
+.settings-card + .settings-card {
+  margin-top: 18px;
+}
+.settings-card-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+.settings-card-sub {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 3px;
+  line-height: 1.45;
+}
+
+/* A card's own internal heading (e.g. "General", "Data Folder") — distinct
+   from .settings-card-title, which labels one row inside a card. */
+.settings-card-heading {
+  font-size: 19px;
+  font-weight: 650;
+  margin-bottom: 6px;
+}
+
+/* A muted uppercase label grouping cards within a pane (THEME/FONT/CHAT) —
+   the same treatment as the left nav's own section labels, kept as a
+   separate class since it labels pane content, not navigation. */
+.settings-section-label {
+  font-size: 11.5px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--text-muted);
+  margin: 26px 0 10px;
+}
+.settings-section-label:first-child {
+  margin-top: 0;
+}
+
+/* One title+description+control row inside a card, divided from its
+   neighbors by a hairline — the list-row look every General/Appearance
+   card in the reference design uses. */
+.settings-detail-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 18px 0;
+}
+.settings-detail-row:first-child {
+  padding-top: 2px;
+}
+.settings-detail-row:last-child {
+  padding-bottom: 2px;
+}
+.settings-detail-row + .settings-detail-row {
+  border-top: 1px solid var(--border);
+}
+.row-text {
+  flex: 1;
+  min-width: 0;
+}
+.row-title {
+  font-size: 15.5px;
+  font-weight: 600;
+}
+.row-desc {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 3px;
+  line-height: 1.5;
+}
+.row-value {
+  flex-shrink: 0;
+  font-size: 14.5px;
+  color: var(--text-secondary);
+}
+
+/* A quiet "nothing to do here" pill (e.g. the Free Week gift when the user
+   already has their own key) — never a button, since there's no action. */
+.settings-badge {
+  flex-shrink: 0;
+  padding: 5px 13px;
+  border-radius: 999px;
+  background: var(--chip);
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.settings-note {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 14px;
+  line-height: 1.5;
+}
+
+.settings-error {
+  font-size: 13px;
+  color: var(--destructive);
+  margin-top: 9px;
+  line-height: 1.45;
+  user-select: text;
+}
+
+.settings-ok {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin-top: 9px;
+}
+
+/* --- Inputs -------------------------------------------------------------- */
+
+.settings-input,
+.settings-select,
+.settings-textarea {
+  padding: 9px 12px;
+  font-size: 14px;
+  width: 100%;
+}
+.settings-textarea {
+  resize: vertical;
+  line-height: 1.5;
+}
+.settings-input-sm {
+  width: 96px;
+  padding: 6px 9px;
+  font-size: 13px;
+}
+.settings-charcount {
+  font-size: 12px;
+  color: var(--text-muted);
+  text-align: right;
+  margin-top: 6px;
+}
+
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.settings-row + .settings-row {
+  margin-top: 8px;
+}
+.settings-grow {
+  flex: 1;
+  min-width: 0;
+}
+
+/* --- Pill dropdown (Theme, Font Size) ------------------------------------ */
+
+.pill-select-wrap {
+  position: relative;
+  flex-shrink: 0;
+}
+.settings-pill-select {
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 8px 34px 8px 16px;
+  border-radius: 999px;
+  background: var(--input-secondary);
+  border: 1px solid var(--border);
+  font-size: 14px;
+  color: var(--text);
+  min-width: 108px;
+}
+.pill-select-chevron {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+/* --- Accent swatches / font rows ---------------------------------------- */
+
+.swatch-row {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.swatch {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  padding: 0;
+}
+.swatch-check {
+  filter: drop-shadow(0 0 1.5px rgba(0, 0, 0, 0.35));
+}
+
+.font-search {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  margin-bottom: 12px;
+  background: var(--input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-input);
+  color: var(--text-muted);
+}
+.font-search input {
+  flex: 1;
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 14px;
+  color: var(--text);
+}
+.font-list {
+  max-height: 380px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-input);
+  padding: 5px;
+}
+.font-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 11px 12px;
+  border-radius: 8px;
+  font-size: 15px;
+  color: var(--text);
+  text-align: left;
+  transition: background var(--t-fast) var(--ease-out);
+}
+.font-row:hover {
+  background: var(--hover);
+}
+.font-row.selected {
+  background: var(--active);
+}
+.font-row-empty {
+  padding: 16px 12px;
+  font-size: 13px;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* --- Plain reset link (not a button — a quiet, reversible action) ------- */
+
+.settings-reset-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 20px;
+  font-size: 13.5px;
+  color: var(--destructive);
+  transition: opacity var(--t-fast) var(--ease-out);
+}
+.settings-reset-link:hover {
+  opacity: 0.8;
+}
+
+/* --- Sliders (params) ---------------------------------------------------- */
+
+.param-row {
+  display: grid;
+  grid-template-columns: auto 130px 1fr 82px;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--border);
+}
+.param-row:last-child {
+  border-bottom: none;
+}
+.param-row.off .param-label,
+.param-row.off input[type="range"] {
+  opacity: 0.4;
+}
+.param-label {
+  font-size: 14px;
+}
+input[type="range"] {
+  accent-color: var(--accent);
+  background: none;
+  border: none;
+  width: 100%;
+}
+
+/* --- Chips (model ids, install commands, skill names) -------------------- */
+
+.chip-editor {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+.settings-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--chip);
+  border-radius: 7px;
+  padding: 4px 10px;
+  font-size: 13px;
+  font-family: var(--font-mono);
+  user-select: text;
+}
+.settings-chip button {
+  display: flex;
+  color: var(--text-muted);
+  padding: 0;
+}
+.settings-chip button:hover {
+  color: var(--text);
+}
+.chip-input {
+  flex: 1;
+  min-width: 140px;
+  padding: 5px 9px;
+  font-size: 13.5px;
+}
+
+/* --- Monospace key/endpoint rows ----------------------------------------- */
+
+.key-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-input);
+  padding: 9px 12px;
+}
+.key-row code {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: text;
+}
+.key-row + .key-row {
+  margin-top: 8px;
+}
+
+/* --- Status dot ---------------------------------------------------------- */
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  flex-shrink: 0;
+}
+.status-dot.on {
+  background: var(--accent);
+}
+
+/* --- Tables (shortcuts, statistics) -------------------------------------- */
+
+.settings-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.settings-table th {
+  text-align: left;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+.settings-table td {
+  padding: 10px;
+  border-bottom: 1px solid var(--border);
+  user-select: text;
+}
+.settings-table tr:last-child td {
+  border-bottom: none;
+}
+.settings-table td.num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+.settings-table th.num {
+  text-align: right;
+}
+kbd {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  background: var(--chip);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 2px 6px;
+}
+
+/* --- Stat tiles ---------------------------------------------------------- */
+
+.stat-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14px;
+  margin-bottom: 14px;
+}
+.stat-tile {
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  padding: 17px 19px;
+}
+.stat-tile-value {
+  font-size: 25px;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+}
+.stat-tile-label {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin-top: 3px;
+}
+
+/* --- Preset grid (add provider) ------------------------------------------ */
+
+.preset-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 9px;
+}
+.preset-cell {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-input);
+  padding: 12px 9px;
+  font-size: 13.5px;
+  text-align: center;
+  color: var(--text);
+}
+.preset-cell:hover {
+  background: var(--hover);
+  border-color: var(--border-strong);
+}
+
+/* --- Skill / plugin / memory list rows ----------------------------------- */
+
+.item-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.item-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+.item-row:first-child {
+  padding-top: 0;
+}
+.item-main {
+  flex: 1;
+  min-width: 0;
+}
+.item-title {
+  font-size: 14px;
+  font-weight: 550;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.item-sub {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 3px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.item-actions {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-shrink: 0;
+}
+.tag-chip {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  background: var(--chip);
+  border-radius: 5px;
+  padding: 2px 7px;
+}
+.icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 27px;
+  height: 27px;
+  border-radius: 7px;
+  color: var(--text-muted);
+}
+.icon-btn:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.icon-btn.danger:hover {
+  color: var(--destructive);
+}
+
+/* --- Memory import dialog ------------------------------------------------ */
+
+.import-step + .import-step {
+  margin-top: 22px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+.import-step-label {
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text);
+  margin-bottom: 6px;
+}
+/* The prompt is long on purpose (it has to survive a half-obedient model),
+   so it scrolls in place rather than pushing the paste box out of view. */
+.import-prompt-box {
+  max-height: 132px;
+  overflow-y: auto;
+  margin: 10px 0;
+  padding: 11px 13px;
+  border-radius: var(--radius-input);
+  background: var(--code-bg);
+  border: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+  color: var(--text-secondary);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.import-preview {
+  max-height: 240px;
+  overflow-y: auto;
+  margin-top: 10px;
+  padding: 0 12px;
+  border-radius: var(--radius-input);
+  border: 1px solid var(--border);
+}
+.import-preview .item-row {
+  padding: 10px 0;
+}
+
+/* --- Add-skill dialog tabs ---------------------------------------------- */
+
+.tab-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.tab-row button {
+  padding: 6px 13px;
+  border-radius: 7px;
+  font-size: 13.5px;
+  color: var(--text-secondary);
+  border: 1px solid transparent;
+}
+.tab-row button.active {
+  background: var(--active);
+  color: var(--text);
+  border-color: var(--border);
+}
+
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 0;
+  font-size: 13px;
+}
+.check-row input[type="checkbox"] {
+  accent-color: var(--accent);
+}
+
+.settings-link {
+  color: var(--link);
+  background: none;
+  padding: 0;
+  font-size: inherit;
+}
+.settings-link:hover {
+  text-decoration: underline;
+}
+
+/* --- Provider pages (Eaon API / a BYOK connection) ----------------------- */
+
+.provider-head-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+/* The Eaon API page's own icon — fixed brand orange regardless of the
+   user's accent choice, since it identifies the Eaon service specifically,
+   the same reasoning as the titlebar brand mark. */
+.provider-icon-tile {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--brand);
+  color: #fff;
+}
+.provider-models-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.model-list {
+  margin-top: 10px;
+}
+.model-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 13px 0;
+}
+.model-row + .model-row {
+  border-top: 1px solid var(--border);
+}
+.model-row-text {
+  flex: 1;
+  min-width: 0;
+}
+.model-row-id {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 14.5px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+}
+.model-row-eye {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.model-row-name {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+.model-row-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+}
+.model-rename-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.model-rename-row .settings-input {
+  width: 220px;
+}
+.icon-btn.lit {
+  color: var(--text);
+}
+
+/* --- Plugin catalog rows (Settings → Plugins) ----------------------------- */
+
+.plugin-row {
+  border-bottom: 1px solid var(--border);
+}
+.plugin-row:last-child {
+  border-bottom: none;
+}
+.plugin-row-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 12px 4px;
+  text-align: left;
+  cursor: pointer;
+}
+.plugin-row-header:hover {
+  background: var(--hover);
+}
+.plugin-badge {
+  width: 34px;
+  height: 34px;
+  border-radius: 8px;
+  background: var(--chip);
+  border: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.plugin-badge img {
+  width: 19px;
+  height: 19px;
+  object-fit: contain;
+}
+.plugin-row-text {
+  flex: 1;
+  min-width: 0;
+}
+.plugin-row-name {
+  font-size: 14px;
+  font-weight: 550;
+}
+.plugin-row-summary {
+  font-size: 12.5px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+.plugin-status {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11.5px;
+  font-weight: 550;
+  /* Only ever rendered for the "Connected" label (see statusLabel) — green,
+     not the muted default, so a connected service reads as unambiguously
+     connected at a glance instead of blending in with disconnected rows. */
+  color: var(--diff-add);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.plugin-status.warn {
+  color: var(--warning);
+}
+.plugin-status-icon-only {
+  color: var(--warning);
+  flex-shrink: 0;
+}
+.plugin-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--diff-add);
+  flex-shrink: 0;
+}
+.plugin-chevron {
+  color: var(--text-muted);
+  flex-shrink: 0;
+  transition: transform var(--t-fast) var(--ease-out);
+}
+.plugin-chevron.open {
+  transform: rotate(180deg);
+}
+.plugin-row-body {
+  padding: 4px 4px 16px 58px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.plugin-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12.5px;
+  font-weight: 550;
+  color: var(--link);
+  width: fit-content;
+}
+.plugin-link:hover {
+  text-decoration: underline;
+}
+.custom-servers-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 26px;
+  margin-bottom: 4px;
+}
+.custom-servers-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+/* --- Add Custom Provider dialog ------------------------------------------ */
+
+.add-provider-sub {
+  font-size: 13.5px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+.add-provider-eaon-link {
+  display: block;
+  color: var(--link);
+  font-size: 13px;
+  margin-bottom: 20px;
+}
+.add-provider-eaon-link:hover {
+  text-decoration: underline;
+}
+
+.add-provider-field {
+  margin-bottom: 18px;
+}
+.add-provider-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 8px;
+}
+.add-provider-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.add-provider-label-row .add-provider-label {
+  margin-bottom: 0;
+}
+.add-provider-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.5;
+  margin-top: 7px;
+}
+.add-provider-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  margin-top: 9px;
+}
+.add-provider-note svg {
+  /* A real success confirmation, not an "is this on" state — stays green
+     regardless of the user's accent choice. */
+  color: var(--success);
+  flex-shrink: 0;
+}
+.add-provider-fetch {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  transition: color var(--t-fast) var(--ease-out);
+}
+.add-provider-fetch:hover:not(:disabled) {
+  color: var(--text);
+}
+.add-provider-fetch:disabled {
+  opacity: 0.5;
+}
+.add-provider-models {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  resize: vertical;
+  min-height: 88px;
+}
+
+.add-provider-advanced-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 4px;
+}
+.add-provider-advanced-toggle svg {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.add-provider-advanced {
+  margin-top: 12px;
+  padding-top: 4px;
+}
+
+/* The provider picker — a searchless dropdown with a brand logo per row,
+   which a native <select> can't render, hence a custom popover. */
+.provider-select-wrap {
+  position: relative;
+}
+.provider-select-trigger {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 14px;
+  background: var(--input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-input);
+  font-size: 14px;
+  color: var(--text);
+}
+.provider-select-trigger:hover {
+  border-color: var(--border-strong);
+}
+.provider-select-trigger svg:last-child {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+.provider-select-list {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 5px;
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  z-index: 40;
+  animation: eaon-pop-in var(--t-fast) var(--ease-out);
+}
+.provider-select-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 9px 10px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  color: var(--text);
+  text-align: left;
+  transition: background var(--t-fast) var(--ease-out);
+}
+.provider-select-row:hover {
+  background: var(--hover);
+}
+.provider-select-row.active {
+  background: var(--active);
+  font-weight: 600;
+}

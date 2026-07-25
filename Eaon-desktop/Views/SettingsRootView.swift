@@ -80,7 +80,6 @@ struct SettingsRootView: View {
             .init(id: "modelParameters", title: "Model Parameters",    icon: "slider.horizontal.3"),
             .init(id: "memory",          title: "Memory",              icon: "brain"),
             .init(id: "skills",          title: "Skills",              icon: "bolt.fill", isBeta: true),
-            .init(id: "reasoning",       title: "Reasoning",           icon: "person.2.fill", isBeta: true),
         ]),
         .init(title: "Tools", categories: [
             .init(id: "plugins",        title: "Plugins",         icon: "puzzlepiece.extension"),
@@ -90,6 +89,10 @@ struct SettingsRootView: View {
             .init(id: "network",        title: "Network",         icon: "network"),
         ]),
         .init(title: "System", categories: [
+            // Next to Privacy on purpose: it's the one setting that decides
+            // whether the user's data leaves this Mac at all, so it belongs
+            // where someone goes looking for exactly that question.
+            .init(id: "cloudSync",  title: "Cloud Sync", icon: "icloud", isBeta: true),
             .init(id: "privacy",    title: "Privacy",    icon: "lock.fill"),
             .init(id: "statistics", title: "Statistics", icon: "chart.bar"),
             .init(id: "hardware",   title: "Hardware",   icon: "cpu"),
@@ -206,8 +209,6 @@ struct SettingsRootView: View {
                 PluginsSettingsView()
             case "skills":
                 SkillsSettingsView()
-            case "reasoning":
-                ReasoningSettingsView(availableModels: chatViewModel.aquaOnlyChatModels)
             case "imageProviders":
                 ImageProvidersSettingsView()
             case "computer":
@@ -220,6 +221,8 @@ struct SettingsRootView: View {
                 AppearanceSettingsView()
             case "shortcuts":
                 ShortcutsSettingsView()
+            case "cloudSync":
+                CloudSyncSettingsView(chatViewModel: chatViewModel)
             case "privacy":
                 PrivacySettingsView(chatViewModel: chatViewModel)
             case "hardware":

@@ -1,0 +1,159 @@
+/* First-run onboarding overlay. */
+
+.onboarding {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  background: var(--stage);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: eaon-fade-in var(--t-med) var(--ease-out);
+}
+.onboarding-skip {
+  position: absolute;
+  top: calc(var(--titlebar-height) + 8px);
+  right: 16px;
+}
+
+@keyframes ob-step-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+.onboarding-col {
+  width: 480px;
+  max-width: calc(100vw - 48px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  animation: ob-step-in var(--t-med) var(--ease-out);
+}
+.onboarding-col h1 {
+  font-size: 24px;
+  font-weight: 700;
+  margin: 20px 0 8px;
+}
+.ob-sub {
+  font-size: 14px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+.ob-continue {
+  margin-top: 24px;
+  min-width: 140px;
+}
+
+/* Step 2 — modes */
+.ob-modes {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  margin-top: 14px;
+  text-align: left;
+}
+.ob-mode {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 14px;
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+}
+.ob-mode-icon {
+  flex: none;
+  margin-top: 1px;
+  color: var(--text-muted);
+}
+.ob-mode-name {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.ob-mode-desc {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+  margin-top: 2px;
+}
+
+/* Step 3 — get-started cards */
+.ob-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+  margin-top: 14px;
+  text-align: left;
+}
+.ob-card {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 14px;
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  text-align: left;
+  transition:
+    border-color var(--t-fast) var(--ease-out),
+    background var(--t-fast) var(--ease-out);
+}
+.ob-card:hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+.ob-card-icon {
+  flex: none;
+  color: var(--text-secondary);
+}
+.ob-card-spin {
+  animation: eaon-spin 0.8s linear infinite;
+}
+.ob-card-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ob-card-name {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.ob-card-desc {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+}
+.ob-error {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+  margin-top: 4px;
+  user-select: text;
+}
+.ob-card-chevron {
+  flex: none;
+  color: var(--text-muted);
+}
+
+/* Progress dots */
+.ob-dots {
+  display: flex;
+  gap: 6px;
+  margin-top: 28px;
+}
+.ob-dot {
+  width: 6px;
+  height: 6px;
+  padding: 0;
+  border-radius: 50%;
+  background: var(--border-strong);
+  transition: background var(--t-fast) var(--ease-out);
+}
+.ob-dot.on {
+  background: var(--text);
+}

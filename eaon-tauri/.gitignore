@@ -1,10 +1,15 @@
+node_modules/
+dist/
+src-tauri/target/
+src-tauri/gen/
 .DS_Store
-node_modules
-/build
-/.svelte-kit
-/package
-.env
-.env.*
-!.env.example
-vite.config.js.timestamp-*
-vite.config.ts.timestamp-*
+
+# Staged eaon-cli payload (scripts/stage-cli.sh) — a full production build
+# incl. node_modules, regenerated at release-build time, never committed.
+# resources/eaon-cli/.gitkeep itself IS tracked (see that file) — Tauri
+# hard-fails any build, dev included, if this directory doesn't exist at
+# all, so the directory must survive even with nothing staged inside it.
+resources/eaon-cli/dist/
+resources/eaon-cli/node_modules/
+resources/eaon-cli/package.json
+resources/eaon-cli/package-lock.json

@@ -82,11 +82,25 @@ jobs:
         working-directory: eaon-tauri
         run: npm ci
 
+      # Stages a real eaon-cli build into resources/eaon-cli/, which
+      # tauri.conf.json's bundle.resources copies into the installer — what
+      # Settings → Eaon CLI's "Install Now" button reads from at runtime.
+      # Runs on both matrix OSes; the script itself is plain Node so it
+      # needs no bash-vs-cmd fork. Without this step the resources
+      # directory is just the tracked .gitkeep placeholder (see its own
+      # comment) and the app ships with nothing to install — acceptable for
+      # a quick dry-run build, never for a real release.
+      - name: Stage Eaon CLI bundle
+        working-directory: eaon-tauri
+        run: npm run stage:cli
+
       # On a tag push, stamp the app version from the tag (v2026.2.0 ->
       # 2026.2.0) so the installer's version matches the release, then let
       # tauri-action build + publish. tauri-action runs the config's
       # beforeBuildCommand (npm run build) and bundles per platform:
-      # NSIS (.exe) + MSI on Windows; .deb + .AppImage on Linux.
+      # NSIS (.exe) only on Windows — tauri.windows.conf.json pins that,
+      # because MSI/WiX rejects the CalVer major version "2026" —
+      # and .deb + .rpm + .AppImage on Linux.
       - name: Sync version from tag
         if: startsWith(github.ref, 'refs/tags/')
         working-directory: eaon-tauri
@@ -96,11 +110,18 @@ jobs:
           node -e "const fs=require('fs'),p='src-tauri/tauri.conf.json',j=JSON.parse(fs.readFileSync(p,'utf8'));j.version=process.argv[1];fs.writeFileSync(p,JSON.stringify(j,null,2)+'\n')" "$VERSION"
           echo "Set tauri.conf.json version to $VERSION"
 
+      # Signs every bundle with the updater's Ed25519 key and publishes a
+      # matching latest.json to the release — that manifest is what
+      # eaon-tauri/src/core/update.ts polls in-app. Requires
+      # TAURI_SIGNING_PRIVATE_KEY(_PASSWORD) in repo Settings > Secrets;
+      # see RELEASING-UPDATES.md for how the keypair was generated.
       - name: Build & publish release (tag pushes)
         if: startsWith(github.ref, 'refs/tags/')
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: eaon-tauri
           tagName: ${{ github.ref_name }}
@@ -119,9 +140,15 @@ jobs:
           prerelease: false
 
       # ---- Manual (workflow_dispatch) path: build only, no release ----
+      # Same signing secrets as the tag-push path: createUpdaterArtifacts
+      # makes the bundler require a private key even when it's not
+      # publishing a release, so a manual test build needs them too.
       - name: Build installers only (manual runs)
         if: github.event_name == 'workflow_dispatch'
         uses: tauri-apps/tauri-action@v0
+        env:
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: eaon-tauri
 
@@ -134,4 +161,5 @@ jobs:
             eaon-tauri/src-tauri/target/release/bundle/nsis/*.exe
             eaon-tauri/src-tauri/target/release/bundle/appimage/*.AppImage
             eaon-tauri/src-tauri/target/release/bundle/deb/*.deb
+            eaon-tauri/src-tauri/target/release/bundle/rpm/*.rpm
           if-no-files-found: warn

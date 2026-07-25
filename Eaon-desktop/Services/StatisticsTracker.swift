@@ -10,7 +10,10 @@ struct TokenUsageEvent: Codable, Identifiable {
     var id: UUID = UUID()
     let date: Date
     let modelId: String
-    let tokens: Int
+    // `var` so streaming deltas can coalesce into the most recent event in
+    // place (see `recordGeneratedCharacters`) instead of appending one event
+    // per delta.
+    var tokens: Int
 }
 
 struct ModelSpeedSample: Codable, Identifiable {
@@ -56,6 +59,25 @@ final class StatisticsTracker {
     private let eventsKey      = "statistics_prompt_events"
     private let tokenEventKey  = "statistics_token_usage_events"
     private let speedSampleKey = "statistics_speed_samples"
+
+    /// Consecutive streaming deltas for the same model within this window are
+    /// summed into one `TokenUsageEvent` rather than each becoming its own —
+    /// the stats only ever aggregate by model and by day, so per-delta
+    /// granularity is wasted and used to make a single long generation append
+    /// thousands of events.
+    private static let tokenCoalesceWindow: TimeInterval = 60
+    /// Hard cap on each persisted history so it can never grow unbounded and
+    /// turn every save into a multi-megabyte main-thread encode (the original
+    /// cause of the streaming CPU spikes / beachballs). Months of real usage
+    /// fits well under this once deltas are coalesced.
+    private static let maxPersistedEvents = 5000
+
+    /// Token-event persistence is debounced: streaming marks the history dirty
+    /// and a single trailing save runs a few seconds later, collapsing what
+    /// used to be one UserDefaults write per delta into one write per burst.
+    private var tokenEventsDirty = false
+    private var tokenSaveTask: Task<Void, Never>?
+    private static let tokenSaveDebounce: Duration = .seconds(3)
 
     private(set) var speedSamples: [ModelSpeedSample] = []
 
@@ -106,18 +128,31 @@ final class StatisticsTracker {
 
         let event = PromptEvent(date: now, modelId: modelId)
         promptEvents.append(event)
+        trimEventsIfNeeded()
         saveEvents()
     }
 
     func recordGeneratedCharacters(_ count: Int) {
         guard count > 0 else { return }
+        let now = Date()
         let tokens = Self.approxTokens(characters: count)
         sessionGeneratedTokens += tokens
-        recentTokenSamples.append((date: Date(), tokens: tokens))
+        recentTokenSamples.append((date: now, tokens: tokens))
         if !currentGeneratingModel.isEmpty {
-            let evt = TokenUsageEvent(date: Date(), modelId: currentGeneratingModel, tokens: tokens)
-            tokenUsageEvents.append(evt)
-            saveTokenEvents()
+            // Coalesce this delta into the most recent event when it's the same
+            // model within the window; otherwise start a new event. Either way
+            // the save is debounced (below) rather than run per delta.
+            if let last = tokenUsageEvents.last,
+               last.modelId == currentGeneratingModel,
+               now.timeIntervalSince(last.date) < Self.tokenCoalesceWindow {
+                tokenUsageEvents[tokenUsageEvents.count - 1].tokens += tokens
+            } else {
+                tokenUsageEvents.append(
+                    TokenUsageEvent(date: now, modelId: currentGeneratingModel, tokens: tokens)
+                )
+                trimEventsIfNeeded()
+            }
+            scheduleSaveTokenEvents()
         }
         pruneRecentSamples()
     }
@@ -191,6 +226,12 @@ final class StatisticsTracker {
         modelName: String?,
         generating: Bool
     ) {
+        // Persist any debounced token history the moment a generation finishes,
+        // so stats are up to date immediately rather than only after the timer.
+        if isGenerating && !generating {
+            flushTokenEventsIfDirty()
+        }
+
         currentMessageCount = messages.count
         currentUserMessageCount = messages.filter(\.isUser).count
         currentAIMessageCount = messages.filter { !$0.isUser && !$0.isError }.count
@@ -290,6 +331,52 @@ final class StatisticsTracker {
            let decoded = try? JSONDecoder().decode([ModelSpeedSample].self, from: data) {
             speedSamples = decoded
         }
+        // An older build appended one event per streaming delta with no cap, so
+        // an existing install can load a pathologically large history here.
+        // Trim (and persist the trimmed result) immediately so the very first
+        // generation isn't saving a giant array.
+        if trimEventsIfNeeded() {
+            saveEvents()
+            saveTokenEvents()
+        }
+    }
+
+    /// Trims both unbounded histories to their tails. Returns whether anything
+    /// was actually dropped, so callers can decide whether a re-save is needed.
+    @discardableResult
+    private func trimEventsIfNeeded() -> Bool {
+        var trimmed = false
+        if tokenUsageEvents.count > Self.maxPersistedEvents {
+            tokenUsageEvents.removeFirst(tokenUsageEvents.count - Self.maxPersistedEvents)
+            trimmed = true
+        }
+        if promptEvents.count > Self.maxPersistedEvents {
+            promptEvents.removeFirst(promptEvents.count - Self.maxPersistedEvents)
+            trimmed = true
+        }
+        return trimmed
+    }
+
+    /// Marks the token history dirty and ensures exactly one trailing save is
+    /// scheduled — never one write per streamed delta.
+    private func scheduleSaveTokenEvents() {
+        tokenEventsDirty = true
+        guard tokenSaveTask == nil else { return }
+        tokenSaveTask = Task { [weak self] in
+            try? await Task.sleep(for: Self.tokenSaveDebounce)
+            guard let self else { return }
+            self.tokenSaveTask = nil
+            self.flushTokenEventsIfDirty()
+        }
+    }
+
+    /// Writes the token history if a debounced save is pending. Also called on
+    /// the generation→idle transition so stats persist promptly at the end of a
+    /// burst rather than only on the trailing timer.
+    func flushTokenEventsIfDirty() {
+        guard tokenEventsDirty else { return }
+        tokenEventsDirty = false
+        saveTokenEvents()
     }
 
     private func saveSpeedSamples() {

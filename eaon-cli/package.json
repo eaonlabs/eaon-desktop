@@ -1,20 +1,47 @@
 {
   "name": "eaon-cli",
   "version": "0.1.2",
-  "description": "Eaon in your terminal — agentic coding, Eaon Claw, and chat, for any model: local (Ollama) or hosted (Aqua / BYOK).",
+  "description": "An agentic coding agent in your terminal — plan mode, sub-agents, and real tools, for any model: local (Ollama) or hosted.",
   "type": "module",
   "license": "MIT",
+  "author": "Aqua Devs",
+  "homepage": "https://eaon.dev",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sanscreates/eaon-desktop.git",
+    "directory": "eaon-cli"
+  },
+  "bugs": {
+    "url": "https://github.com/sanscreates/eaon-desktop/issues"
+  },
+  "keywords": [
+    "ai",
+    "agent",
+    "cli",
+    "coding-agent",
+    "terminal",
+    "llm",
+    "ollama",
+    "pair-programming",
+    "developer-tools"
+  ],
   "bin": {
     "eaon": "./dist/cli.js"
   },
   "engines": {
     "node": ">=18.17"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsx src/cli.tsx",
     "start": "node dist/cli.js",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepublishOnly": "npm run typecheck && npm run build"
   },
   "dependencies": {
     "cli-highlight": "^2.1.11",

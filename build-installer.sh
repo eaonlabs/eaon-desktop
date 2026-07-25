@@ -90,6 +90,16 @@ cat > "$APP/Contents/Info.plist" <<PLIST
 	<true/>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.productivity</string>
+	<!-- Talking to the desktop pet. BOTH strings are mandatory: macOS
+	     terminates the process outright the first time it touches the
+	     microphone or the recognizer without them — a crash, not a denial.
+	     The wording says on-device explicitly because that is enforced in
+	     code (EaonVoice sets requiresOnDeviceRecognition and refuses to run
+	     rather than falling back to Apple's servers). -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Eaon listens when you talk to the desktop pet. Your voice is transcribed entirely on this Mac and never leaves it.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>Eaon turns what you say into text using your Mac's built-in on-device recognizer, so your voice is never sent anywhere.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<!-- Local inference servers (Ollama / llama.cpp / MLX) speak plain

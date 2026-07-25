@@ -363,7 +363,7 @@ struct EaonAccess {
     var modelsURL: URL { baseURL.appendingPathComponent("models") }
 
     /// A user-entered key always wins — for background/auxiliary features
-    /// (memory extraction, backfill, the `/reasoning` panel) that aren't
+    /// (memory extraction, backfill) that aren't
     /// tied to a specific selected model's provider identity, and just want
     /// "whatever hosted access is available right now." The main chat send
     /// path does NOT use this for a trial-tagged selection — see `trial`

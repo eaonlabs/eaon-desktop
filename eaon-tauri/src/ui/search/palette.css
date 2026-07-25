@@ -1,0 +1,114 @@
+/* Ctrl+K search palette. */
+
+.palette-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: var(--scrim);
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 14vh;
+  animation: eaon-fade-in var(--t-fast) var(--ease-out);
+}
+.palette-card {
+  width: 560px;
+  max-width: calc(100vw - 32px);
+  background: var(--elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+  animation: eaon-pop-in var(--t-med) var(--ease-out);
+}
+.palette-input-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.palette-search-icon {
+  flex: none;
+  color: var(--text-muted);
+}
+.palette-input {
+  flex: 1;
+  background: transparent;
+  border: none;
+  font-size: 14px;
+  padding: 0;
+}
+.palette-input::placeholder {
+  color: var(--text-muted);
+}
+.palette-list {
+  max-height: 380px;
+  overflow-y: auto;
+  padding: 6px;
+}
+.palette-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 40px;
+  padding: 0 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  text-align: left;
+}
+.palette-row.sel {
+  background: var(--hover);
+  color: var(--text);
+}
+.palette-row:active {
+  background: var(--active);
+}
+.palette-row-icon {
+  flex: none;
+  display: inline-flex;
+  color: var(--text-muted);
+}
+.palette-row.sel .palette-row-icon {
+  color: var(--text-secondary);
+}
+.palette-row-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.palette-kind {
+  flex: none;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.palette-empty {
+  padding: 24px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.palette-foot {
+  display: flex;
+  gap: 14px;
+  padding: 8px 14px;
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-muted);
+}
+.palette-foot span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.palette-foot kbd {
+  font-family: inherit;
+  font-size: 10px;
+  background: var(--chip);
+  border-radius: 4px;
+  padding: 1px 5px;
+}

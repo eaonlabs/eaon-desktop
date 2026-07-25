@@ -1,0 +1,138 @@
+/* Eaon design tokens — ported from the Mac app's ThemeColors.swift.
+   Chrome is deliberately monochrome; the orange brand color appears only in
+   the brand mark. Components consume variables only — no hex literals in
+   component CSS. */
+
+@font-face {
+  font-family: "Space Grotesk";
+  src: url("/fonts/SpaceGrotesk-Variable.ttf") format("truetype");
+  font-weight: 300 700;
+  font-display: swap;
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("/fonts/IBMPlexSans-Regular.ttf") format("truetype");
+  font-weight: 400;
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("/fonts/IBMPlexSans-Medium.ttf") format("truetype");
+  font-weight: 500;
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("/fonts/IBMPlexSans-SemiBold.ttf") format("truetype");
+  font-weight: 600;
+}
+@font-face {
+  font-family: "IBM Plex Sans";
+  src: url("/fonts/IBMPlexSans-Bold.ttf") format("truetype");
+  font-weight: 700;
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("/fonts/IBMPlexMono-Regular.ttf") format("truetype");
+  font-weight: 400;
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("/fonts/IBMPlexMono-Medium.ttf") format("truetype");
+  font-weight: 500;
+}
+@font-face {
+  font-family: "IBM Plex Mono";
+  src: url("/fonts/IBMPlexMono-SemiBold.ttf") format("truetype");
+  font-weight: 600;
+}
+
+:root {
+  /* Brand */
+  --brand: #f17455;
+  /* Semantic states — genuinely meaningful regardless of theme or the
+     user's chosen accent (a red accent shouldn't make a success checkmark
+     read as an error). "Is this control ON/active" is a DIFFERENT question
+     from "did this succeed" and uses --accent instead, everywhere it
+     appears, for one consistent interactive color instead of a second,
+     off-brand hue competing with it. */
+  --success: #34c759;
+  --warning: #e8a838;
+
+  /* Type */
+  --font-sans: "Space Grotesk", "IBM Plex Sans", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", monospace;
+  --chat-size: 15px;   /* Small 13 / Medium 15 / Large 17 */
+  --ui-scale: 1;       /* 0.9 / 1.0 / 1.1 with the font-size setting */
+
+  /* Geometry — sidebar/titlebar/card/bubble numbers match the macOS app's
+     real SwiftUI frames (SidebarView/ChatHomeView/SettingsRootView) exactly,
+     treating its points 1:1 as CSS pixels. */
+  --radius-bubble: 12px;
+  --radius-card: 14px;
+  --radius-input: 10px;
+  --radius-button: 8px;
+  --sidebar-width: 240px;
+  --titlebar-height: 50px;
+  --chat-max-width: 768px;
+
+  /* Motion — Emil Kowalski curves carried over from the Mac app */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --t-fast: 140ms;
+  --t-med: 220ms;
+
+  /* Accent (set at runtime from the accent setting; default = neutral) */
+  --accent: #8e8e9c;
+}
+
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --stage: #121212;
+  --sidebar: #101010;
+  --elevated: #242424;
+  --input: #242424;
+  --input-secondary: #2e2e2e;
+  --chip: #2e2e2e;
+  --code-bg: #0a0a0a;
+  --code-header: #202020;
+  --text: #ececec;
+  --text-secondary: #b4b4b4;
+  --text-muted: #8e8e9c;
+  --user-bubble: #242424;
+  --destructive: #ff6467;
+  --link: #5b9bff;
+  --diff-add: #3fb950;
+  --diff-del: #f85149;
+  --border: rgba(255, 255, 255, 0.07);
+  --border-strong: rgba(255, 255, 255, 0.13);
+  --hover: rgba(255, 255, 255, 0.05);
+  --active: rgba(255, 255, 255, 0.09);
+  --scrim: rgba(0, 0, 0, 0.55);
+  --shadow-card: 0 8px 30px rgba(0, 0, 0, 0.45);
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --stage: #ffffff;
+  --sidebar: #f9f9f9;
+  --elevated: #ffffff;
+  --input: #f2f2f2;
+  --input-secondary: #ececec;
+  --chip: #ececec;
+  --code-bg: #f5f5f5;
+  --code-header: #e8e8e8;
+  --text: #0d0d0d;
+  --text-secondary: #5d5d5d;
+  --text-muted: #6e6e7a;
+  --user-bubble: #f2f2f2;
+  --destructive: #e7000b;
+  --link: #2563eb;
+  --diff-add: #1a7f37;
+  --diff-del: #cf222e;
+  --border: rgba(0, 0, 0, 0.08);
+  --border-strong: rgba(0, 0, 0, 0.16);
+  --hover: rgba(0, 0, 0, 0.04);
+  --active: rgba(0, 0, 0, 0.08);
+  --scrim: rgba(0, 0, 0, 0.35);
+  --shadow-card: 0 8px 30px rgba(0, 0, 0, 0.14);
+}

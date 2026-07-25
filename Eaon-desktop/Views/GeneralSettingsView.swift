@@ -1,4 +1,5 @@
 import AppKit
+import AVFoundation
 import SwiftUI
 
 /// The "General" settings pane — app identity, updates, data location, and
@@ -80,7 +81,207 @@ struct GeneralSettingsView: View {
                     .toggleStyle(.switch)
                     .tint(AppearanceSettings.toggleTint)
             }
+
+            SettingsSectionRowDivider()
+
+            // Everything below this line is unfinished and known-unreliable.
+            // It ships switched off, behind a warning people have to read
+            // before they can turn it on — a half-working voice assistant
+            // that takes the app down with it is worse than no voice
+            // assistant, and quietly shipping one costs trust that's much
+            // harder to win back than the feature is to finish.
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    Text("ALPHA")
+                        .font(AppFont.mono(9.5, weight: .bold))
+                        .foregroundStyle(Color(hex: "#F59E0B"))
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Capsule().fill(Color(hex: "#F59E0B").opacity(0.16)))
+                        .overlay(Capsule().stroke(Color(hex: "#F59E0B").opacity(0.45), lineWidth: 1))
+                    Text("Voice — unfinished, off by default")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundStyle(.secondary)
+                }
+                Text("Talking to the pet is an early experiment and is NOT ready for everyday use. It can crash Eaon, speech recognition frequently mishears or ignores what you say, and the spoken voice is poor. Leave it off unless you're specifically testing it — nothing else in the app depends on it. Your chats, the pet, and the assistant all work normally with this switched off.")
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 10)
+
+            SettingsSectionRowDivider()
+
+            SettingsSectionRow(
+                title: "Talk to the pet (Alpha)",
+                description: "Click the pet and speak; the words go into the message box and you press Enter to send. Transcription runs on your Mac's own on-device recognizer and never leaves this computer. Expect it to be rough — see the warning above. Needs the desktop pet turned on."
+            ) {
+                Toggle("", isOn: Bindable(EaonVoiceStore.shared).isEnabled)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .tint(AppearanceSettings.toggleTint)
+                    .disabled(!EaonPetStore.shared.isEnabled)
+            }
+
+            SettingsSectionRowDivider()
+
+            SettingsSectionRow(
+                title: "Hands-free \u{201C}Hey Eaon\u{201D} (Alpha, unreliable)",
+                description: "Say \u{201C}Hey Eaon\u{201D} instead of clicking. Known problem: the recognizer has never heard the word \u{201C}Eaon\u{201D} and often transcribes it as something else, so the phrase frequently doesn't register at all — clicking the pet is far more dependable. Also keeps the microphone open the whole time it's on."
+            ) {
+                Toggle("", isOn: Bindable(EaonVoiceStore.shared).wakeWordEnabled)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .tint(AppearanceSettings.toggleTint)
+                    .disabled(!EaonPetStore.shared.isEnabled || !EaonVoiceStore.shared.isEnabled)
+            }
+
+            SettingsSectionRowDivider()
+
+            SettingsSectionRow(
+                title: "Keep the conversation going (Alpha, unreliable)",
+                description: "Listen again straight after answering, and let you cut Eaon off mid-sentence by talking. The least finished part of this: it depends on echo cancellation working, and without it the microphone hears the pet's own voice. Off unless you're testing."
+            ) {
+                Toggle("", isOn: Bindable(EaonVoiceStore.shared).conversationMode)
+                    .labelsHidden()
+                    .toggleStyle(.switch)
+                    .tint(AppearanceSettings.toggleTint)
+                    .disabled(!EaonPetStore.shared.isEnabled || !EaonVoiceStore.shared.isEnabled)
+            }
+
+            SettingsSectionRowDivider()
+
+            SettingsSectionRow(
+                title: "Speech engine",
+                description: "macOS's built-in speech is instant and needs nothing installed, but its stock voices are small and sound synthetic. Kokoro is a real neural voice model that runs locally on Apple Silicon — it sounds like a person, and still nothing leaves this Mac."
+            ) {
+                Picker("", selection: Bindable(EaonVoiceStore.shared).engine) {
+                    ForEach(EaonSpeechEngine.allCases) { option in
+                        Text(option.title).tag(option)
+                    }
+                }
+                .labelsHidden()
+                .frame(width: 280)
+                .disabled(!EaonVoiceStore.shared.isEnabled)
+            }
+
+            if EaonVoiceStore.shared.engine == .kokoro {
+                SettingsSectionRowDivider()
+                if KokoroSpeech.isInstalled {
+                    SettingsSectionRow(
+                        title: "Kokoro voice",
+                        description: "54 presets ship with the model; these are the English ones."
+                    ) {
+                        Picker("", selection: Bindable(EaonVoiceStore.shared).kokoroVoice) {
+                            ForEach(KokoroSpeech.voices, id: \.id) { voice in
+                                Text(voice.label).tag(voice.id)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(width: 280)
+                    }
+                } else {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Kokoro isn't installed yet. It's a one-time setup and runs entirely on this Mac — no account, no key, nothing sent anywhere. In Terminal:")
+                            .font(.system(size: 11.5))
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text(KokoroSpeech.installCommand)
+                            .font(AppFont.mono(12))
+                            .textSelection(.enabled)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 5)
+                            .background(RoundedRectangle(cornerRadius: 6).fill(.quaternary.opacity(0.4)))
+                        Text("Needs Apple Silicon. The first sentence Eaon speaks afterwards is slow while the model loads (~600MB); everything after that is instant. Until it's installed, Eaon keeps using the system voice.")
+                            .font(.system(size: 11))
+                            .foregroundStyle(.tertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                }
+            }
+
+            SettingsSectionRowDivider()
+
+            SettingsSectionRow(
+                title: "Voice",
+                description: "Which system voice the pet speaks in. Preview one before you commit to it."
+            ) {
+                HStack(spacing: 8) {
+                    Picker("", selection: Bindable(EaonVoiceStore.shared).voiceIdentifier) {
+                        Text("Automatic (best installed)").tag("")
+                        ForEach(EaonVoiceController.selectableVoices(), id: \.identifier) { voice in
+                            Text(Self.voiceLabel(voice)).tag(voice.identifier)
+                        }
+                    }
+                    .labelsHidden()
+                    .frame(width: 240)
+                    .disabled(!EaonVoiceStore.shared.isEnabled)
+
+                    Button("Preview") {
+                        EaonVoiceController.shared.preview(
+                            voiceIdentifier: EaonVoiceStore.shared.voiceIdentifier
+                        )
+                    }
+                    .disabled(!EaonVoiceStore.shared.isEnabled)
+                }
+            }
+
+            // The single biggest thing anyone can do about "it sounds like a
+            // robot" — and it's a free Apple download, not an app change.
+            if EaonVoiceController.onlyCompactVoicesInstalled {
+                SettingsSectionRowDivider()
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Your Mac only has the small built-in voices installed, which is why speech sounds flat and robotic. Apple's lifelike voices are a free download: open System Settings → Accessibility → Spoken Content → System Voice → Manage Voices, and get any voice marked Premium (or Enhanced). Eaon picks the best one you have automatically.")
+                        .font(.system(size: 11.5))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Button("Open Accessibility Settings") {
+                        if let url = URL(string: "x-apple.systempreferences:com.apple.Accessibility-Settings.extension") {
+                            NSWorkspace.shared.open(url)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+            }
+
+            if let voiceError = EaonVoiceController.shared.lastError {
+                SettingsSectionRowDivider()
+                Text(voiceError)
+                    .font(.system(size: 11.5))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+            }
         }
+    }
+
+    /// "Samantha — Female · Premium". Quality is shown because it's the part
+    /// that decides whether the pet sounds human or synthetic, and it isn't
+    /// obvious from the name.
+    private static func voiceLabel(_ voice: AVSpeechSynthesisVoice) -> String {
+        let quality: String
+        switch voice.quality {
+        case .premium: quality = "Premium"
+        case .enhanced: quality = "Enhanced"
+        default: quality = "Compact"
+        }
+        let gender: String?
+        switch voice.gender {
+        case .male: gender = "Male"
+        case .female: gender = "Female"
+        default: gender = nil
+        }
+        return [voice.name, [gender, quality].compactMap { $0 }.joined(separator: " · ")]
+            .joined(separator: " — ")
     }
 
     // MARK: - Eaon CLI

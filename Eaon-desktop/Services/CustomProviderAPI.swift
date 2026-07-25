@@ -61,11 +61,6 @@ struct CustomProviderAPIService {
         extraFields: [String: Any]? = nil,
         sampling: SamplingParameters = SamplingParameters()
     ) async throws {
-        var request = URLRequest(url: base.appendingPathComponent("chat/completions"))
-        request.httpMethod = "POST"
-        request.timeoutInterval = 120
-        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
-
         let apiMessages = history.map(\.openAICompatibleJSON)
         var body: [String: Any] = ["model": modelId, "messages": apiMessages, "stream": true]
         for (key, value) in sampling.openAIFields() { body[key] = value }
@@ -75,71 +70,126 @@ struct CustomProviderAPIService {
         if let extraFields {
             for (key, value) in extraFields { body[key] = value }
         }
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        // After the body on purpose: a free-week trial credential flowing
-        // through this path (Quick Assistant routes the hosted models here)
-        // signs the exact request bytes; ordinary BYOK keys get the same
-        // plain bearer header as before.
-        EaonAccess.authorize(&request, apiKey: apiKey)
+        let bodyData = try JSONSerialization.data(withJSONObject: body)
 
-        let (bytes, http) = try await TransientHTTPRetry.send(request)
-        if http.statusCode != 200 {
-            let message = try await Self.readErrorBody(bytes)
-            // Not every OpenAI-compatible endpoint/model supports the tools
-            // parameter (Ollama returns 400 for models without tool
-            // training, some proxies reject it outright). Chat must still
-            // work there — retry once without tools; the fenced-markup
-            // channel remains available to the model either way.
-            if nativeTools != nil, (400...422).contains(http.statusCode), message.lowercased().contains("tool") {
-                try await streamOpenAICompatible(base: base, apiKey: apiKey, modelId: modelId, history: history, typewriter: typewriter, nativeTools: nil, extraFields: extraFields, sampling: sampling)
-                return
+        // A stream that ends without the provider ever saying it finished is
+        // re-requested from scratch rather than surfaced as a half-answer —
+        // see `StreamContinuity`.
+        for attempt in 1...StreamContinuity.maxAttempts {
+            var request = URLRequest(url: base.appendingPathComponent("chat/completions"))
+            request.httpMethod = "POST"
+            // Idle timeout, not total: it bounds time-to-first-token, which a
+            // reasoning model (or a cold local model) can legitimately spend
+            // longer on than the two minutes this used to allow.
+            request.timeoutInterval = 300
+            request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = bodyData
+            // After the body on purpose: a free-week trial credential flowing
+            // through this path (Quick Assistant routes the hosted models
+            // here) signs the exact request bytes under a timestamp the
+            // gateway checks for freshness, so each attempt re-signs;
+            // ordinary BYOK keys get the same plain bearer header as before.
+            EaonAccess.authorize(&request, apiKey: apiKey)
+
+            let bytes: URLSession.AsyncBytes
+            let http: HTTPURLResponse
+            do {
+                (bytes, http) = try await TransientHTTPRetry.send(request)
+            } catch let urlError as URLError where StreamContinuity.isDroppedConnection(urlError) && attempt < StreamContinuity.maxAttempts {
+                try await Task.sleep(for: StreamContinuity.backoff(beforeAttempt: attempt))
+                continue
             }
-            // A model refusing a sampling parameter (reasoning models often
-            // reject `temperature`) shouldn't break chat for someone who
-            // moved a slider — retry once without the parameters.
-            if !sampling.isEmpty, (400...422).contains(http.statusCode), SamplingParameters.looksLikeRejection(message) {
-                try await streamOpenAICompatible(base: base, apiKey: apiKey, modelId: modelId, history: history, typewriter: typewriter, nativeTools: nativeTools, extraFields: extraFields, sampling: SamplingParameters())
-                return
+
+            if http.statusCode != 200 {
+                let message = try await Self.readErrorBody(bytes)
+                // Not every OpenAI-compatible endpoint/model supports the
+                // tools parameter (Ollama returns 400 for models without tool
+                // training, some proxies reject it outright). Chat must still
+                // work there — retry once without tools; the fenced-markup
+                // channel remains available to the model either way.
+                if nativeTools != nil, (400...422).contains(http.statusCode), message.lowercased().contains("tool") {
+                    try await streamOpenAICompatible(base: base, apiKey: apiKey, modelId: modelId, history: history, typewriter: typewriter, nativeTools: nil, extraFields: extraFields, sampling: sampling)
+                    return
+                }
+                // A model refusing a sampling parameter (reasoning models
+                // often reject `temperature`) shouldn't break chat for
+                // someone who moved a slider — retry once without them.
+                if !sampling.isEmpty, (400...422).contains(http.statusCode), SamplingParameters.looksLikeRejection(message) {
+                    try await streamOpenAICompatible(base: base, apiKey: apiKey, modelId: modelId, history: history, typewriter: typewriter, nativeTools: nativeTools, extraFields: extraFields, sampling: SamplingParameters())
+                    return
+                }
+                throw APIClientError.httpError(status: http.statusCode, message: message)
             }
-            throw APIClientError.httpError(status: http.statusCode, message: message)
-        }
 
-        var sawContent = false
-        var toolCalls = ToolCallAccumulator()
-        let reasoningBridge = ReasoningDeltaBridge()
-        for try await line in bytes.lines {
-            guard line.hasPrefix("data: ") else { continue }
-            let payload = String(line.dropFirst(6))
-            if payload == "[DONE]" { break }
+            var sawContent = false
+            var sawTerminalSignal = false
+            var toolCalls = ToolCallAccumulator()
+            let reasoningBridge = ReasoningDeltaBridge()
+            do {
+                for try await line in bytes.lines {
+                    // `data:` with no space after the colon is equally valid
+                    // SSE and some endpoints send it that way; dropping a
+                    // fixed 6 characters ate the first character of every
+                    // frame's JSON there.
+                    guard line.hasPrefix("data:") else { continue }
+                    let payload = String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+                    if payload == "[DONE]" { sawTerminalSignal = true; break }
 
-            guard let data = payload.data(using: .utf8),
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let choices = json["choices"] as? [[String: Any]],
-                  let delta = choices.first?["delta"] as? [String: Any] else { continue }
+                    guard let data = payload.data(using: .utf8),
+                          let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                          let choices = json["choices"] as? [[String: Any]],
+                          let choice = choices.first else { continue }
 
-            toolCalls.ingest(delta: delta)
+                    // Plenty of OpenAI-compatible servers never emit the
+                    // `[DONE]` sentinel but always set `finish_reason` on the
+                    // last chunk. Either one proves the model reached the end,
+                    // and accepting only the first would mean re-requesting
+                    // every reply those servers hand back.
+                    if let reason = choice["finish_reason"], !(reason is NSNull) {
+                        sawTerminalSignal = true
+                    }
+                    guard let delta = choice["delta"] as? [String: Any] else { continue }
 
-            let reasoning = (delta["reasoning_content"] as? String) ?? (delta["reasoning"] as? String)
-            if let combined = reasoningBridge.text(reasoning: reasoning, content: delta["content"] as? String) {
+                    toolCalls.ingest(delta: delta)
+
+                    let reasoning = (delta["reasoning_content"] as? String) ?? (delta["reasoning"] as? String)
+                    if let combined = reasoningBridge.text(reasoning: reasoning, content: delta["content"] as? String) {
+                        sawContent = true
+                        await typewriter.append(combined)
+                        await StatisticsTracker.shared.recordGeneratedCharacters(combined.count)
+                    }
+                }
+            } catch let urlError as URLError where StreamContinuity.isDroppedConnection(urlError) && attempt < StreamContinuity.maxAttempts {
+                await typewriter.reset()
+                try await Task.sleep(for: StreamContinuity.backoff(beforeAttempt: attempt))
+                continue
+            }
+
+            if let closing = reasoningBridge.closeIfNeeded() {
                 sawContent = true
-                await typewriter.append(combined)
-                await StatisticsTracker.shared.recordGeneratedCharacters(combined.count)
+                await typewriter.append(closing)
             }
-        }
 
-        if let closing = reasoningBridge.closeIfNeeded() {
-            sawContent = true
-            await typewriter.append(closing)
-        }
+            // Native calls render as eaon:mcp fences appended to the same
+            // message — the one pipeline (chips, confirmation, execution)
+            // handles both channels identically from here on.
+            if let nativeTools, let fences = toolCalls.fencedBlocks(nameMap: nativeTools.nameMap) {
+                sawContent = true
+                await typewriter.append(fences)
+            }
 
-        // Native calls render as eaon:mcp fences appended to the same
-        // message — the one pipeline (chips, confirmation, execution)
-        // handles both channels identically from here on.
-        if let nativeTools, let fences = toolCalls.fencedBlocks(nameMap: nativeTools.nameMap) {
-            sawContent = true
-            await typewriter.append(fences)
+            if sawTerminalSignal {
+                if !sawContent { throw APIClientError.emptyResponse }
+                return
+            }
+            guard attempt < StreamContinuity.maxAttempts else {
+                if !sawContent { throw APIClientError.emptyResponse }
+                await typewriter.append(streamTruncatedNotice)
+                return
+            }
+            await typewriter.reset()
+            try await Task.sleep(for: StreamContinuity.backoff(beforeAttempt: attempt))
         }
-        if !sawContent { throw APIClientError.emptyResponse }
     }
 
     // MARK: - Anthropic Messages API
@@ -152,13 +202,6 @@ struct CustomProviderAPIService {
         typewriter: TypewriterStreamController,
         sampling: SamplingParameters = SamplingParameters()
     ) async throws {
-        var request = URLRequest(url: base.appendingPathComponent("messages"))
-        request.httpMethod = "POST"
-        request.timeoutInterval = 120
-        request.addValue(apiKey, forHTTPHeaderField: "x-api-key")
-        request.addValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
-        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
-
         // Anthropic has no "system" role inside `messages` — it's a separate
         // top-level field.
         let systemText = history.filter { $0.role == "system" }.map(\.content).joined(separator: "\n\n")
@@ -185,33 +228,78 @@ struct CustomProviderAPIService {
         ]
         for (key, value) in sampling.anthropicFields() { body[key] = value }
         if !systemText.isEmpty { body["system"] = systemText }
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let bodyData = try JSONSerialization.data(withJSONObject: body)
 
-        let (bytes, response) = try await AppHTTP.session.bytes(for: request)
-        guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
-        if http.statusCode != 200 {
-            throw APIClientError.httpError(status: http.statusCode, message: try await Self.readErrorBody(bytes))
-        }
+        // Same cut-off-stream retry as the OpenAI path — see `StreamContinuity`.
+        for attempt in 1...StreamContinuity.maxAttempts {
+            var request = URLRequest(url: base.appendingPathComponent("messages"))
+            request.httpMethod = "POST"
+            request.timeoutInterval = 300
+            request.addValue(apiKey, forHTTPHeaderField: "x-api-key")
+            request.addValue("2023-06-01", forHTTPHeaderField: "anthropic-version")
+            request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = bodyData
 
-        var sawContent = false
-        for try await line in bytes.lines {
-            guard line.hasPrefix("data: ") else { continue }
-            let payload = String(line.dropFirst(6))
-            guard let data = payload.data(using: .utf8),
-                  let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let type = json["type"] as? String else { continue }
-
-            if type == "content_block_delta",
-               let delta = json["delta"] as? [String: Any],
-               let text = delta["text"] as? String {
-                sawContent = true
-                await typewriter.append(text)
-                await StatisticsTracker.shared.recordGeneratedCharacters(text.count)
-            } else if type == "message_stop" {
-                break
+            let bytes: URLSession.AsyncBytes
+            let response: URLResponse
+            do {
+                (bytes, response) = try await AppHTTP.session.bytes(for: request)
+            } catch let urlError as URLError where StreamContinuity.isDroppedConnection(urlError) && attempt < StreamContinuity.maxAttempts {
+                try await Task.sleep(for: StreamContinuity.backoff(beforeAttempt: attempt))
+                continue
             }
+            guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
+            if http.statusCode != 200 {
+                throw APIClientError.httpError(status: http.statusCode, message: try await Self.readErrorBody(bytes))
+            }
+
+            var sawContent = false
+            var sawTerminalSignal = false
+            do {
+                for try await line in bytes.lines {
+                    guard line.hasPrefix("data:") else { continue }
+                    let payload = String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+                    guard let data = payload.data(using: .utf8),
+                          let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+                          let type = json["type"] as? String else { continue }
+
+                    if type == "content_block_delta",
+                       let delta = json["delta"] as? [String: Any],
+                       let text = delta["text"] as? String {
+                        sawContent = true
+                        await typewriter.append(text)
+                        await StatisticsTracker.shared.recordGeneratedCharacters(text.count)
+                    } else if type == "message_delta",
+                              let delta = json["delta"] as? [String: Any],
+                              let reason = delta["stop_reason"], !(reason is NSNull) {
+                        // `message_delta` carries the stop_reason and always
+                        // precedes `message_stop`; accepting it too means a
+                        // proxy that closes right after it isn't mistaken for
+                        // a cut-off reply.
+                        sawTerminalSignal = true
+                    } else if type == "message_stop" {
+                        sawTerminalSignal = true
+                        break
+                    }
+                }
+            } catch let urlError as URLError where StreamContinuity.isDroppedConnection(urlError) && attempt < StreamContinuity.maxAttempts {
+                await typewriter.reset()
+                try await Task.sleep(for: StreamContinuity.backoff(beforeAttempt: attempt))
+                continue
+            }
+
+            if sawTerminalSignal {
+                if !sawContent { throw APIClientError.emptyResponse }
+                return
+            }
+            guard attempt < StreamContinuity.maxAttempts else {
+                if !sawContent { throw APIClientError.emptyResponse }
+                await typewriter.append(streamTruncatedNotice)
+                return
+            }
+            await typewriter.reset()
+            try await Task.sleep(for: StreamContinuity.backoff(beforeAttempt: attempt))
         }
-        if !sawContent { throw APIClientError.emptyResponse }
     }
 
     // MARK: - Google Gemini API
@@ -240,7 +328,9 @@ struct CustomProviderAPIService {
 
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.timeoutInterval = 120
+        // Idle timeout — see the OpenAI path above for why two minutes was
+        // too tight for a slow first token.
+        request.timeoutInterval = 300
         request.addValue("application/json", forHTTPHeaderField: "Content-Type")
 
         // Gemini's roles are "user"/"model" (not "assistant"), and it has no
@@ -279,8 +369,8 @@ struct CustomProviderAPIService {
 
         var sawContent = false
         for try await line in bytes.lines {
-            guard line.hasPrefix("data: ") else { continue }
-            let payload = String(line.dropFirst(6))
+            guard line.hasPrefix("data:") else { continue }
+            let payload = String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
             guard let data = payload.data(using: .utf8),
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let candidates = json["candidates"] as? [[String: Any]],

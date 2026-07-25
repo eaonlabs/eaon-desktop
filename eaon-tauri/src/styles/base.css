@@ -1,0 +1,131 @@
+/* App-wide base styles. Layout shells live here; feature styling lives in
+   per-area css files next to their components. */
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: var(--font-sans);
+  font-size: calc(14px * var(--ui-scale));
+  color: var(--text);
+  background: var(--stage);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* Frameless window: nothing native is selectable/draggable by default —
+   text selection is re-enabled where content lives. */
+body {
+  user-select: none;
+  cursor: default;
+}
+input,
+textarea,
+[data-selectable] {
+  user-select: text;
+  cursor: auto;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+input,
+textarea,
+select {
+  font: inherit;
+  color: var(--text);
+  background: var(--input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-input);
+  outline: none;
+}
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  border-color: var(--border-strong);
+}
+
+a {
+  color: var(--link);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+::selection {
+  background: rgba(91, 155, 255, 0.3);
+}
+
+/* Scrollbars — thin, chrome-less, consistent across WebView2/WebKitGTK */
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 5px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--text-muted);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* The three-pane app shell. Every one of these is BOTH a flex item and a
+   flex container — without min-height/min-width: 0 on each link, a flex
+   item's default min-height/width:auto refuses to shrink below its own
+   content size, so a tall page just grows the whole chain past the window
+   instead of scrolling within it. This is the one shared ancestor every
+   page (chat/models/projects/settings) renders inside, so a gap here
+   silently breaks scrolling everywhere, not just in one feature. */
+.app-shell {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+}
+.app-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+/* Reduced-motion respect: collapse transitions rather than remove content */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

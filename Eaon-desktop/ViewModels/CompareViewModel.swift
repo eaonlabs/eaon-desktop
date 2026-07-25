@@ -131,16 +131,28 @@ final class CompareViewModel {
             }
 
             var accumulated = ""
+            var sawDone = false
             for try await line in bytes.lines {
-                guard line.hasPrefix("data: ") else { continue }
-                let payload = String(line.dropFirst(6))
-                if payload == "[DONE]" { break }
+                guard line.hasPrefix("data:") else { continue }
+                let payload = String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+                if payload == "[DONE]" { sawDone = true; break }
                 guard let data = payload.data(using: .utf8),
                       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                       let choices = json["choices"] as? [[String: Any]],
-                      let delta = choices.first?["delta"] as? [String: Any],
+                      let choice = choices.first else { continue }
+                // `finish_reason` counts as a terminal signal too — see
+                // `consumeStream` in ChatViewModel.
+                if let reason = choice["finish_reason"], !(reason is NSNull) { sawDone = true }
+                guard let delta = choice["delta"] as? [String: Any],
                       let chunk = delta["content"] as? String else { continue }
                 accumulated += chunk
+                slot.content = accumulated
+            }
+            // See streamTruncatedNotice's doc comment (ChatViewModel.swift) —
+            // the connection ending without [DONE] is not the same as the
+            // provider saying it's done.
+            if !accumulated.isEmpty, !sawDone {
+                accumulated += streamTruncatedNotice
                 slot.content = accumulated
             }
 

@@ -1,0 +1,151 @@
+/* Rendered assistant prose — react-markdown output plus highlight.js token
+   colors themed to Eaon's palette (one theme per scheme, driven by the same
+   tokens as everything else). */
+
+.md {
+  user-select: text;
+  cursor: auto;
+  line-height: 1.65;
+  font-size: var(--chat-size);
+  overflow-wrap: break-word;
+}
+
+.md > *:first-child { margin-top: 0; }
+.md > *:last-child { margin-bottom: 0; }
+
+.md p { margin: 0.55em 0; }
+
+.md h1, .md h2, .md h3, .md h4 {
+  margin: 1.1em 0 0.45em;
+  font-weight: 650;
+  line-height: 1.3;
+}
+.md h1 { font-size: 1.35em; }
+.md h2 { font-size: 1.2em; }
+.md h3 { font-size: 1.08em; }
+.md h4 { font-size: 1em; }
+
+.md ul, .md ol { margin: 0.55em 0; padding-left: 1.5em; }
+.md li { margin: 0.25em 0; }
+.md li > ul, .md li > ol { margin: 0.15em 0; }
+
+.md blockquote {
+  margin: 0.7em 0;
+  padding: 0.1em 0 0.1em 0.9em;
+  border-left: 3px solid var(--border-strong);
+  color: var(--text-secondary);
+}
+
+.md hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1.2em 0;
+}
+
+.md code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+}
+.md :not(pre) > code {
+  background: var(--chip);
+  padding: 0.15em 0.4em;
+  border-radius: 5px;
+}
+
+.md table {
+  border-collapse: collapse;
+  margin: 0.8em 0;
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  font-size: 0.94em;
+}
+.md th, .md td {
+  border: 1px solid var(--border-strong);
+  padding: 0.45em 0.75em;
+  text-align: left;
+}
+.md th {
+  background: var(--hover);
+  font-weight: 600;
+}
+
+.md img {
+  max-width: 100%;
+  border-radius: var(--radius-card);
+}
+
+/* Code blocks (CodeBlock.tsx wraps pre with a header bar) */
+.code-block {
+  margin: 0.8em 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  background: var(--code-bg);
+}
+.code-block-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  background: var(--code-header);
+  font-size: 12px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+}
+.code-block-copy {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-muted);
+  border-radius: 6px;
+  padding: 3px 8px;
+  transition: background var(--t-fast) var(--ease-out), color var(--t-fast) var(--ease-out);
+}
+.code-block-copy:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.code-block pre {
+  padding: 12px 14px;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: 0.88em;
+  line-height: 1.55;
+}
+
+/* highlight.js token theme — dark */
+.hljs { color: var(--text); }
+.hljs-comment, .hljs-quote { color: #7f848e; font-style: italic; }
+.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-type { color: #c678dd; }
+.hljs-string, .hljs-regexp, .hljs-addition { color: #98c379; }
+.hljs-number, .hljs-symbol, .hljs-bullet { color: #d19a66; }
+.hljs-title, .hljs-section, .hljs-name, .hljs-function .hljs-title { color: #61afef; }
+.hljs-attr, .hljs-attribute, .hljs-variable, .hljs-template-variable { color: #e06c75; }
+.hljs-built_in, .hljs-class .hljs-title { color: #e5c07b; }
+.hljs-meta, .hljs-deletion { color: #be5046; }
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: 600; }
+
+:root[data-theme="light"] .hljs { color: var(--text); }
+:root[data-theme="light"] .hljs-comment,
+:root[data-theme="light"] .hljs-quote { color: #6a737d; }
+:root[data-theme="light"] .hljs-keyword,
+:root[data-theme="light"] .hljs-selector-tag,
+:root[data-theme="light"] .hljs-literal,
+:root[data-theme="light"] .hljs-type { color: #a626a4; }
+:root[data-theme="light"] .hljs-string,
+:root[data-theme="light"] .hljs-regexp,
+:root[data-theme="light"] .hljs-addition { color: #50a14f; }
+:root[data-theme="light"] .hljs-number,
+:root[data-theme="light"] .hljs-symbol,
+:root[data-theme="light"] .hljs-bullet { color: #986801; }
+:root[data-theme="light"] .hljs-title,
+:root[data-theme="light"] .hljs-section,
+:root[data-theme="light"] .hljs-name { color: #4078f2; }
+:root[data-theme="light"] .hljs-attr,
+:root[data-theme="light"] .hljs-attribute,
+:root[data-theme="light"] .hljs-variable { color: #e45649; }
+:root[data-theme="light"] .hljs-built_in { color: #c18401; }
+:root[data-theme="light"] .hljs-meta,
+:root[data-theme="light"] .hljs-deletion { color: #ca4956; }

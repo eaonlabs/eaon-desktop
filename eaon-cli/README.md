@@ -1,151 +1,125 @@
-# Eaon CLI
+# Eaon
 
-Eaon in your terminal — agentic coding, Eaon Claw, and plain chat, for any
-model: local (Ollama) or hosted (Aqua / your own OpenAI-compatible key).
-Cross-platform by construction (Node.js + Ink — the same stack Claude Code's
-own CLI runs on): macOS, Linux, and Windows all run the identical code path.
-
-This is a fresh implementation, not a port of the Mac app's Swift or the
-Tauri build's Rust — but it deliberately carries over their hard-won tool
-contracts, safety rules, and prompting lessons (see "Design notes" below) so
-behavior stays consistent across all three surfaces.
-
-## Install / run
+An agentic coding agent that lives in your terminal. Give it a task, and it
+reads your code, writes files, runs commands, and checks its own work — with
+whatever model you want behind it, local or hosted.
 
 ```bash
-cd eaon-cli
-npm install
-npm run build
-npm link      # makes `eaon` available globally, or just run node dist/cli.js
+npx eaon-cli
 ```
 
-Requires Node.js 18.17+ (uses the platform `fetch`/`ReadableStream` for
-streaming — no HTTP client dependency).
+That's it. No install, no config file, no account.
 
-## Modes
+## Install
 
-- **Chat** — plain conversation, no tools.
-- **Agent** — a real coding agent: `write_file`, `edit_file`, `read_file`,
-  `run_shell`, `list_directory`, `create_folder`, `move_item`, `open_path`,
-  scoped to the project you launched Eaon in (relative paths resolve
-  against it, matching how Claude Code treats your working directory as the
-  project — this is a deliberate change from the Mac app's always-home-rooted
-  design, which doesn't have a "current project" concept).
-- **Eaon Claw** — the coding tools plus the wider remit: `trash_item`,
-  `open_app`, `quit_app`, `open_url`, and (macOS only) `run_applescript`.
+```bash
+npm install -g eaon-cli
+```
 
-Switch with `/mode <chat|agent|claw>` or `--mode` at launch.
+Then run it from anywhere with:
 
-## Permission modes
+```bash
+eaon
+```
 
-- **Sandboxed** (default) — every non-read-only tool call asks first.
-- **Auto** — tool calls run immediately, no prompt.
+Requires Node.js 18.17+.
 
-Toggle with **Shift+Tab** (asks "are you sure?" on the way into Auto) or
-`/permission <sandboxed|auto>`. `list_directory` never asks either way — it
-only reads names, not contents.
+## Bring your own model
+
+Eaon isn't tied to one provider. It works with:
+
+- **Local models** via [Ollama](https://ollama.com) — nothing leaves your
+  machine. `/pull qwen3.6` to grab one, `/model` to switch.
+- **Any OpenAI-compatible endpoint** — Groq, Together, OpenRouter, your own
+  vLLM box. Add it to `~/.eaon/cli/config.json`.
+- **Anthropic Messages** and **Google Gemini** native APIs.
+- **Eaon Desktop** users on macOS: `/link` imports your keys and providers
+  from the app automatically.
+
+## How much rope it gets
+
+Press **Shift+Tab** to cycle three modes:
+
+| Mode | What it does |
+| --- | --- |
+| **Plan** | Researches and proposes a plan. Changes nothing until you approve it. The safe way to start something big. |
+| **Sandboxed** | Asks before every change. The default. |
+| **Auto** | Runs unattended. |
+
+Plan mode is the one worth knowing about. Ask for something substantial, and
+Eaon reads the actual code, searches the web where it's unsure, then comes
+back with a concrete plan naming real files. Approve it and it carries the
+whole thing out without stopping to ask you what's next.
+
+## What it can actually do
+
+- **Read and change code** — `read_file`, `write_file`, `edit_file`, `grep`,
+  `glob`. It reads a file before editing it, so it never writes over
+  something it hasn't seen.
+- **Run things** — shell commands, plus `run_shell_background` for dev
+  servers and long builds that shouldn't block the conversation.
+- **Look things up** — real web search and page fetching, so it checks a
+  library's current API instead of guessing from training data.
+- **Delegate** — hands self-contained chunks of work to sub-agents and gets
+  back a report, keeping its own context clear on big jobs.
+- **Track its work** — a live todo list you can watch it work through.
+
+## Undo
+
+Eaon snapshots every file before it changes it.
+
+```
+/rewind          # list restore points
+/rewind a1b2c3   # roll back to one
+```
+
+Covers files changed through its file tools (not changes made by shell
+commands — use git for those).
+
+## While it's working
+
+- Type and press Enter to **queue** a message — it picks it up when the
+  current work finishes, without derailing it.
+- **Esc** interrupts.
+
+## Input shortcuts
+
+| Prefix | Does |
+| --- | --- |
+| `!npm test` | Run a shell command yourself; the output goes into context |
+| `@src/app.ts` | Attach a file to your message (autocompletes) |
+| `# always use pnpm` | Save a note to project memory (`EAON.md`) |
+| `/help` | Every command |
 
 ## Commands
 
-Type `/` in the composer for live autocomplete, or see them all:
-
-| Command | What it does |
-| --- | --- |
-| `/help` | list commands and shortcuts |
-| `/mode <chat\|agent\|claw>` | switch mode |
-| `/permission [sandboxed\|auto]` | show/set the permission mode |
-| `/model [name]` | switch model, or list if no name given |
-| `/models` | list every model available right now |
-| `/pull <name>` | download a model via Ollama |
-| `/init` | scan the project and write `EAON.md` (auto-loaded into future system prompts) |
-| `/clear`, `/new` | start a fresh session |
-| `/resume [id]` | list or reopen a past session |
-| `/cost` | approximate usage for this session |
-| `/exit` | quit |
+`/help` `/plan` `/permission` `/model` `/models` `/pull` `/init` `/clear`
+`/resume` `/rewind` `/diff` `/copy` `/bashes` `/compact` `/context` `/cost`
+`/link` `/status` `/doctor` `/config` `/memory` `/export` `/exit`
 
 ## Flags
 
-```
-eaon                              interactive (default: Chat mode, Sandboxed)
-eaon --mode agent                 start in Agent mode
-eaon --model ollama:qwen3.6       start with a specific model
-eaon --auto                       start in Auto permission mode
-eaon --cwd ~/projects/thing       set the project root (default: cwd)
-eaon -p "add a .gitignore" --mode agent --auto
-                                   one-shot, non-interactive (like Claude
-                                   Code's -p) — prints the result and exits.
-                                   Agent/Claw + -p REQUIRES --auto: there's
-                                   no terminal to confirm actions in.
+```bash
+eaon                              # interactive
+eaon -c                           # continue the last session here
+eaon -r <id>                      # resume a specific session
+eaon --permission-mode plan       # start in plan mode
+eaon -p "fix the failing test"    # one-shot, scriptable
+eaon -p "..." --auto -m agent     # non-interactive agent run
 ```
 
-## Models and providers
+## Project memory
 
-Eaon CLI merges three sources into one picker, same precedence as the Mac
-app and the Tauri build:
+Run `/init` and Eaon writes an `EAON.md` describing your project. It reads
+that file at the start of every session in that directory, so conventions,
+build commands and gotchas carry over. Add to it with `#` from the composer.
 
-- **Aqua** — set `EAON_AQUA_API_KEY`, or put `aquaApiKey` in the config file.
-- **Local (Ollama)** — auto-detected at `http://127.0.0.1:11434` (override
-  with `EAON_OLLAMA_URL` or `ollamaBaseUrl` in config). Native tool-calling
-  is used automatically for any model whose `/api/tags` capabilities report
-  `"tools"`; everything else falls back to a taught text format (see below)
-  — so even a model with no function-calling support can still act, not
-  just describe what it would do.
-- **BYOK** — any OpenAI-compatible endpoint. Add one to `customProviders` in
-  the config file: `{ id, displayName, baseURL, apiKey, modelIDs }`.
+## Privacy
 
-Config lives at `~/.eaon/cli/config.json` (created on first run); sessions
-at `~/.eaon/cli/sessions/`.
+Your code goes to whichever model provider you configure — and nowhere else.
+Point it at Ollama and nothing leaves your machine at all. `/link` reads
+credentials from Eaon Desktop locally on macOS; no telemetry, no backend.
 
-## Design notes
+## License
 
-- **Dual-channel tool calling.** Every request offers native OpenAI-style
-  `tools`, AND the system prompt always teaches a text-fence fallback
-  (` ```eaon:computer tool="write_file" `, plus a prefixless/bare-name
-  shorthand). A model that supports native calling just uses it; a model
-  that doesn't (or ignores the tools array) still has a real path to act.
-  Verified live against both kinds of model — see below.
-- **Thinking-only stalls get nudged, not silently dropped.** A reasoning
-  model that produces only a `<think>` span with nothing after it gets a
-  corrective message asking it to act, instead of the turn quietly ending.
-  Three identical failures in a row (not three failures total) stop the
-  loop instead of grinding forever.
-- **Path safety is enforced in code**, not just asked of the model: writes/
-  edits/moves/creates are restricted to the project root, the user's home
-  folder, or the system temp folder; `sudo` is refused outright; deletes go
-  to the Trash/Recycle Bin, never a permanent delete.
-- **Live-verified**, not just built: real runs against a local Ollama
-  server covered plain chat, Agent mode with a model that has native tool-
-  calling (file genuinely written and executed), Agent mode with a model
-  that does NOT (exercised the text-fence fallback, including a model that
-  fabricated a "ran it" narrative without calling the tool — which is why
-  the prompt explicitly forbids describing a command's output without
-  actually having called it), Claw mode, and `edit_file`'s targeted-replace
-  path — every one independently checked against the real filesystem
-  afterward, not just the model's claim. The Sandboxed permission gate
-  (pause-and-wait for a real answer, approve/deny/always-allow) was driven
-  directly against the compiled agent loop with scripted answers, since a
-  live interactive terminal session isn't drivable from here.
-- **NOT yet verified**: the interactive terminal UI itself (Ink rendering,
-  keystrokes, autocomplete, Static-list scrollback) — there's no way to
-  drive a real TTY from an automated environment; execution on actual
-  Windows/Linux machines (written portably — see `src/platform.ts`, the
-  single file every OS-specific decision routes through — and grep-audited
-  for stray POSIX assumptions, but never run there); and live Aqua/BYOK
-  requests (no credentials available here — implemented against the same
-  documented request/response shapes the Mac app and Tauri core already use
-  successfully). Try these and report back before treating them as settled.
-
-## Not built yet
-
-- Real OS-level GUI automation (mouse/keyboard/screenshots) for Claw —
-  scoped out deliberately. Claw's tool set is filesystem/shell/app-launch/
-  URL/AppleScript(macOS), matching what's genuinely portable and testable;
-  true cross-platform screen automation is a much bigger, riskier
-  undertaking (accessibility permissions, X11 vs. Wayland, etc.) and would
-  need its own dedicated pass.
-- Packaging/distribution (npm publish, a Homebrew formula, a Scoop
-  manifest, a signed installer). Right now this runs from source.
-- llama.cpp/MLX as first-class local backends — any local OpenAI-compatible
-  server (llama-server, LM Studio, etc.) already works today as a BYOK
-  entry pointed at its base URL; MLX doesn't apply outside Apple Silicon so
-  it was never in scope for a cross-platform CLI.
+MIT

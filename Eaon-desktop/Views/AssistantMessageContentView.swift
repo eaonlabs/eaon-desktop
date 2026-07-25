@@ -17,16 +17,28 @@ struct AssistantMessageContentView: View {
     /// and `blocks` itself re-ran `extracted`), on every typewriter tick
     /// while streaming and on every scroll-in of a row. One cache entry per
     /// distinct message text makes a finished message's re-render a lookup.
-    private var parsed: (extracted: ReasoningExtractor.Result, blocks: [MessageBlock]) {
+    private var parsed: (
+        swarm: SwarmTranscript?,
+        extracted: ReasoningExtractor.Result,
+        blocks: [MessageBlock]
+    ) {
         RenderCache.shared.value("msg|\(text)", store: !isTyping) {
-            let extracted = ReasoningExtractor.extract(from: text)
-            return (extracted, MessageContentParser.parse(extracted.visibleContent))
+            // The swarm discussion (if one ran) is a fixed prefix written once
+            // that work finishes, always complete from the first render —
+            // unlike `<think>`, it's never partially streamed, so there's no
+            // in-progress state to track here.
+            let swarmResult = SwarmPanelExtractor.extract(from: text)
+            let extracted = ReasoningExtractor.extract(from: swarmResult.remainder)
+            return (swarmResult.transcript, extracted, MessageContentParser.parse(extracted.visibleContent))
         }
     }
 
     var body: some View {
-        let (extracted, blocks) = parsed
+        let (swarm, extracted, blocks) = parsed
         VStack(alignment: .leading, spacing: 12) {
+            if let swarm {
+                SwarmPanelDisclosure(transcript: swarm)
+            }
             if let reasoning = extracted.reasoning {
                 ThinkingDisclosure(reasoning: reasoning, isInProgress: extracted.isReasoningInProgress)
             }
@@ -90,7 +102,7 @@ struct AssistantMessageContentView: View {
                 let computerTool = DesktopTool(rawValue: kind)?.rawValue ?? fence.tool
                 if kind == "computer" || DesktopTool(rawValue: kind) != nil,
                    let computerTool, ["write_file", "edit_file"].contains(computerTool) {
-                    FileDiffCard(toolName: computerTool, argumentsJSON: code, isStreaming: showCursor)
+                    FileDiffCard(toolName: computerTool, argumentsJSON: code, fencePath: fence.rawPath, isStreaming: showCursor)
                 } else {
                     ToolActionChip(
                         kindToken: fenceLanguage,
@@ -370,6 +382,9 @@ struct FileDiffCard: View {
     /// "write_file" or "edit_file" — the only two tools routed here.
     let toolName: String
     let argumentsJSON: String
+    /// The fence's own `path="…"` attribute — set for the raw write form,
+    /// where the body is the literal file text rather than a JSON object.
+    var fencePath: String? = nil
     var isStreaming: Bool = false
 
     private struct DiffLine: Identifiable {
@@ -402,12 +417,12 @@ struct FileDiffCard: View {
     /// scroll-in. Still-streaming content (whose JSON grows every tick, so
     /// every key is new) computes once per tick and skips storing.
     private var model: DiffModel {
-        RenderCache.shared.value("diff|\(toolName)|\(colors == .dark)|\(argumentsJSON)", store: !isStreaming) {
-            Self.computeModel(toolName: toolName, argumentsJSON: argumentsJSON, colors: colors)
+        RenderCache.shared.value("diff|\(toolName)|\(fencePath ?? "")|\(colors == .dark)|\(argumentsJSON)", store: !isStreaming) {
+            Self.computeModel(toolName: toolName, argumentsJSON: argumentsJSON, fencePath: fencePath, colors: colors)
         }
     }
 
-    private static func computeModel(toolName: String, argumentsJSON: String, colors: ThemeColors) -> DiffModel {
+    private static func computeModel(toolName: String, argumentsJSON: String, fencePath: String?, colors: ThemeColors) -> DiffModel {
         // Strict parse ONCE; individual lenient fallbacks only when the
         // whole document isn't valid JSON yet (mid-stream).
         let strict = argumentsJSON.data(using: .utf8)
@@ -418,17 +433,36 @@ struct FileDiffCard: View {
             return partialStringField(key, in: argumentsJSON)
         }
 
+        // Raw write form: the fence names the path and the body IS the file
+        // — exactly what the executor accepts, so the preview and the real
+        // write can never disagree. (A raw body that's valid JSON — writing
+        // a .json file — still renders as raw, matching execution: the
+        // strict parse only wins when it carries real path/content args.)
+        let bodyIsArgsJSON = strict?["path"] is String || strict?["content"] is String
+        let rawForm = toolName == "write_file" && fencePath != nil && !bodyIsArgsJSON
+
         var model = DiffModel()
-        let path = field("path")
+        let path = rawForm ? fencePath : (field("path") ?? fencePath)
         model.fileName = path.map { ($0 as NSString).lastPathComponent } ?? "file"
         let language = SyntaxLanguage.detect(fileExtension: path.map { ($0 as NSString).pathExtension } ?? "")
 
-        if toolName == "write_file" {
+        if rawForm {
+            for (index, row) in splitHighlighted(argumentsJSON, language: language, colors: colors, keepEmptyLine: true).enumerated() {
+                model.lines.append(DiffLine(id: index, number: index + 1, text: row.plain, attributed: row.attributed, isAdded: true))
+            }
+        } else if toolName == "write_file" {
             // Absent (nil) means "content" hasn't started streaming in at
             // all yet (still on "path") — genuinely nothing to show, vs.
             // present-but-empty ("") which is a real empty file.
             if let content = field("content") {
                 for (index, row) in splitHighlighted(content, language: language, colors: colors, keepEmptyLine: true).enumerated() {
+                    model.lines.append(DiffLine(id: index, number: index + 1, text: row.plain, attributed: row.attributed, isAdded: true))
+                }
+            } else if strict == nil, fencePath != nil, !argumentsJSON.isEmpty {
+                // JSON-ish body that never grew a content field but the
+                // fence names a path — show the body raw rather than an
+                // empty card while it streams.
+                for (index, row) in splitHighlighted(argumentsJSON, language: language, colors: colors, keepEmptyLine: true).enumerated() {
                     model.lines.append(DiffLine(id: index, number: index + 1, text: row.plain, attributed: row.attributed, isAdded: true))
                 }
             }
@@ -796,6 +830,115 @@ enum ReasoningExtractor {
             visibleContent: before.trimmingCharacters(in: .whitespacesAndNewlines),
             isReasoningInProgress: true
         )
+    }
+}
+
+/// The swarm's discussion, collapsed behind a click — it's background work on
+/// the way to the answer, not the answer itself, the same reasoning as
+/// `ThinkingDisclosure` above. Grouped by round, since the point of a swarm is
+/// watching
+/// the specialists converge (or fail to) across rounds rather than comparing
+/// two independent takes. Personas that voted to hand off are marked, so the
+/// vote that actually ended the discussion is visible rather than implied.
+struct SwarmPanelDisclosure: View {
+    @Environment(\.themeColors) private var colors
+    let transcript: SwarmTranscript
+    @State private var isExpanded = false
+
+    private var rounds: [Int] {
+        Array(Set(transcript.usableRemarks.map(\.round))).sorted()
+    }
+
+    private var summary: String {
+        let count = transcript.personas.count
+        let roundWord = transcript.roundsUsed == 1 ? "round" : "rounds"
+        return transcript.endedByVote
+            ? "Swarm — \(count) specialists agreed after \(transcript.roundsUsed) \(roundWord)"
+            : "Swarm — \(count) specialists talked it over for \(transcript.roundsUsed) \(roundWord)"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(.easeOut(duration: 0.16)) { isExpanded.toggle() }
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(colors.textTertiary)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                        .animation(.easeOut(duration: 0.16), value: isExpanded)
+                        .iconHoverEffect(for: "chevron.right")
+                    Image(systemName: "person.3.fill")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(colors.textSecondary)
+                    Text(summary)
+                        .font(AppFont.mono(13))
+                        .foregroundStyle(colors.textSecondary)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 14) {
+                    // The roster first — a persona's argument only means
+                    // something once you know what they were convened for.
+                    if !transcript.personas.isEmpty {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("THE SWARM")
+                                .font(AppFont.mono(9.5, weight: .semibold))
+                                .foregroundStyle(colors.textTertiary.opacity(0.7))
+                            ForEach(Array(transcript.personas.enumerated()), id: \.offset) { _, persona in
+                                Text("\(persona.name) — \(persona.role)")
+                                    .font(AppFont.mono(11.5))
+                                    .foregroundStyle(colors.textTertiary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+
+                    ForEach(rounds, id: \.self) { round in
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("ROUND \(round)")
+                                .font(AppFont.mono(9.5, weight: .semibold))
+                                .foregroundStyle(colors.textTertiary.opacity(0.7))
+                            ForEach(Array(transcript.usableRemarks.filter { $0.round == round }.enumerated()), id: \.offset) { _, remark in
+                                VStack(alignment: .leading, spacing: 4) {
+                                    HStack(spacing: 5) {
+                                        Text(remark.personaName)
+                                            .font(AppFont.mono(11.5, weight: .semibold))
+                                            .foregroundStyle(colors.textSecondary)
+                                        if remark.wantsToEnd {
+                                            Text("voted to hand off")
+                                                .font(AppFont.mono(9.5))
+                                                .foregroundStyle(colors.textTertiary.opacity(0.75))
+                                        }
+                                    }
+                                    Text(remark.text)
+                                        .font(AppFont.mono(12))
+                                        .foregroundStyle(colors.textTertiary)
+                                        .textSelection(.enabled)
+                                }
+                                .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+                }
+                .padding(.leading, 10)
+                .padding(.vertical, 8)
+                .padding(.trailing, 4)
+                .overlay(alignment: .leading) {
+                    Rectangle()
+                        .fill(colors.borderSubtle)
+                        .frame(width: 2)
+                }
+                .padding(.top, 8)
+                .padding(.leading, 6)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .padding(.vertical, 4)
     }
 }
 

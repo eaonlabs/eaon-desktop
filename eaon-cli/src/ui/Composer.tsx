@@ -7,7 +7,7 @@
 
 import React, { useState } from "react";
 import { Box, Text, useInput } from "ink";
-import { theme, PERMISSION_COLORS } from "./theme.js";
+import { theme } from "./theme.js";
 import { matchingCommands } from "../commands/index.js";
 
 interface ComposerProps {
@@ -18,7 +18,6 @@ interface ComposerProps {
   onCancel: () => void;
   queryFiles: (query: string) => string[];
   mode: "chat" | "agent" | "claw";
-  permissionMode: "sandboxed" | "auto";
 }
 
 interface Suggestion {
@@ -38,7 +37,7 @@ function mentionQueryBeforeCursor(buffer: string, cursor: number): { query: stri
   return { query, start: cursor - query.length - 1 };
 }
 
-export function Composer({ isActive, history, onSubmit, onTogglePermission, onCancel, queryFiles, mode, permissionMode }: ComposerProps): React.ReactElement {
+export function Composer({ isActive, history, onSubmit, onTogglePermission, onCancel, queryFiles, mode }: ComposerProps): React.ReactElement {
   const [buffer, setBuffer] = useState("");
   const [cursor, setCursor] = useState(0);
   const [historyIndex, setHistoryIndex] = useState<number | null>(null);
@@ -153,8 +152,22 @@ export function Composer({ isActive, history, onSubmit, onTogglePermission, onCa
         return;
       }
       if (key.ctrl && input === "u") {
-        setBuffer("");
+        // Readline semantics: kill to line start, not the whole buffer.
+        setBuffer((b) => b.slice(cursor));
         setCursor(0);
+        return;
+      }
+      if (key.ctrl && input === "k") {
+        setBuffer((b) => b.slice(0, cursor));
+        return;
+      }
+      if (key.ctrl && input === "w") {
+        // Delete the word before the cursor (skip trailing spaces first).
+        const before = buffer.slice(0, cursor);
+        const trimmed = before.replace(/\s+$/, "");
+        const start = Math.max(0, trimmed.lastIndexOf(" ") + 1, trimmed.lastIndexOf("/") + 1);
+        setBuffer(buffer.slice(0, start) + buffer.slice(cursor));
+        setCursor(start);
         return;
       }
       if (key.ctrl && input === "a") {
@@ -163,6 +176,18 @@ export function Composer({ isActive, history, onSubmit, onTogglePermission, onCa
       }
       if (key.ctrl && input === "e") {
         setCursor(buffer.length);
+        return;
+      }
+      // Alt/Option + B / F — word-wise cursor movement (readline standard).
+      if (key.meta && (input === "b" || input === "f")) {
+        if (input === "b") {
+          const before = buffer.slice(0, cursor).replace(/\s+$/, "");
+          setCursor(Math.max(0, before.lastIndexOf(" ") + 1));
+        } else {
+          const rest = buffer.slice(cursor);
+          const advance = rest.replace(/^\s+/, "").search(/\s/);
+          setCursor(advance === -1 ? buffer.length : cursor + (rest.length - rest.replace(/^\s+/, "").length) + advance);
+        }
         return;
       }
       if (key.backspace || key.delete) {
@@ -185,24 +210,28 @@ export function Composer({ isActive, history, onSubmit, onTogglePermission, onCa
   const isEmpty = buffer.length === 0;
 
   // The prompt glyph doubles as a mode indicator: `!` for a bash command,
-  // `#` for a memory note, otherwise Claude-Code's plain `>`.
+  // `#` for a memory note, otherwise the plain `>` both Claude Code and
+  // Cursor use. Chrome stays neutral dim gray — the border only takes on
+  // color when a prefix mode is active, so color always MEANS something
+  // instead of being ambient decoration. (Permission state lives in the
+  // status bar below the composer, not here.)
   const bash = buffer.startsWith("!");
   const memory = buffer.startsWith("#");
   const glyph = bash ? "!" : memory ? "#" : ">";
-  const glyphColor = bash ? theme.warning : memory ? theme.accent : permissionMode === "auto" ? PERMISSION_COLORS.auto : PERMISSION_COLORS.sandboxed;
+  const glyphColor = bash ? theme.warning : memory ? theme.accent : theme.muted;
+  const borderColor = bash ? theme.warning : memory ? theme.accent : theme.border;
 
-  const placeholder =
-    mode === "chat"
-      ? "Ask anything — / for commands"
-      : "Describe a task, or ! to run a shell command · @ to add a file · / for commands";
+  // Short on purpose: a placeholder is a nudge, not documentation. The full
+  // list of prefixes lives in /help, which the banner points at.
+  const placeholder = mode === "chat" ? "Ask anything…" : "What should I build?";
 
   return (
     <Box flexDirection="column" width="100%">
-      <Box borderStyle="round" borderColor={isActive ? glyphColor : theme.muted} paddingX={1} width="100%">
+      <Box borderStyle="round" borderColor={isActive ? borderColor : theme.border} paddingX={1} width="100%">
         <Text color={glyphColor} bold>{glyph} </Text>
         <Text>{before}</Text>
         <Text inverse>{atCursor}</Text>
-        {isEmpty ? <Text color={theme.muted}>{placeholder}</Text> : <Text>{after}</Text>}
+        {isEmpty ? <Text color={theme.muted} dimColor>{placeholder}</Text> : <Text>{after}</Text>}
       </Box>
 
       {bash && isActive && <Text color={theme.muted}>  ! runs a shell command directly and adds the output to the conversation</Text>}
@@ -212,10 +241,10 @@ export function Composer({ isActive, history, onSubmit, onTogglePermission, onCa
         <Box flexDirection="column" marginLeft={2}>
           {suggestions.map((s, idx) => (
             <Text key={s.label} color={idx === suggestionIndex ? theme.accent : theme.muted}>
-              {idx === suggestionIndex ? "› " : "  "}
+              {idx === suggestionIndex ? "❯ " : "  "}
               {suggestionKind === "file" ? "@" : ""}
               {s.label}
-              {s.hint ? <Text color={theme.muted}>  {s.hint}</Text> : null}
+              {s.hint ? <Text color={theme.muted} dimColor>  {s.hint}</Text> : null}
             </Text>
           ))}
         </Box>

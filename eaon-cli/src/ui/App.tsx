@@ -16,6 +16,8 @@ import { COMMANDS, parseSlashCommand } from "../commands/index.js";
 import { confirmationDetail, confirmationSummary, isKnownTool } from "../tools/index.js";
 import { currentTodos, resetTodos } from "../tools/todoTool.js";
 import { resetKnownFiles } from "../tools/readTracker.js";
+import { killAllBackgroundJobs, runningJobCount } from "../tools/backgroundShell.js";
+import { clearCheckpoints, listCheckpoints, recordCheckpoint, restoreToCheckpoint } from "../session/checkpoints.js";
 import { listProjectFiles } from "../tools/searchTools.js";
 import { runShell } from "../tools/shellTool.js";
 import type { PathGuardContext } from "../tools/pathGuard.js";
@@ -23,15 +25,17 @@ import { deriveTitle, listSessions, loadSession, newSession, saveSession, type S
 import { PROJECT_NOTES_FILE, readProjectNotes, runInit } from "../project/init.js";
 import { applyDiscoveryToConfig, discoverDesktopCredentials, domainLabel, isLocalDiscoveryAvailable } from "../link/localAuth.js";
 import { runLinkServer } from "../link/server.js";
-import { platformLabel } from "../platform.js";
+import { isMac, isWindows, platformLabel } from "../platform.js";
+import { spawn } from "node:child_process";
 import { checkForBundledUpdate, updateNoticeLine } from "../updateCheck.js";
 import { Composer } from "./Composer.js";
 import { PermissionPrompt } from "./PermissionPrompt.js";
 import { MessageView } from "./MessageView.js";
 import { ErrorBoundary } from "./ErrorBoundary.js";
 import { ModelPicker } from "./ModelPicker.js";
+import { PlanReview } from "./PlanReview.js";
 import { WelcomeScreen } from "./WelcomeScreen.js";
-import { theme, MODE_LABEL, PERMISSION_COLORS, SPINNER_FRAMES } from "./theme.js";
+import { theme, MODE_LABEL, PERMISSION_COLORS, STAR_FRAMES, WORKING_VERBS } from "./theme.js";
 import { pickRandomQuote } from "./quotes.js";
 import type { DisplayMessage, LinkOutcome } from "./types.js";
 
@@ -41,6 +45,12 @@ export interface AppProps {
   initialModelKey: string | null;
   projectRoot: string;
   startInAuto: boolean;
+  /** --permission-mode: which tier to open in (plan/sandboxed/auto). */
+  startPermissionMode?: PermissionMode;
+  /** -r/--resume: open this saved session instead of a fresh one. */
+  resumeSessionId?: string;
+  /** -c/--continue: open the most recent session for this project. */
+  continueLatest?: boolean;
   /** --welcome: force the first-run screen even if already configured. */
   forceWelcome?: boolean;
 }
@@ -122,11 +132,20 @@ function buildHelpMarkdown(): string {
     "- **#**`note` — save a note to this project's EAON.md memory",
     "- **/**`name` — a slash command (autocompletes)",
     "",
+    "### How much it can do on its own",
+    "Press **Shift+Tab** to cycle:",
+    "- **Plan** — researches and proposes a plan; changes nothing until you approve it. Best way to start something big.",
+    "- **Sandboxed** — asks before every change.",
+    "- **Auto** — runs unattended.",
+    "",
     "### Keyboard",
-    "- **Shift+Tab** — toggle Sandboxed / Auto",
-    "- **Esc** — cancel the current generation",
+    "- **Shift+Tab** — cycle plan / sandboxed / auto",
+    "- **Esc** — interrupt the current turn",
+    "- **Enter while it's working** — queue a message for when it finishes (doesn't interrupt)",
     "- **Tab** — accept the highlighted autocomplete suggestion",
     "- **Up / Down** — command history (or move within a picker/suggestions)",
+    "- **Ctrl+A / Ctrl+E** — start / end of line · **Alt+B / Alt+F** — move by word",
+    "- **Ctrl+U / Ctrl+K / Ctrl+W** — delete to start / to end / previous word",
     "- **Ctrl+C** twice — exit",
     "- **\\\\** then Enter — insert a newline in the composer",
   ].join("\n");
@@ -215,29 +234,70 @@ function transcriptMarkdown(turns: Turn[], modelLabel: string): string {
   return lines.join("\n");
 }
 
+/** Writes text to the system clipboard by piping it into the platform's
+ * clipboard tool on stdin — which is why this can't go through runShell
+ * (that has no stdin channel, and putting arbitrary reply text on a shell
+ * command line would be both fragile and unsafe). Returns false rather
+ * than throwing when no clipboard tool exists (headless Linux, etc). */
+async function copyToClipboard(text: string): Promise<boolean> {
+  const candidates: Array<{ cmd: string; args: string[] }> = isMac
+    ? [{ cmd: "pbcopy", args: [] }]
+    : isWindows
+      ? [{ cmd: "clip", args: [] }]
+      : [
+          { cmd: "wl-copy", args: [] },
+          { cmd: "xclip", args: ["-selection", "clipboard"] },
+          { cmd: "xsel", args: ["--clipboard", "--input"] },
+        ];
+
+  for (const { cmd, args } of candidates) {
+    const ok = await new Promise<boolean>((resolve) => {
+      let child: ReturnType<typeof spawn>;
+      try {
+        child = spawn(cmd, args, { stdio: ["pipe", "ignore", "ignore"] });
+      } catch {
+        resolve(false);
+        return;
+      }
+      child.on("error", () => resolve(false));
+      child.on("close", (code) => resolve(code === 0));
+      try {
+        child.stdin?.end(text);
+      } catch {
+        resolve(false);
+      }
+    });
+    if (ok) return true;
+  }
+  return false;
+}
+
 const COMPACT_INSTRUCTION = `Summarize this coding session so a fresh instance of you can seamlessly continue the work. Include: (1) what the user is trying to accomplish overall, (2) what has actually been DONE so far — files created/changed (with paths) and what's in them, commands run and their real outcomes, (3) anything learned about the project/environment that isn't obvious (layout, conventions, gotchas hit), and (4) exactly where things stand now and what the next step was going to be. Be specific and factual — only include things that actually happened in this conversation. Reply with ONLY the summary text.`;
 
-/** The persistent whole-turn status line under the composer — spinner +
- * elapsed seconds for as long as the agent is working (streaming, running
- * tools, everything), same as Claude Code's working indicator. Entirely
- * self-contained state (own interval) so it costs the rest of the tree
- * nothing; it mounts when a turn starts and unmounts when it ends, which
- * also makes the elapsed time per-turn for free. */
+/** The persistent whole-turn status line under the composer — a pulsing
+ * ✻ star + elapsed seconds for as long as the agent is working (streaming,
+ * running tools, everything), the same breathe-in/breathe-out indicator
+ * rhythm Claude Code uses. One verb is picked per turn (mount), not per
+ * frame, so the line doesn't jitter. Entirely self-contained state (own
+ * interval) so it costs the rest of the tree nothing; it mounts when a
+ * turn starts and unmounts when it ends, which also makes the elapsed
+ * time per-turn for free. */
 function GenerationStatus(): React.ReactElement {
   const [frame, setFrame] = useState(0);
   const [seconds, setSeconds] = useState(0);
+  const [verb] = useState(() => WORKING_VERBS[Math.floor(Math.random() * WORKING_VERBS.length)]);
   useEffect(() => {
     const start = Date.now();
     const id = setInterval(() => {
-      setFrame((f) => (f + 1) % SPINNER_FRAMES.length);
+      setFrame((f) => (f + 1) % STAR_FRAMES.length);
       setSeconds(Math.floor((Date.now() - start) / 1000));
-    }, 120);
+    }, 140);
     return () => clearInterval(id);
   }, []);
   return (
     <Text color={theme.muted}>
       {"  "}
-      <Text color={theme.accent}>{SPINNER_FRAMES[frame]}</Text> working… {seconds}s · esc to interrupt · type + enter to redirect
+      <Text color={theme.accent}>{STAR_FRAMES[frame]}</Text> {verb}… <Text dimColor>({seconds}s · esc to interrupt · type + enter to redirect)</Text>
     </Text>
   );
 }
@@ -257,7 +317,7 @@ function AutoModeConfirm({ onAnswer }: { onAnswer: (yes: boolean) => void }): Re
   );
 }
 
-export function App({ version, initialMode, initialModelKey, projectRoot, startInAuto, forceWelcome }: AppProps): React.ReactElement {
+export function App({ version, initialMode, initialModelKey, projectRoot, startInAuto, startPermissionMode, resumeSessionId, continueLatest, forceWelcome }: AppProps): React.ReactElement {
   const { exit } = useApp();
   const [config, setConfig] = useState(() => loadConfig());
   // First install = no config file on disk yet — gates the one-time
@@ -265,7 +325,7 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
   // screen finishes, linked or not, so it can never show a second time.
   const [welcomeDone, setWelcomeDone] = useState(() => !forceWelcome && fs.existsSync(configFile()));
   const [mode, setMode] = useState<EaonMode>(initialMode);
-  const [permissionMode, setPermissionMode] = useState<PermissionMode>(startInAuto ? "auto" : "sandboxed");
+  const [permissionMode, setPermissionMode] = useState<PermissionMode>(startPermissionMode ?? (startInAuto ? "auto" : "sandboxed"));
   const [confirmingAuto, setConfirmingAuto] = useState(false);
   const [catalog, setCatalog] = useState<ModelEntry[]>([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
@@ -273,6 +333,13 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [pendingPermission, setPendingPermission] = useState<{ name: string; summary: string; detail?: string } | null>(null);
+  /** Plan mode: set while the model is waiting on the user to approve a
+   * plan. Resolved through planResolveRef, same bridge pattern as the
+   * permission prompt. */
+  const [pendingPlan, setPendingPlan] = useState<string | null>(null);
+  /** Messages typed while a turn was running — sent, in order, once it
+   * finishes. See handleSubmit and runLoop's finally. */
+  const [queuedMessages, setQueuedMessages] = useState<string[]>([]);
   const [submitHistory, setSubmitHistory] = useState<string[]>([]);
   const [statusText, setStatusText] = useState<string | null>(null);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
@@ -293,6 +360,7 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
 
   const turnsRef = useRef<Turn[]>([]);
   const permissionResolveRef = useRef<((a: PermissionAnswer) => void) | null>(null);
+  const planResolveRef = useRef<((a: PermissionAnswer) => void) | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const alwaysAllowRef = useRef<Set<string>>(new Set());
   const sessionIdRef = useRef<string>(randomUUID());
@@ -308,6 +376,10 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
    * big tree. Files created mid-session won't appear until relaunch; a fair
    * trade for instant autocomplete. */
   const fileIndexRef = useRef<string[] | null>(null);
+  /** expandMentions is defined below runLoop, but runLoop's queue drain
+   * needs it — a ref keeps the reference live without reordering the file
+   * or threading it through a dependency array. */
+  const expandMentionsRef = useRef<(text: string) => string>((t) => t);
 
   const pushSystem = useCallback((text: string, tone: "info" | "error" | "success" = "info") => {
     setMessages((prev) => [...prev, { id: randomUUID(), role: "system", text, tone }]);
@@ -356,6 +428,39 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
           recentSessions: listSessions(4),
         },
       ]);
+
+      // -c / -r: reopen a saved session instead of starting cold. Done here
+      // (after the banner) so the restored transcript reads as history above
+      // the composer, exactly like /resume does mid-session.
+      if (resumeSessionId || continueLatest) {
+        // listSessions is already newest-first, so [0] is "the last one".
+        // -c is scoped to THIS project: continuing an unrelated project's
+        // conversation in a new directory would be actively confusing.
+        const summaries = listSessions(200);
+        const target = resumeSessionId
+          ? summaries.find((s) => s.id === resumeSessionId || s.id.startsWith(resumeSessionId))
+          : summaries.find((s) => loadSession(s.id)?.projectRoot === projectRoot);
+        const loaded = target ? loadSession(target.id) : null;
+        if (!loaded) {
+          pushSystem(
+            resumeSessionId
+              ? `No saved session matching "${resumeSessionId}" — starting fresh.`
+              : "No previous session to continue — starting fresh.",
+            "info"
+          );
+        } else {
+          turnsRef.current = loaded.turns;
+          sessionIdRef.current = loaded.id;
+          setMode(loaded.mode);
+          if (loaded.modelKey) {
+            const found = findModel(result.models, loaded.modelKey);
+            if (found) setModel(found);
+          }
+          setMessages((prev) => [...prev, ...turnsToDisplayMessages(loaded.turns)]);
+          setContextTokens(estimateTokens(loaded.turns));
+          pushSystem(`Continuing "${loaded.title}".`, "success");
+        }
+      }
 
       const notes = readProjectNotes(projectRoot);
       if (result.aquaError) pushSystem(`Aqua models unavailable: ${result.aquaError}`, "error");
@@ -438,7 +543,15 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
     };
 
     const loopState = buildLoopState();
-    const gen = runAgentTurn(loopState, { signal: controller.signal });
+    const gen = runAgentTurn(loopState, {
+      signal: controller.signal,
+      // Snapshot every file the agent is about to change, so /rewind can
+      // put it back. Resolved against the project root here because the
+      // tool layer hands us whatever path the model wrote.
+      onBeforeFileChange: (filePath, label) => {
+        recordCheckpoint(sessionIdRef.current, path.resolve(projectRoot, filePath), label);
+      },
+    });
     let sendValue: PermissionAnswer | undefined;
 
     try {
@@ -483,6 +596,30 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
           });
           setPendingPermission(null);
           permissionResolveRef.current = null;
+        } else if (event.type === "plan_proposed") {
+          if (flushTimer !== null) {
+            clearTimeout(flushTimer);
+            flush();
+          }
+          const answer = await new Promise<PermissionAnswer>((resolve) => {
+            planResolveRef.current = resolve;
+            setPendingPlan(event.plan);
+          });
+          setPendingPlan(null);
+          planResolveRef.current = null;
+          sendValue = answer;
+          if (answer === "approve") {
+            // The loop flipped ITS copy to auto so the same turn continues;
+            // mirror that here so the footer and the next turn agree.
+            setPermissionMode("auto");
+            pushSystem("Plan approved — working on it. (auto-accept is on for the rest of this session)", "success");
+          } else {
+            pushSystem("Plan not approved — still planning. Tell it what to change.", "info");
+          }
+        } else if (event.type === "subagent_start") {
+          pushSystem(`⌘ delegating: ${event.description}…`, "info");
+        } else if (event.type === "subagent_end") {
+          pushSystem(`⌘ done: ${event.description}`, "info");
         } else if (event.type === "tool_result") {
           if (event.name === "todo_write") setTodoVersion((v) => v + 1);
           setMessages((prev) => {
@@ -519,14 +656,23 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
       setContextTokens(estimateTokens(turnsRef.current));
       persistCurrentSession();
 
-      // An interrupt arrived mid-turn (see handleSubmit) — the old turn
-      // has now genuinely finished unwinding (we're past the abort), so
-      // it's safe to start the redirected one.
+      // Anything typed while this turn was running (see handleSubmit) now
+      // goes through as the next turn, in the order it was typed. Multiple
+      // queued lines are joined into one turn rather than run as separate
+      // turns — they were written as one thought while waiting.
       const resubmit = interruptResubmitRef.current;
-      if (resubmit !== null) {
-        interruptResubmitRef.current = null;
-        setMessages((prev) => [...prev, { id: randomUUID(), role: "user", text: resubmit }]);
-        turnsRef.current.push({ role: "user", content: resubmit });
+      interruptResubmitRef.current = null;
+      let queuedText: string | null = null;
+      setQueuedMessages((q) => {
+        if (q.length > 0) queuedText = q.join("\n");
+        return [];
+      });
+      // setQueuedMessages' updater runs synchronously here, so queuedText is
+      // populated by this point; the ref covers the older interrupt path.
+      const next = [resubmit, queuedText].filter((s): s is string => typeof s === "string" && s.trim().length > 0).join("\n");
+      if (next.length > 0) {
+        setMessages((prev) => [...prev, { id: randomUUID(), role: "user", text: next }]);
+        turnsRef.current.push({ role: "user", content: expandMentionsRef.current(next) });
         void runLoop().catch((e) => pushSystem(`Unexpected error: ${e instanceof Error ? e.message : String(e)}`, "error"));
       }
     }
@@ -883,8 +1029,81 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
           }
           return;
         }
+        case "rewind": {
+          const entries = listCheckpoints(sessionIdRef.current);
+          if (entries.length === 0) {
+            pushSystem("Nothing to rewind — the agent hasn't changed any files this session.\n\nNote: /rewind covers files changed through write_file, edit_file, move_item and trash_item. Changes made by a shell command (or by you, outside Eaon) aren't snapshotted — use git for those.", "info");
+            return;
+          }
+          if (!outcome.checkpointId) {
+            const lines = entries
+              .slice()
+              .reverse()
+              .slice(0, 20)
+              .map((e) => `  ${e.id}  ${new Date(e.createdAt).toLocaleTimeString()}  ${e.label}  —  ${path.relative(projectRoot, e.filePath) || e.filePath}`);
+            pushSystem(
+              [
+                `${entries.length} restore point${entries.length === 1 ? "" : "s"} (newest first):`,
+                ...lines,
+                "",
+                "Rewind with /rewind <id> — that undoes that change and everything after it.",
+              ].join("\n")
+            );
+            return;
+          }
+          const match = entries.find((e) => e.id === outcome.checkpointId) ?? entries.find((e) => e.id.startsWith(outcome.checkpointId!));
+          if (!match) {
+            pushSystem(`No restore point "${outcome.checkpointId}". Run /rewind with no argument to list them.`, "error");
+            return;
+          }
+          const restored = restoreToCheckpoint(sessionIdRef.current, match.id);
+          if (!restored) {
+            pushSystem(`Couldn't rewind to ${match.id}.`, "error");
+            return;
+          }
+          resetKnownFiles(); // the tree changed underneath the model — make it re-read
+          const parts = [`Rewound to before "${match.label}" — restored ${restored.restored.length} file${restored.restored.length === 1 ? "" : "s"}.`];
+          if (restored.failed.length > 0) {
+            parts.push(`Couldn't restore ${restored.failed.length}: ${restored.failed.map((f) => `${path.basename(f.filePath)} (${f.reason})`).join(", ")}`);
+          }
+          pushSystem(parts.join("\n"), restored.failed.length > 0 ? "error" : "success");
+          return;
+        }
+        case "diff": {
+          const result = await runShell({ command: "git --no-pager diff --stat && git --no-pager diff" }, { projectRoot } as PathGuardContext);
+          const body = result.text.replace(/^exit code: \d+\n/, "").trim();
+          if (result.isError && /not a git repository/i.test(body)) {
+            pushSystem("This project isn't a git repository, so there's nothing to diff.", "info");
+            return;
+          }
+          if (body.length === 0 || body === "(no output)") {
+            pushSystem("No uncommitted changes.", "info");
+            return;
+          }
+          pushMarkdown(["## Uncommitted changes", "", "```diff", body.length > 12_000 ? body.slice(0, 12_000) + "\n…(truncated)" : body, "```"].join("\n"));
+          return;
+        }
+        case "copy": {
+          const lastAssistant = [...turnsRef.current].reverse().find((t) => t.role === "assistant" && t.content.trim().length > 0);
+          if (!lastAssistant) {
+            pushSystem("Nothing to copy yet.", "info");
+            return;
+          }
+          const written = await copyToClipboard(lastAssistant.content.trim());
+          pushSystem(
+            written ? "Copied the last reply to the clipboard." : "Couldn't reach a clipboard tool (tried pbcopy / clip / xclip / wl-copy).",
+            written ? "success" : "error"
+          );
+          return;
+        }
+        case "bashes": {
+          const count = runningJobCount();
+          pushSystem(count === 0 ? "No background commands are running." : `${count} background command${count === 1 ? "" : "s"} running. The agent can check them with check_shell.`, "info");
+          return;
+        }
         case "exit":
           persistCurrentSession();
+          killAllBackgroundJobs();
           exit();
           return;
       }
@@ -932,6 +1151,7 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
     },
     [projectRoot]
   );
+  expandMentionsRef.current = expandMentions;
 
   // `!command` — run a shell command directly (Claude-Code's bash mode). The
   // output is shown as a tool row AND folded into the conversation as
@@ -1010,15 +1230,12 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
       }
       setSubmitHistory((h) => [...h, text]);
       if (isGenerating) {
-        // Interrupt: stop the in-flight turn now, and let it hand off to
-        // this new message once it's actually finished unwinding (see
-        // runLoop's finally) — exactly Claude Code's "just start typing
-        // to redirect" behavior instead of forcing Esc-then-retype.
-        // (Raw text, not mention-expanded: the resubmit string is shown
-        // on screen verbatim in runLoop's finally, so expanding it would
-        // dump file contents into the transcript.)
-        interruptResubmitRef.current = text;
-        abortRef.current?.abort();
+        // QUEUE rather than interrupt. On a long autonomous run you often
+        // want to add "also update the README" without derailing the work
+        // in flight — so typing sends the message to the back of the line
+        // and the agent picks it up when the current turn finishes. Esc is
+        // still there for a real interrupt.
+        setQueuedMessages((q) => [...q, text]);
         return;
       }
       setMessages((prev) => [...prev, { id: randomUUID(), role: "user", text }]);
@@ -1028,13 +1245,23 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
     [handleCommand, runLoop, isGenerating, pushSystem, handleBash, handleMemoryNote, expandMentions]
   );
 
+  /** Shift+Tab cycles plan → sandboxed → auto → plan, the same rotation
+   * Claude Code uses. Stepping INTO auto still asks for confirmation (it's
+   * the one tier with no gate left), but stepping into plan or sandboxed —
+   * both strictly safer — is immediate. */
   const handleTogglePermission = useCallback(() => {
     if (isGenerating) return;
-    if (permissionMode === "sandboxed") setConfirmingAuto(true);
-    else {
+    if (permissionMode === "plan") {
       setPermissionMode("sandboxed");
-      pushSystem("Switched to Sandboxed — every action will ask first.");
+      pushSystem("Sandboxed — it can edit, but asks before every change.", "info");
+      return;
     }
+    if (permissionMode === "sandboxed") {
+      setConfirmingAuto(true);
+      return;
+    }
+    setPermissionMode("plan");
+    pushSystem("Plan mode — it researches and proposes, and changes nothing until you approve.", "info");
   }, [permissionMode, isGenerating, pushSystem]);
 
   const handleAutoAnswer = useCallback(
@@ -1082,6 +1309,7 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
       const now = Date.now();
       if (now - lastCtrlCRef.current < 1500) {
         persistCurrentSession();
+        killAllBackgroundJobs();
         exit();
       } else {
         lastCtrlCRef.current = now;
@@ -1101,7 +1329,7 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
   // model is mid-turn is how an interrupt happens (see handleSubmit /
   // handleCancel) — Claude Code's own "just start typing to redirect"
   // behavior, rather than forcing Esc-then-wait-then-retype.
-  const composerActive = !pendingPermission && !confirmingAuto && !modelPickerOpen;
+  const composerActive = !pendingPermission && !pendingPlan && !confirmingAuto && !modelPickerOpen;
 
   // First launch ever (no config file on disk yet): show the wordmark +
   // log-in screen instead of the normal app. The startup effect above is
@@ -1134,22 +1362,29 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
       )}
 
       {/* Pinned checklist while the agent works through multi-step tasks —
-          hidden once everything is completed. todoVersion re-reads it. */}
+          hidden once everything is completed. todoVersion re-reads it.
+          Styled as a quiet tree (dim border, ⎿-style rows) rather than a
+          loud panel — it's ambient progress, not a dialog. */}
       {(() => {
         void todoVersion;
         const todos = currentTodos();
         if (todos.length === 0 || todos.every((t) => t.status === "completed")) return null;
+        const done = todos.filter((t) => t.status === "completed").length;
         return (
-          <Box flexDirection="column" borderStyle="round" borderColor={theme.muted} paddingX={1} marginTop={1}>
+          <Box flexDirection="column" borderStyle="round" borderColor={theme.border} paddingX={1} marginTop={1}>
+            <Text color={theme.muted}>Todos <Text dimColor>({done}/{todos.length} done)</Text></Text>
             {todos.map((t, i) => (
-              <Text key={i} color={t.status === "completed" ? theme.muted : t.status === "in_progress" ? theme.accent : theme.assistant} strikethrough={t.status === "completed"}>
-                {t.status === "completed" ? "☑" : t.status === "in_progress" ? "◐" : "☐"} {t.content}
+              <Text key={i} color={t.status === "completed" ? theme.muted : t.status === "in_progress" ? theme.accent : theme.assistant} strikethrough={t.status === "completed"} dimColor={t.status === "completed"}>
+                {"  "}{t.status === "completed" ? "☒" : t.status === "in_progress" ? "◐" : "☐"} {t.content}
               </Text>
             ))}
           </Box>
         );
       })()}
 
+      {pendingPlan !== null && (
+        <PlanReview plan={pendingPlan} onAnswer={(approve) => planResolveRef.current?.(approve ? "approve" : "deny")} />
+      )}
       {pendingPermission && (
         <PermissionPrompt name={pendingPermission.name} summary={pendingPermission.summary} detail={pendingPermission.detail} onAnswer={handlePermissionAnswer} />
       )}
@@ -1167,18 +1402,33 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
           onCancel={handleCancel}
           queryFiles={queryFiles}
           mode={mode}
-          permissionMode={permissionMode}
         />
       </Box>
       {isGenerating && <GenerationStatus />}
-      <Box justifyContent="space-between">
-        <Text color={theme.muted}>
-          {MODE_LABEL[mode]} · {model ? describeEntry(model) : catalogLoading ? "Loading models…" : "no model — /model"}
+      {queuedMessages.length > 0 && (
+        <Box flexDirection="column" paddingX={1}>
+          {queuedMessages.map((q, i) => (
+            <Text key={i} color={theme.muted} dimColor>
+              ↳ queued: {q.length > 70 ? q.slice(0, 67) + "…" : q}
+            </Text>
+          ))}
+        </Box>
+      )}
+      {/* The status footer, Claude-Code style: everything dim except the
+          one thing that changes behavior (auto-accept), which earns its
+          warning color exactly because it means "no confirmation gate". */}
+      <Box justifyContent="space-between" paddingX={1}>
+        <Text color={theme.muted} dimColor>
+          {MODE_LABEL[mode].toLowerCase()} · {model ? describeEntry(model) : catalogLoading ? "loading models…" : "no model — /model"}
           {contextTokens > 0 ? ` · ~${contextTokens >= 1000 ? `${(contextTokens / 1000).toFixed(1)}k` : contextTokens} tokens` : ""}
         </Text>
-        <Text color={permissionMode === "auto" ? PERMISSION_COLORS.auto : PERMISSION_COLORS.sandboxed}>
-          {permissionMode === "auto" ? "⏵⏵ auto-accept · shift+tab" : "○ sandboxed · shift+tab"}
-        </Text>
+        {permissionMode === "auto" ? (
+          <Text color={PERMISSION_COLORS.auto}>⏵⏵ auto-accept on <Text dimColor>(shift+tab)</Text></Text>
+        ) : permissionMode === "plan" ? (
+          <Text color={PERMISSION_COLORS.plan}>⏸ plan mode <Text dimColor>(shift+tab)</Text></Text>
+        ) : (
+          <Text color={theme.muted} dimColor>ask before edits (shift+tab)</Text>
+        )}
       </Box>
     </Box>
   );

@@ -1,38 +1,66 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Eaon",
-  "version": "2026.3.0",
+  "version": "2026.3.5",
   "identifier": "dev.eaon.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
     "beforeBuildCommand": "npm run build",
-    "frontendDist": "../build"
+    "frontendDist": "../dist"
   },
   "app": {
     "windows": [
       {
         "title": "Eaon",
-        "width": 1040,
+        "label": "main",
+        "width": 1080,
         "height": 720,
-        "minWidth": 720,
-        "minHeight": 480,
+        "minWidth": 760,
+        "minHeight": 500,
+        "center": true,
         "decorations": false
       }
     ],
     "security": {
-      "csp": null
+      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: asset: http://asset.localhost; font-src 'self' data:; connect-src ipc: http://ipc.localhost"
+    }
+  },
+  "plugins": {
+    "updater": {
+      "active": true,
+      "endpoints": [
+        "https://github.com/sanscreates/eaon-desktop/releases/latest/download/latest.json"
+      ],
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEM1NTBDRjIzRjc3REFDNkQKUldSdHJIMzNJODlReFd4TnlVc2ozd2JHeGxhV0FCT09qZkhESWdDdHBJdWRtODdhMEZOZ0t4ZSsK"
     }
   },
   "bundle": {
     "active": true,
+    "createUpdaterArtifacts": true,
     "targets": "all",
+    "category": "Productivity",
+    "shortDescription": "Chat with hosted, BYOK, and local AI models",
+    "longDescription": "Eaon is a desktop chat client for Eaon's hosted models, your own API keys (OpenAI-compatible, Anthropic, Gemini), and fully local models via Ollama — with an on-device coding agent, plugins, memory, and image generation.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
       "icons/128x128@2x.png",
       "icons/icon.icns",
       "icons/icon.ico"
-    ]
+    ],
+    "resources": {
+      "../resources/eaon-cli": "eaon-cli"
+    },
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper"
+      }
+    },
+    "linux": {
+      "appimage": {
+        "bundleMediaFramework": false
+      }
+    }
   }
 }

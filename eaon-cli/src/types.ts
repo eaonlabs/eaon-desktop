@@ -5,7 +5,14 @@
 // fresh implementation, not a code port.
 
 export type EaonMode = "chat" | "agent" | "claw";
-export type PermissionMode = "sandboxed" | "auto";
+/** How much the agent may do without asking:
+ *  - plan:      read/search freely, but every mutating tool is refused —
+ *               the model researches and proposes, the user approves before
+ *               anything changes. The tier that makes big autonomous work
+ *               safe to start.
+ *  - sandboxed: every mutating action asks first (the default).
+ *  - auto:      mutating actions run immediately (unattended). */
+export type PermissionMode = "plan" | "sandboxed" | "auto";
 export type Role = "system" | "user" | "assistant" | "tool";
 
 export interface ToolCallRequest {

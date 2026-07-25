@@ -9,14 +9,30 @@ import type { PathGuardContext } from "./pathGuard.js";
 import * as fsTools from "./fsTools.js";
 import * as openTools from "./openTools.js";
 import { runShell } from "./shellTool.js";
+import { checkBackgroundShell, startBackgroundShell, stopBackgroundShell } from "./backgroundShell.js";
 import { globSearch, grepSearch } from "./searchTools.js";
 import { writeTodos } from "./todoTool.js";
+import { webFetch, webSearch } from "./webTools.js";
 import type { ToolDefinition, ToolResult } from "../types.js";
 
 export type ToolName =
   | "list_directory" | "move_item" | "create_folder" | "write_file" | "edit_file" | "read_file"
   | "grep" | "glob" | "todo_write"
+  | "web_search" | "web_fetch"
+  | "run_shell_background" | "check_shell" | "stop_shell"
+  | "task" | "exit_plan_mode"
   | "trash_item" | "run_shell" | "open_app" | "quit_app" | "open_url" | "open_path" | "run_applescript";
+
+/** Everything a tool may need beyond path resolution. `runSubagent` is
+ * injected by the agent loop (tools can't import it — that would be a
+ * circular dependency), which is what lets the `task` tool spawn a nested
+ * agent without this module knowing the loop exists. */
+export interface ToolContext extends PathGuardContext {
+  runSubagent?: (prompt: string, description: string) => Promise<string>;
+  /** Set by the loop so mutating tools can snapshot a file before changing
+   * it — see session/checkpoints.ts and /rewind. */
+  onBeforeFileChange?: (filePath: string, label: string) => void;
+}
 
 interface ToolSpec {
   name: ToolName;
@@ -67,7 +83,11 @@ const SPECS: ToolSpec[] = [
     }, required: ["path", "search", "replace"] },
   },
   {
-    name: "read_file",
+    // Reading is harmless and is most of what the agent does — prompting
+    // for it was pure friction in sandboxed mode, and in plan mode (which
+    // refuses every mutating tool) it would have blocked research entirely,
+    // making plan mode useless.
+    name: "read_file", readOnly: true,
     description: "Read a text file's contents back. For a big file, read a slice with offset/limit instead of the whole thing.",
     parameters: { type: "object", properties: {
       path: str("Path of the text file to read."),
@@ -105,6 +125,61 @@ const SPECS: ToolSpec[] = [
         }, required: ["content", "status"] },
       },
     }, required: ["todos"] },
+  },
+  {
+    name: "web_search", readOnly: true,
+    description: "Search the web. Use this the moment you're unsure about a library's current API, an error message, a version, or anything that may have changed since your training data — guessing wastes a whole build cycle. Returns titles, URLs and snippets; follow up with web_fetch to read a page.",
+    parameters: { type: "object", properties: {
+      query: str("What to search for, phrased as you'd type it into a search box."),
+    }, required: ["query"] },
+  },
+  {
+    name: "web_fetch", readOnly: true,
+    description: "Fetch a URL and return its readable text (HTML is stripped to prose). The way to read documentation, a README, an API reference, or a changelog before writing code against it.",
+    parameters: { type: "object", properties: {
+      url: str("The full URL to fetch, e.g. https://docs.example.com/api."),
+    }, required: ["url"] },
+  },
+  {
+    name: "run_shell_background",
+    description: "Start a long-running command that should NOT block the turn — a dev server, a watch build, a long test suite. Returns an id immediately; poll it with check_shell and end it with stop_shell. Use this instead of run_shell for anything that doesn't exit on its own (run_shell is killed after 2 minutes).",
+    parameters: { type: "object", properties: {
+      command: str("The shell command to start, e.g. npm run dev."),
+      working_directory: str("Optional path to run in. Defaults to the project folder."),
+    }, required: ["command"] },
+  },
+  {
+    name: "check_shell", readOnly: true,
+    description: "Read new output from a background command started with run_shell_background. Each call returns only what's new since the last check, so you can poll a server's log while it runs. Call with no id to list everything still running.",
+    parameters: { type: "object", properties: {
+      id: str('The background job id, e.g. "bg_1". Omit to list all running jobs.'),
+    }, required: [] },
+  },
+  {
+    name: "stop_shell",
+    description: "Stop a background command started with run_shell_background.",
+    parameters: { type: "object", properties: { id: str('The background job id, e.g. "bg_1".') }, required: ["id"] },
+  },
+  {
+    // NOT read-only: a sub-agent has the full tool set and can write files,
+    // so treating delegation as harmless would let the model route around
+    // sandboxed mode's confirmation gate entirely (sub-agents don't prompt).
+    // Confirming the delegation once is the honest gate. Plan mode allows it
+    // explicitly instead — see the plan-mode check in agent/loop.ts, where
+    // it's safe because the sub-agent inherits plan mode too.
+    name: "task",
+    description: "Delegate a self-contained piece of work to a fresh sub-agent that has the same tools you do, and get back a written report of what it found or did. Use this to keep your own context clean on big jobs: exploring an unfamiliar area of the codebase, or carrying out one well-scoped chunk of a larger plan. Give it EVERYTHING it needs — it cannot see your conversation. Not for trivial one-tool jobs (just call the tool), and it can't ask the user questions.",
+    parameters: { type: "object", properties: {
+      description: str('A 3-6 word label for what this sub-agent is doing, e.g. "audit auth middleware".'),
+      prompt: str("The complete, self-contained instruction. State the goal, the relevant paths/context, and exactly what to report back. The sub-agent starts with no knowledge of this conversation."),
+    }, required: ["description", "prompt"] },
+  },
+  {
+    name: "exit_plan_mode",
+    description: "Present your finished plan and ask the user to approve it. ONLY for plan mode, and only once you've actually researched enough to write a concrete plan — this is the single way out of plan mode. Do not call it to describe research you haven't done yet.",
+    parameters: { type: "object", properties: {
+      plan: str("The plan, in concise markdown: what you'll change, which files, and in what order."),
+    }, required: ["plan"] },
   },
   {
     name: "trash_item",
@@ -153,7 +228,14 @@ const SPEC_BY_NAME = new Map(SPECS.map((s) => [s.name, s]));
 
 /** The coding core of the Agent's tool set — kept as its own list because
  * the system prompt teaches these first, in this order. */
-export const CODING_TOOLS: ToolName[] = ["grep", "glob", "read_file", "write_file", "edit_file", "run_shell", "list_directory", "create_folder", "move_item", "todo_write", "open_path"];
+export const CODING_TOOLS: ToolName[] = ["grep", "glob", "read_file", "write_file", "edit_file", "run_shell", "list_directory", "create_folder", "move_item", "todo_write", "task", "web_search", "web_fetch", "open_path"];
+
+/** Tools that change something — the ones plan mode refuses and sandboxed
+ * mode gates behind a prompt. Derived from `readOnly` so a new tool can
+ * never accidentally slip past the gate by being forgotten in a list here. */
+export function isMutatingTool(name: ToolName): boolean {
+  return !isReadOnlyTool(name);
+}
 
 /** Everything this platform can actually do — Agent's full catalog. Eaon
  * Claw used to be a separate mode holding the wider (app/URL/AppleScript)
@@ -163,10 +245,20 @@ export function agentTools(): ToolName[] {
   return SPECS.filter((s) => !s.available || s.available()).map((s) => s.name);
 }
 
-export function toolsForMode(mode: "chat" | "agent" | "claw"): ToolName[] {
+export function toolsForMode(
+  mode: "chat" | "agent" | "claw",
+  opts: { isSubagent?: boolean; permissionMode?: "plan" | "sandboxed" | "auto" } = {}
+): ToolName[] {
   if (mode === "chat") return [];
   // "claw" only ever arrives from an old saved session — same catalog now.
-  return agentTools();
+  let names = agentTools();
+  // A sub-agent can't spawn sub-agents (one level only) and has no plan of
+  // its own to exit — offering either would just invite wasted calls.
+  if (opts.isSubagent) names = names.filter((n) => n !== "task" && n !== "exit_plan_mode");
+  // exit_plan_mode only exists as an escape hatch FROM plan mode; outside
+  // it, offering the tool just tempts a confusing no-op call.
+  else if (opts.permissionMode !== "plan") names = names.filter((n) => n !== "exit_plan_mode");
+  return names;
 }
 
 export function toolDefinitions(names: ToolName[]): ToolDefinition[] {
@@ -244,6 +336,13 @@ export function confirmationSummary(name: ToolName, args: Record<string, unknown
     case "grep": return `Search for /${s("pattern")}/${typeof args.include === "string" ? ` in ${args.include}` : ""}`;
     case "glob": return `Find files: ${s("pattern")}`;
     case "todo_write": return "Update todo list";
+    case "web_search": return `Search the web: ${s("query")}`;
+    case "web_fetch": return `Fetch ${s("url")}`;
+    case "run_shell_background": return "Start a background command";
+    case "check_shell": return "Check background output";
+    case "stop_shell": return `Stop background job ${s("id")}`;
+    case "task": return `Delegate: ${s("description")}`;
+    case "exit_plan_mode": return "Present the plan for approval";
     case "trash_item": return `Move to Trash: ${s("path")}`;
     case "run_shell": return "Run shell command";
     case "open_app": return `Open app: ${s("name")}`;
@@ -265,17 +364,31 @@ function shorten(value: string, max = 48): string {
  * indentation already carry the "this is a tool call" meaning. */
 export function toolInvocationLabel(name: ToolName, args: Record<string, unknown>): string {
   const s = (key: string) => (typeof args[key] === "string" ? (args[key] as string) : "");
+  // File tools show the path as the model wrote it (normally project-
+  // relative), tail-truncated if long — more useful than a bare basename
+  // when several files share a name, and the diff below no longer repeats it.
+  const p = (key: string) => {
+    const raw = s(key);
+    return raw.length > 52 ? "…" + raw.slice(raw.length - 51) : raw;
+  };
   switch (name) {
-    case "read_file": return `Read(${lastComponent(s("path"))})`;
-    case "write_file": return `Write(${lastComponent(s("path"))})`;
-    case "edit_file": return `Edit(${lastComponent(s("path"))})`;
-    case "list_directory": return `List(${lastComponent(s("path")) || "."})`;
-    case "create_folder": return `Create dir(${lastComponent(s("path"))})`;
+    case "read_file": return `Read(${p("path")})`;
+    case "write_file": return `Write(${p("path")})`;
+    case "edit_file": return `Edit(${p("path")})`;
+    case "list_directory": return `List(${p("path") || "."})`;
+    case "create_folder": return `Create dir(${p("path")})`;
     case "move_item": return `Move(${lastComponent(s("from"))} → ${lastComponent(s("to"))})`;
-    case "trash_item": return `Trash(${lastComponent(s("path"))})`;
+    case "trash_item": return `Trash(${p("path")})`;
     case "grep": return `Grep(${shorten(s("pattern"), 40)})`;
     case "glob": return `Glob(${shorten(s("pattern"), 40)})`;
     case "todo_write": return "Update todos";
+    case "web_search": return `Search(${shorten(s("query"), 44)})`;
+    case "web_fetch": return `Fetch(${shorten(s("url"), 48)})`;
+    case "run_shell_background": return `Bash bg(${shorten(s("command"), 44)})`;
+    case "check_shell": return `Check(${s("id") || "all"})`;
+    case "stop_shell": return `Stop(${s("id")})`;
+    case "task": return `Task(${shorten(s("description"), 44)})`;
+    case "exit_plan_mode": return "Plan ready";
     case "run_shell": return `Bash(${shorten(s("command"), 52)})`;
     case "open_app": return `Open app(${shorten(s("name"), 30)})`;
     case "quit_app": return `Quit app(${shorten(s("name"), 30)})`;
@@ -300,7 +413,20 @@ export function confirmationDetail(name: ToolName, args: Record<string, unknown>
   }
 }
 
-export async function executeTool(name: ToolName, args: Record<string, unknown>, ctx: PathGuardContext): Promise<ToolResult> {
+export async function executeTool(name: ToolName, args: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult> {
+  // Snapshot before anything that can destroy existing content, so /rewind
+  // has something to restore. Best-effort and never blocks the edit itself.
+  if (ctx.onBeforeFileChange) {
+    const target = typeof args.path === "string" ? args.path : typeof args.from === "string" ? args.from : null;
+    if (target && (name === "write_file" || name === "edit_file" || name === "trash_item" || name === "move_item")) {
+      try {
+        ctx.onBeforeFileChange(target, toolInvocationLabel(name, args));
+      } catch {
+        // checkpointing must never break the tool call
+      }
+    }
+  }
+
   switch (name) {
     case "list_directory": return fsTools.listDirectory(args, ctx);
     case "move_item": return fsTools.moveItem(args, ctx);
@@ -311,6 +437,29 @@ export async function executeTool(name: ToolName, args: Record<string, unknown>,
     case "grep": return grepSearch(args, ctx);
     case "glob": return globSearch(args, ctx);
     case "todo_write": return writeTodos(args);
+    case "web_search": return webSearch(args);
+    case "web_fetch": return webFetch(args);
+    case "run_shell_background": return startBackgroundShell(args, ctx);
+    case "check_shell": return checkBackgroundShell(args);
+    case "stop_shell": return stopBackgroundShell(args);
+    case "task": {
+      const description = typeof args.description === "string" ? args.description.trim() : "";
+      const prompt = typeof args.prompt === "string" ? args.prompt.trim() : "";
+      if (prompt.length === 0) return { isError: true, text: 'ERROR: "prompt" is required — the sub-agent cannot see this conversation, so it needs the complete instruction.' };
+      if (!ctx.runSubagent) return { isError: true, text: "ERROR: sub-agents aren't available in this context." };
+      try {
+        const report = await ctx.runSubagent(prompt, description || "subtask");
+        return { isError: false, text: report };
+      } catch (e) {
+        return { isError: true, text: `Sub-agent failed: ${e instanceof Error ? e.message : String(e)}` };
+      }
+    }
+    case "exit_plan_mode": {
+      // The loop intercepts this before execution ever gets here (it needs
+      // to suspend for the user's approval); reaching this point means it
+      // was called outside plan mode.
+      return { isError: true, text: "You're not in plan mode, so there's no plan to approve — just do the work." };
+    }
     case "trash_item": return fsTools.trashItem(args, ctx);
     case "run_shell": return runShell(args, ctx);
     case "open_app": return openTools.openApp(args);

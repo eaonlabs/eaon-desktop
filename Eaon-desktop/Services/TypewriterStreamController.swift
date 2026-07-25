@@ -6,6 +6,16 @@ final class TypewriterStreamController {
     private var displayedCount = 0
     private var streamFinished = false
     private var typingTask: Task<Void, Never>?
+    /// Bumped every time a reveal loop is started, cancelled, or reset, so a
+    /// loop that is finishing can only clear `typingTask` if it's still the
+    /// current one. Without it, an old loop's trailing `typingTask = nil`
+    /// could land *after* a newer `append` had installed a replacement,
+    /// leaving `typingTask` nil with a live loop still running — the next
+    /// `append` would then start a SECOND loop and both would race to
+    /// advance `displayedCount`, revealing text in jumps. Only reachable
+    /// via `cancel()`/`reset()`, which is exactly what the truncated-stream
+    /// retry below does mid-reply.
+    private var typingGeneration = 0
 
     private var recentArrivalRate: Double = 48
     private var lastAppendDate: Date?
@@ -71,11 +81,31 @@ final class TypewriterStreamController {
     }
 
     func cancel() {
+        typingGeneration += 1
         typingTask?.cancel()
         typingTask = nil
         streamFinished = true
         displayedCount = characters.count
         onDisplayUpdate(String(characters))
+    }
+
+    /// Throws away everything appended so far and starts over from empty.
+    ///
+    /// Used when a reply's stream is retried after being cut off mid-answer
+    /// (see `StreamContinuity`): the abandoned attempt's partial text is not
+    /// a prefix of the fresh attempt's answer — the model starts from the
+    /// beginning again — so keeping it would splice two different replies
+    /// together. The bubble goes momentarily blank and re-types, which is
+    /// the honest depiction of what actually happened.
+    func reset() {
+        typingGeneration += 1
+        typingTask?.cancel()
+        typingTask = nil
+        characters = []
+        displayedCount = 0
+        streamFinished = false
+        lastAppendDate = nil
+        onDisplayUpdate("")
     }
 
     /// One reveal per ~display frame, never faster. The old loop shrank the
@@ -94,6 +124,8 @@ final class TypewriterStreamController {
     private func startTypingIfNeeded() {
         guard typingTask == nil else { return }
 
+        typingGeneration += 1
+        let generation = typingGeneration
         typingTask = Task {
             while !Task.isCancelled {
                 let pending = backlog
@@ -109,7 +141,7 @@ final class TypewriterStreamController {
                     try? await Task.sleep(for: .milliseconds(12))
                 }
             }
-            typingTask = nil
+            if typingGeneration == generation { typingTask = nil }
         }
     }
 

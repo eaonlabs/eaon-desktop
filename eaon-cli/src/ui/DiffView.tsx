@@ -1,8 +1,11 @@
-// Renders what write_file/edit_file actually did, Claude-Code-style: real
-// line numbers, +/- coloring. write_file shows every line as added (this
-// layer only ever has the new content, never the file's prior state, so
-// that's an honest framing, not a limitation to hide) — edit_file gets a
-// real diff from its own search/replace, independently numbered per side.
+// Renders what write_file/edit_file actually did, in the Claude-Code/
+// Cursor visual language: dim line numbers in a gutter, and changed lines
+// as solid background-tinted blocks (green for added, red for removed) —
+// not just colored +/- glyphs, which get lost at a glance. write_file
+// shows every line as added (this layer only ever has the new content,
+// never the file's prior state, so that's an honest framing, not a
+// limitation to hide) — edit_file gets a real diff from its own
+// search/replace, independently numbered per side.
 
 import React from "react";
 import { Box, Text } from "ink";
@@ -15,19 +18,33 @@ function splitTrailingBlank(value: string): string[] {
   return lines;
 }
 
+/** One diff line: dim gutter number, then the content on a tinted (or
+ * plain, for context) background. The tint covers the sign + text so the
+ * line reads as a single solid block, the way both reference CLIs do it. */
+function DiffLine({ lineNo, sign, text }: { lineNo: number; sign: "+" | "-" | " "; text: string }): React.ReactElement {
+  const fg = sign === "+" ? theme.diffAdded : sign === "-" ? theme.diffRemoved : theme.muted;
+  const bg = sign === "+" ? theme.diffAddedBg : sign === "-" ? theme.diffRemovedBg : undefined;
+  return (
+    <Text>
+      <Text color={theme.muted} dimColor>
+        {String(lineNo).padStart(4)}{" "}
+      </Text>
+      <Text color={fg} backgroundColor={bg}>
+        {sign} {text.length > 0 ? text : " "}
+      </Text>
+    </Text>
+  );
+}
+
 export function WriteFileDiff({ path, content }: { path: string; content: string }): React.ReactElement {
   const lines = content.length === 0 ? [""] : content.split("\n");
   const capped = lines.slice(0, 400);
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={theme.border} paddingX={1}>
-      <Text color={theme.muted}>{path}</Text>
+    <Box flexDirection="column">
       {capped.map((line, idx) => (
-        <Text key={idx}>
-          <Text color={theme.muted}>{String(idx + 1).padStart(4)} </Text>
-          <Text color={theme.diffAdded}>+ {line.length > 0 ? line : " "}</Text>
-        </Text>
+        <DiffLine key={idx} lineNo={idx + 1} sign="+" text={line} />
       ))}
-      {lines.length > capped.length && <Text color={theme.muted}>…and {lines.length - capped.length} more lines</Text>}
+      {lines.length > capped.length && <Text color={theme.muted}>     … +{lines.length - capped.length} more lines</Text>}
     </Box>
   );
 }
@@ -53,17 +70,11 @@ export function EditFileDiff({ path, search, replace }: { path: string; search: 
   }
   const capped = rows.slice(0, 400);
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={theme.border} paddingX={1}>
-      <Text color={theme.muted}>{path}</Text>
+    <Box flexDirection="column">
       {capped.map((row, idx) => (
-        <Text key={idx}>
-          <Text color={theme.muted}>{String(row.lineNo).padStart(4)} </Text>
-          <Text color={row.sign === "-" ? theme.diffRemoved : row.sign === "+" ? theme.diffAdded : theme.assistant}>
-            {row.sign} {row.text.length > 0 ? row.text : " "}
-          </Text>
-        </Text>
+        <DiffLine key={idx} lineNo={row.lineNo} sign={row.sign} text={row.text} />
       ))}
-      {rows.length > capped.length && <Text color={theme.muted}>…and {rows.length - capped.length} more lines</Text>}
+      {rows.length > capped.length && <Text color={theme.muted}>     … +{rows.length - capped.length} more lines</Text>}
     </Box>
   );
 }

@@ -27,6 +27,10 @@ export type SlashCommandOutcome =
   | { kind: "show_config" }
   | { kind: "memory" }
   | { kind: "export"; path?: string }
+  | { kind: "rewind"; checkpointId?: string }
+  | { kind: "diff" }
+  | { kind: "copy" }
+  | { kind: "bashes" }
   | { kind: "error"; text: string };
 
 export interface SlashCommandSpec {
@@ -65,15 +69,43 @@ export const COMMANDS: SlashCommandSpec[] = [
   {
     name: "permission",
     aliases: ["perm"],
-    description: "Show or set the permission mode: sandboxed (confirm every action) or auto (unattended).",
-    usage: "/permission [sandboxed|auto]",
+    description: "Show or set how much it can do unattended: plan, sandboxed, or auto.",
+    usage: "/permission [plan|sandboxed|auto]",
     run: (args) => {
       const wanted = args.trim().toLowerCase();
-      if (!wanted) return { kind: "message", text: "Usage: /permission sandboxed | /permission auto  (or press Shift+Tab to toggle)." };
+      if (!wanted) return { kind: "message", text: "Usage: /permission plan | sandboxed | auto  (or press Shift+Tab to cycle).\n\n- plan: researches and proposes, changes nothing until you approve\n- sandboxed: asks before every change\n- auto: runs unattended" };
       if (wanted.startsWith("auto")) return { kind: "set_permission", mode: "auto" };
       if (wanted.startsWith("sand")) return { kind: "set_permission", mode: "sandboxed" };
-      return { kind: "error", text: `"${wanted}" isn't a permission mode. Try: sandboxed, auto.` };
+      if (wanted.startsWith("plan")) return { kind: "set_permission", mode: "plan" };
+      return { kind: "error", text: `"${wanted}" isn't a permission mode. Try: plan, sandboxed, auto.` };
     },
+  },
+  {
+    name: "plan",
+    description: "Switch to plan mode — it researches and proposes a plan, and changes nothing until you approve it.",
+    run: () => ({ kind: "set_permission", mode: "plan" }),
+  },
+  {
+    name: "rewind",
+    description: "Undo file changes the agent made. With no argument, lists restore points.",
+    usage: "/rewind [id]",
+    run: (args) => ({ kind: "rewind", checkpointId: args.trim() || undefined }),
+  },
+  {
+    name: "diff",
+    description: "Show uncommitted git changes in this project.",
+    run: () => ({ kind: "diff" }),
+  },
+  {
+    name: "copy",
+    description: "Copy the last reply to the clipboard.",
+    run: () => ({ kind: "copy" }),
+  },
+  {
+    name: "bashes",
+    aliases: ["jobs"],
+    description: "List background commands started by the agent.",
+    run: () => ({ kind: "bashes" }),
   },
   {
     name: "model",

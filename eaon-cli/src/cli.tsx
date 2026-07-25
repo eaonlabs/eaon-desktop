@@ -64,10 +64,25 @@ program
   .option("--auto", "start in Auto permission mode (skips confirmation prompts) — use with care", false)
   .option("--cwd <path>", "project root (default: current directory)", process.cwd())
   .option("--max-steps <n>", "cap on agent tool-call steps per turn", (v) => parseInt(v, 10), 40)
+  .option("-c, --continue", "resume the most recent session in this project", false)
+  .option("-r, --resume <id>", "resume a specific session by id (see /resume for the list)")
+  .option("--permission-mode <mode>", "start in plan, sandboxed, or auto")
   .option("--welcome", "force-show the first-run welcome/log-in screen even if already configured (for previewing it)", false);
 
 program.parse(process.argv);
-const opts = program.opts<{ print?: string; mode: string; model?: string; auto: boolean; cwd: string; maxSteps: number; welcome: boolean }>();
+const opts = program.opts<{
+  print?: string; mode: string; model?: string; auto: boolean; cwd: string; maxSteps: number;
+  welcome: boolean; continue: boolean; resume?: string; permissionMode?: string;
+}>();
+
+function resolveStartPermission(): "plan" | "sandboxed" | "auto" {
+  const raw = (opts.permissionMode ?? "").trim().toLowerCase();
+  if (raw.startsWith("plan")) return "plan";
+  if (raw.startsWith("auto")) return "auto";
+  if (raw.startsWith("sand")) return "sandboxed";
+  // --auto is the older spelling of the same intent; keep it working.
+  return opts.auto ? "auto" : "sandboxed";
+}
 
 const projectRoot = path.resolve(opts.cwd);
 const mode = (opts.mode === "claw" ? "agent" : ["chat", "agent"].includes(opts.mode) ? opts.mode : "chat") as EaonMode;
@@ -98,6 +113,9 @@ if (opts.print) {
       initialModelKey={opts.model ?? null}
       projectRoot={projectRoot}
       startInAuto={opts.auto}
+      startPermissionMode={resolveStartPermission()}
+      resumeSessionId={opts.resume}
+      continueLatest={opts.continue}
       forceWelcome={opts.welcome}
     />,
     { exitOnCtrlC: false }

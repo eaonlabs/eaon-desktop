@@ -3,6 +3,241 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [Unreleased] — Mac app
+
+### Added
+- **Agent Swarm** — in Eaon Work, pick your model and then choose **Agent**
+  or **Agent Swarm** from the pill beside the permission control. Instead of
+  one model reasoning to itself, a *creator* convenes a roster of
+  specialists chosen for your specific task (an engineer, a design
+  specialist, a security reviewer — whoever the work actually calls for),
+  they argue the approach out in rounds, and the discussion ends as soon as
+  three of them vote to hand off. A *synthesizer* then reads the whole
+  discussion and does the real work through the normal agent tool loop, so
+  it writes actual files exactly like Agent does. The finished discussion is
+  kept as a collapsible card on the reply, so you can read what they decided
+  and why. Runs on whatever model you picked — hosted, BYOK, or a local
+  Ollama model.
+
+### Removed
+- **The `/reasoning` debate panel and its Settings page.** Agent Swarm does
+  the same thing properly: personas built for the task instead of a fixed
+  panel of models, a real multi-round discussion instead of two fixed
+  rounds, a vote to decide when it's done, and it works on any model rather
+  than requiring a hosted account. Models' own chain-of-thought (the
+  collapsible "thinking" section on a reply) is untouched — that's a
+  separate feature and still works exactly as before.
+
+## [Unreleased] — Windows/Linux app
+
+### Added
+- **17 typefaces in Settings → Appearance**, up from three — the same
+  families the Mac app ships, so both apps now offer an identical font list.
+  Sans-serif: Space Grotesk, Inter, Geist, IBM Plex Sans, Poppins,
+  Montserrat, Raleway, Archivo, Barlow, and System. Monospaced: JetBrains
+  Mono, Fira Code, Geist Mono, IBM Plex Mono, Source Code Pro, Inconsolata,
+  and Space Mono. Every one is bundled with the app rather than downloaded,
+  so they all render offline and identically on Windows and Linux; the list
+  is grouped and searchable, and each row previews itself in its own face.
+  Picking a monospaced face makes the whole app monospaced; picking a
+  sans-serif leaves code in its own monospaced font, so choosing Montserrat
+  never renders a diff proportionally.
+- **Eaon CLI, reachable from Settings → Tools → Eaon CLI** — install the
+  standalone `eaon` terminal command with one click ("Install Now"), no
+  download or npm required (a ready-to-run copy ships inside the app).
+  Installing automatically copies your saved Eaon API key and any BYOK
+  providers into the CLI's own config, so it's usable the moment it's
+  installed — no separate sign-in or manual key entry, with a "Sync now"
+  button for after a key rotation. The Windows/Linux counterpart to the Mac
+  app's own Eaon CLI manager, minus the embedded-terminal-specific bits that
+  don't apply outside that app; a global `eaon` shim is written per platform
+  (a batch file on Windows, a POSIX script on Linux).
+
+## [2026.3.5] — 2026-07-24
+
+### Added
+- **Cloud Sync — your chats on every machine, encrypted so the server can't
+  read them** (Mac; Settings → Cloud Sync). Off by default and gated behind
+  typing `turn on cloud sync`, because it's the one setting that changes
+  where your data physically lives and a stray click shouldn't undo that.
+  What actually leaves the Mac is ciphertext plus an anonymous id and a
+  timestamp — never a title, a message, or a filename.
+  - **A sync code instead of an account.** Eaon generates 20 characters,
+    shown once. That code *is* your identity and your decryption key: no
+    email, no password, no provider, nothing personal collected or stored.
+    Enter the same code on another machine and your chats appear. Sloppy
+    retyping is fine (case and spacing are forgiven); one wrong character
+    reaches nothing at all.
+  - **A real progress bar**, driven by real counts — "7 of 20 items
+    uploaded", or "12 of 20 chats not yet uploaded" when idle. If a sync
+    fails partway it keeps the count instead of resetting, because "it
+    stopped at 7 of 20" tells you something and a blank bar doesn't.
+  - **Delete everything in the cloud**, in its own section, worded so it's
+    unmistakable that it erases the *server* copy and leaves the chats on
+    this Mac alone. Deleting a chat locally now also removes its cloud copy,
+    so a deleted conversation can't reappear on your next device.
+  - Encryption is AES-256-GCM with the key wrapped under your sync code
+    (PBKDF2-HMAC-SHA256, 600,000 iterations). Changing the code re-wraps one
+    32-byte key rather than re-uploading everything. Your API keys and this
+    Mac's own settings are never synced.
+
+### Fixed
+- **Replies no longer stop dead partway through** (both apps). A connection
+  closed by a gateway mid-answer looks, at the socket, exactly like the
+  model finishing — so a cut-off reply was presented as a complete one, or
+  surfaced as "no response was generated" when the cut landed before the
+  first token, or left a half-written file fence the agent then tried to act
+  on. Eaon now detects that the provider never actually said it was done and
+  quietly re-asks (up to twice, briefly) instead of surrendering. Only if
+  every attempt is cut does it keep the partial and say so.
+- **A dropped connection no longer erases the reply you already had** (Mac).
+  The error message used to replace the whole bubble, so a drop two
+  paragraphs in left you with a one-line error and nothing else. The text
+  that arrived is real, and is now kept with a note about what interrupted
+  it.
+- **Chat mode stopped behaving like a coding agent** (both apps). Saying
+  "hello" could return a pitch about writing code, and a follow-up "hi"
+  could send a small model off inventing its own project and writing files
+  for it. Chat mode had no general identity at all — the only thing it was
+  told about itself was a 1,000-token coding-agent brief, sent on every
+  message including a bare greeting, so with no real request in front of it
+  the model simply ran the workflow it had been handed. Chat now has a
+  short identity of its own, and the coding instructions are sent only when
+  you're actually asking for something to be built. A greeting now costs
+  about 100 tokens of instruction instead of 1,050.
+- **Small models get a prompt they can actually hold** (both apps). The
+  guard that trims the instruction stack for small models only ever applied
+  to local ones with a parameter count in their name, so hosted small tiers
+  (GPT-5 Nano, Mini, Haiku, Flash-Lite) took the full load, and local models
+  whose id carries no size — `gemma3:latest`, `mistral`, `llama3.2`,
+  `phi4-mini` — were treated as large. All of them are now recognised, while
+  an explicit parameter count still wins so a 27B Gemma isn't mistaken for a
+  small one.
+
+## [2026.5.2] — 2026-07-24
+
+*Windows/Linux app only.*
+
+### Added
+- **A live "Thinking" indicator with a travelling wave** — a pulsing accent
+  orb beside the current status word, whose letters rise and fall in
+  sequence (T, then h, then i…) so a wait always looks alive. It reports
+  what's actually happening rather than one generic state: *Thinking* while
+  the model works, *Responding* once the answer starts, and the real action
+  during tool use — *Searching the web*, *Using GitHub*, *Running a
+  command*, *Creating an image*, *Waiting for you* at a confirmation
+  prompt.
+
+### Fixed
+- **Long waits no longer look like the app froze.** The old indicator lived
+  inside the assistant bubble, but the agent loop deletes that bubble when a
+  turn is nothing but tool calls — so the entire tool-execution window, very
+  often the longest wait in a run, rendered nothing at all. The indicator
+  now lives at thread level and covers every gap.
+- **The wait now starts at Send**, not several steps later: the generation
+  session opens before the model route is resolved and before attachments
+  are rebuilt off disk, so the seconds those take are no longer dead air.
+  Pressing stop during that window is honored instead of starting a stream
+  anyway.
+- **The animation no longer stutters while a local model is running.** It is
+  pure CSS on `transform`/`opacity` only, so it animates on the compositor
+  and keeps full frame rate even while Ollama has the main thread pinned —
+  and the letters are memoized against the token stream, so a re-render
+  can't restart their keyframes mid-cycle, which is what made it visibly
+  glitch before. No JS timers, no layout-triggering properties.
+- Reasoning models no longer show two stacked "Thinking" indicators — the
+  chain-of-thought disclosure now reads *Reasoning* and offers the detail,
+  while the status row carries the state.
+
+## [2026.5.1] — 2026-07-22
+
+*Windows/Linux app only.*
+
+### Fixed
+- **MCP catalog services now send their required extra headers** — GitHub's
+  connection was silently dropping `X-MCP-Toolsets`, so it exposed its
+  entire ~90-tool surface instead of the curated repos/issues/PRs set,
+  flooding the model's context. Pinned by a wire-level test.
+- **Custom MCP servers reconnect on launch** — enabled servers now come
+  back by themselves at startup (same as catalog plugins), instead of
+  sitting dead until manually reconnected from Settings.
+- **The Plugins page no longer forgets connections** — leaving Settings and
+  coming back showed "Connect" for custom servers that were still connected;
+  connection state now lives in the shared store the whole app reads.
+- **The Local API server survives a relaunch** — with the toggle left on,
+  the listener now restarts on app launch (after the model list loads, so
+  it serves everything); if the port has been taken meanwhile, the toggle
+  turns itself off and says why instead of lying.
+- **Image generation no longer dies on a half-filled provider card** — a
+  connection missing its base URL or model id (e.g. a fresh "Custom"
+  preset) is skipped, falling through to the next complete connection,
+  Eaon's hosted image models, or Ollama; the card itself now says when and
+  why it's being skipped.
+- **Proxy misconfiguration is no longer silent** — an address Rust rejects
+  used to leave traffic on the old route while the field showed the new
+  one; Settings → Network now surfaces the parse error inline.
+
+### Added
+- **Test connection button in Settings → Network** — one real HTTPS request
+  through the current route (proxy or direct) with latency on success and
+  the actual failure text otherwise.
+- The Settings close (X) button is gone; the sidebar and Esc do that job —
+  sidebar navigation now correctly leaves Settings from anywhere.
+
+## [2026.5.0] — 2026-07-21
+
+### Added
+- **Full Plugins parity for Windows/Linux** — the same 30-service,
+  individually-verified MCP catalog the Mac app ships (GitHub, Stripe,
+  Sentry, Cloudflare, PostHog, Semrush, Linear, Supabase, Render, Neon,
+  Datadog, Resend, Notion, Vercel, LaunchDarkly, Slack, ClickUp, Trello,
+  Airtable, monday.com, Asana, HubSpot, Intercom, Attio, GitLab, PagerDuty,
+  DigitalOcean, Figma, Exa, Apify, Dropbox), reachable from Settings →
+  Plugins, on top of the custom-server-by-URL support that was already
+  there.
+- **OAuth 2.1 sign-in for MCP plugins** — a from-scratch Rust port of the
+  MCP authorization spec (2025-06-18): RFC 9728/8414 discovery, RFC 7591
+  Dynamic Client Registration, PKCE (S256), and a loopback redirect
+  listener, so services like Notion, Vercel, Figma, and Slack connect with
+  a real browser sign-in instead of a pasted token. Falls back to a
+  one-time manual client ID for the handful of services (Slack, Asana,
+  HubSpot, PagerDuty, Dropbox) that don't support self-service client
+  registration, exactly as the Mac app already handles them.
+
+## [2026.4.0] — 2026-07-21
+
+### Changed
+- The Windows and Linux app has been rebuilt from scratch on a cleaner
+  foundation — same Tauri (Rust core + web UI) approach as 2026.3.x, same
+  data on disk (existing installs migrate in place, no lost chats or
+  settings), but a reorganized codebase: no more 1,700-line files, every
+  Settings page is its own component, and BYOK connections now support
+  three wire formats instead of one.
+- **BYOK providers can now speak Anthropic Messages and Google Gemini
+  natively**, not just OpenAI-compatible — paste a Claude or Gemini key
+  directly instead of routing it through a compatibility shim.
+- The hosted service is addressed as "Eaon" everywhere in the app; no
+  leftover "Aqua" labels remain in Settings, onboarding, or the model
+  picker.
+- The chat streaming layer, agent tool safety model, MCP client, and Local
+  API Server all carry forward unchanged in behavior, each with unit/e2e
+  test coverage (28 Rust tests).
+
+### Added
+- Free Week trial support in the Windows/Linux app (start it from
+  onboarding or Settings → Providers → Eaon API), signed with the same
+  per-device HMAC scheme as the Mac app.
+- A hardware-aware Models library: RAM-based fit estimates (Fits well /
+  Might be tight / Too big) before you download a local model, plus
+  per-platform Ollama install guidance (winget on Windows, curl on Linux).
+- An update-available card that points Windows/Linux users at the correct
+  installer for their platform.
+
+### Fixed
+- Windows installers stay NSIS-only (MSI/WiX rejects the app's CalVer major
+  version) — carried forward and documented in `eaon-tauri/BUILDING.md`
+  alongside the full "how to build the Windows version" walkthrough.
+
 ## [2026.3.2] — 2026-07-19
 
 ### Added

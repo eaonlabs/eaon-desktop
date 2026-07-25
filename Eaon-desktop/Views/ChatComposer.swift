@@ -130,6 +130,12 @@ struct ChatComposer: View {
                         viewModel.requestAgentPermissionToggle()
                     }
                     .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .leading)))
+                    // Agent vs. Agent Swarm — how the work gets thought
+                    // through, next to the pill controlling how it gets run.
+                    AgentSwarmPill(isSwarm: viewModel.agentSwarmEnabled) {
+                        viewModel.agentSwarmEnabled.toggle()
+                    }
+                    .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .leading)))
                 }
                 Spacer(minLength: 0)
                 trailingControls
@@ -140,6 +146,7 @@ struct ChatComposer: View {
             .animation(.easeOut(duration: 0.18), value: viewModel.messages.isEmpty)
             .animation(.easeOut(duration: 0.18), value: viewModel.currentMode)
             .animation(.spring(duration: 0.28, bounce: 0.18), value: viewModel.agentAutoRun)
+            .animation(.spring(duration: 0.28, bounce: 0.18), value: viewModel.agentSwarmEnabled)
         }
         .background(
             RoundedRectangle(cornerRadius: 26, style: .continuous)
@@ -381,6 +388,47 @@ private struct AgentPermissionPill: View {
         .help(isAuto
             ? "Auto — Eaon runs commands and writes files without asking. Press ⇧⇥ to return to Sandboxed."
             : "Sandboxed — Eaon asks before each command. Press ⇧⇥ to switch to Auto.")
+    }
+}
+
+/// Eaon Work's Agent / Agent Swarm selector, beside the permission pill.
+/// The permission pill says how the work is *run*; this one says how it's
+/// *thought through*: Agent is one model working the task itself, Swarm
+/// convenes a roster of specialists who argue the approach out first and hand
+/// their conclusion to a synthesizer that builds it (see `AgentSwarmRunner`).
+/// Teal for the swarm so it never reads as a third permission state — the
+/// safety cue stays purple/amber and means only one thing.
+private struct AgentSwarmPill: View {
+    @Environment(\.themeColors) private var colors
+    let isSwarm: Bool
+    let action: () -> Void
+    @State private var isHovered = false
+
+    private var tint: Color { isSwarm ? Color(hex: "#2DD4BF") : colors.textSecondary }
+    private var label: String { isSwarm ? "Swarm" : "Agent" }
+    private var icon: String { isSwarm ? "person.3.fill" : "person.fill" }
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 5) {
+                Image(systemName: icon)
+                    .font(.system(size: 10, weight: .semibold))
+                    .iconHoverEffect(for: icon)
+                Text(label)
+                    .font(AppFont.mono(11, weight: .medium))
+            }
+            .foregroundStyle(tint)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Capsule().fill(tint.opacity(isHovered ? 0.24 : 0.16)))
+            .overlay(Capsule().stroke(tint.opacity(0.45), lineWidth: 1))
+            .contentShape(Capsule())
+        }
+        .buttonStyle(PressableButtonStyle())
+        .onHover { isHovered = $0 }
+        .help(isSwarm
+            ? "Agent Swarm — a team of specialists is convened for the task, argues out the approach, votes to hand off, and a synthesizer builds what they settled on. Slower and costs more calls. Click for plain Agent."
+            : "Agent — one model works the task directly. Click to convene a swarm instead.")
     }
 }
 

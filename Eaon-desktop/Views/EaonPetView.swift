@@ -97,6 +97,19 @@ private func eyePoses(_ mood: EaonPetMood, phase: Int) -> (EyePose, EyePose, Dou
         let up: CGFloat = -12, down: CGFloat = 7
         return (EyePose(dx: -gap, dy: phase == 0 ? up : down, rot: 0, w: 22, h: 44, radii: .all(8)),
                 EyePose(dx: gap, dy: phase == 0 ? down : up, rot: 0, w: 22, h: 44, radii: .all(8)), 0, 0)
+    case .listening:
+        // Wide and still — attention, not activity. Deliberately the calmest
+        // pose in the set: it's the face that says "the mic is open," so it
+        // must be unmistakable and must not twitch while you're mid-sentence.
+        return (EyePose(dx: -gap, dy: -5, rot: 0, w: 26, h: 52, radii: .all(13)),
+                EyePose(dx: gap, dy: -5, rot: 0, w: 26, h: 52, radii: .all(13)), 0, 0)
+    case .speaking:
+        // Two-frame squash on the same seesaw timer `.working` uses — the
+        // pet has no mouth, so "talking" reads as a rhythmic bob of the eyes.
+        let tall: CGFloat = 44, squat: CGFloat = 30
+        let h = phase == 0 ? tall : squat
+        return (EyePose(dx: -gap, dy: phase == 0 ? -4 : 2, rot: 0, w: 22, h: h, radii: .all(11)),
+                EyePose(dx: gap, dy: phase == 0 ? -4 : 2, rot: 0, w: 22, h: h, radii: .all(11)), 0, 0)
     case .lookLeft:
         return (EyePose(dx: -31, dy: -8, rot: -11, w: 22, h: 44, radii: .all(7)),
                 EyePose(dx: 6, dy: -8, rot: -11, w: 22, h: 44, radii: .all(7)), -6, -9)
@@ -269,8 +282,11 @@ struct EaonPetView: View {
         .frame(width: frameSize.width, height: frameSize.height)
         .onAppear { startAmbient() }
         .onReceive(seesaw) { _ in
-            guard controller.mood == .working, !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: 0.55)) {
+            // `.speaking` rides the same two-frame timer as `.working`, but
+            // faster — a talking rhythm rather than a working seesaw.
+            let mood = controller.mood
+            guard mood == .working || mood == .speaking, !reduceMotion else { return }
+            withAnimation(.easeInOut(duration: mood == .speaking ? 0.22 : 0.55)) {
                 workPhase = workPhase == 0 ? 1 : 0
             }
         }

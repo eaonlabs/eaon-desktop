@@ -30,6 +30,74 @@ final class DesktopAssistantStore {
 final class QuickAssistantPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+
+    /// Bring Eaon to the front the moment this panel is actually clicked.
+    ///
+    /// `.nonactivatingPanel` means clicking never activates the app — the
+    /// panel becomes key while Eaon itself stays inactive. Plenty works in
+    /// that state (typing, and anything that only moves the window, which is
+    /// why the close button always behaved), but anything needing an ACTIVE
+    /// app silently does nothing: SwiftUI `.popover`s never appear, so the +
+    /// attachment menu is dead; `NSOpenPanel` won't open, so images and
+    /// files can't be picked; and menus don't post. The result is a panel
+    /// where a couple of controls work and the rest ignore you after you've
+    /// clicked any other window — reported exactly that way.
+    ///
+    /// Activating on `becomeKey` rather than on show keeps the good half of
+    /// the original design: summoning the panel still doesn't steal focus
+    /// from whatever you were doing, and focus only moves once you
+    /// deliberately click into it — the same bargain Spotlight makes.
+    override func becomeKey() {
+        super.becomeKey()
+        activateAppIfNeeded()
+    }
+
+    /// The reliable hook. `becomeKey` is not enough on its own: a
+    /// `.nonactivatingPanel` belonging to an INACTIVE app frequently isn't
+    /// granted key status at all, so the override above never runs and the
+    /// app stays inactive with its controls half-dead (measured — summoning
+    /// the panel from an inactive Eaon left another app frontmost). Catching
+    /// the mouse-down here fires on every click into the panel regardless of
+    /// key status, which is exactly the case people hit: click another
+    /// window, click back on the assistant, expect it to work.
+    override func sendEvent(_ event: NSEvent) {
+        switch event.type {
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+            activateAppIfNeeded()
+        default:
+            break
+        }
+        super.sendEvent(event)
+    }
+
+    private func activateAppIfNeeded() {
+        guard !NSApp.isActive else { return }
+        NSApp.activate(ignoringOtherApps: true)
+    }
+}
+
+/// Hosting view that answers the FIRST click arriving while Eaon is inactive.
+///
+/// Both floating surfaces (this panel and the desktop pet) are
+/// `.nonactivatingPanel`, which is the entire point of them: you can use Eaon
+/// over Chrome without yanking focus away from Chrome. The cost, and it is a
+/// real bug rather than a quirk, is that AppKit treats a click that lands
+/// while the app is inactive as the click that *would have* activated it and
+/// by default does NOT forward it to the view underneath. Every button in the
+/// panel — send, close, new chat, the model picker — therefore did nothing
+/// after you'd clicked any other window.
+///
+/// What made it read as random is that typing still worked: keystrokes go to
+/// the focused text field once the panel is key, while clicks are routed by
+/// hit-testing and were being swallowed. Activating the app some other way
+/// (clicking the menu bar icon) restored normal routing — the "click the thing
+/// at the top of the screen to un-stick it" dance.
+///
+/// Accepting first mouse hands that click straight to the content, which is
+/// what an always-available overlay wants. Note this is deliberately NOT the
+/// same as activating the app: focus stays where the user put it.
+final class FirstMouseHostingView<Content: View>: NSHostingView<Content> {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
 /// Owns everything window-side about the desktop assistant: the menu bar
@@ -49,6 +117,12 @@ final class DesktopAssistantController: NSObject {
     /// script/launcher (Shortcuts, Raycast, a shell one-liner) can post to
     /// summon or dismiss the assistant without touching the menu bar.
     static let distributedToggleName = Notification.Name("dev.eaon.desktop.toggle-assistant")
+    /// Posted whenever the panel appears, disappears, resizes (pill ↔
+    /// expanded) or is dragged. The desktop pet listens so it can step aside
+    /// rather than sit underneath the panel — see `EaonPetController.settle`.
+    /// `nonisolated`: an immutable name, read from the window-move observer's
+    /// Sendable closure as well as from main-actor code.
+    nonisolated static let panelFrameChangedNotification = Notification.Name("eaon.quickassistant.frame-changed")
 
     private static let pillSize = NSSize(width: 440, height: 60)
     private static let expandedSize = NSSize(width: 440, height: 620)
@@ -135,7 +209,14 @@ final class DesktopAssistantController: NSObject {
         // first order-front (hosting-view sizing, screen constraint) were
         // observed displacing the very first show.
         panel.setFrame(target, display: true)
+        // Summoning is a deliberate act — you pressed ⌥Space, clicked the
+        // menu bar icon, or clicked the pet — so bring Eaon forward. Without
+        // this the panel appears while the app stays inactive, and every
+        // control that needs an active app (the + menu's popover, the image
+        // and file pickers) does nothing when clicked.
+        if !NSApp.isActive { NSApp.activate(ignoringOtherApps: true) }
         NotificationCenter.default.post(name: Self.focusInputNotification, object: nil)
+        notePanelGeometryChanged()
     }
 
     /// Every summon lands at the bottom-right of the screen the cursor is
@@ -159,6 +240,7 @@ final class DesktopAssistantController: NSObject {
 
     func hidePanel() {
         panel?.orderOut(nil)
+        notePanelGeometryChanged()
     }
 
     /// The panel's window number and current screen — read by the desktop
@@ -168,6 +250,17 @@ final class DesktopAssistantController: NSObject {
     var panelWindowNumber: Int? { panel?.windowNumber }
     var currentScreen: NSScreen? { panel?.screen ?? NSScreen.main }
 
+    /// The screen area the panel currently occupies, or nil when it isn't up.
+    /// The pet reads this to keep itself out from under the panel.
+    var panelFrame: NSRect? {
+        guard let panel, panel.isVisible else { return nil }
+        return panel.frame
+    }
+
+    private func notePanelGeometryChanged() {
+        NotificationCenter.default.post(name: Self.panelFrameChangedNotification, object: nil)
+    }
+
     /// Switches pill ↔ chat panel: flips the view model's state and animates
     /// the window to match, keeping the bottom-right corner planted where
     /// the user has it (so the panel grows upward out of the pill).
@@ -176,6 +269,7 @@ final class DesktopAssistantController: NSObject {
         QuickAssistantViewModel.shared.isExpanded = expanded
         guard let panel, panel.isVisible else { return }
         panel.setFrame(frame(expanded: expanded), display: true, animate: true)
+        notePanelGeometryChanged()
     }
 
     /// Hands the quick conversation off to the main window: imports the
@@ -223,13 +317,21 @@ final class DesktopAssistantController: NSObject {
         panel.isMovableByWindowBackground = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isReleasedWhenClosed = false
-        let hosting = NSHostingView(rootView: QuickAssistantRootView())
+        let hosting = FirstMouseHostingView(rootView: QuickAssistantRootView())
         // The controller owns this window's size (pill vs. expanded) — an
         // empty sizing-options set stops the hosting view from re-sizing or
         // re-placing the window to SwiftUI's ideal size behind our back.
         hosting.sizingOptions = []
         panel.contentView = hosting
         panel.setFrame(defaultFrame(size: Self.pillSize), display: false)
+        // Dragging the panel by its background moves it without going through
+        // any method here, so the pet would keep dodging the OLD location —
+        // republish the geometry as it actually moves.
+        NotificationCenter.default.addObserver(
+            forName: NSWindow.didMoveNotification, object: panel, queue: .main
+        ) { _ in
+            NotificationCenter.default.post(name: Self.panelFrameChangedNotification, object: nil)
+        }
         self.panel = panel
         return panel
     }

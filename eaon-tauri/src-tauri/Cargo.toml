@@ -1,14 +1,13 @@
 [package]
-name = "eaon-tauri"
-version = "0.1.0"
-description = "Eaon — cross-platform desktop AI chat client (Windows/macOS/Linux)"
+name = "eaon-desktop-xp"
+version = "2026.3.5"
+description = "Eaon for Windows and Linux — a Rust core with a web UI"
 authors = ["Eaon"]
+license = "GPL-3.0"
 edition = "2021"
 
 [lib]
-# The `_lib` suffix keeps the lib name distinct from the bin so they don't
-# collide on Windows (see rust-lang/cargo#8519).
-name = "eaon_tauri_lib"
+name = "eaon_desktop_xp_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -17,36 +16,32 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-window-state = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# HTTP + streaming for the model backends (local Ollama / llama.cpp, and any
-# OpenAI-compatible endpoint). rustls-tls (not the system OpenSSL/native-tls)
-# so the build needs no C toolchain or OpenSSL — critical for a clean,
-# reproducible Windows build.
-reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+# rustls on purpose: no OpenSSL means no C toolchain headaches on the
+# Windows/Linux release runners.
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls", "gzip"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "io-util", "process", "time", "sync"] }
 futures-util = "0.3"
-# Pure-Rust regex (no C deps) for the Agent's code search — keeps the
-# Windows build toolchain-free, same reason as rustls above.
-regex = "1"
-# Attachment bytes cross the webview↔Rust IPC as base64 strings (binary
-# JSON arrays would be 4-5x larger over the JSON IPC).
 base64 = "0.22"
-# The trash_item device tool — Recycle Bin on Windows, gio trash on Linux,
-# Trash on macOS. Pure Rust, recoverable (never a permanent delete).
+regex = "1"
 trash = "5"
-# Async TCP for the Local API Server. The runtime itself is Tauri's (shared);
-# these features just expose the socket + read/write types. No macros/rt-*
-# features — we spawn via tauri::async_runtime, not a second runtime.
-tokio = { version = "1", features = ["net", "io-util"] }
+sha2 = "0.10"
+hmac = "0.12"
+hex = "0.4"
+uuid = { version = "1", features = ["v4"] }
+sysinfo = { version = "0.33", default-features = false, features = ["system"] }
 
-[dev-dependencies]
-# Only for the streaming smoke-test example — never linked into the app.
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+[target.'cfg(windows)'.dependencies]
+winreg = "0.55"
 
 [profile.release]
-# Smaller, faster binaries — matters most on Windows, where Tauri's whole
-# advantage over Electron is a tiny footprint.
-codegen-units = 1
 lto = true
 opt-level = "s"
 strip = true
+codegen-units = 1

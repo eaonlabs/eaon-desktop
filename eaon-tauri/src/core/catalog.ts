@@ -5,7 +5,6 @@
 export const EAON_HOSTED_BASE_URL = "https://api.aquadevs.com/v1";
 export const EAON_TRIAL_BASE_URL = "https://api.eaon.dev/v1";
 export const DEFAULT_OLLAMA_URL = "http://127.0.0.1:11434";
-export const UPDATE_MANIFEST_URL = "https://downloads.eaon.dev/update-manifest.json";
 export const RELEASES_PAGE_URL = "https://github.com/sanscreates/eaon-desktop/releases";
 
 /** Eaon's hand-maintained hosted chat allowlist (id → display name) — the
@@ -38,13 +37,49 @@ export const ACCENT_OPTIONS: Array<{ id: string; color: string }> = [
   { id: "purple", color: "#9b59b6" }, { id: "pink", color: "#e91e90" },
 ];
 
-/** Bundled UI fonts. Space Grotesk is the app's default face (matches the
- *  Mac app); IBM Plex Mono renders code regardless of the UI choice. */
-export const FONT_OPTIONS: Array<{ id: string; label: string; stack: string }> = [
-  { id: "space-grotesk", label: "Space Grotesk", stack: '"Space Grotesk", "IBM Plex Sans", system-ui, sans-serif' },
-  { id: "ibm-plex", label: "IBM Plex Sans", stack: '"IBM Plex Sans", system-ui, sans-serif' },
-  { id: "system", label: "System", stack: "system-ui, sans-serif" },
+/** A pickable UI typeface.
+ *
+ *  `kind` groups the picker and, more importantly, decides what happens to
+ *  code: picking a monospaced face makes the WHOLE app monospaced (the Mac
+ *  app's "one font, one axis" behavior), while a proportional face leaves
+ *  code in a monospaced fallback — setting Montserrat shouldn't render a
+ *  diff in a proportional font. See `applyAppearance`. */
+export interface FontOption {
+  id: string;
+  label: string;
+  kind: "sans" | "mono";
+  stack: string;
+}
+
+/** Every family is bundled (public/fonts) rather than fetched, so the list
+ *  renders identically offline and on every OS — the same 16 the Mac app
+ *  embeds, so both apps offer the same choices. "System" is the one
+ *  exception: it deliberately defers to whatever the OS uses (SF Pro,
+ *  Segoe UI, Cantarell…). */
+export const FONT_OPTIONS: FontOption[] = [
+  // Sans / UI faces
+  { id: "space-grotesk", label: "Space Grotesk", kind: "sans", stack: '"Space Grotesk", "IBM Plex Sans", system-ui, sans-serif' },
+  { id: "inter", label: "Inter", kind: "sans", stack: '"Inter", system-ui, sans-serif' },
+  { id: "geist", label: "Geist", kind: "sans", stack: '"Geist", system-ui, sans-serif' },
+  { id: "ibm-plex", label: "IBM Plex Sans", kind: "sans", stack: '"IBM Plex Sans", system-ui, sans-serif' },
+  { id: "poppins", label: "Poppins", kind: "sans", stack: '"Poppins", system-ui, sans-serif' },
+  { id: "montserrat", label: "Montserrat", kind: "sans", stack: '"Montserrat", system-ui, sans-serif' },
+  { id: "raleway", label: "Raleway", kind: "sans", stack: '"Raleway", system-ui, sans-serif' },
+  { id: "archivo", label: "Archivo", kind: "sans", stack: '"Archivo", system-ui, sans-serif' },
+  { id: "barlow", label: "Barlow", kind: "sans", stack: '"Barlow", system-ui, sans-serif' },
+  { id: "system", label: "System", kind: "sans", stack: "system-ui, sans-serif" },
+  // Mono / code faces — picking one makes the entire app monospaced.
+  { id: "jetbrains-mono", label: "JetBrains Mono", kind: "mono", stack: '"JetBrains Mono", ui-monospace, monospace' },
+  { id: "fira-code", label: "Fira Code", kind: "mono", stack: '"Fira Code", ui-monospace, monospace' },
+  { id: "geist-mono", label: "Geist Mono", kind: "mono", stack: '"Geist Mono", ui-monospace, monospace' },
+  { id: "ibm-plex-mono", label: "IBM Plex Mono", kind: "mono", stack: '"IBM Plex Mono", ui-monospace, monospace' },
+  { id: "source-code-pro", label: "Source Code Pro", kind: "mono", stack: '"Source Code Pro", ui-monospace, monospace' },
+  { id: "inconsolata", label: "Inconsolata", kind: "mono", stack: '"Inconsolata", ui-monospace, monospace' },
+  { id: "space-mono", label: "Space Mono", kind: "mono", stack: '"Space Mono", ui-monospace, monospace' },
 ];
+
+/** The code face used whenever the picked UI font is proportional. */
+export const DEFAULT_MONO_STACK = '"IBM Plex Mono", ui-monospace, "Cascadia Mono", monospace';
 
 /** `eaon-local-` + 24 random alphanumerics — the Local API Server's
  *  generated bearer key format. */

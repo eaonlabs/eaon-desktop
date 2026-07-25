@@ -1,15 +1,15 @@
 import React, { useEffect, useState } from "react";
 import { Box, Text } from "ink";
-import { SPINNER_FRAMES, theme } from "./theme.js";
+import { STAR_FRAMES, theme } from "./theme.js";
 import { Markdown } from "./Markdown.js";
 import { WriteFileDiff, EditFileDiff } from "./DiffView.js";
 import { EaonBanner } from "./EaonBanner.js";
 import { isKnownTool, toolInvocationLabel } from "../tools/index.js";
 import type { DisplayMessage } from "./types.js";
 
-/** A live "thinking" spinner with an elapsed-time readout, shown the
+/** A live "thinking" pulse with an elapsed-time readout, shown the
  * moment a turn starts and before any tokens have arrived. Its timer is
- * entirely local state — it ticks on its own 120ms interval instead of
+ * entirely local state — it ticks on its own 140ms interval instead of
  * pushing updates through the app's shared message state, so a slow model
  * still gives immediate visual feedback ("is this actually working?")
  * without adding a single extra re-render to the rest of the UI. */
@@ -20,16 +20,16 @@ function ThinkingIndicator(): React.ReactElement {
   useEffect(() => {
     const start = Date.now();
     const id = setInterval(() => {
-      setFrame((f) => (f + 1) % SPINNER_FRAMES.length);
+      setFrame((f) => (f + 1) % STAR_FRAMES.length);
       setElapsedMs(Date.now() - start);
-    }, 120);
+    }, 140);
     return () => clearInterval(id);
   }, []);
 
-  const seconds = (elapsedMs / 1000).toFixed(1);
+  const seconds = Math.floor(elapsedMs / 1000);
   return (
     <Text color={theme.muted}>
-      {SPINNER_FRAMES[frame]} Thinking… ({seconds}s · Esc to interrupt)
+      <Text color={theme.accent}>{STAR_FRAMES[frame]}</Text> Thinking… <Text dimColor>({seconds}s · esc to interrupt)</Text>
     </Text>
   );
 }
@@ -90,7 +90,11 @@ function ToolMessage({ message }: { message: Extract<DisplayMessage, { role: "to
   const resultLines = (() => {
     if (message.pending) return null;
     if (!message.result) return null;
-    const { shown, hiddenCount } = capLines(message.result.text.trim(), 14);
+    // Collapse runs of blank lines: shell output in particular is full of
+    // them, and in a ⎿-indented block they read as the tool having stalled
+    // rather than as spacing.
+    const compact = message.result.text.trim().replace(/\n[ \t]*\n[ \t]*\n+/g, "\n\n");
+    const { shown, hiddenCount } = capLines(compact, 14);
     const lines = shown.length > 0 ? shown.split("\n") : ["(no output)"];
     return { lines, hiddenCount, isError: message.result.isError };
   })();
@@ -115,11 +119,11 @@ function ToolMessage({ message }: { message: Extract<DisplayMessage, { role: "to
         <Box flexDirection="column" paddingLeft={2}>
           {resultLines.lines.map((line, i) => (
             <Text key={i} color={resultLines.isError ? theme.error : theme.muted}>
-              {i === 0 ? "⎿ " : "  "}
+              {i === 0 ? "⎿  " : "   "}
               {line}
             </Text>
           ))}
-          {resultLines.hiddenCount > 0 && <Text color={theme.muted}>  … +{resultLines.hiddenCount} more lines</Text>}
+          {resultLines.hiddenCount > 0 && <Text color={theme.muted}>   … +{resultLines.hiddenCount} more lines</Text>}
         </Box>
       )}
     </Box>
@@ -143,11 +147,12 @@ export function MessageView({ message }: { message: DisplayMessage }): React.Rea
   }
 
   if (message.role === "user") {
+    // The Claude-Code/Cursor convention: your own prompt echoes back dim,
+    // so the transcript's visual weight stays on what the agent did — the
+    // bright text is the answers, not the questions.
     return (
       <Box marginTop={1} flexDirection="column">
-        <Text color={theme.user} bold>
-          › {message.text}
-        </Text>
+        <Text dimColor>{"> "}{message.text}</Text>
       </Box>
     );
   }
@@ -176,11 +181,15 @@ export function MessageView({ message }: { message: DisplayMessage }): React.Rea
           </Box>
         )}
         {message.text.length > 0 ? (
-          message.streaming ? (
-            <StreamingText text={message.text} />
-          ) : (
-            <Markdown text={message.text} streaming={false} />
-          )
+          // The ● marker + hanging indent is the transcript rhythm both
+          // Claude Code and Cursor use — every agent action (text or tool)
+          // starts at a bullet, so the eye can skim the left edge.
+          <Box>
+            <Text color={theme.assistant}>{"● "}</Text>
+            <Box flexDirection="column" flexGrow={1}>
+              {message.streaming ? <StreamingText text={message.text} /> : <Markdown text={message.text} streaming={false} />}
+            </Box>
+          </Box>
         ) : message.streaming ? (
           <ThinkingIndicator />
         ) : null}

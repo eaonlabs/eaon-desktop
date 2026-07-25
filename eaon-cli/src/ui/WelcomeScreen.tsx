@@ -10,7 +10,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Box, Text, useInput, useStdout } from "ink";
 import { theme, SPINNER_FRAMES } from "./theme.js";
-import { EAON_WORDMARK, EAON_WORDMARK_WIDTH } from "./logoArt.js";
+import { EAON_WORDMARK_WIDTH } from "./logoArt.js";
+import { BandedWordmark } from "./Wordmark.js";
 import { EAON_ICON_GRID, EAON_ICON_PALETTE, EAON_ICON_SIZE } from "./iconArt.js";
 import type { LinkOutcome } from "./types.js";
 
@@ -188,9 +189,7 @@ export function WelcomeScreen({ version, platformSupportsLink, onLogin, onFinish
 
       <Box flexDirection="column" alignItems="center" width="100%">
         {fitsFullArt ? (
-          <Text color={theme.accent} bold>
-            {EAON_WORDMARK.join("\n")}
-          </Text>
+          <BandedWordmark />
         ) : (
           <Text color={theme.accent} bold>
             EAON

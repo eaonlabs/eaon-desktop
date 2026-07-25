@@ -110,6 +110,10 @@ final class QuickAssistantViewModel {
         // while the reply streams. (Both no-ops when the pet is off.)
         EaonPetController.shared.reactToUserMessage(text)
         EaonPetController.shared.noteGenerationStarted()
+        // With voice on, the pet reads the answer aloud — for a question
+        // TYPED here just as much as one spoken at it. (No-op when voice is
+        // off, which is the default.)
+        EaonVoiceController.shared.noteReplyStarted()
         task = Task { [weak self] in await self?.run(screenCapture: screenCapture) }
     }
 
@@ -331,6 +335,9 @@ final class QuickAssistantViewModel {
         let reply = transcript.indices.contains(replyIndex) ? transcript[replyIndex] : nil
         let hadError = reply?.isError == true
         EaonPetController.shared.noteGenerationEnded(hadError: hadError, replyText: hadError ? nil : reply?.text)
+        // Say the last of it out loud (a short reply never produced a
+        // sentence boundary while streaming, so this is where it gets read).
+        EaonVoiceController.shared.noteReplyFinished(hadError ? nil : reply?.text)
 
         // This turn included a live screen capture and got a real answer
         // FROM A MODEL THAT COULD ACTUALLY SEE IT (not the graceful
@@ -417,8 +424,25 @@ final class QuickAssistantViewModel {
         // User key or free-week trial — the trial's base URL and signing
         // ride the same BYOK streaming path (see CustomProviderAPIService's
         // EaonAccess.authorize call).
+        // The same silent free-week mint the main window performs
+        // (`ChatViewModel.autoStartTrialIfNeeded`). Without it, this surface —
+        // the one the desktop pet talks through — was the ONLY one that never
+        // bootstrapped its own access: asking the pet on a fresh install
+        // failed with "add an API key", while typing the identical question
+        // in the main window quietly started a trial and answered. That
+        // asymmetry is the whole reason the pet "never responds".
+        //
+        // Idempotent and cheap: it fires only when this device has never held
+        // a credential at all, so an expired trial falls straight through to
+        // the honest message below rather than silently re-minting.
+        if EaonAccess.current == nil, TrialStore.shared.credential == nil, !TrialStore.shared.isStarting {
+            await TrialStore.shared.start()
+        }
         guard let access = EaonAccess.current else {
-            throw QuickAssistantError(message: "Add an API key (or start your free week) or a local model in the main Eaon window first.")
+            throw QuickAssistantError(message: TrialStore.shared.isExpired
+                ? "Your free week has ended. Add your Eaon API key in Settings → Eaon API to keep chatting."
+                : (TrialStore.shared.lastError
+                    ?? "Couldn't reach Eaon to start your free week. Check your connection, or add an API key in Settings → Eaon API."))
         }
         let config = CustomProviderConfig(
             brand: ModelCatalog.brand(for: modelId),

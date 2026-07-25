@@ -1,5 +1,8 @@
 // The Sandboxed-mode confirmation gate — blocks the agent loop (via the
-// Promise the App bridges through a ref) until the user answers.
+// Promise the App bridges through a ref) until the user answers. Styled
+// like Claude Code's own permission dialog: the tool as a ● header, the
+// detail branched under ⎿, and a numbered option list with a ❯ cursor —
+// answerable by number, hotkey (y/a/n), arrows+Enter, or Esc.
 
 import React, { useState } from "react";
 import { Box, Text, useInput } from "ink";
@@ -14,18 +17,24 @@ interface Props {
 }
 
 const OPTIONS: Array<{ key: string; label: string; answer: PermissionAnswer }> = [
-  { key: "y", label: "Yes, allow", answer: "approve" },
-  { key: "a", label: "Yes, and don't ask again for this tool this session", answer: "always_this_tool" },
-  { key: "n", label: "No", answer: "deny" },
+  { key: "y", label: "Yes", answer: "approve" },
+  { key: "a", label: "Yes, allow this tool for the rest of the session", answer: "always_this_tool" },
+  { key: "n", label: "No (esc)", answer: "deny" },
 ];
 
 export function PermissionPrompt({ name, summary, detail, onAnswer }: Props): React.ReactElement {
   const [index, setIndex] = useState(0);
 
   useInput((input, key) => {
-    const direct = OPTIONS.find((o) => o.key === input.toLowerCase());
+    const lower = input.toLowerCase();
+    const direct = OPTIONS.find((o) => o.key === lower);
     if (direct) {
       onAnswer(direct.answer);
+      return;
+    }
+    const num = parseInt(input, 10);
+    if (num >= 1 && num <= OPTIONS.length) {
+      onAnswer(OPTIONS[num - 1].answer);
       return;
     }
     if (key.upArrow) {
@@ -45,26 +54,32 @@ export function PermissionPrompt({ name, summary, detail, onAnswer }: Props): Re
     }
   });
 
+  const detailLines = detail ? detail.split("\n") : [];
+
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={theme.warning} paddingX={1} marginTop={1}>
-      <Text bold color={theme.warning}>
-        Allow {name}?
+    <Box flexDirection="column" borderStyle="round" borderColor={theme.border} paddingX={1} marginTop={1}>
+      <Text>
+        <Text color={theme.warning}>● </Text>
+        <Text bold>{summary}</Text>
+        <Text color={theme.muted}> ({name})</Text>
       </Text>
-      <Text>{summary}</Text>
-      {detail && (
-        <Box marginTop={1} flexDirection="column">
-          {detail.split("\n").slice(0, 20).map((line, i) => (
+      {detailLines.length > 0 && (
+        <Box flexDirection="column" paddingLeft={2}>
+          {detailLines.slice(0, 16).map((line, i) => (
             <Text key={i} color={theme.muted}>
+              {i === 0 ? "⎿  " : "   "}
               {line}
             </Text>
           ))}
-          {detail.split("\n").length > 20 && <Text color={theme.muted}>…truncated</Text>}
+          {detailLines.length > 16 && <Text color={theme.muted}>   …truncated</Text>}
         </Box>
       )}
       <Box marginTop={1} flexDirection="column">
+        <Text color={theme.muted}>Allow this?</Text>
         {OPTIONS.map((opt, idx) => (
-          <Text key={opt.key} color={idx === index ? theme.accent : undefined}>
-            {idx === index ? "› " : "  "}[{opt.key}] {opt.label}
+          <Text key={opt.key} color={idx === index ? theme.accent : theme.assistant}>
+            {idx === index ? "❯ " : "  "}
+            {idx + 1}. {opt.label}
           </Text>
         ))}
       </Box>

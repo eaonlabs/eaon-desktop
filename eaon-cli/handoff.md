@@ -12,10 +12,11 @@ surfaces. When in doubt about "what should this tool do," the Mac app's
 `Eaon-desktop/Services/DesktopControl.swift` and `ChatViewModel.swift` are
 the reference implementation to check against.
 
-**⚠️ Nothing in `eaon-cli/` is committed to git yet.** `git status` shows the
-whole directory as untracked (`?? eaon-cli/`). Check with the user before
-assuming any git history exists here, and consider whether now's a good time
-to make a first commit.
+**Git:** `eaon-cli/` IS tracked and committed (this note used to say
+otherwise — it was stale). The remote is `sanscreates/eaon-desktop`. Note
+that the wider repo usually has a lot of unrelated uncommitted work in
+`Eaon-desktop/` and `eaon-tauri/` that belongs to the user — stage
+`eaon-cli/` specifically rather than `git add -A`.
 
 ## Goal (user's own words, paraphrased across sessions)
 
@@ -60,8 +61,10 @@ src/
   types.ts              — shared types: Turn, ModelEntry, EaonConfig, CustomProviderConfig, ChatStreamEvent…
 
   agent/
-    loop.ts              — the agent loop (async generator): stream → parse tool calls → confirm → execute → repeat
-    prompts.ts           — system prompts per mode (chat vs agent)
+    loop.ts              — the agent loop (async generator): stream → parse tool calls → plan-gate → confirm → execute → repeat.
+                           Also hosts runSubagentTask() — the nested loop behind the `task` tool.
+    prompts.ts           — system prompts: agent (with autonomy rules), chat, and subagentSystemPrompt
+    context.ts            — slimHistoryForRequest(): elides old tool output at request time (big local-model speed win)
     fenceParser.ts        — text-fence tool-call fallback parser (```eaon:computer tool="...") for non-tool-calling models
 
   providers/
@@ -76,6 +79,9 @@ src/
     todoTool.ts            — todo_write — model-maintained task checklist — added this cycle
     openTools.ts            — open_app, quit_app, open_url, open_path, run_applescript (macOS)
     shellTool.ts             — run_shell (2-min timeout, output cap)
+    backgroundShell.ts        — run_shell_background / check_shell / stop_shell; all jobs killed on exit
+    webTools.ts               — web_search (DuckDuckGo HTML) + web_fetch; SSRF-guarded, size/redirect capped
+    readTracker.ts             — read-before-edit enforcement
     pathGuard.ts              — path safety: expand ~, resolve against project root, block system paths
 
   link/
@@ -84,6 +90,7 @@ src/
 
   project/init.ts          — /init: scans the project, writes EAON.md (project memory/instructions)
   session/store.ts          — /resume, /clear: JSON-file session persistence under ~/.eaon/cli/sessions/
+  session/checkpoints.ts     — /rewind: pre-change file snapshots under ~/.eaon/cli/checkpoints/
 
   ui/
     App.tsx                 — the whole app's state machine — THIS IS THE BIG ONE, read it first
@@ -93,7 +100,10 @@ src/
     Markdown.tsx              — terminal markdown renderer (headings, code blocks w/ cli-highlight, lists, etc.)
     DiffView.tsx               — write_file/edit_file diff rendering
     PermissionPrompt.tsx        — sandboxed-mode confirm dialog
-    EaonBanner.tsx              — startup banner (ASCII logo, quote, recent sessions)
+    PlanReview.tsx               — plan-mode approval dialog (renders the plan as markdown)
+    EaonBanner.tsx              — per-session banner: banded wordmark + 4 dim info lines
+    WelcomeScreen.tsx            — one-time first-run splash (icon art + wordmark + /link)
+    Wordmark.tsx, logoArt.ts, iconArt.ts — the EAON block art and its gradient
     theme.ts, quotes.ts          — colors, startup quotes
 ```
 
@@ -107,21 +117,31 @@ is wired there (`handleCommand`), not just declared in `commands/index.ts`.
 - Chat + Agent modes, streaming, native tool-calling with a text-fence
   fallback for models that don't support `tools` (verified live against
   local Ollama models).
-- Full tool catalog: `grep`, `glob`, `read_file`, `write_file`, `edit_file`,
-  `run_shell`, `list_directory`, `create_folder`, `move_item`, `trash_item`,
-  `todo_write`, `open_app`, `quit_app`, `open_url`, `open_path`,
-  `run_applescript` (macOS only).
-- Slash commands: `/help /mode /permission /model /models /pull /init /clear
-  /new /resume /cost /link /status /compact /context /doctor /config /memory
-  /export /exit`.
+- Full tool catalog (22): `grep`, `glob`, `read_file`, `write_file`,
+  `edit_file`, `run_shell`, `run_shell_background`, `check_shell`,
+  `stop_shell`, `web_search`, `web_fetch`, `task` (sub-agent delegation),
+  `exit_plan_mode`, `list_directory`, `create_folder`, `move_item`,
+  `trash_item`, `todo_write`, `open_app`, `quit_app`, `open_url`,
+  `open_path`, `run_applescript` (macOS only).
+- Slash commands: `/help /mode /permission /plan /model /models /pull /init
+  /clear /new /resume /rewind /diff /copy /bashes /cost /link /status
+  /compact /context /doctor /config /memory /export /exit`.
+- CLI flags: `-p/--print`, `-m/--mode`, `-c/--continue`, `-r/--resume`,
+  `--model`, `--permission-mode`, `--auto`, `--cwd`, `--max-steps`,
+  `--welcome`.
 - `/link` imports Aqua API key + **all** BYOK custom providers from Eaon
   Desktop's macOS UserDefaults (OpenAI-compatible, Anthropic Messages, and
   Google Gemini formats — see "This cycle's work" below).
 - Session persistence (`/resume`), project memory (`EAON.md` via `/init` and
   `/memory`).
-- Sandboxed/Auto permission modes (Shift+Tab), per-tool "always allow."
-- A real interrupt: typing + Enter while the model is generating aborts the
-  current turn and redirects to the new message; Esc just stops.
+- Three permission tiers cycled with Shift+Tab: **plan** (researches and
+  proposes, refuses every mutating tool until you approve a plan),
+  **sandboxed** (asks before each change), **auto** (unattended). Per-tool
+  "always allow" within sandboxed.
+- Checkpoints + `/rewind` — files the agent changes are snapshotted first,
+  so a bad autonomous run can be undone.
+- Typing while it works QUEUES the message for the next turn (shown as
+  `↳ queued:`); Esc interrupts.
 - A live "Thinking…" spinner with elapsed time before the first token
   arrives.
 - Streaming is throttled (~25fps flush) instead of one React re-render per
@@ -129,7 +149,178 @@ is wired there (`handleCommand`), not just declared in `commands/index.ts`.
 
 ## This cycle's work (most recent → oldest)
 
-1. **Fixed `/link` only ever showing the Aqua provider** (user report: "the
+1. **Big capability cycle: plan mode, sub-agents, web tools, background
+   shell, checkpoints, lighter UI** (prompt: "add all the core
+   functionality Claude Code has… UI looks crappy… agentic coding better so
+   the user can create big things without constantly telling the model what
+   to do… no sub agents [for the research]"). Research was done first-hand
+   via WebFetch against code.claude.com's slash-command, CLI-reference and
+   interactive-mode docs, then gap-ranked by impact on autonomy.
+   - **Plan mode** — a third permission tier (`PermissionMode` is now
+     `plan | sandboxed | auto`, Shift+Tab cycles all three). In plan mode
+     every mutating tool is refused with a message steering the model to
+     research; `exit_plan_mode` presents the plan; approving flips the
+     RUNNING loop to auto so the same turn carries straight on into the
+     work (approve once, not twice). New `ui/PlanReview.tsx` renders the
+     plan as real markdown with numbered options.
+   - **`task` sub-agent tool** — spawns a nested `runAgentTurn` with a
+     fresh conversation (`subagentSystemPrompt`), same tools/model/root,
+     max 20 steps, one level deep only. The parent gets back just the
+     sub-agent's final report, which is the point: delegate exploration
+     without dragging its transcript into the parent's context. Injected
+     via a `runSubagent` callback on the new `ToolContext` so tools/ never
+     has to import agent/ (that would be circular).
+   - **Web tools** — `web_search` (DuckDuckGo HTML endpoint, no API key)
+     and `web_fetch` (HTML→text). Hardened: HTTPS-preferred, redirect-
+     capped and re-checked per hop, size/time capped, and loopback/private/
+     link-local addresses refused so it can't be pointed at internal
+     services or cloud metadata (169.254.169.254).
+   - **Background shell** — `run_shell_background` / `check_shell` /
+     `stop_shell`. run_shell's 2-minute cap made dev servers and long
+     builds impossible; these spawn detached, buffer output, and return
+     only what's NEW per poll so tailing a log works. All jobs are killed
+     on exit (wired into both /exit and the Ctrl+C path).
+   - **Checkpoints + `/rewind`** (`session/checkpoints.ts`) — every file
+     the agent is about to change is snapshotted first; `/rewind` lists
+     restore points and restores one plus everything after it. Deliberately
+     NOT git-based (project may not be a repo / may have a dirty tree).
+     Honest scope, stated in the command's own output: covers write_file/
+     edit_file/move_item/trash_item, NOT changes made by shell commands.
+   - **Message queueing** — typing while the agent works now QUEUES
+     (shown as `↳ queued:` lines) instead of interrupting; Esc still
+     interrupts. Much better for long autonomous runs.
+   - **Session/CLI parity** — `-c/--continue` (most recent session for
+     THIS project), `-r/--resume <id>`, `--permission-mode`. New commands:
+     `/plan`, `/rewind`, `/diff`, `/copy`, `/bashes`. Composer gained
+     Ctrl+K/Ctrl+W and Alt+B/Alt+F, and Ctrl+U now kills to line start
+     (readline semantics) rather than clearing everything.
+   - **UI** — rendered the real output to plain text and looked at it,
+     rather than guessing. The banner was ~25 lines of chrome before you
+     could type (full-width box + quote + tips + recent sessions); it's now
+     the wordmark plus 4 dim lines. Also: shortened the composer
+     placeholder to "What should I build?", dropped the path line the diff
+     repeated (the tool label now carries the full relative path instead of
+     a bare basename), and collapsed blank-line runs in tool output.
+   - **Two real bugs the tests caught, worth remembering:**
+     (a) `read_file` was never marked `readOnly` — pre-existing, and it
+     would have made plan mode *useless* (the model couldn't read anything
+     while planning) on top of prompting to read files in sandboxed mode.
+     (b) I initially marked `task` read-only, which was a **sandbox
+     bypass**: sub-agents don't prompt, so the model could have delegated
+     writes to escape sandboxed mode's gate. `task` is now gated normally,
+     with an explicit exemption in plan mode (safe there because the
+     sub-agent inherits plan mode).
+   - Verified: 42-check suite covering htmlToText, all four SSRF refusals,
+     background job lifecycle (start/poll-only-new/stop/sudo-refusal),
+     checkpoint record+restore incl. deleting files created after the
+     point, tool gating per mode, and the REAL agent loop driven against a
+     scripted SSE server for plan-refuse → propose → approve → write,
+     plan-reject → still refused, plan-mode-still-allows-research, and a
+     full parent→sub-agent→report round trip. Plus schema validation on all
+     22 tools. Typecheck/build clean.
+   - **Not verified:** a live run against a real model — the local 4B
+     rambled instead of calling tools (model quality, not the CLI; the
+     scripted-server tests cover the loop mechanics far more rigorously).
+     Worth a real interactive session on a capable model, especially to
+     feel plan mode and `task` end to end.
+   - **Still missing vs Claude Code** (deliberate, not forgotten): MCP,
+     hooks, custom subagent definitions, vim mode, `/agents`, output
+     styles, IDE integration, image input.
+
+2. **Banded-gradient wordmark in the session banner** (prompt: "add the
+   eaon logo like this [Hermes-Agent screenshot] — different color instead
+   of orange"). The Hermes signature is a big block wordmark with hard
+   horizontal color bands printed at the top of every session.
+   - **`ui/Wordmark.tsx`** (new): `BandedWordmark` renders the existing
+     figlet EAON art (logoArt.ts) with one solid color per row from
+     `WORDMARK_GRADIENT` — an 8-step glacier cyan→blue ramp (#C6F2FF →
+     #2680BE). Color choice per the user's explicit "not orange": the
+     cyan/blue family is already Eaon-adjacent (user/tool colors), so the
+     coral accent stays reserved for interactive chrome while the wordmark
+     gets its own identity. Hard per-row bands on purpose — the banding IS
+     the Hermes style, smoothing would read as antialiasing.
+   - **`EaonBanner.tsx`**: the banded wordmark now opens EVERY session
+     (above the compact welcome card), gated on terminal width ≥
+     wordmark+2 cols; narrow terminals just get the card (which already
+     names the product). Uses useStdout for columns.
+   - **`WelcomeScreen.tsx`**: its previously flat-coral wordmark now uses
+     the same shared component, so the treatment can't drift between the
+     two surfaces. Narrow fallback text stays accent-colored (it's one
+     word, not the art).
+   - Verified (headless-Ink + FORCE_COLOR=3): all 8 gradient truecolors
+     actually emitted, art rows confirmed NOT accent-colored anymore,
+     width gating on/off, card still renders, welcome screen uses the
+     ramp — 10/10. Typecheck/build clean. Not committed (not asked).
+     Real-terminal eyeball still worthwhile (`node dist/cli.js`).
+
+3. **Full UI restyle to the Claude-Code/Cursor visual language** (prompt:
+   "make it look good and function good, like cursor cli and claude cli").
+   The shared vocabulary of both reference CLIs: quiet neutral chrome, one
+   accent, a ●-bullet left edge on every agent action, ⎿ tree-branch
+   results, background-tinted diffs, dim rounded composer. Eaon keeps its
+   coral accent (#F17455) as the identity marker. All in `src/ui/`, no
+   logic changes:
+   - **Transcript rhythm** (`MessageView.tsx`): assistant replies get a
+     `● ` marker with hanging indent (Box row + flexGrow column so
+     wrapping stays aligned); user prompts echo back DIM with a `> `
+     prefix (both CLIs keep visual weight on answers, not questions);
+     tool results connect with `⎿  ` + aligned 3-space continuations;
+     tool names render plain white bold (dropped the old blue —
+     `theme.toolName` now equals `assistant`; neither reference CLI
+     colors tool names).
+   - **Diffs** (`DiffView.tsx` rewritten): dim right-aligned gutter line
+     numbers + changed lines as SOLID background-tinted blocks — new
+     `diffAddedBg` #1C3A26 / `diffRemovedBg` #42232A with light
+     `diffAdded`/`diffRemoved` foregrounds (was: bare colored +/- glyphs
+     in a bordered box; border dropped, the tint IS the structure now).
+   - **Working indicators**: braille spinner replaced by the pulsing-star
+     rhythm (`STAR_FRAMES · ✢ ✳ ✻ ✽ …` in theme.ts) in both the
+     pre-first-token ThinkingIndicator and the whole-turn
+     GenerationStatus, which now also picks one verb per turn from
+     `WORKING_VERBS` ("Working/Thinking/Brewing/Tinkering/Considering…") —
+     per-mount, so the line never jitters mid-turn.
+   - **Composer** (`Composer.tsx`): chrome went neutral — border is dim
+     gray always, and only takes color when a prefix mode is active
+     (`!` warning / `#` accent), so color always MEANS something;
+     permission state no longer tints the composer (it lives in the
+     footer); suggestion cursor is `❯`; `permissionMode` prop removed
+     entirely (interface + App call site).
+   - **Permission prompt** (`PermissionPrompt.tsx` rewritten):
+     Claude-style — `● <summary> (tool)` header, detail branched under
+     `⎿`, numbered options with a `❯` cursor ("1. Yes / 2. Yes, allow
+     this tool for the rest of the session / 3. No (esc)"); now also
+     answerable by NUMBER keys in addition to the existing y/a/n,
+     arrows+Enter, Esc.
+   - **Banner** (`EaonBanner.tsx` rewritten): the hand-drawn block-letter
+     box (+ its exported buildBannerLayout helper — grep-confirmed no
+     other references) replaced by the compact Claude-Code welcome card:
+     small rounded accent box (`✻ Welcome back, <user>! · Eaon vX`, dim
+     mode·model and ~-shortened cwd), quote as one dim italic line below,
+     tips + recent sessions as quiet plain lines. The big art moment
+     stays on the one-time WelcomeScreen (untouched).
+   - **Footer + todos** (`App.tsx`): footer all-dim except auto-accept
+     (`⏵⏵ auto-accept on (shift+tab)` in warning color — the one state
+     that changes behavior earns the one color); todo pin restyled as a
+     quiet tree with a `Todos (n/m done)` header, ☒ for completed.
+   - Verified via the established headless-Ink harness (fake
+     stdin/stdout through the REAL render(), `FORCE_COLOR=3` per the
+     chalk-binds-to-real-stdout gotcha documented two cycles back):
+     24/24 — bullets, dim codes (ESC[2m on user lines), both diff
+     background truecolors (48;2;28;58;38 / 48;2;66;35;42) actually
+     emitted, gutter numbers, ⎿ connectors, ❯ suggestion + permission
+     cursors, number-key answers (1→approve, 2→always), composer border
+     + placeholder, banner box/quote/tips/recents. Typecheck + build
+     clean. NOT committed — the user didn't ask this time. Note: work
+     landed on top of an external commit (b24e5f6, "Add an updater for
+     Eaon CLI") that bumped the version to 0.1.2 and added
+     src/updateCheck.ts + a startup notice in App.tsx — untouched here,
+     and parallel uncommitted Eaon-desktop changes (updater banner UI)
+     were left alone too.
+   - **Not verified**: real-terminal look (colors/spacing to a human
+     eye) — the harness proves structure and emitted codes, not taste.
+     Worth a quick run of `node dist/cli.js` to eyeball.
+
+4. **Fixed `/link` only ever showing the Aqua provider** (user report: "the
    only provider that is showing up is the aqua provider... pull all of the
    data"). Two real, confirmed bugs, found by directly inspecting this
    machine's actual UserDefaults data rather than guessing:
@@ -188,7 +379,7 @@ is wired there (`handleCommand`), not just declared in `commands/index.ts`.
      single small key, or discard stdout entirely, so `maxBuffer` was
      never actually a concern there). Typecheck/build clean.
 
-2. **Real Eaon app-icon rendered as terminal block art, added to
+5. **Real Eaon app-icon rendered as terminal block art, added to
    WelcomeScreen** (prompt: "add the eaon logo [the actual icon image] into
    that same format"). Sits above the wordmark as an icon+logotype lockup.
    - **`ui/iconArt.ts`**: generated from the REAL icon file (the user
@@ -262,7 +453,7 @@ is wired there (`handleCommand`), not just declared in `commands/index.ts`.
    - **Not verified**: actual visual/color judgment in a real terminal, same
      caveat as the wordmark itself — worth a `--welcome` look.
 
-3. **First-run welcome/log-in screen + real ASCII wordmark** (prompt: "make
+6. **First-run welcome/log-in screen + real ASCII wordmark** (prompt: "make
    the CLI look cool, show the EAON logo like [reference image] on first
    install, press-any-key opens the browser to import providers from Eaon
    Desktop"). New, not a tweak to the existing in-app banner (EaonBanner.tsx,
@@ -342,7 +533,7 @@ is wired there (`handleCommand`), not just declared in `commands/index.ts`.
      the harness proves correctness of state/logic/content, not "does it
      look good to a human eye." Worth an actual look with `--welcome`.
 
-4. **Agent-loop hardening + speed pass** (prompt: "make it work like Claude
+7. **Agent-loop hardening + speed pass** (prompt: "make it work like Claude
    Code, make agentic coding better and faster"). This cycle went after the
    loop itself, driven by failures actually observed in the previous
    cycle's live runs (a model calling tool "write" and burning a corrective
@@ -398,7 +589,7 @@ is wired there (`handleCommand`), not just declared in `commands/index.ts`.
      run. Typecheck/build clean. UI bits (status line, deny-row fix) still
      need an interactive eyeball per the pty caveat below.
 
-5. **Big reliability + Claude-Code-parity + agentic pass** (prompt: "add
+8. **Big reliability + Claude-Code-parity + agentic pass** (prompt: "add
    everything Claude Code has, make the UI look like Claude Code, make
    agentic coding better, it's lagging/crashing — fix it"). Scoped
    deliberately: told the user up front that "everything" isn't a
@@ -454,7 +645,7 @@ is wired there (`handleCommand`), not just declared in `commands/index.ts`.
      tail of Claude Code slash commands. "Everything" is a direction here,
      not a finish line.
 
-6. **`/link`'s browser page is now a picker, not all-or-nothing.** Every
+9. **`/link`'s browser page is now a picker, not all-or-nothing.** Every
    discovered item (Aqua API key, each BYOK custom provider) gets its own
    checkbox — checked by default so the old "import everything" behavior
    is still one click away — plus a Select all/Select none toggle. Only
@@ -490,7 +681,7 @@ is wired there (`handleCommand`), not just declared in `commands/index.ts`.
      clicking checkboxes in a real browser, though — worth a quick manual
      /link if you touch this page again.
 
-7. **Crash/glitch fixes ("it keeps crashing and glitching") + a small visual
+10. **Crash/glitch fixes ("it keeps crashing and glitching") + a small visual
    polish pass** — three separate, concrete bug classes, each verified
    against source (Ink's own, not just this repo's) before fixing, per this
    project's own "don't fabricate results" rule:
@@ -555,7 +746,7 @@ is wired there (`handleCommand`), not just declared in `commands/index.ts`.
      from pending to ✓ instead of freezing; try `/resume` on an older
      session) is worth doing before fully trusting it live.
 
-8. **`/link` connects ALL configured providers**, not just Aqua + OpenAI-
+11. **`/link` connects ALL configured providers**, not just Aqua + OpenAI-
    compatible BYOK. Root cause: `providers/chat.ts` only spoke the OpenAI-
    compatible wire format, so `link/localAuth.ts` silently *skipped* any
    custom provider saved in Anthropic Messages or Google Gemini native
@@ -576,7 +767,7 @@ is wired there (`handleCommand`), not just declared in `commands/index.ts`.
      confirming both new streaming paths correctly extract text end-to-end
      (see "Testing methodology" below for why this mattered).
 
-9. **Performance fix (the "it's lagging" report) + interrupt + thinking
+12. **Performance fix (the "it's lagging" report) + interrupt + thinking
    indicator:**
    - **Root cause of lag:** streaming pushed a full `setMessages` (→ full
      Markdown re-parse, and for code blocks a full `cli-highlight`
@@ -598,7 +789,7 @@ is wired there (`handleCommand`), not just declared in `commands/index.ts`.
      `setInterval`, so it doesn't add any extra re-renders to the rest of
      the tree.
 
-10. **Claude-Code-parity pass:**
+13. **Claude-Code-parity pass:**
    - New tools: `grep` (regex content search, skips `node_modules`/`.git`/
      build dirs, handles binary files and bad regex gracefully — see
      `tools/searchTools.ts`), `glob` (filename pattern match,

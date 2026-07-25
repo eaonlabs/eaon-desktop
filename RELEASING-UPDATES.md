@@ -1,5 +1,10 @@
 # How Eaon updates work, and how to ship one
 
+This covers the **macOS** app (`Eaon-desktop/`). For **Windows/Linux**
+(`eaon-tauri/`), see [Windows/Linux updates](#windowslinux-eaon-tauri) at the
+bottom — different mechanism entirely (Tauri's signed updater plugin, not a
+hand-rolled manifest).
+
 ## How it works
 
 - On every launch, the app fetches one small JSON file (the **update
@@ -115,3 +120,69 @@ Two hosts, both learned the hard way (2026-07-12):
   was published by you specifically). Fine for now; closing this properly
   means either a Developer ID + notarization or adopting
   [Sparkle](https://sparkle-project.org)'s EdDSA-signed appcasts.
+
+## Windows/Linux (`eaon-tauri/`)
+
+Unlike the Mac side above, this uses Tauri's own official updater plugin —
+cryptographically signed from day one, no honor-system manifest.
+
+### How it works
+
+- On launch (and every 6 hours the app stays open), `checkForUpdate()`
+  (`eaon-tauri/src/core/update.ts`) calls the updater plugin's `check()`,
+  which fetches `latest.json` from the endpoint in
+  `src-tauri/tauri.conf.json` (`plugins.updater.endpoints`) — currently
+  `https://github.com/sanscreates/eaon-desktop/releases/latest/download/latest.json`,
+  a file the release workflow generates and attaches automatically.
+- The plugin verifies `latest.json`'s Ed25519 signature against the
+  `pubkey` pinned in `tauri.conf.json` **before** returning anything — a
+  compromised or unsigned release is rejected at this step, never shown to
+  the user.
+- If a newer, verified version exists, the General settings pane shows an
+  "Eaon `<version>` is available" card. **Update Now**
+  (`installUpdateNow()`) downloads with live progress, installs, and
+  relaunches — no manual download-and-run.
+- An unreachable server or failed verification is a silent no-op on the
+  background check, same policy as the Mac side. The manual "Check for
+  Updates" button always reports an outcome.
+
+### One-time setup (already done once — for reference)
+
+The signing keypair was generated with:
+```
+npx @tauri-apps/cli signer generate -w eaon-updater.key
+```
+The **public** half is committed in `src-tauri/tauri.conf.json`
+(`plugins.updater.pubkey`) — safe to be public, it can only verify, not sign.
+The **private** half and its password must never be committed. They need to
+live in this repo's GitHub Actions secrets as `TAURI_SIGNING_PRIVATE_KEY`
+and `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` (Settings → Secrets and
+variables → Actions) — `.github/workflows/release.yml` reads them from
+there for both the tag-push release build and manual `workflow_dispatch`
+test builds (the bundler requires them whenever
+`bundle.createUpdaterArtifacts` is on, even for a build that isn't
+publishing a release).
+
+**If the private key is ever lost**, every already-installed copy keeps
+working, but you can never ship a signed update it will accept again —
+you'd need to generate a new keypair, ship one *unsigned-relative-to-old-key*
+release that users have to download manually, and update `pubkey` going
+forward.
+
+### Shipping a release
+
+Nothing manual beyond the normal release process — `git tag vX.Y.Z && git
+push origin vX.Y.Z` triggers `.github/workflows/release.yml`, which builds,
+signs every bundle with the private key from secrets, and publishes
+`latest.json` to the GitHub Release alongside the installers. Every
+already-installed copy picks it up on its next check.
+
+### Why GitHub Releases works here (unlike the Mac side)
+
+The Mac section above hit a private-repo 404 problem and had to move
+binaries to a separate public repo. That doesn't apply here: `eaon-desktop`
+is a **public** repo, so anonymous `latest.json`/asset downloads from
+`github.com/sanscreates/eaon-desktop/releases/...` work with no token. If
+the repo's visibility ever changes to private, this breaks the same way the
+Mac zip did, and the fix is the same — move release publishing to a public
+repo.

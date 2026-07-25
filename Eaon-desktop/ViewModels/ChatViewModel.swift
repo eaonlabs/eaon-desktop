@@ -54,14 +54,6 @@ struct ChatMessage: Identifiable, Codable, Equatable {
     /// Optional, like the other flags on this struct, so older persisted
     /// messages decode fine without the key.
     var invokedSkillName: String?
-    /// Set on a user message that invoked `/reasoning` — like
-    /// `invokedSkillName`, purely for the small badge shown above the
-    /// bubble; `content` is already the command-stripped question, and the
-    /// debate transcript itself lives embedded in the FOLLOWING assistant
-    /// message's own content (see `ReasoningPanelExtractor`), not here.
-    /// Optional, like the other flags on this struct, so older persisted
-    /// messages decode fine without the key.
-    var invokedReasoningPanel: Bool?
 }
 
 /// A single saved conversation, shown in the "Your chats" sidebar list.
@@ -183,6 +175,19 @@ class ChatViewModel {
     /// launch, so a powerful "runs commands without asking" mode is never
     /// silently in effect from a past session. Only consulted in Agent mode.
     var agentAutoRun: Bool = false
+    /// Eaon Work's thinking style: false = **Agent** (one model works the
+    /// task itself), true = **Agent Swarm** (a creator convenes personas for
+    /// the task, they argue it out, and a synthesizer builds what they
+    /// settled on — see `AgentSwarmRunner`). Persisted, unlike `agentAutoRun`:
+    /// it's a preference about how you like to work, not a safety state, so
+    /// there's nothing dangerous about it surviving a relaunch.
+    /// Only consulted in Agent mode.
+    var agentSwarmEnabled: Bool = false {
+        didSet {
+            guard agentSwarmEnabled != oldValue else { return }
+            UserDefaults.standard.set(agentSwarmEnabled, forKey: Self.agentSwarmKey)
+        }
+    }
     /// Non-nil exactly while the "switch to Auto mode?" confirmation should
     /// be showing — entering Auto (never leaving it) is gated behind an
     /// explicit are-you-sure. See `requestAgentPermissionToggle`.
@@ -748,6 +753,7 @@ class ChatViewModel {
     private static let customInstructionsKey = "custom_instructions"
     private static let currentModeKey = "eaon_current_mode"
     private static let thinkingEnabledKey = "eaon_thinking_enabled"
+    private static let agentSwarmKey = "eaon_agent_swarm_enabled"
 
     /// User-authored, opt-in system instruction sent with every request —
     /// global, not per-conversation, matching how every other chat app's
@@ -798,6 +804,7 @@ class ChatViewModel {
         if UserDefaults.standard.object(forKey: Self.thinkingEnabledKey) != nil {
             thinkingEnabled = UserDefaults.standard.bool(forKey: Self.thinkingEnabledKey)
         }
+        agentSwarmEnabled = UserDefaults.standard.bool(forKey: Self.agentSwarmKey)
         loadConversations()
         loadProjects()
         refreshContextLimit()
@@ -1186,6 +1193,12 @@ class ChatViewModel {
             resetWorkspace()
         }
         persistConversations()
+        // Delete has to mean the same thing in both places. Without this the
+        // server keeps its copy, and the next device to sync pulls the
+        // "deleted" chat straight back — the most alarming way this feature
+        // could be wrong. Fire-and-forget: a chat the user deleted is gone
+        // from their view either way, and a network blip must not block that.
+        CloudSyncEngine.shared.forgetLocallyDeletedConversation(id)
     }
 
     /// Deletes only conversations not filed into a project — what the flat
@@ -1544,45 +1557,21 @@ class ChatViewModel {
         return (skill, rest.isEmpty ? "Use the \"\(skill.name)\" skill." : rest)
     }
 
-    /// `/reasoning` is a reserved, built-in command — checked before skill
-    /// extraction so a skill can never be installed under this name and
-    /// shadow it. Returns whether it matched and the text with the leading
-    /// token removed (same shape as `extractSkillInvocation`); a bare
-    /// `/reasoning` with nothing after it is rejected (returns false) rather
-    /// than substituting a generic question the way a skill invocation does
-    /// — there's no sensible default question for a multi-model debate to
-    /// argue over.
-    static func extractReasoningInvocation(from text: String) -> (matched: Bool, text: String) {
-        guard text.hasPrefix("/reasoning") else { return (false, text) }
-        let rest = text.dropFirst("/reasoning".count)
-        guard rest.isEmpty || rest.first?.isWhitespace == true else { return (false, text) }
-        let question = rest.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !question.isEmpty else { return (false, text) }
-        return (true, question)
-    }
-
-    /// Set fresh per turn in `sendMessage()` — the finished debate a
-    /// `/reasoning` invocation ran, or nil for an ordinary message. Read by
-    /// `systemPromptHistory` to brief the model on the debate, and by
-    /// `sendMessage()` itself to embed the transcript in the reply's own
-    /// content once generation finishes (see `ReasoningPanelExtractor`).
-    private var activeReasoningTranscriptForTurn: ReasoningTranscript?
+    /// Set fresh per turn in `sendMessage()` — the finished swarm discussion
+    /// when Eaon Work ran with Agent Swarm on, or nil otherwise. Read by
+    /// `systemPromptHistory` to brief the synthesizer, and by `sendMessage()`
+    /// to embed the transcript in the reply's own content once generation
+    /// finishes (see `SwarmPanelExtractor`). Same lifecycle as the reasoning
+    /// transcript above, deliberately — it's the same shape of feature.
+    private var activeSwarmTranscriptForTurn: SwarmTranscript?
 
     func sendMessage() async {
         let rawInput = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let (invokedReasoning, afterReasoning) = Self.extractReasoningInvocation(from: rawInput)
-        let (invokedSkill, text) = invokedReasoning
-            ? (nil, afterReasoning)
-            : Self.extractSkillInvocation(from: rawInput)
+        let (invokedSkill, text) = Self.extractSkillInvocation(from: rawInput)
         activeSkillForTurn = invokedSkill
-        activeReasoningTranscriptForTurn = nil
+        activeSwarmTranscriptForTurn = nil
         let attachments = pendingAttachments
         guard (!text.isEmpty || !attachments.isEmpty), !isGenerating else { return }
-
-        if invokedReasoning, EaonAccess.current == nil {
-            composerNotice = "/reasoning needs an Eaon account or API key — the debate panel runs on hosted models. Set one up in Settings, or just ask your question normally."
-            return
-        }
 
         // Image models never appear in `chatModels` at all — this has to be
         // checked before that guard, not inside it.
@@ -1596,7 +1585,7 @@ class ChatViewModel {
         let localRecord = routing.localRecord
         let apiKey = routing.apiKey
 
-        let userMsg = ChatMessage(content: text, isUser: true, attachments: attachments, invokedSkillName: invokedSkill?.name, invokedReasoningPanel: invokedReasoning ? true : nil)
+        let userMsg = ChatMessage(content: text, isUser: true, attachments: attachments, invokedSkillName: invokedSkill?.name)
         messages.append(userMsg)
         StatisticsTracker.shared.recordUserPrompt(modelId: selectedModel)
         inputText = ""
@@ -1625,25 +1614,35 @@ class ChatViewModel {
         let conversationId = currentConversationId!
         let modelId = selectedModel
 
-        if invokedReasoning, let eaonAccess = EaonAccess.current {
-            // Marked generating NOW, before the debate — otherwise
-            // `isGenerating`/the composer's busy state wouldn't flip true
-            // until `runGenerationLoop` does it below, letting the user fire
-            // a second message while the panel is still arguing. Harmless
-            // for `runGenerationLoop` to set the identical value again.
+        // Agent Swarm: convene the specialists and let them settle the
+        // approach BEFORE the real generation starts, so what follows is the
+        // synthesizer building their conclusion with the normal agent tool
+        // loop. Marked generating NOW, before the discussion — otherwise
+        // `isGenerating`/the composer's busy state wouldn't flip true until
+        // `runGenerationLoop` does it below, and the swarm can take a minute:
+        // the composer must be busy for all of it rather than letting a
+        // second message fire while the specialists are still talking.
+        // Harmless for `runGenerationLoop` to set the identical value again.
+        if currentMode == .agent, agentSwarmEnabled {
             let generationSession = session(for: conversationId)
             generationSession.task = pendingSendTask
-            let panel = ReasoningStore.shared.panel(from: aquaOnlyChatModels)
-            let transcript = await ReasoningRunner.run(question: text, panel: panel, apiKey: eaonAccess.apiKey) { [weak self] status in
+            let transcript = await AgentSwarmRunner.run(
+                task: text,
+                route: AgentSwarmRunner.Route(
+                    customConfig: customConfig,
+                    localRecord: localRecord,
+                    apiKey: apiKey,
+                    modelId: modelId
+                )
+            ) { [weak self] status in
                 self?.session(for: conversationId).agentActivityText = status
             }
             generationSession.agentActivityText = nil
-            // An all-errored panel (e.g. no network) has nothing useful to
-            // brief the model with — let it just answer the question
-            // directly rather than injecting a transcript that's all
-            // failures, and skip embedding an empty-looking panel card.
-            if transcript.takes.contains(where: { !$0.round1.isEmpty }) {
-                activeReasoningTranscriptForTurn = transcript
+            // A swarm that never got off the ground (offline, or a model that
+            // couldn't produce a roster) briefs the synthesizer with nothing
+            // useful — answer normally instead of injecting an empty panel.
+            if !transcript.usableRemarks.isEmpty {
+                activeSwarmTranscriptForTurn = transcript
             }
         }
 
@@ -1651,19 +1650,19 @@ class ChatViewModel {
 
         await runGenerationLoop(conversationId: conversationId, customConfig: customConfig, localRecord: localRecord, apiKey: apiKey, modelId: modelId)
 
-        // Embed the transcript in the reply's own content — see
-        // `ReasoningPanelExtractor` — so the collapsible debate card
-        // persists and redisplays with the message forever, no schema
-        // change needed. Targets the first NEW non-user, non-tool-result
-        // message (the synthesized answer); done after the fact rather than
-        // seeding the streamed content up front so none of the live
-        // per-token streaming path needed touching for this feature.
-        if let transcript = activeReasoningTranscriptForTurn {
+        // Embed the swarm discussion in the reply's own content — see
+        // `SwarmPanelExtractor` — so the collapsible card persists and
+        // redisplays with the message forever, no schema change needed.
+        // Targets the first NEW non-user, non-tool-result message (the
+        // synthesized answer); done after the fact rather than seeding the
+        // streamed content up front so none of the live per-token streaming
+        // path needed touching for this feature.
+        if let transcript = activeSwarmTranscriptForTurn {
             withMessages(for: conversationId) { msgs in
                 guard msgs.indices.contains(messageCountBeforeGeneration) else { return }
                 let target = msgs[messageCountBeforeGeneration]
                 guard !target.isUser, target.isToolResult != true else { return }
-                msgs[messageCountBeforeGeneration].content = ReasoningPanelExtractor.encode(transcript) + target.content
+                msgs[messageCountBeforeGeneration].content = SwarmPanelExtractor.encode(transcript) + target.content
             }
             persistGeneration(for: conversationId)
         }
@@ -2210,8 +2209,29 @@ class ChatViewModel {
             persistGeneration(for: conversationId)
             outcome = .cancelled
         } catch {
+            // `cancel()` flushes everything that already arrived into the
+            // bubble, so `streamed` below is the real partial reply.
             typewriter.cancel()
-            markError(id: aiMsgId, text: error.localizedDescription, for: conversationId)
+            let streamed = (withMessages(for: conversationId) { $0.first(where: { $0.id == aiMsgId })?.content } ?? nil) ?? ""
+            if streamed.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                markError(id: aiMsgId, text: error.localizedDescription, for: conversationId)
+            } else {
+                // Text that already streamed is real, and used to be thrown
+                // away wholesale: `markError` REPLACES the bubble's content,
+                // so a connection that died two paragraphs into an answer
+                // left the user with an error string and nothing else — the
+                // reply looked deliberately killed. Keep what arrived and
+                // name what stopped it instead.
+                //
+                // Still `.failed`, not `.completed`: the agent loop must not
+                // parse tool fences out of a reply that was cut mid-write.
+                withMessages(for: conversationId) { current in
+                    guard let index = current.firstIndex(where: { $0.id == aiMsgId }) else { return }
+                    current[index].content = streamed + streamInterruptedNotice(error.localizedDescription)
+                }
+                finalizeGeneration(id: aiMsgId, modelId: modelId, for: conversationId)
+                persistGeneration(for: conversationId)
+            }
             outcome = .failed
         }
 
@@ -2796,10 +2816,57 @@ class ChatViewModel {
     /// little and gives back a model that actually answers. Cloud models
     /// never qualify regardless of name.
     static func usesCompactPrompt(modelId: String) -> Bool {
-        guard LocalAIManager.shared.owns(modelId) else { return false }
-        guard let billions = parameterBillions(in: modelId) else { return false }
-        return billions <= 7
+        let id = FreeWeekTrial.strippingTrialSuffix(modelId).lowercased()
+
+        // An explicit parameter count in the id is the most reliable signal
+        // there is, and it settles the question either way — a hosted
+        // `gemma-3-27b-it` is NOT small just because it says "gemma".
+        if let billions = parameterBillions(in: id) { return billions <= 7 }
+
+        // Hosted vendors publish a tier name instead of a parameter count,
+        // and the small tiers behave exactly like the small local models this
+        // guard was written for. `guard LocalAIManager.owns` used to return
+        // false here — "Cloud models never qualify regardless of name" — so
+        // GPT-5 Nano took the full instruction stack and did precisely what
+        // Qwen3-4B had done: answered "hello" with a pitch for its coding
+        // tools, then invented a project and started writing files.
+        let smallTierMarkers = [
+            "nano", "mini", "haiku", "flash-lite", "flash lite",
+            "tiny", "smol", "gemma", "phi-3", "phi3", "phi-4", "phi4",
+        ]
+        if smallTierMarkers.contains(where: id.contains) { return true }
+
+        // A LOCAL model whose id carries no size at all — `gemma3:latest`,
+        // `mistral`, `llama3.2`, `phi4-mini` — used to fall through as if it
+        // were large, which is backwards: local models are overwhelmingly
+        // small, and those exact ids are the ones reported failing. Unknown
+        // size locally now means "assume small", the safe direction: the
+        // worst case is a capable model getting a leaner prompt.
+        return LocalAIManager.shared.owns(modelId)
     }
+
+    /// Who the model is on an ordinary Chat turn — short on purpose.
+    ///
+    /// Chat mode had NO general identity at all. With default settings the
+    /// only system message a conversation carried was the ~900-token
+    /// workspace block, which opened "You are the coding agent inside Eaon",
+    /// so that WAS the model's identity, on every turn, including one where
+    /// the user had typed "hello". That is the whole reason "hello" came back
+    /// as "You can use me to help you with coding" — the model answered from
+    /// the only thing it had been told about itself.
+    ///
+    /// The last line is not filler: with an instruction-heavy prompt and no
+    /// real task, a small model will complete the *user's* turn instead of
+    /// its own. Observed live — GPT-5 Nano replied to "hi" by writing the
+    /// user's next message for them ("I'd like to build a simple web
+    /// scraper…") and then carrying it out.
+    static let chatIdentityPrompt = """
+    You are Eaon, a helpful AI assistant in a desktop chat app.
+
+    Match the message you're answering: a greeting or a quick question gets a short, natural reply — not a summary of what you can do, and not a menu of things you could build for the user.
+
+    Reply only as yourself, to what the user actually said. Never write the user's side of the conversation, and never invent a task they haven't asked for.
+    """
 
     /// `conversationId` — needed only to find the turn actually being
     /// responded to, so the memory briefing can be scored against it
@@ -2827,6 +2894,14 @@ class ChatViewModel {
         // access at all.
         if wideDeviceControl {
             entries.append(HistoryTurn(role: "system", content: Self.wideDeviceControlPreamble))
+        }
+
+        // Chat's general identity, first and always — see
+        // `chatIdentityPrompt`. Agent mode has its own identity in
+        // `codingInstructionBlock` ("You are Eaon's agent, working directly
+        // on the user's Mac"), so this would only compete with it there.
+        if currentMode == .chat {
+            entries.append(HistoryTurn(role: "system", content: Self.chatIdentityPrompt))
         }
 
         let trimmed = customInstructions.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -2858,7 +2933,17 @@ class ChatViewModel {
         // `!compactPrompt`: this block (plus the plugin catalog below) is
         // exactly what a small local model was observed reciting back at
         // the user instead of answering — see `usesCompactPrompt`.
-        if currentMode == .chat, !compactPrompt {
+        //
+        // `shouldTeachWorkspace`: and even for a model big enough to carry
+        // it, it only goes out on a turn that's actually about building
+        // something. Sending it unconditionally is what made "hello" a
+        // coding pitch and "hi" a self-assigned web-scraper project — the
+        // full account is on `shouldTeachWorkspace`.
+        if currentMode == .chat, !compactPrompt,
+           WorkspaceParser.shouldTeachWorkspace(
+               latestUserText: latestUserText,
+               conversationHasFiles: !WorkspaceParser.files(fromMessages: withMessages(for: conversationId, { $0 }) ?? []).isEmpty
+           ) {
             entries.append(HistoryTurn(role: "system", content: WorkspaceParser.systemInstruction))
         }
 
@@ -2937,11 +3022,13 @@ class ChatViewModel {
             ))
         }
 
-        // A `/reasoning` debate for this exact turn — freshest of all, same
-        // reasoning as the skill block above: an explicit, deliberate
-        // per-message request belongs right before the user's own message.
-        if let activeReasoningTranscriptForTurn {
-            entries.append(HistoryTurn(role: "system", content: ReasoningPanelExtractor.synthesisInstruction(for: activeReasoningTranscriptForTurn)))
+        // The swarm's finished discussion, if one ran for this turn — last,
+        // so the specialists' conclusion is the freshest thing the
+        // synthesizer reads before the user's own message. Placed after the
+        // coding/device blocks on purpose: those establish what it CAN do,
+        // this tells it what to do with them.
+        if let activeSwarmTranscriptForTurn {
+            entries.append(HistoryTurn(role: "system", content: SwarmPanelExtractor.synthesisInstruction(for: activeSwarmTranscriptForTurn)))
         }
 
         return entries
@@ -3289,13 +3376,6 @@ class ChatViewModel {
         // `eaon-trial-` shape) is what actually decides trial vs. user-key
         // routing just below, unaffected by this.
         let modelId = FreeWeekTrial.strippingTrialSuffix(rawModelId)
-        // Free-week trials route to Eaon's own gateway; a user key goes to
-        // the Aqua API as always. Authorization is attached AFTER the body
-        // below — trial signatures cover the exact request bytes.
-        var request = URLRequest(url: EaonAccess.baseURL(forKey: apiKey).appendingPathComponent("chat/completions"))
-        request.httpMethod = "POST"
-        request.timeoutInterval = 120
-        request.addValue("application/json", forHTTPHeaderField: "Content-Type")
 
         var apiMessages: [[String: Any]] = systemPromptHistory(for: conversationId, modelId: modelId).map(\.openAICompatibleJSON)
         let priorMessages = withMessages(for: conversationId, { $0 }) ?? []
@@ -3319,93 +3399,166 @@ class ChatViewModel {
         if let nativeTools {
             body["tools"] = nativeTools.tools
         }
+        let bodyData = try JSONSerialization.data(withJSONObject: body)
 
-        request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        EaonAccess.authorize(&request, apiKey: apiKey)
+        // One attempt per pass. A stream that ends without the provider
+        // saying it finished is re-requested from scratch rather than left
+        // as a half-answer — see `StreamContinuity`. Everything expensive
+        // (the system prompt, history compression) is built once, above.
+        for attempt in 1...StreamContinuity.maxAttempts {
+            // Free-week trials route to Eaon's own gateway; a user key goes
+            // to the Aqua API as always. Authorization is attached AFTER the
+            // body — trial signatures cover the exact request bytes and carry
+            // a timestamp the gateway checks for freshness, so a retry has to
+            // re-sign rather than replay the first attempt's headers.
+            var request = URLRequest(url: EaonAccess.baseURL(forKey: apiKey).appendingPathComponent("chat/completions"))
+            request.httpMethod = "POST"
+            // The idle timeout — how long URLSession waits for the NEXT
+            // bytes, not how long the whole reply may take. It still bounds
+            // time-to-first-token, though, and a reasoning model working
+            // through a long conversation legitimately thinks for longer than
+            // the two minutes this used to allow, which surfaced as a request
+            // that died before it ever produced anything.
+            request.timeoutInterval = 300
+            request.addValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = bodyData
+            EaonAccess.authorize(&request, apiKey: apiKey)
 
-        let (bytes, httpResponse) = try await TransientHTTPRetry.send(request)
-
-        if httpResponse.statusCode != 200 {
-            let errorBody = try await readErrorBody(from: bytes)
-            // Same safeguard as the BYOK path: a backend/model that
-            // rejects the tools parameter must not break chat — retry
-            // once without it; the fenced-markup channel still works.
-            if nativeTools != nil, (400...422).contains(httpResponse.statusCode), errorBody.lowercased().contains("tool") {
-                try await streamCompletion(apiKey: apiKey, aiMessageId: aiMessageId, modelId: modelId, conversationId: conversationId, typewriter: typewriter, nativeTools: nil, samplingOverride: sampling)
-                return
+            let bytes: URLSession.AsyncBytes
+            let httpResponse: HTTPURLResponse
+            do {
+                (bytes, httpResponse) = try await TransientHTTPRetry.send(request)
+            } catch let urlError as URLError where StreamContinuity.isDroppedConnection(urlError) && attempt < StreamContinuity.maxAttempts {
+                try await Task.sleep(for: StreamContinuity.backoff(beforeAttempt: attempt))
+                continue
             }
-            // A model that rejects a sampling parameter (common with
-            // reasoning models refusing `temperature`) shouldn't strand the
-            // user who just moved a slider — retry once without them.
-            if !sampling.isEmpty, (400...422).contains(httpResponse.statusCode), SamplingParameters.looksLikeRejection(errorBody) {
-                try await streamCompletion(apiKey: apiKey, aiMessageId: aiMessageId, modelId: modelId, conversationId: conversationId, typewriter: typewriter, nativeTools: nativeTools, samplingOverride: SamplingParameters())
-                return
-            }
-            throw APIClientError.httpError(status: httpResponse.statusCode, message: errorBody)
-        }
 
-        let contentType = httpResponse.value(forHTTPHeaderField: "Content-Type") ?? ""
-
-        if contentType.contains("text/event-stream") || contentType.contains("application/x-ndjson") {
-            try await consumeStream(bytes, typewriter: typewriter, nativeTools: nativeTools)
-            return
-        }
-
-        // Some responses may return a single JSON payload instead of SSE chunks.
-        var collected = Data()
-        for try await byte in bytes {
-            collected.append(byte)
-        }
-
-        if let json = try? JSONSerialization.jsonObject(with: collected) as? [String: Any],
-           let choices = json["choices"] as? [[String: Any]],
-           let message = choices.first?["message"] as? [String: Any] {
-            var sawAny = false
-            let reasoning = (message["reasoning_content"] as? String) ?? (message["reasoning"] as? String)
-            if let reasoning, !reasoning.isEmpty {
-                sawAny = true
-                typewriter.append("<think>\(reasoning)</think>")
-                StatisticsTracker.shared.recordGeneratedCharacters(reasoning.count)
-            }
-            if let content = message["content"] as? String, !content.isEmpty {
-                sawAny = true
-                typewriter.append(content)
-                StatisticsTracker.shared.recordGeneratedCharacters(content.count)
-            }
-            if let nativeTools, let calls = message["tool_calls"] as? [[String: Any]] {
-                var accumulator = ToolCallAccumulator()
-                accumulator.ingest(complete: calls)
-                if let fences = accumulator.fencedBlocks(nameMap: nativeTools.nameMap) {
-                    sawAny = true
-                    typewriter.append(fences)
+            if httpResponse.statusCode != 200 {
+                let errorBody = try await readErrorBody(from: bytes)
+                // Same safeguard as the BYOK path: a backend/model that
+                // rejects the tools parameter must not break chat — retry
+                // once without it; the fenced-markup channel still works.
+                if nativeTools != nil, (400...422).contains(httpResponse.statusCode), errorBody.lowercased().contains("tool") {
+                    try await streamCompletion(apiKey: apiKey, aiMessageId: aiMessageId, modelId: modelId, conversationId: conversationId, typewriter: typewriter, nativeTools: nil, samplingOverride: sampling)
+                    return
                 }
+                // A model that rejects a sampling parameter (common with
+                // reasoning models refusing `temperature`) shouldn't strand
+                // the user who just moved a slider — retry once without them.
+                if !sampling.isEmpty, (400...422).contains(httpResponse.statusCode), SamplingParameters.looksLikeRejection(errorBody) {
+                    try await streamCompletion(apiKey: apiKey, aiMessageId: aiMessageId, modelId: modelId, conversationId: conversationId, typewriter: typewriter, nativeTools: nativeTools, samplingOverride: SamplingParameters())
+                    return
+                }
+                throw APIClientError.httpError(status: httpResponse.statusCode, message: errorBody)
             }
-            if sawAny { return }
-        }
 
-        let fallbackText = String(data: collected, encoding: .utf8) ?? "Unexpected response from Eaon API."
-        throw APIClientError.unexpectedResponse(fallbackText)
+            let contentType = httpResponse.value(forHTTPHeaderField: "Content-Type") ?? ""
+
+            if contentType.contains("text/event-stream") || contentType.contains("application/x-ndjson") {
+                let finished: Bool
+                do {
+                    finished = try await consumeStream(bytes, typewriter: typewriter, nativeTools: nativeTools)
+                } catch let urlError as URLError where StreamContinuity.isDroppedConnection(urlError) && attempt < StreamContinuity.maxAttempts {
+                    // The socket died partway through. Same situation as a
+                    // signal-less end, just with a diagnosis attached.
+                    typewriter.reset()
+                    try await Task.sleep(for: StreamContinuity.backoff(beforeAttempt: attempt))
+                    continue
+                }
+                if finished {
+                    // A stream that really did finish and still produced
+                    // nothing is an empty reply, not a cut one.
+                    if !typewriter.hasContent { throw APIClientError.emptyResponse }
+                    return
+                }
+                guard attempt < StreamContinuity.maxAttempts else {
+                    // Out of retries. Keep whatever the last attempt managed
+                    // and say plainly that it's incomplete, rather than
+                    // presenting a half-answer as finished.
+                    if !typewriter.hasContent { throw APIClientError.emptyResponse }
+                    typewriter.append(streamTruncatedNotice)
+                    return
+                }
+                typewriter.reset()
+                try await Task.sleep(for: StreamContinuity.backoff(beforeAttempt: attempt))
+                continue
+            }
+
+            // Some responses may return a single JSON payload instead of SSE chunks.
+            var collected = Data()
+            for try await byte in bytes {
+                collected.append(byte)
+            }
+
+            if let json = try? JSONSerialization.jsonObject(with: collected) as? [String: Any],
+               let choices = json["choices"] as? [[String: Any]],
+               let message = choices.first?["message"] as? [String: Any] {
+                var sawAny = false
+                let reasoning = (message["reasoning_content"] as? String) ?? (message["reasoning"] as? String)
+                if let reasoning, !reasoning.isEmpty {
+                    sawAny = true
+                    typewriter.append("<think>\(reasoning)</think>")
+                    StatisticsTracker.shared.recordGeneratedCharacters(reasoning.count)
+                }
+                if let content = message["content"] as? String, !content.isEmpty {
+                    sawAny = true
+                    typewriter.append(content)
+                    StatisticsTracker.shared.recordGeneratedCharacters(content.count)
+                }
+                if let nativeTools, let calls = message["tool_calls"] as? [[String: Any]] {
+                    var accumulator = ToolCallAccumulator()
+                    accumulator.ingest(complete: calls)
+                    if let fences = accumulator.fencedBlocks(nameMap: nativeTools.nameMap) {
+                        sawAny = true
+                        typewriter.append(fences)
+                    }
+                }
+                if sawAny { return }
+            }
+
+            let fallbackText = String(data: collected, encoding: .utf8) ?? "Unexpected response from Eaon API."
+            throw APIClientError.unexpectedResponse(fallbackText)
+        }
     }
 
+    /// Returns whether the provider actually signalled that it was finished.
+    /// `false` means the byte stream simply ran out — the loop below exited
+    /// because there was nothing left to read, not because the provider said
+    /// it was done, which is the cut-off-mid-reply case the caller retries.
+    ///
+    /// Two things count as a real terminal signal, not just `[DONE]`: plenty
+    /// of OpenAI-compatible gateways and proxies never emit the `[DONE]`
+    /// sentinel at all but do set `finish_reason` on the final choice, and
+    /// treating those as truncated would mean re-requesting every single
+    /// reply they serve. Either one is proof the model reached the end.
+    @discardableResult
     private func consumeStream(
         _ bytes: URLSession.AsyncBytes,
         typewriter: TypewriterStreamController,
         nativeTools: NativeToolConfig? = nil
-    ) async throws {
+    ) async throws -> Bool {
         var toolCalls = ToolCallAccumulator()
         let reasoningBridge = ReasoningDeltaBridge()
+        var sawTerminalSignal = false
         for try await line in bytes.lines {
-            guard line.hasPrefix("data: ") else { continue }
+            guard line.hasPrefix("data:") else { continue }
 
-            let payload = String(line.dropFirst(6))
-            if payload == "[DONE]" { break }
+            // `data:` with no space after the colon is equally valid SSE and
+            // some gateways send it that way; dropping a fixed 6 characters
+            // ate the first character of every frame's JSON there.
+            let payload = String(line.dropFirst(5)).trimmingCharacters(in: .whitespaces)
+            if payload == "[DONE]" { sawTerminalSignal = true; break }
 
             guard let data = payload.data(using: .utf8),
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
                   let choices = json["choices"] as? [[String: Any]],
-                  let delta = choices.first?["delta"] as? [String: Any] else {
+                  let choice = choices.first else {
                 continue
             }
+            if let reason = choice["finish_reason"], !(reason is NSNull) {
+                sawTerminalSignal = true
+            }
+            guard let delta = choice["delta"] as? [String: Any] else { continue }
 
             toolCalls.ingest(delta: delta)
 
@@ -3425,9 +3578,7 @@ class ChatViewModel {
             typewriter.append(fences)
         }
 
-        if !typewriter.hasContent {
-            throw APIClientError.emptyResponse
-        }
+        return sawTerminalSignal
     }
 
     /// Floor between streaming workspace re-derivations — see
@@ -3563,6 +3714,75 @@ enum APIClientError: LocalizedError {
     }
 }
 
+/// Appended to a reply's content when its stream ended without ever
+/// receiving the provider's real completion signal (`[DONE]` /
+/// `message_stop`) — the connection dropped, was closed by an intermediary,
+/// or otherwise ended mid-generation. The partial content received up to
+/// that point is real and kept; this just says so honestly instead of
+/// silently presenting a cut-off reply as finished. Every streaming path
+/// that has a real terminal signal to check for uses this (Gemini has none
+/// by protocol — the HTTP stream ending IS its done signal — so its path
+/// is correctly exempt).
+let streamTruncatedNotice = "\n\n⚠️ *This response may have been cut off before finishing — the connection ended unexpectedly. Ask the model to continue if something looks incomplete.*"
+
+/// Shown when a reply's connection died with a real transport error partway
+/// through. Distinct from `streamTruncatedNotice` (a clean close with no
+/// terminal signal) because here there IS a reason worth naming.
+func streamInterruptedNotice(_ reason: String) -> String {
+    "\n\n⚠️ *The connection dropped before this reply finished — \(reason) Everything above did arrive; ask the model to continue from there.*"
+}
+
+/// Retry policy for a chat stream that ended without the provider ever
+/// sending its terminal signal.
+///
+/// This is the actual fix for "the reply just stops mid-sentence, with no
+/// error." A gateway (or any intermediary) closing an in-flight SSE
+/// response is indistinguishable, at the socket, from the model finishing —
+/// which is why it used to surface as a silently truncated answer, an
+/// `emptyResponse` error when the cut landed before the first token, or a
+/// half-written tool fence the agent loop then tried to act on. Detecting it
+/// (see `terminalSignalSeen` below) only labelled the damage; the reply is
+/// still gone. So it's re-requested from scratch instead, with the
+/// abandoned partial discarded — the model re-answers the identical prompt,
+/// and the user sees a brief re-type rather than a dead reply.
+///
+/// Re-requesting (rather than asking the model to continue from the partial)
+/// is deliberate: continuation depends on assistant-prefill support that
+/// most OpenAI-compatible endpoints don't have, and getting it wrong
+/// duplicates or double-starts text. A clean re-ask can only cost tokens.
+enum StreamContinuity {
+    /// Total tries, so two extra requests at most. Low on purpose: each one
+    /// is a real billed completion, and a provider that drops three streams
+    /// in a row has a problem no retry will paper over.
+    static let maxAttempts = 3
+
+    /// 300ms, 600ms — long enough to miss the tail of a gateway blip,
+    /// short enough that a retried reply still feels immediate.
+    static func backoff(beforeAttempt attempt: Int) -> Duration {
+        .milliseconds(min(1200, 300 * (1 << (attempt - 1))))
+    }
+
+    /// Transport failures that mean the connection died, not that the
+    /// request was wrong — retried exactly like a signal-less stream end.
+    ///
+    /// `.cancelled` is deliberately absent: that's the stop button (and the
+    /// per-conversation task cancellation), which must never be retried.
+    ///
+    /// So is `.timedOut`. The streaming timeout is an idle one and now sits
+    /// at five minutes; if a provider goes that long without sending a
+    /// single byte, something is genuinely wrong, and retrying would leave
+    /// the user staring at a dead bubble for fifteen minutes before the app
+    /// admitted it. That one surfaces immediately.
+    static func isDroppedConnection(_ error: Error) -> Bool {
+        guard let urlError = error as? URLError else { return false }
+        return [
+            URLError.Code.networkConnectionLost,
+            .cannotLoadFromNetwork,
+            .secureConnectionFailed,
+        ].contains(urlError.code)
+    }
+}
+
 /// Shared by every streaming path (Aqua, BYOK, local). 502/503/504 are
 /// classic gateway hiccups — an upstream restarting, a momentary overload
 /// behind a proxy — not something the request or the user got wrong, and
@@ -3600,6 +3820,14 @@ enum TransientHTTPRetry {
             guard retryableStatuses.contains(http.statusCode), attempt < maxAttempts else {
                 return (bytes, http)
             }
+            // The rejected attempt's body is never read, and simply dropping
+            // an `AsyncBytes` does NOT end its task — it keeps one of the
+            // six-per-host connections URLSession allows, holding it open
+            // for the error body nobody will ever consume. Five retries plus
+            // an agent loop's worth of turns is enough of those to start
+            // stalling later requests behind the pool, which looks exactly
+            // like a request that "just stopped." Cancelled explicitly.
+            bytes.task.cancel()
             try? await Task.sleep(for: .milliseconds(backoffMilliseconds(beforeAttempt: attempt)))
             attempt += 1
         }

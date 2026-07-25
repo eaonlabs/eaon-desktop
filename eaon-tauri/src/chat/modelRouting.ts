@@ -12,10 +12,12 @@ import { useSettings } from "../state/settings";
 export interface ResolvedRoute {
   baseUrl: string;
   apiKey: string | null;
-  /** Free Week signing material — set only when no user key exists; Rust
-   *  signs each request with these instead of a bearer header. */
+  /** Free Week credential — set only when no user key exists. trialKey is
+   *  sent as the Bearer token itself; trialDevice/trialSecret produce the
+   *  X-Eaon-* signature headers Rust adds alongside it. */
   trialDevice: string | null;
   trialSecret: string | null;
+  trialKey: string | null;
   format: ProviderFormat;
   /** The id sent in the request "model" field. */
   requestModel: string;
@@ -54,6 +56,7 @@ export async function resolveRoute(entry: ModelEntry): Promise<ResolvedRoute | {
           apiKey: key,
           trialDevice: null,
           trialSecret: null,
+          trialKey: null,
           format: "openai",
           requestModel: entry.requestId,
         };
@@ -73,6 +76,7 @@ export async function resolveRoute(entry: ModelEntry): Promise<ResolvedRoute | {
             apiKey: null,
             trialDevice: await deviceHash(),
             trialSecret: trial.secret,
+            trialKey: trial.key,
             format: "openai",
             requestModel: entry.requestId,
           };
@@ -83,6 +87,32 @@ export async function resolveRoute(entry: ModelEntry): Promise<ResolvedRoute | {
       }
       return { error: "Add your Eaon API key or start the Free Week in Settings → Providers." };
     }
+    case "freeTrial": {
+      // Always the trial credential — never the user's own key, even when
+      // one exists. That's the whole point of this being its own provider:
+      // the two are independent, so having a key doesn't disable this one.
+      const trial = activeTrial(settings.trialCredential);
+      if (trial) {
+        try {
+          return {
+            baseUrl: EAON_TRIAL_BASE_URL,
+            apiKey: null,
+            trialDevice: await deviceHash(),
+            trialSecret: trial.secret,
+            trialKey: trial.key,
+            format: "openai",
+            requestModel: entry.requestId,
+          };
+        } catch {
+          // No machine id readable — fall through to the setup message.
+        }
+      }
+      return {
+        error: settings.trialCredential
+          ? "Your Free Week has ended — this model needs an active trial. Your own Eaon API key still works from the Eaon API provider."
+          : "Start the Free Week in Settings → Free Trial to use this model.",
+      };
+    }
     case "ollama":
       // Ollama serves an OpenAI-compatible surface under /v1 (REF endpointFor).
       return {
@@ -90,6 +120,7 @@ export async function resolveRoute(entry: ModelEntry): Promise<ResolvedRoute | {
         apiKey: null,
         trialDevice: null,
         trialSecret: null,
+        trialKey: null,
         format: "openai",
         requestModel: entry.requestId,
       };
@@ -104,6 +135,7 @@ export async function resolveRoute(entry: ModelEntry): Promise<ResolvedRoute | {
         apiKey: config.apiKey || null,
         trialDevice: null,
         trialSecret: null,
+        trialKey: null,
         // Legacy rows may predate the format field; "openai" is the migration default.
         format: config.format ?? "openai",
         requestModel: entry.requestId,

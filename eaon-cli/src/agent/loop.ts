@@ -24,6 +24,7 @@ import {
 } from "../tools/index.js";
 import type { PathGuardContext } from "../tools/pathGuard.js";
 import { slimHistoryForRequest } from "./context.js";
+import { subagentSystemPrompt } from "./prompts.js";
 import { isThinkingOnlyReply, parseFenceToolCalls, stripCompletedThinkSpans } from "./fenceParser.js";
 
 export type PermissionAnswer = "approve" | "deny" | "always_this_tool";
@@ -36,6 +37,14 @@ export type AgentEvent =
   | { type: "tool_call_requested"; callId: string; name: ToolName; args: Record<string, unknown>; summary: string; detail?: string; readOnly: boolean }
   | { type: "permission_request"; name: ToolName; summary: string; detail?: string }
   | { type: "tool_result"; callId: string; name: ToolName; isError: boolean; text: string }
+  /** Plan mode: the model finished researching and wants approval to act.
+   * The caller resumes with "approve" (leave plan mode and carry it out)
+   * or "deny" (stay in plan mode and keep refining). */
+  | { type: "plan_proposed"; plan: string }
+  /** A `task` sub-agent started / finished — lets the UI show nested work
+   * rather than the parent turn appearing to hang. */
+  | { type: "subagent_start"; description: string }
+  | { type: "subagent_end"; description: string; steps: number }
   | { type: "step_error"; message: string }
   | { type: "loop_stopped"; reason: string }
   | { type: "done" };
@@ -53,9 +62,18 @@ export interface AgentLoopState {
 export interface AgentLoopOptions {
   maxSteps?: number;
   signal?: AbortSignal;
+  /** Snapshot hook for /rewind — called with (absolutePathish, label)
+   * immediately before a tool changes a file. */
+  onBeforeFileChange?: (filePath: string, label: string) => void;
+  /** Set when this loop IS a sub-agent: no nesting, no permission prompts
+   * (the parent turn was already approved), tighter step budget. */
+  isSubagent?: boolean;
 }
 
 const DEFAULT_MAX_STEPS = 40;
+/** Sub-agents get a smaller budget than the top-level turn: enough to do a
+ * real scoped job, not enough for a runaway to burn the whole session. */
+const SUBAGENT_MAX_STEPS = 20;
 
 /** How many times a transient provider failure (429 / 5xx / can't-reach)
  * is retried before the turn gives up. Only fires when NOTHING has
@@ -96,8 +114,8 @@ function accumulateArguments(map: Map<number, { id: string; name: string; args: 
 }
 
 export async function* runAgentTurn(state: AgentLoopState, opts: AgentLoopOptions = {}): AsyncGenerator<AgentEvent, void, PermissionAnswer | undefined> {
-  const maxSteps = opts.maxSteps ?? DEFAULT_MAX_STEPS;
-  const toolNames = toolsForMode(state.mode);
+  const maxSteps = opts.maxSteps ?? (opts.isSubagent ? SUBAGENT_MAX_STEPS : DEFAULT_MAX_STEPS);
+  const toolNames = toolsForMode(state.mode, { isSubagent: opts.isSubagent, permissionMode: state.permissionMode });
   const toolDefs = toolNames.length > 0 ? toolDefinitions(toolNames) : undefined;
   const wantsTools = state.mode !== "chat" && !!toolDefs && toolDefs.length > 0;
 
@@ -271,12 +289,73 @@ export async function* runAgentTurn(state: AgentLoopState, opts: AgentLoopOption
         continue;
       }
 
+      // ---- Plan mode ----------------------------------------------------
+      // exit_plan_mode is the one way out: suspend, show the plan, and let
+      // the caller approve. Approving flips this loop's own permissionMode
+      // so the SAME turn continues straight into doing the work — the user
+      // approves once and the agent carries on, rather than having to
+      // re-ask for the thing they just approved.
+      if (canonical === "exit_plan_mode") {
+        const plan = typeof args.plan === "string" ? args.plan.trim() : "";
+        if (state.permissionMode !== "plan") {
+          state.turns.push({
+            role: "tool", toolCallId: call.id, name: canonical, isError: true,
+            content: "You're not in plan mode, so there's no plan to approve — just do the work.",
+          });
+          yield { type: "tool_result", callId: call.id, name: canonical, isError: true, text: "Not in plan mode." };
+          continue;
+        }
+        if (plan.length === 0) {
+          state.turns.push({
+            role: "tool", toolCallId: call.id, name: canonical, isError: true,
+            content: 'ERROR: "plan" was empty. Call exit_plan_mode again with the actual plan.',
+          });
+          yield { type: "tool_result", callId: call.id, name: canonical, isError: true, text: "Empty plan." };
+          continue;
+        }
+        const decision = yield { type: "plan_proposed", plan };
+        if (decision === "approve") {
+          state.permissionMode = "auto";
+          state.turns.push({
+            role: "tool", toolCallId: call.id, name: canonical, isError: false,
+            content: "The user APPROVED your plan and you have left plan mode. Your tools now work. Carry the plan out now, in this same turn — start with the first step. Do not re-state the plan or ask whether to begin.",
+          });
+          yield { type: "tool_result", callId: call.id, name: canonical, isError: false, text: "Plan approved — continuing." };
+        } else {
+          state.turns.push({
+            role: "tool", toolCallId: call.id, name: canonical, isError: true,
+            content: "The user did NOT approve that plan. You are still in plan mode and your mutating tools are still refused. Ask what they'd like changed, or investigate further and propose a revised plan.",
+          });
+          yield { type: "tool_result", callId: call.id, name: canonical, isError: true, text: "Plan rejected — still in plan mode." };
+        }
+        clearFailure();
+        continue;
+      }
+
       const summary = confirmationSummary(canonical, args);
       const detail = confirmationDetail(canonical, args);
       const readOnly = isReadOnlyTool(canonical);
+
+      // In plan mode every mutating tool is refused outright — no prompt,
+      // because the whole point is that nothing changes until there's an
+      // approved plan. `task` is the one exception: it's gated in sandboxed
+      // mode (a sub-agent can write), but here the sub-agent inherits plan
+      // mode too, so delegating research is both safe and genuinely useful
+      // for building a well-grounded plan.
+      if (state.permissionMode === "plan" && !readOnly && canonical !== "task") {
+        state.turns.push({
+          role: "tool", toolCallId: call.id, name: canonical, isError: true,
+          content: `REFUSED: ${canonical} changes things, and you're in plan mode where nothing may change yet. Keep researching with your read-only tools (grep, glob, read_file, web_search, web_fetch, task), then call exit_plan_mode with a concrete plan to get approval.`,
+        });
+        yield { type: "tool_call_requested", callId: call.id, name: canonical, args, summary, detail, readOnly };
+        yield { type: "tool_result", callId: call.id, name: canonical, isError: true, text: "Refused — plan mode is read-only until your plan is approved." };
+        clearFailure();
+        continue;
+      }
+
       yield { type: "tool_call_requested", callId: call.id, name: canonical, args, summary, detail, readOnly };
 
-      const needsConfirmation = !readOnly && state.permissionMode === "sandboxed" && !state.alwaysAllow.has(canonical);
+      const needsConfirmation = !readOnly && state.permissionMode === "sandboxed" && !opts.isSubagent && !state.alwaysAllow.has(canonical);
       if (needsConfirmation) {
         const answer = yield { type: "permission_request", name: canonical, summary, detail };
         if (answer === "deny") {
@@ -291,7 +370,26 @@ export async function* runAgentTurn(state: AgentLoopState, opts: AgentLoopOption
         if (answer === "always_this_tool") state.alwaysAllow.add(canonical);
       }
 
-      const result = await executeTool(canonical, args, state.pathCtx);
+      // A `task` call runs a whole nested agent loop. It's surfaced as
+      // start/end events so the UI can show the sub-agent working instead
+      // of the parent turn appearing to hang on one long tool call.
+      if (canonical === "task") {
+        const description = typeof args.description === "string" ? args.description.trim() : "subtask";
+        yield { type: "subagent_start", description };
+      }
+
+      const result = await executeTool(canonical, args, {
+        ...state.pathCtx,
+        onBeforeFileChange: opts.onBeforeFileChange,
+        // No nesting: a sub-agent can't spawn sub-agents. One level keeps
+        // the cost and the failure modes comprehensible.
+        runSubagent: opts.isSubagent ? undefined : (prompt, description) => runSubagentTask(state, prompt, description, opts),
+      });
+
+      if (canonical === "task") {
+        const description = typeof args.description === "string" ? args.description.trim() : "subtask";
+        yield { type: "subagent_end", description, steps: 0 };
+      }
       clearFailure();
       yield { type: "tool_result", callId: call.id, name: canonical, isError: result.isError, text: result.text };
       state.turns.push({ role: "tool", toolCallId: call.id, name: canonical, content: result.text, isError: result.isError });
@@ -299,4 +397,66 @@ export async function* runAgentTurn(state: AgentLoopState, opts: AgentLoopOption
   }
 
   yield { type: "loop_stopped", reason: `Reached the ${maxSteps}-step limit for this turn.` };
+}
+
+/** Runs one `task` delegation to completion and returns its written report.
+ *
+ * The sub-agent gets a FRESH conversation — it deliberately cannot see the
+ * parent's history, which is the entire point: the parent spends a few
+ * hundred tokens describing the job instead of dragging its whole context
+ * along, and gets back a summary instead of a transcript. It inherits the
+ * same model, tools and project root, runs unattended (the parent turn was
+ * already approved), and its file changes still flow through the parent's
+ * checkpoint hook so /rewind covers them too. */
+async function runSubagentTask(
+  parent: AgentLoopState,
+  prompt: string,
+  description: string,
+  parentOpts: AgentLoopOptions
+): Promise<string> {
+  const subState: AgentLoopState = {
+    mode: parent.mode,
+    // Sub-agents never prompt (there's no sensible way to attribute a
+    // confirmation to a nested turn), so they only run at all in a mode
+    // where the parent has already accepted unattended execution. In
+    // sandboxed mode they still run read-only-ish work fine; anything
+    // mutating is the parent's job to confirm.
+    permissionMode: parent.permissionMode === "plan" ? "plan" : parent.permissionMode,
+    model: parent.model,
+    config: parent.config,
+    pathCtx: parent.pathCtx,
+    turns: [
+      { role: "system", content: subagentSystemPrompt(parent.pathCtx.projectRoot, description) },
+      { role: "user", content: prompt },
+    ],
+    alwaysAllow: parent.alwaysAllow,
+  };
+
+  const gen = runAgentTurn(subState, {
+    signal: parentOpts.signal,
+    onBeforeFileChange: parentOpts.onBeforeFileChange,
+    isSubagent: true,
+  });
+
+  let steps = 0;
+  let stoppedReason: string | null = null;
+  // Drive it to completion, discarding the streaming events — only the
+  // final written report matters to the parent. Auto-approve is implicit:
+  // permission_request never fires for a sub-agent (see needsConfirmation).
+  for (;;) {
+    const { value, done } = await gen.next(undefined);
+    if (done) break;
+    if (value.type === "tool_call_requested") steps++;
+    if (value.type === "loop_stopped") stoppedReason = value.reason;
+  }
+
+  const finalText = [...subState.turns]
+    .reverse()
+    .find((t) => t.role === "assistant" && t.content.trim().length > 0)?.content.trim();
+
+  if (!finalText) {
+    return `The "${description}" sub-agent finished without producing a report${stoppedReason ? ` (${stoppedReason})` : ""}. Do this part yourself, or retry with a more specific instruction.`;
+  }
+  const note = stoppedReason ? `\n\n[sub-agent stopped early: ${stoppedReason}]` : "";
+  return `Report from the "${description}" sub-agent (${steps} tool call${steps === 1 ? "" : "s"}):\n\n${finalText}${note}`;
 }

@@ -22,6 +22,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // its own floating panel independent of the main window, so it's
         // brought up here from its saved on/off setting (off by default).
         MainActor.assumeIsolated { EaonPetController.shared.applyEnabledState() }
+        // Hands-free voice, if the user already turned it on AND already
+        // granted microphone access: resumes silently.
+        //
+        // `mayPrompt: false` is the important part and must stay that way.
+        // Eaon must never ask for the microphone just because it opened —
+        // an app that does that looks like it wants to listen to you no
+        // matter how good its reasons are, and this one is a privacy-first
+        // app whose voice feature is off by default anyway. Permission is
+        // requested only when someone deliberately switches voice on or
+        // clicks the pet to talk. With voice off (the default) this does
+        // nothing at all.
+        MainActor.assumeIsolated { EaonVoiceController.shared.applyEnabledState(mayPrompt: false) }
+        // Re-open the sync vault from the stored code. Without this a
+        // signed-in user comes back to a permanently "Locked" sync page with
+        // no control that unlocks it — the code was already accepted, so
+        // asking again would be theatre. No-ops entirely when sync is off.
+        Task { @MainActor in await EaonCloudAccount.shared.restoreVaultIfPossible() }
         // Forces the bundled curated-model JSON to load and validate right
         // now, at launch — rather than lazily whenever a user first opens
         // the Models tab — so a bad entry (missing file, bad JSON, an

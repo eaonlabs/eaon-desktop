@@ -1,0 +1,121 @@
+/* App frame, titlebar, and sidebar chrome. */
+
+.app-frame {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.app-boot {
+  height: 100%;
+  background: var(--stage);
+}
+
+/* Titlebar */
+.titlebar {
+  height: var(--titlebar-height);
+  min-height: var(--titlebar-height);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--sidebar);
+  border-bottom: 1px solid var(--border);
+  padding-left: 10px;
+}
+.titlebar-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  pointer-events: none;
+}
+.titlebar-left > * {
+  pointer-events: auto;
+}
+.titlebar-name {
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--text-secondary);
+}
+.titlebar-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  color: var(--text-muted);
+  transition:
+    background var(--t-fast) var(--ease-out),
+    color var(--t-fast) var(--ease-out),
+    transform 120ms var(--ease-out);
+}
+.titlebar-button:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.titlebar-button:active {
+  transform: scale(0.95);
+}
+
+/* Window controls — Windows-style hover targets */
+.window-controls {
+  display: flex;
+  align-self: stretch;
+}
+.window-control {
+  width: 46px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  border-radius: 0;
+  transition: background var(--t-fast) var(--ease-out);
+}
+.window-control:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.window-control-close:hover {
+  background: #e81123;
+  color: #ffffff;
+}
+
+/* Sidebar shell (contents styled in sidebar.css). Always mounted — toggling
+   is a width/opacity/transform transition, not a mount/unmount, so closing
+   and reopening actually animates instead of snapping. Width is the one
+   layout-affecting property here (unavoidable: .app-main's flex:1 needs to
+   visibly reflow into the freed space), so it's the exception to
+   transform/opacity-only — everything else riding along (opacity, the
+   slide) stays on the GPU-cheap properties. Closing is ~70% of opening's
+   duration: an exit should feel snappier than an entrance. */
+.sidebar {
+  width: var(--sidebar-width);
+  min-width: var(--sidebar-width);
+  min-height: 0;
+  background: var(--sidebar);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  opacity: 1;
+  transform: translateX(0);
+  transition:
+    width 240ms var(--ease-out),
+    min-width 240ms var(--ease-out),
+    opacity 200ms var(--ease-out),
+    transform 240ms var(--ease-out),
+    border-color 240ms var(--ease-out);
+}
+.sidebar.closed {
+  width: 0;
+  min-width: 0;
+  opacity: 0;
+  transform: translateX(-12px);
+  border-right-color: transparent;
+  transition:
+    width 170ms var(--ease-out),
+    min-width 170ms var(--ease-out),
+    opacity 130ms var(--ease-out),
+    transform 170ms var(--ease-out),
+    border-color 170ms var(--ease-out);
+}

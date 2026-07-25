@@ -2,8 +2,8 @@
 // LocalAPIServer. Turns this machine into an OpenAI-compatible endpoint any
 // script/CLI/other app can point at (GET /v1/models, POST
 // /v1/chat/completions), transparently proxying to whichever provider serves
-// the requested model (Ollama / Aqua / BYOK) using the keys the user already
-// configured — so the caller never handles those keys itself.
+// the requested model (Ollama / Eaon hosted / BYOK) using the keys the user
+// already configured — so the caller never handles those keys itself.
 //
 // SECURITY (identical model to the hardened macOS server):
 //   - Binds the loopback interface ONLY — never reachable off the machine.
@@ -17,7 +17,6 @@
 // The security-critical helpers are unit-tested below.
 
 use serde::Deserialize;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
@@ -25,6 +24,7 @@ use tokio::net::TcpListener;
 /// One upstream the server can route to — a set of model ids and the endpoint
 /// (+ optional key) that serves them. Passed from the frontend at start.
 #[derive(Deserialize, Clone)]
+#[serde(rename_all = "camelCase")]
 pub struct Upstream {
     pub model_ids: Vec<String>,
     pub base_url: String,
@@ -33,9 +33,9 @@ pub struct Upstream {
 
 #[derive(Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
-pub struct ServerConfig {
+pub struct LocalServerConfig {
     pub port: u16,
-    pub require_key: bool,
+    pub require_api_key: bool,
     pub api_key: String,
     pub upstreams: Vec<Upstream>,
 }
@@ -44,10 +44,10 @@ struct RunningServer {
     handle: tauri::async_runtime::JoinHandle<()>,
 }
 
-static CONFIG: RwLock<Option<Arc<ServerConfig>>> = RwLock::new(None);
+static CONFIG: RwLock<Option<Arc<LocalServerConfig>>> = RwLock::new(None);
 static RUNNING: Mutex<Option<RunningServer>> = Mutex::new(None);
 
-fn current_config() -> Option<Arc<ServerConfig>> {
+fn current_config() -> Option<Arc<LocalServerConfig>> {
     CONFIG.read().ok().and_then(|g| g.clone())
 }
 
@@ -116,6 +116,18 @@ impl ParsedRequest {
 }
 
 const MAX_BODY: usize = 8 * 1024 * 1024;
+/// Headers get their own, far smaller ceiling than the body. Sharing the 8 MB
+/// body cap meant a peer could stream 8 MB without ever sending the
+/// end-of-headers marker — and because the marker search rescans the whole
+/// buffer each pass, that degraded quadratically while it did. No legitimate
+/// client sends 64 KB of headers.
+const MAX_HEADERS: usize = 64 * 1024;
+/// Wall clock for reading one whole request. Without it a peer that connects
+/// and then sends nothing (or dribbles a byte at a time) pins a task forever;
+/// enough of those and the accept loop is the only thing still working.
+/// Loopback-only means the attacker is already a local process, but "local
+/// process" includes anything the user ran by accident.
+const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
 
 async fn read_request(stream: &mut tokio::net::TcpStream) -> Option<ParsedRequest> {
     let mut buf: Vec<u8> = Vec::with_capacity(2048);
@@ -125,7 +137,7 @@ async fn read_request(stream: &mut tokio::net::TcpStream) -> Option<ParsedReques
         if let Some(pos) = find_subsequence(&buf, b"\r\n\r\n") {
             break pos + 4;
         }
-        if buf.len() > MAX_BODY {
+        if buf.len() > MAX_HEADERS {
             return None;
         }
         let n = stream.read(&mut chunk).await.ok()?;
@@ -198,7 +210,9 @@ async fn write_error(stream: &mut tokio::net::TcpStream, status: &str, message: 
 // MARK: - Routing
 
 async fn handle_connection(mut stream: tokio::net::TcpStream) {
-    let Some(req) = read_request(&mut stream).await else { return };
+    let Ok(Some(req)) = tokio::time::timeout(READ_TIMEOUT, read_request(&mut stream)).await else {
+        return;
+    };
     let Some(config) = current_config() else {
         write_error(&mut stream, "503 Service Unavailable", "server not configured").await;
         return;
@@ -221,7 +235,19 @@ async fn handle_connection(mut stream: tokio::net::TcpStream) {
         return;
     }
 
-    if config.require_key {
+    let path = req.path.split('?').next().unwrap_or(&req.path);
+
+    // GET / stays reachable even with an API key configured, same as any
+    // service's unauthenticated health check — a tool probing whether
+    // something is listening on this port before it has (or needs) a key
+    // shouldn't have to authenticate just to find out. The rebinding gates
+    // above still guard it.
+    if req.method == "GET" && path == "/" {
+        handle_discovery(&mut stream).await;
+        return;
+    }
+
+    if config.require_api_key {
         let expected = format!("Bearer {}", config.api_key);
         let provided = req.header("authorization").unwrap_or("");
         if !constant_time_eq(provided, &expected) {
@@ -230,7 +256,6 @@ async fn handle_connection(mut stream: tokio::net::TcpStream) {
         }
     }
 
-    let path = req.path.split('?').next().unwrap_or(&req.path);
     match (req.method.as_str(), path) {
         ("GET", "/v1/models") => handle_models(&mut stream, &config).await,
         ("POST", "/v1/chat/completions") => handle_chat(&mut stream, &config, &req).await,
@@ -238,7 +263,20 @@ async fn handle_connection(mut stream: tokio::net::TcpStream) {
     }
 }
 
-async fn handle_models(stream: &mut tokio::net::TcpStream, config: &ServerConfig) {
+/// GET / (discovery/health-check) — what a script or a tool's "test
+/// connection" button sees before it commits to using this server: enough to
+/// confirm "this is Eaon, and here's what it speaks" without requiring the
+/// caller to already know the two real routes.
+async fn handle_discovery(stream: &mut tokio::net::TcpStream) {
+    let body = serde_json::json!({
+        "name": "Eaon Local API Server",
+        "openai_compatible": true,
+        "endpoints": ["GET /v1/models", "POST /v1/chat/completions"],
+    });
+    write_simple(stream, "200 OK", "application/json", &body.to_string()).await;
+}
+
+async fn handle_models(stream: &mut tokio::net::TcpStream, config: &LocalServerConfig) {
     let data: Vec<serde_json::Value> = config
         .upstreams
         .iter()
@@ -249,7 +287,7 @@ async fn handle_models(stream: &mut tokio::net::TcpStream, config: &ServerConfig
     write_simple(stream, "200 OK", "application/json", &body.to_string()).await;
 }
 
-async fn handle_chat(stream: &mut tokio::net::TcpStream, config: &ServerConfig, req: &ParsedRequest) {
+async fn handle_chat(stream: &mut tokio::net::TcpStream, config: &LocalServerConfig, req: &ParsedRequest) {
     let Ok(json) = serde_json::from_slice::<serde_json::Value>(&req.body) else {
         write_error(stream, "400 Bad Request", "Body must be JSON with a \"model\" and \"messages\".").await;
         return;
@@ -266,9 +304,11 @@ async fn handle_chat(stream: &mut tokio::net::TcpStream, config: &ServerConfig, 
     // Transparent proxy: forward the caller's exact body to the upstream's
     // /chat/completions with the upstream's own key, then stream the response
     // bytes straight back (close-delimited, so it works for both streamed SSE
-    // and a single JSON body without re-parsing either).
+    // and a single JSON body without re-parsing either). Shared client
+    // factory so the user's proxy setting applies here too; no timeout —
+    // a streamed completion legitimately runs for minutes.
     let url = format!("{}/chat/completions", upstream.base_url.trim_end_matches('/'));
-    let client = reqwest::Client::new();
+    let client = crate::net::http_client(None);
     let mut builder = client.post(&url).header("content-type", "application/json").body(req.body.clone());
     if let Some(key) = upstream.api_key.as_ref().filter(|k| !k.is_empty()) {
         builder = builder.bearer_auth(key);
@@ -317,14 +357,27 @@ async fn handle_chat(stream: &mut tokio::net::TcpStream, config: &ServerConfig, 
 
 // MARK: - Commands
 
+/// Abort the accept-loop task — the shutdown mechanism. Aborting drops the
+/// listener, freeing the port immediately; connections already accepted run
+/// on their own tasks and drain naturally, so stopping never cuts off an
+/// in-flight response.
+fn halt() {
+    if let Ok(mut guard) = RUNNING.lock() {
+        if let Some(server) = guard.take() {
+            server.handle.abort();
+        }
+    }
+}
+
 #[tauri::command]
-pub fn start_local_server(config: ServerConfig) -> Result<(), String> {
-    stop_local_server();
+pub async fn start_local_server(config: LocalServerConfig) -> Result<(), String> {
+    halt();
     let port = config.port;
     *CONFIG.write().map_err(|_| "config lock poisoned")? = Some(Arc::new(config));
 
     // Bind synchronously so a port-in-use error is reported to the caller
-    // immediately, before we claim the server is running.
+    // immediately, before we claim the server is running. 127.0.0.1, never
+    // 0.0.0.0 — the loopback-only bind is the first security layer.
     let listener = std::net::TcpListener::bind(("127.0.0.1", port))
         .map_err(|e| format!("Couldn't start a server on port {port} — it may already be in use. ({e})"))?;
     listener
@@ -332,15 +385,8 @@ pub fn start_local_server(config: ServerConfig) -> Result<(), String> {
         .map_err(|e| format!("Couldn't configure the listener: {e}"))?;
 
     let handle = tauri::async_runtime::spawn(async move {
-        let listener = match TcpListener::from_std(listener) {
-            Ok(l) => l,
-            Err(_) => return,
-        };
-        let stop = Arc::new(AtomicBool::new(false));
+        let Ok(listener) = TcpListener::from_std(listener) else { return };
         loop {
-            if stop.load(Ordering::Relaxed) {
-                break;
-            }
             match listener.accept().await {
                 Ok((stream, _addr)) => {
                     tauri::async_runtime::spawn(handle_connection(stream));
@@ -355,12 +401,9 @@ pub fn start_local_server(config: ServerConfig) -> Result<(), String> {
 }
 
 #[tauri::command]
-pub fn stop_local_server() {
-    if let Ok(mut guard) = RUNNING.lock() {
-        if let Some(server) = guard.take() {
-            server.handle.abort();
-        }
-    }
+pub async fn stop_local_server() -> Result<(), String> {
+    halt();
+    Ok(())
 }
 
 #[tauri::command]
@@ -415,16 +458,16 @@ mod tests {
     }
 
     /// End-to-end over a REAL socket: bind the server's own accept loop, then
-    /// hit it with an HTTP client and assert every security gate, the models
-    /// endpoint, AND the chat proxy behave — the full read_request → route →
-    /// auth → write/proxy path, not just the helpers. One test (not two) so
-    /// the two halves don't race on the shared global CONFIG the way two
-    /// parallel #[tokio::test]s would (production has one global server).
+    /// hit it with an HTTP client and assert every security gate, discovery,
+    /// the models endpoint, AND the chat proxy behave — the full read_request
+    /// → route → auth → write/proxy path, not just the helpers. One test (not
+    /// two) so the two halves don't race on the shared global CONFIG the way
+    /// two parallel #[tokio::test]s would (production has one global server).
     #[tokio::test]
     async fn server_end_to_end() {
-        *CONFIG.write().unwrap() = Some(Arc::new(ServerConfig {
+        *CONFIG.write().unwrap() = Some(Arc::new(LocalServerConfig {
             port: 0,
-            require_key: true,
+            require_api_key: true,
             api_key: "secret-key-123".into(),
             upstreams: vec![Upstream {
                 model_ids: vec!["test-model".into()],
@@ -474,6 +517,17 @@ mod tests {
             .unwrap();
         assert_eq!(r.status(), 403, "browser origin must be blocked");
 
+        // Discovery: GET / must answer WITHOUT auth (it's the probe a tool
+        // sends before it has a key) — but the rebinding gates still apply.
+        let r = client.get(format!("{base}/")).send().await.unwrap();
+        assert_eq!(r.status(), 200, "discovery must not require auth");
+        let v: serde_json::Value = r.json().await.unwrap();
+        assert_eq!(v["name"], "Eaon Local API Server");
+        assert_eq!(v["openai_compatible"], true);
+        assert!(v["endpoints"].as_array().is_some_and(|e| !e.is_empty()));
+        let r = client.get(format!("{base}/")).header("host", "evil.com").send().await.unwrap();
+        assert_eq!(r.status(), 403, "discovery still sits behind the rebinding gate");
+
         // Correct key, loopback host, no origin → 200 with the model listed,
         // and no wildcard CORS header leaked.
         let r = client.get(format!("{base}/v1/models")).bearer_auth("secret-key-123").send().await.unwrap();
@@ -500,9 +554,9 @@ mod tests {
             }
         });
 
-        *CONFIG.write().unwrap() = Some(Arc::new(ServerConfig {
+        *CONFIG.write().unwrap() = Some(Arc::new(LocalServerConfig {
             port: 0,
-            require_key: false, // focus this test on the proxy path
+            require_api_key: false, // focus this test on the proxy path
             api_key: String::new(),
             upstreams: vec![Upstream {
                 model_ids: vec!["test-model".into()],
@@ -531,8 +585,8 @@ mod tests {
         assert!(body.contains("proxied-hi"), "upstream body must be proxied back to the caller: {body}");
 
         // An unknown model must 404, not silently hang.
-        *CONFIG.write().unwrap() = Some(Arc::new(ServerConfig {
-            port: 0, require_key: false, api_key: String::new(),
+        *CONFIG.write().unwrap() = Some(Arc::new(LocalServerConfig {
+            port: 0, require_api_key: false, api_key: String::new(),
             upstreams: vec![Upstream { model_ids: vec!["known".into()], base_url: "http://127.0.0.1:9".into(), api_key: None }],
         }));
         let server2 = TcpListener::bind(("127.0.0.1", 0u16)).await.unwrap();
