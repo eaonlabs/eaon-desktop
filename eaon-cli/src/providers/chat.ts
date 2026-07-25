@@ -6,6 +6,45 @@
 
 import type { ChatRequestOptions, ChatStreamEvent, Turn } from "../types.js";
 
+/** Turns an HTTP failure into something the user can act on.
+ *
+ * A bare "Server returned 401: {detail: Missing or invalid API Key}" sent a
+ * real user hunting through their shell config for an env var that was set
+ * correctly all along — the actual problem was the key being valid for a
+ * different Eaon host. Auth failures now name the host that rejected the
+ * key and the key style it saw, because that pair is the whole diagnosis. */
+export function describeHttpFailure(status: number, body: string, url: string, apiKey: string | null): string {
+  const detail = body.trim().slice(0, 300);
+  if (status !== 401 && status !== 403) {
+    return `Server returned ${status}${detail ? `: ${detail}` : ""}`;
+  }
+
+  let host = url;
+  try {
+    host = new URL(url).host;
+  } catch {
+    // keep the raw url if it somehow isn't parseable
+  }
+
+  const key = (apiKey ?? "").trim();
+  const lines = [`${host} rejected the API key (${status}).`];
+
+  if (key.length === 0) {
+    lines.push("No key was sent. Set one with /link, or export EAON_AQUA_API_KEY.");
+  } else if (host.includes("aquadevs.com") && key.toLowerCase().startsWith("sk-eaon-")) {
+    // The exact mix-up this message exists for.
+    lines.push("That looks like an Eaon account key (sk-eaon-…), which belongs to api.eaon.dev, not this host.");
+    lines.push("Eaon should route it automatically — if you're seeing this, the key may be incomplete.");
+  } else if (host.includes("eaon.dev") && !key.toLowerCase().startsWith("sk-eaon-")) {
+    lines.push("Eaon account keys start with sk-eaon-. This key looks like it belongs to a different provider.");
+  } else {
+    lines.push(`The key it sent starts with "${key.slice(0, 8)}" and is ${key.length} characters long — check it's complete and hasn't been revoked.`);
+  }
+
+  if (detail) lines.push(`Server said: ${detail}`);
+  return lines.join("\n");
+}
+
 function turnToMessage(t: Turn): Record<string, unknown> {
   const msg: Record<string, unknown> = { role: t.role, content: t.content };
   if (t.toolCalls && t.toolCalls.length > 0) {
@@ -73,7 +112,7 @@ export async function* streamChat(opts: ChatRequestOptions): AsyncGenerator<Chat
 
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    yield { type: "error", message: `Server returned ${response.status}${text ? `: ${text}` : ""}`, status: response.status };
+    yield { type: "error", message: describeHttpFailure(response.status, text, url, opts.apiKey), status: response.status };
     return;
   }
 
@@ -219,7 +258,7 @@ async function* streamAnthropicMessages(opts: ChatRequestOptions): AsyncGenerato
   }
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    yield { type: "error", message: `Server returned ${response.status}${text ? `: ${text}` : ""}`, status: response.status };
+    yield { type: "error", message: describeHttpFailure(response.status, text, url, opts.apiKey ?? null), status: response.status };
     return;
   }
 
@@ -285,7 +324,7 @@ async function* streamGoogleGemini(opts: ChatRequestOptions): AsyncGenerator<Cha
   }
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    yield { type: "error", message: `Server returned ${response.status}${text ? `: ${text}` : ""}`, status: response.status };
+    yield { type: "error", message: describeHttpFailure(response.status, text, url, opts.apiKey ?? null), status: response.status };
     return;
   }
 

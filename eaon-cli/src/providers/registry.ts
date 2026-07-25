@@ -5,7 +5,7 @@
 
 import type { CustomProviderFormat, EaonConfig, ModelEntry } from "../types.js";
 import { resolveAquaApiKey, resolveOllamaBaseUrl } from "../config.js";
-import { EAON_HOSTED_BASE_URL, EAON_HOSTED_CATALOG, fetchEaonHostedModels } from "./eaon-hosted.js";
+import { EAON_HOSTED_CATALOG, fetchEaonHostedModels, hostedBaseUrlForKey } from "./eaon-hosted.js";
 import { fetchOllamaTags } from "./ollama.js";
 
 export interface CatalogResult {
@@ -63,8 +63,13 @@ export async function buildCatalog(config: EaonConfig): Promise<CatalogResult> {
 export function endpointFor(entry: ModelEntry, config: EaonConfig): { baseUrl: string; apiKey: string | null; format: CustomProviderFormat } {
   const provider = entry.provider;
   switch (provider.kind) {
-    case "aqua":
-      return { baseUrl: EAON_HOSTED_BASE_URL, apiKey: resolveAquaApiKey(config), format: "openAICompatible" };
+    case "aqua": {
+      // Resolve the host FROM the key, exactly as the model listing does —
+      // if these two ever disagree you get the bug this fixed: a catalog
+      // that loads fine followed by a 401 on the first real message.
+      const key = resolveAquaApiKey(config);
+      return { baseUrl: hostedBaseUrlForKey(key), apiKey: key, format: "openAICompatible" };
+    }
     case "ollama":
       return { baseUrl: `${resolveOllamaBaseUrl(config)}/v1`, apiKey: null, format: "openAICompatible" };
     case "custom": {

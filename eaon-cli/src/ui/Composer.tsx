@@ -20,11 +20,18 @@ interface ComposerProps {
   mode: "chat" | "agent" | "claw";
 }
 
+/** How many suggestion rows show at once. The list scrolls a window of this
+ * size, so a long list (all 25 commands on a bare "/") stays browsable
+ * without the dropdown swallowing the screen. */
+const SUGGESTION_WINDOW = 8;
+
 interface Suggestion {
   label: string;
   hint?: string;
   /** Replaces the active token when chosen. */
   insert: string;
+  /** Set for command suggestions — lets Enter run the highlighted command. */
+  commandName?: string;
 }
 
 /** The whitespace-delimited token the cursor currently sits at the end of —
@@ -42,35 +49,75 @@ export function Composer({ isActive, history, onSubmit, onTogglePermission, onCa
   const [cursor, setCursor] = useState(0);
   const [historyIndex, setHistoryIndex] = useState<number | null>(null);
   const [suggestionIndex, setSuggestionIndex] = useState(0);
+  /** The buffer value Esc was pressed at. While the buffer still equals
+   * this, the dropdown stays closed — the escape hatch for "no, send what
+   * I literally typed", which matters now that Enter runs the highlighted
+   * item. Typing anything else re-opens it naturally. */
+  const [dismissedFor, setDismissedFor] = useState<string | null>(null);
 
-  const showCommandSuggestions = buffer.startsWith("/") && !buffer.includes(" ") && buffer.length > 1;
+  // A bare "/" opens the full command list — the way you discover what
+  // exists without already knowing a prefix to type. (This used to require
+  // length > 1, so "/" alone showed nothing.) matchingCommands("") matches
+  // every command, since every name startsWith("").
+  const showCommandSuggestions = buffer.startsWith("/") && !buffer.includes(" ");
   const mention = mentionQueryBeforeCursor(buffer, cursor);
 
   let suggestions: Suggestion[] = [];
   let suggestionKind: "command" | "file" | null = null;
-  if (showCommandSuggestions) {
+  if (dismissedFor === buffer) {
+    // explicitly dismissed for this exact text
+  } else if (showCommandSuggestions) {
     suggestionKind = "command";
-    suggestions = matchingCommands(buffer.slice(1))
-      .slice(0, 6)
-      .map((c) => ({ label: `/${c.name}`, hint: c.description, insert: `/${c.name} ` }));
+    // Deliberately NOT truncated here — the renderer scrolls a window over
+    // the full list, so arrowing past the bottom reaches every command
+    // rather than stopping at whatever the first few happened to be.
+    suggestions = matchingCommands(buffer.slice(1)).map((c) => ({
+      label: `/${c.name}`,
+      hint: c.description,
+      insert: `/${c.name} `,
+      commandName: c.name,
+    }));
   } else if (mention) {
     const files = queryFiles(mention.query);
     if (files.length > 0) {
       suggestionKind = "file";
-      suggestions = files.slice(0, 6).map((f) => ({ label: f, insert: `@${f} ` }));
+      suggestions = files.map((f) => ({ label: f, insert: `@${f} ` }));
     }
   }
 
-  const applySuggestion = (s: Suggestion) => {
+  /** THE one index every code path uses — render, Tab and Enter alike.
+   * Reading raw `suggestionIndex` in the renderer while clamping it in the
+   * handlers is what let the highlight and the acted-on item disagree
+   * (type to narrow the list and the stale index highlighted nothing, yet
+   * Tab still applied the last row). Derive once, use everywhere. */
+  const activeIndex = suggestions.length === 0 ? -1 : Math.min(Math.max(suggestionIndex, 0), suggestions.length - 1);
+  const activeSuggestion = activeIndex === -1 ? null : suggestions[activeIndex];
+
+  // Scroll a fixed window over the full list (same approach as ModelPicker)
+  // so all 25 commands are reachable by arrowing, while the dropdown stays a
+  // sane size under the input.
+  const windowStart = Math.max(
+    0,
+    Math.min(activeIndex - Math.floor(SUGGESTION_WINDOW / 2), Math.max(0, suggestions.length - SUGGESTION_WINDOW))
+  );
+  const visibleSuggestions = suggestions.slice(windowStart, windowStart + SUGGESTION_WINDOW);
+
+  /** Puts a suggestion into the buffer. For a file mention that means
+   * splicing the path in place (you're mid-sentence); for a command it
+   * means replacing the whole line. Returns the resulting text so Enter
+   * can submit exactly what it just inserted rather than the stale state. */
+  const applySuggestion = (s: Suggestion): string => {
     if (suggestionKind === "file" && mention) {
       const next = buffer.slice(0, mention.start) + s.insert + buffer.slice(cursor);
       setBuffer(next);
       setCursor(mention.start + s.insert.length);
-    } else {
-      setBuffer(s.insert);
-      setCursor(s.insert.length);
+      setSuggestionIndex(0);
+      return next;
     }
+    setBuffer(s.insert);
+    setCursor(s.insert.length);
     setSuggestionIndex(0);
+    return s.insert;
   };
 
   useInput(
@@ -81,26 +128,48 @@ export function Composer({ isActive, history, onSubmit, onTogglePermission, onCa
       }
       if (key.escape) {
         if (suggestions.length > 0) {
+          // Genuinely close the dropdown (it used to only reset the index,
+          // so it stayed open) — this is the way to submit literal text
+          // instead of the highlighted command.
+          setDismissedFor(buffer);
           setSuggestionIndex(0);
-          // let a second Esc reach cancel by clearing the token trigger:
-          // simplest is to just drop the suggestion for this keystroke.
           return;
         }
         onCancel();
         return;
       }
 
-      if (suggestions.length > 0) {
+      if (suggestions.length > 0 && activeSuggestion) {
         if (key.downArrow) {
-          setSuggestionIndex((i) => Math.min(i + 1, suggestions.length - 1));
+          setSuggestionIndex(Math.min(activeIndex + 1, suggestions.length - 1));
           return;
         }
         if (key.upArrow) {
-          setSuggestionIndex((i) => Math.max(i - 1, 0));
+          setSuggestionIndex(Math.max(activeIndex - 1, 0));
           return;
         }
         if (key.tab) {
-          applySuggestion(suggestions[Math.min(suggestionIndex, suggestions.length - 1)]);
+          applySuggestion(activeSuggestion);
+          return;
+        }
+        if (key.return) {
+          // Enter acts on what's HIGHLIGHTED, not on the raw typed text.
+          // Previously it submitted the buffer verbatim, so arrowing to
+          // /models and pressing Enter ran whatever you'd typed (/mode), and
+          // arrowing to /exit from a partial "/ex" sent "/ex" to the model
+          // as a chat message.
+          const inserted = applySuggestion(activeSuggestion);
+          if (suggestionKind === "command") {
+            // Commands only autocomplete before any argument is typed (the
+            // dropdown hides once the line contains a space), so there's
+            // nothing to preserve — running it is what Enter means here.
+            onSubmit(inserted.trim());
+            setBuffer("");
+            setCursor(0);
+            setHistoryIndex(null);
+          }
+          // A file mention is part of a longer sentence, so Enter inserts
+          // the path and leaves you typing rather than sending immediately.
           return;
         }
       }
@@ -118,6 +187,7 @@ export function Composer({ isActive, history, onSubmit, onTogglePermission, onCa
         setCursor(0);
         setHistoryIndex(null);
         setSuggestionIndex(0);
+        setDismissedFor(null);
         return;
       }
 
@@ -239,14 +309,22 @@ export function Composer({ isActive, history, onSubmit, onTogglePermission, onCa
 
       {suggestions.length > 0 && (
         <Box flexDirection="column" marginLeft={2}>
-          {suggestions.map((s, idx) => (
-            <Text key={s.label} color={idx === suggestionIndex ? theme.accent : theme.muted}>
-              {idx === suggestionIndex ? "❯ " : "  "}
-              {suggestionKind === "file" ? "@" : ""}
-              {s.label}
-              {s.hint ? <Text color={theme.muted} dimColor>  {s.hint}</Text> : null}
+          {visibleSuggestions.map((s, i) => {
+            const idx = windowStart + i;
+            return (
+              <Text key={s.label} color={idx === activeIndex ? theme.accent : theme.muted}>
+                {idx === activeIndex ? "❯ " : "  "}
+                {suggestionKind === "file" ? "@" : ""}
+                {s.label}
+                {s.hint ? <Text color={theme.muted} dimColor>  {s.hint}</Text> : null}
+              </Text>
+            );
+          })}
+          {suggestions.length > SUGGESTION_WINDOW && (
+            <Text color={theme.muted} dimColor>
+              {"  "}{windowStart + 1}-{Math.min(windowStart + SUGGESTION_WINDOW, suggestions.length)} of {suggestions.length} · ↑↓ to browse
             </Text>
-          ))}
+          )}
         </Box>
       )}
     </Box>

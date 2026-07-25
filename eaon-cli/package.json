@@ -1,6 +1,6 @@
 {
   "name": "eaon-cli",
-  "version": "0.1.2",
+  "version": "0.2.0",
   "description": "An agentic coding agent in your terminal — plan mode, sub-agents, and real tools, for any model: local (Ollama) or hosted.",
   "type": "module",
   "license": "MIT",

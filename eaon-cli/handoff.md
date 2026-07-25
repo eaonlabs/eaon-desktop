@@ -149,7 +149,94 @@ is wired there (`handleCommand`), not just declared in `commands/index.ts`.
 
 ## This cycle's work (most recent → oldest)
 
-1. **Big capability cycle: plan mode, sub-agents, web tools, background
+1. **Fixed: `sk-eaon-` keys 401'd on chat while listing models fine** (user
+   bug report). **Read this before touching provider auth — the two Eaon
+   hosts are genuinely different services and it is not obvious:**
+   - `https://api.aquadevs.com/v1` = `EAON_HOSTED_BASE_URL`, the hosted
+     product (`aqua_sk_…` keys). Mac app: `EaonHostedAPI.swift`.
+   - `https://api.eaon.dev/v1` = Eaon's own gateway (`sk-eaon-…` account
+     keys, and the Free Week trial). Mac app: `FreeWeekTrial.swift`;
+     Tauri: `EAON_TRIAL_BASE_URL` / `trial.rs`.
+   The CLI hardcoded the aquadevs host for BOTH listing and chat, so an
+   `sk-eaon-` account key went to the wrong service.
+   - **Why it looked like a CLI auth bug rather than a wrong-key problem:**
+     `api.aquadevs.com/v1/models` returns **200 for literally any bearer** —
+     verified with a deliberately truncated 12-character key, which still
+     listed the full catalog — while `/chat/completions` on the same host
+     validates properly and 401s. So the key looked accepted at startup,
+     filled the model picker, and only failed on the first real message.
+     That false positive is the whole reason this was confusing.
+   - **Fix:** `hostedBaseUrlForKey()` in `providers/eaon-hosted.ts` picks
+     the host from the key prefix (`sk-eaon-` → gateway, else hosted), and
+     BOTH `fetchEaonHostedModels` and `endpointFor` now call it — so
+     listing and chat can never target different hosts again, which was
+     the actual defect.
+   - Also rewrote auth failures (`describeHttpFailure` in `providers/
+     chat.ts`, applied to the OpenAI-compatible, Anthropic and Gemini
+     paths): a 401/403 now names the host that rejected the key and the key
+     style it saw, and calls out this specific mismatch. The old message
+     was a bare `Server returned 401: {"detail":"Missing or invalid API
+     Key"}`, which sent a real user hunting through their shell config for
+     an env var that had been set correctly the whole time.
+   - Verified: 11 unit checks (routing both key types, case-insensitivity,
+     empty-key fallback, listing/chat host agreement, and each error-message
+     branch incl. non-auth errors keeping the plain form) **plus a live
+     request with the user's real `sk-eaon-` key, which now returns 200
+     through the fixed path.**
+   - **Still open, not a code issue:** nothing in onboarding explains that
+     `aqua_sk_` and `sk-eaon-` are different services, and the env var is
+     still called `EAON_AQUA_API_KEY` (mixes both brand names). Worth
+     renaming with the old name kept as an alias.
+
+2. **Fixed: typing `/` alone showed nothing** (user bug report). The
+   trigger was `buffer.length > 1`, so a bare `/` (length 1) never opened
+   the dropdown — you had to already know a prefix to discover any command.
+   Now `/` lists all 25. Fixing only the trigger wasn't enough for the
+   stated goal ("browse the full command set"): the list was also hard-
+   capped at `.slice(0, 6)`, so 19 commands stayed unreachable. The list is
+   now kept whole and the renderer scrolls an 8-row window over it with a
+   `1-8 of 25 · ↑↓ to browse` indicator — the same pattern `ModelPicker`
+   already used, reused rather than reinvented. Applies to `@`-mentions too.
+   Verified with 13 real-keystroke checks: `/` opens the list, the count
+   shows, the window scrolls (item 11 becomes visible), arrowing 24 times
+   reaches the genuinely last command, Enter on bare `/` runs the top item,
+   Esc still lets a literal `/` through — plus regressions on all of the
+   previous entry's behaviours.
+
+3. **Fixed: Enter submitted typed text instead of the highlighted
+   autocomplete item** (user bug report, with both repro cases). Arrow-key
+   highlighting was purely visual — `key.return` called `onSubmit(buffer)`
+   and never consulted `suggestionIndex`; only Tab applied a suggestion.
+   Symptoms: typing `/mode`, arrowing to `/models`, Enter → ran `/mode`;
+   typing `/ex`, arrowing to `/exit`, Enter → sent "/ex" to the model as a
+   chat message. Fixed in `ui/Composer.tsx`, plus two adjacent defects
+   found while in there:
+   - **Stale-index desync** — the renderer read raw `suggestionIndex` while
+     the Tab handler clamped it, so narrowing the list (typing another
+     char) could leave nothing highlighted while Tab still applied the last
+     row. Now a single derived `activeIndex`/`activeSuggestion` is the only
+     thing render, Tab and Enter all read.
+   - **Esc didn't actually dismiss** — it only reset the index, leaving the
+     dropdown open. It now genuinely closes (tracked per exact buffer text
+     via `dismissedFor`, so typing re-opens it). This matters more now that
+     Enter runs the highlighted item: Esc is the escape hatch for "send
+     what I literally typed".
+   - Deliberate split in what Enter does: a **command** is inserted AND
+     run (the dropdown only shows before any argument is typed — the line
+     hides it once it contains a space — so there's nothing to preserve),
+     while a **file mention** is only inserted, because it's part of a
+     longer sentence you're still writing.
+   - Verified with 16 real-keystroke checks through Ink's real renderer,
+     including both reported repro cases, up-arrow, Esc-then-type,
+     the stale-index case, Tab-still-inserts-without-submitting, mentions,
+     plain text, and `/model sonnet` (command WITH an argument, which must
+     still submit verbatim). Two initial failures were my own test's bad
+     assumptions, not code: `/ex` matches `[/export, /exit]` in that order
+     so `/exit` needs one arrow-down, and the Esc assertion was grepping
+     accumulated stdout that still held earlier frames — both corrected to
+     assert behaviour instead.
+
+4. **Big capability cycle: plan mode, sub-agents, web tools, background
    shell, checkpoints, lighter UI** (prompt: "add all the core
    functionality Claude Code has… UI looks crappy… agentic coding better so
    the user can create big things without constantly telling the model what
@@ -227,7 +314,7 @@ is wired there (`handleCommand`), not just declared in `commands/index.ts`.
      hooks, custom subagent definitions, vim mode, `/agents`, output
      styles, IDE integration, image input.
 
-2. **Banded-gradient wordmark in the session banner** (prompt: "add the
+5. **Banded-gradient wordmark in the session banner** (prompt: "add the
    eaon logo like this [Hermes-Agent screenshot] — different color instead
    of orange"). The Hermes signature is a big block wordmark with hard
    horizontal color bands printed at the top of every session.
@@ -253,7 +340,7 @@ is wired there (`handleCommand`), not just declared in `commands/index.ts`.
      ramp — 10/10. Typecheck/build clean. Not committed (not asked).
      Real-terminal eyeball still worthwhile (`node dist/cli.js`).
 
-3. **Full UI restyle to the Claude-Code/Cursor visual language** (prompt:
+6. **Full UI restyle to the Claude-Code/Cursor visual language** (prompt:
    "make it look good and function good, like cursor cli and claude cli").
    The shared vocabulary of both reference CLIs: quiet neutral chrome, one
    accent, a ●-bullet left edge on every agent action, ⎿ tree-branch
@@ -320,7 +407,7 @@ is wired there (`handleCommand`), not just declared in `commands/index.ts`.
      eye) — the harness proves structure and emitted codes, not taste.
      Worth a quick run of `node dist/cli.js` to eyeball.
 
-4. **Fixed `/link` only ever showing the Aqua provider** (user report: "the
+7. **Fixed `/link` only ever showing the Aqua provider** (user report: "the
    only provider that is showing up is the aqua provider... pull all of the
    data"). Two real, confirmed bugs, found by directly inspecting this
    machine's actual UserDefaults data rather than guessing:
@@ -379,7 +466,7 @@ is wired there (`handleCommand`), not just declared in `commands/index.ts`.
      single small key, or discard stdout entirely, so `maxBuffer` was
      never actually a concern there). Typecheck/build clean.
 
-5. **Real Eaon app-icon rendered as terminal block art, added to
+8. **Real Eaon app-icon rendered as terminal block art, added to
    WelcomeScreen** (prompt: "add the eaon logo [the actual icon image] into
    that same format"). Sits above the wordmark as an icon+logotype lockup.
    - **`ui/iconArt.ts`**: generated from the REAL icon file (the user
@@ -453,7 +540,7 @@ is wired there (`handleCommand`), not just declared in `commands/index.ts`.
    - **Not verified**: actual visual/color judgment in a real terminal, same
      caveat as the wordmark itself — worth a `--welcome` look.
 
-6. **First-run welcome/log-in screen + real ASCII wordmark** (prompt: "make
+9. **First-run welcome/log-in screen + real ASCII wordmark** (prompt: "make
    the CLI look cool, show the EAON logo like [reference image] on first
    install, press-any-key opens the browser to import providers from Eaon
    Desktop"). New, not a tweak to the existing in-app banner (EaonBanner.tsx,
@@ -533,7 +620,7 @@ is wired there (`handleCommand`), not just declared in `commands/index.ts`.
      the harness proves correctness of state/logic/content, not "does it
      look good to a human eye." Worth an actual look with `--welcome`.
 
-7. **Agent-loop hardening + speed pass** (prompt: "make it work like Claude
+10. **Agent-loop hardening + speed pass** (prompt: "make it work like Claude
    Code, make agentic coding better and faster"). This cycle went after the
    loop itself, driven by failures actually observed in the previous
    cycle's live runs (a model calling tool "write" and burning a corrective
@@ -589,7 +676,7 @@ is wired there (`handleCommand`), not just declared in `commands/index.ts`.
      run. Typecheck/build clean. UI bits (status line, deny-row fix) still
      need an interactive eyeball per the pty caveat below.
 
-8. **Big reliability + Claude-Code-parity + agentic pass** (prompt: "add
+11. **Big reliability + Claude-Code-parity + agentic pass** (prompt: "add
    everything Claude Code has, make the UI look like Claude Code, make
    agentic coding better, it's lagging/crashing — fix it"). Scoped
    deliberately: told the user up front that "everything" isn't a
@@ -645,7 +732,7 @@ is wired there (`handleCommand`), not just declared in `commands/index.ts`.
      tail of Claude Code slash commands. "Everything" is a direction here,
      not a finish line.
 
-9. **`/link`'s browser page is now a picker, not all-or-nothing.** Every
+12. **`/link`'s browser page is now a picker, not all-or-nothing.** Every
    discovered item (Aqua API key, each BYOK custom provider) gets its own
    checkbox — checked by default so the old "import everything" behavior
    is still one click away — plus a Select all/Select none toggle. Only
@@ -681,7 +768,7 @@ is wired there (`handleCommand`), not just declared in `commands/index.ts`.
      clicking checkboxes in a real browser, though — worth a quick manual
      /link if you touch this page again.
 
-10. **Crash/glitch fixes ("it keeps crashing and glitching") + a small visual
+13. **Crash/glitch fixes ("it keeps crashing and glitching") + a small visual
    polish pass** — three separate, concrete bug classes, each verified
    against source (Ink's own, not just this repo's) before fixing, per this
    project's own "don't fabricate results" rule:
@@ -746,7 +833,7 @@ is wired there (`handleCommand`), not just declared in `commands/index.ts`.
      from pending to ✓ instead of freezing; try `/resume` on an older
      session) is worth doing before fully trusting it live.
 
-11. **`/link` connects ALL configured providers**, not just Aqua + OpenAI-
+14. **`/link` connects ALL configured providers**, not just Aqua + OpenAI-
    compatible BYOK. Root cause: `providers/chat.ts` only spoke the OpenAI-
    compatible wire format, so `link/localAuth.ts` silently *skipped* any
    custom provider saved in Anthropic Messages or Google Gemini native
@@ -767,7 +854,7 @@ is wired there (`handleCommand`), not just declared in `commands/index.ts`.
      confirming both new streaming paths correctly extract text end-to-end
      (see "Testing methodology" below for why this mattered).
 
-12. **Performance fix (the "it's lagging" report) + interrupt + thinking
+15. **Performance fix (the "it's lagging" report) + interrupt + thinking
    indicator:**
    - **Root cause of lag:** streaming pushed a full `setMessages` (→ full
      Markdown re-parse, and for code blocks a full `cli-highlight`
@@ -789,7 +876,7 @@ is wired there (`handleCommand`), not just declared in `commands/index.ts`.
      `setInterval`, so it doesn't add any extra re-renders to the rest of
      the tree.
 
-13. **Claude-Code-parity pass:**
+16. **Claude-Code-parity pass:**
    - New tools: `grep` (regex content search, skips `node_modules`/`.git`/
      build dirs, handles binary files and bad regex gracefully — see
      `tools/searchTools.ts`), `glob` (filename pattern match,

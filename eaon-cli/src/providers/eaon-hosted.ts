@@ -4,6 +4,26 @@
 // every Eaon surface.
 
 export const EAON_HOSTED_BASE_URL = "https://api.aquadevs.com/v1";
+/** Eaon's own gateway. Account keys issued from an Eaon account (`sk-eaon-…`)
+ * authenticate here, NOT against the hosted host above — the two are
+ * genuinely separate services, exactly as the Mac app and Tauri core treat
+ * them (FreeWeekTrial.swift / EAON_TRIAL_BASE_URL). */
+export const EAON_GATEWAY_BASE_URL = "https://api.eaon.dev/v1";
+
+/** Picks the host a key actually belongs to.
+ *
+ * This exists because sending a key to the wrong host produced a genuinely
+ * misleading failure: `api.aquadevs.com/v1/models` answers 200 for ANY
+ * bearer — it doesn't validate at all (verified: a deliberately truncated
+ * 12-character key still listed the full catalog) — while
+ * `/chat/completions` on that same host validates properly and returns 401.
+ * So an `sk-eaon-` key looked completely fine at startup, filled the model
+ * picker, and only failed on the first actual message. Routing by key type
+ * keeps listing and chat pointed at the same place, so if a key works at
+ * all it works everywhere. */
+export function hostedBaseUrlForKey(apiKey: string): string {
+  return apiKey.trim().toLowerCase().startsWith("sk-eaon-") ? EAON_GATEWAY_BASE_URL : EAON_HOSTED_BASE_URL;
+}
 
 export const EAON_HOSTED_CATALOG: Record<string, string> = {
   "agnes": "Agnes 2.0 Flash", "deepseek-v3": "DeepSeek V3", "deepseek-v3.1": "DeepSeek V3.1 Terminus",
@@ -33,7 +53,7 @@ export interface EaonHostedModel {
  * same filter the Tauri core applies (state.svelte.ts refreshAquaModels). */
 export async function fetchEaonHostedModels(apiKey: string): Promise<EaonHostedModel[]> {
   if (!apiKey) return [];
-  const response = await fetch(`${EAON_HOSTED_BASE_URL}/models`, {
+  const response = await fetch(`${hostedBaseUrlForKey(apiKey)}/models`, {
     headers: { Authorization: `Bearer ${apiKey}` },
   });
   if (!response.ok) {
