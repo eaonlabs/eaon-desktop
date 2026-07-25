@@ -18,6 +18,9 @@ struct CloudSyncSettingsView: View {
     /// persisted — if it were recoverable from this Mac it would not be a
     /// secret, and the point of the code is that only the user has it.
     @State private var newlyMintedCode: String?
+    /// Result of the most recent manual import, so the row can report what
+    /// actually happened instead of silently completing.
+    @State private var lastImportResult: (added: Int, updated: Int)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -47,6 +50,7 @@ struct CloudSyncSettingsView: View {
                     toggleCard
                     if store.isEnabled, account.isSignedIn {
                         syncStatusCard
+                        importCard
                     }
                     whatSyncsCard
                     privacyCard
@@ -241,6 +245,7 @@ struct CloudSyncSettingsView: View {
     private var statusHeadline: String {
         switch engine.phase {
         case .syncing: return "Syncing…"
+        case .importing: return "Importing from the cloud…"
         case .deleting: return "Removing your cloud data…"
         case .failed: return "Sync stopped"
         case .idle: return pendingCount == 0 ? "Everything is synced" : "Waiting to sync"
@@ -268,6 +273,65 @@ struct CloudSyncSettingsView: View {
             return "Nothing waiting to upload."
         }
         return "\(pendingCount) of \(total) chat\(total == 1 ? "" : "s") not yet uploaded."
+    }
+
+    /// Bringing chats DOWN from the cloud — the other direction from the card
+    /// above, and worth its own control rather than being folded into "Sync
+    /// now". A user who has just signed in on a second machine is looking for
+    /// exactly this word: import.
+    private var importCard: some View {
+        SettingsCard {
+            VStack(alignment: .leading, spacing: 0) {
+                cardHeader("Chats from your other devices")
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: "arrow.down.circle")
+                        .font(.system(size: 14))
+                        .foregroundColor(AppearanceSettings.shared.accentColor)
+                        .frame(width: 22)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Import chats from the cloud")
+                            .font(AppFont.mono(13, weight: .medium))
+                            .foregroundColor(colors.textPrimary)
+                        Text(importDetail)
+                            .font(AppFont.sans(11))
+                            .foregroundColor(colors.textTertiary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    Spacer(minLength: 0)
+                    Button(engine.phase == .importing ? "Importing…" : "Import now") {
+                        Task {
+                            guard let key = store.masterKey else { return }
+                            lastImportResult = await engine.importFromCloud(into: chatViewModel, masterKey: key)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .font(AppFont.mono(12, weight: .medium))
+                    .foregroundColor(store.isUnlocked ? colors.textPrimary : colors.textTertiary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(RoundedRectangle(cornerRadius: 7).fill(colors.backgroundChip))
+                    .disabled(!store.isUnlocked || engine.phase.isBusy)
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+            }
+        }
+    }
+
+    private var importDetail: String {
+        if let result = lastImportResult {
+            if result.added == 0 && result.updated == 0 {
+                return "Nothing new — this Mac already has everything in the cloud."
+            }
+            var parts: [String] = []
+            if result.added > 0 { parts.append("\(result.added) new chat\(result.added == 1 ? "" : "s")") }
+            if result.updated > 0 { parts.append("\(result.updated) updated") }
+            return "Imported " + parts.joined(separator: ", ") + "."
+        }
+        if let last = engine.lastImportedAt {
+            return "Runs by itself once a day. Last import \(last.formatted(date: .abbreviated, time: .shortened))."
+        }
+        return "Pulls down chats made on your other machines. Runs by itself once a day; use this to fetch them right now."
     }
 
     /// The destructive control, kept visually and physically apart from the

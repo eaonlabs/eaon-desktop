@@ -19,10 +19,11 @@ final class CloudSyncEngine {
     enum Phase: Equatable {
         case idle
         case syncing
+        case importing
         case deleting
         case failed(String)
 
-        var isBusy: Bool { self == .syncing || self == .deleting }
+        var isBusy: Bool { self == .syncing || self == .importing || self == .deleting }
     }
 
     private(set) var phase: Phase = .idle
@@ -164,6 +165,108 @@ final class CloudSyncEngine {
         return String(digest.map { String(format: "%02x", $0) }.joined().prefix(32))
     }
 
+    // MARK: - Pull
+
+    /// How long an automatic import waits before running again. A day is the
+    /// right order of magnitude for "pick up what my other Mac did" — often
+    /// enough to be useful, rare enough that it never competes with the
+    /// user's own work or burns bandwidth on an unchanged account. The manual
+    /// button ignores this entirely.
+    static let autoImportInterval: TimeInterval = 24 * 60 * 60
+    private static let lastImportKey = "cloud_sync_last_import_v1"
+
+    private(set) var lastImportedAt: Date? {
+        get { UserDefaults.standard.object(forKey: Self.lastImportKey) as? Date }
+        set { UserDefaults.standard.set(newValue, forKey: Self.lastImportKey) }
+    }
+
+    /// Fetches every item this account has in the cloud, decrypts it, and
+    /// merges it into the local store.
+    ///
+    /// This is the half that was missing: `sync()` only ever pushed, so a
+    /// second machine could upload perfectly and still show nothing, because
+    /// nothing ever came back down.
+    @discardableResult
+    func importFromCloud(into chatViewModel: ChatViewModel, masterKey: SymmetricKey) async -> (added: Int, updated: Int)? {
+        guard EaonCloudAccount.shared.isSignedIn, !phase.isBusy else { return nil }
+        phase = .importing
+        uploaded = 0
+        total = 0
+
+        let account = EaonCloudAccount.shared
+        var conversations: [Conversation] = []
+        var memoryBlob: String?
+
+        do {
+            // Appwrite pages at 100; walk with an offset so an account with
+            // more than a page of chats doesn't silently import only the
+            // first hundred — a truncation the user would have no way to see.
+            var offset = 0
+            while true {
+                let data = try await account.send(try account.authorizedRequest(
+                    path: EaonCloudAccount.rowsPath(EaonCloudAccount.itemsTable),
+                    queries: [
+                        EaonCloudAccount.queryJSON(method: "limit", values: [100]),
+                        EaonCloudAccount.queryJSON(method: "offset", values: [offset]),
+                    ]))
+                let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+                let rows = (json?["rows"] as? [[String: Any]]) ?? []
+                if rows.isEmpty { break }
+                total += rows.count
+
+                for row in rows {
+                    guard let blob = row["blob"] as? String, !blob.isEmpty,
+                          (row["deleted"] as? Bool) != true else { continue }
+                    let kind = (row["kind"] as? String) ?? "conversation"
+                    // One unreadable row must not abort the whole import —
+                    // it would take every healthy chat down with it.
+                    guard let plaintext = try? CloudSyncCrypto.decrypt(blob, with: masterKey) else { continue }
+                    if kind == "memories" {
+                        memoryBlob = String(data: plaintext, encoding: .utf8)
+                    } else if let conversation = try? JSONDecoder().decode(Conversation.self, from: plaintext) {
+                        conversations.append(conversation)
+                        // Anything that came down is, by definition, already
+                        // in the cloud at this revision — record it so the
+                        // next push doesn't re-upload what it just fetched.
+                        syncedRevisions[conversation.id.uuidString] = conversation.updatedAt
+                    }
+                    uploaded += 1
+                }
+                if rows.count < 100 { break }
+                offset += rows.count
+            }
+        } catch {
+            phase = .failed(error.localizedDescription)
+            return nil
+        }
+
+        let result = chatViewModel.mergeFromCloud(conversations)
+        if let memoryBlob, let data = memoryBlob.data(using: .utf8),
+           let memories = try? JSONDecoder().decode([MemoryItem].self, from: data) {
+            MemoryStore.shared.mergeFromCloud(memories)
+        }
+        persistRevisions()
+        lastImportedAt = Date()
+        phase = .idle
+        return result
+    }
+
+    /// Whether a day has passed (or an import has never run) — the trigger
+    /// for the automatic pull at launch.
+    var isAutoImportDue: Bool {
+        guard CloudSyncStore.shared.isEnabled, EaonCloudAccount.shared.isSignedIn else { return false }
+        guard let last = lastImportedAt else { return true }
+        return Date().timeIntervalSince(last) >= Self.autoImportInterval
+    }
+
+    /// Launch-time hook: imports only if it's actually due, and stays silent
+    /// if anything goes wrong. The user didn't ask for this one, so it must
+    /// never interrupt them — the Cloud Sync page reports the real state.
+    func autoImportIfDue(into chatViewModel: ChatViewModel) async {
+        guard isAutoImportDue, let key = CloudSyncStore.shared.masterKey else { return }
+        await importFromCloud(into: chatViewModel, masterKey: key)
+    }
+
     // MARK: - Delete
 
     /// Removes one conversation from the cloud. Called when a chat is
@@ -209,11 +312,12 @@ final class CloudSyncEngine {
 
         let account = EaonCloudAccount.shared
         do {
-            let listPath = EaonCloudAccount.rowsPath(EaonCloudAccount.itemsTable)
-                + "?queries[]=" + EaonCloudAccount.encodedQuery(method: "limit", values: [100])
+
             var remaining = true
             while remaining {
-                let data = try await account.send(try account.authorizedRequest(path: listPath))
+                let data = try await account.send(try account.authorizedRequest(
+                    path: EaonCloudAccount.rowsPath(EaonCloudAccount.itemsTable),
+                    queries: [EaonCloudAccount.queryJSON(method: "limit", values: [100])]))
                 let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
                 let rows = (json?["rows"] as? [[String: Any]]) ?? []
                 if rows.isEmpty { remaining = false; break }

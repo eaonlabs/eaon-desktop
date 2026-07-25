@@ -1,7 +1,7 @@
 {
   "name": "eaon-desktop-xp",
   "private": true,
-  "version": "2026.3.5",
+  "version": "2026.3.6",
   "type": "module",
   "description": "Eaon for Windows and Linux — a Rust core with a web UI",
   "scripts": {

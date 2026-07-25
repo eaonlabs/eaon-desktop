@@ -53,12 +53,17 @@ final class EaonCloudAccount {
     }
 
     /// Appwrite 1.9 rejects the shorthand `limit(100)` query string outright
-    /// ("Invalid query: Syntax error"); queries must be JSON objects. Built
-    /// here so no call site has to remember that.
-    static func encodedQuery(method: String, values: [Any]) -> String {
-        let json = (try? JSONSerialization.data(withJSONObject: ["method": method, "values": values]))
+    /// ("Invalid query: Syntax error"); queries must be JSON objects.
+    ///
+    /// Returns the JSON **raw and unencoded** — percent-encoding happens
+    /// exactly once, in `authorizedRequest`, via URLComponents. Encoding it
+    /// here as well is what broke the first attempt: the pre-encoded `%7B`
+    /// was escaped a second time into `%257B`, so Appwrite received the
+    /// literal characters `%7B` instead of `{`, couldn't parse the JSON, and
+    /// answered 400.
+    static func queryJSON(method: String, values: [Any]) -> String {
+        (try? JSONSerialization.data(withJSONObject: ["method": method, "values": values]))
             .flatMap { String(data: $0, encoding: .utf8) } ?? ""
-        return json.addingPercentEncoding(withAllowedCharacters: .alphanumerics) ?? ""
     }
 
     struct Session: Codable, Equatable {
@@ -399,9 +404,24 @@ final class EaonCloudAccount {
     /// in exactly one place and a signed-out state fails loudly rather than
     /// silently making an anonymous request that would 401 further away from
     /// the cause.
-    func authorizedRequest(path: String, method: String = "GET", body: Data? = nil, contentType: String = "application/json") throws -> URLRequest {
+    /// `query` is kept separate from `path` on purpose. It used to be
+    /// concatenated into the path string, and `appendingPathComponent`
+    /// percent-escapes the `?` — so `rows?queries[]=…` became
+    /// `rows%3Fqueries%5B%5D=…`, a route that doesn't exist. Appwrite
+    /// answered 404, which reads like "your table is missing" rather than
+    /// "your URL is malformed"; it broke both the import and the cloud wipe.
+    func authorizedRequest(path: String, queries: [String] = [], method: String = "GET", body: Data? = nil, contentType: String = "application/json") throws -> URLRequest {
         guard let session else { throw AccountError.notSignedIn }
-        var request = URLRequest(url: Self.endpoint.appendingPathComponent(path))
+        var url = Self.endpoint.appendingPathComponent(path)
+        if !queries.isEmpty,
+           var components = URLComponents(url: url, resolvingAgainstBaseURL: false) {
+            // Appwrite takes repeated `queries[]` parameters. URLComponents
+            // encodes each value once and correctly — including the `[]` in
+            // the name, which `URL(string:)` chokes on.
+            components.queryItems = queries.map { URLQueryItem(name: "queries[]", value: $0) }
+            url = components.url ?? url
+        }
+        var request = URLRequest(url: url)
         request.httpMethod = method
         request.timeoutInterval = 60
         request.httpShouldHandleCookies = false

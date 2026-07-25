@@ -1,6 +1,6 @@
 [package]
 name = "eaon-desktop-xp"
-version = "2026.3.5"
+version = "2026.3.6"
 description = "Eaon for Windows and Linux — a Rust core with a web UI"
 authors = ["Eaon"]
 license = "GPL-3.0"

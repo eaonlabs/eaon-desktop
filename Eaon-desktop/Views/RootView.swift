@@ -354,6 +354,19 @@ struct RootView: View {
             QuickAssistantViewModel.shared.chatViewModel = chatViewModel
             guard !didInitialModeSync else { return }
             didInitialModeSync = true
+            // Pull down anything made on another machine — at most once a
+            // day (see `autoImportIfDue`), and a no-op when sync is off or
+            // the vault is locked. Delayed so it never competes with launch:
+            // the import merges into `conversations`, and doing that while
+            // the sidebar is still building its first layout is a visible
+            // stutter for no benefit. Silent by design — the user didn't ask
+            // for it, so it must not interrupt them; Settings → Cloud Sync
+            // reports what actually happened.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                Task { @MainActor in
+                    await CloudSyncEngine.shared.autoImportIfDue(into: chatViewModel)
+                }
+            }
             selection = .mode(chatViewModel.currentMode)
             if isEligibleForTrialPopup {
                 // A short delay so this doesn't compete with the window's

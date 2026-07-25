@@ -53,6 +53,34 @@ All notable changes to Eaon are documented here. Format loosely follows
   don't apply outside that app; a global `eaon` shim is written per platform
   (a batch file on Windows, a POSIX script on Linux).
 
+## [2026.3.6] — 2026-07-24
+
+### Added
+- **Import chats from the cloud** (Mac; Settings → Cloud Sync). Sync only
+  ever pushed before — a second machine could upload perfectly and still
+  show nothing, because nothing ever came back down. There's now an explicit
+  **Import now** button, and an automatic import that runs by itself once a
+  day shortly after launch. It reports what it did ("Imported 3 new chats, 1
+  updated") rather than finishing silently, and pages through results so an
+  account with more than a hundred chats isn't quietly truncated.
+  - An import can **add and update, never delete**. A chat here but not in
+    the cloud is left alone: absence means either "deleted elsewhere" or
+    "never uploaded", the two are indistinguishable, and losing a
+    conversation to a sync heuristic is not a risk worth taking. A chat
+    that's mid-reply is skipped entirely rather than swapped out underneath
+    a live stream. Memories merge the same way — an import can only ever add
+    to what Eaon knows about you.
+
+### Fixed
+- **Cloud sync's list requests failed with a 404** (Mac), which broke both
+  importing and "Delete everything in the cloud". The query string was being
+  appended to the path before `appendingPathComponent` escaped the `?` into
+  `%3F`, producing a route that doesn't exist — and Appwrite's 404 reads like
+  a missing table rather than a malformed URL.
+- **…and then failed with a 400 once that was fixed**, because the query JSON
+  was percent-encoded twice: `%7B` became `%257B`, so the server received the
+  literal text `%7B` instead of `{`. Encoding now happens exactly once.
+
 ## [2026.3.5] — 2026-07-24
 
 ### Added

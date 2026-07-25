@@ -459,6 +459,24 @@ final class MemoryStore {
         }
     }
 
+    /// Folds memories pulled from the cloud into the local store.
+    ///
+    /// Union by id, never a replacement: a fact this device knows and the
+    /// cloud copy doesn't is kept, exactly as in `ChatViewModel.mergeFromCloud`
+    /// and for the same reason — an import should only ever be able to ADD
+    /// what you know about yourself, never quietly forget some of it because
+    /// another machine happened to sync first.
+    @discardableResult
+    func mergeFromCloud(_ incoming: [MemoryItem]) -> Int {
+        let known = Set(memories.map(\.id))
+        let fresh = incoming.filter { !known.contains($0.id) }
+        guard !fresh.isEmpty else { return 0 }
+        memories.append(contentsOf: fresh)
+        memories.sort { $0.createdAt > $1.createdAt }
+        persist()
+        return fresh.count
+    }
+
     private func persist() {
         guard let data = try? JSONEncoder().encode(memories) else { return }
         UserDefaults.standard.set(data, forKey: Self.memoriesKey)

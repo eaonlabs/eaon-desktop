@@ -878,6 +878,44 @@ class ChatViewModel {
         }
     }
 
+    /// Folds conversations pulled from the cloud into the local list.
+    ///
+    /// Deliberately additive: a chat present locally but absent from the
+    /// cloud is LEFT ALONE, never deleted. Absence is ambiguous — it means
+    /// either "deleted on another device" or "this one was never uploaded" —
+    /// and the two are indistinguishable from here, so the safe reading wins.
+    /// Losing a conversation to a sync heuristic is unforgivable; a stale
+    /// copy lingering is merely untidy, and the next push cleans it up.
+    ///
+    /// Where both sides have the same chat, the newer `updatedAt` wins. A
+    /// conversation currently mid-generation is skipped entirely — replacing
+    /// the array under a running stream is exactly the bug documented on
+    /// `GenerationSession`.
+    @discardableResult
+    func mergeFromCloud(_ incoming: [Conversation]) -> (added: Int, updated: Int) {
+        var added = 0
+        var updated = 0
+        for remote in incoming {
+            guard !isGeneratingInBackground(remote.id), remote.id != currentConversationId else { continue }
+            if let index = conversations.firstIndex(where: { $0.id == remote.id }) {
+                // One second of slack: `updatedAt` round-trips through JSON as
+                // a Double, so exact comparison would flap on every sync.
+                if remote.updatedAt.timeIntervalSince(conversations[index].updatedAt) > 1 {
+                    conversations[index] = remote
+                    updated += 1
+                }
+            } else {
+                conversations.append(remote)
+                added += 1
+            }
+        }
+        if added > 0 || updated > 0 {
+            conversations.sort { $0.updatedAt > $1.updatedAt }
+            persistConversations()
+        }
+        return (added, updated)
+    }
+
     // MARK: - Project persistence
 
     func loadProjects() {
