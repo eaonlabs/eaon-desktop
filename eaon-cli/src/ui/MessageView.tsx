@@ -147,21 +147,25 @@ export function MessageView({ message }: { message: DisplayMessage }): React.Rea
   }
 
   if (message.role === "user") {
-    // The Claude-Code/Cursor convention: your own prompt echoes back dim,
-    // so the transcript's visual weight stays on what the agent did — the
-    // bright text is the answers, not the questions.
+    // Claude-Code/Cursor: your prompt echoes dim so answers stay loud.
     return (
       <Box marginTop={1} flexDirection="column">
-        <Text dimColor>{"> "}{message.text}</Text>
+        <Text color={theme.muted} dimColor>
+          {"❯ "}
+          {message.text}
+        </Text>
       </Box>
     );
   }
 
   if (message.role === "system") {
     const color = message.tone === "error" ? theme.error : message.tone === "success" ? theme.success : theme.muted;
+    const mark = message.tone === "error" ? "✗" : message.tone === "success" ? "✓" : "·";
     return (
       <Box marginTop={1}>
-        <Text color={color}>{message.text}</Text>
+        <Text color={color}>
+          {mark} {message.text}
+        </Text>
       </Box>
     );
   }
@@ -181,11 +185,8 @@ export function MessageView({ message }: { message: DisplayMessage }): React.Rea
           </Box>
         )}
         {message.text.length > 0 ? (
-          // The ● marker + hanging indent is the transcript rhythm both
-          // Claude Code and Cursor use — every agent action (text or tool)
-          // starts at a bullet, so the eye can skim the left edge.
           <Box>
-            <Text color={theme.assistant}>{"● "}</Text>
+            <Text color={theme.accent}>{"● "}</Text>
             <Box flexDirection="column" flexGrow={1}>
               {message.streaming ? <StreamingText text={message.text} /> : <Markdown text={message.text} streaming={false} />}
             </Box>

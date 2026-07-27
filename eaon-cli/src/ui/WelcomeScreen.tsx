@@ -78,8 +78,8 @@ interface Props {
 
 const CLOSING_COPY: Record<LinkOutcome, { text: string; color: string }> = {
   linked: { text: "✓ Connected — bringing your providers in.", color: theme.success },
-  nothing_selected: { text: "Nothing selected — continuing without linking.", color: theme.muted },
-  nothing_found: { text: "No Eaon Desktop found on this Mac — continuing without linking.", color: theme.muted },
+  nothing_selected: { text: "Nothing selected — continuing without changes.", color: theme.muted },
+  nothing_found: { text: "Continuing without linking.", color: theme.muted },
   cancelled: { text: "Cancelled — continuing without linking.", color: theme.muted },
   timed_out: { text: "No response — continuing. Run /link anytime to retry.", color: theme.muted },
   no_platform_support: { text: "Continuing.", color: theme.muted },
@@ -142,10 +142,6 @@ export function WelcomeScreen({ version, platformSupportsLink, onLogin, onFinish
     (input, key) => {
       if (key.ctrl && input === "c") return; // the app-level double-Ctrl+C exit owns this
       if (stage === "prompt") {
-        if (!platformSupportsLink) {
-          finish();
-          return;
-        }
         setStage("connecting");
         onLogin()
           .then((outcome) => {
@@ -204,10 +200,12 @@ export function WelcomeScreen({ version, platformSupportsLink, onLogin, onFinish
       <Box flexDirection="column" alignItems="center" width="100%" marginTop={2}>
         {stage === "prompt" && (
           <>
-            <PulsingPrompt text={platformSupportsLink ? "Press any key to log in…" : "Press any key to continue…"} />
-            {platformSupportsLink && (
-              <Text color={theme.muted}>Imports your Aqua key and providers from Eaon Desktop, on this Mac.</Text>
-            )}
+            <PulsingPrompt text="Press any key to set up keys…" />
+            <Text color={theme.muted}>
+              {platformSupportsLink
+                ? "Import from Eaon Desktop, or enter API keys in your browser."
+                : "Enter API keys and providers in your browser."}
+            </Text>
           </>
         )}
         {stage === "connecting" && <ConnectingIndicator />}

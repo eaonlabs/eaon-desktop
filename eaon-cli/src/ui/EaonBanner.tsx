@@ -1,11 +1,7 @@
-// The in-session welcome banner — the compact Claude-Code-style card: a
-// small rounded box with a ✻ greeting plus dim model/path lines, then tips
-// and recent sessions as quiet plain lines below it. Deliberately NOT the
-// big block-art moment — that lives on the one-time WelcomeScreen
-// (logoArt/iconArt); this banner appears at the top of every session, so
-// it has to be glanceable and cheap, not theatrical. The launch quote —
-// an Eaon signature worth keeping — becomes a single dim italic line
-// under the box.
+// Per-session welcome — the one loud moment is the block EAON wordmark
+// (Hermes letterform, Eaon coral). Everything under it is Claude-Code quiet:
+// a ✻ greeting, dim mode/model/path/tips, then a pioneer quote. No bordered
+// dashboard card — that fought the transcript and made the CLI feel heavy.
 
 import React from "react";
 import os from "node:os";
@@ -17,9 +13,6 @@ import type { Quote } from "./quotes.js";
 import type { EaonMode } from "../types.js";
 import type { SessionSummary } from "../session/store.js";
 
-/** The real OS login name — not fabricated, and not worth the complexity
- * of shelling out per-platform for a GECOS/display name (`os.userInfo()`
- * exposes only the login handle on every platform, no full-name field). */
 function greetingName(): string {
   try {
     return os.userInfo().username || "there";
@@ -42,39 +35,54 @@ export interface EaonBannerProps {
   recentSessions: SessionSummary[];
 }
 
+const QUOTE_WIDTH = 72;
+
 export function EaonBanner(props: EaonBannerProps): React.ReactElement {
   const { stdout } = useStdout();
   const columns = stdout?.columns ?? 80;
   const fitsWordmark = columns >= EAON_WORDMARK_WIDTH + 2;
+  const name = greetingName();
+  const path = shortenPath(props.projectRoot);
 
-  // Everything under the wordmark is deliberately weightless: dim, plain,
-  // indented lines. An earlier version boxed the welcome info, listed tips
-  // AND listed recent sessions — roughly 25 lines of chrome before the
-  // user could type, which read as clutter rather than polish. The
-  // wordmark is the one loud thing; the rest just answers "what model,
-  // where am I, how do I get help" and gets out of the way.
   return (
-    <Box flexDirection="column">
-      {fitsWordmark && (
+    <Box flexDirection="column" marginBottom={1}>
+      {fitsWordmark ? (
         <Box marginBottom={1}>
           <BandedWordmark />
+        </Box>
+      ) : (
+        <Box marginBottom={1}>
+          <Text color={theme.accent} bold>
+            EAON
+          </Text>
         </Box>
       )}
 
       <Box flexDirection="column" paddingLeft={1}>
         <Text>
           <Text color={theme.accent}>✻ </Text>
-          <Text bold>Welcome back, {greetingName()}</Text>
-          <Text color={theme.muted} dimColor> · Eaon v{props.version}</Text>
+          <Text bold>Welcome back, {name}</Text>
+          <Text color={theme.muted} dimColor>
+            {" "}
+            · Eaon v{props.version}
+          </Text>
         </Text>
         <Text color={theme.muted} dimColor>
-          {"  "}{MODE_LABEL[props.mode]} · {props.modelLabel}
+          {"  "}
+          {MODE_LABEL[props.mode]} · {props.modelLabel}
         </Text>
         <Text color={theme.muted} dimColor>
-          {"  "}{shortenPath(props.projectRoot)}
+          {"  "}
+          {path}
         </Text>
         <Text color={theme.muted} dimColor>
-          {"  "}/help for commands · shift+tab to switch between plan, sandboxed and auto
+          {"  "}/help for commands · shift+tab to cycle plan · sandboxed · auto
+        </Text>
+      </Box>
+
+      <Box marginTop={1} paddingLeft={3} width={Math.min(QUOTE_WIDTH, columns - 2)}>
+        <Text color={theme.reasoning} italic dimColor>
+          "{props.quote.text}" — {props.quote.author}
         </Text>
       </Box>
     </Box>

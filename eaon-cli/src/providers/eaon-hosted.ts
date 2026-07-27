@@ -6,8 +6,9 @@
 export const EAON_HOSTED_BASE_URL = "https://api.aquadevs.com/v1";
 /** Eaon's own gateway. Account keys issued from an Eaon account (`sk-eaon-…`)
  * authenticate here, NOT against the hosted host above — the two are
- * genuinely separate services, exactly as the Mac app and Tauri core treat
- * them (FreeWeekTrial.swift / EAON_TRIAL_BASE_URL). */
+ * genuinely separate services (same split as the Mac app / Tauri core).
+ * The hosted host URL is a legacy backend hostname; user-facing copy always
+ * says Eaon, never Aquadevs. */
 export const EAON_GATEWAY_BASE_URL = "https://api.eaon.dev/v1";
 
 /** Picks the host a key actually belongs to.

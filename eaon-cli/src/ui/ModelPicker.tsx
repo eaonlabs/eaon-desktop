@@ -75,7 +75,7 @@ export function ModelPicker({ models, currentKey, onSelect, onCancel }: Props): 
         <Text bold color={theme.warning}>
           No models available
         </Text>
-        <Text color={theme.muted}>Try /link to import from Eaon Desktop, run Ollama locally, or set EAON_AQUA_API_KEY.</Text>
+        <Text color={theme.muted}>Try /link to set API keys (or import from Eaon Desktop), run Ollama locally, or set EAON_AQUA_API_KEY.</Text>
         <Text color={theme.muted}>Esc to close</Text>
       </Box>
     );

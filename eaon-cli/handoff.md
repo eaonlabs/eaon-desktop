@@ -114,7 +114,7 @@ is wired there (`handleCommand`), not just declared in `commands/index.ts`.
 
 ## What already works (verified this project)
 
-- Chat + Agent modes, streaming, native tool-calling with a text-fence
+- Chat mode (read-only tools: read_file/grep/glob/list_directory/web_search/web_fetch) + Agent mode, streaming, native tool-calling with a text-fence
   fallback for models that don't support `tools` (verified live against
   local Ollama models).
 - Full tool catalog (22): `grep`, `glob`, `read_file`, `write_file`,
@@ -149,7 +149,82 @@ is wired there (`handleCommand`), not just declared in `commands/index.ts`.
 
 ## This cycle's work (most recent → oldest)
 
-1. **Fixed: `sk-eaon-` keys 401'd on chat while listing models fine** (user
+1. **Prompt overhaul: better agentic coding AND better plain answers**
+   (prompt: "make agentic coding better… also good at answering normal
+   questions… highly optimized"). Four real defects, all in `agent/
+   prompts.ts` plus the chat-mode tool gate:
+   - **The agent prompt had no notion of "this is a question."** Every
+     instruction pushed toward doing work (OWN THE WHOLE TASK, todo_write
+     for 3+ steps, finish what you started), so a plain question in agent
+     mode got a checklist and a tool cascade. Added a **request-triage
+     block as the FIRST thing in the prompt** — question / small change /
+     real task / ambiguous — with explicit "a question is an invitation to
+     think, not a work order" and "ceremony on a two-line change is its own
+     kind of failure". Placement is deliberate: it must be read before the
+     loop instructions it moderates (there's a test asserting the ordering).
+   - **Chat mode was nearly useless: two sentences and ZERO tools.** Any
+     question about the user's own code was answered from guesswork. It now
+     has strictly read-only tools (`chatTools()` — read_file, grep, glob,
+     list_directory, web_search, web_fetch; every one `readOnly`, so none
+     can trip a permission prompt) and a real prompt. Required loosening
+     two `mode !== "chat"` guards in `loop.ts` (native tool-calling and the
+     fence fallback) to be driven by "does this mode have tools" instead.
+   - **No code-quality guidance at all** — the prompt covered process
+     (read before edit, verify by running) but never said what good code
+     looks like. Added: the surrounding code is the style guide, reuse
+     what's there, smallest change that solves it, don't build what wasn't
+     asked for, leave nothing half-done, match the codebase's error
+     handling, comment the WHY not the what.
+   - **No communication guidance** — added "HOW TO TALK" to both prompts:
+     lead with the answer, length follows the question, prose over bullets,
+     be concrete (real paths/lines), have an opinion, no sycophancy.
+   - **A live test found a real prompt gap:** the anti-fabrication rule
+     only covered `run_shell`, and a model was caught writing "a quick
+     `read_file` on X shows…" and then inventing file contents it had never
+     read. Generalised to ALL tools in both prompts.
+   - Verified: 25 static checks (chat tools present AND all read-only, each
+     mutating tool absent from chat, triage ordering, every new section
+     present) — **plus a wire-level check** proving chat mode really does
+     send those 6 tools in the request body, **plus live runs against real
+     models.**
+   - **Worth knowing for future testing:** `gpt-5-nano` fails these
+     behaviourally — it *describes* tool use ("reading cache.js…") and then
+     fabricates contents rather than emitting a call, and no prompt wording
+     fixed it. The wire check is what separated "my bug" from "model
+     limitation". `gemini-3.1-lite` on the identical prompt called
+     list_directory → read_file and correctly identified the test cache as
+     LRI rather than LRU. Don't use nano-class models to judge prompt
+     changes.
+
+2. **More pioneer quotes — and the banner actually shows them again**
+   (prompt: "have the quotes from the people who have made changes in tech
+   and helped"). Two parts:
+   - **The quote had stopped rendering entirely.** The UI-overhaul cycle
+     stripped the banner down and dropped the quote line with it; `props.
+     quote` was still being passed and simply never used, so `quotes.ts`
+     had been dead code for several cycles. Restored in `EaonBanner.tsx` as
+     a dim italic epigraph, wrapped at `QUOTE_WIDTH = 72` (full-width
+     italic reads as a paragraph, not a quote) — verified rendering at both
+     the longest entry (130 chars, Lamport, wraps to 3 tidy lines) and the
+     shortest ("This is for everyone").
+   - **12 new quotes**, 14 → 26, from people who built the field and opened
+     it up: Dijkstra (×2), Brooks, Perlis, SICP, Spärck Jones, Lamport,
+     Liskov, Engelbart, Pike, Tim Peters, Berners-Lee. Each carries an
+     inline source note (EWD number, book, PEP, conference) so the next
+     person can re-check without starting over.
+   - **The file's own no-misattribution rule earned itself again:** a web
+     search returned "Programs must be written for people to read"
+     credited to Barbara Liskov — it's Abelson & Sussman's, SICP 1985, and
+     is attributed to SICP here. Secondary sources copy each other's
+     mistakes. Several nice-sounding Hedy Lamarr and Frances Allen lines
+     were **left out** rather than guessed at, which is why some obvious
+     names are still missing — that's the standard working, not an
+     oversight.
+   - Also cleared the `"bin[eaon]" script name was cleaned` publish warning
+     (`./dist/cli.js` → `dist/cli.js`), checked on a throwaway copy via
+     `npm pkg fix` first.
+
+3. **Fixed: `sk-eaon-` keys 401'd on chat while listing models fine** (user
    bug report). **Read this before touching provider auth — the two Eaon
    hosts are genuinely different services and it is not obvious:**
    - `https://api.aquadevs.com/v1` = `EAON_HOSTED_BASE_URL`, the hosted
@@ -188,7 +263,7 @@ is wired there (`handleCommand`), not just declared in `commands/index.ts`.
      still called `EAON_AQUA_API_KEY` (mixes both brand names). Worth
      renaming with the old name kept as an alias.
 
-2. **Fixed: typing `/` alone showed nothing** (user bug report). The
+4. **Fixed: typing `/` alone showed nothing** (user bug report). The
    trigger was `buffer.length > 1`, so a bare `/` (length 1) never opened
    the dropdown — you had to already know a prefix to discover any command.
    Now `/` lists all 25. Fixing only the trigger wasn't enough for the
@@ -203,7 +278,7 @@ is wired there (`handleCommand`), not just declared in `commands/index.ts`.
    Esc still lets a literal `/` through — plus regressions on all of the
    previous entry's behaviours.
 
-3. **Fixed: Enter submitted typed text instead of the highlighted
+5. **Fixed: Enter submitted typed text instead of the highlighted
    autocomplete item** (user bug report, with both repro cases). Arrow-key
    highlighting was purely visual — `key.return` called `onSubmit(buffer)`
    and never consulted `suggestionIndex`; only Tab applied a suggestion.
@@ -236,7 +311,7 @@ is wired there (`handleCommand`), not just declared in `commands/index.ts`.
      accumulated stdout that still held earlier frames — both corrected to
      assert behaviour instead.
 
-4. **Big capability cycle: plan mode, sub-agents, web tools, background
+6. **Big capability cycle: plan mode, sub-agents, web tools, background
    shell, checkpoints, lighter UI** (prompt: "add all the core
    functionality Claude Code has… UI looks crappy… agentic coding better so
    the user can create big things without constantly telling the model what
@@ -314,7 +389,7 @@ is wired there (`handleCommand`), not just declared in `commands/index.ts`.
      hooks, custom subagent definitions, vim mode, `/agents`, output
      styles, IDE integration, image input.
 
-5. **Banded-gradient wordmark in the session banner** (prompt: "add the
+7. **Banded-gradient wordmark in the session banner** (prompt: "add the
    eaon logo like this [Hermes-Agent screenshot] — different color instead
    of orange"). The Hermes signature is a big block wordmark with hard
    horizontal color bands printed at the top of every session.
@@ -340,7 +415,7 @@ is wired there (`handleCommand`), not just declared in `commands/index.ts`.
      ramp — 10/10. Typecheck/build clean. Not committed (not asked).
      Real-terminal eyeball still worthwhile (`node dist/cli.js`).
 
-6. **Full UI restyle to the Claude-Code/Cursor visual language** (prompt:
+8. **Full UI restyle to the Claude-Code/Cursor visual language** (prompt:
    "make it look good and function good, like cursor cli and claude cli").
    The shared vocabulary of both reference CLIs: quiet neutral chrome, one
    accent, a ●-bullet left edge on every agent action, ⎿ tree-branch
@@ -407,7 +482,7 @@ is wired there (`handleCommand`), not just declared in `commands/index.ts`.
      eye) — the harness proves structure and emitted codes, not taste.
      Worth a quick run of `node dist/cli.js` to eyeball.
 
-7. **Fixed `/link` only ever showing the Aqua provider** (user report: "the
+9. **Fixed `/link` only ever showing the Aqua provider** (user report: "the
    only provider that is showing up is the aqua provider... pull all of the
    data"). Two real, confirmed bugs, found by directly inspecting this
    machine's actual UserDefaults data rather than guessing:
@@ -466,7 +541,7 @@ is wired there (`handleCommand`), not just declared in `commands/index.ts`.
      single small key, or discard stdout entirely, so `maxBuffer` was
      never actually a concern there). Typecheck/build clean.
 
-8. **Real Eaon app-icon rendered as terminal block art, added to
+10. **Real Eaon app-icon rendered as terminal block art, added to
    WelcomeScreen** (prompt: "add the eaon logo [the actual icon image] into
    that same format"). Sits above the wordmark as an icon+logotype lockup.
    - **`ui/iconArt.ts`**: generated from the REAL icon file (the user
@@ -540,7 +615,7 @@ is wired there (`handleCommand`), not just declared in `commands/index.ts`.
    - **Not verified**: actual visual/color judgment in a real terminal, same
      caveat as the wordmark itself — worth a `--welcome` look.
 
-9. **First-run welcome/log-in screen + real ASCII wordmark** (prompt: "make
+11. **First-run welcome/log-in screen + real ASCII wordmark** (prompt: "make
    the CLI look cool, show the EAON logo like [reference image] on first
    install, press-any-key opens the browser to import providers from Eaon
    Desktop"). New, not a tweak to the existing in-app banner (EaonBanner.tsx,
@@ -620,7 +695,7 @@ is wired there (`handleCommand`), not just declared in `commands/index.ts`.
      the harness proves correctness of state/logic/content, not "does it
      look good to a human eye." Worth an actual look with `--welcome`.
 
-10. **Agent-loop hardening + speed pass** (prompt: "make it work like Claude
+12. **Agent-loop hardening + speed pass** (prompt: "make it work like Claude
    Code, make agentic coding better and faster"). This cycle went after the
    loop itself, driven by failures actually observed in the previous
    cycle's live runs (a model calling tool "write" and burning a corrective
@@ -676,7 +751,7 @@ is wired there (`handleCommand`), not just declared in `commands/index.ts`.
      run. Typecheck/build clean. UI bits (status line, deny-row fix) still
      need an interactive eyeball per the pty caveat below.
 
-11. **Big reliability + Claude-Code-parity + agentic pass** (prompt: "add
+13. **Big reliability + Claude-Code-parity + agentic pass** (prompt: "add
    everything Claude Code has, make the UI look like Claude Code, make
    agentic coding better, it's lagging/crashing — fix it"). Scoped
    deliberately: told the user up front that "everything" isn't a
@@ -732,7 +807,7 @@ is wired there (`handleCommand`), not just declared in `commands/index.ts`.
      tail of Claude Code slash commands. "Everything" is a direction here,
      not a finish line.
 
-12. **`/link`'s browser page is now a picker, not all-or-nothing.** Every
+14. **`/link`'s browser page is now a picker, not all-or-nothing.** Every
    discovered item (Aqua API key, each BYOK custom provider) gets its own
    checkbox — checked by default so the old "import everything" behavior
    is still one click away — plus a Select all/Select none toggle. Only
@@ -768,7 +843,7 @@ is wired there (`handleCommand`), not just declared in `commands/index.ts`.
      clicking checkboxes in a real browser, though — worth a quick manual
      /link if you touch this page again.
 
-13. **Crash/glitch fixes ("it keeps crashing and glitching") + a small visual
+15. **Crash/glitch fixes ("it keeps crashing and glitching") + a small visual
    polish pass** — three separate, concrete bug classes, each verified
    against source (Ink's own, not just this repo's) before fixing, per this
    project's own "don't fabricate results" rule:
@@ -833,7 +908,7 @@ is wired there (`handleCommand`), not just declared in `commands/index.ts`.
      from pending to ✓ instead of freezing; try `/resume` on an older
      session) is worth doing before fully trusting it live.
 
-14. **`/link` connects ALL configured providers**, not just Aqua + OpenAI-
+16. **`/link` connects ALL configured providers**, not just Aqua + OpenAI-
    compatible BYOK. Root cause: `providers/chat.ts` only spoke the OpenAI-
    compatible wire format, so `link/localAuth.ts` silently *skipped* any
    custom provider saved in Anthropic Messages or Google Gemini native
@@ -854,7 +929,7 @@ is wired there (`handleCommand`), not just declared in `commands/index.ts`.
      confirming both new streaming paths correctly extract text end-to-end
      (see "Testing methodology" below for why this mattered).
 
-15. **Performance fix (the "it's lagging" report) + interrupt + thinking
+17. **Performance fix (the "it's lagging" report) + interrupt + thinking
    indicator:**
    - **Root cause of lag:** streaming pushed a full `setMessages` (→ full
      Markdown re-parse, and for code blocks a full `cli-highlight`
@@ -876,7 +951,7 @@ is wired there (`handleCommand`), not just declared in `commands/index.ts`.
      `setInterval`, so it doesn't add any extra re-renders to the rest of
      the tree.
 
-16. **Claude-Code-parity pass:**
+18. **Claude-Code-parity pass:**
    - New tools: `grep` (regex content search, skips `node_modules`/`.git`/
      build dirs, handles binary files and bad regex gracefully — see
      `tools/searchTools.ts`), `glob` (filename pattern match,

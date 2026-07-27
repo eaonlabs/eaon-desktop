@@ -161,7 +161,7 @@ export const COMMANDS: SlashCommandSpec[] = [
   },
   {
     name: "link",
-    description: "Import your Aqua API key and custom providers from Eaon Desktop on this Mac.",
+    description: "Open a browser to import from Eaon Desktop, or set / edit API keys, base URLs, and providers.",
     run: () => ({ kind: "link" }),
   },
   {

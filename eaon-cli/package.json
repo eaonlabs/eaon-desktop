@@ -1,10 +1,10 @@
 {
   "name": "eaon-cli",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "An agentic coding agent in your terminal — plan mode, sub-agents, and real tools, for any model: local (Ollama) or hosted.",
   "type": "module",
   "license": "MIT",
-  "author": "Aqua Devs",
+  "author": "Eaon",
   "homepage": "https://eaon.dev",
   "repository": {
     "type": "git",
@@ -26,7 +26,7 @@
     "developer-tools"
   ],
   "bin": {
-    "eaon": "./dist/cli.js"
+    "eaon": "dist/cli.js"
   },
   "engines": {
     "node": ">=18.17"

@@ -245,11 +245,22 @@ export function agentTools(): ToolName[] {
   return SPECS.filter((s) => !s.available || s.available()).map((s) => s.name);
 }
 
+/** Chat mode's tools: strictly read-only, so it can ground an answer in the
+ * user's actual code (and current docs) without being able to change
+ * anything. Chat used to have NO tools, which meant any question about
+ * their own codebase got answered from guesswork. Every name here is
+ * `readOnly`, so none of them can trip a permission prompt. */
+export function chatTools(): ToolName[] {
+  return (["read_file", "grep", "glob", "list_directory", "web_search", "web_fetch"] as ToolName[]).filter(
+    (n) => isReadOnlyTool(n) && (SPEC_BY_NAME.get(n)?.available?.() ?? true)
+  );
+}
+
 export function toolsForMode(
   mode: "chat" | "agent" | "claw",
   opts: { isSubagent?: boolean; permissionMode?: "plan" | "sandboxed" | "auto" } = {}
 ): ToolName[] {
-  if (mode === "chat") return [];
+  if (mode === "chat") return chatTools();
   // "claw" only ever arrives from an old saved session — same catalog now.
   let names = agentTools();
   // A sub-agent can't spawn sub-agents (one level only) and has no plan of

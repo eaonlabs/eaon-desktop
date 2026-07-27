@@ -57,11 +57,14 @@ export function PermissionPrompt({ name, summary, detail, onAnswer }: Props): Re
   const detailLines = detail ? detail.split("\n") : [];
 
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={theme.border} paddingX={1} marginTop={1}>
+    <Box flexDirection="column" borderStyle="round" borderColor={theme.warning} paddingX={1} marginTop={1}>
       <Text>
         <Text color={theme.warning}>● </Text>
         <Text bold>{summary}</Text>
-        <Text color={theme.muted}> ({name})</Text>
+        <Text color={theme.muted} dimColor>
+          {" "}
+          ({name})
+        </Text>
       </Text>
       {detailLines.length > 0 && (
         <Box flexDirection="column" paddingLeft={2}>
@@ -71,13 +74,19 @@ export function PermissionPrompt({ name, summary, detail, onAnswer }: Props): Re
               {line}
             </Text>
           ))}
-          {detailLines.length > 16 && <Text color={theme.muted}>   …truncated</Text>}
+          {detailLines.length > 16 && (
+            <Text color={theme.muted} dimColor>
+              {"   "}…truncated
+            </Text>
+          )}
         </Box>
       )}
       <Box marginTop={1} flexDirection="column">
-        <Text color={theme.muted}>Allow this?</Text>
+        <Text color={theme.muted} dimColor>
+          Allow this?
+        </Text>
         {OPTIONS.map((opt, idx) => (
-          <Text key={opt.key} color={idx === index ? theme.accent : theme.assistant}>
+          <Text key={opt.key} color={idx === index ? theme.accent : theme.assistant} bold={idx === index}>
             {idx === index ? "❯ " : "  "}
             {idx + 1}. {opt.label}
           </Text>

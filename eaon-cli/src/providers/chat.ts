@@ -6,17 +6,55 @@
 
 import type { ChatRequestOptions, ChatStreamEvent, Turn } from "../types.js";
 
+/** Pull a short human message out of a provider error body when it's JSON. */
+function extractErrorDetail(body: string): string | null {
+  const trimmed = body.trim();
+  if (!trimmed) return null;
+  try {
+    const parsed = JSON.parse(trimmed) as unknown;
+    if (parsed && typeof parsed === "object") {
+      const obj = parsed as Record<string, unknown>;
+      const err = obj.error;
+      if (typeof err === "string" && err.trim()) return err.trim();
+      if (err && typeof err === "object") {
+        const nested = err as Record<string, unknown>;
+        if (typeof nested.message === "string" && nested.message.trim()) return nested.message.trim();
+        if (typeof nested.detail === "string" && nested.detail.trim()) return nested.detail.trim();
+      }
+      if (typeof obj.message === "string" && obj.message.trim()) return obj.message.trim();
+      if (typeof obj.detail === "string" && obj.detail.trim()) return obj.detail.trim();
+    }
+  } catch {
+    // not JSON — fall through
+  }
+  // Strip braces that would dump opaque blobs into the transcript.
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) return null;
+  return trimmed.slice(0, 200);
+}
+
 /** Turns an HTTP failure into something the user can act on.
  *
  * A bare "Server returned 401: {detail: Missing or invalid API Key}" sent a
  * real user hunting through their shell config for an env var that was set
  * correctly all along — the actual problem was the key being valid for a
  * different Eaon host. Auth failures now name the host that rejected the
- * key and the key style it saw, because that pair is the whole diagnosis. */
+ * key and the key style it saw, because that pair is the whole diagnosis.
+ * Non-auth failures get a short human line instead of raw JSON. */
 export function describeHttpFailure(status: number, body: string, url: string, apiKey: string | null): string {
-  const detail = body.trim().slice(0, 300);
+  const human = extractErrorDetail(body);
+
   if (status !== 401 && status !== 403) {
-    return `Server returned ${status}${detail ? `: ${detail}` : ""}`;
+    if (status >= 500) {
+      return human
+        ? `Server error (${status}) — ${human}`
+        : `Server error (${status}). Please try again.`;
+    }
+    if (status === 429) {
+      return human ? `Rate limited (429) — ${human}` : "Rate limited (429). Wait a moment and try again.";
+    }
+    return human
+      ? `Request failed (${status}) — ${human}`
+      : `Request failed (${status}).`;
   }
 
   let host = url;
@@ -32,7 +70,7 @@ export function describeHttpFailure(status: number, body: string, url: string, a
   if (key.length === 0) {
     lines.push("No key was sent. Set one with /link, or export EAON_AQUA_API_KEY.");
   } else if (host.includes("aquadevs.com") && key.toLowerCase().startsWith("sk-eaon-")) {
-    // The exact mix-up this message exists for.
+    // Legacy hosted host — sk-eaon- account keys belong on api.eaon.dev.
     lines.push("That looks like an Eaon account key (sk-eaon-…), which belongs to api.eaon.dev, not this host.");
     lines.push("Eaon should route it automatically — if you're seeing this, the key may be incomplete.");
   } else if (host.includes("eaon.dev") && !key.toLowerCase().startsWith("sk-eaon-")) {
@@ -41,7 +79,7 @@ export function describeHttpFailure(status: number, body: string, url: string, a
     lines.push(`The key it sent starts with "${key.slice(0, 8)}" and is ${key.length} characters long — check it's complete and hasn't been revoked.`);
   }
 
-  if (detail) lines.push(`Server said: ${detail}`);
+  if (human) lines.push(`Server said: ${human}`);
   return lines.join("\n");
 }
 

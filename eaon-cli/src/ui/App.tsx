@@ -23,7 +23,7 @@ import { runShell } from "../tools/shellTool.js";
 import type { PathGuardContext } from "../tools/pathGuard.js";
 import { deriveTitle, listSessions, loadSession, newSession, saveSession, type Session } from "../session/store.js";
 import { PROJECT_NOTES_FILE, readProjectNotes, runInit } from "../project/init.js";
-import { applyDiscoveryToConfig, discoverDesktopCredentials, domainLabel, isLocalDiscoveryAvailable } from "../link/localAuth.js";
+import { applyConfigureToConfig, applyDiscoveryToConfig, discoverDesktopCredentials, domainLabel, isLocalDiscoveryAvailable } from "../link/localAuth.js";
 import { runLinkServer } from "../link/server.js";
 import { isMac, isWindows, platformLabel } from "../platform.js";
 import { spawn } from "node:child_process";
@@ -112,7 +112,7 @@ function resolveModelQuery(catalog: ModelEntry[], query: string): ModelEntry[] {
 
 function formatCatalog(catalog: ModelEntry[], current: ModelEntry | null): string {
   if (catalog.length === 0) {
-    return "No models available yet.\n\n- Cloud: run /link to import your Aqua key and providers from Eaon Desktop\n- Local: install Ollama (ollama.com) and pull a model, e.g. /pull qwen3.6\n- Aqua: or set EAON_AQUA_API_KEY directly\n- BYOK: or add a custom provider to ~/.eaon/cli/config.json (customProviders)";
+    return "No models available yet.\n\n- Cloud: run /link to import from Eaon Desktop or set API keys in the browser\n- Local: install Ollama (ollama.com) and pull a model, e.g. /pull qwen3.6\n- Eaon: or set EAON_AQUA_API_KEY directly\n- BYOK: /link → Set / edit keys (pick OpenAI, Anthropic, Groq, …)";
   }
   const lines = catalog.map((m) => `${m.key === current?.key ? "› " : "  "}${m.key}  —  ${describeEntry(m)}`);
   return ["Available models:", ...lines, "", "Switch with /model <name>."].join("\n");
@@ -177,7 +177,7 @@ function buildStatusMarkdown(opts: {
     `**Platform:** ${platformLabel()}`,
     "",
     "### Providers",
-    `- Aqua: ${resolveAquaApiKey(config) ? `configured, ${aquaCount} model(s)` : "not configured — try /link"}`,
+    `- Eaon: ${resolveAquaApiKey(config) ? `configured, ${aquaCount} model(s)` : "not configured — try /link"}`,
     `- Ollama: ${ollamaCount > 0 ? `${ollamaCount} model(s) found` : "not reachable / no models"}`,
     `- BYOK: ${config.customProviders.length} provider(s) configured, ${customCount} model(s)`,
     "",
@@ -382,7 +382,14 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
   const expandMentionsRef = useRef<(text: string) => string>((t) => t);
 
   const pushSystem = useCallback((text: string, tone: "info" | "error" | "success" = "info") => {
-    setMessages((prev) => [...prev, { id: randomUUID(), role: "system", text, tone }]);
+    setMessages((prev) => {
+      const last = prev[prev.length - 1];
+      // Consecutive identical system lines (e.g. step_error + loop_stopped
+      // with the same failure string) just spam the transcript and make Ink
+      // redraw thrash under <Static>.
+      if (last?.role === "system" && last.text === text && last.tone === tone) return prev;
+      return [...prev, { id: randomUUID(), role: "system", text, tone }];
+    });
   }, []);
 
   // Renders as real Markdown (headers, bold, lists) via the same renderer
@@ -463,7 +470,7 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
       }
 
       const notes = readProjectNotes(projectRoot);
-      if (result.aquaError) pushSystem(`Aqua models unavailable: ${result.aquaError}`, "error");
+      if (result.aquaError) pushSystem(`Eaon models unavailable: ${result.aquaError}`, "error");
       if (notes) pushSystem("Loaded EAON.md for project context.", "info");
       const bundledUpdate = checkForBundledUpdate(version);
       if (bundledUpdate) pushSystem(updateNoticeLine(bundledUpdate), "info");
@@ -635,8 +642,11 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
             return copy;
           });
         } else if (event.type === "step_error") {
-          pushSystem(event.message, "error");
+          // Retry notices are progress, not hard failures.
+          const isRetry = /retrying in \d+s/i.test(event.message);
+          pushSystem(event.message, isRetry ? "info" : "error");
         } else if (event.type === "loop_stopped") {
+          // Final step_error already pushed the same string — skip the duplicate.
           pushSystem(event.reason, "error");
         }
       }
@@ -708,26 +718,23 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
   );
 
   const handleLink = useCallback(async (): Promise<LinkOutcome> => {
-    if (!isLocalDiscoveryAvailable()) {
-      pushSystem("/link reads Eaon Desktop's saved credentials from macOS UserDefaults, so it only works on a Mac with Eaon Desktop installed.", "error");
-      return "no_platform_support";
-    }
-    pushSystem("Looking for Eaon Desktop's saved credentials on this Mac…");
-    const discovery = discoverDesktopCredentials();
-    if (!discovery.domain) {
-      pushSystem("Couldn't find any saved Eaon Desktop credentials on this Mac — open Eaon Desktop and add an Aqua key or a custom provider first, then try /link again.", "error");
-      return "nothing_found";
+    // Always open the browser. Desktop import is optional (macOS + saved
+    // credentials); Set / edit keys works everywhere so users without
+    // Eaon Desktop aren't stuck editing config.json by hand.
+    const discovery = isLocalDiscoveryAvailable()
+      ? discoverDesktopCredentials()
+      : { domain: null, aquaApiKey: null, customProviders: [], skippedUnrecognizedFormat: 0 };
+
+    if (discovery.domain) {
+      pushSystem("Opening your browser — import from Eaon Desktop, or set / edit API keys…");
+    } else {
+      pushSystem("Opening your browser to set or edit API keys…");
     }
 
-    // The server-startup/network section below has real (if rare) failure
-    // modes (a bind error rejecting `url`, etc.) — handleLink runs fire-
-    // and-forget (`void handleCommand(...)` in handleSubmit), so anything
-    // that escaped uncaught here would crash the whole process rather than
-    // just failing this one command.
     try {
-      const { url, result } = runLinkServer(discovery);
+      const { url, result } = runLinkServer(discovery, config);
       const linkUrl = await url;
-      pushSystem(`Opening your browser to confirm: ${linkUrl}`);
+      pushSystem(`Browser: ${linkUrl}`);
       try {
         await open(linkUrl);
       } catch {
@@ -736,52 +743,79 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
 
       const outcome = await result;
       if (outcome.timedOut) {
-        pushSystem("Link expired after 3 minutes with no response — run /link again.", "error");
+        pushSystem("Link expired after 5 minutes with no response — run /link again.", "error");
         return "timed_out";
       }
-      if (!outcome.approved) {
-        pushSystem("Cancelled — nothing was imported.", "info");
+      if (!outcome.approved || outcome.mode === "none") {
+        pushSystem("Cancelled — nothing was changed.", "info");
         return "cancelled";
       }
 
-      const selection = { includeAquaKey: outcome.includeAquaKey, selectedProviderIds: outcome.selectedProviderIds };
-      if (!selection.includeAquaKey && selection.selectedProviderIds.length === 0) {
-        pushSystem("Nothing was checked on the page, so nothing was imported.", "info");
-        return "nothing_selected";
+      let nextConfig = config;
+      if (outcome.mode === "import") {
+        const selection = { includeAquaKey: outcome.includeAquaKey, selectedProviderIds: outcome.selectedProviderIds };
+        if (!selection.includeAquaKey && selection.selectedProviderIds.length === 0) {
+          pushSystem("Nothing was checked on the page, so nothing was imported.", "info");
+          return "nothing_selected";
+        }
+        nextConfig = applyDiscoveryToConfig(config, discovery, selection);
+      } else {
+        const hasChanges =
+          !!outcome.aquaApiKey ||
+          outcome.clearAquaKey ||
+          !!outcome.ollamaBaseUrl ||
+          outcome.upsertProviders.length > 0 ||
+          outcome.deleteProviderIds.length > 0;
+        if (!hasChanges) {
+          pushSystem("No changes submitted.", "info");
+          return "nothing_selected";
+        }
+        nextConfig = applyConfigureToConfig(config, outcome);
       }
 
-      const nextConfig = applyDiscoveryToConfig(config, discovery, selection);
       setConfig(nextConfig);
       saveConfig(nextConfig);
-      // NOT refreshCatalog() here: that callback closes over `config` from
-      // whichever render created it, and setConfig above hasn't landed yet in
-      // THIS still-running function — calling it would rebuild the catalog
-      // from the stale, pre-link config (no Aqua key yet), so /model would
-      // show only Ollama models right after a successful link even though
-      // "Linked ✓" already printed. Building straight from the real,
-      // just-computed `nextConfig` sidesteps the stale closure entirely.
       setCatalogLoading(true);
       const catalogResult = await buildCatalog(nextConfig);
       setCatalog(catalogResult.models);
       setCatalogLoading(false);
-      if (catalogResult.aquaError) pushSystem(`Aqua models unavailable after linking: ${catalogResult.aquaError}`, "error");
+      if (catalogResult.aquaError) pushSystem(`Eaon models unavailable: ${catalogResult.aquaError}`, "error");
 
-      const importedProviders = discovery.customProviders.filter((p) => selection.selectedProviderIds.includes(p.id));
-      const aquaModelCount = catalogResult.models.filter((m) => m.provider.kind === "aqua").length;
-      const parts: string[] = [];
-      if (selection.includeAquaKey) parts.push(`Aqua API key (${aquaModelCount} model${aquaModelCount === 1 ? "" : "s"})`);
-      if (importedProviders.length > 0) {
-        // Merging both the debug and release build's saved providers (see
-        // discoverDesktopCredentials) means two different connections can
-        // share a display name — same disambiguation the picker page uses,
-        // so this summary doesn't read as "Aquadevs, Aquadevs".
-        const nameCounts = new Map<string, number>();
-        for (const p of discovery.customProviders) nameCounts.set(p.displayName, (nameCounts.get(p.displayName) ?? 0) + 1);
-        const names = importedProviders.map((p) => ((nameCounts.get(p.displayName) ?? 0) > 1 ? `${p.displayName} (${domainLabel(p.sourceDomain)})` : p.displayName));
-        parts.push(`${importedProviders.length} of ${discovery.customProviders.length} custom provider${discovery.customProviders.length === 1 ? "" : "s"} (${names.join(", ")})`);
+      if (outcome.mode === "import") {
+        const importedProviders = discovery.customProviders.filter((p) => outcome.selectedProviderIds.includes(p.id));
+        const aquaModelCount = catalogResult.models.filter((m) => m.provider.kind === "aqua").length;
+        const parts: string[] = [];
+        if (outcome.includeAquaKey) parts.push(`Eaon API key (${aquaModelCount} model${aquaModelCount === 1 ? "" : "s"})`);
+        if (importedProviders.length > 0) {
+          const nameCounts = new Map<string, number>();
+          for (const p of discovery.customProviders) nameCounts.set(p.displayName, (nameCounts.get(p.displayName) ?? 0) + 1);
+          const names = importedProviders.map((p) =>
+            (nameCounts.get(p.displayName) ?? 0) > 1 ? `${p.displayName} (${domainLabel(p.sourceDomain)})` : p.displayName
+          );
+          parts.push(
+            `${importedProviders.length} of ${discovery.customProviders.length} custom provider${discovery.customProviders.length === 1 ? "" : "s"} (${names.join(", ")})`
+          );
+        }
+        const skippedNote =
+          discovery.skippedUnrecognizedFormat > 0
+            ? ` (skipped ${discovery.skippedUnrecognizedFormat} in an unrecognized format)`
+            : "";
+        pushSystem(`Linked ✓ — imported ${parts.join(" and ")}${skippedNote}. Try /model to pick a cloud model.`, "success");
+      } else {
+        const parts: string[] = [];
+        if (outcome.clearAquaKey) parts.push("cleared Eaon key");
+        else if (outcome.aquaApiKey) parts.push("updated Eaon key");
+        if (outcome.ollamaBaseUrl) parts.push("updated Ollama URL");
+        if (outcome.upsertProviders.length > 0) {
+          parts.push(
+            `saved ${outcome.upsertProviders.length} provider${outcome.upsertProviders.length === 1 ? "" : "s"} (${outcome.upsertProviders.map((p) => p.displayName).join(", ")})`
+          );
+        }
+        if (outcome.deleteProviderIds.length > 0) {
+          parts.push(`removed ${outcome.deleteProviderIds.length}`);
+        }
+        pushSystem(`Saved ✓ — ${parts.join(", ")}. Try /model to pick a model.`, "success");
       }
-      const skippedNote = discovery.skippedUnrecognizedFormat > 0 ? ` (skipped ${discovery.skippedUnrecognizedFormat} in an unrecognized format)` : "";
-      pushSystem(`Linked ✓ — imported ${parts.join(" and ")}${skippedNote}. Try /model to pick a cloud model.`, "success");
       return "linked";
     } catch (e) {
       setCatalogLoading(false);
@@ -981,7 +1015,7 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
           } catch {
             checks.push(`- Ollama at ${ollamaUrl}: not reachable — install from ollama.com for local models`);
           }
-          checks.push(`- Aqua API key: ${resolveAquaApiKey(config) ? "configured ✓" : "not set — /link imports it from Eaon Desktop"}`);
+          checks.push(`- Eaon API key: ${resolveAquaApiKey(config) ? "configured ✓" : "not set — /link to import or enter one"}`);
           checks.push(`- BYOK providers: ${config.customProviders.length}`);
           checks.push(`- Config file: ${configFile()}${fs.existsSync(configFile()) ? " ✓" : " (not written yet — created on first change)"}`);
           checks.push(`- Project memory: ${readProjectNotes(projectRoot) ? `${PROJECT_NOTES_FILE} loaded ✓` : `no ${PROJECT_NOTES_FILE} — run /init to create one`}`);
@@ -1371,11 +1405,19 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
         if (todos.length === 0 || todos.every((t) => t.status === "completed")) return null;
         const done = todos.filter((t) => t.status === "completed").length;
         return (
-          <Box flexDirection="column" borderStyle="round" borderColor={theme.border} paddingX={1} marginTop={1}>
-            <Text color={theme.muted}>Todos <Text dimColor>({done}/{todos.length} done)</Text></Text>
+          <Box flexDirection="column" marginTop={1} paddingLeft={1}>
+            <Text color={theme.muted} dimColor>
+              Todos ({done}/{todos.length})
+            </Text>
             {todos.map((t, i) => (
-              <Text key={i} color={t.status === "completed" ? theme.muted : t.status === "in_progress" ? theme.accent : theme.assistant} strikethrough={t.status === "completed"} dimColor={t.status === "completed"}>
-                {"  "}{t.status === "completed" ? "☒" : t.status === "in_progress" ? "◐" : "☐"} {t.content}
+              <Text
+                key={i}
+                color={t.status === "completed" ? theme.muted : t.status === "in_progress" ? theme.accent : theme.assistant}
+                strikethrough={t.status === "completed"}
+                dimColor={t.status === "completed"}
+              >
+                {t.status === "completed" ? "  ☒ " : t.status === "in_progress" ? "  ◐ " : "  ☐ "}
+                {t.content}
               </Text>
             ))}
           </Box>
@@ -1393,7 +1435,10 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
         <ModelPicker models={catalog} currentKey={model?.key ?? null} onSelect={handleModelPickerSelect} onCancel={handleModelPickerCancel} />
       )}
 
-      <Box marginTop={1}>
+      {/* One stable live block under <Static> — keeps composer/footer
+          redraws as a single region so Ink doesn't leave ghosted bordered
+          frames when scrollback jumps. */}
+      <Box flexDirection="column" marginTop={1}>
         <Composer
           isActive={composerActive}
           history={submitHistory}
@@ -1403,32 +1448,37 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
           queryFiles={queryFiles}
           mode={mode}
         />
-      </Box>
-      {isGenerating && <GenerationStatus />}
-      {queuedMessages.length > 0 && (
-        <Box flexDirection="column" paddingX={1}>
-          {queuedMessages.map((q, i) => (
-            <Text key={i} color={theme.muted} dimColor>
-              ↳ queued: {q.length > 70 ? q.slice(0, 67) + "…" : q}
-            </Text>
-          ))}
-        </Box>
-      )}
-      {/* The status footer, Claude-Code style: everything dim except the
-          one thing that changes behavior (auto-accept), which earns its
-          warning color exactly because it means "no confirmation gate". */}
-      <Box justifyContent="space-between" paddingX={1}>
-        <Text color={theme.muted} dimColor>
-          {MODE_LABEL[mode].toLowerCase()} · {model ? describeEntry(model) : catalogLoading ? "loading models…" : "no model — /model"}
-          {contextTokens > 0 ? ` · ~${contextTokens >= 1000 ? `${(contextTokens / 1000).toFixed(1)}k` : contextTokens} tokens` : ""}
-        </Text>
-        {permissionMode === "auto" ? (
-          <Text color={PERMISSION_COLORS.auto}>⏵⏵ auto-accept on <Text dimColor>(shift+tab)</Text></Text>
-        ) : permissionMode === "plan" ? (
-          <Text color={PERMISSION_COLORS.plan}>⏸ plan mode <Text dimColor>(shift+tab)</Text></Text>
-        ) : (
-          <Text color={theme.muted} dimColor>ask before edits (shift+tab)</Text>
+        {isGenerating && <GenerationStatus />}
+        {queuedMessages.length > 0 && (
+          <Box flexDirection="column" paddingX={1}>
+            {queuedMessages.map((q, i) => (
+              <Text key={i} color={theme.muted} dimColor>
+                ↳ queued: {q.length > 70 ? q.slice(0, 67) + "…" : q}
+              </Text>
+            ))}
+          </Box>
         )}
+        {/* Status footer — Claude Code quiet chrome; only permission state
+            that changes behavior earns color. */}
+        <Box justifyContent="space-between" paddingX={1} marginTop={0}>
+          <Text color={theme.muted} dimColor>
+            {MODE_LABEL[mode].toLowerCase()} · {model ? describeEntry(model) : catalogLoading ? "loading models…" : "no model — /model"}
+            {contextTokens > 0 ? ` · ~${contextTokens >= 1000 ? `${(contextTokens / 1000).toFixed(1)}k` : contextTokens} tok` : ""}
+          </Text>
+          {permissionMode === "auto" ? (
+            <Text color={PERMISSION_COLORS.auto}>
+              ⏵⏵ auto-accept <Text dimColor>(shift+tab)</Text>
+            </Text>
+          ) : permissionMode === "plan" ? (
+            <Text color={PERMISSION_COLORS.plan}>
+              ⏸ plan <Text dimColor>(shift+tab)</Text>
+            </Text>
+          ) : (
+            <Text color={theme.muted} dimColor>
+              ask before edits (shift+tab)
+            </Text>
+          )}
+        </Box>
       </Box>
     </Box>
   );

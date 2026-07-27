@@ -117,7 +117,9 @@ export async function* runAgentTurn(state: AgentLoopState, opts: AgentLoopOption
   const maxSteps = opts.maxSteps ?? (opts.isSubagent ? SUBAGENT_MAX_STEPS : DEFAULT_MAX_STEPS);
   const toolNames = toolsForMode(state.mode, { isSubagent: opts.isSubagent, permissionMode: state.permissionMode });
   const toolDefs = toolNames.length > 0 ? toolDefinitions(toolNames) : undefined;
-  const wantsTools = state.mode !== "chat" && !!toolDefs && toolDefs.length > 0;
+  // Chat mode now carries read-only tools too (see chatTools), so this is
+  // driven by whether the mode actually HAS tools rather than by its name.
+  const wantsTools = !!toolDefs && toolDefs.length > 0;
 
   let lastFailureSignature: string | null = null;
   let failureStreak = 0;
@@ -198,7 +200,12 @@ export async function* runAgentTurn(state: AgentLoopState, opts: AgentLoopOption
       if (isTransientError(errorMessage, errorStatus) && transientRetriesUsed < MAX_TRANSIENT_RETRIES) {
         const delay = TRANSIENT_BACKOFF_MS[transientRetriesUsed] ?? 3000;
         transientRetriesUsed++;
-        yield { type: "step_error", message: `${errorMessage} — retrying in ${delay / 1000}s (${transientRetriesUsed}/${MAX_TRANSIENT_RETRIES})…` };
+        // Keep retry notices short — repeating the full HTTP body on every
+        // attempt flooded the transcript (and stressed Ink's Static redraw).
+        yield {
+          type: "step_error",
+          message: `Retrying in ${delay / 1000}s (${transientRetriesUsed}/${MAX_TRANSIENT_RETRIES})…`,
+        };
         await abortableSleep(delay, opts.signal);
         if (opts.signal?.aborted) break;
         continue;
@@ -208,6 +215,8 @@ export async function* runAgentTurn(state: AgentLoopState, opts: AgentLoopOption
 
     if (errorMessage) {
       yield { type: "step_error", message: errorMessage };
+      // loop_stopped still fires for callers that key off it, but App skips
+      // pushing the same string twice (see step_error / loop_stopped handlers).
       yield { type: "loop_stopped", reason: errorMessage };
       return;
     }
@@ -217,7 +226,10 @@ export async function* runAgentTurn(state: AgentLoopState, opts: AgentLoopOption
     let toolCalls: ToolCallRequest[] = [...toolCallAcc.values()].map((c) => ({ id: c.id, name: c.name, arguments: c.args }));
     let historyContent = content;
 
-    if (toolCalls.length === 0 && state.mode !== "chat") {
+    // Fence fallback applies wherever tools exist — chat mode included, so
+    // a local model without native tool-calling can still read a file to
+    // answer a question about it.
+    if (toolCalls.length === 0 && toolNames.length > 0) {
       const strippedForScan = stripCompletedThinkSpans(content);
       const fenceResult = parseFenceToolCalls(strippedForScan, toolNames, toolAliasNames());
       if (fenceResult.calls.length > 0) {

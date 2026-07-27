@@ -6,7 +6,7 @@
 // trying to distinguish Shift+Enter which many emulators don't report).
 
 import React, { useState } from "react";
-import { Box, Text, useInput } from "ink";
+import { Box, Text, useInput, useStdout } from "ink";
 import { theme } from "./theme.js";
 import { matchingCommands } from "../commands/index.js";
 
@@ -45,6 +45,13 @@ function mentionQueryBeforeCursor(buffer: string, cursor: number): { query: stri
 }
 
 export function Composer({ isActive, history, onSubmit, onTogglePermission, onCancel, queryFiles, mode }: ComposerProps): React.ReactElement {
+  const { stdout } = useStdout();
+  // Explicit column width — percentage width + borderStyle under Ink
+  // <Static> is a common cause of ghosted/duplicated composer frames when
+  // the scrollback jumps (rapid error lines). Yoga stays deterministic here.
+  const columns = stdout?.columns ?? 80;
+  const boxWidth = Math.max(40, columns - 2);
+
   const [buffer, setBuffer] = useState("");
   const [cursor, setCursor] = useState(0);
   const [historyIndex, setHistoryIndex] = useState<number | null>(null);
@@ -287,42 +294,72 @@ export function Composer({ isActive, history, onSubmit, onTogglePermission, onCa
   // status bar below the composer, not here.)
   const bash = buffer.startsWith("!");
   const memory = buffer.startsWith("#");
-  const glyph = bash ? "!" : memory ? "#" : ">";
-  const glyphColor = bash ? theme.warning : memory ? theme.accent : theme.muted;
-  const borderColor = bash ? theme.warning : memory ? theme.accent : theme.border;
+  const glyph = bash ? "!" : memory ? "#" : "❯";
+  const glyphColor = bash ? theme.warning : memory ? theme.accent : theme.accent;
+  const borderColor = bash
+    ? theme.warning
+    : memory
+      ? theme.accent
+      : isActive
+        ? theme.composerBorder
+        : theme.border;
 
-  // Short on purpose: a placeholder is a nudge, not documentation. The full
-  // list of prefixes lives in /help, which the banner points at.
   const placeholder = mode === "chat" ? "Ask anything…" : "What should I build?";
 
   return (
-    <Box flexDirection="column" width="100%">
-      <Box borderStyle="round" borderColor={isActive ? borderColor : theme.border} paddingX={1} width="100%">
-        <Text color={glyphColor} bold>{glyph} </Text>
+    <Box flexDirection="column">
+      <Box borderStyle="round" borderColor={borderColor} paddingX={1} width={boxWidth}>
+        <Text color={glyphColor} bold>
+          {glyph}{" "}
+        </Text>
         <Text>{before}</Text>
-        <Text inverse>{atCursor}</Text>
-        {isEmpty ? <Text color={theme.muted} dimColor>{placeholder}</Text> : <Text>{after}</Text>}
+        <Text inverse={isActive} color={isActive ? undefined : theme.muted}>
+          {atCursor}
+        </Text>
+        {isEmpty ? (
+          <Text color={theme.muted} dimColor>
+            {placeholder}
+          </Text>
+        ) : (
+          <Text>{after}</Text>
+        )}
       </Box>
 
-      {bash && isActive && <Text color={theme.muted}>  ! runs a shell command directly and adds the output to the conversation</Text>}
-      {memory && isActive && <Text color={theme.muted}>  # saves the rest of this line to EAON.md (this project's memory)</Text>}
+      {bash && isActive && (
+        <Text color={theme.muted} dimColor>
+          {"  "}! runs a shell command and adds the output to the conversation
+        </Text>
+      )}
+      {memory && isActive && (
+        <Text color={theme.muted} dimColor>
+          {"  "}# saves the rest of this line to EAON.md
+        </Text>
+      )}
 
       {suggestions.length > 0 && (
-        <Box flexDirection="column" marginLeft={2}>
+        <Box flexDirection="column" marginLeft={1} marginTop={0}>
           {visibleSuggestions.map((s, i) => {
             const idx = windowStart + i;
+            const active = idx === activeIndex;
             return (
-              <Text key={s.label} color={idx === activeIndex ? theme.accent : theme.muted}>
-                {idx === activeIndex ? "❯ " : "  "}
+              <Text key={s.label} color={active ? theme.accent : theme.muted} bold={active}>
+                {active ? "❯ " : "  "}
                 {suggestionKind === "file" ? "@" : ""}
                 {s.label}
-                {s.hint ? <Text color={theme.muted} dimColor>  {s.hint}</Text> : null}
+                {s.hint ? (
+                  <Text color={theme.muted} dimColor bold={false}>
+                    {"  "}
+                    {s.hint}
+                  </Text>
+                ) : null}
               </Text>
             );
           })}
           {suggestions.length > SUGGESTION_WINDOW && (
             <Text color={theme.muted} dimColor>
-              {"  "}{windowStart + 1}-{Math.min(windowStart + SUGGESTION_WINDOW, suggestions.length)} of {suggestions.length} · ↑↓ to browse
+              {"  "}
+              {windowStart + 1}-{Math.min(windowStart + SUGGESTION_WINDOW, suggestions.length)} of{" "}
+              {suggestions.length} · ↑↓
             </Text>
           )}
         </Box>

@@ -1,24 +1,32 @@
-// Shared palette. Accent orange matches Eaon's brand mark across the macOS
-// app and the Tauri build; the rest is a plain, readable dark-terminal set.
+// Shared palette. Coral accent matches Eaon's brand mark across macOS and
+// Tauri. Chrome stays quiet and monochrome so color always means something:
+// accent = brand/focus, success/error/warning = outcome, permission colors =
+// mode. Transcript rhythm borrows Claude Code / Cursor (● ⎿ dim echoes);
+// the wordmark is the one loud identity moment.
 
 export const theme = {
+  /** Brand coral — wordmark bands, focus, interactive highlights. */
   accent: "#F17455",
-  assistant: "#ECECEC",
+  /** Soft coral for secondary brand moments (banner tips, soft fills). */
+  accentSoft: "#F59A82",
+  /** Deep coral for wordmark shadow / depth. */
+  accentDeep: "#8B3A28",
+  assistant: "#E8E8EE",
   user: "#8FD6FF",
-  reasoning: "#8E8E9C",
-  toolName: "#ECECEC",
+  reasoning: "#7A7A88",
+  toolName: "#E8E8EE",
   success: "#3FB950",
   error: "#FF6467",
   warning: "#E3B341",
   diffAdded: "#B9E6C3",
   diffRemoved: "#F3B8BD",
-  /** Background fills for changed diff lines — the Claude-Code/Cursor look
-   * (a solid tinted line, not just a colored +/-). Dark enough to keep
-   * normal-weight text readable on truecolor terminals. */
   diffAddedBg: "#1C3A26",
   diffRemovedBg: "#42232A",
-  muted: "#6E6E7A",
-  border: "#3A3A42",
+  muted: "#6A6A76",
+  border: "#3A3A44",
+  /** Slightly warmer border for the composer when idle — reads as a soft
+   * frame rather than a hard chrome line. */
+  composerBorder: "#454550",
 } as const;
 
 export const PERMISSION_COLORS = {
@@ -29,15 +37,9 @@ export const PERMISSION_COLORS = {
 
 export const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
 
-/** The pulsing star of the whole-turn working indicator — the same
- * breathe-in/breathe-out glyph rhythm Claude Code's own working line uses,
- * instead of a braille spinner (which reads as "loading a file", not
- * "thinking"). */
+/** Pulsing star for the working line — Claude Code's breathe rhythm. */
 export const STAR_FRAMES = ["·", "✢", "✳", "✻", "✽", "✻", "✳", "✢"] as const;
 
-/** Rotating verbs for the working line — one is picked per turn (not per
- * frame) so the line doesn't jitter, and the occasional variety keeps the
- * wait from feeling mechanical. */
 export const WORKING_VERBS = ["Working", "Thinking", "Brewing", "Tinkering", "Considering"] as const;
 
 export const MODE_LABEL: Record<string, string> = {

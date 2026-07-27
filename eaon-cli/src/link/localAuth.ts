@@ -13,7 +13,7 @@
 
 import { execFileSync } from "node:child_process";
 import { isMac } from "../platform.js";
-import type { CustomProviderFormat, EaonConfig } from "../types.js";
+import type { CustomProviderConfig, CustomProviderFormat, EaonConfig } from "../types.js";
 
 const KNOWN_FORMATS: readonly CustomProviderFormat[] = ["openAICompatible", "anthropicMessages", "googleGemini"];
 
@@ -226,6 +226,37 @@ export function applyDiscoveryToConfig(config: EaonConfig, discovery: DiscoveryR
     if (!selection.selectedProviderIds.includes(found.id)) continue;
     const entry = { id: found.id, displayName: found.displayName, baseURL: found.baseURL, apiKey: found.apiKey ?? "", modelIDs: found.modelIDs, format: found.format };
     const existingIndex = next.customProviders.findIndex((c) => c.id === found.id);
+    if (existingIndex >= 0) next.customProviders[existingIndex] = entry;
+    else next.customProviders.push(entry);
+  }
+  return next;
+}
+
+/** Applies a browser "Set / edit keys" submission — updates Aqua key,
+ * Ollama URL, upserts providers (including edits to base URL / key /
+ * models / format), and removes any marked for deletion. Empty Aqua key
+ * fields leave the existing value alone unless clearAquaKey is set. */
+export function applyConfigureToConfig(
+  config: EaonConfig,
+  patch: {
+    aquaApiKey: string | null;
+    clearAquaKey: boolean;
+    ollamaBaseUrl: string | null;
+    upsertProviders: CustomProviderConfig[];
+    deleteProviderIds: string[];
+  }
+): EaonConfig {
+  const next: EaonConfig = { ...config, customProviders: [...config.customProviders] };
+  if (patch.clearAquaKey) next.aquaApiKey = "";
+  else if (patch.aquaApiKey) next.aquaApiKey = patch.aquaApiKey;
+  if (patch.ollamaBaseUrl) next.ollamaBaseUrl = patch.ollamaBaseUrl;
+
+  const deleteSet = new Set(patch.deleteProviderIds);
+  next.customProviders = next.customProviders.filter((p) => !deleteSet.has(p.id));
+
+  for (const entry of patch.upsertProviders) {
+    if (deleteSet.has(entry.id)) continue;
+    const existingIndex = next.customProviders.findIndex((c) => c.id === entry.id);
     if (existingIndex >= 0) next.customProviders[existingIndex] = entry;
     else next.customProviders.push(entry);
   }
