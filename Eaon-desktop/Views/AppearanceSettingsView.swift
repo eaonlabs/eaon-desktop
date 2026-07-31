@@ -86,7 +86,7 @@ struct AppearanceSettingsView: View {
 
             SettingsCard {
                 VStack(alignment: .leading, spacing: 0) {
-                    settingsRow("Typeface", description: "One font, used everywhere Eaon uses its own font — chat text, labels, and code. Search hundreds of options: a few featured picks, plus everything already installed on this Mac.") {
+                    settingsRow("Typeface", description: "Used for chat text, labels, and code. Featured picks plus every font on this Mac.") {
                         EmptyView()
                     }
                     .padding(.bottom, 4)
@@ -131,7 +131,7 @@ struct AppearanceSettingsView: View {
                     .font(.system(size: 12, weight: .semibold))
                     .iconHoverEffect(for: "arrow.counterclockwise")
                 Text("Reset appearance to defaults")
-                    .font(AppFont.mono(13, weight: .medium))
+                    .font(AppFont.mono(14, weight: .medium))
             }
             .foregroundStyle(colors.destructive)
         }
@@ -165,6 +165,7 @@ struct AppearanceSettingsView: View {
                     .font(AppFont.sans(12))
                     .foregroundColor(colors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineSpacing(3)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
 

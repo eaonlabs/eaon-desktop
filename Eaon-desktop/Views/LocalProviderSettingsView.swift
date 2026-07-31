@@ -49,6 +49,7 @@ struct LocalProviderSettingsView: View {
                 .font(AppFont.sans(12))
                 .foregroundColor(colors.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
+                .lineSpacing(3)
                 .padding(.horizontal, 32)
                 .padding(.bottom, 20)
 
@@ -67,13 +68,13 @@ struct LocalProviderSettingsView: View {
                         case .llamaCpp:
                             addModelCard(
                                 placeholder: "ggml-org/gemma-3-1b-it-GGUF",
-                                note: "Paste a Hugging Face GGUF repo (find them by searching \"GGUF\" on huggingface.co), or pick a .gguf file already on this Mac. Hugging Face models download automatically the first time you chat — that first start can take a while."
+                                note: "Paste a Hugging Face GGUF repo (find them by searching \"GGUF\" on huggingface.co), or pick a .gguf file already on this Mac. Hugging Face models download the first time you chat, so that first start can take a while."
                             )
                             userModelsCard
                         case .mlx:
                             addModelCard(
                                 placeholder: "mlx-community/Llama-3.2-3B-Instruct-4bit",
-                                note: "Paste a Hugging Face MLX repo — the mlx-community page on huggingface.co has hundreds, converted for Apple silicon. Models download automatically the first time you chat."
+                                note: "Paste a Hugging Face MLX repo. The mlx-community page has hundreds of them, converted for Apple silicon. Models download the first time you chat."
                             )
                             userModelsCard
                         }
@@ -90,7 +91,11 @@ struct LocalProviderSettingsView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .background(colors.backgroundPrimary)
         .onAppear {
-            manager.detectInstalledBackends()
+            // Thorough (login-shell) check, not just the directory scan: this
+            // page is where someone lands right after installing, and being
+            // told "not installed" when it demonstrably is would be the whole
+            // bug. See `refreshInstalledBackends`.
+            Task { await manager.refreshInstalledBackends() }
             if backend == .ollama {
                 Task {
                     await manager.refreshOllamaModels()
@@ -217,6 +222,7 @@ struct LocalProviderSettingsView: View {
                     .font(AppFont.sans(12))
                     .foregroundColor(colors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineSpacing(3)
 
                 HStack(spacing: 8) {
                     Text(backend.installCommand)
@@ -242,7 +248,7 @@ struct LocalProviderSettingsView: View {
                     Spacer()
 
                     AccentButton(title: "Check again") {
-                        manager.detectInstalledBackends()
+                        Task { await manager.refreshInstalledBackends(force: true) }
                         if backend == .ollama {
                             Task { await manager.refreshOllamaModels() }
                         }
@@ -286,7 +292,7 @@ struct LocalProviderSettingsView: View {
 
                 if backendModels.isEmpty {
                     Text(manager.ollamaReachable
-                         ? "No chat models pulled yet — grab one below."
+                         ? "No chat models pulled yet. Grab one below."
                          : "Start the server to see your models.")
                         .font(AppFont.mono(13))
                         .foregroundColor(colors.textSecondary)
@@ -323,6 +329,7 @@ struct LocalProviderSettingsView: View {
                         .font(AppFont.sans(12))
                         .foregroundColor(colors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
+                        .lineSpacing(3)
                 }
                 Spacer(minLength: 12)
                 Menu {
@@ -365,10 +372,11 @@ struct LocalProviderSettingsView: View {
                     .font(AppFont.mono(14, weight: .semibold))
                     .foregroundColor(colors.textPrimary)
 
-                Text("Type a model name from ollama.com/library — for example \"llama3.2\" or \"qwen2.5:7b\" — and it downloads to this Mac.")
+                Text("Type a model name from ollama.com/library, for example \"llama3.2\" or \"qwen2.5:7b\" — and it downloads to this Mac.")
                     .font(AppFont.sans(12))
                     .foregroundColor(colors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineSpacing(3)
 
                 HStack(spacing: 8) {
                     TextField("llama3.2", text: $pullNameInput)
@@ -414,6 +422,7 @@ struct LocalProviderSettingsView: View {
                     .font(AppFont.sans(12))
                     .foregroundColor(colors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineSpacing(3)
 
                 HStack(spacing: 8) {
                     TextField(placeholder, text: $repoInput)
@@ -463,10 +472,11 @@ struct LocalProviderSettingsView: View {
                     .padding(.bottom, 12)
 
                 if backendModels.isEmpty {
-                    Text("Nothing added yet — models you add appear in the model picker under \"On this Mac\".")
+                    Text("Nothing added yet. Models you add appear in the model picker under \"On this Mac\".")
                         .font(AppFont.mono(13))
                         .foregroundColor(colors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
+                        .lineSpacing(3)
                         .padding(.horizontal, 16)
                         .padding(.bottom, 16)
                 } else {
@@ -486,11 +496,11 @@ struct LocalProviderSettingsView: View {
         HStack(spacing: 10) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(record.displayName)
-                    .font(AppFont.mono(13, weight: .medium))
+                    .font(AppFont.mono(14, weight: .medium))
                     .foregroundColor(colors.textPrimary)
                     .lineLimit(1)
                 Text(record.detail)
-                    .font(AppFont.mono(11))
+                    .font(AppFont.mono(12))
                     .foregroundColor(colors.textTertiary)
             }
 
@@ -518,7 +528,7 @@ struct LocalProviderSettingsView: View {
                         .frame(width: 28, height: 28)
                 }
                 .buttonStyle(.plain)
-                .help("Unload from memory — frees the RAM now; the next message loads it again")
+                .help("Unload from memory. Frees the RAM now. The next message loads it again")
             }
 
             if manager.activeSpawned?.modelId == record.id {

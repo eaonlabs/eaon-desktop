@@ -65,7 +65,7 @@ struct ModelListCard: View {
             }
             Button("Cancel", role: .cancel) { modelPendingDeletion = nil }
         } message: { model in
-            Text("\(model.id) will be hidden from the model picker — nothing is deleted from this Mac. Restore it from the + menu, or delete a downloaded model for real in Settings → Models.")
+            Text("\(model.id) will be hidden from the model picker. Nothing is deleted from this Mac. Restore it from the + menu, or delete a downloaded model for real in Settings → Models.")
         }
     }
 

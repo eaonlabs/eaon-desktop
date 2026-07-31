@@ -3,30 +3,144 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
-## [Unreleased] — Mac app
+## [2026.4.0] — 2026-07-31 — Mac app
 
-### Added
-- **Agent Swarm** — in Eaon Work, pick your model and then choose **Agent**
-  or **Agent Swarm** from the pill beside the permission control. Instead of
-  one model reasoning to itself, a *creator* convenes a roster of
-  specialists chosen for your specific task (an engineer, a design
-  specialist, a security reviewer — whoever the work actually calls for),
-  they argue the approach out in rounds, and the discussion ends as soon as
-  three of them vote to hand off. A *synthesizer* then reads the whole
-  discussion and does the real work through the normal agent tool loop, so
-  it writes actual files exactly like Agent does. The finished discussion is
-  kept as a collapsible card on the reply, so you can read what they decided
-  and why. Runs on whatever model you picked — hosted, BYOK, or a local
-  Ollama model.
+The first build Apple has signed and notarized. Work mode also learned to
+plan its own tasks, keep a dev server running, and drive a real browser.
+
+### Eaon is signed now
+
+Downloads just open. No right-click, no "unidentified developer", no
+warning about an unknown app. Eaon is signed with a Developer ID
+certificate and notarized by Apple, and the ticket ships inside the
+download, so it works on a Mac that has never been online.
+
+**Expect one thing on this update.** macOS ties permissions to an app's
+signature, and Eaon's has changed. The first time each is needed you'll be
+asked again for Accessibility, Automation, and microphone access. Nothing
+is broken. Approve them once more and they stay approved.
+
+### Work mode
+
+**Pick your folder before you start.** There's a bar above the composer now
+where you choose the project. Eaon works in that folder, runs commands
+there, and shows which git branch you're on. Before this, every session
+began by explaining where your code lives. "Fix the login bug" now means
+what it sounds like.
+
+You can also work in a separate checkout of the repo. Your own copy stays
+untouched, and Eaon refuses to remove it if there's uncommitted work
+sitting in it.
+
+**Eaon writes down its plan.** On a task with more than a couple of steps
+it now keeps a plan above the composer and ticks items off as it goes. You
+can see what it thinks it's doing, what's left, and whether it quietly
+dropped the part you actually cared about. A spinner can't tell you any of
+that.
+
+**Servers stay up.** `run_shell` used to kill anything still running after
+60 seconds, so Eaon could write a web app and then had no way to look at
+it. Now it can start `npm run dev` or `vite` in the background, leave it
+running, and read the output as it goes. It can check its own work on
+something with a front end.
+
+**It can use a browser properly.** Reading a page, clicking, scrolling and
+filling in forms are real tools now instead of hand-written AppleScript.
+The old way needed three layers of nested quote escaping in a single tool
+call, which smaller models got wrong almost every time, and scrolling
+didn't exist at all.
+
+There's an optional Chrome extension in the app's `browser-extension`
+folder that makes this work without turning on Chrome's hidden "Allow
+JavaScript from Apple Events" setting. Load it from `chrome://extensions`,
+paste in the token from Settings → Device Control, and Eaon uses it
+automatically. Skip it and AppleScript still works as a fallback.
+
+**Agent Swarm shows its work as it happens.** Pick Agent Swarm beside the
+permission control. A creator then assembles specialists for your task: an
+engineer, a designer, a security reviewer, whoever the job calls for. They
+argue it out in rounds, and stop as soon as three of them vote to hand
+off. Then a synthesizer reads the discussion and does the actual work
+through the normal tool loop, writing real files.
+
+You can now watch that discussion live, with each persona's name, what
+they said, and how they voted. It used to run for a minute behind a single
+line reading "someone is weighing in". The discussion is the interesting
+part of the feature, so hiding it until the end wasted it.
+
+### Chat
+
+- **Your model names your chats.** After the first exchange, the model that
+  answered writes a short title. Sidebars full of "hi", "hi", "hello how
+  are you doin…" are gone. It runs on whatever model you were already
+  using, so a local-only setup names its chats locally and nothing gets
+  sent anywhere. Rename a chat yourself and Eaon leaves it alone.
+- **Chat and Work keep separate histories.** They're different kinds of
+  work with different tools, and mixing them meant the chat you wanted was
+  always buried.
+- **The sidebar is one list again.** Today / Yesterday / Previous 7 Days /
+  Previous 30 Days cost a row of space each and earned nothing. You look
+  for a chat by its title, not by working out which week you had it in. In
+  Work mode, sessions group under the folder they belong to instead.
+- **Voice has its own Settings page** rather than sitting inside General,
+  and you can pick which speech-to-text model transcribes you. It's still
+  early, still off by default, and still runs entirely on this Mac.
+
+### Statistics
+
+The whole page was rebuilt to match the rest of Settings. It used tighter
+spacing than every other page. A toggle and a stray note sat outside the
+card layout entirely. Three columns of metrics were squeezed into a pane
+too narrow to fit their own labels.
+
+The charts had a worse problem than crowding. All three had a fixed
+vertical axis that stopped at 4. Anything busier than four prompts a day
+ran off the top of the plot, while the axis carried on insisting it showed
+0 to 4. They scale to your real numbers now. A 30-day range also prints
+readable dates instead of thirty labels stacked on top of each other.
+
+### Everything else
+
+- **A mascot.** Eaon has a face now: a small pixel-art bot with a terminal
+  for a head and a cursor that blinks. It stands on the home screen and
+  hops down to sit on the composer when you start typing.
+- **Fewer coloured pills under the composer.** Sandboxed, Swarm and Browser
+  were three tinted capsules sitting under the text you're trying to write.
+  Nothing told you purple meant safe and teal meant a committee, and colour
+  as the only signal fails for the roughly 8% of developers who can't
+  reliably tell those hues apart. They're plain icon toggles now.
+- **Settings reads like a person wrote it.** Every page was rewritten:
+  shorter sentences, fewer clauses stapled together, and no more walls of
+  text where a paragraph should be. Wrapped text has room to breathe now
+  instead of running together as one block.
+- **Local models are easier to find.** If you installed something with
+  `pip install mlx-lm` and Eaon couldn't see it, it now asks your own shell
+  where the binary is. That covers venvs, conda, pyenv, pipx and
+  python.org builds.
+- **Darker dark mode**, matched across the app's surfaces.
+
+### Fixed
+
+- **The terminal would have crashed on first open.** A resource bundle
+  SwiftTerm needs was never copied into the released app, and the missing
+  bundle is a hard crash rather than a missing texture. Anyone who opened
+  the terminal view in a downloaded build would have hit it.
+- Cloud memories are now marked as coming from the cloud, and treated with
+  more suspicion than ones written on this Mac. A synced memory could have
+  been written by an older build with weaker filters.
+- Agent Swarm can no longer be talked into forging the boundary between a
+  persona's discussion and the instructions around it.
+- Both of the above are covered by tests, along with background jobs, plan
+  parsing, file edits and numbered reads. 43 tests run on every build.
 
 ### Removed
+
 - **The `/reasoning` debate panel and its Settings page.** Agent Swarm does
-  the same thing properly: personas built for the task instead of a fixed
-  panel of models, a real multi-round discussion instead of two fixed
-  rounds, a vote to decide when it's done, and it works on any model rather
-  than requiring a hosted account. Models' own chain-of-thought (the
-  collapsible "thinking" section on a reply) is untouched — that's a
-  separate feature and still works exactly as before.
+  the same job properly: personas built for the task instead of a fixed
+  panel of models, a real discussion instead of two fixed rounds, a vote to
+  decide when it's finished, and it runs on any model rather than needing a
+  hosted account. Your model's own thinking section on a reply is a
+  different feature and still works exactly as before.
 
 ## [Unreleased] — Windows/Linux app
 
@@ -299,13 +413,13 @@ All notable changes to Eaon are documented here. Format loosely follows
 
 ### Added
 - Eaon is now on Windows and Linux — a ground-up rebuild on Tauri (a
-  Rust core with a web UI, the same cross-platform approach Jan.ai
-  uses) that reaches real feature parity with the Mac app: Agent mode
-  with the full coding toolset and the same safety model, Skills,
-  Memory, MCP plugins (including local `npx`-style servers, which the
-  Mac app doesn't support yet), image generation, live web search,
-  attachments, per-model sampling parameters, a Local API Server, a
-  network proxy setting, read-aloud, and first-run onboarding.
+  Rust core with a web UI) that reaches real feature parity with the Mac
+  app: Agent mode with the full coding toolset and the same safety
+  model, Skills, Memory, MCP plugins (including local `npx`-style
+  servers, which the Mac app doesn't support yet), image generation,
+  live web search, attachments, per-model sampling parameters, a Local
+  API Server, a network proxy setting, read-aloud, and first-run
+  onboarding.
 - Agent mode can now work inside an existing project instead of only
   building fresh ones — it can search your codebase by keyword/regex
   and find files by name before editing, and can pause mid-task to ask

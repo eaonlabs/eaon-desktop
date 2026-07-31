@@ -80,7 +80,7 @@ struct EaonCodeHomeView: View {
             Text("Couldn't find eaon-cli")
                 .font(AppFont.mono(18, weight: .bold))
                 .foregroundStyle(.white)
-            Text("This needs a Node.js install and a built eaon-cli (dist/cli.js) — run `npm run build` in the eaon-cli project first.")
+            Text("This needs a Node.js install and a built eaon-cli (dist/cli.js). Run `npm run build` in the eaon-cli project first.")
                 .font(AppFont.sans(13))
                 .foregroundStyle(.white.opacity(0.6))
                 .multilineTextAlignment(.center)

@@ -69,7 +69,7 @@ struct PluginsSettingsView: View {
         VStack(alignment: .leading, spacing: 10) {
             HStack {
                 Text("Custom servers")
-                    .font(AppFont.mono(13, weight: .semibold))
+                    .font(AppFont.mono(14, weight: .semibold))
                     .foregroundColor(colors.textSecondary)
                 Spacer()
                 Button {
@@ -87,7 +87,7 @@ struct PluginsSettingsView: View {
             }
 
             if customStore.servers.isEmpty {
-                Text("Connect to any MCP server by URL — not just the ones above.")
+                Text("Connect to any MCP server by URL, not just the ones above.")
                     .font(AppFont.sans(12))
                     .foregroundColor(colors.textTertiary)
                     .padding(.vertical, 4)
@@ -165,10 +165,11 @@ private struct AddCustomMCPServerSheet: View {
                 .font(AppFont.mono(16, weight: .bold))
                 .foregroundColor(colors.textPrimary)
 
-            Text("Connect to any MCP server (Streamable HTTP) by its URL — self-hosted, internal, or one not in the catalog above.")
+            Text("Connect to any MCP server by its URL, whether it's self-hosted, internal, or just not in the catalog above.")
                 .font(AppFont.sans(12))
                 .foregroundColor(colors.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
+                .lineSpacing(3)
 
             labeledField("Name", text: $name, placeholder: "e.g. My Internal Tools")
             labeledField("Endpoint URL", text: $endpoint, placeholder: "https://example.com/mcp")
@@ -186,6 +187,7 @@ private struct AddCustomMCPServerSheet: View {
                     .font(AppFont.mono(12))
                     .foregroundColor(colors.destructive)
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineSpacing(3)
             }
 
             HStack {
@@ -226,7 +228,7 @@ private struct AddCustomMCPServerSheet: View {
     private func save() {
         errorMessage = nil
         guard let url = URL(string: trimmedEndpoint), url.scheme != nil else {
-            errorMessage = "That doesn't look like a valid URL — include https://."
+            errorMessage = "That doesn't look like a valid URL. Include https://."
             return
         }
         let scheme = authScheme.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -369,10 +371,11 @@ private struct PluginRow: View {
         case .connected:
             VStack(alignment: .leading, spacing: 10) {
                 if hasNoTools {
-                    Text("Connected, but \(server.displayName) returned no tools — the model can't actually do anything with it yet. " + (server.tokenHint ?? noToolsFallbackHint))
+                    Text("Connected, but \(server.displayName) returned no tools, so the model can't do anything with it yet. " + (server.tokenHint ?? noToolsFallbackHint))
                         .font(AppFont.mono(12))
                         .foregroundColor(.orange)
                         .fixedSize(horizontal: false, vertical: true)
+                        .lineSpacing(3)
                 }
                 HStack {
                     Text(toolCountLabel)
@@ -393,10 +396,11 @@ private struct PluginRow: View {
 
         case .needsManualClientId:
             VStack(alignment: .leading, spacing: 10) {
-                Text("\(server.displayName) doesn't support automatic sign-in — you'll need to create a client ID once, yourself.")
+                Text("\(server.displayName) doesn't support automatic sign-in, so you'll need to create a client ID yourself once.")
                     .font(AppFont.mono(12))
                     .foregroundColor(colors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineSpacing(3)
 
                 if let setupURL = server.manualClientIdSetupURL {
                     Button {
@@ -415,9 +419,10 @@ private struct PluginRow: View {
 
                 if let hint = server.manualClientIdHint {
                     Text(hint)
-                        .font(AppFont.sans(11))
+                        .font(AppFont.sans(12.5))
                         .foregroundColor(colors.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
+                        .lineSpacing(3)
                 }
 
                 HStack(spacing: 10) {
@@ -453,10 +458,11 @@ private struct PluginRow: View {
                     AccentButton(title: "Sign in to \(server.displayName)", isDisabled: false) {
                         signIn()
                     }
-                    Text("Opens \(server.displayName) in your browser to sign in — Eaon never sees your password, only a token \(server.displayName) issues afterward.")
-                        .font(AppFont.sans(11))
+                    Text("Opens \(server.displayName) in your browser to sign in. Eaon never sees your password, only the token \(server.displayName) issues afterward.")
+                        .font(AppFont.sans(12.5))
                         .foregroundColor(colors.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
+                        .lineSpacing(3)
 
                 case .pastedToken:
                     HStack(spacing: 10) {
@@ -480,9 +486,10 @@ private struct PluginRow: View {
 
                     if let tokenHint = server.tokenHint {
                         Text(tokenHint)
-                            .font(AppFont.sans(11))
+                            .font(AppFont.sans(12.5))
                             .foregroundColor(colors.textTertiary)
                             .fixedSize(horizontal: false, vertical: true)
+                            .lineSpacing(3)
                     }
 
                     if let tokenCreationURL = server.tokenCreationURL {

@@ -443,11 +443,21 @@ final class LocalAIManager {
         ) { [weak self] _ in
             MainActor.assumeIsolated { self?.stopAllServers() }
         }
+        // Installing a backend means leaving Eaon (Terminal, an installer),
+        // so coming back is exactly the moment its state is most likely to
+        // have changed. Without this, detection only ever ran at launch and
+        // a freshly-installed backend stayed invisible until the app was
+        // restarted — which reads as "Eaon doesn't see that I installed it."
+        NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in await self?.refreshInstalledBackends() }
+        }
         Task { await bootstrap() }
     }
 
     func bootstrap() async {
-        detectInstalledBackends()
+        await refreshInstalledBackends()
         await refreshOllamaModels()
     }
 
@@ -463,21 +473,145 @@ final class LocalAIManager {
         installed = found
     }
 
+    /// The thorough re-check: the fast directory scan first, then — for
+    /// anything still missing — ask the user's own login shell where the
+    /// binary is.
+    ///
+    /// That second pass exists because the fast scan can only look in places
+    /// we thought to list, and Python tooling installs console scripts almost
+    /// anywhere: a venv, conda/miniforge, pyenv, a pipx venv, or a python.org
+    /// framework build. Someone who runs `pip install mlx-lm`, sees it
+    /// succeed, and can run `mlx_lm.server` in their own Terminal is
+    /// (correctly) going to call it a bug when Eaon says it isn't installed.
+    /// A login shell resolves exactly the PATH that user has, including
+    /// whatever their shell profile sets up — so if they can run it, so can
+    /// we. Slower (it sources the profile), hence: fallback only, off the
+    /// main thread, and the result is cached.
+    func refreshInstalledBackends(force: Bool = false) async {
+        detectInstalledBackends()
+
+        let missing = LocalBackend.allCases.filter { !installed.contains($0) }
+        guard !missing.isEmpty else { return }
+
+        // Spawning a login shell costs a few hundred ms, and this runs on
+        // every app activation — throttle it so focusing the window
+        // repeatedly doesn't launch a shell each time. An explicit "Check
+        // again" passes force, because that click means "look right now."
+        if !force, let last = lastLoginShellProbe, Date().timeIntervalSince(last) < 10 {
+            return
+        }
+        lastLoginShellProbe = Date()
+
+        let names = missing.map(\.binaryName)
+        let located = await Task.detached { Self.locateViaLoginShell(names) }.value
+        guard !located.isEmpty else { return }
+
+        for (name, path) in located { resolvedBinaryPaths[name] = path }
+        for backend in missing where located[backend.binaryName] != nil {
+            installed.insert(backend)
+        }
+    }
+
+    private var lastLoginShellProbe: Date?
+
+    /// Asks a login shell to resolve each name, returning only the ones it
+    /// found. One shell invocation for all of them rather than one each.
+    private nonisolated static func locateViaLoginShell(_ names: [String]) -> [String: String] {
+        guard !names.isEmpty else { return [:] }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        // -l sources the login profile (where conda/pyenv/custom PATH live).
+        // `command -v` per name, each echoed as "name<TAB>path" so one call
+        // covers every backend.
+        let script = names
+            .map { "p=$(command -v \($0) 2>/dev/null); [ -n \"$p\" ] && printf '%s\\t%s\\n' \($0) \"$p\"" }
+            .joined(separator: "; ")
+        process.arguments = ["-lc", script]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        process.standardInput = FileHandle.nullDevice
+
+        do {
+            try process.run()
+        } catch {
+            return [:]
+        }
+        // A pathological shell profile can hang; don't wedge detection on it.
+        let deadline = Date().addingTimeInterval(5)
+        while process.isRunning, Date() < deadline {
+            usleep(50_000)
+        }
+        if process.isRunning {
+            process.terminate()
+            return [:]
+        }
+
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        guard let output = String(data: data, encoding: .utf8) else { return [:] }
+
+        var result: [String: String] = [:]
+        for line in output.split(separator: "\n") {
+            let parts = line.split(separator: "\t", maxSplits: 1).map(String.init)
+            guard parts.count == 2 else { continue }
+            let path = parts[1].trimmingCharacters(in: .whitespaces)
+            // Trust it only if it's really there and runnable — a shell
+            // function or alias would resolve to something we can't spawn.
+            guard FileManager.default.isExecutableFile(atPath: path) else { continue }
+            result[parts[0]] = path
+        }
+        return result
+    }
+
+    /// Paths discovered by the login-shell pass, so spawning a server uses
+    /// the same binary detection found rather than re-scanning directories
+    /// that never contained it.
+    private var resolvedBinaryPaths: [String: String] = [:]
+
     /// Finds an executable the way a login shell would, plus the usual
     /// Homebrew/pip locations a GUI app's bare PATH misses.
     private func resolveBinary(_ name: String) -> String? {
+        if let cached = resolvedBinaryPaths[name],
+           FileManager.default.isExecutableFile(atPath: cached) {
+            return cached
+        }
+
         var directories = (ProcessInfo.processInfo.environment["PATH"] ?? "")
             .split(separator: ":").map(String.init)
+        let home = NSHomeDirectory()
         directories += [
             "/opt/homebrew/bin",
             "/usr/local/bin",
             "/usr/bin",
-            NSHomeDirectory() + "/.local/bin",
+            home + "/.local/bin",
         ]
         // pip --user installs console scripts under ~/Library/Python/<ver>/bin
-        let pythonRoot = NSHomeDirectory() + "/Library/Python"
+        let pythonRoot = home + "/Library/Python"
         if let versions = try? FileManager.default.contentsOfDirectory(atPath: pythonRoot) {
             directories += versions.map { pythonRoot + "/" + $0 + "/bin" }
+        }
+        // python.org's own installer — a very common way to get a pip that
+        // isn't blocked by Homebrew's externally-managed-environment rule,
+        // and its scripts land nowhere else on this list.
+        let frameworkRoot = "/Library/Frameworks/Python.framework/Versions"
+        if let versions = try? FileManager.default.contentsOfDirectory(atPath: frameworkRoot) {
+            directories += versions.map { frameworkRoot + "/" + $0 + "/bin" }
+        }
+        // conda/miniforge/miniconda, the other common Python on Apple Silicon.
+        directories += [
+            home + "/miniforge3/bin",
+            home + "/miniconda3/bin",
+            home + "/anaconda3/bin",
+            "/opt/miniforge3/bin",
+            "/opt/miniconda3/bin",
+            "/opt/homebrew/Caskroom/miniforge/base/bin",
+        ]
+        // pipx keeps each package in its own venv and symlinks into
+        // ~/.local/bin, but a `pipx install --suffix`ed or partially-linked
+        // install can leave the real script only inside the venv.
+        let pipxVenvs = home + "/.local/pipx/venvs"
+        if let packages = try? FileManager.default.contentsOfDirectory(atPath: pipxVenvs) {
+            directories += packages.map { pipxVenvs + "/" + $0 + "/bin" }
         }
 
         for directory in directories {
@@ -739,7 +873,7 @@ final class LocalAIManager {
     /// that isn't part of the curated list, before they actually pull it.
     /// Returns nil for a name that doesn't exist (the pull itself will
     /// surface that error) or on any network failure.
-    func fetchOllamaRegistrySize(name: String) async -> Int64? {
+    nonisolated func fetchOllamaRegistrySize(name: String) async -> Int64? {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         let parts = trimmed.split(separator: ":", maxSplits: 1)
@@ -780,7 +914,15 @@ final class LocalAIManager {
     /// this shape isn't publicly documented anywhere. Context length isn't
     /// available here (only for models already pulled — see
     /// `LocalModelRecord.contextLength`, sourced from local `/api/tags`).
-    func fetchOllamaRegistrySpecs(name: String) async -> OllamaModelSpecs? {
+    /// `nonisolated` on purpose. `LocalAIManager` is `@MainActor`, so this
+    /// used to run its whole body — two HTTPS round trips and two
+    /// `JSONSerialization` parses — ON THE MAIN THREAD. Opening the Models
+    /// page prefetches specs for every model in the open "Popular" category,
+    /// which is 14 models and therefore 28 requests, all landing back on the
+    /// main actor to be parsed while it is also trying to lay the page out.
+    /// The function reads nothing but its own parameter, so hoisting it off
+    /// the actor is free and keeps that work entirely on background threads.
+    nonisolated func fetchOllamaRegistrySpecs(name: String) async -> OllamaModelSpecs? {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         let parts = trimmed.split(separator: ":", maxSplits: 1)
@@ -832,7 +974,10 @@ final class LocalAIManager {
     /// publish one), so this parses the live HTML response directly; it's
     /// deliberately narrow (two regex reads, not a general scraper) since
     /// the goal is two verifiably-safe-to-show facts, not the whole page.
-    func fetchOllamaPageSummary(name: String) async -> OllamaPageSummary? {
+    /// Also `nonisolated`, for the reason on `fetchOllamaRegistrySpecs`:
+    /// parsing a whole HTML page on the main actor while the UI is laying
+    /// out is exactly the kind of work that has no business being there.
+    nonisolated func fetchOllamaPageSummary(name: String) async -> OllamaPageSummary? {
         let trimmed = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
         let base = String(trimmed.split(separator: ":", maxSplits: 1).first ?? Substring(trimmed))
@@ -995,7 +1140,7 @@ final class LocalAIManager {
     /// blank "type something" prompt (verified: an empty `search=` param
     /// behaves identically to omitting it, so this is the same call either
     /// way).
-    func searchHuggingFace(_ query: String, format: HFModelFormat, limit: Int = 25) async -> [HFSearchResult] {
+    nonisolated func searchHuggingFace(_ query: String, format: HFModelFormat, limit: Int = 25) async -> [HFSearchResult] {
         var components = URLComponents(string: "https://huggingface.co/api/models")!
         var items = [
             URLQueryItem(name: "filter", value: format.hfFilterValue),
@@ -1162,7 +1307,7 @@ final class LocalAIManager {
     /// Every downloadable quantization for a repo, smallest-to-largest —
     /// backs the quantization picker so a user can trade quality for size
     /// instead of always getting the one auto-picked default.
-    func listGGUFFiles(repo: String) async throws -> [GGUFFile] {
+    nonisolated func listGGUFFiles(repo: String) async throws -> [GGUFFile] {
         try await fetchGGUFCandidates(repo: repo).sorted { $0.size < $1.size }
     }
 

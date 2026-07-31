@@ -55,7 +55,7 @@ struct CodeWorkspacePanel: View {
         if runner.isRunning { return "Stop the running program" }
         if htmlEntryFile != nil { return "Run the site in a live preview" }
         if let entry = runEntryFile { return "Run \(entry.fileName)" }
-        return "Nothing runnable yet — supported: websites, Python, JavaScript, Swift, Ruby, PHP, Bash, Go"
+        return "Nothing runnable yet. Supported: websites, Python, JavaScript, Swift, Ruby, PHP, Bash, Go"
     }
 
     var body: some View {
@@ -214,7 +214,7 @@ struct CodeWorkspacePanel: View {
             Text("No files yet")
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(colors.textPrimary)
-            Text("Ask the model to build something — a website,\na script, an app — and its files will appear here.")
+            Text("Ask the model to build something, like a website,\na script, or an app. Its files appear here.")
                 .font(.system(size: 12))
                 .foregroundStyle(colors.textSecondary)
                 .multilineTextAlignment(.center)

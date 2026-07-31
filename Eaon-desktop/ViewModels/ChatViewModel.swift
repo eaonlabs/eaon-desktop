@@ -81,6 +81,34 @@ struct Conversation: Identifiable, Codable, Equatable {
     /// — nil just means nothing has been compressed (yet, or ever, for a
     /// conversation that never grew long enough to need it).
     var contextSummary: ConversationSummary?
+    /// True once the model has named this chat, so it's named exactly once
+    /// and a title the user typed themselves is never overwritten.
+    ///
+    /// Optional for the same decode-safety reason as `isPinned` above: a
+    /// non-optional `Bool = false` would make every conversation saved before
+    /// this existed fail to decode and vanish.
+    var hasModelTitle: Bool?
+    /// Which mode this conversation belongs to. Chat history is split by
+    /// mode — a Work session and a Chat session are different kinds of
+    /// work, with different tools and a different system prompt, and mixing
+    /// them in one list means every chat you're looking for is buried in
+    /// chats from the other half of the app.
+    ///
+    /// Optional for the same decode-safety reason as `isPinned` above, and
+    /// nil is read as Chat (see `EaonMode.conversationScope`): everything
+    /// saved before the split predates Work having its own history, and
+    /// filing it under Chat keeps it reachable rather than orphaning it in
+    /// a mode it was never part of.
+    var mode: EaonMode?
+    /// The folder this Work session was held in, so the sidebar can file it
+    /// under that project instead of in one undifferentiated pile. Stamped
+    /// at creation and never rewritten — it records where the work actually
+    /// happened, which stays true even after you point Eaon somewhere else.
+    ///
+    /// Optional for the usual decode-safety reason, and nil is honest here
+    /// rather than a fallback: a session held before folders existed, or one
+    /// where no folder was chosen, genuinely has no project to file under.
+    var workFolderPath: String?
 
     static func placeholderTitle() -> String { "New chat" }
 }
@@ -188,6 +216,18 @@ class ChatViewModel {
             UserDefaults.standard.set(agentSwarmEnabled, forKey: Self.agentSwarmKey)
         }
     }
+    /// The user has explicitly said "this one is about my browser" by turning
+    /// on the Browser pill. It doesn't grant any capability — the browser
+    /// tools are already offered whenever Device Control is on — it removes
+    /// the *ambiguity*. Asked "what does this say", a model has to guess
+    /// between the page you're looking at, a file, and its own knowledge;
+    /// with this on there's nothing to guess.
+    var browserModeEnabled: Bool = false {
+        didSet {
+            guard browserModeEnabled != oldValue else { return }
+            UserDefaults.standard.set(browserModeEnabled, forKey: Self.browserModeKey)
+        }
+    }
     /// Non-nil exactly while the "switch to Auto mode?" confirmation should
     /// be showing — entering Auto (never leaving it) is gated behind an
     /// explicit are-you-sure. See `requestAgentPermissionToggle`.
@@ -255,6 +295,23 @@ class ChatViewModel {
         /// but the next step hasn't started yet. Not tied to any one
         /// `ChatMessage`; shown as its own transient row.
         var agentActivityText: String?
+        /// The swarm discussion as it happens, or nil when no swarm is
+        /// running. Per-conversation like everything else here, so a swarm in
+        /// a background chat can't paint over the one on screen.
+        var liveSwarmTranscript: SwarmTranscript?
+        /// Set when a swarm has just handed off to the synthesizer and it
+        /// hasn't asked to run anything yet.
+        ///
+        /// A swarm's own discussion becomes system context for the turn that
+        /// follows it (`SwarmPanelExtractor.synthesisInstruction`), and that
+        /// discussion is model output several steps removed from anything
+        /// the user typed. Always Allow is on by default and exists to stop
+        /// a normal agent turn asking permission for its every move — but
+        /// the first action after a handoff is the one place where what runs
+        /// was decided by a conversation the user only watched. That one
+        /// gets asked about, once, even with Always Allow on. Cleared after
+        /// the first prompt so the rest of the turn runs at normal speed.
+        var swarmHandoffAwaitingFirstConfirmation = false
         var pendingRunConfirmation: String?
         var pendingMCPCallConfirmation: PendingMCPCall?
         var pendingDesktopCallConfirmation: PendingDesktopCall?
@@ -317,6 +374,11 @@ class ChatViewModel {
 
     var agentActivityText: String? {
         currentConversationId.flatMap { sessions[$0]?.agentActivityText }
+    }
+
+    /// The live swarm discussion for the conversation currently on screen.
+    var liveSwarmTranscript: SwarmTranscript? {
+        currentConversationId.flatMap { sessions[$0]?.liveSwarmTranscript }
     }
 
     /// The session whose pending confirmation should currently drive the
@@ -412,8 +474,26 @@ class ChatViewModel {
     /// actually creates the `Conversation` record.
     private var pendingProjectId: UUID?
 
-    /// Conversations sorted for the sidebar (newest activity first).
+    /// The history list the current mode owns. Every sidebar list, the
+    /// empty state's recents, and search all read through this, so switching
+    /// mode swaps the entire visible history in one place rather than each
+    /// caller remembering to filter.
+    var conversationsInCurrentScope: [Conversation] {
+        let scope = currentMode.conversationScope
+        return conversations.filter { ($0.mode ?? .chat).conversationScope == scope }
+    }
+
+    /// Conversations sorted for the sidebar (newest activity first), scoped
+    /// to the current mode.
     var sortedConversations: [Conversation] {
+        conversationsInCurrentScope.sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    /// Every conversation, both modes, newest first — for search, which is a
+    /// deliberate "find the thing I know exists" and would be actively
+    /// unhelpful if it silently withheld half the history. Opening a result
+    /// from the other mode switches into it (see `selectConversation`).
+    var allConversationsSorted: [Conversation] {
         conversations.sorted { $0.updatedAt > $1.updatedAt }
     }
 
@@ -439,10 +519,92 @@ class ChatViewModel {
         unfiledConversations.filter { $0.isPinned != true }
     }
 
+    /// Files a chat into a project, or takes it back out with nil.
+    ///
+    /// Filing also unpins: the Pinned section sits above the flat list and
+    /// a project's chats live inside that project's own disclosure, so a
+    /// pinned-and-filed chat would appear in two places at once, and
+    /// unpinning it from the copy in the project would look like it had
+    /// vanished from the top of the sidebar for no reason.
+    func moveConversation(_ id: UUID, toProject projectId: UUID?) {
+        guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
+        conversations[index].projectId = projectId
+        if projectId != nil { conversations[index].isPinned = nil }
+        persistConversations()
+    }
+
     func togglePinned(_ id: UUID) {
         guard let index = conversations.firstIndex(where: { $0.id == id }) else { return }
         conversations[index].isPinned = (conversations[index].isPinned == true) ? nil : true
         persistConversations()
+    }
+
+    /// One project folder plus the Work sessions held in it.
+    struct WorkFolderGroup: Identifiable {
+        /// The folder's path, or nil for sessions held without one.
+        let path: String?
+        let name: String
+        var conversations: [Conversation]
+
+        var id: String { path ?? "__no_folder__" }
+        var isEmpty: Bool { conversations.isEmpty }
+    }
+
+    /// Work's sidebar list: every folder Eaon knows about, each with the
+    /// sessions held in it underneath.
+    ///
+    /// Folders come from three places deliberately — the one selected now,
+    /// the recents list, and every folder any saved session was held in — so
+    /// a project you worked in months ago is still listed with its history
+    /// even if it has since fallen off the recents, and a folder you just
+    /// opened is listed immediately even though nothing has been said in it
+    /// yet. A list that only showed one of those would keep losing things.
+    var workFolderGroups: [WorkFolderGroup] {
+        let sessions = conversationsInCurrentScope
+            .filter { $0.projectId == nil }
+            .sorted { $0.updatedAt > $1.updatedAt }
+
+        var byFolder: [String: [Conversation]] = [:]
+        var unfiled: [Conversation] = []
+        for session in sessions {
+            if let path = session.workFolderPath {
+                byFolder[path, default: []].append(session)
+            } else {
+                unfiled.append(session)
+            }
+        }
+
+        var known: [String] = []
+        func remember(_ path: String) {
+            guard !known.contains(path) else { return }
+            known.append(path)
+        }
+        if let selected = WorkFolderStore.shared.selectedPath { remember(selected) }
+        WorkFolderStore.shared.recents.forEach(remember)
+        byFolder.keys.sorted().forEach(remember)
+
+        let groups = known.map { path in
+            WorkFolderGroup(
+                path: path,
+                name: WorkFolder.displayName(for: path),
+                conversations: byFolder[path] ?? []
+            )
+        }
+
+        // Folders you've actually worked in come first, most recent first;
+        // everything else keeps its recents order below them. Sorting purely
+        // by recency would bury a project with real history under a folder
+        // opened once by accident.
+        let active = groups.filter { !$0.isEmpty }.sorted {
+            ($0.conversations.first?.updatedAt ?? .distantPast) > ($1.conversations.first?.updatedAt ?? .distantPast)
+        }
+        let idle = groups.filter(\.isEmpty)
+
+        var result = active + idle
+        if !unfiled.isEmpty {
+            result.append(WorkFolderGroup(path: nil, name: "No folder", conversations: unfiled))
+        }
+        return result
     }
 
     /// Projects sorted newest-first, matching the chat list's convention.
@@ -450,9 +612,13 @@ class ChatViewModel {
         projects.sorted { $0.createdAt > $1.createdAt }
     }
 
-    /// Chats belonging to a given project, most-recently-updated first.
+    /// Chats belonging to a given project, most-recently-updated first —
+    /// scoped to the current mode like every other list, so a project
+    /// folder opened in Work shows the Work chats filed into it.
     func conversations(inProject projectId: UUID) -> [Conversation] {
-        conversations.filter { $0.projectId == projectId }.sorted { $0.updatedAt > $1.updatedAt }
+        conversationsInCurrentScope
+            .filter { $0.projectId == projectId }
+            .sorted { $0.updatedAt > $1.updatedAt }
     }
 
     /// Chat-capable models with per-model hiding applied, but *not* filtered
@@ -590,9 +756,26 @@ class ChatViewModel {
     /// conversation (persisted), never once per run. A conversation with
     /// no id yet (nothing saved) always asks, since there's nothing to
     /// remember approval against.
+    /// True exactly once per swarm handoff: the first code-execution or MCP
+    /// call after the synthesizer takes over must be confirmed even with
+    /// Always Allow on. Reading it clears it, so this costs one dialog per
+    /// swarm rather than one per tool call.
+    private func consumeSwarmHandoffGate(for conversationId: UUID) -> Bool {
+        let generationSession = session(for: conversationId)
+        guard generationSession.swarmHandoffAwaitingFirstConfirmation else { return false }
+        generationSession.swarmHandoffAwaitingFirstConfirmation = false
+        return true
+    }
+
     private func confirmRunIfNeeded(path: String, for conversationId: UUID) async -> Bool {
-        if AlwaysAllowStore.shared.isEnabled { return true }
-        if approvedRunConversationIds.contains(conversationId) { return true }
+        // The swarm-handoff exception is checked BEFORE Always Allow, and
+        // consumes itself either way — see
+        // `GenerationSession.swarmHandoffAwaitingFirstConfirmation`.
+        let afterSwarmHandoff = consumeSwarmHandoffGate(for: conversationId)
+        if !afterSwarmHandoff {
+            if AlwaysAllowStore.shared.isEnabled { return true }
+            if approvedRunConversationIds.contains(conversationId) { return true }
+        }
 
         let generationSession = session(for: conversationId)
         generationSession.pendingRunConfirmation = path
@@ -633,7 +816,8 @@ class ChatViewModel {
     /// entirely when the user has turned it on; this per-call asking is
     /// only the behavior when that's off.
     private func confirmMCPCallIfNeeded(server: MCPServerDefinition, tool: String, argumentsJSON: String, for conversationId: UUID) async -> Bool {
-        if AlwaysAllowStore.shared.isEnabled { return true }
+        let afterSwarmHandoff = consumeSwarmHandoffGate(for: conversationId)
+        if !afterSwarmHandoff, AlwaysAllowStore.shared.isEnabled { return true }
         let generationSession = session(for: conversationId)
         generationSession.pendingMCPCallConfirmation = PendingMCPCall(serverDisplayName: server.displayName, tool: tool, argumentsJSON: argumentsJSON)
         let approved = await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
@@ -666,22 +850,28 @@ class ChatViewModel {
         }
     }
 
-    /// Read-only tools (`list_directory`) run without asking. Everything
-    /// else asks, unless the user already granted this conversation blanket
-    /// approval via "Allow for This Chat" (persisted per-conversation, like
-    /// the coding agent's run approval). A brand-new unsaved chat has no id
-    /// to remember against, so it always asks.
+    /// Read-only tools (`list_directory`) run without asking and do not
+    /// consume the post-swarm gate. Everything else asks unless the user
+    /// already granted this conversation blanket approval via "Allow for
+    /// This Chat" (persisted per-conversation, like the coding agent's run
+    /// approval). The first effectful call after a swarm is the exception:
+    /// it asks once even in Agent Auto or an approved chat, because its
+    /// action was influenced by model-generated swarm discussion.
     private func confirmDesktopCallIfNeeded(tool: DesktopTool, arguments: [String: Any], for conversationId: UUID) async -> Bool {
         if tool.isReadOnly { return true }
+        let afterSwarmHandoff = consumeSwarmHandoffGate(for: conversationId)
         // Agent's Sandboxed/Auto toggle (Shift+Tab) — applies uniformly to
         // every tool Agent can call now, coding and the wider device-control
         // set alike (there's no separate Claw confirm flow to carve out
         // anymore). In Auto mode the user has explicitly opted out of
         // per-command confirmation — the whole point of the toggle — so
-        // commands run without asking. In Sandboxed mode (the default) it
-        // falls through to the normal ask.
-        if currentMode == .agent, agentAutoRun { return true }
-        if approvedDesktopConversationIds.contains(conversationId) { return true }
+        // commands normally run without asking. A swarm handoff deliberately
+        // overrides that once; after this first effectful action, normal Auto
+        // behavior resumes.
+        if !afterSwarmHandoff {
+            if currentMode == .agent, agentAutoRun { return true }
+            if approvedDesktopConversationIds.contains(conversationId) { return true }
+        }
 
         let generationSession = session(for: conversationId)
         generationSession.pendingDesktopCallConfirmation = PendingDesktopCall(
@@ -754,6 +944,7 @@ class ChatViewModel {
     private static let currentModeKey = "eaon_current_mode"
     private static let thinkingEnabledKey = "eaon_thinking_enabled"
     private static let agentSwarmKey = "eaon_agent_swarm_enabled"
+    private static let browserModeKey = "eaon_browser_mode_enabled"
 
     /// User-authored, opt-in system instruction sent with every request —
     /// global, not per-conversation, matching how every other chat app's
@@ -805,6 +996,7 @@ class ChatViewModel {
             thinkingEnabled = UserDefaults.standard.bool(forKey: Self.thinkingEnabledKey)
         }
         agentSwarmEnabled = UserDefaults.standard.bool(forKey: Self.agentSwarmKey)
+        browserModeEnabled = UserDefaults.standard.bool(forKey: Self.browserModeKey)
         loadConversations()
         loadProjects()
         refreshContextLimit()
@@ -1073,7 +1265,16 @@ class ChatViewModel {
             let conversation = Conversation(
                 title: Self.deriveTitle(from: messages),
                 messages: messages,
-                projectId: pendingProjectId
+                projectId: pendingProjectId,
+                // Stamped at creation, never updated afterwards: a chat is
+                // filed under the mode it was actually held in, and mode
+                // switching starts a fresh session rather than dragging an
+                // existing one across the boundary.
+                mode: currentMode.conversationScope,
+                // Only meaningful for Work — Chat doesn't build in a folder,
+                // and stamping one would file it under a project it never
+                // touched.
+                workFolderPath: currentMode.conversationScope == .agent ? WorkFolder.currentPath() : nil
             )
             currentConversationId = conversation.id
             conversations.append(conversation)
@@ -1210,6 +1411,12 @@ class ChatViewModel {
         guard id != currentConversationId else { return }
         saveMessages()
         guard let conversation = conversations.first(where: { $0.id == id }) else { return }
+        // Opening a chat from the other mode (search reaches across both)
+        // moves you into that mode rather than showing a Work transcript
+        // with Chat's tools behind it. Set directly, not through
+        // `enterMode`, which would blank the very conversation being opened.
+        let scope = (conversation.mode ?? .chat).conversationScope
+        if scope != currentMode.conversationScope { currentMode = scope }
         messages = conversation.messages
         currentConversationId = id
         inputText = ""
@@ -1242,14 +1449,24 @@ class ChatViewModel {
     /// Deletes only conversations not filed into a project — what the flat
     /// "Chats" list's own "Delete All" actually represents now that project
     /// chats live inside their folder instead of that list.
+    ///
+    /// Scoped to the current mode, because that list is: deleting chats you
+    /// can't see, from a mode you aren't in, is not what "delete all" on a
+    /// filtered list can be allowed to mean.
     func deleteAllUnfiledConversations() {
+        let scope = currentMode.conversationScope
+        func isInScope(_ conversation: Conversation) -> Bool {
+            (conversation.mode ?? .chat).conversationScope == scope
+        }
+
         if let current = currentConversationId,
-           conversations.first(where: { $0.id == current })?.projectId == nil {
+           let conversation = conversations.first(where: { $0.id == current }),
+           conversation.projectId == nil, isInScope(conversation) {
             messages = []
             currentConversationId = nil
             resetWorkspace()
         }
-        conversations.removeAll { $0.projectId == nil }
+        conversations.removeAll { $0.projectId == nil && isInScope($0) }
         persistConversations()
     }
 
@@ -1257,6 +1474,9 @@ class ChatViewModel {
         let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let index = conversations.firstIndex(where: { $0.id == id }) else { return }
         conversations[index].title = trimmed
+        // Claims the slot so an in-flight title generation can't land a
+        // moment later and overwrite the name the user just typed.
+        conversations[index].hasModelTitle = true
         persistConversations()
     }
 
@@ -1344,7 +1564,22 @@ class ChatViewModel {
     /// chat model here means switching modes never strands the surface
     /// unable to send.
     func enterMode(_ mode: EaonMode) {
+        // Crossing between Chat and Work starts a fresh session. The two
+        // modes hand the model a different tool set and a different system
+        // prompt, so continuing the same transcript across the switch would
+        // mean a conversation whose first half was answered under rules that
+        // no longer apply — and the saved chat would have to be filed under
+        // one mode or the other while genuinely being both. Whatever was
+        // already said is saved first (`startNewChat` flushes it) and stays
+        // in its own mode's history, right where it was held.
+        let crossing = mode.conversationScope != currentMode.conversationScope
+        // Flushed BEFORE `currentMode` moves: `saveMessages()` stamps a
+        // brand-new conversation with whatever mode is current, so saving
+        // after the switch would file the outgoing chat under the mode it
+        // was leaving for and drop it into the wrong list.
+        if crossing { saveMessages() }
         currentMode = mode
+        if crossing { startNewChat() }
         let isImage = imageModels.contains { $0.id == selectedModel }
         if isImage, let first = chatModels.first {
             selectModel(first.id)
@@ -1674,13 +1909,24 @@ class ChatViewModel {
                 )
             ) { [weak self] status in
                 self?.session(for: conversationId).agentActivityText = status
+            } onProgress: { [weak self] partial in
+                // Published as it grows so the UI can show the discussion
+                // actually happening, not just a spinner with a name in it.
+                self?.session(for: conversationId).liveSwarmTranscript = partial
             }
             generationSession.agentActivityText = nil
+            generationSession.liveSwarmTranscript = nil
             // A swarm that never got off the ground (offline, or a model that
             // couldn't produce a roster) briefs the synthesizer with nothing
             // useful — answer normally instead of injecting an empty panel.
             if !transcript.usableRemarks.isEmpty {
                 activeSwarmTranscriptForTurn = transcript
+                // Armed only when a discussion actually becomes system
+                // context for the coming turn. A swarm that produced
+                // nothing usable briefs the synthesizer with nothing, so
+                // there's no untrusted transcript behind whatever it does
+                // next and no reason to make the user confirm it.
+                generationSession.swarmHandoffAwaitingFirstConfirmation = true
             }
         }
 
@@ -1794,6 +2040,12 @@ class ChatViewModel {
         var identicalFailureStreak = 0
         var lastFailureSignature: String?
 
+        // Tells `update_plan` which conversation's checklist it's editing.
+        // Set per turn rather than threaded through tool arguments: the
+        // model has no business knowing conversation ids, and a background
+        // generation in another chat must not rewrite the plan on screen.
+        DesktopControlService.activePlanConversationId = conversationId
+
         let stepBudget = maxAgentSteps
         for step in 1...stepBudget {
             let outcome = await streamOneAgentStep(customConfig: customConfig, localRecord: localRecord, apiKey: apiKey, conversationId: conversationId, modelId: modelId)
@@ -1856,6 +2108,55 @@ class ChatViewModel {
         let finalMessages = withMessages(for: conversationId) { $0 } ?? []
         endSession(for: conversationId)
         triggerMemoryExtractionIfNeeded(in: finalMessages, selectedModel: modelId, customConfig: customConfig, localRecord: localRecord, apiKey: apiKey)
+        triggerTitleIfNeeded(for: conversationId, in: finalMessages, modelId: modelId, customConfig: customConfig, localRecord: localRecord, apiKey: apiKey)
+    }
+
+    /// Replaces a conversation's placeholder title with one the model wrote,
+    /// after its first exchange finishes.
+    ///
+    /// The title stays derived-from-the-first-message until this returns, so
+    /// the sidebar never shows a blank or spinning row while waiting — and if
+    /// the call fails, times out, or the user is offline, that fallback is
+    /// simply what the chat keeps. A conversation is never left nameless.
+    ///
+    /// Runs once, on the first exchange only. Re-titling later would move
+    /// entries around in a sidebar the user is actively reading, and a chat's
+    /// name changing under them is worse than a slightly stale one.
+    private func triggerTitleIfNeeded(
+        for conversationId: UUID,
+        in finishedMessages: [ChatMessage],
+        modelId: String,
+        customConfig: CustomProviderConfig?,
+        localRecord: LocalModelRecord?,
+        apiKey: String
+    ) {
+        guard let index = conversations.firstIndex(where: { $0.id == conversationId }) else { return }
+        // Only ever the first exchange, and never over a name the user chose
+        // themselves — `hasModelTitle` marks the one we generated, so a
+        // manual rename is permanent.
+        guard conversations[index].hasModelTitle != true else { return }
+        guard finishedMessages.filter({ $0.isUser }).count == 1 else { return }
+
+        guard let userText = finishedMessages.first(where: { $0.isUser })?.content, !userText.isEmpty,
+              let reply = finishedMessages.last(where: { !$0.isUser && $0.isToolResult != true && !$0.isError })?.content,
+              !reply.isEmpty else { return }
+
+        Task { [weak self] in
+            guard let title = await ConversationTitler.title(
+                forUserMessage: userText,
+                assistantReply: reply,
+                customConfig: customConfig,
+                localRecord: localRecord,
+                aquaApiKey: customConfig == nil && localRecord == nil ? apiKey : nil,
+                modelId: modelId
+            ) else { return }
+            guard let self,
+                  let index = self.conversations.firstIndex(where: { $0.id == conversationId }),
+                  self.conversations[index].hasModelTitle != true else { return }
+            self.conversations[index].title = title
+            self.conversations[index].hasModelTitle = true
+            self.persistConversations()
+        }
     }
 
     private struct GenerationRouting {
@@ -3033,7 +3334,10 @@ class ChatViewModel {
             // what's offered — not this block plus a second, separately-
             // sent full teaching block, which is the "bulk buries the
             // instructions" mistake documented above `codingInstructionBlock`.
-            entries.append(HistoryTurn(role: "system", content: DesktopControlTool.codingInstructionBlock(includeWiderTools: wideDeviceControl)))
+            entries.append(HistoryTurn(role: "system", content: DesktopControlTool.codingInstructionBlock(
+                includeWiderTools: wideDeviceControl,
+                workFolder: WorkFolder.currentPath()
+            )))
         }
 
         // Concrete browser how-to (reading tabs, driving pages via
@@ -3058,6 +3362,14 @@ class ChatViewModel {
                 role: "system",
                 content: "The user has explicitly invoked the \"\(activeSkillForTurn.name)\" skill for this request — follow its instructions:\n\n\(activeSkillForTurn.instructions)"
             ))
+        }
+
+        // Browser pill is on: the user pointed at their browser, so say so
+        // plainly and put it last, closest to their message. Placed before the
+        // swarm block only because the swarm's conclusion should still be the
+        // very last thing read when both are active.
+        if browserModeEnabled, wideDeviceControl {
+            entries.append(HistoryTurn(role: "system", content: Self.browserModeInstruction))
         }
 
         // The swarm's finished discussion, if one ran for this turn — last,
@@ -3093,45 +3405,39 @@ class ChatViewModel {
     /// unless shown concretely how. Concrete, copy-pasteable examples make
     /// browser tasks actually work instead of the model guessing.
     private static let wideDeviceControlBrowserInstructionBlock = """
-    Driving the browser is part of what you do, and most of it needs NO special setup.
+    Driving the browser is part of what you do, and there are dedicated tools for it. Use those — do NOT hand-write AppleScript for the browser.
 
-    TO SEE WHAT'S OPEN — what page the user is on, what they're watching, which tabs are open — read the tab title and URL. This is the first thing to reach for, and it works with only the standard one-time permission (no developer settings). Use `run_applescript`:
+    `browser_read` — the title, URL and visible text of the active tab. Reach for this FIRST for anything about what's on screen, what the user is watching, or what a page says. Read before you act, so you click real labels instead of guessing.
+    `browser_tabs` — every open tab with its title and URL.
+    `browser_scroll` — {"direction": "down"|"up"|"top"|"bottom", "pages": 2}. This is how you read further down a long page: scroll, then `browser_read` again.
+    `browser_click` — {"text": "Sign in"}. Matches the element's VISIBLE text, so use the words a person would see on the button or link.
+    `browser_type` — {"field": "search", "text": "..."} to fill a field, then `browser_click` the submit button.
 
-    The active tab (Safari):
-    ```eaon:computer tool="run_applescript"
-    {"script": "tell application \\"Safari\\" to get {name, URL} of current tab of front window"}
-    ```
+    A normal browsing loop looks like: `browser_read` → decide → `browser_scroll` or `browser_click` → `browser_read` again to confirm what changed. Always re-read after acting; never assume a click did what you intended.
 
-    Every open tab (Safari):
-    ```eaon:computer tool="run_applescript"
-    {"script": "tell application \\"Safari\\" to get {name, URL} of every tab of front window"}
-    ```
+    Permissions, so you can explain a failure instead of retrying blindly:
+    - Scrolling and reading the tab title/URL need only the standard one-time Automation prompt.
+    - Reading full page TEXT, clicking and typing additionally need "Allow JavaScript from Apple Events" (Chrome → View → Developer; Safari → Settings → Advanced → "Show features for web developers", then Develop). If a tool reports this, relay the exact steps and carry on with whatever the title and URL already tell you.
+    - If scrolling reports an Accessibility problem, point the user at System Settings → Privacy & Security → Accessibility.
 
-    The active tab (Google Chrome):
-    ```eaon:computer tool="run_applescript"
-    {"script": "tell application \\"Google Chrome\\" to get {title, URL} of active tab of front window"}
-    ```
+    `run_applescript` is still there for non-browser apps (Finder, Mail, Notes, Music) and for menu items. Prefer the browser tools above for anything web.
 
-    Every open tab (Google Chrome):
-    ```eaon:computer tool="run_applescript"
-    {"script": "tell application \\"Google Chrome\\" to get {title, URL} of every tab of front window"}
-    ```
+    The same hard limits apply here as everywhere: never enter passwords, never buy anything or move money, never sign in on the user's behalf. If a task needs that, stop and hand it back to the user.
+    """
 
-    The tab title and URL usually already answer the question — a YouTube video's title, the show on Netflix, the article being read. Answer from them directly. If you don't know which browser is in front, try Chrome, then Safari.
+    /// Sent only when the user has switched the Browser pill on. Deliberately
+    /// short: it doesn't re-teach the tools (the browser block above already
+    /// did), it just settles what "this page" and "here" refer to.
+    private static let browserModeInstruction = """
+    The user has turned on Browser mode for this message. They are asking about, or asking you to act on, the web page currently open in their browser. You have working tools for this and the browser is connected right now.
 
-    TO OPEN A PAGE — use `open_url`.
+    Start with `browser_read` to see what is actually on screen before answering or acting — do not answer about "this page" from memory, and do not ask which page they mean. Words like "this", "here", "the page" and "it" refer to that tab.
 
-    TO READ THE FULL TEXT of a page, or to click or fill it — run JavaScript via `run_applescript`. This deeper control needs one extra one-time browser setting: "Allow JavaScript from Apple Events" (Safari → Settings → Advanced → "Show features for web developers", then Develop → Allow JavaScript from Apple Events; Chrome → View → Developer → Allow JavaScript from Apple Events). Only reach for this when the tab title and URL aren't enough.
+    To act on it use `browser_scroll`, `browser_click` and `browser_type`. `browser_scroll` returns the newly visible text, so one call usually answers "scroll down and tell me what you see" — you rarely need a separate read after it.
 
-    Read the visible text of the current Chrome tab:
-    ```eaon:computer tool="run_applescript"
-    {"script": "tell application \\"Google Chrome\\" to execute front window's active tab javascript \\"document.body.innerText\\""}
-    ```
+    NEVER reply that you cannot interact with the browser, cannot scroll, or can only offer guidance. That is false here, and answering that way when you were handed working tools is the single worst failure mode in this mode. Call the tool.
 
-    Notes:
-    - Prefer tab title/URL first — it answers most "what's open / what am I watching" questions with zero setup. Fall back to JavaScript only for full page content or clicking.
-    - If a JavaScript call errors saying JavaScript is disabled, tell the user exactly how to turn on "Allow JavaScript from Apple Events" (above) — but first check whether the tab title and URL already answered them.
-    - The same hard limits apply here as everywhere: never enter passwords, never buy anything or move money, never sign in on the user's behalf. If a task needs that, stop and hand it back to the user.
+    If a tool returns an error, READ it — the errors say exactly what is wrong and what fixes it (a restricted internal page like chrome://, a page still loading, an unpaired extension). Relay that specific reason to the user, or act on it, instead of concluding you have no browser access.
     """
 
     /// Shared by all three routing paths: turns `priorMessages` (already

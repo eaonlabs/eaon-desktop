@@ -37,10 +37,11 @@ struct RunConfirmationDialog: View {
                  + Text(path)
                     .foregroundStyle(colors.textPrimary)
                     .fontWeight(.semibold)
-                 + Text(" on your Mac, with your full user permissions and no sandbox — nothing is isolated from the rest of your system. Allowing this covers the rest of this conversation; a new chat asks again.")
+                 + Text(" on your Mac, with your full user permissions and no sandbox, so nothing is isolated from the rest of your system. Allowing this covers the rest of this conversation. A new chat asks again.")
                     .foregroundStyle(colors.textSecondary))
                     .font(AppFont.sans(14))
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineSpacing(3)
                     .padding(.bottom, 24)
 
                 HStack(spacing: 10) {
@@ -116,10 +117,11 @@ struct MCPCallConfirmationDialog: View {
                  + Text(call.tool)
                     .foregroundStyle(colors.textPrimary)
                     .fontWeight(.semibold)
-                 + Text(" on your connected \(call.serverDisplayName) account. This happens for real — nothing here is sandboxed or reversible by closing the app.")
+                 + Text(" on your connected \(call.serverDisplayName) account. This happens for real. Nothing here is sandboxed, and closing the app won't undo it.")
                     .foregroundStyle(colors.textSecondary))
                     .font(AppFont.sans(14))
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineSpacing(3)
                     .padding(.bottom, 14)
 
                 ScrollView {
@@ -202,6 +204,7 @@ struct DesktopCallConfirmationDialog: View {
                     .font(AppFont.sans(15, weight: .semibold))
                     .foregroundStyle(colors.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineSpacing(3)
                     .padding(.bottom, call.detail == nil ? 14 : 10)
 
                 if let detail = call.detail {
@@ -223,10 +226,11 @@ struct DesktopCallConfirmationDialog: View {
                     .padding(.bottom, 14)
                 }
 
-                Text("This runs on your Mac with your permissions — real, and not undone by closing the app (though deletions go to the Trash, so they're recoverable). \"Allow for This Chat\" stops the asking for the rest of this conversation.")
+                Text("This runs on your Mac with your permissions. It's real, and closing the app won't undo it, though deletions go to the Trash so they're recoverable. \"Allow for This Chat\" stops the asking for the rest of this conversation.")
                     .font(AppFont.sans(13))
                     .foregroundStyle(colors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineSpacing(3)
                     .padding(.bottom, 22)
 
                 HStack(spacing: 10) {
@@ -292,6 +296,7 @@ struct AgentQuestionDialog: View {
                     .font(AppFont.sans(15, weight: .semibold))
                     .foregroundStyle(colors.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineSpacing(3)
                     .padding(.bottom, 16)
 
                 if !question.options.isEmpty {
@@ -343,7 +348,7 @@ struct AgentQuestionDialog: View {
 
                 HStack {
                     DialogButton(title: "Skip", style: .secondary) { onAnswer(nil) }
-                        .help("Dismiss without answering — Eaon proceeds on its own judgment")
+                        .help("Dismiss without answering. Eaon proceeds on its own judgment")
                     Spacer()
                 }
             }
@@ -409,16 +414,18 @@ struct AutoModeConfirmationDialog: View {
                 }
                 .padding(.bottom, 12)
 
-                Text("In Auto mode, Eaon runs shell commands and writes files on your Mac **without asking each time**. It's faster for long coding tasks, but it means commands run the moment the agent decides to — including ones that overwrite or remove files.")
+                Text("In Auto mode, Eaon runs shell commands and writes files on your Mac **without asking each time**. It's faster for long coding tasks, but it means commands run the moment the agent decides to, including ones that overwrite or remove files.")
                     .font(AppFont.sans(13))
                     .foregroundStyle(colors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineSpacing(3)
                     .padding(.bottom, 10)
 
                 Text("Only use it for a task you trust, and keep an eye on what it does. Press ⇧⇥ anytime to drop back to Sandboxed.")
                     .font(AppFont.sans(13))
                     .foregroundStyle(colors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineSpacing(3)
                     .padding(.bottom, 22)
 
                 HStack(spacing: 10) {
@@ -464,20 +471,25 @@ struct DeleteChatDialog: View {
                 .onTapGesture { dismiss() }
 
             VStack(alignment: .leading, spacing: 0) {
-                Text("Delete chat?")
+                Text("Delete Chat")
                     .font(AppFont.mono(18, weight: .semibold))
                     .foregroundStyle(colors.textPrimary)
                     .padding(.bottom, 14)
 
-                (Text("This will delete ")
+                // Names the chat AND says it's permanent. The name is what
+                // stops you deleting the wrong one when two titles start
+                // the same way; "cannot be undone" is what stops you
+                // treating the button as reversible.
+                (Text("Are you sure you want to delete ")
                     .foregroundStyle(colors.textSecondary)
                  + Text(conversation.title)
                     .foregroundStyle(colors.textPrimary)
                     .fontWeight(.semibold)
-                 + Text(".")
+                 + Text("? This action cannot be undone.")
                     .foregroundStyle(colors.textSecondary))
                     .font(AppFont.sans(14))
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineSpacing(3)
                     .padding(.bottom, 24)
 
                 HStack(spacing: 10) {
@@ -537,6 +549,7 @@ struct DeleteAllChatsDialog: View {
                     .font(AppFont.sans(14))
                     .foregroundStyle(colors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineSpacing(3)
                     .padding(.bottom, 24)
 
                 HStack(spacing: 10) {
@@ -959,6 +972,7 @@ struct DeleteProjectDialog: View {
                     .foregroundStyle(colors.textSecondary))
                     .font(AppFont.sans(14))
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineSpacing(3)
                     .padding(.bottom, 24)
 
                 HStack(spacing: 10) {

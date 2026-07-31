@@ -35,7 +35,7 @@ import { ErrorBoundary } from "./ErrorBoundary.js";
 import { ModelPicker } from "./ModelPicker.js";
 import { PlanReview } from "./PlanReview.js";
 import { WelcomeScreen } from "./WelcomeScreen.js";
-import { theme, MODE_LABEL, PERMISSION_COLORS, STAR_FRAMES, WORKING_VERBS } from "./theme.js";
+import { theme, MODE_LABEL, PERMISSION_COLORS, SPINNER_FRAMES } from "./theme.js";
 import { pickRandomQuote } from "./quotes.js";
 import type { DisplayMessage, LinkOutcome } from "./types.js";
 
@@ -274,30 +274,28 @@ async function copyToClipboard(text: string): Promise<boolean> {
 
 const COMPACT_INSTRUCTION = `Summarize this coding session so a fresh instance of you can seamlessly continue the work. Include: (1) what the user is trying to accomplish overall, (2) what has actually been DONE so far — files created/changed (with paths) and what's in them, commands run and their real outcomes, (3) anything learned about the project/environment that isn't obvious (layout, conventions, gotchas hit), and (4) exactly where things stand now and what the next step was going to be. Be specific and factual — only include things that actually happened in this conversation. Reply with ONLY the summary text.`;
 
-/** The persistent whole-turn status line under the composer — a pulsing
- * ✻ star + elapsed seconds for as long as the agent is working (streaming,
- * running tools, everything), the same breathe-in/breathe-out indicator
- * rhythm Claude Code uses. One verb is picked per turn (mount), not per
- * frame, so the line doesn't jitter. Entirely self-contained state (own
- * interval) so it costs the rest of the tree nothing; it mounts when a
- * turn starts and unmounts when it ends, which also makes the elapsed
- * time per-turn for free. */
+/** Single whole-turn status under the composer — braille spinner + elapsed
+ * seconds for as long as the agent is working. Self-contained interval so
+ * the rest of the tree isn't re-rendered on every tick; mounts/unmounts
+ * with the turn, which also resets elapsed time for free. */
 function GenerationStatus(): React.ReactElement {
   const [frame, setFrame] = useState(0);
   const [seconds, setSeconds] = useState(0);
-  const [verb] = useState(() => WORKING_VERBS[Math.floor(Math.random() * WORKING_VERBS.length)]);
   useEffect(() => {
     const start = Date.now();
     const id = setInterval(() => {
-      setFrame((f) => (f + 1) % STAR_FRAMES.length);
+      setFrame((f) => (f + 1) % SPINNER_FRAMES.length);
       setSeconds(Math.floor((Date.now() - start) / 1000));
-    }, 140);
+    }, 80);
     return () => clearInterval(id);
   }, []);
   return (
     <Text color={theme.muted}>
       {"  "}
-      <Text color={theme.accent}>{STAR_FRAMES[frame]}</Text> {verb}… <Text dimColor>({seconds}s · esc to interrupt · type + enter to redirect)</Text>
+      <Text color={theme.accent}>{SPINNER_FRAMES[frame]}</Text> Working…{" "}
+      <Text dimColor>
+        ({seconds}s · esc interrupt · enter to queue)
+      </Text>
     </Text>
   );
 }
@@ -1451,31 +1449,35 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
         {isGenerating && <GenerationStatus />}
         {queuedMessages.length > 0 && (
           <Box flexDirection="column" paddingX={1}>
-            {queuedMessages.map((q, i) => (
+        {queuedMessages.map((q, i) => (
               <Text key={i} color={theme.muted} dimColor>
-                ↳ queued: {q.length > 70 ? q.slice(0, 67) + "…" : q}
+                {"  "}↓ queued · {q.length > 64 ? q.slice(0, 61) + "…" : q}
               </Text>
             ))}
           </Box>
         )}
-        {/* Status footer — Claude Code quiet chrome; only permission state
-            that changes behavior earns color. */}
+        {/* Status footer — quiet chrome; only permission modes that change
+            behavior earn color. */}
         <Box justifyContent="space-between" paddingX={1} marginTop={0}>
           <Text color={theme.muted} dimColor>
-            {MODE_LABEL[mode].toLowerCase()} · {model ? describeEntry(model) : catalogLoading ? "loading models…" : "no model — /model"}
-            {contextTokens > 0 ? ` · ~${contextTokens >= 1000 ? `${(contextTokens / 1000).toFixed(1)}k` : contextTokens} tok` : ""}
+            {MODE_LABEL[mode].toLowerCase()}
+            {" · "}
+            {model ? describeEntry(model) : catalogLoading ? "loading models…" : "no model — /model"}
+            {contextTokens > 0
+              ? ` · ~${contextTokens >= 1000 ? `${(contextTokens / 1000).toFixed(1)}k` : contextTokens}`
+              : ""}
           </Text>
           {permissionMode === "auto" ? (
             <Text color={PERMISSION_COLORS.auto}>
-              ⏵⏵ auto-accept <Text dimColor>(shift+tab)</Text>
+              auto <Text dimColor>shift+tab</Text>
             </Text>
           ) : permissionMode === "plan" ? (
             <Text color={PERMISSION_COLORS.plan}>
-              ⏸ plan <Text dimColor>(shift+tab)</Text>
+              plan <Text dimColor>shift+tab</Text>
             </Text>
           ) : (
             <Text color={theme.muted} dimColor>
-              ask before edits (shift+tab)
+              ask · shift+tab
             </Text>
           )}
         </Box>

@@ -80,7 +80,7 @@ struct EaonCLIInfoSheet: View {
                             .background(Capsule().fill(Color(hex: "#3B82F6").opacity(0.14)))
                     }
                 }
-                Text("Eaon in your terminal — for any model, local or hosted.")
+                Text("Eaon in your terminal, for any model, local or hosted.")
                     .font(AppFont.sans(11))
                     .foregroundStyle(colors.textTertiary)
             }
@@ -133,10 +133,11 @@ struct EaonCLIInfoSheet: View {
                 Text("What it is")
                     .font(AppFont.mono(13, weight: .semibold))
                     .foregroundStyle(colors.textPrimary)
-                Text("A real terminal agent — agentic coding, Eaon Claw, and plain chat — that runs on any model you have: a local Ollama model or a hosted/BYOK key. It's the same engine behind Eaon Code inside this app, and you can also run it standalone in any terminal window. Cross-platform (macOS, Linux, Windows).")
+                Text("A real terminal agent that does agentic coding, Eaon Claw, and plain chat. It runs on any model you have, whether that's a local Ollama model or a hosted/BYOK key. It's the same engine behind Eaon Code inside this app, and it also runs standalone in any terminal window. Works on macOS, Linux, and Windows.")
                     .font(AppFont.sans(12))
                     .foregroundStyle(colors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineSpacing(3)
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -206,16 +207,18 @@ struct EaonCLIInfoSheet: View {
                 Text("Install Eaon CLI")
                     .font(AppFont.mono(13, weight: .semibold))
                     .foregroundStyle(colors.textPrimary)
-                Text("A ready-to-run copy ships inside this app. Installing copies it to \(displayPath(EaonCLILauncher.installedDirectory)) and links a global `eaon` command — no download, no npm, works offline.")
+                Text("A ready-to-run copy ships inside this app. Installing copies it to \(displayPath(EaonCLILauncher.installedDirectory)) and links a global `eaon` command. No download, no npm, and it works offline.")
                     .font(AppFont.sans(12))
                     .foregroundStyle(colors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineSpacing(3)
 
                 if let installErrorMessage {
                     Text(installErrorMessage)
                         .font(AppFont.sans(11))
                         .foregroundStyle(Color(hex: "#F59E0B"))
                         .fixedSize(horizontal: false, vertical: true)
+                        .lineSpacing(3)
                 }
 
                 HStack {
@@ -238,10 +241,11 @@ struct EaonCLIInfoSheet: View {
                     Spacer()
                 }
 
-                Text("If `eaon` doesn't run in a new terminal afterward, add `~/.local/bin` to your PATH — macOS shells don't include it by default.")
+                Text("If `eaon` doesn't run in a new terminal afterward, add `~/.local/bin` to your PATH. macOS shells don't include it by default.")
                     .font(AppFont.sans(10.5))
                     .foregroundStyle(colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineSpacing(3)
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -276,10 +280,11 @@ struct EaonCLIInfoSheet: View {
                     .font(AppFont.mono(13, weight: .semibold))
                     .foregroundStyle(colors.textPrimary)
                 if let installed = status?.version, let newer = status?.updateAvailable {
-                    Text("This app now bundles Eaon CLI v\(newer) — you have v\(installed) installed. Updating replaces the program files at \(displayPath(EaonCLILauncher.installedDirectory)); your config and sessions in \(displayPath(EaonCLILauncher.configDirectory)) are untouched.")
+                    Text("This app now bundles Eaon CLI v\(newer), and you have v\(installed) installed. Updating replaces the program files at \(displayPath(EaonCLILauncher.installedDirectory)); your config and sessions in \(displayPath(EaonCLILauncher.configDirectory)) are untouched.")
                         .font(AppFont.sans(12))
                         .foregroundStyle(colors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
+                        .lineSpacing(3)
                 }
 
                 if let updateErrorMessage {
@@ -287,6 +292,7 @@ struct EaonCLIInfoSheet: View {
                         .font(AppFont.sans(11))
                         .foregroundStyle(Color(hex: "#F59E0B"))
                         .fixedSize(horizontal: false, vertical: true)
+                        .lineSpacing(3)
                 }
 
                 HStack {
@@ -337,10 +343,11 @@ struct EaonCLIInfoSheet: View {
                 Text("Run it in any terminal")
                     .font(AppFont.mono(13, weight: .semibold))
                     .foregroundStyle(colors.textPrimary)
-                Text("Build it once and link a global `eaon` command, then run `eaon` from any project folder — outside this app.")
+                Text("Build it once and link a global `eaon` command, then run `eaon` from any project folder, outside this app.")
                     .font(AppFont.sans(12))
                     .foregroundStyle(colors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineSpacing(3)
 
                 commandRow(id: "cd", command: cdCommand)
                 commandRow(id: "install", command: "npm install")
@@ -351,6 +358,7 @@ struct EaonCLIInfoSheet: View {
                     .font(AppFont.sans(11))
                     .foregroundStyle(colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineSpacing(3)
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
@@ -394,10 +402,11 @@ struct EaonCLIInfoSheet: View {
                 Text("Configuration")
                     .font(AppFont.mono(13, weight: .semibold))
                     .foregroundStyle(colors.textPrimary)
-                Text("The CLI keeps its own settings file — your Eaon/BYOK keys, Ollama URL, custom providers, default mode, permission mode, and custom instructions. Edit it directly to control how the CLI behaves.")
+                Text("The CLI keeps its own settings file. It holds your Eaon and BYOK keys, Ollama URL, custom providers, default mode, permission mode, and custom instructions. Edit it directly to control how the CLI behaves.")
                     .font(AppFont.sans(12))
                     .foregroundStyle(colors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineSpacing(3)
 
                 HStack(spacing: 8) {
                     Text(EaonCLILauncher.configFilePath.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
@@ -451,7 +460,7 @@ struct EaonCLIInfoSheet: View {
 
                 referenceGroup("Modes", rows: [
                     ("Chat", "Plain conversation, no tools."),
-                    ("Agent", "A coding agent scoped to your project — write, edit, read, run shell, and more."),
+                    ("Agent", "A coding agent scoped to your project. It can write, edit, read, run shell, and more."),
                     ("Claw", "Agent's tools plus the wider system: trash, open/quit apps, open URLs, AppleScript (macOS)."),
                 ])
 
@@ -467,7 +476,7 @@ struct EaonCLIInfoSheet: View {
 
                 referenceGroup("Permission modes", rows: [
                     ("Sandboxed", "Every non-read action asks first (default)."),
-                    ("Auto", "Actions run immediately — toggle with Shift+Tab."),
+                    ("Auto", "Actions run immediately. Toggle with Shift+Tab."),
                 ])
             }
             .padding(16)
@@ -490,6 +499,7 @@ struct EaonCLIInfoSheet: View {
                         .font(AppFont.sans(11))
                         .foregroundStyle(colors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
+                        .lineSpacing(3)
                     Spacer(minLength: 0)
                 }
             }

@@ -25,6 +25,10 @@ final class DesktopControlStore {
         didSet {
             guard isEnabled != oldValue else { return }
             UserDefaults.standard.set(isEnabled, forKey: Self.enabledKey)
+            // The browser bridge only listens while Device Control is on —
+            // turning this off closes the port, so an installed extension
+            // can't reach a disabled feature.
+            isEnabled ? BrowserBridge.shared.start() : BrowserBridge.shared.stop()
         }
     }
 
@@ -56,6 +60,14 @@ enum DesktopTool: String, CaseIterable {
     case openURL = "open_url"
     case openPath = "open_path"
     case runAppleScript = "run_applescript"
+    /// Browser control as real tools instead of hand-written AppleScript —
+    /// see `BrowserControl` for why that distinction matters so much in
+    /// practice.
+    case browserRead = "browser_read"
+    case browserTabs = "browser_tabs"
+    case browserScroll = "browser_scroll"
+    case browserClick = "browser_click"
+    case browserType = "browser_type"
     /// Not a system action at all — pauses the agent loop and puts a real
     /// question in front of the user (clickable options and/or a typed
     /// answer), whose reply comes back as this tool's result. The
@@ -73,6 +85,14 @@ enum DesktopTool: String, CaseIterable {
     /// a file when you know roughly what it's called but not where it lives.
     /// Names only, so it's read-anywhere like `list_directory`.
     case findFiles = "find_files"
+    /// Read a background job's output so far — the other half of
+    /// `run_shell`'s `background` flag. See `BackgroundJobs`.
+    case checkOutput = "check_output"
+    /// End a background job.
+    case stopProcess = "stop_process"
+    /// Write down (and tick off) the plan for a multi-step task. See
+    /// `PlanUpdate` for why a long loop needs one.
+    case updatePlan = "update_plan"
 
     /// The focused set the coding Agent is offered — enough to create a
     /// project folder, write, read back, and run code, and inspect results,
@@ -85,7 +105,10 @@ enum DesktopTool: String, CaseIterable {
     /// `search_code`/`find_files` are the "work on an existing repo like
     /// Cursor" pair — discovery before edits.
     static let codingTools: [DesktopTool] = [
-        .writeFile, .editFile, .readFile, .searchCode, .findFiles, .runShell, .listDirectory, .createFolder, .moveItem, .openPath, .askUser,
+        .updatePlan,
+        .writeFile, .editFile, .readFile, .searchCode, .findFiles,
+        .runShell, .checkOutput, .stopProcess,
+        .listDirectory, .createFolder, .moveItem, .openPath, .askUser,
     ]
 
     /// Native function name — `computer_` prefix so `ToolCallAccumulator`
@@ -99,7 +122,10 @@ enum DesktopTool: String, CaseIterable {
     /// file/folder NAMES, never contents, and change nothing. `search_code`
     /// is deliberately NOT here: it returns matched file *contents*, as
     /// sensitive as `read_file`, so it stays behind the Sandboxed gate.
-    var isReadOnly: Bool { self == .listDirectory || self == .findFiles }
+    /// `update_plan` is here because it touches nothing outside the app —
+    /// it writes a checklist into the UI. Asking permission to think would
+    /// be a confirmation dialog per step of every task.
+    var isReadOnly: Bool { self == .listDirectory || self == .findFiles || self == .updatePlan }
 
     var displayName: String {
         switch self {
@@ -116,9 +142,17 @@ enum DesktopTool: String, CaseIterable {
         case .openURL: return "Open URL"
         case .openPath: return "Open path"
         case .runAppleScript: return "Run AppleScript"
+        case .browserRead: return "Read page"
+        case .browserTabs: return "List tabs"
+        case .browserScroll: return "Scroll page"
+        case .browserClick: return "Click on page"
+        case .browserType: return "Type into page"
         case .askUser: return "Ask you a question"
         case .searchCode: return "Search code"
         case .findFiles: return "Find files"
+        case .checkOutput: return "Check job output"
+        case .stopProcess: return "Stop background job"
+        case .updatePlan: return "Update plan"
         }
     }
 
@@ -137,9 +171,17 @@ enum DesktopTool: String, CaseIterable {
         case .openURL: return "Open a URL in the default web browser."
         case .openPath: return "Open a file or folder with its default app, or reveal it in Finder."
         case .runAppleScript: return "Run an AppleScript — the reliable way to control scriptable Mac apps (Safari, Finder, Mail, Notes, Music…) and click menu items by name."
+        case .browserRead: return "Read the browser's active tab — title, URL and the visible page text. Use this before clicking or typing so you act on what's actually there."
+        case .browserTabs: return "List every open tab in the front browser window with its title and URL."
+        case .browserScroll: return "Scroll the browser page — down, up, top or bottom. Works without any developer setting."
+        case .browserClick: return "Click a link or button on the page by its visible text, e.g. \"Sign in\"."
+        case .browserType: return "Type text into a field on the page, found by its placeholder, label or name."
         case .askUser: return "Ask the user a question and wait for their answer — use BEFORE building when the request is ambiguous (which framework? which of two interpretations? light or dark design?). Offer 2–4 concrete options when the choices are known; the user can always type their own answer instead. Ask one question at a time, only when the answer genuinely changes what you'd build — never for permission to proceed."
         case .searchCode: return "Search the text INSIDE files across a project (like grep, or Cursor's codebase search). Give a regex \"pattern\" and a \"path\" (the project folder); returns matching \"file:line: text\", skipping .git/node_modules/build folders and binaries. This is how you find where something is defined or used in an existing codebase before you edit it — search first, don't guess."
         case .findFiles: return "Find files by NAME across a project tree. Give a \"path\" (folder) and a \"name_pattern\" — a glob like \"*.swift\" or part of a filename. Returns matching file paths. Use it to locate a file when you know roughly its name but not where it lives."
+        case .checkOutput: return "Read what a background job has printed so far, and whether it's still running. Give the \"job_id\" run_shell returned; omit it to list every job."
+        case .stopProcess: return "Stop a background job started with run_shell background:true. Give its \"job_id\"."
+        case .updatePlan: return "Write down the plan for a multi-step task and keep it current: send the WHOLE list of steps every time, each {\"text\": …, \"status\": \"pending\"|\"active\"|\"done\"}. Exactly one step may be active. Use it at the start of any task with three or more real steps, and update it as each finishes — the user watches this."
         }
     }
 
@@ -169,10 +211,13 @@ enum DesktopTool: String, CaseIterable {
                 "path": string("Absolute path of the file to edit, e.g. /Users/you/snake/snake.py. ~ is expanded."),
                 "search": string("The exact existing text to find, copied character-for-character from the file (use read_file first if unsure). Must occur exactly once — include surrounding lines to make it unique."),
                 "replace": string("The text to replace it with. An empty string deletes the matched text."),
+                "replace_all": ["type": "boolean", "description": "Replace EVERY occurrence instead of requiring exactly one. This is how you rename a symbol or change a repeated string in one call, rather than one call per occurrence with ever more surrounding context to keep each match unique."],
             ], required: ["path", "search", "replace"])
         case .readFile:
             return object(properties: [
-                "path": string("Absolute path of the text file to read, e.g. /Users/you/snake/snake.py. ~ is expanded.")
+                "path": string("Absolute path of the text file to read, e.g. /Users/you/snake/snake.py. ~ is expanded."),
+                "offset": ["type": "integer", "description": "1-based line to start at. Use it with limit to page through a long file instead of giving up on it."],
+                "limit": ["type": "integer", "description": "How many lines to return from offset. Output is line-numbered either way, so you can quote exact line numbers back to the user and aim an edit precisely."],
             ], required: ["path"])
         case .trashItem:
             return object(properties: [
@@ -181,7 +226,8 @@ enum DesktopTool: String, CaseIterable {
         case .runShell:
             return object(properties: [
                 "command": string("The shell command to run, exactly as you'd type it in Terminal. Runs under zsh. sudo is refused."),
-                "working_directory": string("Optional absolute path to run in. Defaults to the home folder."),
+                "working_directory": string("Optional absolute path to run in. Defaults to the project folder if one is chosen, otherwise the home folder."),
+                "background": ["type": "boolean", "description": "Run it detached and return a job_id immediately instead of waiting. Use this for anything that doesn't finish on its own — dev servers (npm run dev, vite, python -m http.server), watchers, long builds. Then read its output with check_output and end it with stop_process. Without this, a command is killed after 60 seconds."],
             ], required: ["command"])
         case .openApp:
             return object(properties: [
@@ -204,6 +250,27 @@ enum DesktopTool: String, CaseIterable {
             return object(properties: [
                 "script": string("The AppleScript source to run, e.g. tell application \"Safari\" to open location \"https://example.com\".")
             ], required: ["script"])
+        case .browserRead, .browserTabs:
+            return object(properties: [
+                "browser": string("Optional: \"chrome\" or \"safari\". Omit to use whichever browser is frontmost.")
+            ], required: [])
+        case .browserScroll:
+            return object(properties: [
+                "browser": string("Optional: \"chrome\" or \"safari\". Omit to use whichever is frontmost."),
+                "direction": string("One of: down, up, top, bottom. Defaults to down."),
+                "pages": ["type": "integer", "description": "How many screenfuls to scroll for down/up. Defaults to 1."],
+            ], required: [])
+        case .browserClick:
+            return object(properties: [
+                "browser": string("Optional: \"chrome\" or \"safari\"."),
+                "text": string("The VISIBLE text of the link or button to click, e.g. \"Sign in\". Partial matches work."),
+            ], required: ["text"])
+        case .browserType:
+            return object(properties: [
+                "browser": string("Optional: \"chrome\" or \"safari\"."),
+                "field": string("Which field — matched against its placeholder, name, label or id, e.g. \"search\". Omit to type into whatever is already focused."),
+                "text": string("The text to type into the field."),
+            ], required: ["text"])
         case .askUser:
             return object(properties: [
                 "question": string("The question to put in front of the user — one clear, specific question ending in a question mark."),
@@ -220,6 +287,30 @@ enum DesktopTool: String, CaseIterable {
                 "file_glob": string("Optional — restrict to files whose name matches this glob, e.g. \"*.swift\" or \"*.ts\"."),
                 "case_sensitive": ["type": "boolean", "description": "Match case exactly. Defaults to false (case-insensitive)."],
             ], required: ["pattern", "path"])
+        case .checkOutput:
+            return object(properties: [
+                "job_id": string("The id run_shell returned, e.g. \"job-1\". Leave it out to list every job and its state."),
+                "tail_characters": ["type": "integer", "description": "How much of the END of the output to return (default 6000). The tail is what matters on a server — the startup banner stops being interesting once it's serving."],
+            ], required: [])
+        case .stopProcess:
+            return object(properties: [
+                "job_id": string("The id of the background job to stop, e.g. \"job-1\".")
+            ], required: ["job_id"])
+        case .updatePlan:
+            return object(properties: [
+                "steps": [
+                    "type": "array",
+                    "description": "The WHOLE plan, every time — not a patch. Each item is {\"text\": \"what you'll do\", \"status\": \"pending\"|\"active\"|\"done\"}. Exactly one step may be active. Send an empty list to clear the plan when the task is finished.",
+                    "items": [
+                        "type": "object",
+                        "properties": [
+                            "text": ["type": "string"],
+                            "status": ["type": "string", "enum": ["pending", "active", "done"]],
+                        ],
+                        "required": ["text", "status"],
+                    ],
+                ],
+            ], required: ["steps"])
         case .findFiles:
             return object(properties: [
                 "path": string("Absolute path of the folder to search under, e.g. ~/myapp. ~ is expanded."),
@@ -263,6 +354,11 @@ enum DesktopTool: String, CaseIterable {
         case .openURL: return "Open URL: \(str("url"))"
         case .openPath: return (arguments["reveal"] as? Bool == true ? "Reveal in Finder: " : "Open: ") + str("path")
         case .runAppleScript: return "Run AppleScript"
+        case .browserRead: return "Read the current browser page"
+        case .browserTabs: return "List open browser tabs"
+        case .browserScroll: return "Scroll the page \(str("direction"))"
+        case .browserClick: return "Click \u{201C}\(str("text"))\u{201D} on the page"
+        case .browserType: return "Type into \u{201C}\(str("field"))\u{201D} on the page"
         // Never actually reaches a confirmation dialog (asking IS the user
         // interaction), but the switch stays exhaustive.
         case .askUser: return "Ask: \(str("question"))"
@@ -270,6 +366,10 @@ enum DesktopTool: String, CaseIterable {
         // find_files is read-only (names only) so it never reaches the
         // dialog, but keep the switch exhaustive and honest.
         case .findFiles: return "Find files \"\(str("name_pattern"))\" in \(str("path"))"
+        case .checkOutput: return "Check output of \(str("job_id"))"
+        case .stopProcess: return "Stop background job \(str("job_id"))"
+        // Read-only, so it never reaches the dialog — kept exhaustive.
+        case .updatePlan: return "Update the plan"
         }
     }
 
@@ -346,9 +446,15 @@ enum DesktopControlTool {
     /// system prompt as inert "setup messages") — one coherent prompt whose
     /// tool list and closing line both reflect what's actually offered
     /// avoids repeating that mistake for the merged mode.
-    static func codingInstructionBlock(includeWiderTools: Bool = false) -> String {
+    static func codingInstructionBlock(includeWiderTools: Bool = false, workFolder: String? = nil) -> String {
         let offeredTools = includeWiderTools ? DesktopTool.allCases : DesktopTool.codingTools
         let toolLines = offeredTools.map { "- `\($0.rawValue)` — \($0.summary)" }.joined(separator: "\n")
+        // Step 2 otherwise tells the model to invent a folder, which is
+        // exactly wrong once the user has named one — and a prompt that says
+        // both things at once gets obeyed at random.
+        let folderStep = workFolder.map {
+            "2. THE PROJECT FOLDER IS ALREADY CHOSEN: `\($0)`. The user picked it themselves. Do NOT create a new folder for this work and do NOT put files anywhere else — everything you write goes inside this folder, and every `run_shell` uses it as the `working_directory`. Explore it before changing anything (`search_code`, `find_files`, `read_file`) and match the conventions already there."
+        } ?? "2. Pick a project folder under the user's home directory — a clear, new, dedicated folder for this task, e.g. `~/snake-game` or `~/Documents/<project>`. Create it with `create_folder`. Put everything for the project inside it. Tell the user the full path so they can find it."
         let widerToolsNote = includeWiderTools
             ? "\n\nBEYOND CODING, you can also organize files and drive apps/websites for the user: `trash_item` (Trash, not permanent delete — never route around it with `rm`), `open_app`/`quit_app`, `open_url`, and `run_applescript` (drives scriptable apps and clicks menu items by name — far more dependable than describing screen positions). Use these when the task is actually about the user's Mac or browser, not just their code."
             : ""
@@ -360,11 +466,12 @@ enum DesktopControlTool {
 
         HOW TO WORK — the loop:
         0. If the request is genuinely ambiguous in a way that changes what you'd build (language? framework? which of two readings?), ask ONE `ask_user` question with concrete options before starting — never guess on a fork, and never ask when any reasonable default exists.
+        0b. If the task has THREE OR MORE real steps, call `update_plan` before you start and again as each one lands. Send the whole list every time, with exactly one step `active`. It's how the user watches progress, and it's how you keep a long task pointed at the same target instead of drifting or declaring victory early. Skip it entirely for a one-or-two-step task — a plan for "fix this typo" is noise.
         1. Briefly say what you'll build (one or two sentences, no long plans).
-        2. Pick a project folder under the user's home directory — a clear, new, dedicated folder for this task, e.g. `~/snake-game` or `~/Documents/<project>`. Create it with `create_folder`. Put everything for the project inside it. Tell the user the full path so they can find it.
+        \(folderStep)
         3. Write each source file COMPLETE with `write_file` — the whole file, first line to last, never "…rest unchanged" or placeholder comments. Use the RAW write form (below): the path goes in the fence, the body is the file's exact text — no JSON, no escaping, no shell quoting to get wrong.
         4. Run it with `run_shell` (e.g. `python3 snake.py`, `node app.js`), using the project folder as the `working_directory`. Read the output.
-        5. If it errored, look before you fix: `read_file` shows a file's current contents. Then fix it — `edit_file` for a small targeted change (exact search → replace), or `write_file` to rewrite the whole file — and run again. Iterate until it runs cleanly.
+        5. If it errored, look before you fix: `read_file` shows a file's current contents, line-numbered, and takes `offset`/`limit` so a long file is paged through rather than given up on. Then fix it — `edit_file` for a small targeted change (exact search → replace, or `replace_all: true` to change every occurrence in one call), or `write_file` to rewrite the whole file — and run again. Iterate until it runs cleanly.
         6. Finish in plain language: what you built, where it is, and how to run it.
 
         WORKING ON AN EXISTING PROJECT (not building fresh): when the task is about code that already exists — the user names a folder, points at a repo, or asks you to fix, change, or understand their project — do NOT create a new folder. Work inside theirs, and explore before you touch anything:
@@ -379,7 +486,13 @@ enum DesktopControlTool {
         ```eaon:computer tool="run_shell"
         {"command": "python3 -m venv .venv && .venv/bin/pip install <package>", "working_directory": "~/snake-game"}
         ```
-        Then run the program with `.venv/bin/python3 <file>.py` (not a bare `python3`) for the rest of this task. Say what you're installing before you do it. A `run_shell` command is killed after 60 seconds and can't take interactive input, so don't launch long-running servers or programs that block waiting on stdin; for a web project, write the files and tell the user how to open or serve them.
+        Then run the program with `.venv/bin/python3 <file>.py` (not a bare `python3`) for the rest of this task. Say what you're installing before you do it.
+
+        LONG-RUNNING COMMANDS. A plain `run_shell` waits, and is killed after 60 seconds — right for a build or a test run, wrong for anything that never exits. For a dev server, a watcher, or a build that genuinely takes minutes, pass `background: true`. It returns a `job_id` straight away and keeps running:
+        ```eaon:computer tool="run_shell"
+        {"command": "npm run dev", "background": true}
+        ```
+        Then `check_output {"job_id": "job-1"}` to see what it has printed and whether it's still up (give a server a second or two first), and `stop_process {"job_id": "job-1"}` when you're finished. This is how you actually verify a web project instead of writing the files and hoping: start the server, read its output for the port, then use the browser tools to look at the page. Stop what you started before you finish. Nothing can take interactive input either way, so never launch something that blocks waiting on stdin.
 
         SAFETY — not optional:
         - NEVER use sudo or try to gain admin/root, and never touch system locations (/System, /usr, /bin, …). Stay within the user's home folder.
@@ -457,8 +570,32 @@ enum DesktopControlService {
         case .openURL: return openURL(arguments)
         case .openPath: return openPath(arguments)
         case .runAppleScript: return await runAppleScript(arguments)
+        case .browserRead:
+            return await BrowserControl.read(target: BrowserControl.resolve(arguments["browser"] as? String))
+        case .browserTabs:
+            return await BrowserControl.tabs(target: BrowserControl.resolve(arguments["browser"] as? String))
+        case .browserScroll:
+            return await BrowserControl.scroll(
+                target: BrowserControl.resolve(arguments["browser"] as? String),
+                direction: (arguments["direction"] as? String) ?? "down",
+                pages: (arguments["pages"] as? Int) ?? 1
+            )
+        case .browserClick:
+            return await BrowserControl.click(
+                target: BrowserControl.resolve(arguments["browser"] as? String),
+                text: (arguments["text"] as? String) ?? ""
+            )
+        case .browserType:
+            return await BrowserControl.type(
+                target: BrowserControl.resolve(arguments["browser"] as? String),
+                field: (arguments["field"] as? String) ?? "",
+                text: (arguments["text"] as? String) ?? ""
+            )
         case .searchCode: return searchCode(arguments)
         case .findFiles: return findFiles(arguments)
+        case .checkOutput: return checkOutput(arguments)
+        case .stopProcess: return stopProcess(arguments)
+        case .updatePlan: return await updatePlan(arguments)
         // Handled entirely inside the agent loop (it pauses for a real
         // dialog); reaching here means a routing bug, not a user error.
         case .askUser: return .error("internal: ask_user is answered by the user in the app, not executed as a system action")
@@ -650,6 +787,26 @@ enum DesktopControlService {
         guard let data = FileManager.default.contents(atPath: path), let content = String(data: data, encoding: .utf8) else {
             return .error("Couldn't read \(path) as UTF-8 text.")
         }
+        // Replacing every occurrence is its own path rather than a flag on
+        // the single-match one: renaming a symbol used a dozen times used to
+        // mean a dozen calls, each needing more surrounding context than the
+        // last to stay unique — and every one of those is a chance to get
+        // the context slightly wrong and stall the loop.
+        if args["replace_all"] as? Bool == true {
+            let occurrences = content.components(separatedBy: search).count - 1
+            guard occurrences > 0 else {
+                return .error("Edit not applied — the search text wasn't found in \(path). Use read_file to see the current contents (it's line-numbered), then retry with an exact match.")
+            }
+            let newContent = content.replacingOccurrences(of: search, with: replace)
+            do {
+                try newContent.write(toFile: path, atomically: true, encoding: .utf8)
+                let lines = newContent.isEmpty ? 0 : newContent.components(separatedBy: "\n").count
+                return .ok("Edited \(path) — replaced \(occurrences) occurrence\(occurrences == 1 ? "" : "s"). The file is now \(lines) line\(lines == 1 ? "" : "s").")
+            } catch {
+                return .error("Couldn't write the edit: \(error.localizedDescription)")
+            }
+        }
+
         switch WorkspaceParser.applyEdit(to: content, payload: WorkspaceParser.EditPayload(search: search, replace: replace)) {
         case .applied(let newContent):
             do {
@@ -660,7 +817,12 @@ enum DesktopControlService {
                 return .error("Couldn't write the edit: \(error.localizedDescription)")
             }
         case .failed(let reason):
-            return .error("Edit not applied — \(reason). Use read_file to see the file's current contents, then retry with an exact match.")
+            // Names the way out of the commonest failure: several matches is
+            // not a mistake to apologise for, it's a call for replace_all.
+            let hint = reason.contains("appears")
+                ? " Either include more surrounding lines so it matches once, or set replace_all: true to change them all."
+                : " Use read_file to see the file's current contents, then retry with an exact match."
+            return .error("Edit not applied — \(reason).\(hint)")
         }
     }
 
@@ -689,12 +851,105 @@ enum DesktopControlService {
         guard let content = String(data: data, encoding: .utf8) else {
             return .error("Not a UTF-8 text file: \(path)")
         }
-        let lines = content.isEmpty ? 0 : content.components(separatedBy: "\n").count
-        let capped = content.count > 12_000
-            ? String(content.prefix(12_000)) + "\n…(truncated at 12k characters — use run_shell with sed/tail for the rest)"
-            : content
-        return .ok("\(path) (\(lines) line\(lines == 1 ? "" : "s")):\n\(capped)")
+        return .ok(numberedRead(
+            content: content,
+            path: path,
+            offset: args["offset"] as? Int,
+            limit: args["limit"] as? Int
+        ))
     }
+
+    /// How many lines a read returns when the model didn't say.
+    private static let defaultReadLines = 400
+    /// A single line longer than this is minified output or embedded data;
+    /// returning it whole buries everything else in the file.
+    private static let maxLineWidth = 2_000
+
+    /// Renders a file (or a slice of it) with 1-based line numbers.
+    ///
+    /// Numbers are the point. Without them the model can only describe a
+    /// location ("the guard in the middle of the function"), which it then
+    /// has to re-find by quoting text back exactly; with them it can say
+    /// "line 214" to the user and aim an edit at something it has actually
+    /// seen. Paging matters for the same reason: the old read truncated a
+    /// long file at 12k characters and told the model to go use `sed`, which
+    /// meant the one tool built for reading files couldn't read a large one.
+    static func numberedRead(content: String, path: String, offset: Int?, limit: Int?) -> String {
+        let allLines = content.components(separatedBy: "\n")
+        let total = content.isEmpty ? 0 : allLines.count
+        // 1-based and clamped: an out-of-range offset should show the end of
+        // the file, not fail the call and cost a turn.
+        let start = max(1, min(offset ?? 1, max(total, 1)))
+        let count = max(1, limit ?? defaultReadLines)
+        let end = min(total, start + count - 1)
+
+        guard total > 0 else { return "\(path) is empty (0 lines)." }
+
+        let slice = allLines[(start - 1)..<end]
+        let width = String(end).count
+        let body = slice.enumerated().map { index, line in
+            let number = String(start + index)
+            let padded = String(repeating: " ", count: max(0, width - number.count)) + number
+            let text = line.count > maxLineWidth
+                ? String(line.prefix(maxLineWidth)) + "… (line truncated)"
+                : line
+            return "\(padded)\t\(text)"
+        }.joined(separator: "\n")
+
+        var header = "\(path) — lines \(start)-\(end) of \(total)"
+        if end < total {
+            header += " (read on with offset: \(end + 1))"
+        }
+        return header + "\n" + body
+    }
+
+    // MARK: Background jobs
+
+    private static func checkOutput(_ args: [String: Any]) -> DesktopResult {
+        guard let id = (args["job_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !id.isEmpty else {
+            // No id is a reasonable question ("what did I start?"), not a
+            // malformed call.
+            return .ok(BackgroundJobs.shared.summaryList())
+        }
+        guard let report = BackgroundJobs.shared.report(id: id, tailCharacters: args["tail_characters"] as? Int) else {
+            return .error("No background job called \"\(id)\". Known jobs:\n\(BackgroundJobs.shared.summaryList())")
+        }
+        return .ok(report)
+    }
+
+    private static func stopProcess(_ args: [String: Any]) -> DesktopResult {
+        guard let id = (args["job_id"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines), !id.isEmpty else {
+            return .error("missing \"job_id\" — the id run_shell returned when it started the job.")
+        }
+        switch BackgroundJobs.shared.stop(id: id) {
+        case .stopped: return .ok("Stopped \(id).")
+        case .alreadyFinished: return .ok("\(id) had already finished; nothing to stop.")
+        case .notFound:
+            return .error("No background job called \"\(id)\". Known jobs:\n\(BackgroundJobs.shared.summaryList())")
+        }
+    }
+
+    // MARK: Plan
+
+    private static func updatePlan(_ args: [String: Any]) async -> DesktopResult {
+        switch PlanUpdate.parse(args["steps"]) {
+        case .invalid(let reason):
+            return .error(reason)
+        case .steps(let steps):
+            await MainActor.run {
+                AgentPlanStore.shared.set(steps, for: activePlanConversationId)
+            }
+            return .ok(PlanUpdate.receipt(for: steps))
+        }
+    }
+
+    /// Which conversation a plan update belongs to.
+    ///
+    /// Set by the agent loop around each turn rather than passed through the
+    /// tool arguments: the model has no business knowing conversation ids,
+    /// and a background generation in another chat must not overwrite the
+    /// plan on screen — the same isolation `isGenerating` already has.
+    nonisolated(unsafe) static var activePlanConversationId: UUID?
 
     // MARK: Code search / file finding
 
@@ -896,7 +1151,11 @@ enum DesktopControlService {
             return .error("Refused: this runs commands as you, never as root. Drop the sudo — if the task genuinely needs admin rights, ask the user to do it themselves.")
         }
 
-        var workingDirectory = normalizedPath(NSHomeDirectory())
+        // The project folder chosen above the composer, when there is one —
+        // so a bare `run_shell` lands in the user's project instead of their
+        // home directory. An explicit `working_directory` still wins; this
+        // only replaces the default.
+        var workingDirectory = normalizedPath(WorkFolder.currentPath() ?? NSHomeDirectory())
         if let wdRaw = args["working_directory"] as? String {
             let wd = normalizedPath(wdRaw)
             var isDir: ObjCBool = false
@@ -904,6 +1163,20 @@ enum DesktopControlService {
                 return .error("working_directory isn't a directory: \(wd)")
             }
             workingDirectory = wd
+        }
+
+        if args["background"] as? Bool == true {
+            switch BackgroundJobs.shared.start(command: command, workingDirectory: workingDirectory) {
+            case .started(let id, _):
+                return .ok("""
+                Started \(id) in the background: `\(command)`
+                Working directory: \(workingDirectory)
+
+                It keeps running. Read what it prints with check_output {"job_id": "\(id)"}, and end it with stop_process {"job_id": "\(id)"} when you're done. Give a server a couple of seconds before the first check.
+                """)
+            case .failed(let reason):
+                return .error("Couldn't start it in the background: \(reason)")
+            }
         }
 
         let process = Process()

@@ -23,10 +23,11 @@ struct NetworkSettingsView: View {
                 .padding(.top, 28)
                 .padding(.bottom, 8)
 
-            Text("Route Eaon's outbound connections — chat, images, web search, plugins, and updates — through an HTTP/HTTPS proxy. For a corporate or firewalled network that requires one. Off by default; when off, traffic goes out directly. Local model servers running on this Mac aren't affected either way.")
+            Text("Route Eaon's outbound connections through an HTTP or HTTPS proxy. That covers chat, images, web search, plugins, and updates. This is for corporate or firewalled networks that require one. It's off by default, and traffic goes out directly when it's off. Local model servers on this Mac aren't affected either way.")
                 .font(AppFont.sans(12))
                 .foregroundColor(colors.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
+                .lineSpacing(3)
                 .padding(.horizontal, 32)
                 .padding(.bottom, 20)
 
@@ -58,7 +59,7 @@ struct NetworkSettingsView: View {
                     .padding(.top, 2)
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Use a proxy")
-                        .font(AppFont.mono(13, weight: .semibold))
+                        .font(AppFont.mono(14, weight: .semibold))
                         .foregroundColor(colors.textPrimary)
                     Text(store.isActive
                          ? "On — traffic routes through \(store.host):\(store.port)."
@@ -68,6 +69,7 @@ struct NetworkSettingsView: View {
                         .font(AppFont.sans(12))
                         .foregroundColor(store.isEnabled && !store.isActive ? colors.destructive : colors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
+                        .lineSpacing(3)
                 }
                 Spacer(minLength: 12)
                 Toggle("", isOn: $store.isEnabled)
@@ -84,7 +86,7 @@ struct NetworkSettingsView: View {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 12) {
                     Text("Host")
-                        .font(AppFont.mono(13, weight: .semibold))
+                        .font(AppFont.mono(14, weight: .semibold))
                         .foregroundColor(colors.textPrimary)
                         .frame(width: 48, alignment: .leading)
                     TextField("proxy.example.com or 127.0.0.1", text: $store.host)
@@ -105,7 +107,7 @@ struct NetworkSettingsView: View {
 
                 HStack(spacing: 12) {
                     Text("Port")
-                        .font(AppFont.mono(13, weight: .semibold))
+                        .font(AppFont.mono(14, weight: .semibold))
                         .foregroundColor(colors.textPrimary)
                         .frame(width: 48, alignment: .leading)
                     TextField("8080", text: $portText)
@@ -134,18 +136,20 @@ struct NetworkSettingsView: View {
             HStack(spacing: 12) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Test connection")
-                        .font(AppFont.mono(13, weight: .semibold))
+                        .font(AppFont.mono(14, weight: .semibold))
                         .foregroundColor(colors.textPrimary)
                     if let testResult {
                         Text(testResult)
-                            .font(AppFont.mono(11))
+                            .font(AppFont.mono(12))
                             .foregroundColor(testSucceeded ? Color(hex: "#34C759") : colors.destructive)
                             .fixedSize(horizontal: false, vertical: true)
+                            .lineSpacing(3)
                     } else {
                         Text("Sends one request through the current settings and reports what came back.")
                             .font(AppFont.sans(12))
                             .foregroundColor(colors.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)
+                            .lineSpacing(3)
                     }
                 }
                 Spacer(minLength: 12)
@@ -169,7 +173,7 @@ struct NetworkSettingsView: View {
 
     private var footnote: some View {
         Text("Authenticated proxies (username / password) aren't supported yet.")
-            .font(AppFont.sans(11))
+            .font(AppFont.sans(12.5))
             .foregroundColor(colors.textTertiary)
             .padding(.horizontal, 4)
     }
@@ -192,7 +196,7 @@ struct NetworkSettingsView: View {
             let (_, response) = try await AppHTTP.session.data(for: request)
             let route = store.isActive ? "via \(store.host):\(store.port)" : "direct (proxy off or incomplete)"
             if let http = response as? HTTPURLResponse {
-                testResult = "Reached the network \(route) — HTTP \(http.statusCode)."
+                testResult = "Reached the network \(route). HTTP \(http.statusCode)."
                 testSucceeded = true
             } else {
                 testResult = "Got a response \(route), but not an HTTP one."

@@ -41,6 +41,23 @@ struct ChatHomeView: View {
     /// conversation is on screen — see `installScrollIntentMonitor`.
     @State private var scrollIntentMonitor: Any?
 
+    /// Measured frames for the two places the mascot can be, in
+    /// `mascotSpace` — see `EaonMascotAnchorKey`.
+    @State private var mascotAnchors: [String: CGRect] = [:]
+    /// False while it's still standing in the hero slot; true once it has
+    /// gone to sit on the composer.
+    @State private var mascotPerched = false
+
+    private static let mascotSpace = "eaonMascotSpace"
+    /// One spring for every part of the move — the sprite's travel, its
+    /// shrink, and the hero slot closing behind it — so they read as a
+    /// single event. Slow for UI (0.75s) on purpose: this is a character
+    /// crossing the screen, not a control responding to a click, and the
+    /// whole point is that you notice it go.
+    private static let mascotFlight: Animation = .spring(duration: 0.75, bounce: 0.28)
+    private static let heroAnchorName = "hero"
+    private static let perchAnchorName = "perch"
+
     var body: some View {
         VStack(spacing: 0) {
             topBar
@@ -112,6 +129,10 @@ struct ChatHomeView: View {
                 }
             }
         }
+        // The mode switcher deliberately isn't here: it lives at the top of
+        // the sidebar (see `SidebarView`), above New Chat, where it reads as
+        // the header of the whole left column rather than as one more button
+        // competing with the model picker and the share/workspace icons.
         .padding(.horizontal, 14)
         .frame(height: 50)
         // Match the sidebar card's 10pt top inset so the picker sits on the
@@ -122,6 +143,40 @@ struct ChatHomeView: View {
     // MARK: - Empty state
 
     private var emptyState: some View {
+        ZStack(alignment: .topLeading) {
+            emptyStateContent
+
+            // The mascot itself is drawn here rather than in either slot, so
+            // one continuous sprite travels between them — two separate
+            // views swapping would read as "one vanished, another appeared"
+            // instead of "it got up and went to sit down".
+            if mode == .agent,
+               let target = mascotAnchors[mascotPerched ? Self.perchAnchorName : Self.heroAnchorName] {
+                EaonMascotView(pixelSize: EaonMascot.heroPixelSize)
+                    .scaleEffect(mascotPerched ? EaonMascot.perchedScale : 1)
+                    .position(x: target.midX, y: target.midY)
+                    // Purely decorative, and it sits over the composer's top
+                    // edge — it must never eat a click meant for the box.
+                    .allowsHitTesting(false)
+                    .animation(Self.mascotFlight, value: mascotPerched)
+            }
+        }
+        .coordinateSpace(name: Self.mascotSpace)
+        .onPreferenceChange(EaonMascotAnchorKey.self) { mascotAnchors = $0 }
+        .task(id: mode) {
+            guard mode == .agent, !mascotPerched else { return }
+            try? await Task.sleep(for: EaonMascot.perchDelay)
+            guard !Task.isCancelled else { return }
+            mascotPerched = true
+        }
+        // Typing is the moment the hero slot stops being welcome — get out
+        // of the way immediately rather than waiting out the timer.
+        .onChange(of: viewModel.inputText) { _, newValue in
+            if !newValue.isEmpty { mascotPerched = true }
+        }
+    }
+
+    private var emptyStateContent: some View {
         VStack(spacing: 0) {
             Spacer()
 
@@ -132,23 +187,62 @@ struct ChatHomeView: View {
                     .padding(.bottom, 26)
             } else {
                 VStack(spacing: 8) {
-                    Image(systemName: mode.icon)
-                        .font(.system(size: 30, weight: .semibold))
-                        .foregroundStyle(colors.textSecondary)
+                    // Work gets the mascot; other modes keep their symbol.
+                    // A character above "what can I do for you" says
+                    // "something lives here and works for you" in a way no
+                    // SF Symbol hammer can.
+                    //
+                    // Only the SLOT lives here — the sprite is drawn by the
+                    // ZStack above. The slot keeps its full height even once
+                    // the mascot has left, so the title doesn't jump up the
+                    // screen the moment it goes to sit down.
+                    if mode == .agent {
+                        // The slot closes up once the mascot has left, so the
+                        // page doesn't keep a mascot-shaped hole above the
+                        // title forever. It animates with the same spring as
+                        // the flight, so the title rising and the mascot
+                        // leaving are visibly one movement.
+                        Color.clear
+                            .frame(
+                                width: EaonMascot.heroSize.width,
+                                height: mascotPerched ? 0 : EaonMascot.heroSize.height
+                            )
+                            .eaonMascotAnchor(Self.heroAnchorName, space: Self.mascotSpace)
+                            .padding(.bottom, mascotPerched ? 0 : 4)
+                            .animation(Self.mascotFlight, value: mascotPerched)
+                    } else {
+                        Image(systemName: mode.icon)
+                            .font(.system(size: 30, weight: .semibold))
+                            .foregroundStyle(colors.textSecondary)
+                    }
                     Text(mode.title)
                         .font(AppFont.mono(30, weight: .bold))
                         .foregroundStyle(colors.textPrimary)
                     Text(mode.blurb)
-                        .font(AppFont.sans(14))
+                        .font(AppFont.sans(12))
                         .foregroundStyle(colors.textTertiary)
                         .multilineTextAlignment(.center)
+                        // Capped and allowed to wrap. Unconstrained, a long
+                        // blurb stretched the full window width as a single
+                        // line, which on a wide display read as a banner
+                        // rather than a caption under the title.
+                        .frame(maxWidth: 440)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(.bottom, 26)
+            }
+
+            if mode == .agent {
+                WorkContextBar { viewModel.startNewChat() }
+                    .frame(maxWidth: conversationMaxWidth, alignment: .leading)
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 8)
             }
 
             ChatComposer(viewModel: viewModel, onModeChange: onModeChange)
                 .frame(maxWidth: conversationMaxWidth)
                 .padding(.horizontal, 24)
+                .overlay(alignment: .topTrailing) { perchAnchor }
 
             if !recentConversations.isEmpty {
                 emptyStateRecents
@@ -161,6 +255,18 @@ struct ChatHomeView: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    /// Where the mascot ends up: perched on the composer's top-right corner,
+    /// feet overlapping the border so it reads as sitting ON the box rather
+    /// than floating above it. Inset from the corner because the composer is
+    /// heavily rounded there — sat right on the curve it would look like it
+    /// was sliding off.
+    private var perchAnchor: some View {
+        Color.clear
+            .frame(width: EaonMascot.perchedSize.width, height: EaonMascot.perchedSize.height)
+            .offset(x: -46, y: -EaonMascot.perchedSize.height + 4)
+            .eaonMascotAnchor(Self.perchAnchorName, space: Self.mascotSpace)
     }
 
     // MARK: - Empty-state recents
@@ -222,7 +328,9 @@ struct ChatHomeView: View {
     /// The three most recently updated non-empty chats, excluding whatever's
     /// open now — a quick way back into real work from a fresh window.
     private var recentConversations: [Conversation] {
-        viewModel.conversations
+        // Scoped like every other list — Work's empty state offers Work
+        // sessions to return to, not the last thing you asked in Chat.
+        viewModel.conversationsInCurrentScope
             .filter { !$0.messages.isEmpty && $0.id != viewModel.currentConversationId }
             .sorted { $0.updatedAt > $1.updatedAt }
             .prefix(3)
@@ -250,7 +358,16 @@ struct ChatHomeView: View {
                                 ForEach(Array(viewModel.messages.enumerated()), id: \.element.id) { index, message in
                                     messageRow(index: index, message: message)
                                 }
-                                if let activityText = viewModel.agentActivityText {
+                                // A running swarm gets the full discussion
+                                // panel; everything else keeps the one-line
+                                // indicator. Showing both would be redundant
+                                // — the panel carries the status line itself.
+                                if let swarm = viewModel.liveSwarmTranscript, !swarm.personas.isEmpty {
+                                    SwarmLivePanel(transcript: swarm, statusText: viewModel.agentActivityText)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                        .padding(.top, 6)
+                                        .transition(.opacity)
+                                } else if let activityText = viewModel.agentActivityText {
                                     ThinkingIndicator(statusText: activityText)
                                         .frame(maxWidth: .infinity, alignment: .leading)
                                         .padding(.top, 6)
@@ -275,6 +392,10 @@ struct ChatHomeView: View {
                                     )
                             }
                             .animation(.easeOut(duration: 0.15), value: viewModel.agentActivityText)
+                            // Remarks arrive without the status line
+                            // necessarily changing, so the panel needs its
+                            // own trigger or new rows would pop in unanimated.
+                            .animation(.easeOut(duration: 0.15), value: viewModel.liveSwarmTranscript?.remarks.count)
                             .frame(maxWidth: conversationMaxWidth)
                             .frame(maxWidth: .infinity)
                             .padding(.horizontal, 24)
@@ -357,8 +478,39 @@ struct ChatHomeView: View {
             }
 
             VStack(spacing: 6) {
+                // Stays visible mid-conversation: which folder the agent is
+                // editing is exactly the thing you want to be able to check
+                // at turn twelve, not only at turn one.
+                if mode == .agent {
+                    let plan = AgentPlanStore.shared.steps(for: viewModel.currentConversationId)
+                    if !plan.isEmpty {
+                        AgentPlanCard(steps: plan)
+                            .frame(maxWidth: conversationMaxWidth, alignment: .leading)
+                    }
+
+                    WorkContextBar { viewModel.startNewChat() }
+                        .frame(maxWidth: conversationMaxWidth, alignment: .leading)
+                }
+
                 ChatComposer(viewModel: viewModel, onModeChange: onModeChange)
                     .frame(maxWidth: conversationMaxWidth)
+                    // Once a conversation is underway there's no hero slot to
+                    // fly from, so it's simply already sitting there — the
+                    // same spot it landed in on the empty state, so it reads
+                    // as the same character staying put rather than a new
+                    // decoration appearing.
+                    .overlay(alignment: .topTrailing) {
+                        if mode == .agent {
+                            EaonMascotView(pixelSize: EaonMascot.heroPixelSize)
+                                .scaleEffect(EaonMascot.perchedScale)
+                                .frame(
+                                    width: EaonMascot.perchedSize.width,
+                                    height: EaonMascot.perchedSize.height
+                                )
+                                .offset(x: -46, y: -EaonMascot.perchedSize.height + 4)
+                                .allowsHitTesting(false)
+                        }
+                    }
 
                 Text("Eaon can make mistakes. Check important info.")
                     .font(AppFont.sans(11))
@@ -555,7 +707,7 @@ private struct ContextUsageBadge: View {
                 .padding(.horizontal, 9)
                 .padding(.vertical, 5)
                 .background(Capsule().fill(colors.backgroundChip.opacity(0.6)))
-                .help("Roughly \(viewModel.estimatedUsedTokens) of \(viewModel.contextLimitTokens ?? 0) tokens — estimated from character count, not an exact count")
+                .help("Roughly \(viewModel.estimatedUsedTokens) of \(viewModel.contextLimitTokens ?? 0) tokens, estimated from character count rather than counted exactly")
         }
     }
 }

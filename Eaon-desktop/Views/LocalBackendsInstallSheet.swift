@@ -18,10 +18,11 @@ struct LocalBackendsInstallSheet: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("Local models run entirely on this Mac — no API key, no internet once they're downloaded. Each one needs its own small runner installed first; pick whichever fits what you want to run.")
+                    Text("Local models run entirely on this Mac, with no API key and no internet once they're downloaded. Each one needs its own small runner installed first. Pick whichever fits what you want to run.")
                         .font(AppFont.sans(12))
                         .foregroundColor(colors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
+                        .lineSpacing(3)
 
                     ForEach(LocalBackend.allCases) { backend in
                         backendCard(backend)
@@ -41,7 +42,7 @@ struct LocalBackendsInstallSheet: View {
                 .foregroundColor(colors.textPrimary)
             Spacer()
             Button {
-                manager.detectInstalledBackends()
+                Task { await manager.refreshInstalledBackends(force: true) }
             } label: {
                 HStack(spacing: 5) {
                     Image(systemName: "arrow.clockwise")
@@ -92,6 +93,7 @@ struct LocalBackendsInstallSheet: View {
                             .font(AppFont.sans(11))
                             .foregroundColor(colors.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)
+                            .lineSpacing(3)
                     }
 
                     Spacer(minLength: 8)
@@ -104,6 +106,7 @@ struct LocalBackendsInstallSheet: View {
                         .font(AppFont.sans(11))
                         .foregroundColor(colors.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
+                        .lineSpacing(3)
 
                     HStack(spacing: 8) {
                         Text(backend.installCommand)

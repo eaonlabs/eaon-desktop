@@ -51,7 +51,11 @@ struct SearchPaletteView: View {
     ]
 
     private var conversationResults: [Conversation] {
-        let all = viewModel.sortedConversations
+        // Deliberately unscoped: search is how you find a chat you know
+        // exists, and hiding half the history behind whichever mode happens
+        // to be active would make it fail at exactly that. Picking a result
+        // from the other mode moves you into that mode.
+        let all = viewModel.allConversationsSorted
         guard !query.isEmpty else { return all }
         return all.filter { convo in
             convo.title.lowercased().contains(query)

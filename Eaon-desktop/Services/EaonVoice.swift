@@ -18,6 +18,8 @@ final class EaonVoiceStore {
     private static let engineKey = "eaon_voice_engine"
     private static let kokoroVoiceKey = "eaon_voice_kokoro"
     private static let conversationKey = "eaon_voice_conversation_mode"
+    private static let speechModelKey = "eaon_voice_speech_model"
+    private static let dictationModeKey = "eaon_voice_dictation_mode"
 
     /// The chosen voice's `AVSpeechSynthesisVoice.identifier`. Empty means
     /// "pick the best installed automatically" — the behaviour before this
@@ -31,6 +33,18 @@ final class EaonVoiceStore {
     /// particular sound markedly less robotic a touch slower.
     var rateMultiplier: Double {
         didSet { UserDefaults.standard.set(rateMultiplier, forKey: Self.rateKey) }
+    }
+
+    /// Which speech-to-text model transcribes you. See `SpeechModelChoice`.
+    var speechModelId: String {
+        didSet { UserDefaults.standard.set(speechModelId, forKey: Self.speechModelKey) }
+    }
+
+    var speechModel: SpeechModelChoice { SpeechModelChoice.named(speechModelId) }
+
+    /// Whether the dictation hotkey toggles or is held.
+    var dictationMode: DictationMode {
+        didSet { UserDefaults.standard.set(dictationMode.rawValue, forKey: Self.dictationModeKey) }
     }
 
     /// Which engine speaks. See `EaonSpeechEngine`.
@@ -79,6 +93,8 @@ final class EaonVoiceStore {
         engine = EaonSpeechEngine(rawValue: UserDefaults.standard.string(forKey: Self.engineKey) ?? "") ?? .system
         kokoroVoice = UserDefaults.standard.string(forKey: Self.kokoroVoiceKey) ?? "af_heart"
         conversationMode = UserDefaults.standard.object(forKey: Self.conversationKey) as? Bool ?? false
+        speechModelId = UserDefaults.standard.string(forKey: Self.speechModelKey) ?? SpeechModelChoice.builtIn.id
+        dictationMode = DictationMode(rawValue: UserDefaults.standard.string(forKey: Self.dictationModeKey) ?? "") ?? .toggle
     }
 }
 
@@ -165,6 +181,16 @@ final class EaonVoiceController: NSObject {
     /// because reading that property is itself a microphone request — see
     /// `teardownAudio`.
     @ObservationIgnored private var audioSessionStarted = false
+    /// Set only when a downloaded model is selected: the clip being written
+    /// for it. Apple's recognizer streams and needs no file, so this stays nil
+    /// and nothing is ever written to disk in that mode.
+    @ObservationIgnored private var recordingFile: AVAudioFile?
+    @ObservationIgnored private var recordingURL: URL?
+    @ObservationIgnored private var recordingFrames: AVAudioFrameCount = 0
+    @ObservationIgnored private var recordingFrameCap: AVAudioFrameCount = 0
+    /// True while a downloaded model is transcribing, so the UI can say so
+    /// and a second turn can't pile on top.
+    private(set) var isTranscribing = false
 
     /// True while the session is still waiting for the wake phrase. False the
     /// moment it's heard, so subsequent transcript is treated as the command.
@@ -347,10 +373,34 @@ final class EaonVoiceController: NSObject {
             return
         }
 
+        // With a downloaded model selected, the same buffers are also written
+        // to a clip for it. Apple's recognizer keeps streaming regardless, so
+        // there is always a usable transcript even if the model fails — the
+        // file path is an upgrade, never a single point of failure.
+        var writer: AVAudioFile?
+        if !EaonVoiceStore.shared.speechModel.isBuiltIn {
+            let url = FileManager.default.temporaryDirectory
+                .appendingPathComponent("eaon-dictation-\(UUID().uuidString).wav")
+            writer = try? AVAudioFile(forWriting: url, settings: format.settings)
+            if writer != nil {
+                recordingURL = url
+                recordingFile = writer
+                recordingFrames = 0
+                recordingFrameCap = AVAudioFrameCount(format.sampleRate * LocalSpeechTranscriber.maxRecordingSeconds)
+            }
+        }
+        let frameCap = recordingFrameCap
+
         // Captured directly, NOT through self — this runs on a real-time
         // audio thread and must not hop actors per buffer.
+        let counter = FrameCounter()
         input.installTap(onBus: 0, bufferSize: 1024, format: format) { buffer, _ in
             request.append(buffer)
+            guard let writer else { return }
+            // Hard cap, enforced on the audio thread: a microphone left open
+            // can never grow an unbounded file.
+            guard counter.add(buffer.frameLength) <= frameCap else { return }
+            try? writer.write(from: buffer)
         }
 
         engine.prepare()
@@ -529,6 +579,57 @@ final class EaonVoiceController: NSObject {
         QuickAssistantViewModel.shared.inputText = spoken
         conversationActive = false
         enter(.off)
+
+        // A downloaded model gets the last word. Apple's transcript is already
+        // in the box, so you're never left staring at nothing while the model
+        // runs — it simply gets replaced by the better text when it lands, and
+        // if the model fails you keep what you had.
+        if let clip = takeRecordingURL(), !EaonVoiceStore.shared.speechModel.isBuiltIn {
+            refineWithLocalModel(clip: clip, fallback: spoken)
+        }
+    }
+
+    /// Hands the recorded clip to the selected model and swaps the better
+    /// transcript into the composer. Failures are surfaced but never
+    /// destructive — the built-in transcript stays put.
+    private func refineWithLocalModel(clip: URL, fallback: String) {
+        let model = EaonVoiceStore.shared.speechModel
+        isTranscribing = true
+        QuickAssistantViewModel.shared.composerNotice = "Transcribing with \(model.name)…"
+        Task { [weak self] in
+            defer { try? FileManager.default.removeItem(at: clip) }
+            do {
+                let text = try await LocalSpeechTranscriber.transcribe(audioURL: clip, model: model)
+                await MainActor.run {
+                    guard let self else { return }
+                    self.isTranscribing = false
+                    let vm = QuickAssistantViewModel.shared
+                    // Only replace what dictation itself put there — if you
+                    // started editing while the model ran, your text wins.
+                    if vm.inputText == fallback { vm.inputText = text }
+                    if Self.isVoiceNotice(vm.composerNotice) || vm.composerNotice?.hasPrefix("Transcribing") == true {
+                        vm.composerNotice = nil
+                    }
+                }
+            } catch {
+                await MainActor.run {
+                    guard let self else { return }
+                    self.isTranscribing = false
+                    self.lastError = error.localizedDescription
+                    QuickAssistantViewModel.shared.composerNotice = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    /// Closes the clip file and hands back its URL, clearing the recording
+    /// state. Nil when no downloaded model was selected for this turn.
+    private func takeRecordingURL() -> URL? {
+        let url = recordingURL
+        recordingFile = nil
+        recordingURL = nil
+        recordingFrames = 0
+        return url
     }
 
     /// Release the microphone and every recognition object. Called on every
@@ -1008,7 +1109,7 @@ final class EaonVoiceController: NSObject {
 
     private static func isVoiceNotice(_ notice: String?) -> Bool {
         guard let notice else { return false }
-        return notice.hasPrefix("Listening") || notice.hasPrefix("Say \u{201C}Hey Eaon")
+        return notice.hasPrefix("Listening") || notice.hasPrefix("Say \u{201C}Hey Eaon") || notice.hasPrefix("Transcribing")
     }
 
     // MARK: - Permissions

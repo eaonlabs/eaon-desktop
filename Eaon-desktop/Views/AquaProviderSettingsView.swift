@@ -124,10 +124,11 @@ struct AquaProviderSettingsView: View {
                     .font(AppFont.mono(14, weight: .semibold))
                     .foregroundColor(colors.textPrimary)
 
-                Text("Your key stays on this device — saved locally in the app's own settings, sent only as an authorization header when you send a message.")
+                Text("Your key stays on this device, saved in the app's own settings. It goes out only as an authorization header when you send a message.")
                     .font(AppFont.sans(12))
                     .foregroundColor(colors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineSpacing(3)
 
                 HStack(spacing: 10) {
                     SecureField("Paste your Eaon API key", text: $apiKeyInput)
@@ -226,7 +227,7 @@ struct AquaProviderSettingsView: View {
                 } else if let error = chatViewModel.modelsLoadError {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Could not load models")
-                            .font(AppFont.mono(13, weight: .semibold))
+                            .font(AppFont.mono(14, weight: .semibold))
                             .foregroundColor(colors.textPrimary)
                         Text(error)
                             .font(AppFont.mono(12))
@@ -265,7 +266,7 @@ struct AquaProviderSettingsView: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(model.id)
-                        .font(AppFont.mono(13, weight: .medium))
+                        .font(AppFont.mono(14, weight: .medium))
                         .foregroundColor(colors.textPrimary)
 
                     if ModelCatalog.supportsVision(for: model.id) {
@@ -277,7 +278,7 @@ struct AquaProviderSettingsView: View {
                 }
 
                 Text(rowSubtitle(for: model))
-                    .font(AppFont.mono(11))
+                    .font(AppFont.mono(12))
                     .foregroundColor(modelPrefs.nickname(for: model.id) != nil ? colors.textSecondary : colors.textTertiary)
             }
 
@@ -389,7 +390,7 @@ struct ModelNicknameEditorSheet: View {
                 )
 
             Text("Leave blank to use the default name.")
-                .font(AppFont.mono(11))
+                .font(AppFont.mono(12))
                 .foregroundColor(colors.textTertiary)
 
             HStack {

@@ -30,10 +30,11 @@ struct MemorySettingsView: View {
                 .padding(.top, 28)
                 .padding(.bottom, 8)
 
-            Text("When on, Eaon remembers what you share — who you are, what you're working on, and what's been happening in your life — and brings it into future chats naturally, like talking to someone who knows you. Nothing is extracted or sent anywhere until you turn this on, and you can review or delete anything it remembers, any time.")
+            Text("Eaon can remember what you tell it and use it in later chats, so you don't have to explain yourself twice. Nothing is stored or sent until you turn this on. You can read and delete anything it remembers, whenever you want.")
                 .font(AppFont.sans(12))
                 .foregroundColor(colors.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
+                .lineSpacing(3)
                 .padding(.horizontal, 32)
                 .padding(.bottom, 20)
 
@@ -74,7 +75,7 @@ struct MemorySettingsView: View {
                 pendingFileToLearn = nil
             }
         } message: {
-            Text("Up to the first \(MemoryExtractor.maxFileCharacters / 1000),000 characters of this file's text will be sent to your currently selected model to find things worth remembering. The file itself stays on this Mac, and everything learned appears below for review.")
+            Text("Eaon sends the first \(MemoryExtractor.maxFileCharacters / 1000),000 characters of this file to your selected model. The file stays on this Mac. Everything it finds appears below for review.")
         }
     }
 
@@ -84,10 +85,10 @@ struct MemorySettingsView: View {
                 HStack(spacing: 14) {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("Remember things about you")
-                            .font(AppFont.mono(13, weight: .semibold))
+                            .font(AppFont.mono(14, weight: .semibold))
                             .foregroundColor(colors.textPrimary)
-                        Text(store.isEnabled ? "On — new chats can see what's remembered below." : "Off — nothing is stored or sent.")
-                            .font(AppFont.mono(11))
+                        Text(store.isEnabled ? "On. New chats can see what's remembered below." : "Off. Nothing is stored or sent.")
+                            .font(AppFont.mono(12))
                             .foregroundColor(colors.textTertiary)
                     }
                     Spacer(minLength: 0)
@@ -103,15 +104,16 @@ struct MemorySettingsView: View {
                 HStack(spacing: 14) {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("Automatically learn new things")
-                            .font(AppFont.mono(13, weight: .semibold))
+                            .font(AppFont.mono(14, weight: .semibold))
                             .foregroundColor(store.isEnabled ? colors.textPrimary : colors.textTertiary)
-                        Text("Silently reviews each message you send for facts about you and happenings in your life. Off just stops new memories from being added — what's already remembered keeps working, and \"Learn from your existing chats\" below still runs whenever you ask it to.")
-                            .font(AppFont.sans(11))
+                        Text("Checks each message you send for anything worth keeping. Turning this off only stops new memories. What's already saved still works, and \"Learn from your existing chats\" below still runs when you ask it to.")
+                            .font(AppFont.sans(12.5))
                             .foregroundColor(colors.textTertiary)
                             .fixedSize(horizontal: false, vertical: true)
+                            .lineSpacing(3)
                         if store.isEnabled, store.isAutoLearnEnabled, let summary = store.lastAutoLearnSummary {
                             Text(summary)
-                                .font(AppFont.mono(11))
+                                .font(AppFont.mono(12))
                                 .foregroundColor(colors.textSecondary)
                                 .padding(.top, 2)
                         }
@@ -131,12 +133,13 @@ struct MemorySettingsView: View {
                 HStack(spacing: 14) {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("Also learn from connected plugins")
-                            .font(AppFont.mono(13, weight: .semibold))
+                            .font(AppFont.mono(14, weight: .semibold))
                             .foregroundColor(store.isEnabled ? colors.textPrimary : colors.textTertiary)
-                        Text("When a chat uses a connected service (your calendar, issues, documents…), what it returned can be remembered too. Off — the default — means memory only ever considers what you and the model wrote, never plugin results.")
-                            .font(AppFont.sans(11))
+                        Text("When a chat uses a connected service like your calendar or issue tracker, what came back can be remembered too. Off by default, so memory only looks at what you and the model wrote.")
+                            .font(AppFont.sans(12.5))
                             .foregroundColor(colors.textTertiary)
                             .fixedSize(horizontal: false, vertical: true)
+                            .lineSpacing(3)
                     }
                     Spacer(minLength: 0)
                     Toggle("", isOn: $store.isPluginLearnEnabled)
@@ -164,12 +167,13 @@ struct MemorySettingsView: View {
                     HStack(spacing: 14) {
                         VStack(alignment: .leading, spacing: 3) {
                             Text("Learn from a file on this Mac")
-                                .font(AppFont.mono(13, weight: .semibold))
+                                .font(AppFont.mono(14, weight: .semibold))
                                 .foregroundColor(colors.textPrimary)
-                            Text("Pick a text file (notes, a journal, a bio…) and Eaon extracts things worth remembering from it. Only the file you pick is read, only after you confirm, and everything learned shows up below for review.")
-                                .font(AppFont.sans(11))
+                            Text("Pick a text file such as notes or a journal, and Eaon pulls out anything worth remembering. It reads only that file, only after you confirm. Everything it finds appears below.")
+                                .font(AppFont.sans(12.5))
                                 .foregroundColor(colors.textTertiary)
                                 .fixedSize(horizontal: false, vertical: true)
+                                .lineSpacing(3)
                         }
                         Spacer(minLength: 0)
                         if chatViewModel.isLearningFromFile {
@@ -208,12 +212,13 @@ struct MemorySettingsView: View {
                     HStack(spacing: 14) {
                         VStack(alignment: .leading, spacing: 3) {
                             Text("Learn from your existing chats")
-                                .font(AppFont.mono(13, weight: .semibold))
+                                .font(AppFont.mono(14, weight: .semibold))
                                 .foregroundColor(colors.textPrimary)
-                            Text("Reviews every saved chat for durable facts, using whichever model is currently selected. One request per chat — may take a while and use real API calls.")
-                                .font(AppFont.sans(11))
+                            Text("Goes back through every saved chat looking for facts worth keeping, using the model you have selected. That's one request per chat, so it can take a while and costs real API calls.")
+                                .font(AppFont.sans(12.5))
                                 .foregroundColor(colors.textTertiary)
                                 .fixedSize(horizontal: false, vertical: true)
+                                .lineSpacing(3)
                         }
                         Spacer(minLength: 0)
                         if chatViewModel.isBackfillingMemory {
@@ -231,13 +236,13 @@ struct MemorySettingsView: View {
                             ProgressView().controlSize(.small)
                             if let status = chatViewModel.memoryBackfillStatus {
                                 Text(status)
-                                    .font(AppFont.mono(11))
+                                    .font(AppFont.mono(12))
                                     .foregroundColor(colors.textSecondary)
                             }
                         }
                     } else if let status = chatViewModel.memoryBackfillStatus {
                         Text(status)
-                            .font(AppFont.mono(11))
+                            .font(AppFont.mono(12))
                             .foregroundColor(colors.textSecondary)
                     }
                 }
@@ -256,12 +261,13 @@ struct MemorySettingsView: View {
             HStack(spacing: 14) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Import from another AI")
-                        .font(AppFont.mono(13, weight: .semibold))
+                        .font(AppFont.mono(14, weight: .semibold))
                         .foregroundColor(colors.textPrimary)
-                    Text("Bring over what ChatGPT, Claude, or Gemini already remembers about you — copy your memory list there, paste it here, and everything imported appears below.")
-                        .font(AppFont.sans(11))
+                    Text("Already told ChatGPT or Claude about yourself? Copy your memory list from there and paste it here. Everything imported appears below.")
+                        .font(AppFont.sans(12.5))
                         .foregroundColor(colors.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
+                        .lineSpacing(3)
                 }
                 Spacer(minLength: 0)
                 Button("Import…") { showingImportSheet = true }
@@ -347,6 +353,7 @@ struct MemorySettingsView: View {
                     .font(AppFont.sans(13))
                     .foregroundColor(colors.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineSpacing(3)
                 // Events show when they were mentioned — that date is what
                 // makes "how did Friday's final go?" possible, so it's
                 // worth surfacing to the user too. Facts stay undated:
@@ -421,7 +428,7 @@ private struct ImportMemorySheet: View {
             case .gemini:
                 return "On gemini.google.com: Settings → Saved info, and copy the list. Or ask Gemini to list everything it's saved about you."
             case .other:
-                return "Paste any list of facts about you — one per line works best."
+                return "Paste any list of facts about you. One per line works best."
             }
         }
     }
@@ -445,9 +452,10 @@ private struct ImportMemorySheet: View {
             .labelsHidden()
 
             Text(source.guidance)
-                .font(AppFont.sans(11))
+                .font(AppFont.sans(12.5))
                 .foregroundColor(colors.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
+                .lineSpacing(3)
 
             TextEditor(text: $pasted)
                 .font(AppFont.sans(12.5))
@@ -474,12 +482,13 @@ private struct ImportMemorySheet: View {
 
             if let resultMessage {
                 Text(resultMessage)
-                    .font(AppFont.mono(11))
+                    .font(AppFont.mono(12))
                     .foregroundColor(colors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineSpacing(3)
             } else if !candidates.isEmpty {
                 Text("Found \(candidates.count) item\(candidates.count == 1 ? "" : "s") to import.")
-                    .font(AppFont.mono(11))
+                    .font(AppFont.mono(12))
                     .foregroundColor(colors.textSecondary)
             }
 
@@ -487,7 +496,7 @@ private struct ImportMemorySheet: View {
                 Spacer()
                 Button(resultMessage == nil ? "Cancel" : "Done") { dismiss() }
                     .buttonStyle(.plain)
-                    .font(AppFont.mono(13, weight: .medium))
+                    .font(AppFont.mono(14, weight: .medium))
                     .foregroundColor(colors.textSecondary)
                 if resultMessage == nil {
                     AccentButton(title: "Import", isDisabled: candidates.isEmpty) {

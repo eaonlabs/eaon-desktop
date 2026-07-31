@@ -88,7 +88,7 @@ const CLOSING_COPY: Record<LinkOutcome, { text: string; color: string }> = {
 
 /** Slow, deliberate pulse (not a fast blink) — signals "this is waiting on
  * you" the way a terminal cursor does, without reading as decoration.
- * Local interval, isolated re-render, same pattern as ThinkingIndicator. */
+ * Local interval, isolated re-render — same pattern as GenerationStatus. */
 function PulsingPrompt({ text }: { text: string }): React.ReactElement {
   const [dim, setDim] = useState(false);
   useEffect(() => {

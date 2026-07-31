@@ -20,7 +20,7 @@ import Foundation
 /// Settings (`DesktopControlStore.isEnabled`, formerly Claw's own enable
 /// gate) that widens its tool set from just coding to the full device
 /// catalog when the user turns it on.
-enum EaonMode: String, CaseIterable, Identifiable {
+enum EaonMode: String, CaseIterable, Codable, Identifiable {
     /// Plain conversation. Web search and connected plugins still apply if
     /// the user turned them on, but no code execution and no device control.
     case chat
@@ -55,6 +55,14 @@ enum EaonMode: String, CaseIterable, Identifiable {
     /// has to change.
     static let switcherCases: [EaonMode] = [.chat, .agent]
 
+    /// Which history list a conversation belongs to. Chat and Work each keep
+    /// their own; Code has no chat history of its own — it's a terminal, not
+    /// a conversation surface — so it borrows Chat's rather than showing an
+    /// empty sidebar or a list it can't add to.
+    var conversationScope: EaonMode {
+        self == .agent ? .agent : .chat
+    }
+
     /// Full label for the sidebar row.
     var title: String {
         switch self {
@@ -76,7 +84,7 @@ enum EaonMode: String, CaseIterable, Identifiable {
     var blurb: String {
         switch self {
         case .chat: return "Just talk — ask anything."
-        case .agent: return "Build, run, and debug real code — and, with device control on, organize files, research, and get real tasks done on your Mac."
+        case .agent: return "Build, run, and debug real code — and with device control on, get real tasks done on your Mac."
         case .code: return "A real terminal running Eaon's CLI agent — for git, test runners, and anything else a chat bubble doesn't fit."
         }
     }

@@ -12,6 +12,21 @@ enum MemoryKind: String, Codable {
     case event
 }
 
+/// Where a memory came from.
+///
+/// Worth recording because the two arrive under different guarantees. A
+/// local memory was written by this app, on this machine, through
+/// `addExtracted`'s filters. A cloud one was written by *some* build of
+/// Eaon on *some* machine — possibly an older one whose filters were
+/// weaker, possibly one whose sync blob was tampered with in the gap
+/// between "encrypted with the user's key" and "trusted enough to put in a
+/// prompt". Same store, different provenance, and provenance is what lets
+/// the prompt layer treat them differently without guessing.
+enum MemorySource: String, Codable {
+    case local
+    case cloud
+}
+
 struct MemoryItem: Identifiable, Codable, Equatable {
     let id: UUID
     var text: String
@@ -22,13 +37,30 @@ struct MemoryItem: Identifiable, Codable, Equatable {
     /// documents from experience). Read through `resolvedKind`.
     var kind: MemoryKind?
 
-    var resolvedKind: MemoryKind { kind ?? .fact }
+    /// Optional for exactly the same decode-safety reason as `kind` above:
+    /// a non-optional with a default would make every memory saved before
+    /// this field existed fail to decode, and the decode site reads a throw
+    /// as "no memories" — the whole store gone, silently, on next launch.
+    /// Read through `resolvedSource`.
+    var source: MemorySource?
 
-    init(id: UUID = UUID(), text: String, createdAt: Date = Date(), kind: MemoryKind = .fact) {
+    var resolvedKind: MemoryKind { kind ?? .fact }
+    /// Anything stored before provenance existed was written by this app on
+    /// this machine, so `.local` is the truthful default, not a guess.
+    var resolvedSource: MemorySource { source ?? .local }
+
+    init(
+        id: UUID = UUID(),
+        text: String,
+        createdAt: Date = Date(),
+        kind: MemoryKind = .fact,
+        source: MemorySource = .local
+    ) {
         self.id = id
         self.text = text
         self.createdAt = createdAt
         self.kind = kind
+        self.source = source
     }
 }
 
@@ -295,8 +327,23 @@ final class MemoryStore {
 
         let facts = relevantFacts(to: userText)
         let windowStart = now.addingTimeInterval(-TimeInterval(Self.eventPromptWindowDays) * 86_400)
+        // Facts already have to earn their place by relating to what was
+        // just said (see `relevantFacts`). Events deliberately don't —
+        // being brought up unprompted is the point of "how did the exam
+        // go?" — but that ambient pass is granted to memories THIS app
+        // wrote on THIS machine. A cloud-sourced event would otherwise ride
+        // into every prompt for a fortnight on the strength of having
+        // appeared in a synced blob, which is the one place text arrives
+        // without this app having watched it being written. Cloud events
+        // are welcome; they just have to be relevant, like a fact.
+        let relevantCloudEventIds = Set(
+            relevantItems(to: userText, among: memories.filter {
+                $0.resolvedKind == .event && $0.resolvedSource == .cloud
+            }).map(\.id)
+        )
         let events = memories
             .filter { $0.resolvedKind == .event && $0.createdAt >= windowStart && $0.createdAt <= now }
+            .filter { $0.resolvedSource == .local || relevantCloudEventIds.contains($0.id) }
             .sorted { $0.createdAt > $1.createdAt }
             .prefix(Self.maxPromptEvents)
 
@@ -343,7 +390,20 @@ final class MemoryStore {
     /// own. Explicit product decision, not an oversight: a fact only ever
     /// rides along when there's a real question about it.
     private func relevantFacts(to userText: String) -> [MemoryItem] {
-        let allFacts = memories.filter { $0.resolvedKind == .fact }
+        relevantItems(to: userText, among: memories.filter { $0.resolvedKind == .fact })
+    }
+
+    /// The same relevance scoring, over whatever set of memories is handed
+    /// to it. Extracted from `relevantFacts` so cloud-sourced EVENTS can be
+    /// held to the identical bar without a second, subtly-different copy of
+    /// the ranking — two implementations of "is this relevant" would drift,
+    /// and the one guarding untrusted input is the wrong one to let drift.
+    ///
+    /// Scoring is scoped to `candidates`: document frequency is computed
+    /// over the set being ranked, so "distinctive" means distinctive among
+    /// the things actually competing for the slot.
+    private func relevantItems(to userText: String, among candidates: [MemoryItem]) -> [MemoryItem] {
+        let allFacts = candidates
         guard !allFacts.isEmpty else { return [] }
         // Expanded with a small, hand-picked synonym table before scoring —
         // plain overlap has ZERO shared words between "what's my age" and a
@@ -466,15 +526,65 @@ final class MemoryStore {
     /// and for the same reason — an import should only ever be able to ADD
     /// what you know about yourself, never quietly forget some of it because
     /// another machine happened to sync first.
+    ///
+    /// ## Why the local filters run here too
+    ///
+    /// This used to be the id-union alone, which quietly made the cloud a
+    /// way *around* every gate `addExtracted` applies. A fact written by an
+    /// older build whose junk filter didn't exist yet, or by a device whose
+    /// blob was altered between "encrypted with the user's key" and "read
+    /// back", arrived here unexamined and went straight into prompts. The
+    /// filters aren't there because local extraction is untrustworthy and
+    /// sync is; they're there because the store has to stay short, clean,
+    /// and about a person. That's true no matter which machine wrote the
+    /// line.
+    ///
+    /// The id union stays the OUTER filter, and ids and timestamps are
+    /// carried through untouched. Rebuilding items here would mint fresh
+    /// UUIDs, and since sync re-runs on a timer, every import would re-add
+    /// the entire store forever.
     @discardableResult
-    func mergeFromCloud(_ incoming: [MemoryItem]) -> Int {
-        let known = Set(memories.map(\.id))
-        let fresh = incoming.filter { !known.contains($0.id) }
-        guard !fresh.isEmpty else { return 0 }
-        memories.append(contentsOf: fresh)
+    func mergeFromCloud(_ incoming: [MemoryItem]) -> ImportOutcome {
+        var outcome = ImportOutcome()
+        var known = Set(memories.map(\.id))
+
+        for item in incoming {
+            // Treat an id as consumed as soon as it appears in this payload,
+            // even if that candidate is later filtered. Otherwise a malformed
+            // blob can repeat one id with different text and append multiple
+            // local rows carrying the same identity in a single merge.
+            guard known.insert(item.id).inserted else { continue }
+            guard memories.count < Self.maxMemories else {
+                outcome.skippedOverCap += 1
+                continue
+            }
+            let trimmed = item.text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                outcome.skippedFiltered += 1
+                continue
+            }
+            guard !isDuplicate(of: trimmed) else {
+                outcome.skippedDuplicates += 1
+                continue
+            }
+            guard Self.isLikelyUsefulMemory(trimmed) else {
+                outcome.skippedFiltered += 1
+                continue
+            }
+
+            // Mutated, not rebuilt — `id` and `createdAt` survive, which is
+            // what keeps the union idempotent across repeated syncs.
+            var stored = item
+            stored.text = trimmed
+            stored.source = .cloud
+            memories.append(stored)
+            outcome.added += 1
+        }
+
+        guard outcome.added > 0 else { return outcome }
         memories.sort { $0.createdAt > $1.createdAt }
         persist()
-        return fresh.count
+        return outcome
     }
 
     private func persist() {

@@ -593,7 +593,7 @@ struct FileDiffCard: View {
                 }
                 .padding(10)
             } else {
-                Text("Couldn't preview this edit — see the tool result below.")
+                Text("Couldn't preview this edit. See the tool result below.")
                     .font(AppFont.mono(11))
                     .foregroundStyle(colors.textTertiary)
                     .padding(10)
@@ -724,38 +724,66 @@ struct ThinkingIndicator: View {
     var statusText: String? = nil
 
     var body: some View {
-        HStack(spacing: 8) {
+        // .top rather than centred: once a long status wraps to two lines,
+        // a centred dot floats in the middle of the block instead of sitting
+        // beside the first line where it reads as a bullet.
+        HStack(alignment: .top, spacing: 8) {
             Circle()
                 .fill(colors.textPrimary)
                 .frame(width: 9, height: 9)
                 .opacity(pulse ? 0.25 : 0.9)
                 .scaleEffect(pulse ? 0.85 : 1.0)
                 .animation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true), value: pulse)
+                // Keeps the dot optically aligned with the cap-height of the
+                // first line rather than its very top.
+                .padding(.top, 4)
 
             if let statusText {
                 WaveText(text: statusText, font: AppFont.mono(13), color: colors.textSecondary)
             }
+            // Lets the label take the width it needs and wrap, instead of the
+            // row sizing to its content and overflowing the message column.
+            Spacer(minLength: 0)
         }
         .padding(.vertical, 4)
         .onAppear { pulse = true }
     }
 }
 
-/// Each letter bobs up and down in a small rolling wave, staggered so
-/// neighboring letters are out of phase — a Stagger of a Float, in
-/// animation-vocabulary terms; there's no single named term for the
-/// combination. This is one of the few places continuous motion is
-/// actually the point rather than something to restrain: it exists to
-/// keep saying "still working" for as long as it's on screen, so unlike
-/// a button press or a dropdown, looping indefinitely is correct here.
-/// Amplitude and speed stay deliberately small regardless, since this
-/// runs constantly, every generation, all day — the more often
-/// something is seen, the subtler it should be.
+/// The status label beside the pulsing dot.
+///
+/// Short labels ("Thinking", "Searching the web") keep the per-letter wave —
+/// a Stagger of a Float, in animation-vocabulary terms. Continuous motion is
+/// genuinely the point here: it exists to keep saying "still working" for as
+/// long as it's on screen, so looping indefinitely is correct, unlike a
+/// button press. Amplitude and speed stay small because this runs constantly,
+/// every generation, all day.
+///
+/// Anything longer renders as ONE plain `Text`. The wave lays each character
+/// out as its own view in an `HStack`, and that only works for a short label:
+///
+///   - an HStack cannot wrap, so a long status runs straight off the edge of
+///     the message column instead of flowing onto a second line;
+///   - per-character views can't kern against each other, so spacing goes
+///     visibly uneven — the "letters are all different sizes" look;
+///   - a 44-character status becomes 44 concurrently repeating animations,
+///     and at 0.045s of stagger per character the wave takes 2 full seconds
+///     to travel, so distant parts of one sentence sit at opposite offsets
+///     at the same moment.
+///
+/// Agent Swarm made this visible by introducing genuinely long statuses
+/// ("Swarm — round 2: Security Reviewer is weighing in…"). The threshold
+/// keeps the effect exactly where it was designed to work.
 private struct WaveText: View {
     let text: String
     let font: Font
     let color: Color
     @State private var animate = false
+
+    /// Longest label that still lays out on one line in the message column,
+    /// and short enough that the wave reads as one travelling motion rather
+    /// than several unrelated ones.
+    private static let maxWavedCharacters = 22
 
     /// Emil's "strong ease-in-out" cubic-bezier (0.77, 0, 0.175, 1) rather
     /// than the built-in easeInOut, which reads flat next to a curve with
@@ -765,19 +793,32 @@ private struct WaveText: View {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            ForEach(Array(text.enumerated()), id: \.offset) { index, character in
-                Text(String(character))
-                    .font(font)
-                    .foregroundStyle(color)
-                    .offset(y: animate ? -2 : 1.5)
-                    .animation(
-                        waveCurve.repeatForever(autoreverses: true).delay(Double(index) * 0.045),
-                        value: animate
-                    )
+        if text.count <= Self.maxWavedCharacters {
+            HStack(spacing: 0) {
+                ForEach(Array(text.enumerated()), id: \.offset) { index, character in
+                    Text(String(character))
+                        .font(font)
+                        .foregroundStyle(color)
+                        .offset(y: animate ? -2 : 1.5)
+                        .animation(
+                            waveCurve.repeatForever(autoreverses: true).delay(Double(index) * 0.045),
+                            value: animate
+                        )
+                }
             }
+            .onAppear { animate = true }
+        } else {
+            // One Text: correct kerning, wraps, and a single gentle breath
+            // instead of dozens of competing per-letter animations. The
+            // pulsing dot beside it already carries "still working".
+            Text(text)
+                .font(font)
+                .foregroundStyle(color)
+                .fixedSize(horizontal: false, vertical: true)
+                .opacity(animate ? 0.55 : 1.0)
+                .animation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true), value: animate)
+                .onAppear { animate = true }
         }
-        .onAppear { animate = true }
     }
 }
 

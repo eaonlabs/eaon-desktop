@@ -34,6 +34,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // clicks the pet to talk. With voice off (the default) this does
         // nothing at all.
         MainActor.assumeIsolated { EaonVoiceController.shared.applyEnabledState(mayPrompt: false) }
+        // Local, loopback-only listener the browser extension pairs with —
+        // only when Device Control is already switched on.
+        MainActor.assumeIsolated {
+            if DesktopControlStore.shared.isEnabled { BrowserBridge.shared.start() }
+        }
         // Re-open the sync vault from the stored code. Without this a
         // signed-in user comes back to a permanently "Locked" sync page with
         // no control that unlocks it — the code was already accepted, so
@@ -71,6 +76,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Task { @MainActor in
             LocalAPIServer.shared.applySettings()
         }
+    }
+
+    /// Ends anything the coding agent left running in the background.
+    ///
+    /// A dev server the agent started is the session's, not the machine's:
+    /// without this, quitting Eaon leaves `npm run dev` holding port 3000
+    /// with no window anywhere to explain why, and the user has to go
+    /// hunting in Activity Monitor for a process they never started
+    /// themselves.
+    func applicationWillTerminate(_ notification: Notification) {
+        BackgroundJobs.shared.stopAll()
     }
 
     func applicationDidBecomeActive(_ notification: Notification) {

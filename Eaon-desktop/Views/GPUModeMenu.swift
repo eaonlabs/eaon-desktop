@@ -55,7 +55,7 @@ struct LlamaRunSettingsMenu: View {
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
-        .help("Performance settings — context window (\(contextSize.label)), run on \(gpuMode.label), Flash Attention \(flashMode.label). Changes apply on the next message.")
+        .help("Performance settings. Context window (\(contextSize.label)), run on \(gpuMode.label), Flash Attention \(flashMode.label). Changes apply on the next message.")
     }
 
     @ViewBuilder

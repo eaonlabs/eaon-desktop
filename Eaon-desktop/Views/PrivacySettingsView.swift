@@ -45,7 +45,7 @@ struct PrivacySettingsView: View {
             }
             Button("Cancel", role: .cancel) {}
         } message: {
-            Text("This removes every conversation and project on this Mac. It can't be undone — export first if you want a copy.")
+            Text("This removes every conversation and project on this Mac. It can't be undone, so export first if you want a copy.")
         }
     }
 
@@ -81,7 +81,7 @@ struct PrivacySettingsView: View {
                 dataActionRow(
                     icon: "square.and.arrow.down",
                     title: "Import chats",
-                    detail: "Adds chats from a previously-exported file — never overwrites what's already here.",
+                    detail: "Adds chats from a file you exported earlier. It never overwrites what's already here.",
                     buttonTitle: "Import…"
                 ) { importData() }
 
@@ -115,12 +115,13 @@ struct PrivacySettingsView: View {
                 .padding(.top, 2)
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
-                    .font(AppFont.mono(13, weight: .semibold))
+                    .font(AppFont.mono(14, weight: .semibold))
                     .foregroundColor(colors.textPrimary)
                 Text(detail)
                     .font(AppFont.sans(12))
                     .foregroundColor(colors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineSpacing(3)
             }
             Spacer(minLength: 12)
             Button(action: action) {
@@ -154,7 +155,7 @@ struct PrivacySettingsView: View {
         let count = chatViewModel.importConversations(from: data)
         importResultMessage = count > 0
             ? "Imported \(count) chat\(count == 1 ? "" : "s")."
-            : "Nothing new to import — those chats are already here."
+            : "Nothing new to import. Those chats are already here."
     }
 
     private var dataCard: some View {
@@ -169,13 +170,13 @@ struct PrivacySettingsView: View {
                 privacyRow(
                     icon: "paperplane.fill",
                     title: "Messages & attachments",
-                    detail: "Sent to whichever provider generates the response — any API provider, or a local model on this Mac."
+                    detail: "Sent to whichever provider generates the response, whether that's an API provider or a local model on this Mac."
                 )
                 Divider().overlay(colors.borderSubtle)
                 privacyRow(
                     icon: "magnifyingglass",
                     title: "Web search",
-                    detail: "When a reply searches the web, that query goes to MIKLIUM (miklium.vercel.app) — a free, independent search API, not Eaon and not any account. Off switch below."
+                    detail: "When a reply searches the web, that query goes to MIKLIUM (miklium.vercel.app), a free independent search API. It isn't Eaon and isn't tied to any account. You can switch it off below."
                 )
                 Divider().overlay(colors.borderSubtle)
                 privacyRow(
@@ -200,14 +201,15 @@ struct PrivacySettingsView: View {
                     .padding(.top, 2)
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Always allow tool calls")
-                        .font(AppFont.mono(13, weight: .semibold))
+                        .font(AppFont.mono(14, weight: .semibold))
                         .foregroundColor(colors.textPrimary)
                     Text(alwaysAllowStore.isEnabled
-                        ? "On — code execution and connected plugins (MCP) run without asking each time. Desktop Control always asks, regardless of this setting — it can move your mouse and type on your behalf."
+                        ? "On. Code execution and connected plugins run without asking each time. Desktop Control still asks every time no matter what this is set to, since it can move your mouse and type for you."
                         : "Off — the model asks before running code (once per chat) and before every plugin tool call.")
                         .font(AppFont.sans(12))
                         .foregroundColor(colors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
+                        .lineSpacing(3)
                 }
                 Spacer(minLength: 12)
                 Toggle("", isOn: $alwaysAllowStore.isEnabled)
@@ -231,7 +233,7 @@ struct PrivacySettingsView: View {
                     .padding(.top, 2)
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Let models search the web")
-                        .font(AppFont.mono(13, weight: .semibold))
+                        .font(AppFont.mono(14, weight: .semibold))
                         .foregroundColor(colors.textPrimary)
                     Text(webSearchStore.isEnabled
                         ? "On — models can search for time-sensitive or current information. See \"Web search\" above for where those queries go."
@@ -239,6 +241,7 @@ struct PrivacySettingsView: View {
                         .font(AppFont.sans(12))
                         .foregroundColor(colors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
+                        .lineSpacing(3)
                 }
                 Spacer(minLength: 12)
                 Toggle("", isOn: $webSearchStore.isEnabled)
@@ -258,12 +261,13 @@ struct PrivacySettingsView: View {
                 .frame(width: 18)
             VStack(alignment: .leading, spacing: 3) {
                 Text(title)
-                    .font(AppFont.mono(13, weight: .semibold))
+                    .font(AppFont.mono(14, weight: .semibold))
                     .foregroundColor(colors.textPrimary)
                 Text(detail)
                     .font(AppFont.sans(12))
                     .foregroundColor(colors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineSpacing(3)
             }
         }
     }

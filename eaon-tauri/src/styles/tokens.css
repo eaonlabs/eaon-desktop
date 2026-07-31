@@ -88,17 +88,17 @@
 :root[data-theme="dark"] {
   color-scheme: dark;
   --stage: #121212;
-  --sidebar: #101010;
-  --elevated: #242424;
-  --input: #242424;
-  --input-secondary: #2e2e2e;
-  --chip: #2e2e2e;
+  --sidebar: #131313;
+  --elevated: #161616;
+  --input: #1c1c1c;
+  --input-secondary: #262626;
+  --chip: #1c1c1c;
   --code-bg: #0a0a0a;
-  --code-header: #202020;
+  --code-header: #1c1c1c;
   --text: #ececec;
   --text-secondary: #b4b4b4;
   --text-muted: #8e8e9c;
-  --user-bubble: #242424;
+  --user-bubble: #1c1c1c;
   --destructive: #ff6467;
   --link: #5b9bff;
   --diff-add: #3fb950;

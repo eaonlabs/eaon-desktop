@@ -76,7 +76,7 @@ struct UpdateBanner: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help("Not now — you can update later from Settings → General")
+                .help("Not now. You can update later from Settings → General")
             }
         }
     }

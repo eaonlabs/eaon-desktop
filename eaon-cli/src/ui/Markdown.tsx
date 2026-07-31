@@ -158,7 +158,12 @@ function CodeBlock({ lang, lines, skipHighlight }: { lang?: string; lines: strin
   }, [code, lang, skipHighlight]);
   const rendered = highlighted.split("\n");
   return (
-    <Box flexDirection="column" borderStyle="round" borderColor={theme.border} paddingX={1}>
+    <Box flexDirection="column" borderStyle="round" borderColor={theme.border} paddingX={1} marginY={0}>
+      {lang ? (
+        <Text color={theme.muted} dimColor>
+          {lang}
+        </Text>
+      ) : null}
       {rendered.map((line, idx) => (
         <Text key={idx}>{line.length > 0 ? line : " "}</Text>
       ))}
@@ -179,7 +184,7 @@ export function Markdown({ text, streaming = false }: { text: string; streaming?
             return (
               <Box key={key}>
                 <Text bold color={block.level === 1 ? theme.accent : theme.assistant}>
-                  {"#".repeat(block.level ?? 1)} {block.text}
+                  {block.text}
                 </Text>
               </Box>
             );

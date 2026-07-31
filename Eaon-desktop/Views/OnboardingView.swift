@@ -126,11 +126,12 @@ struct OnboardingView: View {
             Text("Welcome to Eaon")
                 .font(AppFont.mono(26, weight: .bold))
                 .foregroundStyle(colors.textPrimary)
-            Text("A chat client that isn't locked into one provider. Use Eaon's hosted models, bring your own API key, or download open models and run them entirely offline on this Mac — same app, same conversations, either way.")
+            Text("A chat client that isn't locked into one provider. Use Eaon's hosted models, bring your own API key, or download open models and run them entirely offline on this Mac. Same app, same conversations, either way.")
                 .font(AppFont.sans(14))
                 .foregroundStyle(colors.textSecondary)
                 .lineSpacing(3)
                 .fixedSize(horizontal: false, vertical: true)
+                .lineSpacing(3)
         }
     }
 
@@ -148,10 +149,11 @@ struct OnboardingView: View {
                 }
             }
 
-            Text("Image generation is available from the model picker in any mode — it isn't a separate mode of its own.")
+            Text("Image generation is available from the model picker in any mode. It isn't a separate mode of its own.")
                 .font(AppFont.sans(12))
                 .foregroundStyle(colors.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
+                .lineSpacing(3)
         }
     }
 
@@ -189,7 +191,7 @@ struct OnboardingView: View {
             Text("Pick how models run")
                 .font(AppFont.mono(20, weight: .bold))
                 .foregroundStyle(colors.textPrimary)
-            Text("Either works fully — switch or add the other anytime in Settings.")
+            Text("Either works fully. Switch or add the other anytime in Settings.")
                 .font(AppFont.sans(13))
                 .foregroundStyle(colors.textSecondary)
 
@@ -208,7 +210,7 @@ struct OnboardingView: View {
             getStartedOption(
                 icon: "cpu",
                 title: "Run models on this Mac",
-                description: "Download an open model and chat with it fully offline — private, free, no key needed.",
+                description: "Download an open model and chat with it fully offline. Private, free, no key needed.",
                 action: onOpenModels
             )
             getStartedOption(
@@ -232,7 +234,7 @@ struct OnboardingView: View {
         if let error = TrialStore.shared.lastError {
             return error
         }
-        return "7 days of hosted models, on the house — one click, no account, no card."
+        return "7 days of hosted models, on the house. One click, no account, no card."
     }
 
     private func getStartedOption(icon: String, title: String, description: String, action: @escaping () -> Void) -> some View {
@@ -255,6 +257,7 @@ struct OnboardingView: View {
                         .font(AppFont.sans(12))
                         .foregroundStyle(colors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
+                        .lineSpacing(3)
                 }
                 Spacer(minLength: 0)
                 Image(systemName: "chevron.right")

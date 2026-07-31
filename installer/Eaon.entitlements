@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Deliberately short. Notarization requires the hardened runtime, and
+	     the hardened runtime blocks a handful of things by default; each
+	     entitlement below re-opens exactly one of them, and nothing is here
+	     "just in case" — every extra entitlement is a real weakening of the
+	     runtime and Apple reviews the list.
+
+	     Notably absent, because Eaon does not need them: JIT and
+	     unsigned-executable-memory (all inference runs out-of-process —
+	     Ollama, llama.cpp and MLX are spawned as separate programs, never
+	     loaded into this one), and disable-library-validation (nothing
+	     third-party is loaded in-process either). If a future change links
+	     inference in directly, that's when those get revisited. -->
+
+	<!-- DesktopControl and BrowserControl drive other apps with Apple
+	     Events. Without this the hardened runtime rejects every event
+	     before macOS even shows the user the automation consent prompt. -->
+	<key>com.apple.security.automation.apple-events</key>
+	<true/>
+
+	<!-- EaonVoice listens through the microphone. Transcription itself is
+	     on-device (requiresOnDeviceRecognition), so there is no network
+	     entitlement to pair with this. -->
+	<key>com.apple.security.device.audio-input</key>
+	<true/>
+</dict>
+</plist>

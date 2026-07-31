@@ -21,10 +21,11 @@ struct ImageProvidersSettingsView: View {
                 .padding(.top, 28)
                 .padding(.bottom, 8)
 
-            Text("Eaon's own hosted image models (nanobanana, GPT Image, Ideogram, and others) already work with no setup — they show up in the model picker's Image Generation section automatically. Add a connection here only for your own cloud image API key, or a Stable Diffusion server already running on this Mac.")
+            Text("Eaon's own hosted image models (nanobanana, GPT Image, Ideogram, and others) work with no setup. They show up in the model picker's Image Generation section on their own. Add a connection here only for your own cloud image API key, or for a Stable Diffusion server already running on this Mac.")
                 .font(AppFont.sans(12))
                 .foregroundColor(colors.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
+                .lineSpacing(3)
                 .padding(.horizontal, 32)
                 .padding(.bottom, 20)
 
@@ -75,7 +76,7 @@ struct ImageProvidersSettingsView: View {
                     .foregroundColor(AppearanceSettings.shared.accentColor)
                     .iconHoverEffect(for: "plus.circle.fill")
                 Text("Add an image connection")
-                    .font(AppFont.mono(13, weight: .medium))
+                    .font(AppFont.mono(14, weight: .medium))
                     .foregroundColor(colors.textPrimary)
                 Spacer()
             }
@@ -99,10 +100,10 @@ struct ImageProvidersSettingsView: View {
 
                 VStack(alignment: .leading, spacing: 3) {
                     Text(config.displayName)
-                        .font(AppFont.mono(13, weight: .semibold))
+                        .font(AppFont.mono(14, weight: .semibold))
                         .foregroundColor(colors.textPrimary)
                     Text("\(config.format.displayName) · \(config.trimmedModelIDs.count) model\(config.trimmedModelIDs.count == 1 ? "" : "s") · \(config.baseURL)")
-                        .font(AppFont.mono(11))
+                        .font(AppFont.mono(12))
                         .foregroundColor(colors.textTertiary)
                         .lineLimit(1)
                 }
@@ -185,9 +186,10 @@ private struct ImageProviderEditorSheet: View {
             .labelsHidden()
 
             Text(format.helpText)
-                .font(AppFont.sans(11))
+                .font(AppFont.sans(12.5))
                 .foregroundColor(colors.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
+                .lineSpacing(3)
 
             field("Name", text: $displayName, placeholder: format == .automatic1111 ? "My Stable Diffusion Server" : "My OpenAI Key")
             field("Base URL", text: $baseURL, placeholder: format == .automatic1111 ? "http://127.0.0.1:7860" : "https://api.openai.com/v1")
@@ -195,7 +197,7 @@ private struct ImageProviderEditorSheet: View {
             if format == .openAICompatible {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("API Key")
-                        .font(AppFont.mono(11))
+                        .font(AppFont.mono(12))
                         .foregroundColor(colors.textSecondary)
                     SecureField("Paste your API key", text: $apiKeyInput)
                         .textFieldStyle(.plain)
@@ -207,7 +209,7 @@ private struct ImageProviderEditorSheet: View {
                         .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(colors.borderSubtle, lineWidth: 1))
                     if isEditing, let existing, store.apiKey(for: existing.id) != nil {
                         Label("API key saved on this device", systemImage: "lock.fill")
-                            .font(AppFont.mono(11))
+                            .font(AppFont.mono(12))
                             .foregroundColor(colors.textTertiary)
                     }
                 }
@@ -215,7 +217,7 @@ private struct ImageProviderEditorSheet: View {
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(format == .automatic1111 ? "Model label" : "Model IDs (comma-separated)")
-                    .font(AppFont.mono(11))
+                    .font(AppFont.mono(12))
                     .foregroundColor(colors.textSecondary)
                 TextField(
                     format == .automatic1111 ? "Whatever's loaded, e.g. SDXL" : "dall-e-3, gpt-image-1",
@@ -229,16 +231,17 @@ private struct ImageProviderEditorSheet: View {
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .overlay(RoundedRectangle(cornerRadius: 8, style: .continuous).stroke(colors.borderSubtle, lineWidth: 1))
                 if format == .automatic1111 {
-                    Text("There's no per-request model switch on these tools — this is just a label so it has an entry in the model picker. Whatever's currently loaded in the server is what actually generates.")
+                    Text("These tools have no per-request model switch, so this is just a label to give it an entry in the model picker. Whatever's loaded in the server is what actually generates.")
                         .font(AppFont.sans(10))
                         .foregroundColor(colors.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
+                        .lineSpacing(3)
                 }
             }
 
             if let saveError {
                 Text(saveError)
-                    .font(AppFont.mono(11))
+                    .font(AppFont.mono(12))
                     .foregroundColor(colors.destructive)
             }
 
@@ -256,7 +259,7 @@ private struct ImageProviderEditorSheet: View {
                 Spacer()
                 Button("Cancel") { onDone(); dismiss() }
                     .buttonStyle(.plain)
-                    .font(AppFont.mono(13, weight: .medium))
+                    .font(AppFont.mono(14, weight: .medium))
                     .foregroundColor(colors.textSecondary)
                 AccentButton(title: isEditing ? "Save" : "Add", isDisabled: !canSave) {
                     save()
@@ -279,7 +282,7 @@ private struct ImageProviderEditorSheet: View {
     private func field(_ label: String, text: Binding<String>, placeholder: String) -> some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(label)
-                .font(AppFont.mono(11))
+                .font(AppFont.mono(12))
                 .foregroundColor(colors.textSecondary)
             TextField(placeholder, text: text)
                 .textFieldStyle(.plain)

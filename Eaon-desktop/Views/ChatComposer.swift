@@ -50,7 +50,7 @@ struct ChatComposer: View {
     var body: some View {
         VStack(spacing: 8) {
             if viewModel.chatModels.isEmpty {
-                noticeBanner(icon: "key.fill", tint: .orange, text: "Set up a model provider in Settings to start chatting — Eaon, your own API key, or a local model.")
+                noticeBanner(icon: "key.fill", tint: .orange, text: "Set up a model provider in Settings to start chatting. Use Eaon, your own API key, or a local model.")
             }
             if let notice = viewModel.composerNotice {
                 noticeBanner(icon: "info.circle", tint: .orange, text: notice)
@@ -115,27 +115,36 @@ struct ChatComposer: View {
             // sitting there doing nothing.
             HStack(spacing: 8) {
                 plusButton
-                if viewModel.messages.isEmpty {
-                    ModeSegmentedControl(currentMode: viewModel.currentMode) { mode in
-                        viewModel.enterMode(mode)
-                        onModeChange(mode)
-                    }
-                    .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .leading)))
-                }
                 // The coding Agent's permission pill — unlike the mode
                 // switcher, it stays visible during the conversation (you
                 // toggle Sandboxed/Auto while coding, not just before).
                 if viewModel.currentMode == .agent {
-                    AgentPermissionPill(isAuto: viewModel.agentAutoRun) {
-                        viewModel.requestAgentPermissionToggle()
+                    // Chrome-less icons need their own air: with no button
+                    // outline to separate them, gaps ARE the separation, and
+                    // crowded ones read as a single smudge. 6pt between 28pt
+                    // targets gives even, breathable rhythm without letting
+                    // the group drift apart into three unrelated buttons.
+                    HStack(spacing: 6) {
+                        AgentPermissionPill(isAuto: viewModel.agentAutoRun) {
+                            viewModel.requestAgentPermissionToggle()
+                        }
+                        .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .leading)))
+                        // Agent vs. Agent Swarm — how the work gets thought
+                        // through, next to the toggle controlling how it runs.
+                        AgentSwarmPill(isSwarm: viewModel.agentSwarmEnabled) {
+                            viewModel.agentSwarmEnabled.toggle()
+                        }
+                        .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .leading)))
+                        // Only offered when device control is on, because without
+                        // it the browser tools aren't sent to the model at all and
+                        // the toggle would be a switch that does nothing.
+                        if DesktopControlStore.shared.isEnabled {
+                            BrowserPill(isOn: viewModel.browserModeEnabled) {
+                                viewModel.browserModeEnabled.toggle()
+                            }
+                            .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .leading)))
+                        }
                     }
-                    .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .leading)))
-                    // Agent vs. Agent Swarm — how the work gets thought
-                    // through, next to the pill controlling how it gets run.
-                    AgentSwarmPill(isSwarm: viewModel.agentSwarmEnabled) {
-                        viewModel.agentSwarmEnabled.toggle()
-                    }
-                    .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .leading)))
                 }
                 Spacer(minLength: 0)
                 trailingControls
@@ -147,6 +156,7 @@ struct ChatComposer: View {
             .animation(.easeOut(duration: 0.18), value: viewModel.currentMode)
             .animation(.spring(duration: 0.28, bounce: 0.18), value: viewModel.agentAutoRun)
             .animation(.spring(duration: 0.28, bounce: 0.18), value: viewModel.agentSwarmEnabled)
+            .animation(.spring(duration: 0.28, bounce: 0.18), value: viewModel.browserModeEnabled)
         }
         .background(
             RoundedRectangle(cornerRadius: 26, style: .continuous)
@@ -185,6 +195,7 @@ struct ChatComposer: View {
             isAttachMenuOpen.toggle()
         } label: {
             Image(systemName: "plus")
+                .accessibilityLabel("Attach")
                 .font(.system(size: 17, weight: .regular))
                 .foregroundStyle(colors.textPrimary.opacity(0.85))
                 .iconHoverEffect(for: "plus")
@@ -351,43 +362,256 @@ private struct SkillAutocompletePopover: View {
     }
 }
 
-/// The coding Agent's Sandboxed/Auto permission indicator, in the composer.
-/// Tap it (or press Shift+Tab) to cycle. Light purple for the safe,
-/// ask-before-each-command default; amber for the opted-into,
-/// runs-without-asking Auto state. The colour shift alone signals which
-/// state you're in at a glance — the same at-a-glance safety cue a code
-/// editor's mode line gives.
-private struct AgentPermissionPill: View {
+/// A composer toggle: one icon, on or off, no label.
+///
+/// These replaced three labelled colour-coded pills (purple "Sandboxed", teal
+/// "Swarm", blue "Browser"). Three tinted capsules sitting under the text you
+/// are trying to write is a lot of chrome for controls you set once and then
+/// ignore, and hue-as-meaning does not survive contact with reality: nothing
+/// tells you purple means safe and teal means a committee, the palette fights
+/// whatever theme is loaded, and it degrades badly for the ~8% of developers
+/// with a colour-vision deficiency. So state is carried by **fill and icon
+/// weight** — the same way a toolbar toggle has worked for thirty years —
+/// which reads correctly in greyscale.
+///
+/// The one exception is `accent`, used for exactly one state: Agent running
+/// unsandboxed. That is the single case where the interface needs to say
+/// something the shape can't, and reserving colour for it is what makes it
+/// legible — a lone amber icon in an otherwise grey row is impossible to miss,
+/// which is precisely what it could not be back when it was one tint among
+/// three.
+///
+/// The label lives in the tooltip instead of on screen. These are three
+/// controls, each with an unambiguous icon, in a fixed spot — the kind of
+/// thing you learn once. A permanent caption is rent charged forever for a
+/// question asked twice.
+/// Timing shared by every tooltip in the composer's icon row.
+///
+/// Emil's rule, and the reason it's shared state rather than per-icon: the
+/// first tooltip waits, so sweeping the pointer across the row doesn't flash
+/// four labels at you — but once one has been open, the next opens instantly,
+/// so reading along the row feels immediate instead of making you wait again
+/// at every single step.
+@MainActor
+enum ComposerTooltipTiming {
+    private static var lastDismissed: Date?
+
+    static var skipsDelay: Bool {
+        guard let lastDismissed else { return false }
+        return Date().timeIntervalSince(lastDismissed) < 0.7
+    }
+
+    static func noteDismissed() { lastDismissed = Date() }
+}
+
+private struct TooltipHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
+/// The little downward point under a tooltip, aiming it at its own icon.
+private struct TooltipCaret: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.minX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.maxX, y: rect.minY))
+        path.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
+        path.closeSubpath()
+        return path
+    }
+}
+
+/// A hover label for a composer icon.
+///
+/// The icons deliberately carry no text — that's what keeps the row quiet —
+/// so the tooltip is where each control's name actually lives, and the system
+/// `.help()` tooltip isn't good enough for that job: it takes roughly two
+/// seconds to appear, renders wherever the pointer happens to be rather than
+/// at the thing it describes, and can't show whether the toggle is currently
+/// on. This one appears in a third of a second, points at its own icon, and
+/// says the state out loud.
+private struct ComposerTooltip: ViewModifier {
     @Environment(\.themeColors) private var colors
-    let isAuto: Bool
+    let title: String
+    let detail: String?
+    /// Owned by the toggle, which already tracks hover for its own fill —
+    /// tracking it twice would mean two sources of truth that can disagree.
+    let isHovered: Bool
+
+    @State private var isVisible = false
+    /// The bubble's own measured height, so it can be pushed entirely above
+    /// the icon whatever the text turns out to be. Measured rather than
+    /// placed with an alignment guide: a guide set inside a conditional
+    /// overlay isn't honoured here, and the bubble landed on top of the very
+    /// icons it was labelling.
+    @State private var bubbleHeight: CGFloat = 0
+
+    func body(content: Content) -> some View {
+        content
+            .overlay(alignment: .top) {
+                if isVisible {
+                    bubble
+                        .background(
+                            GeometryReader { proxy in
+                                Color.clear.preference(
+                                    key: TooltipHeightKey.self,
+                                    value: proxy.size.height
+                                )
+                            }
+                        )
+                        .onPreferenceChange(TooltipHeightKey.self) { bubbleHeight = $0 }
+                        .offset(y: -(bubbleHeight + 7))
+                }
+            }
+            .task(id: isHovered) {
+                guard isHovered else {
+                    if isVisible { ComposerTooltipTiming.noteDismissed() }
+                    withAnimation(.easeOut(duration: 0.1)) { isVisible = false }
+                    return
+                }
+                if !ComposerTooltipTiming.skipsDelay {
+                    try? await Task.sleep(for: .milliseconds(350))
+                }
+                guard !Task.isCancelled else { return }
+                withAnimation(.easeOut(duration: 0.12)) { isVisible = true }
+            }
+    }
+
+    private var bubble: some View {
+        VStack(spacing: 0) {
+            VStack(alignment: .leading, spacing: 1) {
+                Text(title)
+                    .font(AppFont.sans(12, weight: .medium))
+                if let detail {
+                    Text(detail)
+                        .font(AppFont.sans(11))
+                        .opacity(0.62)
+                }
+            }
+            // Inverted from the surface underneath, the way an overlay layer
+            // should be: a tooltip that borrows the app's own panel colours
+            // reads as part of the UI instead of as something floating
+            // temporarily on top of it.
+            .foregroundStyle(colors.backgroundPrimary)
+            .multilineTextAlignment(.leading)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .fill(colors.textPrimary)
+            )
+
+            TooltipCaret()
+                .fill(colors.textPrimary)
+                .frame(width: 11, height: 5)
+        }
+        .fixedSize()
+        .shadow(color: .black.opacity(0.28), radius: 10, y: 3)
+        // Grows out of the icon it belongs to, not out of thin air — and
+        // never from scale 0, which nothing in the real world does.
+        .transition(.opacity.combined(with: .scale(scale: 0.94, anchor: .bottom)))
+        .allowsHitTesting(false)
+    }
+}
+
+private extension View {
+    func composerTooltip(_ title: String, detail: String? = nil, isHovered: Bool) -> some View {
+        modifier(ComposerTooltip(title: title, detail: detail, isHovered: isHovered))
+    }
+}
+
+private struct ComposerIconToggle: View {
+    @Environment(\.themeColors) private var colors
+    let icon: String
+    let isOn: Bool
+    /// Overrides the accent for a state that has to stand out on its own
+    /// terms regardless of what accent the user picked.
+    var accent: Color? = nil
+    /// A tiny status dot on the icon's corner — used for "extension
+    /// connected". Nil draws nothing.
+    var status: Color? = nil
+    /// Shown on hover. `title` names the control and its state; `detail` is
+    /// the one short line that explains what turning it on actually does.
+    let title: String
+    var detail: String? = nil
     let action: () -> Void
+
     @State private var isHovered = false
 
-    private var tint: Color { isAuto ? Color(hex: "#F59E0B") : Color(hex: "#A78BFA") }
-    private var label: String { isAuto ? "Auto" : "Sandboxed" }
-    private var icon: String { isAuto ? "bolt.fill" : "lock.shield.fill" }
+    /// On takes the user's chosen accent — except when that accent is the
+    /// default white, where a tint would be no tint at all, so plain
+    /// full-strength text colour does the job instead.
+    private var onColor: Color {
+        if let accent { return accent }
+        return AppearanceSettings.shared.accentColorId == "white"
+            ? colors.textPrimary
+            : AppearanceSettings.shared.accentColor
+    }
+
+    private var foreground: Color {
+        if isOn { return onColor }
+        return isHovered ? colors.textSecondary : colors.textTertiary
+    }
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 5) {
-                Image(systemName: icon)
-                    .font(.system(size: 10, weight: .semibold))
-                    .iconHoverEffect(for: icon)
-                Text(label)
-                    .font(AppFont.mono(11, weight: .medium))
-            }
-            .foregroundStyle(tint)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(Capsule().fill(tint.opacity(isHovered ? 0.24 : 0.16)))
-            .overlay(Capsule().stroke(tint.opacity(0.45), lineWidth: 1))
-            .contentShape(Capsule())
+            Image(systemName: icon)
+                .font(.system(size: 15, weight: .regular))
+                .foregroundStyle(foreground)
+                .frame(width: 28, height: 28)
+                // Colour says which state you're in; the fill says only
+                // "the cursor is here". Keeping those two jobs on separate
+                // channels is why neither has to be loud.
+                .background(
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(isHovered ? colors.backgroundHover : .clear)
+                )
+                .overlay(alignment: .bottomTrailing) {
+                    if let status {
+                        Circle()
+                            .fill(status)
+                            .frame(width: 6, height: 6)
+                            // Punched out of the composer's own background so
+                            // the dot reads as attached to the icon rather
+                            // than as a stray speck beside it.
+                            .overlay(Circle().stroke(colors.backgroundInput, lineWidth: 1.2))
+                            .offset(x: -1, y: -1)
+                    }
+                }
+                .contentShape(Rectangle())
         }
         .buttonStyle(PressableButtonStyle())
         .onHover { isHovered = $0 }
-        .help(isAuto
-            ? "Auto — Eaon runs commands and writes files without asking. Press ⇧⇥ to return to Sandboxed."
-            : "Sandboxed — Eaon asks before each command. Press ⇧⇥ to switch to Auto.")
+        // Colour only — animating the icon swap as well makes a one-shot
+        // toggle look like it's thinking about it.
+        .animation(.easeOut(duration: 0.14), value: isOn)
+        .animation(.easeOut(duration: 0.12), value: isHovered)
+        .composerTooltip(title, detail: detail, isHovered: isHovered)
+    }
+}
+
+/// The coding Agent's Sandboxed/Auto permission toggle. Click it (or press
+/// Shift+Tab) to cycle. A shield when Eaon asks before each command; an
+/// amber bolt when it doesn't.
+private struct AgentPermissionPill: View {
+    let isAuto: Bool
+    let action: () -> Void
+
+    var body: some View {
+        ComposerIconToggle(
+            icon: isAuto ? "bolt" : "lock.shield",
+            isOn: isAuto,
+            // The only colour in the row, and only for the state where
+            // Eaon acts without asking.
+            accent: isAuto ? Color(hex: "#F59E0B") : nil,
+            title: isAuto ? "Auto (Active)" : "Sandboxed",
+            detail: isAuto
+                ? "Runs commands without asking. ⇧⇥ to go back."
+                : "Asks before each command. ⇧⇥ for Auto.",
+            action: action
+        )
     }
 }
 
@@ -396,39 +620,74 @@ private struct AgentPermissionPill: View {
 /// *thought through*: Agent is one model working the task itself, Swarm
 /// convenes a roster of specialists who argue the approach out first and hand
 /// their conclusion to a synthesizer that builds it (see `AgentSwarmRunner`).
-/// Teal for the swarm so it never reads as a third permission state — the
-/// safety cue stays purple/amber and means only one thing.
+/// One person or a crowd — the icon is the whole message, so it needs no
+/// tint to tell the two apart.
 private struct AgentSwarmPill: View {
-    @Environment(\.themeColors) private var colors
     let isSwarm: Bool
     let action: () -> Void
-    @State private var isHovered = false
-
-    private var tint: Color { isSwarm ? Color(hex: "#2DD4BF") : colors.textSecondary }
-    private var label: String { isSwarm ? "Swarm" : "Agent" }
-    private var icon: String { isSwarm ? "person.3.fill" : "person.fill" }
 
     var body: some View {
-        Button(action: action) {
-            HStack(spacing: 5) {
-                Image(systemName: icon)
-                    .font(.system(size: 10, weight: .semibold))
-                    .iconHoverEffect(for: icon)
-                Text(label)
-                    .font(AppFont.mono(11, weight: .medium))
-            }
-            .foregroundStyle(tint)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(Capsule().fill(tint.opacity(isHovered ? 0.24 : 0.16)))
-            .overlay(Capsule().stroke(tint.opacity(0.45), lineWidth: 1))
-            .contentShape(Capsule())
+        ComposerIconToggle(
+            icon: isSwarm ? "person.3" : "person",
+            isOn: isSwarm,
+            title: isSwarm ? "Swarm (Active)" : "Single Agent",
+            detail: isSwarm
+                ? "A team argues out the approach first. Slower."
+                : "One model works the task directly.",
+            action: action
+        )
+    }
+}
+
+/// "This message is about my browser."
+///
+/// It grants nothing — the browser tools are already available whenever Device
+/// Control is on. What it removes is ambiguity: asked "summarise this", a model
+/// otherwise has to guess between the open tab, a file, and its own knowledge,
+/// and guessing wrong wastes a whole turn. Switching this on states the target
+/// outright (see `ChatViewModel.browserModeInstruction`).
+///
+/// A globe, not a Chrome logo, for two reasons: shipping Google's trademarked
+/// mark in a product is a legal question rather than a design one, and the
+/// bridge drives Comet, Brave, Edge, Arc and Safari just as happily — badging
+/// it "Chrome" would misdescribe what it does.
+///
+/// The corner dot reports whether the extension is actually connected right
+/// now, so "can Eaon see my browser?" is answerable at a glance instead of by
+/// sending a message and seeing what happens. It's drawn only while browser
+/// mode is on — a connection indicator on a switch you haven't flipped is
+/// answering a question nobody asked.
+private struct BrowserPill: View {
+    @Environment(\.themeColors) private var colors
+    let isOn: Bool
+    let action: () -> Void
+    @State private var isConnected = BrowserBridge.shared.isConnected
+
+    var body: some View {
+        ComposerIconToggle(
+            icon: "globe",
+            isOn: isOn,
+            // Amber, not grey, when it isn't connected: a grey dot on a grey
+            // icon is an indicator you can't actually read, which is worse
+            // than none — it looks like the state was reported when it
+            // wasn't. Amber says "on, but check something" and matches what
+            // the same colour means on the permission toggle.
+            status: isOn ? (isConnected ? Color(hex: "#4ADE80") : Color(hex: "#F59E0B")) : nil,
+            title: isOn ? "Browser (Active)" : "Browser",
+            detail: isOn
+                ? (isConnected
+                   ? "This message is about your open tab."
+                   : "Extension not connected. Falling back to AppleScript.")
+                : "Tell Eaon this message is about your open tab.",
+            action: action
+        )
+        // Polled rather than observed: the bridge infers connection from when
+        // the extension last polled, so it changes on a timer, not on an event
+        // anything could publish.
+        .onReceive(Timer.publish(every: 5, on: .main, in: .common).autoconnect()) { _ in
+            BrowserBridge.shared.refreshConnectionState()
+            isConnected = BrowserBridge.shared.isConnected
         }
-        .buttonStyle(PressableButtonStyle())
-        .onHover { isHovered = $0 }
-        .help(isSwarm
-            ? "Agent Swarm — a team of specialists is convened for the task, argues out the approach, votes to hand off, and a synthesizer builds what they settled on. Slower and costs more calls. Click for plain Agent."
-            : "Agent — one model works the task directly. Click to convene a swarm instead.")
     }
 }
 

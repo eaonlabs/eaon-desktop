@@ -100,11 +100,29 @@ struct ModelLibraryView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(colors.backgroundPrimary)
         .onAppear {
-            manager.detectInstalledBackends()
-            Task { await manager.refreshOllamaModels(startServerIfNeeded: true) }
-            prefetchOllamaSpecs(for: LocalAIManager.curatedOllamaModels
-                .filter { $0.category == "Popular" }
-                .map(\.name))
+            // Everything here is deferred off the first paint. This used to
+            // run inline, so opening the page did a synchronous PATH sweep
+            // for every backend AND kicked off 28 registry requests before
+            // SwiftUI had drawn a single frame — the sidebar button stayed
+            // visually held down the whole time, because the main actor was
+            // busy and never got to render the released state.
+            //
+            // A yield is enough: the view paints, THEN the work starts.
+            Task {
+                await Task.yield()
+                // Thorough check (see `refreshInstalledBackends`) — this page
+                // shows install state too, and its login-shell pass is both
+                // throttled and off the main actor, so it doesn't reintroduce
+                // the first-paint stall described above.
+                await manager.refreshInstalledBackends()
+                await manager.refreshOllamaModels(startServerIfNeeded: true)
+            }
+            Task {
+                await Task.yield()
+                prefetchOllamaSpecs(for: LocalAIManager.curatedOllamaModels
+                    .filter { $0.category == "Popular" }
+                    .map(\.name))
+            }
         }
         .alert(
             "Delete this model?",
@@ -183,7 +201,7 @@ struct ModelLibraryView: View {
                 Text("Models")
                     .font(AppFont.mono(20, weight: .bold))
                     .foregroundColor(colors.textPrimary)
-                Text("Download open models and run them privately on this Mac — no API key, no internet once they're here.")
+                Text("Download open models and run them privately on this Mac. No API key, and no internet once they're here.")
                     .font(AppFont.sans(12))
                     .foregroundColor(colors.textSecondary)
             }
@@ -445,10 +463,11 @@ struct ModelLibraryView: View {
                 categorySection(group.category, models: group.models)
             }
 
-            Text("\(LocalAIManager.curatedOllamaModels.count) open models across every major maker — type any other ollama.com/library name above to download it directly.")
+            Text("\(LocalAIManager.curatedOllamaModels.count) open models across every major maker. Type any other ollama.com/library name above to download it directly.")
                 .font(AppFont.sans(11))
                 .foregroundColor(colors.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
+                .lineSpacing(3)
         }
     }
 
@@ -674,7 +693,7 @@ struct ModelLibraryView: View {
                         .foregroundColor(colors.textSecondary)
                 }
             } else if hfResults.isEmpty && !isSearchingHF && !isShowingTrending {
-                Text("No \(hfFormat.displayName) models matched — try different words.")
+                Text("No \(hfFormat.displayName) models matched. Try different words.")
                     .font(AppFont.mono(13))
                     .foregroundColor(colors.textSecondary)
             } else if !hfResults.isEmpty {
@@ -692,11 +711,12 @@ struct ModelLibraryView: View {
                     }
 
                     Text(hfFormat == .gguf
-                         ? "Hugging Face hosts hundreds of thousands of models — search above for anything specific. Each card downloads the best single-file (GGUF) version by default; open “Show variants” to pick a specific quantization."
-                         : "Hugging Face hosts hundreds of thousands of models — search above for anything specific. MLX is Apple's own framework and often runs faster than GGUF here; models download automatically the first time you chat with them.")
+                         ? "Hugging Face hosts hundreds of thousands of models, so search above for anything specific. Each card downloads the best single-file (GGUF) version by default. Open “Show variants” to pick a specific quantization."
+                         : "Hugging Face hosts hundreds of thousands of models, so search above for anything specific. MLX is Apple's own framework and often runs faster than GGUF here. Models download automatically the first time you chat with them.")
                         .font(AppFont.sans(11))
                         .foregroundColor(colors.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
+                        .lineSpacing(3)
                 }
             }
         }
@@ -1071,7 +1091,7 @@ struct ModelLibraryView: View {
         .padding(.top, 10)
 
         if manager.allLocalModels.isEmpty {
-            Text("Nothing yet — download a model above and it appears here, ready to chat.")
+            Text("Nothing yet. Download a model above and it appears here, ready to chat.")
                 .font(AppFont.mono(12))
                 .foregroundColor(colors.textSecondary)
         } else {
@@ -1253,7 +1273,7 @@ struct ModelLibraryView: View {
                                 .font(.system(size: size * 0.42, weight: .medium))
                                 .foregroundStyle(colors.textTertiary)
                         }
-                        .help("No single company credited — a community or research release")
+                        .help("No single company credited. A community or research release.")
                 }
             }
             .frame(width: size, height: size)
@@ -1382,6 +1402,7 @@ struct ModelLibraryView: View {
                     .font(AppFont.sans(12))
                     .foregroundColor(colors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineSpacing(3)
                 HStack(spacing: 8) {
                     Text(backend.installCommand)
                         .font(AppFont.mono(12))
@@ -1397,7 +1418,7 @@ struct ModelLibraryView: View {
                     }
                     .buttonStyle(.bordered)
                     AccentButton(title: "Check again") {
-                        manager.detectInstalledBackends()
+                        Task { await manager.refreshInstalledBackends(force: true) }
                     }
                 }
                 Button("See every local runner and its install command →") {

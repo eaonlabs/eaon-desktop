@@ -80,6 +80,7 @@ struct SettingsRootView: View {
             .init(id: "modelParameters", title: "Model Parameters",    icon: "slider.horizontal.3"),
             .init(id: "memory",          title: "Memory",              icon: "brain"),
             .init(id: "skills",          title: "Skills",              icon: "bolt.fill", isBeta: true),
+            .init(id: "voice",           title: "Voice",               icon: "waveform", isBeta: true),
         ]),
         .init(title: "Tools", categories: [
             .init(id: "plugins",        title: "Plugins",         icon: "puzzlepiece.extension"),
@@ -209,6 +210,8 @@ struct SettingsRootView: View {
                 PluginsSettingsView()
             case "skills":
                 SkillsSettingsView()
+            case "voice":
+                VoiceSettingsView()
             case "imageProviders":
                 ImageProvidersSettingsView()
             case "computer":
@@ -362,7 +365,7 @@ private struct SettingsSidebarRow: View {
                 .frame(width: 20, alignment: .center)
 
             Text(category.title)
-                .font(AppFont.mono(13, weight: isSelected ? .semibold : .regular))
+                .font(AppFont.mono(13.5, weight: isSelected ? .semibold : .regular))
                 .foregroundColor(colors.textPrimary)
                 .lineLimit(1)
 
@@ -375,7 +378,7 @@ private struct SettingsSidebarRow: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 7)
         .background(
-            RoundedRectangle(cornerRadius: 8, style: .continuous)
+            RoundedRectangle(cornerRadius: 7, style: .continuous)
                 .fill(isSelected ? colors.backgroundSelected : Color.clear)
         )
         .contentShape(Rectangle())
@@ -425,7 +428,7 @@ private struct AddAquaRow: View {
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .help("Eaon's free hosted models — add a key to use it")
+        .help("Eaon's free hosted models. Add a key to use it")
     }
 }
 

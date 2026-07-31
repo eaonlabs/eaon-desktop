@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "Eaon Browser Control",
+  "version": "1.0.0",
+  "description": "Lets the Eaon desktop app read and control this browser — reading pages, scrolling, clicking and filling forms — over a local, token-paired connection.",
+  "permissions": ["tabs", "scripting", "activeTab", "storage"],
+  "host_permissions": ["<all_urls>"],
+  "background": { "service_worker": "background.js" },
+  "options_page": "options.html",
+  "action": { "default_title": "Eaon Browser Control", "default_popup": "options.html" }
+}

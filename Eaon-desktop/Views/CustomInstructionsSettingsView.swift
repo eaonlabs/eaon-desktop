@@ -24,10 +24,11 @@ struct CustomInstructionsSettingsView: View {
                 .padding(.top, 28)
                 .padding(.bottom, 8)
 
-            Text("An optional instruction sent with every new message, in every chat — how you'd like the model to respond, tone, format, anything. Leave this empty and nothing extra is sent at all.")
+            Text("An optional instruction sent with every new message, in every chat. Tell the model how you'd like it to respond: tone, format, anything. Leave this empty and nothing extra is sent.")
                 .font(AppFont.sans(12))
                 .foregroundColor(colors.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
+                .lineSpacing(3)
                 .padding(.horizontal, 32)
                 .padding(.bottom, 20)
 

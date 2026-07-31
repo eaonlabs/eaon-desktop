@@ -44,16 +44,18 @@ struct LocalAPIServerSettingsView: View {
         SettingsCard {
             VStack(alignment: .leading, spacing: 6) {
                 Text("What this does")
-                    .font(AppFont.mono(13, weight: .semibold))
+                    .font(AppFont.mono(14, weight: .semibold))
                     .foregroundColor(colors.textPrimary)
-                Text("Turns this Mac into a local OpenAI-compatible server. Any tool that can call an OpenAI-style chat API — a script, a coding CLI, another app — can point at Eaon's base URL below and use whichever model you have configured here: Eaon, a BYOK key, or a local Ollama/llama.cpp/MLX model. It forwards the exact conversation it's given — no memory, custom instructions, or plugin tools are injected.")
+                Text("Turns this Mac into a local OpenAI-compatible server. Any tool that can call an OpenAI-style chat API can point at Eaon's base URL below, whether that's a script, a coding CLI, or another app. It'll use whichever model you have configured here: Eaon, a BYOK key, or a local Ollama, llama.cpp, or MLX model. It forwards the exact conversation it's given, so no memory, custom instructions, or plugin tools are injected.")
                     .font(AppFont.sans(12))
                     .foregroundColor(colors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
-                Text("Bound to this Mac only (the loopback network interface) — never reachable from your network or the internet, regardless of firewall settings.")
+                    .lineSpacing(3)
+                Text("Bound to this Mac only, on the loopback network interface. It's never reachable from your network or the internet, whatever your firewall says.")
                     .font(AppFont.sans(12))
                     .foregroundColor(colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineSpacing(3)
                     .padding(.top, 2)
             }
             .padding(18)
@@ -70,12 +72,13 @@ struct LocalAPIServerSettingsView: View {
                     .padding(.top, 2)
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Run local server")
-                        .font(AppFont.mono(13, weight: .semibold))
+                        .font(AppFont.mono(14, weight: .semibold))
                         .foregroundColor(colors.textPrimary)
                     Text(statusText)
                         .font(AppFont.sans(12))
                         .foregroundColor(store.isEnabled && server.isRunning ? colors.textSecondary : colors.destructive)
                         .fixedSize(horizontal: false, vertical: true)
+                        .lineSpacing(3)
                 }
                 Spacer(minLength: 12)
                 Toggle("", isOn: $store.isEnabled)
@@ -115,12 +118,13 @@ struct LocalAPIServerSettingsView: View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
                 Text("Port")
-                    .font(AppFont.mono(13, weight: .semibold))
+                    .font(AppFont.mono(14, weight: .semibold))
                     .foregroundColor(colors.textPrimary)
                 Text("Defaults to 1234. Change it if something else on this Mac is already using that port.")
                     .font(AppFont.sans(12))
                     .foregroundColor(colors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineSpacing(3)
             }
             Spacer(minLength: 12)
             TextField("1234", text: $portText)
@@ -152,12 +156,13 @@ struct LocalAPIServerSettingsView: View {
                 HStack(alignment: .top, spacing: 12) {
                     VStack(alignment: .leading, spacing: 3) {
                         Text("Require an API key")
-                            .font(AppFont.mono(13, weight: .semibold))
+                            .font(AppFont.mono(14, weight: .semibold))
                             .foregroundColor(colors.textPrimary)
                         Text("Callers must send this key as \"Authorization: Bearer <key>\" — stops any other app on this Mac from silently using your models.")
                             .font(AppFont.sans(12))
                             .foregroundColor(colors.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)
+                            .lineSpacing(3)
                     }
                     Spacer(minLength: 12)
                     Toggle("", isOn: $store.requireAPIKey)
@@ -188,7 +193,7 @@ struct LocalAPIServerSettingsView: View {
         HStack(alignment: .center, spacing: 12) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(label)
-                    .font(AppFont.mono(13, weight: .semibold))
+                    .font(AppFont.mono(14, weight: .semibold))
                     .foregroundColor(colors.textPrimary)
                 Text(value)
                     .font(AppFont.mono(12))
@@ -221,17 +226,17 @@ struct LocalAPIServerSettingsView: View {
         SettingsCard {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Recent requests")
-                    .font(AppFont.mono(13, weight: .semibold))
+                    .font(AppFont.mono(14, weight: .semibold))
                     .foregroundColor(colors.textPrimary)
                 if server.recentRequests.isEmpty {
-                    Text("Nothing yet — requests will show up here once a tool connects.")
+                    Text("Nothing yet. Requests show up here once a tool connects.")
                         .font(AppFont.sans(12))
                         .foregroundColor(colors.textTertiary)
                 } else {
                     VStack(alignment: .leading, spacing: 4) {
                         ForEach(Array(server.recentRequests.enumerated()), id: \.offset) { _, entry in
                             Text(entry)
-                                .font(AppFont.mono(11))
+                                .font(AppFont.mono(12))
                                 .foregroundColor(colors.textSecondary)
                         }
                     }

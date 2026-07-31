@@ -59,7 +59,7 @@ export function PlanReview({ plan, onAnswer }: Props): React.ReactElement {
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={theme.accent} paddingX={1} marginTop={1}>
       <Text>
-        <Text color={theme.accent}>✻ </Text>
+        <Text color={theme.accent}>● </Text>
         <Text bold>Ready to start — here's the plan</Text>
       </Text>
       <Box flexDirection="column" marginTop={1} paddingLeft={2}>

@@ -33,7 +33,7 @@ struct FreeWeekTrialPopup: View {
                 }
                 .padding(.bottom, 14)
 
-                Text("7 days of hosted models, on the house — one click, no account, no card. The trial runs through Eaon's own servers, so no API key is ever stored in the app.")
+                Text("7 days of hosted models, on the house. One click, no account, no card. The trial runs through Eaon's own servers, so no API key is ever stored in the app.")
                     .font(AppFont.sans(14))
                     .foregroundStyle(colors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)

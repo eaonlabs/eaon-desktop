@@ -286,12 +286,9 @@ export function Composer({ isActive, history, onSubmit, onTogglePermission, onCa
   const after = buffer.slice(cursor + 1);
   const isEmpty = buffer.length === 0;
 
-  // The prompt glyph doubles as a mode indicator: `!` for a bash command,
-  // `#` for a memory note, otherwise the plain `>` both Claude Code and
-  // Cursor use. Chrome stays neutral dim gray — the border only takes on
-  // color when a prefix mode is active, so color always MEANS something
-  // instead of being ambient decoration. (Permission state lives in the
-  // status bar below the composer, not here.)
+  // Prompt glyph: `!` shell, `#` memory note, otherwise coral ❯. Border only
+  // colors when a prefix mode is active — permission state lives in the
+  // footer, not here.
   const bash = buffer.startsWith("!");
   const memory = buffer.startsWith("#");
   const glyph = bash ? "!" : memory ? "#" : "❯";
@@ -312,16 +309,25 @@ export function Composer({ isActive, history, onSubmit, onTogglePermission, onCa
         <Text color={glyphColor} bold>
           {glyph}{" "}
         </Text>
-        <Text>{before}</Text>
-        <Text inverse={isActive} color={isActive ? undefined : theme.muted}>
-          {atCursor}
-        </Text>
         {isEmpty ? (
-          <Text color={theme.muted} dimColor>
-            {placeholder}
-          </Text>
+          <>
+            {/* Inverse block as the caret — don't also paint a blank space
+                before the placeholder or the empty line looks doubled. */}
+            <Text inverse={isActive} color={theme.muted}>
+              {" "}
+            </Text>
+            <Text color={theme.muted} dimColor>
+              {placeholder}
+            </Text>
+          </>
         ) : (
-          <Text>{after}</Text>
+          <>
+            <Text>{before}</Text>
+            <Text inverse={isActive} color={isActive ? undefined : theme.muted}>
+              {atCursor}
+            </Text>
+            <Text>{after}</Text>
+          </>
         )}
       </Box>
 

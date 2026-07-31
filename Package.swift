@@ -25,6 +25,16 @@ let package = Package(
             resources: [
                 .process("Resources")
             ]
+        ),
+        .testTarget(
+            name: "EaonDesktopSecurityTests",
+            dependencies: ["Eaon-desktop"],
+            path: "Tests/EaonDesktopSecurityTests"
+        ),
+        .testTarget(
+            name: "EaonDesktopAgentTests",
+            dependencies: ["Eaon-desktop"],
+            path: "Tests/EaonDesktopAgentTests"
         )
     ]
 )

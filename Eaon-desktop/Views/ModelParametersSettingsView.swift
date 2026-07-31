@@ -21,10 +21,11 @@ struct ModelParametersSettingsView: View {
                 .padding(.top, 28)
                 .padding(.bottom, 8)
 
-            Text("How the model samples its response — applied to every model, hosted or local. Each control is off until you turn it on; anything left off keeps that model's own default. Some models (reasoning models especially) ignore or reject these — Eaon quietly retries without them if that happens, so chat never breaks.")
+            Text("How the model samples its response. This applies to every model, hosted or local. Each control is off until you turn it on, and anything left off keeps that model's own default. Some models ignore or reject these, reasoning models especially. When that happens Eaon quietly retries without them, so chat never breaks.")
                 .font(AppFont.sans(12))
                 .foregroundColor(colors.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
+                .lineSpacing(3)
                 .padding(.horizontal, 32)
                 .padding(.bottom, 20)
 
@@ -62,7 +63,7 @@ struct ModelParametersSettingsView: View {
                     divider
                     parameterRow(
                         title: "Top P",
-                        description: "Nucleus sampling — considers only the most likely tokens whose probabilities sum to this. 1.00 means no limit.",
+                        description: "Nucleus sampling. Considers only the most likely tokens whose probabilities sum to this. 1.00 means no limit.",
                         enabled: $store.topPEnabled,
                         value: $store.topP,
                         range: 0...1,
@@ -101,7 +102,7 @@ struct ModelParametersSettingsView: View {
                 VStack(spacing: 0) {
                     parameterRow(
                         title: "Frequency penalty",
-                        description: "Discourages reusing the same tokens — higher values reduce verbatim repetition. OpenAI-style models and local models only.",
+                        description: "Higher values reduce verbatim repetition. OpenAI-style and local models only.",
                         enabled: $store.frequencyPenaltyEnabled,
                         value: $store.frequencyPenalty,
                         range: -2...2,
@@ -111,7 +112,7 @@ struct ModelParametersSettingsView: View {
                     divider
                     parameterRow(
                         title: "Presence penalty",
-                        description: "Pushes the model toward new topics — higher values make it less likely to dwell on what it's already said.",
+                        description: "Pushes the model toward new topics. Higher values make it less likely to dwell on what it's already said.",
                         enabled: $store.presencePenaltyEnabled,
                         value: $store.presencePenalty,
                         range: -2...2,
@@ -132,7 +133,7 @@ struct ModelParametersSettingsView: View {
                     .font(.system(size: 12, weight: .semibold))
                     .iconHoverEffect(for: "arrow.counterclockwise")
                 Text("Reset all to defaults")
-                    .font(AppFont.mono(13, weight: .medium))
+                    .font(AppFont.mono(14, weight: .medium))
             }
             .foregroundStyle(store.isAllDefault ? colors.textTertiary : colors.destructive)
         }
@@ -177,6 +178,7 @@ struct ModelParametersSettingsView: View {
                         .font(AppFont.sans(12))
                         .foregroundColor(colors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
+                        .lineSpacing(3)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 

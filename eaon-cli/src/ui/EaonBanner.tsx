@@ -1,7 +1,7 @@
 // Per-session welcome — the one loud moment is the block EAON wordmark
-// (Hermes letterform, Eaon coral). Everything under it is Claude-Code quiet:
-// a ✻ greeting, dim mode/model/path/tips, then a pioneer quote. No bordered
-// dashboard card — that fought the transcript and made the CLI feel heavy.
+// (Hermes letterform, Eaon coral). Everything under it stays quiet:
+// greeting, mode/model/path, tips, optional recent sessions, then a
+// pioneer quote. No bordered dashboard card.
 
 import React from "react";
 import os from "node:os";
@@ -26,6 +26,15 @@ function shortenPath(p: string): string {
   return p.startsWith(home) ? "~" + p.slice(home.length) : p;
 }
 
+function relativeTime(ts: number): string {
+  const sec = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+  if (sec < 60) return "just now";
+  if (sec < 3600) return `${Math.floor(sec / 60)}m ago`;
+  if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`;
+  if (sec < 86400 * 7) return `${Math.floor(sec / 86400)}d ago`;
+  return new Date(ts).toLocaleDateString();
+}
+
 export interface EaonBannerProps {
   version: string;
   quote: Quote;
@@ -43,6 +52,7 @@ export function EaonBanner(props: EaonBannerProps): React.ReactElement {
   const fitsWordmark = columns >= EAON_WORDMARK_WIDTH + 2;
   const name = greetingName();
   const path = shortenPath(props.projectRoot);
+  const recent = props.recentSessions.slice(0, 3);
 
   return (
     <Box flexDirection="column" marginBottom={1}>
@@ -60,25 +70,39 @@ export function EaonBanner(props: EaonBannerProps): React.ReactElement {
 
       <Box flexDirection="column" paddingLeft={1}>
         <Text>
-          <Text color={theme.accent}>✻ </Text>
+          <Text color={theme.accent}>● </Text>
           <Text bold>Welcome back, {name}</Text>
           <Text color={theme.muted} dimColor>
             {" "}
-            · Eaon v{props.version}
+            · v{props.version}
           </Text>
         </Text>
         <Text color={theme.muted} dimColor>
           {"  "}
-          {MODE_LABEL[props.mode]} · {props.modelLabel}
+          {MODE_LABEL[props.mode]} · {props.modelLabel} · {path}
         </Text>
         <Text color={theme.muted} dimColor>
-          {"  "}
-          {path}
-        </Text>
-        <Text color={theme.muted} dimColor>
-          {"  "}/help for commands · shift+tab to cycle plan · sandboxed · auto
+          {"  "}/help · /model · /resume · shift+tab cycles permission
         </Text>
       </Box>
+
+      {recent.length > 0 && (
+        <Box flexDirection="column" marginTop={1} paddingLeft={1}>
+          <Text color={theme.muted} dimColor>
+            Recent · /resume to continue
+          </Text>
+          {recent.map((s) => (
+            <Text key={s.id} color={theme.muted} dimColor>
+              {"  "}
+              <Text color={theme.accentSoft}>›</Text> {s.title.length > 52 ? s.title.slice(0, 49) + "…" : s.title}
+              <Text dimColor>
+                {"  "}
+                {relativeTime(s.updatedAt)}
+              </Text>
+            </Text>
+          ))}
+        </Box>
+      )}
 
       <Box marginTop={1} paddingLeft={3} width={Math.min(QUOTE_WIDTH, columns - 2)}>
         <Text color={theme.reasoning} italic dimColor>

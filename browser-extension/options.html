@@ -1,0 +1,23 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Eaon Browser Control</title>
+<style>
+  body { font: 13px/1.5 -apple-system, system-ui, sans-serif; margin: 0; padding: 18px;
+         width: 320px; background: #17171a; color: #e8e8ea; }
+  h1 { font-size: 15px; margin: 0 0 4px; }
+  p  { color: #9a9aa2; margin: 0 0 14px; }
+  label { display: block; font-weight: 600; margin-bottom: 6px; }
+  input { width: 100%; box-sizing: border-box; padding: 8px; border-radius: 7px;
+          border: 1px solid #35353b; background: #202024; color: #e8e8ea; font-family: ui-monospace, monospace; }
+  button { margin-top: 12px; width: 100%; padding: 9px; border: 0; border-radius: 7px;
+           background: #f97a4d; color: #fff; font-weight: 600; cursor: pointer; }
+  #status { margin-top: 12px; padding: 9px; border-radius: 7px; background: #202024; }
+  .ok { color: #4ade80; } .bad { color: #f59e0b; }
+</style>
+<h1>Eaon Browser Control</h1>
+<p>Paste the pairing token from Eaon → Settings → Device Control.</p>
+<label for="token">Pairing token</label>
+<input id="token" placeholder="00000000-0000-0000-0000-000000000000" spellcheck="false">
+<button id="save">Save &amp; connect</button>
+<div id="status">Not connected.</div>
+<script src="options.js"></script>

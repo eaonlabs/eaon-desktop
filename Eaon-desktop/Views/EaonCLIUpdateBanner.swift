@@ -68,7 +68,7 @@ struct EaonCLIUpdateBanner: View {
                         .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help("Not now — you can update later from Settings → General → Eaon CLI")
+                .help("Not now. You can update later from Settings → General → Eaon CLI")
             }
         }
     }
@@ -98,7 +98,7 @@ struct EaonCLIUpdateBanner: View {
     // MARK: - Reassurance
 
     private var reassurance: some View {
-        Text("Replaces the CLI's program files only — your saved API keys, providers, and past sessions in ~/.eaon/cli stay exactly as they are.")
+        Text("Replaces the CLI's program files only. Your saved API keys, providers, and past sessions in ~/.eaon/cli stay exactly as they are.")
             .font(AppFont.sans(12))
             .foregroundStyle(colors.textSecondary)
             .fixedSize(horizontal: false, vertical: true)

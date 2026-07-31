@@ -34,10 +34,11 @@ struct CloudSyncSettingsView: View {
             .padding(.top, 28)
             .padding(.bottom, 8)
 
-            Text("Keep your chats, memories, and attachments on every machine you sign in from. Everything is encrypted on this Mac before it's uploaded, so the server stores unreadable data and nothing else. Off by default — nothing leaves this Mac until you turn it on here.")
+            Text("Keep your chats and memories on every machine you sign in from. Everything is encrypted here before it's uploaded, so the server only ever holds data it can't read. This is off by default. Nothing leaves this Mac until you turn it on.")
                 .font(AppFont.sans(12))
                 .foregroundColor(colors.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
+                .lineSpacing(3)
                 .padding(.horizontal, 32)
                 .padding(.bottom, 20)
 
@@ -91,10 +92,10 @@ struct CloudSyncSettingsView: View {
                             .foregroundColor(AppearanceSettings.shared.accentColor)
                         VStack(alignment: .leading, spacing: 3) {
                             Text(session.displayName)
-                                .font(AppFont.mono(13, weight: .semibold))
+                                .font(AppFont.mono(14, weight: .semibold))
                                 .foregroundColor(colors.textPrimary)
-                            Text("Signed in — your synced data is filed under this account.")
-                                .font(AppFont.mono(11))
+                            Text("Signed in. Your synced data is filed under this account.")
+                                .font(AppFont.mono(12))
                                 .foregroundColor(colors.textTertiary)
                         }
                         Spacer(minLength: 0)
@@ -114,12 +115,13 @@ struct CloudSyncSettingsView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         VStack(alignment: .leading, spacing: 3) {
                             Text("Set up sync")
-                                .font(AppFont.mono(13, weight: .semibold))
+                                .font(AppFont.mono(14, weight: .semibold))
                                 .foregroundColor(colors.textPrimary)
-                            Text("Eaon gives you a sync code. It's the only thing that identifies your data — no email, no account, nothing personal. Keep it somewhere safe: it's also the only way in from another machine.")
-                                .font(AppFont.mono(11))
+                            Text("Eaon gives you a sync code. That code is the only thing identifying your data, so there's no email and no account. Keep it somewhere safe, because it's also the only way in from another machine.")
+                                .font(AppFont.mono(12))
                                 .foregroundColor(colors.textTertiary)
                                 .fixedSize(horizontal: false, vertical: true)
+                                .lineSpacing(3)
                         }
 
                         HStack(spacing: 10) {
@@ -173,9 +175,10 @@ struct CloudSyncSettingsView: View {
 
                         if let error = account.lastError {
                             Text(error)
-                                .font(AppFont.mono(11))
+                                .font(AppFont.mono(12))
                                 .foregroundColor(colors.destructive)
                                 .fixedSize(horizontal: false, vertical: true)
+                                .lineSpacing(3)
                         }
                     }
                     .padding(16)
@@ -192,12 +195,12 @@ struct CloudSyncSettingsView: View {
             VStack(alignment: .leading, spacing: 10) {
                 HStack {
                     Text(statusHeadline)
-                        .font(AppFont.mono(13, weight: .semibold))
+                        .font(AppFont.mono(14, weight: .semibold))
                         .foregroundColor(colors.textPrimary)
                     Spacer(minLength: 0)
                     if engine.phase.isBusy {
                         Text("\(engine.uploaded) of \(engine.total)")
-                            .font(AppFont.mono(11))
+                            .font(AppFont.mono(12))
                             .foregroundColor(colors.textTertiary)
                     } else {
                         Button("Sync now") {
@@ -230,9 +233,10 @@ struct CloudSyncSettingsView: View {
                 .frame(height: 6)
 
                 Text(statusDetail)
-                    .font(AppFont.mono(11))
+                    .font(AppFont.mono(12))
                     .foregroundColor(statusIsError ? colors.destructive : colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineSpacing(3)
             }
             .padding(16)
         }
@@ -262,7 +266,7 @@ struct CloudSyncSettingsView: View {
             return "\(message) — \(engine.uploaded) of \(engine.total) had gone up before it stopped."
         }
         if !store.isUnlocked {
-            return "Locked. Enter your sync passphrase to upload — it never leaves this Mac."
+            return "Locked. Enter your sync passphrase to upload. It never leaves this Mac."
         }
         if engine.phase.isBusy { return "\(engine.uploaded) of \(engine.total) items uploaded." }
         let total = chatViewModel.conversations.count
@@ -290,12 +294,13 @@ struct CloudSyncSettingsView: View {
                         .frame(width: 22)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Import chats from the cloud")
-                            .font(AppFont.mono(13, weight: .medium))
+                            .font(AppFont.mono(14, weight: .medium))
                             .foregroundColor(colors.textPrimary)
                         Text(importDetail)
-                            .font(AppFont.sans(11))
+                            .font(AppFont.sans(12.5))
                             .foregroundColor(colors.textTertiary)
                             .fixedSize(horizontal: false, vertical: true)
+                            .lineSpacing(3)
                     }
                     Spacer(minLength: 0)
                     Button(engine.phase == .importing ? "Importing…" : "Import now") {
@@ -348,12 +353,13 @@ struct CloudSyncSettingsView: View {
                         .frame(width: 22)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Delete everything in the cloud")
-                            .font(AppFont.mono(13, weight: .medium))
+                            .font(AppFont.mono(14, weight: .medium))
                             .foregroundColor(colors.textPrimary)
                         Text("Erases every chat, memory, and attachment this account has stored on the server. The chats on this Mac are not touched.")
-                            .font(AppFont.sans(11))
+                            .font(AppFont.sans(12.5))
                             .foregroundColor(colors.textTertiary)
                             .fixedSize(horizontal: false, vertical: true)
+                            .lineSpacing(3)
                     }
                     Spacer(minLength: 0)
                     Button("Delete") { isConfirmingCloudWipe = true }
@@ -389,16 +395,17 @@ struct CloudSyncSettingsView: View {
             HStack(spacing: 14) {
                 VStack(alignment: .leading, spacing: 3) {
                     Text("Sync my data across devices")
-                        .font(AppFont.mono(13, weight: .semibold))
+                        .font(AppFont.mono(14, weight: .semibold))
                         .foregroundColor(colors.textPrimary)
                     Text(!EaonCloudAccount.shared.isSignedIn
-                         ? "Sign in above first — the cloud needs to know whose data this is."
+                         ? "Sign in above first, so the cloud knows whose data this is."
                          : store.isEnabled
                            ? "On — your encrypted chats, memories, and attachments are kept in sync."
                            : "Off — everything stays on this Mac. Nothing is uploaded.")
-                        .font(AppFont.mono(11))
+                        .font(AppFont.mono(12))
                         .foregroundColor(colors.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
+                        .lineSpacing(3)
                 }
                 Spacer(minLength: 0)
                 Toggle("", isOn: Binding(
@@ -440,7 +447,7 @@ struct CloudSyncSettingsView: View {
                 cardHeader("What the server can see")
                 row("lock.fill", "Not your messages", "Everything is encrypted here, with a key derived from your passphrase, before it's uploaded. The server only ever holds unreadable data.")
                 divider
-                row("key.fill", "Not your passphrase", "It never leaves this Mac. Nobody — including us — can unlock your chats without it, which also means we can't recover them for you. You'll be given a recovery code when you set it up.")
+                row("key.fill", "Not your passphrase", "It never leaves this Mac. Nobody can unlock your chats without it, us included, which also means we can't recover them for you. You'll get a recovery code when you set it up.")
                 divider
                 row("clock", "Only that something changed", "The server sees an anonymous id and a timestamp per item, which is what lets your devices work out who has the newer copy.")
             }
@@ -451,7 +458,7 @@ struct CloudSyncSettingsView: View {
 
     private func cardHeader(_ title: String) -> some View {
         Text(title)
-            .font(AppFont.mono(11, weight: .semibold))
+            .font(AppFont.mono(12, weight: .semibold))
             .foregroundColor(colors.textTertiary)
             .tracking(0.5)
             .padding(.horizontal, 16)
@@ -471,12 +478,13 @@ struct CloudSyncSettingsView: View {
                 .frame(width: 22)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(AppFont.mono(13, weight: .medium))
+                    .font(AppFont.mono(14, weight: .medium))
                     .foregroundColor(colors.textPrimary)
                 Text(detail)
-                    .font(AppFont.sans(11))
+                    .font(AppFont.sans(12.5))
                     .foregroundColor(colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineSpacing(3)
             }
             Spacer(minLength: 0)
         }
@@ -510,10 +518,11 @@ private struct CloudSyncConfirmSheet: View {
             }
             .padding(.bottom, 10)
 
-            Text("Right now your chats exist only on this Mac. Turning this on starts uploading them — encrypted, so the server can't read them, but they do leave this machine.")
+            Text("Right now your chats exist only on this Mac. Turning this on starts uploading them. They're encrypted, so the server can't read them, but they do leave this machine.")
                 .font(AppFont.sans(12))
                 .foregroundColor(colors.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
+                .lineSpacing(3)
                 .padding(.bottom, 16)
 
             Text("Type ")
@@ -617,10 +626,11 @@ private struct SyncCodeSheet: View {
             }
             .padding(.bottom, 10)
 
-            Text("Write this down or put it in your password manager. It's the only way to reach your chats from another machine — and the only way to decrypt them. Nobody, including us, can recover it for you.")
+            Text("Write this down or put it in your password manager. It's the only way to reach your chats from another machine, and the only way to decrypt them. Nobody can recover it for you, us included.")
                 .font(AppFont.sans(12))
                 .foregroundColor(colors.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
+                .lineSpacing(3)
                 .padding(.bottom, 16)
 
             HStack {

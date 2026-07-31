@@ -19,7 +19,7 @@ interface Props {
 const VISIBLE = 10;
 
 const PROVIDER_ORDER: Record<string, number> = { aqua: 0, custom: 1, ollama: 2 };
-const PROVIDER_LABEL: Record<string, string> = { aqua: "aqua", custom: "byok", ollama: "local" };
+const PROVIDER_LABEL: Record<string, string> = { aqua: "eaon", custom: "byok", ollama: "local" };
 
 export function ModelPicker({ models, currentKey, onSelect, onCancel }: Props): React.ReactElement {
   const [filter, setFilter] = useState("");
@@ -108,7 +108,7 @@ export function ModelPicker({ models, currentKey, onSelect, onCancel }: Props): 
             const isCurrent = m.key === currentKey;
             return (
               <Text key={m.key} color={isHighlighted ? theme.accent : theme.assistant} bold={isHighlighted}>
-                {isHighlighted ? "› " : "  "}
+                {isHighlighted ? "❯ " : "  "}
                 {isCurrent ? "✓ " : "  "}
                 <Text color={theme.muted}>[{PROVIDER_LABEL[m.provider.kind] ?? m.provider.kind}] </Text>
                 {describeEntry(m)}

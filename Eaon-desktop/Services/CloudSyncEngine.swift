@@ -27,6 +27,11 @@ final class CloudSyncEngine {
     }
 
     private(set) var phase: Phase = .idle
+    /// What the most recent import did to the memory store — how many facts
+    /// it added, and how many it turned away as duplicates, junk, or over
+    /// the cap. Held so the automatic import isn't silent about having
+    /// changed what Eaon knows about you.
+    private(set) var lastMemoryImport: MemoryStore.ImportOutcome?
     /// Items pushed so far in the current run, and how many that run set out
     /// to push. Both zero when idle.
     private(set) var uploaded = 0
@@ -243,7 +248,9 @@ final class CloudSyncEngine {
         let result = chatViewModel.mergeFromCloud(conversations)
         if let memoryBlob, let data = memoryBlob.data(using: .utf8),
            let memories = try? JSONDecoder().decode([MemoryItem].self, from: data) {
-            MemoryStore.shared.mergeFromCloud(memories)
+            lastMemoryImport = MemoryStore.shared.mergeFromCloud(memories)
+        } else {
+            lastMemoryImport = nil
         }
         persistRevisions()
         lastImportedAt = Date()
@@ -262,9 +269,27 @@ final class CloudSyncEngine {
     /// Launch-time hook: imports only if it's actually due, and stays silent
     /// if anything goes wrong. The user didn't ask for this one, so it must
     /// never interrupt them — the Cloud Sync page reports the real state.
+    ///
+    /// One exception to the silence: if the import changed what Eaon
+    /// *remembers about the user*, it says so. Conversations arriving
+    /// quietly is fine — they're visible in the sidebar and nothing acts on
+    /// them until opened. New memories are different: they go into prompts,
+    /// unasked, on the next message. An automatic background process that
+    /// alters what the assistant believes about you and mentions it nowhere
+    /// is the part worth a line of text.
     func autoImportIfDue(into chatViewModel: ChatViewModel) async {
         guard isAutoImportDue, let key = CloudSyncStore.shared.masterKey else { return }
         await importFromCloud(into: chatViewModel, masterKey: key)
+
+        guard let outcome = lastMemoryImport, outcome.added > 0 else { return }
+        let noun = outcome.added == 1 ? "memory" : "memories"
+        var notice = "Cloud Sync added \(outcome.added) \(noun) from your other devices."
+        let turnedAway = outcome.skippedFiltered + outcome.skippedDuplicates + outcome.skippedOverCap
+        if turnedAway > 0 {
+            notice += " \(turnedAway) more didn't pass Eaon's filters."
+        }
+        notice += " Review them in Settings → Memory."
+        chatViewModel.composerNotice = notice
     }
 
     // MARK: - Delete

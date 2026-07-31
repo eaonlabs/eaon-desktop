@@ -328,7 +328,7 @@ struct ModelPickerPopoverContent: View {
                     )
                     if !isCollapsed {
                         if !group.isEnabled {
-                            Text("Turned off — click the gear to turn it back on.")
+                            Text("Turned off. Click the gear to turn it back on.")
                                 .font(AppFont.mono(12))
                                 .foregroundStyle(colors.textTertiary)
                                 .padding(.horizontal, 8)
@@ -437,7 +437,7 @@ private struct ImageGenerationSectionHeader: View {
         .padding(.horizontal, 8)
         .padding(.top, 8)
         .padding(.bottom, 6)
-        .help("One prompt in, one image out — a different kind of model from the rest of this list")
+        .help("One prompt in, one image out. A different kind of model from the rest of this list")
     }
 }
 
@@ -456,7 +456,7 @@ private struct LocalSectionHeader: View {
         .padding(.horizontal, 8)
         .padding(.top, 8)
         .padding(.bottom, 6)
-        .help("These models run locally — no internet, no API key")
+        .help("These models run locally. No internet, no API key")
     }
 }
 

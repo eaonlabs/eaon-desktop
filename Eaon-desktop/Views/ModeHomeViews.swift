@@ -32,8 +32,17 @@ private struct WindowDragBlocker: NSViewRepresentable {
     }
 }
 
-/// The compact pill that replaced the sidebar's mode rows — lives in the
-/// composer bar, next to the attach button.
+/// The mode switcher, sitting at the very top of the sidebar above "New
+/// Chat" — the first thing in the window, framing everything under it as
+/// belonging to the mode you're in.
+///
+/// It spans the sidebar's full width with two equal halves rather than
+/// hugging its labels. At the top of a fixed-width column an intrinsically
+/// sized control reads as a stray object floating in the corner; filling the
+/// column makes it read as the header of what follows, and equal halves say
+/// the two modes are peers. The rounded rectangle (rather than a capsule)
+/// matches the radius of the nav rows directly beneath it, so the top of the
+/// sidebar looks like one designed stack instead of two unrelated widgets.
 ///
 /// Both a tap and a press-and-slide work: a `DragGesture(minimumDistance:
 /// 0)` covers both, since a plain tap is just a drag that never moves. While
@@ -57,11 +66,18 @@ struct ModeSegmentedControl: View {
     /// tracking. nil the rest of the time, when the pill just sits settled
     /// on `currentMode`'s own frame.
     @State private var liveDragX: CGFloat?
+    /// Down-state for press feedback. A control this central has to feel like
+    /// it heard you the instant you touch it — the pill's travel is the
+    /// *result*, which arrives a beat later.
+    @State private var isPressed = false
+    /// Motion is the whole point of the sliding pill, so reduced-motion gets
+    /// the same control with the travel removed rather than a degraded one.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     private func label(for mode: EaonMode) -> String {
         switch mode {
         case .chat: return "Chat"
-        case .agent: return "Eaon Work"
+        case .agent: return "Work"
         case .code: return "Code"
         }
     }
@@ -91,24 +107,36 @@ struct ModeSegmentedControl: View {
     var body: some View {
         ZStack(alignment: .leading) {
             if let pill = pillFrame {
-                Capsule()
+                RoundedRectangle(cornerRadius: 8, style: .continuous)
                     .fill(colors.backgroundChip)
                     .frame(width: pill.width, height: pill.height)
                     .offset(x: pill.minX, y: pill.minY)
+                    // Also animates when the mode is changed from somewhere
+                    // else entirely (a keyboard shortcut, restoring a saved
+                    // mode) — without this the pill teleports in those cases
+                    // and only the in-control path looks considered.
+                    .animation(pillMotion, value: currentMode)
+                    .animation(.interactiveSpring(duration: 0.2), value: liveDragX == nil)
             }
 
             HStack(spacing: 2) {
                 ForEach(EaonMode.switcherCases) { mode in
                     let isActive = mode == currentMode
-                    HStack(spacing: 4) {
+                    HStack(spacing: 6) {
                         Image(systemName: mode.icon)
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(.system(size: 11, weight: .semibold))
                         Text(label(for: mode))
-                            .font(AppFont.mono(12, weight: .medium))
+                            .font(AppFont.mono(13, weight: .medium))
                     }
                     .foregroundStyle(isActive ? colors.textPrimary : colors.textSecondary)
-                    .padding(.horizontal, 10)
+                    // Timed to land with the pill. Snapping the colour makes
+                    // the label change look like a separate event from the
+                    // pill's arrival instead of one movement.
+                    .animation(.easeOut(duration: 0.18), value: currentMode)
                     .padding(.vertical, 6)
+                    // Equal halves, so the pill travels a fixed distance and
+                    // neither mode looks like the "main" one.
+                    .frame(maxWidth: .infinity)
                     .background(
                         GeometryReader { proxy in
                             Color.clear.preference(
@@ -124,16 +152,22 @@ struct ModeSegmentedControl: View {
         .coordinateSpace(name: "modeSegmentedControl")
         .onPreferenceChange(SegmentFramePreferenceKey.self) { segmentFrames = $0 }
         .padding(3)
-        .background(Capsule().fill(colors.backgroundInputSecondary))
+        .background(
+            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                .fill(colors.backgroundInputSecondary)
+        )
+        .scaleEffect(isPressed ? 0.97 : 1)
+        .animation(.easeOut(duration: 0.12), value: isPressed)
         .background(WindowDragBlocker())
         .contentShape(Rectangle())
         .gesture(
             DragGesture(minimumDistance: 0, coordinateSpace: .named("modeSegmentedControl"))
                 .onChanged { value in
+                    if !isPressed { isPressed = true }
                     // Deliberately outside withAnimation — this needs to
                     // track the cursor with zero lag every frame, not ease
                     // toward it.
-                    liveDragX = value.location.x
+                    liveDragX = reduceMotion ? nil : value.location.x
                 }
                 .onEnded { value in
                     let landed = nearestMode(toX: value.location.x)
@@ -142,7 +176,8 @@ struct ModeSegmentedControl: View {
                     // animation transaction, or only half the motion (the
                     // drag-to-nil part) would animate while the mode's own
                     // frame change snapped in instantly right after.
-                    withAnimation(.spring(duration: 0.28, bounce: 0.15)) {
+                    isPressed = false
+                    withAnimation(pillMotion) {
                         liveDragX = nil
                         if landed != currentMode {
                             onSelect(landed)
@@ -150,6 +185,15 @@ struct ModeSegmentedControl: View {
                     }
                 }
         )
+    }
+
+    /// How the pill travels. Deliberately quick — switching modes is a
+    /// frequent action, and past roughly 250ms a control you use constantly
+    /// starts feeling like it's waiting on you. The slight bounce is what
+    /// makes it read as a physical object sliding rather than a rectangle
+    /// being redrawn; any more would turn a utility control into a toy.
+    private var pillMotion: Animation {
+        reduceMotion ? .easeOut(duration: 0.01) : .spring(duration: 0.24, bounce: 0.18)
     }
 
     /// Where the pill actually draws right now: the live-tracked X while a
@@ -194,7 +238,7 @@ struct DeviceControlOptInHint: View {
                 Image(systemName: "macwindow")
                     .font(.system(size: 12))
                     .foregroundStyle(colors.textSecondary)
-                Text("Turn on Device Control so Agent can also organize files, drive apps, and use the browser — not just write code.")
+                Text("Turn on Device Control so Agent can organize files, drive apps, and use the browser, not just write code.")
                     .font(AppFont.sans(12))
                     .foregroundStyle(colors.textSecondary)
                     .lineLimit(2)

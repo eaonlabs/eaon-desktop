@@ -22,7 +22,7 @@ struct SkillsSettingsView: View {
                 .padding(.top, 28)
                 .padding(.bottom, 4)
 
-            Text("Reusable instructions a model follows on request — type /name in the message box, or let it run automatically here first.")
+            Text("Reusable instructions a model follows on request. Type /name in the message box, or let it run automatically by turning it on here first.")
                 .font(AppFont.sans(12))
                 .foregroundColor(colors.textSecondary)
                 .padding(.horizontal, 32)
@@ -186,6 +186,7 @@ private struct AddSkillFromGitHubSheet: View {
                 .font(AppFont.sans(12))
                 .foregroundColor(colors.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
+                .lineSpacing(3)
 
             TextField("https://github.com/org/repo/blob/main/some-skill/SKILL.md", text: $url)
                 .textFieldStyle(.plain)
@@ -202,6 +203,7 @@ private struct AddSkillFromGitHubSheet: View {
                     .font(AppFont.mono(12))
                     .foregroundColor(colors.destructive)
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineSpacing(3)
             }
 
             HStack {
@@ -275,6 +277,7 @@ private struct AddSkillManuallySheet: View {
                     .font(AppFont.mono(12))
                     .foregroundColor(colors.destructive)
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineSpacing(3)
             }
 
             HStack {
@@ -335,16 +338,18 @@ private struct ImportLocalSkillsSheet: View {
                 .font(AppFont.sans(12))
                 .foregroundColor(colors.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
+                .lineSpacing(3)
 
             if !didScan {
                 Text("Scanning…")
                     .font(AppFont.mono(12))
                     .foregroundColor(colors.textTertiary)
             } else if candidates.isEmpty {
-                Text("Nothing new to import — either none were found, or everything there is already in your library.")
+                Text("Nothing new to import. Either none were found, or everything there is already in your library.")
                     .font(AppFont.sans(12))
                     .foregroundColor(colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
+                    .lineSpacing(3)
             } else {
                 // Bounded height + its own ScrollView — a real Mac with
                 // dozens of skills under ~/.claude/skills/ (20, on this
@@ -358,7 +363,7 @@ private struct ImportLocalSkillsSheet: View {
                                 HStack(spacing: 12) {
                                     VStack(alignment: .leading, spacing: 2) {
                                         Text("/\(candidate.parsed.name)")
-                                            .font(AppFont.mono(13, weight: .semibold))
+                                            .font(AppFont.mono(14, weight: .semibold))
                                             .foregroundColor(colors.textPrimary)
                                         Text(candidate.parsed.summary)
                                             .font(AppFont.sans(11.5))

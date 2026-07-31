@@ -35,12 +35,8 @@ export const PERMISSION_COLORS = {
   auto: "#E3B341",
 } as const;
 
+/** Classic braille spinner — terminal-native busy chrome, not a product clone. */
 export const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
-
-/** Pulsing star for the working line — Claude Code's breathe rhythm. */
-export const STAR_FRAMES = ["·", "✢", "✳", "✻", "✽", "✻", "✳", "✢"] as const;
-
-export const WORKING_VERBS = ["Working", "Thinking", "Brewing", "Tinkering", "Considering"] as const;
 
 export const MODE_LABEL: Record<string, string> = {
   chat: "Chat",

@@ -26,10 +26,11 @@ struct HardwareSettingsView: View {
                 .padding(.top, 28)
                 .padding(.bottom, 8)
 
-            Text("Live facts about this Mac — the same numbers Eaon checks before saying whether a local model will actually fit.")
+            Text("Live facts about this Mac. These are the same numbers Eaon checks before saying whether a local model will actually fit.")
                 .font(AppFont.sans(12))
                 .foregroundColor(colors.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
+                .lineSpacing(3)
                 .padding(.horizontal, 32)
                 .padding(.bottom, 20)
 
@@ -91,7 +92,7 @@ struct HardwareSettingsView: View {
 
     private func sectionHeader(_ title: String) -> some View {
         Text(title)
-            .font(AppFont.mono(11, weight: .semibold))
+            .font(AppFont.mono(12, weight: .semibold))
             .foregroundColor(colors.textTertiary)
             .tracking(0.5)
             .padding(.horizontal, 16)
@@ -106,7 +107,7 @@ struct HardwareSettingsView: View {
     private func row(_ label: String, _ value: String) -> some View {
         HStack {
             Text(label)
-                .font(AppFont.mono(13, weight: .medium))
+                .font(AppFont.mono(14, weight: .medium))
                 .foregroundColor(colors.textPrimary)
             Spacer()
             Text(value)
@@ -123,7 +124,7 @@ struct HardwareSettingsView: View {
     private func usageRow(_ label: String, fraction: Double?, percentText: String?) -> some View {
         HStack {
             Text(label)
-                .font(AppFont.mono(13, weight: .medium))
+                .font(AppFont.mono(14, weight: .medium))
                 .foregroundColor(colors.textPrimary)
             Spacer()
             if let fraction, let percentText {

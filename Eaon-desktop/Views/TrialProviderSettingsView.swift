@@ -102,7 +102,7 @@ struct TrialProviderSettingsView: View {
                     Text("Eaon Free Trial")
                         .font(AppFont.mono(14, weight: .semibold))
                         .foregroundColor(colors.textPrimary)
-                    Text("7 days of hosted models through Eaon's own gateway — independent of any API key you've saved")
+                    Text("7 days of hosted models through Eaon's own gateway, independent of any API key you've saved")
                         .font(AppFont.mono(12))
                         .foregroundColor(colors.textSecondary)
                 }
@@ -149,20 +149,23 @@ struct TrialProviderSettingsView: View {
                 }
 
                 if trial.isActive {
-                    Text("Hosted models are on the house through \(trial.credential.map { Self.expiryFormatter.string(from: $0.expiresAt) } ?? "the end of the week")\(trialUsageSuffix). This keeps working even if you also have your own Eaon API key saved — pick a model from this group specifically to use the trial, or from \"Eaon\" to use your key. No account, no card, and no API key is ever stored in the app.")
+                    Text("Hosted models are on the house through \(trial.credential.map { Self.expiryFormatter.string(from: $0.expiresAt) } ?? "the end of the week")\(trialUsageSuffix). This keeps working even if you also have your own Eaon API key saved. Pick a model from this group to use the trial, or from \"Eaon\" to use your key. No account, no card, and no API key is ever stored in the app.")
                         .font(AppFont.sans(12))
                         .foregroundColor(colors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
+                        .lineSpacing(3)
                 } else if trial.isExpired {
-                    Text("Your free week has ended — this provider and its models are gone from the picker. Your own Eaon API key (if you have one) is unaffected; add or manage it from the \"Eaon API\" page.")
+                    Text("Your free week has ended, so this provider and its models are gone from the picker. Your own Eaon API key, if you have one, still works. Add or manage it from the \"Eaon API\" page.")
                         .font(AppFont.sans(12))
                         .foregroundColor(colors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
+                        .lineSpacing(3)
                 } else {
-                    Text("Try every hosted model free for 7 days — one click, no account, no card, and it keeps working even after you add your own Eaon API key. The trial is tied to this Mac and runs through Eaon's own servers, so no API key is ever stored in the app.")
+                    Text("Try every hosted model free for 7 days. One click, no account and no card, and it keeps working even after you add your own Eaon API key. The trial is tied to this Mac and runs through Eaon's own servers, so no API key is stored in the app.")
                         .font(AppFont.sans(12))
                         .foregroundColor(colors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
+                        .lineSpacing(3)
 
                     HStack {
                         AccentButton(
@@ -185,6 +188,7 @@ struct TrialProviderSettingsView: View {
                             .font(AppFont.sans(11.5))
                             .foregroundColor(colors.destructive)
                             .fixedSize(horizontal: false, vertical: true)
+                            .lineSpacing(3)
                     }
                 }
             }
@@ -268,7 +272,7 @@ struct TrialProviderSettingsView: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text(FreeWeekTrial.strippingTrialSuffix(model.id))
-                        .font(AppFont.mono(13, weight: .medium))
+                        .font(AppFont.mono(14, weight: .medium))
                         .foregroundColor(colors.textPrimary)
 
                     if ModelCatalog.supportsVision(for: model.id) {
@@ -280,7 +284,7 @@ struct TrialProviderSettingsView: View {
                 }
 
                 Text(rowSubtitle(for: model))
-                    .font(AppFont.mono(11))
+                    .font(AppFont.mono(12))
                     .foregroundColor(modelPrefs.nickname(for: model.id) != nil ? colors.textSecondary : colors.textTertiary)
             }
 

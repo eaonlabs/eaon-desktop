@@ -1,38 +1,15 @@
-import React, { useEffect, useState } from "react";
+import React from "react";
 import { Box, Text } from "ink";
-import { STAR_FRAMES, theme } from "./theme.js";
+import { theme } from "./theme.js";
 import { Markdown } from "./Markdown.js";
 import { WriteFileDiff, EditFileDiff } from "./DiffView.js";
 import { EaonBanner } from "./EaonBanner.js";
 import { isKnownTool, toolInvocationLabel } from "../tools/index.js";
 import type { DisplayMessage } from "./types.js";
 
-/** A live "thinking" pulse with an elapsed-time readout, shown the
- * moment a turn starts and before any tokens have arrived. Its timer is
- * entirely local state — it ticks on its own 140ms interval instead of
- * pushing updates through the app's shared message state, so a slow model
- * still gives immediate visual feedback ("is this actually working?")
- * without adding a single extra re-render to the rest of the UI. */
-function ThinkingIndicator(): React.ReactElement {
-  const [frame, setFrame] = useState(0);
-  const [elapsedMs, setElapsedMs] = useState(0);
-
-  useEffect(() => {
-    const start = Date.now();
-    const id = setInterval(() => {
-      setFrame((f) => (f + 1) % STAR_FRAMES.length);
-      setElapsedMs(Date.now() - start);
-    }, 140);
-    return () => clearInterval(id);
-  }, []);
-
-  const seconds = Math.floor(elapsedMs / 1000);
-  return (
-    <Text color={theme.muted}>
-      <Text color={theme.accent}>{STAR_FRAMES[frame]}</Text> Thinking… <Text dimColor>({seconds}s · esc to interrupt)</Text>
-    </Text>
-  );
-}
+/** Quiet placeholder while the model hasn't streamed text yet. Timing and
+ * interrupt hints live under the composer (GenerationStatus) so we don't
+ * show two competing busy lines. */
 
 /** The whole reason long replies used to lag. While a message is still
  * streaming, rendering the full Markdown block tree — re-parsing the entire
@@ -104,7 +81,7 @@ function ToolMessage({ message }: { message: Extract<DisplayMessage, { role: "to
       <Text>
         <Text color={statusColor}>● </Text>
         <Text color={theme.toolName} bold>{label}</Text>
-        {message.pending ? <Text color={theme.muted}> …</Text> : null}
+        {message.pending ? <Text color={theme.muted} dimColor> running</Text> : null}
       </Text>
 
       {diff && <Box marginTop={1} paddingLeft={2}>{diff}</Box>}
@@ -192,7 +169,7 @@ export function MessageView({ message }: { message: DisplayMessage }): React.Rea
             </Box>
           </Box>
         ) : message.streaming ? (
-          <ThinkingIndicator />
+          <Text color={theme.accent}>●</Text>
         ) : null}
       </Box>
     );

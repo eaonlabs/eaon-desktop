@@ -1,5 +1,4 @@
 import AppKit
-import AVFoundation
 import SwiftUI
 
 /// The "General" settings pane — app identity, updates, data location, and
@@ -62,7 +61,7 @@ struct GeneralSettingsView: View {
         SettingsSectionCard(title: "Desktop Assistant") {
             SettingsSectionRow(
                 title: "Floating assistant",
-                description: "A compact Ask-Eaon bar that floats above your other windows, using your current model. Toggle it with the sparkle in the menu bar, or ⌥Space when no other app owns that shortcut."
+                description: "A compact Ask-Eaon bar above your other windows. Toggle with the menu bar sparkle, or \u{2325}Space."
             ) {
                 Toggle("", isOn: Bindable(DesktopAssistantStore.shared).isEnabled)
                     .labelsHidden()
@@ -74,214 +73,14 @@ struct GeneralSettingsView: View {
 
             SettingsSectionRow(
                 title: "Desktop pet",
-                description: "A little companion that roams your screen and reacts to your conversations — it works while you wait, gets happy or hurt depending on what's said, and dozes off when idle. Click it to open the floating assistant; attach \"My screen\" from its + menu to ask about what's on screen, and it'll fly over and point at what it finds."
+                description: "An on-screen companion that reacts to your conversations. Click it to open the assistant."
             ) {
                 Toggle("", isOn: Bindable(EaonPetStore.shared).isEnabled)
                     .labelsHidden()
                     .toggleStyle(.switch)
                     .tint(AppearanceSettings.toggleTint)
             }
-
-            SettingsSectionRowDivider()
-
-            // Everything below this line is unfinished and known-unreliable.
-            // It ships switched off, behind a warning people have to read
-            // before they can turn it on — a half-working voice assistant
-            // that takes the app down with it is worse than no voice
-            // assistant, and quietly shipping one costs trust that's much
-            // harder to win back than the feature is to finish.
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 6) {
-                    Text("ALPHA")
-                        .font(AppFont.mono(9.5, weight: .bold))
-                        .foregroundStyle(Color(hex: "#F59E0B"))
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 2)
-                        .background(Capsule().fill(Color(hex: "#F59E0B").opacity(0.16)))
-                        .overlay(Capsule().stroke(Color(hex: "#F59E0B").opacity(0.45), lineWidth: 1))
-                    Text("Voice — unfinished, off by default")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.secondary)
-                }
-                Text("Talking to the pet is an early experiment and is NOT ready for everyday use. It can crash Eaon, speech recognition frequently mishears or ignores what you say, and the spoken voice is poor. Leave it off unless you're specifically testing it — nothing else in the app depends on it. Your chats, the pet, and the assistant all work normally with this switched off.")
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-
-            SettingsSectionRowDivider()
-
-            SettingsSectionRow(
-                title: "Talk to the pet (Alpha)",
-                description: "Click the pet and speak; the words go into the message box and you press Enter to send. Transcription runs on your Mac's own on-device recognizer and never leaves this computer. Expect it to be rough — see the warning above. Needs the desktop pet turned on."
-            ) {
-                Toggle("", isOn: Bindable(EaonVoiceStore.shared).isEnabled)
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-                    .tint(AppearanceSettings.toggleTint)
-                    .disabled(!EaonPetStore.shared.isEnabled)
-            }
-
-            SettingsSectionRowDivider()
-
-            SettingsSectionRow(
-                title: "Hands-free \u{201C}Hey Eaon\u{201D} (Alpha, unreliable)",
-                description: "Say \u{201C}Hey Eaon\u{201D} instead of clicking. Known problem: the recognizer has never heard the word \u{201C}Eaon\u{201D} and often transcribes it as something else, so the phrase frequently doesn't register at all — clicking the pet is far more dependable. Also keeps the microphone open the whole time it's on."
-            ) {
-                Toggle("", isOn: Bindable(EaonVoiceStore.shared).wakeWordEnabled)
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-                    .tint(AppearanceSettings.toggleTint)
-                    .disabled(!EaonPetStore.shared.isEnabled || !EaonVoiceStore.shared.isEnabled)
-            }
-
-            SettingsSectionRowDivider()
-
-            SettingsSectionRow(
-                title: "Keep the conversation going (Alpha, unreliable)",
-                description: "Listen again straight after answering, and let you cut Eaon off mid-sentence by talking. The least finished part of this: it depends on echo cancellation working, and without it the microphone hears the pet's own voice. Off unless you're testing."
-            ) {
-                Toggle("", isOn: Bindable(EaonVoiceStore.shared).conversationMode)
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-                    .tint(AppearanceSettings.toggleTint)
-                    .disabled(!EaonPetStore.shared.isEnabled || !EaonVoiceStore.shared.isEnabled)
-            }
-
-            SettingsSectionRowDivider()
-
-            SettingsSectionRow(
-                title: "Speech engine",
-                description: "macOS's built-in speech is instant and needs nothing installed, but its stock voices are small and sound synthetic. Kokoro is a real neural voice model that runs locally on Apple Silicon — it sounds like a person, and still nothing leaves this Mac."
-            ) {
-                Picker("", selection: Bindable(EaonVoiceStore.shared).engine) {
-                    ForEach(EaonSpeechEngine.allCases) { option in
-                        Text(option.title).tag(option)
-                    }
-                }
-                .labelsHidden()
-                .frame(width: 280)
-                .disabled(!EaonVoiceStore.shared.isEnabled)
-            }
-
-            if EaonVoiceStore.shared.engine == .kokoro {
-                SettingsSectionRowDivider()
-                if KokoroSpeech.isInstalled {
-                    SettingsSectionRow(
-                        title: "Kokoro voice",
-                        description: "54 presets ship with the model; these are the English ones."
-                    ) {
-                        Picker("", selection: Bindable(EaonVoiceStore.shared).kokoroVoice) {
-                            ForEach(KokoroSpeech.voices, id: \.id) { voice in
-                                Text(voice.label).tag(voice.id)
-                            }
-                        }
-                        .labelsHidden()
-                        .frame(width: 280)
-                    }
-                } else {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Kokoro isn't installed yet. It's a one-time setup and runs entirely on this Mac — no account, no key, nothing sent anywhere. In Terminal:")
-                            .font(.system(size: 11.5))
-                            .foregroundStyle(.secondary)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Text(KokoroSpeech.installCommand)
-                            .font(AppFont.mono(12))
-                            .textSelection(.enabled)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 5)
-                            .background(RoundedRectangle(cornerRadius: 6).fill(.quaternary.opacity(0.4)))
-                        Text("Needs Apple Silicon. The first sentence Eaon speaks afterwards is slow while the model loads (~600MB); everything after that is instant. Until it's installed, Eaon keeps using the system voice.")
-                            .font(.system(size: 11))
-                            .foregroundStyle(.tertiary)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                }
-            }
-
-            SettingsSectionRowDivider()
-
-            SettingsSectionRow(
-                title: "Voice",
-                description: "Which system voice the pet speaks in. Preview one before you commit to it."
-            ) {
-                HStack(spacing: 8) {
-                    Picker("", selection: Bindable(EaonVoiceStore.shared).voiceIdentifier) {
-                        Text("Automatic (best installed)").tag("")
-                        ForEach(EaonVoiceController.selectableVoices(), id: \.identifier) { voice in
-                            Text(Self.voiceLabel(voice)).tag(voice.identifier)
-                        }
-                    }
-                    .labelsHidden()
-                    .frame(width: 240)
-                    .disabled(!EaonVoiceStore.shared.isEnabled)
-
-                    Button("Preview") {
-                        EaonVoiceController.shared.preview(
-                            voiceIdentifier: EaonVoiceStore.shared.voiceIdentifier
-                        )
-                    }
-                    .disabled(!EaonVoiceStore.shared.isEnabled)
-                }
-            }
-
-            // The single biggest thing anyone can do about "it sounds like a
-            // robot" — and it's a free Apple download, not an app change.
-            if EaonVoiceController.onlyCompactVoicesInstalled {
-                SettingsSectionRowDivider()
-                VStack(alignment: .leading, spacing: 8) {
-                    Text("Your Mac only has the small built-in voices installed, which is why speech sounds flat and robotic. Apple's lifelike voices are a free download: open System Settings → Accessibility → Spoken Content → System Voice → Manage Voices, and get any voice marked Premium (or Enhanced). Eaon picks the best one you have automatically.")
-                        .font(.system(size: 11.5))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                    Button("Open Accessibility Settings") {
-                        if let url = URL(string: "x-apple.systempreferences:com.apple.Accessibility-Settings.extension") {
-                            NSWorkspace.shared.open(url)
-                        }
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 10)
-            }
-
-            if let voiceError = EaonVoiceController.shared.lastError {
-                SettingsSectionRowDivider()
-                Text(voiceError)
-                    .font(.system(size: 11.5))
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-            }
         }
-    }
-
-    /// "Samantha — Female · Premium". Quality is shown because it's the part
-    /// that decides whether the pet sounds human or synthetic, and it isn't
-    /// obvious from the name.
-    private static func voiceLabel(_ voice: AVSpeechSynthesisVoice) -> String {
-        let quality: String
-        switch voice.quality {
-        case .premium: quality = "Premium"
-        case .enhanced: quality = "Enhanced"
-        default: quality = "Compact"
-        }
-        let gender: String?
-        switch voice.gender {
-        case .male: gender = "Male"
-        case .female: gender = "Female"
-        default: gender = nil
-        }
-        return [voice.name, [gender, quality].compactMap { $0 }.joined(separator: " · ")]
-            .joined(separator: " — ")
     }
 
     // MARK: - Eaon CLI
@@ -293,7 +92,7 @@ struct GeneralSettingsView: View {
         SettingsSectionCard(title: "Eaon CLI") {
             SettingsSectionRow(
                 title: "Eaon in your terminal",
-                description: "Agentic coding, Claw, and chat for any model — the engine behind Eaon Code, runnable in any terminal."
+                description: "Agentic coding, Claw, and chat for any model. It's the engine behind Eaon Code, and it runs in any terminal."
             ) {
                 pillButton(title: "Manage", icon: "terminal") {
                     showingCLISheet = true
@@ -308,7 +107,7 @@ struct GeneralSettingsView: View {
             ) {
                 if let cliStatus, let version = cliStatus.version {
                     Text("v\(version)")
-                        .font(AppFont.mono(13, weight: .medium))
+                        .font(AppFont.mono(14, weight: .medium))
                         .foregroundColor(colors.textSecondary)
                 }
             }
@@ -328,7 +127,7 @@ struct GeneralSettingsView: View {
         SettingsSectionCard(title: "General") {
             SettingsSectionRow(title: "App Version") {
                 Text(appVersion)
-                    .font(AppFont.mono(13, weight: .medium))
+                    .font(AppFont.mono(14, weight: .medium))
                     .foregroundColor(colors.textSecondary)
             }
 
@@ -379,7 +178,7 @@ struct GeneralSettingsView: View {
             // same placement as the reference.
             HStack(spacing: 8) {
                 Text(AppDataLocation.directory.path)
-                    .font(AppFont.mono(11))
+                    .font(AppFont.mono(12))
                     .foregroundColor(colors.textTertiary)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -439,6 +238,7 @@ struct GeneralSettingsView: View {
                 .font(AppFont.sans(12))
                 .foregroundColor(colors.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
+                .lineSpacing(3)
 
             // Only "never redeemed yet" has anything actionable to show —
             // every other state is purely informational (see
@@ -451,6 +251,7 @@ struct GeneralSettingsView: View {
                         .font(AppFont.sans(11.5))
                         .foregroundColor(colors.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
+                        .lineSpacing(3)
                 } else {
                     HStack(spacing: 10) {
                         pillButton(title: trial.isStarting ? "Starting…" : "Redeem", icon: "gift", isLoading: trial.isStarting) {
@@ -466,7 +267,7 @@ struct GeneralSettingsView: View {
 
                         if let giftStatus {
                             Text("\(giftStatus.remaining) of \(giftStatus.total) left · through \(Self.giftExpiryFormatter.string(from: giftStatus.expiresAt))")
-                                .font(AppFont.sans(11))
+                                .font(AppFont.sans(12.5))
                                 .foregroundColor(colors.textTertiary)
                         }
                     }
@@ -476,6 +277,7 @@ struct GeneralSettingsView: View {
                             .font(AppFont.sans(11.5))
                             .foregroundColor(colors.destructive)
                             .fixedSize(horizontal: false, vertical: true)
+                            .lineSpacing(3)
                     }
                 }
             }
@@ -513,7 +315,7 @@ struct GeneralSettingsView: View {
         if let giftStatus, !giftStatus.available {
             return "The first \(giftStatus.total) free weeks have all been claimed, or the offer window has closed."
         }
-        return "7 days of every hosted model, free — one click, no account, no card, and it keeps working even if you already have your own Eaon API key. Limited to the first \(giftStatus?.total ?? 100) people to redeem, through \(giftStatus.map { Self.giftExpiryFormatter.string(from: $0.expiresAt) } ?? "the offer's deadline")."
+        return "7 days of every hosted model, free. One click, no account and no card, and it keeps working even if you already have your own Eaon API key. Limited to the first \(giftStatus?.total ?? 100) people to redeem, through \(giftStatus.map { Self.giftExpiryFormatter.string(from: $0.expiresAt) } ?? "the offer's deadline")."
     }
 
     private static let giftExpiryFormatter: DateFormatter = {
@@ -629,6 +431,7 @@ struct SettingsSectionRow<Control: View>: View {
                         .font(AppFont.sans(12))
                         .foregroundColor(colors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
+                        .lineSpacing(3)
                 }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
