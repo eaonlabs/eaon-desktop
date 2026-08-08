@@ -41,8 +41,6 @@ export interface SlashCommandSpec {
   run: (argsText: string) => SlashCommandOutcome;
 }
 
-const MODE_NAMES: EaonMode[] = ["chat", "agent"];
-
 export const COMMANDS: SlashCommandSpec[] = [
   {
     name: "help",
@@ -51,19 +49,20 @@ export const COMMANDS: SlashCommandSpec[] = [
   },
   {
     name: "mode",
-    description: "Switch mode: chat or agent.",
-    usage: "/mode <chat|agent>",
+    description: "Eaon is one agent — use shift+tab for plan / sandboxed / auto.",
+    usage: "/mode",
     run: (args) => {
       const wanted = args.trim().toLowerCase();
-      if (!wanted) return { kind: "message", text: `Current mode is set via /mode <chat|agent>.` };
-      // "claw" is folded into Agent now — accept the old name (and any
-      // unambiguous prefix of it, i.e. "cl…" which can't mean chat) gracefully.
-      if (wanted.length >= 2 && "claw".startsWith(wanted)) {
-        return { kind: "set_mode", mode: "agent" };
+      if (!wanted || wanted === "agent" || wanted === "chat" || wanted === "claw" || "claw".startsWith(wanted)) {
+        return {
+          kind: "message",
+          text: "Eaon is one agent now — there's no separate Chat mode. Use shift+tab (or /permission) to cycle plan · sandboxed · auto.",
+        };
       }
-      const match = MODE_NAMES.find((m) => m === wanted || m.startsWith(wanted));
-      if (!match) return { kind: "error", text: `"${wanted}" isn't a mode. Try: ${MODE_NAMES.join(", ")}.` };
-      return { kind: "set_mode", mode: match };
+      return {
+        kind: "error",
+        text: `"${wanted}" isn't used anymore. Eaon is one agent — try /permission plan|sandboxed|auto.`,
+      };
     },
   },
   {

@@ -540,14 +540,12 @@ private struct ComposerIconToggle: View {
 
     @State private var isHovered = false
 
-    /// On takes the user's chosen accent — except when that accent is the
-    /// default white, where a tint would be no tint at all, so plain
-    /// full-strength text colour does the job instead.
+    /// An explicit per-pill accent when one is given; otherwise plain
+    /// full-strength text colour. Not the app accent: it's monochrome, so
+    /// tinting an "on" pill with it would be no tint at all.
     private var onColor: Color {
         if let accent { return accent }
-        return AppearanceSettings.shared.accentColorId == "white"
-            ? colors.textPrimary
-            : AppearanceSettings.shared.accentColor
+        return colors.textPrimary
     }
 
     private var foreground: Color {

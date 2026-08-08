@@ -21,6 +21,25 @@ struct SwarmRemark: Codable, Equatable {
     var isError: Bool = false
 }
 
+/// One unit of work the lead split out of the settled approach, handed to a
+/// single sub-agent. `assignee` names the persona whose brief it matches, so
+/// the worker inherits that persona's vantage point rather than answering as
+/// a generic assistant.
+struct SwarmSubtask: Codable, Equatable {
+    let title: String
+    let brief: String
+    let assignee: String
+}
+
+/// What one sub-agent produced. Kept even when it failed, so a partial fan-out
+/// is visible as a partial fan-out rather than silently shrinking the plan.
+struct SwarmSubtaskResult: Codable, Equatable {
+    let title: String
+    let assignee: String
+    var output: String
+    var isError: Bool = false
+}
+
 /// A finished swarm run: who was convened, everything they said, and how it
 /// ended. Embedded verbatim (base64 JSON) in the synthesized reply's own
 /// `content` — see `SwarmPanelExtractor` — so it persists and redisplays
@@ -35,9 +54,17 @@ struct SwarmTranscript: Codable, Equatable {
     /// never reached consensus doesn't silently look like one that did.
     var endedByVote: Bool = false
     var roundsUsed: Int = 0
+    /// The parallel work that followed the discussion. Empty when the split
+    /// couldn't be planned, which is a normal outcome on a small model and
+    /// falls back to the discussion alone.
+    var subtasks: [SwarmSubtaskResult] = []
 
     /// Remarks that actually carry something to synthesize from.
     var usableRemarks: [SwarmRemark] { remarks.filter { !$0.isError && !$0.text.isEmpty } }
+
+    /// Sub-agent output worth handing on. A failed worker contributes
+    /// nothing to assemble from, but stays in `subtasks` for the card.
+    var usableSubtasks: [SwarmSubtaskResult] { subtasks.filter { !$0.isError && !$0.output.isEmpty } }
 }
 
 /// Runs an **Agent Swarm**: instead of one model reasoning to itself, a

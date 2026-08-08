@@ -36,6 +36,7 @@ import { ModelPicker } from "./ModelPicker.js";
 import { PlanReview } from "./PlanReview.js";
 import { WelcomeScreen } from "./WelcomeScreen.js";
 import { theme, MODE_LABEL, PERMISSION_COLORS, SPINNER_FRAMES } from "./theme.js";
+import { isUnsafeProjectRoot, unsafeRootReason } from "../project/rootGuard.js";
 import { pickRandomQuote } from "./quotes.js";
 import type { DisplayMessage, LinkOutcome } from "./types.js";
 
@@ -123,6 +124,8 @@ function buildHelpMarkdown(): string {
   return [
     "## Eaon CLI — Help",
     "",
+    "One agent. Permission modes (plan / sandboxed / auto) control how much it can do alone.",
+    "",
     "### Commands",
     ...rows,
     "",
@@ -171,9 +174,9 @@ function buildStatusMarkdown(opts: {
   return [
     "## Status",
     "",
-    `**Mode:** ${MODE_LABEL[mode]} · **Permission:** ${permissionMode === "auto" ? "Auto" : "Sandboxed"}`,
+    `**Agent** · **Permission:** ${permissionMode === "plan" ? "Plan" : permissionMode === "auto" ? "Auto" : "Sandboxed"}`,
     `**Model:** ${model ? describeEntry(model) : "none selected"}`,
-    `**Project:** ${projectRoot}`,
+    `**Project:** ${projectRoot}${isUnsafeProjectRoot(projectRoot) ? ` ⚠ (${unsafeRootReason(projectRoot)})` : ""}`,
     `**Platform:** ${platformLabel()}`,
     "",
     "### Providers",
@@ -186,6 +189,7 @@ function buildStatusMarkdown(opts: {
     `- ${toolCalls} tool call${toolCalls === 1 ? "" : "s"} executed`,
     `- ~${chars.toLocaleString()} character${chars === 1 ? "" : "s"} generated`,
   ].join("\n");
+  void mode;
 }
 
 /** ~4 chars/token — the same rough heuristic the desktop app's context
@@ -322,7 +326,9 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
   // WelcomeScreen (see the render branch below). Persisted the moment that
   // screen finishes, linked or not, so it can never show a second time.
   const [welcomeDone, setWelcomeDone] = useState(() => !forceWelcome && fs.existsSync(configFile()));
-  const [mode, setMode] = useState<EaonMode>(initialMode);
+  // One Agent — coerce any legacy chat/claw launch into agent.
+  const [mode, setMode] = useState<EaonMode>("agent");
+  void initialMode;
   const [permissionMode, setPermissionMode] = useState<PermissionMode>(startPermissionMode ?? (startInAuto ? "auto" : "sandboxed"));
   const [confirmingAuto, setConfirmingAuto] = useState(false);
   const [catalog, setCatalog] = useState<ModelEntry[]>([]);
@@ -456,7 +462,7 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
         } else {
           turnsRef.current = loaded.turns;
           sessionIdRef.current = loaded.id;
-          setMode(loaded.mode);
+          setMode("agent");
           if (loaded.modelKey) {
             const found = findModel(result.models, loaded.modelKey);
             if (found) setModel(found);
@@ -470,6 +476,12 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
       const notes = readProjectNotes(projectRoot);
       if (result.aquaError) pushSystem(`Eaon models unavailable: ${result.aquaError}`, "error");
       if (notes) pushSystem("Loaded EAON.md for project context.", "info");
+      if (isUnsafeProjectRoot(projectRoot)) {
+        pushSystem(
+          `Working from ${unsafeRootReason(projectRoot)} — explore tools (list/grep/glob) are disabled. cd into a project or relaunch with --cwd.`,
+          "error"
+        );
+      }
       const bundledUpdate = checkForBundledUpdate(version);
       if (bundledUpdate) pushSystem(updateNoticeLine(bundledUpdate), "info");
     })();
@@ -897,8 +909,8 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
           pushSystem(outcome.text, "error");
           return;
         case "set_mode":
-          setMode(outcome.mode);
-          pushSystem(`Switched to ${MODE_LABEL[outcome.mode]} mode.`, "success");
+          setMode("agent");
+          pushSystem("Eaon is one agent — use shift+tab for plan · sandboxed · auto.", "info");
           return;
         case "set_permission":
           setPermissionMode(outcome.mode);
@@ -1460,7 +1472,7 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
             behavior earn color. */}
         <Box justifyContent="space-between" paddingX={1} marginTop={0}>
           <Text color={theme.muted} dimColor>
-            {MODE_LABEL[mode].toLowerCase()}
+            agent
             {" · "}
             {model ? describeEntry(model) : catalogLoading ? "loading models…" : "no model — /model"}
             {contextTokens > 0

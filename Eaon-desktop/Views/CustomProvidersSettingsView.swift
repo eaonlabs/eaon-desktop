@@ -33,7 +33,7 @@ struct CustomProviderDetailSettingsView: View {
     // page's own background it can vanish in light mode — fall back to the
     // normal readable text color for that one option. Mirrors Eaon's page.
     private var confirmationTextColor: Color {
-        AppearanceSettings.shared.accentColorId == "white" ? colors.textPrimary : AppearanceSettings.shared.accentColor
+        colors.textPrimary
     }
 
     var body: some View {
@@ -744,7 +744,7 @@ struct CustomProviderEditorSheet: View {
             }
 
             HStack {
-                Button("Cancel", action: onDone)
+                QuietButton(title: "Cancel", action: onDone)
                     .keyboardShortcut(.cancelAction)
                 Spacer()
                 AccentButton(title: "Save", isDisabled: !canSave) { save() }

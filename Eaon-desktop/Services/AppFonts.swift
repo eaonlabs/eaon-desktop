@@ -240,7 +240,7 @@ enum AppFonts {
 /// exposes it live — every `AppFont.mono`/`.sans` call reads straight from
 /// here, so a change updates every screen already routed through `AppFont`
 /// immediately, no restart. `@Observable` makes that automatic, exactly
-/// like `AppearanceSettings.accentColorId` does for the accent color. One
+/// like `AppearanceSettings.theme` does for light/dark. One
 /// font, one axis — it's used for both prose and code (`AppFont.sans` and
 /// `AppFont.mono` render the identical family); there's no separate
 /// "code font" choice.

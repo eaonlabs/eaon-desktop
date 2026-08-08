@@ -14,11 +14,11 @@ struct AquaProviderSettingsView: View {
     @State private var nicknameDraft = ""
     @State private var modelPendingDeletion: APIModel?
 
-    // "White" as an accent reads fine as a fill, but as bare text on this
-    // page's own background it can vanish in light mode — fall back to the
-    // normal readable text color for that one option.
+    // The accent is a monochrome white/near-black, which as a FILL is
+    // right but as bare text on this page's own background would vanish.
+    // Confirmation text uses the theme's readable text color instead.
     private var confirmationTextColor: Color {
-        AppearanceSettings.shared.accentColorId == "white" ? colors.textPrimary : AppearanceSettings.shared.accentColor
+        colors.textPrimary
     }
 
     private var visibleModels: [APIModel] {
@@ -394,7 +394,7 @@ struct ModelNicknameEditorSheet: View {
                 .foregroundColor(colors.textTertiary)
 
             HStack {
-                Button("Cancel", action: onCancel)
+                QuietButton(title: "Cancel", action: onCancel)
                     .keyboardShortcut(.cancelAction)
                 Spacer()
                 AccentButton(title: "Save", action: onSave)

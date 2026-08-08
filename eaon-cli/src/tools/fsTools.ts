@@ -10,6 +10,9 @@ import trash from "trash";
 import type { ToolResult } from "../types.js";
 import { guardModifiable, normalizePath, type PathGuardContext } from "./pathGuard.js";
 import { isFileKnown, markFileKnown } from "./readTracker.js";
+import { isUnsafeProjectRoot, unsafeRootToolError } from "../project/rootGuard.js";
+
+const LIST_CAP = 80;
 
 function byteString(bytes: number): string {
   const units = ["B", "KB", "MB", "GB", "TB"];
@@ -30,6 +33,9 @@ function err(text: string): ToolResult {
 }
 
 export function listDirectory(args: Record<string, unknown>, ctx: PathGuardContext): ToolResult {
+  if (isUnsafeProjectRoot(ctx.projectRoot)) {
+    return err(unsafeRootToolError(ctx.projectRoot));
+  }
   const raw = args.path;
   if (typeof raw !== "string") return err('missing "path"');
   const target = normalizePath(raw, ctx);
@@ -40,9 +46,23 @@ export function listDirectory(args: Record<string, unknown>, ctx: PathGuardConte
     return err(`No such directory: ${target}`);
   }
   if (!stat.isDirectory()) return err(`Not a directory (it's a file): ${target}`);
-  const entries = fs.readdirSync(target).sort((a, b) => a.localeCompare(b));
-  if (entries.length === 0) return ok(`${target} is empty.`);
-  const lines = entries.slice(0, 500).map((name) => {
+
+  // Hide dotfiles by default unless the user/model asked for a path that
+  // itself is a dotfile (e.g. listing .github). Home-folder raids were
+  // mostly noise from .android / .cache / .cargo.
+  const listingDotDir = path.basename(target).startsWith(".");
+  const allEntries = fs.readdirSync(target).sort((a, b) => a.localeCompare(b));
+  const hidden = listingDotDir ? 0 : allEntries.filter((n) => n.startsWith(".")).length;
+  const entries = listingDotDir ? allEntries : allEntries.filter((n) => !n.startsWith("."));
+  if (entries.length === 0) {
+    return ok(
+      hidden > 0
+        ? `${target} has no non-hidden entries (${hidden} dotfile${hidden === 1 ? "" : "s"} hidden).`
+        : `${target} is empty.`
+    );
+  }
+  const shown = entries.slice(0, LIST_CAP);
+  const lines = shown.map((name) => {
     const full = path.join(target, name);
     try {
       const entryStat = fs.statSync(full);
@@ -52,8 +72,11 @@ export function listDirectory(args: Record<string, unknown>, ctx: PathGuardConte
       return name;
     }
   });
-  const more = entries.length > 500 ? `\n…and ${entries.length - 500} more` : "";
-  return ok(`${entries.length} item${entries.length === 1 ? "" : "s"} in ${target}:\n${lines.join("\n")}${more}`);
+  const omitted = entries.length - shown.length;
+  const parts = [`${entries.length} item${entries.length === 1 ? "" : "s"} in ${target}`];
+  if (hidden > 0) parts.push(`${hidden} dotfile${hidden === 1 ? "" : "s"} hidden`);
+  if (omitted > 0) parts.push(`${omitted} more not shown — narrow the path`);
+  return ok(`${parts.join(" · ")}:\n${lines.join("\n")}`);
 }
 
 export function createFolder(args: Record<string, unknown>, ctx: PathGuardContext): ToolResult {

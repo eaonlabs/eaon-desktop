@@ -17,7 +17,7 @@ const DEFAULTS: EaonConfig = {
   customProviders: [],
   selectedModelKey: null,
   permissionMode: "sandboxed",
-  defaultMode: "chat",
+  defaultMode: "agent",
   customInstructions: "",
 };
 

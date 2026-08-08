@@ -563,7 +563,7 @@ private struct CloudSyncConfirmSheet: View {
 
             HStack(spacing: 10) {
                 Spacer()
-                Button("Cancel") { store.cancelEnable() }
+                QuietButton(title: "Cancel") { store.cancelEnable() }
                     .buttonStyle(.plain)
                     .font(AppFont.mono(12))
                     .foregroundColor(colors.textSecondary)

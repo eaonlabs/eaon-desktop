@@ -257,7 +257,7 @@ private struct ImageProviderEditorSheet: View {
                     .foregroundColor(colors.destructive)
                 }
                 Spacer()
-                Button("Cancel") { onDone(); dismiss() }
+                QuietButton(title: "Cancel") { onDone(); dismiss() }
                     .buttonStyle(.plain)
                     .font(AppFont.mono(14, weight: .medium))
                     .foregroundColor(colors.textSecondary)

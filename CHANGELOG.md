@@ -3,6 +3,65 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [2026.4.5] — 2026-08-08 — Mac app
+
+A tidy-up of everything you look at while Eaon is working, plus a CLI that no
+longer wanders out of your project.
+
+### The thinking display
+
+**One block instead of a dozen.** A research turn used to make a search, print
+a pill for it, print a results card under that, and repeat. Ten searches meant
+a screenful of scaffolding around an answer you hadn't got to yet. Every tool
+call in a reply now folds into one collapsible trail: a line each, with the
+sites and files it touched as small chips, and the count as the headline.
+
+**Reasoning reads as steps.** The model's own thinking used to be one wall of
+text behind a chevron. It's now split into steps, first sentence as the label
+and the rest underneath, so you can skim what it considered instead of
+committing to a paragraph.
+
+**A new mark for work in progress.** Small dotted orbs that say what kind of
+work is running: particles on orbits while it thinks, a sweeping globe while
+it searches the web, a wiring constellation while tools run, a slow ring while
+a local model loads into memory. The step still being worked on shimmers, and
+finished ones sit at full weight.
+
+### Questions the agent asks
+
+The agent's questions are a proper flow now rather than a stack of identical
+buttons. Options carry a line explaining what picking them means, several
+questions come one after another instead of all at once, and you can still
+type your own answer instead of picking, which was always true and stays true.
+
+### Appearance
+
+The accent is monochrome throughout, and picking a theme now changes the real
+macOS appearance rather than only the colours Eaon draws itself. Scrollbars,
+menus and system controls follow the theme instead of staying light inside a
+dark app.
+
+### Eaon CLI
+
+**It won't explore your home folder.** Running `eaon` from your home directory
+or the filesystem root used to let list, grep and glob crawl everything from
+`.cache` to `.cargo`. Both are now refused as project roots, with a warning
+that says why. Dotfiles are hidden from listings by default unless you asked
+for one by name.
+
+Prompts were rewritten to be shorter and more direct, and the CLI is
+cwd-rooted: you `cd` into a project and run it there.
+
+### Fixed
+
+- The terminal would have crashed the first time it was opened in a downloaded
+  build. A resource bundle it needs was never copied into the release, and a
+  missing bundle is a hard crash rather than a missing texture.
+- Settings pages that had drifted off the app's own layout: Statistics used
+  tighter spacing than every other page, and its charts had a fixed vertical
+  axis that stopped at 4, so anything busier ran off the top of the plot while
+  the axis carried on insisting it showed 0 to 4.
+
 ## [2026.4.0] — 2026-07-31 — Mac app
 
 The first build Apple has signed and notarized. Work mode also learned to

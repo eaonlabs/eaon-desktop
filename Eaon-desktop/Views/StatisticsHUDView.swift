@@ -6,9 +6,10 @@ struct StatisticsHUDView: View {
     @Bindable var chatViewModel: ChatViewModel
 
     // Matches confirmationTextColor's reasoning in AquaProviderSettingsView —
-    // a white accent used as plain text can vanish in light mode.
+    // the monochrome accent used as plain text would vanish against the
+    // page it sits on, so plain readable text color instead.
     private var generatingTextColor: Color {
-        AppearanceSettings.shared.accentColorId == "white" ? colors.textPrimary : AppearanceSettings.shared.accentColor
+        colors.textPrimary
     }
 
     var body: some View {

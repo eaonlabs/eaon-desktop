@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 enum AppTheme: String, CaseIterable, Identifiable {
@@ -46,42 +47,60 @@ enum NotificationPosition: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-struct AccentColorOption: Identifiable {
-    let id: String
-    let color: Color
-
-    /// A few basic solids plus `default`. `default` is special: instead of
-    /// one flat color, it spreads a whole palette across the app so
-    /// different areas each get their own color (see
-    /// `AppearanceSettings.defaultAccentPalette` and `accentColor(seed:)`).
-    /// Its swatch renders as a multicolor ring rather than a single fill.
-    static let all: [AccentColorOption] = [
-        .init(id: "default", color: Color(hex: "#3b82f6")), // representative color; real behavior is multicolor
-        .init(id: "blue",    color: Color(hex: "#3b82f6")),
-        .init(id: "green",   color: Color(hex: "#2d9f4f")),
-        .init(id: "orange",  color: Color(hex: "#e8a838")),
-        .init(id: "red",     color: Color(hex: "#e03e3e")),
-        .init(id: "purple",  color: Color(hex: "#9b59b6")),
-        .init(id: "pink",    color: Color(hex: "#e91e90")),
-        .init(id: "white",   color: Color(hex: "#FFFFFF")),
-    ]
-}
-
 @MainActor
 @Observable
 final class AppearanceSettings {
     static let shared = AppearanceSettings()
 
     var theme: AppTheme {
-        didSet { UserDefaults.standard.set(theme.rawValue, forKey: "app_theme") }
+        didSet {
+            UserDefaults.standard.set(theme.rawValue, forKey: "app_theme")
+            Self.syncAppKitAppearance(to: theme)
+        }
+    }
+
+    /// Makes the *real* AppKit appearance match the theme the user picked in
+    /// Settings — not just SwiftUI's `.preferredColorScheme`, which is a
+    /// separate, narrower override.
+    ///
+    /// `.preferredColorScheme` only changes the SwiftUI `\.colorScheme`
+    /// environment value — what `ThemeColors.forScheme` and every `Color`
+    /// this app draws by hand key off. It does NOT touch the AppKit
+    /// appearance that every AppKit-backed control (a `Picker` in `.menu`
+    /// style is a real `NSPopUpButton`, same for native alerts and menus)
+    /// resolves its system colors against. Leave that unsynced and picking
+    /// Light while the Mac itself is in Dark mode makes every custom SwiftUI
+    /// surface go light while native controls keep drawing their
+    /// dark-appearance (near-white) label color — invisible against the new
+    /// light background it now sits on.
+    ///
+    /// Setting `NSApp.appearance` alone isn't enough to fix that: it only
+    /// changes the *default* new windows are created with. A window that's
+    /// already on screen — like this one, mid-visit to the very Settings
+    /// screen showing the broken picker — doesn't repaint just because the
+    /// application-level default changed; its already-resolved control
+    /// colors stay stale until something invalidates them. Setting each open
+    /// window's own `.appearance` is what reliably forces that
+    /// re-resolve-and-redraw, which is why both loops are here: `NSApp`
+    /// covers windows created from here on, `NSApp.windows` covers the one
+    /// already open right now.
+    private static func syncAppKitAppearance(to theme: AppTheme) {
+        let resolved: NSAppearance? = {
+            switch theme {
+            case .light: return NSAppearance(named: .aqua)
+            case .dark: return NSAppearance(named: .darkAqua)
+            // nil defers to the system preference — exactly what "System" means.
+            case .system: return nil
+            }
+        }()
+        NSApp.appearance = resolved
+        for window in NSApp.windows {
+            window.appearance = resolved
+        }
     }
 
     var fontSize: AppFontSize {
         didSet { UserDefaults.standard.set(fontSize.rawValue, forKey: "app_font_size") }
-    }
-
-    var accentColorId: String {
-        didSet { UserDefaults.standard.set(accentColorId, forKey: "app_accent_color") }
     }
 
     var notificationPosition: NotificationPosition {
@@ -96,69 +115,43 @@ final class AppearanceSettings {
         didSet { UserDefaults.standard.set(coloredUserBubble, forKey: "app_colored_user_bubble") }
     }
 
-    /// The vibrant, harmonious set the "Default" accent spreads across the
-    /// app — chosen so any two neighbours read as clearly different colors,
-    /// and all sit well on both light and dark surfaces.
-    static let defaultAccentPalette: [Color] = [
-        Color(hex: "#3b82f6"), // blue
-        Color(hex: "#2d9f4f"), // green
-        Color(hex: "#e8a838"), // orange
-        Color(hex: "#9b59b6"), // purple
-        Color(hex: "#e91e90"), // pink
-        Color(hex: "#e03e3e"), // red
-        Color(hex: "#2ec4b6"), // teal
-    ]
+    /// The app's one accent, used for buttons, links, and selection states.
+    ///
+    /// There is no accent *picker* any more, and no multicolor mode: Eaon's
+    /// chrome is monochrome by design, and a palette of user-chosen hues
+    /// fought that rather than serving it.
+    ///
+    /// White — but adaptively so. A literal `#FFFFFF` is correct on the dark
+    /// theme this app is built around, and invisible on the light one, whose
+    /// page background is also `#FFFFFF`; a filled accent button there would
+    /// be a shape you can't see. So this resolves to white on dark surfaces
+    /// and to near-black on light ones. That's the same inverted-surface
+    /// treatment `DialogButton`'s primary style already used
+    /// (`textPrimary` on `backgroundPrimary`), just made available to every
+    /// caller that asks for the accent.
+    var accentColor: Color { Self.monochromeAccent }
 
-    /// True when the user has picked "Default" — the multicolor mode. Callers
-    /// that place several accent-tinted things in a row (sidebar icons, etc.)
-    /// use `accentColor(seed:)` so each gets its own palette color; a solid
-    /// choice ignores the seed and stays that one color everywhere.
-    var isMulticolorAccent: Bool { accentColorId == "default" }
+    /// The foreground to put on top of an `accentColor` fill — the exact
+    /// inverse, so the pair always contrasts whichever way the theme resolved.
+    var onAccentColor: Color { Self.monochromeAccentForeground }
 
-    /// The single accent color — for one-off controls (a lone Save button, a
-    /// toggle). In multicolor mode this is the palette's lead color so those
-    /// still look intentional rather than gray.
-    var accentColor: Color {
-        if isMulticolorAccent { return Self.defaultAccentPalette[0] }
-        return AccentColorOption.all.first { $0.id == accentColorId }?.color ?? Self.defaultAccentPalette[0]
-    }
+    private static let monochromeAccent = Color(nsColor: NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            ? NSColor.white
+            : NSColor(calibratedWhite: 0.05, alpha: 1)
+    })
 
-    /// The accent for one item in a set — a settings-section icon, a nav
-    /// row. In multicolor mode each `seed` maps to its own palette color, so
-    /// a column of icons becomes a column of distinct colors; with a solid
-    /// accent chosen, every seed returns that same solid.
-    func accentColor(seed: Int) -> Color {
-        guard isMulticolorAccent else { return accentColor }
-        let palette = Self.defaultAccentPalette
-        return palette[((seed % palette.count) + palette.count) % palette.count]
-    }
+    private static let monochromeAccentForeground = Color(nsColor: NSColor(name: nil) { appearance in
+        appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            ? NSColor.black
+            : NSColor.white
+    })
 
-    /// A stable seed from any identifier string, so the same section always
-    /// gets the same color across launches (not tied to fragile array order).
-    func accentColor(seedFrom identifier: String) -> Color {
-        accentColor(seed: abs(Self.stableHash(identifier)))
-    }
-
-    private static func stableHash(_ string: String) -> Int {
-        // djb2 — deterministic across runs, unlike `String.hashValue` which
-        // is salted per-process.
-        var hash = 5381
-        for byte in string.utf8 { hash = (hash &* 33) ^ Int(byte) }
-        return hash
-    }
-
-    /// The foreground to put on top of a solid `accentColor` fill — every
-    /// option is dark/saturated enough for white to read except "white"
-    /// itself, which needs a dark foreground instead.
-    var onAccentColor: Color {
-        accentColorId == "white" ? .black : .white
-    }
-
-    /// Fixed "on" color for every switch-style Toggle, independent of the
-    /// user's accent color choice — a toggle set to "white" (the default
-    /// accent) would otherwise render as a barely-visible pale track. Matches
-    /// Apple's own system-green switch color, and the green already used
-    /// elsewhere in this app for "on/good" status (installed, fits well).
+    /// Fixed "on" color for every switch-style Toggle, deliberately NOT the
+    /// accent: a white/near-black accent would render the track as a
+    /// barely-visible pale (or near-invisible dark) bar. Matches Apple's own
+    /// system-green switch color, and the green already used elsewhere in
+    /// this app for "on/good" status (installed, fits well).
     static let toggleTint = Color(hex: "#34C759")
 
     var colorScheme: ColorScheme? {
@@ -172,8 +165,6 @@ final class AppearanceSettings {
         let savedFontSize = UserDefaults.standard.string(forKey: "app_font_size") ?? AppFontSize.medium.rawValue
         self.fontSize = AppFontSize(rawValue: savedFontSize) ?? .medium
 
-        self.accentColorId = UserDefaults.standard.string(forKey: "app_accent_color") ?? "white"
-
         let savedPos = UserDefaults.standard.string(forKey: "app_notification_position") ?? NotificationPosition.topRight.rawValue
         self.notificationPosition = NotificationPosition(rawValue: savedPos) ?? .topRight
 
@@ -184,12 +175,18 @@ final class AppearanceSettings {
         }
 
         self.coloredUserBubble = UserDefaults.standard.bool(forKey: "app_colored_user_bubble")
+
+        // `didSet` above doesn't fire for a property's own initial
+        // assignment — sync explicitly, now that every stored property is
+        // set and `self` is fully initialized, so a saved Light/Dark choice
+        // is already in effect for the very first frame rather than only
+        // from the next time the user touches the theme picker.
+        Self.syncAppKitAppearance(to: self.theme)
     }
 
     func resetToDefaults() {
         theme = .dark
         fontSize = .medium
-        accentColorId = "white"
         notificationPosition = .topRight
         showTokenSpeed = true
         coloredUserBubble = false

@@ -192,7 +192,7 @@ private struct AddCustomMCPServerSheet: View {
 
             HStack {
                 Spacer()
-                Button("Cancel") { isPresented = false }
+                QuietButton(title: "Cancel") { isPresented = false }
                     .buttonStyle(.bordered)
                 AccentButton(title: isConnecting ? "Connecting…" : "Add & Connect", isDisabled: !canSave || isConnecting) {
                     save()

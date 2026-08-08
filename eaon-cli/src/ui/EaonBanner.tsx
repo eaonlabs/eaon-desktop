@@ -1,14 +1,14 @@
-// Per-session welcome — the one loud moment is the block EAON wordmark
-// (Hermes letterform, Eaon coral). Everything under it stays quiet:
-// greeting, mode/model/path, tips, optional recent sessions, then a
-// pioneer quote. No bordered dashboard card.
+// Per-session welcome — the one loud moment is the block EAON wordmark.
+// Everything under it stays quiet: greeting, model/path, tips, optional
+// recent sessions, then a pioneer quote. Warns loudly when launched from ~.
 
 import React from "react";
 import os from "node:os";
 import { Box, Text, useStdout } from "ink";
-import { theme, MODE_LABEL } from "./theme.js";
+import { theme } from "./theme.js";
 import { BandedWordmark } from "./Wordmark.js";
 import { EAON_WORDMARK_WIDTH } from "./logoArt.js";
+import { isUnsafeProjectRoot, unsafeRootReason } from "../project/rootGuard.js";
 import type { Quote } from "./quotes.js";
 import type { EaonMode } from "../types.js";
 import type { SessionSummary } from "../session/store.js";
@@ -51,8 +51,10 @@ export function EaonBanner(props: EaonBannerProps): React.ReactElement {
   const columns = stdout?.columns ?? 80;
   const fitsWordmark = columns >= EAON_WORDMARK_WIDTH + 2;
   const name = greetingName();
-  const path = shortenPath(props.projectRoot);
+  const pathLabel = shortenPath(props.projectRoot);
   const recent = props.recentSessions.slice(0, 3);
+  const unsafeRoot = isUnsafeProjectRoot(props.projectRoot);
+  void props.mode;
 
   return (
     <Box flexDirection="column" marginBottom={1}>
@@ -79,12 +81,23 @@ export function EaonBanner(props: EaonBannerProps): React.ReactElement {
         </Text>
         <Text color={theme.muted} dimColor>
           {"  "}
-          {MODE_LABEL[props.mode]} · {props.modelLabel} · {path}
+          Agent · {props.modelLabel} · {pathLabel}
         </Text>
         <Text color={theme.muted} dimColor>
           {"  "}/help · /model · /resume · shift+tab cycles permission
         </Text>
       </Box>
+
+      {unsafeRoot && (
+        <Box flexDirection="column" marginTop={1} paddingLeft={1}>
+          <Text color={theme.warning} bold>
+            ⚠ Working from {unsafeRootReason(props.projectRoot)}
+          </Text>
+          <Text color={theme.muted} dimColor>
+            {"  "}Not a project — explore tools are off. cd into a repo or use --cwd.
+          </Text>
+        </Box>
+      )}
 
       {recent.length > 0 && (
         <Box flexDirection="column" marginTop={1} paddingLeft={1}>

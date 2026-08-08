@@ -208,7 +208,7 @@ private struct AddSkillFromGitHubSheet: View {
 
             HStack {
                 Spacer()
-                Button("Cancel") { isPresented = false }.buttonStyle(.bordered)
+                QuietButton(title: "Cancel") { isPresented = false }
                 AccentButton(title: isInstalling ? "Installing…" : "Install", isDisabled: url.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isInstalling) {
                     install()
                 }
@@ -282,7 +282,7 @@ private struct AddSkillManuallySheet: View {
 
             HStack {
                 Spacer()
-                Button("Cancel") { isPresented = false }.buttonStyle(.bordered)
+                QuietButton(title: "Cancel") { isPresented = false }
                 AccentButton(title: "Save", isDisabled: !canSave) {
                     save()
                 }

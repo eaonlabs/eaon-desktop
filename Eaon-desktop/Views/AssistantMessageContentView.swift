@@ -17,30 +17,58 @@ struct AssistantMessageContentView: View {
     /// and `blocks` itself re-ran `extracted`), on every typewriter tick
     /// while streaming and on every scroll-in of a row. One cache entry per
     /// distinct message text makes a finished message's re-render a lookup.
+    ///
+    /// The two step lists live in here too, and must stay here. Both scan
+    /// the whole message (paragraph splitting for the reasoning trail, a
+    /// fence walk for the tool trail), and computing them in `body` instead
+    /// put those scans back on exactly the path this cache exists to keep
+    /// clear: every typewriter tick of a live reply, and every scroll-in of
+    /// a finished one. A finished message must be a pure lookup.
     private var parsed: (
         swarm: SwarmTranscript?,
         extracted: ReasoningExtractor.Result,
-        blocks: [MessageBlock]
+        blocks: [MessageBlock],
+        reasoningSteps: [AgentStep],
+        toolSteps: [AgentStep]
     ) {
-        RenderCache.shared.value("msg|\(text)", store: !isTyping) {
+        RenderCache.shared.value("msg|\(text)|\(isTyping)", store: !isTyping) {
             // The swarm discussion (if one ran) is a fixed prefix written once
             // that work finishes, always complete from the first render —
             // unlike `<think>`, it's never partially streamed, so there's no
             // in-progress state to track here.
             let swarmResult = SwarmPanelExtractor.extract(from: text)
             let extracted = ReasoningExtractor.extract(from: swarmResult.remainder)
-            return (swarmResult.transcript, extracted, MessageContentParser.parse(extracted.visibleContent))
+            let blocks = MessageContentParser.parse(extracted.visibleContent)
+            let reasoningSteps = extracted.reasoning.map {
+                AgentStep.reasoningSteps(from: $0, isInProgress: extracted.isReasoningInProgress)
+            } ?? []
+            let toolSteps = AgentStepToolCalls.steps(from: blocks, isStreaming: isTyping)
+            return (swarmResult.transcript, extracted, blocks, reasoningSteps, toolSteps)
         }
     }
 
     var body: some View {
-        let (swarm, extracted, blocks) = parsed
+        let (swarm, extracted, blocks, reasoningSteps, toolSteps) = parsed
         VStack(alignment: .leading, spacing: 12) {
             if let swarm {
                 SwarmPanelDisclosure(transcript: swarm)
             }
-            if let reasoning = extracted.reasoning {
-                ThinkingDisclosure(reasoning: reasoning, isInProgress: extracted.isReasoningInProgress)
+            if !reasoningSteps.isEmpty {
+                // Dot mode: the trace is prose, and a column of different
+                // glyphs beside paragraphs of reasoning claims a taxonomy
+                // that isn't there. One mark per step, hollow while open.
+                ThinkingSteps(
+                    steps: reasoningSteps,
+                    title: "Thinking",
+                    showIcons: false
+                )
+            }
+
+            // Every tool call in this message as ONE collapsible trail,
+            // rather than a pill per call with a results card between them.
+            // See `AgentStepToolCalls` for why the calls are folded.
+            if !toolSteps.isEmpty {
+                ThinkingSteps(steps: toolSteps, title: "Worked on it")
             }
 
             if blocks.isEmpty {
@@ -104,20 +132,13 @@ struct AssistantMessageContentView: View {
                    let computerTool, ["write_file", "edit_file"].contains(computerTool) {
                     FileDiffCard(toolName: computerTool, argumentsJSON: code, fencePath: fence.rawPath, isStreaming: showCursor)
                 } else {
-                    ToolActionChip(
-                        kindToken: fenceLanguage,
-                        path: fence.path,
-                        toolName: (kind == "computer" || DesktopTool(rawValue: kind) != nil) ? computerTool : fence.tool,
-                        serverId: fence.server,
-                        // "search" and every "computer" call carry their
-                        // meaningful detail in the fence BODY (the JSON)
-                        // rather than an attribute — passed through for
-                        // both so e.g. a large eaon:edit body never rides
-                        // along here, but a run_shell command or a path
-                        // does.
-                        bodyText: (fenceLanguage == "eaon:search" || kind == "computer" || DesktopTool(rawValue: kind) != nil) ? code : nil,
-                        isStreaming: showCursor
-                    )
+                    // Nothing here: this call is already a row in the trail
+                    // above (`AgentStepToolCalls`). A chip as well would say
+                    // the same thing twice, which is the sprawl the trail
+                    // exists to replace. File writes/edits are the deliberate
+                    // exception handled just above — their diff is content
+                    // the user wants to see, not process noise.
+                    EmptyView()
                 }
             } else if let path = fence.path {
                 WorkspaceFileCard(path: path, code: code, isStreaming: showCursor) {
@@ -715,38 +736,90 @@ struct FileDiffCard: View {
     }
 }
 
-/// A soft pulsing dot shown while the assistant is preparing its first
-/// tokens — optionally paired with real status text (e.g. a local model
-/// still loading into memory) rather than leaving that wait unexplained.
+/// Shown while the assistant is preparing its first tokens — a `ThinkingOrb`
+/// paired with real status text (e.g. a local model still loading into
+/// memory) rather than leaving that wait unexplained.
+///
+/// The orb replaced a single pulsing dot. A pulse can only ever say "still
+/// alive"; the orb's mode says *what kind* of work is running, which is
+/// information the app already had and was throwing away. The status text
+/// stays: the orb narrows the guess to four categories, the words say the
+/// rest.
 struct ThinkingIndicator: View {
     @Environment(\.themeColors) private var colors
-    @State private var pulse = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     var statusText: String? = nil
+
+    /// The label's treatment follows the reference indicator: a shimmer
+    /// sweeping the text rather than each character bobbing, and a new status
+    /// arriving on a short vertical slide instead of swapping in place.
+    ///
+    /// Both changes are about a label that keeps changing. A per-character
+    /// wave can't wrap and reads as decoration on a long line; a shimmer is
+    /// one moving highlight over ordinary text, so it stays calm at any
+    /// length. And when the status itself changes ("Searching…" →
+    /// "Reading…"), sliding the old line out and the new one in makes the
+    /// change legible as a change, where an in-place swap just looks like a
+    /// glitch.
+    /// The reference uses 0.24s in and 0.16s out on cubic-bezier(0.4, 0,
+    /// 0.2, 1). SwiftUI drives both halves of a transition from the one
+    /// enclosing animation, so this is a single 0.24s on that same curve —
+    /// the outgoing line is fading and moving away from the eye, where the
+    /// 80ms difference isn't perceptible, and splitting them would mean
+    /// hand-rolling two transactions for no visible gain.
+    private static let slide: Double = 0.24
 
     var body: some View {
         // .top rather than centred: once a long status wraps to two lines,
-        // a centred dot floats in the middle of the block instead of sitting
+        // a centred orb floats in the middle of the block instead of sitting
         // beside the first line where it reads as a bullet.
         HStack(alignment: .top, spacing: 8) {
-            Circle()
-                .fill(colors.textPrimary)
-                .frame(width: 9, height: 9)
-                .opacity(pulse ? 0.25 : 0.9)
-                .scaleEffect(pulse ? 0.85 : 1.0)
-                .animation(.easeInOut(duration: 0.7).repeatForever(autoreverses: true), value: pulse)
-                // Keeps the dot optically aligned with the cap-height of the
-                // first line rather than its very top.
-                .padding(.top, 4)
+            ThinkingOrb(state: .matching(statusText))
+                // The orb's dots stop short of its own bounds, so it needs
+                // less optical nudging than the old 9pt circle did to sit on
+                // the first line's cap-height.
+                .padding(.top, 1)
 
             if let statusText {
-                WaveText(text: statusText, font: AppFont.mono(13), color: colors.textSecondary)
+                ShimmerText(
+                    text: statusText,
+                    font: AppFont.mono(13),
+                    color: colors.textSecondary,
+                    // Faster than a step row's: here the shimmer is the
+                    // "still working" signal itself.
+                    period: 1.5
+                )
+                // Keyed on the text so a changed status is a real
+                // insert/remove pair — that's what the transition animates.
+                .id(statusText)
+                .transition(
+                    .asymmetric(
+                        insertion: .offset(y: 11).combined(with: .opacity),
+                        removal: .offset(y: -11).combined(with: .opacity)
+                    )
+                )
+                // Centres the label against the orb's mass rather than
+                // its frame, which is taller than the text it sits beside.
+                .padding(.top, 4)
             }
             // Lets the label take the width it needs and wrap, instead of the
             // row sizing to its content and overflowing the message column.
             Spacer(minLength: 0)
         }
-        .padding(.vertical, 4)
-        .onAppear { pulse = true }
+        .padding(.vertical, 2)
+        // Clipped so the outgoing line disappears at the row's edge instead
+        // of sliding over whatever sits above it.
+        .clipped()
+        .animation(
+            reduceMotion ? nil : .timingCurve(0.4, 0, 0.2, 1, duration: Self.slide),
+            value: statusText
+        )
+        // VoiceOver gets one stable announcement. Without this the cycling
+        // status would re-announce every few seconds, which is unusable —
+        // the same reason the reference keeps a static sr-only label and
+        // hides the visible cycling text.
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(statusText ?? "Thinking")
     }
 }
 
@@ -983,61 +1056,4 @@ struct SwarmPanelDisclosure: View {
     }
 }
 
-/// A model's reasoning trace, collapsed behind a click by default — the
-/// reasoning is background work on the way to the real answer, not the
-/// message itself, and is often long enough that showing it inline
-/// unconditionally would bury the answer under it. Click the row to open
-/// it; it stays open once you do, even after the model finishes.
-struct ThinkingDisclosure: View {
-    @Environment(\.themeColors) private var colors
-    let reasoning: String
-    let isInProgress: Bool
-    @State private var isExpanded = false
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Button {
-                withAnimation(.easeOut(duration: 0.16)) { isExpanded.toggle() }
-            } label: {
-                HStack(spacing: 6) {
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(colors.textTertiary)
-                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
-                        .animation(.easeOut(duration: 0.16), value: isExpanded)
-                        .iconHoverEffect(for: "chevron.right")
-
-                    if isInProgress {
-                        WaveText(text: "Thinking…", font: AppFont.mono(13), color: colors.textSecondary)
-                    } else {
-                        Text("Thinking")
-                            .font(AppFont.mono(13))
-                            .foregroundStyle(colors.textSecondary)
-                    }
-                }
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-
-            if isExpanded {
-                Text(reasoning)
-                    .font(AppFont.mono(12))
-                    .foregroundStyle(colors.textTertiary)
-                    .textSelection(.enabled)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.leading, 10)
-                    .padding(.vertical, 8)
-                    .padding(.trailing, 4)
-                    .overlay(alignment: .leading) {
-                        Rectangle()
-                            .fill(colors.borderSubtle)
-                            .frame(width: 2)
-                    }
-                    .padding(.top, 8)
-                    .padding(.leading, 6)
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-            }
-        }
-        .padding(.vertical, 4)
-    }
-}

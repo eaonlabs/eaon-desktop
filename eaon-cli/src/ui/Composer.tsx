@@ -301,7 +301,8 @@ export function Composer({ isActive, history, onSubmit, onTogglePermission, onCa
         ? theme.composerBorder
         : theme.border;
 
-  const placeholder = mode === "chat" ? "Ask anything…" : "What should I build?";
+  const placeholder = "What should I build?";
+  void mode;
 
   return (
     <Box flexDirection="column">

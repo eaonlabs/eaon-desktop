@@ -38,8 +38,9 @@ export const PERMISSION_COLORS = {
 /** Classic braille spinner — terminal-native busy chrome, not a product clone. */
 export const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
 
+/** One Agent — chat/claw labels only appear on old saved sessions. */
 export const MODE_LABEL: Record<string, string> = {
-  chat: "Chat",
+  chat: "Agent",
   agent: "Agent",
-  claw: "Agent", // old sessions saved as claw resume into Agent
+  claw: "Agent",
 };

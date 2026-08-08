@@ -260,126 +260,6 @@ struct DesktopCallConfirmationDialog: View {
     }
 }
 
-// MARK: - Agent question (ask_user tool)
-
-/// The agent paused mid-task to ask the user something — clickable option
-/// buttons for the choices it offered (tap = answer immediately), plus an
-/// always-present free-text field for saying it in your own words instead.
-struct AgentQuestionDialog: View {
-    @Environment(\.themeColors) private var colors
-    let question: PendingAgentQuestion
-    /// Called with the user's answer, or nil for a dismissal.
-    let onAnswer: (String?) -> Void
-
-    @State private var customAnswer = ""
-    @State private var appeared = false
-    @FocusState private var fieldFocused: Bool
-
-    var body: some View {
-        ZStack {
-            colors.backgroundOverlay
-                .ignoresSafeArea()
-                .onTapGesture { onAnswer(nil) }
-
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(spacing: 10) {
-                    Image(systemName: "questionmark.bubble.fill")
-                        .font(.system(size: 16))
-                        .foregroundStyle(AppearanceSettings.shared.accentColor)
-                    Text("Eaon has a question")
-                        .font(AppFont.mono(18, weight: .semibold))
-                        .foregroundStyle(colors.textPrimary)
-                }
-                .padding(.bottom, 14)
-
-                Text(question.question)
-                    .font(AppFont.sans(15, weight: .semibold))
-                    .foregroundStyle(colors.textPrimary)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .lineSpacing(3)
-                    .padding(.bottom, 16)
-
-                if !question.options.isEmpty {
-                    VStack(spacing: 8) {
-                        ForEach(question.options, id: \.self) { option in
-                            Button {
-                                onAnswer(option)
-                            } label: {
-                                Text(option)
-                                    .font(AppFont.sans(14, weight: .medium))
-                                    .foregroundStyle(colors.textPrimary)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 11)
-                                    .background(
-                                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                            .fill(colors.backgroundInput)
-                                    )
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 10, style: .continuous)
-                                            .stroke(colors.borderMedium, lineWidth: 1)
-                                    )
-                                    .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                            }
-                            .buttonStyle(PressableButtonStyle())
-                        }
-                    }
-                    .padding(.bottom, 14)
-                }
-
-                HStack(spacing: 8) {
-                    TextField(question.options.isEmpty ? "Type your answer…" : "Or type your own answer…", text: $customAnswer)
-                        .textFieldStyle(.plain)
-                        .font(AppFont.sans(14))
-                        .focused($fieldFocused)
-                        .onSubmit { submitCustom() }
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 9)
-                        .background(colors.backgroundInput)
-                        .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 9, style: .continuous)
-                                .stroke(colors.borderSubtle, lineWidth: 1)
-                        )
-
-                    DialogButton(title: "Answer", style: .primary) { submitCustom() }
-                }
-                .padding(.bottom, 14)
-
-                HStack {
-                    DialogButton(title: "Skip", style: .secondary) { onAnswer(nil) }
-                        .help("Dismiss without answering. Eaon proceeds on its own judgment")
-                    Spacer()
-                }
-            }
-            .padding(24)
-            .frame(width: 460)
-            .background(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(colors.backgroundPopover)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .stroke(colors.borderSubtle, lineWidth: 1)
-            )
-            .shadow(color: .black.opacity(0.3), radius: 40, y: 16)
-            .scaleEffect(appeared ? 1 : 0.94)
-            .opacity(appeared ? 1 : 0)
-        }
-        .onAppear {
-            withAnimation(.easeOut(duration: 0.18)) { appeared = true }
-            // A free-form question (no options) is answered by typing —
-            // put the caret there immediately.
-            if question.options.isEmpty { fieldFocused = true }
-        }
-    }
-
-    private func submitCustom() {
-        let trimmed = customAnswer.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
-        onAnswer(trimmed)
-    }
-}
 
 // MARK: - Enter Auto mode confirmation (coding Agent)
 
@@ -633,6 +513,7 @@ struct DialogButton: View {
 /// which assumes white label text works on any tint — that assumption breaks
 /// the moment the user's accent color is white.
 struct AccentButton: View {
+    @Environment(\.themeColors) private var colors
     let title: String
     var isDisabled: Bool = false
     let action: () -> Void
@@ -642,16 +523,65 @@ struct AccentButton: View {
         Button(action: action) {
             Text(title)
                 .font(AppFont.mono(13, weight: .semibold))
-                .foregroundStyle(AppearanceSettings.shared.onAccentColor)
+                .foregroundStyle(isDisabled ? colors.textTertiary : AppearanceSettings.shared.onAccentColor)
                 .padding(.horizontal, 16)
-                .padding(.vertical, 7)
-                .background(
-                    Capsule().fill(AppearanceSettings.shared.accentColor.opacity(isHovered ? 0.9 : 1))
-                )
+                .frame(height: ActionButtonMetrics.height)
+                .background(Capsule().fill(fill))
                 .contentShape(Capsule())
         }
-        .buttonStyle(.plain)
-        .opacity(isDisabled ? 0.5 : 1)
+        .buttonStyle(PressableButtonStyle())
+        .disabled(isDisabled)
+        .onHover { isHovered = $0 }
+    }
+
+    /// Disabled is drawn as its own muted fill rather than by fading the
+    /// whole button. Fading it dropped the label's contrast twice over —
+    /// once for the text, once for the fill it sits on — and with the
+    /// default white accent that left "Save" barely readable against its own
+    /// background. A flat chip with tertiary text still reads as
+    /// unavailable, and you can still read what it says.
+    private var fill: Color {
+        if isDisabled { return colors.backgroundChip }
+        return AppearanceSettings.shared.accentColor.opacity(isHovered ? 0.9 : 1)
+    }
+}
+
+/// Shared sizing so a row of actions lines up. Both buttons are the same
+/// height and shape; only their weight differs.
+enum ActionButtonMetrics {
+    static let height: CGFloat = 30
+}
+
+/// The quiet half of an action pair — Cancel beside Save, Close beside Add.
+///
+/// Exists because those slots were plain SwiftUI `Button`s, which macOS
+/// renders in the system font with a small rounded rect. Sat next to
+/// `AccentButton`'s capsule that reads as two controls from different apps:
+/// different shape, different typeface, different height. This matches
+/// `AccentButton` on all three and differs only in weight, which is the one
+/// thing that *should* differ between a primary and a secondary action.
+struct QuietButton: View {
+    @Environment(\.themeColors) private var colors
+    let title: String
+    var isDisabled: Bool = false
+    let action: () -> Void
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(AppFont.mono(13, weight: .medium))
+                .foregroundStyle(isDisabled ? colors.textTertiary : colors.textSecondary)
+                .padding(.horizontal, 16)
+                .frame(height: ActionButtonMetrics.height)
+                // Transparent at rest so the primary action is the only
+                // filled shape in the row — the hover fill is what confirms
+                // it's a control.
+                .background(Capsule().fill(isHovered && !isDisabled ? colors.backgroundHover : .clear))
+                .overlay(Capsule().stroke(colors.borderMedium, lineWidth: 1))
+                .contentShape(Capsule())
+        }
+        .buttonStyle(PressableButtonStyle())
         .disabled(isDisabled)
         .onHover { isHovered = $0 }
     }

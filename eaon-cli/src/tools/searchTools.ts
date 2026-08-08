@@ -10,12 +10,32 @@ import fs from "node:fs";
 import path from "node:path";
 import type { ToolResult } from "../types.js";
 import { normalizePath, type PathGuardContext } from "./pathGuard.js";
+import { isUnsafeProjectRoot, unsafeRootToolError } from "../project/rootGuard.js";
 
 const SKIP_DIRS = new Set([
   "node_modules", ".git", ".hg", ".svn", "dist", "build", ".next", ".nuxt",
   "target", ".build", ".venv", "venv", "__pycache__", ".cache", ".DS_Store",
   "coverage", ".turbo", ".output", "DerivedData", "Pods",
+  "site-packages", "tf-env", ".cargo", ".bun", ".npm", ".android", "Library",
+  ".local", ".tox", ".conda", "conda-meta", ".mamba", ".pyenv", ".rbenv",
+  ".nvm", ".sdkman", ".gradle", ".m2", ".ivy2", "vendor", "bower_components",
+  ".pnpm-store", ".yarn", ".parcel-cache", ".svelte-kit", "out", "tmp", "temp",
+  ".Trash", "Applications", "Movies", "Music", "Pictures", "Public",
 ]);
+
+/** Dot-dirs worth searching (CI / project config). Everything else starting
+ * with `.` is skip — home trees are full of .android/.cargo/.cache noise. */
+const SEARCHABLE_DOT_DIRS = new Set([".github", ".gitlab", ".circleci", ".vscode", ".idea", ".eaon"]);
+
+/** Extra skip for env-ish folder names that aren't in the fixed set. */
+function shouldSkipDir(name: string): boolean {
+  if (SKIP_DIRS.has(name)) return true;
+  if (name.startsWith(".") && !SEARCHABLE_DOT_DIRS.has(name)) return true;
+  if (name.endsWith("-env") || name.endsWith("_env")) return true;
+  if (name.startsWith("venv") || name.endsWith("venv")) return true;
+  if (name.startsWith("conda") || name.endsWith("conda")) return true;
+  return false;
+}
 
 const MAX_FILE_BYTES = 2 * 1024 * 1024; // skip files bigger than 2 MB — binaries/bundles, not source
 const MAX_RESULTS = 200;
@@ -40,10 +60,10 @@ function* walkFiles(root: string): Generator<string> {
       continue; // unreadable dir — skip, don't fail the whole search
     }
     for (const entry of entries) {
-      if (entry.name.startsWith(".") && SKIP_DIRS.has(entry.name)) continue;
+      if (entry.isDirectory() && shouldSkipDir(entry.name)) continue;
       const full = path.join(dir, entry.name);
       if (entry.isDirectory()) {
-        if (!SKIP_DIRS.has(entry.name)) stack.push(full);
+        stack.push(full);
       } else if (entry.isFile()) {
         if (++scanned > MAX_SCANNED_FILES) return;
         yield full;
@@ -84,6 +104,7 @@ function globToRegExp(pattern: string): RegExp {
  * bounded (walkFiles caps its own scan) so it stays cheap even on a big
  * tree. Returns [] on any error rather than throwing into the UI. */
 export function listProjectFiles(root: string, limit = 2000): string[] {
+  if (isUnsafeProjectRoot(root)) return [];
   try {
     const out: { rel: string; mtime: number }[] = [];
     for (const file of walkFiles(root)) {
@@ -104,6 +125,9 @@ export function listProjectFiles(root: string, limit = 2000): string[] {
 }
 
 export function grepSearch(args: Record<string, unknown>, ctx: PathGuardContext): ToolResult {
+  if (isUnsafeProjectRoot(ctx.projectRoot)) {
+    return { isError: true, text: unsafeRootToolError(ctx.projectRoot) };
+  }
   const pattern = typeof args.pattern === "string" ? args.pattern : "";
   if (!pattern) return { isError: true, text: 'ERROR: "pattern" (a regular expression) is required.' };
   const rawPath = typeof args.path === "string" && args.path.trim().length > 0 ? args.path : ".";
@@ -164,6 +188,9 @@ export function grepSearch(args: Record<string, unknown>, ctx: PathGuardContext)
 }
 
 export function globSearch(args: Record<string, unknown>, ctx: PathGuardContext): ToolResult {
+  if (isUnsafeProjectRoot(ctx.projectRoot)) {
+    return { isError: true, text: unsafeRootToolError(ctx.projectRoot) };
+  }
   const pattern = typeof args.pattern === "string" ? args.pattern.trim() : "";
   if (!pattern) return { isError: true, text: 'ERROR: "pattern" is required, e.g. "**/*.ts" or "src/*.py".' };
   const rawPath = typeof args.path === "string" && args.path.trim().length > 0 ? args.path : ".";

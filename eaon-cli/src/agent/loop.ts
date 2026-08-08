@@ -117,8 +117,6 @@ export async function* runAgentTurn(state: AgentLoopState, opts: AgentLoopOption
   const maxSteps = opts.maxSteps ?? (opts.isSubagent ? SUBAGENT_MAX_STEPS : DEFAULT_MAX_STEPS);
   const toolNames = toolsForMode(state.mode, { isSubagent: opts.isSubagent, permissionMode: state.permissionMode });
   const toolDefs = toolNames.length > 0 ? toolDefinitions(toolNames) : undefined;
-  // Chat mode now carries read-only tools too (see chatTools), so this is
-  // driven by whether the mode actually HAS tools rather than by its name.
   const wantsTools = !!toolDefs && toolDefs.length > 0;
 
   let lastFailureSignature: string | null = null;
@@ -226,7 +224,7 @@ export async function* runAgentTurn(state: AgentLoopState, opts: AgentLoopOption
     let toolCalls: ToolCallRequest[] = [...toolCallAcc.values()].map((c) => ({ id: c.id, name: c.name, arguments: c.args }));
     let historyContent = content;
 
-    // Fence fallback applies wherever tools exist — chat mode included, so
+    // Fence fallback applies wherever tools exist —
     // a local model without native tool-calling can still read a file to
     // answer a question about it.
     if (toolCalls.length === 0 && toolNames.length > 0) {

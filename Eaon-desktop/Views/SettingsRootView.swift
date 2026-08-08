@@ -350,13 +350,12 @@ private struct SettingsSidebarRow: View {
     let isSelected: Bool
 
     var body: some View {
-        // In multicolor "Default" accent mode, each section's icon gets its
-        // own palette color keyed off its id — a column of distinct colors,
-        // one per section. A solid accent falls through to the plain
-        // monochrome look (nil → the normal text colors below).
-        let sectionColor: Color? = AppearanceSettings.shared.isMulticolorAccent
-            ? AppearanceSettings.shared.accentColor(seedFrom: category.id)
-            : nil
+        // Nil — the plain monochrome look (the normal text colors below).
+        // This used to be a per-section palette color in the old multicolor
+        // accent mode; with a single monochrome accent there is no second
+        // colorway to key off, and tinting every icon the same accent would
+        // just be a louder version of the text color.
+        let sectionColor: Color? = nil
         return HStack(spacing: 10) {
             Image(systemName: category.icon)
                 .font(.system(size: 15, weight: .medium))

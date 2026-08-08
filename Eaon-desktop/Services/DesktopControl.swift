@@ -276,8 +276,19 @@ enum DesktopTool: String, CaseIterable {
                 "question": string("The question to put in front of the user — one clear, specific question ending in a question mark."),
                 "options": [
                     "type": "array",
-                    "items": ["type": "string"],
-                    "description": "2–4 short answer choices shown as clickable buttons, e.g. [\"Python\", \"JavaScript\"]. Omit for a free-form question — the user always gets a text field either way.",
+                    "description": "2–5 answer choices. Prefer objects with a short description — \"Python\" alone is a guess, \"Python — fastest to prototype\" is a decision. Plain strings also work. Omit entirely for a free-form question; the user always gets a text field either way.",
+                    "items": [
+                        "type": "object",
+                        "properties": [
+                            "title": ["type": "string", "description": "The choice itself, 1–4 words."],
+                            "description": ["type": "string", "description": "One short line on what picking this means."],
+                        ],
+                        "required": ["title"],
+                    ],
+                ],
+                "multi_select": [
+                    "type": "boolean",
+                    "description": "True when several answers can apply at once (\"which of these should I include?\"). The user then picks any number and confirms. Default false.",
                 ],
             ], required: ["question"])
         case .searchCode:

@@ -262,6 +262,41 @@ struct ChatHomeView: View {
     /// than floating above it. Inset from the corner because the composer is
     /// heavily rounded there — sat right on the curve it would look like it
     /// was sliding off.
+    /// What's shown between the last message and the composer while the
+    /// assistant is working.
+    ///
+    /// Pulled out of the transcript's `VStack` because the type checker was
+    /// starting to time out on that expression — a `ForEach` plus a
+    /// three-branch chain of differently-typed views in one builder is a lot
+    /// of overload resolution, and it fails as a hard build error rather
+    /// than a warning once it tips over.
+    @ViewBuilder
+    private var activityIndicator: some View {
+        // A running swarm gets the full discussion panel; everything else
+        // keeps the lighter indicator. Showing both would be redundant: the
+        // panel carries the status line itself.
+        if let swarm = viewModel.liveSwarmTranscript, !swarm.personas.isEmpty {
+            SwarmLivePanel(transcript: swarm, statusText: viewModel.agentActivityText)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 6)
+                .transition(.opacity)
+        } else if viewModel.agentSteps.count > 1 {
+            // More than one step means a real agent run, where the trail is
+            // worth more than the current line on its own. A single step
+            // keeps the orb instead: a one-row "trail" is just a status line
+            // with extra scaffolding around it.
+            ThinkingSteps(steps: viewModel.agentSteps)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 8)
+                .transition(.opacity)
+        } else if let activityText = viewModel.agentActivityText {
+            ThinkingIndicator(statusText: activityText)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.top, 6)
+                .transition(.opacity)
+        }
+    }
+
     private var perchAnchor: some View {
         Color.clear
             .frame(width: EaonMascot.perchedSize.width, height: EaonMascot.perchedSize.height)
@@ -358,21 +393,7 @@ struct ChatHomeView: View {
                                 ForEach(Array(viewModel.messages.enumerated()), id: \.element.id) { index, message in
                                     messageRow(index: index, message: message)
                                 }
-                                // A running swarm gets the full discussion
-                                // panel; everything else keeps the one-line
-                                // indicator. Showing both would be redundant
-                                // — the panel carries the status line itself.
-                                if let swarm = viewModel.liveSwarmTranscript, !swarm.personas.isEmpty {
-                                    SwarmLivePanel(transcript: swarm, statusText: viewModel.agentActivityText)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .padding(.top, 6)
-                                        .transition(.opacity)
-                                } else if let activityText = viewModel.agentActivityText {
-                                    ThinkingIndicator(statusText: activityText)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                        .padding(.top, 6)
-                                        .transition(.opacity)
-                                }
+                                activityIndicator
                                 // Reports its own position back up via
                                 // `BottomAnchorOffsetKey` so `isNearBottom`
                                 // reflects where the content actually is —
@@ -874,7 +895,18 @@ struct MessageCell: View, Equatable {
 
     var body: some View {
         if message.isToolResult == true {
-            ToolResultsCard(content: message.content)
+            // Not drawn. Tool results used to get a card of their own between
+            // every pair of calls, which is most of what made a research turn
+            // unreadable — and the card mostly restated the call that had
+            // just been shown above it. The step trail on the assistant
+            // message now carries what was done; the raw text stays in the
+            // conversation (the model still receives it), it simply isn't
+            // shouted at the user. Preview runtime errors are the exception:
+            // those are a real failure the user has to see, and nothing else
+            // surfaces them.
+            if message.content.hasPrefix("[Preview runtime errors") {
+                ToolResultsCard(content: message.content)
+            }
         } else if message.isUser {
             userMessage
         } else {

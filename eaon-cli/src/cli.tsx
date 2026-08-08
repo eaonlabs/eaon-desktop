@@ -56,10 +56,10 @@ function readVersion(): string {
 const program = new Command();
 program
   .name("eaon")
-  .description("Eaon in your terminal — Claude Code-style agentic coding and chat, for any model.")
+  .description("Eaon in your terminal — one agent for coding, for any model.")
   .version(readVersion(), "-v, --version")
   .option("-p, --print <prompt>", "run one prompt non-interactively and print the result, then exit")
-  .option("-m, --mode <mode>", "chat or agent", "chat")
+  .option("-m, --mode <mode>", "legacy: always agent (chat is folded in)", "agent")
   .option("--model <key>", "model key to start with, e.g. ollama:qwen3.6 (default: last used)")
   .option("--auto", "start in Auto permission mode (skips confirmation prompts) — use with care", false)
   .option("--cwd <path>", "project root (default: current directory)", process.cwd())
@@ -85,7 +85,9 @@ function resolveStartPermission(): "plan" | "sandboxed" | "auto" {
 }
 
 const projectRoot = path.resolve(opts.cwd);
-const mode = (opts.mode === "claw" ? "agent" : ["chat", "agent"].includes(opts.mode) ? opts.mode : "chat") as EaonMode;
+// One Agent — chat/claw are legacy aliases that all become agent.
+const mode = "agent" as EaonMode;
+void opts.mode;
 
 if (opts.print) {
   runOneShot(opts.print, mode, opts.model ?? null, projectRoot, opts.auto, opts.maxSteps)
@@ -123,12 +125,12 @@ if (opts.print) {
 }
 
 /** Non-interactive path: no TUI, no terminal to ask for permission — so
- * Agent/Claw mode requires --auto up front rather than silently hanging on
- * a confirmation that can never arrive. Also doubles as a scriptable way to
- * drive Eaon from CI or a shell pipeline, same idea as Claude Code's -p. */
+ * --print requires --auto up front rather than silently hanging on a
+ * confirmation that can never arrive. Also doubles as a scriptable way to
+ * drive Eaon from CI or a shell pipeline. */
 async function runOneShot(promptText: string, mode: EaonMode, modelKey: string | null, projectRoot: string, auto: boolean, maxSteps: number): Promise<number> {
-  if (mode !== "chat" && !auto) {
-    process.stderr.write("Agent/Claw mode with --print needs --auto too — there's no terminal here to confirm actions interactively.\n");
+  if (!auto) {
+    process.stderr.write("--print needs --auto too — there's no terminal here to confirm actions interactively.\n");
     return 1;
   }
 
@@ -150,7 +152,8 @@ async function runOneShot(promptText: string, mode: EaonMode, modelKey: string |
     { role: "user", content: promptText },
   ];
 
-  process.stderr.write(`[${describeEntry(model)} · ${mode} · ${permissionMode}]\n`);
+  process.stderr.write(`[${describeEntry(model)} · agent · ${permissionMode}]\n`);
+  void mode;
 
   const loopState: AgentLoopState = {
     mode, permissionMode, model, config,
@@ -173,8 +176,7 @@ async function runOneShot(promptText: string, mode: EaonMode, modelKey: string |
       process.stderr.write(`\n▸ ${event.summary}\n`);
     } else if (event.type === "permission_request") {
       // Only reachable if a future caller runs sandboxed non-interactively —
-      // approve is the least-surprising default since real gating already
-      // happened above (mode !== chat requires --auto).
+      // approve is the least-surprising default since --print requires --auto.
       sendValue = "approve";
     } else if (event.type === "tool_result") {
       process.stderr.write(event.isError ? `  ✗ ${event.text.split("\n")[0]}\n` : `  ✓ done\n`);

@@ -66,15 +66,6 @@ struct AppearanceSettingsView: View {
                         .frame(width: 110)
                     }
 
-                    settingsDivider
-                    settingsRow("Accent Color", description: "Used for buttons, links, and selection states. \"Default\" spreads a set of colors across the app instead of using one; pick a single color to make everything match.") {
-                        EmptyView()
-                    }
-                    .padding(.bottom, 4)
-
-                    accentColorGrid
-                        .padding(.horizontal, 20)
-                        .padding(.bottom, 18)
                 }
             }
         }
@@ -173,62 +164,6 @@ struct AppearanceSettingsView: View {
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 16)
-    }
-
-    private var accentColorGrid: some View {
-        let columns = Array(repeating: GridItem(.flexible(), spacing: 10), count: 6)
-        return LazyVGrid(columns: columns, spacing: 10) {
-            ForEach(AccentColorOption.all) { option in
-                accentSwatch(option)
-            }
-        }
-    }
-
-    /// The "Default" swatch is a conic multicolor ring — a visual signal that
-    /// it isn't one flat color but the whole palette spread across the app.
-    private var defaultSwatchFill: AngularGradient {
-        AngularGradient(
-            colors: AppearanceSettings.defaultAccentPalette + [AppearanceSettings.defaultAccentPalette[0]],
-            center: .center
-        )
-    }
-
-    @ViewBuilder
-    private func swatchShape(_ option: AccentColorOption) -> some View {
-        if option.id == "default" {
-            Circle().fill(defaultSwatchFill)
-        } else {
-            Circle().fill(option.color)
-        }
-    }
-
-    private func accentSwatch(_ option: AccentColorOption) -> some View {
-        let isSelected = settings.accentColorId == option.id
-        // A white checkmark vanishes on the white swatch itself — resolve per
-        // option rather than assuming every accent is dark enough for it.
-        let checkmarkColor: Color = option.id == "white" ? .black : .white
-        return swatchShape(option)
-            .frame(width: 30, height: 30)
-            .overlay {
-                if isSelected {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(checkmarkColor)
-                }
-            }
-            .overlay {
-                // White needs a visible ring in both states — a borderless
-                // white circle disappears against light surfaces.
-                Circle()
-                    .stroke(colors.borderMedium, lineWidth: (isSelected && option.id != "white") ? 0 : 1)
-            }
-            .contentShape(Circle())
-            .scaleEffect(isSelected ? 1.06 : 1)
-            .animation(.easeOut(duration: 0.15), value: isSelected)
-            .onTapGesture {
-                settings.accentColorId = option.id
-            }
-            .help(option.id == "default" ? "Default — a spread of colors across the app" : option.id.capitalized)
     }
 
     private func themedPicker<S: Hashable, Content: View>(

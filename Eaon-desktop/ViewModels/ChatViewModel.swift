@@ -164,9 +164,111 @@ enum DesktopConfirmDecision {
 /// the `ask_user` tool. `options` are clickable one-tap answers (possibly
 /// empty for a free-form question); the dialog always offers a typed
 /// answer too. Shown by `AgentQuestionDialog`.
+/// One choice on a question. A description is what turns a row of bare
+/// labels ("Python", "JavaScript") into a real decision — it's the line that
+/// says what picking it actually means.
+struct AgentQuestionOption: Equatable, Identifiable {
+    let id: String
+    let title: String
+    let description: String?
+
+    init(title: String, description: String? = nil) {
+        self.id = title
+        self.title = title
+        self.description = description
+    }
+}
+
+/// A single question in a (possibly multi-step) flow.
+struct AgentQuestionItem: Equatable, Identifiable {
+    let id: String
+    let title: String
+    let options: [AgentQuestionOption]
+    /// Several answers allowed — the flow then needs an explicit Next,
+    /// because there's no single click that means "done".
+    let multiSelect: Bool
+    /// Show the free-text row alongside the options. On by default: Eaon has
+    /// always let people type instead of picking, and taking that away to
+    /// match a component would be a regression.
+    let allowOther: Bool
+    let skippable: Bool
+
+    var isFreeTextOnly: Bool { options.isEmpty }
+}
+
+/// Everything the agent wants to ask, as one stepped flow. Usually one
+/// question; the array exists because a model that needs two related answers
+/// should be able to ask for both without two round trips through the loop.
 struct PendingAgentQuestion: Equatable {
-    let question: String
-    let options: [String]
+    let questions: [AgentQuestionItem]
+
+    /// The simple case, still the common one.
+    init(question: String, options: [String]) {
+        self.questions = [
+            AgentQuestionItem(
+                id: question,
+                title: question,
+                options: options.map { AgentQuestionOption(title: $0) },
+                multiSelect: false,
+                allowOther: true,
+                skippable: true
+            )
+        ]
+    }
+
+    init(questions: [AgentQuestionItem]) {
+        self.questions = questions
+    }
+
+    /// Reads the tool's arguments, accepting every shape a model plausibly
+    /// sends rather than one rigid schema.
+    ///
+    /// Options may be plain strings (`["Python", "Swift"]`) or objects with a
+    /// description; a flow may be one `question` or a `questions` array. Being
+    /// permissive here is the difference between the feature working on the
+    /// first try and the model burning a turn on a schema error — and every
+    /// unrecognized shape degrades to "a question with no options", which is
+    /// still a usable prompt.
+    static func parse(from arguments: [String: Any]) -> PendingAgentQuestion? {
+        if let raw = arguments["questions"] as? [[String: Any]], !raw.isEmpty {
+            let items = raw.compactMap(item(from:))
+            if !items.isEmpty { return PendingAgentQuestion(questions: items) }
+        }
+        guard let single = item(from: arguments) else { return nil }
+        return PendingAgentQuestion(questions: [single])
+    }
+
+    private static func item(from raw: [String: Any]) -> AgentQuestionItem? {
+        let title = ((raw["question"] as? String) ?? (raw["title"] as? String) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty else { return nil }
+
+        var options: [AgentQuestionOption] = []
+        for entry in (raw["options"] as? [Any]) ?? [] {
+            if let text = entry as? String {
+                let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !trimmed.isEmpty { options.append(AgentQuestionOption(title: trimmed)) }
+            } else if let object = entry as? [String: Any] {
+                let label = ((object["title"] as? String) ?? (object["label"] as? String) ?? "")
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !label.isEmpty else { continue }
+                let detail = (object["description"] as? String)?
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
+                options.append(AgentQuestionOption(title: label, description: detail?.isEmpty == true ? nil : detail))
+            }
+        }
+
+        return AgentQuestionItem(
+            id: title,
+            // The reference recommends 2–5; more than that stops being a
+            // question and becomes a list to read.
+            title: title,
+            options: Array(options.prefix(5)),
+            multiSelect: (raw["multi_select"] as? Bool) ?? (raw["multiSelect"] as? Bool) ?? false,
+            allowOther: (raw["allow_other"] as? Bool) ?? (raw["allowOther"] as? Bool) ?? true,
+            skippable: (raw["skippable"] as? Bool) ?? true
+        )
+    }
 }
 
 struct APIModelResponse: Codable {
@@ -281,7 +383,14 @@ class ChatViewModel {
     @Observable
     fileprivate final class GenerationSession {
         let conversationId: UUID
-        var task: Task<Void, Never>?
+        var task: Task<Void, Never>? {
+            didSet {
+                // A fresh turn starts with an empty trail. Hooked here
+                // rather than at the three call sites that start a
+                // generation, so a fourth can't be added without it.
+                if oldValue == nil, task != nil { agentSteps.removeAll() }
+            }
+        }
         var typewriter: TypewriterStreamController?
         var activeTypingMessageId: UUID?
         /// Real status text for the in-flight local model load — e.g.
@@ -294,7 +403,29 @@ class ChatViewModel {
         /// window where a step's own text has already finished streaming
         /// but the next step hasn't started yet. Not tied to any one
         /// `ChatMessage`; shown as its own transient row.
-        var agentActivityText: String?
+        var agentActivityText: String? {
+            didSet { recordStepTransition(from: oldValue) }
+        }
+        /// Everything the agent has done this turn, oldest first, so a long
+        /// run reads as a trail rather than one status line that keeps
+        /// overwriting itself. Cleared when a new turn starts.
+        ///
+        /// Derived rather than reported: it's built from transitions of
+        /// `agentActivityText` above, which every tool path already sets. A
+        /// step log the tools had to remember to append to would go stale
+        /// the first time somebody added a tool and forgot.
+        var agentSteps: [AgentStep] = []
+
+        private func recordStepTransition(from oldValue: String?) {
+            guard agentActivityText != oldValue else { return }
+            // Whatever was running has, by definition, stopped.
+            if !agentSteps.isEmpty, agentSteps[agentSteps.count - 1].status == .running {
+                agentSteps[agentSteps.count - 1].status = .done
+            }
+            guard let text = agentActivityText else { return }
+            agentSteps.append(AgentStep(title: text))
+        }
+
         /// The swarm discussion as it happens, or nil when no swarm is
         /// running. Per-conversation like everything else here, so a swarm in
         /// a background chat can't paint over the one on screen.
@@ -374,6 +505,11 @@ class ChatViewModel {
 
     var agentActivityText: String? {
         currentConversationId.flatMap { sessions[$0]?.agentActivityText }
+    }
+
+    /// The agent's trail of steps for the conversation on screen.
+    var agentSteps: [AgentStep] {
+        currentConversationId.flatMap { sessions[$0]?.agentSteps } ?? []
     }
 
     /// The live swarm discussion for the conversation currently on screen.
@@ -3079,13 +3215,12 @@ class ChatViewModel {
                 // system-action executor: the dialog itself IS the user
                 // interaction, and its answer is the tool result.
                 if tool == .askUser {
-                    let question = (arguments["question"] as? String) ?? ""
-                    let options = ((arguments["options"] as? [Any]) ?? []).compactMap { $0 as? String }
+                    guard let flow = PendingAgentQuestion.parse(from: arguments) else {
+                        sections.append("### ask_user\nERROR: no question was given — send a non-empty \"question\" string.")
+                        continue
+                    }
                     session(for: conversationId).agentActivityText = "Waiting for your answer…"
-                    let answer = await presentAgentQuestion(
-                        PendingAgentQuestion(question: question, options: Array(options.prefix(4))),
-                        for: conversationId
-                    )
+                    let answer = await presentAgentQuestion(flow, for: conversationId)
                     session(for: conversationId).agentActivityText = nil
                     if let answer, !answer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         sections.append("### ask_user\nThe user answered: \(answer)")

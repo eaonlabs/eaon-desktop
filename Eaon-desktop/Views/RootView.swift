@@ -200,9 +200,9 @@ struct RootView: View {
             }
 
             if let question = chatViewModel.pendingAgentQuestion {
-                AgentQuestionDialog(
-                    question: question,
-                    onAnswer: { chatViewModel.answerAgentQuestion($0) }
+                AskUserQuestions(
+                    flow: question,
+                    onComplete: { chatViewModel.answerAgentQuestion($0) }
                 )
                 .zIndex(20)
             }
