@@ -47,7 +47,6 @@ import { WelcomeScreen } from "./WelcomeScreen.js";
 import { theme, MODE_LABEL, PERMISSION_COLORS } from "./theme.js";
 import os from "node:os";
 import { isUnsafeProjectRoot, unsafeRootReason } from "../project/rootGuard.js";
-import { pickRandomQuote } from "./quotes.js";
 import type { DisplayMessage, LinkOutcome } from "./types.js";
 
 export interface AppProps {
@@ -426,11 +425,11 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
     return result;
   }, [config]);
 
-  // Picked once, at mount, not on every render — "a new quote each time you
-  // open it" means once per launch, not once per keystroke.
-  const [launchQuote] = useState(() => pickRandomQuote());
-
-  // Startup: build the catalog, pick a model, show the welcome banner.
+  // Startup: build the catalog and pick a model. The idle screen (Splash +
+  // composer, see the render below) stands in for the old boxed "› Eaon
+  // (vX) / model / directory" banner — that card duplicated what the
+  // composer bar and footer now show inline, and never went away once a
+  // conversation started scrolling past it.
   useEffect(() => {
     (async () => {
       const result = await refreshCatalog();
@@ -441,23 +440,7 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
       if (!chosen) chosen = result.models[0];
       if (chosen) setModel(chosen);
 
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: randomUUID(),
-          role: "banner",
-          version,
-          quote: launchQuote,
-          mode,
-          modelLabel: chosen ? describeEntry(chosen) : "no model selected — try /models",
-          projectRoot,
-          recentSessions: listSessions(4),
-        },
-      ]);
-
-      // -c / -r: reopen a saved session instead of starting cold. Done here
-      // (after the banner) so the restored transcript reads as history above
-      // the composer, exactly like /resume does mid-session.
+      // -c / -r: reopen a saved session instead of starting cold.
       if (resumeSessionId || continueLatest) {
         // listSessions is already newest-first, so [0] is "the last one".
         // -c is scoped to THIS project: continuing an unrelated project's

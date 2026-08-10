@@ -2,26 +2,12 @@
 // is what gets sent to the provider. A tool_call_requested/tool_result pair
 // collapses into ONE display row that starts pending and fills in a result.
 
-import type { EaonMode } from "../types.js";
-import type { Quote } from "./quotes.js";
-import type { SessionSummary } from "../session/store.js";
-
 /** How a run of handleLink() (the /link flow) actually ended — shared
  * between the /link command (which only cares about side effects) and
  * WelcomeScreen (which shows a closing status line matching the outcome). */
 export type LinkOutcome = "linked" | "nothing_selected" | "nothing_found" | "cancelled" | "timed_out" | "no_platform_support" | "error";
 
 export type DisplayMessage =
-  | {
-      id: string;
-      role: "banner";
-      version: string;
-      quote: Quote;
-      mode: EaonMode;
-      modelLabel: string;
-      projectRoot: string;
-      recentSessions: SessionSummary[];
-    }
   | { id: string; role: "user"; text: string }
   | { id: string; role: "assistant"; text: string; reasoning: string; streaming: boolean }
   | { id: string; role: "system"; text: string; tone: "info" | "error" | "success" }

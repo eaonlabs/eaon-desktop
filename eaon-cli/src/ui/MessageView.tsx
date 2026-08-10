@@ -1,32 +1,22 @@
+// Codex transcript rhythm: › user echoes, • assistant/tools, └ result trees,
+// hairline before assistant summaries. Dense margins — OpenCode spacing.
+
 import React from "react";
-import { Box, Text } from "ink";
+import { Box, Text, useStdout } from "ink";
 import { theme } from "./theme.js";
 import { Markdown } from "./Markdown.js";
 import { WriteFileDiff, EditFileDiff } from "./DiffView.js";
-import { EaonBanner } from "./EaonBanner.js";
-import { isKnownTool, toolInvocationLabel } from "../tools/index.js";
+import { isKnownTool, type ToolName } from "../tools/index.js";
 import type { DisplayMessage } from "./types.js";
 
-/** Quiet placeholder while the model hasn't streamed text yet. Timing and
- * interrupt hints live under the composer (GenerationStatus) so we don't
- * show two competing busy lines. */
-
-/** The whole reason long replies used to lag. While a message is still
- * streaming, rendering the full Markdown block tree — re-parsing the entire
- * growing string and re-laying-out every block node in Yoga on every ~40ms
- * flush — is quadratic in the reply's length. Nobody can read syntax-
- * highlighted, block-formatted output that's still scrolling anyway, so
- * while streaming we render one cheap plain-text node (tail-bounded so a
- * runaway reply can't blow up per-flush cost either); the full Markdown
- * render happens exactly once, when the finished message is committed to
- * <Static> and never re-rendered again. */
 const STREAM_TAIL_CHARS = 6000;
+
 function StreamingText({ text }: { text: string }): React.ReactElement {
   const shown = text.length > STREAM_TAIL_CHARS ? "…" + text.slice(text.length - STREAM_TAIL_CHARS) : text;
   return (
     <Text color={theme.assistant}>
       {shown}
-      <Text color={theme.accent}>▌</Text>
+      <Text color={theme.muted}>▌</Text>
     </Text>
   );
 }
@@ -35,6 +25,69 @@ function capLines(text: string, max: number): { shown: string; hiddenCount: numb
   const lines = text.split("\n");
   if (lines.length <= max) return { shown: text, hiddenCount: 0 };
   return { shown: lines.slice(0, max).join("\n"), hiddenCount: lines.length - max };
+}
+
+function shorten(value: string, max = 52): string {
+  const oneLine = value.replace(/\s+/g, " ").trim();
+  return oneLine.length > max ? oneLine.slice(0, max - 1) + "…" : oneLine;
+}
+
+function pathArg(args: Record<string, unknown>, key = "path"): string {
+  const raw = typeof args[key] === "string" ? (args[key] as string) : "";
+  return raw.length > 52 ? "…" + raw.slice(raw.length - 51) : raw;
+}
+
+/** Codex-style tool labels: Ran / Read / Wrote / Edit … */
+function codexToolLabel(name: ToolName, args: Record<string, unknown>): string {
+  const s = (key: string) => (typeof args[key] === "string" ? (args[key] as string) : "");
+  switch (name) {
+    case "run_shell":
+      return `Ran ${shorten(s("command"), 56)}`;
+    case "run_shell_background":
+      return `Started ${shorten(s("command"), 52)}`;
+    case "check_shell":
+      return `Checked ${s("id") || "background"}`;
+    case "stop_shell":
+      return `Stopped ${s("id")}`;
+    case "read_file":
+      return `Read ${pathArg(args)}`;
+    case "write_file":
+      return `Wrote ${pathArg(args)}`;
+    case "edit_file":
+      return `Edit ${pathArg(args)}`;
+    case "list_directory":
+      return `Listed ${pathArg(args) || "."}`;
+    case "create_folder":
+      return `Created dir ${pathArg(args)}`;
+    case "move_item":
+      return `Moved ${pathArg(args, "from")} → ${pathArg(args, "to")}`;
+    case "trash_item":
+      return `Trashed ${pathArg(args)}`;
+    case "grep":
+      return `Searched /${shorten(s("pattern"), 36)}/`;
+    case "glob":
+      return `Found ${shorten(s("pattern"), 40)}`;
+    case "todo_write":
+      return "Updated todos";
+    case "web_search":
+      return `Searched web ${shorten(s("query"), 40)}`;
+    case "web_fetch":
+      return `Fetched ${shorten(s("url"), 48)}`;
+    case "task":
+      return `Delegated ${shorten(s("description"), 44)}`;
+    case "exit_plan_mode":
+      return "Plan ready";
+    case "open_app":
+      return `Opened app ${shorten(s("name"), 30)}`;
+    case "quit_app":
+      return `Quit app ${shorten(s("name"), 30)}`;
+    case "open_url":
+      return `Opened ${shorten(s("url"), 44)}`;
+    case "open_path":
+      return `${args.reveal === true ? "Revealed" : "Opened"} ${pathArg(args)}`;
+    case "run_applescript":
+      return "Ran AppleScript";
+  }
 }
 
 function ToolDiff({ message }: { message: Extract<DisplayMessage, { role: "tool" }> }): React.ReactElement | null {
@@ -52,24 +105,15 @@ function ToolDiff({ message }: { message: Extract<DisplayMessage, { role: "tool"
   return null;
 }
 
-/** One tool call, Claude-Code style: a status-colored ● bullet with a
- * compact `Tool(arg)` label, then the diff (for writes/edits) and/or the
- * result branched underneath with a `⎿` connector. */
 function ToolMessage({ message }: { message: Extract<DisplayMessage, { role: "tool" }> }): React.ReactElement {
-  const statusColor = message.pending ? theme.warning : message.result?.isError ? theme.error : theme.success;
-  const label = isKnownTool(message.name) ? toolInvocationLabel(message.name, message.args) : message.summary || message.name;
+  const bulletColor = message.result?.isError ? theme.error : theme.muted;
+  const label = isKnownTool(message.name) ? codexToolLabel(message.name, message.args) : message.summary || message.name;
   const diff = ToolDiff({ message });
-
-  // A short detail line (the actual command / script) for tools where the
-  // label alone doesn't show what will run — only when there's no diff.
   const detailText = !diff && message.detail ? message.detail.split("\n").slice(0, 6).join("\n") : null;
 
   const resultLines = (() => {
     if (message.pending) return null;
     if (!message.result) return null;
-    // Collapse runs of blank lines: shell output in particular is full of
-    // them, and in a ⎿-indented block they read as the tool having stalled
-    // rather than as spacing.
     const compact = message.result.text.trim().replace(/\n[ \t]*\n[ \t]*\n+/g, "\n\n");
     const { shown, hiddenCount } = capLines(compact, 14);
     const lines = shown.length > 0 ? shown.split("\n") : ["(no output)"];
@@ -77,18 +121,29 @@ function ToolMessage({ message }: { message: Extract<DisplayMessage, { role: "to
   })();
 
   return (
-    <Box marginTop={1} flexDirection="column">
+    <Box flexDirection="column">
       <Text>
-        <Text color={statusColor}>● </Text>
-        <Text color={theme.toolName} bold>{label}</Text>
-        {message.pending ? <Text color={theme.muted} dimColor> running</Text> : null}
+        <Text color={bulletColor}>• </Text>
+        <Text color={theme.toolName}>{label}</Text>
+        {message.pending ? (
+          <Text color={theme.muted} dimColor>
+            {" "}
+            …
+          </Text>
+        ) : null}
       </Text>
 
-      {diff && <Box marginTop={1} paddingLeft={2}>{diff}</Box>}
+      {diff && (
+        <Box paddingLeft={2} flexDirection="column">
+          {diff}
+        </Box>
+      )}
 
       {detailText && (
         <Box paddingLeft={2}>
-          <Text color={theme.muted}>{detailText}</Text>
+          <Text color={theme.muted}>
+            └ {detailText.split("\n")[0]}
+          </Text>
         </Box>
       )}
 
@@ -96,39 +151,44 @@ function ToolMessage({ message }: { message: Extract<DisplayMessage, { role: "to
         <Box flexDirection="column" paddingLeft={2}>
           {resultLines.lines.map((line, i) => (
             <Text key={i} color={resultLines.isError ? theme.error : theme.muted}>
-              {i === 0 ? "⎿  " : "   "}
+              {i === 0 ? "└ " : "  "}
               {line}
             </Text>
           ))}
-          {resultLines.hiddenCount > 0 && <Text color={theme.muted}>   … +{resultLines.hiddenCount} more lines</Text>}
+          {resultLines.hiddenCount > 0 && (
+            <Text color={theme.muted} dimColor>
+              {"  "}… +{resultLines.hiddenCount} more lines
+            </Text>
+          )}
         </Box>
       )}
     </Box>
   );
 }
 
-export function MessageView({ message }: { message: DisplayMessage }): React.ReactElement {
-  if (message.role === "banner") {
-    return (
-      <Box marginBottom={1} flexDirection="column">
-        <EaonBanner
-          version={message.version}
-          quote={message.quote}
-          mode={message.mode}
-          modelLabel={message.modelLabel}
-          projectRoot={message.projectRoot}
-          recentSessions={message.recentSessions}
-        />
-      </Box>
-    );
-  }
+function Hairline(): React.ReactElement {
+  const { stdout } = useStdout();
+  const cols = Math.min(stdout?.columns ?? 72, 72);
+  return (
+    <Text color={theme.separator} dimColor>
+      {"─".repeat(Math.max(20, cols - 2))}
+    </Text>
+  );
+}
 
+export function MessageView({
+  message,
+  separatorBefore = false,
+}: {
+  message: DisplayMessage;
+  /** Codex hairline between tool output and the assistant summary. */
+  separatorBefore?: boolean;
+}): React.ReactElement {
   if (message.role === "user") {
-    // Claude-Code/Cursor: your prompt echoes dim so answers stay loud.
     return (
       <Box marginTop={1} flexDirection="column">
         <Text color={theme.muted} dimColor>
-          {"❯ "}
+          {"› "}
           {message.text}
         </Text>
       </Box>
@@ -137,9 +197,9 @@ export function MessageView({ message }: { message: DisplayMessage }): React.Rea
 
   if (message.role === "system") {
     const color = message.tone === "error" ? theme.error : message.tone === "success" ? theme.success : theme.muted;
-    const mark = message.tone === "error" ? "✗" : message.tone === "success" ? "✓" : "·";
+    const mark = message.tone === "error" ? "■" : message.tone === "success" ? "•" : "•";
     return (
-      <Box marginTop={1}>
+      <Box>
         <Text color={color}>
           {mark} {message.text}
         </Text>
@@ -148,33 +208,31 @@ export function MessageView({ message }: { message: DisplayMessage }): React.Rea
   }
 
   if (message.role === "assistant") {
-    // Bound the reasoning view too — a reasoning-heavy model can emit
-    // thousands of tokens of chain-of-thought, and it re-renders on every
-    // flush just like the main text does.
     const reasoning = message.reasoning.length > 2000 ? "…" + message.reasoning.slice(message.reasoning.length - 2000) : message.reasoning;
+    const showHairline = separatorBefore && message.text.length > 0;
     return (
-      <Box marginTop={1} flexDirection="column">
+      <Box flexDirection="column" marginTop={showHairline ? 0 : 0}>
+        {showHairline && <Hairline />}
         {reasoning.trim().length > 0 && (
-          <Box flexDirection="column" marginBottom={1} paddingLeft={1} borderStyle="single" borderColor={theme.border} borderTop={false} borderRight={false} borderBottom={false}>
-            <Text color={theme.reasoning} italic>
+          <Box flexDirection="column" marginBottom={0} paddingLeft={2}>
+            <Text color={theme.reasoning} italic dimColor>
               {reasoning.trim()}
             </Text>
           </Box>
         )}
         {message.text.length > 0 ? (
           <Box>
-            <Text color={theme.accent}>{"● "}</Text>
+            <Text color={theme.muted}>{"• "}</Text>
             <Box flexDirection="column" flexGrow={1}>
               {message.streaming ? <StreamingText text={message.text} /> : <Markdown text={message.text} streaming={false} />}
             </Box>
           </Box>
         ) : message.streaming ? (
-          <Text color={theme.accent}>●</Text>
+          <Text color={theme.muted}>•</Text>
         ) : null}
       </Box>
     );
   }
 
-  // tool
   return <ToolMessage message={message} />;
 }
