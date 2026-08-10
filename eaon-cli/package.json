@@ -42,7 +42,7 @@
     "start": "node dist/cli.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "prepublishOnly": "npm run typecheck && npm run build",
-    "probe": "tsx probes/render-probe.tsx && tsx probes/account-probe.tsx && tsx probes/app-probe.tsx && tsx probes/login-probe.ts && EAON_NO_BROWSER=1 tsx probes/login-e2e-probe.tsx"
+    "probe": "tsx probes/render-probe.tsx && tsx probes/account-probe.tsx && tsx probes/account-key-probe.ts && tsx probes/app-probe.tsx && tsx probes/login-probe.ts && EAON_NO_BROWSER=1 tsx probes/login-e2e-probe.tsx"
   },
   "dependencies": {
     "cli-highlight": "^2.1.11",

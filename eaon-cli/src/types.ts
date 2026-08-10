@@ -108,6 +108,10 @@ export interface EaonConfig {
   customInstructions: string;
   /** Colour scheme name — see ui/themes.ts. */
   theme?: string;
+  /** Eaon account key from /login (`sk-eaon-…`). Separate from aquaApiKey so
+   *  signing in cannot overwrite a hosted or imported key — see
+   *  resolveAccountKey in config.ts. */
+  eaonAccountKey?: string;
 }
 
 export type ChatStreamEvent =

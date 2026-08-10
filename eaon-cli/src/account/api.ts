@@ -83,15 +83,19 @@ function base(): string {
 }
 
 async function get<T>(pathname: string, apiKey: string, timeoutMs = 15_000): Promise<Result<T>> {
+  // Both branches point at the one action that fixes it. The previous wording
+  // ("the configured key isn't one") described the problem accurately and left
+  // the reader with nothing to do — and it fired for the common case of someone
+  // holding a perfectly good *hosted* key, which authenticates chat but has no
+  // account behind it.
   if (!apiKey) {
-    return { ok: false, error: "No Eaon API key configured. Run /link or set one in Settings." };
+    return { ok: false, error: "Not signed in. Run /login to connect your Eaon account." };
   }
   if (!apiKey.trim().toLowerCase().startsWith("sk-eaon-")) {
-    // Worth saying plainly: a hosted key authenticates chat but has no account
-    // behind it, so these views would 401 with a confusing "sign in" message.
     return {
       ok: false,
-      error: "Account views need an Eaon account key (sk-eaon-…). The configured key isn't one.",
+      error:
+        "Not signed in to an Eaon account. Your current key works for chat but has no account behind it — run /login.",
     };
   }
 

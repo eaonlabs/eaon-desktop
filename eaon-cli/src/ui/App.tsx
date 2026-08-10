@@ -5,7 +5,7 @@ import open from "open";
 import fs from "node:fs";
 import path from "node:path";
 import type { EaonMode, ModelEntry, PermissionMode, ToolCallRequest, Turn } from "../types.js";
-import { configFile, loadConfig, resolveAquaApiKey, resolveOllamaBaseUrl, saveConfig } from "../config.js";
+import { configFile, loadConfig, resolveAccountKey, resolveAquaApiKey, resolveOllamaBaseUrl, saveConfig } from "../config.js";
 import { buildCatalog, describeEntry, findModel, providerLabelFor } from "../providers/registry.js";
 import { endpointFor } from "../providers/registry.js";
 import { streamChat } from "../providers/chat.js";
@@ -26,6 +26,7 @@ import { PROJECT_NOTES_FILE, readProjectNotes, runInit } from "../project/init.j
 import { applyConfigureToConfig, applyDiscoveryToConfig, discoverDesktopCredentials, domainLabel, isLocalDiscoveryAvailable } from "../link/localAuth.js";
 import { runLinkServer } from "../link/server.js";
 import { runLoginServer } from "../link/loginFlow.js";
+import { fetchAccountKeys, fetchAccountUsage } from "../account/api.js";
 import { canOpenBrowser, isMac, isRemoteSession, isWindows, platformLabel } from "../platform.js";
 import { spawn } from "node:child_process";
 import { checkForBundledUpdate, updateNoticeLine } from "../updateCheck.js";
@@ -816,7 +817,9 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
       return;
     }
 
-    const next = { ...config, aquaApiKey: outcome.apiKey };
+    // Written to its own field: overwriting aquaApiKey would throw away a hosted
+    // or Desktop-imported key that is currently serving this user's models.
+    const next = { ...config, eaonAccountKey: outcome.apiKey };
     setConfig(next);
     try {
       saveConfig(next);
@@ -831,9 +834,32 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
 
     pushSystem(outcome.email ? `Signed in as ${outcome.email}.` : "Signed in to Eaon.", "success");
 
-    const refreshed = await refreshCatalog();
+    // Pull the account down now rather than lazily on first /usage, so signing in
+    // actually *tells* you what you signed into — plan, key count, today's usage.
+    // Both calls are independent, and a failure in either is reported without
+    // taking the other down with it.
+    const [keysResult, usageResult, refreshed] = await Promise.all([
+      fetchAccountKeys(outcome.apiKey),
+      fetchAccountUsage(outcome.apiKey),
+      refreshCatalog(),
+    ]);
+
+    if (usageResult.ok) {
+      const u = usageResult.data;
+      const today = u.windows?.today;
+      const parts = [`Plan: ${u.plan?.name ?? "unknown"}`];
+      if (keysResult.ok) parts.push(`${keysResult.data.length} API key(s)`);
+      if (today) parts.push(`${today.requests} request(s) today`);
+      if (u.betaBudget && !u.betaBudget.unavailable) {
+        parts.push(`beta budget ${u.betaBudget.percentUsed.toFixed(1)}% used`);
+      }
+      pushSystem(`${parts.join(" · ")}. /usage for the full picture.`, "info");
+    } else {
+      pushSystem(`Signed in, but the account details didn't load: ${usageResult.error}`, "error");
+    }
+
     if (refreshed.aquaError) {
-      pushSystem(`Signed in, but the model list failed to load: ${refreshed.aquaError}`, "error");
+      pushSystem(`Model list failed to load: ${refreshed.aquaError}`, "error");
       return;
     }
     // Nothing was selected before if there was no key, so land them on a model
@@ -844,11 +870,18 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
 
   /** /logout — drop the stored account key. */
   const handleLogout = useCallback((): void => {
-    if (!config.aquaApiKey) {
+    if (!resolveAccountKey(config)) {
       pushSystem("No Eaon account key is stored on this machine.", "info");
       return;
     }
-    const next = { ...config, aquaApiKey: "" };
+    // Clear the legacy slot too, but only when it holds an account key — a hosted
+    // key living there is not what /logout is about.
+    const legacyIsAccountKey = (config.aquaApiKey || "").trim().toLowerCase().startsWith("sk-eaon-");
+    const next = {
+      ...config,
+      eaonAccountKey: "",
+      ...(legacyIsAccountKey ? { aquaApiKey: "" } : {}),
+    };
     setConfig(next);
     try {
       saveConfig(next);
@@ -1811,7 +1844,7 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
 
       {accountTab !== null && (
         <AccountView
-          apiKey={resolveAquaApiKey(config) ?? ""}
+          apiKey={resolveAccountKey(config)}
           initialTab={accountTab}
           logs={requestLogs}
           onClose={() => setAccountTab(null)}

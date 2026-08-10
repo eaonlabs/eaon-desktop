@@ -204,7 +204,15 @@ check("does not fake a zero total", !errFrame.includes("PERIOD"));
 
 console.log("\n5. A hosted (non-account) key is rejected before any request");
 const hostedFrame = await frameOf(<AccountView apiKey="not-an-eaon-key" initialTab="keys" logs={[]} onClose={() => {}} />);
-has("explains which key is needed", hostedFrame, "sk-eaon-");
+// The message must name the ACTION, not the key format. "The configured key
+// isn't one" was accurate and useless — it fired for people holding a perfectly
+// good hosted key and left them nothing to do.
+has("tells the user to run /login", hostedFrame, "/login");
+has("explains the current key still works for chat", hostedFrame, "works for chat");
+
+console.log("\n6. No key at all");
+const noKeyFrame = await frameOf(<AccountView apiKey="" initialTab="usage" logs={[]} onClose={() => {}} />);
+has("also points at /login", noKeyFrame, "/login");
 
 globalThis.fetch = realFetch;
 console.log(`\n${fail ? "FAIL" : "PASS"} — ${pass} passed, ${fail} failed\n`);

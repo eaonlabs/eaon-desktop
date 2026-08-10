@@ -30,7 +30,7 @@ writeFileSync(
   path.join(scratch, "config.json"),
   JSON.stringify(
     {
-      aquaApiKey: "",
+      aquaApiKey: "aqua-hosted-key-preexisting",
       ollamaBaseUrl: "http://127.0.0.1:11434",
       customProviders: [],
       selectedModelKey: null,
@@ -145,7 +145,7 @@ await settle(250);
 check(
   "no key written to config",
   !existsSync(path.join(scratch, "config.json")) ||
-    !JSON.parse(readFileSync(path.join(scratch, "config.json"), "utf8")).aquaApiKey,
+    !JSON.parse(readFileSync(path.join(scratch, "config.json"), "utf8")).eaonAccountKey,
 );
 
 console.log("\n3. The genuine callback completes the login");
@@ -161,7 +161,14 @@ await settle(1200);
 shows("reports who signed in", "Signed in as dev@example.com");
 
 const saved = JSON.parse(readFileSync(path.join(scratch, "config.json"), "utf8"));
-check("key persisted to config", saved.aquaApiKey === REAL_KEY, `(got ${JSON.stringify(saved.aquaApiKey)})`);
+check("account key persisted to its own field", saved.eaonAccountKey === REAL_KEY, `(got ${JSON.stringify(saved.eaonAccountKey)})`);
+// The bug this guards: /login used to write over aquaApiKey, throwing away the
+// hosted key that was serving this user's models.
+check(
+  "pre-existing hosted key left untouched",
+  saved.aquaApiKey === "aqua-hosted-key-preexisting",
+  `(got ${JSON.stringify(saved.aquaApiKey)})`,
+);
 
 console.log("\n4. /logout removes it again");
 stdin.press("/logout");
@@ -170,7 +177,12 @@ stdin.press("\r");
 await settle(700);
 shows("confirms sign-out", "Signed out");
 const after = JSON.parse(readFileSync(path.join(scratch, "config.json"), "utf8"));
-check("key cleared from config", !after.aquaApiKey, `(got ${JSON.stringify(after.aquaApiKey)})`);
+check("account key cleared", !after.eaonAccountKey, `(got ${JSON.stringify(after.eaonAccountKey)})`);
+check(
+  "hosted key survives /logout too",
+  after.aquaApiKey === "aqua-hosted-key-preexisting",
+  `(got ${JSON.stringify(after.aquaApiKey)})`,
+);
 
 app.unmount();
 rmSync(scratch, { recursive: true, force: true });
