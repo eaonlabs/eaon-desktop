@@ -19,6 +19,9 @@ const DEFAULTS: EaonConfig = {
   permissionMode: "sandboxed",
   defaultMode: "agent",
   customInstructions: "",
+  // Colour scheme name from ui/themes.ts. An unknown value falls back to the
+  // default at apply time, so an old config never blocks startup.
+  theme: "opencode",
 };
 
 export function loadConfig(): EaonConfig {

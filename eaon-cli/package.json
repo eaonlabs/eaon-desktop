@@ -1,7 +1,7 @@
 {
   "name": "eaon-cli",
-  "version": "0.3.0",
-  "description": "An agentic coding agent in your terminal — plan mode, sub-agents, and real tools, for any model: local (Ollama) or hosted.",
+  "version": "0.4.0",
+  "description": "An agentic coding agent in your terminal \u2014 plan mode, sub-agents, real tools, an account panel, and themes, for any model: local (Ollama) or hosted.",
   "type": "module",
   "license": "MIT",
   "author": "Eaon",
@@ -41,7 +41,8 @@
     "dev": "tsx src/cli.tsx",
     "start": "node dist/cli.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "prepublishOnly": "npm run typecheck && npm run build"
+    "prepublishOnly": "npm run typecheck && npm run build",
+    "probe": "tsx probes/render-probe.tsx && tsx probes/account-probe.tsx && tsx probes/app-probe.tsx"
   },
   "dependencies": {
     "cli-highlight": "^2.1.11",

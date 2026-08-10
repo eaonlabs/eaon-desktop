@@ -1,9 +1,6 @@
-// The input line. Beyond plain typing it carries Claude-Code-style
-// affordances: `/` slash-command autocomplete, `@` file-mention
-// autocomplete (fed by the project file index), and `!` (run a shell
-// command) / `#` (save a note to EAON.md) prefix modes. History is Up/Down;
-// backslash-then-Enter inserts a newline (reliable across terminals, unlike
-// trying to distinguish Shift+Enter which many emulators don't report).
+// Codex-style composer: dark pad, bold › glyph, no round border.
+// Affordance extras stay: `/` commands, `@` files, `!` shell, `#` memory.
+// History is Up/Down; backslash-then-Enter inserts a newline.
 
 import React, { useState } from "react";
 import { Box, Text, useInput, useStdout } from "ink";
@@ -18,6 +15,14 @@ interface ComposerProps {
   onCancel: () => void;
   queryFiles: (query: string) => string[];
   mode: "chat" | "agent" | "claw";
+  /** When true, placeholder reads like Cursor's follow-up prompt. */
+  hasConversation?: boolean;
+  /** Permission label ("Build" / "Plan" / "Ask") shown inside the bar. */
+  modeLabel?: string;
+  modeColor?: string;
+  /** Model name, and the provider it routes through, shown beside the mode. */
+  modelLabel?: string;
+  providerLabel?: string | null;
 }
 
 /** How many suggestion rows show at once. The list scrolls a window of this
@@ -44,7 +49,20 @@ function mentionQueryBeforeCursor(buffer: string, cursor: number): { query: stri
   return { query, start: cursor - query.length - 1 };
 }
 
-export function Composer({ isActive, history, onSubmit, onTogglePermission, onCancel, queryFiles, mode }: ComposerProps): React.ReactElement {
+export function Composer({
+  isActive,
+  history,
+  onSubmit,
+  onTogglePermission,
+  onCancel,
+  queryFiles,
+  mode,
+  hasConversation = false,
+  modeLabel,
+  modeColor,
+  modelLabel,
+  providerLabel,
+}: ComposerProps): React.ReactElement {
   const { stdout } = useStdout();
   // Explicit column width — percentage width + borderStyle under Ink
   // <Static> is a common cause of ghosted/duplicated composer frames when
@@ -286,50 +304,101 @@ export function Composer({ isActive, history, onSubmit, onTogglePermission, onCa
   const after = buffer.slice(cursor + 1);
   const isEmpty = buffer.length === 0;
 
-  // Prompt glyph: `!` shell, `#` memory note, otherwise coral ❯. Border only
-  // colors when a prefix mode is active — permission state lives in the
-  // footer, not here.
+  // Glyph: `!` shell, `#` memory, otherwise Cursor-style →. Prefix modes
+  // tint the glyph; permission/model live in the status rows under the bar.
   const bash = buffer.startsWith("!");
   const memory = buffer.startsWith("#");
-  const glyph = bash ? "!" : memory ? "#" : "❯";
-  const glyphColor = bash ? theme.warning : memory ? theme.accent : theme.accent;
-  const borderColor = bash
-    ? theme.warning
-    : memory
-      ? theme.accent
-      : isActive
-        ? theme.composerBorder
-        : theme.border;
+  const glyph = bash ? "!" : memory ? "#" : "→";
+  const glyphColor = bash ? theme.warning : memory ? theme.accent : theme.assistant;
+  // The reference shows the prompt plus an example of what to ask, which does
+  // more to teach the tool than a bare "Ask anything".
+  const placeholder = hasConversation
+    ? "Add a follow-up"
+    : 'Ask anything... "Fix a TODO in the codebase"';
+  const bg = theme.composerBg;
+  const padRow = " ".repeat(boxWidth);
+  const innerWidth = Math.max(10, boxWidth - 4); // paddingX={2} each side
 
-  const placeholder = "What should I build?";
-  void mode;
+  const contentLen =
+    2 /* glyph+space */ +
+    (isEmpty ? 1 + placeholder.length : Math.min(buffer.length, innerWidth) + (cursor >= buffer.length ? 1 : 0));
+  const trailPad = Math.max(0, innerWidth - contentLen);
 
   return (
-    <Box flexDirection="column">
-      <Box borderStyle="round" borderColor={borderColor} paddingX={1} width={boxWidth}>
-        <Text color={glyphColor} bold>
+    <Box flexDirection="column" width={boxWidth}>
+      {/* Filled bar with an accent rule down the left edge. Each row draws its
+          own rule so the edge stays unbroken when Ink repaints one line. */}
+      <Box>
+        <Text color={theme.accent}>▌</Text>
+        <Text backgroundColor={bg}>{padRow}</Text>
+      </Box>
+      <Box width={boxWidth}>
+        <Text color={theme.accent}>▌</Text>
+        <Text backgroundColor={bg}>{" "}</Text>
+        <Text backgroundColor={bg} color={glyphColor} bold>
           {glyph}{" "}
         </Text>
         {isEmpty ? (
           <>
-            {/* Inverse block as the caret — don't also paint a blank space
-                before the placeholder or the empty line looks doubled. */}
-            <Text inverse={isActive} color={theme.muted}>
+            <Text backgroundColor={bg} inverse={isActive} color={theme.muted}>
               {" "}
             </Text>
-            <Text color={theme.muted} dimColor>
+            <Text backgroundColor={bg} color={theme.muted} dimColor>
               {placeholder}
             </Text>
           </>
         ) : (
           <>
-            <Text>{before}</Text>
-            <Text inverse={isActive} color={isActive ? undefined : theme.muted}>
+            <Text backgroundColor={bg}>{before}</Text>
+            <Text backgroundColor={bg} inverse={isActive} color={isActive ? undefined : theme.muted}>
               {atCursor}
             </Text>
-            <Text>{after}</Text>
+            <Text backgroundColor={bg}>{after}</Text>
           </>
         )}
+        {trailPad > 0 && <Text backgroundColor={bg}>{" ".repeat(trailPad)}</Text>}
+        <Text backgroundColor={bg}>{"  "}</Text>
+      </Box>
+      <Box>
+        <Text color={theme.accent}>▌</Text>
+        <Text backgroundColor={bg}>{padRow}</Text>
+      </Box>
+      {/* mode · model provider — inside the bar, as the reference has it. */}
+      <Box width={boxWidth}>
+        <Text color={theme.accent}>▌</Text>
+        <Text backgroundColor={bg}>{" "}</Text>
+        <Text backgroundColor={bg} color={modeColor ?? theme.info} bold>
+          {modeLabel ?? "Build"}
+        </Text>
+        <Text backgroundColor={bg} color={theme.mutedDim}>
+          {" · "}
+        </Text>
+        <Text backgroundColor={bg} color={theme.assistant}>
+          {modelLabel ?? ""}
+        </Text>
+        {providerLabel ? (
+          <Text backgroundColor={bg} color={theme.mutedDim}>
+            {" "}
+            {providerLabel}
+          </Text>
+        ) : null}
+        <Text backgroundColor={bg}>
+          {" ".repeat(
+            Math.max(
+              0,
+              boxWidth -
+                2 -
+                (modeLabel ?? "Build").length -
+                3 -
+                (modelLabel ?? "").length -
+                (providerLabel ? providerLabel.length + 1 : 0)
+            )
+          )}
+        </Text>
+      </Box>
+      <Box>
+        <Text color={theme.accent}>▌</Text>
+        <Text backgroundColor={bg}>{padRow}</Text>
       </Box>
 
       {bash && isActive && (
@@ -350,7 +419,7 @@ export function Composer({ isActive, history, onSubmit, onTogglePermission, onCa
             const active = idx === activeIndex;
             return (
               <Text key={s.label} color={active ? theme.accent : theme.muted} bold={active}>
-                {active ? "❯ " : "  "}
+                {active ? "→ " : "  "}
                 {suggestionKind === "file" ? "@" : ""}
                 {s.label}
                 {s.hint ? (

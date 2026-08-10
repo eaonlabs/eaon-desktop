@@ -1,33 +1,45 @@
-// Shared palette. Coral accent matches Eaon's brand mark across macOS and
-// Tauri. Chrome stays quiet and monochrome so color always means something:
-// accent = brand/focus, success/error/warning = outcome, permission colors =
-// mode. Transcript rhythm borrows Claude Code / Cursor (● ⎿ dim echoes);
-// the wordmark is the one loud identity moment.
+// The live palette. Every component imports this object directly.
+//
+// It is deliberately ONE stable object whose fields are reassigned by
+// `applyTheme`, rather than a value swapped out per render. ~20 components do
+// `import { theme }` and read `theme.accent` at render time, so mutating in
+// place means switching schemes is a single call instead of threading a context
+// through all of them. Ink re-renders the whole tree from App, so a state bump
+// there (see `subscribeTheme`) is enough to repaint with the new colours.
+//
+// The honest caveat: a mutable module-level palette would be wrong in anything
+// serving more than one consumer. This is one process painting one terminal.
 
-export const theme = {
-  /** Brand coral — wordmark bands, focus, interactive highlights. */
-  accent: "#F17455",
-  /** Soft coral for secondary brand moments (banner tips, soft fills). */
-  accentSoft: "#F59A82",
-  /** Deep coral for wordmark shadow / depth. */
-  accentDeep: "#8B3A28",
-  assistant: "#E8E8EE",
-  user: "#8FD6FF",
-  reasoning: "#7A7A88",
-  toolName: "#E8E8EE",
-  success: "#3FB950",
-  error: "#FF6467",
-  warning: "#E3B341",
-  diffAdded: "#B9E6C3",
-  diffRemoved: "#F3B8BD",
-  diffAddedBg: "#1C3A26",
-  diffRemovedBg: "#42232A",
-  muted: "#6A6A76",
-  border: "#3A3A44",
-  /** Slightly warmer border for the composer when idle — reads as a soft
-   * frame rather than a hard chrome line. */
-  composerBorder: "#454550",
-} as const;
+import { DEFAULT_THEME_NAME, resolveTheme, THEMES, type Theme } from "./themes.js";
+
+/** Mutable so applyTheme can swap schemes; treat as read-only when rendering. */
+export const theme: Theme = { ...resolveTheme(DEFAULT_THEME_NAME) };
+
+let activeName: string = DEFAULT_THEME_NAME;
+const listeners = new Set<() => void>();
+
+export function activeThemeName(): string {
+  return activeName;
+}
+
+/**
+ * Repoint the palette at a named scheme. An unknown name falls back to the
+ * default rather than throwing — a stale name in a config file should never be
+ * the reason a terminal session fails to start.
+ */
+export function applyTheme(name: string | null | undefined): void {
+  activeName = name && name in THEMES ? name : DEFAULT_THEME_NAME;
+  Object.assign(theme, THEMES[activeName]);
+  for (const fn of listeners) fn();
+}
+
+/** Called by App to repaint when the scheme changes. Returns an unsubscribe. */
+export function subscribeTheme(fn: () => void): () => void {
+  listeners.add(fn);
+  return () => {
+    listeners.delete(fn);
+  };
+}
 
 export const PERMISSION_COLORS = {
   plan: "#6FD3FB",
@@ -35,7 +47,7 @@ export const PERMISSION_COLORS = {
   auto: "#E3B341",
 } as const;
 
-/** Classic braille spinner — terminal-native busy chrome, not a product clone. */
+/** Braille spinner — used sparingly; the busy line prefers a steady •. */
 export const SPINNER_FRAMES = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"] as const;
 
 /** One Agent — chat/claw labels only appear on old saved sessions. */

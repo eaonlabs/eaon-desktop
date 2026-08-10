@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Box, Text, Static, useApp, useInput } from "ink";
 import { randomUUID } from "node:crypto";
 import open from "open";
@@ -6,7 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import type { EaonMode, ModelEntry, PermissionMode, ToolCallRequest, Turn } from "../types.js";
 import { configFile, loadConfig, resolveAquaApiKey, resolveOllamaBaseUrl, saveConfig } from "../config.js";
-import { buildCatalog, describeEntry, findModel } from "../providers/registry.js";
+import { buildCatalog, describeEntry, findModel, providerLabelFor } from "../providers/registry.js";
 import { endpointFor } from "../providers/registry.js";
 import { streamChat } from "../providers/chat.js";
 import { pullOllamaModel } from "../providers/ollama.js";
@@ -34,8 +34,18 @@ import { MessageView } from "./MessageView.js";
 import { ErrorBoundary } from "./ErrorBoundary.js";
 import { ModelPicker } from "./ModelPicker.js";
 import { PlanReview } from "./PlanReview.js";
+import { Palette, type PaletteRow } from "./Palette.js";
+import { ConfirmDialog } from "./ConfirmDialog.js";
+import { AccountView, type AccountTab } from "./AccountView.js";
+import { Splash } from "./Splash.js";
+import { Footer, Hints } from "./Footer.js";
+import { THEME_NAMES } from "./themes.js";
+import { activeThemeName, applyTheme, subscribeTheme } from "./theme.js";
+import { checkForUpdate, performUpdate, type UpdateAvailability } from "../update/updater.js";
+import { appendRequestLog, loadRequestLog, type RequestLogEntry } from "../session/requestLog.js";
 import { WelcomeScreen } from "./WelcomeScreen.js";
-import { theme, MODE_LABEL, PERMISSION_COLORS, SPINNER_FRAMES } from "./theme.js";
+import { theme, MODE_LABEL, PERMISSION_COLORS } from "./theme.js";
+import os from "node:os";
 import { isUnsafeProjectRoot, unsafeRootReason } from "../project/rootGuard.js";
 import { pickRandomQuote } from "./quotes.js";
 import type { DisplayMessage, LinkOutcome } from "./types.js";
@@ -278,28 +288,19 @@ async function copyToClipboard(text: string): Promise<boolean> {
 
 const COMPACT_INSTRUCTION = `Summarize this coding session so a fresh instance of you can seamlessly continue the work. Include: (1) what the user is trying to accomplish overall, (2) what has actually been DONE so far — files created/changed (with paths) and what's in them, commands run and their real outcomes, (3) anything learned about the project/environment that isn't obvious (layout, conventions, gotchas hit), and (4) exactly where things stand now and what the next step was going to be. Be specific and factual — only include things that actually happened in this conversation. Reply with ONLY the summary text.`;
 
-/** Single whole-turn status under the composer — braille spinner + elapsed
- * seconds for as long as the agent is working. Self-contained interval so
- * the rest of the tree isn't re-rendered on every tick; mounts/unmounts
- * with the turn, which also resets elapsed time for free. */
+/** Codex busy line above the prompt — steady • + elapsed, esc to interrupt. */
 function GenerationStatus(): React.ReactElement {
-  const [frame, setFrame] = useState(0);
   const [seconds, setSeconds] = useState(0);
   useEffect(() => {
     const start = Date.now();
     const id = setInterval(() => {
-      setFrame((f) => (f + 1) % SPINNER_FRAMES.length);
       setSeconds(Math.floor((Date.now() - start) / 1000));
-    }, 80);
+    }, 250);
     return () => clearInterval(id);
   }, []);
   return (
     <Text color={theme.muted}>
-      {"  "}
-      <Text color={theme.accent}>{SPINNER_FRAMES[frame]}</Text> Working…{" "}
-      <Text dimColor>
-        ({seconds}s · esc interrupt · enter to queue)
-      </Text>
+      • Working ({seconds}s · esc to interrupt)
     </Text>
   );
 }
@@ -347,6 +348,15 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
   const [submitHistory, setSubmitHistory] = useState<string[]>([]);
   const [statusText, setStatusText] = useState<string | null>(null);
   const [modelPickerOpen, setModelPickerOpen] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [themePickerOpen, setThemePickerOpen] = useState(false);
+  const [accountTab, setAccountTab] = useState<AccountTab | null>(null);
+  const [updateOffer, setUpdateOffer] = useState<UpdateAvailability | null>(null);
+  const [updateBusy, setUpdateBusy] = useState(false);
+  const [requestLogs, setRequestLogs] = useState<RequestLogEntry[]>(() => loadRequestLog());
+  // The palette is one mutable object (see theme.ts); this counter is what makes
+  // Ink repaint after it is reassigned.
+  const [, bumpTheme] = useState(0);
   // Bumped whenever a todo_write result lands so the pinned checklist
   // re-renders — the list itself lives in the tool module (per-process).
   const [todoVersion, setTodoVersion] = useState(0);
@@ -361,6 +371,11 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
   // Live approximate size of the conversation for the status bar — updated
   // when a turn finishes rather than per-token (cheap and steady).
   const [contextTokens, setContextTokens] = useState(0);
+  /** Mirrors contextTokens so the request log can diff across a turn without
+   *  adding it to runLoop's dependency list. */
+  const contextTokensRef = useRef(0);
+  const turnStartedAtRef = useRef(0);
+  const turnFailedRef = useRef(false);
 
   const turnsRef = useRef<Turn[]>([]);
   const permissionResolveRef = useRef<((a: PermissionAnswer) => void) | null>(null);
@@ -529,6 +544,9 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
       return;
     }
     setIsGenerating(true);
+    // Reset the per-turn measurements the request log reads in `finally`.
+    turnStartedAtRef.current = Date.now();
+    turnFailedRef.current = false;
     const controller = new AbortController();
     abortRef.current = controller;
 
@@ -577,7 +595,8 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
         try {
           step = await gen.next(sendValue);
         } catch (e) {
-          pushSystem(`Unexpected error: ${e instanceof Error ? e.message : String(e)}`, "error");
+          turnFailedRef.current = true;
+      pushSystem(`Unexpected error: ${e instanceof Error ? e.message : String(e)}`, "error");
           break;
         }
         sendValue = undefined;
@@ -657,6 +676,7 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
           pushSystem(event.message, isRetry ? "info" : "error");
         } else if (event.type === "loop_stopped") {
           // Final step_error already pushed the same string — skip the duplicate.
+          turnFailedRef.current = true;
           pushSystem(event.reason, "error");
         }
       }
@@ -671,9 +691,27 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
       if (flushTimer !== null) clearTimeout(flushTimer);
       flush();
       setIsGenerating(false);
+      // One row per turn in the local request log (see session/requestLog.ts).
+      // Token count is the context estimate delta rather than a provider usage
+      // figure: the loop does not surface `usage`, and an estimate labelled as
+      // such beats an empty column.
+      {
+        const before = contextTokensRef.current;
+        const after = estimateTokens(turnsRef.current);
+        noteRequest({
+          model: model ? model.key : "unknown",
+          ok: !turnFailedRef.current,
+          latencyMs: Date.now() - turnStartedAtRef.current,
+          tokens: Math.max(0, after - before) || null,
+        });
+      }
       abortRef.current = null;
       setMessages((prev) => prev.map((m) => (m.id === assistantId && m.role === "assistant" ? { ...m, streaming: false } : m)));
-      setContextTokens(estimateTokens(turnsRef.current));
+      {
+        const tokens = estimateTokens(turnsRef.current);
+        contextTokensRef.current = tokens;
+        setContextTokens(tokens);
+      }
       persistCurrentSession();
 
       // Anything typed while this turn was running (see handleSubmit) now
@@ -934,6 +972,18 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
         }
         case "open_model_picker":
           setModelPickerOpen(true);
+          return;
+        case "open_themes":
+          setThemePickerOpen(true);
+          return;
+        case "open_account":
+          setAccountTab(outcome.tab);
+          return;
+        case "check_update":
+          void checkForUpdate(version).then((found) => {
+            if (found) setUpdateOffer(found);
+            else pushSystem(`Already on the latest version (v${version}).`);
+          });
           return;
         case "list_models":
           pushSystem(formatCatalog(catalog, model));
@@ -1346,9 +1396,141 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
     setModelPickerOpen(false);
   }, []);
 
+  /** Records a finished request locally so the Logs tab has something true. */
+  const noteRequest = useCallback((entry: Omit<RequestLogEntry, "id" | "at">) => {
+    setRequestLogs(appendRequestLog(entry));
+  }, []);
+
+  const openAccount = useCallback((tab: AccountTab) => {
+    setPaletteOpen(false);
+    setAccountTab(tab);
+  }, []);
+
+  // Terminal width, tracked so the splash can centre and the footer can elide.
+  const [termWidth, setTermWidth] = useState(() => process.stdout.columns || 80);
+  useEffect(() => {
+    const onResize = () => setTermWidth(process.stdout.columns || 80);
+    process.stdout.on("resize", onResize);
+    return () => {
+      process.stdout.off("resize", onResize);
+    };
+  }, []);
+
+  /** Command palette contents. Grouped the way the reference groups them. */
+  const commandRows: PaletteRow[] = useMemo(
+    () => [
+      { id: "model", label: "Switch model", accel: "ctrl+x m", group: "Suggested" },
+
+      { id: "new", label: "New session", accel: "ctrl+x n", group: "Session" },
+      { id: "sessions", label: "Switch session", accel: "ctrl+x l", group: "Session" },
+      { id: "compact", label: "Compact context", group: "Session" },
+      { id: "diff", label: "Open diff viewer", group: "Session" },
+      { id: "export", label: "Export transcript", group: "Session" },
+
+      { id: "model2", label: "Switch model", accel: "ctrl+x m", group: "Agent" },
+      { id: "permission", label: "Cycle permissions", accel: "shift+tab", group: "Agent" },
+      { id: "init", label: "Guided AGENTS.md setup", group: "Agent" },
+      { id: "context", label: "Show context usage", group: "Agent" },
+
+      { id: "keys", label: "API keys", group: "Account" },
+      { id: "usage", label: "Usage", group: "Account" },
+      { id: "logs", label: "Logs", group: "Account" },
+      { id: "link", label: "Connect a provider", group: "Account" },
+
+      { id: "themes", label: "Switch theme", group: "Appearance" },
+
+      { id: "update", label: "Check for updates", group: "App" },
+      { id: "doctor", label: "Run diagnostics", group: "App" },
+      { id: "help", label: "Help", group: "App" },
+      { id: "exit", label: "Exit the app", group: "App" },
+    ],
+    []
+  );
+
+  const themeRows: PaletteRow[] = useMemo(
+    () => THEME_NAMES.map((name) => ({ id: name, label: name, current: name === activeThemeName() })),
+    // activeThemeName() is read at build time, so this has to rebuild whenever
+    // the saved scheme changes or the dot marks the wrong row.
+    [config.theme]
+  );
+
+  /** Maps a palette row onto the same handlers the slash commands use. */
+  const runPaletteAction = useCallback(
+    (id: string) => {
+      switch (id) {
+        case "model":
+        case "model2":
+          return setModelPickerOpen(true);
+        case "themes":
+          return setThemePickerOpen(true);
+        case "keys":
+          return openAccount("keys");
+        case "usage":
+          return openAccount("usage");
+        case "logs":
+          return openAccount("logs");
+        case "update":
+          return void checkForUpdate(version).then((found) => {
+            if (found) setUpdateOffer(found);
+            else pushSystem(`Already on the latest version (v${version}).`);
+          });
+        default:
+          // Everything else already exists as a slash command, so route through
+          // the one implementation rather than duplicating it here.
+          return void handleSubmit(`/${id}`);
+      }
+    },
+    [openAccount, version, pushSystem, handleSubmit]
+  );
+
+  // Apply the saved scheme once on boot, then repaint whenever it changes.
+  useEffect(() => {
+    applyTheme(config.theme);
+    return subscribeTheme(() => bumpTheme((n) => n + 1));
+  }, [config.theme]);
+
+  const chooseTheme = useCallback(
+    (name: string) => {
+      applyTheme(name);
+      const next = { ...config, theme: activeThemeName() };
+      setConfig(next);
+      saveConfig(next);
+    },
+    [config]
+  );
+
+  // Offer an update once at startup. Deliberately after first paint and fully
+  // best-effort: a registry that is slow or down must not delay the prompt.
+  useEffect(() => {
+    let cancelled = false;
+    void checkForUpdate(version).then((found) => {
+      if (!cancelled && found) setUpdateOffer(found);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [version]);
+
+  const runUpdate = useCallback(async () => {
+    if (!updateOffer) return;
+    setUpdateBusy(true);
+    const result = await performUpdate(updateOffer);
+    setUpdateBusy(false);
+    setUpdateOffer(null);
+    pushSystem(result.message);
+  }, [updateOffer, pushSystem]);
+
   // Global Ctrl+C (press twice to exit) — always active, alongside whichever
   // other input hook (Composer/PermissionPrompt/AutoModeConfirm) is live.
   useInput((input, key) => {
+    // ctrl+p is the command palette. Suppressed while another overlay owns the
+    // screen, so it can never stack two modals on top of each other.
+    const overlayOpen =
+      paletteOpen || themePickerOpen || accountTab !== null || updateOffer !== null || modelPickerOpen;
+    if (key.ctrl && input === "p" && !overlayOpen && !pendingPermission && !pendingPlan) {
+      setPaletteOpen(true);
+      return;
+    }
     if (key.ctrl && input === "c") {
       const now = Date.now();
       if (now - lastCtrlCRef.current < 1500) {
@@ -1369,14 +1551,45 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
   const isLive = (m: DisplayMessage) => (m.role === "assistant" && m.streaming) || (m.role === "tool" && m.pending);
   const completed = messages.filter((m) => !isLive(m));
   const live = messages.filter(isLive);
-  // Deliberately NOT gated on isGenerating: typing (and Esc) while the
-  // model is mid-turn is how an interrupt happens (see handleSubmit /
-  // handleCancel) — Claude Code's own "just start typing to redirect"
-  // behavior, rather than forcing Esc-then-wait-then-retype.
-  const composerActive = !pendingPermission && !pendingPlan && !confirmingAuto && !modelPickerOpen;
+  const composerActive =
+    !pendingPermission &&
+    !pendingPlan &&
+    !confirmingAuto &&
+    !modelPickerOpen &&
+    !paletteOpen &&
+    !themePickerOpen &&
+    accountTab === null &&
+    updateOffer === null;
 
-  // First launch ever (no config file on disk yet): show the wordmark +
-  // log-in screen instead of the normal app. The startup effect above is
+  const permLabel =
+    permissionMode === "auto" ? "Auto" : permissionMode === "plan" ? "Plan" : "Ask";
+  const permColor =
+    permissionMode === "auto"
+      ? PERMISSION_COLORS.auto
+      : permissionMode === "plan"
+        ? PERMISSION_COLORS.plan
+        : theme.accent;
+  // Rough context meter — assume a 128k window (honest about being approximate).
+  const CONTEXT_WINDOW = 128_000;
+  const contextPct = Math.min(99.9, Math.round((contextTokens / CONTEXT_WINDOW) * 1000) / 10);
+  const editedFiles = (() => {
+    const paths = new Set<string>();
+    for (const m of messages) {
+      if (
+        m.role === "tool" &&
+        (m.name === "write_file" || m.name === "edit_file") &&
+        typeof m.args.path === "string"
+      ) {
+        paths.add(m.args.path);
+      }
+    }
+    return paths.size;
+  })();
+  const modelLabel = model ? describeEntry(model) : catalogLoading ? "loading models…" : "no model — /model";
+  const hasConversation = messages.some((m) => m.role === "user" || m.role === "assistant" || m.role === "tool");
+
+  // First launch ever (no config file on disk yet): show the setup screen
+  // instead of the normal app. The startup effect above is
   // still running regardless (catalog loading, banner queued) — it just
   // isn't on screen yet — so the moment this finishes, everything is
   // already warm.
@@ -1387,37 +1600,42 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
   return (
     <Box flexDirection="column">
       <Static key={historyEpoch} items={completed}>
-        {(m) => (
+        {(m, i) => (
           <ErrorBoundary key={m.id} label="A message couldn't be displayed">
-            <MessageView message={m} />
+            <MessageView
+              message={m}
+              separatorBefore={i > 0 && completed[i - 1]?.role === "tool" && m.role === "assistant"}
+            />
           </ErrorBoundary>
         )}
       </Static>
-      {live.map((m) => (
-        <ErrorBoundary key={m.id} label="A message couldn't be displayed">
-          <MessageView message={m} />
-        </ErrorBoundary>
-      ))}
+      {live.map((m, i) => {
+        const prev = i === 0 ? completed[completed.length - 1] : live[i - 1];
+        return (
+          <ErrorBoundary key={m.id} label="A message couldn't be displayed">
+            <MessageView
+              message={m}
+              separatorBefore={!!prev && prev.role === "tool" && m.role === "assistant"}
+            />
+          </ErrorBoundary>
+        );
+      })}
 
       {statusText && (
-        <Box marginTop={1}>
-          <Text color={theme.muted}>{statusText}</Text>
+        <Box>
+          <Text color={theme.muted}>• {statusText}</Text>
         </Box>
       )}
 
-      {/* Pinned checklist while the agent works through multi-step tasks —
-          hidden once everything is completed. todoVersion re-reads it.
-          Styled as a quiet tree (dim border, ⎿-style rows) rather than a
-          loud panel — it's ambient progress, not a dialog. */}
       {(() => {
         void todoVersion;
         const todos = currentTodos();
         if (todos.length === 0 || todos.every((t) => t.status === "completed")) return null;
         const done = todos.filter((t) => t.status === "completed").length;
         return (
-          <Box flexDirection="column" marginTop={1} paddingLeft={1}>
+          <Box flexDirection="column" paddingLeft={0}>
             <Text color={theme.muted} dimColor>
-              Todos ({done}/{todos.length})
+              • Todos ({done}/{todos.length})
             </Text>
             {todos.map((t, i) => (
               <Text
@@ -1426,7 +1644,7 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
                 strikethrough={t.status === "completed"}
                 dimColor={t.status === "completed"}
               >
-                {t.status === "completed" ? "  ☒ " : t.status === "in_progress" ? "  ◐ " : "  ☐ "}
+                {t.status === "completed" ? "  ✓ " : t.status === "in_progress" ? "  › " : "  · "}
                 {t.content}
               </Text>
             ))}
@@ -1445,10 +1663,82 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
         <ModelPicker models={catalog} currentKey={model?.key ?? null} onSelect={handleModelPickerSelect} onCancel={handleModelPickerCancel} />
       )}
 
-      {/* One stable live block under <Static> — keeps composer/footer
-          redraws as a single region so Ink doesn't leave ghosted bordered
-          frames when scrollback jumps. */}
+      {paletteOpen && (
+        <Palette
+          title="Commands"
+          rows={commandRows}
+          onSelect={(id) => {
+            setPaletteOpen(false);
+            runPaletteAction(id);
+          }}
+          onCancel={() => setPaletteOpen(false)}
+        />
+      )}
+
+      {themePickerOpen && (
+        <Palette
+          title="Themes"
+          rows={themeRows}
+          visible={18}
+          initialId={activeThemeName()}
+          /* Preview on highlight, the way the reference does — you judge a
+             scheme by looking at it, not by reading its name. Cancelling
+             restores whatever was saved. */
+          onHighlight={(name) => applyTheme(name)}
+          onSelect={(name) => {
+            chooseTheme(name);
+            setThemePickerOpen(false);
+          }}
+          onCancel={() => {
+            applyTheme(config.theme);
+            setThemePickerOpen(false);
+          }}
+        />
+      )}
+
+      {accountTab !== null && (
+        <AccountView
+          apiKey={resolveAquaApiKey(config) ?? ""}
+          initialTab={accountTab}
+          logs={requestLogs}
+          onClose={() => setAccountTab(null)}
+        />
+      )}
+
+      {updateOffer && (
+        <ConfirmDialog
+          title="Update Available"
+          message={
+            updateBusy
+              ? `Updating to v${updateOffer.latest}…`
+              : `A new release v${updateOffer.latest} is available. Would you like to update now?`
+          }
+          footnote={updateOffer.install.action}
+          confirmLabel={updateOffer.install.canSelfUpdate ? "Confirm" : "Details"}
+          onConfirm={() => void runUpdate()}
+          onCancel={() => setUpdateOffer(null)}
+        />
+      )}
+
+      {/* The wordmark stands in for an empty transcript, and gets out of the way
+          the moment there is anything to read. */}
+      {!hasConversation && (
+        <Box flexDirection="column" marginTop={1} marginBottom={1}>
+          <Splash width={termWidth} />
+        </Box>
+      )}
+
       <Box flexDirection="column" marginTop={1}>
+        {isGenerating && <GenerationStatus />}
+        {queuedMessages.length > 0 && (
+          <Box flexDirection="column">
+            {queuedMessages.map((q, i) => (
+              <Text key={i} color={theme.muted} dimColor>
+                ↓ queued · {q.length > 64 ? q.slice(0, 61) + "…" : q}
+              </Text>
+            ))}
+          </Box>
+        )}
         <Composer
           isActive={composerActive}
           history={submitHistory}
@@ -1457,42 +1747,25 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
           onCancel={handleCancel}
           queryFiles={queryFiles}
           mode={mode}
+          hasConversation={hasConversation}
+          modeLabel={permLabel}
+          modeColor={permColor}
+          modelLabel={model ? model.display : catalogLoading ? "loading models…" : "no model — /model"}
+          providerLabel={model ? providerLabelFor(model) : null}
         />
-        {isGenerating && <GenerationStatus />}
-        {queuedMessages.length > 0 && (
-          <Box flexDirection="column" paddingX={1}>
-        {queuedMessages.map((q, i) => (
-              <Text key={i} color={theme.muted} dimColor>
-                {"  "}↓ queued · {q.length > 64 ? q.slice(0, 61) + "…" : q}
-              </Text>
-            ))}
+        {/* Mode and model moved inside the bar, so this row keeps only what it
+            alone reports. It disappears entirely when there is nothing to say. */}
+        {(contextTokens > 0 || editedFiles > 0) && (
+          <Box paddingX={1}>
+            <Text color={theme.mutedDim}>
+              {contextTokens > 0 ? `context ${contextPct}%` : ""}
+              {contextTokens > 0 && editedFiles > 0 ? " · " : ""}
+              {editedFiles > 0 ? `${editedFiles} file${editedFiles === 1 ? "" : "s"} edited` : ""}
+            </Text>
           </Box>
         )}
-        {/* Status footer — quiet chrome; only permission modes that change
-            behavior earn color. */}
-        <Box justifyContent="space-between" paddingX={1} marginTop={0}>
-          <Text color={theme.muted} dimColor>
-            agent
-            {" · "}
-            {model ? describeEntry(model) : catalogLoading ? "loading models…" : "no model — /model"}
-            {contextTokens > 0
-              ? ` · ~${contextTokens >= 1000 ? `${(contextTokens / 1000).toFixed(1)}k` : contextTokens}`
-              : ""}
-          </Text>
-          {permissionMode === "auto" ? (
-            <Text color={PERMISSION_COLORS.auto}>
-              auto <Text dimColor>shift+tab</Text>
-            </Text>
-          ) : permissionMode === "plan" ? (
-            <Text color={PERMISSION_COLORS.plan}>
-              plan <Text dimColor>shift+tab</Text>
-            </Text>
-          ) : (
-            <Text color={theme.muted} dimColor>
-              ask · shift+tab
-            </Text>
-          )}
-        </Box>
+        <Hints />
+        <Footer projectRoot={projectRoot} version={`v${version}`} width={termWidth} />
       </Box>
     </Box>
   );

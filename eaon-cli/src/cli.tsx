@@ -6,6 +6,7 @@ import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { loadConfig } from "./config.js";
+import { appendRequestLog } from "./session/requestLog.js";
 import { configDir } from "./platform.js";
 import { buildCatalog, describeEntry, findModel } from "./providers/registry.js";
 import { runAgentTurn, type AgentLoopState, type PermissionAnswer } from "./agent/loop.js";
@@ -164,6 +165,7 @@ async function runOneShot(promptText: string, mode: EaonMode, modelKey: string |
   const gen = runAgentTurn(loopState, { maxSteps });
   let sendValue: PermissionAnswer | undefined;
   let sawError = false;
+  const startedAt = Date.now();
 
   while (true) {
     const { value: event, done } = await gen.next(sendValue);
@@ -188,5 +190,16 @@ async function runOneShot(promptText: string, mode: EaonMode, modelKey: string |
     }
   }
   process.stdout.write("\n");
+
+  // --print runs outside the Ink app, so it has to record its own row or these
+  // requests would be missing from /logs — which claims to list every request
+  // made from this machine.
+  appendRequestLog({
+    model: model.key,
+    ok: !sawError,
+    latencyMs: Date.now() - startedAt,
+    tokens: null,
+  });
+
   return sawError ? 1 : 0;
 }

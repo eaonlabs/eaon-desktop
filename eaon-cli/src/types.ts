@@ -106,6 +106,8 @@ export interface EaonConfig {
   permissionMode: PermissionMode;
   defaultMode: EaonMode;
   customInstructions: string;
+  /** Colour scheme name — see ui/themes.ts. */
+  theme?: string;
 }
 
 export type ChatStreamEvent =

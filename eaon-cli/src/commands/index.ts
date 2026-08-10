@@ -11,6 +11,9 @@ export type SlashCommandOutcome =
   | { kind: "set_permission"; mode: PermissionMode }
   | { kind: "set_model"; query: string }
   | { kind: "open_model_picker" }
+  | { kind: "open_themes" }
+  | { kind: "open_account"; tab: "keys" | "usage" | "logs" }
+  | { kind: "check_update" }
   | { kind: "clear" }
   | { kind: "exit" }
   | { kind: "list_models" }
@@ -148,6 +151,7 @@ export const COMMANDS: SlashCommandSpec[] = [
   },
   {
     name: "resume",
+    aliases: ["sessions"],
     description: "Resume a previous session. With no name, lists recent sessions.",
     usage: "/resume [session-id]",
     run: (args) => ({ kind: "resume", sessionId: args.trim() || undefined }),
@@ -205,6 +209,42 @@ export const COMMANDS: SlashCommandSpec[] = [
     aliases: ["quit"],
     description: "Exit Eaon.",
     run: () => ({ kind: "exit" }),
+  },
+  {
+    name: "themes",
+    aliases: ["theme"],
+    description: "Switch colour scheme.",
+    run: () => ({ kind: "open_themes" }),
+  },
+  {
+    name: "keys",
+    description: "Show the API keys on your Eaon account.",
+    run: () => ({ kind: "open_account", tab: "keys" }),
+  },
+  {
+    name: "usage",
+    description: "Tokens, requests and latency for your account.",
+    run: () => ({ kind: "open_account", tab: "usage" }),
+  },
+  {
+    name: "logs",
+    description: "Requests made from this machine.",
+    run: () => ({ kind: "open_account", tab: "logs" }),
+  },
+  {
+    name: "account",
+    description: "Account panel — keys, usage and logs.",
+    run: (args) => {
+      const wanted = args.trim().toLowerCase();
+      if (wanted.startsWith("us")) return { kind: "open_account", tab: "usage" };
+      if (wanted.startsWith("lo")) return { kind: "open_account", tab: "logs" };
+      return { kind: "open_account", tab: "keys" };
+    },
+  },
+  {
+    name: "update",
+    description: "Check for a newer Eaon CLI and install it.",
+    run: () => ({ kind: "check_update" }),
   },
 ];
 

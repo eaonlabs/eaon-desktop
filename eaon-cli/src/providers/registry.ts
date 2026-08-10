@@ -80,6 +80,23 @@ export function endpointFor(entry: ModelEntry, config: EaonConfig): { baseUrl: s
 }
 
 /** A display label naming both the model and where it runs. */
+/**
+ * The provider name shown beside the model in the composer, dimmed — the
+ * reference puts "OpenCode Go" after "DeepSeek V4 Pro" the same way. Returns
+ * null when the label would be noise (a BYOK connection already names itself in
+ * `display`).
+ */
+export function providerLabelFor(entry: ModelEntry): string | null {
+  switch (entry.provider.kind) {
+    case "aqua":
+      return "Eaon";
+    case "ollama":
+      return "Ollama";
+    case "custom":
+      return entry.provider.displayName ?? null;
+  }
+}
+
 export function describeEntry(entry: ModelEntry): string {
   switch (entry.provider.kind) {
     case "aqua": return `${entry.display} · Eaon`;
