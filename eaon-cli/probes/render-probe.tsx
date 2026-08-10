@@ -10,6 +10,21 @@ import { Splash } from "../src/ui/Splash.js";
 import { Footer, Hints, readBranch, tildePath } from "../src/ui/Footer.js";
 import { applyTheme } from "../src/ui/theme.js";
 import { THEME_NAMES } from "../src/ui/themes.js";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import os from "node:os";
+
+// Its own throwaway repo, rather than depending on a fixture some other probe
+// happened to leave behind — the branch assertion silently became "null" once
+// that directory was cleaned up elsewhere.
+const repo = mkdtempSync(path.join(os.tmpdir(), "eaon-render-probe-"));
+const git = (...args: string[]) =>
+  execFileSync("git", ["-C", repo, ...args], { stdio: "ignore", env: { ...process.env, GIT_CONFIG_GLOBAL: "/dev/null" } });
+git("init", "-q", "-b", "main");
+writeFileSync(path.join(repo, "README.md"), "# fixture\n", "utf8");
+git("add", "-A");
+git("-c", "user.email=probe@example.com", "-c", "user.name=probe", "commit", "-qm", "init");
 
 class FakeOut extends EventEmitter {
   columns = 100;
@@ -139,15 +154,15 @@ has("narrow: plain title", narrow, "EAON");
 check("narrow: drops the block art rather than wrapping it", !narrow.includes("█"));
 
 console.log("\n5. Footer and hints");
-const foot = await frameOf(<Footer projectRoot="/tmp/eaon-tui-test" version="v0.3.0" width={100} />);
+const foot = await frameOf(<Footer projectRoot={repo} version="v0.3.0" width={100} />);
 has("version", foot, "v0.3.0");
-has("project path", foot, "eaon-tui-test");
+has("project path", foot, path.basename(repo));
 const hints = await frameOf(<Hints />);
 has("agents hint", hints, "agents");
 has("commands hint", hints, "ctrl+p");
 
 console.log("\n6. Footer helpers against a real repo");
-const branch = readBranch("/tmp/eaon-tui-test");
+const branch = readBranch(repo);
 console.log(`     .git/HEAD -> ${JSON.stringify(branch)}`);
 check("branch resolved to main", branch === "main");
 check("home collapses to ~", tildePath(process.env.HOME ?? "") === "~");
@@ -162,6 +177,8 @@ const tokyoAccent = theme.accent;
 check("accent differs between schemes", matrixAccent !== tokyoAccent);
 applyTheme("does-not-exist");
 check("unknown scheme falls back rather than throwing", theme.accent === "#E8B48B");
+
+rmSync(repo, { recursive: true, force: true });
 
 console.log(`\n${fail ? "FAIL" : "PASS"} — ${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

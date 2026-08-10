@@ -22,6 +22,8 @@ export type SlashCommandOutcome =
   | { kind: "resume"; sessionId?: string }
   | { kind: "cost" }
   | { kind: "link" }
+  | { kind: "login" }
+  | { kind: "logout" }
   | { kind: "status" }
   | { kind: "help" }
   | { kind: "compact" }
@@ -245,6 +247,18 @@ export const COMMANDS: SlashCommandSpec[] = [
     name: "update",
     description: "Check for a newer Eaon CLI and install it.",
     run: () => ({ kind: "check_update" }),
+  },
+  {
+    name: "login",
+    aliases: ["signin"],
+    description: "Sign in to your Eaon account in the browser.",
+    run: () => ({ kind: "login" }),
+  },
+  {
+    name: "logout",
+    aliases: ["signout"],
+    description: "Forget the Eaon account key stored on this machine.",
+    run: () => ({ kind: "logout" }),
   },
 ];
 

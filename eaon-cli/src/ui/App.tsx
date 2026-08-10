@@ -25,7 +25,8 @@ import { deriveTitle, listSessions, loadSession, newSession, saveSession, type S
 import { PROJECT_NOTES_FILE, readProjectNotes, runInit } from "../project/init.js";
 import { applyConfigureToConfig, applyDiscoveryToConfig, discoverDesktopCredentials, domainLabel, isLocalDiscoveryAvailable } from "../link/localAuth.js";
 import { runLinkServer } from "../link/server.js";
-import { isMac, isWindows, platformLabel } from "../platform.js";
+import { runLoginServer } from "../link/loginFlow.js";
+import { canOpenBrowser, isMac, isRemoteSession, isWindows, platformLabel } from "../platform.js";
 import { spawn } from "node:child_process";
 import { checkForBundledUpdate, updateNoticeLine } from "../updateCheck.js";
 import { Composer } from "./Composer.js";
@@ -375,6 +376,8 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
   const contextTokensRef = useRef(0);
   const turnStartedAtRef = useRef(0);
   const turnFailedRef = useRef(false);
+  /** Set while /login is waiting on the browser, so Esc can abandon it. */
+  const loginCancelRef = useRef<(() => void) | null>(null);
 
   const turnsRef = useRef<Turn[]>([]);
   const permissionResolveRef = useRef<((a: PermissionAnswer) => void) | null>(null);
@@ -748,6 +751,117 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
     [config, pushSystem, refreshCatalog]
   );
 
+  /**
+   * /login — sign in to a real Eaon account in the browser and store the key it
+   * hands back. Distinct from /link, which is manual key entry: this one goes to
+   * the actual eaon.dev sign-in, so GitHub and Discord work.
+   */
+  const handleLogin = useCallback(async (): Promise<void> => {
+    pushSystem("Opening your browser to sign in to Eaon…");
+
+    const { url, result, cancel } = runLoginServer();
+    const loginUrl = await url;
+    if (!loginUrl) {
+      // runLoginServer reports the reason through `result`; await it so the
+      // message is the real one rather than a generic failure.
+      const failed = await result;
+      pushSystem(failed.kind === "error" ? failed.message : "Could not start the sign-in listener.", "error");
+      return;
+    }
+
+    pushSystem(`Browser: ${loginUrl}`);
+
+    // Over SSH or on a headless box, launching a browser either fails or opens
+    // one on a machine nobody is watching. Print the URL instead and say why —
+    // the handoff still works, because the listener is reachable from wherever
+    // the browser actually runs only via this same loopback port, so the user
+    // has to open it on THIS machine.
+    if (canOpenBrowser()) {
+      try {
+        await open(loginUrl);
+      } catch {
+        pushSystem(`Couldn't open a browser automatically — open the URL above yourself.`, "error");
+      }
+    } else {
+      pushSystem(
+        isRemoteSession()
+          ? "This looks like a remote session — open the URL above in a browser on this same machine (the sign-in hands the key back over localhost)."
+          : "No desktop browser here — open the URL above on this machine to finish.",
+        "info"
+      );
+    }
+
+    pushSystem("Waiting for the browser… (Esc to cancel)", "info");
+
+    // Esc cancels the wait. Registered for exactly as long as the flow runs, so
+    // it cannot swallow Esc from the composer afterwards.
+    loginCancelRef.current = cancel;
+    let outcome;
+    try {
+      outcome = await result;
+    } finally {
+      loginCancelRef.current = null;
+    }
+
+    if (outcome.kind === "cancelled") {
+      pushSystem("Sign-in cancelled — nothing was saved.", "info");
+      return;
+    }
+    if (outcome.kind === "timed_out") {
+      pushSystem("Sign-in expired after 5 minutes — run /login again.", "error");
+      return;
+    }
+    if (outcome.kind === "error") {
+      pushSystem(outcome.message, "error");
+      return;
+    }
+
+    const next = { ...config, aquaApiKey: outcome.apiKey };
+    setConfig(next);
+    try {
+      saveConfig(next);
+    } catch (err) {
+      // The key is live either way; say so rather than implying it was lost.
+      pushSystem(
+        `Signed in, but the config file couldn't be written (${err instanceof Error ? err.message : "unknown"}). The key works for this session only.`,
+        "error"
+      );
+      return;
+    }
+
+    pushSystem(outcome.email ? `Signed in as ${outcome.email}.` : "Signed in to Eaon.", "success");
+
+    const refreshed = await refreshCatalog();
+    if (refreshed.aquaError) {
+      pushSystem(`Signed in, but the model list failed to load: ${refreshed.aquaError}`, "error");
+      return;
+    }
+    // Nothing was selected before if there was no key, so land them on a model
+    // rather than leaving "no model — /model" under a successful sign-in.
+    if (!model && refreshed.models.length > 0) setModel(refreshed.models[0]);
+    pushSystem(`${refreshed.models.length} model(s) available.`, "info");
+  }, [config, model, pushSystem, refreshCatalog]);
+
+  /** /logout — drop the stored account key. */
+  const handleLogout = useCallback((): void => {
+    if (!config.aquaApiKey) {
+      pushSystem("No Eaon account key is stored on this machine.", "info");
+      return;
+    }
+    const next = { ...config, aquaApiKey: "" };
+    setConfig(next);
+    try {
+      saveConfig(next);
+    } catch (err) {
+      pushSystem(`Could not update the config file: ${err instanceof Error ? err.message : "unknown"}`, "error");
+      return;
+    }
+    // The key is gone from disk but still in the running catalog, so say what
+    // is actually true right now rather than implying models vanished.
+    pushSystem("Signed out — the stored key was removed. Run /login to sign in again.", "success");
+    void refreshCatalog();
+  }, [config, pushSystem, refreshCatalog]);
+
   const handleLink = useCallback(async (): Promise<LinkOutcome> => {
     // Always open the browser. Desktop import is optional (macOS + saved
     // credentials); Set / edit keys works everywhere so users without
@@ -973,6 +1087,12 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
           return;
         case "pull_model":
           await handlePull(outcome.name);
+          return;
+        case "login":
+          void handleLogin();
+          return;
+        case "logout":
+          handleLogout();
           return;
         case "link":
           await handleLink();
@@ -1415,6 +1535,8 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
       { id: "init", label: "Guided AGENTS.md setup", group: "Agent" },
       { id: "context", label: "Show context usage", group: "Agent" },
 
+      { id: "login", label: "Sign in to Eaon", hint: "browser", group: "Account" },
+      { id: "logout", label: "Sign out", group: "Account" },
       { id: "keys", label: "API keys", group: "Account" },
       { id: "usage", label: "Usage", group: "Account" },
       { id: "logs", label: "Logs", group: "Account" },
@@ -1506,6 +1628,14 @@ export function App({ version, initialMode, initialModelKey, projectRoot, startI
   // Global Ctrl+C (press twice to exit) — always active, alongside whichever
   // other input hook (Composer/PermissionPrompt/AutoModeConfirm) is live.
   useInput((input, key) => {
+    // Esc abandons a /login that is still waiting on the browser. Checked before
+    // anything else so it beats the composer's own Esc handling, and only while
+    // a flow is actually pending.
+    if (key.escape && loginCancelRef.current) {
+      loginCancelRef.current();
+      return;
+    }
+
     // ctrl+p is the command palette. Suppressed while another overlay owns the
     // screen, so it can never stack two modals on top of each other.
     const overlayOpen =

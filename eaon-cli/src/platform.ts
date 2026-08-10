@@ -13,8 +13,40 @@ export function homeDir(): string {
   return os.homedir();
 }
 
+/**
+ * Where settings, sessions and the request log live.
+ *
+ * `EAON_CONFIG_DIR` overrides it. That exists for two real cases beyond tests:
+ * running more than one identity on a shared machine, and running on a box where
+ * `$HOME` is not writable (some CI images, some locked-down servers) — both of
+ * which otherwise fail at the first config write with nothing to do about it.
+ */
 export function configDir(): string {
+  const override = process.env.EAON_CONFIG_DIR;
+  if (override && override.trim()) return path.resolve(override.trim());
   return path.join(homeDir(), ".eaon", "cli");
+}
+
+/**
+ * Whether this session can hand a URL to a desktop browser.
+ *
+ * False over SSH, in a container, or on a headless box — where `open()` either
+ * fails or, worse, appears to succeed while launching a browser on a machine
+ * nobody is looking at. In that case the URL is printed for the user to carry
+ * across themselves, which is the only thing that can work.
+ *
+ * `EAON_NO_BROWSER=1` forces it off explicitly.
+ */
+export function canOpenBrowser(): boolean {
+  if (process.env.EAON_NO_BROWSER) return false;
+  if (isMac || isWindows) return true;
+  // On Linux a graphical session is what makes xdg-open meaningful.
+  return Boolean(process.env.DISPLAY || process.env.WAYLAND_DISPLAY);
+}
+
+/** True when the session looks remote, so copy can say so rather than guess. */
+export function isRemoteSession(): boolean {
+  return Boolean(process.env.SSH_CONNECTION || process.env.SSH_TTY);
 }
 
 export function sessionsDir(): string {
