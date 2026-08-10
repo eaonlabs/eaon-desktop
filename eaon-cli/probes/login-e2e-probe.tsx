@@ -1,12 +1,16 @@
-// The whole /login round trip through the real App, with only the human's
-// browsing stubbed out.
+// The /login round trip through the real App, with only the human's browsing
+// stubbed out.
 //
-// What is real: the App's /login command, the loopback listener, the state
-// nonce, the config write. What is faked: `open()` (so no browser launches) and
-// the page's POST, which is issued here exactly as src/shared/cliLogin.js issues
-// it. That boundary is deliberate — completing a genuine sign-in needs the
-// user's own credentials, so this proves everything up to and after the
-// authentication, not the authentication itself.
+// What is real: the App's /login command, the loopback listener, the nonce check,
+// the ticket redemption against the live gateway, and the config write. What is
+// faked: `open()` (so no browser launches) and the browser's navigation, issued
+// here exactly as src/shared/cliLogin.js issues it.
+//
+// The success path stops short of a saved key on purpose. Minting a real ticket
+// needs a session — the user's own credentials — so this covers everything either
+// side of the authorisation: that a forged nonce writes nothing, that a
+// nonce-valid navigation reaches the redeem step, that a cancellation is
+// reported, and that /logout clears what it should.
 
 import React from "react";
 import { render } from "ink";
@@ -134,12 +138,11 @@ const state = url.searchParams.get("state")!;
 check("port is loopback-range", Number(port) >= 1024);
 check("nonce is long", state.length >= 40);
 
-console.log("\n2. A forged callback (wrong nonce) is ignored");
-const forged = await fetch(`http://127.0.0.1:${port}/callback`, {
-  method: "POST",
-  headers: { "Content-Type": "application/json", Origin: "https://eaon.dev" },
-  body: JSON.stringify({ state: "wrong", key: "sk-eaon-attacker000000000000000000" }),
-});
+console.log("\n2. A forged navigation (wrong nonce) is ignored");
+const forgedUrl = new URL(`http://127.0.0.1:${port}/callback`);
+forgedUrl.searchParams.set("state", "wrong");
+forgedUrl.searchParams.set("ticket", "attacker-ticket");
+const forged = await fetch(forgedUrl, { redirect: "manual" });
 check("rejected with 403", forged.status === 403, `(got ${forged.status})`);
 await settle(250);
 check(
@@ -148,38 +151,37 @@ check(
     !JSON.parse(readFileSync(path.join(scratch, "config.json"), "utf8")).eaonAccountKey,
 );
 
-console.log("\n3. The genuine callback completes the login");
-const REAL_KEY = "sk-eaon-11112222333344445555666677778888";
-const good = await fetch(`http://127.0.0.1:${port}/callback`, {
-  method: "POST",
-  headers: { "Content-Type": "application/json", Origin: "https://eaon.dev" },
-  body: JSON.stringify({ state, key: REAL_KEY, email: "dev@example.com" }),
-});
-check("accepted", good.ok, `(got ${good.status})`);
-await settle(1200);
+console.log("\n3. A nonce-valid navigation reaches the redeem step");
+const realUrl = new URL(`http://127.0.0.1:${port}/callback`);
+realUrl.searchParams.set("state", state);
+realUrl.searchParams.set("ticket", "not-a-real-ticket");
+const real = await fetch(realUrl, { redirect: "manual" });
+check("listener accepts it", real.status === 200, `(got ${real.status})`);
+await settle(2500); // the redeem round-trips to api.eaon.dev
 
-shows("reports who signed in", "Signed in as dev@example.com");
-
-const saved = JSON.parse(readFileSync(path.join(scratch, "config.json"), "utf8"));
-check("account key persisted to its own field", saved.eaonAccountKey === REAL_KEY, `(got ${JSON.stringify(saved.eaonAccountKey)})`);
-// The bug this guards: /login used to write over aquaApiKey, throwing away the
-// hosted key that was serving this user's models.
+// The gateway rejects the bogus ticket, and the CLI reports that rather than
+// hanging or pretending it worked.
+shows("reports the gateway's reason", "expired or already used");
+const cfgPath = path.join(scratch, "config.json");
+const afterFail = JSON.parse(readFileSync(cfgPath, "utf8"));
+check("nothing saved on a failed redeem", !afterFail.eaonAccountKey);
 check(
-  "pre-existing hosted key left untouched",
-  saved.aquaApiKey === "aqua-hosted-key-preexisting",
-  `(got ${JSON.stringify(saved.aquaApiKey)})`,
+  "pre-existing hosted key untouched throughout",
+  afterFail.aquaApiKey === "aqua-hosted-key-preexisting",
+  `(got ${JSON.stringify(afterFail.aquaApiKey)})`,
 );
 
-console.log("\n4. /logout removes it again");
+console.log("\n4. /logout with nothing signed in says so");
 stdin.press("/logout");
 await settle(200);
 stdin.press("\r");
 await settle(700);
-shows("confirms sign-out", "Signed out");
+// A hosted key is present but is NOT an account key, so /logout must not claim to
+// have signed anything out — and must not touch it.
+shows("reports there is nothing to sign out of", "No Eaon account key");
 const after = JSON.parse(readFileSync(path.join(scratch, "config.json"), "utf8"));
-check("account key cleared", !after.eaonAccountKey, `(got ${JSON.stringify(after.eaonAccountKey)})`);
 check(
-  "hosted key survives /logout too",
+  "hosted key untouched by /logout",
   after.aquaApiKey === "aqua-hosted-key-preexisting",
   `(got ${JSON.stringify(after.aquaApiKey)})`,
 );

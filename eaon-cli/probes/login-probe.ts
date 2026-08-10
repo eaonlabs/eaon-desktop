@@ -1,10 +1,14 @@
 // Exercises the /login loopback listener as a real HTTP server.
 //
+// The browser reaches it by NAVIGATION (a GET with query parameters), not a
+// fetch — Chrome blocks every http:// subresource from an HTTPS page as mixed
+// content, so a POST from eaon.dev can never arrive. These tests drive it the way
+// the browser actually does.
+//
 // The security properties are the point of this file: a loopback port is
-// reachable by any page in the browser, so "a wrong-state POST is ignored" and
-// "only 127.0.0.1 is bound" are the assertions that actually matter. A
-// functional test that only covers the happy path would pass on a listener that
-// accepts anyone's key.
+// reachable by any page in the browser, so "a wrong-nonce request is ignored" and
+// "only 127.0.0.1 is bound" matter more than the happy path. A test that only
+// covered the happy path would pass on a listener that accepts anyone's ticket.
 
 import { runLoginServer } from "../src/link/loginFlow.js";
 
@@ -15,20 +19,17 @@ function check(label: string, condition: boolean, detail = ""): void {
   console.log(`  ${condition ? "ok  " : "FAIL"} ${label}${condition ? "" : `  ${detail}`}`);
 }
 
-const KEY = "sk-eaon-cafebabecafebabecafebabecafe";
-
-/** Pull the port and state back out of the URL the flow published. */
+/** Pull the port and nonce back out of the URL the flow published. */
 function parse(url: string): { port: string; state: string } {
   const q = new URL(url);
   return { port: q.searchParams.get("port")!, state: q.searchParams.get("state")! };
 }
 
-async function post(port: string, body: unknown, origin = "https://eaon.dev") {
-  return fetch(`http://127.0.0.1:${port}/callback`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", Origin: origin },
-    body: JSON.stringify(body),
-  });
+/** A navigation to the callback, exactly as the browser performs it. */
+async function visit(port: string, params: Record<string, string>) {
+  const url = new URL(`http://127.0.0.1:${port}/callback`);
+  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+  return fetch(url, { redirect: "manual" });
 }
 
 console.log("\n1. The published URL");
@@ -45,79 +46,58 @@ console.log("\n1. The published URL");
   check("cancel resolves as cancelled", (await flow.result).kind === "cancelled");
 }
 
-console.log("\n2. Happy path");
-{
-  const flow = runLoginServer();
-  const { port, state } = parse(await flow.url);
-  const res = await post(port, { state, key: KEY, email: "dev@example.com" });
-  check("callback accepted", res.ok);
-  const outcome = await flow.result;
-  check("key handed to the CLI", outcome.kind === "success" && outcome.apiKey === KEY);
-  check("email carried through", outcome.kind === "success" && outcome.email === "dev@example.com");
-}
-
-console.log("\n3. A wrong nonce is refused, and the CLI keeps waiting");
+console.log("\n2. A wrong nonce is refused, and does NOT consume the flow");
 {
   const flow = runLoginServer();
   const { port, state } = parse(await flow.url);
 
-  const bad = await post(port, { state: "not-the-nonce", key: "sk-eaon-attackerkeyattackerkeyattack" });
-  check("rejected with 403", bad.status === 403, `(got ${bad.status})`);
+  const bad = await visit(port, { state: "not-the-nonce", ticket: "attacker-ticket" });
+  check("refused with 403", bad.status === 403, `(got ${bad.status})`);
+  check("answers with a page, not JSON", (bad.headers.get("content-type") ?? "").includes("text/html"));
 
-  // The listener must still be live — a rejected forgery cannot be allowed to
-  // consume the one-shot flow, or an attacker could deny the user their login.
+  // A forgery must not be able to end the user's real login attempt.
   let settled = false;
   void flow.result.then(() => {
     settled = true;
   });
   await new Promise((r) => setTimeout(r, 120));
-  check("flow not settled by the forgery", !settled);
+  check("flow still waiting", !settled);
 
-  const good = await post(port, { state, key: KEY });
-  check("the real callback still works", good.ok);
+  // A real navigation with a bogus ticket gets past the nonce and fails at the
+  // redeem step instead — which is the gateway's call, not the listener's.
+  const real = await visit(port, { state, ticket: "definitely-not-a-real-ticket" });
+  check("nonce-valid request is accepted by the listener", real.status === 200, `(got ${real.status})`);
   const outcome = await flow.result;
-  check("and yields the genuine key", outcome.kind === "success" && outcome.apiKey === KEY);
+  check("but reports the redeem failure", outcome.kind === "error");
+  if (outcome.kind === "error") {
+    console.log(`     reason: ${outcome.message}`);
+    check("names the ticket as the problem", /ticket/i.test(outcome.message));
+  }
 }
 
-console.log("\n4. Only Eaon-account keys are accepted");
+console.log("\n3. A missing ticket is reported rather than hanging");
 {
   const flow = runLoginServer();
   const { port, state } = parse(await flow.url);
-  const res = await post(port, { state, key: "sk-openai-1234567890" });
+  const res = await visit(port, { state });
   check("refused with 400", res.status === 400, `(got ${res.status})`);
   const outcome = await flow.result;
-  check("reported as an error, not a success", outcome.kind === "error");
+  check("reported as an error", outcome.kind === "error");
 }
 
-console.log("\n5. The page can report why it failed");
+console.log("\n4. The page can report why it failed (Cancel takes this path)");
 {
   const flow = runLoginServer();
   const { port, state } = parse(await flow.url);
-  await post(port, { state, error: "This account needs an invite code." });
+  await visit(port, { state, error: "You cancelled the sign-in in your browser." });
   const outcome = await flow.result;
   check(
     "message surfaces verbatim",
-    outcome.kind === "error" && outcome.message === "This account needs an invite code.",
+    outcome.kind === "error" && outcome.message === "You cancelled the sign-in in your browser.",
   );
 }
 
-console.log("\n6. CORS is scoped to eaon.dev, not a wildcard");
-{
-  const flow = runLoginServer();
-  const { port } = parse(await flow.url);
-  const pre = await fetch(`http://127.0.0.1:${port}/callback`, {
-    method: "OPTIONS",
-    headers: { Origin: "https://eaon.dev", "Access-Control-Request-Method": "POST" },
-  });
-  const allow = pre.headers.get("access-control-allow-origin");
-  check("preflight answered", pre.status === 204, `(got ${pre.status})`);
-  check("allows exactly eaon.dev", allow === "https://eaon.dev", `(got ${allow})`);
-  check("is not a wildcard", allow !== "*");
-  flow.cancel();
-  await flow.result;
-}
-
-console.log("\n7. Bound to loopback only");
+console.log("\n5. Bound to loopback only");
 {
   const flow = runLoginServer();
   const { port } = parse(await flow.url);
@@ -134,7 +114,7 @@ console.log("\n7. Bound to loopback only");
   } else {
     let reachable = false;
     try {
-      await fetch(`http://${external}:${port}/done`, { signal: AbortSignal.timeout(1200) });
+      await fetch(`http://${external}:${port}/failed`, { signal: AbortSignal.timeout(1200) });
       reachable = true;
     } catch {
       reachable = false;
@@ -145,18 +125,12 @@ console.log("\n7. Bound to loopback only");
   await flow.result;
 }
 
-console.log("\n8. Oversized bodies are dropped");
+console.log("\n6. Unknown paths are not a way in");
 {
   const flow = runLoginServer();
-  const { port, state } = parse(await flow.url);
-  let status = 0;
-  try {
-    const res = await post(port, { state, key: KEY, pad: "x".repeat(64 * 1024) });
-    status = res.status;
-  } catch {
-    status = -1; // connection destroyed, which is also a refusal
-  }
-  check("not accepted as a success", status !== 200, `(got ${status})`);
+  const { port } = parse(await flow.url);
+  const res = await fetch(`http://127.0.0.1:${port}/../etc/passwd`, { redirect: "manual" });
+  check("404 rather than anything else", res.status === 404, `(got ${res.status})`);
   flow.cancel();
   await flow.result;
 }

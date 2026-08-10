@@ -3,36 +3,43 @@
 //
 // Distinct from /link, which is a settings page for typing keys in by hand and
 // importing them from Eaon Desktop. This authenticates: the browser goes to the
-// actual eaon.dev sign-in, so GitHub and Discord work, and the page hands a
-// freshly-minted account key back to this process.
+// actual eaon.dev sign-in, so GitHub and Discord work.
 //
 // ## Shape of the handoff
 //
 // 1. Bind a one-shot HTTP server to 127.0.0.1 on an OS-assigned port.
 // 2. Open `eaon.dev/login.html?cli=1&port=<port>&state=<nonce>`.
-// 3. The user authenticates however they like.
-// 4. The page mints a key against the session it just established and POSTs
-//    `{state, key}` to `http://127.0.0.1:<port>/callback`.
-// 5. State is compared, the key is kept, the server closes.
+// 3. The user authenticates and authorises on the consent screen.
+// 4. The gateway mints a key server-side and gives the page a single-use
+//    *ticket* — never the key.
+// 5. The page NAVIGATES the browser to `http://127.0.0.1:<port>/callback?state&ticket`.
+// 6. This server checks the nonce, then redeems the ticket against
+//    api.eaon.dev over HTTPS to get the key.
 //
-// ## Why it is built this way
+// ## Why a navigation, and why a ticket
 //
-// **The nonce is not decoration.** Any page in the browser can POST to a
-// loopback port. Without a secret that only this process and the page it opened
-// know, any site the user happened to have open could push an attacker's key
-// into their CLI — every subsequent request would then bill to, and be readable
-// by, someone else's account. A mismatched state is dropped.
+// The first version had the page POST the key straight here. That cannot work:
+// the page is HTTPS and this listener is HTTP, and Chrome blocks every `http://`
+// subresource from an HTTPS page as mixed content — confirmed with fetch,
+// no-cors fetch and an `<img>`, all blocked identically. No response header
+// fixes it, because it is not a CORS decision.
 //
-// **The key travels in a POST body, never a URL.** A redirect to
-// `127.0.0.1/callback?key=sk-eaon-…` would work, and would also write a live
-// credential into the browser's history and into this process's request log.
+// A top-level navigation is exempt, which is why every CLI OAuth flow redirects
+// to a loopback instead of fetching one. But a navigation puts its payload in
+// the URL, and a long-lived API key in browser history is a real exposure. Hence
+// the ticket: it is what lands in history, and by the time it does it is spent.
 //
-// **Only the port is taken from the caller, never a host.** The page builds its
-// callback from a fixed `http://127.0.0.1` plus a port number it validates,
-// so a crafted `?redirect=` cannot turn the login page into an exfiltration hop.
+// ## Why the nonce still matters
+//
+// Any page in the browser can navigate to a loopback port. Without a secret that
+// only this process and the page it opened share, a hostile site could drive a
+// ticket of its own choosing into this listener. A mismatch is refused, and
+// refusing does not consume the flow — otherwise a forgery could deny the user
+// their login.
 
 import http from "node:http";
 import { randomBytes, timingSafeEqual } from "node:crypto";
+import { EAON_GATEWAY_BASE_URL } from "../providers/eaon-hosted.js";
 
 /** Where the sign-in page lives. Same origin the OAuth callback is registered
  *  against, so this is not a value worth making configurable. */
@@ -66,23 +73,54 @@ function statesMatch(expected: string, received: unknown): boolean {
   return timingSafeEqual(a, b);
 }
 
-function readBody(req: http.IncomingMessage, limitBytes = 8 * 1024): Promise<string> {
-  return new Promise((resolve, reject) => {
-    let size = 0;
-    const chunks: Buffer[] = [];
-    req.on("data", (chunk: Buffer) => {
-      size += chunk.length;
-      // A loopback endpoint still should not accept an unbounded upload.
-      if (size > limitBytes) {
-        reject(new Error("payload too large"));
-        req.destroy();
-        return;
-      }
-      chunks.push(chunk);
+type Redeemed =
+  | { ok: true; key: string; email: string | null }
+  | { ok: false; error: string };
+
+/**
+ * Exchange a single-use ticket for the key, over HTTPS against the gateway.
+ *
+ * Errors are returned rather than thrown so the browser still gets a page
+ * explaining what went wrong — a bare connection reset on a localhost tab tells
+ * the user nothing.
+ */
+async function redeemTicket(ticket: string): Promise<Redeemed> {
+  const base = EAON_GATEWAY_BASE_URL.replace(/\/v1\/?$/, "");
+  try {
+    const res = await fetch(`${base}/v1/cli/handoff/redeem`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "User-Agent": "eaon-cli (+https://eaon.dev)" },
+      body: JSON.stringify({ ticket }),
+      signal: AbortSignal.timeout(15_000),
     });
-    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
-    req.on("error", reject);
-  });
+
+    const body = (await res.json().catch(() => ({}))) as {
+      data?: { key?: unknown; email?: unknown };
+      error?: { message?: string };
+    };
+
+    if (!res.ok) {
+      return { ok: false, error: body.error?.message || `Could not redeem the handoff (HTTP ${res.status}).` };
+    }
+
+    const key = typeof body.data?.key === "string" ? body.data.key.trim() : "";
+    if (!key.toLowerCase().startsWith("sk-eaon-")) {
+      return { ok: false, error: "The gateway returned something that isn't an Eaon account key." };
+    }
+
+    return {
+      ok: true,
+      key,
+      email: typeof body.data?.email === "string" && body.data.email ? body.data.email : null,
+    };
+  } catch (err) {
+    const e = err as Error;
+    const timedOut = e.name === "TimeoutError" || /abort/i.test(e.message);
+    return {
+      ok: false,
+      error: timedOut ? "Timed out reaching api.eaon.dev to finish signing in." : `Could not finish signing in: ${e.message}`,
+    };
+  }
 }
 
 /** The page the browser is left on once the terminal has the key. */
@@ -133,77 +171,54 @@ export function runLoginServer(): LoginFlow {
   });
 
   const server = http.createServer((req, res) => {
-    // The page runs on eaon.dev and this server is on localhost, so the POST is
-    // cross-origin. Allow exactly that one origin — a wildcard would let any
-    // site read the responses here.
-    res.setHeader("Access-Control-Allow-Origin", LOGIN_ORIGIN);
-    res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-    res.setHeader("Vary", "Origin");
+    const requestUrl = new URL(req.url ?? "/", "http://127.0.0.1");
+    const path = requestUrl.pathname;
 
-    if (req.method === "OPTIONS") {
-      res.setHeader("Access-Control-Allow-Methods", "POST, OPTIONS");
-      res.setHeader("Access-Control-Max-Age", "600");
-      res.writeHead(204).end();
-      return;
-    }
-
-    const path = (req.url ?? "/").split("?")[0];
-
-    if (req.method === "POST" && path === "/callback") {
+    // The browser arrives by NAVIGATION, not fetch, so the response is a page
+    // rather than JSON — and there is no CORS to configure, because a navigation
+    // is not a cross-origin request from the page's point of view.
+    if (req.method === "GET" && path === "/callback") {
       void (async () => {
-        try {
-          const parsed = JSON.parse(await readBody(req)) as {
-            state?: unknown;
-            key?: unknown;
-            email?: unknown;
-            error?: unknown;
-          };
+        const given = requestUrl.searchParams.get("state");
+        const ticket = requestUrl.searchParams.get("ticket");
+        const reported = requestUrl.searchParams.get("error");
 
-          if (!statesMatch(state, parsed.state)) {
-            // Deliberately terse: an unauthenticated caller learns nothing about
-            // whether the state was close, and the CLI keeps waiting for the
-            // real callback rather than giving up on someone else's noise.
-            res.writeHead(403, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ error: "state mismatch" }));
-            return;
-          }
-
-          if (typeof parsed.error === "string" && parsed.error) {
-            res.writeHead(200, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ ok: true }));
-            settle({ kind: "error", message: parsed.error });
-            return;
-          }
-
-          const key = typeof parsed.key === "string" ? parsed.key.trim() : "";
-          if (!key.toLowerCase().startsWith("sk-eaon-")) {
-            res.writeHead(400, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ error: "not an Eaon account key" }));
-            settle({ kind: "error", message: "The browser returned something that isn't an Eaon account key." });
-            return;
-          }
-
-          res.writeHead(200, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ ok: true }));
-          settle({
-            kind: "success",
-            apiKey: key,
-            email: typeof parsed.email === "string" && parsed.email ? parsed.email : null,
-          });
-        } catch (err) {
-          res.writeHead(400, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ error: "bad request" }));
-          settle({ kind: "error", message: err instanceof Error ? err.message : "Malformed callback." });
+        if (!statesMatch(state, given)) {
+          // Terse, and deliberately non-consuming: a hostile page that guesses
+          // the port must not be able to end the user's real login attempt.
+          res.writeHead(403, { "Content-Type": "text/html; charset=utf-8" });
+          res.end(donePage(false, "That request did not come from the sign-in page this terminal opened."));
+          return;
         }
-      })();
-      return;
-    }
 
-    // The page navigates here itself after a successful POST, so the tab ends on
-    // something that explains what happened instead of a dead localhost error.
-    if (req.method === "GET" && path === "/done") {
-      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-      res.end(donePage(true, "Your API key is now saved in this machine's Eaon CLI. You can close this tab."));
+        if (reported) {
+          res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+          res.end(donePage(false, "Nothing was saved. Run /login in the terminal to try again."));
+          settle({ kind: "error", message: reported });
+          return;
+        }
+
+        if (!ticket) {
+          res.writeHead(400, { "Content-Type": "text/html; charset=utf-8" });
+          res.end(donePage(false, "The sign-in page did not return a handoff ticket."));
+          settle({ kind: "error", message: "The browser returned no handoff ticket." });
+          return;
+        }
+
+        // Redeem over HTTPS from here. This is the step that keeps the key out of
+        // the browser entirely — it travels gateway → CLI, never through a URL.
+        const redeemed = await redeemTicket(ticket);
+        if (!redeemed.ok) {
+          res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+          res.end(donePage(false, redeemed.error));
+          settle({ kind: "error", message: redeemed.error });
+          return;
+        }
+
+        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+        res.end(donePage(true, "Your API key is saved in this machine's Eaon CLI. You can close this tab."));
+        settle({ kind: "success", apiKey: redeemed.key, email: redeemed.email });
+      })();
       return;
     }
 
