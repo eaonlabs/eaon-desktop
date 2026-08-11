@@ -65,35 +65,17 @@ const USAGE_PAYLOAD = {
       { id: "glm-5.2", req: 120, tokens: 83_720 },
     ],
     plan: { id: "beta", name: "Eaon Beta" },
-    // The real shape: two periods, plus the flattened worst-case the gateway
-    // also returns. The week is deliberately further along than the day — that
-    // combination is exactly what showing only the day used to hide.
+    // Weekly only — there is no daily pool. `allowance` is the weekly figure.
     betaBudget: {
-      day: {
-        percentUsed: 61.4,
-        percentRemaining: 38.6,
-        exhausted: false,
-        resetsAt: "midnight UTC",
-        models: [
-          { id: "kimi-k3", name: "Kimi K3", allowance: 64_000, tokensLeft: 24_704 },
-          { id: "grok-4.5", name: "Grok 4.5", allowance: 72_820, tokensLeft: 28_108 },
-          { id: "hy3", name: "Hunyuan 3", allowance: 2_602_396, tokensLeft: 1_004_524 },
-        ],
-      },
-      week: {
-        percentUsed: 92.3,
-        percentRemaining: 7.7,
-        exhausted: false,
-        resetsAt: "next Monday (UTC)",
-        models: [
-          { id: "kimi-k3", name: "Kimi K3", allowance: 448_000, tokensLeft: 34_496 },
-          { id: "grok-4.5", name: "Grok 4.5", allowance: 509_740, tokensLeft: 39_250 },
-        ],
-      },
       percentUsed: 92.3,
       percentRemaining: 7.7,
       exhausted: false,
-      models: [],
+      resetsAt: "next Monday (UTC)",
+      models: [
+        { id: "hy3", name: "Hunyuan 3", allowance: 18_216_772, tokensLeft: 1_402_692 },
+        { id: "kimi-k3", name: "Kimi K3", allowance: 448_000, tokensLeft: 34_496 },
+        { id: "grok-4.5", name: "Grok 4.5", allowance: 509_740, tokensLeft: 39_250 },
+      ],
       unlimitedModels: ["MiMo V2.5", "DeepSeek V4 Flash"],
     },
     quota: { dailyTokens: null, usedToday: 42_000, unlimited: true },
@@ -201,12 +183,11 @@ has("million compacted", usageFrame, "2.45M");
 has("latency", usageFrame, "1.24s");
 has("bar glyphs", usageFrame, "█");
 has("beta budget section", usageFrame, "Beta budget");
-has("shows the daily period", usageFrame, "61.4%");
-// The regression this guards: only the day was rendered, so a user at 92% of
-// their week saw a comfortable-looking meter and no warning.
-has("shows the weekly period too", usageFrame, "92.3%");
-has("labels both rows", usageFrame, "Week");
-has("what the remainder buys", usageFrame, "Kimi K3");
+has("labelled as weekly", usageFrame, "this week");
+has("shows the percentage", usageFrame, "92.3%");
+// The cheapest allowances are the informative ones — they run out first, so they
+// are what the hint must name rather than whichever happened to sort first.
+has("names the tightest models", usageFrame, "Kimi K3");
 has("per-day section", usageFrame, "Tokens per day");
 has("by-model section", usageFrame, "By model");
 has("model row", usageFrame, "deepseek-v4-flash");
