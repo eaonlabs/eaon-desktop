@@ -201,25 +201,42 @@ function UsageTab({ usage }: { usage: AccountUsage }): React.ReactElement {
           <Text bold color={theme.heading}>
             Beta budget
           </Text>
-          <Box>
-            <Text color={usage.betaBudget.percentUsed >= 80 ? theme.error : theme.accent}>
-              {bar(usage.betaBudget.percentUsed, 100, 30).padEnd(30)}
-            </Text>
-            <Text color={theme.assistant}> {usage.betaBudget.percentUsed.toFixed(1)}%</Text>
-          </Box>
-          {usage.betaBudget.exhausted ? (
-            <Text color={theme.error}>Spent — every beta model is paused until midnight UTC.</Text>
-          ) : (
-            <Text color={theme.mutedDim}>
-              {usage.betaBudget.percentRemaining.toFixed(1)}% left, shared across all beta models.{" "}
-              {usage.betaBudget.models
-                .slice()
-                .sort((a, b) => a.dailyTokens - b.dailyTokens)
-                .slice(0, 2)
-                .map((m) => `${m.name} ${compact(m.tokensLeft ?? 0)}`)
-                .join(" · ")}
-            </Text>
-          )}
+          {/* Both periods. Showing only the day hid whichever limit was actually
+              about to stop you — a user can sit at 10% of today and 95% of the
+              week. */}
+          {(
+            [
+              ["Today", usage.betaBudget.day],
+              ["Week", usage.betaBudget.week],
+            ] as const
+          )
+            .filter(([, period]) => period)
+            .map(([label, period]) => (
+              <Box key={label} flexDirection="column">
+                <Box>
+                  <Text color={theme.mutedDim}>{label.padEnd(6)}</Text>
+                  <Text color={period!.percentUsed >= 80 ? theme.error : theme.accent}>
+                    {bar(period!.percentUsed, 100, 26).padEnd(26)}
+                  </Text>
+                  <Text color={theme.assistant}> {period!.percentUsed.toFixed(1)}%</Text>
+                </Box>
+                <Text color={period!.exhausted ? theme.error : theme.mutedDim}>
+                  {"      "}
+                  {period!.exhausted
+                    ? `spent — capped models paused until ${period!.resetsAt}${
+                        usage.betaBudget!.unlimitedModels?.length
+                          ? `; still available: ${usage.betaBudget!.unlimitedModels.join(", ")}`
+                          : ""
+                      }`
+                    : `${period!.percentRemaining.toFixed(1)}% left · ${period!.models
+                        .slice()
+                        .sort((a, b) => (a.allowance ?? 0) - (b.allowance ?? 0))
+                        .slice(0, 2)
+                        .map((m) => `${m.name} ${compact(m.tokensLeft ?? 0)}`)
+                        .join(" · ")}`}
+                </Text>
+              </Box>
+            ))}
         </Box>
       )}
 

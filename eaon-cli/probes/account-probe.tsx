@@ -65,15 +65,36 @@ const USAGE_PAYLOAD = {
       { id: "glm-5.2", req: 120, tokens: 83_720 },
     ],
     plan: { id: "beta", name: "Eaon Beta" },
+    // The real shape: two periods, plus the flattened worst-case the gateway
+    // also returns. The week is deliberately further along than the day — that
+    // combination is exactly what showing only the day used to hide.
     betaBudget: {
-      percentUsed: 61.4,
-      percentRemaining: 38.6,
+      day: {
+        percentUsed: 61.4,
+        percentRemaining: 38.6,
+        exhausted: false,
+        resetsAt: "midnight UTC",
+        models: [
+          { id: "kimi-k3", name: "Kimi K3", allowance: 64_000, tokensLeft: 24_704 },
+          { id: "grok-4.5", name: "Grok 4.5", allowance: 72_820, tokensLeft: 28_108 },
+          { id: "hy3", name: "Hunyuan 3", allowance: 2_602_396, tokensLeft: 1_004_524 },
+        ],
+      },
+      week: {
+        percentUsed: 92.3,
+        percentRemaining: 7.7,
+        exhausted: false,
+        resetsAt: "next Monday (UTC)",
+        models: [
+          { id: "kimi-k3", name: "Kimi K3", allowance: 448_000, tokensLeft: 34_496 },
+          { id: "grok-4.5", name: "Grok 4.5", allowance: 509_740, tokensLeft: 39_250 },
+        ],
+      },
+      percentUsed: 92.3,
+      percentRemaining: 7.7,
       exhausted: false,
-      models: [
-        { id: "kimi-k3", name: "Kimi K3", dailyTokens: 63_578, tokensLeft: 24_541 },
-        { id: "grok-4.5", name: "Grok 4.5", dailyTokens: 72_820, tokensLeft: 28_108 },
-        { id: "deepseek-v4-flash", name: "DeepSeek V4 Flash", dailyTokens: 18_205_701, tokensLeft: 7_027_400 },
-      ],
+      models: [],
+      unlimitedModels: ["MiMo V2.5", "DeepSeek V4 Flash"],
     },
     quota: { dailyTokens: null, usedToday: 42_000, unlimited: true },
   },
@@ -180,7 +201,11 @@ has("million compacted", usageFrame, "2.45M");
 has("latency", usageFrame, "1.24s");
 has("bar glyphs", usageFrame, "█");
 has("beta budget section", usageFrame, "Beta budget");
-has("budget percent", usageFrame, "61.4%");
+has("shows the daily period", usageFrame, "61.4%");
+// The regression this guards: only the day was rendered, so a user at 92% of
+// their week saw a comfortable-looking meter and no warning.
+has("shows the weekly period too", usageFrame, "92.3%");
+has("labels both rows", usageFrame, "Week");
 has("what the remainder buys", usageFrame, "Kimi K3");
 has("per-day section", usageFrame, "Tokens per day");
 has("by-model section", usageFrame, "By model");

@@ -53,15 +53,30 @@ export interface UsageModel {
 export interface BetaBudgetModel {
   id: string;
   name: string;
-  dailyTokens: number;
+  /** The model's allowance for this period. */
+  allowance: number;
   tokensLeft: number | null;
 }
 
+/** One period's worth of budget — see backend/src/beta-budget.js. */
+export interface BetaBudgetPeriod {
+  percentUsed: number;
+  percentRemaining: number;
+  exhausted: boolean;
+  resetsAt: string;
+  models: BetaBudgetModel[];
+}
+
 export interface BetaBudget {
+  /** Both periods. A user can be fine on one and nearly out on the other. */
+  day?: BetaBudgetPeriod;
+  week?: BetaBudgetPeriod;
+  /** Whichever period is closest to running out, flattened by the gateway. */
   percentUsed: number;
   percentRemaining: number;
   exhausted: boolean;
   models: BetaBudgetModel[];
+  unlimitedModels?: string[];
   unavailable?: boolean;
 }
 
