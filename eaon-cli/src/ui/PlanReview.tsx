@@ -59,7 +59,7 @@ export function PlanReview({ plan, onAnswer }: Props): React.ReactElement {
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={theme.accent} paddingX={1} marginTop={1}>
       <Text>
-        <Text color={theme.accent}>● </Text>
+        <Text color={theme.accent}>• </Text>
         <Text bold>Ready to start — here's the plan</Text>
       </Text>
       <Box flexDirection="column" marginTop={1} paddingLeft={2}>
@@ -68,7 +68,7 @@ export function PlanReview({ plan, onAnswer }: Props): React.ReactElement {
       <Box marginTop={1} flexDirection="column">
         {OPTIONS.map((opt, idx) => (
           <Text key={opt.label} color={idx === index ? theme.accent : theme.assistant}>
-            {idx === index ? "❯ " : "  "}
+            {idx === index ? "› " : "  "}
             {idx + 1}. {opt.label}
           </Text>
         ))}

@@ -1,8 +1,5 @@
-// The Sandboxed-mode confirmation gate — blocks the agent loop (via the
-// Promise the App bridges through a ref) until the user answers. Styled
-// like Claude Code's own permission dialog: the tool as a ● header, the
-// detail branched under ⎿, and a numbered option list with a ❯ cursor —
-// answerable by number, hotkey (y/a/n), arrows+Enter, or Esc.
+// Sandboxed-mode confirmation — Codex/OpenCode language: • header, └ detail,
+// › cursor, Allow once / Allow always / Reject.
 
 import React, { useState } from "react";
 import { Box, Text, useInput } from "ink";
@@ -17,9 +14,9 @@ interface Props {
 }
 
 const OPTIONS: Array<{ key: string; label: string; answer: PermissionAnswer }> = [
-  { key: "y", label: "Yes", answer: "approve" },
-  { key: "a", label: "Yes, allow this tool for the rest of the session", answer: "always_this_tool" },
-  { key: "n", label: "No (esc)", answer: "deny" },
+  { key: "y", label: "Allow once", answer: "approve" },
+  { key: "a", label: "Allow always for this tool", answer: "always_this_tool" },
+  { key: "n", label: "Reject (esc)", answer: "deny" },
 ];
 
 export function PermissionPrompt({ name, summary, detail, onAnswer }: Props): React.ReactElement {
@@ -59,7 +56,7 @@ export function PermissionPrompt({ name, summary, detail, onAnswer }: Props): Re
   return (
     <Box flexDirection="column" borderStyle="round" borderColor={theme.warning} paddingX={1} marginTop={1}>
       <Text>
-        <Text color={theme.warning}>● </Text>
+        <Text color={theme.warning}>• </Text>
         <Text bold>{summary}</Text>
         <Text color={theme.muted} dimColor>
           {" "}
@@ -70,24 +67,21 @@ export function PermissionPrompt({ name, summary, detail, onAnswer }: Props): Re
         <Box flexDirection="column" paddingLeft={2}>
           {detailLines.slice(0, 16).map((line, i) => (
             <Text key={i} color={theme.muted}>
-              {i === 0 ? "⎿  " : "   "}
+              {i === 0 ? "└ " : "  "}
               {line}
             </Text>
           ))}
           {detailLines.length > 16 && (
             <Text color={theme.muted} dimColor>
-              {"   "}…truncated
+              {"  "}…truncated
             </Text>
           )}
         </Box>
       )}
       <Box marginTop={1} flexDirection="column">
-        <Text color={theme.muted} dimColor>
-          Allow this?
-        </Text>
         {OPTIONS.map((opt, idx) => (
           <Text key={opt.key} color={idx === index ? theme.accent : theme.assistant} bold={idx === index}>
-            {idx === index ? "❯ " : "  "}
+            {idx === index ? "› " : "  "}
             {idx + 1}. {opt.label}
           </Text>
         ))}

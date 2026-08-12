@@ -108,7 +108,7 @@ export function ModelPicker({ models, currentKey, onSelect, onCancel }: Props): 
             const isCurrent = m.key === currentKey;
             return (
               <Text key={m.key} color={isHighlighted ? theme.accent : theme.assistant} bold={isHighlighted}>
-                {isHighlighted ? "❯ " : "  "}
+                {isHighlighted ? "› " : "  "}
                 {isCurrent ? "✓ " : "  "}
                 <Text color={theme.muted}>[{PROVIDER_LABEL[m.provider.kind] ?? m.provider.kind}] </Text>
                 {describeEntry(m)}

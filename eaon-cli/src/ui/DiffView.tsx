@@ -1,11 +1,5 @@
-// Renders what write_file/edit_file actually did, in the Claude-Code/
-// Cursor visual language: dim line numbers in a gutter, and changed lines
-// as solid background-tinted blocks (green for added, red for removed) —
-// not just colored +/- glyphs, which get lost at a glance. write_file
-// shows every line as added (this layer only ever has the new content,
-// never the file's prior state, so that's an honest framing, not a
-// limitation to hide) — edit_file gets a real diff from its own
-// search/replace, independently numbered per side.
+// Renders write_file/edit_file diffs: dim gutter + tinted +/- lines (Codex/Cursor).
+// write_file shows every line as added; edit_file diffs search→replace.
 
 import React from "react";
 import { Box, Text } from "ink";
@@ -43,7 +37,7 @@ function DiffStats({ added, removed }: { added?: number; removed?: number }): Re
   if (parts.length === 0) return null;
   return (
     <Text color={theme.muted} dimColor>
-      ⎿  {parts.join(" ")}
+      └ {parts.join(" ")}
     </Text>
   );
 }
