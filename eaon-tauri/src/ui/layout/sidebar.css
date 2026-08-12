@@ -49,9 +49,9 @@
   gap: 6px;
   width: 100%;
   height: 32px;
-  padding: 0 8px;
-  border-radius: 8px;
-  font-size: 14px;
+  padding: 0 10px;
+  border-radius: 9px;
+  font-size: 13.5px;
   color: var(--text-secondary);
   text-align: left;
   transition:

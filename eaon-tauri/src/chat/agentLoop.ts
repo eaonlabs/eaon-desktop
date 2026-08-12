@@ -36,7 +36,7 @@ import {
   streamTruncatedNotice,
   type TurnContext,
 } from "./internal";
-import { executeImagePrompts, extractMemories, finalizeTurn } from "./postTurn";
+import { executeImagePrompts, extractMemories, finalizeTurn, titleConversation } from "./postTurn";
 
 /** Caps: an agent run may legitimately take many build/run/fix rounds; a
  *  chat that keeps searching past this is confused, not thorough. */
@@ -453,8 +453,11 @@ export async function runTurns(ctx: TurnContext): Promise<void> {
   }
 
   // Background personalization off the finished exchange — fire-and-forget,
-  // never blocks or surfaces (REF extractMemories call site).
+  // never blocks or surfaces (REF extractMemories call site). The model-
+  // written title rides the same hook: both read the completed exchange,
+  // both are best-effort, and neither should delay handing the reply over.
   if (lastGoodContent.trim() && !isStopped(ctx.conversationId)) {
     void extractMemories(ctx.route, ctx.userText, lastGoodContent);
+    void titleConversation(ctx.conversationId, ctx.route, ctx.userText, lastGoodContent);
   }
 }

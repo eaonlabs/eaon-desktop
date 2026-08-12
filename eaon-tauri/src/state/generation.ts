@@ -3,6 +3,7 @@
 // an agent turn waits on the user (tool confirmation / ask_user).
 
 import { create } from "zustand";
+import type { SwarmTranscript } from "../core/protocol/swarm";
 
 /** What the model is actually doing right now — drives the status indicator
  *  under the thread, so a long silent stretch (a local model loading into
@@ -67,6 +68,13 @@ interface GenerationStore {
    *  is exactly the jank this indicator exists to avoid). */
   setPhase: (conversationId: string, phase: GenerationPhase, label?: string | null) => void;
 
+  /** The swarm discussion as it happens, per conversation, so the panel can
+   *  show who has spoken and how they voted while it runs. Cleared when the
+   *  swarm hands off — from then on the finished transcript lives in the
+   *  assistant message itself. */
+  liveSwarm: Record<string, SwarmTranscript | null>;
+  setSwarm: (conversationId: string, transcript: SwarmTranscript | null) => void;
+
   setPendingConfirm: (pending: PendingToolConfirm | null) => void;
   setPendingQuestion: (pending: PendingAgentQuestion | null) => void;
   setAgentAutoRun: (on: boolean) => void;
@@ -78,6 +86,7 @@ export const useGeneration = create<GenerationStore>((set, get) => ({
   pendingConfirm: null,
   pendingQuestion: null,
   agentAutoRun: false,
+  liveSwarm: {},
   askingToEnterAuto: false,
 
   begin: (conversationId, requestId) =>
@@ -130,6 +139,9 @@ export const useGeneration = create<GenerationStore>((set, get) => ({
         },
       };
     }),
+
+  setSwarm: (conversationId, transcript) =>
+    set((s) => ({ liveSwarm: { ...s.liveSwarm, [conversationId]: transcript } })),
 
   setPendingConfirm: (pendingConfirm) => set({ pendingConfirm }),
   setPendingQuestion: (pendingQuestion) => set({ pendingQuestion }),

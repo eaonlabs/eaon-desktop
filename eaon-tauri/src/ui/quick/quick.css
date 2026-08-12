@@ -1,0 +1,115 @@
+/* The Quick Assistant panel. A floating spotlight-style surface, so it is
+   deliberately lighter chrome than the main window: rounded on every corner,
+   no titlebar, and a real shadow to lift it off whatever it is sitting over. */
+
+/* The window is transparent so the panel's own rounded corners are the
+   silhouette — without this the OS paints an opaque square behind them. */
+html[data-window="quick"],
+html[data-window="quick"] body,
+html[data-window="quick"] #root {
+  background: transparent;
+  height: 100%;
+  overflow: hidden;
+}
+
+.quick-root {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  padding: 10px 12px 8px;
+  background: var(--popover);
+  border: 1px solid var(--border-strong);
+  border-radius: 14px;
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+}
+
+/* A grab strip along the top: the panel has no titlebar, so without this
+   there is nowhere to pick it up and move it. */
+.quick-drag {
+  height: 6px;
+  flex-shrink: 0;
+  margin: -10px -12px 4px;
+}
+
+.quick-input-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-shrink: 0;
+  padding: 8px 10px;
+  background: var(--input);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-input);
+}
+
+.quick-spark {
+  flex-shrink: 0;
+  color: var(--text-muted);
+}
+
+.quick-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: none;
+  outline: none;
+  resize: none;
+  font-family: var(--font-sans);
+  font-size: 14px;
+  color: var(--text);
+  max-height: 96px;
+}
+.quick-input::placeholder { color: var(--text-muted); }
+
+.quick-send {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 7px;
+  background: var(--active);
+  color: var(--text);
+  cursor: pointer;
+  transition:
+    background var(--t-fast) var(--ease-out),
+    transform var(--t-fast) var(--ease-out);
+}
+.quick-send:hover:not(:disabled) { background: var(--hover); }
+.quick-send:active:not(:disabled) { transform: scale(0.94); }
+.quick-send:disabled { opacity: 0.4; cursor: default; }
+
+.quick-answer {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin-top: 10px;
+  padding-right: 2px;
+  font-size: 13.5px;
+  color: var(--text);
+}
+
+.quick-thinking,
+.quick-error {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.quick-error { color: var(--destructive); }
+
+.quick-hint {
+  flex-shrink: 0;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--text-muted);
+  text-align: right;
+}
+.quick-hint kbd {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  padding: 1px 4px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}

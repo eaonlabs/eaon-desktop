@@ -49,6 +49,18 @@ export interface ChatMessage {
   isGeneratedImage?: boolean;
 }
 
+/** A running, incremental summary standing in for the older half of a long
+ *  conversation, so it stops re-sending its entire raw history every turn.
+ *  `coversMessagesUpTo` is an index into `Conversation.messages`: everything
+ *  before it is represented by `text`, everything from it on still rides
+ *  verbatim. Optional on Conversation — absent on every short chat, which is
+ *  the overwhelming majority and pays nothing for this. */
+export interface ConversationSummary {
+  text: string;
+  coversMessagesUpTo: number;
+  updatedAt: number;
+}
+
 export interface Conversation {
   id: string;
   title: string;
@@ -58,6 +70,12 @@ export interface Conversation {
   hasUnread?: boolean;
   projectId?: string | null;
   isPinned?: boolean;
+  summary?: ConversationSummary;
+  /** True once the model has named this conversation (or the user has), so
+   *  the titler never overwrites it on a later turn. Optional for decode
+   *  safety: a non-optional boolean makes every previously-saved
+   *  conversation fail to load and vanish. */
+  hasModelTitle?: boolean;
 }
 
 export interface Project {

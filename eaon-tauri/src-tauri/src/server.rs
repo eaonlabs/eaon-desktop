@@ -101,11 +101,11 @@ fn origin_is_loopback(origin: &str) -> bool {
 
 // MARK: - Tiny HTTP request parse
 
-struct ParsedRequest {
-    method: String,
-    path: String,
-    headers: Vec<(String, String)>,
-    body: Vec<u8>,
+pub(crate) struct ParsedRequest {
+    pub(crate) method: String,
+    pub(crate) path: String,
+    pub(crate) headers: Vec<(String, String)>,
+    pub(crate) body: Vec<u8>,
 }
 
 impl ParsedRequest {
@@ -129,7 +129,7 @@ const MAX_HEADERS: usize = 64 * 1024;
 /// process" includes anything the user ran by accident.
 const READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(20);
 
-async fn read_request(stream: &mut tokio::net::TcpStream) -> Option<ParsedRequest> {
+pub(crate) async fn read_request(stream: &mut tokio::net::TcpStream) -> Option<ParsedRequest> {
     let mut buf: Vec<u8> = Vec::with_capacity(2048);
     let mut chunk = [0u8; 4096];
     // Read until end of headers.
@@ -185,7 +185,7 @@ async fn read_request(stream: &mut tokio::net::TcpStream) -> Option<ParsedReques
     Some(ParsedRequest { method, path, headers, body })
 }
 
-fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
+pub(crate) fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
     haystack.windows(needle.len()).position(|w| w == needle)
 }
 
@@ -193,7 +193,7 @@ fn find_subsequence(haystack: &[u8], needle: &[u8]) -> Option<usize> {
 
 const SECURITY_HEADERS: &str = "X-Content-Type-Options: nosniff\r\n";
 
-async fn write_simple(stream: &mut tokio::net::TcpStream, status: &str, content_type: &str, body: &str) {
+pub(crate) async fn write_simple(stream: &mut tokio::net::TcpStream, status: &str, content_type: &str, body: &str) {
     let response = format!(
         "HTTP/1.1 {status}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n{SECURITY_HEADERS}\r\n{body}",
         body.len()

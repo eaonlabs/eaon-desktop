@@ -9,6 +9,7 @@ import { useConversations } from "../../state/conversations";
 import { useGeneration } from "../../state/generation";
 import MessageBubble from "./MessageBubble";
 import GenerationStatus from "./GenerationStatus";
+import SwarmCard from "./SwarmCard";
 
 export default function MessageList() {
   const conversation = useConversations(
@@ -21,6 +22,7 @@ export default function MessageList() {
   // changes thread height without touching the message list — so the
   // auto-follow effect below needs it as a trigger too.
   const phase = useGeneration((s) => s.sessions[conversation?.id ?? ""]?.phase ?? null);
+  const liveSwarm = useGeneration((s) => s.liveSwarm[conversation?.id ?? ""] ?? null);
 
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const lastTopRef = useRef(0);
@@ -97,6 +99,10 @@ export default function MessageList() {
               conversationStreaming={streaming}
             />
           ))}
+          {/* The swarm runs BEFORE the reply exists, so its live panel sits
+              at thread level rather than inside a message bubble — there is
+              no bubble yet while the specialists are still arguing. */}
+          {liveSwarm && <SwarmCard transcript={liveSwarm} isLive />}
           <GenerationStatus conversationId={conversation.id} hasVisibleAnswer={hasVisibleAnswer} />
         </div>
       </div>

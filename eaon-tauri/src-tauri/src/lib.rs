@@ -16,6 +16,11 @@ mod chat;
 /// verified deletes.
 mod ollama;
 
+/// llama.cpp — finding llama-server, spawning it for a GGUF file, status.
+/// (The Mac's third local backend, MLX, is Apple-silicon only and has no
+/// counterpart here.)
+mod llamacpp;
+
 /// Provider model listing and generic text fetches (skills, update manifest).
 mod providers;
 
@@ -61,6 +66,14 @@ mod mcp_oauth;
 /// merges this app's saved API keys into the CLI's own config.json.
 mod eaon_cli;
 
+/// The Quick Assistant — the floating always-on-top panel and its global
+/// hotkey.
+mod quick;
+
+/// Browser control — the loopback bridge the Eaon browser extension pairs
+/// with. Wire-compatible with the Mac app's, so the same extension works.
+mod browser;
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -79,7 +92,17 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
+        .setup(|app| {
+            quick::register_hotkey(app.handle());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
+            browser::browser_status,
+            browser::browser_start,
+            browser::browser_regenerate_token,
+            quick::quick_hide,
+            quick::quick_show,
+            quick::quick_hotkey,
             net::set_proxy,
             chat::chat_stream,
             chat::chat_complete,
@@ -87,6 +110,9 @@ pub fn run() {
             ollama::ollama_tags,
             ollama::ollama_pull,
             ollama::ollama_delete,
+            llamacpp::llama_status,
+            llamacpp::llama_start,
+            llamacpp::llama_stop,
             providers::fetch_provider_models,
             providers::fetch_text_url,
             search::web_search,

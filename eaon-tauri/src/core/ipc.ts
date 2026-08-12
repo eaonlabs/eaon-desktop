@@ -108,6 +108,63 @@ export function ollamaDelete(baseUrl: string, model: string): Promise<void> {
   return invoke("ollama_delete", { baseUrl, model });
 }
 
+/** llama.cpp — whether llama-server exists on this PC, and whether ours is
+ *  currently serving a model. (There is no MLX counterpart: MLX is
+ *  Apple-silicon only.) */
+export interface LlamaStatus {
+  installed: boolean;
+  binaryPath: string | null;
+  running: boolean;
+  modelPath: string | null;
+  port: number;
+  baseUrl: string;
+}
+
+export function llamaStatus(): Promise<LlamaStatus> {
+  return invoke<LlamaStatus>("llama_status");
+}
+
+/** Starts llama-server for one GGUF file. Resolves once it answers, so the
+ *  caller can trust `running` rather than having to poll. */
+export function llamaStart(opts: {
+  modelPath: string;
+  gpuLayers?: number | null;
+  contextSize?: number | null;
+}): Promise<LlamaStatus> {
+  return invoke<LlamaStatus>("llama_start", {
+    modelPath: opts.modelPath,
+    gpuLayers: opts.gpuLayers ?? null,
+    contextSize: opts.contextSize ?? null,
+  });
+}
+
+export function llamaStop(): Promise<void> {
+  return invoke("llama_stop");
+}
+
+/** Browser control — the loopback bridge the Eaon browser extension pairs
+ *  with. Wire-compatible with the Mac app's, so the same extension works. */
+export interface BrowserStatus {
+  running: boolean;
+  port: number | null;
+  token: string;
+  /** The extension has polled recently enough to count as paired. */
+  connected: boolean;
+  tab: string | null;
+}
+
+export function browserStatus(): Promise<BrowserStatus> {
+  return invoke<BrowserStatus>("browser_status");
+}
+
+export function browserStart(): Promise<BrowserStatus> {
+  return invoke<BrowserStatus>("browser_start");
+}
+
+export function browserRegenerateToken(): Promise<BrowserStatus> {
+  return invoke<BrowserStatus>("browser_regenerate_token");
+}
+
 export function fetchProviderModels(
   baseUrl: string,
   apiKey?: string | null,

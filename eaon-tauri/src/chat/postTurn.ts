@@ -16,6 +16,7 @@ import {
   MEMORY_SYSTEM_PROMPT,
   parseExtraction,
 } from "../core/protocol/memory";
+import { buildTitlePrompt, sanitizeTitle, TITLE_SYSTEM_PROMPT } from "../core/protocol/title";
 import { useConversations } from "../state/conversations";
 import { nextRequestId } from "../state/generation";
 import { useModels } from "../state/models";
@@ -137,9 +138,11 @@ export async function executeImagePrompts(
 // Titles
 // ---------------------------------------------------------------------------
 
-/** First-exchange auto-title: while the conversation is still "New chat",
+/** Immediate placeholder title: while the conversation is still "New chat",
  *  derive from the first real user turn (or its attachment names when the
- *  message was files-only — REF's titleSeed). */
+ *  message was files-only — REF's titleSeed). Runs at send time so the
+ *  sidebar is never blank while the first reply streams; `titleConversation`
+ *  below upgrades it to a real one once the model has read the exchange. */
 export function deriveTitleIfNeeded(conversationId: string): void {
   const conversation = useConversations.getState().conversations.find((c) => c.id === conversationId);
   if (!conversation || conversation.title !== "New chat") return;
@@ -147,6 +150,50 @@ export function deriveTitleIfNeeded(conversationId: string): void {
   if (!firstUser) return;
   const seed = firstUser.content.trim() || (firstUser.attachments ?? []).map((a) => a.fileName).join(", ");
   if (seed) useConversations.getState().setTitle(conversationId, deriveTitle(seed));
+}
+
+/** Asks the model to name the conversation once, after the first exchange,
+ *  on the SAME route the chat used — so there's no second credential path to
+ *  break, and a local-only user's titles are generated locally too, never
+ *  silently sent to a hosted model. Best-effort: a failure leaves the
+ *  derived placeholder in place, and must never surface (Mac
+ *  ConversationTitler). */
+export async function titleConversation(
+  conversationId: string,
+  route: ResolvedRoute,
+  userText: string,
+  assistantText: string,
+): Promise<void> {
+  try {
+    const conversation = useConversations.getState().conversations.find((c) => c.id === conversationId);
+    // Once, per conversation — and never over a title already settled on.
+    if (!conversation || conversation.hasModelTitle) return;
+    if (!userText.trim()) return;
+
+    const raw = await chatComplete({
+      baseUrl: route.baseUrl,
+      apiKey: route.apiKey,
+      trialDevice: route.trialDevice,
+      trialSecret: route.trialSecret,
+      trialKey: route.trialKey,
+      model: route.requestModel,
+      format: route.format,
+      requestId: nextRequestId(),
+      messages: [
+        { role: "system", content: TITLE_SYSTEM_PROMPT },
+        { role: "user", content: buildTitlePrompt(userText, assistantText) },
+      ],
+    });
+
+    const title = sanitizeTitle(raw);
+    if (!title) return;
+    // Re-check after the await — the conversation may have been deleted.
+    const fresh = useConversations.getState().conversations.find((c) => c.id === conversationId);
+    if (!fresh || fresh.hasModelTitle) return;
+    useConversations.getState().setModelTitle(conversationId, title);
+  } catch {
+    // Best-effort by design.
+  }
 }
 
 // ---------------------------------------------------------------------------

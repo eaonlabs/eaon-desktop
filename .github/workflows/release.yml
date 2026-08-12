@@ -137,7 +137,16 @@ jobs:
             **More info** → **Run anyway**. This is expected for unsigned apps
             and goes away once the app is signed.
           releaseDraft: true # published as a DRAFT — review, then hit Publish
-          prerelease: false
+          # Release candidates and betas MUST be marked prerelease, and this
+          # is a safety mechanism rather than a label. The updater endpoint in
+          # tauri.conf.json points at `releases/latest/download/latest.json`,
+          # and GitHub's "latest" deliberately skips prereleases — so a tag
+          # marked this way can be published for testers without every
+          # existing user's app offering it as a normal update. With a
+          # hardcoded `false`, publishing a `-rc` tag would ship it to
+          # everyone. Keyed off the tag name so a real release still behaves
+          # exactly as before, with nothing extra to remember at tag time.
+          prerelease: ${{ contains(github.ref_name, '-rc') || contains(github.ref_name, '-beta') }}
 
       # ---- Manual (workflow_dispatch) path: build only, no release ----
       # Same signing secrets as the tag-push path: createUpdaterArtifacts

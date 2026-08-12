@@ -19,7 +19,7 @@ import type { ChatMessage } from "../../core/types";
 import { useSettings } from "../../state/settings";
 import { regenerate, editAndResend } from "../../chat/send";
 import { ttsAvailable, speak, stopSpeaking, speakableText } from "../../core/tts";
-import Markdown from "./Markdown";
+import AssistantContent from "./AssistantContent";
 import ThinkingDisclosure from "./ThinkingDisclosure";
 import ToolResultCard from "./ToolResultCard";
 import AttachmentThumb from "./AttachmentThumb";
@@ -203,7 +203,7 @@ function AssistantTurn({ conversationId, message, isLast, conversationStreaming 
         </div>
       ) : shownContent ? (
         <div className={"msg-body" + (streamingThis ? " streaming" : "")}>
-          <Markdown content={shownContent} />
+          <AssistantContent content={shownContent} />
         </div>
       ) : null}
       {/* The waiting indicator is NOT here: it lives at thread level

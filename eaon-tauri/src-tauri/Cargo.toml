@@ -1,6 +1,6 @@
 [package]
 name = "eaon-desktop-xp"
-version = "2026.3.6"
+version = "2026.4.1"
 description = "Eaon for Windows and Linux — a Rust core with a web UI"
 authors = ["Eaon"]
 license = "GPL-3.0"
@@ -36,6 +36,7 @@ hmac = "0.12"
 hex = "0.4"
 uuid = { version = "1", features = ["v4"] }
 sysinfo = { version = "0.33", default-features = false, features = ["system"] }
+tauri-plugin-global-shortcut = "2"
 
 [target.'cfg(windows)'.dependencies]
 winreg = "0.55"

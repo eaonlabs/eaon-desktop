@@ -47,6 +47,11 @@ interface UiStore {
   sidebarOpen: boolean;
   selection: SidebarSelection;
   mode: EaonMode;
+  /** Agent Swarm: convene a roster of personas to argue the task out before
+   *  answering. Per-launch like `mode`, not persisted — it costs many model
+   *  calls per turn, so it should be a deliberate choice rather than
+   *  something silently left on from last week. */
+  swarmEnabled: boolean;
   paletteOpen: boolean;
   settingsOpen: boolean;
   settingsPage: SettingsPage;
@@ -61,6 +66,7 @@ interface UiStore {
   toggleSidebar: () => void;
   setSelection: (selection: SidebarSelection) => void;
   setMode: (mode: EaonMode) => void;
+  setSwarmEnabled: (enabled: boolean) => void;
   setPaletteOpen: (open: boolean) => void;
   openSettings: (page?: SettingsPage, providerId?: string) => void;
   closeSettings: () => void;
@@ -75,6 +81,7 @@ export const useUi = create<UiStore>((set) => ({
   sidebarOpen: true,
   selection: { kind: "chat" },
   mode: "chat",
+  swarmEnabled: false,
   paletteOpen: false,
   settingsOpen: false,
   settingsPage: "general",
@@ -90,6 +97,7 @@ export const useUi = create<UiStore>((set) => ({
   // in Settings.
   setSelection: (selection) => set({ selection, settingsOpen: false }),
   setMode: (mode) => set({ mode }),
+  setSwarmEnabled: (swarmEnabled) => set({ swarmEnabled }),
   setPaletteOpen: (paletteOpen) => set({ paletteOpen }),
   openSettings: (page, providerId) =>
     set((s) => ({

@@ -79,6 +79,9 @@
   --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
   --t-fast: 140ms;
   --t-med: 220ms;
+  /* The Mac app's slowest entrances (0.35s/0.45s) had no token here, so
+     anything that needed them borrowed --t-med and ran visibly quicker. */
+  --t-slow: 350ms;
 
   /* Accent (set at runtime from the accent setting; default = neutral) */
   --accent: #8e8e9c;
@@ -90,25 +93,35 @@
   --stage: #121212;
   --sidebar: #131313;
   --elevated: #161616;
+  --popover: #1a1a1a;
   --input: #1c1c1c;
   --input-secondary: #262626;
   --chip: #1c1c1c;
+  --chip-secondary: #262626;
+  --chart-bg: #1a1a1a;
   --code-bg: #0a0a0a;
   --code-header: #1c1c1c;
   --text: #ececec;
   --text-secondary: #b4b4b4;
   --text-muted: #8e8e9c;
+  --text-code: #ececec;
   --user-bubble: #1c1c1c;
   --destructive: #ff6467;
   --link: #5b9bff;
   --diff-add: #3fb950;
   --diff-del: #f85149;
-  --border: rgba(255, 255, 255, 0.07);
-  --border-strong: rgba(255, 255, 255, 0.13);
-  --hover: rgba(255, 255, 255, 0.05);
-  --active: rgba(255, 255, 255, 0.09);
-  --scrim: rgba(0, 0, 0, 0.55);
-  --shadow-card: 0 8px 30px rgba(0, 0, 0, 0.45);
+  --border: rgba(255, 255, 255, 0.1);
+  --border-strong: rgba(255, 255, 255, 0.16);
+  --hover: rgba(255, 255, 255, 0.06);
+  --active: rgba(255, 255, 255, 0.11);
+  /* Backs the 30×30 icon chip in a settings card header, and any surface
+     that needs to read as "inset" without introducing another flat grey. */
+  --subtle: rgba(255, 255, 255, 0.06);
+  --scrim: rgba(0, 0, 0, 0.6);
+  --shadow-card: 0 8px 30px rgba(0, 0, 0, 0.5);
+  /* The settings card's own, much tighter shadow (SwiftUI radius 6 / y 2).
+     --shadow-card is the big lift used by popovers and the composer. */
+  --shadow-sm: 0 2px 12px rgba(0, 0, 0, 0.5);
 }
 
 :root[data-theme="light"] {
@@ -116,23 +129,33 @@
   --stage: #ffffff;
   --sidebar: #f9f9f9;
   --elevated: #ffffff;
-  --input: #f2f2f2;
-  --input-secondary: #ececec;
-  --chip: #ececec;
+  --popover: #ffffff;
+  /* White, same as the page — matching the Mac app. Inputs stay legible
+     because every one of them is stroked with --border (see base.css). */
+  --input: #ffffff;
+  --input-secondary: #f5f5f5;
+  --chip: #f5f5f5;
+  --chip-secondary: #e5e5e5;
+  --chart-bg: #f5f5f5;
   --code-bg: #f5f5f5;
-  --code-header: #e8e8e8;
+  --code-header: #ededed;
   --text: #0d0d0d;
   --text-secondary: #5d5d5d;
+  /* #6E6E7A, not #8E8E9C: the lighter value measures ~3.23:1 here and
+     fails WCAG AA for normal text. Dark mode keeps #8E8E9C, which passes. */
   --text-muted: #6e6e7a;
-  --user-bubble: #f2f2f2;
+  --text-code: #1f2328;
+  --user-bubble: #f4f4f4;
   --destructive: #e7000b;
   --link: #2563eb;
   --diff-add: #1a7f37;
   --diff-del: #cf222e;
   --border: rgba(0, 0, 0, 0.08);
-  --border-strong: rgba(0, 0, 0, 0.16);
-  --hover: rgba(0, 0, 0, 0.04);
-  --active: rgba(0, 0, 0, 0.08);
-  --scrim: rgba(0, 0, 0, 0.35);
-  --shadow-card: 0 8px 30px rgba(0, 0, 0, 0.14);
+  --border-strong: rgba(0, 0, 0, 0.14);
+  --hover: rgba(0, 0, 0, 0.045);
+  --active: rgba(0, 0, 0, 0.07);
+  --subtle: rgba(0, 0, 0, 0.045);
+  --scrim: rgba(0, 0, 0, 0.3);
+  --shadow-card: 0 8px 30px rgba(0, 0, 0, 0.1);
+  --shadow-sm: 0 2px 12px rgba(0, 0, 0, 0.1);
 }

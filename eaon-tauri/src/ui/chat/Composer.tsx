@@ -5,7 +5,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { open as openFolderDialog } from "@tauri-apps/plugin-dialog";
-import { ArrowUp, FileText, FolderOpen, Image as ImageIcon, Plus, Shield, Slash, Square, X, Zap } from "lucide-react";
+import { ArrowUp, FileText, FolderOpen, Image as ImageIcon, Plus, Shield, Slash, Square, Users, X, Zap } from "lucide-react";
 import type { MessageAttachment, Skill } from "../../core/types";
 import { useConversations } from "../../state/conversations";
 import { useGeneration } from "../../state/generation";
@@ -33,6 +33,8 @@ export default function Composer() {
   const askingToEnterAuto = useGeneration((s) => s.askingToEnterAuto);
   const mode = useUi((s) => s.mode);
   const setMode = useUi((s) => s.setMode);
+  const swarmEnabled = useUi((s) => s.swarmEnabled);
+  const setSwarmEnabled = useUi((s) => s.setSwarmEnabled);
   const skills = useSettings((s) => s.settings.skills);
   const agentWorkspace = useSettings((s) => s.settings.agentWorkspace);
 
@@ -311,6 +313,23 @@ export default function Composer() {
               ))}
             </div>
           )}
+
+          {/* Swarm is a per-turn amplifier on either mode, not a third mode:
+              it decides WHAT to build and hands off to the normal pipeline,
+              which is what actually answers (and, in Agent, writes files). */}
+          <button
+            className={"swarm-toggle" + (swarmEnabled ? " on" : "")}
+            aria-pressed={swarmEnabled}
+            title={
+              swarmEnabled
+                ? "Swarm is on: specialists debate the approach before Eaon answers. Costs several model calls per message."
+                : "Convene a swarm of specialists to argue the approach out before answering"
+            }
+            onClick={() => setSwarmEnabled(!swarmEnabled)}
+          >
+            <Users size={11} aria-hidden />
+            Swarm
+          </button>
 
           {mode === "agent" && (
             <div

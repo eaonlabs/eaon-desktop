@@ -2,7 +2,8 @@
 // toggles, and chat export/import/delete. Import only ever appends — an
 // existing conversation is never overwritten by a file.
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Copy } from "lucide-react";
 import Button from "../../common/Button";
 import Dialog from "../../common/Dialog";
 import Field from "../../common/Field";
@@ -11,6 +12,12 @@ import type { Conversation, Project } from "../../../core/types";
 import { useConversations } from "../../../state/conversations";
 import { useSettings } from "../../../state/settings";
 import { useUi } from "../../../state/ui";
+import {
+  browserRegenerateToken,
+  browserStart,
+  browserStatus,
+  type BrowserStatus,
+} from "../../../core/ipc";
 
 export default function PrivacyPane() {
   const settings = useSettings((s) => s.settings);
@@ -102,6 +109,8 @@ export default function PrivacyPane() {
         </Field>
       </div>
 
+      {settings.deviceControlEnabled && <BrowserBridgeCard />}
+
       <div className="settings-card">
         <div className="settings-card-title">Your chats</div>
         <div className="settings-card-sub" style={{ marginBottom: 10 }}>
@@ -161,5 +170,89 @@ export default function PrivacyPane() {
         </p>
       </Dialog>
     </>
+  );
+}
+
+/** The loopback bridge the Eaon browser extension pairs with. Shown only
+ *  while device control is on, since browser tools ride that same opt-in.
+ *
+ *  The port and token are exactly what the extension's options page asks
+ *  for — and are wire-compatible with the Mac app's bridge, so one extension
+ *  build pairs with either. */
+function BrowserBridgeCard() {
+  const [status, setStatus] = useState<BrowserStatus | null>(null);
+  const showToast = useUi((s) => s.showToast);
+
+  useEffect(() => {
+    // Starting is idempotent, so this both boots the bridge and reads it.
+    void browserStart()
+      .then(setStatus)
+      .catch(() => void browserStatus().then(setStatus).catch(() => {}));
+    // The extension is considered paired by how recently it polled, so this
+    // has to re-read rather than wait for an event.
+    const id = setInterval(() => {
+      void browserStatus().then(setStatus).catch(() => {});
+    }, 5000);
+    return () => clearInterval(id);
+  }, []);
+
+  const copy = (text: string) => {
+    void navigator.clipboard.writeText(text);
+    showToast("Copied");
+  };
+
+  return (
+    <div className="settings-card">
+      <div className="settings-card-heading">Browser control</div>
+      <div className="settings-row">
+        <span className={status?.connected ? "status-dot on" : "status-dot"} />
+        <div className="settings-card-title settings-grow">
+          {status?.connected
+            ? status.tab
+              ? `Extension connected — ${status.tab}`
+              : "Extension connected"
+            : status?.running
+              ? "Waiting for the Eaon browser extension"
+              : "Bridge isn't running"}
+        </div>
+      </div>
+      <div className="settings-card-sub" style={{ marginTop: 8 }}>
+        Lets Eaon read and drive the page in your browser. Install the Eaon
+        extension, then paste the port and pairing key below into its options.
+        The bridge listens on this PC only, and every request must carry the key.
+      </div>
+
+      {status?.running && (
+        <>
+          <div className="key-row" style={{ marginTop: 10 }}>
+            <span className="tag-chip">Port</span>
+            <code>{status.port}</code>
+            <button className="icon-btn" aria-label="Copy port" onClick={() => copy(String(status.port))}>
+              <Copy size={13} />
+            </button>
+          </div>
+          <div className="key-row" style={{ marginTop: 8 }}>
+            <span className="tag-chip">Key</span>
+            <code>{status.token}</code>
+            <button className="icon-btn" aria-label="Copy pairing key" onClick={() => copy(status.token)}>
+              <Copy size={13} />
+            </button>
+          </div>
+          <div className="settings-row" style={{ marginTop: 10 }}>
+            <Button
+              size="sm"
+              onClick={() => {
+                void browserRegenerateToken().then((next) => {
+                  setStatus(next);
+                  showToast("New key — re-pair the extension");
+                });
+              }}
+            >
+              Regenerate key
+            </Button>
+          </div>
+        </>
+      )}
+    </div>
   );
 }

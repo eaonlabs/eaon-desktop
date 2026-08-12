@@ -52,7 +52,19 @@ pub(crate) fn arg_str<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
 /// hallucinates a tool gets the real list instead of a dead end.
 const VALID_TOOLS: &str = "write_file, edit_file, read_file, search_code, \
     find_files, run_shell, list_directory, create_folder, move_item, \
-    trash_item, open_app, quit_app, open_url, open_path";
+    trash_item, open_app, quit_app, open_url, open_path, browser_read, \
+    browser_tabs, browser_click, browser_type, browser_scroll";
+
+/// Tools carried out by the paired browser extension rather than locally.
+/// The name IS the action sent over the bridge, so this list and the
+/// extension's own switch stay in step by construction.
+pub(crate) const BROWSER_TOOLS: [&str; 5] = [
+    "browser_read",
+    "browser_tabs",
+    "browser_click",
+    "browser_type",
+    "browser_scroll",
+];
 
 /// The single entry point the frontend agent loop calls. `run_shell` stays on
 /// the async runtime — its 60-second timeout is tokio-driven. Everything else
@@ -65,6 +77,14 @@ const VALID_TOOLS: &str = "write_file, edit_file, read_file, search_code, \
 pub async fn run_agent_tool(name: String, args: Value) -> Result<ToolOutcome, String> {
     if name == "run_shell" {
         return Ok(shell::run_shell(&args).await);
+    }
+    // Browser tools are answered by the paired extension over the loopback
+    // bridge, so they are async round trips rather than blocking local work.
+    if let Some(action) = BROWSER_TOOLS.iter().find(|t| **t == name) {
+        return Ok(match crate::browser::run_command(action, args).await {
+            Ok(text) => ToolOutcome::ok(text),
+            Err(message) => ToolOutcome::err(message),
+        });
     }
     let outcome = tauri::async_runtime::spawn_blocking(move || match name.as_str() {
         "list_directory" => fsops::list_directory(&args),

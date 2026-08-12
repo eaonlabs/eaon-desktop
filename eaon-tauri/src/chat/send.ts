@@ -6,8 +6,12 @@
 import type { ChatMessage, McpServer, McpToolInfo, MessageAttachment, Skill } from "../core/types";
 import type { WireMessage } from "../core/ipc";
 import { cancelStream } from "../core/ipc";
-import { uid } from "../core/utils";
+import { estimateTokens, uid } from "../core/utils";
+import { contextWindowFor } from "../core/catalog";
 import { buildContent } from "../core/attachments";
+import { compress, shouldCompress, summaryBlock, verbatimCutoff } from "./contextCompressor";
+import { runSwarm } from "./swarm";
+import { encodeSwarmPanel, MIN_PERSONAS, synthesisInstruction } from "../core/protocol/swarm";
 import { memoryBlock } from "../core/protocol/memory";
 import { searchInstruction } from "../core/protocol/search";
 import { IMAGE_INSTRUCTION } from "../core/protocol/images";
@@ -172,8 +176,43 @@ export async function sendMessage(opts: {
     // never re-sent — chain-of-thought is display-only (REF wireHistory).
     const conversation = useConversations.getState().conversations.find((c) => c.id === conversationId);
     if (!conversation) return;
+
+    // Long conversations fold their older span into one running summary
+    // rather than re-sending it verbatim every turn. A no-op (and not even
+    // a round trip) until the history is genuinely large — see
+    // contextCompressor. The summary rides as a system turn ahead of the
+    // verbatim tail, so the model still gets the earlier context, just
+    // compactly.
+    let summary = conversation.summary;
+    let verbatimFrom = 0;
+    const totalChars = conversation.messages.reduce((n, m) => n + m.content.length, 0);
+    if (
+      shouldCompress(
+        conversation.messages.length,
+        estimateTokens(totalChars),
+        contextWindowFor(entry.requestId),
+      )
+    ) {
+      const cutoff = verbatimCutoff(conversation.messages.length);
+      summary = await compress({
+        messages: conversation.messages,
+        cutoffIndex: cutoff,
+        existing: summary,
+        route,
+      });
+      // Only skip the summarized span if a summary actually came back —
+      // a failed compression must not silently drop those turns.
+      if (summary) {
+        useConversations.getState().setSummary(conversationId, summary);
+        verbatimFrom = Math.min(summary.coversMessagesUpTo, conversation.messages.length);
+      }
+    }
+
     const history: WireMessage[] = [...system];
-    for (const m of conversation.messages) {
+    if (summary && verbatimFrom > 0) {
+      history.push({ role: "system", content: summaryBlock(summary) });
+    }
+    for (const m of conversation.messages.slice(verbatimFrom)) {
       if (m.isError) continue;
       const role = m.isToolResult ? "user" : m.role;
       if (m.attachments?.length) {
@@ -188,12 +227,37 @@ export async function sendMessage(opts: {
     // leave a stray empty bubble) now.
     if (useGeneration.getState().sessions[conversationId]?.stopped === true) return;
 
-    // The assistant placeholder the first turn streams into.
+    // Agent Swarm: convene a roster and let them argue the approach out
+    // BEFORE the real reply starts. The swarm never writes the answer — its
+    // transcript rides in as the last system turn, so the reply the user
+    // reads still goes through this same routing, streaming and (in agent
+    // mode) the same tool loop that writes real files.
+    let swarmPanel = "";
+    if (useUi.getState().swarmEnabled && trimmed) {
+      const transcript = await runSwarm(trimmed, route, {
+        onStatus: (status) => useGeneration.getState().setPhase(conversationId, "tools", status),
+        onProgress: (live) => useGeneration.getState().setSwarm(conversationId, live),
+        isCancelled: () => useGeneration.getState().sessions[conversationId]?.stopped === true,
+      });
+      useGeneration.getState().setSwarm(conversationId, null);
+      if (useGeneration.getState().sessions[conversationId]?.stopped === true) return;
+      // Too small a roster means the swarm never really convened (offline, or
+      // a model that couldn't follow the JSON instruction) — answer normally
+      // rather than pretending a discussion happened.
+      if (transcript.personas.length >= MIN_PERSONAS) {
+        history.push({ role: "system", content: synthesisInstruction(transcript) });
+        swarmPanel = encodeSwarmPanel(transcript);
+      }
+    }
+
+    // The assistant placeholder the first turn streams into. The swarm panel
+    // is prepended BEFORE any tokens arrive, so the card renders complete
+    // from the first frame rather than appearing to stream in.
     const assistantId = uid();
     conversations.appendMessage(conversationId, {
       id: assistantId,
       role: "assistant",
-      content: "",
+      content: swarmPanel,
       reasoning: "",
       modelId: entry.key,
       modelDisplay: entry.display,

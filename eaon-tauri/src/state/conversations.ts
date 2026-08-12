@@ -3,7 +3,7 @@
 // stays a single subscription in persist.ts.
 
 import { create } from "zustand";
-import type { ChatMessage, Conversation, Project, Statistics } from "../core/types";
+import type { ChatMessage, Conversation, ConversationSummary, Project, Statistics } from "../core/types";
 import { DEFAULT_STATISTICS } from "../core/persistence";
 import { uid } from "../core/utils";
 
@@ -43,6 +43,13 @@ interface ConversationsStore {
   /** Drops the message and everything after it (edit & resend, regenerate). */
   truncateFrom: (conversationId: string, messageId: string) => void;
   setTitle: (conversationId: string, title: string) => void;
+  /** The model-written title, which also latches hasModelTitle so a later
+   *  turn never renames the conversation out from under the user. A future
+   *  manual-rename action should set the flag the same way. */
+  setModelTitle: (conversationId: string, title: string) => void;
+  /** Stores the rolling summary standing in for this conversation's older
+   *  span — see chat/contextCompressor.ts. */
+  setSummary: (conversationId: string, summary: ConversationSummary | undefined) => void;
 
   newProject: (name: string) => string;
   renameProject: (id: string, name: string) => void;
@@ -157,6 +164,20 @@ export const useConversations = create<ConversationsStore>((set, get) => ({
     set((s) => ({
       conversations: s.conversations.map((c) =>
         c.id === conversationId ? { ...c, title } : c,
+      ),
+    })),
+
+  setModelTitle: (conversationId, title) =>
+    set((s) => ({
+      conversations: s.conversations.map((c) =>
+        c.id === conversationId ? { ...c, title, hasModelTitle: true } : c,
+      ),
+    })),
+
+  setSummary: (conversationId, summary) =>
+    set((s) => ({
+      conversations: s.conversations.map((c) =>
+        c.id === conversationId ? { ...c, summary } : c,
       ),
     })),
 

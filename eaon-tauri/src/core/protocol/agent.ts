@@ -35,12 +35,32 @@ export const AGENT_TOOLS = [
   "quit_app",
   "open_url",
   "open_path",
+  "browser_read",
+  "browser_tabs",
+  "browser_click",
+  "browser_type",
+  "browser_scroll",
   "ask_user",
 ] as const;
 
 /** The wider device tools (formerly Eaon Claw's own catalog) — offered only
  *  when the user turns on device control in Settings. */
-export const DEVICE_TOOLS = new Set(["trash_item", "open_app", "quit_app", "open_url", "open_path"]);
+export const DEVICE_TOOLS = new Set([
+  "trash_item",
+  "open_app",
+  "quit_app",
+  "open_url",
+  "open_path",
+  // Reading and driving a live browser tab is device control by any
+  // reasonable reading, so it rides the same opt-in rather than being on
+  // by default. It additionally needs the paired extension, which the
+  // bridge enforces separately.
+  "browser_read",
+  "browser_tabs",
+  "browser_click",
+  "browser_type",
+  "browser_scroll",
+]);
 
 /** Read-only tools reveal only names/paths and never change anything, so they
  *  run without a confirmation prompt even in Sandboxed mode — the same set the
@@ -208,10 +228,15 @@ export function agentInstruction({ includeWiderTools, hasPlugins, workspace }: A
 - open_app — open (launch or focus) an application by name.
 - quit_app — ask an application to quit by name.
 - open_url — open a URL in the default web browser.
-- open_path — open a file or folder with its default app (or show it in the file manager).`
+- open_path — open a file or folder with its default app (or show it in the file manager).
+- browser_read — read the page in the user's active browser tab as text.
+- browser_tabs — list the tabs currently open in the browser.
+- browser_click — click something on the page by its visible text.
+- browser_type — type into the focused field on the page.
+- browser_scroll — scroll the page up or down.`
     : "";
   const widerNote = includeWiderTools
-    ? "\n\nBEYOND CODING, you can also organize files and drive apps/websites for the user: trash_item (Trash, not permanent delete — never route around it with rm/del), open_app/quit_app, open_url, and open_path. Use these when the task is actually about the user's PC or browser, not just their code."
+    ? "\n\nBEYOND CODING, you can also organize files and drive apps/websites for the user: trash_item (Trash, not permanent delete — never route around it with rm/del), open_app/quit_app, open_url, and open_path. Use these when the task is actually about the user's PC or browser, not just their code. The browser_* tools need the Eaon browser extension paired; if one reports it isn't connected, say so plainly rather than retrying."
     : "";
   const workspaceNote = workspace
     ? `\n\nTHE OPEN PROJECT FOLDER: ${workspace}\nThe user has this folder open — you work INSIDE it, like an editor with a project open. Create every new file in it. Give tool paths RELATIVE to it (e.g. "src/main.py", not a full path) — they resolve against the folder automatically, and run_shell runs in it by default. When the task touches existing code, look before you write: list_directory the folder, search_code for the symbols involved, read_file what you'll change. Only work outside this folder if the user explicitly asks.`

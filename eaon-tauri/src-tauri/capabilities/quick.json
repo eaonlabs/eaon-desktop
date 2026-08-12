@@ -1,0 +1,14 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "quick",
+  "description": "Quick Assistant panel: core IPC so it can chat, plus the window controls it needs to hide and reposition itself. Deliberately narrower than the main window's capability — no updater, no dialogs, no process restart from a floating panel.",
+  "windows": ["quick"],
+  "permissions": [
+    "core:default",
+    "core:window:allow-hide",
+    "core:window:allow-show",
+    "core:window:allow-set-focus",
+    "core:window:allow-start-dragging",
+    "opener:default"
+  ]
+}
