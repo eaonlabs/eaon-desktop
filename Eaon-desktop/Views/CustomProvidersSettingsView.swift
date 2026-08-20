@@ -187,8 +187,7 @@ struct CustomProviderDetailSettingsView: View {
                     get: { !modelPrefs.isProviderDisabled(.custom(config.id)) },
                     set: { _ in chatViewModel.toggleProvider(.custom(config.id)) }
                 ))
-                .toggleStyle(.switch)
-                .tint(AppearanceSettings.toggleTint)
+                .toggleStyle(JanSwitchToggleStyle())
                 .help(modelPrefs.isProviderDisabled(.custom(config.id))
                       ? "Turn \(config.displayName) back on"
                       : "Turn \(config.displayName) off. Only this connection, not Eaon or your other providers")
@@ -213,7 +212,7 @@ struct CustomProviderDetailSettingsView: View {
                 HStack(spacing: 10) {
                     SecureField("Paste your \(config.brand.companyName) API key", text: $apiKeyInput)
                         .textFieldStyle(.plain)
-                        .font(AppFont.mono(13))
+                        .font(AppFont.mono(14))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 9)
                         .background(colors.backgroundInput)
@@ -276,7 +275,7 @@ struct CustomProviderDetailSettingsView: View {
                         ProgressView()
                             .controlSize(.small)
                         Text("Fetching models from \(config.displayName)…")
-                            .font(AppFont.mono(13))
+                            .font(AppFont.mono(14))
                             .foregroundColor(colors.textSecondary)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -297,7 +296,7 @@ struct CustomProviderDetailSettingsView: View {
                     .padding(.bottom, 16)
                 } else if config.trimmedModelIDs.isEmpty {
                     Text("No models listed yet. Refresh to fetch them, or add one from Advanced settings below.")
-                        .font(AppFont.mono(13))
+                        .font(AppFont.mono(14))
                         .foregroundColor(colors.textSecondary)
                         .padding(.horizontal, 16)
                         .padding(.bottom, 16)
@@ -385,7 +384,7 @@ struct CustomProviderDetailSettingsView: View {
                     }
                     .buttonStyle(.plain)
                     Text("Change the company, server address, or request format for this connection.")
-                        .font(AppFont.sans(12.5))
+                        .font(AppFont.sans(12))
                         .foregroundColor(colors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                         .lineSpacing(3)
@@ -601,7 +600,7 @@ struct CustomProviderEditorSheet: View {
                 if let onWantsAqua {
                     Button(action: onWantsAqua) {
                         Text("Looking for Eaon's free hosted models instead?")
-                            .font(AppFont.mono(11, weight: .medium))
+                            .font(AppFont.mono(12, weight: .medium))
                             .foregroundColor(colors.link)
                     }
                     .buttonStyle(.plain)
@@ -638,7 +637,7 @@ struct CustomProviderEditorSheet: View {
                 fieldLabel("Name (optional)")
                 textField(brand.companyName, text: $customName)
                 Text("What this connection is called in the model picker and its settings row. Leave blank to use \"\(brand.companyName)\".")
-                    .font(AppFont.sans(12.5))
+                    .font(AppFont.sans(12))
                     .foregroundColor(colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
                     .lineSpacing(3)
@@ -648,7 +647,7 @@ struct CustomProviderEditorSheet: View {
                 fieldLabel("API key")
                 SecureField(existing == nil ? "Paste your \(brand.companyName) API key" : "Leave blank to keep current key", text: $apiKey)
                     .textFieldStyle(.plain)
-                    .font(AppFont.mono(13))
+                    .font(AppFont.mono(14))
                     .padding(.horizontal, 12)
                     .padding(.vertical, 9)
                     .background(colors.backgroundInput)
@@ -659,7 +658,7 @@ struct CustomProviderEditorSheet: View {
                     )
                     .onChange(of: apiKey) { _, _ in scheduleAutoFetch() }
                 Text("You get this from your \(brand.companyName) account (usually under \"API keys\"). It stays on this device only.")
-                    .font(AppFont.sans(12.5))
+                    .font(AppFont.sans(12))
                     .foregroundColor(colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
                     .lineSpacing(3)
@@ -685,7 +684,7 @@ struct CustomProviderEditorSheet: View {
                                     .iconHoverEffect(for: "arrow.clockwise")
                             }
                             Text("Fetch")
-                                .font(AppFont.mono(11, weight: .medium))
+                                .font(AppFont.mono(12, weight: .medium))
                         }
                         .foregroundColor(colors.textSecondary)
                     }
@@ -695,11 +694,11 @@ struct CustomProviderEditorSheet: View {
                 }
                 ZStack(alignment: .topLeading) {
                     TextEditor(text: $modelIDsText)
-                        .font(AppFont.mono(13))
+                        .font(AppFont.mono(14))
                         .scrollContentBackground(.hidden)
                     if modelIDsText.isEmpty, let example = KnownProviderDefaults.exampleModelID(for: brand) {
                         Text(example)
-                            .font(AppFont.mono(13))
+                            .font(AppFont.mono(14))
                             .foregroundColor(colors.textTertiary.opacity(0.6))
                             .padding(.top, 1)
                             .padding(.leading, 5)
@@ -716,7 +715,7 @@ struct CustomProviderEditorSheet: View {
                 )
                 modelsStatusView
                 Text(modelsCaption)
-                    .font(AppFont.sans(12.5))
+                    .font(AppFont.sans(12))
                     .foregroundColor(colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
                     .lineSpacing(3)
@@ -728,7 +727,7 @@ struct CustomProviderEditorSheet: View {
                     textField("https://api.example.com/v1", text: $baseURL)
                         .onChange(of: baseURL) { _, _ in scheduleAutoFetch() }
                     Text("Where \(brand.companyName)'s API lives. Copy it from their API documentation. It usually starts with https:// and often ends with /v1.")
-                        .font(AppFont.sans(12.5))
+                        .font(AppFont.sans(12))
                         .foregroundColor(colors.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
                         .lineSpacing(3)
@@ -821,7 +820,7 @@ struct CustomProviderEditorSheet: View {
             if showAdvanced {
                 VStack(alignment: .leading, spacing: 14) {
                     Text("Only change these if \(brand.companyName) gave you different connection details. The defaults work for almost everyone.")
-                        .font(AppFont.sans(12.5))
+                        .font(AppFont.sans(12))
                         .foregroundColor(colors.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
                         .lineSpacing(3)
@@ -843,7 +842,7 @@ struct CustomProviderEditorSheet: View {
                         }
                         .labelsHidden()
                         Text(format.helpText)
-                            .font(AppFont.sans(12.5))
+                            .font(AppFont.sans(12))
                             .foregroundColor(colors.textTertiary)
                             .fixedSize(horizontal: false, vertical: true)
                             .lineSpacing(3)
@@ -867,7 +866,7 @@ struct CustomProviderEditorSheet: View {
     private func textField(_ placeholder: String, text: Binding<String>) -> some View {
         TextField(placeholder, text: text)
             .textFieldStyle(.plain)
-            .font(AppFont.mono(13))
+            .font(AppFont.mono(14))
             .padding(.horizontal, 12)
             .padding(.vertical, 9)
             .background(colors.backgroundInput)
@@ -987,7 +986,7 @@ private struct BrandPickerRow: View {
                     .overlay { BrandLogoView(brand: brand, size: 16) }
 
                 Text(brand.companyName)
-                    .font(AppFont.mono(13))
+                    .font(AppFont.mono(14))
                     .foregroundColor(colors.textPrimary)
                     .lineLimit(1)
 

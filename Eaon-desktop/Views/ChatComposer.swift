@@ -158,12 +158,15 @@ struct ChatComposer: View {
             .animation(.spring(duration: 0.28, bounce: 0.18), value: viewModel.agentSwarmEnabled)
             .animation(.spring(duration: 0.28, bounce: 0.18), value: viewModel.browserModeEnabled)
         }
+        // Jan's `--radius-2xl` (1rem = 16px), not a near-capsule. At 26 the
+        // card read as a pill with text in it; 16 reads as a panel, which is
+        // what it is once the attachment row and tool toggles live inside.
         .background(
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(colors.backgroundInput)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .stroke(colors.borderSubtle, lineWidth: 1)
         )
         .shadow(color: colors.shadowColor.opacity(0.16), radius: 6, x: 0, y: 2)
@@ -339,10 +342,10 @@ private struct SkillAutocompletePopover: View {
                             .frame(width: 18)
                         VStack(alignment: .leading, spacing: 1) {
                             Text("/\(skill.name)")
-                                .font(AppFont.mono(12.5, weight: .semibold))
+                                .font(AppFont.mono(12, weight: .semibold))
                                 .foregroundColor(colors.textPrimary)
                             Text(skill.summary)
-                                .font(AppFont.sans(11))
+                                .font(AppFont.sans(12))
                                 .foregroundColor(colors.textTertiary)
                                 .lineLimit(1)
                         }
@@ -486,7 +489,7 @@ private struct ComposerTooltip: ViewModifier {
                     .font(AppFont.sans(12, weight: .medium))
                 if let detail {
                     Text(detail)
-                        .font(AppFont.sans(11))
+                        .font(AppFont.sans(12))
                         .opacity(0.62)
                 }
             }

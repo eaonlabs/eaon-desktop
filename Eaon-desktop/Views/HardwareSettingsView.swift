@@ -111,7 +111,7 @@ struct HardwareSettingsView: View {
                 .foregroundColor(colors.textPrimary)
             Spacer()
             Text(value)
-                .font(AppFont.mono(13))
+                .font(AppFont.mono(14))
                 .foregroundColor(colors.textSecondary)
         }
         .padding(.horizontal, 16)
@@ -130,7 +130,7 @@ struct HardwareSettingsView: View {
             if let fraction, let percentText {
                 UsageBar(fraction: fraction)
                 Text(percentText)
-                    .font(AppFont.mono(13))
+                    .font(AppFont.mono(14))
                     .foregroundColor(colors.textSecondary)
                     .frame(width: 56, alignment: .trailing)
             } else {

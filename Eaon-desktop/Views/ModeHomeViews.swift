@@ -126,7 +126,7 @@ struct ModeSegmentedControl: View {
                         Image(systemName: mode.icon)
                             .font(.system(size: 11, weight: .semibold))
                         Text(label(for: mode))
-                            .font(AppFont.mono(13, weight: .medium))
+                            .font(AppFont.mono(14, weight: .medium))
                     }
                     .foregroundStyle(isActive ? colors.textPrimary : colors.textSecondary)
                     // Timed to land with the pill. Snapping the colour makes
@@ -245,7 +245,7 @@ struct DeviceControlOptInHint: View {
                 Spacer(minLength: 8)
                 Button("Turn On", action: onOpenSettings)
                     .buttonStyle(.plain)
-                    .font(AppFont.mono(11.5, weight: .semibold))
+                    .font(AppFont.mono(12, weight: .semibold))
                     .foregroundStyle(AppearanceSettings.shared.accentColor)
                 Button {
                     dismissed = true

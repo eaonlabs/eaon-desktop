@@ -956,11 +956,19 @@ enum DesktopControlService {
 
     /// Which conversation a plan update belongs to.
     ///
-    /// Set by the agent loop around each turn rather than passed through the
-    /// tool arguments: the model has no business knowing conversation ids,
-    /// and a background generation in another chat must not overwrite the
-    /// plan on screen — the same isolation `isGenerating` already has.
-    nonisolated(unsafe) static var activePlanConversationId: UUID?
+    /// Bound by the agent loop around each turn rather than passed through
+    /// the tool arguments: the model has no business knowing conversation
+    /// ids, and a background generation in another chat must not overwrite
+    /// the plan on screen — the same isolation `isGenerating` already has.
+    ///
+    /// A task-local, not a global `var`. As a global this held exactly one
+    /// value for the whole app, which was fine while one generation ran at a
+    /// time and is not fine now: an agent team runs several sub-agents at
+    /// once, and whichever set it last would silently own every other
+    /// runner's `update_plan`. A task-local is scoped to the task that binds
+    /// it and inherited by that task's children, so each concurrent run
+    /// reads its own value with no coordination.
+    @TaskLocal static var activePlanConversationId: UUID?
 
     // MARK: Code search / file finding
 

@@ -79,12 +79,12 @@ struct CodeBlockView: View {
                 let cursorVisible = Int(context.date.timeIntervalSince1970 * 2) % 2 == 0
                 (Text(highlighted)
                     + Text("▎").foregroundColor(colors.textPrimary.opacity(cursorVisible ? 0.95 : 0.2)))
-                    .font(AppFont.mono(13))
+                    .font(AppFont.mono(14))
                     .textSelection(.enabled)
             }
         } else {
             Text(highlighted)
-                .font(AppFont.mono(13))
+                .font(AppFont.mono(14))
                 .textSelection(.enabled)
         }
     }

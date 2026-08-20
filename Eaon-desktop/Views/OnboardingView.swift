@@ -74,13 +74,13 @@ struct OnboardingView: View {
     private var topRow: some View {
         HStack {
             Text("Getting started")
-                .font(AppFont.mono(13, weight: .semibold))
+                .font(AppFont.mono(14, weight: .semibold))
                 .foregroundStyle(colors.textTertiary)
             Spacer()
             if step < totalSteps - 1 {
                 Button("Skip") { onFinish() }
                     .buttonStyle(.plain)
-                    .font(AppFont.mono(13, weight: .medium))
+                    .font(AppFont.mono(14, weight: .medium))
                     .foregroundStyle(colors.textTertiary)
             }
         }
@@ -124,7 +124,7 @@ struct OnboardingView: View {
                 .foregroundStyle(colors.textPrimary)
                 .padding(.bottom, 4)
             Text("Welcome to Eaon")
-                .font(AppFont.mono(26, weight: .bold))
+                .font(AppFont.mono(24, weight: .bold))
                 .foregroundStyle(colors.textPrimary)
             Text("A chat client that isn't locked into one provider. Use Eaon's hosted models, bring your own API key, or download open models and run them entirely offline on this Mac. Same app, same conversations, either way.")
                 .font(AppFont.sans(14))
@@ -169,7 +169,7 @@ struct OnboardingView: View {
                 )
             VStack(alignment: .leading, spacing: 1) {
                 Text(mode.title)
-                    .font(AppFont.mono(13, weight: .semibold))
+                    .font(AppFont.mono(14, weight: .semibold))
                     .foregroundStyle(colors.textPrimary)
                 Text(mode.blurb)
                     .font(AppFont.sans(12))
@@ -192,7 +192,7 @@ struct OnboardingView: View {
                 .font(AppFont.mono(20, weight: .bold))
                 .foregroundStyle(colors.textPrimary)
             Text("Either works fully. Switch or add the other anytime in Settings.")
-                .font(AppFont.sans(13))
+                .font(AppFont.sans(14))
                 .foregroundStyle(colors.textSecondary)
 
             getStartedOption(
@@ -224,7 +224,7 @@ struct OnboardingView: View {
 
             Button("I'll figure it out later") { onFinish() }
                 .buttonStyle(.plain)
-                .font(AppFont.mono(13, weight: .medium))
+                .font(AppFont.mono(14, weight: .medium))
                 .foregroundStyle(colors.textTertiary)
                 .frame(maxWidth: .infinity, alignment: .center)
         }
@@ -251,7 +251,7 @@ struct OnboardingView: View {
                     )
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
-                        .font(AppFont.mono(13.5, weight: .semibold))
+                        .font(AppFont.mono(14, weight: .semibold))
                         .foregroundStyle(colors.textPrimary)
                     Text(description)
                         .font(AppFont.sans(12))

@@ -156,7 +156,6 @@ struct CustomProviderAPIService {
                     if let combined = reasoningBridge.text(reasoning: reasoning, content: delta["content"] as? String) {
                         sawContent = true
                         await typewriter.append(combined)
-                        await StatisticsTracker.shared.recordGeneratedCharacters(combined.count)
                     }
                 }
             } catch let urlError as URLError where StreamContinuity.isDroppedConnection(urlError) && attempt < StreamContinuity.maxAttempts {
@@ -268,7 +267,6 @@ struct CustomProviderAPIService {
                        let text = delta["text"] as? String {
                         sawContent = true
                         await typewriter.append(text)
-                        await StatisticsTracker.shared.recordGeneratedCharacters(text.count)
                     } else if type == "message_delta",
                               let delta = json["delta"] as? [String: Any],
                               let reason = delta["stop_reason"], !(reason is NSNull) {
@@ -380,7 +378,6 @@ struct CustomProviderAPIService {
 
             sawContent = true
             await typewriter.append(text)
-            await StatisticsTracker.shared.recordGeneratedCharacters(text.count)
         }
         if !sawContent { throw APIClientError.emptyResponse }
     }

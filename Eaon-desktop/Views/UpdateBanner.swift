@@ -115,7 +115,7 @@ struct UpdateBanner: View {
 
             ScrollView {
                 Text(notes)
-                    .font(AppFont.sans(12.5))
+                    .font(AppFont.sans(12))
                     .foregroundStyle(colors.textSecondary)
                     .lineSpacing(3)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -181,7 +181,7 @@ struct UpdateBanner: View {
                 checker.updateNow()
             } label: {
                 Text("Update Now")
-                    .font(AppFont.mono(13, weight: .semibold))
+                    .font(AppFont.mono(14, weight: .semibold))
                     .foregroundStyle(AppearanceSettings.shared.onAccentColor)
                     .padding(.horizontal, 18)
                     .padding(.vertical, 9)

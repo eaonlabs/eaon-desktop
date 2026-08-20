@@ -2,7 +2,7 @@ import AVFoundation
 import AppKit
 import SwiftUI
 
-/// Settings → Voice. Everything about talking to the desktop pet, on one page.
+/// Settings → Voice. Everything about talking to Eaon out loud, on one page.
 ///
 /// This used to live inside General's "Desktop Assistant" card, which grew to
 /// eight rows and two warning blocks — one card asking you to read several
@@ -16,7 +16,6 @@ import SwiftUI
 struct VoiceSettingsView: View {
     @Environment(\.themeColors) private var colors
     @Bindable private var store = EaonVoiceStore.shared
-    @Bindable private var petStore = EaonPetStore.shared
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -54,7 +53,7 @@ struct VoiceSettingsView: View {
 
     private var alphaBadge: some View {
         Text("ALPHA")
-            .font(AppFont.mono(9.5, weight: .bold))
+            .font(AppFont.mono(10, weight: .bold))
             .foregroundStyle(Color(hex: "#F59E0B"))
             .padding(.horizontal, 6)
             .padding(.vertical, 2)
@@ -68,15 +67,11 @@ struct VoiceSettingsView: View {
         SettingsSectionCard(title: "Dictation") {
             SettingsSectionRow(
                 title: "Enable Voice Dictation",
-                description: petStore.isEnabled
-                    ? "Click the pet to dictate text into the assistant."
-                    : "Turn on the desktop pet in General first."
+                description: "Adds a microphone button to the assistant panel (\u{2325}Space). Click it to dictate."
             ) {
                 Toggle("", isOn: $store.isEnabled)
                     .labelsHidden()
-                    .toggleStyle(.switch)
-                    .tint(AppearanceSettings.toggleTint)
-                    .disabled(!petStore.isEnabled)
+                    .toggleStyle(JanSwitchToggleStyle())
             }
 
             if store.isEnabled {
@@ -120,7 +115,7 @@ struct VoiceSettingsView: View {
             if let error = EaonVoiceController.shared.lastError {
                 SettingsSectionRowDivider()
                 Text(error)
-                    .font(AppFont.sans(12.5))
+                    .font(AppFont.sans(12))
                     .foregroundColor(colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
                     .lineSpacing(3)
@@ -136,7 +131,7 @@ struct VoiceSettingsView: View {
     private var modelInstallNote: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("\(store.speechModel.name) isn't installed. In Terminal:")
-                .font(AppFont.sans(12.5))
+                .font(AppFont.sans(12))
                 .foregroundColor(colors.textTertiary)
             Text(LocalSpeechTranscriber.installCommand)
                 .font(AppFont.mono(12))
@@ -145,7 +140,7 @@ struct VoiceSettingsView: View {
                 .padding(.vertical, 5)
                 .background(RoundedRectangle(cornerRadius: 6).fill(.quaternary.opacity(0.4)))
             Text("Apple Silicon only. The model downloads on first use. Until then the built-in recognizer is used, so dictation keeps working.")
-                .font(AppFont.sans(12.5))
+                .font(AppFont.sans(12))
                 .foregroundColor(colors.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
                 .lineSpacing(3)
@@ -209,12 +204,11 @@ struct VoiceSettingsView: View {
         SettingsSectionCard(title: "Hands-free") {
             SettingsSectionRow(
                 title: "\u{201C}Hey Eaon\u{201D}",
-                description: "Often mishears the name. Clicking the pet is more reliable."
+                description: "Often mishears the name. The panel's microphone button is more reliable."
             ) {
                 Toggle("", isOn: $store.wakeWordEnabled)
                     .labelsHidden()
-                    .toggleStyle(.switch)
-                    .tint(AppearanceSettings.toggleTint)
+                    .toggleStyle(JanSwitchToggleStyle())
             }
 
             SettingsSectionRowDivider()
@@ -225,8 +219,7 @@ struct VoiceSettingsView: View {
             ) {
                 Toggle("", isOn: $store.conversationMode)
                     .labelsHidden()
-                    .toggleStyle(.switch)
-                    .tint(AppearanceSettings.toggleTint)
+                    .toggleStyle(JanSwitchToggleStyle())
             }
         }
     }
@@ -236,7 +229,7 @@ struct VoiceSettingsView: View {
     private var installNote: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Kokoro isn't installed. In Terminal:")
-                .font(AppFont.sans(12.5))
+                .font(AppFont.sans(12))
                 .foregroundColor(colors.textTertiary)
             Text(KokoroSpeech.installCommand)
                 .font(AppFont.mono(12))
@@ -245,7 +238,7 @@ struct VoiceSettingsView: View {
                 .padding(.vertical, 5)
                 .background(RoundedRectangle(cornerRadius: 6).fill(.quaternary.opacity(0.4)))
             Text("Apple Silicon only. Until then the system voice is used.")
-                .font(AppFont.sans(12.5))
+                .font(AppFont.sans(12))
                 .foregroundColor(colors.textTertiary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -256,7 +249,7 @@ struct VoiceSettingsView: View {
     private var betterVoicesNote: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Your Mac only has compact voices installed, which is why speech sounds robotic. Apple's lifelike voices are a free download.")
-                .font(AppFont.sans(12.5))
+                .font(AppFont.sans(12))
                 .foregroundColor(colors.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
                 .lineSpacing(3)

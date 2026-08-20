@@ -49,7 +49,7 @@ struct LocalBackendsInstallSheet: View {
                         .font(.system(size: 11))
                         .iconHoverEffect(for: "arrow.clockwise")
                     Text("Check Again")
-                        .font(AppFont.mono(11, weight: .medium))
+                        .font(AppFont.mono(12, weight: .medium))
                 }
             }
             .buttonStyle(.bordered)
@@ -87,10 +87,10 @@ struct LocalBackendsInstallSheet: View {
 
                     VStack(alignment: .leading, spacing: 2) {
                         Text(backend.displayName)
-                            .font(AppFont.mono(13, weight: .semibold))
+                            .font(AppFont.mono(14, weight: .semibold))
                             .foregroundColor(colors.textPrimary)
                         Text(backend.blurb)
-                            .font(AppFont.sans(11))
+                            .font(AppFont.sans(12))
                             .foregroundColor(colors.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)
                             .lineSpacing(3)
@@ -103,7 +103,7 @@ struct LocalBackendsInstallSheet: View {
 
                 if !isInstalled {
                     Text(backend.installNote)
-                        .font(AppFont.sans(11))
+                        .font(AppFont.sans(12))
                         .foregroundColor(colors.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
                         .lineSpacing(3)
@@ -143,7 +143,7 @@ struct LocalBackendsInstallSheet: View {
             Image(systemName: isInstalled ? "checkmark.circle.fill" : "circle.dashed")
                 .font(.system(size: 9, weight: .semibold))
             Text(isInstalled ? "Installed" : "Not installed")
-                .font(AppFont.mono(10.5, weight: .medium))
+                .font(AppFont.mono(10, weight: .medium))
         }
         .foregroundStyle(isInstalled ? Color(hex: "#34C759") : colors.textTertiary)
         .padding(.horizontal, 7)

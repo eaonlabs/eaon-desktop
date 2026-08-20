@@ -74,8 +74,7 @@ struct NetworkSettingsView: View {
                 Spacer(minLength: 12)
                 Toggle("", isOn: $store.isEnabled)
                     .labelsHidden()
-                    .toggleStyle(.switch)
-                    .tint(AppearanceSettings.toggleTint)
+                    .toggleStyle(JanSwitchToggleStyle())
             }
             .padding(18)
         }
@@ -91,7 +90,7 @@ struct NetworkSettingsView: View {
                         .frame(width: 48, alignment: .leading)
                     TextField("proxy.example.com or 127.0.0.1", text: $store.host)
                         .textFieldStyle(.plain)
-                        .font(AppFont.mono(13))
+                        .font(AppFont.mono(14))
                         .foregroundColor(colors.textPrimary)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 8)
@@ -112,7 +111,7 @@ struct NetworkSettingsView: View {
                         .frame(width: 48, alignment: .leading)
                     TextField("8080", text: $portText)
                         .textFieldStyle(.plain)
-                        .font(AppFont.mono(13))
+                        .font(AppFont.mono(14))
                         .foregroundColor(colors.textPrimary)
                         .frame(width: 90)
                         .padding(.horizontal, 10)
@@ -173,7 +172,7 @@ struct NetworkSettingsView: View {
 
     private var footnote: some View {
         Text("Authenticated proxies (username / password) aren't supported yet.")
-            .font(AppFont.sans(12.5))
+            .font(AppFont.sans(12))
             .foregroundColor(colors.textTertiary)
             .padding(.horizontal, 4)
     }

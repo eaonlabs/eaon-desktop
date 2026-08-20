@@ -4,7 +4,6 @@ enum SidebarDestination: Hashable {
     /// One of the top-level modes (Chat / Agent) — the conversational
     /// surface, framed for that mode.
     case mode(EaonMode)
-    case compare
     case feature(AppFeature)
     case project(UUID)
     /// The settings page. The associated value is an optional deep-link
@@ -58,7 +57,6 @@ struct RootView: View {
     @State private var projectPendingRename: Project?
     @State private var projectPendingDeletion: Project?
     @State private var chatViewModel = ChatViewModel()
-    @AppStorage("nerd_hud_enabled") private var nerdHUDEnabled = false
     /// User-chosen width for the right-side coding workspace panel,
     /// resizable by dragging its leading edge (see `WorkspaceResizeHandle`)
     /// and persisted across launches. Clamped at use, not at save, so a
@@ -269,10 +267,6 @@ struct RootView: View {
                 )
             }
 
-            if nerdHUDEnabled {
-                hudOverlay
-            }
-
             if !hasSeenOnboarding {
                 OnboardingView(
                     onOpenModels: {
@@ -354,19 +348,6 @@ struct RootView: View {
             QuickAssistantViewModel.shared.chatViewModel = chatViewModel
             guard !didInitialModeSync else { return }
             didInitialModeSync = true
-            // Pull down anything made on another machine — at most once a
-            // day (see `autoImportIfDue`), and a no-op when sync is off or
-            // the vault is locked. Delayed so it never competes with launch:
-            // the import merges into `conversations`, and doing that while
-            // the sidebar is still building its first layout is a visible
-            // stutter for no benefit. Silent by design — the user didn't ask
-            // for it, so it must not interrupt them; Settings → Cloud Sync
-            // reports what actually happened.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
-                Task { @MainActor in
-                    await CloudSyncEngine.shared.autoImportIfDue(into: chatViewModel)
-                }
-            }
             selection = .mode(chatViewModel.currentMode)
             if isEligibleForTrialPopup {
                 // A short delay so this doesn't compete with the window's
@@ -384,23 +365,6 @@ struct RootView: View {
         .onChange(of: selection) { _, newValue in
             if case .settings = newValue, sidebarCollapsed {
                 withAnimation(.linear(duration: 0.2)) { sidebarCollapsed = false }
-            }
-        }
-        // Drive the desktop pet off the visible conversation's generation
-        // lifecycle: it reacts to the tone of what the user just said,
-        // drifts to a new spot and works while a reply streams, reacts to
-        // the reply's own tone when it lands (wink by default), and wears
-        // the error face when a run fails. No-op unless the pet is enabled.
-        .onChange(of: chatViewModel.isGenerating) { wasGenerating, isGenerating in
-            if isGenerating {
-                if let userText = chatViewModel.messages.last(where: { $0.isUser })?.content {
-                    EaonPetController.shared.reactToUserMessage(userText)
-                }
-                EaonPetController.shared.noteGenerationStarted()
-            } else if wasGenerating {
-                let hadError = chatViewModel.messages.last?.isError == true
-                let reply = chatViewModel.messages.last(where: { !$0.isUser && $0.isToolResult != true && !$0.isError })?.content
-                EaonPetController.shared.noteGenerationEnded(hadError: hadError, replyText: hadError ? nil : reply)
             }
         }
     }
@@ -463,8 +427,6 @@ struct RootView: View {
                     onExit: { selection = .mode(chatViewModel.currentMode) }
                 )
                 .id(initialId ?? "general")
-            case .compare:
-                ModelCompareView(availableModels: chatViewModel.aquaOnlyChatModels)
             case .feature(.projects):
                 ProjectsView(
                     viewModel: chatViewModel,
@@ -544,21 +506,6 @@ struct RootView: View {
         selection = .mode(mode)
     }
 
-    private var hudOverlay: some View {
-        let pos = appearance.notificationPosition
-        return VStack {
-            if pos == .bottomRight || pos == .bottomLeft { Spacer() }
-            HStack {
-                if pos == .topRight || pos == .bottomRight { Spacer() }
-                StatisticsHUDView(chatViewModel: chatViewModel)
-                    .padding(12)
-                if pos == .topLeft || pos == .bottomLeft { Spacer() }
-            }
-            if pos == .topRight || pos == .topLeft { Spacer() }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .allowsHitTesting(false)
-    }
 }
 
 /// The invisible grab strip on the workspace panel's leading edge — drag

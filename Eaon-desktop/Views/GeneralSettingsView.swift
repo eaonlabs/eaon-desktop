@@ -65,20 +65,7 @@ struct GeneralSettingsView: View {
             ) {
                 Toggle("", isOn: Bindable(DesktopAssistantStore.shared).isEnabled)
                     .labelsHidden()
-                    .toggleStyle(.switch)
-                    .tint(AppearanceSettings.toggleTint)
-            }
-
-            SettingsSectionRowDivider()
-
-            SettingsSectionRow(
-                title: "Desktop pet",
-                description: "An on-screen companion that reacts to your conversations. Click it to open the assistant."
-            ) {
-                Toggle("", isOn: Bindable(EaonPetStore.shared).isEnabled)
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-                    .tint(AppearanceSettings.toggleTint)
+                    .toggleStyle(JanSwitchToggleStyle())
             }
         }
     }
@@ -139,8 +126,7 @@ struct GeneralSettingsView: View {
             ) {
                 Toggle("", isOn: $updateChecker.isAutoCheckEnabled)
                     .labelsHidden()
-                    .toggleStyle(.switch)
-                    .tint(AppearanceSettings.toggleTint)
+                    .toggleStyle(JanSwitchToggleStyle())
             }
 
             SettingsSectionRowDivider()
@@ -248,7 +234,7 @@ struct GeneralSettingsView: View {
             if trial.credential == nil {
                 if let giftStatus, !giftStatus.available {
                     Text("Email \(giftStatus.supportEmail) with the subject \u{201c}extra usage\u{201d} if you need access.")
-                        .font(AppFont.sans(11.5))
+                        .font(AppFont.sans(12))
                         .foregroundColor(colors.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
                         .lineSpacing(3)
@@ -267,14 +253,14 @@ struct GeneralSettingsView: View {
 
                         if let giftStatus {
                             Text("\(giftStatus.remaining) of \(giftStatus.total) left · through \(Self.giftExpiryFormatter.string(from: giftStatus.expiresAt))")
-                                .font(AppFont.sans(12.5))
+                                .font(AppFont.sans(12))
                                 .foregroundColor(colors.textTertiary)
                         }
                     }
 
                     if let error = trial.lastError {
                         Text(error)
-                            .font(AppFont.sans(11.5))
+                            .font(AppFont.sans(12))
                             .foregroundColor(colors.destructive)
                             .fixedSize(horizontal: false, vertical: true)
                             .lineSpacing(3)
@@ -298,7 +284,7 @@ struct GeneralSettingsView: View {
 
     private func badgePill(_ title: String, color: Color) -> some View {
         Text(title)
-            .font(AppFont.mono(10.5, weight: .semibold))
+            .font(AppFont.mono(10, weight: .semibold))
             .foregroundColor(color)
             .padding(.horizontal, 7)
             .padding(.vertical, 3)
@@ -388,8 +374,9 @@ struct SettingsSectionCard<Content: View>: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            // Jan's own class for this exact row: `text-lg font-semibold`.
             Text(title)
-                .font(AppFont.mono(16, weight: .semibold))
+                .font(AppFont.mono(18, weight: .semibold))
                 .foregroundColor(colors.textPrimary)
                 .padding(.top, 18)
                 .padding(.bottom, 2)
@@ -399,14 +386,20 @@ struct SettingsSectionCard<Content: View>: View {
         .padding(.horizontal, 20)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                // Same reasoning as `SettingsCard` — page-matching fill,
-                // not the lighter `backgroundElevated` shared with non-
-                // Settings surfaces.
-                .fill(colors.backgroundPrimary)
+            // Jan's own wrapper for this exact group is
+            // `bg-muted/40 rounded-xl border border-border` — a real, if
+            // subtle, background lift off the page, not a border sitting on
+            // the page's own color. `backgroundSubtle` is the token already
+            // built for precisely that job elsewhere in the app ("a surface
+            // that needs to read as inset without introducing another flat
+            // grey"), and composites to within a few points of Jan's actual
+            // value in both themes.
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                .fill(colors.backgroundSubtle)
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            // `rounded-xl` = 12px in Tailwind's default scale, not 14.
+            RoundedRectangle(cornerRadius: 12, style: .continuous)
                 .stroke(colors.borderSubtle, lineWidth: 1)
         )
     }
@@ -423,12 +416,15 @@ struct SettingsSectionRow<Control: View>: View {
     var body: some View {
         HStack(alignment: .center, spacing: 16) {
             VStack(alignment: .leading, spacing: 4) {
+                // Jan's row label is `text-base font-medium` — 16pt, medium,
+                // not the bolder semibold Eaon had it at. Its description is
+                // `text-sm text-muted-foreground`, 14pt.
                 Text(title)
-                    .font(AppFont.mono(14, weight: .semibold))
+                    .font(AppFont.mono(16, weight: .medium))
                     .foregroundColor(colors.textPrimary)
                 if let description {
                     Text(description)
-                        .font(AppFont.sans(12))
+                        .font(AppFont.sans(14))
                         .foregroundColor(colors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                         .lineSpacing(3)

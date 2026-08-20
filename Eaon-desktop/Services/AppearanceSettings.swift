@@ -22,19 +22,29 @@ enum AppFontSize: String, CaseIterable, Identifiable {
     case large = "Large"
     var id: String { rawValue }
 
+    /// 16pt at Medium, with Small and Large a fixed ratio either side.
+    ///
+    /// The numbers are Jan's, and the ratios matter more than the values:
+    /// its whole type scale derives from one `--font-size-base` (16px), with
+    /// `--text-sm` at 0.875× and `--text-lg` at 1.125×. Eaon's old 13/15/17
+    /// was both a step smaller and unevenly spaced, which is most of why the
+    /// two apps read differently at a glance even with the same typeface.
     var messageFontSize: CGFloat {
         switch self {
-        case .small: return 13
-        case .medium: return 15
-        case .large: return 17
+        case .small: return 14   // 0.875 × 16
+        case .medium: return 16  // Jan's --font-size-base
+        case .large: return 18   // 1.125 × 16
         }
     }
 
+    /// The same ratios, so chrome scales with body text rather than drifting
+    /// against it — Jan derives every size from the one base for exactly
+    /// this reason.
     var uiScale: CGFloat {
         switch self {
-        case .small: return 0.9
+        case .small: return 0.875
         case .medium: return 1.0
-        case .large: return 1.1
+        case .large: return 1.125
         }
     }
 }
@@ -146,13 +156,6 @@ final class AppearanceSettings {
             ? NSColor.black
             : NSColor.white
     })
-
-    /// Fixed "on" color for every switch-style Toggle, deliberately NOT the
-    /// accent: a white/near-black accent would render the track as a
-    /// barely-visible pale (or near-invisible dark) bar. Matches Apple's own
-    /// system-green switch color, and the green already used elsewhere in
-    /// this app for "on/good" status (installed, fits well).
-    static let toggleTint = Color(hex: "#34C759")
 
     var colorScheme: ColorScheme? {
         theme.colorScheme

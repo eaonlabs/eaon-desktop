@@ -29,17 +29,32 @@ struct SidebarView: View {
     @State private var expandedFolderIds: Set<String> = []
     @State private var hasSeededExpansion = false
 
+    /// Height of the top/bottom edge fade over the conversation list —
+    /// tall enough to read as a deliberate gradient, short enough that it
+    /// doesn't eat into rows near the edge.
+    private let listFadeHeight: CGFloat = 20
+
     var body: some View {
         VStack(spacing: 0) {
             header
 
             modeSwitcher
 
+            // Nav rows, pinned chats, and Projects are the sidebar's fixed
+            // furniture — they stay put. Only the conversation list below
+            // them scrolls, in its own `ScrollView`; nesting it inside one
+            // shared scroll container (as this used to) let a scroll
+            // gesture over the chat rows carry the nav rows and Projects
+            // off-screen with them.
+            VStack(alignment: .leading, spacing: 2) {
+                navItems
+                pinnedSection
+                projectsSection
+            }
+            .padding(.horizontal, 8)
+
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
-                    navItems
-                    pinnedSection
-                    projectsSection
                     // Work files its history by project folder; Chat has no
                     // folders to file under, so it keeps the date buckets.
                     if viewModel.currentMode.conversationScope == .agent {
@@ -50,6 +65,21 @@ struct SidebarView: View {
                 }
                 .padding(.horizontal, 8)
                 .padding(.bottom, 12)
+                .thinScrollers()
+            }
+            // Fades the list's own edges into the sidebar's background
+            // rather than clipping rows off with a hard edge — the list can
+            // still scroll right up to them, it just reads as settling
+            // under the fixed area above instead of stopping abruptly.
+            .overlay(alignment: .top) {
+                LinearGradient(colors: [colors.backgroundSidebar, .clear], startPoint: .top, endPoint: .bottom)
+                    .frame(height: listFadeHeight)
+                    .allowsHitTesting(false)
+            }
+            .overlay(alignment: .bottom) {
+                LinearGradient(colors: [.clear, colors.backgroundSidebar], startPoint: .top, endPoint: .bottom)
+                    .frame(height: listFadeHeight)
+                    .allowsHitTesting(false)
             }
         }
         .frame(maxHeight: .infinity, alignment: .top)
@@ -102,7 +132,7 @@ struct SidebarView: View {
 
     private var navItems: some View {
         VStack(alignment: .leading, spacing: 2) {
-            SidebarNavRow(icon: "square.and.pencil", title: "New Chat", trailing: "⌘N", shortcut: "n") {
+            SidebarNavRow(icon: "bubble.left", title: "New Chat", trailing: "⌘N", shortcut: "n") {
                 onNewChat()
             }
             SidebarNavRow(
@@ -390,7 +420,7 @@ struct SidebarView: View {
 
         if groups.isEmpty {
             Text("Add a folder to start working in your own code.")
-                .font(AppFont.sans(11))
+                .font(AppFont.sans(12))
                 .foregroundStyle(colors.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 10)
@@ -496,6 +526,17 @@ struct SidebarView: View {
 
 }
 
+/// Reaches into the real `NSScrollView` behind a SwiftUI `ScrollView` to
+/// give its scroller the thin, translucent, dark-tinted overlay look —
+/// SwiftUI's own `.scrollIndicators()` only offers show/hide, nothing about
+/// thickness or knob color, and the system's default legacy scroller (wide,
+/// opaque, light gray) barely belongs against this app's dark sidebar.
+///
+/// An invisible `NSViewRepresentable` rather than a modifier, because
+/// there's no SwiftUI handle to the scroller at all — this is the standard
+/// way to reach an ancestor AppKit object SwiftUI doesn't expose: drop a
+/// zero-content view into the hierarchy and walk `superview` up from it.
+
 // MARK: - Aqua brand mark
 
 /// A peak rising from a wave — reads as both "A" and water, echoing the
@@ -569,7 +610,7 @@ private struct SidebarNavRow: View {
                     .foregroundStyle(colors.textPrimary.opacity(0.85))
                     .frame(width: 20)
                 Text(title)
-                    .font(AppFont.mono(13.5, weight: .regular))
+                    .font(AppFont.mono(14, weight: .regular))
                     .foregroundStyle(colors.textPrimary)
                 Spacer(minLength: 0)
                 if let trailing {
@@ -669,7 +710,7 @@ private struct RepositoryRow: View {
                     .frame(width: 18)
 
                 Text(group.name)
-                    .font(AppFont.sans(13))
+                    .font(AppFont.sans(14))
                     .foregroundStyle(group.isEmpty ? colors.textSecondary : colors.textPrimary)
                     .lineLimit(1)
 
@@ -691,7 +732,7 @@ private struct RepositoryRow: View {
                     // The count stands in for the list while it's collapsed,
                     // so a folded folder still says how much is in it.
                     Text("\(group.conversations.count)")
-                        .font(AppFont.sans(11))
+                        .font(AppFont.sans(12))
                         .foregroundStyle(colors.textTertiary)
                         .padding(.trailing, 2)
                 }
@@ -741,14 +782,14 @@ private struct RepositorySessionRow: View {
                 }
 
                 Text(conversation.title)
-                    .font(AppFont.sans(13))
+                    .font(AppFont.sans(14))
                     .foregroundStyle(isActive ? colors.textPrimary : colors.textPrimary.opacity(0.82))
                     .lineLimit(1)
 
                 Spacer(minLength: 6)
 
                 Text(Self.compactAge(conversation.updatedAt))
-                    .font(AppFont.sans(11))
+                    .font(AppFont.sans(12))
                     .foregroundStyle(colors.textTertiary)
             }
             // Indented to the folder name's text, not its icon, so the
@@ -868,7 +909,7 @@ private struct ConversationRow: View {
         // row's height or the title's width, and nothing below shifts.
         HStack(spacing: 8) {
             Text(conversation.title)
-                .font(AppFont.mono(13.5))
+                .font(AppFont.mono(14))
                 .foregroundStyle(colors.textPrimary)
                 .lineLimit(1)
                 .truncationMode(.tail)
@@ -973,7 +1014,7 @@ private struct ProjectRow: View {
                 .frame(width: 16)
 
             Text(project.name)
-                .font(AppFont.mono(13.5))
+                .font(AppFont.mono(14))
                 .foregroundStyle(colors.textPrimary)
                 .lineLimit(1)
                 .truncationMode(.tail)

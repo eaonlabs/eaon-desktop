@@ -60,11 +60,11 @@ struct AgentPlanCard: View {
                     .rotationEffect(.degrees(isCollapsed ? 0 : 90))
 
                 Text(isFinished ? "Plan complete" : "Plan")
-                    .font(AppFont.mono(11, weight: .semibold))
+                    .font(AppFont.mono(12, weight: .semibold))
                     .foregroundStyle(colors.textSecondary)
 
                 Text("\(doneCount)/\(steps.count)")
-                    .font(AppFont.sans(11))
+                    .font(AppFont.sans(12))
                     .foregroundStyle(colors.textTertiary)
 
                 Spacer(minLength: 0)
@@ -74,7 +74,7 @@ struct AgentPlanCard: View {
                 // says what's happening right now.
                 if isCollapsed, let active = steps.first(where: { $0.status == .active }) {
                     Text(active.text)
-                        .font(AppFont.sans(11))
+                        .font(AppFont.sans(12))
                         .foregroundStyle(colors.textTertiary)
                         .lineLimit(1)
                         .truncationMode(.tail)

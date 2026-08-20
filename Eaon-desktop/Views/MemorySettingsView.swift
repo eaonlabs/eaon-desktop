@@ -94,8 +94,7 @@ struct MemorySettingsView: View {
                     Spacer(minLength: 0)
                     Toggle("", isOn: $store.isEnabled)
                         .labelsHidden()
-                        .toggleStyle(.switch)
-                        .tint(AppearanceSettings.toggleTint)
+                        .toggleStyle(JanSwitchToggleStyle())
                 }
                 .padding(16)
 
@@ -107,7 +106,7 @@ struct MemorySettingsView: View {
                             .font(AppFont.mono(14, weight: .semibold))
                             .foregroundColor(store.isEnabled ? colors.textPrimary : colors.textTertiary)
                         Text("Checks each message you send for anything worth keeping. Turning this off only stops new memories. What's already saved still works, and \"Learn from your existing chats\" below still runs when you ask it to.")
-                            .font(AppFont.sans(12.5))
+                            .font(AppFont.sans(12))
                             .foregroundColor(colors.textTertiary)
                             .fixedSize(horizontal: false, vertical: true)
                             .lineSpacing(3)
@@ -121,8 +120,7 @@ struct MemorySettingsView: View {
                     Spacer(minLength: 0)
                     Toggle("", isOn: $store.isAutoLearnEnabled)
                         .labelsHidden()
-                        .toggleStyle(.switch)
-                        .tint(AppearanceSettings.toggleTint)
+                        .toggleStyle(JanSwitchToggleStyle())
                         .disabled(!store.isEnabled)
                 }
                 .padding(16)
@@ -136,7 +134,7 @@ struct MemorySettingsView: View {
                             .font(AppFont.mono(14, weight: .semibold))
                             .foregroundColor(store.isEnabled ? colors.textPrimary : colors.textTertiary)
                         Text("When a chat uses a connected service like your calendar or issue tracker, what came back can be remembered too. Off by default, so memory only looks at what you and the model wrote.")
-                            .font(AppFont.sans(12.5))
+                            .font(AppFont.sans(12))
                             .foregroundColor(colors.textTertiary)
                             .fixedSize(horizontal: false, vertical: true)
                             .lineSpacing(3)
@@ -144,8 +142,7 @@ struct MemorySettingsView: View {
                     Spacer(minLength: 0)
                     Toggle("", isOn: $store.isPluginLearnEnabled)
                         .labelsHidden()
-                        .toggleStyle(.switch)
-                        .tint(AppearanceSettings.toggleTint)
+                        .toggleStyle(JanSwitchToggleStyle())
                         .disabled(!store.isEnabled || !store.isAutoLearnEnabled)
                 }
                 .padding(16)
@@ -170,7 +167,7 @@ struct MemorySettingsView: View {
                                 .font(AppFont.mono(14, weight: .semibold))
                                 .foregroundColor(colors.textPrimary)
                             Text("Pick a text file such as notes or a journal, and Eaon pulls out anything worth remembering. It reads only that file, only after you confirm. Everything it finds appears below.")
-                                .font(AppFont.sans(12.5))
+                                .font(AppFont.sans(12))
                                 .foregroundColor(colors.textTertiary)
                                 .fixedSize(horizontal: false, vertical: true)
                                 .lineSpacing(3)
@@ -215,7 +212,7 @@ struct MemorySettingsView: View {
                                 .font(AppFont.mono(14, weight: .semibold))
                                 .foregroundColor(colors.textPrimary)
                             Text("Goes back through every saved chat looking for facts worth keeping, using the model you have selected. That's one request per chat, so it can take a while and costs real API calls.")
-                                .font(AppFont.sans(12.5))
+                                .font(AppFont.sans(12))
                                 .foregroundColor(colors.textTertiary)
                                 .fixedSize(horizontal: false, vertical: true)
                                 .lineSpacing(3)
@@ -264,7 +261,7 @@ struct MemorySettingsView: View {
                         .font(AppFont.mono(14, weight: .semibold))
                         .foregroundColor(colors.textPrimary)
                     Text("Already told ChatGPT or Claude about yourself? Copy your memory list from there and paste it here. Everything imported appears below.")
-                        .font(AppFont.sans(12.5))
+                        .font(AppFont.sans(12))
                         .foregroundColor(colors.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
                         .lineSpacing(3)
@@ -283,7 +280,7 @@ struct MemorySettingsView: View {
             HStack(spacing: 10) {
                 TextField("Add something for Eaon to remember…", text: $draft)
                     .textFieldStyle(.plain)
-                    .font(AppFont.sans(13))
+                    .font(AppFont.sans(14))
                     .foregroundColor(colors.textPrimary)
                     .focused($isFocused)
                     .onSubmit(addDraft)
@@ -327,7 +324,7 @@ struct MemorySettingsView: View {
                         Spacer()
                         Button("Clear All") { showingClearConfirm = true }
                             .buttonStyle(.plain)
-                            .font(AppFont.mono(11, weight: .medium))
+                            .font(AppFont.mono(12, weight: .medium))
                             .foregroundColor(colors.destructive)
                     }
                     .padding(.horizontal, 16)
@@ -350,7 +347,7 @@ struct MemorySettingsView: View {
         HStack(alignment: .top, spacing: 10) {
             VStack(alignment: .leading, spacing: 3) {
                 Text(item.text)
-                    .font(AppFont.sans(13))
+                    .font(AppFont.sans(14))
                     .foregroundColor(colors.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
                     .lineSpacing(3)
@@ -361,7 +358,7 @@ struct MemorySettingsView: View {
                 // date would just invite doubt about a fact that's fine.
                 if item.resolvedKind == .event {
                     Text(item.createdAt.formatted(.dateTime.weekday(.abbreviated).month(.abbreviated).day()))
-                        .font(AppFont.mono(10.5))
+                        .font(AppFont.mono(10))
                         .foregroundColor(colors.textTertiary)
                 }
             }
@@ -452,13 +449,13 @@ private struct ImportMemorySheet: View {
             .labelsHidden()
 
             Text(source.guidance)
-                .font(AppFont.sans(12.5))
+                .font(AppFont.sans(12))
                 .foregroundColor(colors.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
                 .lineSpacing(3)
 
             TextEditor(text: $pasted)
-                .font(AppFont.sans(12.5))
+                .font(AppFont.sans(12))
                 .foregroundColor(colors.textPrimary)
                 .scrollContentBackground(.hidden)
                 .frame(height: 180)
@@ -472,7 +469,7 @@ private struct ImportMemorySheet: View {
                 .overlay(alignment: .topLeading) {
                     if pasted.isEmpty {
                         Text("Paste your memory list here…")
-                            .font(AppFont.sans(12.5))
+                            .font(AppFont.sans(12))
                             .foregroundColor(colors.textTertiary)
                             .padding(.top, 14)
                             .padding(.leading, 13)

@@ -48,7 +48,7 @@ struct AskUserQuestions: View {
             VStack(alignment: .leading, spacing: 0) {
                 header
                 Text(question.title)
-                    .font(AppFont.sans(15, weight: .semibold))
+                    .font(AppFont.sans(16, weight: .semibold))
                     .foregroundStyle(colors.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
                     .lineSpacing(3)
@@ -106,13 +106,13 @@ struct AskUserQuestions: View {
 
             if flow.questions.count > 1 {
                 Text("\(index + 1) of \(flow.questions.count)")
-                    .font(AppFont.mono(11))
+                    .font(AppFont.mono(12))
                     .foregroundStyle(colors.textTertiary)
             }
             if question.skippable {
                 Button("Skip") { advance(with: nil) }
                     .buttonStyle(.plain)
-                    .font(AppFont.mono(11))
+                    .font(AppFont.mono(12))
                     .foregroundStyle(colors.textTertiary)
             }
         }
@@ -129,13 +129,13 @@ struct AskUserQuestions: View {
             HStack(alignment: .top, spacing: 10) {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(option.title)
-                        .font(AppFont.sans(13.5, weight: .medium))
+                        .font(AppFont.sans(14, weight: .medium))
                         .foregroundStyle(colors.textPrimary)
                         .fixedSize(horizontal: false, vertical: true)
                         .frame(maxWidth: .infinity, alignment: .leading)
                     if let description = option.description, !description.isEmpty {
                         Text(description)
-                            .font(AppFont.sans(11.5))
+                            .font(AppFont.sans(12))
                             .foregroundStyle(colors.textTertiary)
                             .fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -146,7 +146,7 @@ struct AskUserQuestions: View {
                 // multi-select it becomes the checked state, so one mark
                 // carries both "this is number 3" and "3 is chosen".
                 Text(isOn ? "✓" : "\(number)")
-                    .font(AppFont.mono(10.5, weight: .semibold))
+                    .font(AppFont.mono(10, weight: .semibold))
                     .foregroundStyle(isOn ? colors.backgroundPrimary : colors.textTertiary)
                     .frame(width: 18, height: 18)
                     .background(
@@ -177,7 +177,7 @@ struct AskUserQuestions: View {
             axis: .vertical
         )
         .textFieldStyle(.plain)
-        .font(AppFont.sans(13))
+        .font(AppFont.sans(14))
         .foregroundStyle(colors.textPrimary)
         .lineLimit(1...4)
         .focused($otherFocused)

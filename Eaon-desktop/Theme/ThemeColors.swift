@@ -72,7 +72,7 @@ struct ThemeColors: Equatable {
     static let dark = ThemeColors(
         backgroundPrimary: Color(hex: "#121212"),
         backgroundSidebar: Color(hex: "#131313"),
-        backgroundElevated: Color(hex: "#161616"),
+        backgroundElevated: Color(hex: "#171717"),
         backgroundPopover: Color(hex: "#1A1A1A"),
         backgroundInput: Color(hex: "#1C1C1C"),
         backgroundInputSecondary: Color(hex: "#262626"),
@@ -85,7 +85,7 @@ struct ThemeColors: Equatable {
         backgroundHover: Color.white.opacity(0.06),
         backgroundSelected: Color.white.opacity(0.11),
         backgroundSubtle: Color.white.opacity(0.06),
-        textPrimary: Color(hex: "#ECECEC"),
+        textPrimary: Color(hex: "#FAFAFA"),
         textSecondary: Color(hex: "#B4B4B4"),
         textTertiary: Color(hex: "#8E8E9C"),
         textCode: Color(hex: "#ECECEC"),
@@ -115,7 +115,7 @@ struct ThemeColors: Equatable {
         backgroundHover: Color.black.opacity(0.045),
         backgroundSelected: Color.black.opacity(0.07),
         backgroundSubtle: Color.black.opacity(0.045),
-        textPrimary: Color(hex: "#0D0D0D"),
+        textPrimary: Color(hex: "#0A0A0A"),
         textSecondary: Color(hex: "#5D5D5D"),
         // Darkened from #8E8E9C, which measures ~3.23:1 against this
         // background — fails WCAG AA's 4.5:1 for normal text (the dark-mode

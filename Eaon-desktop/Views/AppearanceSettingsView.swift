@@ -98,15 +98,13 @@ struct AppearanceSettingsView: View {
                 VStack(alignment: .leading, spacing: 0) {
                     settingsRow("Colored user bubble", description: "Tint your own messages with the accent color instead of a neutral gray.") {
                         Toggle("", isOn: $settings.coloredUserBubble)
-                            .toggleStyle(.switch)
-                            .tint(AppearanceSettings.toggleTint)
+                            .toggleStyle(JanSwitchToggleStyle())
                     }
 
                     settingsDivider
                     settingsRow("Show token speed", description: "Display tokens/sec and token count inline below assistant messages.") {
                         Toggle("", isOn: $settings.showTokenSpeed)
-                            .toggleStyle(.switch)
-                            .tint(AppearanceSettings.toggleTint)
+                            .toggleStyle(JanSwitchToggleStyle())
                     }
                 }
             }
@@ -134,8 +132,8 @@ struct AppearanceSettingsView: View {
 
     private func sectionLabel(_ title: String) -> some View {
         Text(title.uppercased())
-            .font(AppFont.mono(11.5, weight: .semibold))
-            .tracking(0.4)
+            .font(AppFont.mono(12, weight: .semibold))
+            .tracking(0.6)
             .foregroundColor(colors.textTertiary)
             .padding(.horizontal, 4)
     }

@@ -83,8 +83,7 @@ struct LocalAPIServerSettingsView: View {
                 Spacer(minLength: 12)
                 Toggle("", isOn: $store.isEnabled)
                     .labelsHidden()
-                    .toggleStyle(.switch)
-                    .tint(AppearanceSettings.toggleTint)
+                    .toggleStyle(JanSwitchToggleStyle())
             }
             .padding(18)
         }
@@ -129,7 +128,7 @@ struct LocalAPIServerSettingsView: View {
             Spacer(minLength: 12)
             TextField("1234", text: $portText)
                 .textFieldStyle(.plain)
-                .font(AppFont.mono(13))
+                .font(AppFont.mono(14))
                 .foregroundColor(colors.textPrimary)
                 .multilineTextAlignment(.trailing)
                 .frame(width: 70)
@@ -167,8 +166,7 @@ struct LocalAPIServerSettingsView: View {
                     Spacer(minLength: 12)
                     Toggle("", isOn: $store.requireAPIKey)
                         .labelsHidden()
-                        .toggleStyle(.switch)
-                        .tint(AppearanceSettings.toggleTint)
+                        .toggleStyle(JanSwitchToggleStyle())
                 }
                 .padding(18)
 

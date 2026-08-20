@@ -109,8 +109,7 @@ struct AquaProviderSettingsView: View {
                     get: { !modelPrefs.isProviderDisabled(.aqua) },
                     set: { _ in chatViewModel.toggleProvider(.aqua) }
                 ))
-                .toggleStyle(.switch)
-                .tint(AppearanceSettings.toggleTint)
+                .toggleStyle(JanSwitchToggleStyle())
                 .help(modelPrefs.isProviderDisabled(.aqua) ? "Turn Eaon back on" : "Turn Eaon off — every model it serves stops working")
             }
             .padding(16)
@@ -133,7 +132,7 @@ struct AquaProviderSettingsView: View {
                 HStack(spacing: 10) {
                     SecureField("Paste your Eaon API key", text: $apiKeyInput)
                         .textFieldStyle(.plain)
-                        .font(AppFont.mono(13))
+                        .font(AppFont.mono(14))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 9)
                         .background(colors.backgroundInput)
@@ -218,7 +217,7 @@ struct AquaProviderSettingsView: View {
                         ProgressView()
                             .controlSize(.small)
                         Text("Loading models…")
-                            .font(AppFont.mono(13))
+                            .font(AppFont.mono(14))
                             .foregroundColor(colors.textSecondary)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -241,7 +240,7 @@ struct AquaProviderSettingsView: View {
                     .padding(.bottom, 16)
                 } else if visibleModels.isEmpty {
                     Text("No models available.")
-                        .font(AppFont.mono(13))
+                        .font(AppFont.mono(14))
                         .foregroundColor(colors.textSecondary)
                         .padding(.horizontal, 16)
                         .padding(.bottom, 16)

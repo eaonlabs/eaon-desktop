@@ -152,7 +152,7 @@ struct SearchPaletteView: View {
                 .font(.system(size: 17))
             TextField("Search chats, settings, models…", text: $searchText)
                 .textFieldStyle(.plain)
-                .font(AppFont.mono(17))
+                .font(AppFont.mono(18))
                 .focused($isSearchFocused)
                 .onKeyPress(.upArrow) { moveSelection(-1); return .handled }
                 .onKeyPress(.downArrow) { moveSelection(1); return .handled }
@@ -179,7 +179,7 @@ struct SearchPaletteView: View {
 
                     if currentItems.count <= 1, !query.isEmpty {
                         Text("No matches")
-                            .font(AppFont.mono(13))
+                            .font(AppFont.mono(14))
                             .foregroundStyle(colors.textTertiary)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 30)

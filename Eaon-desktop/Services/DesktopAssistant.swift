@@ -118,8 +118,7 @@ final class DesktopAssistantController: NSObject {
     /// summon or dismiss the assistant without touching the menu bar.
     static let distributedToggleName = Notification.Name("dev.eaon.desktop.toggle-assistant")
     /// Posted whenever the panel appears, disappears, resizes (pill ↔
-    /// expanded) or is dragged. The desktop pet listens so it can step aside
-    /// rather than sit underneath the panel — see `EaonPetController.settle`.
+    /// expanded) or is dragged.
     /// `nonisolated`: an immutable name, read from the window-move observer's
     /// Sendable closure as well as from main-actor code.
     nonisolated static let panelFrameChangedNotification = Notification.Name("eaon.quickassistant.frame-changed")

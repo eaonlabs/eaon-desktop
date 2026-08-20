@@ -294,7 +294,18 @@ final class FontPreferenceStore {
             UserDefaults.standard.set(fontId, forKey: Self.fontKey)
             return
         }
-        fontId = "spaceGrotesk"
+        // Inter, not Space Grotesk. Grotesk is a display face: geometric,
+        // wide, and heavy enough at UI sizes that a sidebar of labels reads
+        // as a row of headings. Inter was drawn for interface text — narrower
+        // apertures, shorter extenders, and noticeably lighter at the same
+        // nominal weight, which is what "the font is too thick" was actually
+        // describing.
+        //
+        // Only reached when the key is absent. `didSet` does not fire during
+        // `init`, so this default is never written to UserDefaults, which is
+        // what lets it change for anyone who never picked a font while
+        // leaving an explicit choice alone.
+        fontId = "inter"
     }
 }
 

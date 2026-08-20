@@ -1074,16 +1074,11 @@ final class EaonVoiceController: NSObject {
 
     // MARK: - State
 
-    /// Single place the state changes, so the pet's face can't drift out of
-    /// sync with what the microphone is actually doing.
+    /// Single place the state changes, so what the panel shows can't drift
+    /// out of sync with what the microphone is actually doing.
     private func enter(_ next: EaonVoiceState) {
         guard state != next else { return }
         state = next
-        switch next {
-        case .listening: EaonPetController.shared.noteVoiceState(.listening)
-        case .speaking: EaonPetController.shared.noteVoiceState(.speaking)
-        case .off, .waking, .thinking: EaonPetController.shared.noteVoiceState(nil)
-        }
         publishStatus()
     }
 

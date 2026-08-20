@@ -72,7 +72,7 @@ private struct StepDetailsDisclosure: View {
             } label: {
                 HStack(spacing: 4) {
                     Text(summary)
-                        .font(AppFont.mono(11.5))
+                        .font(AppFont.mono(12))
                         .foregroundColor(colors.textTertiary)
                     Image(systemName: "chevron.right")
                         .font(.system(size: 8, weight: .semibold))
@@ -87,7 +87,7 @@ private struct StepDetailsDisclosure: View {
                 VStack(alignment: .leading, spacing: 3) {
                     ForEach(Array(lines.enumerated()), id: \.offset) { _, line in
                         Text(line)
-                            .font(AppFont.mono(11.5))
+                            .font(AppFont.mono(12))
                             .foregroundColor(colors.textTertiary)
                             .fixedSize(horizontal: false, vertical: true)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -128,32 +128,31 @@ struct ThinkingSteps: View {
     /// of the words.
     var showIcons: Bool = true
 
-    @State private var isExpanded = true
-
-    /// Older steps fold away past this. A trail is context, not a log:
-    /// twenty rows pushes the actual answer off screen.
-    private let visibleLimit = 6
-
-    private var shown: [AgentStep] {
-        steps.count <= visibleLimit ? steps : Array(steps.suffix(visibleLimit))
-    }
-
-    private var hiddenCount: Int { max(0, steps.count - visibleLimit) }
+    /// Closed by default, always. The block is a receipt, not the answer:
+    /// somewhere to look when you want to know how a reply was reached,
+    /// which is the exception rather than the rule. Opening on its own
+    /// pushed the actual answer down the screen on every single turn, and
+    /// that is what the row-limiting below was really compensating for.
+    ///
+    /// Deliberately NOT "open while running, closed when done" either: a
+    /// block that collapses itself the moment you start reading it is worse
+    /// than one that was never open, because it takes the thing you were
+    /// looking at away mid-sentence.
+    @State private var isExpanded = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
 
             if isExpanded {
+                // Every step, never a window onto the last few. Once the
+                // block is closed by default it costs nothing to be
+                // complete when opened, and a trail that silently drops its
+                // own middle ("12 earlier steps") is worse than useless for
+                // the one thing it exists for: seeing what actually
+                // happened.
                 VStack(alignment: .leading, spacing: 0) {
-                    if hiddenCount > 0 {
-                        Text("\(hiddenCount) earlier step\(hiddenCount == 1 ? "" : "s")")
-                            .font(AppFont.mono(11))
-                            .foregroundColor(colors.textTertiary)
-                            .padding(.leading, 25)
-                            .padding(.bottom, 7)
-                    }
-                    ForEach(Array(shown.enumerated()), id: \.offset) { index, step in
+                    ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
                         // Keyed by position, not `step.id`: the message-bubble
                         // callers rebuild this whole array from scratch on every
                         // streaming tick — new `AgentStep`s, fresh UUIDs — even
@@ -161,7 +160,7 @@ struct ThinkingSteps: View {
                         // Position is what's genuinely stable, so the row stays
                         // mounted while it streams and its entrance animations
                         // fire once, not sixty times a second.
-                        ThinkingStepRow(step: step, isLast: index == shown.count - 1, showIcons: showIcons)
+                        ThinkingStepRow(step: step, isLast: index == steps.count - 1, showIcons: showIcons)
                     }
                 }
                 .padding(.top, 8)
@@ -188,18 +187,31 @@ struct ThinkingSteps: View {
                 // collapsed block still reads as live rather than as a
                 // finished summary someone left open.
                 if isRunning {
-                    ShimmerText(text: title, font: AppFont.mono(13), color: colors.textSecondary)
+                    ShimmerText(text: title, font: AppFont.mono(14), color: colors.textSecondary)
                 } else {
                     Text(title)
-                        .font(AppFont.mono(13))
+                        .font(AppFont.mono(14))
                         .foregroundStyle(colors.textSecondary)
                 }
 
-                if !isExpanded, let active = steps.last {
-                    Text("· \(active.title)")
-                        .font(AppFont.mono(12))
-                        .foregroundStyle(colors.textTertiary)
-                        .lineLimit(1)
+                // Collapsed is the normal state now, so this line is what
+                // the block says most of the time and it has to earn its
+                // row. While running that means the live step — it doubles
+                // as the status line. Once finished the current step is
+                // just the last thing that happened, which tells you
+                // nothing about the run; the count does, and it's also the
+                // hint that there's something in here worth opening.
+                if !isExpanded {
+                    if isRunning, let active = steps.last {
+                        Text("· \(active.title)")
+                            .font(AppFont.mono(12))
+                            .foregroundStyle(colors.textTertiary)
+                            .lineLimit(1)
+                    } else if steps.count > 1 {
+                        Text("· \(steps.count) steps")
+                            .font(AppFont.mono(12))
+                            .foregroundStyle(colors.textTertiary)
+                    }
                 }
             }
             .contentShape(Rectangle())
@@ -280,11 +292,11 @@ private struct ThinkingStepRow: View {
 
             VStack(alignment: .leading, spacing: 5) {
                 if step.status == .running {
-                    ShimmerText(text: step.title, font: AppFont.mono(12.5), color: colors.textTertiary)
+                    ShimmerText(text: step.title, font: AppFont.mono(12), color: colors.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
                 } else {
                     Text(step.title)
-                        .font(AppFont.mono(12.5))
+                        .font(AppFont.mono(12))
                         .foregroundColor(colors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -312,7 +324,7 @@ private struct ThinkingStepRow: View {
                     FlowLayout(spacing: 5) {
                         ForEach(Array(step.chips.enumerated()), id: \.offset) { index, chip in
                             Text(chip)
-                                .font(AppFont.mono(11))
+                                .font(AppFont.mono(12))
                                 .foregroundColor(colors.textSecondary)
                                 .lineLimit(1)
                                 .padding(.horizontal, 7)

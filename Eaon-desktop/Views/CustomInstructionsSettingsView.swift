@@ -49,7 +49,7 @@ struct CustomInstructionsSettingsView: View {
         SettingsCard {
             VStack(alignment: .leading, spacing: 10) {
                 TextEditor(text: $draft)
-                    .font(AppFont.sans(13))
+                    .font(AppFont.sans(14))
                     .foregroundColor(colors.textPrimary)
                     .scrollContentBackground(.hidden)
                     .frame(height: 160)
@@ -57,7 +57,7 @@ struct CustomInstructionsSettingsView: View {
                     .overlay(alignment: .topLeading) {
                         if draft.isEmpty {
                             Text("e.g. \"Keep responses concise. Prefer bullet points over long paragraphs.\"")
-                                .font(AppFont.sans(13))
+                                .font(AppFont.sans(14))
                                 .foregroundColor(colors.textTertiary)
                                 .padding(.top, 8)
                                 .padding(.leading, 5)

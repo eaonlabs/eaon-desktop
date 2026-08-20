@@ -181,8 +181,14 @@ struct ChatHomeView: View {
             Spacer()
 
             if mode == .chat {
-                Text("What can I help with?")
-                    .font(AppFont.mono(34, weight: .bold))
+                // Jan's hero, matched exactly: its `--text-3xl` is
+                // `calc(--font-size-base * 1.875)` = 30px at the 16px base,
+                // with `--text-3xl--line-height: 1.2`, set semibold rather
+                // than bold. Eaon's old 34pt bold read a size heavier and
+                // sat closer to a marketing headline than an empty state.
+                Text("How can I help you today?")
+                    .font(AppFont.sans(30, weight: .semibold))
+                    .lineSpacing(30 * 0.2)
                     .foregroundStyle(colors.textPrimary)
                     .padding(.bottom, 26)
             } else {
@@ -244,13 +250,11 @@ struct ChatHomeView: View {
                 .padding(.horizontal, 24)
                 .overlay(alignment: .topTrailing) { perchAnchor }
 
-            if !recentConversations.isEmpty {
-                emptyStateRecents
-                    .frame(maxWidth: conversationMaxWidth)
-                    .padding(.horizontal, 24)
-                    .padding(.top, 22)
-            }
-
+            // No recent-chats list under the composer. Jan's empty state is
+            // the question and the box, nothing else — the sidebar is
+            // already a complete, always-visible list of the same chats, so
+            // repeating a slice of it here competes with the one thing the
+            // screen is asking you to do.
             Spacer()
             Spacer()
         }
@@ -279,15 +283,6 @@ struct ChatHomeView: View {
             SwarmLivePanel(transcript: swarm, statusText: viewModel.agentActivityText)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.top, 6)
-                .transition(.opacity)
-        } else if viewModel.agentSteps.count > 1 {
-            // More than one step means a real agent run, where the trail is
-            // worth more than the current line on its own. A single step
-            // keeps the orb instead: a one-row "trail" is just a status line
-            // with extra scaffolding around it.
-            ThinkingSteps(steps: viewModel.agentSteps)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.top, 8)
                 .transition(.opacity)
         } else if let activityText = viewModel.agentActivityText {
             ThinkingIndicator(statusText: activityText)
@@ -327,12 +322,12 @@ struct ChatHomeView: View {
                             .frame(width: 26, height: 26)
                             .background(Circle().fill(colors.backgroundChip.opacity(0.6)))
                         Text(conversation.title)
-                            .font(AppFont.sans(13))
+                            .font(AppFont.sans(14))
                             .foregroundStyle(colors.textPrimary.opacity(0.85))
                             .lineLimit(1)
                         Spacer(minLength: 8)
                         Text(Self.relativeTime(conversation.updatedAt))
-                            .font(AppFont.mono(10.5))
+                            .font(AppFont.mono(10))
                             .foregroundStyle(colors.textTertiary)
                         Image(systemName: "chevron.right")
                             .font(.system(size: 10, weight: .semibold))
@@ -534,7 +529,7 @@ struct ChatHomeView: View {
                     }
 
                 Text("Eaon can make mistakes. Check important info.")
-                    .font(AppFont.sans(11))
+                    .font(AppFont.sans(12))
                     .foregroundStyle(colors.textTertiary)
                     .padding(.bottom, 8)
             }
@@ -723,7 +718,7 @@ private struct ContextUsageBadge: View {
     var body: some View {
         if let label {
             Text(label)
-                .font(AppFont.mono(11, weight: .medium))
+                .font(AppFont.mono(12, weight: .medium))
                 .foregroundStyle(tint)
                 .padding(.horizontal, 9)
                 .padding(.vertical, 5)
@@ -749,7 +744,7 @@ struct TopBarIconButton: View {
                     .font(.system(size: 14, weight: .medium))
                     .iconHoverEffect(for: systemName)
                 if let label {
-                    Text(label).font(AppFont.mono(13, weight: .medium))
+                    Text(label).font(AppFont.mono(14, weight: .medium))
                 }
             }
             .foregroundStyle(colors.textPrimary.opacity(0.85))
@@ -923,7 +918,7 @@ struct MessageCell: View, Equatable {
                         Image(systemName: "bolt.fill")
                             .font(.system(size: 9, weight: .semibold))
                         Text("Skill: \(skillName)")
-                            .font(AppFont.mono(11, weight: .medium))
+                            .font(AppFont.mono(12, weight: .medium))
                     }
                     .foregroundStyle(colors.textTertiary)
                 }
@@ -963,7 +958,7 @@ struct MessageCell: View, Equatable {
                         .iconHoverEffect(for: "pencil")
                     Text("Edit")
                 }
-                .font(AppFont.mono(11, weight: .medium))
+                .font(AppFont.mono(12, weight: .medium))
                 .foregroundStyle(colors.textTertiary)
             }
             .buttonStyle(.plain)
@@ -1064,7 +1059,7 @@ struct MessageCell: View, Equatable {
             HStack(spacing: 6) {
                 BrandLogoView(brand: ModelCatalog.brand(for: modelId), size: 14)
                 Text(displayName)
-                    .font(AppFont.mono(11, weight: .medium))
+                    .font(AppFont.mono(12, weight: .medium))
                     .foregroundStyle(colors.textTertiary)
             }
         }
@@ -1180,7 +1175,7 @@ struct ToolResultsCard: View {
                     Image(systemName: isPreviewErrors ? "exclamationmark.triangle" : "terminal")
                         .font(.system(size: 10, weight: .semibold))
                     Text(isPreviewErrors ? "Preview errors" : "Tool results")
-                        .font(AppFont.mono(11, weight: .semibold))
+                        .font(AppFont.mono(12, weight: .semibold))
                     Image(systemName: "chevron.right")
                         .font(.system(size: 8, weight: .semibold))
                         .rotationEffect(.degrees(expanded ? 90 : 0))
@@ -1193,7 +1188,7 @@ struct ToolResultsCard: View {
 
             ForEach(Array(summaryItems.enumerated()), id: \.offset) { _, item in
                 Text(item)
-                    .font(AppFont.mono(11))
+                    .font(AppFont.mono(12))
                     .foregroundStyle(colors.textSecondary)
                     .lineLimit(1)
             }
@@ -1201,7 +1196,7 @@ struct ToolResultsCard: View {
             if expanded {
                 ScrollView {
                     Text(content)
-                        .font(AppFont.mono(11))
+                        .font(AppFont.mono(12))
                         .foregroundStyle(colors.textCode)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1261,7 +1256,7 @@ private struct HoverRevealAssistantBody: View {
             if showFooter, !isActivelyTyping && !content.isEmpty {
                 if let statsCaption {
                     Text(statsCaption)
-                        .font(AppFont.mono(11))
+                        .font(AppFont.mono(12))
                         .foregroundStyle(colors.textTertiary)
                 }
                 // Copy should hand back the real answer, not the model's

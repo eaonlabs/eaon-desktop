@@ -57,7 +57,7 @@ struct ShortcutsSettingsView: View {
     private func shortcutRow(_ title: String, keys: String, isLast: Bool) -> some View {
         HStack {
             Text(title)
-                .font(AppFont.mono(13))
+                .font(AppFont.mono(14))
                 .foregroundColor(colors.textPrimary)
             Spacer()
             Text(keys)

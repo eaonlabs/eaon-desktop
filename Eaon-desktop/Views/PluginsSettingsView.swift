@@ -216,7 +216,7 @@ private struct AddCustomMCPServerSheet: View {
                 }
             }
             .textFieldStyle(.plain)
-            .font(AppFont.mono(13))
+            .font(AppFont.mono(14))
             .padding(.horizontal, 12)
             .padding(.vertical, 9)
             .background(colors.backgroundInput)
@@ -335,14 +335,14 @@ private struct PluginRow: View {
                     .font(.system(size: 10))
                 Text("Connected, no tools")
             }
-            .font(AppFont.mono(11, weight: .medium))
+            .font(AppFont.mono(12, weight: .medium))
             .foregroundStyle(.orange)
         case .connected:
             HStack(spacing: 5) {
                 Circle().fill(Color(hex: "#34C759")).frame(width: 7, height: 7)
                 Text("Connected")
             }
-            .font(AppFont.mono(11, weight: .medium))
+            .font(AppFont.mono(12, weight: .medium))
             .foregroundColor(colors.textSecondary)
         case .connecting:
             ProgressView().controlSize(.small)
@@ -419,7 +419,7 @@ private struct PluginRow: View {
 
                 if let hint = server.manualClientIdHint {
                     Text(hint)
-                        .font(AppFont.sans(12.5))
+                        .font(AppFont.sans(12))
                         .foregroundColor(colors.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
                         .lineSpacing(3)
@@ -428,7 +428,7 @@ private struct PluginRow: View {
                 HStack(spacing: 10) {
                     TextField("Paste the Client ID", text: $clientIdInput)
                         .textFieldStyle(.plain)
-                        .font(AppFont.mono(13))
+                        .font(AppFont.mono(14))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 9)
                         .background(colors.backgroundInput)
@@ -459,7 +459,7 @@ private struct PluginRow: View {
                         signIn()
                     }
                     Text("Opens \(server.displayName) in your browser to sign in. Eaon never sees your password, only the token \(server.displayName) issues afterward.")
-                        .font(AppFont.sans(12.5))
+                        .font(AppFont.sans(12))
                         .foregroundColor(colors.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
                         .lineSpacing(3)
@@ -468,7 +468,7 @@ private struct PluginRow: View {
                     HStack(spacing: 10) {
                         SecureField(server.tokenFieldPlaceholder, text: $tokenInput)
                             .textFieldStyle(.plain)
-                            .font(AppFont.mono(13))
+                            .font(AppFont.mono(14))
                             .padding(.horizontal, 12)
                             .padding(.vertical, 9)
                             .background(colors.backgroundInput)
@@ -486,7 +486,7 @@ private struct PluginRow: View {
 
                     if let tokenHint = server.tokenHint {
                         Text(tokenHint)
-                            .font(AppFont.sans(12.5))
+                            .font(AppFont.sans(12))
                             .foregroundColor(colors.textTertiary)
                             .fixedSize(horizontal: false, vertical: true)
                             .lineSpacing(3)

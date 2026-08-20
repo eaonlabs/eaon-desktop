@@ -147,7 +147,7 @@ struct EaonCLIUpdateBanner: View {
                 store.updateNow()
             } label: {
                 Text("Update Now")
-                    .font(AppFont.mono(13, weight: .semibold))
+                    .font(AppFont.mono(14, weight: .semibold))
                     .foregroundStyle(AppearanceSettings.shared.onAccentColor)
                     .padding(.horizontal, 18)
                     .padding(.vertical, 9)

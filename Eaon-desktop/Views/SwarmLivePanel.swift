@@ -71,11 +71,11 @@ struct SwarmLivePanel: View {
             // Real numbers rather than a spinner: how far in, and how close
             // the vote is to ending it.
             Text("Round \(currentRound)")
-                .font(AppFont.mono(11))
+                .font(AppFont.mono(12))
                 .foregroundColor(colors.textTertiary)
             if votesThisRound > 0 {
                 Text("· \(votesThisRound)/\(votesNeeded) to hand off")
-                    .font(AppFont.mono(11))
+                    .font(AppFont.mono(12))
                     .foregroundColor(AppearanceSettings.shared.accentColor)
             }
         }
@@ -131,7 +131,7 @@ struct SwarmLivePanel: View {
                 VStack(alignment: .leading, spacing: 3) {
                     HStack(spacing: 6) {
                         Text(remark.personaName)
-                            .font(AppFont.mono(11, weight: .semibold))
+                            .font(AppFont.mono(12, weight: .semibold))
                             .foregroundColor(colors.textPrimary)
                         Text("round \(remark.round)")
                             .font(AppFont.mono(9))
@@ -150,11 +150,11 @@ struct SwarmLivePanel: View {
                     }
                     if remark.isError {
                         Text("didn't answer")
-                            .font(AppFont.sans(11))
+                            .font(AppFont.sans(12))
                             .foregroundColor(colors.destructive)
                     } else {
                         Text(remark.text)
-                            .font(AppFont.sans(11.5))
+                            .font(AppFont.sans(12))
                             .foregroundColor(colors.textSecondary)
                             .fixedSize(horizontal: false, vertical: true)
                     }

@@ -4,7 +4,7 @@ import Foundation
 /// limit — approximate by nature, not a live API measurement the way this
 /// app's other stats are:
 /// - Token count is estimated from character count (~4 chars/token, same
-///   ratio `StatisticsTracker.approxTokens` already uses elsewhere).
+///   ratio `TokenEstimate.approxTokens` already uses elsewhere).
 /// - The context *limit* is real, live data from Ollama's `/api/ps` for a
 ///   currently-loaded local model, but for everything else (any cloud
 ///   model, or a local model not yet loaded) it falls back to a small,

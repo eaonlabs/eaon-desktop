@@ -105,14 +105,9 @@ final class QuickAssistantViewModel {
         let screenCapture = pendingScreenCapture
         pendingScreenCapture = nil
         transcript.append(QuickTurn(text: text, isUser: true, attachments: attachments))
-        // The desktop pet listens to this surface too: it reacts to the
-        // tone of what was just said, then settles into its working state
-        // while the reply streams. (Both no-ops when the pet is off.)
-        EaonPetController.shared.reactToUserMessage(text)
-        EaonPetController.shared.noteGenerationStarted()
-        // With voice on, the pet reads the answer aloud — for a question
-        // TYPED here just as much as one spoken at it. (No-op when voice is
-        // off, which is the default.)
+        // With voice on, Eaon reads the answer aloud — for a question TYPED
+        // here just as much as one spoken at it. (No-op when voice is off,
+        // which is the default.)
         EaonVoiceController.shared.noteReplyStarted()
         task = Task { [weak self] in await self?.run(screenCapture: screenCapture) }
     }
@@ -219,10 +214,9 @@ final class QuickAssistantViewModel {
             return
         }
         let screen = DesktopAssistantController.shared.currentScreen
-        let excluded = [DesktopAssistantController.shared.panelWindowNumber, EaonPetController.shared.windowNumber]
-            .compactMap { $0 }
+        let excluded = [DesktopAssistantController.shared.panelWindowNumber].compactMap { $0 }
         do {
-            let attachment = try await EaonPetSight.captureScreenAttachment(on: screen, excludingWindowNumbers: excluded)
+            let attachment = try await ScreenCapture.captureScreenAttachment(on: screen, excludingWindowNumbers: excluded)
             pendingAttachments.append(attachment)
             pendingScreenCapture = (attachment, screen)
             // Say so now, not after a wasted round-trip: without this, the
@@ -253,7 +247,6 @@ final class QuickAssistantViewModel {
 
     private func run(screenCapture: (attachment: MessageAttachment, screen: NSScreen?)? = nil) async {
         let replyIndex = transcript.count
-        let question = transcript.indices.contains(replyIndex - 1) ? transcript[replyIndex - 1].text : ""
         transcript.append(QuickTurn(text: "", isUser: false))
 
         let typewriter = TypewriterStreamController { [weak self] text in
@@ -262,27 +255,10 @@ final class QuickAssistantViewModel {
         }
         activeTypewriter = typewriter
 
-        // "Where should the pet point?" runs CONCURRENTLY with the main
-        // reply, kicked off here rather than after it. Previously this was a
-        // second, sequential round-trip that only started once the whole
-        // answer had streamed — so on a slow model the pointing hand could
-        // take a minute-plus to appear (two full model calls back to back,
-        // reported as "the hand shows after a solid 2 mins"). Firing it in
-        // parallel means it's usually already done by the time the answer
-        // lands. (We still only ACT on the result after a successful reply,
-        // below, so the pet never points at a failed turn or before the
-        // user has an answer to go with the point.)
-        var locateTask: Task<CGPoint?, Never>?
-
         do {
             let modelId = selectedModelId
             guard !modelId.isEmpty else {
                 throw QuickAssistantError(message: "No model selected — pick one from the model name above.")
-            }
-
-            if let screenCapture, ModelCatalog.supportsVision(for: modelId),
-               let image = ImagePayloadBuilder.build(for: screenCapture.attachment) {
-                locateTask = Task { await EaonPetSight.locate(question: question, image: image, modelId: modelId) }
             }
 
             // Same opt-in system instruction the main app sends, read from
@@ -334,7 +310,6 @@ final class QuickAssistantViewModel {
         // or the error face if it failed.
         let reply = transcript.indices.contains(replyIndex) ? transcript[replyIndex] : nil
         let hadError = reply?.isError == true
-        EaonPetController.shared.noteGenerationEnded(hadError: hadError, replyText: hadError ? nil : reply?.text)
         // Say the last of it out loud (a short reply never produced a
         // sentence boundary while streaming, so this is where it gets read).
         EaonVoiceController.shared.noteReplyFinished(hadError ? nil : reply?.text)
@@ -346,19 +321,9 @@ final class QuickAssistantViewModel {
         // running location lookup: await its (usually finished) result and
         // fly the pet over if it found something. If it's still running we
         // wait only for it, never a fresh call.
-        if let screenCapture, let reply, !hadError, !reply.text.isEmpty,
+        if screenCapture != nil, let reply, !hadError, !reply.text.isEmpty,
            ModelCatalog.supportsVision(for: selectedModelId) {
             Self.lastScreenVisionModel = selectedModelId
-            if let locateTask {
-                Task { [screenCapture] in
-                    guard let normalized = await locateTask.value, let screen = screenCapture.screen else { return }
-                    let f = screen.frame
-                    let point = CGPoint(x: f.minX + normalized.x * f.width, y: f.maxY - normalized.y * f.height)
-                    EaonPetController.shared.pointAt(screenPoint: point)
-                }
-            }
-        } else {
-            locateTask?.cancel()
         }
     }
 

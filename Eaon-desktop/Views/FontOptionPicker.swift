@@ -101,8 +101,8 @@ struct FontOptionPicker: View {
 
     private func sectionHeader(_ title: String) -> some View {
         Text(title.uppercased())
-            .font(AppFont.mono(10, weight: .semibold))
-            .tracking(0.5)
+            .font(AppFont.mono(12, weight: .semibold))
+            .tracking(0.6)
             .foregroundColor(colors.textTertiary)
             .padding(.horizontal, 8)
             .padding(.top, 8)

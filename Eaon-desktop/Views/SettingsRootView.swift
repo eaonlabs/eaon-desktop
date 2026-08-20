@@ -25,8 +25,8 @@ private struct SettingsSidebarSectionHeader: View {
 
     var body: some View {
         Text(title.uppercased())
-            .font(AppFont.mono(10, weight: .semibold))
-            .tracking(0.8)
+            .font(AppFont.mono(12, weight: .semibold))
+            .tracking(0.6)
             .foregroundColor(colors.textTertiary)
             .padding(.horizontal, 10)
             .padding(.top, 4)
@@ -71,15 +71,15 @@ struct SettingsRootView: View {
     /// same style as "MODEL PROVIDERS" / "LOCAL" further down.
     private let mainSections: [SettingsSectionGroup] = [
         .init(title: nil, categories: [
-            .init(id: "general",    title: "General",     icon: "gearshape"),
+            .init(id: "general",    title: "General",     icon: "slider.horizontal.3"),
             .init(id: "appearance", title: "Appearance",  icon: "paintpalette"),
-            .init(id: "shortcuts",  title: "Shortcuts",   icon: "keyboard"),
+            .init(id: "shortcuts",  title: "Shortcuts",   icon: "command"),
         ]),
         .init(title: "Assistant", categories: [
             .init(id: "instructions",    title: "Custom Instructions", icon: "text.quote"),
-            .init(id: "modelParameters", title: "Model Parameters",    icon: "slider.horizontal.3"),
+            .init(id: "modelParameters", title: "Model Parameters",    icon: "dial.medium"),
             .init(id: "memory",          title: "Memory",              icon: "brain"),
-            .init(id: "skills",          title: "Skills",              icon: "bolt.fill", isBeta: true),
+            .init(id: "skills",          title: "Skills",              icon: "bolt", isBeta: true),
             .init(id: "voice",           title: "Voice",               icon: "waveform", isBeta: true),
         ]),
         .init(title: "Tools", categories: [
@@ -87,15 +87,13 @@ struct SettingsRootView: View {
             .init(id: "imageProviders", title: "Image Providers", icon: "photo"),
             .init(id: "computer",       title: "Device Control",  icon: "desktopcomputer", isBeta: true),
             .init(id: "localServer",    title: "Local API Server", icon: "server.rack", isBeta: true),
-            .init(id: "network",        title: "Network",         icon: "network"),
+            .init(id: "network",        title: "Network",         icon: "globe"),
         ]),
         .init(title: "System", categories: [
             // Next to Privacy on purpose: it's the one setting that decides
             // whether the user's data leaves this Mac at all, so it belongs
             // where someone goes looking for exactly that question.
-            .init(id: "cloudSync",  title: "Cloud Sync", icon: "icloud", isBeta: true),
-            .init(id: "privacy",    title: "Privacy",    icon: "lock.fill"),
-            .init(id: "statistics", title: "Statistics", icon: "chart.bar"),
+            .init(id: "privacy",    title: "Privacy",    icon: "lock"),
             .init(id: "hardware",   title: "Hardware",   icon: "cpu"),
         ]),
     ]
@@ -176,6 +174,7 @@ struct SettingsRootView: View {
                         }
                     }
                 }
+                .thinScrollers()
                 .padding(.horizontal, 8)
 
                 modelProvidersSection
@@ -198,8 +197,6 @@ struct SettingsRootView: View {
                 AquaProviderSettingsView(chatViewModel: chatViewModel)
             case "trial":
                 TrialProviderSettingsView(chatViewModel: chatViewModel)
-            case "statistics":
-                StatisticsView(chatViewModel: chatViewModel)
             case "instructions":
                 CustomInstructionsSettingsView(chatViewModel: chatViewModel)
             case "modelParameters":
@@ -224,8 +221,6 @@ struct SettingsRootView: View {
                 AppearanceSettingsView()
             case "shortcuts":
                 ShortcutsSettingsView()
-            case "cloudSync":
-                CloudSyncSettingsView(chatViewModel: chatViewModel)
             case "privacy":
                 PrivacySettingsView(chatViewModel: chatViewModel)
             case "hardware":
@@ -357,14 +352,21 @@ private struct SettingsSidebarRow: View {
         // just be a louder version of the text color.
         let sectionColor: Color? = nil
         return HStack(spacing: 10) {
+            // 14pt regular, not 15pt medium. A medium-weight glyph beside
+            // 12.5pt text reads as the heavier element of the pair, which
+            // inverts the hierarchy — the label is what you're scanning.
             Image(systemName: category.icon)
-                .font(.system(size: 15, weight: .medium))
+                .font(.system(size: 14, weight: .regular))
                 .foregroundColor(sectionColor ?? (isSelected ? colors.textPrimary : colors.textSecondary))
                 .iconHoverEffect(for: category.icon)
-                .frame(width: 20, alignment: .center)
+                .frame(width: 19, alignment: .center)
 
+            // `.medium` rather than `.semibold` when selected. Selection is
+            // already carried by the filled background behind the row; a
+            // second, heavier signal on top of it makes the selected row
+            // jump a full step out of the list.
             Text(category.title)
-                .font(AppFont.mono(13.5, weight: isSelected ? .semibold : .regular))
+                .font(AppFont.mono(14, weight: isSelected ? .medium : .regular))
                 .foregroundColor(colors.textPrimary)
                 .lineLimit(1)
 
@@ -375,7 +377,7 @@ private struct SettingsSidebarRow: View {
             Spacer()
         }
         .padding(.horizontal, 10)
-        .padding(.vertical, 7)
+        .padding(.vertical, 5.5)
         .background(
             RoundedRectangle(cornerRadius: 7, style: .continuous)
                 .fill(isSelected ? colors.backgroundSelected : Color.clear)
@@ -418,7 +420,7 @@ private struct AddAquaRow: View {
                         .iconHoverEffect(for: "plus")
                 }
                 Text("Add provider")
-                    .font(AppFont.mono(13, weight: .regular))
+                    .font(AppFont.mono(14, weight: .regular))
                     .foregroundColor(colors.textPrimary)
                 Spacer()
             }
@@ -446,7 +448,7 @@ private struct CustomProviderSidebarRow: View {
             ProviderBadge(brand: config.brand, size: 24, customImage: customStore.logoImage(for: config))
 
             Text(config.displayName)
-                .font(AppFont.mono(13, weight: isSelected ? .semibold : .regular))
+                .font(AppFont.mono(14, weight: isSelected ? .medium : .regular))
                 .foregroundColor(colors.textPrimary)
 
             Spacer()
@@ -493,7 +495,7 @@ private struct LocalBackendSidebarRow: View {
                 .opacity(isInstalled ? 1 : 0.45)
 
             Text(backend.displayName)
-                .font(AppFont.mono(13, weight: isSelected ? .semibold : .regular))
+                .font(AppFont.mono(14, weight: isSelected ? .medium : .regular))
                 .foregroundColor(isInstalled ? colors.textPrimary : colors.textTertiary)
 
             Spacer()

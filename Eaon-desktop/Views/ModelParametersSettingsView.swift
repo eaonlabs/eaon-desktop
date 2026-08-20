@@ -146,8 +146,8 @@ struct ModelParametersSettingsView: View {
 
     private func sectionLabel(_ title: String) -> some View {
         Text(title.uppercased())
-            .font(AppFont.mono(11.5, weight: .semibold))
-            .tracking(0.4)
+            .font(AppFont.mono(12, weight: .semibold))
+            .tracking(0.6)
             .foregroundColor(colors.textTertiary)
             .padding(.horizontal, 4)
     }
@@ -189,8 +189,7 @@ struct ModelParametersSettingsView: View {
 
                 Toggle("", isOn: enabled)
                     .labelsHidden()
-                    .toggleStyle(.switch)
-                    .tint(AppearanceSettings.toggleTint)
+                    .toggleStyle(JanSwitchToggleStyle())
             }
 
             if enabled.wrappedValue {

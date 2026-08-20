@@ -294,7 +294,7 @@ struct LocalProviderSettingsView: View {
                     Text(manager.ollamaReachable
                          ? "No chat models pulled yet. Grab one below."
                          : "Start the server to see your models.")
-                        .font(AppFont.mono(13))
+                        .font(AppFont.mono(14))
                         .foregroundColor(colors.textSecondary)
                         .padding(.horizontal, 16)
                         .padding(.bottom, 16)
@@ -381,7 +381,7 @@ struct LocalProviderSettingsView: View {
                 HStack(spacing: 8) {
                     TextField("llama3.2", text: $pullNameInput)
                         .textFieldStyle(.plain)
-                        .font(AppFont.mono(13))
+                        .font(AppFont.mono(14))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
                         .background(colors.backgroundInput)
@@ -427,7 +427,7 @@ struct LocalProviderSettingsView: View {
                 HStack(spacing: 8) {
                     TextField(placeholder, text: $repoInput)
                         .textFieldStyle(.plain)
-                        .font(AppFont.mono(13))
+                        .font(AppFont.mono(14))
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
                         .background(colors.backgroundInput)
@@ -473,7 +473,7 @@ struct LocalProviderSettingsView: View {
 
                 if backendModels.isEmpty {
                     Text("Nothing added yet. Models you add appear in the model picker under \"On this Mac\".")
-                        .font(AppFont.mono(13))
+                        .font(AppFont.mono(14))
                         .foregroundColor(colors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                         .lineSpacing(3)
@@ -598,7 +598,7 @@ struct LocalProviderSettingsView: View {
 
                 ScrollView {
                     Text(log)
-                        .font(AppFont.mono(10.5))
+                        .font(AppFont.mono(10))
                         .foregroundColor(colors.textSecondary)
                         .textSelection(.enabled)
                         .frame(maxWidth: .infinity, alignment: .leading)

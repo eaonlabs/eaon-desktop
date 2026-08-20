@@ -89,8 +89,7 @@ struct ComputerControlSettingsView: View {
                 Spacer(minLength: 0)
                 Toggle("", isOn: $store.isEnabled)
                     .labelsHidden()
-                    .toggleStyle(.switch)
-                    .tint(AppearanceSettings.toggleTint)
+                    .toggleStyle(JanSwitchToggleStyle())
             }
             .padding(16)
         }
@@ -146,12 +145,12 @@ struct ComputerControlSettingsView: View {
                 }
                 if let tab = bridge.connectedTabDescription, bridge.isConnected {
                     Text(tab)
-                        .font(AppFont.sans(12.5))
+                        .font(AppFont.sans(12))
                         .foregroundColor(colors.textTertiary)
                         .lineLimit(1)
                 } else {
                     Text("Load the extension from the app's browser-extension folder (chrome://extensions → Developer mode → Load unpacked), then paste this token into it.")
-                        .font(AppFont.sans(12.5))
+                        .font(AppFont.sans(12))
                         .foregroundColor(colors.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
                         .lineSpacing(3)
@@ -210,7 +209,7 @@ struct ComputerControlSettingsView: View {
                         }
                     }
                     Text("Eaon asks for anything else it needs the first time it's needed.")
-                        .font(AppFont.sans(12.5))
+                        .font(AppFont.sans(12))
                         .foregroundColor(colors.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
                         .lineSpacing(3)
@@ -247,7 +246,7 @@ struct ComputerControlSettingsView: View {
                     .font(AppFont.mono(14, weight: .medium))
                     .foregroundColor(colors.textPrimary)
                 Text(detail)
-                    .font(AppFont.sans(12.5))
+                    .font(AppFont.sans(12))
                     .foregroundColor(colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
                     .lineSpacing(3)

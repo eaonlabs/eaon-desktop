@@ -31,6 +31,18 @@ struct QuickAssistantPanelView: View {
     @State private var modelPickerSearchText = ""
     @State private var showingAttachMenu = false
     @State private var isPlusHovered = false
+    @State private var isMicHovered = false
+    @Bindable private var voiceStore = EaonVoiceStore.shared
+    @Bindable private var voice = EaonVoiceController.shared
+
+    /// Mid-turn states all count as "busy listening" for the button's
+    /// purpose — tapping during any of them stops the turn.
+    private var isListening: Bool {
+        switch voice.state {
+        case .off: return false
+        default: return true
+        }
+    }
     @State private var isImageImporterPresented = false
     @State private var isFileImporterPresented = false
 
@@ -90,6 +102,8 @@ struct QuickAssistantPanelView: View {
         glassPanel(shape: Capsule(style: .continuous), intensity: .pill) {
             HStack(spacing: 10) {
                 plusButton
+
+                micButton
 
                 inputField
 
@@ -166,7 +180,7 @@ struct QuickAssistantPanelView: View {
                     }
                     if !turn.text.isEmpty {
                         Text(turn.text)
-                            .font(AppFont.sans(13))
+                            .font(AppFont.sans(14))
                             .foregroundStyle(colors.textPrimary)
                             .multilineTextAlignment(.leading)
                             .textSelection(.enabled)
@@ -181,7 +195,7 @@ struct QuickAssistantPanelView: View {
             }
         } else if turn.isError {
             Text(turn.text)
-                .font(AppFont.sans(12.5))
+                .font(AppFont.sans(12))
                 .foregroundStyle(colors.destructive)
                 .textSelection(.enabled)
         } else {
@@ -203,7 +217,7 @@ struct QuickAssistantPanelView: View {
             }
             if let notice = vm.composerNotice {
                 Text(notice)
-                    .font(AppFont.sans(11))
+                    .font(AppFont.sans(12))
                     .foregroundStyle(.white.opacity(0.75))
                     .padding(.horizontal, 14)
                     .transition(.opacity)
@@ -291,6 +305,35 @@ struct QuickAssistantPanelView: View {
     /// photo," "paste image," and the rest behave identically here. A
     /// small accent dot appears once something's queued, since the pill's
     /// 60pt height has no room to preview a thumbnail directly.
+    /// Dictation's manual trigger, and the only one: the wake word is
+    /// opt-in on top of this and mishears the name often enough that Voice
+    /// settings says so out loud. Lives here because this panel is already
+    /// the surface that shows "Listening…", the live transcript, and any
+    /// permission error — `toggleListening` opens it either way.
+    ///
+    /// Hidden unless voice is switched on, which it isn't by default: a
+    /// microphone button on a panel that can't hear you is worse than no
+    /// button, and this app asks for the microphone only when someone
+    /// deliberately turns voice on.
+    @ViewBuilder
+    private var micButton: some View {
+        if voiceStore.isEnabled {
+            Button {
+                EaonVoiceController.shared.toggleListening()
+            } label: {
+                Image(systemName: isListening ? "waveform" : "mic")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(isListening ? appearance.accentColor : .white.opacity(0.85))
+                    .iconHoverEffect(for: "mic")
+                    .frame(width: 26, height: 26)
+                    .background(Circle().fill(.white.opacity(isMicHovered ? 0.08 : 0)))
+            }
+            .buttonStyle(.plain)
+            .onHover { isMicHovered = $0 }
+            .help(isListening ? "Stop listening" : "Dictate")
+        }
+    }
+
     private var plusButton: some View {
         Button {
             showingAttachMenu = true
@@ -349,7 +392,7 @@ struct QuickAssistantPanelView: View {
             showingModelPicker = true
         } label: {
             Text(vm.modelDisplayName)
-                .font(AppFont.mono(11))
+                .font(AppFont.mono(12))
                 .foregroundStyle(.white.opacity(0.85))
                 .lineLimit(1)
                 .truncationMode(.middle)

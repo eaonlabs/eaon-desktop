@@ -201,7 +201,7 @@ struct DesktopCallConfirmationDialog: View {
                 .padding(.bottom, 14)
 
                 Text(call.summary)
-                    .font(AppFont.sans(15, weight: .semibold))
+                    .font(AppFont.sans(16, weight: .semibold))
                     .foregroundStyle(colors.textPrimary)
                     .fixedSize(horizontal: false, vertical: true)
                     .lineSpacing(3)
@@ -227,7 +227,7 @@ struct DesktopCallConfirmationDialog: View {
                 }
 
                 Text("This runs on your Mac with your permissions. It's real, and closing the app won't undo it, though deletions go to the Trash so they're recoverable. \"Allow for This Chat\" stops the asking for the rest of this conversation.")
-                    .font(AppFont.sans(13))
+                    .font(AppFont.sans(14))
                     .foregroundStyle(colors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .lineSpacing(3)
@@ -295,14 +295,14 @@ struct AutoModeConfirmationDialog: View {
                 .padding(.bottom, 12)
 
                 Text("In Auto mode, Eaon runs shell commands and writes files on your Mac **without asking each time**. It's faster for long coding tasks, but it means commands run the moment the agent decides to, including ones that overwrite or remove files.")
-                    .font(AppFont.sans(13))
+                    .font(AppFont.sans(14))
                     .foregroundStyle(colors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .lineSpacing(3)
                     .padding(.bottom, 10)
 
                 Text("Only use it for a task you trust, and keep an eye on what it does. Press ⇧⇥ anytime to drop back to Sandboxed.")
-                    .font(AppFont.sans(13))
+                    .font(AppFont.sans(14))
                     .foregroundStyle(colors.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
                     .lineSpacing(3)
@@ -522,7 +522,7 @@ struct AccentButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(AppFont.mono(13, weight: .semibold))
+                .font(AppFont.mono(14, weight: .semibold))
                 .foregroundStyle(isDisabled ? colors.textTertiary : AppearanceSettings.shared.onAccentColor)
                 .padding(.horizontal, 16)
                 .frame(height: ActionButtonMetrics.height)
@@ -570,7 +570,7 @@ struct QuietButton: View {
     var body: some View {
         Button(action: action) {
             Text(title)
-                .font(AppFont.mono(13, weight: .medium))
+                .font(AppFont.mono(14, weight: .medium))
                 .foregroundStyle(isDisabled ? colors.textTertiary : colors.textSecondary)
                 .padding(.horizontal, 16)
                 .frame(height: ActionButtonMetrics.height)
@@ -1061,7 +1061,7 @@ struct ShareChatSheet: View {
             HStack {
                 Spacer(minLength: 40)
                 Text(firstUserPrompt)
-                    .font(AppFont.sans(13))
+                    .font(AppFont.sans(14))
                     .foregroundStyle(colors.textPrimary)
                     .lineLimit(2)
                     .padding(.horizontal, 14)

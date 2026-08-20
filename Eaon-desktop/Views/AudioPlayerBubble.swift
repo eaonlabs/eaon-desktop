@@ -55,11 +55,11 @@ struct AudioPlayerBubble: View {
         HStack(spacing: 10) {
             playButton
             Text(Self.format(elapsed))
-                .font(AppFont.mono(11))
+                .font(AppFont.mono(12))
                 .foregroundStyle(colors.textTertiary)
             scrubber
             Text(Self.format(duration))
-                .font(AppFont.mono(11))
+                .font(AppFont.mono(12))
                 .foregroundStyle(colors.textTertiary)
             downloadButton
         }

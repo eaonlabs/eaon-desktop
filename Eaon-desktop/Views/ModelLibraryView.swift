@@ -216,7 +216,7 @@ struct ModelLibraryView: View {
                         .font(.system(size: 11))
                         .iconHoverEffect(for: "terminal")
                     Text("Install Local Runners")
-                        .font(AppFont.mono(11, weight: .medium))
+                        .font(AppFont.mono(12, weight: .medium))
                 }
             }
             .buttonStyle(.bordered)
@@ -261,7 +261,7 @@ struct ModelLibraryView: View {
                     text: $searchText
                 )
                 .textFieldStyle(.plain)
-                .font(AppFont.mono(13))
+                .font(AppFont.mono(14))
                 .onChange(of: searchText) { _, _ in runSearchIfNeeded() }
                 if isSearchingHF {
                     ProgressView().controlSize(.small)
@@ -464,7 +464,7 @@ struct ModelLibraryView: View {
             }
 
             Text("\(LocalAIManager.curatedOllamaModels.count) open models across every major maker. Type any other ollama.com/library name above to download it directly.")
-                .font(AppFont.sans(11))
+                .font(AppFont.sans(12))
                 .foregroundColor(colors.textTertiary)
                 .fixedSize(horizontal: false, vertical: true)
                 .lineSpacing(3)
@@ -490,16 +490,16 @@ struct ModelLibraryView: View {
             } label: {
                 HStack(spacing: 6) {
                     Text(category)
-                        .font(AppFont.mono(13, weight: .semibold))
+                        .font(AppFont.mono(14, weight: .semibold))
                         .foregroundColor(colors.textPrimary)
                     Text("\(models.count)")
-                        .font(AppFont.mono(11))
+                        .font(AppFont.mono(12))
                         .foregroundColor(colors.textTertiary)
                     // A real computed total, not a vibe — how much disk
                     // this whole category would cost if you downloaded
                     // every model in it.
                     Text("Σ \(Self.formatBytes(models.reduce(0) { $0 + $1.sizeBytes }))")
-                        .font(AppFont.mono(10.5))
+                        .font(AppFont.mono(10))
                         .foregroundColor(colors.textTertiary)
                     Spacer(minLength: 0)
                     Image(systemName: "chevron.right")
@@ -535,7 +535,7 @@ struct ModelLibraryView: View {
                 } label: {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(name)
-                            .font(AppFont.mono(13, weight: .semibold))
+                            .font(AppFont.mono(14, weight: .semibold))
                             .foregroundColor(colors.textPrimary)
                         HStack(spacing: 8) {
                             if manager.pullingModelName == name, let fraction = manager.pullFraction {
@@ -544,7 +544,7 @@ struct ModelLibraryView: View {
                                     .frame(width: 100)
                             }
                             Text(pullStatusText(for: name) ?? "From ollama.com/library")
-                                .font(AppFont.mono(11))
+                                .font(AppFont.mono(12))
                                 .foregroundColor(colors.textTertiary)
                                 .lineLimit(1)
                         }
@@ -593,13 +593,13 @@ struct ModelLibraryView: View {
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 8) {
                         Text(model.name)
-                            .font(AppFont.mono(13, weight: .semibold))
+                            .font(AppFont.mono(14, weight: .semibold))
                             .foregroundColor(colors.textPrimary)
                         if model.isNew {
                             NewModelBadge()
                         }
                         Text(model.approxSize)
-                            .font(AppFont.mono(10.5))
+                            .font(AppFont.mono(10))
                             .foregroundColor(colors.textTertiary)
                     }
                     HStack(spacing: 8) {
@@ -609,7 +609,7 @@ struct ModelLibraryView: View {
                                 .frame(width: 100)
                         }
                         Text(pullStatusText(for: model.name) ?? model.blurb)
-                            .font(AppFont.mono(11))
+                            .font(AppFont.mono(12))
                             .foregroundColor(colors.textSecondary)
                             .lineLimit(1)
                     }
@@ -689,17 +689,17 @@ struct ModelLibraryView: View {
                 HStack(spacing: 10) {
                     ProgressView().controlSize(.small)
                     Text("Loading popular models from Hugging Face…")
-                        .font(AppFont.mono(13))
+                        .font(AppFont.mono(14))
                         .foregroundColor(colors.textSecondary)
                 }
             } else if hfResults.isEmpty && !isSearchingHF && !isShowingTrending {
                 Text("No \(hfFormat.displayName) models matched. Try different words.")
-                    .font(AppFont.mono(13))
+                    .font(AppFont.mono(14))
                     .foregroundColor(colors.textSecondary)
             } else if !hfResults.isEmpty {
                 VStack(alignment: .leading, spacing: 8) {
                     Text(isShowingTrending ? "Trending on Hugging Face" : "Search results")
-                        .font(AppFont.mono(13, weight: .semibold))
+                        .font(AppFont.mono(14, weight: .semibold))
                         .foregroundColor(colors.textPrimary)
 
                     // One card per model (like the reference), not a single
@@ -713,7 +713,7 @@ struct ModelLibraryView: View {
                     Text(hfFormat == .gguf
                          ? "Hugging Face hosts hundreds of thousands of models, so search above for anything specific. Each card downloads the best single-file (GGUF) version by default. Open “Show variants” to pick a specific quantization."
                          : "Hugging Face hosts hundreds of thousands of models, so search above for anything specific. MLX is Apple's own framework and often runs faster than GGUF here. Models download automatically the first time you chat with them.")
-                        .font(AppFont.sans(11))
+                        .font(AppFont.sans(12))
                         .foregroundColor(colors.textTertiary)
                         .fixedSize(horizontal: false, vertical: true)
                         .lineSpacing(3)
@@ -731,7 +731,7 @@ struct ModelLibraryView: View {
                     switchFormat(to: candidate)
                 } label: {
                     Text(candidate.displayName)
-                        .font(AppFont.mono(11, weight: .medium))
+                        .font(AppFont.mono(12, weight: .medium))
                         .foregroundStyle(hfFormat == candidate ? colors.textPrimary : colors.textSecondary)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 5)
@@ -760,7 +760,7 @@ struct ModelLibraryView: View {
             HStack(alignment: .top, spacing: 12) {
                 Button { openHuggingFacePage(for: repo) } label: {
                     Text(name)
-                        .font(AppFont.mono(15, weight: .semibold))
+                        .font(AppFont.mono(16, weight: .semibold))
                         .foregroundColor(colors.textPrimary)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -794,7 +794,7 @@ struct ModelLibraryView: View {
             HStack(spacing: 14) {
                 if let author {
                     Text("By \(author)")
-                        .font(AppFont.mono(11))
+                        .font(AppFont.mono(12))
                         .foregroundColor(colors.textSecondary)
                 }
                 statChip(icon: "arrow.down.circle", text: Self.formatCount(result.downloads))
@@ -808,7 +808,7 @@ struct ModelLibraryView: View {
                     } label: {
                         HStack(spacing: 5) {
                             Text("Show variants")
-                                .font(AppFont.mono(11, weight: .medium))
+                                .font(AppFont.mono(12, weight: .medium))
                             Image(systemName: "chevron.down")
                                 .font(.system(size: 9, weight: .semibold))
                                 .rotationEffect(.degrees(isExpanded ? 180 : 0))
@@ -932,7 +932,7 @@ struct ModelLibraryView: View {
             Image(systemName: icon)
                 .font(.system(size: 10))
             Text(text)
-                .font(AppFont.mono(11))
+                .font(AppFont.mono(12))
         }
         .foregroundColor(colors.textTertiary)
     }
@@ -961,7 +961,7 @@ struct ModelLibraryView: View {
         if let options = ggufOptions[repo] {
             if options.isEmpty {
                 Text("No downloadable GGUF files found in this repo.")
-                    .font(AppFont.mono(11))
+                    .font(AppFont.mono(12))
                     .foregroundColor(colors.textTertiary)
                     .padding(.vertical, 6)
             } else {
@@ -976,7 +976,7 @@ struct ModelLibraryView: View {
             HStack(spacing: 8) {
                 ProgressView().controlSize(.small)
                 Text("Loading variants…")
-                    .font(AppFont.mono(11))
+                    .font(AppFont.mono(12))
                     .foregroundColor(colors.textTertiary)
             }
             .padding(.vertical, 8)
@@ -996,7 +996,7 @@ struct ModelLibraryView: View {
 
         return HStack(spacing: 8) {
             Text(Self.variantDisplayName(file))
-                .font(AppFont.mono(11.5, weight: .medium))
+                .font(AppFont.mono(12, weight: .medium))
                 .foregroundColor(colors.textPrimary)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -1011,7 +1011,7 @@ struct ModelLibraryView: View {
             Spacer(minLength: 8)
 
             Text(String(format: "%.1f GB", Double(file.size) / 1_000_000_000))
-                .font(AppFont.mono(11))
+                .font(AppFont.mono(12))
                 .foregroundColor(colors.textTertiary)
 
             Image(systemName: fits ? "checkmark" : "exclamationmark.triangle.fill")
@@ -1084,7 +1084,7 @@ struct ModelLibraryView: View {
                 .foregroundStyle(colors.textPrimary)
             if !manager.allLocalModels.isEmpty {
                 Text("\(manager.allLocalModels.count)")
-                    .font(AppFont.mono(11))
+                    .font(AppFont.mono(12))
                     .foregroundColor(colors.textTertiary)
             }
         }
@@ -1121,11 +1121,11 @@ struct ModelLibraryView: View {
     private func localRowInfo(_ record: LocalModelRecord) -> some View {
         let info = VStack(alignment: .leading, spacing: 2) {
             Text(record.displayName)
-                .font(AppFont.mono(13, weight: .medium))
+                .font(AppFont.mono(14, weight: .medium))
                 .foregroundColor(colors.textPrimary)
                 .lineLimit(1)
             Text("\(record.backend.displayName) · \(record.detail)")
-                .font(AppFont.mono(11))
+                .font(AppFont.mono(12))
                 .foregroundColor(colors.textTertiary)
                 .lineLimit(1)
             // Real specs straight from Ollama's own `/api/tags` for a model
@@ -1216,7 +1216,7 @@ struct ModelLibraryView: View {
                     .font(.system(size: 9))
                     .iconHoverEffect(for: "bubble.left.fill")
                 Text("Chat")
-                    .font(AppFont.mono(11, weight: .semibold))
+                    .font(AppFont.mono(12, weight: .semibold))
             }
             .foregroundStyle(colors.backgroundPrimary)
             .padding(.horizontal, 10)
@@ -1235,7 +1235,7 @@ struct ModelLibraryView: View {
                     .font(.system(size: 11))
                     .iconHoverEffect(for: "arrow.down.circle")
                 Text("Download")
-                    .font(AppFont.mono(11, weight: .medium))
+                    .font(AppFont.mono(12, weight: .medium))
             }
             .foregroundStyle(colors.textPrimary)
             .padding(.horizontal, 10)
@@ -1326,7 +1326,7 @@ struct ModelLibraryView: View {
                 Image(systemName: icon)
                     .font(.system(size: 9, weight: .semibold))
                 Text(estimate.headline)
-                    .font(AppFont.mono(10.5, weight: .medium))
+                    .font(AppFont.mono(10, weight: .medium))
             }
             .foregroundStyle(tint)
             .padding(.horizontal, 7)
@@ -1344,7 +1344,7 @@ struct ModelLibraryView: View {
 
         var body: some View {
             Text(text)
-                .font(AppFont.mono(9.5, weight: .semibold))
+                .font(AppFont.mono(10, weight: .semibold))
                 .foregroundStyle(color)
                 .padding(.horizontal, 6)
                 .padding(.vertical, 2)
@@ -1386,7 +1386,7 @@ struct ModelLibraryView: View {
             HStack(spacing: 4) {
                 ProgressView().controlSize(.mini)
                 Text("Checking fit…")
-                    .font(AppFont.mono(10.5))
+                    .font(AppFont.mono(10))
             }
             .foregroundStyle(colors.textTertiary)
         }
@@ -1425,7 +1425,7 @@ struct ModelLibraryView: View {
                     showingInstallGuide = true
                 }
                 .buttonStyle(.plain)
-                .font(AppFont.mono(11, weight: .medium))
+                .font(AppFont.mono(12, weight: .medium))
                 .foregroundColor(colors.link)
             }
             .padding(16)

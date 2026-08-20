@@ -123,7 +123,7 @@ private struct SkillRow: View {
             VStack(alignment: .leading, spacing: 2) {
                 HStack(spacing: 6) {
                     Text("/\(skill.name)")
-                        .font(AppFont.mono(13.5, weight: .semibold))
+                        .font(AppFont.mono(14, weight: .semibold))
                         .foregroundColor(skill.isEnabled ? colors.textPrimary : colors.textTertiary)
                     Text(sourceLabel)
                         .font(AppFont.mono(10, weight: .medium))
@@ -158,9 +158,7 @@ private struct SkillRow: View {
                 set: { _ in store.toggle(skill.id) }
             ))
             .labelsHidden()
-            .toggleStyle(.switch)
-            .controlSize(.small)
-            .tint(AppearanceSettings.toggleTint)
+            .toggleStyle(JanSwitchToggleStyle())
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
@@ -190,7 +188,7 @@ private struct AddSkillFromGitHubSheet: View {
 
             TextField("https://github.com/org/repo/blob/main/some-skill/SKILL.md", text: $url)
                 .textFieldStyle(.plain)
-                .font(AppFont.mono(13))
+                .font(AppFont.mono(14))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 9)
                 .background(colors.backgroundInput)
@@ -262,7 +260,7 @@ private struct AddSkillManuallySheet: View {
                     .font(AppFont.mono(12, weight: .medium))
                     .foregroundColor(colors.textSecondary)
                 TextEditor(text: $instructions)
-                    .font(AppFont.mono(12.5))
+                    .font(AppFont.mono(12))
                     .foregroundColor(colors.textPrimary)
                     .scrollContentBackground(.hidden)
                     .frame(height: 160)
@@ -299,7 +297,7 @@ private struct AddSkillManuallySheet: View {
                 .foregroundColor(colors.textSecondary)
             TextField(placeholder, text: text)
                 .textFieldStyle(.plain)
-                .font(AppFont.mono(13))
+                .font(AppFont.mono(14))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 9)
                 .background(colors.backgroundInput)
@@ -366,14 +364,14 @@ private struct ImportLocalSkillsSheet: View {
                                             .font(AppFont.mono(14, weight: .semibold))
                                             .foregroundColor(colors.textPrimary)
                                         Text(candidate.parsed.summary)
-                                            .font(AppFont.sans(11.5))
+                                            .font(AppFont.sans(12))
                                             .foregroundColor(colors.textSecondary)
                                             .lineLimit(2)
                                     }
                                     Spacer(minLength: 8)
                                     if importedPaths.contains(candidate.path) {
                                         Text("Imported")
-                                            .font(AppFont.mono(11, weight: .medium))
+                                            .font(AppFont.mono(12, weight: .medium))
                                             .foregroundColor(colors.textTertiary)
                                     } else {
                                         Button("Import") {

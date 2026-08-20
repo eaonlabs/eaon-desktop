@@ -114,8 +114,7 @@ struct TrialProviderSettingsView: View {
                         get: { !modelPrefs.isProviderDisabled(.trial) },
                         set: { _ in chatViewModel.toggleProvider(.trial) }
                     ))
-                    .toggleStyle(.switch)
-                    .tint(AppearanceSettings.toggleTint)
+                    .toggleStyle(JanSwitchToggleStyle())
                     .help(modelPrefs.isProviderDisabled(.trial) ? "Turn the trial back on" : "Turn the trial off — every model it serves stops working")
                 }
             }
@@ -133,14 +132,14 @@ struct TrialProviderSettingsView: View {
                         .foregroundColor(colors.textPrimary)
                     if trial.isActive {
                         Text("\(trial.daysLeft) day\(trial.daysLeft == 1 ? "" : "s") left")
-                            .font(AppFont.mono(10.5, weight: .semibold))
+                            .font(AppFont.mono(10, weight: .semibold))
                             .foregroundColor(Color(hex: "#34C759"))
                             .padding(.horizontal, 7)
                             .padding(.vertical, 3)
                             .background(Capsule().fill(Color(hex: "#34C759").opacity(0.14)))
                     } else if trial.isExpired {
                         Text("Ended")
-                            .font(AppFont.mono(10.5, weight: .semibold))
+                            .font(AppFont.mono(10, weight: .semibold))
                             .foregroundColor(colors.textTertiary)
                             .padding(.horizontal, 7)
                             .padding(.vertical, 3)
@@ -185,7 +184,7 @@ struct TrialProviderSettingsView: View {
 
                     if let error = trial.lastError {
                         Text(error)
-                            .font(AppFont.sans(11.5))
+                            .font(AppFont.sans(12))
                             .foregroundColor(colors.destructive)
                             .fixedSize(horizontal: false, vertical: true)
                             .lineSpacing(3)
@@ -240,7 +239,7 @@ struct TrialProviderSettingsView: View {
                     HStack(spacing: 10) {
                         ProgressView().controlSize(.small)
                         Text("Loading models…")
-                            .font(AppFont.mono(13))
+                            .font(AppFont.mono(14))
                             .foregroundColor(colors.textSecondary)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -248,7 +247,7 @@ struct TrialProviderSettingsView: View {
                     .padding(.bottom, 16)
                 } else if visibleModels.isEmpty {
                     Text("No models available.")
-                        .font(AppFont.mono(13))
+                        .font(AppFont.mono(14))
                         .foregroundColor(colors.textSecondary)
                         .padding(.horizontal, 16)
                         .padding(.bottom, 16)

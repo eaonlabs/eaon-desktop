@@ -55,13 +55,12 @@ struct ModelPickerMenu: View {
         } label: {
             HStack(spacing: 8) {
                 if !viewModel.selectedModel.isEmpty {
-                    // The logo alone only ever says who *made* the model —
-                    // the same Meta/DeepSeek/etc. mark shows whether that
-                    // model is running locally (Ollama/llama.cpp/MLX) or
-                    // over Aqua/a BYOK connection like Groq. A dot answers
-                    // the question the logo can't: is this staying on this
-                    // Mac, or leaving it.
-                    BrandLogoView(brand: ModelCatalog.brand(for: viewModel.selectedModel), size: 20)
+                    // The same soft-tinted-circle badge the dropdown's own
+                    // provider headers use (see `ProviderBadge`) — the
+                    // closed pill and the open list read as one component
+                    // wearing two states instead of two different pieces of
+                    // chrome that just happen to sit near each other.
+                    ProviderBadge(brand: ModelCatalog.brand(for: viewModel.selectedModel), size: 22)
                         .overlay(alignment: .bottomTrailing) {
                             if LocalAIManager.shared.owns(viewModel.selectedModel) {
                                 Circle()
@@ -84,9 +83,9 @@ struct ModelPickerMenu: View {
                     .foregroundStyle(colors.textTertiary)
                     .iconHoverEffect(for: "chevron.up.chevron.down")
             }
-            .padding(.leading, viewModel.selectedModel.isEmpty ? 14 : 8)
+            .padding(.leading, viewModel.selectedModel.isEmpty ? 14 : 6)
             .padding(.trailing, 12)
-            .padding(.vertical, 7)
+            .padding(.vertical, 6)
             .background(
                 Capsule(style: .continuous)
                     .fill(isHovered ? colors.backgroundInputSecondary : colors.backgroundElevated)
@@ -235,9 +234,8 @@ struct ModelPickerPopoverContent: View {
     var body: some View {
         VStack(spacing: 0) {
             searchBar
-                .padding(.horizontal, 12)
-                .padding(.top, 12)
-                .padding(.bottom, 8)
+
+            Divider().overlay(colors.borderSubtle)
 
             if viewModel.isLoadingModels {
                 loadingState
@@ -251,7 +249,7 @@ struct ModelPickerPopoverContent: View {
                 modelList
             }
         }
-        .frame(width: 340, height: 480)
+        .frame(width: 340, height: Self.popoverHeight)
         .background(colors.backgroundPopover)
         .presentationBackground(colors.backgroundPopover)
         .onAppear {
@@ -263,30 +261,37 @@ struct ModelPickerPopoverContent: View {
     }
 
     private var searchBar: some View {
-        HStack(spacing: 8) {
-            Image(systemName: "magnifyingglass")
-                .font(.system(size: 13))
-                .foregroundStyle(colors.textTertiary)
-            TextField("Search models...", text: $searchText)
-                .textFieldStyle(.plain)
-                .font(AppFont.mono(14))
-                .focused($isSearchFocused)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .background(colors.backgroundInputSecondary)
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).stroke(colors.borderSubtle, lineWidth: 1))
+        // Flush against the popover's own edges, not a separate pill inset
+        // inside it — no distinct fill, no border, no corner radius of its
+        // own. It's the top of the box, not a control floating inside the
+        // box, so the popover's own (system-provided) top corners are what
+        // shape it; a Divider below is the only thing separating it from
+        // the list. No leading glass icon either — the placeholder text
+        // alone already reads as search.
+        TextField("Search models...", text: $searchText)
+            .textFieldStyle(.plain)
+            .font(AppFont.mono(14))
+            .focused($isSearchFocused)
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
     }
 
     private var modelList: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
-                // Pinned favorites section
+                // Pinned favorites section — deliberately NOT a card: these
+                // are pulled from across every provider, so there's no
+                // single brand color to frame the box in, and a card with
+                // no accent would look like a mistake next to the ones that
+                // have one right below it.
                 if !favoriteModels.isEmpty {
                     FavoritesSectionHeader()
                     ForEach(favoriteModels) { model in
-                        MinimalModelRow(model: model, isSelected: viewModel.selectedModel == model.id) {
+                        MinimalModelRow(
+                            model: model,
+                            isSelected: viewModel.selectedModel == model.id,
+                            accent: ModelCatalog.brand(for: model.id).accentColor
+                        ) {
                             viewModel.selectModel(model.id)
                             isExpanded = false
                         }
@@ -294,11 +299,16 @@ struct ModelPickerPopoverContent: View {
                     Divider().padding(.horizontal, 8).padding(.vertical, 6)
                 }
 
-                // Models running on this Mac (Ollama / llama.cpp / MLX)
+                // Models running on this Mac (Ollama / llama.cpp / MLX) —
+                // same reasoning as Favorites: a mixed bag, no single card.
                 if !localModels.isEmpty {
                     LocalSectionHeader()
                     ForEach(localModels) { model in
-                        MinimalModelRow(model: model, isSelected: viewModel.selectedModel == model.id) {
+                        MinimalModelRow(
+                            model: model,
+                            isSelected: viewModel.selectedModel == model.id,
+                            accent: ModelCatalog.brand(for: model.id).accentColor
+                        ) {
                             viewModel.selectModel(model.id)
                             isExpanded = false
                         }
@@ -306,48 +316,73 @@ struct ModelPickerPopoverContent: View {
                     Divider().padding(.horizontal, 8).padding(.vertical, 6)
                 }
 
-                // One group per real connection — its own logo, its own
+                // One card per real connection — its own badge, its own
                 // name, a gear straight to its Settings page, and every
                 // model it actually serves (regardless of who made it).
-                // Clicking the header itself (not the gear) collapses it —
-                // a pure browsing preference, persisted so it stays tidied
-                // away next time too.
+                // Framed as a distinct container (not just a heading over a
+                // run of rows) so "these all belong to this one connection"
+                // is a shape you see, not a boundary you infer from a
+                // hairline — the more that matters the more providers are
+                // active at once. Clicking the header itself (not the gear)
+                // collapses it, persisted so it stays tidied away next time.
                 ForEach(providerGroups) { group in
                     let isCollapsed = modelPrefs.isProviderGroupCollapsed(group.key)
-                    ProviderGroupHeader(
-                        brand: group.brand,
-                        title: group.title,
-                        isEnabled: group.isEnabled,
-                        isCollapsed: isCollapsed,
-                        customLogo: group.customLogo,
-                        onToggleCollapsed: { modelPrefs.toggleProviderGroupCollapsed(group.key) },
-                        onOpenSettings: {
-                            isExpanded = false
-                            onOpenProviderSettings(group.settingsSelectionId)
-                        }
-                    )
-                    if !isCollapsed {
-                        if !group.isEnabled {
-                            Text("Turned off. Click the gear to turn it back on.")
-                                .font(AppFont.mono(12))
-                                .foregroundStyle(colors.textTertiary)
-                                .padding(.horizontal, 8)
-                                .padding(.bottom, 8)
-                        } else if group.models.isEmpty {
-                            Text("No models configured yet.")
-                                .font(AppFont.mono(12))
-                                .foregroundStyle(colors.textTertiary)
-                                .padding(.horizontal, 8)
-                                .padding(.bottom, 8)
-                        } else {
-                            ForEach(group.models) { model in
-                                MinimalModelRow(model: model, isSelected: viewModel.selectedModel == model.id) {
-                                    viewModel.selectModel(model.id)
-                                    isExpanded = false
+                    VStack(alignment: .leading, spacing: 2) {
+                        ProviderGroupHeader(
+                            brand: group.brand,
+                            title: group.title,
+                            isEnabled: group.isEnabled,
+                            isCollapsed: isCollapsed,
+                            customLogo: group.customLogo,
+                            onToggleCollapsed: { modelPrefs.toggleProviderGroupCollapsed(group.key) },
+                            onOpenSettings: {
+                                isExpanded = false
+                                onOpenProviderSettings(group.settingsSelectionId)
+                            }
+                        )
+                        if !isCollapsed {
+                            if !group.isEnabled {
+                                Text("Turned off. Click the gear to turn it back on.")
+                                    .font(AppFont.mono(12))
+                                    .foregroundStyle(colors.textTertiary)
+                                    .padding(.horizontal, 10)
+                                    .padding(.bottom, 4)
+                            } else if group.models.isEmpty {
+                                Text("No models configured yet.")
+                                    .font(AppFont.mono(12))
+                                    .foregroundStyle(colors.textTertiary)
+                                    .padding(.horizontal, 10)
+                                    .padding(.bottom, 4)
+                            } else {
+                                ForEach(group.models) { model in
+                                    // Tinted in the CONNECTION's own accent
+                                    // (Groq's red, not each model's maker) —
+                                    // it's the card's colour, so the
+                                    // selected row inside it reads as
+                                    // "highlighted within this card" rather
+                                    // than an unrelated hue appearing.
+                                    MinimalModelRow(
+                                        model: model,
+                                        isSelected: viewModel.selectedModel == model.id,
+                                        accent: group.brand.accentColor
+                                    ) {
+                                        viewModel.selectModel(model.id)
+                                        isExpanded = false
+                                    }
                                 }
                             }
                         }
                     }
+                    .padding(8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .fill(colors.backgroundSubtle.opacity(0.6))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 14, style: .continuous)
+                            .stroke(colors.borderSubtle, lineWidth: 1)
+                    )
+                    .padding(.bottom, 10)
                 }
 
                 // Image-generation models — a genuinely different
@@ -359,7 +394,11 @@ struct ModelPickerPopoverContent: View {
                     Divider().padding(.horizontal, 8).padding(.vertical, 6)
                     ImageGenerationSectionHeader()
                     ForEach(viewModel.imageModels) { model in
-                        MinimalModelRow(model: model, isSelected: viewModel.selectedModel == model.id) {
+                        MinimalModelRow(
+                            model: model,
+                            isSelected: viewModel.selectedModel == model.id,
+                            accent: ModelCatalog.brand(for: model.id).accentColor
+                        ) {
                             viewModel.selectModel(model.id)
                             isExpanded = false
                         }
@@ -374,14 +413,14 @@ struct ModelPickerPopoverContent: View {
     private var loadingState: some View {
         VStack(spacing: 12) {
             ProgressView().controlSize(.small)
-            Text("Loading models…").font(AppFont.mono(13)).foregroundStyle(colors.textSecondary)
+            Text("Loading models…").font(AppFont.mono(14)).foregroundStyle(colors.textSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func errorState(_ message: String) -> some View {
         VStack(spacing: 10) {
-            Text("Could not load models").font(AppFont.mono(13, weight: .semibold))
+            Text("Could not load models").font(AppFont.mono(14, weight: .semibold))
             Text(message).font(AppFont.mono(12)).foregroundStyle(colors.textSecondary)
                 .multilineTextAlignment(.center).padding(.horizontal, 24)
             AccentButton(title: "Retry") { Task { await viewModel.fetchModels() } }
@@ -390,17 +429,33 @@ struct ModelPickerPopoverContent: View {
     }
 
     private var emptyCatalogState: some View {
-        Text("No models available").font(AppFont.mono(13)).foregroundStyle(colors.textSecondary)
+        Text("No models available").font(AppFont.mono(14)).foregroundStyle(colors.textSecondary)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var emptyState: some View {
-        Text("No models match your search").font(AppFont.mono(13)).foregroundStyle(colors.textSecondary)
+        Text("No models match your search").font(AppFont.mono(14)).foregroundStyle(colors.textSecondary)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func modelNameSort(_ lhs: APIModel, _ rhs: APIModel) -> Bool {
         (lhs.name ?? lhs.id).localizedCaseInsensitiveCompare(rhs.name ?? rhs.id) == .orderedAscending
+    }
+
+    /// How tall the popover opens. It used to be a flat 480pt, which was
+    /// fine for one or two connections and cramped the moment several were
+    /// active — five local models plus two provider cards already filled it
+    /// with nothing else visible, forcing a scroll to see connections that
+    /// hadn't even loaded on screen yet.
+    ///
+    /// Scaled off the actual screen instead of a second fixed number, so it
+    /// keeps making sense on a laptop panel and a large external display
+    /// alike, and floored/capped so it's never cramped on a small screen or
+    /// so tall on a big one that it reads as a separate window rather than
+    /// a popover anchored to the model button.
+    private static var popoverHeight: CGFloat {
+        let visibleHeight = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame.height ?? 900
+        return min(max(visibleHeight * 0.72, 480), 760)
     }
 }
 
@@ -412,7 +467,7 @@ private struct FavoritesSectionHeader: View {
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(Color.yellow)
             Text("Favorites")
-                .font(AppFont.mono(13, weight: .semibold))
+                .font(AppFont.mono(14, weight: .semibold))
                 .foregroundStyle(colors.textSecondary)
             Spacer(minLength: 0)
         }
@@ -430,7 +485,7 @@ private struct ImageGenerationSectionHeader: View {
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(colors.textSecondary)
             Text("Image Generation")
-                .font(AppFont.mono(13, weight: .semibold))
+                .font(AppFont.mono(14, weight: .semibold))
                 .foregroundStyle(colors.textSecondary)
             Spacer(minLength: 0)
         }
@@ -449,7 +504,7 @@ private struct LocalSectionHeader: View {
                 .font(.system(size: 11, weight: .semibold))
                 .foregroundStyle(colors.textSecondary)
             Text("On this Mac")
-                .font(AppFont.mono(13, weight: .semibold))
+                .font(AppFont.mono(14, weight: .semibold))
                 .foregroundStyle(colors.textSecondary)
             Spacer(minLength: 0)
         }
@@ -478,26 +533,35 @@ private struct ProviderGroupHeader: View {
     let onToggleCollapsed: () -> Void
     let onOpenSettings: () -> Void
 
+    @State private var isHovered = false
+
     var body: some View {
         ZStack(alignment: .trailing) {
             Button(action: onToggleCollapsed) {
-                HStack(spacing: 8) {
-                    ProviderBadge(brand: brand, size: 22, customImage: customLogo)
+                HStack(spacing: 10) {
+                    ProviderBadge(brand: brand, size: 26, customImage: customLogo)
                         .opacity(isEnabled ? 1 : 0.45)
 
                     Text(title)
                         .font(AppFont.mono(14, weight: .semibold))
                         .foregroundStyle(isEnabled ? colors.textPrimary : colors.textTertiary)
 
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(colors.textTertiary)
-                        .rotationEffect(.degrees(isCollapsed ? 0 : 90))
-                        .iconHoverEffect(for: "chevron.right")
+                    // Hidden until the row is hovered — the reference this
+                    // was matched against has no visible affordance here at
+                    // all, and a chevron sitting permanently between the
+                    // name and the gear read as a second control competing
+                    // with it. Collapsing is still one click away; it just
+                    // doesn't have to announce itself all the time.
+                    if isHovered {
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(colors.textTertiary)
+                            .rotationEffect(.degrees(isCollapsed ? 0 : 90))
+                    }
 
                     Spacer(minLength: 0)
                 }
-                .padding(.trailing, 30)
+                .padding(.trailing, 36)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -505,19 +569,23 @@ private struct ProviderGroupHeader: View {
 
             Button(action: onOpenSettings) {
                 Image(systemName: "gearshape.fill")
-                    .font(.system(size: 11, weight: .medium))
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundStyle(colors.textSecondary)
                     .iconHoverEffect(for: "gearshape.fill")
-                    .frame(width: 22, height: 22)
-                    .background(colors.backgroundSubtle)
-                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .frame(width: 28, height: 28)
+                    .background(colors.backgroundInputSecondary)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
             }
             .buttonStyle(.plain)
             .help("\(title) settings")
         }
-        .padding(.horizontal, 8)
-        .padding(.top, 14)
+        // Now sits inside the provider's own card, so it only needs the
+        // small inset that separates it from the card's edge — the old
+        // 14pt top gap was doing separation work the card now does instead.
+        .padding(.horizontal, 6)
+        .padding(.top, 4)
         .padding(.bottom, 6)
+        .onHover { isHovered = $0 }
     }
 }
 
@@ -526,10 +594,16 @@ private struct MinimalModelRow: View {
     @Bindable private var modelPrefs = ModelPreferencesStore.shared
     let model: APIModel
     let isSelected: Bool
+    /// What tints the selected state — the connection's own brand color
+    /// (Groq's red, not the model maker's) so the highlight reads as
+    /// belonging to the card it's sitting in rather than an unrelated hue
+    /// showing up. Falls back to a plain accent for the plain callers below.
+    var accent: Color? = nil
     let onSelect: () -> Void
 
     @State private var isHovered = false
     private var isFav: Bool { modelPrefs.isFavorite(model.id) }
+    private var tint: Color { accent ?? AppearanceSettings.shared.accentColor }
 
     private var displayName: String {
         modelPrefs.nickname(for: model.id)
@@ -539,19 +613,20 @@ private struct MinimalModelRow: View {
     var body: some View {
         ZStack(alignment: .trailing) {
             Button(action: onSelect) {
-                HStack(spacing: 10) {
-                    RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(colors.backgroundSubtle)
-                        .frame(width: 28, height: 28)
-                        .overlay { BrandLogoView(brand: ModelCatalog.brand(for: model.id), size: 16) }
+                HStack(spacing: 8) {
+                    // No per-model logo tile: inside a provider's own card
+                    // that mark is already shown once, in the header — a
+                    // second copy on every row is the same information
+                    // charged twice, and it was crowding out the long ids
+                    // ("…maverick-17b-128e-instruct") that are the thing
+                    // actually distinguishing one row from the next.
+                    Text(displayName)
+                        .font(AppFont.mono(14))
+                        .foregroundStyle(isSelected ? tint : colors.textPrimary)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
 
-                    HStack(spacing: 6) {
-                        Text(displayName)
-                            .font(AppFont.mono(14))
-                            .foregroundStyle(colors.textPrimary)
-                            .lineLimit(1)
-                        if ModelCatalog.supportsVision(for: model.id) { VisionIndicatorIcon(size: 13) }
-                    }
+                    if ModelCatalog.supportsVision(for: model.id) { VisionIndicatorIcon(size: 12) }
 
                     Spacer(minLength: 4)
 
@@ -564,33 +639,61 @@ private struct MinimalModelRow: View {
                             .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
                     }
 
-                    // reserve space for star button
-                    Color.clear.frame(width: 24)
+                    // Reserved so the trailing icons fading in on hover
+                    // never reflow the name column.
+                    Color.clear.frame(width: isFav ? 46 : 24)
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 7)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
                 .background(
-                    isSelected ? colors.backgroundSelected : (isHovered ? colors.backgroundHover : .clear)
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .fill(isSelected ? tint.opacity(0.14) : (isHovered ? colors.backgroundHover : .clear))
                 )
-                .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
-                .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .stroke(isSelected ? tint.opacity(0.55) : .clear, lineWidth: 1)
+                )
+                .contentShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
             }
             .buttonStyle(.plain)
 
-            // Star button — always present when hovered or already favorited
-            if isHovered || isFav {
-                Button {
-                    modelPrefs.toggleFavorite(model.id)
-                } label: {
-                    Image(systemName: isFav ? "star.fill" : "star")
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundStyle(isFav ? Color.yellow : colors.textTertiary)
-                        .iconHoverEffect(for: "star")
-                        .frame(width: 24, height: 24)
+            HStack(spacing: 2) {
+                // Shown whenever it's on, not just on hover — a favourite
+                // you can't see isn't doing its job.
+                if isHovered || isFav {
+                    Button {
+                        modelPrefs.toggleFavorite(model.id)
+                    } label: {
+                        Image(systemName: isFav ? "star.fill" : "star")
+                            .font(.system(size: 11.5, weight: .medium))
+                            .foregroundStyle(isFav ? Color.yellow : colors.textTertiary)
+                            .frame(width: 22, height: 22)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(isFav ? "Remove from favourites" : "Add to favourites")
                 }
-                .buttonStyle(.plain)
-                .padding(.trailing, 10)
+
+                // The list's own housekeeping: most people use a handful of
+                // models out of a provider's whole catalog, and this is how
+                // the rest stop being scrolled past every time. Restoring
+                // one lives in Settings → Models, named in the tooltip so
+                // hiding never feels like a one-way door.
+                if isHovered {
+                    Button {
+                        modelPrefs.hideModel(model.id)
+                    } label: {
+                        Image(systemName: "eye")
+                            .font(.system(size: 11.5, weight: .medium))
+                            .foregroundStyle(colors.textTertiary)
+                            .frame(width: 22, height: 22)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("Hide this model — bring it back in Settings → Models")
+                }
             }
+            .padding(.trailing, 6)
         }
         .onHover { isHovered = $0 }
     }

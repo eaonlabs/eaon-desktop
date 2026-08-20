@@ -55,7 +55,7 @@ struct EaonCodeHomeView: View {
                 Image(systemName: "terminal.fill")
                     .font(.system(size: 12, weight: .semibold))
                 Text("Eaon Code")
-                    .font(AppFont.mono(13, weight: .semibold))
+                    .font(AppFont.mono(14, weight: .semibold))
             }
             .foregroundStyle(colors.textSecondary)
 
@@ -81,7 +81,7 @@ struct EaonCodeHomeView: View {
                 .font(AppFont.mono(18, weight: .bold))
                 .foregroundStyle(.white)
             Text("This needs a Node.js install and a built eaon-cli (dist/cli.js). Run `npm run build` in the eaon-cli project first.")
-                .font(AppFont.sans(13))
+                .font(AppFont.sans(14))
                 .foregroundStyle(.white.opacity(0.6))
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 380)

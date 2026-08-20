@@ -35,10 +35,10 @@ struct WorkContextBar: View {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .font(.system(size: 10))
                     Text(notice)
-                        .font(AppFont.sans(11))
+                        .font(AppFont.sans(12))
                     Button("Dismiss") { store.notice = nil }
                         .buttonStyle(.plain)
-                        .font(AppFont.sans(11, weight: .medium))
+                        .font(AppFont.sans(12, weight: .medium))
                         .foregroundStyle(colors.textSecondary)
                 }
                 .foregroundStyle(Color(hex: "#F59E0B"))

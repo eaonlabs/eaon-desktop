@@ -68,12 +68,12 @@ struct EaonCLIInfoSheet: View {
                         .foregroundStyle(colors.textPrimary)
                     if let version = status?.version {
                         Text("v\(version)")
-                            .font(AppFont.mono(11, weight: .medium))
+                            .font(AppFont.mono(12, weight: .medium))
                             .foregroundStyle(colors.textTertiary)
                     }
                     if let newer = status?.updateAvailable {
                         Text("v\(newer) available")
-                            .font(AppFont.mono(10, weight: .semibold))
+                            .font(AppFont.mono(12, weight: .semibold))
                             .foregroundStyle(Color(hex: "#3B82F6"))
                             .padding(.horizontal, 6)
                             .padding(.vertical, 2)
@@ -81,7 +81,7 @@ struct EaonCLIInfoSheet: View {
                     }
                 }
                 Text("Eaon in your terminal, for any model, local or hosted.")
-                    .font(AppFont.sans(11))
+                    .font(AppFont.sans(12))
                     .foregroundStyle(colors.textTertiary)
             }
             Spacer()
@@ -107,7 +107,7 @@ struct EaonCLIInfoSheet: View {
         if isLoading {
             HStack(spacing: 5) {
                 ProgressView().controlSize(.mini)
-                Text("Checking…").font(AppFont.mono(10.5))
+                Text("Checking…").font(AppFont.mono(10))
             }
             .foregroundStyle(colors.textTertiary)
         } else {
@@ -116,7 +116,7 @@ struct EaonCLIInfoSheet: View {
                 Image(systemName: ready ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
                     .font(.system(size: 9, weight: .semibold))
                 Text(ready ? "Ready" : "Needs setup")
-                    .font(AppFont.mono(10.5, weight: .medium))
+                    .font(AppFont.mono(10, weight: .medium))
             }
             .foregroundStyle(ready ? Color(hex: "#34C759") : Color(hex: "#F59E0B"))
             .padding(.horizontal, 7)
@@ -131,7 +131,7 @@ struct EaonCLIInfoSheet: View {
         SettingsCard {
             VStack(alignment: .leading, spacing: 8) {
                 Text("What it is")
-                    .font(AppFont.mono(13, weight: .semibold))
+                    .font(AppFont.mono(14, weight: .semibold))
                     .foregroundStyle(colors.textPrimary)
                 Text("A real terminal agent that does agentic coding, Eaon Claw, and plain chat. It runs on any model you have, whether that's a local Ollama model or a hosted/BYOK key. It's the same engine behind Eaon Code inside this app, and it also runs standalone in any terminal window. Works on macOS, Linux, and Windows.")
                     .font(AppFont.sans(12))
@@ -150,7 +150,7 @@ struct EaonCLIInfoSheet: View {
         SettingsCard {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Status")
-                    .font(AppFont.mono(13, weight: .semibold))
+                    .font(AppFont.mono(14, weight: .semibold))
                     .foregroundStyle(colors.textPrimary)
 
                 statusLine(
@@ -170,7 +170,7 @@ struct EaonCLIInfoSheet: View {
 
                 if status?.isReady == true {
                     Text("Eaon Code (in the mode switcher) will launch this automatically.")
-                        .font(AppFont.sans(11))
+                        .font(AppFont.sans(12))
                         .foregroundStyle(colors.textTertiary)
                 }
             }
@@ -189,7 +189,7 @@ struct EaonCLIInfoSheet: View {
                     .font(AppFont.mono(12, weight: .medium))
                     .foregroundStyle(colors.textPrimary)
                 Text(detail)
-                    .font(AppFont.mono(10.5))
+                    .font(AppFont.mono(10))
                     .foregroundStyle(colors.textTertiary)
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -205,7 +205,7 @@ struct EaonCLIInfoSheet: View {
         SettingsCard {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Install Eaon CLI")
-                    .font(AppFont.mono(13, weight: .semibold))
+                    .font(AppFont.mono(14, weight: .semibold))
                     .foregroundStyle(colors.textPrimary)
                 Text("A ready-to-run copy ships inside this app. Installing copies it to \(displayPath(EaonCLILauncher.installedDirectory)) and links a global `eaon` command. No download, no npm, and it works offline.")
                     .font(AppFont.sans(12))
@@ -215,7 +215,7 @@ struct EaonCLIInfoSheet: View {
 
                 if let installErrorMessage {
                     Text(installErrorMessage)
-                        .font(AppFont.sans(11))
+                        .font(AppFont.sans(12))
                         .foregroundStyle(Color(hex: "#F59E0B"))
                         .fixedSize(horizontal: false, vertical: true)
                         .lineSpacing(3)
@@ -242,7 +242,7 @@ struct EaonCLIInfoSheet: View {
                 }
 
                 Text("If `eaon` doesn't run in a new terminal afterward, add `~/.local/bin` to your PATH. macOS shells don't include it by default.")
-                    .font(AppFont.sans(10.5))
+                    .font(AppFont.sans(10))
                     .foregroundStyle(colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
                     .lineSpacing(3)
@@ -277,7 +277,7 @@ struct EaonCLIInfoSheet: View {
         SettingsCard {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Update available")
-                    .font(AppFont.mono(13, weight: .semibold))
+                    .font(AppFont.mono(14, weight: .semibold))
                     .foregroundStyle(colors.textPrimary)
                 if let installed = status?.version, let newer = status?.updateAvailable {
                     Text("This app now bundles Eaon CLI v\(newer), and you have v\(installed) installed. Updating replaces the program files at \(displayPath(EaonCLILauncher.installedDirectory)); your config and sessions in \(displayPath(EaonCLILauncher.configDirectory)) are untouched.")
@@ -289,7 +289,7 @@ struct EaonCLIInfoSheet: View {
 
                 if let updateErrorMessage {
                     Text(updateErrorMessage)
-                        .font(AppFont.sans(11))
+                        .font(AppFont.sans(12))
                         .foregroundStyle(Color(hex: "#F59E0B"))
                         .fixedSize(horizontal: false, vertical: true)
                         .lineSpacing(3)
@@ -341,7 +341,7 @@ struct EaonCLIInfoSheet: View {
         SettingsCard {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Run it in any terminal")
-                    .font(AppFont.mono(13, weight: .semibold))
+                    .font(AppFont.mono(14, weight: .semibold))
                     .foregroundStyle(colors.textPrimary)
                 Text("Build it once and link a global `eaon` command, then run `eaon` from any project folder, outside this app.")
                     .font(AppFont.sans(12))
@@ -355,7 +355,7 @@ struct EaonCLIInfoSheet: View {
                 commandRow(id: "link", command: "npm link")
 
                 Text("After that, just type `eaon` in any terminal. Run `eaon --help` for every flag.")
-                    .font(AppFont.sans(11))
+                    .font(AppFont.sans(12))
                     .foregroundStyle(colors.textTertiary)
                     .fixedSize(horizontal: false, vertical: true)
                     .lineSpacing(3)
@@ -400,7 +400,7 @@ struct EaonCLIInfoSheet: View {
         SettingsCard {
             VStack(alignment: .leading, spacing: 10) {
                 Text("Configuration")
-                    .font(AppFont.mono(13, weight: .semibold))
+                    .font(AppFont.mono(14, weight: .semibold))
                     .foregroundStyle(colors.textPrimary)
                 Text("The CLI keeps its own settings file. It holds your Eaon and BYOK keys, Ollama URL, custom providers, default mode, permission mode, and custom instructions. Edit it directly to control how the CLI behaves.")
                     .font(AppFont.sans(12))
@@ -410,7 +410,7 @@ struct EaonCLIInfoSheet: View {
 
                 HStack(spacing: 8) {
                     Text(EaonCLILauncher.configFilePath.replacingOccurrences(of: NSHomeDirectory(), with: "~"))
-                        .font(AppFont.mono(11))
+                        .font(AppFont.mono(12))
                         .foregroundStyle(colors.textTertiary)
                         .lineLimit(1)
                         .truncationMode(.middle)
@@ -440,7 +440,7 @@ struct EaonCLIInfoSheet: View {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
                     Text("Reference")
-                        .font(AppFont.mono(13, weight: .semibold))
+                        .font(AppFont.mono(14, weight: .semibold))
                         .foregroundStyle(colors.textPrimary)
                     Spacer()
                     if status?.cliDirectory != nil {
@@ -450,7 +450,7 @@ struct EaonCLIInfoSheet: View {
                             HStack(spacing: 5) {
                                 Image(systemName: "book").font(.system(size: 10))
                                     .iconHoverEffect(for: "book")
-                                Text("Full README").font(AppFont.mono(11, weight: .medium))
+                                Text("Full README").font(AppFont.mono(12, weight: .medium))
                             }
                         }
                         .buttonStyle(.bordered)
@@ -492,11 +492,11 @@ struct EaonCLIInfoSheet: View {
             ForEach(rows, id: \.0) { row in
                 HStack(alignment: .top, spacing: 10) {
                     Text(row.0)
-                        .font(AppFont.mono(11, weight: .medium))
+                        .font(AppFont.mono(12, weight: .medium))
                         .foregroundStyle(colors.textPrimary)
                         .frame(width: 200, alignment: .leading)
                     Text(row.1)
-                        .font(AppFont.sans(11))
+                        .font(AppFont.sans(12))
                         .foregroundStyle(colors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                         .lineSpacing(3)

@@ -336,11 +336,11 @@ struct WorkspaceFileCard: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(path)
-                        .font(AppFont.mono(12.5, weight: .semibold))
+                        .font(AppFont.mono(12, weight: .semibold))
                         .foregroundStyle(colors.textPrimary)
                         .lineLimit(1)
                     Text(subtitle)
-                        .font(AppFont.mono(11))
+                        .font(AppFont.mono(12))
                         .foregroundStyle(colors.textTertiary)
                         .lineLimit(1)
                 }
@@ -609,13 +609,13 @@ struct FileDiffCard: View {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
                     Text("Writing…")
-                        .font(AppFont.mono(11))
+                        .font(AppFont.mono(12))
                         .foregroundStyle(colors.textTertiary)
                 }
                 .padding(10)
             } else {
                 Text("Couldn't preview this edit. See the tool result below.")
-                    .font(AppFont.mono(11))
+                    .font(AppFont.mono(12))
                     .foregroundStyle(colors.textTertiary)
                     .padding(10)
             }
@@ -645,7 +645,7 @@ struct FileDiffCard: View {
 
             (Text(toolName == "write_file" ? "Write" : "Edit").fontWeight(.semibold)
                 + Text("  " + model.fileName))
-                .font(AppFont.mono(12.5))
+                .font(AppFont.mono(12))
                 .foregroundStyle(colors.textPrimary)
                 .lineLimit(1)
                 .truncationMode(.head)
@@ -654,12 +654,12 @@ struct FileDiffCard: View {
 
             if model.addedCount > 0 {
                 Text("+\(model.addedCount)")
-                    .font(AppFont.mono(11, weight: .semibold))
+                    .font(AppFont.mono(12, weight: .semibold))
                     .foregroundStyle(colors.diffAdded)
             }
             if model.removedCount > 0 {
                 Text("−\(model.removedCount)")
-                    .font(AppFont.mono(11, weight: .semibold))
+                    .font(AppFont.mono(12, weight: .semibold))
                     .foregroundStyle(colors.diffRemoved)
             }
             if isStreaming {
@@ -693,11 +693,11 @@ struct FileDiffCard: View {
     private func diffRow(_ line: DiffLine, showCursor: Bool) -> some View {
         HStack(spacing: 0) {
             Text(line.isAdded ? "+" : "−")
-                .font(AppFont.mono(11, weight: .bold))
+                .font(AppFont.mono(12, weight: .bold))
                 .foregroundStyle(line.isAdded ? colors.diffAdded : colors.diffRemoved)
                 .frame(width: 14, alignment: .center)
             Text("\(line.number)")
-                .font(AppFont.mono(10.5))
+                .font(AppFont.mono(10))
                 .foregroundStyle(colors.textTertiary)
                 .frame(width: 28, alignment: .trailing)
                 .padding(.trailing, 8)
@@ -707,7 +707,7 @@ struct FileDiffCard: View {
             // its highlighted text bare); adding one would paint over
             // every token color it just set.
             rowText(line, showCursor: showCursor)
-                .font(AppFont.mono(11.5))
+                .font(AppFont.mono(12))
                 .lineLimit(1)
                 .truncationMode(.tail)
             Spacer(minLength: 0)
@@ -783,7 +783,7 @@ struct ThinkingIndicator: View {
             if let statusText {
                 ShimmerText(
                     text: statusText,
-                    font: AppFont.mono(13),
+                    font: AppFont.mono(14),
                     color: colors.textSecondary,
                     // Faster than a step row's: here the shimmer is the
                     // "still working" signal itself.
@@ -987,7 +987,7 @@ struct SwarmPanelDisclosure: View {
                         .font(.system(size: 10, weight: .semibold))
                         .foregroundStyle(colors.textSecondary)
                     Text(summary)
-                        .font(AppFont.mono(13))
+                        .font(AppFont.mono(14))
                         .foregroundStyle(colors.textSecondary)
                 }
                 .contentShape(Rectangle())
@@ -1001,11 +1001,11 @@ struct SwarmPanelDisclosure: View {
                     if !transcript.personas.isEmpty {
                         VStack(alignment: .leading, spacing: 3) {
                             Text("THE SWARM")
-                                .font(AppFont.mono(9.5, weight: .semibold))
+                                .font(AppFont.mono(10, weight: .semibold))
                                 .foregroundStyle(colors.textTertiary.opacity(0.7))
                             ForEach(Array(transcript.personas.enumerated()), id: \.offset) { _, persona in
                                 Text("\(persona.name) — \(persona.role)")
-                                    .font(AppFont.mono(11.5))
+                                    .font(AppFont.mono(12))
                                     .foregroundStyle(colors.textTertiary)
                                     .fixedSize(horizontal: false, vertical: true)
                             }
@@ -1015,17 +1015,17 @@ struct SwarmPanelDisclosure: View {
                     ForEach(rounds, id: \.self) { round in
                         VStack(alignment: .leading, spacing: 10) {
                             Text("ROUND \(round)")
-                                .font(AppFont.mono(9.5, weight: .semibold))
+                                .font(AppFont.mono(10, weight: .semibold))
                                 .foregroundStyle(colors.textTertiary.opacity(0.7))
                             ForEach(Array(transcript.usableRemarks.filter { $0.round == round }.enumerated()), id: \.offset) { _, remark in
                                 VStack(alignment: .leading, spacing: 4) {
                                     HStack(spacing: 5) {
                                         Text(remark.personaName)
-                                            .font(AppFont.mono(11.5, weight: .semibold))
+                                            .font(AppFont.mono(12, weight: .semibold))
                                             .foregroundStyle(colors.textSecondary)
                                         if remark.wantsToEnd {
                                             Text("voted to hand off")
-                                                .font(AppFont.mono(9.5))
+                                                .font(AppFont.mono(10))
                                                 .foregroundStyle(colors.textTertiary.opacity(0.75))
                                         }
                                     }

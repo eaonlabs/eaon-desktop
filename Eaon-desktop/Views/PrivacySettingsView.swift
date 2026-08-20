@@ -214,8 +214,7 @@ struct PrivacySettingsView: View {
                 Spacer(minLength: 12)
                 Toggle("", isOn: $alwaysAllowStore.isEnabled)
                     .labelsHidden()
-                    .toggleStyle(.switch)
-                    .tint(AppearanceSettings.toggleTint)
+                    .toggleStyle(JanSwitchToggleStyle())
             }
             .padding(18)
         }
@@ -246,8 +245,7 @@ struct PrivacySettingsView: View {
                 Spacer(minLength: 12)
                 Toggle("", isOn: $webSearchStore.isEnabled)
                     .labelsHidden()
-                    .toggleStyle(.switch)
-                    .tint(AppearanceSettings.toggleTint)
+                    .toggleStyle(JanSwitchToggleStyle())
             }
             .padding(18)
         }

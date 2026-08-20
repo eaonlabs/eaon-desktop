@@ -1574,12 +1574,6 @@ class ChatViewModel {
             resetWorkspace()
         }
         persistConversations()
-        // Delete has to mean the same thing in both places. Without this the
-        // server keeps its copy, and the next device to sync pulls the
-        // "deleted" chat straight back — the most alarming way this feature
-        // could be wrong. Fire-and-forget: a chat the user deleted is gone
-        // from their view either way, and a network blip must not block that.
-        CloudSyncEngine.shared.forgetLocallyDeletedConversation(id)
     }
 
     /// Deletes only conversations not filed into a project — what the flat
@@ -1729,7 +1723,7 @@ class ChatViewModel {
     var contextLimitTokens: Int?
 
     /// Rough token count for everything in the current conversation, using
-    /// the same ~4 chars/token approximation `StatisticsTracker` already
+    /// the same ~4 chars/token approximation `TokenEstimate` already
     /// uses elsewhere in the app — kept consistent rather than inventing a
     /// second ratio. Counts UTF-8 bytes, not grapheme clusters: `count` on
     /// a String walks the whole string (the context badge reads this three
@@ -1737,7 +1731,7 @@ class ChatViewModel {
     /// O(conversation) walk each time), while `utf8.count` is stored O(1)
     /// per message. For a ÷4 estimate the difference is noise.
     var estimatedUsedTokens: Int {
-        StatisticsTracker.approxTokens(characters: messages.reduce(0) { $0 + $1.content.utf8.count })
+        TokenEstimate.approxTokens(characters: messages.reduce(0) { $0 + $1.content.utf8.count })
     }
 
     func refreshContextLimit() {
@@ -1891,7 +1885,6 @@ class ChatViewModel {
 
         let modelId = selectedModel
         messages.append(ChatMessage(content: trimmed, isUser: true))
-        StatisticsTracker.shared.recordUserPrompt(modelId: modelId)
         inputText = ""
         pendingAttachments = []
         composerNotice = nil
@@ -1905,10 +1898,8 @@ class ChatViewModel {
         let generationSession = session(for: conversationId)
         generationSession.task = pendingSendTask
         pendingSendTask = nil
-        StatisticsTracker.shared.currentGeneratingModel = modelId
         defer {
             endSession(for: conversationId)
-            StatisticsTracker.shared.currentGeneratingModel = ""
         }
 
         let loadingId = UUID()
@@ -1996,7 +1987,6 @@ class ChatViewModel {
 
         let userMsg = ChatMessage(content: text, isUser: true, attachments: attachments, invokedSkillName: invokedSkill?.name)
         messages.append(userMsg)
-        StatisticsTracker.shared.recordUserPrompt(modelId: selectedModel)
         inputText = ""
         pendingAttachments = []
         composerNotice = nil
@@ -2160,7 +2150,6 @@ class ChatViewModel {
         let generationSession = session(for: conversationId)
         generationSession.task = pendingSendTask
         pendingSendTask = nil
-        StatisticsTracker.shared.currentGeneratingModel = modelId
         // Only the VISIBLE conversation's own generation should touch the
         // workspace panel that's currently on screen — a background one's
         // files are re-derived fresh by `selectConversation` whenever the
@@ -2176,67 +2165,70 @@ class ChatViewModel {
         var identicalFailureStreak = 0
         var lastFailureSignature: String?
 
-        // Tells `update_plan` which conversation's checklist it's editing.
-        // Set per turn rather than threaded through tool arguments: the
-        // model has no business knowing conversation ids, and a background
-        // generation in another chat must not rewrite the plan on screen.
-        DesktopControlService.activePlanConversationId = conversationId
+        // Scoped, not assigned: `activePlanConversationId` is a task-local
+        // so that concurrent runs (an agent team's sub-agents) each read
+        // their own value. Binding it needs a closure, and `break` cannot
+        // cross one — hence the nested function, which keeps the loop's
+        // control flow exactly as it was.
+        func runSteps() async {
+            let stepBudget = maxAgentSteps
+            for step in 1...stepBudget {
+                let outcome = await streamOneAgentStep(customConfig: customConfig, localRecord: localRecord, apiKey: apiKey, conversationId: conversationId, modelId: modelId)
+                guard case .completed(let stepMsgId, let replyText) = outcome, !Task.isCancelled else { break }
 
-        let stepBudget = maxAgentSteps
-        for step in 1...stepBudget {
-            let outcome = await streamOneAgentStep(customConfig: customConfig, localRecord: localRecord, apiKey: apiKey, conversationId: conversationId, modelId: modelId)
-            guard case .completed(let stepMsgId, let replyText) = outcome, !Task.isCancelled else { break }
-
-            // A "successful" stream that produced literally nothing — no
-            // error thrown, no tokens either — used to leave a permanently
-            // blank bubble with zero explanation. Most often a local model
-            // buckling under a large prompt (e.g. several connected
-            // plugins' tool descriptions); surface it instead of going
-            // silent.
-            if replyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                markError(id: stepMsgId, text: "No response was generated. This can happen with a local model under a large prompt — try disconnecting a plugin you're not using right now, or try again.", for: conversationId)
-                break
-            }
-
-            guard let toolRun = await executeAgentTools(inReplyText: replyText, conversationId: conversationId) else { break }
-
-            withMessages(for: conversationId) {
-                $0.append(ChatMessage(content: toolRun.results, isUser: false, attachments: toolRun.attachments, isToolResult: true))
-            }
-            persistGeneration(for: conversationId)
-
-            // If the exact same run failure comes back three times, stop
-            // burning tokens and leave it with the user.
-            if let signature = toolRun.failureSignature {
-                if signature == lastFailureSignature {
-                    identicalFailureStreak += 1
-                } else {
-                    identicalFailureStreak = 1
-                    lastFailureSignature = signature
-                }
-                if identicalFailureStreak >= 3 {
-                    withMessages(for: conversationId) {
-                        $0.append(ChatMessage(
-                            content: "Stopped — the same error came back three times in a row. Tell the model what to try differently, or edit the file yourself in the workspace.",
-                            isUser: false,
-                            isError: true
-                        ))
-                    }
-                    persistGeneration(for: conversationId)
+                // A "successful" stream that produced literally nothing — no
+                // error thrown, no tokens either — used to leave a permanently
+                // blank bubble with zero explanation. Most often a local model
+                // buckling under a large prompt (e.g. several connected
+                // plugins' tool descriptions); surface it instead of going
+                // silent.
+                if replyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    markError(id: stepMsgId, text: "No response was generated. This can happen with a local model under a large prompt — try disconnecting a plugin you're not using right now, or try again.", for: conversationId)
                     break
                 }
-            } else {
-                identicalFailureStreak = 0
-                lastFailureSignature = nil
-            }
 
-            if Task.isCancelled { break }
-            if step == stepBudget {
-                WorkspaceRunner.shared.note("● Agent paused after \(stepBudget) rounds — send a message to continue.\n", kind: .status)
+                guard let toolRun = await executeAgentTools(inReplyText: replyText, conversationId: conversationId) else { break }
+
+                withMessages(for: conversationId) {
+                    $0.append(ChatMessage(content: toolRun.results, isUser: false, attachments: toolRun.attachments, isToolResult: true))
+                }
+                persistGeneration(for: conversationId)
+
+                // If the exact same run failure comes back three times, stop
+                // burning tokens and leave it with the user.
+                if let signature = toolRun.failureSignature {
+                    if signature == lastFailureSignature {
+                        identicalFailureStreak += 1
+                    } else {
+                        identicalFailureStreak = 1
+                        lastFailureSignature = signature
+                    }
+                    if identicalFailureStreak >= 3 {
+                        withMessages(for: conversationId) {
+                            $0.append(ChatMessage(
+                                content: "Stopped — the same error came back three times in a row. Tell the model what to try differently, or edit the file yourself in the workspace.",
+                                isUser: false,
+                                isError: true
+                            ))
+                        }
+                        persistGeneration(for: conversationId)
+                        break
+                    }
+                } else {
+                    identicalFailureStreak = 0
+                    lastFailureSignature = nil
+                }
+
+                if Task.isCancelled { break }
+                if step == stepBudget {
+                    WorkspaceRunner.shared.note("● Agent paused after \(stepBudget) rounds — send a message to continue.\n", kind: .status)
+                }
             }
         }
+        await DesktopControlService.$activePlanConversationId.withValue(conversationId) {
+            await runSteps()
+        }
 
-        StatisticsTracker.shared.currentGeneratingModel = ""
         if conversationId == currentConversationId {
             refreshWorkspace(streaming: false)
         }
@@ -3591,7 +3583,7 @@ class ChatViewModel {
         aquaApiKey: String?
     ) async -> [HistoryTurn] {
         let existingSummary = conversations.first(where: { $0.id == conversationId })?.contextSummary
-        let estimatedTokens = StatisticsTracker.approxTokens(characters: priorMessages.reduce(0) { $0 + $1.content.utf8.count })
+        let estimatedTokens = TokenEstimate.approxTokens(characters: priorMessages.reduce(0) { $0 + $1.content.utf8.count })
         guard ContextCompressor.shouldCompress(
             messageCount: priorMessages.count,
             estimatedTokens: estimatedTokens,
@@ -3977,12 +3969,10 @@ class ChatViewModel {
                 if let reasoning, !reasoning.isEmpty {
                     sawAny = true
                     typewriter.append("<think>\(reasoning)</think>")
-                    StatisticsTracker.shared.recordGeneratedCharacters(reasoning.count)
                 }
                 if let content = message["content"] as? String, !content.isEmpty {
                     sawAny = true
                     typewriter.append(content)
-                    StatisticsTracker.shared.recordGeneratedCharacters(content.count)
                 }
                 if let nativeTools, let calls = message["tool_calls"] as? [[String: Any]] {
                     var accumulator = ToolCallAccumulator()
@@ -4044,7 +4034,6 @@ class ChatViewModel {
             let reasoning = (delta["reasoning_content"] as? String) ?? (delta["reasoning"] as? String)
             guard let combined = reasoningBridge.text(reasoning: reasoning, content: delta["content"] as? String) else { continue }
             typewriter.append(combined)
-            StatisticsTracker.shared.recordGeneratedCharacters(combined.count)
         }
 
         if let closing = reasoningBridge.closeIfNeeded() {
@@ -4104,20 +4093,6 @@ class ChatViewModel {
             let approxTok = max(1, Int(ceil(Double(chars) / 4.0)))
             current[index].generatedTokenCount = approxTok
 
-            // Record speed sample for leaderboard
-            if let start = current[index].generationStartTime, approxTok > 10 {
-                let latency = end.timeIntervalSince(start)
-                let tps = latency > 0 ? Double(approxTok) / latency : 0
-                let resolvedModelId = current[index].modelId ?? modelId
-                if !resolvedModelId.isEmpty {
-                    StatisticsTracker.shared.recordCompletionSpeed(
-                        modelId: resolvedModelId,
-                        tokensPerSecond: tps,
-                        latency: latency,
-                        tokenCount: approxTok
-                    )
-                }
-            }
         }
     }
 

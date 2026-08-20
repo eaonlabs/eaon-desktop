@@ -44,6 +44,15 @@
       "isNew": true
     },
     {
+      "name": "muse-glimmer",
+      "blurb": "Meta Superintelligence Labs' first model, built for local coding agents",
+      "approxSize": "≈18 GB",
+      "sizeBytes": 18157010026,
+      "brand": "meta",
+      "category": "Popular",
+      "isNew": true
+    },
+    {
       "name": "deepseek-r1",
       "blurb": "Reasoning model — shows its thinking step by step",
       "approxSize": "≈5.2 GB",
@@ -845,6 +854,15 @@
       "blurb": "A reasoning-tuned Liquid AI model — shows its thinking steps",
       "approxSize": "≈731 MB",
       "sizeBytes": 731163903,
+      "brand": "liquidAI",
+      "category": "Liquid AI",
+      "isNew": true
+    },
+    {
+      "name": "lfm2",
+      "blurb": "Liquid AI's largest on-device model — 24B, but only 2B active per token",
+      "approxSize": "≈14 GB",
+      "sizeBytes": 14415741886,
       "brand": "liquidAI",
       "category": "Liquid AI",
       "isNew": true
