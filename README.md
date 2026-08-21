@@ -78,4 +78,4 @@ Thank you to our supporters:
 
 ## 📄 License
 
-Eaon is [GNU GPL v3.0](LICENSE.md). You're free to use, study, modify, and redistribute it. Any modified version you distribute must also be GPLv3, with source available, keeping the existing copyright notices. Fork away.
+Eaon is [GNU GPL v3.0](LICENSE.md). You're free to use, study, modify, and redistribute it. Any modified version you distribute must also be GPLv3, with source available, keeping the existing copyright notices. Fork away
