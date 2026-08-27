@@ -1,0 +1,19 @@
+{
+  "include": ["src/renderer/src/**/*", "src/preload/*.d.ts", "src/shared/**/*"],
+  "compilerOptions": {
+    "composite": true,
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "target": "ES2022",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "types": ["vite/client"],
+    "strict": true,
+    "skipLibCheck": true,
+    "noEmit": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "baseUrl": ".",
+    "paths": { "@/*": ["src/renderer/src/*"], "@shared/*": ["src/shared/*"] }
+  }
+}

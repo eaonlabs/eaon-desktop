@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "eaon-brain": {
+      "command": "/Applications/Eaon ADE.app/Contents/MacOS/Eaon ADE",
+      "args": [
+        "/Applications/Eaon ADE.app/Contents/Resources/app.asar/out/main/brain-mcp.js",
+        "--root",
+        "/Users/sanshraychada/Downloads/Eaon Desktop"
+      ],
+      "env": {
+        "ELECTRON_RUN_AS_NODE": "1"
+      }
+    }
+  }
+}

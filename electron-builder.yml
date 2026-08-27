@@ -1,0 +1,25 @@
+# Both of these are load-bearing for updates from the previous (native Swift)
+# macOS app: its SelfUpdateInstaller validates a downloaded bundle by requiring
+# Contents/MacOS/Eaon to be executable and CFBundleIdentifier to equal exactly
+# "dev.eaon.desktop", and rejects the update otherwise. electron-builder names
+# the executable after productName, so productName must stay "Eaon".
+appId: dev.eaon.desktop
+productName: Eaon
+directories:
+  buildResources: resources
+files:
+  - out/**
+  - package.json
+publish:
+  provider: github
+  owner: eaonlabs
+  repo: eaon-desktop
+mac:
+  category: public.app-category.productivity
+  target:
+    - dmg
+    - zip
+  darkModeSupport: true
+  hardenedRuntime: true
+  entitlements: resources/entitlements.mac.plist
+  entitlementsInherit: resources/entitlements.mac.plist

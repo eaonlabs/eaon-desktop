@@ -1,0 +1,665 @@
+/* Home hero, composer, tray and the conversation view. */
+
+.home {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 0 0;
+}
+
+.home__title {
+  font-size: var(--fs-title);
+  font-weight: 400;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  margin: 0 0 30px;
+  text-align: center;
+}
+.home__icon {
+  color: var(--text-3);
+  margin-bottom: 18px;
+}
+
+/* Eaon Work's suggestion cards (see .eaonbrain/eaon-work-mode.md) — wired to
+   settings.general.suggestedPrompts, which existed but was unused before. */
+.suggestions {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+  width: var(--composer-w);
+  max-width: calc(100% - 48px);
+  margin: 0 0 20px;
+}
+.suggestion-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 16px;
+  min-height: 104px;
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+  box-shadow: 0 0 0 1px var(--border-soft);
+  text-align: left;
+  transition: background var(--dur) var(--ease);
+}
+.suggestion-card:hover {
+  background: var(--surface-2);
+}
+.suggestion-card__label {
+  font-size: var(--fs-sm);
+  line-height: 1.35;
+  color: var(--text-2);
+  white-space: pre-line;
+}
+
+/* ---------------- Composer ---------------- */
+
+.composer-stack {
+  width: var(--composer-w);
+  max-width: calc(100% - 48px);
+  position: relative;
+}
+
+.composer-stack--chat {
+  width: var(--composer-chat-w);
+}
+
+/* Eaon Work's project-folder picker, stacked above .composer the same way
+   .tray stacks below it — negative margin equal to the padding tucks the
+   shared edge behind the composer's rounded corner (z-index 2 > 1). */
+.project-bar {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  margin: 0 0 -18px;
+  padding: 0 16px 18px;
+  border-radius: var(--r-xl) var(--r-xl) 0 0;
+  background: var(--surface-1);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  text-align: left;
+}
+.project-bar__pick {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: inherit;
+  font-size: inherit;
+  transition: color var(--dur) var(--ease);
+}
+.project-bar__pick:hover {
+  color: var(--text);
+}
+.project-bar__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.project-bar__status {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 3px 8px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  white-space: nowrap;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.project-bar__status:hover {
+  background: var(--hover-strong);
+  color: var(--text-2);
+}
+.project-bar__status[data-error='true'] {
+  color: var(--danger);
+}
+
+.composer {
+  position: relative;
+  z-index: 2;
+  background: var(--surface-2);
+  border-radius: var(--r-composer);
+  padding: 0 5px 6px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 0 0 1px var(--border-soft);
+  transition: box-shadow var(--dur) var(--ease);
+}
+.composer:focus-within {
+  box-shadow: 0 0 0 1px var(--border-strong);
+}
+
+.composer__input {
+  width: 100%;
+  border: 0;
+  background: none;
+  resize: none;
+  outline: none;
+  padding: 13px 11px 8px;
+  min-height: 46px;
+  max-height: 320px;
+  font-size: var(--fs-base);
+  line-height: 1.45;
+  color: var(--text);
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+.composer__input::placeholder {
+  color: var(--text-3);
+}
+.composer__input::-webkit-scrollbar {
+  display: none;
+}
+
+.composer__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  flex: none;
+}
+.composer__spacer {
+  flex: 1;
+}
+
+.composer__round {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r-pill);
+  display: grid;
+  place-items: center;
+  color: var(--text-2);
+  flex: none;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.composer__round:hover,
+.composer__round[data-open='true'] {
+  background: var(--surface-4);
+  color: var(--text);
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-base);
+  color: var(--text-2);
+  white-space: nowrap;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.chip:hover,
+.chip[data-open='true'] {
+  background: var(--surface-4);
+  color: var(--text);
+}
+.chip__icon {
+  display: grid;
+  place-items: center;
+  color: var(--text-2);
+  flex: none;
+}
+.chip--model {
+  gap: 7px;
+  padding-right: 8px;
+  /* Model ids are unbounded ("nemotron 3 super 120b extended"), and with
+     `white-space: nowrap` on .chip an unbounded one pushed the whole toolbar
+     out of shape. Cap the chip and let the name ellipsize; the effort label
+     stays fixed so it is the name that gives way, not the setting. */
+  min-width: 0;
+  max-width: 220px;
+}
+.chip--model .chip__model {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chip--model .chip__effort {
+  color: var(--text-2);
+  flex: none;
+}
+
+.send {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-pill);
+  background: var(--send-bg);
+  color: var(--send-fg);
+  display: grid;
+  place-items: center;
+  flex: none;
+  margin-left: 2px;
+  transition: opacity var(--dur) var(--ease), background var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+.send:disabled {
+  opacity: 0.45;
+}
+.send:not(:disabled):hover {
+  background: color-mix(in srgb, var(--send-bg), var(--lift-color) 25%);
+}
+.send:not(:disabled):active {
+  transform: scale(0.94);
+}
+.send--stop {
+  background: var(--fg);
+  color: var(--bg);
+}
+
+/* ---------------- Tray tucked under the composer ---------------- */
+
+.tray {
+  position: relative;
+  z-index: 1;
+  margin: -18px 11px 0;
+  height: 51px;
+  padding: 18px 12px 0;
+  border-radius: 0 0 var(--r-xl) var(--r-xl);
+  background: var(--surface-1);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.tray__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-base);
+  color: var(--text-2);
+  white-space: nowrap;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.tray__btn:hover,
+.tray__btn[data-open='true'] {
+  background: var(--hover-strong);
+  color: var(--text);
+}
+.tray__spacer {
+  flex: 1;
+}
+
+.plugin-stack {
+  display: flex;
+  align-items: center;
+}
+.plugin-stack > * {
+  margin-right: -3px;
+  border-radius: 4px;
+}
+.plugin-stack > *:last-child {
+  margin-right: 0;
+}
+
+/* ---------------- Conversation ---------------- */
+
+.chat-header {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 12px 0 16px;
+  -webkit-app-region: drag;
+  /* Offset by the sidebar gutter so this row lands on the same baseline as the
+     floating panel's titlebar (and the traffic lights) rather than sitting 8px
+     higher against the window edge. */
+  height: calc(var(--titlebar-h) + var(--sidebar-gap));
+  padding-top: var(--sidebar-gap);
+}
+.chat-header[data-collapsed='true'] {
+  padding-left: calc(var(--traffic-clear) + 3px);
+}
+.chat-header__title {
+  font-size: var(--fs-base);
+  color: var(--text);
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chat-header__spacer {
+  flex: 1;
+}
+.chat-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.header-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 9px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  -webkit-app-region: no-drag;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.header-btn:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.thread {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 24px 0 12px;
+}
+
+.thread__inner {
+  width: var(--composer-chat-w);
+  max-width: calc(100% - 48px);
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+.msg--user {
+  align-self: flex-end;
+  max-width: 78%;
+  background: var(--surface-2);
+  border-radius: 18px;
+  padding: 8px 15px;
+  font-size: var(--fs-base);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.msg--assistant {
+  align-self: stretch;
+  font-size: var(--fs-base);
+  line-height: 1.62;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.msg__reasoning {
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+  border-left: 2px solid var(--border);
+  padding-left: 12px;
+  margin-bottom: 14px;
+  white-space: pre-wrap;
+}
+
+.msg__error {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  color: var(--danger);
+  background: var(--danger-soft);
+  border-radius: var(--r-md);
+  padding: 10px 12px;
+  font-size: var(--fs-sm);
+}
+
+.msg__status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-2);
+  font-size: var(--fs-base);
+}
+
+.composer-dock {
+  flex: none;
+  display: flex;
+  justify-content: center;
+  padding: 8px 0 13px;
+}
+
+.msg__actions {
+  display: flex;
+  gap: 2px;
+  margin-top: 2px;
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+.msg-row:hover .msg__actions {
+  opacity: 1;
+}
+
+/* The composer sheds its labels when it gets narrow (e.g. browser panel open). */
+.composer-stack {
+  container-type: inline-size;
+}
+@container (max-width: 430px) {
+  .chip__label,
+  .chip--model .chip__effort {
+    display: none;
+  }
+  .chip {
+    padding: 0 6px;
+  }
+  .tray__btn {
+    padding: 0 6px;
+  }
+}
+
+/* ==================================================================
+   Motion: thinking orb, thinking steps, message entrances.
+   Every animation here reports state — what is running, what arrived,
+   in what order. All of it collapses to nothing under reduce-motion
+   via the global rule in app.css.
+   ================================================================== */
+
+/* ---- Thinking steps -------------------------------------------- */
+
+.thinking {
+  align-self: stretch;
+  margin-bottom: 4px;
+}
+
+.thinking__summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+  padding: 0 8px 0 6px;
+  margin-left: -6px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.thinking__summary:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+.thinking__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-4);
+  flex: none;
+}
+
+.thinking__chevron {
+  color: var(--text-3);
+  transition: transform var(--dur-spring-fast) var(--spring-fast);
+}
+.thinking__chevron[data-open='true'] {
+  transform: rotate(90deg);
+}
+
+/* Height animates via grid-template-rows, which unlike max-age hacks lands on
+   the content's real height with no magic numbers and no clipping. */
+.thinking__body {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows var(--dur-spring-slow) var(--spring-slow);
+}
+.thinking__body[data-open='true'] {
+  grid-template-rows: 1fr;
+}
+.thinking__list {
+  overflow: hidden;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.thinking__body[data-open='true'] .thinking__list {
+  padding: 6px 0 2px;
+}
+
+.thinking__step {
+  display: flex;
+  gap: 10px;
+  padding: 0 0 2px;
+  /* Cascade: each step arrives just after the one above it, so the order the
+     work happened in is legible at a glance. */
+  animation: step-in var(--dur-spring-slow) var(--spring-slow) backwards;
+  animation-delay: calc(var(--i) * var(--stagger));
+}
+
+@keyframes step-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+
+.thinking__marker {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: none;
+  width: 12px;
+  padding-top: 5px;
+}
+.thinking__bullet {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-4);
+  flex: none;
+  transition: background var(--dur) var(--ease), transform var(--dur-spring-fast) var(--spring-fast);
+}
+.thinking__step[data-active='true'] .thinking__bullet {
+  background: var(--provider-accent);
+  transform: scale(1.35);
+}
+.thinking__connector {
+  flex: 1;
+  width: 1.5px;
+  margin: 4px 0 0;
+  border-radius: 1px;
+  background: var(--border);
+  min-height: 10px;
+}
+
+.thinking__content {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding-bottom: 8px;
+}
+.thinking__label {
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+.thinking__label code {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  background: var(--surface-2);
+  border-radius: var(--r-xs);
+  padding: 1px 6px;
+  color: var(--text);
+}
+.thinking__detail {
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ---- Message entrances ------------------------------------------ */
+
+/* New turns rise into place so it's obvious where content appeared, rather
+   than it materialising and leaving the eye to hunt for it. */
+.msg-row {
+  animation: msg-in var(--dur-spring) var(--spring-moderate) backwards;
+}
+@keyframes msg-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+/* The user's own message comes from the composer, so it enters from lower and
+   slightly scaled — the direction it physically travelled. */
+.msg--user {
+  animation: user-msg-in var(--dur-spring-fast) var(--spring-fast) backwards;
+}
+@keyframes user-msg-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.97);
+  }
+}
+
+/* ---- Send / stop morph ------------------------------------------ */
+
+.send svg {
+  animation: send-icon-in var(--dur-spring-fast) var(--spring-fast);
+}
+@keyframes send-icon-in {
+  from {
+    opacity: 0;
+    transform: scale(0.5) rotate(-45deg);
+  }
+}
+
+/* ---- Streaming caret --------------------------------------------
+   A caret on the last line while tokens are still arriving, so a slow
+   or paused stream is distinguishable from a finished one. */
+.msg--assistant[data-streaming='true']::after {
+  content: '';
+  display: inline-block;
+  width: 2px;
+  height: 1.05em;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  border-radius: 1px;
+  background: var(--provider-accent);
+  animation: caret-blink 1.05s steps(1, end) infinite;
+}
+@keyframes caret-blink {
+  0%,
+  45% {
+    opacity: 1;
+  }
+  50%,
+  95% {
+    opacity: 0;
+  }
+}

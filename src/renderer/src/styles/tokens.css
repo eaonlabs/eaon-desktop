@@ -1,0 +1,189 @@
+/*
+ * Design tokens.
+ *
+ * Colour is driven by four user-editable values per theme — accent, background,
+ * foreground and contrast — exactly as the Appearance settings page exposes them.
+ * Every surface in the app is mixed from those, so changing the background or
+ * dragging the contrast slider re-tones the whole UI coherently.
+ */
+
+:root {
+  /* ---- Metrics (measured from the design frames) ---- */
+  --sidebar-w: 252px;
+  /* The sidebar floats as a rounded panel; this is the gutter around it. */
+  --sidebar-gap: 8px;
+  --r-panel: 14px;
+  /* Where window content may start without crowding the macOS traffic lights.
+     They begin at trafficLightPosition.x (20) and are three 12pt buttons 20pt
+     apart, so they end at 72; this adds 10px of breathing room. Every header
+     that can sit behind them derives its left padding from this — they were
+     hardcoded before, and moving the buttons left them all 7px too tight. */
+  --traffic-clear: 82px;
+  --titlebar-h: 36px;
+  --nav-row-h: 27px;
+  --composer-w: 552px;
+  --composer-chat-w: 640px;
+
+  --r-xs: 6px;
+  --r-sm: 8px;
+  --r-md: 10px;
+  --r-lg: 12px;
+  --r-xl: 14px;
+  --r-composer: 18px;
+  --r-pill: 999px;
+
+  --font-ui: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', 'Segoe UI', system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, monospace;
+
+  --fs-base: 14px;
+  --fs-sm: 13px;
+  --fs-xs: 12px;
+  --fs-xxs: 11px;
+  --fs-title: 28px;
+  --fs-h1: 30px;
+  --fs-h2: 15px;
+
+  --ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --dur: 160ms;
+
+  /* ---- Motion ----
+     Three tiers. Enters are springs; the bigger the thing that moves, the
+     slower the tier. Only the largest tier carries any bounce — short travel
+     lands exactly, with no overshoot to distract from what actually changed.
+     Exits are plain tweens one tier quicker, so a dismissal reads as crisp and
+     final rather than replaying the entrance backwards.
+     Motion is information here, never decoration. */
+  --spring-fast: linear(0.0000, 0.0180, 0.0632, 0.1250, 0.1957, 0.2700, 0.3441, 0.4157, 0.4831, 0.5455, 0.6024, 0.6537, 0.6996, 0.7404, 0.7763, 0.8077, 0.8352, 0.8591, 0.8797, 0.8976, 0.9129, 0.9261, 0.9373, 0.9469, 0.9551, 0.9621, 0.9681, 0.9731, 0.9773, 0.9809, 0.9840, 0.9866, 1.0000);
+  --spring-moderate: linear(0.0000, 0.0180, 0.0632, 0.1250, 0.1957, 0.2700, 0.3441, 0.4157, 0.4831, 0.5455, 0.6024, 0.6537, 0.6996, 0.7404, 0.7763, 0.8077, 0.8352, 0.8591, 0.8797, 0.8976, 0.9129, 0.9261, 0.9373, 0.9469, 0.9551, 0.9621, 0.9681, 0.9731, 0.9773, 0.9809, 0.9840, 0.9866, 1.0000);
+  --spring-slow: linear(0.0000, 0.0233, 0.0813, 0.1601, 0.2491, 0.3412, 0.4312, 0.5160, 0.5936, 0.6630, 0.7239, 0.7765, 0.8213, 0.8589, 0.8901, 0.9157, 0.9364, 0.9530, 0.9661, 0.9763, 0.9841, 0.9900, 0.9944, 0.9975, 0.9998, 1.0012, 1.0022, 1.0027, 1.0029, 1.0030, 1.0028, 1.0026, 1.0000);
+  --dur-spring-fast: 80ms;
+  --dur-spring: 160ms;
+  --dur-spring-slow: 240ms;
+  /* Exits: quicker, no bounce. */
+  --exit-fast: 60ms;
+  --exit-moderate: 120ms;
+  --exit-slow: 160ms;
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  /* Cascade delay between siblings in a staggered reveal. */
+  --stagger: 26ms;
+
+  --shadow-menu: 0 0 0 0.5px rgba(0, 0, 0, 0.5), 0 10px 32px rgba(0, 0, 0, 0.44), 0 2px 8px rgba(0, 0, 0, 0.3);
+  --shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.55), 0 2px 12px rgba(0, 0, 0, 0.4);
+
+  /* These were once a fixed warm tone (#d97757) held deliberately apart from
+     the app's accent to match a reference design. That read as a bug in
+     practice: primary buttons, provider toggles, radio dots and usage bars
+     came out salmon in an otherwise blue app, and they ignored the accent the
+     user picked in Appearance. They now derive from --accent like every other
+     accented token, so the whole app re-tones together.
+
+     Kept as their own names rather than inlined at the ~16 call sites: the
+     grouping still marks which surfaces these are, and makes diverging again a
+     one-line change. The mixes match `.btn--accent`'s hover convention in
+     controls.css so the two stay visually identical. */
+  --provider-accent: var(--accent);
+  --provider-accent-strong: color-mix(in srgb, var(--accent), #000 12%);
+  --provider-accent-soft: color-mix(in srgb, var(--accent), transparent 86%);
+}
+
+/* ---------- Dark (default) ---------- */
+:root,
+[data-theme='dark'] {
+  --bg: #111111;
+  --fg: #fcfcfc;
+  --accent: #0169cc;
+  --contrast: 60;
+
+  /* Positive lift = lighter than the canvas. */
+  --lift-color: #ffffff;
+  --sink-color: #000000;
+  --u: calc(var(--contrast) * 0.055%);
+
+  --canvas: color-mix(in srgb, var(--bg), var(--sink-color) 22%);
+  --sidebar: var(--bg);
+  --surface-1: color-mix(in srgb, var(--bg), var(--lift-color) calc(var(--u) * 1.6));
+  --surface-2: color-mix(in srgb, var(--bg), var(--lift-color) calc(var(--u) * 2.6));
+  --surface-3: color-mix(in srgb, var(--bg), var(--lift-color) calc(var(--u) * 4.2));
+  --surface-4: color-mix(in srgb, var(--bg), var(--lift-color) calc(var(--u) * 6));
+  --sunken: color-mix(in srgb, var(--bg), var(--sink-color) 34%);
+
+  --hover: rgba(255, 255, 255, 0.055);
+  --hover-strong: rgba(255, 255, 255, 0.09);
+  --active: rgba(255, 255, 255, 0.13);
+
+  --border: color-mix(in srgb, var(--bg), var(--lift-color) 8%);
+  --border-soft: rgba(255, 255, 255, 0.06);
+  --border-strong: rgba(255, 255, 255, 0.14);
+
+  /* Translucent so `.menu`'s backdrop-filter has something to frost. */
+  --menu-bg: color-mix(in srgb, var(--surface-3), transparent 24%);
+
+  --text: var(--fg);
+  --text-2: color-mix(in srgb, var(--fg), var(--bg) 38%);
+  --text-3: color-mix(in srgb, var(--fg), var(--bg) 58%);
+  --text-4: color-mix(in srgb, var(--fg), var(--bg) 72%);
+
+  --toggle-on: var(--accent);
+  --toggle-off: #3a3a3c;
+  --toggle-knob: #ffffff;
+  --danger: #ff453a;
+  --danger-soft: rgba(255, 69, 58, 0.14);
+  /* Lifted off the accent so links stay legible against a dark canvas. */
+  --link: color-mix(in srgb, var(--accent), #ffffff 26%);
+  --send-bg: #b4b4b4;
+  --send-fg: #1a1a1a;
+  --focus-ring: color-mix(in srgb, var(--accent), transparent 10%);
+  --scrollbar: rgba(255, 255, 255, 0.16);
+  --code-bg: #0d0d0d;
+  color-scheme: dark;
+}
+
+/* ---------- Light ---------- */
+[data-theme='light'] {
+  --bg: #ffffff;
+  --fg: #1a1c1f;
+  --accent: #339cff;
+  --contrast: 45;
+
+  --lift-color: #000000;
+  --sink-color: #000000;
+  --u: calc(var(--contrast) * 0.055%);
+
+  --canvas: var(--bg);
+  --sidebar: color-mix(in srgb, var(--bg), var(--lift-color) calc(var(--u) * 1.1));
+  --surface-1: color-mix(in srgb, var(--bg), var(--lift-color) calc(var(--u) * 1.5));
+  --surface-2: color-mix(in srgb, var(--bg), var(--lift-color) calc(var(--u) * 2.4));
+  --surface-3: #ffffff;
+  --surface-4: color-mix(in srgb, var(--bg), var(--lift-color) calc(var(--u) * 1.2));
+  --sunken: color-mix(in srgb, var(--bg), var(--lift-color) calc(var(--u) * 1.8));
+
+  --hover: rgba(0, 0, 0, 0.045);
+  --hover-strong: rgba(0, 0, 0, 0.07);
+  --active: rgba(0, 0, 0, 0.1);
+
+  --border: rgba(0, 0, 0, 0.1);
+  --border-soft: rgba(0, 0, 0, 0.07);
+  --border-strong: rgba(0, 0, 0, 0.16);
+
+  --menu-bg: color-mix(in srgb, var(--surface-3), transparent 18%);
+
+  --text: var(--fg);
+  --text-2: color-mix(in srgb, var(--fg), var(--bg) 34%);
+  --text-3: color-mix(in srgb, var(--fg), var(--bg) 52%);
+  --text-4: color-mix(in srgb, var(--fg), var(--bg) 66%);
+
+  --toggle-on: var(--accent);
+  --toggle-off: #d8d8dc;
+  --toggle-knob: #ffffff;
+  --danger: #e5342a;
+  --danger-soft: rgba(229, 52, 42, 0.1);
+  --link: color-mix(in srgb, var(--accent), #000000 18%);
+  --send-bg: #1a1a1a;
+  --send-fg: #ffffff;
+  --focus-ring: color-mix(in srgb, var(--accent), transparent 10%);
+  --scrollbar: rgba(0, 0, 0, 0.2);
+  --code-bg: #f6f6f6;
+  --shadow-menu: 0 0 0 0.5px rgba(0, 0, 0, 0.1), 0 10px 32px rgba(0, 0, 0, 0.14), 0 2px 8px rgba(0, 0, 0, 0.08);
+  --shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.22), 0 2px 12px rgba(0, 0, 0, 0.12);
+  color-scheme: light;
+}

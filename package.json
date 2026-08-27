@@ -1,0 +1,41 @@
+{
+  "name": "eaon-desktop",
+  "version": "2026.5.0",
+  "description": "The Eaon desktop app — a bring-your-own-key AI chat client",
+  "main": "./out/main/index.js",
+  "author": "Eaon",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/sanscreates/eaon-desktop.git"
+  },
+  "scripts": {
+    "dev": "electron-vite dev",
+    "build": "electron-vite build",
+    "start": "electron-vite preview",
+    "typecheck": "tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.node.json",
+    "dist:mac": "electron-vite build && electron-builder --mac --publish never",
+    "release:mac": "electron-vite build && electron-builder --mac --publish always"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.120.0",
+    "@modelcontextprotocol/sdk": "^1.30.0",
+    "electron-updater": "^6.3.9"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/react": "^18.3.17",
+    "@types/react-dom": "^18.3.5",
+    "@vitejs/plugin-react": "^4.3.4",
+    "electron": "^33.3.1",
+    "electron-builder": "^25.1.8",
+    "electron-vite": "^2.3.0",
+    "lucide-react": "^0.468.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.7.2",
+    "vite": "^5.4.11",
+    "zustand": "^5.0.2"
+  }
+}

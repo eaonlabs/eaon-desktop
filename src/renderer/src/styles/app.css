@@ -1,0 +1,428 @@
+/* Reset, application shell, title bar and sidebar. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font-ui);
+  font-size: var(--fs-base);
+  line-height: 1.45;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  /* The window's one and only background. `.sidebar`, `.main` and `.settings`
+     used to paint their own, which meant any difference between them showed up
+     as a seam down the edge of the sidebar — exactly what the translucent state
+     produced, since the gutter mixed in vibrancy and `.main` did not. Painting
+     it once here makes a seam impossible, and vibrancy still shows through at
+     the same 18% because this element is the bottom of the rendered frame. */
+  background: var(--canvas);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body[data-translucent='on'] {
+  background: color-mix(in srgb, var(--canvas) 82%, transparent);
+}
+
+body[data-font-smoothing='off'] {
+  -webkit-font-smoothing: auto;
+  -moz-osx-font-smoothing: auto;
+}
+
+body[data-pointer='on'] button,
+body[data-pointer='on'] [role='button'],
+body[data-pointer='on'] a,
+body[data-pointer='on'] label {
+  cursor: pointer;
+}
+
+body[data-reduce-motion='on'] *,
+body[data-reduce-motion='on'] *::before,
+body[data-reduce-motion='on'] *::after {
+  animation-duration: 0.001ms !important;
+  transition-duration: 0.001ms !important;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: default;
+}
+
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+a {
+  color: var(--link);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+:focus {
+  outline: none;
+}
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+  border-radius: var(--r-xs);
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent), transparent 55%);
+}
+
+/* ---- Scrollbars: only visible while the area is hovered ---- */
+.scroll {
+  overflow-y: auto;
+}
+.scroll::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.scroll::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+.scroll:hover::-webkit-scrollbar-thumb {
+  background: var(--scrollbar);
+  background-clip: padding-box;
+}
+.scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ---------------- Shell ---------------- */
+
+.app {
+  display: flex;
+  height: 100%;
+  /* Transparent: `body` paints the window. */
+}
+
+.sidebar {
+  width: var(--sidebar-w);
+  flex: 0 0 var(--sidebar-w);
+  display: flex;
+  flex-direction: column;
+  /* Just the gutter around the floating panel — `body` paints it. */
+  padding: var(--sidebar-gap);
+  user-select: none;
+  overflow: hidden;
+  transition: flex-basis 240ms var(--ease), width 240ms var(--ease), padding 240ms var(--ease);
+}
+
+
+.sidebar__panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  /* A raised surface rather than `--sidebar`: that token is tuned for a panel
+     sitting flush at `--bg`, which in the dark theme is only three values off
+     `--canvas` and left the curve almost invisible. `--surface-1` is the
+     token that already means "one step above the canvas". */
+  background: var(--surface-1);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-panel);
+  /* Rounded corners only clip children that are actually painted inside; the
+     menus anchored in here portal to the body, so nothing gets cut off. */
+  overflow: hidden;
+}
+
+
+/* Collapse — the sidebar's own width eases to zero (an accordion on the
+   horizontal axis) while its content slides and fades out in the same
+   direction it's collapsing, rather than just clipping abruptly. */
+.sidebar[data-open='false'] {
+  flex-basis: 0;
+  width: 0;
+  min-width: 0;
+  padding: 0;
+}
+
+.sidebar__content {
+  width: calc(var(--sidebar-w) - var(--sidebar-gap) * 2);
+  min-width: calc(var(--sidebar-w) - var(--sidebar-gap) * 2);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  transition: opacity 160ms var(--ease), transform 240ms var(--ease);
+}
+
+.sidebar[data-open='false'] .sidebar__content {
+  opacity: 0;
+  transform: translateX(-24px);
+  pointer-events: none;
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.drag {
+  -webkit-app-region: drag;
+}
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* ---------------- Title bar ---------------- */
+
+.titlebar {
+  height: var(--titlebar-h);
+  flex: 0 0 var(--titlebar-h);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 10px 0 75px;
+  -webkit-app-region: drag;
+}
+
+/* Inside the floating panel the traffic lights sit at window x 20..72 (three
+   12pt buttons, 20pt apart, from trafficLightPosition). The row itself starts
+   --sidebar-gap in from the window edge, so reserving 82px of window space
+   leaves the same 10px breathing room the flush titlebar had. Controls are
+   right-aligned so they sit at the far edge of the panel rather than crowding
+   the lights. */
+.sidebar__panel .titlebar {
+  justify-content: flex-end;
+  padding: 0 8px 0 calc(var(--traffic-clear) - var(--sidebar-gap));
+}
+
+.titlebar--collapsed {
+  padding-left: var(--traffic-clear);
+}
+
+.titlebar--main {
+  padding: 0 12px 0 14px;
+  justify-content: space-between;
+}
+
+.icon-btn {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-sm);
+  color: var(--text-3);
+  flex: none;
+  -webkit-app-region: no-drag;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.icon-btn:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
+}
+.icon-btn:disabled {
+  color: var(--text-4);
+  opacity: 0.5;
+}
+.icon-btn[data-active='true'] {
+  background: var(--hover-strong);
+  color: var(--text);
+}
+
+/* ---------------- Sidebar header ---------------- */
+
+
+
+/* ---------------- Sidebar body ---------------- */
+
+.sidebar__body {
+  flex: 1;
+  min-height: 0;
+  padding: 0 7px;
+  overflow-y: auto;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  height: var(--nav-row-h);
+  padding: 0 8px 0 6px;
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font-size: var(--fs-base);
+  text-align: left;
+  transition: background var(--dur) var(--ease);
+}
+.nav-item:hover {
+  background: var(--hover);
+}
+.nav-item[data-active='true'] {
+  background: var(--surface-2);
+}
+.nav-item__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--text-2);
+  width: 16px;
+}
+.nav-item[data-active='true'] .nav-item__icon {
+  color: var(--text);
+}
+.nav-item__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nav-item__trail {
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--text-3);
+  opacity: 0;
+}
+.nav-item:hover .nav-item__trail,
+.nav-item__trail[data-always='true'] {
+  opacity: 1;
+}
+
+.sidebar__section {
+  padding: 0 8px;
+  margin: 18px 0 4px;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+  letter-spacing: -0.005em;
+}
+
+.sidebar__empty {
+  padding: 0 8px;
+  height: var(--nav-row-h);
+  display: flex;
+  align-items: center;
+  font-size: var(--fs-base);
+  color: var(--text-4);
+}
+
+.sidebar__footer {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 6px 8px 10px 7px;
+}
+/* Eaon Work keeps Settings out of the scrollable nav list (see
+   .eaonbrain/eaon-work-mode.md) and pins it in the footer instead, next to
+   Help — that needs the two ends pushed apart rather than flush right. */
+.sidebar__footer[data-split='true'] {
+  justify-content: space-between;
+}
+.footer-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font-size: var(--fs-base);
+  transition: background var(--dur) var(--ease);
+}
+.footer-item:hover {
+  background: var(--hover);
+}
+
+/* Leading window-controls cluster shown when the sidebar is hidden; always
+   rendered inline inside the screen's own draggable header row, never as a
+   second overlapping drag region. */
+.collapsed-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+  margin-right: 6px;
+}
+
+.spinner {
+  animation: spin 900ms linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Text that shimmers while the model is working. */
+.shimmer {
+  background: linear-gradient(90deg, var(--text-4) 20%, var(--text) 45%, var(--text-4) 70%);
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 2.4s linear infinite;
+}
+@keyframes shimmer {
+  from {
+    background-position: 140% 0;
+  }
+  to {
+    background-position: -40% 0;
+  }
+}
+
+/* ---- Staggered list entrance ------------------------------------
+   Chat rows cascade in when the list is rebuilt (switching workspace,
+   loading history) so the order is readable instead of everything
+   appearing at once. Keyed rows are reused across re-renders, so this
+   plays on mount only — not on every streamed token. */
+.nav-item--staggered {
+  animation: nav-row-in var(--dur-spring-fast) var(--spring-fast) backwards;
+  animation-delay: calc(var(--i, 0) * var(--stagger));
+}
+@keyframes nav-row-in {
+  from {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+}
+
+/* ---------------- Sidebar density ---------------- */
+
+/* The reference sidebar runs a step smaller than the app's base scale — the
+   nav is a dense index, not body copy. Scoped to `.sidebar` so the settings
+   navigation, which reuses `.nav-item`, keeps the base size. */
+.sidebar .nav-item {
+  font-size: var(--fs-sm);
+}
+.sidebar .sidebar__section {
+  font-size: var(--fs-xs);
+}
+.sidebar .sidebar__empty {
+  font-size: var(--fs-xs);
+}

@@ -1,0 +1,744 @@
+/* Menus, popovers, modals and form controls. */
+
+.layer {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+}
+.layer--transparent {
+  background: transparent;
+}
+.layer--scrim {
+  background: rgba(0, 0, 0, 0.42);
+  display: grid;
+  place-items: center;
+  animation: fade var(--dur) var(--ease);
+}
+@keyframes fade {
+  from {
+    opacity: 0;
+  }
+}
+
+.menu {
+  position: fixed;
+  min-width: 180px;
+  /* A menu must never grow into a full-height wall of text. Provider model
+     lists run to 100+ entries, and letting the surface match that pinned it to
+     the top of the window and ran it off the bottom. Capped, it scrolls
+     instead — and the Popover's placement math gets a sane height to work
+     with, so it can still flip and clamp correctly. */
+  max-height: min(340px, calc(100vh - 24px));
+  overflow-y: auto;
+  background: var(--menu-bg);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  border: 0.5px solid var(--border-strong);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-menu);
+  padding: 5px;
+  z-index: 101;
+  animation: pop var(--dur-spring-fast) var(--spring-fast);
+  transform-origin: var(--pop-origin, top center);
+  scrollbar-width: none;
+}
+.menu::-webkit-scrollbar {
+  display: none;
+}
+@keyframes pop {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+}
+
+.menu__header a {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.menu__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 6px 9px 8px;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+.menu__label {
+  padding: 6px 9px 4px;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+.menu__sep {
+  height: 1px;
+  background: var(--border-strong);
+  margin: 5px 0;
+}
+
+.menu__item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 30px;
+  padding: 0 9px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-base);
+  color: var(--text);
+  text-align: left;
+  transition: background 90ms var(--ease);
+}
+.menu__item:hover:not(:disabled),
+.menu__item[data-open='true'],
+.menu__item[data-highlight='true'] {
+  background: var(--hover-strong);
+}
+.menu__item:disabled {
+  color: var(--text-4);
+}
+.menu__item--tall {
+  align-items: flex-start;
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
+.menu__item-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--text-2);
+  width: 18px;
+}
+.menu__item--tall .menu__item-icon {
+  margin-top: 1px;
+}
+.menu__item-body {
+  flex: 1;
+  min-width: 0;
+}
+.menu__item-title {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.menu__item-desc {
+  display: block;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  margin-top: 1px;
+}
+.menu__item-hint {
+  /* Was `flex: none`, which let a long value (a model id like "nemotron 3
+     super 120b extended") push the row's own label clean out of the flex box —
+     the "Model" row rendered with no "Model" on it. Shrink and ellipsize
+     instead, and never take more than half the row, so the label always wins. */
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+.menu__item-check {
+  flex: none;
+  color: var(--text);
+  display: grid;
+  place-items: center;
+  width: 16px;
+}
+.menu__search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 9px 8px;
+  color: var(--text-3);
+  /* The menu itself is the scroll container, so without this the search field
+     scrolls away from a long list — exactly when it is most needed. */
+  position: sticky;
+  top: -5px;
+  z-index: 1;
+  margin: -5px -5px 0;
+  padding: 9px 14px 8px;
+  /* Opaque on purpose. `--menu-bg` is deliberately translucent so `.menu`'s
+     backdrop-filter has something to frost — but that frosts what is behind
+     the *whole menu* and does nothing for the menu's own scrolling children,
+     so painting this header with it left the list legible through the search
+     field. Giving the header its own backdrop-filter does not fix it either:
+     Chromium will not sample same-stacking-context scrolled siblings into a
+     nested backdrop root, so the bleed only softened.
+     `--surface-3` is the solid colour `--menu-bg` is mixed from, so this reads
+     as the same material while actually blocking what scrolls beneath it. */
+  background: var(--surface-3);
+}
+.menu__search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  outline: none;
+  font-size: var(--fs-base);
+  color: var(--text);
+}
+.menu__search input::placeholder {
+  color: var(--text-3);
+}
+.menu__empty {
+  padding: 4px 9px 10px;
+  font-size: var(--fs-base);
+  color: var(--text-3);
+}
+
+/* ---------------- Modal ---------------- */
+
+.modal {
+  width: 360px;
+  max-width: calc(100vw - 48px);
+  background: var(--surface-3);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-modal);
+  padding: 22px 22px 18px;
+  position: relative;
+  animation: pop var(--dur-spring-slow) var(--spring-slow);
+}
+.modal__close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-xs);
+  color: var(--text-2);
+}
+.modal__close:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.modal__title {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 8px 0 8px;
+}
+.modal__body {
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  line-height: 1.5;
+  margin-bottom: 22px;
+}
+.modal__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.modal__field {
+  width: 100%;
+  margin-bottom: 20px;
+}
+
+/* ---------------- Buttons ---------------- */
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
+  color: var(--text);
+  background: var(--surface-3);
+  white-space: nowrap;
+  transition: background var(--dur) var(--ease), opacity var(--dur) var(--ease);
+}
+.btn:hover:not(:disabled) {
+  background: var(--surface-4);
+}
+.btn:disabled {
+  opacity: 0.45;
+}
+.btn--primary {
+  background: var(--fg);
+  color: var(--bg);
+  font-weight: 500;
+}
+.btn--primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--fg), var(--bg) 14%);
+}
+.btn--accent {
+  background: var(--toggle-on);
+  color: #fff;
+}
+.btn--accent:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--toggle-on), #000 12%);
+}
+.btn--ghost {
+  background: none;
+  color: var(--text-2);
+}
+.btn--ghost:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
+}
+.btn--danger {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.btn--danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger-soft), var(--danger) 14%);
+}
+.btn--sm {
+  height: 26px;
+  padding: 0 10px;
+  font-size: var(--fs-xs);
+}
+
+/* ---------------- Toggle switch ---------------- */
+
+.switch {
+  width: 30px;
+  height: 18px;
+  border-radius: var(--r-pill);
+  background: var(--toggle-off);
+  position: relative;
+  flex: none;
+  transition: background 180ms var(--ease);
+}
+.switch[data-on='true'] {
+  background: var(--toggle-on);
+}
+.switch[data-dimmed='true'] {
+  opacity: 0.45;
+}
+.switch:disabled {
+  cursor: default;
+}
+.switch__knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--toggle-knob);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  transition: transform 180ms var(--ease);
+}
+.switch[data-on='true'] .switch__knob {
+  transform: translateX(12px);
+}
+
+/* ---------------- Segmented control ---------------- */
+
+.segment {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+.segment__item {
+  height: 26px;
+  padding: 0 11px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+  white-space: nowrap;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.segment__item:hover {
+  color: var(--text-2);
+}
+.segment__item[data-active='true'] {
+  background: var(--surface-3);
+  color: var(--text);
+}
+
+/* ---------------- Select ---------------- */
+
+.select {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 8px 0 11px;
+  border-radius: var(--r-sm);
+  background: var(--surface-3);
+  font-size: var(--fs-sm);
+  color: var(--text);
+  white-space: nowrap;
+  transition: background var(--dur) var(--ease);
+}
+.select:hover,
+.select[data-open='true'] {
+  background: var(--surface-4);
+}
+.select__chevron {
+  color: var(--text-3);
+  display: grid;
+  place-items: center;
+}
+
+/* ---------------- Inputs ---------------- */
+
+.input {
+  width: 100%;
+  height: 34px;
+  padding: 0 11px;
+  border-radius: var(--r-sm);
+  background: var(--sunken);
+  border: 1px solid var(--border);
+  font-size: var(--fs-base);
+  color: var(--text);
+  outline: none;
+  transition: border-color var(--dur) var(--ease);
+}
+.input:focus {
+  border-color: color-mix(in srgb, var(--toggle-on), transparent 30%);
+}
+.input::placeholder {
+  color: var(--text-3);
+}
+
+textarea.input {
+  height: auto;
+  padding: 10px 11px;
+  line-height: 1.5;
+  resize: vertical;
+  min-height: 96px;
+}
+
+.search-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+.search-field__icon {
+  position: absolute;
+  left: 13px;
+  display: grid;
+  place-items: center;
+  color: var(--text-3);
+  pointer-events: none;
+}
+.search-field input {
+  width: 100%;
+  height: 40px;
+  padding: 0 14px 0 40px;
+  border-radius: var(--r-md);
+  background: var(--surface-1);
+  border: 1px solid var(--border-soft);
+  font-size: var(--fs-base);
+  color: var(--text);
+  outline: none;
+}
+.search-field input::placeholder {
+  color: var(--text-3);
+}
+.search-field input:focus {
+  border-color: var(--border-strong);
+}
+.search-field--sm input {
+  height: 34px;
+  border-radius: var(--r-sm);
+  padding-left: 34px;
+  font-size: var(--fs-sm);
+}
+.search-field--sm .search-field__icon {
+  left: 11px;
+}
+.search-field--pill input {
+  border-radius: var(--r-pill);
+  height: 34px;
+  padding-left: 36px;
+  background: var(--surface-2);
+}
+.search-field--pill .search-field__icon {
+  left: 12px;
+}
+
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+.stepper input {
+  width: 54px;
+  height: 30px;
+  text-align: center;
+  border-radius: var(--r-sm);
+  background: var(--surface-3);
+  border: 1px solid var(--border-soft);
+  color: var(--text);
+  outline: none;
+  font-size: var(--fs-sm);
+}
+
+/* ---------------- Slider ---------------- */
+
+.slider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: none;
+}
+.slider input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 200px;
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--toggle-on) 0 var(--fill, 50%),
+    var(--surface-4) var(--fill, 50%) 100%
+  );
+  outline: none;
+}
+.slider input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+  cursor: default;
+}
+.slider__value {
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  min-width: 22px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------------- Keycap ---------------- */
+
+.keycap {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 34px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: var(--r-xs);
+  background: var(--surface-3);
+  border: 0.5px solid var(--border-strong);
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.keycap--empty {
+  background: none;
+  border: 0;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+
+.color-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 12px 0 8px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  min-width: 128px;
+  justify-content: flex-start;
+  border: 1px solid var(--border-soft);
+}
+.color-chip__dot {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  flex: none;
+}
+
+.tooltip-text {
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+
+.menu__item-title > span + span {
+  color: var(--text-3);
+}
+
+/* ---------------- Downloads panel ---------------- */
+
+.downloads-panel {
+  width: 320px;
+  max-height: min(420px, calc(100vh - 24px));
+}
+
+.downloads-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 40px 20px 34px;
+  color: var(--text-3);
+  text-align: center;
+}
+.downloads-empty p {
+  margin: 0;
+  font-size: var(--fs-base);
+  line-height: 1.45;
+}
+
+.downloads-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.download-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 9px 9px;
+  border-radius: var(--r-sm);
+}
+.download-row + .download-row {
+  border-top: 1px solid var(--border-soft);
+}
+.download-row__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  margin-top: 1px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+.download-row__body {
+  flex: 1;
+  min-width: 0;
+}
+.download-row__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.download-row__title {
+  font-size: var(--fs-sm);
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.download-row__pct {
+  flex: none;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.download-row__subtitle {
+  display: block;
+  margin-top: 1px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.download-row__bar {
+  height: 3px;
+  margin-top: 7px;
+  border-radius: var(--r-pill);
+  background: var(--surface-3);
+  overflow: hidden;
+}
+.download-row__bar-fill {
+  height: 100%;
+  border-radius: var(--r-pill);
+  background: var(--accent);
+  transition: width 200ms var(--ease);
+}
+
+/* Wraps the header's Downloads button so the progress ring can sit centred
+   around it — slightly larger than the button itself — without affecting the
+   button's own size or its place in the header's flex layout. */
+.download-btn-wrap {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+}
+.download-ring {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.download-ring circle:last-child {
+  transition: stroke-dashoffset 200ms var(--ease);
+}
+
+/* ---------------- Update toast ---------------- */
+
+.update-toast {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 150;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  width: 320px;
+  padding: 14px 14px 14px 16px;
+  border-radius: var(--r-lg);
+  background: var(--menu-bg);
+  backdrop-filter: blur(28px) saturate(180%);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  border: 0.5px solid var(--border-strong);
+  box-shadow: var(--shadow-menu);
+  animation: pop var(--dur-spring-slow) var(--spring-slow);
+  transform-origin: bottom right;
+}
+.update-toast__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  margin-top: 1px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent), transparent 82%);
+  color: var(--accent);
+}
+.update-toast__body {
+  flex: 1;
+  min-width: 0;
+}
+.update-toast__title {
+  font-size: var(--fs-base);
+  font-weight: 500;
+  color: var(--text);
+}
+.update-toast__desc {
+  margin: 3px 0 11px;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  line-height: 1.4;
+}
+.update-toast__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.update-toast__close {
+  flex: none;
+  margin: -4px -4px 0 0;
+}

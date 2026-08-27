@@ -1,0 +1,7 @@
+node_modules/
+out/
+dist/
+.DS_Store
+*.log
+# Incremental typecheck caches — build artifacts, not source.
+*.tsbuildinfo
