@@ -53,13 +53,42 @@ echo "Building Eaon for macOS (notarizing as ${APPLE_ID%%@*}@…, publish=$PUBLI
 npx electron-vite build
 npx electron-builder --mac --publish "$PUBLISH"
 
-# The in-build Gatekeeper assessment is disabled because it runs before
-# stapling; this is the check that actually means something.
+# electron-builder signs, notarizes and staples the .app, then builds the DMG
+# around it — but it neither signs nor notarizes the DMG itself. Left that way
+# the disk image fails Gatekeeper with "no usable signature", so it gets the
+# same treatment here, in the only order that works: sign, then notarize the
+# signed bytes, then staple the resulting ticket.
+VERSION="$(node -p "require('./package.json').version")"
+DMG="dist/Eaon-${VERSION}.dmg"
+ZIP="dist/Eaon-${VERSION}.zip"
+
+if [ -f "$DMG" ]; then
+  echo
+  echo "== Signing and notarizing $DMG =="
+  codesign --force --sign "Developer ID Application: ${APPLE_TEAM_ID}" --timestamp "$DMG" 2>/dev/null \
+    || codesign --force --sign "Developer ID Application" --timestamp "$DMG"
+  xcrun notarytool submit "$DMG" \
+    --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
+    --password "$APPLE_APP_SPECIFIC_PASSWORD" --wait 2>&1 | tail -3
+  xcrun stapler staple "$DMG"
+fi
+
+echo
+echo "== Verification =="
 APP="dist/mac-universal/Eaon.app"
 [ -d "$APP" ] || APP="$(find dist -maxdepth 2 -name 'Eaon.app' -print -quit 2>/dev/null || true)"
 if [ -n "$APP" ] && [ -d "$APP" ]; then
+  echo "  architectures: $(lipo -archs "$APP/Contents/MacOS/Eaon" 2>/dev/null)"
+  spctl -a -vvv -t install "$APP" 2>&1 | sed 's/^/  app: /' || true
+fi
+[ -f "$DMG" ] && spctl -a -vvv -t open --context context:primary-signature "$DMG" 2>&1 | sed 's/^/  dmg: /' || true
+
+# The self-updater downloads the .zip and refuses any download whose hash does
+# not match the manifest, so this is the value that goes into
+# downloads.eaon.dev/update-manifest.json alongside the new downloadURL.
+if [ -f "$ZIP" ]; then
   echo
-  echo "== Verifying $APP =="
-  spctl -a -vvv -t install "$APP" 2>&1 | sed 's/^/  /' || true
-  codesign -dv --verbose=4 "$APP" 2>&1 | grep -E "Authority|TeamIdentifier|flags" | sed 's/^/  /' || true
+  echo "== Manifest values =="
+  echo "  latestVersion: $VERSION"
+  echo "  sha256:        $(shasum -a 256 "$ZIP" | awk '{print $1}')"
 fi

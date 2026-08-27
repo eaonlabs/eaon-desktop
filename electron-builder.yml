@@ -20,9 +20,17 @@ mac:
   # `${buildResourcesDir}/icon.icns` lookup — same file either way, just
   # self-documenting alongside everything else this config spells out.
   icon: resources/icon.icns
+  # Universal, not the host arch. The app this replaces shipped arm64+x86_64,
+  # so an arm64-only build would strand every Intel user mid-update — their
+  # installed copy would swap itself for a binary it cannot execute.
   target:
-    - dmg
-    - zip
+    - target: dmg
+      arch: universal
+    - target: zip
+      arch: universal
+  # Matches the previous app's artifact names (Eaon-<version>.dmg/.zip) rather
+  # than electron-builder's default, which appends the architecture.
+  artifactName: ${productName}-${version}.${ext}
   darkModeSupport: true
   # Required for notarization, and already a prerequisite for the entitlements
   # below to mean anything.
@@ -45,5 +53,6 @@ mac:
   # committed: set APPLE_ID and APPLE_APP_SPECIFIC_PASSWORD (an app-specific
   # password from appleid.apple.com, not the Apple ID password itself). Without
   # them the build fails at this step rather than silently shipping unnotarized.
-  notarize:
-    teamId: W9MHT9V982
+  # The team ID comes from APPLE_TEAM_ID (exported by scripts/release-mac.sh)
+  # rather than `notarize.teamId`, which electron-builder 25 deprecates.
+  notarize: true
