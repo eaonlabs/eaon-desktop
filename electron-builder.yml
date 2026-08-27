@@ -20,6 +20,26 @@ mac:
     - dmg
     - zip
   darkModeSupport: true
+  # Required for notarization, and already a prerequisite for the entitlements
+  # below to mean anything.
   hardenedRuntime: true
   entitlements: resources/entitlements.mac.plist
   entitlementsInherit: resources/entitlements.mac.plist
+  # The signing identity is deliberately NOT hardcoded here: this repo is public,
+  # and the identity string contains the certificate holder's legal name.
+  # electron-builder auto-selects the "Developer ID Application" certificate for
+  # dmg/zip targets, which is the only correct choice anyway — the "Apple
+  # Development" certificates also in this keychain are for local testing, and an
+  # app signed with one will not launch on another machine or notarize at all.
+  # Override with CSC_NAME="Developer ID Application: … (TEAMID)" if the keychain
+  # ever holds more than one Developer ID certificate.
+  #
+  # Gatekeeper assessment during the build inspects the not-yet-notarized app and
+  # so always fails; the real check is `spctl -a -vvv -t install` after stapling.
+  gatekeeperAssess: false
+  # Notarization credentials come from the environment and must never be
+  # committed: set APPLE_ID and APPLE_APP_SPECIFIC_PASSWORD (an app-specific
+  # password from appleid.apple.com, not the Apple ID password itself). Without
+  # them the build fails at this step rather than silently shipping unnotarized.
+  notarize:
+    teamId: W9MHT9V982
