@@ -310,6 +310,15 @@ function registerIpc(): void {
 }
 
 app.whenReady().then(() => {
+  // A packaged app gets its icon from the .icns baked into the bundle at
+  // build time (see electron-builder.yml) — this only matters for `npm run
+  // dev`, which would otherwise show the generic Electron icon in the Dock.
+  // `app.getAppPath()` resolves to `out/main` (not the project root) when
+  // launched as `electron out/main/index.js` rather than `electron .`, so
+  // this goes up from `here` the same way the preload path below does.
+  if (process.platform === 'darwin' && !app.isPackaged) {
+    app.dock?.setIcon(join(here, '../../resources/icon.png'))
+  }
   store.migrateWorkspaces()
   if (process.env['EAON_CAPTURE']) {
     // Start every capture run from the same baseline.

@@ -16,6 +16,10 @@ publish:
   repo: eaon-desktop
 mac:
   category: public.app-category.productivity
+  # Explicit rather than relying on electron-builder's default
+  # `${buildResourcesDir}/icon.icns` lookup — same file either way, just
+  # self-documenting alongside everything else this config spells out.
+  icon: resources/icon.icns
   target:
     - dmg
     - zip
