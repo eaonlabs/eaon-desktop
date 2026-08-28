@@ -58,11 +58,15 @@ mac:
   notarize: true
 win:
   icon: resources/icon.ico
+  # One installer carrying every Windows architecture, so a single .exe works on
+  # any machine: x64 for most PCs, arm64 for Windows-on-ARM, ia32 for the
+  # remaining 32-bit installs. NSIS picks the right payload at install time.
   target:
     - target: nsis
       arch:
         - x64
         - arm64
+        - ia32
   # Unsigned for now. Windows SmartScreen will show "Windows protected your PC"
   # on first run until these builds carry an Authenticode signature — click
   # More info -> Run anyway. Signing needs a code-signing certificate, which is

@@ -5,16 +5,21 @@ All notable changes to Eaon are documented here. Format loosely follows
 
 ## [2026.5.0] — 2026-08-27
 
-*macOS app only.*
+*macOS and Windows.*
 
 ### Changed
-- The macOS app has been **rebuilt on Electron + React**, replacing the
-  native Swift client. Existing installs update in place through the same
-  self-updater as before — the build keeps the `dev.eaon.desktop` bundle
-  identifier and the `Eaon` executable name the installed app validates
-  against, so 2026.4.5 swaps itself for this one and relaunches. No manual
-  download, and chats and settings are untouched at
+- The app has been **rebuilt on Electron + React**, replacing the native
+  Swift macOS client.
+- **On macOS, existing installs update themselves in place** through the
+  same self-updater as before — the build keeps the `dev.eaon.desktop`
+  bundle identifier and the `Eaon` executable name the installed app
+  validates against, so 2026.4.5 swaps itself for this one and relaunches.
+  No manual download, and chats and settings are untouched at
   `~/Library/Application Support/Eaon`.
+- **Windows is newly supported**, as a fresh install rather than an update:
+  one `.exe` covering x64, ARM64 and 32-bit, which picks the right build for
+  the machine. The window controls sit where Windows puts them, at the top
+  right, and the header layout accounts for them.
 - **The sidebar is a floating panel.** Rounded, inset from the window edge,
   with the traffic lights inside it rather than on the strip above. Its
   controls collapse into a single row and the navigation sits directly
@@ -47,8 +52,14 @@ All notable changes to Eaon are documented here. Format loosely follows
   the system in Dark.
 
 ### Known limits
-- **macOS only.** The Windows and Linux app (Tauri) is unchanged and
-  continues to update through its own signed release channel.
+- **Windows builds are not code-signed.** SmartScreen shows "Windows
+  protected your PC" on first run until an Authenticode certificate is in
+  place — click More info → Run anyway.
+- **Windows and Linux users of the Tauri app do not cross over
+  automatically.** That app updates through its own Ed25519-signed channel,
+  which this build cannot publish into; the Windows installer here is a
+  fresh install rather than an update. Linux is not covered by this release
+  at all.
 - Eaon Work — the agentic coding mode — is hidden in this release. The
   browser panel, plugin tray and approval controls belong to it and return
   with it.
