@@ -13,12 +13,16 @@
   /* The sidebar floats as a rounded panel; this is the gutter around it. */
   --sidebar-gap: 8px;
   --r-panel: 14px;
-  /* Where window content may start without crowding the macOS traffic lights.
-     They begin at trafficLightPosition.x (20) and are three 12pt buttons 20pt
-     apart, so they end at 72; this adds 10px of breathing room. Every header
-     that can sit behind them derives its left padding from this — they were
-     hardcoded before, and moving the buttons left them all 7px too tight. */
-  --traffic-clear: 82px;
+  /* Space the native window controls occupy over the page, per edge. Every
+     draggable header derives its padding from these rather than hardcoding a
+     number — moving the controls once left four rules 7px too tight.
+
+     macOS puts its traffic lights top-LEFT: they start at
+     trafficLightPosition.x (20) and are three 12pt buttons 20pt apart, ending
+     at 72, plus 10px of breathing room. Nothing is reserved on the right.
+     Windows overrides these below — its caption buttons are on the other side. */
+  --window-controls-left: 82px;
+  --window-controls-right: 0px;
   --titlebar-h: 36px;
   --nav-row-h: 27px;
   --composer-w: 552px;
@@ -186,4 +190,16 @@
   --shadow-menu: 0 0 0 0.5px rgba(0, 0, 0, 0.1), 0 10px 32px rgba(0, 0, 0, 0.14), 0 2px 8px rgba(0, 0, 0, 0.08);
   --shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.22), 0 2px 12px rgba(0, 0, 0, 0.12);
   color-scheme: light;
+}
+
+/* ---------- Windows ---------- */
+
+/* The Window Controls Overlay draws minimise/maximise/close over the page at
+   the top RIGHT, so the reservation flips sides: nothing is needed on the left
+   (the sidebar panel starts at the window edge), and the main header has to
+   keep its own buttons clear of the caption strip. 138px is the three 46px
+   buttons Windows draws at 100% scale. */
+body[data-platform='win32'] {
+  --window-controls-left: 0px;
+  --window-controls-right: 138px;
 }

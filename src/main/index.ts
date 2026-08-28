@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, shell, nativeTheme, dialog, Menu } from 'electron'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { Chat, McpServer, Project, Provider, Settings, StreamEvent, StreamRequest, UpdateStatus, Workspace } from '@shared/types'
+import type { Chat, McpServer, Project, Provider, Settings, StreamEvent, StreamRequest, ThemePalette, UpdateStatus, Workspace } from '@shared/types'
 import { store } from './store'
 import { secrets } from './secrets'
 import {
@@ -29,10 +29,43 @@ app.setName('Eaon')
 let mainWindow: BrowserWindow | null = null
 let capturing = false
 
+const isMac = process.platform === 'darwin'
+
+/** The palette actually in effect, resolving `system` against the OS setting. */
+function activePalette(settings: Settings): ThemePalette {
+  const resolved =
+    settings.appearance.mode === 'system'
+      ? nativeTheme.shouldUseDarkColors
+        ? 'dark'
+        : 'light'
+      : settings.appearance.mode
+  return resolved === 'light' ? settings.appearance.light : settings.appearance.dark
+}
+
 /** True when the active theme asks for a translucent sidebar on a platform that has one. */
 function wantsVibrancy(settings: Settings): boolean {
-  const palette = settings.appearance.mode === 'light' ? settings.appearance.light : settings.appearance.dark
-  return process.platform === 'darwin' && palette.translucentSidebar
+  return isMac && activePalette(settings).translucentSidebar
+}
+
+/**
+ * Windows draws its caption buttons over the page instead of giving us a
+ * traffic-light gap, so the overlay has to be told what to paint behind them.
+ * There is no vibrancy on Windows, so the theme's own background is the honest
+ * answer; the symbols flip with the palette so they stay legible.
+ */
+function titleBarOverlayFor(settings: Settings): { color: string; symbolColor: string; height: number } {
+  const palette = activePalette(settings)
+  const dark =
+    settings.appearance.mode === 'system'
+      ? nativeTheme.shouldUseDarkColors
+      : settings.appearance.mode === 'dark'
+  return {
+    color: palette.background,
+    symbolColor: dark ? '#e6e6e6' : '#1a1a1a',
+    // Matches --titlebar-h + --sidebar-gap, the height every header row in the
+    // app is offset to (see app.css).
+    height: 44
+  }
 }
 
 /**
@@ -46,8 +79,12 @@ function wantsVibrancy(settings: Settings): boolean {
 function applyWindowAppearance(settings: Settings): void {
   nativeTheme.themeSource = settings.appearance.mode
   if (!mainWindow || mainWindow.isDestroyed()) return
-  if (process.platform !== 'darwin') return
-  mainWindow.setVibrancy(wantsVibrancy(settings) ? 'sidebar' : null)
+  if (isMac) {
+    mainWindow.setVibrancy(wantsVibrancy(settings) ? 'sidebar' : null)
+    return
+  }
+  // Windows: repaint the caption-button strip to match the new theme.
+  if (process.platform === 'win32') mainWindow.setTitleBarOverlay(titleBarOverlayFor(settings))
 }
 
 function createWindow(): void {
@@ -60,15 +97,28 @@ function createWindow(): void {
     minWidth: 720,
     minHeight: 520,
     show: false,
-    titleBarStyle: 'hiddenInset',
-    // The sidebar is a floating panel inset by --sidebar-gap (8px) with a 36px
-    // titlebar row as its first child. These coordinates centre the buttons in
-    // that row *inside* the panel rather than on the gutter above it.
-    trafficLightPosition: { x: 20, y: 20 },
+    // macOS hides the title bar but keeps the traffic lights, which we position
+    // inside the sidebar panel. Windows has no equivalent, so it gets the
+    // Window Controls Overlay instead: the caption buttons are drawn over the
+    // page at the top *right*, which is why the header padding flips sides in
+    // the renderer (see --window-controls-left/right in tokens.css).
+    ...(isMac
+      ? {
+          titleBarStyle: 'hiddenInset' as const,
+          // The sidebar is a floating panel inset by --sidebar-gap (8px) with a
+          // 36px titlebar row as its first child. These coordinates centre the
+          // buttons in that row *inside* the panel rather than on the gutter
+          // above it.
+          trafficLightPosition: { x: 20, y: 20 }
+        }
+      : {
+          titleBarStyle: 'hidden' as const,
+          titleBarOverlay: titleBarOverlayFor(settings)
+        }),
     // An opaque backgroundColor paints behind the whole window, which blocks
     // vibrancy the same way an opaque CSS ancestor would — see app.css. Fully
     // transparent (not just theme-colored) so the vibrancy view can show.
-    backgroundColor: vibrant ? '#00000000' : settings.appearance.mode === 'light' ? '#ffffff' : '#0f0f0f',
+    backgroundColor: vibrant ? '#00000000' : activePalette(settings).background,
     ...(vibrant ? { vibrancy: 'sidebar' as const, visualEffectState: 'active' as const } : {}),
     webPreferences: {
       preload: join(here, '../preload/index.mjs'),

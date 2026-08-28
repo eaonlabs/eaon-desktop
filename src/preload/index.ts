@@ -22,6 +22,13 @@ import type {
 } from '@shared/types'
 
 const api = {
+  /**
+   * Exposed as a value rather than an IPC call because the renderer needs it
+   * before first paint: the header layout reserves space on the left for macOS
+   * traffic lights and on the right for the Windows caption buttons, and a
+   * round-trip would mean a visible reflow.
+   */
+  platform: process.platform as 'darwin' | 'win32' | 'linux',
   settings: {
     get: (): Promise<Settings> => ipcRenderer.invoke('settings:get'),
     patch: (patch: Partial<Settings>): Promise<Settings> => ipcRenderer.invoke('settings:patch', patch)

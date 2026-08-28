@@ -56,3 +56,24 @@ mac:
   # The team ID comes from APPLE_TEAM_ID (exported by scripts/release-mac.sh)
   # rather than `notarize.teamId`, which electron-builder 25 deprecates.
   notarize: true
+win:
+  icon: resources/icon.ico
+  target:
+    - target: nsis
+      arch:
+        - x64
+        - arm64
+  # Unsigned for now. Windows SmartScreen will show "Windows protected your PC"
+  # on first run until these builds carry an Authenticode signature — click
+  # More info -> Run anyway. Signing needs a code-signing certificate, which is
+  # a separate purchase from the Apple Developer ID used for macOS.
+  artifactName: ${productName}-${version}-setup.${ext}
+nsis:
+  # A per-user install needs no admin prompt, and is what lets the updater
+  # replace the app without elevating.
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Eaon

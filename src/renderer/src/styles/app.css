@@ -213,11 +213,14 @@ a:hover {
    the lights. */
 .sidebar__panel .titlebar {
   justify-content: flex-end;
-  padding: 0 8px 0 calc(var(--traffic-clear) - var(--sidebar-gap));
+  /* max() so this collapses to a plain 8px on Windows, where the left
+     reservation is zero and the controls live on the other side. */
+  padding: 0 8px 0 max(8px, calc(var(--window-controls-left) - var(--sidebar-gap)));
 }
 
 .titlebar--collapsed {
-  padding-left: var(--traffic-clear);
+  padding-left: max(14px, var(--window-controls-left));
+  padding-right: calc(10px + var(--window-controls-right));
 }
 
 .titlebar--main {

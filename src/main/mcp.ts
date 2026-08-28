@@ -50,6 +50,23 @@ export function getTools(): McpTool[] {
   return [...connections.values()].flatMap((connection) => connection.tools)
 }
 
+/**
+ * Makes a server's launch command runnable on Windows.
+ *
+ * The MCP SDK spawns with `shell: false`, and most servers are published as
+ * npm bins — on Windows those are `.cmd` shims, which Node has refused to spawn
+ * directly since the CVE-2024-27980 fix (it throws EINVAL). Both servers we
+ * ship by default use `npx`, so without this they fail to start on Windows
+ * while working fine everywhere else. Routing through `cmd.exe /c` runs the
+ * shim as intended; anything already ending in `.exe`, and every non-Windows
+ * platform, is passed through untouched.
+ */
+function resolveLaunch(command: string, args: string[]): { command: string; args: string[] } {
+  if (process.platform !== 'win32') return { command, args }
+  if (/\.(exe|com)$/i.test(command)) return { command, args }
+  return { command: process.env.COMSPEC ?? 'cmd.exe', args: ['/c', command, ...args] }
+}
+
 async function connect(server: McpServer): Promise<void> {
   await disconnect(server.id)
   setStatus(server.id, { state: 'starting', toolCount: 0 })
@@ -62,10 +79,11 @@ async function connect(server: McpServer): Promise<void> {
       await client.connect(new StreamableHTTPClientTransport(new URL(server.url)))
     } else {
       if (!server.command) throw new Error('No command configured')
+      const launch = resolveLaunch(server.command, server.args)
       await client.connect(
         new StdioClientTransport({
-          command: server.command,
-          args: server.args,
+          command: launch.command,
+          args: launch.args,
           // Inherit the user's PATH so `npx`, `uvx` etc. resolve; the server's
           // own env entries take precedence.
           env: { ...(process.env as Record<string, string>), ...server.env }

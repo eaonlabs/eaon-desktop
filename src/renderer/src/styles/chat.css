@@ -315,6 +315,10 @@
   align-items: center;
   gap: 8px;
   padding: 0 12px 0 16px;
+  /* Keep this row's own buttons out from under the Windows caption
+     buttons, which are drawn over the page at the top right. Zero on
+     macOS, where the traffic lights are on the other side. */
+  padding-right: calc(12px + var(--window-controls-right));
   -webkit-app-region: drag;
   /* Offset by the sidebar gutter so this row lands on the same baseline as the
      floating panel's titlebar (and the traffic lights) rather than sitting 8px
@@ -323,7 +327,7 @@
   padding-top: var(--sidebar-gap);
 }
 .chat-header[data-collapsed='true'] {
-  padding-left: calc(var(--traffic-clear) + 3px);
+  padding-left: max(16px, calc(var(--window-controls-left) + 3px));
 }
 .chat-header__title {
   font-size: var(--fs-base);

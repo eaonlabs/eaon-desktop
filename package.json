@@ -16,7 +16,9 @@
     "start": "electron-vite preview",
     "typecheck": "tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.node.json",
     "dist:mac": "./scripts/release-mac.sh",
-    "release:mac": "./scripts/release-mac.sh --publish"
+    "release:mac": "./scripts/release-mac.sh --publish",
+    "dist:win": "electron-vite build && electron-builder --win --publish never",
+    "release:win": "electron-vite build && electron-builder --win --publish always"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.120.0",

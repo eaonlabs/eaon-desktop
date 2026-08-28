@@ -135,6 +135,9 @@ function useTheme(): void {
       // Drives the single window background in app.css. Computed here because
       // this is where the palette is already resolved — reading it per-component
       // got 'system' mode wrong by always falling through to the dark palette.
+      // Drives the window-control reservations in tokens.css: macOS keeps its
+      // traffic lights top-left, Windows paints its caption buttons top-right.
+      document.body.dataset.platform = window.api.platform
       document.body.dataset.translucent = palette.translucentSidebar ? 'on' : 'off'
       document.body.dataset.pointer = appearance.pointerCursors ? 'on' : 'off'
       document.body.dataset.fontSmoothing = appearance.fontSmoothing ? 'on' : 'off'
