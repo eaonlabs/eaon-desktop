@@ -24,10 +24,14 @@ import { MenuItem, MenuSearch, Popover, useDisclosure } from './ui'
 import type { Chat } from '@shared/types'
 
 export function Sidebar(): JSX.Element {
-  const { view, activeChatId, streamingMessageId, sidebarOpen, toggleSidebar, setView, setModelsRepo, newChat, openChat, setSettingsPage, goForward } = useApp(useShallow((s) => ({ view: s.view, activeChatId: s.activeChatId, streamingMessageId: s.streamingMessageId, sidebarOpen: s.sidebarOpen, toggleSidebar: s.toggleSidebar, setView: s.setView, setModelsRepo: s.setModelsRepo, newChat: s.newChat, openChat: s.openChat, setSettingsPage: s.setSettingsPage, goForward: s.goForward })))
+  const { view, activeChatId, streamingMessageId, sidebarOpen, toggleSidebar, setView, setModelsRepo, newChat, setSettingsPage, goForward } = useApp(useShallow((s) => ({ view: s.view, activeChatId: s.activeChatId, streamingMessageId: s.streamingMessageId, sidebarOpen: s.sidebarOpen, toggleSidebar: s.toggleSidebar, setView: s.setView, setModelsRepo: s.setModelsRepo, newChat: s.newChat, setSettingsPage: s.setSettingsPage, goForward: s.goForward })))
   const canGoForward = useApp((s) => s.canGoForward())
   const chats = useApp(useShallow((s) => s.visibleChats()))
   const projects = useApp(useShallow((s) => s.visibleProjects()))
+
+  const streamingChatId = streamingMessageId
+    ? chats.find((c) => c.messages.some((m) => m.id === streamingMessageId))?.id
+    : undefined
 
   const searchAnchor = useRef<HTMLButtonElement>(null)
   const searchMenu = useDisclosure()
@@ -128,6 +132,9 @@ export function Sidebar(): JSX.Element {
           ))
         )}
 
+        {/* Found once here instead of scanning every chat's messages inside the
+            .map() below — same O(messages) cost, but paid once per render
+            instead of once per row. */}
         <div className="sidebar__section">Recents</div>
         {chats.length === 0 ? (
           <div className="sidebar__empty">No chats</div>
@@ -138,8 +145,7 @@ export function Sidebar(): JSX.Element {
               chat={chat}
               index={index}
               active={chat.id === activeChatId && view === 'chat'}
-              streaming={Boolean(streamingMessageId) && chat.messages.some((m) => m.id === streamingMessageId)}
-              onOpen={() => openChat(chat.id)}
+              streaming={chat.id === streamingChatId}
             />
           ))
         )}
@@ -171,17 +177,24 @@ const ChatRow = memo(function ChatRow({
   chat,
   index,
   active,
-  streaming,
-  onOpen
+  streaming
 }: {
   chat: Chat
   index: number
   active: boolean
   streaming: boolean
-  onOpen: () => void
 }): JSX.Element {
-  const { renameChat, archiveChat, deleteChat } = useApp(
-    useShallow((st) => ({ renameChat: st.renameChat, archiveChat: st.archiveChat, deleteChat: st.deleteChat }))
+  // Read here rather than take an `onOpen` prop: `openChat` is a stable
+  // reference from the store, so `chat`/`index`/`active`/`streaming` are now
+  // the only props ChatRow ever receives, and they only change for a row
+  // whose own chat actually changed — memo() can finally do its job.
+  const { openChat, renameChat, archiveChat, deleteChat } = useApp(
+    useShallow((st) => ({
+      openChat: st.openChat,
+      renameChat: st.renameChat,
+      archiveChat: st.archiveChat,
+      deleteChat: st.deleteChat
+    }))
   )
   const anchor = useRef<HTMLDivElement>(null)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
@@ -208,8 +221,8 @@ const ChatRow = memo(function ChatRow({
         style={{ ['--i' as string]: Math.min(index, 12) }}
         role="button"
         tabIndex={0}
-        onClick={onOpen}
-        onKeyDown={(e) => e.key === 'Enter' && onOpen()}
+        onClick={() => openChat(chat.id)}
+        onKeyDown={(e) => e.key === 'Enter' && openChat(chat.id)}
         onContextMenu={(e) => {
           e.preventDefault()
           setMenu({ x: e.clientX, y: e.clientY })
