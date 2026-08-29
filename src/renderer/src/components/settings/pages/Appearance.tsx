@@ -193,16 +193,6 @@ export function AppearancePage(): JSX.Element {
               px
             </span>
           </Row>
-          <Row title="Diff markers" description="Show changes using colors or +/− markers">
-            <Segmented
-              value={a.diffMarkers}
-              onChange={(diffMarkers) => void patchSettings({ appearance: { diffMarkers } })}
-              options={[
-                { value: 'color', label: 'Color' },
-                { value: 'symbols', label: '+/−' }
-              ]}
-            />
-          </Row>
           <Row title="UI font" description="Typeface and weight used across the app">
             <Select
               width={150}

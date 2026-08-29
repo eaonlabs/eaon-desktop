@@ -96,7 +96,6 @@ export const defaultSettings: Settings = {
     dockIcon: 'color',
     reduceMotion: 'system',
     fontSize: 14,
-    diffMarkers: 'color',
     fontSmoothing: true
   },
   configuration: {

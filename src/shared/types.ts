@@ -115,7 +115,6 @@ export interface Settings {
     dockIcon: 'mono' | 'color'
     reduceMotion: 'system' | 'on' | 'off'
     fontSize: number
-    diffMarkers: 'color' | 'symbols'
     fontSmoothing: boolean
   }
   configuration: {
