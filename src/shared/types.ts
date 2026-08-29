@@ -187,6 +187,13 @@ export interface McpServer {
   enabled: boolean
   /** Bundled servers we ship, shown with an "Official" badge. */
   official: boolean
+  /**
+   * Set when this server came from the built-in plugin catalog rather than
+   * being added by hand. Holds the catalog entry's id, which is also the key
+   * its token is stored under in the encrypted vault — the token itself is
+   * never kept here, since this file is written to disk in the clear.
+   */
+  pluginId?: string
 }
 
 export interface McpTool {

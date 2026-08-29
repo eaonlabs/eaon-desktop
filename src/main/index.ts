@@ -15,6 +15,7 @@ import {
   updateProvider
 } from './providers'
 import { getStatuses, getTools, setMcpStatusListener, shutdownMcp, syncMcpServers } from './mcp'
+import { MCP_CATALOG } from '@shared/mcpCatalog'
 import { getLocalServerStatus, setLocalServerListener, startLocalServer, stopLocalServer } from './localServer'
 import { applyClaudeCodeConfig, buildClaudeCodeEnv, getClaudeCodeConfigPath, resetClaudeCodeConfig } from './claudeCode'
 import { getSystemInfo } from './system'
@@ -272,6 +273,44 @@ function registerIpc(): void {
   ipcMain.handle('mcp:statuses', () => getStatuses())
   ipcMain.handle('mcp:tools', () => getTools())
   ipcMain.handle('mcp:sync', () => syncMcpServers())
+
+  /**
+   * Connecting a catalog plugin: the token goes into the encrypted vault and an
+   * MCP server row is written for it, so from here on it is an ordinary server
+   * — the tool loop, smart routing and status reporting all treat it the same.
+   * An empty token disconnects, clearing both.
+   */
+  ipcMain.handle('plugins:connect', async (_e, pluginId: string, token: string) => {
+    const entry = MCP_CATALOG.find((c) => c.id === pluginId)
+    if (!entry) throw new Error(`Unknown plugin "${pluginId}"`)
+
+    const servers = store.getMcpServers().filter((server) => server.pluginId !== pluginId)
+    if (token) {
+      secrets.set(`plugin:${pluginId}`, token)
+      servers.push({
+        id: `plugin-${pluginId}`,
+        name: entry.displayName,
+        transport: 'http',
+        command: '',
+        args: [],
+        env: {},
+        url: entry.endpoint,
+        enabled: true,
+        official: true,
+        pluginId
+      })
+    } else {
+      secrets.set(`plugin:${pluginId}`, '')
+    }
+    store.saveMcpServers(servers)
+    await syncMcpServers()
+    return getStatuses()
+  })
+
+  /** Which catalog plugins hold a token — never the tokens themselves. */
+  ipcMain.handle('plugins:connected', (): string[] =>
+    MCP_CATALOG.filter((entry) => secrets.has(`plugin:${entry.id}`)).map((entry) => entry.id)
+  )
 
   ipcMain.handle('local-server:status', () => getLocalServerStatus())
   ipcMain.handle('local-server:start', () => startLocalServer())

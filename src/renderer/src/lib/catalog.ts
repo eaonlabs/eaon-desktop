@@ -1,3 +1,5 @@
+import { MCP_CATALOG } from '@shared/mcpCatalog'
+
 /** Static catalogue backing the plugin directory and skills pages. */
 
 export interface PluginEntry {
@@ -9,20 +11,20 @@ export interface PluginEntry {
   category: 'core' | 'featured' | 'productivity' | 'more'
 }
 
-export const CORE_PLUGINS: PluginEntry[] = [
-  { id: 'documents', name: 'Documents', description: 'Create and edit documents', access: 'install', category: 'core' },
-  { id: 'pdf', name: 'PDF', description: 'Read, create, and verify PDFs', access: 'install', category: 'core' },
-  { id: 'spreadsheets', name: 'Spreadsheets', description: 'Create and edit spreadsheets', access: 'install', category: 'core' },
-  { id: 'presentations', name: 'Presentations', description: 'Create and edit presentations', access: 'install', category: 'core' },
-  {
-    id: 'template-creator',
-    name: 'Template Creator',
-    description: 'Create or update reusable templates from reference content',
-    access: 'install',
-    category: 'core'
-  },
-  { id: 'visualize', name: 'Visualize', description: 'Turn ideas and data into interactive visuals', access: 'install', category: 'core' }
-]
+/**
+ * The plugin list every surface shows. Derived from the MCP catalog rather than
+ * hand-maintained: this used to be six local document tools (Documents, PDF,
+ * Spreadsheets, Presentations, Template Creator, Visualize) that were never
+ * wired to anything, and keeping a second list beside the real catalog is how
+ * the two drift apart.
+ */
+export const CORE_PLUGINS: PluginEntry[] = MCP_CATALOG.map((entry) => ({
+  id: entry.id,
+  name: entry.displayName,
+  description: entry.summary,
+  access: 'install',
+  category: 'core'
+}))
 
 export const DIRECTORY: PluginEntry[] = [
   { id: 'gmail', name: 'Gmail', description: 'Read and manage Gmail', access: 'managed', category: 'featured' },

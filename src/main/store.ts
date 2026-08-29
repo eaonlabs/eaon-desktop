@@ -160,7 +160,7 @@ export const defaultSettings: Settings = {
     'open-settings': '⌘,',
     search: '⌘K'
   },
-  installedPlugins: ['documents', 'pdf', 'spreadsheets', 'presentations', 'template-creator', 'visualize'],
+  installedPlugins: [],
   disabledPlugins: [],
   disabledSkills: [],
   activeWorkspaceId: 'work',

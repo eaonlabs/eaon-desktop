@@ -851,3 +851,126 @@
   color: var(--text);
 }
 
+
+/* ---------------- Plugin catalog ---------------- */
+
+.plugin-list {
+  background: var(--surface-1);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+.plugin-row-group + .plugin-row-group {
+  border-top: 1px solid var(--border);
+}
+
+.plugin-row {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  padding: 13px 16px;
+  min-height: 60px;
+  text-align: left;
+  transition: background var(--dur) var(--ease);
+}
+.plugin-row:hover {
+  background: var(--hover);
+}
+.plugin-row__logo {
+  flex: none;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--r-sm);
+  background: var(--surface-3);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+.plugin-row__logo img {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+}
+.plugin-row__fallback {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-2);
+}
+.plugin-row__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.plugin-row__name {
+  font-size: var(--fs-base);
+  font-weight: 600;
+  color: var(--text);
+}
+.plugin-row__desc {
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+.plugin-row__status {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+.plugin-row__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #34d399;
+}
+.plugin-row__chevron {
+  flex: none;
+  color: var(--text-3);
+  transition: transform var(--dur) var(--ease);
+}
+.plugin-row__chevron[data-open] {
+  transform: rotate(180deg);
+}
+
+.plugin-row__panel {
+  padding: 0 16px 16px 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.plugin-row__form {
+  display: flex;
+  gap: 8px;
+}
+.plugin-row__form .input {
+  flex: 1;
+  min-width: 0;
+}
+.plugin-row__note {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+  line-height: 1.5;
+}
+.plugin-row__note--error {
+  color: var(--danger);
+}
+.plugin-row__link {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--fs-sm);
+  color: var(--link);
+}
+.plugin-row__link:hover {
+  text-decoration: underline;
+}

@@ -122,6 +122,13 @@ const api = {
       return () => ipcRenderer.removeListener('chat:event', listener)
     }
   },
+  plugins: {
+    /** Empty token disconnects. Returns the refreshed server statuses. */
+    connect: (pluginId: string, token: string): Promise<McpServerStatus[]> =>
+      ipcRenderer.invoke('plugins:connect', pluginId, token),
+    /** Ids of catalog plugins that hold a token — never the tokens. */
+    connected: (): Promise<string[]> => ipcRenderer.invoke('plugins:connected')
+  },
   app: {
     openExternal: (url: string): Promise<void> => ipcRenderer.invoke('app:open-external', url),
     showItem: (path: string): Promise<void> => ipcRenderer.invoke('app:show-item', path),

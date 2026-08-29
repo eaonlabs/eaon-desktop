@@ -110,42 +110,6 @@ export function AppshotsPage(): JSX.Element {
   )
 }
 
-/* -------------------------------------------------------- Plugins settings */
-
-export function PluginsSettingsPage(): JSX.Element {
-  const { settings, patchSettings, setView } = useApp()
-  const [autoUpdate, setAutoUpdate] = useLocal('plugins.autoUpdate', true)
-
-  return (
-    <>
-      <h1 className="settings__h1">Plugins</h1>
-      <p className="settings__lede">Manage which plugins, MCP servers, and skills the assistant can reach.</p>
-      <Section>
-        <Card>
-          <Row title="Manage plugins" description="Turn individual plugins, MCP servers, and skills on or off">
-            <button className="btn" onClick={() => setView('integrations')}>
-              Open
-            </button>
-          </Row>
-          <Row title="Auto-update plugins" description="Keep installed plugins on their latest version">
-            <Switch label="Auto-update plugins" checked={autoUpdate} onChange={setAutoUpdate} />
-          </Row>
-          <Row
-            title="Installed"
-            description={`${settings?.installedPlugins.length ?? 0} plugins installed, ${
-              settings?.disabledPlugins.length ?? 0
-            } disabled`}
-          >
-            <button className="btn btn--ghost" onClick={() => void patchSettings({ disabledPlugins: [] })}>
-              Enable all
-            </button>
-          </Row>
-        </Card>
-      </Section>
-    </>
-  )
-}
-
 /* -------------------------------------------------------- Browser settings */
 
 export function BrowserSettingsPage(): JSX.Element {

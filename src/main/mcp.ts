@@ -3,6 +3,8 @@ import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
 import type { McpServer, McpServerStatus, McpTool } from '@shared/types'
 import { store } from './store'
+import { secrets } from './secrets'
+import { MCP_CATALOG } from '@shared/mcpCatalog'
 
 /**
  * MCP client pool. Each enabled server gets a live connection; tools discovered
@@ -61,6 +63,22 @@ export function getTools(): McpTool[] {
  * shim as intended; anything already ending in `.exe`, and every non-Windows
  * platform, is passed through untouched.
  */
+/**
+ * Auth and vendor-specific headers for an HTTP server. Plugin tokens live in
+ * the encrypted vault keyed by `plugin:<id>`; a hand-added custom server has
+ * none and simply connects unauthenticated.
+ */
+function httpHeadersFor(server: McpServer): Record<string, string> {
+  if (!server.pluginId) return {}
+  const entry = MCP_CATALOG.find((e) => e.id === server.pluginId)
+  if (!entry) return {}
+  const token = secrets.get(`plugin:${server.pluginId}`)
+  return {
+    ...entry.extraHeaders,
+    ...(token ? { Authorization: `${entry.authScheme} ${token}` } : {})
+  }
+}
+
 function resolveLaunch(command: string, args: string[]): { command: string; args: string[] } {
   if (process.platform !== 'win32') return { command, args }
   if (/\.(exe|com)$/i.test(command)) return { command, args }
@@ -76,7 +94,14 @@ async function connect(server: McpServer): Promise<void> {
 
     if (server.transport === 'http') {
       if (!server.url) throw new Error('No URL configured')
-      await client.connect(new StreamableHTTPClientTransport(new URL(server.url)))
+      // Catalog plugins authenticate with a token held in the encrypted vault,
+      // never in mcp.json. The scheme is per-vendor (Sentry and Semrush do not
+      // use "Bearer"), so it comes from the catalog entry rather than assumed.
+      await client.connect(
+        new StreamableHTTPClientTransport(new URL(server.url), {
+          requestInit: { headers: httpHeadersFor(server) }
+        })
+      )
     } else {
       if (!server.command) throw new Error('No command configured')
       const launch = resolveLaunch(server.command, server.args)
