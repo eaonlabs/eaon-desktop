@@ -186,3 +186,5 @@ Thank you to our supporters:
 ## License
 
 Eaon is [GNU GPL v3.0](LICENSE.md). Use it, read it, change it, pass it on. If you distribute a modified version it has to be GPLv3 as well, with source available and the existing copyright notices intact. Fork away.
+
+Built with ❤️ in California and New York
