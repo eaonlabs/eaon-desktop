@@ -26,25 +26,6 @@ export const CORE_PLUGINS: PluginEntry[] = MCP_CATALOG.map((entry) => ({
   category: 'core'
 }))
 
-export const DIRECTORY: PluginEntry[] = [
-  { id: 'gmail', name: 'Gmail', description: 'Read and manage Gmail', access: 'managed', category: 'featured' },
-  { id: 'github', name: 'GitHub', description: 'Triage PRs, issues, CI, and publish releases', access: 'install', category: 'featured' },
-  { id: 'google-drive', name: 'Google Drive', description: 'Work across Drive, Docs, Sheets, and Slides', access: 'managed', category: 'featured' },
-  { id: 'google-calendar', name: 'Google Calendar', description: 'Manage Google Calendar events and invites', access: 'managed', category: 'featured' },
-  { id: 'notion', name: 'Notion', description: 'Notion workflows for specs, docs, and databases', access: 'install', category: 'featured' },
-  { id: 'slack', name: 'Slack', description: 'Read and manage Slack', access: 'install', category: 'featured' },
-
-  { id: 'granola', name: 'Granola', description: 'Add your meeting context', access: 'install', category: 'productivity' },
-  { id: 'fireflies', name: 'Fireflies', description: 'Search meeting transcripts', access: 'install', category: 'productivity' },
-  { id: 'outlook-calendar', name: 'Outlook Calendar', description: 'Manage Microsoft Outlook calendars', access: 'install', category: 'productivity' },
-  { id: 'plaud', name: 'Plaud', description: 'Retrieve insights from Plaud', access: 'install', category: 'productivity' },
-
-  { id: 'outlook-email', name: 'Outlook Email', description: 'Read and manage Outlook mail', access: 'install', category: 'more' },
-  { id: 'canva', name: 'Canva', description: 'Design and edit Canva documents', access: 'install', category: 'more' }
-]
-
-export const ALL_PLUGINS = [...CORE_PLUGINS, ...DIRECTORY]
-
 export interface SkillEntry {
   id: string
   name: string

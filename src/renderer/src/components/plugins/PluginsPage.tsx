@@ -1,10 +1,11 @@
 import { useMemo, useRef, useState } from 'react'
-import { Check, ChevronDown, CircleDot, Package, RefreshCw, Settings, UserRoundCog } from 'lucide-react'
+import { Check, ChevronDown, CircleDot, Package, RefreshCw, Settings } from 'lucide-react'
 import { useApp } from '../../state/store'
 import { CollapsedNav } from '../CollapsedNav'
-import { BrandIcon, SkillIcon } from '../../icons/brand'
-import { CORE_PLUGINS, DIRECTORY, SKILLS, type PluginEntry, type SkillEntry } from '../../lib/catalog'
+import { SkillIcon } from '../../icons/brand'
+import { SKILLS, type SkillEntry } from '../../lib/catalog'
 import { MenuItem, Popover, SearchField, Segmented, useDisclosure } from '../ui'
+import { PluginCatalog } from './PluginCatalog'
 
 export function PluginsPage(): JSX.Element {
   const { pluginsTab, setPluginsTab, setView, refreshProviders, sidebarOpen } = useApp()
@@ -41,132 +42,7 @@ export function PluginsPage(): JSX.Element {
       </div>
 
       <div className="page__scroll scroll">
-        <div className="page__inner">{pluginsTab === 'plugins' ? <PluginsTab /> : <SkillsTab />}</div>
-      </div>
-    </div>
-  )
-}
-
-function PluginsTab(): JSX.Element {
-  const { settings, patchSettings, setView } = useApp()
-  const [query, setQuery] = useState('')
-  const [scope, setScope] = useState<'public' | 'personal'>('public')
-
-  const installed = settings?.installedPlugins ?? []
-  const matches = (entry: PluginEntry): boolean =>
-    entry.name.toLowerCase().includes(query.trim().toLowerCase()) ||
-    entry.description.toLowerCase().includes(query.trim().toLowerCase())
-
-  const featured = DIRECTORY.filter((e) => e.category === 'featured' && matches(e))
-  const productivity = DIRECTORY.filter((e) => e.category === 'productivity' && matches(e))
-  const more = DIRECTORY.filter((e) => e.category === 'more')
-
-  const install = (id: string): void => {
-    const next = installed.includes(id) ? installed.filter((p) => p !== id) : [...installed, id]
-    void patchSettings({ installedPlugins: next })
-  }
-
-  return (
-    <>
-      <h1 className="page__title">Plugins</h1>
-      <p className="page__subtitle">Work with your assistant across your favorite tools</p>
-      <SearchField value={query} onChange={setQuery} placeholder="Search plugins" />
-
-      <div className="section-head">
-        <span className="section-head__title">Installed</span>
-        <button className="icon-btn" aria-label="Manage installed" onClick={() => setView('integrations')}>
-          <Settings size={15} strokeWidth={1.9} />
-        </button>
-      </div>
-      <div className="installed-row">
-        {CORE_PLUGINS.map((plugin) => (
-          <button
-            key={plugin.id}
-            title={plugin.name}
-            onClick={() => install(plugin.id)}
-            style={{ borderRadius: 11, display: 'grid', placeItems: 'center', opacity: installed.includes(plugin.id) ? 1 : 0.4 }}
-          >
-            <BrandIcon id={plugin.id} size={40} />
-          </button>
-        ))}
-      </div>
-
-      <div style={{ marginTop: 26 }}>
-        <Segmented
-          value={scope}
-          onChange={setScope}
-          options={[
-            { value: 'public', label: 'Public' },
-            { value: 'personal', label: 'Personal' }
-          ]}
-        />
-      </div>
-
-      {scope === 'personal' ? (
-        <div style={{ padding: '48px 0', color: 'var(--text-3)', fontSize: 'var(--fs-base)' }}>
-          No personal plugins yet. Connect an MCP server to add your own.
-        </div>
-      ) : (
-        <>
-          <div className="section-head section-head--ruled">
-            <span className="section-head__title">Featured</span>
-          </div>
-          <div className="grid-2">
-            {featured.map((entry) => (
-              <PluginRow key={entry.id} entry={entry} installed={installed.includes(entry.id)} onInstall={install} />
-            ))}
-          </div>
-
-          <div className="more-line">
-            <span className="avatar-stack">
-              {more.map((entry) => (
-                <BrandIcon key={entry.id} id={entry.id} size={22} />
-              ))}
-              <BrandIcon id="granola" size={22} />
-            </span>
-            See {more.map((e) => e.name).join(', ')}, and more
-          </div>
-
-          <div className="section-head section-head--ruled">
-            <span className="section-head__title">Productivity</span>
-          </div>
-          <div className="grid-2">
-            {productivity.map((entry) => (
-              <PluginRow key={entry.id} entry={entry} installed={installed.includes(entry.id)} onInstall={install} />
-            ))}
-          </div>
-        </>
-      )}
-    </>
-  )
-}
-
-function PluginRow({
-  entry,
-  installed,
-  onInstall
-}: {
-  entry: PluginEntry
-  installed: boolean
-  onInstall: (id: string) => void
-}): JSX.Element {
-  return (
-    <div className="entry">
-      <BrandIcon id={entry.id} size={40} />
-      <div className="entry__body">
-        <span className="entry__title">{entry.name}</span>
-        <span className="entry__desc">{entry.description}</span>
-      </div>
-      <div className="entry__trail">
-        {entry.access === 'managed' ? (
-          <span title="Managed by your workspace admin">
-            <UserRoundCog size={16} strokeWidth={1.8} />
-          </span>
-        ) : (
-          <button className="btn btn--sm" onClick={() => onInstall(entry.id)}>
-            {installed ? 'Remove' : 'Install'}
-          </button>
-        )}
+        <div className="page__inner">{pluginsTab === 'plugins' ? <PluginCatalog /> : <SkillsTab />}</div>
       </div>
     </div>
   )
