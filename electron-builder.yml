@@ -67,12 +67,11 @@ win:
         - x64
         - arm64
         - ia32
+  # Unsigned for now. Windows SmartScreen will show "Windows protected your PC"
+  # on first run until these builds carry an Authenticode signature — click
+  # More info -> Run anyway. Signing needs a code-signing certificate, which is
+  # a separate purchase from the Apple Developer ID used for macOS.
   artifactName: ${productName}-${version}-setup.${ext}
-  # Signed via Azure Artifact Signing rather than a local certificate — see
-  # scripts/sign-win.cjs for why, and scripts/release-windows.sh for the
-  # prerequisites (dotnet, the `sign` global tool, an active `az login`).
-  signtoolOptions:
-    sign: scripts/sign-win.cjs
 nsis:
   # A per-user install needs no admin prompt, and is what lets the updater
   # replace the app without elevating.
