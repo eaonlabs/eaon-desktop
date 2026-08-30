@@ -73,7 +73,7 @@ export const defaultSettings: Settings = {
   appearance: {
     mode: 'dark',
     light: {
-      preset: 'Codex',
+      preset: 'Cobalt',
       accent: '#0A84FF',
       background: '#FFFFFF',
       foreground: '#1A1C1F',
@@ -83,7 +83,7 @@ export const defaultSettings: Settings = {
       contrast: 45
     },
     dark: {
-      preset: 'Codex',
+      preset: 'Cobalt',
       accent: '#0A84FF',
       background: '#111111',
       foreground: '#FCFCFC',

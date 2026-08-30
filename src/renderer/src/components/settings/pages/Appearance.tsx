@@ -19,7 +19,7 @@ interface Theme {
  */
 const THEMES: Theme[] = [
   {
-    name: 'Codex',
+    name: 'Cobalt',
     light: { accent: '#0A84FF', background: '#FFFFFF', foreground: '#1A1C1F', contrast: 45 },
     dark: { accent: '#0A84FF', background: '#111111', foreground: '#FCFCFC', contrast: 60 }
   },
@@ -29,7 +29,7 @@ const THEMES: Theme[] = [
     dark: { accent: '#8A93A0', background: '#0E0E10', foreground: '#F2F2F4', contrast: 52 }
   },
   {
-    name: 'Nord',
+    name: 'Glacier',
     light: { accent: '#4C7FA8', background: '#F6F8FA', foreground: '#16202A', contrast: 40 },
     dark: { accent: '#7FB3D5', background: '#0D1117', foreground: '#E8EFF5', contrast: 56 }
   },
