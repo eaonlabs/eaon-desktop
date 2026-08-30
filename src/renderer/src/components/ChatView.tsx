@@ -27,6 +27,7 @@ import { ThinkingSteps } from './ThinkingSteps'
 import { ThinkingOrb } from './ThinkingOrb'
 import { Markdown } from './agent/Markdown'
 import { ToolCall } from './agent/ToolCall'
+import { ModeSwitch } from './ModeSwitch'
 import type { Chat, ChatMessage } from '@shared/types'
 
 export function ChatView(): JSX.Element {
@@ -75,6 +76,7 @@ function Home(): JSX.Element {
     <>
       <div className="chat-header" data-collapsed={!sidebarOpen || undefined}>
         {!sidebarOpen && <CollapsedNav />}
+        <ModeSwitch />
         <div className="chat-header__spacer" />
         {/* The browser panel belongs to Eaon Work; the chat product has no use
             for it, so the toggle is not offered there. */}
@@ -196,6 +198,7 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
     <>
       <div className="chat-header" data-collapsed={!sidebarOpen || undefined}>
         {!sidebarOpen && <CollapsedNav />}
+        <ModeSwitch />
         <span className="chat-header__title">{chat.title}</span>
         <button
           ref={moreButton}

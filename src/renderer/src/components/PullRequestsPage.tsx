@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ExternalLink, Filter, GitPullRequest, Loader2, RefreshCw } from 'lucide-react'
 import { useApp } from '../state/store'
 import { CollapsedNav } from './CollapsedNav'
+import { ModeSwitch } from './ModeSwitch'
 import { SearchField } from './ui'
 import type { PullRequestsResult, PullRequestSummary } from '@shared/types'
 
@@ -90,6 +91,7 @@ export function PullRequestsPage(): JSX.Element {
     <div className="pr-page">
       <div className="chat-header" data-collapsed={!sidebarOpen || undefined}>
         {!sidebarOpen && <CollapsedNav />}
+        <ModeSwitch />
         <div className="manager__tabs">
           {TABS.map((t) => (
             <button key={t.value} className="manager__tab" data-active={tab === t.value} onClick={() => setTab(t.value)}>

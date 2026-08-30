@@ -9,13 +9,11 @@ import {
   GitPullRequest,
   HelpCircle,
   Loader2,
-  MessageSquare,
   PanelLeft,
   Pin,
   Search,
   Settings as SettingsIcon,
   SquarePen,
-  SquareTerminal,
   Trash2,
   Archive,
   PencilLine
@@ -24,51 +22,6 @@ import { useApp, useIsWork } from '../state/store'
 import { DownloadsButton } from './DownloadsPanel'
 import { MenuItem, MenuSearch, Popover, useDisclosure } from './ui'
 import type { Chat } from '@shared/types'
-
-/**
- * Chat ⇄ Code. Two modes rather than a list, so this is a segmented control and
- * not the dropdown the old free-form workspaces needed: both destinations are
- * always visible, and switching is one click instead of two.
- *
- * Coding mode is what turns the agent's tools on — `cwd` is only non-null here,
- * and `localToolsFor(null)` hands back an empty tool list everywhere else.
- */
-function ModeSwitch(): JSX.Element | null {
-  const { workspaces, activeId, setWorkspace } = useApp(
-    useShallow((s) => ({
-      workspaces: s.workspaces,
-      activeId: s.settings?.activeWorkspaceId,
-      setWorkspace: s.setWorkspace
-    }))
-  )
-
-  const chat = workspaces.find((w) => w.kind !== 'work')
-  const code = workspaces.find((w) => w.kind === 'work')
-  // Mid-migration an install can briefly hold only one; showing half a switch
-  // reads as broken, so show none.
-  if (!chat || !code) return null
-
-  return (
-    <div className="mode-switch" role="tablist" aria-label="Mode">
-      {[
-        { workspace: chat, label: 'Chat', Icon: MessageSquare },
-        { workspace: code, label: 'Code', Icon: SquareTerminal }
-      ].map(({ workspace, label, Icon }) => (
-        <button
-          key={workspace.id}
-          role="tab"
-          className="mode-switch__option"
-          aria-selected={workspace.id === activeId}
-          data-active={workspace.id === activeId || undefined}
-          onClick={() => setWorkspace(workspace.id)}
-        >
-          <Icon size={14} strokeWidth={2} />
-          {label}
-        </button>
-      ))}
-    </div>
-  )
-}
 
 export function Sidebar(): JSX.Element {
   const { view, activeChatId, streamingMessageId, sidebarOpen, toggleSidebar, setView, setModelsRepo, newChat, setSettingsPage, goForward } = useApp(useShallow((s) => ({ view: s.view, activeChatId: s.activeChatId, streamingMessageId: s.streamingMessageId, sidebarOpen: s.sidebarOpen, toggleSidebar: s.toggleSidebar, setView: s.setView, setModelsRepo: s.setModelsRepo, newChat: s.newChat, setSettingsPage: s.setSettingsPage, goForward: s.goForward })))
@@ -108,7 +61,6 @@ export function Sidebar(): JSX.Element {
       <SearchMenu anchor={searchAnchor} open={searchMenu.open} onClose={searchMenu.close} />
 
       <div className="sidebar__body scroll">
-        <ModeSwitch />
         <button className="nav-item" onClick={() => newChat()}>
           <span className="nav-item__icon">
             <SquarePen size={16} strokeWidth={1.9} />
