@@ -56,7 +56,21 @@ function readJson<T>(name: string, fallback: T): T {
   }
 }
 
-export const DEFAULT_WORKSPACES: Workspace[] = [{ id: 'work', name: 'Eaon', kind: 'chat' }]
+/**
+ * Two workspaces: the assistant, and the agentic coding mode.
+ *
+ * The chat workspace keeps the id `work` for the same reason it looks wrong to
+ * do so — every chat and project written while Eaon Work was hidden points at
+ * it, and renaming the id would move all of that history into coding mode. The
+ * coding workspace is the one that got the new id.
+ */
+export const DEFAULT_WORKSPACES: Workspace[] = [
+  { id: 'work', name: 'Eaon', kind: 'chat' },
+  { id: 'code', name: 'Code', kind: 'work', cwd: null }
+]
+
+const CHAT_WORKSPACE_ID = DEFAULT_WORKSPACES[0].id
+const CODE_WORKSPACE_ID = DEFAULT_WORKSPACES[1].id
 
 export const defaultSettings: Settings = {
   general: {
@@ -217,34 +231,51 @@ export const store = {
   },
 
   /**
-   * Eaon Work — the coding product — is hidden for now, so there is a single
-   * workspace and no switcher in the sidebar.
+   * Brings an install up to the canonical two-workspace layout: one chat, one
+   * coding.
    *
-   * Anything that lived in another workspace (the old free-form ones, or Eaon
-   * Work) has its `workspaceId` rewritten to the remaining one rather than being
-   * dropped, so no chat or project disappears from view. The active id is forced
-   * back for the same reason: an install last left in Eaon Work would otherwise
-   * open to an empty list with no control to switch out of it.
+   * Runs against three shapes of stored data — the old free-form workspaces,
+   * the single collapsed one written while coding mode was hidden, and the
+   * current pair. Anything pointing at a workspace that no longer exists is
+   * re-homed to the chat workspace rather than dropped, so no chat or project
+   * disappears from view; a project folder already chosen for coding mode is
+   * carried across rather than reset. The active id is repaired for the same
+   * reason: pointing at a missing workspace opens to an empty list with no
+   * control to switch out of it.
    */
   migrateWorkspaces(): void {
     const existing = readJson<Workspace[]>('workspaces.json', [])
-    const chatId = existing.find((w) => w.kind !== 'work')?.id ?? DEFAULT_WORKSPACES[0].id
     const settings = readJson<Partial<Settings>>('settings.json', {})
-    const canonical = existing.length === 1 && existing[0].id === chatId && existing[0].kind === 'chat'
-    if (canonical && settings.activeWorkspaceId === chatId) return
+
+    const chat = existing.find((w) => w.kind !== 'work')
+    const code = existing.find((w) => w.kind === 'work')
+    const chatId = chat?.id ?? CHAT_WORKSPACE_ID
+    const codeId = code?.id ?? CODE_WORKSPACE_ID
+    const workspaces: Workspace[] = [
+      { id: chatId, name: chat?.name ?? 'Eaon', kind: 'chat' },
+      { id: codeId, name: code?.name ?? 'Code', kind: 'work', cwd: code?.cwd ?? null }
+    ]
+
+    const known = new Set([chatId, codeId])
+    const active = settings.activeWorkspaceId && known.has(settings.activeWorkspaceId) ? settings.activeWorkspaceId : chatId
+    const canonical =
+      existing.length === 2 &&
+      existing.every((w, i) => w.id === workspaces[i].id && w.kind === workspaces[i].kind) &&
+      settings.activeWorkspaceId === active
+    if (canonical) return
 
     const chats = readJson<Chat[]>('chats.json', [])
     writeJson(
       'chats.json',
-      chats.map((c) => (c.workspaceId === chatId ? c : { ...c, workspaceId: chatId }))
+      chats.map((c) => (known.has(c.workspaceId) ? c : { ...c, workspaceId: chatId }))
     )
     const projects = readJson<Project[]>('projects.json', [])
     writeJson(
       'projects.json',
-      projects.map((p) => (p.workspaceId === chatId ? p : { ...p, workspaceId: chatId }))
+      projects.map((p) => (known.has(p.workspaceId) ? p : { ...p, workspaceId: chatId }))
     )
-    writeJson('workspaces.json', [{ id: chatId, name: 'Eaon', kind: 'chat' }])
-    if (settings.activeWorkspaceId !== chatId) writeJson('settings.json', { ...settings, activeWorkspaceId: chatId })
+    writeJson('workspaces.json', workspaces)
+    if (settings.activeWorkspaceId !== active) writeJson('settings.json', { ...settings, activeWorkspaceId: active })
   },
 
   getProjects(): Project[] {

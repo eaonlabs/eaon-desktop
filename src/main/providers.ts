@@ -523,27 +523,42 @@ function toolTrace(name: string, args: Record<string, unknown>): string {
  */
 async function runTool(
   request: StreamRequest,
+  toolId: string,
   name: string,
   args: Record<string, unknown>,
   emit: (event: StreamEvent) => void
 ): Promise<string> {
+  // Announce the call before running it, so a two-minute `run_command` shows up
+  // in the transcript immediately instead of only once it returns.
+  emit({ type: 'tool-call', messageId: request.messageId, toolId, name, input: args })
+
+  const finish = (output: string, status: 'done' | 'denied' | 'error'): string => {
+    emit({ type: 'tool-result', messageId: request.messageId, toolId, output, status })
+    return output
+  }
+
   try {
-    if (isWebSearchTool(name)) return await runWebSearch(args)
+    if (isWebSearchTool(name)) return finish(await runWebSearch(args), 'done')
     if (isLocalTool(name)) {
       if (!request.cwd) throw new Error('No project folder is set for Eaon Work yet.')
       const needsApproval = isMutatingTool(name) && store.getSettings().approvalMode === 'ask'
       if (needsApproval) {
         const approved = await requestApproval(request.messageId, name, args, emit)
-        if (!approved) return 'The user denied this action. Do not repeat it; ask how they would like to proceed instead.'
+        if (!approved) {
+          return finish(
+            'The user denied this action. Do not repeat it; ask how they would like to proceed instead.',
+            'denied'
+          )
+        }
       }
-      return await runLocalTool(name, args, request.cwd)
+      return finish(await runLocalTool(name, args, request.cwd), 'done')
     }
     const timeout = store.getSettings().mcp.toolCallTimeoutSeconds * 1000
-    return await callMcpTool(name, args, timeout)
+    return finish(await callMcpTool(name, args, timeout), 'done')
   } catch (error) {
     // Feed the failure back to the model as a result rather than aborting the
     // turn; models routinely recover by trying different arguments.
-    return `Tool error: ${error instanceof Error ? error.message : String(error)}`
+    return finish(`Tool error: ${error instanceof Error ? error.message : String(error)}`, 'error')
   }
 }
 
@@ -556,10 +571,37 @@ async function streamAnthropic(
 ): Promise<void> {
   const client = new Anthropic({ apiKey, baseURL })
   const tools = selectTools(request)
+  // Fall back to the model's own first level when the chat is set to an effort
+  // it does not offer, rather than dropping the control entirely.
+  const efforts = inferEfforts(request.modelId)
+  const supportedEffort = efforts?.includes(request.effort) ? request.effort : efforts?.[0]
 
-  const messages: Anthropic.MessageParam[] = request.messages
-    .filter((m) => m.role !== 'system')
-    .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }))
+  // Assistant turns that called tools are replayed as the pair Anthropic
+  // requires — the assistant blocks, then a user turn answering every
+  // tool_use_id — so the agent can see what it already did and what came back.
+  const messages: Anthropic.MessageParam[] = []
+  for (const message of request.messages) {
+    if (message.role === 'system') continue
+    const calls = (message.tools ?? []).filter((tool) => tool.output !== null)
+    if (message.role !== 'assistant' || calls.length === 0) {
+      if (message.content.length > 0) messages.push({ role: message.role, content: message.content })
+      continue
+    }
+    const blocks: Anthropic.ContentBlockParam[] = []
+    if (message.content.length > 0) blocks.push({ type: 'text', text: message.content })
+    for (const call of calls) {
+      blocks.push({ type: 'tool_use', id: call.id, name: call.name, input: call.input })
+    }
+    messages.push({ role: 'assistant', content: blocks })
+    messages.push({
+      role: 'user',
+      content: calls.map((call) => ({
+        type: 'tool_result' as const,
+        tool_use_id: call.id,
+        content: call.output ?? ''
+      }))
+    })
+  }
 
   const rounds = maxToolRounds(request)
   for (let round = 0; round < rounds; round++) {
@@ -570,7 +612,11 @@ async function streamAnthropic(
         ...(request.system ? { system: request.system } : {}),
         // Adaptive thinking with a visible summary so the UI can show reasoning.
         thinking: { type: 'adaptive', display: 'summarized' },
-        output_config: { effort: EFFORT_TO_ANTHROPIC[request.effort] },
+        // Only for models that actually take an effort control. `inferEfforts`
+        // already knows which those are — it is what hides the picker in the UI
+        // — but this call sent the field regardless, so picking a model it does
+        // not apply to (claude-haiku-4-5, say) failed the request outright.
+        ...(supportedEffort ? { output_config: { effort: EFFORT_TO_ANTHROPIC[supportedEffort] } } : {}),
         ...(tools.length > 0
           ? {
               tools: tools.map((tool) => ({
@@ -605,7 +651,7 @@ async function streamAnthropic(
     for (const call of calls) {
       const input = (call.input ?? {}) as Record<string, unknown>
       emit({ type: 'reasoning', messageId: request.messageId, text: `\n↳ ${call.name}\n${toolTrace(call.name, input)}` })
-      const output = await runTool(request, call.name, input, emit)
+      const output = await runTool(request, call.id, call.name, input, emit)
       results.push({ type: 'tool_result', tool_use_id: call.id, content: output })
     }
     messages.push({ role: 'user', content: results })
@@ -629,10 +675,29 @@ async function streamOpenAICompatible(
     tool_call_id?: string
   }
 
-  const messages: ChatMessage[] = [
-    ...(request.system ? [{ role: 'system', content: request.system }] : []),
-    ...request.messages.map((m) => ({ role: m.role, content: m.content }))
-  ]
+  // Same history replay as the Anthropic path, in OpenAI's shape: the assistant
+  // turn carries `tool_calls`, and each result comes back as its own
+  // `role: 'tool'` message keyed by `tool_call_id`.
+  const messages: ChatMessage[] = request.system ? [{ role: 'system', content: request.system }] : []
+  for (const message of request.messages) {
+    const calls = (message.tools ?? []).filter((tool) => tool.output !== null)
+    if (message.role !== 'assistant' || calls.length === 0) {
+      messages.push({ role: message.role, content: message.content })
+      continue
+    }
+    messages.push({
+      role: 'assistant',
+      content: message.content.length > 0 ? message.content : null,
+      tool_calls: calls.map((call) => ({
+        id: call.id,
+        type: 'function' as const,
+        function: { name: call.name, arguments: JSON.stringify(call.input) }
+      }))
+    })
+    for (const call of calls) {
+      messages.push({ role: 'tool', content: call.output ?? '', tool_call_id: call.id })
+    }
+  }
 
   const rounds = maxToolRounds(request)
   for (let round = 0; round < rounds; round++) {
@@ -770,7 +835,7 @@ async function streamOpenAICompatible(
         continue
       }
       emit({ type: 'reasoning', messageId: request.messageId, text: `\n↳ ${call.name}\n${toolTrace(call.name, args)}` })
-      const output = await runTool(request, call.name, args, emit)
+      const output = await runTool(request, call.id, call.name, args, emit)
       messages.push({ role: 'tool', tool_call_id: call.id, content: output })
     }
   }

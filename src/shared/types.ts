@@ -34,10 +34,34 @@ export interface Provider {
   fallbackCount: number
 }
 
-export interface ChatMessagePart {
+export interface ChatTextPart {
   type: 'text' | 'reasoning'
   text: string
 }
+
+/**
+ * One tool call and its result, kept in the transcript rather than only in the
+ * agent loop's local scratch array.
+ *
+ * Without this the next turn cannot see that the previous one edited a file or
+ * that a test failed — history was rebuilt from text parts alone, so every tool
+ * call the agent made vanished the moment the turn ended. Stored in a
+ * provider-neutral shape rather than as raw Anthropic/OpenAI blocks so a chat
+ * survives switching models mid-conversation, and so the transcript UI has the
+ * arguments and output it needs to render the call.
+ */
+export interface ChatToolPart {
+  type: 'tool'
+  /** Provider-assigned call id, needed to pair results back up on replay. */
+  id: string
+  name: string
+  input: Record<string, unknown>
+  /** Null while the tool is still running. */
+  output: string | null
+  status: 'running' | 'done' | 'denied' | 'error'
+}
+
+export type ChatMessagePart = ChatTextPart | ChatToolPart
 
 export interface ChatMessage {
   id: string
@@ -224,7 +248,16 @@ export interface StreamRequest {
   modelId: string
   effort: EffortLevel
   system: string
-  messages: { role: 'user' | 'assistant' | 'system'; content: string }[]
+  messages: {
+    role: 'user' | 'assistant' | 'system'
+    content: string
+    /**
+     * Tool calls this assistant turn made, in order. Replayed into whichever
+     * provider's wire format is in use so the agent can see what it already did
+     * on earlier turns.
+     */
+    tools?: ChatToolPart[]
+  }[]
   /** Project folder for Eaon Work — enables the read_file/write_file/run_command tools when set. */
   cwd: string | null
 }
@@ -235,6 +268,17 @@ export type StreamEvent =
   | { type: 'done'; messageId: string }
   | { type: 'error'; messageId: string; error: string }
   | { type: 'approval-request'; messageId: string; requestId: string; tool: string; input: Record<string, unknown> }
+  // A tool started and finished, as two events, so the transcript can show the
+  // call the moment it is made rather than only once its output lands — a
+  // `run_command` can take two minutes.
+  | { type: 'tool-call'; messageId: string; toolId: string; name: string; input: Record<string, unknown> }
+  | {
+      type: 'tool-result'
+      messageId: string
+      toolId: string
+      output: string
+      status: 'done' | 'denied' | 'error'
+    }
 
 export type UpdateStatus =
   | { state: 'idle' }

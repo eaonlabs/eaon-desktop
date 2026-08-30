@@ -267,6 +267,41 @@ a:hover {
   overflow-y: auto;
 }
 
+/* Chat ⇄ Code. Sits in the sunken track so the raised option reads as the
+   selected one without needing an accent fill, which would fight the accent
+   already used for primary actions. */
+.mode-switch {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: 1fr;
+  gap: 2px;
+  margin-bottom: 6px;
+  padding: 2px;
+  background: var(--sunken);
+  border-radius: var(--r-md);
+}
+.mode-switch__option {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 26px;
+  border-radius: calc(var(--r-md) - 3px);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  transition:
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+.mode-switch__option:hover {
+  color: var(--text);
+}
+.mode-switch__option[data-active] {
+  background: var(--surface-3);
+  color: var(--text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+
 .nav-item {
   display: flex;
   align-items: center;

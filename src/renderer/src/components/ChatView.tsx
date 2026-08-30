@@ -25,6 +25,8 @@ import { ContextMenu } from './Sidebar'
 import { Modal } from './ui'
 import { ThinkingSteps } from './ThinkingSteps'
 import { ThinkingOrb } from './ThinkingOrb'
+import { Markdown } from './agent/Markdown'
+import { ToolCall } from './agent/ToolCall'
 import type { Chat, ChatMessage } from '@shared/types'
 
 export function ChatView(): JSX.Element {
@@ -317,6 +319,9 @@ const MessageRow = memo(function MessageRow({
   // is what made a long reply quadratic.
   const body = useMemo(() => messageText(message), [message])
   const reasoning = useMemo(() => messageText(message, 'reasoning'), [message])
+  // A turn that only called tools and said nothing still has content to show;
+  // testing the joined text alone would render it as "No response".
+  const hasContent = body.length > 0 || message.parts.some((part) => part.type === 'tool')
 
   if (message.role === 'user') {
     return (
@@ -335,9 +340,18 @@ const MessageRow = memo(function MessageRow({
           <TriangleAlert size={15} strokeWidth={1.9} style={{ flex: 'none', marginTop: 1 }} />
           <span>{message.error}</span>
         </div>
-      ) : body ? (
+      ) : hasContent ? (
+        // Rendered part by part rather than as one joined string, so a tool call
+        // stays where the model made it — between the sentence that led to it
+        // and the one that follows from its result.
         <div className="msg--assistant" data-streaming={streaming || undefined}>
-          {body}
+          {message.parts.map((part, index) =>
+            part.type === 'tool' ? (
+              <ToolCall key={part.id} part={part} />
+            ) : part.type === 'text' ? (
+              <Markdown key={index} text={part.text} />
+            ) : null
+          )}
         </div>
       ) : streaming ? (
         <div className="msg__status">

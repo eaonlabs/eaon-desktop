@@ -646,7 +646,12 @@
 /* ---- Streaming caret --------------------------------------------
    A caret on the last line while tokens are still arriving, so a slow
    or paused stream is distinguishable from a finished one. */
-.msg--assistant[data-streaming='true']::after {
+/* On the last paragraph rather than the message: the reply is a stack of
+   blocks now, so a caret on the container sat alone under the final code block
+   or tool call instead of trailing the sentence being written. It is suppressed
+   entirely when the reply currently ends in something other than prose, where
+   there is no line for it to trail. */
+.msg--assistant[data-streaming='true'] > .md__p:last-child::after {
   content: '';
   display: inline-block;
   width: 2px;
@@ -656,6 +661,31 @@
   border-radius: 1px;
   background: var(--provider-accent);
   animation: caret-blink 1.05s steps(1, end) infinite;
+}
+
+/* Each block resolves through a soft blur as it arrives. Only while streaming,
+   and only on mount — a block already on screen keeps its identity as its text
+   grows, so this plays once per block rather than on every token. Reopening a
+   finished chat replays nothing. */
+.msg--assistant[data-streaming='true'] > * {
+  animation: block-resolve 280ms var(--spring-moderate) both;
+}
+@keyframes block-resolve {
+  from {
+    opacity: 0;
+    filter: blur(5px);
+    transform: translateY(2px);
+  }
+  to {
+    opacity: 1;
+    filter: blur(0);
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .msg--assistant[data-streaming='true'] > * {
+    animation: none;
+  }
 }
 @keyframes caret-blink {
   0%,

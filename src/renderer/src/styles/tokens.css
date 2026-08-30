@@ -139,6 +139,14 @@
   --focus-ring: color-mix(in srgb, var(--accent), transparent 10%);
   --scrollbar: rgba(255, 255, 255, 0.16);
   --code-bg: #0d0d0d;
+  /* Diff green/red are fixed hues rather than accent mixes: added and removed
+     have to stay green and red whatever accent the theme picks, or the diff
+     stops being readable at a glance. Backgrounds are kept faint so a run of
+     changed lines does not out-shout the code sitting on them. */
+  --diff-add-fg: #3fb950;
+  --diff-add-bg: rgba(63, 185, 80, 0.11);
+  --diff-del-fg: #f85149;
+  --diff-del-bg: rgba(248, 81, 73, 0.11);
   color-scheme: dark;
 }
 
@@ -187,6 +195,12 @@
   --focus-ring: color-mix(in srgb, var(--accent), transparent 10%);
   --scrollbar: rgba(0, 0, 0, 0.2);
   --code-bg: #f6f6f6;
+  /* Darker inks than the dark theme's: the same greens and reds wash out to
+     pastel against white and stop reading as added/removed. */
+  --diff-add-fg: #1a7f37;
+  --diff-add-bg: rgba(26, 127, 55, 0.1);
+  --diff-del-fg: #cf222e;
+  --diff-del-bg: rgba(207, 34, 46, 0.09);
   --shadow-menu: 0 0 0 0.5px rgba(0, 0, 0, 0.1), 0 10px 32px rgba(0, 0, 0, 0.14), 0 2px 8px rgba(0, 0, 0, 0.08);
   --shadow-modal: 0 24px 64px rgba(0, 0, 0, 0.22), 0 2px 12px rgba(0, 0, 0, 0.12);
   color-scheme: light;

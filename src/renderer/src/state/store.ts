@@ -2,6 +2,8 @@ import { create } from 'zustand'
 import type {
   Chat,
   ChatMessage,
+  ChatTextPart,
+  ChatToolPart,
   DownloadedModel,
   EffortLevel,
   IndexStatus,
@@ -197,6 +199,29 @@ export const useApp = create<AppState>((set, get) => ({
       if (event.type === 'delta') nextMessage = appendPart(message, 'text', event.text)
       else if (event.type === 'reasoning') nextMessage = appendPart(message, 'reasoning', event.text)
       else if (event.type === 'error') nextMessage = { ...message, error: event.error }
+      else if (event.type === 'tool-call') {
+        nextMessage = {
+          ...message,
+          parts: [
+            ...message.parts,
+            { type: 'tool', id: event.toolId, name: event.name, input: event.input, output: null, status: 'running' }
+          ]
+        }
+      } else if (event.type === 'tool-result') {
+        // Land the result on the call it belongs to. A tool part is only ever
+        // written once, so replacing it in place keeps every other part's
+        // identity for React.memo.
+        const partIndex = message.parts.findIndex((p) => p.type === 'tool' && p.id === event.toolId)
+        if (partIndex !== -1) {
+          const parts = message.parts.slice()
+          parts[partIndex] = {
+            ...(parts[partIndex] as ChatToolPart),
+            output: event.output,
+            status: event.status
+          }
+          nextMessage = { ...message, parts }
+        }
+      }
 
       const finished = event.type === 'done' || event.type === 'error'
       if (nextMessage === message && !finished) return
@@ -404,16 +429,21 @@ export const useApp = create<AppState>((set, get) => ({
       return
     }
 
+    // Tool calls travel with the turn that made them, so the agent can see the
+    // files it already edited and the commands it already ran. A turn that only
+    // called tools and said nothing still has to be kept — dropping it would
+    // strand its results.
     const history = (chats.find((c) => c.id === chat!.id)?.messages ?? [])
       .filter((m) => m.id !== assistantMessage.id && m.role !== 'system')
       .map((m) => ({
         role: m.role as 'user' | 'assistant',
         content: m.parts
-          .filter((p) => p.type === 'text')
+          .filter((p): p is ChatTextPart => p.type === 'text')
           .map((p) => p.text)
-          .join('')
+          .join(''),
+        tools: m.parts.filter((p): p is ChatToolPart => p.type === 'tool' && p.output !== null)
       }))
-      .filter((m) => m.content.length > 0)
+      .filter((m) => m.content.length > 0 || m.tools.length > 0)
 
     const project = state.projects.find((p) => p.id === chat!.projectId)
     const workspace = state.workspaces.find((w) => w.id === chat!.workspaceId)
@@ -615,8 +645,13 @@ function workSystemPrompt(cwd: string): string {
 function appendPart(message: ChatMessage, type: 'text' | 'reasoning', text: string): ChatMessage {
   const parts = [...message.parts]
   const last = parts[parts.length - 1]
-  if (last && last.type === type) parts[parts.length - 1] = { ...last, text: last.text + text }
-  else parts.push({ type, text })
+  // Only coalesce into a text part of the same kind — a tool call sitting at the
+  // end must stay its own part, and separates the text either side of it.
+  if (last && last.type !== 'tool' && last.type === type) {
+    parts[parts.length - 1] = { ...last, text: last.text + text }
+  } else {
+    parts.push({ type, text })
+  }
   return { ...message, parts }
 }
 
@@ -627,6 +662,6 @@ export function messageText(message: ChatMessage, type: 'text' | 'reasoning' = '
   // join for every call on a growing reply.
   if (parts.length === 1) return parts[0].type === type ? parts[0].text : ''
   let out = ''
-  for (const part of parts) if (part.type === type) out += part.text
+  for (const part of parts) if (part.type !== 'tool' && part.type === type) out += part.text
   return out
 }

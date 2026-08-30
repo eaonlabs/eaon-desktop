@@ -1,0 +1,289 @@
+/*
+ * Agent transcript: Markdown, code, diffs and tool calls.
+ *
+ * Everything here mixes from the same four theme values as the rest of the app
+ * (see tokens.css), so a coding turn re-tones with the picked theme instead of
+ * being a hard-coded dark slab in the middle of a light window. Motion follows
+ * the house rule — springs on enter, quicker plain tweens on exit, and only
+ * where the movement carries information.
+ */
+
+/* ---------- Markdown ---------- */
+
+.md__p {
+  margin: 0 0 10px;
+}
+.md__p:last-child {
+  margin-bottom: 0;
+}
+.md__heading {
+  margin: 16px 0 8px;
+  font-size: var(--fs-h2);
+  font-weight: 600;
+  line-height: 1.35;
+}
+.md__heading:first-child {
+  margin-top: 0;
+}
+.md__list {
+  margin: 0 0 10px;
+  padding-left: 22px;
+}
+.md__list li {
+  margin: 3px 0;
+}
+.md__list li::marker {
+  color: var(--text-3);
+}
+.md__quote {
+  margin: 0 0 10px;
+  padding: 2px 0 2px 12px;
+  border-left: 2px solid var(--border-strong);
+  color: var(--text-2);
+}
+.md__rule {
+  height: 0;
+  margin: 16px 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+.md__code {
+  padding: 1px 5px;
+  border-radius: var(--r-xs);
+  background: var(--sunken);
+  border: 1px solid var(--border-soft);
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  /* Long identifiers must not push the bubble wider than the column. */
+  overflow-wrap: anywhere;
+}
+
+/* ---------- Code block ---------- */
+
+.code-block {
+  margin: 0 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--sunken);
+  overflow: hidden;
+}
+.code-block__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 30px;
+  padding: 0 6px 0 10px;
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--text-3);
+  font-size: var(--fs-xxs);
+}
+.code-block__lang {
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
+}
+.code-block__copy {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: var(--r-xs);
+  color: var(--text-3);
+  font-size: var(--fs-xxs);
+  transition:
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+.code-block__copy:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.code-block__body {
+  margin: 0;
+  padding: 10px 12px;
+  overflow-x: auto;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: 1.55;
+  /* Wrapping code silently changes what it says, so it scrolls instead. */
+  white-space: pre;
+  tab-size: 2;
+}
+
+/* ---------- Diff ---------- */
+
+.diff {
+  margin: 0 0 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--sunken);
+  overflow: hidden;
+}
+.diff__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  height: 30px;
+  padding: 0 10px;
+  border-bottom: 1px solid var(--border-soft);
+  font-size: var(--fs-xxs);
+}
+.diff__file {
+  font-family: var(--font-mono);
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+.diff__stat {
+  display: flex;
+  flex: none;
+  gap: 8px;
+  font-family: var(--font-mono);
+}
+.diff__stat-add {
+  color: var(--diff-add-fg);
+}
+.diff__stat-del {
+  color: var(--diff-del-fg);
+}
+.diff__body {
+  max-height: 340px;
+  overflow: auto;
+  padding: 4px 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+}
+.diff__row {
+  display: flex;
+  gap: 8px;
+  padding: 0 10px;
+  white-space: pre;
+}
+.diff__row[data-kind='add'] {
+  background: var(--diff-add-bg);
+}
+.diff__row[data-kind='del'] {
+  background: var(--diff-del-bg);
+}
+.diff__marker {
+  flex: none;
+  width: 8px;
+  color: var(--text-3);
+  user-select: none;
+}
+.diff__row[data-kind='add'] .diff__marker {
+  color: var(--diff-add-fg);
+}
+.diff__row[data-kind='del'] .diff__marker {
+  color: var(--diff-del-fg);
+}
+.diff__text {
+  min-width: 0;
+}
+
+/* ---------- Tool call ---------- */
+
+.tool {
+  margin: 0 0 6px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-md);
+  background: var(--surface-1);
+  overflow: hidden;
+  /* Enters on a spring; a tool call appearing is information (the agent just
+     did something), so it gets movement rather than a plain fade. */
+  animation: tool-in var(--dur-spring) var(--spring-moderate) both;
+}
+@keyframes tool-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+.tool__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 32px;
+  padding: 0 8px 0 10px;
+  text-align: left;
+  transition: background var(--dur) var(--ease);
+}
+.tool__head:hover {
+  background: var(--hover);
+}
+.tool__glyph {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  color: var(--text-3);
+}
+.tool[data-status='error'] .tool__glyph,
+.tool[data-status='denied'] .tool__glyph {
+  color: var(--danger);
+}
+.tool__label {
+  flex: none;
+  color: var(--text);
+  font-size: var(--fs-sm);
+}
+.tool__detail {
+  min-width: 0;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tool__spacer {
+  flex: 1;
+}
+.tool__done {
+  flex: none;
+  color: var(--text-3);
+}
+.tool__chevron {
+  flex: none;
+  color: var(--text-3);
+  transition: transform var(--dur) var(--ease);
+}
+.tool[data-open] .tool__chevron {
+  transform: rotate(90deg);
+}
+.tool__panel {
+  padding: 8px 10px 10px;
+  border-top: 1px solid var(--border-soft);
+  animation: tool-panel-in var(--dur-spring) var(--spring-fast) both;
+}
+@keyframes tool-panel-in {
+  from {
+    opacity: 0;
+  }
+}
+.tool__output {
+  margin: 0;
+  max-height: 260px;
+  overflow: auto;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: var(--sunken);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.tool__waiting {
+  padding: 2px 0;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
