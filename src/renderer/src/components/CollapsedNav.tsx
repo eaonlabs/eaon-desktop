@@ -1,6 +1,7 @@
 import { ArrowRight, PanelLeft, SquarePen } from 'lucide-react'
-import { useApp } from '../state/store'
+import { useApp, useWorkspaceKind } from '../state/store'
 import { DownloadsButton } from './DownloadsPanel'
+import { useCode } from './code/codeStore'
 
 /**
  * The window-controls cluster shown at the top-left of every screen once the
@@ -16,6 +17,7 @@ export function CollapsedNav(): JSX.Element {
   const newChat = useApp((s) => s.newChat)
   const goForward = useApp((s) => s.goForward)
   const canGoForward = useApp((s) => s.canGoForward())
+  const kind = useWorkspaceKind()
 
   return (
     <span className="collapsed-nav">
@@ -28,7 +30,12 @@ export function CollapsedNav(): JSX.Element {
           <ArrowRight size={16} strokeWidth={1.9} />
         </button>
       )}
-      <button className="icon-btn" onClick={() => newChat()} aria-label="New chat" title="New chat">
+      <button
+        className="icon-btn"
+        onClick={() => (kind === 'code' ? void useCode.getState().newSession() : newChat())}
+        aria-label={kind === 'code' ? 'New session' : 'New chat'}
+        title={kind === 'code' ? 'New session' : 'New chat'}
+      >
         <SquarePen size={16} strokeWidth={1.9} />
       </button>
     </span>
