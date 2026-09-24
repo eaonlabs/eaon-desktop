@@ -1,19 +1,25 @@
 import os from 'node:os'
-import { createWriteStream, existsSync, mkdirSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { createReadStream, createWriteStream, existsSync, mkdirSync } from 'node:fs'
 import { unlink } from 'node:fs/promises'
-import { join } from 'node:path'
+import { basename, dirname, join } from 'node:path'
+import { Readable } from 'node:stream'
 import { app } from 'electron'
 import type { DownloadedModel, ModelDetail, ModelSearchResult, ModelVariant } from '@shared/types'
 import { store } from './store'
 
 /**
  * Browse and download GGUF models from Hugging Face, then hand them to a local
- * Ollama daemon to actually run — Ollama's `/api/create` accepts a `FROM
- * <local-path>` modelfile, which is the standard way to import a raw GGUF file
- * without shelling out to the `ollama` CLI. Ollama always listens on 11434
- * regardless of what the "Ollama" provider's own (OpenAI-compatible) baseUrl
- * has been changed to, so that port is hardcoded here rather than shared with
+ * Ollama daemon to actually run: the file is uploaded to Ollama's blob store
+ * and a model is created from it by digest (see `registerWithOllama`), without
+ * shelling out to the `ollama` CLI. Ollama always listens on 11434 regardless
+ * of what the "Ollama" provider's own (OpenAI-compatible) baseUrl has been
+ * changed to, so that port is hardcoded here rather than shared with
  * providers.ts.
+ *
+ * The curated library on the Models page does not use this path — it pulls
+ * through Ollama directly (see modelLibrary/ollama.ts). This one serves
+ * "Browse Hugging Face", where the user picks an arbitrary file.
  */
 
 const HF_API = 'https://huggingface.co'
@@ -187,15 +193,34 @@ function modelsDir(): string {
   return dir
 }
 
-async function registerWithOllama(name: string, ggufPath: string): Promise<void> {
+/**
+ * Imports a local GGUF into Ollama. Current Ollama (checked on 0.30.4) no
+ * longer reads a `modelfile` in `/api/create` — `FROM <path>` is rejected with
+ * "neither 'from' or 'files' was specified" — so the file goes into Ollama's
+ * blob store first and the model is created from its digest. The upload is
+ * skipped when Ollama already has the blob (a re-download of the same file).
+ */
+async function registerWithOllama(name: string, ggufPath: string, sha256: string): Promise<void> {
+  const digest = `sha256:${sha256}`
   let response: Response
   try {
+    const head = await fetch(`${OLLAMA_ROOT}/api/blobs/${digest}`, { method: 'HEAD' })
+    if (!head.ok) {
+      const upload = await fetch(`${OLLAMA_ROOT}/api/blobs/${digest}`, {
+        method: 'POST',
+        body: Readable.toWeb(createReadStream(ggufPath)) as ReadableStream<Uint8Array>,
+        // Required by Node's fetch for a streamed request body.
+        duplex: 'half'
+      } as RequestInit)
+      if (!upload.ok) throw new Error(`Ollama rejected the file (${upload.status}): ${(await upload.text()).slice(0, 300)}`)
+    }
     response = await fetch(`${OLLAMA_ROOT}/api/create`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, modelfile: `FROM ${ggufPath}`, stream: false })
+      body: JSON.stringify({ model: name, files: { [basename(ggufPath)]: digest }, stream: false })
     })
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.message.startsWith('Ollama rejected')) throw error
     throw new Error('Could not reach Ollama — make sure it is installed and running.')
   }
   if (!response.ok) throw new Error(`Ollama returned ${response.status}: ${(await response.text()).slice(0, 300)}`)
@@ -212,10 +237,14 @@ export async function downloadModel(
   const totalBytes = Number(response.headers.get('content-length') ?? 0)
 
   const dir = join(modelsDir(), repoId.replace('/', '__'))
-  mkdirSync(dir, { recursive: true })
   const dest = join(dir, filename)
+  // Some repos keep variants in subfolders (`BF16/…-00001-of-00002.gguf`).
+  mkdirSync(dirname(dest), { recursive: true })
 
   let receivedBytes = 0
+  let lastReport = 0
+  // Hashed while writing so registration needn't re-read a multi-gigabyte file.
+  const hash = createHash('sha256')
   const reader = response.body.getReader()
   const out = createWriteStream(dest)
   try {
@@ -223,7 +252,14 @@ export async function downloadModel(
       const { done, value } = await reader.read()
       if (done) break
       receivedBytes += value.byteLength
-      onProgress({ receivedBytes, totalBytes, phase: 'downloading' })
+      hash.update(value)
+      // Chunks arrive every few kilobytes and each report is an IPC message
+      // that re-renders the Downloads panel; a few per second is plenty.
+      const now = Date.now()
+      if (now - lastReport > 150) {
+        lastReport = now
+        onProgress({ receivedBytes, totalBytes, phase: 'downloading' })
+      }
       if (!out.write(value)) await new Promise<void>((resolve) => out.once('drain', () => resolve()))
     }
     await new Promise<void>((resolve, reject) => out.end((err?: Error | null) => (err ? reject(err) : resolve())))
@@ -239,7 +275,7 @@ export async function downloadModel(
 
   let ollamaError: string | null = null
   try {
-    await registerWithOllama(ollamaName, dest)
+    await registerWithOllama(ollamaName, dest, hash.digest('hex'))
   } catch (error) {
     ollamaError = error instanceof Error ? error.message : String(error)
   }
