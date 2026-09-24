@@ -19,10 +19,10 @@ the old Swift/Tauri repo; see [[The GitHub eaon-desktop repo is not this codebas
 | Plugins (MCP) and skills | `mcp.ts`, `mcpOAuth.ts`, `features/skills.ts` | [[MCP OAuth sign-in for plugins]], [[Plugin catalog verification]], [[Skills loaded on demand]] |
 | Scheduled tasks | `features/scheduler/` | [[Scheduled tasks engine and headless runs]] |
 | Browser extension | `extension/`, `features/browser/` | [[Browser extension bridge]] |
-| Computer use | `features/computer/` | [[Computer use tool design]] |
-| Code tab | `features/eaonCode/`, `components/code/` | the eaon-code notes |
+| Computer use | `features/computer/` | [[Computer use: how the computer tool sees and drives the screen]] |
+| Code tab | `features/eaonCode/`, `components/code/` | [[Code tab drives Eaon Code over RPC]] |
 | Model library | `modelLibrary/`, `ModelsPage.tsx` | [[Local model hub (Models page)]] |
-| Themes, pets | `lib/themes.ts`, `components/pets/` | theme and pets notes |
+| Themes, pets | `lib/themes.ts`, `components/pets/` | [[Coloured themes, text fade and on-accent]], [[Pets — sprites, moods and the desktop window]] |
 
 Each feature registers through `src/main/features/<x>.ts` (IPC) and
 `src/preload/features/<x>.ts` (renderer bridge), so features grow without
