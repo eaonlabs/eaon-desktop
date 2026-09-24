@@ -16,6 +16,7 @@ export const app = {
   isPackaged: false,
   setName: () => {},
   on: () => {},
+  emit: () => false,
   whenReady: () => Promise.resolve()
 }
 
@@ -37,7 +38,31 @@ export const shell = {
 export const nativeTheme = { shouldUseDarkColors: true, themeSource: 'system' }
 export const ipcMain = { handle: () => {}, on: () => {} }
 export const BrowserWindow = { getAllWindows: () => [], getFocusedWindow: () => null }
-export const Notification = { isSupported: () => false }
+/**
+ * Unsupported by default, as on a headless CI box. The scheduler tests flip
+ * `supported` on and read `shown` to check what would have been posted.
+ */
+export class Notification {
+  static supported = false
+  static shown: Notification[] = []
+  static isSupported(): boolean {
+    return Notification.supported
+  }
+  private handlers = new Map<string, () => void>()
+  constructor(public options: { title: string; body?: string }) {}
+  on(event: string, handler: () => void): this {
+    this.handlers.set(event, handler)
+    return this
+  }
+  show(): void {
+    Notification.shown.push(this)
+  }
+  /** Test helper: what a user's click would do. */
+  click(): void {
+    this.handlers.get('click')?.()
+  }
+}
+export const powerMonitor = { on: () => {} }
 export const systemPreferences = {
   getMediaAccessStatus: () => 'granted',
   isTrustedAccessibilityClient: () => true
@@ -48,4 +73,4 @@ export const screen = {
 export const nativeImage = {
   createFromBuffer: () => ({ getSize: () => ({ width: 1, height: 1 }), resize: () => ({ toJPEG: () => Buffer.alloc(0) }), toJPEG: () => Buffer.alloc(0) })
 }
-export default { app, safeStorage, shell, nativeTheme, ipcMain, BrowserWindow, Notification, systemPreferences, screen, nativeImage }
+export default { app, safeStorage, shell, nativeTheme, ipcMain, BrowserWindow, Notification, powerMonitor, systemPreferences, screen, nativeImage }

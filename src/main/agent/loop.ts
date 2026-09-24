@@ -94,6 +94,8 @@ export interface LoopParams {
   signal: AbortSignal
   emit: (event: StreamEvent) => void
   approver: Approver
+  /** Scheduled tasks: see `RunOptions.unattended`. Unset for interactive turns. */
+  unattended?: UnattendedPolicy
   maxRounds: number
   /** Goal mode: the loop sends the agent back to work until it resolves the goal. */
   goal: GoalState | null
@@ -217,8 +219,13 @@ async function runTool(
     if (params.readOnly) {
       return finish('Plan mode is on, so this tool is disabled. Finish researching and call present_plan.', 'denied')
     }
-    const ask = params.settings.approvalMode === 'ask' || (tool.risky?.(call.input, ctx) ?? false)
-    if (ask && !(await params.approver(call.name, call.input))) {
+    const risky = tool.risky?.(call.input, ctx) ?? false
+    // Scheduled tasks (features/scheduler): nobody is there to ask, so the
+    // task's own policy stands in for the user's approval setting.
+    if (params.unattended) {
+      if (params.unattended === 'read-only') return finish(UNATTENDED_READ_ONLY, 'denied')
+      if (risky) return finish(UNATTENDED_RISKY, 'denied')
+    } else if ((params.settings.approvalMode === 'ask' || risky) && !(await params.approver(call.name, call.input))) {
       return finish('The user denied this action. Do not retry it; continue another way or ask how they would like to proceed.', 'denied')
     }
   }
@@ -360,10 +367,24 @@ async function compact(
 
 /* ------------------------------------------------------------- entry point */
 
+/**
+ * How a run with nobody watching treats changes, in place of the approval
+ * prompt: 'read-only' refuses every mutating call, 'safe' runs ordinary ones
+ * and refuses the risky ones "Approve for me" would still stop to ask about.
+ */
+export type UnattendedPolicy = 'read-only' | 'safe'
+
+const UNATTENDED_READ_ONLY =
+  'This scheduled task is read-only — the user did not allow it to make changes — so this action was not run. Do not retry it or look for another way to make the change; finish with what you can find out, and say in your report what you would have changed.'
+const UNATTENDED_RISKY =
+  'This action needs the user\'s approval, and a scheduled task runs with nobody to ask, so it was not run. Do not retry it; continue without it and mention it in your report.'
+
 export interface RunOptions {
   /** Headless runs (scheduled tasks) answer approvals themselves. */
   approver?: Approver
   signal?: AbortSignal
+  /** Set by scheduled tasks; decides mutating calls without asking anyone. */
+  unattended?: UnattendedPolicy
 }
 
 export interface RunOutcome {
@@ -425,6 +446,7 @@ export async function runAgent(request: StreamRequest, emit: (event: StreamEvent
       signal: controller.signal,
       emit,
       approver: options.approver ?? ((tool: string, input: Record<string, unknown>) => requestApproval(request.messageId, tool, input, emit)),
+      unattended: options.unattended,
       onText: (delta: string) => {
         text += delta
         emit({ type: 'delta', messageId: request.messageId, text: delta })
