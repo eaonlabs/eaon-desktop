@@ -1,1 +1,473 @@
-/* Styles for the scheduler feature. */
+/* Styles for the scheduler feature: the Scheduled page and its editor. */
+
+.page__inner--sched {
+  width: 680px;
+}
+
+.sched-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.sched-alert {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 0 14px;
+  padding: 8px 8px 8px 14px;
+  border-radius: var(--r-md);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: var(--fs-sm);
+}
+.sched-alert > span {
+  flex: 1;
+}
+
+/* ---- Task card ---- */
+
+.sched-task {
+  padding: 16px 16px 4px;
+  animation: sched-in var(--dur-spring) var(--spring-moderate) backwards;
+}
+@keyframes sched-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+.sched-task__head {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.sched-task__icon {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-sm);
+  background: var(--surface-3);
+  color: var(--text-2);
+}
+.sched-task__icon[data-mode='work'] {
+  background: color-mix(in srgb, var(--accent), transparent 84%);
+  color: color-mix(in srgb, var(--accent), var(--fg) 30%);
+}
+.sched-task[data-paused='true'] .sched-task__icon,
+.sched-task[data-paused='true'] .sched-task__name {
+  opacity: 0.55;
+}
+.sched-task__body {
+  flex: 1;
+  min-width: 0;
+}
+.sched-task__name {
+  margin: 0;
+  font-size: var(--fs-base);
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.35;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sched-task__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 6px;
+  margin-top: 2px;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+.sched-task__prompt {
+  margin: 6px 0 0;
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+  color: var(--text-3);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.sched-task__actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.sched-task__actions .switch {
+  margin-left: 8px;
+}
+
+/* Next run / Last run: a two-column key–value block under the header. */
+.sched-task__facts {
+  margin: 14px 0 0 44px;
+  padding: 10px 0 8px;
+  border-top: 1px solid var(--border);
+  display: grid;
+  gap: 6px;
+}
+.sched-fact {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  align-items: baseline;
+  gap: 12px;
+  font-size: var(--fs-sm);
+}
+.sched-fact dt {
+  color: var(--text-3);
+}
+.sched-fact dd {
+  margin: 0;
+  min-width: 0;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.sched-muted {
+  color: var(--text-3);
+}
+
+.sched-last {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-width: 0;
+  text-align: left;
+  color: var(--text);
+  border-radius: var(--r-xs);
+}
+.sched-last:not(:disabled):hover .sched-last__detail,
+.sched-last:not(:disabled):hover .sched-last__status {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: var(--text-4);
+}
+.sched-last__when {
+  flex: none;
+  color: var(--text-3);
+}
+.sched-last__detail {
+  min-width: 0;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Status: a dot for finished runs, the app spinner for a live one. */
+.sched-status__dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-4);
+}
+.sched-status__dot[data-status='succeeded'] {
+  background: var(--diff-add-fg);
+}
+.sched-status__dot[data-status='failed'] {
+  background: var(--danger);
+}
+.sched-status__spinner {
+  flex: none;
+  color: var(--accent);
+}
+[data-status='failed'].sched-last__status,
+[data-status='failed'].sched-run__status {
+  color: var(--danger);
+}
+
+/* ---- Run history ---- */
+
+.sched-history {
+  margin-left: 44px;
+  border-top: 1px solid var(--border);
+}
+.sched-history__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 32px;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+  transition: color var(--dur) var(--ease);
+}
+.sched-history__toggle:hover {
+  color: var(--text);
+}
+.sched-history__count {
+  margin-left: 2px;
+  padding: 0 6px;
+  border-radius: var(--r-pill);
+  background: var(--surface-3);
+  font-size: var(--fs-xxs);
+  line-height: 17px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.sched-history__list {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: 8px;
+  animation: sched-in var(--dur-spring) var(--spring-moderate);
+}
+.sched-run {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 32px;
+  padding: 0 8px;
+  margin: 0 -8px;
+  box-sizing: content-box;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
+  text-align: left;
+  color: var(--text-2);
+  transition: background var(--dur) var(--ease);
+}
+.sched-run:not(:disabled):hover {
+  background: var(--hover);
+}
+.sched-run:disabled {
+  cursor: default;
+}
+.sched-run__when {
+  flex: none;
+  width: 124px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.sched-run__status {
+  flex: none;
+  width: 132px;
+}
+.sched-run__detail {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sched-run__duration {
+  flex: none;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.sched-run__chevron {
+  flex: none;
+  color: var(--text-4);
+}
+
+/* ---- Editor ---- */
+
+/* The modal can outgrow a short window; the form scrolls, the actions stay. */
+.sched-form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  max-height: calc(100vh - 220px);
+  overflow-y: auto;
+  margin: 0 -22px;
+  padding: 2px 22px;
+  color: var(--text);
+}
+.sched-field {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+}
+.sched-field > .input {
+  width: 100%;
+}
+.sched-field .field-label {
+  display: block;
+}
+.sched-field__hint {
+  margin-top: 6px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.sched-form__prompt {
+  min-height: 84px;
+  resize: vertical;
+}
+.sched-form__error {
+  margin-right: auto;
+  font-size: var(--fs-sm);
+  color: var(--danger);
+}
+
+/* The modal sits on --surface-3, which is also the resting fill of selects,
+   segments and buttons — so inside the form they take the input look
+   instead, or they would vanish into the sheet. */
+.sched-form .select,
+.sched-form__btn {
+  background: var(--sunken);
+  border: 1px solid var(--border);
+}
+.sched-form .select:hover,
+.sched-form .select[data-open='true'],
+.sched-form__btn:hover:not(:disabled) {
+  background: var(--hover-strong);
+}
+.sched-form .segment {
+  padding: 2px;
+  border-radius: calc(var(--r-sm) + 2px);
+  background: var(--sunken);
+  border: 1px solid var(--border);
+}
+.sched-form .segment__item[data-active='true'] {
+  background: var(--surface-4);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+.sched-seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.sched-picker {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  width: 100%;
+}
+.sched-inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+.sched-input {
+  height: 30px;
+  font-variant-numeric: tabular-nums;
+}
+.sched-input--num {
+  width: 72px;
+}
+.sched-input--time {
+  width: 120px;
+}
+.sched-input--datetime {
+  width: 220px;
+}
+
+.sched-days {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.sched-days__row {
+  display: flex;
+  gap: 4px;
+}
+.sched-day {
+  width: 32px;
+  height: 30px;
+  border-radius: var(--r-sm);
+  background: var(--sunken);
+  border: 1px solid var(--border);
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+.sched-day:hover {
+  color: var(--text);
+}
+.sched-day[data-on='true'] {
+  background: color-mix(in srgb, var(--toggle-on), transparent 78%);
+  border-color: color-mix(in srgb, var(--toggle-on), transparent 45%);
+  color: var(--text);
+  font-weight: 500;
+}
+.sched-days__presets {
+  display: flex;
+  gap: 12px;
+}
+.sched-link {
+  font-size: var(--fs-xs);
+  color: var(--link);
+}
+.sched-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.sched-preview {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.sched-preview[data-error='true'] {
+  color: var(--danger);
+}
+
+.sched-folder {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 34px;
+  padding: 0 4px 0 11px;
+  border-radius: var(--r-sm);
+  background: var(--sunken);
+  border: 1px solid var(--border);
+  color: var(--text-3);
+}
+.sched-folder__path {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-sm);
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sched-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  background: var(--sunken);
+  border: 1px solid var(--border);
+}
+.sched-toggle__body {
+  flex: 1;
+  min-width: 0;
+}
+.sched-toggle__title {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text);
+}
+.sched-toggle__desc {
+  margin-top: 3px;
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  color: var(--text-3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sched-task,
+  .sched-history__list {
+    animation: none;
+  }
+}

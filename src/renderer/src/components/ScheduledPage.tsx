@@ -1,35 +1,80 @@
-import { useState } from 'react'
-import { CalendarClock, Plus, Trash2 } from 'lucide-react'
-import { Card, Modal, Row, Section, Select, Switch } from './ui'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { CalendarClock, Plus, X } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
+import type { ScheduledTask } from '@shared/scheduler'
+import { Card, Modal, Row, Section } from './ui'
 import { CollapsedNav } from './CollapsedNav'
-import { useApp } from '../state/store'
+import { revealChat, useApp } from '../state/store'
+import { TaskCard } from './scheduled/TaskCard'
+import { cleanError, TaskEditor } from './scheduled/TaskEditor'
 
-interface ScheduledTask {
-  id: string
-  prompt: string
-  cadence: string
-  enabled: boolean
+/**
+ * Scheduled tasks. The tasks themselves live in the main process
+ * (`features/scheduler`), which runs them whether or not this page — or any
+ * window — is open; the page only lists and edits them.
+ */
+
+/** Re-renders on an interval so "in 5 min" stays true while the page is open. */
+function useNow(every: number): number {
+  const [now, setNow] = useState(Date.now)
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), every)
+    return () => clearInterval(timer)
+  }, [every])
+  return now
 }
 
-const load = (): ScheduledTask[] => {
-  try {
-    return JSON.parse(localStorage.getItem('scheduled') ?? '[]') as ScheduledTask[]
-  } catch {
-    return []
-  }
-}
-
-/** Recurring prompts that run on a cadence. */
 export function ScheduledPage(): JSX.Element {
-  const sidebarOpen = useApp((s) => s.sidebarOpen)
-  const [tasks, setTasks] = useState<ScheduledTask[]>(load)
-  const [adding, setAdding] = useState(false)
-  const [prompt, setPrompt] = useState('')
-  const [cadence, setCadence] = useState('Every day')
+  const { sidebarOpen, models, providers } = useApp(
+    useShallow((s) => ({ sidebarOpen: s.sidebarOpen, models: s.availableModels(), providers: s.providers }))
+  )
+  const [tasks, setTasks] = useState<ScheduledTask[] | null>(null)
+  const [editing, setEditing] = useState<ScheduledTask | null>(null)
+  const [editorOpen, setEditorOpen] = useState(false)
+  const [deleting, setDeleting] = useState<ScheduledTask | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const now = useNow(30_000)
 
-  const save = (next: ScheduledTask[]): void => {
-    setTasks(next)
-    localStorage.setItem('scheduled', JSON.stringify(next))
+  useEffect(() => {
+    let live = true
+    void window.api.scheduler.list().then((list) => live && setTasks(list))
+    const off = window.api.scheduler.onTasks(setTasks)
+    return () => {
+      live = false
+      off()
+    }
+  }, [])
+
+  // Newest first, and stable: ordering by next run would make a card jump
+  // away from the pointer the moment it starts running.
+  const sorted = useMemo(() => (tasks ? [...tasks].sort((a, b) => b.createdAt - a.createdAt) : []), [tasks])
+
+  const attempt = useCallback((action: () => Promise<unknown>): void => {
+    setError(null)
+    action().catch((e) => setError(cleanError(e)))
+  }, [])
+
+  const openEditor = useCallback((task: ScheduledTask | null) => {
+    setEditing(task)
+    setEditorOpen(true)
+  }, [])
+  const onToggle = useCallback(
+    (task: ScheduledTask, enabled: boolean) => attempt(() => window.api.scheduler.setEnabled(task.id, enabled)),
+    [attempt]
+  )
+  const onRunNow = useCallback((task: ScheduledTask) => attempt(() => window.api.scheduler.runNow(task.id)), [attempt])
+  const onStop = useCallback((task: ScheduledTask) => attempt(() => window.api.scheduler.cancel(task.id)), [attempt])
+  const onOpenChat = useCallback((chatId: string) => revealChat(chatId), [])
+
+  const modelLabel = (task: ScheduledTask): string | null => {
+    if (!task.model) return null
+    const model = models.find((m) => m.providerId === task.model!.providerId && m.id === task.model!.modelId)
+    if (model) return model.label
+    // Not in the list can just mean the list is stale (a local runtime not
+    // refreshed yet); only call it unavailable when the provider itself is.
+    const provider = providers.find((p) => p.id === task.model!.providerId)
+    const usable = provider && provider.enabled && (provider.hasKey || provider.local)
+    return usable ? task.model.modelId : `${task.model.modelId} (${provider?.name ?? task.model.providerId} unavailable)`
   }
 
   return (
@@ -37,104 +82,85 @@ export function ScheduledPage(): JSX.Element {
       <div className="page__bar" data-collapsed={!sidebarOpen || undefined}>
         {!sidebarOpen && <CollapsedNav />}
         <div className="page__bar-spacer" />
-        <button className="btn btn--primary" onClick={() => setAdding(true)}>
+        <button className="btn btn--primary" onClick={() => openEditor(null)}>
           <Plus size={14} strokeWidth={2} />
           New schedule
         </button>
       </div>
 
       <div className="page__scroll scroll">
-        <div className="page__inner">
+        <div className="page__inner page__inner--sched">
           <h1 className="page__title">Scheduled</h1>
-          <p className="page__subtitle">Prompts that run on their own and land in your Recents.</p>
+          <p className="page__subtitle">
+            Prompts that run on their own, even with the window closed. Each run lands in Recents as a new chat.
+          </p>
 
-          <Section>
-            {tasks.length === 0 ? (
+          {error && (
+            <div className="sched-alert" role="alert">
+              <span>{error}</span>
+              <button className="icon-btn" aria-label="Dismiss" onClick={() => setError(null)}>
+                <X size={14} strokeWidth={2} />
+              </button>
+            </div>
+          )}
+
+          {tasks === null ? null : sorted.length === 0 ? (
+            <Section>
               <Card>
-                <Row
-                  title="Nothing scheduled"
-                  description="Create a schedule to run a prompt every day, week, or hour"
-                >
-                  <button className="btn" onClick={() => setAdding(true)}>
+                <Row title="Nothing scheduled" description="Run a prompt every morning, every few hours, on weekdays, or once at a set time.">
+                  <button className="btn" onClick={() => openEditor(null)}>
                     <CalendarClock size={14} strokeWidth={1.9} />
                     Create
                   </button>
                 </Row>
               </Card>
-            ) : (
-              <Card>
-                {tasks.map((task) => (
-                  <Row key={task.id} title={task.prompt} description={task.cadence}>
-                    <Switch
-                      label={task.prompt}
-                      checked={task.enabled}
-                      onChange={(on) => save(tasks.map((t) => (t.id === task.id ? { ...t, enabled: on } : t)))}
-                    />
-                    <button
-                      className="icon-btn"
-                      aria-label="Delete schedule"
-                      onClick={() => save(tasks.filter((t) => t.id !== task.id))}
-                    >
-                      <Trash2 size={15} strokeWidth={1.9} />
-                    </button>
-                  </Row>
-                ))}
-              </Card>
-            )}
-          </Section>
+            </Section>
+          ) : (
+            <div className="sched-list">
+              {sorted.map((task) => (
+                <TaskCard
+                  key={task.id}
+                  task={task}
+                  now={now}
+                  modelLabel={modelLabel(task)}
+                  onEdit={openEditor}
+                  onDelete={setDeleting}
+                  onToggle={onToggle}
+                  onRunNow={onRunNow}
+                  onStop={onStop}
+                  onOpenChat={onOpenChat}
+                />
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
+      <TaskEditor open={editorOpen} task={editing} onClose={() => setEditorOpen(false)} />
+
       <Modal
-        open={adding}
-        onClose={() => setAdding(false)}
-        title="New schedule"
+        open={deleting !== null}
+        onClose={() => setDeleting(null)}
+        title={`Delete “${deleting?.name ?? ''}”?`}
         actions={
           <>
-            <button className="btn btn--ghost" onClick={() => setAdding(false)}>
+            <button className="btn btn--ghost" onClick={() => setDeleting(null)}>
               Cancel
             </button>
             <button
-              className="btn btn--primary"
-              disabled={!prompt.trim()}
+              className="btn btn--danger"
               onClick={() => {
-                save([
-                  ...tasks,
-                  { id: Math.random().toString(36).slice(2), prompt: prompt.trim(), cadence, enabled: true }
-                ])
-                setPrompt('')
-                setAdding(false)
+                const task = deleting
+                setDeleting(null)
+                if (task) attempt(() => window.api.scheduler.remove(task.id))
               }}
             >
-              Create
+              Delete
             </button>
           </>
         }
       >
-        <label className="modal__field" style={{ display: 'block' }}>
-          <div style={{ marginBottom: 6 }}>Prompt</div>
-          <textarea
-            className="input"
-            style={{ minHeight: 84 }}
-            value={prompt}
-            placeholder="Summarize what changed in the repo today"
-            onChange={(e) => setPrompt(e.target.value)}
-          />
-        </label>
-        <label className="modal__field" style={{ display: 'block', marginBottom: 0 }}>
-          <div style={{ marginBottom: 6 }}>Runs</div>
-          <Select
-            value={cadence}
-            onChange={setCadence}
-            width={200}
-            options={[
-              { value: 'Every hour', label: 'Every hour' },
-              { value: 'Every day', label: 'Every day' },
-              { value: 'Every weekday', label: 'Every weekday' },
-              { value: 'Every week', label: 'Every week' }
-            ]}
-          />
-        </label>
+        It stops running. Chats from its earlier runs stay in Recents.
       </Modal>
     </div>
   )

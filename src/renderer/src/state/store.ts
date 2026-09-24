@@ -16,6 +16,8 @@ import type {
   UpdateStatus,
   Workspace
 } from '@shared/types'
+import { mergeRunChat } from '@shared/scheduler'
+import { migrateLegacySchedules } from '../components/scheduled/legacy'
 
 export type View = 'chat' | 'plugins' | 'integrations' | 'scheduled' | 'settings' | 'pull-requests' | 'models'
 
@@ -286,6 +288,20 @@ export const useApp = create<AppState>((set, get) => ({
       set({ chats, ...(finished && ownsStream ? { streamingMessageId: null } : {}) })
       if (finished || nextChat) persistChats(chats)
     })
+
+    // Scheduled tasks (features/scheduler): main starts those runs, so their
+    // chats arrive whole — at the start, and again when the run ends — and
+    // are inserted, or merged into the copy already here. Main writes
+    // chats.json itself only while no renderer has said it is ready.
+    window.api.scheduler.onChat((incoming) => {
+      const current = get().chats
+      const index = current.findIndex((c) => c.id === incoming.id)
+      const chats = index === -1 ? [incoming, ...current] : current.map((c, i) => (i === index ? mergeRunChat(c, incoming) : c))
+      set({ chats })
+      persistChats(chats)
+    })
+    window.api.scheduler.onOpenChat((chatId) => revealChat(chatId))
+    void window.api.scheduler.ready().then(() => migrateLegacySchedules())
 
     window.api.codeIndex.onStatus((indexStatus) => set({ indexStatus }))
     window.api.providers.onChanged(() => void get().refreshProviders())
@@ -686,6 +702,23 @@ export const useApp = create<AppState>((set, get) => ({
     return projects.filter((p) => p.workspaceId === settings?.activeWorkspaceId)
   }
 }))
+
+/**
+ * Opens a chat in whichever tab it belongs to (added for scheduled tasks). The
+ * sidebar only lists the active workspace's chats, and a scheduled run's chat
+ * can be a Chat or a Work chat whatever tab is showing — a notification click
+ * or a run-history row has to land on it either way.
+ */
+export function revealChat(chatId: string): void {
+  const state = useApp.getState()
+  const chat = state.chats.find((c) => c.id === chatId)
+  if (!chat) return
+  const active = state.settings?.activeWorkspaceId
+  if (active && chat.workspaceId !== active && state.workspaces.some((w) => w.id === chat.workspaceId)) {
+    void state.patchSettings({ activeWorkspaceId: chat.workspaceId })
+  }
+  state.openChat(chatId)
+}
 
 function appendPart(message: ChatMessage, type: 'text' | 'reasoning', text: string): ChatMessage {
   const parts = [...message.parts]
