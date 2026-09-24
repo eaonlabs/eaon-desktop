@@ -162,7 +162,7 @@ function ApprovalPrompt(): JSX.Element {
       </div>
     )
   } else {
-    const summary = approvalSummary(tool, input)
+    const summary = pending?.summary || approvalSummary(tool, input)
     const args = tool === 'use_plugin_tool' ? input.arguments : input
     body = (
       <>

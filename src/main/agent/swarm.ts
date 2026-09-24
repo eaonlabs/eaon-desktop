@@ -121,7 +121,7 @@ async function runSubagent(
           publish({ ...run, activity: `${event.name}${detail ? ` ${detail.slice(0, 80)}` : ''}` })
         }
       },
-      approver: (tool, input) => ctx.confirm(tool, input),
+      approver: (tool, input, summary) => ctx.confirm(tool, input, summary),
       maxRounds: SUBAGENT_ROUNDS,
       goal: null,
       onText: () => {},

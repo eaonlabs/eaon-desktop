@@ -218,7 +218,7 @@ async function runTool(
     readOnly: params.readOnly,
     settings: params.settings,
     progress: (output) => emit({ type: 'tool-progress', messageId: request.messageId, toolId: call.id, output }),
-    confirm: (title, detail) => params.approver(title, detail)
+    confirm: (title, detail, summary) => params.approver(title, detail, summary)
   }
 
   if (isMutating(tool, call.input, ctx)) {
@@ -231,7 +231,7 @@ async function runTool(
     if (params.unattended) {
       if (params.unattended === 'read-only') return finish(UNATTENDED_READ_ONLY, 'denied')
       if (risky) return finish(UNATTENDED_RISKY, 'denied')
-    } else if ((params.settings.approvalMode === 'ask' || risky) && !(await params.approver(call.name, call.input))) {
+    } else if ((params.settings.approvalMode === 'ask' || risky) && !(await params.approver(call.name, call.input, tool.describe?.(call.input)))) {
       return finish('The user denied this action. Do not retry it; continue another way or ask how they would like to proceed.', 'denied')
     }
   }
@@ -451,7 +451,9 @@ export async function runAgent(request: StreamRequest, emit: (event: StreamEvent
       settings,
       signal: controller.signal,
       emit,
-      approver: options.approver ?? ((tool: string, input: Record<string, unknown>) => requestApproval(request.messageId, tool, input, emit)),
+      approver:
+        options.approver ??
+        ((tool: string, input: Record<string, unknown>, summary?: string) => requestApproval(request.messageId, tool, input, emit, summary)),
       unattended: options.unattended,
       onText: (delta: string) => {
         text += delta

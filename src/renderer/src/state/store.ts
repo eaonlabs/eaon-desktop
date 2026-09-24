@@ -51,7 +51,7 @@ interface AppState {
   sidebarOpen: boolean
   browserOpen: boolean
   streamingMessageId: string | null
-  pendingApproval: { requestId: string; messageId: string; tool: string; input: Record<string, unknown> } | null
+  pendingApproval: { requestId: string; messageId: string; tool: string; input: Record<string, unknown>; summary?: string } | null
   /** A suggestion-card prompt waiting to be dropped into the composer, consumed once. */
   composerDraft: string | null
   /** Code-index progress for the Eaon Work project folder. */
@@ -200,7 +200,7 @@ export const useApp = create<AppState>((set, get) => ({
       // handled before the message-indexing path below (which would drop them).
       if (event.type === 'approval-request') {
         set({
-          pendingApproval: { requestId: event.requestId, messageId: event.messageId, tool: event.tool, input: event.input }
+          pendingApproval: { requestId: event.requestId, messageId: event.messageId, tool: event.tool, input: event.input, summary: event.summary }
         })
         return
       }

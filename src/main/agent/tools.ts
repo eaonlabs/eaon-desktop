@@ -54,7 +54,7 @@ export interface ToolContext {
    * standard gate the loop already applied — e.g. computer use confirming a
    * single click. Resolves false when denied.
    */
-  confirm: (title: string, detail: Record<string, unknown>) => Promise<boolean>
+  confirm: (title: string, detail: Record<string, unknown>, summary?: string) => Promise<boolean>
 }
 
 export interface AgentTool {

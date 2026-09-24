@@ -443,7 +443,15 @@ export type StreamEvent =
   | { type: 'reasoning'; messageId: string; text: string }
   | { type: 'done'; messageId: string }
   | { type: 'error'; messageId: string; error: string }
-  | { type: 'approval-request'; messageId: string; requestId: string; tool: string; input: Record<string, unknown> }
+  | {
+      type: 'approval-request'
+      messageId: string
+      requestId: string
+      tool: string
+      input: Record<string, unknown>
+      /** The tool's own one-line description of this call, e.g. `click [2] button "Place order"`. */
+      summary?: string
+    }
   // A tool started and finished, as two events, so the transcript can show the
   // call the moment it is made rather than only once its output lands — a
   // `run_command` can take two minutes.

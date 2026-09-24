@@ -16,18 +16,19 @@ interface PendingApproval {
 const pending = new Map<string, PendingApproval>()
 
 /** Headless runs (scheduled tasks) have nobody to ask; they decide with this instead. */
-export type Approver = (tool: string, input: Record<string, unknown>) => Promise<boolean>
+export type Approver = (tool: string, input: Record<string, unknown>, summary?: string) => Promise<boolean>
 
 export function requestApproval(
   messageId: string,
   tool: string,
   input: Record<string, unknown>,
-  emit: (event: StreamEvent) => void
+  emit: (event: StreamEvent) => void,
+  summary?: string
 ): Promise<boolean> {
   const requestId = randomUUID()
   return new Promise((resolve) => {
     pending.set(requestId, { messageId, resolve })
-    emit({ type: 'approval-request', messageId, requestId, tool, input })
+    emit({ type: 'approval-request', messageId, requestId, tool, input, ...(summary ? { summary } : {}) })
   })
 }
 
