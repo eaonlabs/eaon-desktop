@@ -1,1 +1,121 @@
-/* Styles for the extension feature. */
+/* Settings → Browser extension. */
+
+.bx-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: var(--r-pill);
+  background: var(--surface-3);
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.bx-status__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-4);
+}
+.bx-status[data-state='on'] {
+  color: var(--text);
+}
+/* Green for connected is a fixed hue for the same reason as the diff colours:
+   it has to read as "working" whatever accent the theme picks. */
+.bx-status[data-state='on'] .bx-status__dot {
+  background: var(--diff-add-fg);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--diff-add-fg), transparent 78%);
+}
+.bx-status[data-state='waiting'] .bx-status__dot {
+  background: var(--accent);
+  animation: bx-pulse 1.6s ease-in-out infinite;
+}
+.bx-status[data-state='error'],
+.bx-status[data-state='paused'] {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.bx-status[data-state='error'] .bx-status__dot,
+.bx-status[data-state='paused'] .bx-status__dot {
+  background: var(--danger);
+}
+@keyframes bx-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bx-status__dot {
+    animation: none !important;
+  }
+}
+
+.bx-port {
+  width: 96px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.bx-pair .row__trail {
+  gap: 4px;
+}
+.bx-code {
+  margin-right: 6px;
+  padding: 5px 10px;
+  border-radius: var(--r-sm);
+  background: var(--sunken);
+  border: 1px solid var(--border);
+  font: 600 17px/1.2 var(--font-mono);
+  letter-spacing: 0.14em;
+  color: var(--text);
+  user-select: all;
+  font-variant-numeric: tabular-nums;
+}
+
+.bx-steps {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+.bx-steps li {
+  padding-left: 2px;
+}
+.bx-steps li > span {
+  margin-right: 8px;
+}
+.bx-steps code,
+.bx-path__text {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text);
+}
+.bx-steps .btn {
+  vertical-align: middle;
+}
+
+.bx-path {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 6px 6px 11px;
+  border-radius: var(--r-sm);
+  background: var(--sunken);
+  border: 1px solid var(--border);
+}
+.bx-path__text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* The end of a long path is the part that identifies it. */
+  direction: rtl;
+  text-align: left;
+}
