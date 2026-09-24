@@ -1,6 +1,6 @@
 import { useEffect } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { useApp, useIsWork } from './state/store'
+import { useApp, useIsWork, useWorkspaceKind } from './state/store'
 import { Sidebar } from './components/Sidebar'
 import { ChatView } from './components/ChatView'
 import { BrowserPanel } from './components/BrowserPanel'
@@ -11,6 +11,8 @@ import { PullRequestsPage } from './components/PullRequestsPage'
 import { ModelsPage } from './components/ModelsPage'
 import { SettingsShell } from './components/settings/SettingsShell'
 import { UpdateToast } from './components/UpdateToast'
+import { CodeView } from './components/code/CodeView'
+import { PetLayer } from './components/pets/PetLayer'
 
 export default function App(): JSX.Element {
   const { ready, view, sidebarOpen, browserOpen, init, setView, setSettingsPage } = useApp(useShallow((s) => ({ ready: s.ready, view: s.view, sidebarOpen: s.sidebarOpen, browserOpen: s.browserOpen, init: s.init, setView: s.setView, setSettingsPage: s.setSettingsPage })))
@@ -21,6 +23,7 @@ export default function App(): JSX.Element {
 
 
   const isWork = useIsWork()
+  const kind = useWorkspaceKind()
 
   useTheme()
 
@@ -60,7 +63,7 @@ export default function App(): JSX.Element {
         <div className="app">
           <Sidebar />
           <div className="main">
-            {view === 'chat' && <ChatView />}
+            {view === 'chat' && (kind === 'code' ? <CodeView /> : <ChatView />)}
             {view === 'plugins' && <PluginsPage />}
             {view === 'integrations' && <IntegrationsPage />}
             {view === 'scheduled' && <ScheduledPage />}
@@ -72,6 +75,7 @@ export default function App(): JSX.Element {
         </div>
       )}
       <UpdateToast />
+      <PetLayer />
     </>
   )
 }

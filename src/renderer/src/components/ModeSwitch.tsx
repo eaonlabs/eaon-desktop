@@ -1,46 +1,59 @@
 import { type JSX } from 'react'
-import { Hammer, MessagesSquare } from 'lucide-react'
+import { Hammer, MessagesSquare, SquareTerminal } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { useApp } from '../state/store'
+import type { Workspace } from '@shared/types'
 
 /**
- * Chat ⇄ Work, in the top bar.
+ * Chat ⇄ Work ⇄ Code, in the top bar.
  *
- * Two modes rather than a list, so this is a segmented control and not the
- * dropdown the old free-form workspaces needed: both destinations are always
- * visible, and switching is one click instead of two.
+ * A segmented control rather than a dropdown: all three destinations are
+ * always visible and switching is one click. Each is a workspace, so each
+ * keeps its own chat list.
  *
- * Work mode is what turns the agent's tools on — `cwd` is only non-null there,
- * and `localToolsFor(null)` hands back an empty tool list everywhere else.
+ * - Chat is the plain assistant; its only tool is web search.
+ * - Work is the agent — files, shell, browser, plugins, computer use.
+ * - Code is a front end for an Eaon Code session in a project folder.
  */
+const TABS: { kind: Workspace['kind']; label: string; Icon: typeof Hammer }[] = [
+  { kind: 'chat', label: 'Chat', Icon: MessagesSquare },
+  { kind: 'work', label: 'Work', Icon: Hammer },
+  { kind: 'code', label: 'Code', Icon: SquareTerminal }
+]
+
 export function ModeSwitch(): JSX.Element | null {
-  const { workspaces, activeId, setWorkspace } = useApp(
+  const { workspaces, activeId, setWorkspace, setView, view } = useApp(
     useShallow((s) => ({
       workspaces: s.workspaces,
       activeId: s.settings?.activeWorkspaceId,
-      setWorkspace: s.setWorkspace
+      setWorkspace: s.setWorkspace,
+      setView: s.setView,
+      view: s.view
     }))
   )
 
-  const chat = workspaces.find((w) => w.kind !== 'work')
-  const work = workspaces.find((w) => w.kind === 'work')
-  // Mid-migration an install can briefly hold only one; half a switch reads as
+  const tabs = TABS.map((tab) => ({ ...tab, workspace: workspaces.find((w) => w.kind === tab.kind) })).filter(
+    (tab): tab is typeof tab & { workspace: Workspace } => Boolean(tab.workspace)
+  )
+  // Mid-migration an install can briefly hold fewer; half a switch reads as
   // broken, so show none.
-  if (!chat || !work) return null
+  if (tabs.length < 2) return null
 
   return (
     <div className="mode-switch" role="tablist" aria-label="Mode">
-      {[
-        { workspace: chat, label: 'Chat', Icon: MessagesSquare },
-        { workspace: work, label: 'Work', Icon: Hammer }
-      ].map(({ workspace, label, Icon }) => (
+      {tabs.map(({ workspace, label, Icon }) => (
         <button
           key={workspace.id}
           role="tab"
           className="mode-switch__option"
           aria-selected={workspace.id === activeId}
           data-active={workspace.id === activeId || undefined}
-          onClick={() => setWorkspace(workspace.id)}
+          onClick={() => {
+            if (workspace.id !== activeId) setWorkspace(workspace.id)
+            // Switching mode from a full-page view (Plugins, Models) lands on
+            // that mode's home rather than leaving the page up.
+            if (view !== 'chat') setView('chat')
+          }}
         >
           <Icon size={15} strokeWidth={2} />
           {label}

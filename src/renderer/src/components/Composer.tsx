@@ -4,13 +4,14 @@ import {
   ArrowUp,
   ChevronDown,
   CircleAlert,
-  CircleDot,
   ExternalLink,
+  FileText,
   Folder,
   Hand,
   Laptop,
   Lightbulb,
   Loader2,
+  Network,
   Paperclip,
   Plus,
   RefreshCw,
@@ -19,8 +20,8 @@ import {
   ShieldCheck,
   Square,
   Target,
-  AppWindow,
-  AtSign
+  AtSign,
+  X
 } from 'lucide-react'
 import { useApp, useIsWork } from '../state/store'
 import { MenuItem, MenuSearch, MenuSeparator, Popover, useDisclosure } from './ui'
@@ -39,9 +40,15 @@ const EFFORT_LABEL: Record<EffortLevel, string> = {
 export function Composer({ variant = 'home' }: { variant?: 'home' | 'chat' }): JSX.Element {
   const { settings, streamingMessageId, send, stop, workspaces, composerDraft, setComposerDraft, setWorkCwd } = useApp(useShallow((s) => ({ settings: s.settings, streamingMessageId: s.streamingMessageId, send: s.send, stop: s.stop, workspaces: s.workspaces, composerDraft: s.composerDraft, setComposerDraft: s.setComposerDraft, setWorkCwd: s.setWorkCwd })))
   const [text, setText] = useState('')
+  const [attachments, setAttachments] = useState<string[]>([])
+  // Goal mode is armed per message: the next send becomes a goal the agent
+  // keeps pursuing, then the composer drops back to normal.
+  const [goalArmed, setGoalArmed] = useState(false)
+  const [dragging, setDragging] = useState(false)
   const textarea = useRef<HTMLTextAreaElement>(null)
   const workWorkspace = workspaces.find((w) => w.kind === 'work')
   const isWork = useIsWork()
+  const patchSettings = useApp((s) => s.patchSettings)
 
   const plusAnchor = useRef<HTMLButtonElement>(null)
   const approvalAnchor = useRef<HTMLButtonElement>(null)
@@ -76,34 +83,88 @@ export function Composer({ variant = 'home' }: { variant?: 'home' | 'chat' }): J
     if (paths[0]) setWorkCwd(paths[0])
   }
 
+  const addAttachments = (paths: string[]): void => {
+    if (paths.length === 0) return
+    setAttachments((current) => [...new Set([...current, ...paths])].slice(0, 12))
+    textarea.current?.focus()
+  }
+
   const submit = (): void => {
     if (streaming) {
       stop()
       return
     }
-    if (!text.trim()) return
-    void send(text)
+    if (!text.trim() && attachments.length === 0) return
+    void send(text, { attachments, goal: isWork && goalArmed })
     setText('')
+    setAttachments([])
+    setGoalArmed(false)
   }
 
+  const planOn = Boolean(settings?.planMode)
+  const swarmOn = Boolean(settings?.work.swarm)
+
   return (
-    <div className={`composer-stack ${variant === 'chat' ? 'composer-stack--chat' : ''}`}>
+    <div
+      className={`composer-stack ${variant === 'chat' ? 'composer-stack--chat' : ''}`}
+      data-dragging={dragging || undefined}
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes('Files')) return
+        e.preventDefault()
+        setDragging(true)
+      }}
+      onDragLeave={() => setDragging(false)}
+      onDrop={(e) => {
+        e.preventDefault()
+        setDragging(false)
+        addAttachments([...e.dataTransfer.files].map((file) => window.api.app.pathForFile(file)).filter(Boolean))
+      }}
+    >
       {variant === 'home' && isWork && (
         <div className="project-bar">
           <button className="project-bar__pick" onClick={() => void chooseFolder()}>
             <Folder size={15} strokeWidth={1.8} />
-            <span className="project-bar__label">
-              {workWorkspace?.cwd ? workWorkspace.cwd.split('/').pop() : 'Choose project'}
+            <span className="project-bar__label" title={workWorkspace?.cwd ?? 'Eaon works in ~/Eaon until you choose a folder'}>
+              {workWorkspace?.cwd ? workWorkspace.cwd.split(/[\\/]/).pop() : settings?.work.defaultFolder?.split(/[\\/]/).pop() ?? '~/Eaon'}
             </span>
           </button>
           {workWorkspace?.cwd && <IndexBadge />}
         </div>
       )}
-      <div className="composer">
+      <div className="composer" data-goal={goalArmed || undefined}>
+        {attachments.length > 0 && (
+          <div className="composer__attachments">
+            {attachments.map((path) => (
+              <span key={path} className="attachment-chip" title={path}>
+                {/\.(png|jpe?g|gif|webp)$/i.test(path) ? (
+                  <img className="attachment-chip__thumb" src={`eaon-file://${encodeURI(path)}`} alt="" />
+                ) : (
+                  <FileText size={14} strokeWidth={1.8} />
+                )}
+                <span className="attachment-chip__name">{path.split(/[\\/]/).pop()}</span>
+                <button
+                  className="attachment-chip__remove"
+                  aria-label={`Remove ${path}`}
+                  onClick={() => setAttachments((current) => current.filter((p) => p !== path))}
+                >
+                  <X size={12} strokeWidth={2.2} />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
         <textarea
           ref={textarea}
           className="composer__input"
-          placeholder={isWork ? 'Do anything' : 'Work with Eaon'}
+          placeholder={
+            goalArmed
+              ? 'Describe the goal — Eaon keeps working until it is done'
+              : isWork
+                ? planOn
+                  ? 'Describe the task — Eaon researches and proposes a plan first'
+                  : 'Ask Eaon to do anything'
+                : 'Ask anything'
+          }
           value={text}
           rows={1}
           onChange={(e) => setText(e.target.value)}
@@ -126,26 +187,63 @@ export function Composer({ variant = 'home' }: { variant?: 'home' | 'chat' }): J
             <Plus size={18} strokeWidth={1.9} />
           </button>
 
-          {/* Approvals gate the local file/command tools, which only exist in
-              Eaon Work — in chat mode there is nothing to approve. */}
+          {/* Approvals gate the agent's tools, which only exist in Work —
+              in chat mode there is nothing to approve. */}
           {isWork && (
-          <button
-            ref={approvalAnchor}
-            className="chip"
-            data-open={approvalMenu.open || undefined}
-            onClick={approvalMenu.toggle}
-          >
-            <span className="chip__icon">
-              {settings?.approvalMode === 'auto' ? (
-                <ShieldCheck size={16} strokeWidth={1.8} />
-              ) : (
-                <Hand size={16} strokeWidth={1.8} />
-              )}
-            </span>
-            <span className="chip__label">
-              {settings?.approvalMode === 'auto' ? 'Approve for me' : 'Ask for approval'}
-            </span>
-          </button>
+            <button
+              ref={approvalAnchor}
+              className="chip"
+              data-open={approvalMenu.open || undefined}
+              onClick={approvalMenu.toggle}
+            >
+              <span className="chip__icon">
+                {settings?.approvalMode === 'auto' ? (
+                  <ShieldCheck size={16} strokeWidth={1.8} />
+                ) : (
+                  <Hand size={16} strokeWidth={1.8} />
+                )}
+              </span>
+              <span className="chip__label">
+                {settings?.approvalMode === 'auto' ? 'Approve for me' : 'Ask for approval'}
+              </span>
+            </button>
+          )}
+
+          {/* Work modes. Each is a toggle that stays on until switched off,
+              except Goal, which applies to the next message only. */}
+          {isWork && (
+            <div className="mode-pills">
+              <button
+                className="mode-pill"
+                data-on={planOn || undefined}
+                onClick={() => void patchSettings({ planMode: !planOn })}
+                title="Plan mode: research first and propose a plan to approve before anything changes"
+              >
+                <Lightbulb size={14} strokeWidth={1.9} />
+                Plan
+              </button>
+              <button
+                className="mode-pill"
+                data-on={swarmOn || undefined}
+                onClick={() => void patchSettings({ work: { swarm: !swarmOn } })}
+                title="Swarm mode: split work across parallel sub-agents"
+              >
+                <Network size={14} strokeWidth={1.9} />
+                Swarm
+              </button>
+              <button
+                className="mode-pill"
+                data-on={goalArmed || undefined}
+                onClick={() => {
+                  setGoalArmed(!goalArmed)
+                  textarea.current?.focus()
+                }}
+                title="Goal mode: Eaon keeps working until the goal is achieved"
+              >
+                <Target size={14} strokeWidth={1.9} />
+                Goal
+              </button>
+            </div>
           )}
 
           <div className="composer__spacer" />
@@ -164,7 +262,7 @@ export function Composer({ variant = 'home' }: { variant?: 'home' | 'chat' }): J
 
           <button
             className={`send ${streaming ? 'send--stop' : ''}`}
-            disabled={!streaming && !text.trim()}
+            disabled={!streaming && !text.trim() && attachments.length === 0}
             onClick={submit}
             aria-label={streaming ? 'Stop' : 'Send'}
           >
@@ -209,7 +307,16 @@ export function Composer({ variant = 'home' }: { variant?: 'home' | 'chat' }): J
       </div>
       )}
 
-      <AddMenu anchor={plusAnchor} open={plusMenu.open} onClose={plusMenu.close} />
+      <AddMenu
+        anchor={plusAnchor}
+        open={plusMenu.open}
+        onClose={plusMenu.close}
+        onAttach={addAttachments}
+        onGoal={() => {
+          setGoalArmed(true)
+          textarea.current?.focus()
+        }}
+      />
       <ApprovalMenu anchor={approvalAnchor} open={approvalMenu.open} onClose={approvalMenu.close} />
       <ModelMenu anchor={modelAnchor} open={modelMenu.open} onClose={modelMenu.close} />
       <PluginsMenu anchor={pluginsAnchor} open={pluginsMenu.open} onClose={pluginsMenu.close} />
@@ -276,14 +383,20 @@ function IndexBadge(): JSX.Element {
 function AddMenu({
   anchor,
   open,
-  onClose
+  onClose,
+  onAttach,
+  onGoal
 }: {
   anchor: React.RefObject<HTMLElement>
   open: boolean
   onClose: () => void
+  onAttach: (paths: string[]) => void
+  onGoal: () => void
 }): JSX.Element {
-  const { settings, patchSettings, setView } = useApp(useShallow((s) => ({ settings: s.settings, patchSettings: s.patchSettings, setView: s.setView })))
-  const installed = CORE_PLUGINS.filter((p) => settings?.installedPlugins.includes(p.id))
+  const { settings, patchSettings, setView, setWorkCwd } = useApp(
+    useShallow((s) => ({ settings: s.settings, patchSettings: s.patchSettings, setView: s.setView, setWorkCwd: s.setWorkCwd }))
+  )
+  const isWork = useIsWork()
 
   const inline = (title: string, hint: string): JSX.Element => (
     <>
@@ -293,49 +406,66 @@ function AddMenu({
   )
 
   return (
-    <Popover anchor={anchor} open={open} onClose={onClose} placement="bottom-start" width={470}>
+    <Popover anchor={anchor} open={open} onClose={onClose} placement="bottom-start" width={isWork ? 400 : 260}>
       <div className="menu__label">Add</div>
       <MenuItem
         icon={<Paperclip size={16} strokeWidth={1.8} />}
-        title="Files and folders"
+        title={isWork ? inline('Files and folders', 'Attach to this message') : 'Files and images'}
         onClick={() => {
-          void window.api.app.openFiles({ properties: ['openFile', 'openDirectory', 'multiSelections'] })
           onClose()
+          void window.api.app
+            .openFiles({ properties: isWork ? ['openFile', 'openDirectory', 'multiSelections'] : ['openFile', 'multiSelections'] })
+            .then(onAttach)
         }}
       />
-      <MenuItem icon={<AppWindow size={16} strokeWidth={1.8} />} title="Attach app window" onClick={onClose} />
-      <MenuItem
-        icon={<Folder size={16} strokeWidth={1.8} />}
-        title={inline('Work in a project', 'Start a chat in a project')}
-        onClick={onClose}
-      />
-      <MenuItem icon={<Target size={16} strokeWidth={1.8} />} title={inline('Goal', 'Set a goal to keep pursuing')} onClick={onClose} />
-      <MenuItem
-        icon={<Lightbulb size={16} strokeWidth={1.8} />}
-        title={inline('Plan mode', settings?.planMode ? 'Turn plan mode off' : 'Turn plan mode on')}
-        onClick={() => {
-          void patchSettings({ planMode: !settings?.planMode })
-          onClose()
-        }}
-      />
-      <MenuItem
-        icon={<CircleDot size={16} strokeWidth={1.8} />}
-        title="Record a skill"
-        onClick={() => {
-          setView('plugins')
-          useApp.getState().setPluginsTab('skills')
-          onClose()
-        }}
-      />
-      <div className="menu__label">Plugins</div>
-      {installed.map((plugin) => (
-        <MenuItem
-          key={plugin.id}
-          icon={<BrandIcon id={plugin.id} size={17} />}
-          title={inline(plugin.name, plugin.description)}
-          onClick={onClose}
-        />
-      ))}
+      {isWork && (
+        <>
+          <MenuItem
+            icon={<Folder size={16} strokeWidth={1.8} />}
+            title={inline('Work in a folder', 'Choose where Eaon works')}
+            onClick={() => {
+              onClose()
+              void window.api.app.openFiles({ properties: ['openDirectory'] }).then((paths) => paths[0] && setWorkCwd(paths[0]))
+            }}
+          />
+          <div className="menu__label">Modes</div>
+          <MenuItem
+            icon={<Target size={16} strokeWidth={1.8} />}
+            title={inline('Goal', 'Keep working until it is done')}
+            onClick={() => {
+              onGoal()
+              onClose()
+            }}
+          />
+          <MenuItem
+            icon={<Lightbulb size={16} strokeWidth={1.8} />}
+            title={inline('Plan mode', settings?.planMode ? 'On — plan before acting' : 'Plan before acting')}
+            checked={settings?.planMode}
+            onClick={() => {
+              void patchSettings({ planMode: !settings?.planMode })
+              onClose()
+            }}
+          />
+          <MenuItem
+            icon={<Network size={16} strokeWidth={1.8} />}
+            title={inline('Swarm', settings?.work.swarm ? 'On — parallel sub-agents' : 'Split work across sub-agents')}
+            checked={settings?.work.swarm}
+            onClick={() => {
+              void patchSettings({ work: { swarm: !settings?.work.swarm } })
+              onClose()
+            }}
+          />
+          <MenuSeparator />
+          <MenuItem
+            icon={<AtSign size={16} strokeWidth={1.8} />}
+            title="Plugins and skills"
+            onClick={() => {
+              setView('plugins')
+              onClose()
+            }}
+          />
+        </>
+      )}
     </Popover>
   )
 }

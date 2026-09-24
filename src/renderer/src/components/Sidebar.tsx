@@ -18,8 +18,9 @@ import {
   Archive,
   PencilLine
 } from 'lucide-react'
-import { useApp, useIsWork } from '../state/store'
+import { useApp, useIsWork, useWorkspaceKind } from '../state/store'
 import { DownloadsButton } from './DownloadsPanel'
+import { CodeSidebar } from './code/CodeSidebar'
 import { MenuItem, MenuSearch, Popover, useDisclosure } from './ui'
 import type { Chat } from '@shared/types'
 
@@ -37,6 +38,7 @@ export function Sidebar(): JSX.Element {
   const searchMenu = useDisclosure()
 
   const isWork = useIsWork()
+  const kind = useWorkspaceKind()
   return (
     <aside className="sidebar" data-open={sidebarOpen}>
       <div className="sidebar__content" aria-hidden={!sidebarOpen}>
@@ -65,7 +67,7 @@ export function Sidebar(): JSX.Element {
           <span className="nav-item__icon">
             <SquarePen size={16} strokeWidth={1.9} />
           </span>
-          <span className="nav-item__label">{isWork ? 'New task' : 'New chat'}</span>
+          <span className="nav-item__label">{kind === 'work' ? 'New task' : kind === 'code' ? 'New session' : 'New chat'}</span>
         </button>
         {isWork && (
           <button
@@ -121,6 +123,10 @@ export function Sidebar(): JSX.Element {
           </button>
         )}
 
+        {kind === 'code' ? (
+          <CodeSidebar />
+        ) : (
+        <>
         <div className="sidebar__section">Projects</div>
         {projects.length === 0 ? (
           <div className="sidebar__empty">No projects</div>
@@ -148,6 +154,8 @@ export function Sidebar(): JSX.Element {
               streaming={chat.id === streamingChatId}
             />
           ))
+        )}
+        </>
         )}
       </div>
 

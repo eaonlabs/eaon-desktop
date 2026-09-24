@@ -57,20 +57,23 @@ function readJson<T>(name: string, fallback: T): T {
 }
 
 /**
- * Two workspaces: the assistant, and the agentic coding mode.
+ * Three workspaces, one per top-bar tab: Chat, Work and Code.
  *
- * The chat workspace keeps the id `work` for the same reason it looks wrong to
- * do so — every chat and project written while Eaon Work was hidden points at
- * it, and renaming the id would move all of that history into coding mode. The
- * coding workspace is the one that got the new id.
+ * The ids look scrambled and are kept that way on purpose. The chat workspace
+ * has always been `work` and the agent workspace `code`, and every chat and
+ * project on disk points at one of them — renaming an id would move that
+ * history into the wrong tab. Only the Eaon Code tab, which is new, got an id
+ * that matches its name.
  */
 export const DEFAULT_WORKSPACES: Workspace[] = [
-  { id: 'work', name: 'Eaon', kind: 'chat' },
-  { id: 'code', name: 'Code', kind: 'work', cwd: null }
+  { id: 'work', name: 'Chat', kind: 'chat' },
+  { id: 'code', name: 'Work', kind: 'work', cwd: null },
+  { id: 'eaon-code', name: 'Code', kind: 'code', cwd: null }
 ]
 
 const CHAT_WORKSPACE_ID = DEFAULT_WORKSPACES[0].id
-const CODE_WORKSPACE_ID = DEFAULT_WORKSPACES[1].id
+const WORK_WORKSPACE_ID = DEFAULT_WORKSPACES[1].id
+const CODE_WORKSPACE_ID = DEFAULT_WORKSPACES[2].id
 
 export const defaultSettings: Settings = {
   general: {
@@ -180,7 +183,42 @@ export const defaultSettings: Settings = {
   selectedModelId: null,
   effort: 'light',
   approvalMode: 'ask',
-  planMode: false
+  planMode: false,
+  work: {
+    swarm: false,
+    goalMaxIterations: 8,
+    subagentModelId: null,
+    defaultFolder: null
+  },
+  context: {
+    autoCompact: true,
+    compactAt: 0.7,
+    keepFullToolTurns: 2
+  },
+  computerUse: {
+    enabled: false,
+    confirmEachAction: true,
+    quality: 'balanced'
+  },
+  browserExtension: {
+    enabled: true,
+    port: 47821
+  },
+  pets: {
+    enabled: false,
+    species: 'fox',
+    name: 'Pip',
+    size: 'medium',
+    desktop: false
+  },
+  eaonCode: {
+    binaryPath: null,
+    lastCwd: null,
+    shareKeys: true
+  },
+  notifications: {
+    taskComplete: true
+  }
 }
 
 /** Recursive merge so settings files written by older versions keep working. */
@@ -231,49 +269,57 @@ export const store = {
   },
 
   /**
-   * Brings an install up to the canonical two-workspace layout: one chat, one
-   * coding.
+   * Brings an install up to the canonical three-workspace layout: Chat, Work,
+   * Code.
    *
-   * Runs against three shapes of stored data — the old free-form workspaces,
-   * the single collapsed one written while coding mode was hidden, and the
-   * current pair. Anything pointing at a workspace that no longer exists is
-   * re-homed to the chat workspace rather than dropped, so no chat or project
-   * disappears from view; a project folder already chosen for coding mode is
-   * carried across rather than reset. The active id is repaired for the same
-   * reason: pointing at a missing workspace opens to an empty list with no
-   * control to switch out of it.
+   * Runs against every shape of stored data seen so far — the old free-form
+   * workspaces, the single collapsed one written while the agent was hidden,
+   * the Chat/Work pair, and the current trio. Anything pointing at a workspace
+   * that no longer exists is re-homed to Chat rather than dropped, so no chat
+   * or project disappears from view; a folder already chosen for Work or Code
+   * is carried across. The active id is repaired for the same reason: pointing
+   * at a missing workspace opens to an empty list with no way out.
    */
   migrateWorkspaces(): void {
     const existing = readJson<Workspace[]>('workspaces.json', [])
     const settings = readJson<Partial<Settings>>('settings.json', {})
 
-    const chat = existing.find((w) => w.kind !== 'work')
-    const code = existing.find((w) => w.kind === 'work')
+    const chat = existing.find((w) => w.kind === 'chat' || (w.kind as string) === undefined)
+    const work = existing.find((w) => w.kind === 'work')
+    const code = existing.find((w) => w.kind === 'code')
     const chatId = chat?.id ?? CHAT_WORKSPACE_ID
+    const workId = work?.id ?? WORK_WORKSPACE_ID
     const codeId = code?.id ?? CODE_WORKSPACE_ID
+    // Names are the tab labels, so they are reset rather than carried over —
+    // older installs called these "Eaon" and "Code".
     const workspaces: Workspace[] = [
-      { id: chatId, name: chat?.name ?? 'Eaon', kind: 'chat' },
-      { id: codeId, name: code?.name ?? 'Code', kind: 'work', cwd: code?.cwd ?? null }
+      { id: chatId, name: 'Chat', kind: 'chat' },
+      { id: workId, name: 'Work', kind: 'work', cwd: work?.cwd ?? null },
+      { id: codeId, name: 'Code', kind: 'code', cwd: code?.cwd ?? null }
     ]
 
-    const known = new Set([chatId, codeId])
+    const known = new Set([chatId, workId, codeId])
     const active = settings.activeWorkspaceId && known.has(settings.activeWorkspaceId) ? settings.activeWorkspaceId : chatId
     const canonical =
-      existing.length === 2 &&
-      existing.every((w, i) => w.id === workspaces[i].id && w.kind === workspaces[i].kind) &&
+      existing.length === 3 &&
+      existing.every((w, i) => w.id === workspaces[i].id && w.kind === workspaces[i].kind && w.name === workspaces[i].name) &&
       settings.activeWorkspaceId === active
     if (canonical) return
 
     const chats = readJson<Chat[]>('chats.json', [])
-    writeJson(
-      'chats.json',
-      chats.map((c) => (known.has(c.workspaceId) ? c : { ...c, workspaceId: chatId }))
-    )
+    if (chats.some((c) => !known.has(c.workspaceId))) {
+      writeJson(
+        'chats.json',
+        chats.map((c) => (known.has(c.workspaceId) ? c : { ...c, workspaceId: chatId }))
+      )
+    }
     const projects = readJson<Project[]>('projects.json', [])
-    writeJson(
-      'projects.json',
-      projects.map((p) => (known.has(p.workspaceId) ? p : { ...p, workspaceId: chatId }))
-    )
+    if (projects.some((p) => !known.has(p.workspaceId))) {
+      writeJson(
+        'projects.json',
+        projects.map((p) => (known.has(p.workspaceId) ? p : { ...p, workspaceId: chatId }))
+      )
+    }
     writeJson('workspaces.json', workspaces)
     if (settings.activeWorkspaceId !== active) writeJson('settings.json', { ...settings, activeWorkspaceId: active })
   },
@@ -335,6 +381,18 @@ export const store = {
   },
   saveProviderConfig(config: Record<string, unknown>): void {
     writeJson('providers.json', config)
+  },
+
+  /**
+   * A named JSON document in the store folder, for features that keep their
+   * own file (scheduled tasks, Code sessions, OAuth metadata) without each one
+   * growing this object by another getter/setter pair.
+   */
+  getJson<T>(name: string, fallback: T): T {
+    return readJson<T>(name, fallback)
+  },
+  setJson(name: string, value: unknown): void {
+    writeJson(name, value)
   },
 
   getDownloadedModels(): DownloadedModel[] {

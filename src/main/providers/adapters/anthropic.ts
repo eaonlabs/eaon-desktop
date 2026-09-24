@@ -1,0 +1,234 @@
+import Anthropic from '@anthropic-ai/sdk'
+import type { EffortLevel } from '@shared/types'
+import { anthropicThinking, inferEfforts, maxOutputFor } from '../models'
+import {
+  emptyUsage,
+  ProviderHttpError,
+  type Adapter,
+  type NeutralMessage,
+  type NeutralToolCall,
+  type TurnRequest,
+  type TurnResult
+} from './types'
+
+/**
+ * Anthropic Messages, through the official SDK.
+ *
+ * Three things here exist purely to spend fewer tokens, and all three depend on
+ * the request prefix staying byte-stable across the rounds of one turn:
+ *
+ * - Prompt caching: a breakpoint after the tool list and system prompt (the
+ *   part that never changes within a conversation), plus top-level automatic
+ *   caching, which moves the last breakpoint to the end of each request so
+ *   every round reads the previous round's transcript from cache.
+ * - Server-side context editing: once a long agent loop crosses a size
+ *   threshold, the API clears old tool results itself. Doing that client-side
+ *   would rewrite earlier turns, which both resets the cache and invalidates
+ *   the thinking signatures newer models bind to the conversation prefix.
+ * - Thinking blocks are replayed verbatim within a turn (from `replay`) and
+ *   never across turns, where they would only cost input tokens.
+ */
+
+const EFFORT_TO_ANTHROPIC: Record<EffortLevel, 'low' | 'medium' | 'high' | 'xhigh' | 'max'> = {
+  light: 'low',
+  medium: 'medium',
+  high: 'high',
+  'extra-high': 'xhigh',
+  ultra: 'max'
+}
+
+const CONTEXT_EDITING_BETA = 'context-management-2025-06-27'
+const FALLBACK_BETA = 'server-side-fallback-2026-07-01'
+
+/** Models with the server-side refusal fallback; the API rejects the field elsewhere. */
+const supportsFallbacks = (id: string): boolean => /claude-(fable-5-1|opus-5)$/.test(id)
+
+/** Context editing needs Claude 4 or later; older models reject the beta. */
+const supportsContextEditing = (id: string): boolean => /claude-(opus|sonnet|haiku|fable|mythos)-[4-9]/.test(id)
+
+function toBlocks(message: NeutralMessage, modelId: string): Anthropic.Beta.BetaMessageParam | null {
+  if (message.role === 'user') {
+    const content: Anthropic.Beta.BetaContentBlockParam[] = []
+    for (const image of message.images ?? []) {
+      content.push({
+        type: 'image',
+        source: { type: 'base64', media_type: image.mime as 'image/png', data: image.data }
+      })
+    }
+    if (message.text) content.push({ type: 'text', text: message.text })
+    return content.length > 0 ? { role: 'user', content } : null
+  }
+
+  if (message.role === 'assistant') {
+    // Same adapter and model: send back exactly what the API returned, thinking
+    // signatures included. Anything else is rebuilt from the neutral fields.
+    if (message.replay?.adapter === 'anthropic' && message.replay.modelId === modelId) {
+      return { role: 'assistant', content: message.replay.data as Anthropic.Beta.BetaContentBlockParam[] }
+    }
+    const content: Anthropic.Beta.BetaContentBlockParam[] = []
+    if (message.text) content.push({ type: 'text', text: message.text })
+    for (const call of message.calls) {
+      content.push({ type: 'tool_use', id: call.id, name: call.name, input: call.input })
+    }
+    return content.length > 0 ? { role: 'assistant', content } : null
+  }
+
+  return {
+    role: 'user',
+    content: message.results.map((result) => {
+      const images = result.images ?? []
+      return {
+        type: 'tool_result' as const,
+        tool_use_id: result.id,
+        ...(result.isError ? { is_error: true } : {}),
+        content:
+          images.length === 0
+            ? result.output
+            : [
+                { type: 'text' as const, text: result.output || '(image)' },
+                ...images.map((image) => ({
+                  type: 'image' as const,
+                  source: { type: 'base64' as const, media_type: image.mime as 'image/png', data: image.data }
+                }))
+              ]
+      }
+    })
+  }
+}
+
+export const anthropicAdapter: Adapter = {
+  id: 'anthropic',
+  managesContext: true,
+
+  async turn(request: TurnRequest): Promise<TurnResult> {
+    const { credentials, provider, modelId } = request
+    const baseURL = credentials.baseUrl ?? provider.baseUrl
+    const firstParty = !baseURL || /api\.anthropic\.com/.test(baseURL)
+    const client = new Anthropic({
+      apiKey: credentials.apiKey ?? null,
+      // OAuth-backed providers hand over a bearer token rather than an API key.
+      ...(credentials.extra?.authToken ? { authToken: credentials.extra.authToken } : {}),
+      baseURL: baseURL || undefined,
+      defaultHeaders: { ...provider.headers, ...credentials.headers },
+      // The loop does its own retrying with visible status; SDK retries would
+      // stack under it and make a dead provider look like a hang.
+      maxRetries: 0
+    })
+
+    const maxTokens = maxOutputFor(provider, modelId, request.model) ?? 32_000
+    const efforts = request.model?.efforts ?? inferEfforts(modelId)
+    const effort = efforts?.includes(request.effort) ? request.effort : efforts?.[efforts.length > 2 ? 1 : 0]
+    const thinking = anthropicThinking(modelId, request.effort, maxTokens)
+
+    const messages: Anthropic.Beta.BetaMessageParam[] = []
+    for (const message of request.messages) {
+      const block = toBlocks(message, modelId)
+      if (block) messages.push(block)
+    }
+
+    const tools: Anthropic.Beta.BetaTool[] = request.tools.map((tool, index) => ({
+      name: tool.name,
+      description: tool.description,
+      input_schema: tool.inputSchema as Anthropic.Beta.BetaTool['input_schema'],
+      // One breakpoint after the last tool caches the whole tool list, which is
+      // usually the single largest stable chunk of the prompt.
+      ...(index === request.tools.length - 1 ? { cache_control: { type: 'ephemeral' as const } } : {})
+    }))
+
+    const betas: string[] = []
+    const contextEditing = request.agentic && tools.length > 0 && supportsContextEditing(modelId)
+    if (contextEditing) betas.push(CONTEXT_EDITING_BETA)
+    const fallbacks = firstParty && supportsFallbacks(modelId)
+    if (fallbacks) betas.push(FALLBACK_BETA)
+
+    const params: Anthropic.Beta.MessageCreateParamsStreaming = {
+      model: modelId,
+      max_tokens: maxTokens,
+      stream: true,
+      messages,
+      ...(request.system
+        ? { system: [{ type: 'text' as const, text: request.system, cache_control: { type: 'ephemeral' as const } }] }
+        : {}),
+      // Moves the final breakpoint to the end of each request, so round N+1
+      // reads everything round N sent from cache.
+      cache_control: { type: 'ephemeral' },
+      ...(thinking ? { thinking } : {}),
+      ...(effort ? { output_config: { effort: EFFORT_TO_ANTHROPIC[effort] } } : {}),
+      ...(tools.length > 0 ? { tools } : {}),
+      ...(contextEditing
+        ? {
+            context_management: {
+              edits: [
+                {
+                  type: 'clear_tool_uses_20250919' as const,
+                  // Clear in large batches so the cache is rebuilt rarely: a
+                  // clearing event invalidates the prefix from the first
+                  // cleared result onward.
+                  trigger: { type: 'input_tokens' as const, value: 90_000 },
+                  keep: { type: 'tool_uses' as const, value: 6 },
+                  clear_at_least: { type: 'input_tokens' as const, value: 25_000 }
+                }
+              ]
+            }
+          }
+        : {}),
+      ...(fallbacks ? { fallbacks: 'default' as never } : {}),
+      ...(betas.length > 0 ? { betas: betas as Anthropic.Beta.AnthropicBeta[] } : {})
+    }
+
+    let stream: ReturnType<typeof client.beta.messages.stream>
+    let final: Anthropic.Beta.BetaMessage
+    try {
+      stream = client.beta.messages.stream(params, { signal: request.signal })
+      stream.on('text', (text: string) => request.onText(text))
+      stream.on('thinking', (delta: string) => request.onReasoning(delta))
+      final = await stream.finalMessage()
+    } catch (error) {
+      if (error instanceof Anthropic.APIError && typeof error.status === 'number') {
+        const retryAfter = Number(error.headers?.get?.('retry-after'))
+        throw new ProviderHttpError(
+          error.status,
+          `${error.status}: ${error.message}`,
+          Number.isFinite(retryAfter) ? retryAfter * 1000 : undefined
+        )
+      }
+      throw error
+    }
+
+    const usage = emptyUsage()
+    usage.input = final.usage.input_tokens ?? 0
+    usage.output = final.usage.output_tokens ?? 0
+    usage.cacheRead = final.usage.cache_read_input_tokens ?? 0
+    usage.cacheWrite = final.usage.cache_creation_input_tokens ?? 0
+
+    const text = final.content
+      .filter((block): block is Anthropic.Beta.BetaTextBlock => block.type === 'text')
+      .map((block) => block.text)
+      .join('')
+
+    if (final.stop_reason === 'refusal') {
+      const detail = final.stop_details as { explanation?: string } | null
+      return {
+        text,
+        calls: [],
+        stop: 'refusal',
+        usage,
+        refusal: detail?.explanation ?? 'The model declined this request.'
+      }
+    }
+
+    const calls: NeutralToolCall[] = final.content
+      .filter((block): block is Anthropic.Beta.BetaToolUseBlock => block.type === 'tool_use')
+      .map((block) => ({ id: block.id, name: block.name, input: (block.input ?? {}) as Record<string, unknown> }))
+
+    return {
+      text,
+      calls,
+      // A turn cut off by max_tokens may carry a half-written tool call whose
+      // input was truncated; the loop must not execute it.
+      stop: final.stop_reason === 'max_tokens' ? 'max_tokens' : calls.length > 0 ? 'tool_use' : 'end',
+      usage,
+      replay: { adapter: 'anthropic', modelId, data: final.content }
+    }
+  }
+}

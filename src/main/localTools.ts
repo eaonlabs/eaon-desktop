@@ -1,176 +1,175 @@
 import { spawn } from 'node:child_process'
-import { mkdir, readdir, readFile, stat, unlink, writeFile } from 'node:fs/promises'
-import { dirname, join, relative, resolve, sep } from 'node:path'
-import type { McpTool } from '@shared/types'
+import { createWriteStream, existsSync } from 'node:fs'
+import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises'
+import { homedir, tmpdir } from 'node:os'
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { shell } from 'electron'
+import type { Settings } from '@shared/types'
 import { findSymbol, indexedPaths, searchIndex } from './codeIndex'
+import { isRiskyCommand } from './agent/approvals'
+import { capOutput, registerToolSource, type AgentTool, type ToolContext } from './agent/tools'
 
 /**
- * Eaon Work's built-in coding tools — not MCP, just local capabilities scoped
- * to whatever project folder the workspace points at.
+ * Work mode's own hands: find, read, change and run, on the user's computer.
  *
- * The set mirrors what a Cursor-style agent needs to work on its own:
- * *find* (codebase_search / grep / find_file / find_symbol / list_dir),
- * *read* (read_file with line ranges), *change* (edit_file / write_file /
- * delete_file), and *verify* (run_command). Every path is resolved against the
- * project folder and rejected if it escapes; `run_command` still runs a real
- * shell, so a command that `cd`s elsewhere is not stopped, but the file tools
- * are hard-contained.
+ * The set mirrors what a capable agent needs to work on its own — *find*
+ * (codebase_search / grep / find_file / find_symbol / list_dir), *read*
+ * (read_file with line ranges), *change* (edit_file / write_file /
+ * delete_file) and *verify* (run_command).
+ *
+ * Paths resolve against the Work folder. Anything else in the user's home
+ * folder is reachable too — Work is a general agent ("tidy my Downloads"),
+ * not only a coding one — but changing a file outside the Work folder always
+ * asks first unless Full access is on, and a short list of credential folders
+ * is off limits entirely.
  */
 
-export const LOCAL_TOOL_NAMES = [
-  'codebase_search',
-  'grep',
-  'find_file',
-  'find_symbol',
-  'list_dir',
-  'read_file',
-  'edit_file',
-  'write_file',
-  'delete_file',
-  'run_command'
-] as const
-export type LocalToolName = (typeof LOCAL_TOOL_NAMES)[number]
-
-export function isLocalTool(name: string): name is LocalToolName {
-  return (LOCAL_TOOL_NAMES as readonly string[]).includes(name)
-}
-
-/** Tools that change the working tree or run code, so they need approval. */
-const MUTATING_TOOLS = new Set<LocalToolName>(['edit_file', 'write_file', 'delete_file', 'run_command'])
-
-export function isMutatingTool(name: string): boolean {
-  return MUTATING_TOOLS.has(name as LocalToolName)
-}
-
-/** Tools offered to the model once a project folder is set; empty otherwise. */
-export function localToolsFor(cwd: string | null): McpTool[] {
-  if (!cwd) return []
-  const tool = (name: LocalToolName, description: string, properties: Record<string, unknown>, required: string[]): McpTool => ({
-    name,
-    description,
-    serverId: 'local',
-    inputSchema: { type: 'object', properties, required }
-  })
-
-  return [
-    tool(
-      'codebase_search',
-      'Semantic search across the indexed project. Ask in natural language ("where are API keys decrypted?") to find relevant code without knowing filenames. Prefer this first when exploring unfamiliar code.',
-      {
-        query: { type: 'string', description: 'Natural-language description of what you are looking for' },
-        limit: { type: 'number', description: 'Maximum results (default 12)' }
-      },
-      ['query']
-    ),
-    tool(
-      'grep',
-      'Regex search over project files. Use for exact strings and identifiers when you know what the text looks like; use codebase_search for conceptual questions.',
-      {
-        pattern: { type: 'string', description: 'JavaScript regular expression' },
-        include: { type: 'string', description: 'Only search paths containing this substring, e.g. "src/main"' },
-        case_sensitive: { type: 'boolean', description: 'Default false' }
-      },
-      ['pattern']
-    ),
-    tool(
-      'find_file',
-      'Fuzzy-match file paths by name. Use when you roughly know the filename but not where it lives.',
-      { query: { type: 'string', description: 'Part of a filename or path' } },
-      ['query']
-    ),
-    tool(
-      'find_symbol',
-      'Locate where a function, class, type or method is declared, and return its code.',
-      { name: { type: 'string', description: 'Exact or partial symbol name' } },
-      ['name']
-    ),
-    tool(
-      'list_dir',
-      'List the contents of a directory in the project. Good for orienting yourself before searching.',
-      { path: { type: 'string', description: 'Directory relative to the project root; omit for the root' } },
-      []
-    ),
-    tool(
-      'read_file',
-      'Read a text file. Pass start_line/end_line to read part of a large file; without them the first 400 lines are returned.',
-      {
-        path: { type: 'string', description: 'File path relative to the project root' },
-        start_line: { type: 'number', description: '1-based first line to read' },
-        end_line: { type: 'number', description: '1-based last line to read' }
-      },
-      ['path']
-    ),
-    tool(
-      'edit_file',
-      'Make a targeted edit by replacing an exact snippet. `old_text` must appear EXACTLY ONCE in the file — include a few surrounding lines to make it unique. Prefer this over write_file for existing files.',
-      {
-        path: { type: 'string', description: 'File path relative to the project root' },
-        old_text: { type: 'string', description: 'Exact text to replace, including whitespace' },
-        new_text: { type: 'string', description: 'Replacement text' }
-      },
-      ['path', 'old_text', 'new_text']
-    ),
-    tool(
-      'write_file',
-      'Create a new file, or completely replace an existing one. For edits to existing files prefer edit_file.',
-      {
-        path: { type: 'string', description: 'File path relative to the project root' },
-        content: { type: 'string', description: 'Full file contents' }
-      },
-      ['path', 'content']
-    ),
-    tool(
-      'delete_file',
-      'Delete a file from the project.',
-      { path: { type: 'string', description: 'File path relative to the project root' } },
-      ['path']
-    ),
-    tool(
-      'run_command',
-      'Run a shell command in the project folder and return its exit code and output. Use this to build, test, lint, or inspect git state — verify your changes rather than assuming they work.',
-      { command: { type: 'string', description: 'Shell command to run' } },
-      ['command']
-    )
-  ]
-}
-
-/* ----------------------------------------------------------------- limits */
-
-const MAX_OUTPUT = 20_000
-const COMMAND_TIMEOUT_MS = 120_000
-const DEFAULT_READ_LINES = 400
-const MAX_GREP_MATCHES = 50
+const MAX_OUTPUT = 16_000
+const DEFAULT_COMMAND_TIMEOUT_MS = 120_000
+const MAX_COMMAND_TIMEOUT_MS = 600_000
+const DEFAULT_READ_LINES = 300
+const MAX_GREP_MATCHES = 60
 const MAX_LIST_ENTRIES = 200
 
-function truncate(text: string, limit = MAX_OUTPUT): string {
-  return text.length > limit ? `${text.slice(0, limit)}\n…(truncated)` : text
+const HOME = homedir()
+
+/** Folders whose contents are credentials; never read or written by the agent. */
+const FORBIDDEN = ['.ssh', '.aws', '.gnupg', '.config/gh', '.docker/config.json', 'Library/Keychains', 'Library/Cookies', '.netrc'].map(
+  (p) => join(HOME, p)
+)
+
+function allowedRoots(): string[] {
+  const roots = [HOME, tmpdir(), '/tmp', '/private/tmp']
+  if (process.platform === 'darwin') roots.push('/Volumes')
+  return roots
 }
 
-/** Resolves `target` against `cwd`, refusing anything that escapes it. */
-function resolveInProject(cwd: string, target: string): string {
+const within = (path: string, root: string): boolean => path === root || path.startsWith(root.endsWith(sep) ? root : root + sep)
+
+interface ResolvedPath {
+  path: string
+  /** Inside the Work folder. */
+  inside: boolean
+}
+
+export function resolveWorkPath(cwd: string, target: string): ResolvedPath {
   const root = resolve(cwd)
-  const resolved = resolve(root, target)
-  if (resolved !== root && !resolved.startsWith(root + sep)) {
-    throw new Error(`Refusing to access "${target}" — it is outside the project folder (${root}).`)
+  const expanded = target === '~' ? HOME : target.startsWith('~/') ? join(HOME, target.slice(2)) : target
+  const path = isAbsolute(expanded) ? resolve(expanded) : resolve(root, expanded || '.')
+  if (FORBIDDEN.some((f) => within(path, f))) {
+    throw new Error(`"${target}" holds credentials, which the agent is not allowed to touch.`)
   }
-  return resolved
+  const inside = within(path, root)
+  if (!inside && !allowedRoots().some((r) => within(path, r))) {
+    throw new Error(`"${target}" is outside your home folder, which the agent is not allowed to access.`)
+  }
+  return { path, inside }
 }
 
-function runCommand(command: string, cwd: string): Promise<string> {
+const display = (cwd: string, path: string): string => {
+  const rel = relative(cwd, path)
+  return rel && !rel.startsWith('..') ? rel : path.startsWith(HOME) ? `~${path.slice(HOME.length)}` : path
+}
+
+/* ------------------------------------------------------------------ shell */
+
+const background = new Map<number, { command: string; log: string }>()
+
+/**
+ * Runs a command in the Work folder, streaming output into the transcript as
+ * it arrives. Killed on timeout and when the turn is stopped — the whole
+ * process group, so a `npm run dev` does not outlive the Stop button.
+ */
+function runCommand(command: string, ctx: ToolContext, timeoutMs: number): Promise<string> {
   return new Promise((resolvePromise, reject) => {
-    const child = spawn(command, { shell: true, cwd, timeout: COMMAND_TIMEOUT_MS })
+    const child = spawn(command, {
+      shell: process.platform === 'win32' ? true : process.env.SHELL || '/bin/bash',
+      cwd: ctx.cwd,
+      detached: process.platform !== 'win32',
+      env: { ...process.env, CI: '1', FORCE_COLOR: '0', NO_COLOR: '1', PAGER: 'cat', GIT_PAGER: 'cat' }
+    })
     let output = ''
-    child.stdout?.on('data', (chunk: Buffer) => (output += chunk.toString()))
-    child.stderr?.on('data', (chunk: Buffer) => (output += chunk.toString()))
-    child.on('error', reject)
+    let lastProgress = 0
+    const kill = (): void => {
+      try {
+        if (child.pid && process.platform !== 'win32') process.kill(-child.pid, 'SIGKILL')
+        else child.kill('SIGKILL')
+      } catch {
+        /* already gone */
+      }
+    }
+    const timer = setTimeout(() => {
+      output += `\n[killed after ${Math.round(timeoutMs / 1000)}s — pass a longer timeout_seconds, or background: true for servers]`
+      kill()
+    }, timeoutMs)
+    const onAbort = (): void => kill()
+    ctx.signal.addEventListener('abort', onAbort, { once: true })
+
+    const onData = (chunk: Buffer): void => {
+      output += chunk.toString()
+      if (output.length > 400_000) output = output.slice(-200_000)
+      const now = Date.now()
+      if (now - lastProgress > 250) {
+        lastProgress = now
+        ctx.progress(output.slice(-4000))
+      }
+    }
+    child.stdout?.on('data', onData)
+    child.stderr?.on('data', onData)
+    child.on('error', (error) => {
+      clearTimeout(timer)
+      reject(error)
+    })
     child.on('close', (code, signal) => {
-      const status = signal ? `killed (${signal}, likely timed out)` : `exit code ${code}`
-      resolvePromise(`${status}\n${truncate(output)}`)
+      clearTimeout(timer)
+      ctx.signal.removeEventListener('abort', onAbort)
+      const status = signal ? `terminated (${signal})` : `exit code ${code}`
+      resolvePromise(`${status}\n${capOutput(output.trim() || '(no output)', MAX_OUTPUT)}`)
     })
   })
 }
 
-/** Render search hits the way the model reads them best: path, lines, code. */
+/** Starts a long-lived process (a dev server) and returns once it has had a moment to print. */
+async function runBackground(command: string, cwd: string): Promise<string> {
+  const log = join(tmpdir(), `eaon-bg-${Date.now()}.log`)
+  const out = createWriteStream(log)
+  const child = spawn(command, {
+    shell: process.platform === 'win32' ? true : process.env.SHELL || '/bin/bash',
+    cwd,
+    detached: true,
+    env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' }
+  })
+  child.stdout?.pipe(out)
+  child.stderr?.pipe(out)
+  child.unref()
+  if (child.pid) background.set(child.pid, { command, log })
+  await new Promise((r) => setTimeout(r, 4000))
+  const early = existsSync(log) ? await readFile(log, 'utf8').catch(() => '') : ''
+  const exited = child.exitCode !== null
+  return [
+    exited ? `Process exited early with code ${child.exitCode}.` : `Started in the background, pid ${child.pid}.`,
+    `Output is being written to ${log} — read it with read_file or run \`tail -n 50 ${log}\`.`,
+    exited ? '' : `Stop it with \`kill ${child.pid}\` when you are done.`,
+    early ? `\nFirst output:\n${capOutput(early, 4000)}` : ''
+  ]
+    .filter(Boolean)
+    .join('\n')
+}
+
+/** Background processes started this session, killed when the app quits. */
+export function killBackgroundProcesses(): void {
+  for (const pid of background.keys()) {
+    try {
+      process.kill(-pid, 'SIGTERM')
+    } catch {
+      /* already exited */
+    }
+  }
+  background.clear()
+}
+
+/* ------------------------------------------------------------- searching */
+
 function renderHits(hits: { path: string; startLine: number; endLine: number; symbols: string[]; text: string }[]): string {
   if (hits.length === 0) return 'No matches.'
   return hits
@@ -181,61 +180,16 @@ function renderHits(hits: { path: string; startLine: number; endLine: number; sy
     .join('\n\n---\n\n')
 }
 
-async function grepProject(
-  cwd: string,
-  pattern: string,
-  include: string | undefined,
-  caseSensitive: boolean
-): Promise<string> {
-  let regex: RegExp
-  try {
-    regex = new RegExp(pattern, caseSensitive ? 'g' : 'gi')
-  } catch (error) {
-    throw new Error(`Invalid regular expression: ${error instanceof Error ? error.message : String(error)}`)
-  }
-
-  // Search the indexed file list when there is one; it already excludes
-  // node_modules, build output and anything .gitignore rules out.
-  let paths = indexedPaths(cwd)
-  if (paths.length === 0) paths = await shallowWalk(cwd)
-  if (include) paths = paths.filter((path) => path.includes(include))
-
-  const lines: string[] = []
-  let matches = 0
-  for (const path of paths) {
-    if (matches >= MAX_GREP_MATCHES) break
-    let content: string
-    try {
-      content = await readFile(join(cwd, path), 'utf8')
-    } catch {
-      continue
-    }
-    const fileLines = content.split('\n')
-    for (let i = 0; i < fileLines.length && matches < MAX_GREP_MATCHES; i++) {
-      regex.lastIndex = 0
-      if (regex.test(fileLines[i])) {
-        lines.push(`${path}:${i + 1}: ${fileLines[i].trim().slice(0, 300)}`)
-        matches++
-      }
-    }
-  }
-
-  if (lines.length === 0) return 'No matches.'
-  const capped = matches >= MAX_GREP_MATCHES ? `\n…stopped at ${MAX_GREP_MATCHES} matches; narrow the pattern.` : ''
-  return truncate(lines.join('\n') + capped)
-}
-
 /**
- * Fallback file list for grep/find_file before the project has been indexed.
- * Deliberately shallow-ish and hard-capped so an un-indexed monorepo cannot
- * stall a tool call.
+ * Fallback file list for grep/find_file before the folder has been indexed.
+ * Hard-capped so an un-indexed home folder cannot stall a tool call.
  */
 async function shallowWalk(cwd: string, limit = 4000): Promise<string[]> {
-  const skip = new Set(['node_modules', '.git', 'dist', 'out', 'build', 'target', '.next', 'venv', '.venv', '__pycache__'])
+  const skip = new Set(['node_modules', '.git', 'dist', 'out', 'build', 'target', '.next', 'venv', '.venv', '__pycache__', 'Library'])
   const found: string[] = []
   const queue: string[] = [cwd]
   while (queue.length > 0 && found.length < limit) {
-    const dir = queue.pop()!
+    const dir = queue.shift()!
     let entries
     try {
       entries = await readdir(dir, { withFileTypes: true })
@@ -252,31 +206,61 @@ async function shallowWalk(cwd: string, limit = 4000): Promise<string[]> {
   return found
 }
 
-/** Ranks fuzzy filename matches: exact basename first, then path substring. */
-async function findFile(cwd: string, query: string): Promise<string> {
-  let paths = indexedPaths(cwd)
-  if (paths.length === 0) paths = await shallowWalk(cwd)
-  const needle = query.toLowerCase()
+async function projectFiles(cwd: string): Promise<string[]> {
+  const indexed = indexedPaths(cwd)
+  return indexed.length > 0 ? indexed : shallowWalk(cwd)
+}
 
-  const scored = paths
+async function grepProject(cwd: string, pattern: string, include: string | undefined, caseSensitive: boolean): Promise<string> {
+  let regex: RegExp
+  try {
+    regex = new RegExp(pattern, caseSensitive ? '' : 'i')
+  } catch (error) {
+    throw new Error(`Invalid regular expression: ${error instanceof Error ? error.message : String(error)}`)
+  }
+  let paths = await projectFiles(cwd)
+  if (include) paths = paths.filter((path) => path.includes(include))
+
+  const lines: string[] = []
+  for (const path of paths) {
+    if (lines.length >= MAX_GREP_MATCHES) break
+    let content: string
+    try {
+      const full = join(cwd, path)
+      if ((await stat(full)).size > 2_000_000) continue
+      content = await readFile(full, 'utf8')
+    } catch {
+      continue
+    }
+    if (!regex.test(content)) continue
+    const fileLines = content.split('\n')
+    for (let i = 0; i < fileLines.length && lines.length < MAX_GREP_MATCHES; i++) {
+      if (regex.test(fileLines[i])) lines.push(`${path}:${i + 1}: ${fileLines[i].trim().slice(0, 240)}`)
+    }
+  }
+  if (lines.length === 0) return 'No matches.'
+  const capped = lines.length >= MAX_GREP_MATCHES ? `\n…stopped at ${MAX_GREP_MATCHES} matches; narrow the pattern or use include.` : ''
+  return capOutput(lines.join('\n') + capped, MAX_OUTPUT)
+}
+
+async function findFile(cwd: string, query: string): Promise<string> {
+  const needle = query.toLowerCase()
+  const scored = (await projectFiles(cwd))
     .map((path) => {
       const lower = path.toLowerCase()
       const base = lower.slice(lower.lastIndexOf('/') + 1)
-      if (base === needle) return { path, score: 3 }
-      if (base.includes(needle)) return { path, score: 2 }
-      if (lower.includes(needle)) return { path, score: 1 }
-      return { path, score: 0 }
+      const score = base === needle ? 3 : base.includes(needle) ? 2 : lower.includes(needle) ? 1 : 0
+      return { path, score }
     })
     .filter((entry) => entry.score > 0)
     .sort((a, b) => b.score - a.score || a.path.length - b.path.length)
     .slice(0, 20)
-
   return scored.length === 0 ? 'No matching files.' : scored.map((entry) => entry.path).join('\n')
 }
 
-async function listDir(cwd: string, path: string): Promise<string> {
-  const target = resolveInProject(cwd, path || '.')
-  const entries = await readdir(target, { withFileTypes: true })
+async function listDir(cwd: string, target: string): Promise<string> {
+  const { path } = resolveWorkPath(cwd, target || '.')
+  const entries = await readdir(path, { withFileTypes: true })
   const rows: string[] = []
   for (const entry of entries.slice(0, MAX_LIST_ENTRIES)) {
     if (entry.name === '.git' || entry.name === 'node_modules') {
@@ -285,135 +269,280 @@ async function listDir(cwd: string, path: string): Promise<string> {
     }
     if (entry.isDirectory()) {
       rows.push(`${entry.name}/`)
-    } else {
-      let size = ''
-      try {
-        size = ` (${(await stat(join(target, entry.name))).size} bytes)`
-      } catch {
-        /* ignore */
-      }
-      rows.push(`${entry.name}${size}`)
+      continue
     }
+    let size = ''
+    try {
+      const bytes = (await stat(join(path, entry.name))).size
+      size = bytes < 1024 ? ` ${bytes}B` : bytes < 1_048_576 ? ` ${Math.round(bytes / 1024)}KB` : ` ${(bytes / 1_048_576).toFixed(1)}MB`
+    } catch {
+      /* unreadable entry; list it without a size */
+    }
+    rows.push(`${entry.name}${size}`)
   }
   const more = entries.length > MAX_LIST_ENTRIES ? `\n…and ${entries.length - MAX_LIST_ENTRIES} more` : ''
   return rows.length === 0 ? '(empty directory)' : rows.sort().join('\n') + more
 }
 
-async function readFileRange(cwd: string, path: string, startLine?: number, endLine?: number): Promise<string> {
-  const target = resolveInProject(cwd, path)
-  const content = await readFile(target, 'utf8')
-  const lines = content.split('\n')
+async function readFileRange(cwd: string, target: string, startLine?: number, endLine?: number): Promise<string> {
+  const { path } = resolveWorkPath(cwd, target)
+  const info = await stat(path)
+  if (info.isDirectory()) return listDir(cwd, target)
+  if (info.size > 20_000_000) throw new Error(`${target} is ${Math.round(info.size / 1_048_576)}MB — too large to read. Use grep or run_command (head/tail) instead.`)
+  const buffer = await readFile(path)
+  if (buffer.subarray(0, 8000).includes(0)) return `${target} is a binary file (${info.size.toLocaleString()} bytes).`
+  const lines = buffer.toString('utf8').split('\n')
 
   const from = Math.max(1, Math.floor(startLine ?? 1))
   const to = Math.min(lines.length, Math.floor(endLine ?? from + DEFAULT_READ_LINES - 1))
   if (from > lines.length) return `File has only ${lines.length} lines.`
-
   const body = lines
     .slice(from - 1, to)
-    .map((line, i) => `${from + i}\t${line}`)
+    .map((line, i) => `${from + i}\t${line.length > 2000 ? `${line.slice(0, 2000)}…` : line}`)
     .join('\n')
   const footer = to < lines.length ? `\n…(${lines.length - to} more lines; read from ${to + 1} to continue)` : ''
-  return truncate(body + footer)
+  return capOutput(body + footer, MAX_OUTPUT)
 }
 
 /**
  * Exact-snippet replacement. Refusing on 0 or 2+ occurrences is the whole
  * point — a silent wrong-match edit is far worse than an error the model can
- * recover from by including more context.
+ * recover from by including more context. `replace_all` is the explicit
+ * opt-out for renames.
  */
-async function editFile(cwd: string, path: string, oldText: string, newText: string): Promise<string> {
-  const target = resolveInProject(cwd, path)
-  const content = await readFile(target, 'utf8')
-
+async function editFile(cwd: string, target: string, oldText: string, newText: string, replaceAll: boolean): Promise<string> {
+  const { path } = resolveWorkPath(cwd, target)
+  const content = await readFile(path, 'utf8')
+  if (!oldText) throw new Error('old_text is empty. Use write_file to create a file.')
   const occurrences = content.split(oldText).length - 1
   if (occurrences === 0) {
+    // The single most common miss is indentation; say so when that is it.
+    const loose = content.replace(/[ \t]+/g, ' ').includes(oldText.replace(/[ \t]+/g, ' '))
     throw new Error(
-      `old_text was not found in ${path}. Read the file again and copy the exact text, including indentation.`
+      `old_text was not found in ${target}.${loose ? ' It matches if whitespace is ignored — copy the indentation exactly.' : ' Read the file again and copy the exact text.'}`
     )
   }
-  if (occurrences > 1) {
-    throw new Error(
-      `old_text appears ${occurrences} times in ${path}. Include more surrounding lines so it matches exactly once.`
-    )
+  if (occurrences > 1 && !replaceAll) {
+    throw new Error(`old_text appears ${occurrences} times in ${target}. Include more surrounding lines so it matches once, or pass replace_all.`)
   }
-
-  await writeFile(target, content.replace(oldText, newText), 'utf8')
+  const next = replaceAll ? content.split(oldText).join(newText) : content.replace(oldText, () => newText)
+  await writeFile(path, next, 'utf8')
   const delta = newText.split('\n').length - oldText.split('\n').length
-  return `Edited ${path} (${delta >= 0 ? '+' : ''}${delta} lines).`
+  return `Edited ${target}${replaceAll && occurrences > 1 ? ` (${occurrences} places)` : ''} (${delta >= 0 ? '+' : ''}${delta} lines).`
 }
 
-export async function runLocalTool(name: LocalToolName, args: Record<string, unknown>, cwd: string): Promise<string> {
-  switch (name) {
-    case 'codebase_search': {
-      const limit = Number(args.limit) > 0 ? Math.min(Number(args.limit), 25) : 12
-      return truncate(renderHits(await searchIndex(cwd, String(args.query ?? ''), limit)))
-    }
-    case 'grep':
-      return grepProject(cwd, String(args.pattern ?? ''), args.include ? String(args.include) : undefined, Boolean(args.case_sensitive))
-    case 'find_file':
-      return findFile(cwd, String(args.query ?? ''))
-    case 'find_symbol': {
-      const hits = findSymbol(cwd, String(args.name ?? ''))
-      return hits.length === 0
-        ? `No symbol matching "${String(args.name ?? '')}" in the index. Try grep, or ask the user to index the project.`
-        : truncate(renderHits(hits))
-    }
-    case 'list_dir':
-      return listDir(cwd, String(args.path ?? ''))
-    case 'read_file':
-      return readFileRange(
-        cwd,
-        String(args.path ?? ''),
-        args.start_line === undefined ? undefined : Number(args.start_line),
-        args.end_line === undefined ? undefined : Number(args.end_line)
+/* ------------------------------------------------------------ the tools */
+
+const str = (value: unknown): string => (typeof value === 'string' ? value : value === undefined || value === null ? '' : String(value))
+
+function outsideWorkFolder(input: Record<string, unknown>, ctx: ToolContext): boolean {
+  try {
+    return !resolveWorkPath(ctx.cwd, str(input.path)).inside
+  } catch {
+    return true
+  }
+}
+
+/** Changing a file outside the Work folder always asks, unless Full access is on. */
+function riskyPath(settings: Settings): (input: Record<string, unknown>, ctx: ToolContext) => boolean {
+  return (input, ctx) => !settings.general.fullAccess && outsideWorkFolder(input, ctx)
+}
+
+function fileTools(settings: Settings, indexed: boolean): AgentTool[] {
+  const tool = (
+    name: string,
+    description: string,
+    properties: Record<string, unknown>,
+    required: string[],
+    run: AgentTool['run'],
+    extra: Partial<AgentTool> = {}
+  ): AgentTool => ({
+    name,
+    description,
+    inputSchema: { type: 'object', properties, required },
+    mutating: false,
+    run,
+    ...extra
+  })
+
+  const tools: AgentTool[] = [
+    tool(
+      'list_dir',
+      'List a directory. Paths are relative to the Work folder; ~/ and absolute paths inside the home folder also work.',
+      { path: { type: 'string', description: 'Directory; omit for the Work folder' } },
+      [],
+      (input, ctx) => listDir(ctx.cwd, str(input.path)),
+      { describe: (input) => str(input.path) || '.' }
+    ),
+    tool(
+      'read_file',
+      `Read a text file with line numbers. Without start_line/end_line the first ${DEFAULT_READ_LINES} lines are returned.`,
+      {
+        path: { type: 'string' },
+        start_line: { type: 'number', description: '1-based' },
+        end_line: { type: 'number', description: '1-based, inclusive' }
+      },
+      ['path'],
+      (input, ctx) =>
+        readFileRange(
+          ctx.cwd,
+          str(input.path),
+          input.start_line === undefined ? undefined : Number(input.start_line),
+          input.end_line === undefined ? undefined : Number(input.end_line)
+        ),
+      { describe: (input) => str(input.path) }
+    ),
+    tool(
+      'grep',
+      'Regex search across files in the Work folder. For exact identifiers and strings.',
+      {
+        pattern: { type: 'string', description: 'JavaScript regular expression' },
+        include: { type: 'string', description: 'Only paths containing this substring, e.g. "src/"' },
+        case_sensitive: { type: 'boolean' }
+      },
+      ['pattern'],
+      (input, ctx) => grepProject(ctx.cwd, str(input.pattern), input.include ? str(input.include) : undefined, Boolean(input.case_sensitive)),
+      { describe: (input) => str(input.pattern) }
+    ),
+    tool(
+      'find_file',
+      'Find files in the Work folder by (part of) their name.',
+      { query: { type: 'string' } },
+      ['query'],
+      (input, ctx) => findFile(ctx.cwd, str(input.query)),
+      { describe: (input) => str(input.query) }
+    ),
+    tool(
+      'edit_file',
+      'Replace an exact snippet in a file. old_text must match exactly once (include surrounding lines to make it unique) unless replace_all is true. Prefer this over write_file for existing files.',
+      {
+        path: { type: 'string' },
+        old_text: { type: 'string', description: 'Exact text to replace, including indentation' },
+        new_text: { type: 'string' },
+        replace_all: { type: 'boolean', description: 'Replace every occurrence' }
+      },
+      ['path', 'old_text', 'new_text'],
+      (input, ctx) => editFile(ctx.cwd, str(input.path), str(input.old_text), str(input.new_text), Boolean(input.replace_all)),
+      { mutating: true, risky: riskyPath(settings), describe: (input) => `Edit ${str(input.path)}` }
+    ),
+    tool(
+      'write_file',
+      'Create a file, or replace one entirely. Creates parent folders.',
+      { path: { type: 'string' }, content: { type: 'string' } },
+      ['path', 'content'],
+      async (input, ctx) => {
+        const { path } = resolveWorkPath(ctx.cwd, str(input.path))
+        const content = str(input.content)
+        await mkdir(dirname(path), { recursive: true })
+        await writeFile(path, content, 'utf8')
+        return `Wrote ${content.split('\n').length} lines to ${display(ctx.cwd, path)}.`
+      },
+      { mutating: true, risky: riskyPath(settings), describe: (input) => `Write ${str(input.path)}` }
+    ),
+    tool(
+      'delete_file',
+      'Move a file or folder to the Trash (recoverable).',
+      { path: { type: 'string' } },
+      ['path'],
+      async (input, ctx) => {
+        const { path } = resolveWorkPath(ctx.cwd, str(input.path))
+        if (path === resolve(ctx.cwd) || path === HOME) throw new Error('Refusing to delete the Work folder or the home folder itself.')
+        await shell.trashItem(path)
+        return `Moved ${display(ctx.cwd, path)} to the Trash.`
+      },
+      {
+        mutating: true,
+        // Recoverable from the Trash, so only a delete outside the Work folder asks in auto mode.
+        risky: riskyPath(settings),
+        describe: (input) => `Delete ${str(input.path)}`
+      }
+    ),
+    tool(
+      'move_file',
+      'Move or rename a file or folder. Creates the destination folder if needed; will not overwrite.',
+      { from: { type: 'string' }, to: { type: 'string' } },
+      ['from', 'to'],
+      async (input, ctx) => {
+        const from = resolveWorkPath(ctx.cwd, str(input.from)).path
+        const to = resolveWorkPath(ctx.cwd, str(input.to)).path
+        if (existsSync(to)) throw new Error(`${str(input.to)} already exists.`)
+        await mkdir(dirname(to), { recursive: true })
+        const { rename } = await import('node:fs/promises')
+        await rename(from, to)
+        return `Moved ${display(ctx.cwd, from)} → ${display(ctx.cwd, to)}.`
+      },
+      {
+        mutating: true,
+        risky: (input, ctx) =>
+          !settings.general.fullAccess && (outsideWorkFolder({ path: input.from }, ctx) || outsideWorkFolder({ path: input.to }, ctx)),
+        describe: (input) => `Move ${str(input.from)} → ${str(input.to)}`
+      }
+    ),
+    tool(
+      'run_command',
+      'Run a shell command in the Work folder and return its exit code and output. Use it to build, test, run scripts, use git, and inspect the system. For servers and watchers pass background: true.',
+      {
+        command: { type: 'string' },
+        timeout_seconds: { type: 'number', description: `Default ${DEFAULT_COMMAND_TIMEOUT_MS / 1000}, max ${MAX_COMMAND_TIMEOUT_MS / 1000}` },
+        background: { type: 'boolean', description: 'Start a long-running process and return immediately' }
+      },
+      ['command'],
+      (input, ctx) => {
+        const command = str(input.command)
+        if (!command.trim()) throw new Error('command is empty.')
+        if (input.background) return runBackground(command, ctx.cwd)
+        const timeout = Math.min(MAX_COMMAND_TIMEOUT_MS, Math.max(1000, Number(input.timeout_seconds) * 1000 || DEFAULT_COMMAND_TIMEOUT_MS))
+        return runCommand(command, ctx, timeout)
+      },
+      {
+        mutating: true,
+        risky: (input) => isRiskyCommand(str(input.command)),
+        describe: (input) => str(input.command)
+      }
+    )
+  ]
+
+  if (indexed) {
+    tools.push(
+      tool(
+        'codebase_search',
+        'Semantic search over the indexed Work folder ("where are API keys decrypted?"). Best first step in unfamiliar code.',
+        { query: { type: 'string' }, limit: { type: 'number', description: 'Default 10' } },
+        ['query'],
+        async (input, ctx) => {
+          const limit = Number(input.limit) > 0 ? Math.min(Number(input.limit), 25) : 10
+          return capOutput(renderHits(await searchIndex(ctx.cwd, str(input.query), limit)), MAX_OUTPUT)
+        },
+        { describe: (input) => str(input.query) }
+      ),
+      tool(
+        'find_symbol',
+        'Find where a function, class, type or method is declared, with its code.',
+        { name: { type: 'string' } },
+        ['name'],
+        async (input, ctx) => {
+          const hits = findSymbol(ctx.cwd, str(input.name))
+          return hits.length === 0 ? `No symbol matching "${str(input.name)}". Try grep.` : capOutput(renderHits(hits), MAX_OUTPUT)
+        },
+        { describe: (input) => str(input.name) }
       )
-    case 'edit_file':
-      return editFile(cwd, String(args.path ?? ''), String(args.old_text ?? ''), String(args.new_text ?? ''))
-    case 'write_file': {
-      const target = resolveInProject(cwd, String(args.path ?? ''))
-      const content = String(args.content ?? '')
-      await mkdir(dirname(target), { recursive: true })
-      await writeFile(target, content, 'utf8')
-      return `Wrote ${content.split('\n').length} lines to ${String(args.path ?? '')}.`
-    }
-    case 'delete_file': {
-      const target = resolveInProject(cwd, String(args.path ?? ''))
-      await unlink(target)
-      return `Deleted ${String(args.path ?? '')}.`
-    }
-    case 'run_command':
-      return runCommand(String(args.command ?? ''), cwd)
+    )
   }
+  return tools
 }
 
-/**
- * One-line summary of a tool call — used both by the approval dialog and by
- * the thinking trace, so the user sees "Edit src/main/store.ts" rather than a
- * bare tool name repeated ten times.
- */
+registerToolSource({
+  id: 'files',
+  tools: (query) => (query.mode === 'work' && query.cwd ? fileTools(query.settings, indexedPaths(query.cwd).length > 0) : []),
+  guidance: () =>
+    [
+      'Files and shell: relative paths resolve against the Work folder. Read before you edit; prefer edit_file for small changes. After changing code, run the project\'s own build/test command to verify.',
+      'Python: create a venv (python3 -m venv .venv && .venv/bin/pip install …) rather than installing packages system-wide.'
+    ].join('\n')
+})
+
+/** One-line summary of a tool call, for traces. */
 export function describeToolCall(name: string, args: Record<string, unknown>): string {
-  switch (name) {
-    case 'run_command':
-      return String(args.command ?? '')
-    case 'edit_file':
-      return `Edit ${String(args.path ?? '')}`
-    case 'write_file':
-      return `Write ${String(args.path ?? '')}`
-    case 'delete_file':
-      return `Delete ${String(args.path ?? '')}`
-    case 'codebase_search':
-      return String(args.query ?? '')
-    case 'grep':
-      return String(args.pattern ?? '')
-    case 'find_file':
-      return String(args.query ?? '')
-    case 'find_symbol':
-      return String(args.name ?? '')
-    case 'list_dir':
-      return String(args.path ?? '.')
-    case 'read_file':
-      return String(args.path ?? '')
-    default:
-      return name
-  }
+  const first = ['command', 'path', 'query', 'pattern', 'name', 'url'].map((k) => args[k]).find((v) => typeof v === 'string' && v)
+  return typeof first === 'string' ? first : name
 }

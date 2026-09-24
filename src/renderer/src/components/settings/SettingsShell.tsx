@@ -2,13 +2,15 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   Activity,
   Archive,
+  Cat,
+  Chrome,
+  Code2,
   ArrowLeft,
   Binary,
   AppWindow,
   AtSign,
   KeyRound,
   Plug,
-  ScanLine,
   Server,
   Settings as SettingsIcon,
   ShieldCheck,
@@ -25,13 +27,16 @@ import { ConfigurationPage } from './pages/Configuration'
 import { ShortcutsPage } from './pages/Shortcuts'
 import { ProvidersPage } from './pages/Providers'
 import { ArchivedPage } from './pages/Archived'
-import { AppshotsPage, BrowserSettingsPage, ComputerUsePage } from './pages/Misc'
+import { BrowserSettingsPage, ComputerUsePage } from './pages/Misc'
 import { PluginsSettingsPage } from './pages/Plugins'
 import { LocalServerPage } from './pages/LocalServer'
 import { SystemMonitorPage } from './pages/SystemMonitor'
 import { McpServersPage } from './pages/McpServers'
 import { ClaudeCodePage } from './pages/ClaudeCode'
 import { CodeIndexPage } from './pages/CodeIndex'
+import { BrowserExtensionPage } from './pages/BrowserExtension'
+import { PetsPage } from './pages/Pets'
+import { EaonCodePage } from './pages/EaonCode'
 
 interface NavEntry {
   id: string
@@ -48,11 +53,13 @@ const NAV: NavEntry[] = [
   { id: 'appearance', label: 'Appearance', icon: <Sun size={size} strokeWidth={stroke} />, group: 'Personal' },
   { id: 'configuration', label: 'Configuration', icon: <ShieldCheck size={size} strokeWidth={stroke} />, group: 'Personal' },
   { id: 'shortcuts', label: 'Keyboard shortcuts', icon: <SquarePlus size={size} strokeWidth={stroke} />, group: 'Personal' },
+  { id: 'pets', label: 'Pets', icon: <Cat size={size} strokeWidth={stroke} />, group: 'Personal' },
 
   { id: 'providers', label: 'Model providers', icon: <KeyRound size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'computer-use', label: 'Computer use', icon: <Wand2 size={size} strokeWidth={stroke} />, group: 'Integrations' },
-  { id: 'appshots', label: 'Appshots', icon: <ScanLine size={size} strokeWidth={stroke} />, group: 'Integrations' },
+  { id: 'browser-extension', label: 'Browser extension', icon: <Chrome size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'plugins', label: 'Plugins', icon: <AtSign size={size} strokeWidth={stroke} />, group: 'Integrations' },
+  { id: 'eaon-code', label: 'Eaon Code', icon: <Code2 size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'browser', label: 'Browser', icon: <AppWindow size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'mcp', label: 'MCP Servers', icon: <Plug size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'claude-code', label: 'Claude Code', icon: <Terminal size={size} strokeWidth={stroke} />, group: 'Integrations' },
@@ -76,7 +83,9 @@ const PAGES: Record<string, () => JSX.Element> = {
   shortcuts: ShortcutsPage,
   providers: ProvidersPage,
   'computer-use': ComputerUsePage,
-  appshots: AppshotsPage,
+  'browser-extension': BrowserExtensionPage,
+  pets: PetsPage,
+  'eaon-code': EaonCodePage,
   plugins: PluginsSettingsPage,
   browser: BrowserSettingsPage,
   mcp: McpServersPage,

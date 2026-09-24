@@ -28,6 +28,7 @@ import { ThinkingOrb } from './ThinkingOrb'
 import { Markdown } from './agent/Markdown'
 import { ToolCall } from './agent/ToolCall'
 import { ModeSwitch } from './ModeSwitch'
+import { GoalBanner, PlanCard, TodoPanel, UsageLine } from './agent/WorkBits'
 import type { Chat, ChatMessage } from '@shared/types'
 
 export function ChatView(): JSX.Element {
@@ -42,28 +43,28 @@ export function ChatView(): JSX.Element {
 
 const SUGGESTIONS: { icon: typeof Compass; color: string; label: string; prompt: string }[] = [
   {
-    icon: Compass,
-    color: '#60a5fa',
-    label: 'Explore and\nunderstand code',
-    prompt: 'Help me explore this codebase and understand how the pieces fit together.'
-  },
-  {
     icon: Hammer,
     color: '#a78bfa',
-    label: 'Build a new feature,\napp, or tool',
-    prompt: 'I want to build something new. Ask me what I have in mind, then help me build it.'
+    label: 'Build an app,\nsite, or script',
+    prompt: 'Build me '
+  },
+  {
+    icon: Compass,
+    color: '#60a5fa',
+    label: 'Research a topic\nand write it up',
+    prompt: 'Research the following and write up what you find, with sources: '
   },
   {
     icon: RefreshCw,
     color: '#34d399',
-    label: 'Review code and\nsuggest changes',
-    prompt: 'Review the code in this project and suggest concrete improvements.'
+    label: 'Organize files\nand folders',
+    prompt: 'Tidy up my Downloads folder: group files into sensible subfolders and tell me what you moved.'
   },
   {
     icon: Bug,
     color: '#fb923c',
-    label: 'Fix issues and\nfailures',
-    prompt: 'Help me find and fix a bug or a failing check in this project.'
+    label: 'Fix a bug or\nfailing check',
+    prompt: 'Find and fix the failing tests in this project.'
   }
 ]
 
@@ -90,7 +91,7 @@ function Home(): JSX.Element {
         {isWork ? (
           <>
             <MessageSquareDashed size={48} strokeWidth={1.3} className="home__icon" />
-            <h1 className="home__title">What should we build?</h1>
+            <h1 className="home__title">What should we get done?</h1>
           </>
         ) : (
           <h1 className="home__title">What should we work on?</h1>
@@ -250,6 +251,12 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
       </div>
 
       <div className="composer-dock">
+        {isWork && (
+          <div className="composer-dock__pinned">
+            <GoalBanner chat={chat} />
+            <TodoPanel chat={chat} />
+          </div>
+        )}
         <Composer variant="chat" />
       </div>
 
@@ -367,7 +374,9 @@ const MessageRow = memo(function MessageRow({
         </div>
       )}
 
-      {body && !streaming && (
+      {message.plan && <PlanCard message={message} plan={message.plan} />}
+
+      {(body || message.usage) && !streaming && (
         <div className="msg__actions">
           <button
             className="icon-btn"
@@ -380,9 +389,7 @@ const MessageRow = memo(function MessageRow({
           >
             {copied ? <Check size={14} strokeWidth={2} /> : <Copy size={14} strokeWidth={1.9} />}
           </button>
-          <button className="icon-btn" aria-label="Regenerate">
-            <RefreshCw size={14} strokeWidth={1.9} />
-          </button>
+          {message.usage && <UsageLine usage={message.usage} />}
         </div>
       )}
     </div>

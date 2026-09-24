@@ -1,19 +1,17 @@
-import { app, BrowserWindow, ipcMain, shell, nativeTheme, dialog, Menu } from 'electron'
-import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { app, BrowserWindow, ipcMain, shell, nativeTheme, dialog, Menu, Notification, net, protocol } from 'electron'
+import { extname, join } from 'node:path'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import type { Chat, McpServer, Project, Provider, Settings, StreamEvent, StreamRequest, ThemePalette, UpdateStatus, Workspace } from '@shared/types'
 import { store } from './store'
 import { secrets } from './secrets'
-import {
-  cancelStream,
-  listProviders,
-  refreshModels,
-  removeProvider,
-  resolveApproval,
-  runStream,
-  testProvider,
-  updateProvider
-} from './providers'
+import { listProviders, refreshModels, removeProvider, testProvider, updateProvider } from './providers'
+import { resolveApproval } from './agent/approvals'
+import { cancelRun, runAgent } from './agent/loop'
+import './agent/sources'
+import { killBackgroundProcesses } from './localTools'
+import { adoptLoginShellPath } from './shellEnv'
+import { FEATURES } from './features'
+import type { FeatureContext } from './features/types'
 import { getStatuses, getTools, setMcpStatusListener, shutdownMcp, syncMcpServers } from './mcp'
 import { MCP_CATALOG } from '@shared/mcpCatalog'
 import { getLocalServerStatus, setLocalServerListener, startLocalServer, stopLocalServer } from './localServer'
@@ -27,6 +25,17 @@ import { deleteDownloadedModel, downloadModel, getDownloadedModels, getModelDeta
 
 const here = join(fileURLToPath(import.meta.url), '..')
 app.setName('Eaon')
+
+/**
+ * `eaon-file://` serves screenshots and attached images to the renderer. The
+ * renderer runs from a dev-server origin in development, where `file://` is
+ * blocked, and a custom scheme also lets us refuse anything that is not an
+ * image rather than exposing the filesystem.
+ */
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'eaon-file', privileges: { secure: true, supportFetchAPI: true, stream: true, bypassCSP: true } }
+])
+const SERVABLE_IMAGES = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp'])
 let mainWindow: BrowserWindow | null = null
 let capturing = false
 
@@ -240,7 +249,8 @@ function frameBatched(send: (event: StreamEvent) => void): {
         if (!timer) timer = setTimeout(flush, 16)
         return
       }
-      // done/error/approval-request must never overtake the text before them.
+      // Everything else (done, error, approvals, tool events) must never
+      // overtake the text before it.
       flush()
       send(event)
     },
@@ -375,13 +385,15 @@ function registerIpc(): void {
     const batch = frameBatched((payload) => {
       if (!event.sender.isDestroyed()) event.sender.send('chat:event', payload)
     })
+    const started = Date.now()
     try {
-      await runStream(request, batch.emit)
+      const outcome = await runAgent(request, batch.emit)
+      notifyIfAway(request, outcome.error, Date.now() - started)
     } finally {
       batch.flush()
     }
   })
-  ipcMain.handle('chat:cancel', (_e, messageId: string) => cancelStream(messageId))
+  ipcMain.handle('chat:cancel', (_e, messageId: string) => cancelRun(messageId))
   ipcMain.handle('chat:approve', (_e, requestId: string, approved: boolean) => resolveApproval(requestId, approved))
 
   ipcMain.handle('app:open-external', (_e, url: string) => shell.openExternal(url))
@@ -398,7 +410,49 @@ function registerIpc(): void {
   })
 }
 
-app.whenReady().then(() => {
+/**
+ * A Work task that ran for a while and finished while the user was in another
+ * app gets a system notification — the whole point of handing work to an
+ * agent is not having to watch it.
+ */
+function notifyIfAway(request: StreamRequest, error: string | undefined, elapsedMs: number): void {
+  if (request.mode !== 'work' || elapsedMs < 20_000) return
+  if (!store.getSettings().notifications.taskComplete || !Notification.isSupported()) return
+  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused()) return
+  const chat = store.getChats().find((c) => c.id === request.chatId)
+  const notification = new Notification({
+    title: error ? 'Task stopped with an error' : 'Task finished',
+    body: chat?.title ?? 'Eaon Work'
+  })
+  notification.on('click', () => {
+    mainWindow?.show()
+    mainWindow?.focus()
+  })
+  notification.show()
+}
+
+/** Shared with every feature module; see `features/types.ts`. */
+const streamBatch = frameBatched((payload) => {
+  if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('chat:event', payload)
+})
+const featureContext: FeatureContext = {
+  ipcMain,
+  getWindow: () => (mainWindow && !mainWindow.isDestroyed() ? mainWindow : null),
+  send: (channel, ...args) => {
+    if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(channel, ...args)
+  },
+  emitStream: (event) => streamBatch.emit(event)
+}
+
+app.whenReady().then(async () => {
+  // Before anything spawns a process: a Dock-launched app has almost no PATH.
+  await adoptLoginShellPath()
+  protocol.handle('eaon-file', (request) => {
+    let path = decodeURIComponent(new URL(request.url).pathname)
+    if (process.platform === 'win32') path = path.replace(/^\/([a-zA-Z]:)/, '$1')
+    if (!SERVABLE_IMAGES.has(extname(path).toLowerCase())) return new Response('Not found', { status: 404 })
+    return net.fetch(pathToFileURL(path).toString())
+  })
   // A packaged app gets its icon from the .icns baked into the bundle at
   // build time (see electron-builder.yml) — this only matters for `npm run
   // dev`, which would otherwise show the generic Electron icon in the Dock.
@@ -424,6 +478,13 @@ app.whenReady().then(() => {
   buildMenu()
   createWindow()
   initUpdater(() => mainWindow)
+  for (const feature of FEATURES) {
+    try {
+      await feature.register(featureContext)
+    } catch (error) {
+      console.error(`[features] ${feature.id} failed to start:`, error)
+    }
+  }
 
   setMcpStatusListener((statuses) => {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('mcp:status', statuses)
@@ -455,4 +516,12 @@ app.on('before-quit', () => {
   void store.flushWrites()
   void shutdownMcp()
   void stopLocalServer()
+  killBackgroundProcesses()
+  for (const feature of FEATURES) {
+    try {
+      feature.dispose?.()
+    } catch {
+      /* quitting regardless */
+    }
+  }
 })

@@ -1,5 +1,6 @@
 import type { McpTool } from '@shared/types'
 import { store } from './store'
+import { capOutput, registerToolSource, type AgentTool } from './agent/tools'
 
 /**
  * Web search, backed by the MIKLIUM search API (https://miklium.vercel.app/api/search).
@@ -115,8 +116,10 @@ export async function runWebSearch(args: Record<string, unknown>): Promise<strin
     const results = (payload.results ?? []).filter((r) => r.snippet && r.url)
     if (results.length === 0) return `No web results for "${query}".`
 
+    // Scraped page text can run to tens of thousands of characters a result;
+    // each is capped so one verbose page cannot crowd out the rest.
     const body = results
-      .map((result, index) => `[${index + 1}] ${result.url}\n${(result.snippet ?? '').trim()}`)
+      .map((result, index) => `[${index + 1}] ${result.url}\n${capOutput((result.snippet ?? '').trim(), 3000)}`)
       .join('\n\n')
     return `Web results for "${query}":\n\n${body}`
   } catch (error) {
@@ -128,3 +131,91 @@ export async function runWebSearch(args: Record<string, unknown>): Promise<strin
     clearTimeout(timer)
   }
 }
+
+/* ---------------------------------------------------------------- web_fetch */
+
+const FETCH_LIMIT = 24_000
+
+/**
+ * Reduces an HTML page to its readable text: scripts, styles, navigation and
+ * markup go, headings and list items keep a marker so the structure survives.
+ * Crude next to a real readability pass, and far cheaper in tokens than
+ * handing the model raw HTML.
+ */
+export function htmlToText(html: string): string {
+  return html
+    .replace(/<(script|style|noscript|svg|nav|footer|header|form|iframe)[^>]*>[\s\S]*?<\/\1>/gi, ' ')
+    .replace(/<!--[\s\S]*?-->/g, ' ')
+    .replace(/<h([1-6])[^>]*>/gi, (_m, level: string) => `\n\n${'#'.repeat(Number(level))} `)
+    .replace(/<li[^>]*>/gi, '\n- ')
+    .replace(/<(br|\/p|\/div|\/tr|\/h[1-6]|\/li|\/section|\/article)[^>]*>/gi, '\n')
+    .replace(/<a [^>]*href="(http[^"]+)"[^>]*>([\s\S]*?)<\/a>/gi, (_m, href: string, label: string) => `${label.replace(/<[^>]+>/g, '')} (${href})`)
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/[ \t]+/g, ' ')
+    .replace(/\n\s*\n\s*\n+/g, '\n\n')
+    .trim()
+}
+
+async function fetchPage(args: Record<string, unknown>): Promise<string> {
+  const url = String(args.url ?? '').trim()
+  if (!/^https?:\/\//i.test(url)) return 'Pass a full http(s) URL.'
+  const response = await fetch(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36 Eaon',
+      Accept: 'text/html,application/json,text/plain;q=0.9,*/*;q=0.5'
+    },
+    redirect: 'follow',
+    signal: AbortSignal.timeout(TIMEOUT_MS)
+  })
+  const type = response.headers.get('content-type') ?? ''
+  if (!response.ok) return `Fetching ${url} failed: HTTP ${response.status}.`
+  if (!/text|json|xml|javascript/.test(type)) return `${url} is ${type || 'binary'} content, which cannot be read as text.`
+  const raw = await response.text()
+  const text = /html/.test(type) ? htmlToText(raw) : raw
+  const offset = Math.max(0, Number(args.offset) || 0)
+  const slice = text.slice(offset, offset + FETCH_LIMIT)
+  const more = text.length > offset + FETCH_LIMIT ? `\n\n…[${(text.length - offset - FETCH_LIMIT).toLocaleString()} more characters — call again with offset ${offset + FETCH_LIMIT}]` : ''
+  return `${response.url}\n\n${slice}${more}`
+}
+
+const webSearchTool = (): AgentTool => {
+  const [spec] = webSearchTools()
+  return {
+    ...spec,
+    mutating: false,
+    describe: (input) => String(input.query ?? ''),
+    run: (input) => runWebSearch(input)
+  }
+}
+
+const webFetchTool: AgentTool = {
+  name: 'web_fetch',
+  description: 'Read a web page (or JSON/text URL) as plain text. Use after web_search to read a result in full, or for any URL the user gives.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      url: { type: 'string' },
+      offset: { type: 'number', description: 'Character offset to continue a long page' }
+    },
+    required: ['url']
+  },
+  mutating: false,
+  describe: (input) => String(input.url ?? ''),
+  run: (input) => fetchPage(input)
+}
+
+// Chat's only tool is web search, by design: the chat product is a clean
+// assistant, and every tool schema offered is paid for on every request.
+registerToolSource({
+  id: 'web',
+  tools: (query) => {
+    if (!searchMode().enabled) return query.mode === 'work' ? [webFetchTool] : []
+    return query.mode === 'work' ? [webSearchTool(), webFetchTool] : [webSearchTool()]
+  }
+})

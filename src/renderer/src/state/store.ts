@@ -2,7 +2,6 @@ import { create } from 'zustand'
 import type {
   Chat,
   ChatMessage,
-  ChatTextPart,
   ChatToolPart,
   DownloadedModel,
   EffortLevel,
@@ -81,8 +80,12 @@ interface AppState {
   archiveChat: (id: string) => void
   restoreChat: (id: string) => void
   renameChat: (id: string, title: string) => void
-  send: (text: string) => Promise<void>
+  send: (text: string, options?: SendOptions) => Promise<void>
   stop: () => void
+  /** Plan mode: the user accepted the plan in `messageId`; run it with plan mode off. */
+  approvePlan: (messageId: string) => void
+  /** Clears or pauses the active chat's goal. */
+  setGoalStatus: (status: 'paused' | 'active' | null) => void
   respondApproval: (approved: boolean) => void
   setComposerDraft: (text: string | null) => void
   reindex: (force?: boolean) => Promise<void>
@@ -106,6 +109,17 @@ interface AppState {
 }
 
 type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] }
+
+export interface SendOptions {
+  /** Files to attach, as absolute paths. */
+  attachments?: string[]
+  /** Goal mode: this message is a goal the agent keeps pursuing until it is done. */
+  goal?: boolean
+  /** Overrides the plan-mode setting for this one turn (approving a plan runs it with plan mode off). */
+  plan?: boolean
+}
+
+export type WorkspaceKind = 'chat' | 'work' | 'code'
 
 /**
  * `init()` runs from an effect, and StrictMode invokes effects twice in dev.
@@ -133,6 +147,10 @@ function persistChats(chats: Chat[]): void {
  */
 export const useIsWork = (): boolean =>
   useApp((s) => s.workspaces.find((w) => w.id === s.settings?.activeWorkspaceId)?.kind === 'work')
+
+/** Which top-bar tab is active: Chat, Work or Code. */
+export const useWorkspaceKind = (): WorkspaceKind =>
+  useApp((s) => s.workspaces.find((w) => w.id === s.settings?.activeWorkspaceId)?.kind ?? 'chat')
 
 export const useApp = create<AppState>((set, get) => ({
   ready: false,
@@ -196,10 +214,30 @@ export const useApp = create<AppState>((set, get) => ({
 
       const message = target.messages[msgIndex]
       let nextMessage = message
+      let nextChat: Partial<Chat> | null = null
       if (event.type === 'delta') nextMessage = appendPart(message, 'text', event.text)
       else if (event.type === 'reasoning') nextMessage = appendPart(message, 'reasoning', event.text)
       else if (event.type === 'error') nextMessage = { ...message, error: event.error }
-      else if (event.type === 'tool-call') {
+      else if (event.type === 'usage') nextMessage = { ...message, usage: event.usage }
+      else if (event.type === 'plan') nextMessage = { ...message, plan: event.plan }
+      else if (event.type === 'todos') nextMessage = { ...message, todos: event.todos }
+      else if (event.type === 'goal') nextChat = { goal: event.goal }
+      else if (event.type === 'compacted') nextChat = { summary: { text: event.summary, throughMessageId: event.throughMessageId } }
+      else if (event.type === 'tool-progress' || event.type === 'subagent') {
+        const partIndex = message.parts.findIndex((p) => p.type === 'tool' && p.id === event.toolId)
+        if (partIndex !== -1) {
+          const parts = message.parts.slice()
+          const part = parts[partIndex] as ChatToolPart
+          if (event.type === 'tool-progress') {
+            parts[partIndex] = { ...part, progress: event.output }
+          } else {
+            const agents = (part.agents ?? []).slice()
+            agents[event.run.index] = event.run
+            parts[partIndex] = { ...part, agents }
+          }
+          nextMessage = { ...message, parts }
+        }
+      } else if (event.type === 'tool-call') {
         nextMessage = {
           ...message,
           parts: [
@@ -217,14 +255,16 @@ export const useApp = create<AppState>((set, get) => ({
           parts[partIndex] = {
             ...(parts[partIndex] as ChatToolPart),
             output: event.output,
-            status: event.status
+            status: event.status,
+            progress: undefined,
+            ...(event.images ? { images: event.images } : {})
           }
           nextMessage = { ...message, parts }
         }
       }
 
       const finished = event.type === 'done' || event.type === 'error'
-      if (nextMessage === message && !finished) return
+      if (nextMessage === message && !finished && !nextChat) return
 
       // Copy only the two arrays on the path to the changed message; every other
       // chat and message keeps its identity, so React.memo can skip those rows.
@@ -236,11 +276,15 @@ export const useApp = create<AppState>((set, get) => ({
         // `updatedAt` only moves when the turn ends — bumping it per token
         // reshuffled the sidebar's sort on every single token.
         ...(finished ? { updatedAt: Date.now() } : {}),
+        ...(nextChat ?? {}),
         messages
       }
 
-      set({ chats, ...(finished ? { streamingMessageId: null } : {}) })
-      if (finished) persistChats(chats)
+      // A headless run (a scheduled task) streams into a chat the renderer did
+      // not start, so only clear the streaming marker for the run it owns.
+      const ownsStream = state.streamingMessageId === event.messageId
+      set({ chats, ...(finished && ownsStream ? { streamingMessageId: null } : {}) })
+      if (finished || nextChat) persistChats(chats)
     })
 
     window.api.codeIndex.onStatus((indexStatus) => set({ indexStatus }))
@@ -360,10 +404,10 @@ export const useApp = create<AppState>((set, get) => ({
     persistChats(chats)
   },
 
-  async send(text) {
+  async send(text, options = {}) {
     const state = get()
     const settings = state.settings
-    if (!settings || !text.trim()) return
+    if (!settings || (!text.trim() && !options.attachments?.length)) return
 
     const model = state.currentModel()
     const now = Date.now()
@@ -371,7 +415,8 @@ export const useApp = create<AppState>((set, get) => ({
       id: uid(),
       role: 'user',
       parts: [{ type: 'text', text }],
-      createdAt: now
+      createdAt: now,
+      ...(options.attachments?.length ? { attachments: options.attachments } : {})
     }
     const assistantMessage: ChatMessage = {
       id: uid(),
@@ -380,6 +425,7 @@ export const useApp = create<AppState>((set, get) => ({
       createdAt: now + 1,
       model: model?.id
     }
+    const goal = options.goal ? { text: text.trim(), status: 'active' as const, iterations: 0 } : undefined
 
     let chat = state.activeChat()
     let chats: Chat[]
@@ -388,7 +434,7 @@ export const useApp = create<AppState>((set, get) => ({
         id: uid(),
         workspaceId: settings.activeWorkspaceId,
         projectId: state.pendingProjectId,
-        title: text.trim().split('\n')[0].slice(0, 60),
+        title: (text.trim() || options.attachments?.[0]?.split(/[\\/]/).pop() || 'New chat').split('\n')[0].slice(0, 60),
         messages: [userMessage, assistantMessage],
         createdAt: now,
         updatedAt: now,
@@ -396,14 +442,15 @@ export const useApp = create<AppState>((set, get) => ({
         pinned: false,
         unread: false,
         modelId: model?.id ?? null,
-        effort: settings.effort
+        effort: settings.effort,
+        ...(goal ? { goal } : {})
       }
       chats = [chat, ...state.chats]
     } else {
       const target = chat
       chats = state.chats.map((c) =>
         c.id === target.id
-          ? { ...c, messages: [...c.messages, userMessage, assistantMessage], updatedAt: now }
+          ? { ...c, messages: [...c.messages, userMessage, assistantMessage], updatedAt: now, ...(goal ? { goal } : {}) }
           : c
       )
     }
@@ -418,7 +465,7 @@ export const useApp = create<AppState>((set, get) => ({
               ...c,
               messages: c.messages.map((m) =>
                 m.id === assistantMessage.id
-                  ? { ...m, error: 'No model selected. Add an API key in Settings → Providers to get started.' }
+                  ? { ...m, error: 'No model selected. Add an API key in Settings → Model providers to get started.' }
                   : m
               )
             }
@@ -429,37 +476,37 @@ export const useApp = create<AppState>((set, get) => ({
       return
     }
 
-    // Tool calls travel with the turn that made them, so the agent can see the
-    // files it already edited and the commands it already ran. A turn that only
-    // called tools and said nothing still has to be kept — dropping it would
-    // strand its results.
-    const history = (chats.find((c) => c.id === chat!.id)?.messages ?? [])
-      .filter((m) => m.id !== assistantMessage.id && m.role !== 'system')
-      .map((m) => ({
-        role: m.role as 'user' | 'assistant',
-        content: m.parts
-          .filter((p): p is ChatTextPart => p.type === 'text')
-          .map((p) => p.text)
-          .join(''),
-        tools: m.parts.filter((p): p is ChatToolPart => p.type === 'tool' && p.output !== null)
-      }))
-      .filter((m) => m.content.length > 0 || m.tools.length > 0)
+    // The main process decides what of this to resend — it trims old tool
+    // output and drops stale screenshots — so the stored transcript goes over
+    // as-is. Everything a compaction summary already covers is left out.
+    const current = chats.find((c) => c.id === chat!.id)!
+    let history = current.messages.filter((m) => m.id !== assistantMessage.id && m.role !== 'system')
+    const summary = current.summary ?? null
+    if (summary) {
+      const cut = history.findIndex((m) => m.id === summary.throughMessageId)
+      if (cut !== -1) history = history.slice(cut + 1)
+    }
 
-    const project = state.projects.find((p) => p.id === chat!.projectId)
-    const workspace = state.workspaces.find((w) => w.id === chat!.workspaceId)
-    const cwd = workspace?.kind === 'work' ? (workspace.cwd ?? null) : null
-    const workInstructions = cwd ? workSystemPrompt(cwd) : ''
-    const system = [workInstructions, project?.instructions ?? ''].filter(Boolean).join('\n\n')
+    const project = state.projects.find((p) => p.id === current.projectId)
+    const workspace = state.workspaces.find((w) => w.id === current.workspaceId)
+    const mode = workspace?.kind === 'work' ? 'work' : 'chat'
 
     await window.api.chat.stream({
-      chatId: chat.id,
+      chatId: current.id,
       messageId: assistantMessage.id,
       providerId: model.providerId,
       modelId: model.id,
       effort: settings.effort,
-      system,
-      messages: history,
-      cwd
+      mode,
+      history,
+      summary: summary?.text ?? null,
+      projectInstructions: project?.instructions ?? '',
+      cwd: mode === 'work' ? (workspace?.cwd ?? null) : null,
+      work: {
+        swarm: settings.work.swarm,
+        plan: options.plan ?? settings.planMode
+      },
+      goal: current.goal?.status === 'active' ? current.goal : null
     })
   },
 
@@ -469,6 +516,35 @@ export const useApp = create<AppState>((set, get) => ({
       void window.api.chat.cancel(id)
       set({ streamingMessageId: null })
     }
+  },
+
+  approvePlan(messageId) {
+    const chat = get().activeChat()
+    if (!chat) return
+    const chats = get().chats.map((c) =>
+      c.id === chat.id
+        ? {
+            ...c,
+            messages: c.messages.map((m) =>
+              m.id === messageId && m.plan ? { ...m, plan: { ...m.plan, status: 'approved' as const } } : m
+            )
+          }
+        : c
+    )
+    set({ chats })
+    persistChats(chats)
+    // Plan mode stays on for the next task; this one runs with it off.
+    void get().send('Approved — carry out the plan. Keep the checklist updated as you go.', { plan: false })
+  },
+
+  setGoalStatus(status) {
+    const chat = get().activeChat()
+    if (!chat) return
+    const chats = get().chats.map((c) =>
+      c.id === chat.id ? { ...c, goal: status && c.goal ? { ...c.goal, status } : null } : c
+    )
+    set({ chats })
+    persistChats(chats)
   },
 
   respondApproval(approved) {
@@ -609,38 +685,6 @@ export const useApp = create<AppState>((set, get) => ({
     return projects.filter((p) => p.workspaceId === settings?.activeWorkspaceId)
   }
 }))
-
-/**
- * Eaon Work's operating instructions. Tool *availability* alone does not make
- * an agent act like one — this is what turns a chat model into something that
- * investigates before editing and verifies afterwards, which is the actual
- * difference between "has tools" and "codes autonomously".
- */
-function workSystemPrompt(cwd: string): string {
-  return [
-    `You are Eaon Work, an agentic coding assistant operating on the project at "${cwd}".`,
-    '',
-    'Work autonomously. Gather what you need with your own tools instead of asking the user questions you could answer yourself.',
-    '',
-    'Finding code:',
-    '- Start with codebase_search for anything conceptual ("how does auth work?"). It searches meaning, not text.',
-    '- Use grep for exact identifiers and strings you already know, find_symbol to jump to a declaration, find_file when you half-remember a filename, and list_dir to get oriented.',
-    '- Never guess at file contents. Read a file before editing it.',
-    '',
-    'Making changes:',
-    '- Use edit_file for existing files: `old_text` must match EXACTLY ONCE, so include enough surrounding lines to be unique. Use write_file only for new files or a deliberate full rewrite.',
-    '- Make focused edits. Do not reformat or restructure code you were not asked to touch.',
-    '- Match the surrounding style, naming and comment density of the file you are editing.',
-    '',
-    'Verifying:',
-    '- After changing code, prove it works: run the test, build, typecheck or lint command the project actually uses (check package.json, Makefile, or similar first).',
-    '- If something fails, fix the root cause rather than papering over the symptom. Do not loop on the same failing approach more than about three times — step back and reconsider.',
-    '',
-    'Reporting:',
-    '- Report what you actually did. If a step failed or you skipped something, say so plainly with the evidence.',
-    '- Keep the user informed as you go, but do not narrate every tool call.'
-  ].join('\n')
-}
 
 function appendPart(message: ChatMessage, type: 'text' | 'reasoning', text: string): ChatMessage {
   const parts = [...message.parts]

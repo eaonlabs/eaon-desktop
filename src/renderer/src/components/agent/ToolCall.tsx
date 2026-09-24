@@ -16,6 +16,7 @@ import {
 import type { ChatToolPart } from '@shared/types'
 import { ThinkingOrb } from '../ThinkingOrb'
 import { FileDiff } from './FileDiff'
+import { SwarmCard, ToolImages } from './WorkBits'
 
 /**
  * One tool call in the transcript.
@@ -38,7 +39,8 @@ const ICONS: Record<string, typeof Search> = {
   write_file: FilePlus2,
   delete_file: Trash2,
   run_command: SquareTerminal,
-  web_search: Globe
+  web_search: Globe,
+  web_fetch: Globe
 }
 
 /** The single argument worth putting next to the tool's name. */
@@ -51,7 +53,9 @@ function summarise(name: string, input: Record<string, unknown>): string {
     return ''
   }
   if (name === 'run_command') return first('command')
-  return first('path', 'query', 'pattern', 'name', 'url')
+  if (name === 'spawn_agents') return Array.isArray(input.agents) ? `${input.agents.length} agents` : ''
+  if (name === 'move_file') return [first('from'), first('to')].filter(Boolean).join(' → ')
+  return first('path', 'query', 'pattern', 'name', 'url', 'action', 'title')
 }
 
 const LABELS: Record<string, string> = {
@@ -65,11 +69,22 @@ const LABELS: Record<string, string> = {
   write_file: 'Write',
   delete_file: 'Delete',
   run_command: 'Run',
-  web_search: 'Web search'
+  web_search: 'Web search',
+  web_fetch: 'Read page',
+  move_file: 'Move',
+  update_plan: 'Update plan',
+  present_plan: 'Present plan',
+  spawn_agents: 'Swarm',
+  goal_complete: 'Goal complete',
+  goal_blocked: 'Goal blocked',
+  plugin_tools: 'Plugin tools',
+  use_plugin_tool: 'Plugin'
 }
 
 export function ToolCall({ part }: { part: ChatToolPart }): JSX.Element {
+  // A command still running opens itself so its live output is visible.
   const [open, setOpen] = useState(false)
+  const showProgress = part.status === 'running' && Boolean(part.progress)
 
   const Icon = ICONS[part.name] ?? SquareTerminal
   const label = LABELS[part.name] ?? part.name
@@ -88,7 +103,7 @@ export function ToolCall({ part }: { part: ChatToolPart }): JSX.Element {
   const diff = after !== null ? { file: String(part.input.path ?? 'file'), before: before ?? '', after } : null
 
   return (
-    <div className="tool" data-status={part.status} data-open={open || undefined}>
+    <div className="tool" data-status={part.status} data-open={open || showProgress || undefined}>
       <button className="tool__head" onClick={() => setOpen(!open)} aria-expanded={open}>
         <span className="tool__glyph">
           {running ? (
@@ -108,13 +123,23 @@ export function ToolCall({ part }: { part: ChatToolPart }): JSX.Element {
         <ChevronRight size={14} strokeWidth={2} className="tool__chevron" />
       </button>
 
+      {part.agents && part.agents.length > 0 && <SwarmCard agents={part.agents} />}
+      {part.images && part.images.length > 0 && <ToolImages images={part.images} />}
+
+      {showProgress && !open && (
+        <div className="tool__panel">
+          <pre className="tool__output tool__output--live scroll">{part.progress}</pre>
+        </div>
+      )}
+
       {open && (
         <div className="tool__panel">
           {diff && <FileDiff file={diff.file} before={diff.before} after={diff.after} />}
           {part.output !== null && part.output.length > 0 && (
             <pre className="tool__output scroll">{part.output}</pre>
           )}
-          {running && <div className="tool__waiting shimmer">Running…</div>}
+          {running && part.progress && <pre className="tool__output tool__output--live scroll">{part.progress}</pre>}
+          {running && !part.progress && <div className="tool__waiting shimmer">Running…</div>}
         </div>
       )}
     </div>

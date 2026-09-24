@@ -47,9 +47,21 @@ export function getStatuses(): McpServerStatus[] {
   )
 }
 
-/** Every tool across all connected servers, name-prefixed to stay unique. */
+/**
+ * Every tool across all connected servers, sorted by server then name. The
+ * order is part of the cached prompt prefix, and connections finish in
+ * whatever order the network allows — unsorted, the same set of tools could
+ * serialise differently on every launch.
+ */
 export function getTools(): McpTool[] {
-  return [...connections.values()].flatMap((connection) => connection.tools)
+  return [...connections.values()]
+    .flatMap((connection) => connection.tools)
+    .sort((a, b) => a.serverId.localeCompare(b.serverId) || a.name.localeCompare(b.name))
+}
+
+/** Display name for a connected server, for tool listings. */
+export function serverName(serverId: string): string {
+  return store.getMcpServers().find((server) => server.id === serverId)?.name ?? serverId
 }
 
 /**
@@ -121,7 +133,9 @@ async function connect(server: McpServer): Promise<void> {
       name: tool.name,
       description: tool.description ?? '',
       serverId: server.id,
-      inputSchema: (tool.inputSchema ?? { type: 'object', properties: {} }) as Record<string, unknown>
+      inputSchema: (tool.inputSchema ?? { type: 'object', properties: {} }) as Record<string, unknown>,
+      readOnly: tool.annotations?.readOnlyHint === true,
+      destructive: tool.annotations?.destructiveHint === true
     }))
 
     connections.set(server.id, {
@@ -184,9 +198,11 @@ export async function shutdownMcp(): Promise<void> {
 export async function callMcpTool(
   toolName: string,
   args: Record<string, unknown>,
-  timeoutMs: number
+  timeoutMs: number,
+  serverId?: string
 ): Promise<string> {
-  const tool = getTools().find((t) => t.name === toolName)
+  // Two servers can expose the same tool name; the server id disambiguates.
+  const tool = getTools().find((t) => t.name === toolName && (!serverId || t.serverId === serverId))
   if (!tool) throw new Error(`Unknown tool "${toolName}"`)
   const connection = connections.get(tool.serverId)
   if (!connection?.client) throw new Error(`Server for "${toolName}" is not connected`)

@@ -1,6 +1,14 @@
 /** Types shared between the main and renderer processes. */
 
-export type ProviderKind = 'openai' | 'anthropic' | 'openai-compatible' | 'ollama'
+/**
+ * Wire format a provider speaks. `openai-responses` is OpenAI's Responses API
+ * (also what ChatGPT/Codex subscriptions are served over); everything else that
+ * is not Anthropic speaks chat-completions.
+ */
+export type ProviderKind = 'openai' | 'anthropic' | 'openai-compatible' | 'ollama' | 'openai-responses'
+
+/** How a provider authenticates: a pasted key, a browser sign-in, or nothing (local runtimes). */
+export type ProviderAuth = 'key' | 'oauth' | 'none'
 
 export interface ModelInfo {
   id: string
@@ -10,9 +18,13 @@ export interface ModelInfo {
   /** Reasoning-effort levels this model accepts, if any. */
   efforts?: EffortLevel[]
   contextWindow?: number
+  /** Largest `max_tokens` the model accepts; used to size requests. */
+  maxOutput?: number
   /** Capability badges shown next to the model name in the provider detail panel. */
   tools?: boolean
   vision?: boolean
+  /** True for models that think before answering (reasoning / extended thinking). */
+  reasoning?: boolean
 }
 
 export type EffortLevel = 'light' | 'medium' | 'high' | 'extra-high' | 'ultra'
@@ -32,6 +44,20 @@ export interface Provider {
   local: boolean
   /** How many fallback keys are configured, tried in order if the primary key fails. */
   fallbackCount: number
+  /** Defaults to 'key' for remote providers and 'none' for local runtimes. */
+  auth?: ProviderAuth
+  /** Id of the OAuth flow in `main/providers/oauth`, when `auth` is 'oauth'. */
+  oauthFlow?: string
+  /** True once an OAuth sign-in has completed and its tokens are stored. */
+  signedIn?: boolean
+  /** Grouping in the providers list. */
+  category?: 'local' | 'subscription' | 'frontier' | 'gateway' | 'inference' | 'regional' | 'custom'
+  /** One line shown under the provider name. */
+  description?: string
+  /** Where to create an API key for this provider. */
+  keyUrl?: string
+  /** Extra headers every request to this provider carries (OpenRouter attribution, etc.). */
+  headers?: Record<string, string>
 }
 
 export interface ChatTextPart {
@@ -59,6 +85,63 @@ export interface ChatToolPart {
   /** Null while the tool is still running. */
   output: string | null
   status: 'running' | 'done' | 'denied' | 'error'
+  /**
+   * Images the tool returned (screenshots), as absolute paths under the app's
+   * attachments folder. Kept on disk rather than inline so chats.json stays
+   * small; only the newest one is ever replayed to the model.
+   */
+  images?: string[]
+  /** Live output while a long command is still running, replaced by `output` when it ends. */
+  progress?: string
+  /** Sub-agents a swarm call started, in the order they were launched. */
+  agents?: SubagentRun[]
+}
+
+/** One sub-agent inside a swarm tool call. */
+export interface SubagentRun {
+  index: number
+  role: string
+  task: string
+  status: 'queued' | 'running' | 'done' | 'error'
+  /** Final text the sub-agent reported back. */
+  output?: string
+  toolCalls: number
+  /** The step the sub-agent is on right now, e.g. "Read src/main/store.ts". */
+  activity?: string
+}
+
+/** Token accounting for one assistant turn, summed across its tool rounds. */
+export interface TokenUsage {
+  input: number
+  output: number
+  /** Input tokens served from the provider's prompt cache. */
+  cacheRead: number
+  /** Input tokens written to the prompt cache this turn. */
+  cacheWrite: number
+}
+
+/** A plan the agent proposed in plan mode, waiting for the user's go-ahead. */
+export interface PlanProposal {
+  title: string
+  summary: string
+  steps: string[]
+  status: 'pending' | 'approved' | 'revising'
+}
+
+/** The agent's own running checklist (`update_plan`), shown pinned above the composer. */
+export interface TodoItem {
+  text: string
+  status: 'pending' | 'in_progress' | 'done'
+}
+
+/** A long-running objective the agent keeps pursuing across rounds (goal mode). */
+export interface GoalState {
+  text: string
+  status: 'active' | 'achieved' | 'blocked' | 'paused'
+  /** How many times the agent has been sent back to keep working on it. */
+  iterations: number
+  /** Set when the agent reports the goal achieved or blocked. */
+  summary?: string
 }
 
 export type ChatMessagePart = ChatTextPart | ChatToolPart
@@ -71,6 +154,16 @@ export interface ChatMessage {
   /** Set when a request failed so the UI can show an inline error. */
   error?: string
   model?: string
+  /** Tokens this turn spent, including cache reads and writes. */
+  usage?: TokenUsage
+  /** Plan proposed in this turn (plan mode). */
+  plan?: PlanProposal
+  /** Latest checklist the agent published during this turn. */
+  todos?: TodoItem[]
+  /** Files the user attached to this message, as absolute paths. */
+  attachments?: string[]
+  /** Set on messages a scheduled task produced, so the UI can label them. */
+  scheduledTaskId?: string
 }
 
 export interface Chat {
@@ -86,6 +179,13 @@ export interface Chat {
   unread: boolean
   modelId: string | null
   effort: EffortLevel
+  /** Goal mode: the objective this chat keeps working toward. */
+  goal?: GoalState | null
+  /**
+   * Compaction: a summary standing in for every message up to and including
+   * `throughMessageId`, so a long chat stops resending its whole history.
+   */
+  summary?: { text: string; throughMessageId: string } | null
 }
 
 export interface Project {
@@ -99,8 +199,11 @@ export interface Project {
 export interface Workspace {
   id: string
   name: string
-  /** 'work' is the agentic coding product (Eaon Work); 'chat' is the regular assistant. */
-  kind: 'chat' | 'work'
+  /**
+   * 'chat' is the plain assistant (web search only), 'work' is the agent that
+   * acts on the computer, and 'code' is the Eaon Code session UI.
+   */
+  kind: 'chat' | 'work' | 'code'
   /** Project folder Eaon Work runs commands and file edits against. Null until chosen. */
   cwd?: string | null
 }
@@ -194,7 +297,59 @@ export interface Settings {
   selectedModelId: string | null
   effort: EffortLevel
   approvalMode: ApprovalMode
+  /** Plan mode (Work): read-only research, then a plan the user approves before anything changes. */
   planMode: boolean
+  work: {
+    /** Swarm mode: the agent may split work across parallel sub-agents. */
+    swarm: boolean
+    /** How many times goal mode may send the agent back to keep working before it stops and reports. */
+    goalMaxIterations: number
+    /** Model sub-agents run on; null means the chat's own model. */
+    subagentModelId: string | null
+    /** Folder Work mode acts in when no project folder has been chosen; null means ~/Eaon. */
+    defaultFolder: string | null
+  }
+  /** Token-saving behaviour shared by Chat and Work. */
+  context: {
+    /** Summarise older turns once a chat nears the model's context window. */
+    autoCompact: boolean
+    /** Fraction of the context window (0–1) at which compaction kicks in. */
+    compactAt: number
+    /** Tool output from turns older than this many user messages is trimmed before it is resent. */
+    keepFullToolTurns: number
+  }
+  computerUse: {
+    enabled: boolean
+    /** Ask before every click and keystroke, even in "Approve for me". */
+    confirmEachAction: boolean
+    /** Sharper screenshots cost more tokens per step. */
+    quality: 'balanced' | 'sharp'
+  }
+  browserExtension: {
+    enabled: boolean
+    /** Loopback port the Chrome extension connects to. */
+    port: number
+  }
+  pets: {
+    enabled: boolean
+    species: string
+    name: string
+    size: 'small' | 'medium' | 'large'
+    /** Also float the pet over the desktop in its own always-on-top window. */
+    desktop: boolean
+  }
+  eaonCode: {
+    /** Explicit path to the eaon-code binary; null means find it on PATH. */
+    binaryPath: string | null
+    /** Folder the Code tab last opened. */
+    lastCwd: string | null
+    /** Hand the API keys saved in Eaon to Eaon Code sessions as environment variables. */
+    shareKeys: boolean
+  }
+  notifications: {
+    /** System notification when a Work task or scheduled run finishes while the window is in the background. */
+    taskComplete: boolean
+  }
 }
 
 export interface McpServer {
@@ -224,6 +379,9 @@ export interface McpTool {
   description: string
   serverId: string
   inputSchema: Record<string, unknown>
+  /** MCP tool annotations: whether the tool only reads, or can destroy data. */
+  readOnly?: boolean
+  destructive?: boolean
 }
 
 export interface McpServerStatus {
@@ -241,25 +399,42 @@ export interface Skill {
   enabled: boolean
 }
 
+export type AgentMode = 'chat' | 'work'
+
+/** Per-turn Work options, read from the composer when the turn starts. */
+export interface WorkOptions {
+  swarm: boolean
+  plan: boolean
+}
+
 export interface StreamRequest {
   chatId: string
   messageId: string
   providerId: string
   modelId: string
   effort: EffortLevel
-  system: string
-  messages: {
-    role: 'user' | 'assistant' | 'system'
-    content: string
-    /**
-     * Tool calls this assistant turn made, in order. Replayed into whichever
-     * provider's wire format is in use so the agent can see what it already did
-     * on earlier turns.
-     */
-    tools?: ChatToolPart[]
-  }[]
-  /** Project folder for Eaon Work — enables the read_file/write_file/run_command tools when set. */
+  /** Chat gets web search only; Work gets the full agent. */
+  mode: AgentMode
+  /**
+   * The conversation before this turn, oldest first, in its stored shape.
+   * The main process decides what of it to resend — old tool output is
+   * trimmed and older screenshots dropped there, not here.
+   */
+  history: ChatMessage[]
+  /** Compaction summary standing in for every message before `history`. */
+  summary: string | null
+  /** The project's own instructions, appended to the system prompt. */
+  projectInstructions: string
+  /** Project folder Work mode acts in. Null uses the default Work folder. */
   cwd: string | null
+  work: WorkOptions
+  /** Goal mode objective for this chat, if one is active. */
+  goal: GoalState | null
+  /**
+   * Replaces the built system prompt and turns every tool off — used by the
+   * Local API Server, which proxies other apps' requests verbatim.
+   */
+  rawSystem?: string
 }
 
 export type StreamEvent =
@@ -278,7 +453,16 @@ export type StreamEvent =
       toolId: string
       output: string
       status: 'done' | 'denied' | 'error'
+      images?: string[]
     }
+  // Live output from a tool that is still running (a build, a test run).
+  | { type: 'tool-progress'; messageId: string; toolId: string; output: string }
+  | { type: 'subagent'; messageId: string; toolId: string; run: SubagentRun }
+  | { type: 'usage'; messageId: string; usage: TokenUsage }
+  | { type: 'plan'; messageId: string; plan: PlanProposal }
+  | { type: 'todos'; messageId: string; todos: TodoItem[] }
+  | { type: 'goal'; messageId: string; chatId: string; goal: GoalState }
+  | { type: 'compacted'; messageId: string; chatId: string; summary: string; throughMessageId: string }
 
 export type UpdateStatus =
   | { state: 'idle' }

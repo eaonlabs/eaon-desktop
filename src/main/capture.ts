@@ -1,5 +1,5 @@
 import type { BrowserWindow } from 'electron'
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 /**
@@ -184,12 +184,24 @@ const STEPS: Step[] = [
   }
 ]
 
+/**
+ * EAON_CAPTURE_STEPS=<file.json> replaces the built-in steps with your own
+ * `[{ "name": "...", "script": "..." }]` — the quick way to screenshot one
+ * feature without running (or keeping up) the whole suite. Scripts get the
+ * same helpers: sleep, all, byText, byLabel, click, reset.
+ */
+function loadSteps(): Step[] {
+  const file = process.env['EAON_CAPTURE_STEPS']
+  if (!file) return STEPS
+  return JSON.parse(readFileSync(file, 'utf8')) as Step[]
+}
+
 export async function runCapture(window: BrowserWindow, outDir: string): Promise<void> {
   mkdirSync(outDir, { recursive: true })
 
   await new Promise((resolve) => setTimeout(resolve, 1400))
 
-  for (const step of STEPS) {
+  for (const step of loadSteps()) {
     try {
       await window.webContents.executeJavaScript(
         `(async () => { ${helpers} ${step.script} })()`,

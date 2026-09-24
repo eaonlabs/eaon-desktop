@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type {
   Chat,
   DownloadedModel,
@@ -135,6 +135,8 @@ const api = {
     version: (): Promise<string> => ipcRenderer.invoke('app:version'),
     openFiles: (options: { properties?: string[] }): Promise<string[]> =>
       ipcRenderer.invoke('dialog:open-files', options),
+    /** Absolute path of a file dropped onto the window (File.path was removed in Electron 32). */
+    pathForFile: (file: File): string => webUtils.getPathForFile(file),
     onMenu: (handler: (command: string) => void): (() => void) => {
       const channels = [
         'menu:settings',

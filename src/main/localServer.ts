@@ -1,6 +1,8 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import type { LocalServerStatus, StreamEvent } from '@shared/types'
-import { listProviders, runStream } from './providers'
+import type { ChatMessage } from '@shared/types'
+import { listProviders } from './providers'
+import { runAgent } from './agent/loop'
 import { store } from './store'
 
 /**
@@ -171,9 +173,14 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 
     const settings = store.getSettings()
     const system = messages.find((m) => m.role === 'system')?.content ?? ''
-    const turns = messages
+    const history: ChatMessage[] = messages
       .filter((m) => m.role !== 'system')
-      .map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content }))
+      .map((m, index) => ({
+        id: `m${index}`,
+        role: m.role === 'assistant' ? 'assistant' : 'user',
+        parts: [{ type: 'text', text: typeof m.content === 'string' ? m.content : JSON.stringify(m.content) }],
+        createdAt: 0
+      }))
 
     const wantsStream = body.stream === true
     const id = `chatcmpl-${Math.random().toString(36).slice(2)}`
@@ -191,16 +198,22 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     let full = ''
     let failed: string | null = null
 
-    await runStream(
+    await runAgent(
       {
         chatId: 'local-api',
         messageId: id,
         providerId: resolved.providerId,
         modelId: resolved.modelId,
         effort: settings.effort,
-        system,
-        messages: turns,
-        cwd: null
+        mode: 'chat',
+        // Proxied verbatim: the caller's own system prompt, and no tools.
+        rawSystem: system,
+        history,
+        summary: null,
+        projectInstructions: '',
+        cwd: null,
+        work: { swarm: false, plan: false },
+        goal: null
       },
       (event: StreamEvent) => {
         if (event.type === 'delta') {
