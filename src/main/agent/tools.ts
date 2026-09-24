@@ -137,6 +137,11 @@ export function toolsFor(query: ToolQuery): AgentTool[] {
     }
     for (const tool of offered) {
       if (seen.has(tool.name)) continue
+      // Plan mode withholds tools that can only change things rather than
+      // offering them and refusing every call: cheaper, and the model does not
+      // waste rounds trying them. Tools whose effect depends on their input
+      // (run_command, plugin calls, the browser) stay and are checked per call.
+      if (query.readOnly && tool.mutating === true) continue
       seen.add(tool.name)
       out.push(tool)
     }

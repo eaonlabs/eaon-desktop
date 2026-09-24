@@ -6,7 +6,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { shell } from 'electron'
 import type { Settings } from '@shared/types'
 import { findSymbol, indexedPaths, searchIndex } from './codeIndex'
-import { isRiskyCommand } from './agent/approvals'
+import { isReadOnlyCommand, isRiskyCommand } from './agent/approvals'
 import { capOutput, registerToolSource, type AgentTool, type ToolContext } from './agent/tools'
 
 /**
@@ -495,7 +495,9 @@ function fileTools(settings: Settings, indexed: boolean): AgentTool[] {
         return runCommand(command, ctx, timeout)
       },
       {
-        mutating: true,
+        // Looking (ls, git status, grep) is not changing anything, so it
+        // neither asks for approval nor is blocked in plan mode.
+        mutating: (input) => Boolean(input.background) || !isReadOnlyCommand(str(input.command)),
         risky: (input) => isRiskyCommand(str(input.command)),
         describe: (input) => str(input.command)
       }

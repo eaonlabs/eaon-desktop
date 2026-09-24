@@ -71,3 +71,61 @@ const RISKY_COMMANDS: RegExp[] = [
 export function isRiskyCommand(command: string): boolean {
   return RISKY_COMMANDS.some((pattern) => pattern.test(command))
 }
+
+/**
+ * Commands that only look: listing, reading, searching, inspecting git. They
+ * run without asking even in "Ask for approval", and they are the only shell
+ * commands plan mode allows — research needs `ls` and `git log`, and an agent
+ * that has to ask before looking at anything is unusable.
+ *
+ * Deny by default: anything with redirection, command substitution, a pipe
+ * into something that is not itself read-only, or a program not on the list
+ * counts as a change.
+ */
+// Deliberately absent, though they usually only read: awk and sed (both can
+// run commands), env (prefixes any other command), node/python -e (arbitrary
+// code), xxd (-r writes files), and pagers like less/top (they never exit).
+const READ_ONLY_PROGRAMS = new Set([
+  'ls', 'cat', 'head', 'tail', 'wc', 'grep', 'egrep', 'rg', 'ag', 'find', 'fd', 'tree', 'pwd', 'echo',
+  'which', 'whereis', 'type', 'file', 'stat', 'du', 'df', 'date', 'uname', 'whoami', 'printenv',
+  'sort', 'uniq', 'cut', 'tr', 'jq', 'diff', 'cmp', 'basename', 'dirname', 'realpath', 'readlink', 'sw_vers',
+  'ps', 'uptime', 'lsof', 'column', 'nl', 'od', 'hexdump', 'strings', 'md5', 'shasum', 'sha256sum', 'md5sum',
+  'mdfind', 'mdls', 'system_profiler'
+])
+const READ_ONLY_SUBCOMMANDS: Record<string, RegExp> = {
+  // Inspection subcommands take any arguments; branch, tag, remote and config
+  // are listing-only in the exact forms below, since their other forms write.
+  git: /^((status|log|diff|show|rev-parse|ls-files|ls-tree|blame|describe|shortlog|stash\s+list)(\s.*)?|reflog(\s+show(\s.*)?)?|branch(\s+(-a|-r|-v|-vv|--list|--all|--remotes|--show-current|--merged|--no-merged|--contains\s+\S+))*|tag(\s+(-l|--list)(\s+\S+)?)?|remote(\s+-v)?|config\s+--get(-all)?\s+\S+)\s*$/,
+  npm: /^(ls|list|view|outdated|-v|--version|root|prefix|why)\b/,
+  node: /^(-v|--version)\s*$/,
+  python3: /^(-V|--version)\s*$/,
+  python: /^(-V|--version)\s*$/,
+  gh: /^(pr\s+(list|view|diff|status|checks)|issue\s+(list|view)|repo\s+view|run\s+(list|view))\b/,
+  cargo: /^(--version|tree|metadata)\b/,
+  go: /^(version|env|list)\b/,
+  brew: /^(list|info|search|--version|config)\b/,
+  docker: /^(ps|images|inspect|logs|version|info)\b/,
+  defaults: /^read\b/
+}
+
+export function isReadOnlyCommand(command: string): boolean {
+  const trimmed = command.trim()
+  if (!trimmed) return false
+  // Redirection into a file, substitution, backgrounding and here-docs all
+  // turn a harmless program into a writer.
+  if (/[>`]|\$\(|<<|&\s*$|\btee\b/.test(trimmed)) return false
+  if (/\bfind\b[^|;&]*\s-(delete|exec|execdir|ok|okdir|fprint\S*|fls)\b/.test(trimmed)) return false
+  if (/\bgit\b[^|;&]*\s--output\b/.test(trimmed)) return false
+  // Every segment of a pipeline or `&&`/`;` chain must itself be read-only.
+  return trimmed.split(/\|\||&&|[|;]/).every((segment) => {
+    const words = segment.trim().split(/\s+/)
+    let i = 0
+    while (i < words.length && /^[A-Z_][A-Z0-9_]*=/.test(words[i])) i++ // leading VAR=value
+    const program = words[i]?.replace(/^.*\//, '')
+    if (!program) return false
+    const rest = words.slice(i + 1).join(' ')
+    const sub = READ_ONLY_SUBCOMMANDS[program]
+    if (sub) return sub.test(rest)
+    return READ_ONLY_PROGRAMS.has(program)
+  })
+}
