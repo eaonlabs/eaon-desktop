@@ -345,7 +345,12 @@ function registerIpc(): void {
   ipcMain.handle('keys:hint', (_e, id: string) => secrets.hint(id))
   // Decrypts on demand for the user's own reveal/copy click — never held in
   // renderer state; `keys:hint` above stays the default, ambient-safe signal.
-  ipcMain.handle('keys:reveal', (_e, id: string) => secrets.get(id) ?? null)
+  // Only model-provider keys the user typed in. The vault also holds plugin
+  // tokens and OAuth credentials (ids with a `prefix:`), which the renderer
+  // has no business reading back.
+  ipcMain.handle('keys:reveal', (_e, id: string) =>
+    listProviders().some((p) => p.id === id && p.auth !== 'oauth') ? (secrets.get(id) ?? null) : null
+  )
   ipcMain.handle('keys:get-fallbacks', (_e, id: string) => secrets.getFallbacks(id))
   ipcMain.handle('keys:set-fallbacks', (_e, id: string, keys: string[]) => {
     secrets.setFallbacks(id, keys)
