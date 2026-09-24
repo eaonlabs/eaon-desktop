@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import '../src/main/agent/sources'
-import { runAgent } from '../src/main/agent/loop'
+import { announcesIntent, runAgent } from '../src/main/agent/loop'
 import { store } from '../src/main/store'
 import { secrets } from '../src/main/secrets'
 import type { StreamEvent, StreamRequest } from '@shared/types'
@@ -186,4 +186,35 @@ test('an unknown tool is reported back instead of failing the turn', async () =>
   server.close()
   assert.equal(outcome.error, undefined)
   assert.match(JSON.stringify((requests[1] as unknown as Body).messages), /Unknown tool/)
+})
+
+test('a thinking-only reply is nudged instead of ending the turn', async () => {
+  const req = request()
+  const { server, requests } = await setup((_b, i) =>
+    i === 0 ? [chunk({ reasoning_content: 'I should write the file.' }, 'stop')] : i === 1 ? toolCall('write_file', { path: 'n.txt', content: 'x' }) : say('Done.')
+  )
+  const outcome = await runAgent(req, () => {}, { approver: async () => true })
+  server.close()
+  assert.equal(outcome.error, undefined)
+  assert.equal(existsSync(join(req.cwd!, 'n.txt')), true)
+  assert.match(JSON.stringify((requests[1] as unknown as Body).messages), /did not act/)
+})
+
+test('a Work reply that only announces its plan is sent back to act, once', async () => {
+  const req = request()
+  const { server, requests } = await setup((_b, i) =>
+    i === 0 ? say("Sure. Steps:\n1. Create the folder\n2. Write the file") : i === 1 ? toolCall('write_file', { path: 'p.txt', content: 'x' }) : say('Done — p.txt is written.')
+  )
+  await runAgent(req, () => {}, { approver: async () => true })
+  server.close()
+  assert.equal(existsSync(join(req.cwd!, 'p.txt')), true)
+  assert.equal(requests.length, 3)
+})
+
+test('intent detection leaves real answers and questions alone', () => {
+  assert.equal(announcesIntent("I'll create the file now."), true)
+  assert.equal(announcesIntent('Steps:\n1. Create notes/'), true)
+  assert.equal(announcesIntent('Done. The file is at notes/todo.md.'), false)
+  assert.equal(announcesIntent('Which folder should I use?'), false)
+  assert.equal(announcesIntent('Should I also add a README? I will wait for you?'), false)
 })

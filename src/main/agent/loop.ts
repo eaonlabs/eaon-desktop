@@ -248,6 +248,16 @@ async function runTool(
   }
 }
 
+/**
+ * True when a reply's ending is a plan for work it has not done: the last
+ * stretch says what it will do next and asks the user nothing.
+ */
+export function announcesIntent(text: string): boolean {
+  const tail = text.trim().slice(-280)
+  if (!tail || /\?\s*$/.test(tail)) return false
+  return /\b(I'll|I will|I'm going to|Let me|Next,? I|Now I'll|I need to|I should)\b|(^|\n)\s*(Steps?|Plan):|(^|\n)\s*1\.\s+(Create|Make|Write|Add|Run|Check|Open|Build)/i.test(tail)
+}
+
 export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
   const { messages, signal, request, emit } = params
   const turn: TurnState = { notes: [] }
@@ -258,6 +268,8 @@ export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
   const note = (text: string): void => params.onReasoning(`\n${text}\n`)
   let text = ''
   let goalIterations = 0
+  let emptyNudges = 0
+  let announcedNudged = false
   let goal = params.goal
 
   for (let round = 0; round < params.maxRounds; round++) {
@@ -286,7 +298,36 @@ export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
       continue
     }
 
+    // A reply that is only thinking — no text, no call — is a stall, not an
+    // answer: smaller models plan the next step in their reasoning and then
+    // stop. Treating it as "done" ended turns silently with nothing shown.
+    // Nudge them to act, twice at most, without recording the empty turn.
+    if (result.calls.length === 0 && !result.text.trim() && emptyNudges < 2 && !signal.aborted) {
+      emptyNudges++
+      messages.push({
+        role: 'user',
+        text: 'You only thought about it and did not act. Do the next step now: call a tool, or give your final answer.'
+      })
+      continue
+    }
+
     messages.push({ role: 'assistant', text: result.text, calls: result.calls, ...(result.replay ? { replay: result.replay } : {}) })
+
+    // The other stall: a Work reply that ends by announcing what it will do
+    // ("Steps: 1. Create…", "I'll now write the file") and then stops. Once
+    // per turn, and only when the reply is not a question for the user.
+    if (
+      result.calls.length === 0 &&
+      params.request.mode === 'work' &&
+      params.depth === 0 &&
+      !announcedNudged &&
+      !signal.aborted &&
+      announcesIntent(result.text)
+    ) {
+      announcedNudged = true
+      messages.push({ role: 'user', text: 'Go ahead and do it now with your tools, then report back.' })
+      continue
+    }
 
     if (result.calls.length === 0) {
       // Goal mode: stopping is not the same as finishing.
