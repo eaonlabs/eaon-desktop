@@ -3,6 +3,7 @@ import { useShallow } from 'zustand/react/shallow'
 import {
   Archive,
   Bug,
+  CalendarClock,
   Check,
   Compass,
   Copy,
@@ -361,7 +362,13 @@ const MessageRow = memo(function MessageRow({
 
   if (message.role === 'user') {
     return (
-      <div className="msg-row" style={{ display: 'flex', justifyContent: 'flex-end' }}>
+      <div className="msg-row" style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end' }}>
+        {message.scheduledTaskId && (
+          <span className="msg__scheduled">
+            <CalendarClock size={12} strokeWidth={2} />
+            Scheduled run
+          </span>
+        )}
         <div className="msg--user">{body}</div>
       </div>
     )

@@ -351,3 +351,12 @@
   overflow: auto;
   border-radius: var(--r-sm);
 }
+
+.msg__scheduled {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 4px;
+  font-size: var(--fs-xxs);
+  color: var(--text-3);
+}
