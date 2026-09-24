@@ -37,15 +37,40 @@ Light, Medium, High, Extra High, Ultra.
 
 ## What's in the app
 
-- **Chat** — streaming replies, reasoning summaries, stop, copy, rename, pin,
-  archive and delete, grouped into workspaces and projects
-- **Plugins** — a directory with Plugins/Skills tabs, plus a manager for
-  plugins, MCP servers and skills with per-item toggles
-- **Browser** — an in-app browser panel beside the conversation
-- **Scheduled** — recurring prompts
-- **Settings** — General, Appearance, Voice, Configuration, Personalization,
-  Pets, Keyboard shortcuts, Model providers, Computer use, Appshots, Plugins,
-  Browser, Hooks, Connections, Git, Environments, Worktrees, Archived chats
+Three tabs across the top:
+
+- **Chat**: a plain assistant with streaming replies and web search. Nothing
+  else touches your machine.
+- **Work**: an agent that does the task. It works on files and commands in
+  the Work folder, and can also use the web, connected plugins, your browser
+  (through the Eaon Chrome extension) and your computer. Plan, Swarm and Goal
+  modes sit in the composer. Anything that changes things asks first unless
+  you choose "Approve for me", and risky actions always ask.
+- **Code**: a graphical front end for an [Eaon Code](https://github.com/eaonlabs/eaon-code)
+  session in a project folder.
+
+Also: scheduled tasks that run in the background, 67 plugins with browser
+sign-in, skills (`SKILL.md`), a curated local model library, coloured themes,
+and pets.
+
+## Browser extension
+
+`extension/` holds the Chrome extension. To try it before it's on the Web
+Store, open `chrome://extensions`, turn on Developer mode, choose **Load
+unpacked** and pick the folder. Then pair it with the code shown in
+**Settings → Browser extension**. `npm run pack:extension` builds the zip to
+upload; `extension/STORE_LISTING.md` has the listing text and publishing
+steps.
+
+## Tests
+
+```bash
+npm run typecheck
+npm run test:main                              # main-process tests (esbuild + node --test)
+EAON_LIVE=1 npm run test:main -- agent-live    # real agent runs against local Ollama
+npm run verify:plugins                         # checks every catalog plugin live
+npm run verify:models                          # checks every library model resolves
+```
 
 ## Theming
 
