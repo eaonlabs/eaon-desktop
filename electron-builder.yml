@@ -10,6 +10,16 @@ directories:
 files:
   - out/**
   - package.json
+# The Chrome extension ships inside the app (Contents/Resources/extension) so
+# "Load unpacked" works from an installed copy before, or without, the Chrome
+# Web Store. Settings copies it to userData before revealing it, because
+# Chrome's folder picker will not step inside an .app bundle.
+extraResources:
+  - from: extension
+    to: extension
+    filter:
+      - '**/*'
+      - '!STORE_LISTING.md'
 publish:
   provider: github
   owner: eaonlabs
