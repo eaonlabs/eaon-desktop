@@ -164,7 +164,9 @@ export const anthropicAdapter: Adapter = {
                   // Clear in large batches so the cache is rebuilt rarely: a
                   // clearing event invalidates the prefix from the first
                   // cleared result onward.
-                  trigger: { type: 'input_tokens' as const, value: 90_000 },
+                  // Screenshots pile up fast in computer-use turns, so
+                  // those clear sooner.
+                  trigger: { type: 'input_tokens' as const, value: request.tools.some((t) => t.name === 'computer') ? 50_000 : 90_000 },
                   keep: { type: 'tool_uses' as const, value: 6 },
                   clear_at_least: { type: 'input_tokens' as const, value: 25_000 }
                 }

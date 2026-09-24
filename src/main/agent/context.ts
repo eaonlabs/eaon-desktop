@@ -258,3 +258,26 @@ export function pruneInFlight(messages: NeutralMessage[], budgetTokens: number):
   }
   return changed
 }
+
+/**
+ * Screenshots are the most expensive thing a computer-use turn accumulates
+ * (~1,600 tokens each) and the least durable: every one after the newest shows
+ * a screen that has since changed. Once more than `trigger` are in flight, all
+ * but the newest `keep` are dropped in one batch — batching keeps the prompt
+ * prefix stable between clearings, so caching still pays off in between.
+ */
+export function pruneImages(messages: NeutralMessage[], keep = 1, trigger = 4): boolean {
+  const withImages: number[] = []
+  messages.forEach((m, i) => {
+    if (m.role === 'tool' && m.results.some((r) => r.images && r.images.length > 0)) withImages.push(i)
+  })
+  if (withImages.length <= trigger) return false
+  for (const index of withImages.slice(0, -keep)) {
+    const message = messages[index] as Extract<NeutralMessage, { role: 'tool' }>
+    messages[index] = {
+      role: 'tool',
+      results: message.results.map((r) => (r.images ? { ...r, images: undefined, output: `${r.output}\n[older screenshot removed]` } : r))
+    }
+  }
+  return true
+}

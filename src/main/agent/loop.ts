@@ -11,7 +11,7 @@ import { credentialAttempts, isAuthError } from '../providers/credentials'
 import { contextWindowFor } from '../providers/models'
 import { store } from '../store'
 import { cancelApprovals, requestApproval, type Approver } from './approvals'
-import { buildHistory, estimateMessages, estimateTokens, pruneInFlight, transcriptText } from './context'
+import { buildHistory, estimateMessages, estimateTokens, pruneImages, pruneInFlight, transcriptText } from './context'
 import { chatSystemPrompt, COMPACTION_PROMPT, workSystemPrompt } from './prompts'
 import { capOutput, guidanceFor, isMutating, toolsFor, toSpec, type AgentTool, type ToolContext, type ToolQuery, type TurnState } from './tools'
 
@@ -263,7 +263,10 @@ export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
   for (let round = 0; round < params.maxRounds; round++) {
     // Providers that cannot clear stale tool output server-side get it pruned
     // here, in large batches, once the transcript nears the window.
-    if (round > 0 && !params.adapter.managesContext) pruneInFlight(messages, Math.floor(window * 0.55))
+    if (round > 0 && !params.adapter.managesContext) {
+      pruneInFlight(messages, Math.floor(window * 0.55))
+      pruneImages(messages)
+    }
 
     const result = await callModel(params, attempts, messages, note)
     addUsage(usage, result.usage)

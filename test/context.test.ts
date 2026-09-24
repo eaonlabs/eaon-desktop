@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { buildHistory, pruneInFlight } from '../src/main/agent/context'
+import { buildHistory, pruneImages, pruneInFlight } from '../src/main/agent/context'
 import type { ChatMessage } from '@shared/types'
 
 const user = (id: string, text: string): ChatMessage => ({ id, role: 'user', parts: [{ type: 'text', text }], createdAt: 0 })
@@ -78,4 +78,17 @@ test('in-flight pruning only kicks in past the budget', () => {
   const tools = messages.filter((m) => m.role === 'tool') as { results: { output: string }[] }[]
   assert.ok(tools[0].results[0].output.length < 1000)
   assert.equal(tools[tools.length - 1].results[0].output.length, 20_000)
+})
+
+test('screenshots in flight are dropped in batches, keeping the newest', () => {
+  const shot = (i: number) => [
+    { role: 'assistant' as const, text: '', calls: [{ id: `s${i}`, name: 'computer', input: {} }] },
+    { role: 'tool' as const, results: [{ id: `s${i}`, name: 'computer', output: 'ok', images: [{ mime: 'image/jpeg', data: 'AA' }] }] }
+  ]
+  const messages = [{ role: 'user' as const, text: 'go' }, ...[1, 2, 3, 4].flatMap(shot)]
+  assert.equal(pruneImages(messages), false, 'four is under the trigger')
+  messages.push(...shot(5))
+  assert.equal(pruneImages(messages), true)
+  const withImages = messages.filter((m) => m.role === 'tool' && m.results[0].images)
+  assert.equal(withImages.length, 1)
 })
