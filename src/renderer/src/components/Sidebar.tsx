@@ -21,6 +21,7 @@ import {
 import { useApp, useIsWork, useWorkspaceKind } from '../state/store'
 import { DownloadsButton } from './DownloadsPanel'
 import { CodeSidebar } from './code/CodeSidebar'
+import { useCode } from './code/codeStore'
 import { MenuItem, MenuSearch, Popover, useDisclosure } from './ui'
 import type { Chat } from '@shared/types'
 
@@ -63,7 +64,7 @@ export function Sidebar(): JSX.Element {
       <SearchMenu anchor={searchAnchor} open={searchMenu.open} onClose={searchMenu.close} />
 
       <div className="sidebar__body scroll">
-        <button className="nav-item" onClick={() => newChat()}>
+        <button className="nav-item" onClick={() => (kind === 'code' ? void useCode.getState().newSession() : newChat())}>
           <span className="nav-item__icon">
             <SquarePen size={16} strokeWidth={1.9} />
           </span>
