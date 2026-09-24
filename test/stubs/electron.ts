@@ -36,16 +36,45 @@ export const shell = {
 
 export const nativeTheme = { shouldUseDarkColors: true, themeSource: 'system' }
 export const ipcMain = { handle: () => {}, on: () => {} }
-export const BrowserWindow = { getAllWindows: () => [], getFocusedWindow: () => null }
+/** Constructible, because computer use opens its indicator window with `new BrowserWindow`. */
+export class BrowserWindow {
+  static getAllWindows = (): BrowserWindow[] => []
+  static getFocusedWindow = (): BrowserWindow | null => null
+  webContents = { on: () => {}, setWindowOpenHandler: () => {}, isOffscreen: () => false }
+  setAlwaysOnTop(): void {}
+  setVisibleOnAllWorkspaces(): void {}
+  once(): void {}
+  loadURL(): Promise<void> {
+    return Promise.resolve()
+  }
+  isDestroyed(): boolean {
+    return false
+  }
+  destroy(): void {}
+  showInactive(): void {}
+}
 export const Notification = { isSupported: () => false }
 export const systemPreferences = {
   getMediaAccessStatus: () => 'granted',
   isTrustedAccessibilityClient: () => true
 }
-export const screen = {
-  getPrimaryDisplay: () => ({ size: { width: 1440, height: 900 }, scaleFactor: 2, workAreaSize: { width: 1440, height: 875 } })
+const primaryDisplay = {
+  id: 1,
+  bounds: { x: 0, y: 0, width: 1440, height: 900 },
+  workArea: { x: 0, y: 25, width: 1440, height: 875 },
+  size: { width: 1440, height: 900 },
+  scaleFactor: 2,
+  workAreaSize: { width: 1440, height: 875 }
 }
+export const screen = {
+  getPrimaryDisplay: () => primaryDisplay,
+  getAllDisplays: () => [primaryDisplay],
+  dipToScreenPoint: (p: { x: number; y: number }) => p,
+  screenToDipPoint: (p: { x: number; y: number }) => p
+}
+export const desktopCapturer = { getSources: async () => [] }
+export const globalShortcut = { register: () => true, unregister: () => {}, isRegistered: () => false }
 export const nativeImage = {
   createFromBuffer: () => ({ getSize: () => ({ width: 1, height: 1 }), resize: () => ({ toJPEG: () => Buffer.alloc(0) }), toJPEG: () => Buffer.alloc(0) })
 }
-export default { app, safeStorage, shell, nativeTheme, ipcMain, BrowserWindow, Notification, systemPreferences, screen, nativeImage }
+export default { app, safeStorage, shell, nativeTheme, ipcMain, BrowserWindow, Notification, systemPreferences, screen, nativeImage, desktopCapturer, globalShortcut }

@@ -1,1 +1,51 @@
-/* Styles for the computer feature. */
+/* Settings → Computer use. */
+
+.computer__trail {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.computer__kbd {
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: var(--r-xs);
+  border: 0.5px solid var(--border-strong);
+  background: var(--surface-3);
+  color: var(--text-2);
+  font-family: var(--font-ui);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.04em;
+}
+
+.computer__test {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 4px 16px 16px;
+}
+
+/* The image is shown at the width it was sent at or the card's, whichever is smaller. */
+.computer__shot {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--r-sm);
+  border: 0.5px solid var(--border);
+  background: var(--sunken);
+}
+
+.computer__meta {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.computer__error {
+  font-size: var(--fs-sm);
+  color: var(--danger);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
