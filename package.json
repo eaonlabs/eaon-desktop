@@ -1,7 +1,7 @@
 {
   "name": "eaon-desktop",
   "version": "2026.5.0",
-  "description": "The Eaon desktop app — a bring-your-own-key AI chat client",
+  "description": "The Eaon desktop app \u2014 a bring-your-own-key AI chat client",
   "main": "./out/main/index.js",
   "author": "Eaon",
   "license": "MIT",
@@ -19,7 +19,10 @@
     "release:mac": "./scripts/release-mac.sh --publish",
     "dist:win": "electron-vite build && electron-builder --win --publish never",
     "release:win": "electron-vite build && electron-builder --win --publish always",
-    "test:main": "node scripts/test-main.mjs"
+    "test:main": "node scripts/test-main.mjs",
+    "pack:extension": "node scripts/pack-extension.mjs",
+    "verify:plugins": "node scripts/verify-plugins.mjs",
+    "verify:models": "node scripts/verify-model-library.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.120.0",
