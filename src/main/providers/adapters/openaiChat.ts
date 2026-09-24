@@ -1,11 +1,13 @@
 import { createHash } from 'node:crypto'
-import type { EffortLevel } from '@shared/types'
-import { inferEfforts, maxOutputFor } from '../models'
+import { authHeaders, chatCompat, clampEffort, effortsFor, requestBase, wireEffort, type ChatCompat } from '../compat'
+import { contextWindowFor, maxOutputFor } from '../models'
+import { ThinkTagSplitter } from './thinkTags'
 import {
+  clampOutputToWindow,
   describeErrorBody,
   emptyUsage,
-  parseRetryAfter,
   ProviderHttpError,
+  retryAfterFrom,
   type Adapter,
   type NeutralMessage,
   type NeutralToolCall,
@@ -18,38 +20,78 @@ import {
  * (OpenRouter, Vercel, Cloudflare), most inference hosts and every local
  * runtime.
  *
- * "OpenAI-compatible" covers a lot of small disagreements, and each one below
- * was a real way a provider broke the agent loop:
+ * "OpenAI-compatible" covers a lot of small disagreements. The per-provider
+ * ones (how thinking is switched on, which field caps output, how the key is
+ * sent) live in `compat.ts`; the ones handled here are about the stream:
  *
  * - Tool calls arrive with `finish_reason: "stop"` (Ollama, several gateways)
  *   or no finish reason at all — calls are detected by their presence, not by
  *   the finish reason.
  * - Tool-call deltas without an `index` (some Gemini and vLLM builds), or with
  *   the whole call in one chunk, or with an empty id.
+ * - Reasoning arrives as `reasoning_content` (DeepSeek, Kimi, llama.cpp),
+ *   `reasoning` (Ollama, Groq, OpenRouter), `reasoning_text`, or inline in the
+ *   content as `<think>…</think>` (anything served without a reasoning parser).
+ * - DeepSeek-style APIs need the reasoning sent back on assistant messages;
+ *   OpenRouter needs its `reasoning_details` sent back so Gemini's thought
+ *   signatures and encrypted OpenAI reasoning survive a tool call.
  * - Mistral requires tool-call ids of exactly nine alphanumerics and rejects
  *   ids minted by anyone else, which breaks a chat that switched models.
  * - Gemini's endpoint rejects JSON-schema keywords outside its subset, which
  *   MCP servers use freely.
- * - Local models whose template cannot do tools answer "does not support
- *   tools" — the turn is retried without them rather than failed.
- * - `reasoning_effort` is sent only to models that take it; the old
- *   send-then-retry-on-400 cost an extra failed request per round elsewhere.
+ * - A field an endpoint rejects (effort, usage streaming, tools on a model
+ *   whose template cannot do them) is dropped and the request retried once,
+ *   rather than failing the turn.
  */
 
-const EFFORT_TO_OPENAI: Record<EffortLevel, string> = {
-  light: 'low',
-  medium: 'medium',
-  high: 'high',
-  'extra-high': 'high',
-  ultra: 'high'
+type ReasoningField = 'reasoning_content' | 'reasoning' | 'reasoning_text'
+
+interface WireToolCall {
+  id: string
+  type: 'function'
+  function: { name: string; arguments: string }
+  /** Gemini's thought signature for this call; Gemini 3 rejects a replayed call without one. */
+  extra_content?: { google: { thought_signature: string } }
 }
 
 interface WireMessage {
   role: 'system' | 'user' | 'assistant' | 'tool'
   content: string | null | { type: string; text?: string; image_url?: { url: string } }[]
-  tool_calls?: { id: string; type: 'function'; function: { name: string; arguments: string } }[]
+  tool_calls?: WireToolCall[]
   tool_call_id?: string
+  reasoning_content?: string
+  reasoning?: string
+  reasoning_text?: string
+  reasoning_details?: ReasoningDetail[]
 }
+
+/** One entry of OpenRouter's structured reasoning, replayed verbatim within a turn. */
+interface ReasoningDetail {
+  type: string
+  text?: string
+  summary?: string
+  data?: string
+  signature?: string | null
+  id?: string | null
+  format?: string
+  index?: number
+}
+
+/** What a turn hands back for replay within the same turn. */
+interface ChatReplay {
+  field: ReasoningField | null
+  reasoning: string
+  details?: ReasoningDetail[]
+  /** Gemini thought signatures by tool-call id. */
+  signatures?: Record<string, string>
+}
+
+/**
+ * Gemini's documented placeholder for a function call that has no signature
+ * of its own — one from an earlier turn, or made by a different model. Gemini
+ * 3 validates signatures on replayed calls and rejects the request without one.
+ */
+const SKIP_SIGNATURE = 'skip_thought_signature_validator'
 
 /** Mistral accepts only `[a-zA-Z0-9]{9}` tool-call ids; map any id onto one deterministically. */
 function mistralId(id: string): string {
@@ -110,14 +152,10 @@ function sanitizeForGemini(schema: unknown): unknown {
   return out
 }
 
-function isGemini(request: TurnRequest): boolean {
-  const base = request.credentials.baseUrl ?? request.provider.baseUrl
-  return request.provider.id === 'gemini' || /generativelanguage\.googleapis\.com/.test(base)
-}
-
-function toWire(request: TurnRequest): WireMessage[] {
-  const mistral = request.provider.id === 'mistral' || /api\.mistral\.ai/.test(request.provider.baseUrl)
-  const mapId = (id: string): string => (mistral ? mistralId(id) : id)
+function toWire(request: TurnRequest, compat: ChatCompat = chatCompat(request.provider, request.provider.baseUrl, request.modelId)): WireMessage[] {
+  const mapId = (id: string): string => (compat.vendor === 'mistral' ? mistralId(id) : id)
+  const reasons = request.model?.reasoning ?? false
+  const gemini3 = compat.vendor === 'gemini' && /gemini-[3-9]/.test(request.modelId)
   const out: WireMessage[] = []
   if (request.system) out.push({ role: 'system', content: request.system })
 
@@ -140,19 +178,31 @@ function toWire(request: TurnRequest): WireMessage[] {
       continue
     }
     if (message.role === 'assistant') {
-      if (message.calls.length === 0) {
-        if (message.text) out.push({ role: 'assistant', content: message.text })
-        continue
+      // Reasoning goes back only to the adapter and model that produced it,
+      // and only within the turn (replay is never persisted).
+      const replay =
+        message.replay?.adapter === 'openai-chat' && message.replay.modelId === request.modelId
+          ? (message.replay.data as ChatReplay)
+          : undefined
+      const wire: WireMessage = { role: 'assistant', content: message.text || null }
+      if (message.calls.length > 0) {
+        wire.tool_calls = message.calls.map((call) => {
+          const signature = replay?.signatures?.[call.id] ?? (gemini3 ? SKIP_SIGNATURE : undefined)
+          return {
+            id: mapId(call.id),
+            type: 'function' as const,
+            function: { name: call.name, arguments: JSON.stringify(call.input ?? {}) },
+            ...(compat.vendor === 'gemini' && signature ? { extra_content: { google: { thought_signature: signature } } } : {})
+          }
+        })
       }
-      out.push({
-        role: 'assistant',
-        content: message.text || null,
-        tool_calls: message.calls.map((call) => ({
-          id: mapId(call.id),
-          type: 'function' as const,
-          function: { name: call.name, arguments: JSON.stringify(call.input ?? {}) }
-        }))
-      })
+      if (replay?.details?.length) wire.reasoning_details = replay.details
+      else if (replay?.field && replay.reasoning) wire[replay.field] = replay.reasoning
+      if (compat.reasoningOnEveryAssistant && reasons && wire.reasoning_content === undefined) {
+        wire.reasoning_content = replay?.reasoning ?? ''
+      }
+      if (!wire.content && !wire.tool_calls) continue
+      out.push(wire)
       continue
     }
     // Chat-completions tool messages are text-only, so any screenshot a tool
@@ -175,6 +225,25 @@ function toWire(request: TurnRequest): WireMessage[] {
   return out
 }
 
+/**
+ * OpenRouter streams `reasoning_details` as deltas: consecutive text or
+ * summary pieces belong to one logical entry, encrypted entries are opaque
+ * and stay separate.
+ */
+function appendDetail(details: ReasoningDetail[], detail: ReasoningDetail): void {
+  const last = details[details.length - 1]
+  if (last && detail.type === last.type && (detail.type === 'reasoning.text' || detail.type === 'reasoning.summary')) {
+    if (detail.type === 'reasoning.text') last.text = (last.text ?? '') + (detail.text ?? '')
+    else last.summary = (last.summary ?? '') + (detail.summary ?? '')
+    last.signature ||= detail.signature
+    last.id ??= detail.id
+    last.format ||= detail.format
+    last.index ??= detail.index
+    return
+  }
+  details.push({ ...detail })
+}
+
 interface StreamChunk {
   choices?: {
     index?: number
@@ -182,76 +251,104 @@ interface StreamChunk {
       content?: string | { type?: string; text?: string }[] | null
       reasoning?: string | null
       reasoning_content?: string | null
+      reasoning_text?: string | null
       thinking?: string | null
+      reasoning_details?: ReasoningDetail[]
       tool_calls?: {
         index?: number
         id?: string
         type?: string
         function?: { name?: string; arguments?: string | Record<string, unknown> }
+        extra_content?: { google?: { thought_signature?: string } }
       }[]
     }
     finish_reason?: string | null
+    usage?: Usage | null
   }[]
-  usage?: {
-    prompt_tokens?: number
-    completion_tokens?: number
-    prompt_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number }
-    // DeepSeek reports its cache this way.
-    prompt_cache_hit_tokens?: number
-    prompt_cache_miss_tokens?: number
-  } | null
-  error?: { message?: string; code?: string | number }
+  usage?: Usage | null
+  error?: { message?: string; code?: string | number; metadata?: { raw?: string; provider_name?: string } }
 }
+
+interface Usage {
+  prompt_tokens?: number
+  completion_tokens?: number
+  prompt_tokens_details?: { cached_tokens?: number; cache_write_tokens?: number }
+  // DeepSeek reports its cache this way; Kimi puts cached_tokens at the top level.
+  prompt_cache_hit_tokens?: number
+  cached_tokens?: number
+}
+
+/** Rough token count of a request body, for fitting the output cap into the window. */
+const estimateTokens = (value: unknown): number => Math.ceil(JSON.stringify(value).length / 3.6)
 
 export const openaiChatAdapter: Adapter = {
   id: 'openai-chat',
   managesContext: false,
 
   async turn(request: TurnRequest): Promise<TurnResult> {
-    const { provider, credentials } = request
-    const base = (credentials.baseUrl ?? provider.baseUrl).replace(/\/$/, '')
-    if (!base) throw new Error(`No base URL is set for ${provider.name}. Add one in Settings → Model providers.`)
+    const { provider, credentials, model } = request
+    const base = requestBase(provider, credentials.baseUrl)
     const url = /\/chat\/completions$/.test(base) ? base : `${base}/chat/completions`
+    const compat = chatCompat(provider, base, request.modelId)
 
-    const gemini = isGemini(request)
-    const openaiNative = provider.kind === 'openai' || /api\.openai\.com/.test(base)
-    const openrouter = provider.id === 'openrouter' || /openrouter\.ai/.test(base)
-    const efforts = request.model?.efforts ?? inferEfforts(request.modelId)
-    const effort = efforts && efforts.length > 0 ? EFFORT_TO_OPENAI[request.effort] : undefined
-    const maxOutput = maxOutputFor(provider, request.modelId, request.model)
+    const gemini = compat.vendor === 'gemini'
+    const reasons = model?.reasoning ?? false
+    const level = clampEffort(request.effort, effortsFor(request.modelId, model))
+    const effort = compat.sendsEffort && level ? wireEffort(level, compat.vendor, request.modelId) : undefined
+    const messages = toWire(request, compat)
+    const window = contextWindowFor(provider, request.modelId, model)
+    const maxOutput = clampOutputToWindow(maxOutputFor(provider, request.modelId, model), window, estimateTokens(messages))
 
-    let tools = request.tools.map((tool) => ({
-      type: 'function' as const,
-      function: {
-        name: tool.name,
-        description: tool.description,
-        parameters: gemini ? sanitizeForGemini(tool.inputSchema) : tool.inputSchema
-      }
-    }))
+    // Models the catalog marks as tool-less (Perplexity's Sonar) are not offered tools at all.
+    let tools =
+      model?.tools === false
+        ? []
+        : request.tools.map((tool) => ({
+            type: 'function' as const,
+            function: {
+              name: tool.name,
+              description: tool.description,
+              parameters: gemini ? sanitizeForGemini(tool.inputSchema) : tool.inputSchema
+            }
+          }))
 
     let includeUsage = true
     let sendEffort = Boolean(effort)
-    const messages = toWire(request)
+    let sendThinking = reasons
+    let sendCap = Boolean(maxOutput)
+
+    const thinkingFields = (): Record<string, unknown> => {
+      const out: Record<string, unknown> = {}
+      if (sendThinking) {
+        if (compat.thinking === 'deepseek') out.thinking = { type: 'enabled' }
+        else if (compat.thinking === 'zai') out.thinking = { type: 'enabled', clear_thinking: false }
+        else if (compat.thinking === 'qwen') out.enable_thinking = true
+        else if (compat.thinking === 'together') out.reasoning = { enabled: true }
+      }
+      if (sendEffort && effort) {
+        if (compat.thinking === 'openrouter') out.reasoning = { effort }
+        else out.reasoning_effort = effort
+      }
+      if (compat.parsedReasoning) out.reasoning_format = 'parsed'
+      return out
+    }
 
     const body = (): Record<string, unknown> => ({
       model: request.modelId,
       messages,
       stream: true,
       ...(includeUsage ? { stream_options: { include_usage: true } } : {}),
-      ...(tools.length > 0 ? { tools } : {}),
-      ...(sendEffort && effort
-        ? openrouter
-          ? { reasoning: { effort } }
-          : { reasoning_effort: effort }
-        : {}),
-      ...(maxOutput ? (openaiNative ? { max_completion_tokens: maxOutput } : { max_tokens: maxOutput }) : {}),
+      ...(tools.length > 0 ? { tools, ...(compat.toolStream ? { tool_stream: true } : {}) } : {}),
+      ...thinkingFields(),
+      ...(sendCap && maxOutput ? { [compat.maxTokensField]: maxOutput } : {}),
       // Routes every request of one conversation to the same cache shard.
-      ...(openaiNative ? { prompt_cache_key: request.cacheKey.slice(0, 64) } : {})
+      ...(compat.promptCacheKey ? { prompt_cache_key: request.cacheKey.slice(0, 64) } : {})
     })
 
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      ...(credentials.apiKey ? { Authorization: `Bearer ${credentials.apiKey}` } : {}),
+      ...authHeaders(compat.auth, credentials.apiKey),
+      ...(compat.sessionHeader ? { [compat.sessionHeader]: request.cacheKey } : {}),
       ...provider.headers,
       ...credentials.headers
     }
@@ -259,7 +356,7 @@ export const openaiChatAdapter: Adapter = {
     // Each rejection below is a capability the endpoint lacks, not a failure of
     // the turn: drop the offending field and ask again, at most once per field.
     let response: Response | null = null
-    for (let attempt = 0; attempt < 4; attempt++) {
+    for (let attempt = 0; attempt < 6; attempt++) {
       response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body()), signal: request.signal })
       if (response.ok) break
       const text = await response.text()
@@ -269,8 +366,16 @@ export const openaiChatAdapter: Adapter = {
           sendEffort = false
           continue
         }
+        if (sendThinking && compat.thinking !== 'openai' && /thinking|enable_thinking|reasoning/.test(lower)) {
+          sendThinking = false
+          continue
+        }
         if (includeUsage && /stream_options|include_usage/.test(lower)) {
           includeUsage = false
+          continue
+        }
+        if (sendCap && /max_tokens|max_completion_tokens|maximum context|context length/.test(lower)) {
+          sendCap = false
           continue
         }
         if (tools.length > 0 && /(does not support|doesn't support|not support|unsupported).{0,40}tool|tool.{0,40}(not supported|unsupported)/.test(lower)) {
@@ -282,39 +387,80 @@ export const openaiChatAdapter: Adapter = {
       if (response.status === 404 && /model/.test(lower)) {
         throw new ProviderHttpError(404, `${describeErrorBody(404, text)} — check the model id, or refresh the model list in Settings → Model providers.`)
       }
-      throw new ProviderHttpError(response.status, describeErrorBody(response.status, text), parseRetryAfter(response.headers.get('retry-after')))
+      throw new ProviderHttpError(response.status, describeErrorBody(response.status, text), retryAfterFrom(response.headers))
     }
     if (!response?.ok) throw new Error('The provider rejected the request.')
     if (!response.body) throw new Error('The provider returned an empty response body.')
 
     const reader = response.body.getReader()
     const decoder = new TextDecoder()
+    const splitter = new ThinkTagSplitter()
     let buffer = ''
     let text = ''
+    let reasoning = ''
+    let reasoningField: ReasoningField | null = null
+    const details: ReasoningDetail[] = []
     let finishReason: string | null = null
     const usage = emptyUsage()
     // Keyed by index when the provider sends one, else by id, else by arrival order.
-    const pending = new Map<string, { id: string; name: string; args: string; order: number }>()
+    const pending = new Map<string, { id: string; name: string; args: string; order: number; signature?: string }>()
     let order = 0
     let lastKey: string | null = null
 
-    const handleChunk = (chunk: StreamChunk): void => {
-      if (chunk.error) throw new Error(chunk.error.message ?? `Provider error ${chunk.error.code ?? ''}`.trim())
-      if (chunk.usage) {
-        const cached = chunk.usage.prompt_tokens_details?.cached_tokens ?? chunk.usage.prompt_cache_hit_tokens ?? 0
-        usage.input = Math.max(0, (chunk.usage.prompt_tokens ?? 0) - cached)
-        usage.cacheRead = cached
-        usage.cacheWrite = chunk.usage.prompt_tokens_details?.cache_write_tokens ?? 0
-        usage.output = chunk.usage.completion_tokens ?? 0
+    const emitText = (piece: { text: string; reasoning: string }): void => {
+      if (piece.reasoning) {
+        reasoning += piece.reasoning
+        request.onReasoning(piece.reasoning)
       }
+      if (piece.text) {
+        text += piece.text
+        request.onText(piece.text)
+      }
+    }
+
+    const readUsage = (raw: Usage): void => {
+      const cached = raw.prompt_tokens_details?.cached_tokens ?? raw.prompt_cache_hit_tokens ?? raw.cached_tokens ?? 0
+      const written = raw.prompt_tokens_details?.cache_write_tokens ?? 0
+      usage.input = Math.max(0, (raw.prompt_tokens ?? 0) - cached - written)
+      usage.cacheRead = cached
+      usage.cacheWrite = written
+      usage.output = raw.completion_tokens ?? 0
+    }
+
+    const handleChunk = (chunk: StreamChunk): void => {
+      if (chunk.error) {
+        // OpenRouter reports upstream failures mid-stream, with the upstream's
+        // own words in metadata.raw.
+        const raw = chunk.error.metadata?.raw
+        const message = chunk.error.message ?? `Provider error ${chunk.error.code ?? ''}`.trim()
+        throw new Error(raw && !message.includes(raw) ? `${message} — ${raw.slice(0, 300)}` : message)
+      }
+      if (chunk.usage) readUsage(chunk.usage)
       const choice = chunk.choices?.[0]
       if (!choice) return
+      // Moonshot puts the final usage on the choice instead.
+      if (!chunk.usage && choice.usage) readUsage(choice.usage)
       if (choice.finish_reason) finishReason = choice.finish_reason
       const delta = choice.delta
       if (!delta) return
 
-      const reasoning = delta.reasoning_content ?? delta.reasoning ?? delta.thinking
-      if (reasoning) request.onReasoning(reasoning)
+      // Some hosts send the same reasoning under two names; take the first.
+      for (const field of ['reasoning_content', 'reasoning', 'reasoning_text'] as const) {
+        const value = delta[field]
+        if (typeof value === 'string' && value.length > 0) {
+          reasoningField ??= field
+          reasoning += value
+          request.onReasoning(value)
+          break
+        }
+      }
+      if (typeof delta.thinking === 'string' && delta.thinking && !reasoningField) {
+        reasoning += delta.thinking
+        request.onReasoning(delta.thinking)
+      }
+      for (const detail of delta.reasoning_details ?? []) {
+        if (detail && typeof detail.type === 'string') appendDetail(details, detail)
+      }
 
       const content =
         typeof delta.content === 'string'
@@ -322,10 +468,7 @@ export const openaiChatAdapter: Adapter = {
           : Array.isArray(delta.content)
             ? delta.content.map((part) => part.text ?? '').join('')
             : ''
-      if (content) {
-        text += content
-        request.onText(content)
-      }
+      if (content) emitText(splitter.push(content))
 
       for (const call of delta.tool_calls ?? []) {
         const key =
@@ -342,7 +485,8 @@ export const openaiChatAdapter: Adapter = {
           name: call.function?.name || existing.name,
           // A provider that sends arguments as an object sends them whole.
           args: typeof args === 'object' && args !== null ? JSON.stringify(args) : existing.args + (args ?? ''),
-          order: existing.order
+          order: existing.order,
+          signature: call.extra_content?.google?.thought_signature ?? existing.signature
         })
         lastKey = key
       }
@@ -369,8 +513,14 @@ export const openaiChatAdapter: Adapter = {
         handleChunk(chunk)
       }
     }
+    emitText(splitter.flush())
+
+    if (finishReason === 'network_error' || finishReason === 'error') {
+      throw new Error(`The provider stopped mid-reply (${finishReason}). Try again.`)
+    }
 
     const calls: NeutralToolCall[] = []
+    const signatures: Record<string, string> = {}
     for (const call of [...pending.values()].sort((a, b) => a.order - b.order)) {
       if (!call.name) continue
       let input: Record<string, unknown> = {}
@@ -381,19 +531,24 @@ export const openaiChatAdapter: Adapter = {
         // re-issue the call instead of the whole turn failing.
         input = { __invalid_json: call.args }
       }
-      calls.push({
-        id: call.id || `call_${createHash('sha1').update(`${call.name}${call.order}${call.args}`).digest('hex').slice(0, 20)}`,
-        name: call.name,
-        input
-      })
+      const id = call.id || `call_${createHash('sha1').update(`${call.name}${call.order}${call.args}`).digest('hex').slice(0, 20)}`
+      if (call.signature) signatures[id] = call.signature
+      calls.push({ id, name: call.name, input })
     }
+
+    const hasSignatures = Object.keys(signatures).length > 0
+    const replay: ChatReplay | undefined =
+      reasoning || details.length > 0 || hasSignatures
+        ? { field: reasoningField, reasoning, ...(details.length ? { details } : {}), ...(hasSignatures ? { signatures } : {}) }
+        : undefined
 
     return {
       text,
       calls,
       stop: finishReason === 'length' ? 'max_tokens' : calls.length > 0 ? 'tool_use' : finishReason === 'content_filter' ? 'refusal' : 'end',
       usage,
-      ...(finishReason === 'content_filter' ? { refusal: 'The provider filtered this response.' } : {})
+      ...(finishReason === 'content_filter' ? { refusal: 'The provider filtered this response.' } : {}),
+      ...(replay ? { replay: { adapter: 'openai-chat', modelId: request.modelId, data: replay } } : {})
     }
   }
 }

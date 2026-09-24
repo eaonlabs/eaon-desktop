@@ -1,7 +1,9 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { EffortLevel } from '@shared/types'
-import { anthropicThinking, inferEfforts, maxOutputFor } from '../models'
+import { anthropicCompat, clampEffort, effortsFor, missingUrlFields } from '../compat'
+import { anthropicThinking, budgetThinking, contextWindowFor, maxOutputFor } from '../models'
 import {
+  clampOutputToWindow,
   emptyUsage,
   ProviderHttpError,
   type Adapter,
@@ -27,6 +29,13 @@ import {
  *   the thinking signatures newer models bind to the conversation prefix.
  * - Thinking blocks are replayed verbatim within a turn (from `replay`) and
  *   never across turns, where they would only cost input tokens.
+ *
+ * The same adapter serves Anthropic-compatible endpoints (MiniMax, Kimi For
+ * Coding, GitHub Copilot's and OpenCode's Claude models). Those get none of
+ * the betas and no top-level `cache_control` — third-party validators reject
+ * fields they do not know — and caching falls back to a breakpoint on the
+ * last message. Non-Claude models there are asked to think the way Eaon
+ * Code's catalog says they take it: Kimi adaptively, MiniMax with a budget.
  */
 
 const EFFORT_TO_ANTHROPIC: Record<EffortLevel, 'low' | 'medium' | 'high' | 'xhigh' | 'max'> = {
@@ -45,6 +54,25 @@ const supportsFallbacks = (id: string): boolean => /claude-(fable-5-1|opus-5)$/.
 
 /** Context editing needs Claude 4 or later; older models reject the beta. */
 const supportsContextEditing = (id: string): boolean => /claude-(opus|sonnet|haiku|fable|mythos)-[4-9]/.test(id)
+
+/** Puts a cache breakpoint on the newest content block (thinking blocks cannot carry one). */
+function markLastBlockForCache(messages: Anthropic.Beta.BetaMessageParam[]): void {
+  const last = messages[messages.length - 1]
+  if (!last) return
+  if (typeof last.content === 'string') {
+    last.content = [{ type: 'text', text: last.content, cache_control: { type: 'ephemeral' } }]
+    return
+  }
+  // Copies: replayed blocks are shared with the transcript, which must not grow markers.
+  const blocks = [...(last.content as Anthropic.Beta.BetaContentBlockParam[])]
+  for (let i = blocks.length - 1; i >= 0; i--) {
+    const type = blocks[i].type
+    if (type === 'thinking' || type === 'redacted_thinking') continue
+    blocks[i] = { ...blocks[i], cache_control: { type: 'ephemeral' } } as Anthropic.Beta.BetaContentBlockParam
+    last.content = blocks
+    return
+  }
+}
 
 function toBlocks(message: NeutralMessage, modelId: string): Anthropic.Beta.BetaMessageParam | null {
   if (message.role === 'user') {
@@ -102,8 +130,12 @@ export const anthropicAdapter: Adapter = {
 
   async turn(request: TurnRequest): Promise<TurnResult> {
     const { credentials, provider, modelId } = request
-    const baseURL = credentials.baseUrl ?? provider.baseUrl
-    const firstParty = !baseURL || /api\.anthropic\.com/.test(baseURL)
+    const baseURL = (credentials.baseUrl ?? provider.baseUrl).replace(/\/+$/, '')
+    if (missingUrlFields(baseURL).length > 0) {
+      throw new Error(`Fill in the missing parts of ${provider.name}'s base URL in Settings → Model providers.`)
+    }
+    const compat = anthropicCompat(provider, baseURL, modelId, request.model)
+    const firstParty = compat.firstParty
     const client = new Anthropic({
       apiKey: credentials.apiKey ?? null,
       // OAuth-backed providers hand over a bearer token rather than an API key.
@@ -115,16 +147,30 @@ export const anthropicAdapter: Adapter = {
       maxRetries: 0
     })
 
-    const maxTokens = maxOutputFor(provider, modelId, request.model) ?? 32_000
-    const efforts = request.model?.efforts ?? inferEfforts(modelId)
-    const effort = efforts?.includes(request.effort) ? request.effort : efforts?.[efforts.length > 2 ? 1 : 0]
-    const thinking = anthropicThinking(modelId, request.effort, maxTokens)
-
     const messages: Anthropic.Beta.BetaMessageParam[] = []
     for (const message of request.messages) {
       const block = toBlocks(message, modelId)
       if (block) messages.push(block)
     }
+
+    const window = contextWindowFor(provider, modelId, request.model)
+    const estimate = Math.ceil((JSON.stringify(messages).length + request.system.length) / 3.6)
+    const maxTokens = clampOutputToWindow(maxOutputFor(provider, modelId, request.model) ?? 32_000, window, estimate) ?? 32_000
+    const effort = clampEffort(request.effort, effortsFor(modelId, request.model))
+    const thinking =
+      compat.thinking === 'claude'
+        ? anthropicThinking(modelId, request.effort, maxTokens)
+        : compat.thinking === 'adaptive'
+          ? ({ type: 'adaptive', display: 'summarized' } as const)
+          : compat.thinking === 'budget'
+            ? budgetThinking(request.effort, maxTokens)
+            : undefined
+    // Effort only goes where thinking is adaptive: Claude's newer families and Kimi.
+    const sendEffort = effort && (compat.thinking === 'claude' || compat.thinking === 'adaptive')
+
+    // Off Anthropic's own API there is no automatic caching; one breakpoint on
+    // the newest content block still caches the transcript between rounds.
+    if (!firstParty) markLastBlockForCache(messages)
 
     const tools: Anthropic.Beta.BetaTool[] = request.tools.map((tool, index) => ({
       name: tool.name,
@@ -136,7 +182,7 @@ export const anthropicAdapter: Adapter = {
     }))
 
     const betas: string[] = []
-    const contextEditing = request.agentic && tools.length > 0 && supportsContextEditing(modelId)
+    const contextEditing = firstParty && request.agentic && tools.length > 0 && supportsContextEditing(modelId)
     if (contextEditing) betas.push(CONTEXT_EDITING_BETA)
     const fallbacks = firstParty && supportsFallbacks(modelId)
     if (fallbacks) betas.push(FALLBACK_BETA)
@@ -151,9 +197,9 @@ export const anthropicAdapter: Adapter = {
         : {}),
       // Moves the final breakpoint to the end of each request, so round N+1
       // reads everything round N sent from cache.
-      cache_control: { type: 'ephemeral' },
+      ...(firstParty ? { cache_control: { type: 'ephemeral' as const } } : {}),
       ...(thinking ? { thinking } : {}),
-      ...(effort ? { output_config: { effort: EFFORT_TO_ANTHROPIC[effort] } } : {}),
+      ...(sendEffort && effort ? { output_config: { effort: EFFORT_TO_ANTHROPIC[effort] } } : {}),
       ...(tools.length > 0 ? { tools } : {}),
       ...(contextEditing
         ? {

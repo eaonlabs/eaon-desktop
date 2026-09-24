@@ -133,6 +133,25 @@ export class ProviderHttpError extends Error {
   }
 }
 
+/**
+ * An output cap that still fits the window. Hosts that serve from vLLM (most
+ * of the open-model inference providers) reject a request outright when
+ * prompt + `max_tokens` exceeds the context length, and catalogs often list a
+ * model's output limit as its whole window.
+ */
+export function clampOutputToWindow(maxOutput: number | undefined, window: number, inputTokens: number): number | undefined {
+  if (!maxOutput) return undefined
+  // Never above the model's own cap; never squeezed below a usable reply.
+  return Math.min(maxOutput, Math.max(1024, window - inputTokens - 4096))
+}
+
+/** Delay a 429/503 asks for: `retry-after-ms` (OpenAI, Codex) wins over `retry-after`. */
+export function retryAfterFrom(headers: Headers): number | undefined {
+  const ms = Number(headers.get('retry-after-ms'))
+  if (headers.get('retry-after-ms') !== null && Number.isFinite(ms)) return Math.max(0, ms)
+  return parseRetryAfter(headers.get('retry-after'))
+}
+
 export function parseRetryAfter(value: string | null): number | undefined {
   if (!value) return undefined
   const seconds = Number(value)
