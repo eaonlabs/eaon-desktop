@@ -11,7 +11,11 @@ import {
   Trash2,
   TriangleAlert,
   FileText,
-  Check
+  Check,
+  Monitor,
+  AppWindow,
+  CalendarClock,
+  Sparkles
 } from 'lucide-react'
 import type { ChatToolPart } from '@shared/types'
 import { ThinkingOrb } from '../ThinkingOrb'
@@ -40,7 +44,11 @@ const ICONS: Record<string, typeof Search> = {
   delete_file: Trash2,
   run_command: SquareTerminal,
   web_search: Globe,
-  web_fetch: Globe
+  web_fetch: Globe,
+  computer: Monitor,
+  browser: AppWindow,
+  schedule: CalendarClock,
+  load_skill: Sparkles
 }
 
 /** The single argument worth putting next to the tool's name. */
@@ -78,7 +86,11 @@ const LABELS: Record<string, string> = {
   goal_complete: 'Goal complete',
   goal_blocked: 'Goal blocked',
   plugin_tools: 'Plugin tools',
-  use_plugin_tool: 'Plugin'
+  use_plugin_tool: 'Plugin',
+  computer: 'Computer',
+  browser: 'Browser',
+  schedule: 'Schedule',
+  load_skill: 'Skill'
 }
 
 export function ToolCall({ part }: { part: ChatToolPart }): JSX.Element {

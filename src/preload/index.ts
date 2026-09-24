@@ -20,6 +20,14 @@ import type {
   UpdateStatus,
   Workspace
 } from '@shared/types'
+import { providerAuthApi } from './features/providerAuth'
+import { pluginsApi } from './features/plugins'
+import { schedulerApi } from './features/scheduler'
+import { computerUseApi } from './features/computerUse'
+import { browserBridgeApi } from './features/browserBridge'
+import { eaonCodeApi } from './features/eaonCode'
+import { petsApi } from './features/pets'
+import { modelLibraryApi } from './features/modelLibrary'
 
 const api = {
   /**
@@ -180,6 +188,22 @@ const api = {
   }
 }
 
-contextBridge.exposeInMainWorld('api', api)
+/**
+ * Each feature's bridge lives in its own file under ./features, so features
+ * can grow their IPC surface without every one of them editing this object.
+ */
+const fullApi = {
+  ...api,
+  providerAuth: providerAuthApi,
+  pluginAuth: pluginsApi,
+  scheduler: schedulerApi,
+  computerUse: computerUseApi,
+  browserBridge: browserBridgeApi,
+  eaonCode: eaonCodeApi,
+  pets: petsApi,
+  modelLibrary: modelLibraryApi
+}
 
-export type Api = typeof api
+contextBridge.exposeInMainWorld('api', fullApi)
+
+export type Api = typeof fullApi
