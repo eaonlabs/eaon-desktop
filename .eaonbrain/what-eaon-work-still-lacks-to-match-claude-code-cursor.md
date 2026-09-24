@@ -2,10 +2,18 @@
 title: What Eaon Work still lacks to match Claude Code / Cursor
 tags: [eaon-desktop, eaon-work, agentic-coding, gaps, audit, ui, providers]
 created: 2026-08-30T01:12:47.602Z
-updated: 2026-08-30T01:12:47.602Z
+updated: 2026-09-23T00:00:00.000Z
 ---
 
 # What Eaon Work still lacks to match Claude Code / Cursor
+
+> **Status, 2026-09-23:** most of this list is closed by the agent-core rebuild —
+> see [[Agent core: one loop, adapters and tool sources]]. Tool context
+> persists and replays (1), markdown/diffs render (2), command output streams
+> live (3), plan mode is real (4), auto mode asks for risky commands (5), effort
+> and thinking are per model (6), and there is compaction plus a test suite (7).
+> Still open: no file watcher for the code index. Kept below as the record of
+> what was found.
 
 Audit of the existing agentic machinery (see [[Eaon Work mode]] and
 [[Codebase index and agentic coding tools]] for what *does* exist and why).

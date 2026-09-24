@@ -29,6 +29,7 @@ import { Markdown } from './agent/Markdown'
 import { ToolCall } from './agent/ToolCall'
 import { ModeSwitch } from './ModeSwitch'
 import { GoalBanner, PlanCard, TodoPanel, UsageLine } from './agent/WorkBits'
+import { FileDiff } from './agent/FileDiff'
 import type { Chat, ChatMessage } from '@shared/types'
 
 export function ChatView(): JSX.Element {
@@ -112,25 +113,71 @@ function Home(): JSX.Element {
   )
 }
 
+/** Dialog titles per tool; anything unlisted asks generically. */
+const APPROVAL_TITLES: Record<string, string> = {
+  run_command: 'Run this command?',
+  write_file: 'Write this file?',
+  edit_file: 'Make this edit?',
+  delete_file: 'Move this to the Trash?',
+  move_file: 'Move this file?',
+  computer: 'Let Eaon use your computer?',
+  browser: 'Let Eaon do this in your browser?',
+  use_plugin_tool: 'Use this plugin?',
+  schedule: 'Change your schedules?'
+}
+
+/** The one line that says what is about to happen, for tools without a bespoke preview. */
+function approvalSummary(tool: string, input: Record<string, unknown>): string {
+  const pick = (key: string): string => (typeof input[key] === 'string' ? (input[key] as string) : '')
+  if (tool === 'move_file') return `${pick('from')} → ${pick('to')}`
+  if (tool === 'use_plugin_tool') return pick('name')
+  if (tool === 'computer' || tool === 'browser') {
+    const detail = pick('text') || pick('keys') || pick('key') || pick('url') || pick('ref') || pick('app')
+    const point = typeof input.x === 'number' ? ` at ${input.x}, ${input.y}` : ''
+    return `${pick('action')}${point}${detail ? ` — ${detail}` : ''}`
+  }
+  return pick('path') || pick('name') || pick('action') || ''
+}
+
 function ApprovalPrompt(): JSX.Element {
   const pending = useApp((s) => s.pendingApproval)
   const respondApproval = useApp((s) => s.respondApproval)
+  const tool = pending?.tool ?? ''
+  const input = pending?.input ?? {}
 
-  const command = pending?.tool === 'run_command' ? String(pending.input.command ?? '') : null
-  const write = pending?.tool === 'write_file' ? pending.input : null
+  const mono = { margin: 0, fontFamily: 'var(--font-mono)', fontSize: 12.5, color: 'var(--text-2)', whiteSpace: 'pre-wrap' as const }
+  const text = (key: string): string => String(input[key] ?? '')
+
+  let body: JSX.Element
+  if (tool === 'run_command') {
+    body = <pre style={mono}>{text('command')}</pre>
+  } else if (tool === 'write_file' || tool === 'edit_file') {
+    body = (
+      <div className="approval__diff">
+        <FileDiff
+          file={text('path')}
+          before={tool === 'edit_file' ? text('old_text') : ''}
+          after={tool === 'edit_file' ? text('new_text') : text('content').slice(0, 6000)}
+        />
+      </div>
+    )
+  } else {
+    const summary = approvalSummary(tool, input)
+    const args = tool === 'use_plugin_tool' ? input.arguments : input
+    body = (
+      <>
+        {summary && <p style={{ margin: '0 0 8px' }}>{summary}</p>}
+        <pre style={{ ...mono, maxHeight: 220, overflow: 'auto' }}>{JSON.stringify(args, null, 2).slice(0, 3000)}</pre>
+      </>
+    )
+  }
 
   return (
     <Modal
       open={Boolean(pending)}
       onClose={() => respondApproval(false)}
-      title={
-        pending?.tool === 'run_command'
-          ? 'Run this command?'
-          : pending?.tool === 'write_file'
-            ? 'Write this file?'
-            : 'Approve this action?'
-      }
-      width={440}
+      title={APPROVAL_TITLES[tool] ?? `Allow ${tool.replace(/_/g, ' ')}?`}
+      width={tool === 'write_file' || tool === 'edit_file' ? 620 : 460}
       actions={
         <>
           <button className="btn btn--ghost" onClick={() => respondApproval(false)}>
@@ -142,26 +189,7 @@ function ApprovalPrompt(): JSX.Element {
         </>
       }
     >
-      {command !== null && (
-        <pre
-          style={{ margin: 0, fontFamily: 'var(--font-mono)', fontSize: 12.5, color: 'var(--text-2)', whiteSpace: 'pre-wrap' }}
-        >
-          {command}
-        </pre>
-      )}
-      {write !== null && (
-        <>
-          <p style={{ margin: '0 0 8px' }}>
-            <code>{String(write.path ?? '')}</code>
-          </p>
-          <pre
-            style={{ margin: 0, fontFamily: 'var(--font-mono)', fontSize: 12.5, color: 'var(--text-2)', whiteSpace: 'pre-wrap' }}
-          >
-            {String(write.content ?? '').slice(0, 800)}
-            {String(write.content ?? '').length > 800 ? '\n…' : ''}
-          </pre>
-        </>
-      )}
+      {body}
     </Modal>
   )
 }

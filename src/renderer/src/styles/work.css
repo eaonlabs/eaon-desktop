@@ -344,3 +344,10 @@
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
+
+/* ---- Approval dialog ---- */
+.approval__diff {
+  max-height: 340px;
+  overflow: auto;
+  border-radius: var(--r-sm);
+}
