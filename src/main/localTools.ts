@@ -310,10 +310,34 @@ async function readFileRange(cwd: string, target: string, startLine?: number, en
  * recover from by including more context. `replace_all` is the explicit
  * opt-out for renames.
  */
-async function editFile(cwd: string, target: string, oldText: string, newText: string, replaceAll: boolean): Promise<string> {
+/**
+ * read_file prefixes every line with its number and a tab, and smaller models
+ * routinely copy those prefixes into old_text. When every line of a snippet
+ * carries one, they are clearly not part of the file.
+ */
+const LINE_NUMBER_PREFIX = /^\s*\d+\t/
+function stripLineNumbers(text: string): string | null {
+  const lines = text.split('\n').filter((line, i, all) => line !== '' || i < all.length - 1)
+  if (lines.length === 0 || !lines.every((line) => LINE_NUMBER_PREFIX.test(line))) return null
+  return text
+    .split('\n')
+    .map((line) => line.replace(LINE_NUMBER_PREFIX, ''))
+    .join('\n')
+}
+
+async function editFile(cwd: string, target: string, oldTextIn: string, newTextIn: string, replaceAll: boolean): Promise<string> {
   const { path } = resolveWorkPath(cwd, target)
   const content = await readFile(path, 'utf8')
-  if (!oldText) throw new Error('old_text is empty. Use write_file to create a file.')
+  if (!oldTextIn) throw new Error('old_text is empty. Use write_file to create a file.')
+  let oldText = oldTextIn
+  let newText = newTextIn
+  if (!content.includes(oldText)) {
+    const stripped = stripLineNumbers(oldText)
+    if (stripped && content.includes(stripped)) {
+      oldText = stripped
+      newText = stripLineNumbers(newText) ?? newText
+    }
+  }
   const occurrences = content.split(oldText).length - 1
   if (occurrences === 0) {
     // The single most common miss is indentation; say so when that is it.

@@ -288,6 +288,7 @@ export const useApp = create<AppState>((set, get) => ({
     })
 
     window.api.codeIndex.onStatus((indexStatus) => set({ indexStatus }))
+    window.api.providers.onChanged(() => void get().refreshProviders())
 
     void window.api.updater.status().then((updateStatus) => set({ updateStatus }))
     window.api.updater.onStatus((updateStatus) => set({ updateStatus }))

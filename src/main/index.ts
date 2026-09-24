@@ -6,6 +6,7 @@ import type { Chat, McpServer, Project, Provider, Settings, StreamEvent, StreamR
 import { store } from './store'
 import { secrets } from './secrets'
 import { listProviders, refreshModels, removeProvider, testProvider, updateProvider } from './providers'
+import { refreshLocalProviders } from './providers/localDiscovery'
 import { resolveApproval } from './agent/approvals'
 import { cancelRun, runAgent } from './agent/loop'
 import './agent/sources'
@@ -147,6 +148,14 @@ function createWindow(): void {
       console.log(`[renderer:${level}] ${message} (${source}:${line})`)
     )
   }
+
+  // Local runtimes change underneath us (a model pulled in a terminal); pick
+  // that up when the user comes back to the app.
+  mainWindow.on('focus', () => {
+    void refreshLocalProviders().then((changed) => {
+      if (changed && mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('providers:changed')
+    })
+  })
 
   mainWindow.on('ready-to-show', () => {
     mainWindow?.show()
@@ -503,6 +512,9 @@ app.whenReady().then(async () => {
   // preference, both without blocking window creation.
   void syncMcpServers()
   if (settings.localServer.autoStart) void startLocalServer()
+  void refreshLocalProviders(true).then((changed) => {
+    if (changed && mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('providers:changed')
+  })
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()

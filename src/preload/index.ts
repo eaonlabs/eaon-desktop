@@ -108,7 +108,13 @@ const api = {
       ipcRenderer.invoke('providers:update', id, patch),
     remove: (id: string): Promise<Provider[]> => ipcRenderer.invoke('providers:remove', id),
     refreshModels: (id: string) => ipcRenderer.invoke('providers:refresh-models', id),
-    test: (id: string): Promise<{ ok: boolean; message: string }> => ipcRenderer.invoke('providers:test', id)
+    test: (id: string): Promise<{ ok: boolean; message: string }> => ipcRenderer.invoke('providers:test', id),
+    /** Fired when a background refresh (local runtimes) changed some provider's model list. */
+    onChanged: (handler: () => void): (() => void) => {
+      const listener = (): void => handler()
+      ipcRenderer.on('providers:changed', listener)
+      return () => ipcRenderer.removeListener('providers:changed', listener)
+    }
   },
   keys: {
     set: (id: string, key: string): Promise<Provider[]> => ipcRenderer.invoke('keys:set', id, key),

@@ -151,6 +151,12 @@ async function callModel(
       } catch (error) {
         lastError = error
         if (params.signal.aborted) throw error
+        // A local runtime that is not running will not start by itself while
+        // we wait; say so now instead of after three backoffs.
+        if (params.provider.local && /ECONNREFUSED|fetch failed/i.test(`${error instanceof Error ? error.message : ''} ${String((error as { cause?: unknown })?.cause ?? '')}`)) {
+          const where = params.provider.baseUrl.replace(/\/v1\/?$/, '')
+          throw new Error(`Couldn't reach ${params.provider.name} at ${where}. Start it and try again.`)
+        }
         if (isAuthError(error) && k < attempts.length - 1) {
           note('That key was rejected — trying the next saved key.')
           break
