@@ -2,10 +2,15 @@
 title: Local model hub (Models page)
 tags: [eaon-desktop, models, huggingface, ollama, gguf]
 created: 2026-08-22T00:00:00.000Z
-updated: 2026-08-22T00:00:00.000Z
+updated: 2026-09-24T00:00:00.000Z
 ---
 
 # Local model hub (Models page)
+
+> **Since 2026-09 the page opens on a curated library** — see
+> [[Curated model library and Ollama pulls]]. Everything below still
+> describes the **Browse Hugging Face** tab (now `components/models/HubBrowser.tsx`),
+> except where marked. Tabs: Library · Installed · Browse Hugging Face.
 
 A "Models" nav item (sidebar, after Plugins) lets you search Hugging Face for
 GGUF models, browse variants/quantizations, and download them — modeled after
@@ -18,9 +23,10 @@ decision rationale below.
 - `src/main/modelHub.ts` — all Hugging Face + Ollama logic. `searchModels()`,
   `getModelDetail()`, `downloadModel()`, `getDownloadedModels()`,
   `deleteDownloadedModel()`.
-- `src/renderer/src/components/ModelsPage.tsx` — list + detail, toggled via
-  `modelsRepo` in the zustand store (`state/store.ts`), **not** local component
-  state — see gotcha below for why that matters.
+- `src/renderer/src/components/ModelsPage.tsx` — now a thin shell over
+  `components/models/*`; list vs detail is still `modelsRepo` in the zustand
+  store (`state/store.ts`), **not** local component state — see gotcha below.
+  `modelsRepo` holds either a Hugging Face repo id or `library:<catalog id>`.
 - Downloaded models persist to `downloaded-models.json` via the same
   `store.ts` `readJson`/`writeJson` pattern as everything else (see
   [[Eaon Desktop architecture]]).
@@ -40,6 +46,14 @@ tradeoff: users without Ollama installed can browse and download but nothing
 will actually run until they install it — the download still succeeds and is
 reported as such, with `ollamaError` set so the UI can say so honestly rather
 than silently failing.
+
+**Registration changed (2026-09):** current Ollama (0.30.4) rejects
+`/api/create` with a `modelfile: FROM <path>` ("neither 'from' or 'files' was
+specified") — so for months every HF download silently ended with
+`ollamaError` set. `registerWithOllama` now uploads the GGUF to
+`/api/blobs/sha256:<digest>` (hashed while downloading) and creates the model
+with `files: {<name>.gguf: digest}`. Covered by `test/modelLibrary-live.test.ts`
+(EAON_LIVE=1).
 
 Ollama's admin API (`/api/create`, `/api/delete`) always lives at
 `127.0.0.1:11434` regardless of what the "Ollama" provider's own
@@ -77,6 +91,9 @@ views:
   mean 30 extra README fetches on every search.
 
 ## Deleting a downloaded model
+
+(The "Downloaded" toggle is gone; downloaded files now list on the Installed
+tab, read from `downloaded-models.json`.)
 
 `deleteDownloadedModel(repoId, filename)` was already written in `modelHub.ts`
 from the start (unlinks the file, best-effort `DELETE /api/delete` against
