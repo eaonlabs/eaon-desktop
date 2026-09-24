@@ -1,63 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useApp } from '../../../state/store'
 import { Card, Row, Section, Segmented, Select, Switch } from '../../ui'
-import type { ThemeMode, ThemePalette } from '@shared/types'
+import type { ThemeMode } from '@shared/types'
+import { THEMES, type Palette, type Theme } from '../../../lib/themes'
 
-/** A palette pair — one theme, rendered for either appearance. */
-type Palette = Pick<ThemePalette, 'accent' | 'background' | 'foreground' | 'contrast'>
-
-interface Theme {
-  name: string
-  light: Palette
-  dark: Palette
-}
-
-/**
- * Every surface, border and text tone in the app is mixed from `--bg`, `--fg`
- * and `--contrast` (see tokens.css), so a theme only has to supply those four
- * values per appearance to restyle the whole interface.
- */
-const THEMES: Theme[] = [
-  {
-    name: 'Cobalt',
-    light: { accent: '#0A84FF', background: '#FFFFFF', foreground: '#1A1C1F', contrast: 45 },
-    dark: { accent: '#0A84FF', background: '#111111', foreground: '#FCFCFC', contrast: 60 }
-  },
-  {
-    name: 'Graphite',
-    light: { accent: '#5A6472', background: '#F7F7F8', foreground: '#16181D', contrast: 38 },
-    dark: { accent: '#8A93A0', background: '#0E0E10', foreground: '#F2F2F4', contrast: 52 }
-  },
-  {
-    name: 'Glacier',
-    light: { accent: '#4C7FA8', background: '#F6F8FA', foreground: '#16202A', contrast: 40 },
-    dark: { accent: '#7FB3D5', background: '#0D1117', foreground: '#E8EFF5', contrast: 56 }
-  },
-  {
-    name: 'Indigo',
-    light: { accent: '#6355FF', background: '#FCFBFF', foreground: '#1A1830', contrast: 42 },
-    dark: { accent: '#8B7DFF', background: '#100F1A', foreground: '#EFEDFA', contrast: 58 }
-  },
-  {
-    name: 'Moss',
-    light: { accent: '#2F9E68', background: '#FBFDFB', foreground: '#16201A', contrast: 40 },
-    dark: { accent: '#3FBF7F', background: '#0F1411', foreground: '#EEF6F1', contrast: 58 }
-  },
-  {
-    name: 'Ember',
-    light: { accent: '#E4572E', background: '#FFFDFB', foreground: '#221A16', contrast: 42 },
-    dark: { accent: '#FF6B3D', background: '#141010', foreground: '#F8F1EC', contrast: 64 }
-  },
-  {
-    name: 'Rose',
-    light: { accent: '#E0407A', background: '#FFFBFC', foreground: '#241419', contrast: 42 },
-    dark: { accent: '#FF6B9A', background: '#150F12', foreground: '#F9EDF1', contrast: 60 }
-  },
-  {
-    name: 'Sand',
-    light: { accent: '#A97142', background: '#FBF7F0', foreground: '#22190F', contrast: 40 },
-    dark: { accent: '#D9A066', background: '#14110C', foreground: '#F5EEE2', contrast: 56 }
-  }
+const GROUPS: { id: Theme['group']; label: string }[] = [
+  { id: 'neutral', label: 'Neutral' },
+  { id: 'coloured', label: 'Coloured' }
 ]
 
 /**
@@ -118,28 +67,37 @@ export function AppearancePage(): JSX.Element {
       </Section>
 
       <Section label="Color theme">
-        <div className="theme-swatch-grid">
-          {THEMES.map((theme) => (
-            <button
-              key={theme.name}
-              className="theme-swatch"
-              data-active={a.light.preset === theme.name || undefined}
-              onClick={() =>
-                void patchSettings({
-                  appearance: {
-                    // Both appearances move together, so switching Light/Dark
-                    // never drops you into a different theme.
-                    light: { preset: theme.name, ...theme.light },
-                    dark: { preset: theme.name, ...theme.dark }
-                  }
-                })
-              }
-            >
-              <ThemeSwatch palette={theme[tone]} />
-              <span className="theme-swatch__name">{theme.name}</span>
-            </button>
-          ))}
-        </div>
+        {GROUPS.map((group) => (
+          <div key={group.id} className="theme-group">
+            <div className="theme-group__label">{group.label}</div>
+            <div className="theme-swatch-grid">
+              {THEMES.filter((theme) => theme.group === group.id).map((theme) => (
+                <button
+                  key={theme.name}
+                  className="theme-swatch"
+                  data-active={a.light.preset === theme.name || undefined}
+                  onClick={() => {
+                    // textFade belongs to the theme, not the stored palette —
+                    // useTheme() looks it up by preset name.
+                    const { textFade: _lightFade, ...light } = theme.light
+                    const { textFade: _darkFade, ...dark } = theme.dark
+                    void patchSettings({
+                      appearance: {
+                        // Both appearances move together, so switching Light/Dark
+                        // never drops you into a different theme.
+                        light: { preset: theme.name, ...light },
+                        dark: { preset: theme.name, ...dark }
+                      }
+                    })
+                  }}
+                >
+                  <ThemeSwatch palette={theme[tone]} tone={tone} />
+                  <span className="theme-swatch__name">{theme.name}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ))}
       </Section>
 
       <Section label="Preferences">
@@ -333,22 +291,29 @@ function DockGlyph({ variant }: { variant: 'mono' | 'color' }): JSX.Element {
   )
 }
 
-/** Miniature of the app painted in a theme's own colours. */
-function ThemeSwatch({ palette }: { palette: Palette }): JSX.Element {
+/**
+ * Miniature of the app painted in a theme's own colours, mixed the way
+ * tokens.css mixes the real thing: the page is `--canvas` (22% under the
+ * background by night, the background itself by day) and the sidebar panel is
+ * `--surface-1`, lifted toward the ink by the theme's own contrast.
+ */
+function ThemeSwatch({ palette, tone }: { palette: Palette; tone: 'light' | 'dark' }): JSX.Element {
   const tint = (amount: number): string =>
     `color-mix(in srgb, ${palette.background}, ${palette.foreground} ${amount}%)`
+  const page = tone === 'dark' ? `color-mix(in srgb, ${palette.background}, #000 22%)` : palette.background
+  const side = tint((tone === 'dark' ? 1.6 : 1.5) * 0.055 * palette.contrast)
 
   return (
-    <span className="theme-swatch__preview" style={{ background: palette.background }}>
-      <span className="theme-swatch__side" style={{ background: tint(7) }}>
+    <span className="theme-swatch__preview" style={{ background: page }}>
+      <span className="theme-swatch__side" style={{ background: side }}>
         <span className="theme-swatch__dot" style={{ background: palette.accent }} />
-        <span className="theme-swatch__bar" style={{ background: tint(24), width: '68%' }} />
-        <span className="theme-swatch__bar" style={{ background: tint(16), width: '48%' }} />
+        <span className="theme-swatch__bar" style={{ background: tint(34), width: '68%' }} />
+        <span className="theme-swatch__bar" style={{ background: tint(22), width: '48%' }} />
       </span>
       <span className="theme-swatch__body">
-        <span className="theme-swatch__bar" style={{ background: tint(30), width: '76%' }} />
-        <span className="theme-swatch__bar" style={{ background: tint(18), width: '92%' }} />
-        <span className="theme-swatch__bar" style={{ background: tint(18), width: '60%' }} />
+        <span className="theme-swatch__bar" style={{ background: palette.foreground, width: '76%', opacity: 0.8 }} />
+        <span className="theme-swatch__bar" style={{ background: tint(30), width: '92%' }} />
+        <span className="theme-swatch__bar" style={{ background: tint(30), width: '60%' }} />
         <span className="theme-swatch__pill" style={{ background: palette.accent }} />
       </span>
     </span>
