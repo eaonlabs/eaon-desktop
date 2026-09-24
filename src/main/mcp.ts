@@ -1,10 +1,13 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
+import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js'
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js'
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
+import { StreamableHTTPClientTransport, StreamableHTTPError } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
+import type { Tool } from '@modelcontextprotocol/sdk/types.js'
 import type { McpServer, McpServerStatus, McpTool } from '@shared/types'
 import { store } from './store'
 import { secrets } from './secrets'
-import { MCP_CATALOG } from '@shared/mcpCatalog'
+import { mcpCatalogEntry } from '@shared/mcpCatalog'
+import { McpOAuthProvider, SignInRequiredError } from './mcpOAuth'
 
 /**
  * MCP client pool. Each enabled server gets a live connection; tools discovered
@@ -59,9 +62,52 @@ export function getTools(): McpTool[] {
     .sort((a, b) => a.serverId.localeCompare(b.serverId) || a.name.localeCompare(b.name))
 }
 
-/** Display name for a connected server, for tool listings. */
+const nameKey = (name: string): string => name.toLowerCase().replace(/[^a-z0-9_-]/g, '_')
+
+/**
+ * Display name for a connected server, for tool listings. Unique across
+ * servers: the agent namespaces tools as `<server>__<tool>`, so two servers
+ * both called "GitHub" (a catalog plugin and a hand-added one, say) would
+ * otherwise produce identical tool names and one would silently shadow the
+ * other. Later duplicates get a number, in mcp.json order so it is stable.
+ */
 export function serverName(serverId: string): string {
-  return store.getMcpServers().find((server) => server.id === serverId)?.name ?? serverId
+  const servers = store.getMcpServers()
+  const server = servers.find((s) => s.id === serverId)
+  if (!server) return serverId
+  const twins = servers.filter((s) => nameKey(s.name) === nameKey(server.name))
+  const index = twins.findIndex((s) => s.id === serverId)
+  return index > 0 ? `${server.name} ${index + 1}` : server.name
+}
+
+type HttpAuth = 'token' | 'oauth' | 'none'
+
+/**
+ * How an HTTP server authenticates. Catalog entries say so explicitly; a
+ * hand-added server gets an OAuth provider in case it asks for a sign-in —
+ * one that never needs it simply never consults the provider.
+ */
+function httpAuthFor(server: McpServer): HttpAuth {
+  const entry = server.pluginId ? mcpCatalogEntry(server.pluginId) : undefined
+  if (!entry) return 'oauth'
+  return entry.authMode === 'pastedToken' ? 'token' : entry.authMode
+}
+
+/**
+ * Auth and vendor-specific headers for an HTTP server. Plugin tokens live in
+ * the encrypted vault keyed by `plugin:<id>`; OAuth tokens are added by the
+ * transport's auth provider instead, per request, so a refresh takes effect
+ * without reconnecting.
+ */
+function httpHeadersFor(server: McpServer): Record<string, string> {
+  if (!server.pluginId) return {}
+  const entry = mcpCatalogEntry(server.pluginId)
+  if (!entry) return {}
+  const token = entry.authMode === 'pastedToken' ? secrets.get(`plugin:${server.pluginId}`) : undefined
+  return {
+    ...entry.extraHeaders,
+    ...(token ? { Authorization: `${entry.authScheme} ${token}` } : {})
+  }
 }
 
 /**
@@ -69,49 +115,66 @@ export function serverName(serverId: string): string {
  *
  * The MCP SDK spawns with `shell: false`, and most servers are published as
  * npm bins — on Windows those are `.cmd` shims, which Node has refused to spawn
- * directly since the CVE-2024-27980 fix (it throws EINVAL). Both servers we
- * ship by default use `npx`, so without this they fail to start on Windows
- * while working fine everywhere else. Routing through `cmd.exe /c` runs the
- * shim as intended; anything already ending in `.exe`, and every non-Windows
- * platform, is passed through untouched.
+ * directly since the CVE-2024-27980 fix (it throws EINVAL). Routing through
+ * `cmd.exe /c` runs the shim as intended; anything already ending in `.exe`,
+ * and every non-Windows platform, is passed through untouched.
  */
-/**
- * Auth and vendor-specific headers for an HTTP server. Plugin tokens live in
- * the encrypted vault keyed by `plugin:<id>`; a hand-added custom server has
- * none and simply connects unauthenticated.
- */
-function httpHeadersFor(server: McpServer): Record<string, string> {
-  if (!server.pluginId) return {}
-  const entry = MCP_CATALOG.find((e) => e.id === server.pluginId)
-  if (!entry) return {}
-  const token = secrets.get(`plugin:${server.pluginId}`)
-  return {
-    ...entry.extraHeaders,
-    ...(token ? { Authorization: `${entry.authScheme} ${token}` } : {})
-  }
-}
-
 function resolveLaunch(command: string, args: string[]): { command: string; args: string[] } {
   if (process.platform !== 'win32') return { command, args }
   if (/\.(exe|com)$/i.test(command)) return { command, args }
   return { command: process.env.COMSPEC ?? 'cmd.exe', args: ['/c', command, ...args] }
 }
 
+const isAuthFailure = (error: unknown): boolean =>
+  error instanceof SignInRequiredError ||
+  error instanceof UnauthorizedError ||
+  (error instanceof StreamableHTTPError && error.code === 401)
+
+/** Turns a failed connect into something a person can act on. */
+function describeFailure(server: McpServer, auth: HttpAuth | null, error: unknown): Pick<McpServerStatus, 'state' | 'error'> {
+  const message = error instanceof Error ? error.message : String(error)
+  if (auth === 'oauth' && isAuthFailure(error)) return { state: 'needs-auth', error: 'Sign in to connect' }
+  if (auth === 'token' && isAuthFailure(error)) {
+    return { state: 'error', error: 'The token was rejected (HTTP 401). Paste a new one.' }
+  }
+  // spawn ENOENT: the command is not on PATH. Worth spelling out, since a
+  // Dock-launched app only sees the login shell's PATH (see shellEnv.ts).
+  if (server.transport === 'stdio' && /ENOENT/.test(message)) {
+    return { state: 'error', error: `"${server.command}" was not found on your PATH. Install it, or use its full path.` }
+  }
+  return { state: 'error', error: message }
+}
+
+/** All of a server's tools; servers with many page them with a cursor. */
+async function listAllTools(client: Client): Promise<Tool[]> {
+  const tools: Tool[] = []
+  let cursor: string | undefined
+  do {
+    const page = await client.listTools(cursor ? { cursor } : undefined)
+    tools.push(...page.tools)
+    cursor = page.nextCursor
+  } while (cursor && tools.length < 2000)
+  return tools
+}
+
 async function connect(server: McpServer): Promise<void> {
   await disconnect(server.id)
-  setStatus(server.id, { state: 'starting', toolCount: 0 })
+  setStatus(server.id, { state: 'starting', toolCount: 0, error: undefined })
+  const auth = server.transport === 'http' ? httpAuthFor(server) : null
 
   try {
     const client = new Client({ name: 'eaon-desktop', version: '0.1.0' })
 
     if (server.transport === 'http') {
       if (!server.url) throw new Error('No URL configured')
-      // Catalog plugins authenticate with a token held in the encrypted vault,
-      // never in mcp.json. The scheme is per-vendor (Sentry and Semrush do not
-      // use "Bearer"), so it comes from the catalog entry rather than assumed.
+      // Token plugins send their vault token as a header (the scheme is
+      // per-vendor: Sentry and Semrush do not use "Bearer"). OAuth servers get
+      // a background auth provider, which supplies stored tokens and lets the
+      // SDK refresh them on a 401 — but never opens a browser on its own.
       await client.connect(
         new StreamableHTTPClientTransport(new URL(server.url), {
-          requestInit: { headers: httpHeadersFor(server) }
+          requestInit: { headers: httpHeadersFor(server) },
+          authProvider: auth === 'oauth' ? new McpOAuthProvider(server.id, server.url) : undefined
         })
       )
     } else {
@@ -121,15 +184,15 @@ async function connect(server: McpServer): Promise<void> {
         new StdioClientTransport({
           command: launch.command,
           args: launch.args,
-          // Inherit the user's PATH so `npx`, `uvx` etc. resolve; the server's
-          // own env entries take precedence.
+          // process.env.PATH is the login shell's by now (adoptLoginShellPath
+          // runs before anything connects), so `npx`, `uvx` etc. resolve from
+          // a Dock launch too. The server's own env entries take precedence.
           env: { ...(process.env as Record<string, string>), ...server.env }
         })
       )
     }
 
-    const listed = await client.listTools()
-    const tools: McpTool[] = listed.tools.map((tool) => ({
+    const tools: McpTool[] = (await listAllTools(client)).map((tool) => ({
       name: tool.name,
       description: tool.description ?? '',
       serverId: server.id,
@@ -143,17 +206,23 @@ async function connect(server: McpServer): Promise<void> {
       tools,
       status: { serverId: server.id, state: 'ready', toolCount: tools.length }
     })
+    // A stdio server that exits, or a stream the server drops, would otherwise
+    // keep showing "ready" with tools that can no longer be called.
+    client.onclose = () => {
+      if (connections.get(server.id)?.client !== client) return
+      connections.set(server.id, {
+        client: null as never,
+        tools: [],
+        status: { serverId: server.id, state: 'error', toolCount: 0, error: 'The server closed the connection' }
+      })
+      publish()
+    }
     publish()
   } catch (error) {
     connections.set(server.id, {
       client: null as never,
       tools: [],
-      status: {
-        serverId: server.id,
-        state: 'error',
-        toolCount: 0,
-        error: error instanceof Error ? error.message : String(error)
-      }
+      status: { serverId: server.id, toolCount: 0, ...describeFailure(server, auth, error) }
     })
     publish()
   }
@@ -161,6 +230,8 @@ async function connect(server: McpServer): Promise<void> {
 
 async function disconnect(serverId: string): Promise<void> {
   const existing = connections.get(serverId)
+  // Removed first so the client's onclose knows this close was ours.
+  connections.delete(serverId)
   if (existing?.client) {
     try {
       await existing.client.close()
@@ -168,7 +239,6 @@ async function disconnect(serverId: string): Promise<void> {
       /* the process may already be gone; nothing useful to do */
     }
   }
-  connections.delete(serverId)
 }
 
 /** Bring live connections in line with what's enabled in settings. */
@@ -179,16 +249,30 @@ export async function syncMcpServers(): Promise<void> {
   for (const id of [...connections.keys()]) {
     if (!enabled.some((s) => s.id === id)) {
       await disconnect(id)
-      setStatus(id, { state: 'stopped', toolCount: 0 })
+      setStatus(id, { state: 'stopped', toolCount: 0, error: undefined })
     }
   }
 
   await Promise.all(
     enabled
-      .filter((server) => connections.get(server.id)?.status.state !== 'ready')
+      // A server waiting on a sign-in stays that way until the user signs in;
+      // retrying it on every sync would only repeat the same 401.
+      .filter((server) => !['ready', 'starting', 'needs-auth'].includes(connections.get(server.id)?.status.state ?? ''))
       .map((server) => connect(server))
   )
   publish()
+}
+
+/** Reconnects one server now, e.g. right after it was signed in to. */
+export async function reconnectMcpServer(serverId: string): Promise<McpServerStatus | undefined> {
+  const server = store.getMcpServers().find((s) => s.id === serverId)
+  if (!server) return undefined
+  if (server.enabled) await connect(server)
+  else {
+    await disconnect(serverId)
+    publish()
+  }
+  return getStatuses().find((s) => s.serverId === serverId)
 }
 
 export async function shutdownMcp(): Promise<void> {
@@ -207,9 +291,20 @@ export async function callMcpTool(
   const connection = connections.get(tool.serverId)
   if (!connection?.client) throw new Error(`Server for "${toolName}" is not connected`)
 
-  const result = await connection.client.callTool({ name: toolName, arguments: args }, undefined, {
-    timeout: timeoutMs
-  })
+  let result: Awaited<ReturnType<Client['callTool']>>
+  try {
+    result = await connection.client.callTool({ name: toolName, arguments: args }, undefined, {
+      timeout: timeoutMs
+    })
+  } catch (error) {
+    // The token expired and could not be refreshed mid-session. Say so
+    // plainly, and flip the server to "Sign in" so the Plugins page offers it.
+    if (isAuthFailure(error)) {
+      setStatus(tool.serverId, { state: 'needs-auth', error: 'Sign in to connect' })
+      throw new Error(`${serverName(tool.serverId)} needs you to sign in again (Plugins → ${serverName(tool.serverId)}).`)
+    }
+    throw error
+  }
 
   // Tool results are content blocks; flatten the text ones, which is what a
   // chat model can actually consume.

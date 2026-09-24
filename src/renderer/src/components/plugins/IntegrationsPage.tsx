@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react'
-import { Plus, Settings, Trash2 } from 'lucide-react'
+import { Settings } from 'lucide-react'
 import { useApp } from '../../state/store'
 import { CollapsedNav } from '../CollapsedNav'
-import { BrandIcon, SkillIcon } from '../../icons/brand'
-import { CORE_PLUGINS, SKILLS } from '../../lib/catalog'
-import { Modal, SearchField, Switch } from '../ui'
-import type { McpServer } from '@shared/types'
+import { SkillIcon } from '../../icons/brand'
+import { SearchField, Switch } from '../ui'
+import { PluginLogo } from './PluginLogo'
+import { useConnectedPlugins, useSkills } from './usePlugins'
 
 type Tab = 'plugins' | 'mcps' | 'skills'
 
@@ -14,17 +14,23 @@ export function IntegrationsPage(): JSX.Element {
   const [tab, setTab] = useState<Tab>('plugins')
   const [query, setQuery] = useState('')
 
-  const disabledPlugins = settings?.disabledPlugins ?? []
   const disabledSkills = settings?.disabledSkills ?? []
   const q = query.trim().toLowerCase()
+  const connected = useConnectedPlugins()
+  const { skills: allSkills } = useSkills()
 
+  // Connected plugins only: this page switches them on and off. Connecting
+  // new ones happens on the Plugins page, where each one's sign-in lives.
   const plugins = useMemo(
-    () => CORE_PLUGINS.filter((p) => !q || p.name.toLowerCase().includes(q) || p.description.toLowerCase().includes(q)),
-    [q]
+    () =>
+      connected.filter(
+        ({ entry }) => !q || entry.displayName.toLowerCase().includes(q) || entry.summary.toLowerCase().includes(q)
+      ),
+    [connected, q]
   )
   const skills = useMemo(
-    () => SKILLS.filter((s) => !q || s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q)),
-    [q]
+    () => allSkills.filter((s) => !q || s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q)),
+    [allSkills, q]
   )
   const servers = useMemo(() => mcpServers.filter((s) => !q || s.name.toLowerCase().includes(q)), [mcpServers, q])
 
@@ -41,9 +47,9 @@ export function IntegrationsPage(): JSX.Element {
             <div className="manager__tabs">
               {(
                 [
-                  ['plugins', 'Plugins', CORE_PLUGINS.length],
+                  ['plugins', 'Plugins', connected.length],
                   ['mcps', 'MCPs', mcpServers.length],
-                  ['skills', 'Skills', SKILLS.length]
+                  ['skills', 'Skills', allSkills.length]
                 ] as const
               ).map(([value, label, count]) => (
                 <button
@@ -62,23 +68,24 @@ export function IntegrationsPage(): JSX.Element {
             </div>
           </div>
 
+          {tab === 'plugins' && plugins.length === 0 && (
+            <div style={{ padding: '32px 0', color: 'var(--text-3)' }}>
+              {q ? 'No connected plugins match' : 'No plugins connected yet — connect them on the Plugins page'}
+            </div>
+          )}
           {tab === 'plugins' &&
-            plugins.map((plugin) => (
-              <div key={plugin.id} className="manager__row">
-                <BrandIcon id={plugin.id} size={38} />
+            plugins.map(({ entry, server }) => (
+              <div key={entry.id} className="manager__row">
+                <PluginLogo logo={entry.logoAssetName} name={entry.displayName} size={38} />
                 <div className="entry__body">
-                  <span className="entry__title">{plugin.name}</span>
-                  <span className="entry__desc">{plugin.description}</span>
+                  <span className="entry__title">{entry.displayName}</span>
+                  <span className="entry__desc">{entry.summary}</span>
                 </div>
                 <Switch
-                  label={plugin.name}
-                  checked={!disabledPlugins.includes(plugin.id)}
+                  label={entry.displayName}
+                  checked={server.enabled}
                   onChange={(on) =>
-                    void patchSettings({
-                      disabledPlugins: on
-                        ? disabledPlugins.filter((d) => d !== plugin.id)
-                        : [...disabledPlugins, plugin.id]
-                    })
+                    void saveMcpServers(mcpServers.map((s) => (s.id === server.id ? { ...s, enabled: on } : s)))
                   }
                 />
               </div>
@@ -125,19 +132,19 @@ export function IntegrationsPage(): JSX.Element {
 
           {tab === 'skills' &&
             skills.map((skill) => (
-              <div key={skill.id} className="manager__row">
+              <div key={skill.path} className="manager__row">
                 <SkillIcon size={38} />
                 <div className="entry__body">
                   <span className="entry__title">{skill.name}</span>
                   <span className="entry__desc">{skill.description}</span>
                 </div>
-                <span className="manager__row-label">Personal</span>
+                <span className="manager__row-label">{skill.source.startsWith('project') ? 'Project' : 'Personal'}</span>
                 <Switch
                   label={skill.name}
-                  checked={!disabledSkills.includes(skill.id)}
+                  checked={!disabledSkills.includes(skill.name)}
                   onChange={(on) =>
                     void patchSettings({
-                      disabledSkills: on ? disabledSkills.filter((d) => d !== skill.id) : [...disabledSkills, skill.id]
+                      disabledSkills: on ? disabledSkills.filter((d) => d !== skill.name) : [...disabledSkills, skill.name]
                     })
                   }
                 />
