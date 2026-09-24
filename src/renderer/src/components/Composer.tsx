@@ -26,7 +26,9 @@ import {
 import { useApp, useIsWork } from '../state/store'
 import { MenuItem, MenuSearch, MenuSeparator, Popover, useDisclosure } from './ui'
 import { BrandIcon } from '../icons/brand'
-import { CORE_PLUGINS } from '../lib/catalog'
+import { MCP_CATALOG, mcpCatalogEntry } from '@shared/mcpCatalog'
+import { PluginLogo } from './plugins/PluginLogo'
+import { useConnectedPlugins, useMcpStatuses } from './plugins/usePlugins'
 import type { EffortLevel, ModelInfo } from '@shared/types'
 
 const EFFORT_LABEL: Record<EffortLevel, string> = {
@@ -286,11 +288,7 @@ export function Composer({ variant = 'home' }: { variant?: 'home' | 'chat' }): J
           data-open={pluginsMenu.open || undefined}
           onClick={pluginsMenu.toggle}
         >
-          <span className="plugin-stack">
-            {CORE_PLUGINS.slice(0, 3).map((plugin) => (
-              <BrandIcon key={plugin.id} id={plugin.id} size={17} />
-            ))}
-          </span>
+          <PluginStack />
           <span className="chip__label">Plugins</span>
         </button>
 
@@ -682,6 +680,23 @@ function ModelSubmenu({
 
 /* ------------------------------------------------------------- Plugins menu */
 
+/**
+ * The tray's three marks: plugins switched on come first, so the stack says
+ * what the agent can actually use; the catalog fills the rest.
+ */
+function PluginStack(): JSX.Element {
+  const connected = useConnectedPlugins()
+  const on = connected.filter((c) => c.server.enabled).map((c) => c.entry)
+  const shown = [...on, ...MCP_CATALOG.filter((entry) => !on.includes(entry) && entry.logoAssetName)].slice(0, 3)
+  return (
+    <span className="plugin-stack">
+      {shown.map((entry) => (
+        <PluginLogo key={entry.id} logo={entry.logoAssetName} name={entry.displayName} size={17} />
+      ))}
+    </span>
+  )
+}
+
 function PluginsMenu({
   anchor,
   open,
@@ -692,32 +707,43 @@ function PluginsMenu({
   onClose: () => void
 }): JSX.Element {
   const [query, setQuery] = useState('')
-  const { settings, patchSettings, setView } = useApp(useShallow((s) => ({ settings: s.settings, patchSettings: s.patchSettings, setView: s.setView })))
+  const { mcpServers, saveMcpServers, setView } = useApp(
+    useShallow((s) => ({ mcpServers: s.mcpServers, saveMcpServers: s.saveMcpServers, setView: s.setView }))
+  )
+  const statuses = useMcpStatuses()
   const connectRow = useRef<HTMLDivElement>(null)
   const [subOpen, setSubOpen] = useState(false)
 
-  const installed = CORE_PLUGINS.filter((p) => settings?.installedPlugins.includes(p.id))
-  const results = installed.filter((p) => p.name.toLowerCase().includes(query.trim().toLowerCase()))
-  const disabled = settings?.disabledPlugins ?? []
+  // Every configured server: connected catalog plugins first, then servers
+  // added by hand. Toggling one switches its connection on or off, which is
+  // what decides whether the agent gets its tools.
+  const servers = [...mcpServers].sort((a, b) => Number(Boolean(b.pluginId)) - Number(Boolean(a.pluginId)))
+  const results = servers.filter((s) => s.name.toLowerCase().includes(query.trim().toLowerCase()))
 
   const toggle = (id: string): void => {
-    const next = disabled.includes(id) ? disabled.filter((d) => d !== id) : [...disabled, id]
-    void patchSettings({ disabledPlugins: next })
+    void saveMcpServers(mcpServers.map((s) => (s.id === id ? { ...s, enabled: !s.enabled } : s)))
   }
 
   return (
-    <Popover anchor={anchor} open={open} onClose={onClose} placement="top-start" width={215}>
+    <Popover anchor={anchor} open={open} onClose={onClose} placement="top-start" width={240}>
       <MenuSearch value={query} onChange={setQuery} placeholder="Search plugins..." />
-      {results.map((plugin) => (
-        <MenuItem
-          key={plugin.id}
-          icon={<BrandIcon id={plugin.id} size={18} />}
-          title={plugin.name}
-          checked={!disabled.includes(plugin.id)}
-          onClick={() => toggle(plugin.id)}
-        />
-      ))}
-      {results.length === 0 && <div className="menu__empty">No plugins found</div>}
+      {results.map((server) => {
+        const entry = server.pluginId ? mcpCatalogEntry(server.pluginId) : undefined
+        const state = statuses.find((s) => s.serverId === server.id)?.state
+        return (
+          <MenuItem
+            key={server.id}
+            icon={<PluginLogo logo={entry?.logoAssetName} name={server.name} size={18} />}
+            title={server.name}
+            hint={server.enabled && state === 'needs-auth' ? 'Sign in' : server.enabled && state === 'error' ? 'Error' : undefined}
+            checked={server.enabled}
+            onClick={() => toggle(server.id)}
+          />
+        )
+      })}
+      {results.length === 0 && (
+        <div className="menu__empty">{mcpServers.length === 0 ? 'No plugins connected' : 'No plugins found'}</div>
+      )}
 
       <div ref={connectRow} onMouseEnter={() => setSubOpen(true)}>
         <MenuItem

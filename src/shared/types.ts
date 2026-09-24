@@ -386,7 +386,8 @@ export interface McpTool {
 
 export interface McpServerStatus {
   serverId: string
-  state: 'stopped' | 'starting' | 'ready' | 'error'
+  /** `needs-auth`: the server wants a browser sign-in (none yet, or it expired and could not be refreshed). */
+  state: 'stopped' | 'starting' | 'ready' | 'error' | 'needs-auth'
   toolCount: number
   error?: string
 }

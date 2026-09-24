@@ -30,7 +30,13 @@ export const shell = {
     const { rm } = await import('node:fs/promises')
     await rm(path, { recursive: true, force: true })
   },
-  openExternal: async () => {},
+  // Tests that drive a browser sign-in set globalThis.__eaonOpenExternal to
+  // play the browser's part.
+  openExternal: async (url: string) => {
+    const hook = (globalThis as { __eaonOpenExternal?: (url: string) => Promise<void> | void }).__eaonOpenExternal
+    await hook?.(url)
+  },
+  openPath: async () => '',
   showItemInFolder: () => {}
 }
 

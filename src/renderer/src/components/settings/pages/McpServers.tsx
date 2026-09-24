@@ -187,12 +187,27 @@ function ServerCard({
 }): JSX.Element {
   const dotColor =
     status.state === 'ready'
-      ? '#34d399'
+      ? 'var(--diff-add-fg)'
       : status.state === 'starting'
-        ? '#fbbf24'
-        : status.state === 'error'
+        ? 'var(--text-3)'
+        : status.state === 'error' || status.state === 'needs-auth'
           ? 'var(--danger)'
           : 'var(--text-4)'
+  const [signingIn, setSigningIn] = useState(false)
+  const [signInError, setSignInError] = useState<string | null>(null)
+
+  // Any HTTP server that answers 401 gets the same browser sign-in as the
+  // catalog plugins; the result lands in the vault, keyed by this server.
+  const signIn = async (): Promise<void> => {
+    setSigningIn(true)
+    setSignInError(null)
+    try {
+      const result = await window.api.pluginAuth.signIn({ serverId: server.id })
+      if (!result.ok) setSignInError(result.error ?? 'Sign-in failed')
+    } finally {
+      setSigningIn(false)
+    }
+  }
 
   return (
     <Card>
@@ -235,8 +250,26 @@ function ServerCard({
               {status.error}
             </div>
           )}
+          {status.state === 'needs-auth' && (
+            <div className="row__desc">This server asks you to sign in through your browser.</div>
+          )}
+          {signInError && (
+            <div className="row__desc" style={{ color: 'var(--danger)' }}>
+              {signInError}
+            </div>
+          )}
         </div>
         <div className="row__trail">
+          {status.state === 'needs-auth' &&
+            (signingIn ? (
+              <button className="btn btn--sm" onClick={() => void window.api.pluginAuth.cancelSignIn({ serverId: server.id })}>
+                Cancel sign-in
+              </button>
+            ) : (
+              <button className="btn btn--primary btn--sm" onClick={() => void signIn()}>
+                Sign in
+              </button>
+            ))}
           <button className="icon-btn" aria-label="Edit server" onClick={onEdit}>
             <Pencil size={15} strokeWidth={1.9} />
           </button>

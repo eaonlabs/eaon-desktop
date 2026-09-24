@@ -1,14 +1,27 @@
-// The built-in MCP plugin catalog, carried over verbatim from the previous
-// app (eaon-tauri/src/core/mcpCatalog.ts, itself a port of MCPCatalog.swift). Every entry here is genuinely connectable today, either
-// a static token pasted into the app or a real browser sign-in — verified
-// against the vendor's own live server before being added, never guessed.
+// The built-in MCP plugin catalog. Every entry is a hosted server run by the
+// vendor itself and is connectable today in one of three ways: no auth at all
+// (one click), a token pasted into the app, or a browser sign-in (OAuth 2.1 +
+// PKCE, see src/main/mcpOAuth.ts).
 //
-// Deliberately NOT a full wishlist: services that turned out to be blocked
-// (OAuth-only with no self-registration and no way around it, no hosted
-// server at all, or a live endpoint that doesn't actually work yet) were
-// left out entirely rather than kept as a permanently-disabled row.
+// Every entry is checked against the vendor's live server by
+// `node scripts/verify-plugins.mjs`, which walks the same discovery the app's
+// sign-in does and, for self-registering servers, registers a client and
+// requests the authorization URL. Last full run: 2026-09-23, all passing.
+// Re-run it before adding or changing an entry; never add one on a guess.
+//
+// Deliberately NOT a wishlist. Removed or left out after verification:
+//   - Figma (mcp.figma.com): its registration endpoint answers 403 to any
+//     client outside Figma's own allowlist, and there is no manual-app route,
+//     so the sign-in cannot complete for Eaon.
+//   - Stack Overflow, Hex: answer 401/403 but publish no OAuth metadata, so
+//     there is nothing to sign in against.
+//   - Gamma: registration endpoint rejects new clients.
+//   - Smartsheet: no registration endpoint and no PKCE advertised.
+//   - Ahrefs: registers fine, but its authorize page sits behind a bot
+//     challenge the verifier cannot get past, so the flow is unproven.
+//   - Coda, Circleback, Pulumi: no hosted MCP endpoint answered.
 
-export type McpAuthMode = "pastedToken" | "oauth";
+export type McpAuthMode = "pastedToken" | "oauth" | "none";
 
 export interface McpCatalogEntry {
   id: string;
@@ -30,12 +43,22 @@ export interface McpCatalogEntry {
   /** An extra line for a service whose token needs something non-obvious to
    *  actually work (e.g. Cloudflare's "Account Resources: Read"). */
   tokenHint?: string;
-  /** For "oauth" servers that don't support Dynamic Client Registration —
-   *  verified case by case — where to go create one, and what to configure. */
+  /** For "oauth" servers without Dynamic Client Registration — verified case
+   *  by case — where to go create an app, and what to configure. The UI asks
+   *  for that app's client id before signing in. */
   manualClientIdSetupURL?: string;
   manualClientIdHint?: string;
-  /** Basename in `renderer/src/assets/plugins` (with extension). */
-  logoAssetName: string;
+  /** Verified to have no registration endpoint: the client id form is shown
+   *  up front. Without it, the manual fields only appear if registration
+   *  fails at sign-in time (Dropbox keeps its setup link for that case). */
+  noDynamicRegistration?: boolean;
+  /** The vendor's token endpoint only accepts confidential clients (its
+   *  metadata lists no "none" auth method), so the app's secret is needed too. */
+  manualClientNeedsSecret?: boolean;
+  /** Basename in `renderer/src/assets/plugins` (with extension). Only official
+   *  marks (Simple Icons, CC0, or the vendor's press kit); without one the UI
+   *  draws a monogram rather than something that looks like a logo but isn't. */
+  logoAssetName?: string;
 }
 
 /** A pre-filled "create a token" deep link — verified against GitHub's
@@ -54,11 +77,39 @@ function githubTokenCreationURL(): string {
 }
 
 /**
- * The loopback redirect URI an OAuth server's manual app setup would register.
- * Kept for parity with the entries below, but note this app does not implement
- * the OAuth flow yet — see `authMode` on each entry.
+ * Where the browser comes back after an OAuth sign-in: a loopback listener the
+ * main process opens only while a sign-in is waiting (RFC 8252 §7.3). The port
+ * is fixed rather than ephemeral because servers without Dynamic Client
+ * Registration need the exact URI typed into an app the user creates by hand.
  */
-export const MCP_OAUTH_REDIRECT_URI = 'http://127.0.0.1:51849/callback'
+export const MCP_OAUTH_REDIRECT_URI = "http://127.0.0.1:51849/callback";
+
+/**
+ * What Eaon registers as with servers that support Dynamic Client
+ * Registration. A native app cannot keep a secret, so it registers as a
+ * public client and relies on PKCE — the verifier script registers with this
+ * exact object so a pass there means the app's registration works too.
+ */
+export const MCP_OAUTH_CLIENT_METADATA = {
+  client_name: "Eaon",
+  client_uri: "https://github.com/eaonlabs/eaon-desktop",
+  redirect_uris: [MCP_OAUTH_REDIRECT_URI],
+  grant_types: ["authorization_code", "refresh_token"],
+  response_types: ["code"],
+  token_endpoint_auth_method: "none",
+};
+
+/** Shorthand for the entries that need nothing but an endpoint. */
+const open = (id: string, displayName: string, summary: string, endpoint: string, logoAssetName?: string): McpCatalogEntry => ({
+  id, displayName, summary, endpoint, authMode: "none", authScheme: "Bearer", extraHeaders: {},
+  tokenCreationURLIsPrefilled: false, tokenFieldPlaceholder: "", logoAssetName,
+});
+
+/** Shorthand for browser sign-in entries whose server self-registers clients. */
+const oauth = (id: string, displayName: string, summary: string, endpoint: string, logoAssetName?: string): McpCatalogEntry => ({
+  id, displayName, summary, endpoint, authMode: "oauth", authScheme: "Bearer", extraHeaders: {},
+  tokenCreationURLIsPrefilled: false, tokenFieldPlaceholder: "", logoAssetName,
+});
 
 export const MCP_CATALOG: McpCatalogEntry[] = [
   {
@@ -147,48 +198,24 @@ export const MCP_CATALOG: McpCatalogEntry[] = [
     tokenFieldPlaceholder: "Paste a Resend API key",
     logoAssetName: "resend.svg",
   },
-  {
-    id: "notion", displayName: "Notion", summary: "Pages, databases, and docs.",
-    endpoint: "https://mcp.notion.com/mcp", authMode: "oauth", authScheme: "Bearer", extraHeaders: {},
-    tokenCreationURLIsPrefilled: false, tokenFieldPlaceholder: "",
-    logoAssetName: "notion.svg",
-  },
-  {
-    id: "vercel", displayName: "Vercel", summary: "Deployments, projects, and domains.",
-    endpoint: "https://mcp.vercel.com", authMode: "oauth", authScheme: "Bearer", extraHeaders: {},
-    tokenCreationURLIsPrefilled: false, tokenFieldPlaceholder: "",
-    logoAssetName: "vercel.svg",
-  },
-  {
-    id: "launchdarkly", displayName: "LaunchDarkly", summary: "Feature flags and targeting.",
-    endpoint: "https://mcp.launchdarkly.com/mcp/launchdarkly", authMode: "oauth", authScheme: "Bearer", extraHeaders: {},
-    tokenCreationURLIsPrefilled: false, tokenFieldPlaceholder: "",
-    logoAssetName: "launchdarkly.svg",
-  },
+  oauth("notion", "Notion", "Pages, databases, and docs.", "https://mcp.notion.com/mcp", "notion.svg"),
+  oauth("vercel", "Vercel", "Deployments, projects, and domains.", "https://mcp.vercel.com", "vercel.svg"),
+  oauth("launchdarkly", "LaunchDarkly", "Feature flags and targeting.", "https://mcp.launchdarkly.com/mcp/launchdarkly", "launchdarkly.svg"),
   {
     id: "slack", displayName: "Slack", summary: "Messages, channels, and threads.",
     endpoint: "https://mcp.slack.com/mcp", authMode: "oauth", authScheme: "Bearer", extraHeaders: {},
     tokenCreationURLIsPrefilled: false, tokenFieldPlaceholder: "",
-    // Verified live: Slack's server has real OAuth discovery but no
-    // registration_endpoint — no self-service registration exists, so
-    // (unlike Notion/Vercel/LaunchDarkly) this needs a client ID from an
-    // app you create yourself first.
+    // Verified live: real OAuth discovery but no registration_endpoint, and
+    // the token endpoint only takes client_secret_post — so this needs an
+    // app you create yourself, secret included.
     manualClientIdSetupURL: "https://api.slack.com/apps",
-    manualClientIdHint: `Create a new app → OAuth & Permissions → add redirect URL ${MCP_OAUTH_REDIRECT_URI} → copy the Client ID from Basic Information.`,
+    manualClientIdHint: `Create a new app → OAuth & Permissions → add redirect URL ${MCP_OAUTH_REDIRECT_URI} → copy the Client ID and Client Secret from Basic Information.`,
+    manualClientNeedsSecret: true,
+    noDynamicRegistration: true,
     logoAssetName: "slack.svg",
   },
-  {
-    id: "clickup", displayName: "ClickUp", summary: "Tasks, docs, and spaces.",
-    endpoint: "https://mcp.clickup.com/mcp", authMode: "oauth", authScheme: "Bearer", extraHeaders: {},
-    tokenCreationURLIsPrefilled: false, tokenFieldPlaceholder: "",
-    logoAssetName: "clickup.svg",
-  },
-  {
-    id: "trello", displayName: "Trello", summary: "Boards, cards, and lists.",
-    endpoint: "https://mcp.trello.com/v1", authMode: "oauth", authScheme: "Bearer", extraHeaders: {},
-    tokenCreationURLIsPrefilled: false, tokenFieldPlaceholder: "",
-    logoAssetName: "trello.svg",
-  },
+  oauth("clickup", "ClickUp", "Tasks, docs, and spaces.", "https://mcp.clickup.com/mcp", "clickup.svg"),
+  oauth("trello", "Trello", "Boards, cards, and lists.", "https://mcp.trello.com/v1", "trello.svg"),
   {
     id: "airtable", displayName: "Airtable", summary: "Bases, tables, and records.",
     endpoint: "https://mcp.airtable.com/mcp", authMode: "pastedToken", authScheme: "Bearer", extraHeaders: {},
@@ -197,48 +224,35 @@ export const MCP_CATALOG: McpCatalogEntry[] = [
     tokenHint: "Needs data.records:read/write, schema.bases:read/write, and workspacesAndBases:read — pick these scopes on Airtable's token creation page before generating it.",
     logoAssetName: "airtable.svg",
   },
-  {
-    id: "monday", displayName: "monday.com", summary: "Boards, items, and updates.",
-    endpoint: "https://mcp.monday.com/mcp", authMode: "oauth", authScheme: "Bearer", extraHeaders: {},
-    tokenCreationURLIsPrefilled: false, tokenFieldPlaceholder: "",
-    logoAssetName: "monday.png",
-  },
+  oauth("monday", "monday.com", "Boards, items, and updates.", "https://mcp.monday.com/mcp", "monday.png"),
   {
     id: "asana", displayName: "Asana", summary: "Tasks, projects, and portfolios.",
     endpoint: "https://mcp.asana.com/v2/mcp", authMode: "oauth", authScheme: "Bearer", extraHeaders: {},
     tokenCreationURLIsPrefilled: false, tokenFieldPlaceholder: "",
-    // Verified live: Asana's authorization server has no registration_endpoint.
+    // Verified live: no registration_endpoint; token endpoint takes only
+    // client_secret_post / client_secret_basic.
     manualClientIdSetupURL: "https://app.asana.com/0/my-apps",
-    manualClientIdHint: `Create new app → type "MCP app" → add redirect URL ${MCP_OAUTH_REDIRECT_URI} → copy the Client ID.`,
+    manualClientIdHint: `Create new app → type "MCP app" → add redirect URL ${MCP_OAUTH_REDIRECT_URI} → copy the Client ID and Client secret.`,
+    manualClientNeedsSecret: true,
+    noDynamicRegistration: true,
     logoAssetName: "asana.svg",
   },
   {
     id: "hubspot", displayName: "HubSpot", summary: "Contacts, deals, and tickets.",
     endpoint: "https://mcp.hubspot.com", authMode: "oauth", authScheme: "Bearer", extraHeaders: {},
     tokenCreationURLIsPrefilled: false, tokenFieldPlaceholder: "",
-    // Verified live: HubSpot's discovery doc has no registration_endpoint.
+    // Verified live: no registration_endpoint; client_secret_post only.
     manualClientIdSetupURL: "https://app.hubspot.com/",
-    manualClientIdHint: `Development → MCP Auth Apps → Create MCP auth app → add redirect URL ${MCP_OAUTH_REDIRECT_URI} → copy the Client ID.`,
+    manualClientIdHint: `Development → MCP Auth Apps → Create MCP auth app → add redirect URL ${MCP_OAUTH_REDIRECT_URI} → copy the Client ID and Client secret.`,
+    manualClientNeedsSecret: true,
+    noDynamicRegistration: true,
     logoAssetName: "hubspot.svg",
   },
-  {
-    id: "intercom", displayName: "Intercom", summary: "Conversations, contacts, and tickets.",
-    endpoint: "https://mcp.intercom.com/mcp", authMode: "oauth", authScheme: "Bearer", extraHeaders: {},
-    tokenCreationURLIsPrefilled: false, tokenFieldPlaceholder: "",
-    logoAssetName: "intercom.svg",
-  },
-  {
-    id: "attio", displayName: "Attio", summary: "Records, lists, and notes.",
-    endpoint: "https://mcp.attio.com/mcp", authMode: "oauth", authScheme: "Bearer", extraHeaders: {},
-    tokenCreationURLIsPrefilled: false, tokenFieldPlaceholder: "",
-    logoAssetName: "attio.png",
-  },
-  {
-    id: "gitlab", displayName: "GitLab", summary: "Repos, issues, and merge requests.",
-    endpoint: "https://gitlab.com/api/v4/mcp", authMode: "oauth", authScheme: "Bearer", extraHeaders: {},
-    tokenCreationURLIsPrefilled: false, tokenFieldPlaceholder: "",
-    logoAssetName: "gitlab.svg",
-  },
+  // No RFC 9728 document, but its authorization server metadata sits at the
+  // origin, which the SDK falls back to — verified to register and authorize.
+  oauth("intercom", "Intercom", "Conversations, contacts, and tickets.", "https://mcp.intercom.com/mcp", "intercom.svg"),
+  oauth("attio", "Attio", "Records, lists, and notes.", "https://mcp.attio.com/mcp", "attio.png"),
+  oauth("gitlab", "GitLab", "Repos, issues, and merge requests.", "https://gitlab.com/api/v4/mcp", "gitlab.svg"),
   {
     id: "pagerduty", displayName: "PagerDuty", summary: "Incidents, on-call, and services.",
     endpoint: "https://mcp.pagerduty.com/mcp", authMode: "oauth", authScheme: "Bearer", extraHeaders: {},
@@ -246,7 +260,9 @@ export const MCP_CATALOG: McpCatalogEntry[] = [
     // Verified live: no registration_endpoint, and PagerDuty's own docs say
     // Dynamic Client Registration isn't supported.
     manualClientIdSetupURL: "https://developer.pagerduty.com/apps",
-    manualClientIdHint: `Create a new app → OAuth 2.0 → add redirect URL ${MCP_OAUTH_REDIRECT_URI} → copy the Client ID.`,
+    manualClientIdHint: `Create a new app → OAuth 2.0 → add redirect URL ${MCP_OAUTH_REDIRECT_URI} → copy the Client ID and Client Secret.`,
+    manualClientNeedsSecret: true,
+    noDynamicRegistration: true,
     logoAssetName: "pagerduty.svg",
   },
   {
@@ -257,36 +273,72 @@ export const MCP_CATALOG: McpCatalogEntry[] = [
     tokenHint: "This connects App Platform specifically — DigitalOcean also runs separate MCP endpoints per resource (Droplets, Databases, Kubernetes, and more) that aren't wired up here yet.",
     logoAssetName: "digitalocean.svg",
   },
-  {
-    id: "figma", displayName: "Figma", summary: "Files, frames, and comments.",
-    endpoint: "https://mcp.figma.com/mcp", authMode: "oauth", authScheme: "Bearer", extraHeaders: {},
-    tokenCreationURLIsPrefilled: false, tokenFieldPlaceholder: "",
-    logoAssetName: "figma.svg",
-  },
-  {
-    id: "exa", displayName: "Exa", summary: "AI-native web search.",
-    endpoint: "https://mcp.exa.ai/mcp", authMode: "oauth", authScheme: "Bearer", extraHeaders: {},
-    tokenCreationURLIsPrefilled: false, tokenFieldPlaceholder: "",
-    logoAssetName: "exa.svg",
-  },
-  {
-    id: "apify", displayName: "Apify", summary: "Web scraping and automation actors.",
-    endpoint: "https://mcp.apify.com", authMode: "oauth", authScheme: "Bearer", extraHeaders: {},
-    tokenCreationURLIsPrefilled: false, tokenFieldPlaceholder: "",
-    logoAssetName: "apify.svg",
-  },
+  // Answers anonymous requests with a free-tier quota, so it needs no sign-in.
+  open("exa", "Exa", "AI-native web search and page fetching.", "https://mcp.exa.ai/mcp", "exa.svg"),
+  oauth("apify", "Apify", "Web scraping and automation actors.", "https://mcp.apify.com", "apify.svg"),
   {
     id: "dropbox", displayName: "Dropbox", summary: "Files, folders, and sharing.",
     endpoint: "https://mcp.dropbox.com/mcp", authMode: "oauth", authScheme: "Bearer", extraHeaders: {},
     tokenCreationURLIsPrefilled: false, tokenFieldPlaceholder: "",
-    // Dropbox's discovery doc advertises a registration_endpoint, but
-    // self-registration for a client not already on their known-client
-    // allowlist is unconfirmed — a manual app is the safe default rather
-    // than risking a silent failure on first connect. If DCR does work for
-    // this client, live discovery finds that out and this hint never surfaces.
+    // Verified live: self-registration works for Eaon's client metadata and
+    // the authorize page accepts the result. The manual route stays as a
+    // fallback — it only surfaces if registration ever starts failing.
     manualClientIdSetupURL: "https://www.dropbox.com/developers/apps/",
     manualClientIdHint: `Create app → Scoped access → add redirect URI ${MCP_OAUTH_REDIRECT_URI} → copy the App key.`,
     logoAssetName: "dropbox.svg",
+  },
+
+  // Documentation and knowledge servers: public, read-only, no account needed.
+  open("context7", "Context7", "Up-to-date library docs and code examples.", "https://mcp.context7.com/mcp"),
+  open("deepwiki", "DeepWiki", "Ask questions about any public GitHub repository.", "https://mcp.deepwiki.com/mcp"),
+  open("huggingface", "Hugging Face", "Models, datasets, Spaces, and papers.", "https://huggingface.co/mcp", "huggingface.svg"),
+  open("microsoft-learn", "Microsoft Learn", "Microsoft and Azure documentation and code samples.", "https://learn.microsoft.com/api/mcp"),
+  open("aws-knowledge", "AWS Knowledge", "AWS documentation and regional availability.", "https://knowledge-mcp.global.api.aws"),
+  open("cloudflare-docs", "Cloudflare Docs", "Search Cloudflare's developer documentation.", "https://docs.mcp.cloudflare.com/mcp", "cloudflare.svg"),
+
+  // Browser sign-in, each verified to self-register and reach a login page.
+  // Atlassian publishes no RFC 9728 document; discovery falls back to its origin.
+  oauth("atlassian", "Atlassian", "Jira issues and Confluence pages.", "https://mcp.atlassian.com/v1/mcp", "atlassian.svg"),
+  oauth("canva", "Canva", "Designs, templates, and exports.", "https://mcp.canva.com/mcp"),
+  oauth("zapier", "Zapier", "Actions across the apps in your Zapier account.", "https://mcp.zapier.com/api/mcp/mcp", "zapier.svg"),
+  oauth("netlify", "Netlify", "Sites, deploys, and environment variables.", "https://netlify-mcp.netlify.app/mcp", "netlify.svg"),
+  oauth("webflow", "Webflow", "Sites, CMS collections, and pages.", "https://mcp.webflow.com/mcp", "webflow.svg"),
+  oauth("wix", "Wix", "Sites, stores, and bookings.", "https://mcp.wix.com/mcp", "wix.svg"),
+  oauth("paypal", "PayPal", "Invoices, orders, and transactions.", "https://mcp.paypal.com/mcp", "paypal.svg"),
+  oauth("square", "Square", "Payments, orders, catalog, and customers.", "https://mcp.squareup.com/mcp", "square.svg"),
+  oauth("cloudinary", "Cloudinary", "Upload, search, and transform media assets.", "https://asset-management.mcp.cloudinary.com/mcp", "cloudinary.svg"),
+  oauth("miro", "Miro", "Boards, diagrams, and sticky notes.", "https://mcp.miro.com/", "miro.svg"),
+  oauth("todoist", "Todoist", "Tasks, projects, and due dates.", "https://ai.todoist.net/mcp", "todoist.svg"),
+  oauth("granola", "Granola", "Meeting notes and transcripts.", "https://mcp.granola.ai/mcp"),
+  oauth("fireflies", "Fireflies", "Meeting transcripts and summaries.", "https://api.fireflies.ai/mcp"),
+  oauth("jam", "Jam", "Bug reports with console logs and replays.", "https://mcp.jam.dev/mcp"),
+  oauth("close", "Close", "CRM leads, opportunities, and activities.", "https://mcp.close.com/mcp"),
+  oauth("prisma", "Prisma", "Prisma Postgres databases.", "https://mcp.prisma.io/mcp", "prisma.svg"),
+  oauth("semgrep", "Semgrep", "Scan code for security issues.", "https://mcp.semgrep.ai/mcp"),
+  oauth("honeycomb", "Honeycomb", "Traces, queries, and SLOs.", "https://mcp.honeycomb.io/mcp"),
+  oauth("amplitude", "Amplitude", "Product analytics charts and cohorts.", "https://mcp.amplitude.com/mcp"),
+  oauth("mixpanel", "Mixpanel", "Events, funnels, and retention.", "https://mcp.mixpanel.com/mcp", "mixpanel.svg"),
+  oauth("sanity", "Sanity", "Content documents, schemas, and releases.", "https://mcp.sanity.io", "sanity.svg"),
+  oauth("lucid", "Lucid", "Lucidchart and Lucidspark diagrams.", "https://mcp.lucid.app/mcp", "lucid.svg"),
+  oauth("buildkite", "Buildkite", "Pipelines, builds, and job logs.", "https://mcp.buildkite.com/mcp", "buildkite.svg"),
+  oauth("postman", "Postman", "Collections, workspaces, and APIs.", "https://mcp.postman.com/mcp", "postman.svg"),
+  oauth("klaviyo", "Klaviyo", "Email and SMS campaigns, flows, and profiles.", "https://mcp.klaviyo.com/mcp"),
+  oauth("railway", "Railway", "Projects, services, and deployments.", "https://mcp.railway.com", "railway.svg"),
+  oauth("shortcut", "Shortcut", "Stories, epics, and iterations.", "https://mcp.shortcut.com/mcp", "shortcut.svg"),
+  oauth("mapbox", "Mapbox", "Geocoding, directions, and maps.", "https://mcp.mapbox.com/mcp", "mapbox.svg"),
+  oauth("mercury", "Mercury", "Business bank accounts and transactions.", "https://mcp.mercury.com/mcp"),
+  oauth("ramp", "Ramp", "Corporate cards, spend, and bills.", "https://mcp.ramp.com/mcp"),
+  {
+    id: "box", displayName: "Box", summary: "Files, folders, and Box AI.",
+    endpoint: "https://mcp.box.com", authMode: "oauth", authScheme: "Bearer", extraHeaders: {},
+    tokenCreationURLIsPrefilled: false, tokenFieldPlaceholder: "",
+    // Verified live: RFC 9728 points at api.box.com, which has no
+    // registration_endpoint and only client_secret_basic/post.
+    manualClientIdSetupURL: "https://app.box.com/developers/console",
+    manualClientIdHint: `A Box admin has to enable the Box MCP server first (Admin Console → Integrations). Then create an OAuth 2.0 app → add redirect URI ${MCP_OAUTH_REDIRECT_URI} → copy the Client ID and Client Secret.`,
+    manualClientNeedsSecret: true,
+    noDynamicRegistration: true,
+    logoAssetName: "box.svg",
   },
 ];
 
