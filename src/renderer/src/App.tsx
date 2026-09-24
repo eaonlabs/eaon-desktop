@@ -13,6 +13,7 @@ import { SettingsShell } from './components/settings/SettingsShell'
 import { UpdateToast } from './components/UpdateToast'
 import { CodeView } from './components/code/CodeView'
 import { PetLayer } from './components/pets/PetLayer'
+import { THEMES } from './lib/themes'
 
 export default function App(): JSX.Element {
   const { ready, view, sidebarOpen, browserOpen, init, setView, setSettingsPage } = useApp(useShallow((s) => ({ ready: s.ready, view: s.view, sidebarOpen: s.sidebarOpen, browserOpen: s.browserOpen, init: s.init, setView: s.setView, setSettingsPage: s.setSettingsPage })))
@@ -123,6 +124,9 @@ function useTheme(): void {
       root.style.setProperty('--fg', palette.foreground)
       root.style.setProperty('--accent', palette.accent)
       root.style.setProperty('--contrast', String(palette.contrast))
+      // Belongs to the theme rather than the stored palette — see ThemeTone.
+      const tone = THEMES.find((theme) => theme.name === palette.preset)?.[resolved]
+      root.style.setProperty('--text-fade', String(tone?.textFade ?? 1))
       root.style.setProperty('--fs-base', `${appearance.fontSize}px`)
       root.style.setProperty(
         '--font-ui',

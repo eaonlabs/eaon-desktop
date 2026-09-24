@@ -716,7 +716,7 @@
 
 .btn--provider {
   background: var(--provider-accent);
-  color: #fff;
+  color: var(--on-accent);
 }
 .btn--provider:hover:not(:disabled) {
   background: var(--provider-accent-strong);

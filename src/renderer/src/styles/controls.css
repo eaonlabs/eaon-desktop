@@ -273,7 +273,7 @@
 }
 .btn--accent {
   background: var(--toggle-on);
-  color: #fff;
+  color: var(--on-accent);
 }
 .btn--accent:hover:not(:disabled) {
   background: color-mix(in srgb, var(--toggle-on), #000 12%);

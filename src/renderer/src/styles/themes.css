@@ -1,1 +1,18 @@
-/* Styles for the themes feature. */
+/* Styles for the themes feature: the grouped colour-theme picker in
+   Settings → Appearance. The swatches themselves live in settings.css. */
+
+.theme-group + .theme-group {
+  margin-top: 22px;
+}
+
+/* Quieter than the section label above it: these split one picker into two
+   shelves rather than start a new section. */
+.theme-group__label {
+  margin-top: 14px;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--text-3);
+}
+.theme-group__label + .theme-swatch-grid {
+  margin-top: 10px;
+}
