@@ -1,4 +1,5 @@
 import { app, BrowserWindow, ipcMain, shell, nativeTheme, dialog, Menu, Notification, net, protocol } from 'electron'
+import { homedir } from 'node:os'
 import { extname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import type { Chat, McpServer, Project, Provider, Settings, StreamEvent, StreamRequest, ThemePalette, UpdateStatus, Workspace } from '@shared/types'
@@ -397,7 +398,9 @@ function registerIpc(): void {
   ipcMain.handle('chat:approve', (_e, requestId: string, approved: boolean) => resolveApproval(requestId, approved))
 
   ipcMain.handle('app:open-external', (_e, url: string) => shell.openExternal(url))
-  ipcMain.handle('app:show-item', (_e, path: string) => shell.showItemInFolder(path))
+  // `~` arrives from the renderer, which has no idea where home is; Work's
+  // default folder is displayed as ~/Eaon until the first task creates it.
+  ipcMain.handle('app:show-item', (_e, path: string) => shell.showItemInFolder(path.replace(/^~(?=\/|$)/, homedir())))
   ipcMain.handle('app:version', () => app.getVersion())
 
   ipcMain.handle('updater:status', (): UpdateStatus => getUpdateStatus())

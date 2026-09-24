@@ -8,7 +8,6 @@ import {
   Copy,
   ExternalLink,
   Hammer,
-  ListTodo,
   MessageSquareDashed,
   MoreHorizontal,
   PanelRight,
@@ -222,6 +221,9 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
   }
 
   const sidebarOpen = useApp((s) => s.sidebarOpen)
+  const workFolder = useApp(
+    (s) => s.workspaces.find((w) => w.kind === 'work')?.cwd ?? s.settings?.work.defaultFolder ?? '~/Eaon'
+  )
 
   return (
     <>
@@ -248,16 +250,12 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
             <Share size={14} strokeWidth={1.9} />
             <span>Share</span>
           </button>
-          <button
-            className="header-btn"
-            onClick={() => void window.api.app.openExternal('https://code.visualstudio.com/')}
-          >
-            <ExternalLink size={14} strokeWidth={1.9} />
-            <span>Open</span>
-          </button>
-          <button className="icon-btn" aria-label="Tasks">
-            <ListTodo size={16} strokeWidth={1.9} />
-          </button>
+          {isWork && (
+            <button className="header-btn" onClick={() => void window.api.app.showItem(workFolder)} title={workFolder}>
+              <ExternalLink size={14} strokeWidth={1.9} />
+              <span>Open folder</span>
+            </button>
+          )}
           {isWork && !browserOpen && (
             <button className="icon-btn" onClick={() => toggleBrowser()} aria-label="Toggle side panel">
               <PanelRight size={16} strokeWidth={1.9} />
