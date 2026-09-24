@@ -363,7 +363,11 @@ export interface AnthropicCompat {
 }
 
 export function anthropicCompat(provider: Provider, baseUrl: string, modelId: string, model: ModelInfo | undefined): AnthropicCompat {
-  const firstParty = !baseUrl || /(^|\.)api\.anthropic\.com$/.test(hostOf(baseUrl))
+  // The built-in Anthropic provider with its URL changed is almost always a
+  // proxy in front of Anthropic itself, so it keeps betas and caching; other
+  // Anthropic-compatible hosts (MiniMax, Kimi) reject them.
+  const firstParty =
+    !baseUrl || /(^|\.)api\.anthropic\.com$/.test(hostOf(baseUrl)) || (provider.id === 'anthropic' && provider.builtIn)
   const id = modelId.toLowerCase()
   if (id.includes('claude')) return { firstParty, thinking: 'claude' }
   const vendor = vendorOf(provider, baseUrl)

@@ -543,7 +543,7 @@ function KeySection({
       onStatus(result)
       await refreshProviders()
       const models = useApp.getState().availableModels()
-      if (result.ok && !settings?.selectedModelId && models[0]) selectModel(models[0].id)
+      if (result.ok && !settings?.selectedModelId && models[0]) selectModel(models[0].id, models[0].providerId)
     } finally {
       setBusy(false)
     }
@@ -816,11 +816,11 @@ function ModelsSection({
               </button>
               <button
                 className="icon-btn model-row__star"
-                data-on={settings?.selectedModelId === model.id || undefined}
+                data-on={(settings?.selectedModelId === model.id && (!settings?.selectedProviderId || settings.selectedProviderId === model.providerId)) || undefined}
                 aria-label="Set as default model"
-                onClick={() => selectModel(model.id)}
+                onClick={() => selectModel(model.id, model.providerId)}
               >
-                <Star size={14} strokeWidth={1.8} fill={settings?.selectedModelId === model.id ? 'currentColor' : 'none'} />
+                <Star size={14} strokeWidth={1.8} fill={settings?.selectedModelId === model.id && (!settings?.selectedProviderId || settings.selectedProviderId === model.providerId) ? 'currentColor' : 'none'} />
               </button>
               <button className="icon-btn" aria-label="Remove model" onClick={() => void removeModel(model.id)}>
                 <Trash2 size={14} strokeWidth={1.8} />

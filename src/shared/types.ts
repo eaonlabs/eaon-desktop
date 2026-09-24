@@ -295,6 +295,11 @@ export interface Settings {
   disabledSkills: string[]
   activeWorkspaceId: string
   selectedModelId: string | null
+  /**
+   * Which provider serves the selected model. The id alone is ambiguous once a
+   * ChatGPT sign-in, Copilot and an OpenAI key all offer the same model.
+   */
+  selectedProviderId: string | null
   effort: EffortLevel
   approvalMode: ApprovalMode
   /** Plan mode (Work): read-only research, then a plan the user approves before anything changes. */

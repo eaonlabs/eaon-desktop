@@ -181,6 +181,7 @@ export const defaultSettings: Settings = {
   disabledSkills: [],
   activeWorkspaceId: 'work',
   selectedModelId: null,
+  selectedProviderId: null,
   effort: 'light',
   approvalMode: 'ask',
   planMode: false,

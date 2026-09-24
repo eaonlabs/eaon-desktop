@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import {
   ArrowUp,
@@ -576,9 +576,9 @@ function ModelMenu({
         anchor={modelRow}
         open={sub === 'model'}
         models={models}
-        currentId={current?.id}
-        onPick={(modelId) => {
-          selectModel(modelId)
+        currentKey={current ? `${current.providerId}:${current.id}` : undefined}
+        onPick={(modelId, providerId) => {
+          selectModel(modelId, providerId)
           setSub(null)
           onClose()
         }}
@@ -630,7 +630,7 @@ function ModelSubmenu({
   anchor,
   open,
   models,
-  currentId,
+  currentKey,
   onPick,
   onAddKey,
   onClose
@@ -638,13 +638,21 @@ function ModelSubmenu({
   anchor: React.RefObject<HTMLElement>
   open: boolean
   models: ModelInfo[]
-  currentId?: string
-  onPick: (modelId: string) => void
+  currentKey?: string
+  onPick: (modelId: string, providerId: string) => void
   onAddKey: () => void
   onClose: () => void
 }): JSX.Element {
   const [query, setQuery] = useState('')
   const searchable = models.length > 8
+  const providers = useApp((s) => s.providers)
+  // The same model can come from several places (an OpenAI key, a ChatGPT
+  // sign-in, Copilot); those rows say which one they are.
+  const duplicated = useMemo(() => {
+    const seen = new Map<string, number>()
+    for (const m of models) seen.set(m.id, (seen.get(m.id) ?? 0) + 1)
+    return new Set([...seen].filter(([, n]) => n > 1).map(([id]) => id))
+  }, [models])
 
   const q = query.trim().toLowerCase()
   const results = q ? models.filter((m) => `${m.label} ${m.id}`.toLowerCase().includes(q)) : models
@@ -667,8 +675,9 @@ function ModelSubmenu({
               <MenuItem
                 key={`${model.providerId}:${model.id}`}
                 title={model.label}
-                checked={model.id === currentId}
-                onClick={() => onPick(model.id)}
+                hint={duplicated.has(model.id) ? providers.find((p) => p.id === model.providerId)?.name : undefined}
+                checked={`${model.providerId}:${model.id}` === currentKey}
+                onClick={() => onPick(model.id, model.providerId)}
               />
             ))
           )}

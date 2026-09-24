@@ -97,7 +97,7 @@ interface AppState {
   setWorkspace: (id: string) => void
   setWorkCwd: (cwd: string) => void
 
-  selectModel: (modelId: string) => void
+  selectModel: (modelId: string, providerId?: string) => void
   downloadModel: (repoId: string, filename: string) => Promise<DownloadedModel>
   setEffort: (effort: EffortLevel) => void
   refreshProviders: () => Promise<void>
@@ -616,10 +616,10 @@ export const useApp = create<AppState>((set, get) => ({
     if (get().settings?.codeIndex.autoIndex !== false) void get().reindex()
   },
 
-  selectModel(modelId) {
+  selectModel(modelId, providerId) {
     const model = get()
       .availableModels()
-      .find((m) => m.id === modelId)
+      .find((m) => m.id === modelId && (!providerId || m.providerId === providerId))
 
     // Effort vocabularies differ between models (Anthropic exposes five levels,
     // OpenAI three, many models none). Carrying a now-invalid level across a
@@ -628,7 +628,7 @@ export const useApp = create<AppState>((set, get) => ({
     const current = get().settings?.effort
     const effort = efforts.length > 0 && current && !efforts.includes(current) ? efforts[efforts.length - 1] : undefined
 
-    void get().patchSettings({ selectedModelId: modelId, ...(effort ? { effort } : {}) })
+    void get().patchSettings({ selectedModelId: modelId, selectedProviderId: model?.providerId ?? providerId ?? null, ...(effort ? { effort } : {}) })
   },
 
   setEffort(effort) {
@@ -678,7 +678,12 @@ export const useApp = create<AppState>((set, get) => ({
     const models = state.availableModels()
     if (models.length === 0) return null
     const selected = state.settings?.selectedModelId
-    return models.find((m) => m.id === selected) ?? models[0]
+    const provider = state.settings?.selectedProviderId
+    return (
+      models.find((m) => m.id === selected && m.providerId === provider) ??
+      models.find((m) => m.id === selected) ??
+      models[0]
+    )
   },
 
   activeChat() {

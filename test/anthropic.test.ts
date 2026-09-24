@@ -54,7 +54,7 @@ const toolUseStream = [
 
 function request(url: string, modelId: string, overrides: Partial<TurnRequest> = {}): TurnRequest {
   return {
-    provider: provider({ id: 'anthropic', kind: 'anthropic', baseUrl: url }),
+    provider: provider({ id: 'anthropic', kind: 'anthropic', baseUrl: url, builtIn: true }),
     modelId,
     model: undefined,
     credentials: { apiKey: 'sk-test' },

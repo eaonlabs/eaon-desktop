@@ -53,7 +53,10 @@ export function resolveModel(task: ScheduledTask, settings: Settings, providers:
     return { ok: true, providerId: provider.id, modelId: task.model.modelId, model: provider.models.find((m) => m.id === task.model!.modelId) }
   }
   const models = usable.flatMap((p) => p.models)
-  const chosen = models.find((m) => m.id === settings.selectedModelId) ?? models[0]
+  const chosen =
+    models.find((m) => m.id === settings.selectedModelId && m.providerId === settings.selectedProviderId) ??
+    models.find((m) => m.id === settings.selectedModelId) ??
+    models[0]
   if (!chosen) return { ok: false, error: 'No model is available. Add an API key in Settings → Model providers, or pick a model for this task.' }
   return { ok: true, providerId: chosen.providerId, modelId: chosen.id, model: chosen }
 }

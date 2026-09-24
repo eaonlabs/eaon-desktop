@@ -204,6 +204,9 @@ export function enrichModel(model: ModelInfo): ModelInfo {
  * /chat/completions.
  */
 export function isChatModelId(id: string): boolean {
+  // Embedding models hide behind every naming scheme (`embeddinggemma`,
+  // `qwen3-embedding:0.6b`, `nomic-embed-text`); none of them can chat.
+  if (/embed/i.test(id)) return false
   return !/(^|[-/_.@])(embed|embedding|embeddings|tts|whisper|transcribe|dall-e|gpt-image|image|imagen|moderation|rerank|reranker|audio|realtime|search-preview|davinci|babbage|sora|veo|lyria|speech|clip|vision-embed|guard|flux|stable-diffusion|sdxl|ocr|bge|e5|gte|seedream|seedance|kling|hailuo|recraft|midjourney|upscale|asr|stt)([-/_.:]|\d|$)/i.test(
     id
   )
