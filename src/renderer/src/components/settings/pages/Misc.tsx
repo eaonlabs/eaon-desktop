@@ -1,7 +1,6 @@
 import { useCallback, useState } from 'react'
-import { ExternalLink } from 'lucide-react'
 import { useApp } from '../../../state/store'
-import { Card, Row, Section, Segmented, Select, Switch } from '../../ui'
+import { Card, Row, Section, Select, Switch } from '../../ui'
 
 /** Renderer-local preferences for the secondary settings pages. */
 function useLocal<T>(key: string, initial: T): [T, (value: T) => void] {
@@ -25,54 +24,6 @@ function useLocal<T>(key: string, initial: T): [T, (value: T) => void] {
     [key]
   )
   return [value, update]
-}
-
-/* ------------------------------------------------------------ Computer use */
-
-export function ComputerUsePage(): JSX.Element {
-  const [enabled, setEnabled] = useLocal('cu.enabled', false)
-  const [confirmClicks, setConfirmClicks] = useLocal('cu.confirm', true)
-  const [quality, setQuality] = useLocal<'balanced' | 'sharp'>('cu.quality', 'balanced')
-
-  return (
-    <>
-      <h1 className="settings__h1">Computer use</h1>
-      <p className="settings__lede">Let the assistant see your screen and drive the pointer and keyboard.</p>
-      <Section label="Access">
-        <Card>
-          <Row title="Enable computer use" description="Requires Screen Recording and Accessibility permission in System Settings">
-            <Switch label="Enable computer use" checked={enabled} onChange={setEnabled} />
-          </Row>
-          <Row title="Confirm before each click" description="Ask before the assistant clicks or types on your behalf">
-            <Switch label="Confirm before each click" checked={confirmClicks} dimmed={!enabled} onChange={setConfirmClicks} />
-          </Row>
-          <Row title="Screenshot quality" description="Sharper screenshots cost more tokens per step">
-            <Segmented
-              value={quality}
-              onChange={setQuality}
-              options={[
-                { value: 'balanced', label: 'Balanced' },
-                { value: 'sharp', label: 'Sharp' }
-              ]}
-            />
-          </Row>
-          <Row title="System permissions" description="Open the macOS privacy panel to grant access">
-            <button
-              className="btn"
-              onClick={() =>
-                void window.api.app.openExternal(
-                  'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture'
-                )
-              }
-            >
-              Open
-              <ExternalLink size={13} strokeWidth={1.9} />
-            </button>
-          </Row>
-        </Card>
-      </Section>
-    </>
-  )
 }
 
 /* ---------------------------------------------------------------- Appshots */
