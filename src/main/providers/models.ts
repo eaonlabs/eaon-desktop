@@ -27,7 +27,16 @@ type ClaudeFamily =
   | 'budget' // Haiku 4.5, Sonnet/Opus 4.5 and older 4.x, Sonnet 3.7
   | 'none' // 3.5 and older
 
-function claudeFamily(id: string): ClaudeFamily {
+/**
+ * GitHub Copilot, OpenCode and Cloudflare write versions with dots
+ * (`claude-opus-4.8`) where Anthropic writes hyphens (`claude-opus-4-8`).
+ * Without normalising, a dotted Opus 4.8 falls through to the budget family
+ * and is sent `budget_tokens`, which it rejects.
+ */
+const hyphenateVersions = (id: string): string => id.replace(/(\d)\.(\d)/g, '$1-$2')
+
+function claudeFamily(raw: string): ClaudeFamily {
+  const id = hyphenateVersions(raw)
   if (/fable|mythos|opus-5-5/.test(id)) return 'always-adaptive'
   if (/opus-5|sonnet-5|opus-4-[678]|sonnet-4-6/.test(id)) return 'adaptive'
   if (/haiku-4|sonnet-4|opus-4|3-7-sonnet|sonnet-3-7/.test(id)) return 'budget'
@@ -40,7 +49,7 @@ function claudeFamily(id: string): ClaudeFamily {
  * offering a setting the request would reject or silently ignore.
  */
 export function inferEfforts(modelId: string): EffortLevel[] | undefined {
-  const id = modelId.toLowerCase()
+  const id = hyphenateVersions(modelId.toLowerCase())
 
   if (id.includes('claude')) {
     const family = claudeFamily(id)
@@ -55,8 +64,8 @@ export function inferEfforts(modelId: string): EffortLevel[] | undefined {
   }
 
   // OpenAI reasoning families, however a gateway prefixes them.
-  const tail = id.slice(id.lastIndexOf('/') + 1)
-  if (/^o[1-9](-|$)/.test(tail) || /^gpt-5/.test(tail) || /^codex/.test(tail) || /gpt-oss/.test(tail)) {
+  const tail = modelId.toLowerCase().slice(modelId.lastIndexOf('/') + 1)
+  if (/^o[1-9](-|$)/.test(tail) || /^gpt-[56]/.test(tail) || /^codex/.test(tail) || /gpt-oss/.test(tail)) {
     return OPENAI_EFFORTS
   }
   // Grok 3 mini and Grok 4 reasoning accept low/high; treat as the OpenAI trio.
@@ -73,8 +82,29 @@ export function inferReasoning(modelId: string): boolean {
   if (id.includes('claude')) return claudeFamily(id) !== 'none'
   return (
     inferEfforts(id) !== undefined ||
-    /deepseek-(r1|reasoner|v3\.[12]|v4)|qwq|qwen3|thinking|reason|kimi-k2|glm-4\.[5-9]|glm-5|minimax-m|magistral|phi-4-reasoning|nemotron/.test(id)
+    /deepseek-(r1|reasoner|v3\.[12]|v4)|deepseek-flash|qwq|qwen3|thinking|reason|kimi-k[23]|glm-4\.[5-9]|glm-5|minimax-m|magistral|phi-4-reasoning|nemotron|mimo|gemma-?4|sonar-reasoning|sonar-deep-research|command-a-reasoning/.test(
+      id
+    )
   )
+}
+
+const BUDGETS: Record<EffortLevel, number> = {
+  light: 2048,
+  medium: 6000,
+  high: 12000,
+  'extra-high': 20000,
+  ultra: 28000
+}
+
+/**
+ * Budget-style thinking (`{type: 'enabled', budget_tokens}`), sized from the
+ * effort and kept strictly below `max_tokens` as the Messages API requires.
+ * Used for budget-era Claude models and for non-Claude models on
+ * Anthropic-compatible endpoints that take a budget (MiniMax).
+ */
+export function budgetThinking(effort: EffortLevel, maxTokens: number): { type: 'enabled'; budget_tokens: number } | undefined {
+  const budget = Math.min(BUDGETS[effort], maxTokens - 1024)
+  return budget >= 1024 ? { type: 'enabled', budget_tokens: budget } : undefined
 }
 
 /**
@@ -93,24 +123,14 @@ export function anthropicThinking(
 ): { type: 'adaptive'; display: 'summarized' } | { type: 'enabled'; budget_tokens: number } | undefined {
   const family = claudeFamily(modelId.toLowerCase())
   if (family === 'always-adaptive' || family === 'adaptive') return { type: 'adaptive', display: 'summarized' }
-  if (family === 'budget') {
-    const budgets: Record<EffortLevel, number> = {
-      light: 2048,
-      medium: 6000,
-      high: 12000,
-      'extra-high': 20000,
-      ultra: 28000
-    }
-    const budget = Math.min(budgets[effort], maxTokens - 1024)
-    return budget >= 1024 ? { type: 'enabled', budget_tokens: budget } : undefined
-  }
+  if (family === 'budget') return budgetThinking(effort, maxTokens)
   return undefined
 }
 
 /** Largest output a request should ask for. Streaming makes the large values safe. */
 export function maxOutputFor(provider: Provider, modelId: string, model: ModelInfo | undefined): number | undefined {
   if (model?.maxOutput) return model.maxOutput
-  const id = modelId.toLowerCase()
+  const id = hyphenateVersions(modelId.toLowerCase())
   if (id.includes('claude')) {
     const family = claudeFamily(id)
     if (family === 'always-adaptive' || family === 'adaptive') return 64_000
@@ -133,12 +153,26 @@ export function maxOutputFor(provider: Provider, modelId: string, model: ModelIn
  */
 export function contextWindowFor(provider: Provider, modelId: string, model: ModelInfo | undefined): number {
   if (model?.contextWindow) return model.contextWindow
-  if (provider.local) return 32_768
+  if (provider.local) return isOllamaCloudModel(modelId) ? 131_072 : LOCAL_CONTEXT
   const id = modelId.toLowerCase()
-  if (id.includes('claude')) return /haiku-4-5|sonnet-4-5|opus-4-[015]|3-/.test(id) ? 200_000 : 1_000_000
+  if (id.includes('claude')) return /haiku-4-5|sonnet-4-5|opus-4-[015]|3-/.test(hyphenateVersions(id)) ? 200_000 : 1_000_000
   if (/gpt-5|gpt-4\.1|gemini|llama-4|grok-4|minimax/.test(id)) return 400_000
   if (/gpt-4o|o[1-9]|deepseek|qwen|kimi|glm|mistral|codestral|grok/.test(id)) return 128_000
   return 128_000
+}
+
+/**
+ * The context size requested from local runtimes (Ollama's `num_ctx`) and
+ * planned against by the loop. Big enough for an agent prompt with its tool
+ * definitions and a working transcript; small enough that the KV cache of a
+ * 20B model still fits next to the weights on a 32 GB machine. A model whose
+ * trained context is shorter gets its own length instead (see `refreshModels`).
+ */
+export const LOCAL_CONTEXT = 32_768
+
+/** Ollama's `:cloud` models run on Ollama's servers, at their full window. */
+export function isOllamaCloudModel(modelId: string): boolean {
+  return /[:-]cloud$/.test(modelId)
 }
 
 /** Turn a raw model id into something short enough for the composer chip. */
@@ -170,7 +204,7 @@ export function enrichModel(model: ModelInfo): ModelInfo {
  * /chat/completions.
  */
 export function isChatModelId(id: string): boolean {
-  return !/(^|[-/_.])(embed|embedding|embeddings|tts|whisper|transcribe|dall-e|gpt-image|image|imagen|moderation|rerank|audio|realtime|search-preview|davinci|babbage|sora|veo|lyria|speech|clip|vision-embed)([-/_.]|$)/i.test(
+  return !/(^|[-/_.@])(embed|embedding|embeddings|tts|whisper|transcribe|dall-e|gpt-image|image|imagen|moderation|rerank|reranker|audio|realtime|search-preview|davinci|babbage|sora|veo|lyria|speech|clip|vision-embed|guard|flux|stable-diffusion|sdxl|ocr|bge|e5|gte|seedream|seedance|kling|hailuo|recraft|midjourney|upscale|asr|stt)([-/_.:]|\d|$)/i.test(
     id
   )
 }

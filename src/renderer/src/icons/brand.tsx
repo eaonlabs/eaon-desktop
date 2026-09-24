@@ -375,6 +375,50 @@ export function SkillIcon({ size = 40 }: TileProps): JSX.Element {
   )
 }
 
+/**
+ * Initials for a provider without a shipped logo: the first letters of its
+ * first two words ("Together AI" → "TA", "DeepSeek" → "DS"), or the first two
+ * letters of a single word ("Cerebras" → "Ce").
+ */
+export function monogram(name: string): string {
+  const words = name
+    .replace(/\(.*?\)/g, '')
+    .split(/[\s\-_.]+|(?<=[a-z])(?=[A-Z])/)
+    .filter((word) => /[a-z0-9]/i.test(word))
+  if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase()
+  const word = words[0] ?? '?'
+  return word.charAt(0).toUpperCase() + word.charAt(1).toLowerCase()
+}
+
+/**
+ * Fallback tile for providers without a logo. Drawn from theme tokens rather
+ * than a brand colour we would have to guess at, and never fetched from the
+ * provider's site — so it sits quietly next to the real logos in either theme.
+ */
+export function MonogramIcon({ size = 40, name }: TileProps & { name: string }): JSX.Element {
+  const letters = monogram(name)
+  return (
+    <span
+      className="icon-tile icon-tile--monogram"
+      style={{
+        width: size,
+        height: size,
+        borderRadius: Math.round(size * 0.235),
+        background: 'var(--surface-3)',
+        boxShadow: 'inset 0 0 0 1px var(--border)',
+        color: 'var(--text-2)',
+        fontSize: Math.round(size * (letters.length > 1 ? 0.38 : 0.46)),
+        fontWeight: 600,
+        letterSpacing: '-0.02em',
+        lineHeight: 1
+      }}
+      aria-hidden="true"
+    >
+      {letters}
+    </span>
+  )
+}
+
 export function GenericIcon({ size = 40, letter, color }: TileProps & { letter: string; color: string }): JSX.Element {
   return (
     <Tile size={size} bg={color}>
@@ -406,6 +450,9 @@ export const BRAND_ICONS: Record<string, (props: TileProps) => JSX.Element> = {
   canva: CanvaIcon,
   chrome: ChromeIcon,
   openai: OpenAiIcon,
+  // ChatGPT sign-in is OpenAI's own product, and Copilot is GitHub's.
+  'openai-codex': OpenAiIcon,
+  'github-copilot': GithubIcon,
   azure: AzureIcon,
   anthropic: AnthropicIcon,
   openrouter: OpenRouterIcon,
@@ -414,6 +461,7 @@ export const BRAND_ICONS: Record<string, (props: TileProps) => JSX.Element> = {
   xai: XaiIcon,
   gemini: GeminiIcon,
   minimax: MiniMaxIcon,
+  'minimax-cn': MiniMaxIcon,
   huggingface: HuggingFaceIcon,
   'nvidia-nim': NvidiaIcon,
   'llama-cpp': LlamaCppIcon,
@@ -421,8 +469,13 @@ export const BRAND_ICONS: Record<string, (props: TileProps) => JSX.Element> = {
   ollama: OllamaIcon
 }
 
-export function BrandIcon({ id, size = 40 }: { id: string; size?: number }): JSX.Element {
+/**
+ * A brand's tile, or a monogram of `name` when the app ships no logo for it.
+ * Without a name the monogram falls back to the id's first letter.
+ */
+export function BrandIcon({ id, size = 40, name }: { id: string; size?: number; name?: string }): JSX.Element {
   const Component = BRAND_ICONS[id]
   if (Component) return <Component size={size} />
+  if (name) return <MonogramIcon size={size} name={name} />
   return <GenericIcon size={size} letter={id.charAt(0).toUpperCase()} color="#4b5563" />
 }
