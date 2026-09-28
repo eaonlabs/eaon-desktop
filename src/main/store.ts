@@ -188,6 +188,8 @@ export const defaultSettings: Settings = {
   work: {
     swarm: false,
     goalMaxIterations: 8,
+    goalMaxMinutes: 60,
+    goalMaxTokens: 2_000_000,
     subagentModelId: null,
     defaultFolder: null
   },

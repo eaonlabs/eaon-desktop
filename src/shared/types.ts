@@ -309,6 +309,10 @@ export interface Settings {
     swarm: boolean
     /** How many times goal mode may send the agent back to keep working before it stops and reports. */
     goalMaxIterations: number
+    /** Goal mode pauses once one reply has run this long, in minutes. 0 = no limit. */
+    goalMaxMinutes: number
+    /** Goal mode pauses once one reply has used this many tokens (input + output). 0 = no limit. */
+    goalMaxTokens: number
     /** Model sub-agents run on; null means the chat's own model. */
     subagentModelId: string | null
     /** Folder Work mode acts in when no project folder has been chosen; null means ~/Eaon. */

@@ -130,6 +130,49 @@ export function CodeIndexPage(): JSX.Element {
             />
           </Row>
         </Card>
+        <Card>
+          <Row
+            title="Goal: times to keep going"
+            description="How many times goal mode may send the agent back to work in one reply before it pauses."
+          >
+            <Select
+              width={140}
+              value={String(settings.work.goalMaxIterations)}
+              onChange={(value) => void patchSettings({ work: { ...settings.work, goalMaxIterations: Number(value) } })}
+              options={['4', '8', '16', '32'].map((value) => ({ value, label: value }))}
+            />
+          </Row>
+          <Row title="Goal: time limit" description="Goal mode pauses once one reply has been working this long.">
+            <Select
+              width={140}
+              value={String(settings.work.goalMaxMinutes)}
+              onChange={(value) => void patchSettings({ work: { ...settings.work, goalMaxMinutes: Number(value) } })}
+              options={[
+                { value: '15', label: '15 minutes' },
+                { value: '30', label: '30 minutes' },
+                { value: '60', label: '1 hour' },
+                { value: '180', label: '3 hours' },
+                { value: '0', label: 'No limit' }
+              ]}
+            />
+          </Row>
+          <Row
+            title="Goal: token limit"
+            description="Goal mode pauses once one reply has used this many tokens, counting what is sent and received."
+          >
+            <Select
+              width={140}
+              value={String(settings.work.goalMaxTokens)}
+              onChange={(value) => void patchSettings({ work: { ...settings.work, goalMaxTokens: Number(value) } })}
+              options={[
+                { value: '500000', label: '500K' },
+                { value: '2000000', label: '2M' },
+                { value: '5000000', label: '5M' },
+                { value: '0', label: 'No limit' }
+              ]}
+            />
+          </Row>
+        </Card>
       </Section>
     </>
   )

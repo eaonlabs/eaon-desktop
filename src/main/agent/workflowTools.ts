@@ -85,6 +85,22 @@ const goalComplete: AgentTool = {
   },
   mutating: false,
   run: async (input, ctx) => {
+    // "I wrote the code" is not "the goal is met". When the last thing the
+    // agent did was change something and nothing has looked at the result
+    // since, send it back once to check. Asked once only, so a goal that
+    // genuinely cannot be checked is not held hostage.
+    const evidence = ctx.turn.evidence
+    const change = evidence?.lastChange
+    if (evidence && change && change.seq > (evidence.lastCheck ?? 0) && !evidence.verifyAsked) {
+      evidence.verifyAsked = true
+      return {
+        text:
+          `Not marked achieved yet: your last action (${change.tool}) changed something and nothing has checked the result since. ` +
+          'Verify it now — run it, run the tests, or read back the output — then call goal_complete again with what you observed. ' +
+          'If it truly cannot be checked, call goal_complete again and say why in the summary.',
+        isError: true
+      }
+    }
     ctx.turn.goalResolution = { status: 'achieved', summary: str(input.summary).slice(0, 4000) }
     return 'Goal marked achieved. Give the user a brief final summary.'
   }

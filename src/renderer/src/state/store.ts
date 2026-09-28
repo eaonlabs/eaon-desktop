@@ -557,8 +557,12 @@ export const useApp = create<AppState>((set, get) => ({
   setGoalStatus(status) {
     const chat = get().activeChat()
     if (!chat) return
+    // A goal pursued right now lives in the main process too; pausing only
+    // here would be overwritten by the loop's next "still working" event.
+    const streaming = get().streamingMessageId
+    if (status !== 'active' && streaming && chat.messages.some((m) => m.id === streaming)) void window.api.chat.pauseGoal(streaming)
     const chats = get().chats.map((c) =>
-      c.id === chat.id ? { ...c, goal: status && c.goal ? { ...c.goal, status } : null } : c
+      c.id === chat.id ? { ...c, goal: status && c.goal ? { ...c.goal, status, ...(status === 'active' ? { summary: undefined } : {}) } : null } : c
     )
     set({ chats })
     persistChats(chats)

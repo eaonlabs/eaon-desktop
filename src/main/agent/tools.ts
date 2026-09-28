@@ -32,7 +32,16 @@ export interface TurnState {
   notes: string[]
   /** Tokens spent inside a tool (sub-agents), folded into the turn's usage by the loop. */
   extraUsage?: TokenUsage
+  /**
+   * Evidence bookkeeping for goal_complete, kept by the loop: the most recent
+   * successful change and the most recent call that looked at the result.
+   * Numbers are positions in the turn's sequence of tool calls.
+   */
+  evidence?: { seq: number; lastChange?: { seq: number; tool: string }; lastCheck?: number; verifyAsked?: boolean }
 }
+
+/** Tools that steer the turn itself; calling them neither changes nor checks anything. */
+export const WORKFLOW_TOOLS = new Set(['update_plan', 'present_plan', 'goal_complete', 'goal_blocked'])
 
 export interface ToolContext {
   request: StreamRequest

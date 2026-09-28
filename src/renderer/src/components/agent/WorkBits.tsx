@@ -126,6 +126,7 @@ export function GoalBanner({ chat }: { chat: Chat }): JSX.Element | null {
         <span className="goal-banner__label">
           {GOAL_LABEL[goal.status]}
           {goal.iterations > 0 && goal.status === 'active' ? ` · ${goal.iterations} continuation${goal.iterations === 1 ? '' : 's'}` : ''}
+          {goal.status === 'paused' && goal.summary ? ` · ${goal.summary}` : ''}
         </span>
         <span className="goal-banner__text" title={goal.text}>
           {goal.text}

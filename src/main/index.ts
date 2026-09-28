@@ -8,7 +8,7 @@ import { secrets } from './secrets'
 import { listProviders, refreshModels, removeProvider, testProvider, updateProvider } from './providers'
 import { refreshLocalProviders } from './providers/localDiscovery'
 import { resolveApproval } from './agent/approvals'
-import { cancelRun, runAgent } from './agent/loop'
+import { cancelRun, pauseGoal, runAgent } from './agent/loop'
 import './agent/sources'
 import { killBackgroundProcesses } from './localTools'
 import { adoptLoginShellPath } from './shellEnv'
@@ -370,6 +370,7 @@ function registerIpc(): void {
     }
   })
   ipcMain.handle('chat:cancel', (_e, messageId: string) => cancelRun(messageId))
+  ipcMain.handle('chat:pause-goal', (_e, messageId: string) => pauseGoal(messageId))
   ipcMain.handle('chat:approve', (_e, requestId: string, approved: boolean) => resolveApproval(requestId, approved))
 
   ipcMain.handle('app:open-external', (_e, url: string) => shell.openExternal(url))

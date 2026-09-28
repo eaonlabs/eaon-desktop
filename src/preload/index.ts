@@ -128,6 +128,7 @@ const api = {
   chat: {
     stream: (request: StreamRequest): Promise<void> => ipcRenderer.invoke('chat:stream', request),
     cancel: (messageId: string): Promise<void> => ipcRenderer.invoke('chat:cancel', messageId),
+    pauseGoal: (messageId: string): Promise<void> => ipcRenderer.invoke('chat:pause-goal', messageId),
     approve: (requestId: string, approved: boolean): Promise<void> =>
       ipcRenderer.invoke('chat:approve', requestId, approved),
     onEvent: (handler: (event: StreamEvent) => void): (() => void) => {

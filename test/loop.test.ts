@@ -4,7 +4,7 @@ import { existsSync, mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import '../src/main/agent/sources'
-import { announcesIntent, runAgent } from '../src/main/agent/loop'
+import { announcesIntent, pauseGoal, runAgent } from '../src/main/agent/loop'
 import { store } from '../src/main/store'
 import { secrets } from '../src/main/secrets'
 import type { StreamEvent, StreamRequest } from '@shared/types'
@@ -229,4 +229,86 @@ test('intent detection leaves real answers and questions alone', () => {
   assert.equal(announcesIntent('Done. The file is at notes/todo.md.'), false)
   assert.equal(announcesIntent('Which folder should I use?'), false)
   assert.equal(announcesIntent('Should I also add a README? I will wait for you?'), false)
+})
+
+test('the same failing call is refused after three identical failures instead of run again', async () => {
+  const { server, requests } = await setup((_b, i) => (i < 4 ? toolCall('read_file', { path: 'missing.txt' }, `c${i}`) : say('Giving up on that file.')))
+  const events: StreamEvent[] = []
+  const outcome = await runAgent(request(), (e) => events.push(e))
+  server.close()
+  assert.equal(outcome.error, undefined)
+  const results = events.filter((e) => e.type === 'tool-result') as Extract<StreamEvent, { type: 'tool-result' }>[]
+  assert.equal(results.length, 4)
+  assert.match(results[1].output, /ENOENT|no such file/i)
+  assert.match(JSON.stringify((requests[2] as unknown as Body).messages), /failed twice/)
+  assert.match(results[3].output, /^Not run: this exact read_file call has already failed 3 times/)
+})
+
+test('goal_complete straight after an unchecked change is sent back once to verify', async () => {
+  const req = request({ goal: { text: 'make a.txt', status: 'active', iterations: 0 } })
+  const { server, requests } = await setup((_b, i) =>
+    i === 0
+      ? toolCall('write_file', { path: 'a.txt', content: 'hi' })
+      : i === 1
+        ? toolCall('goal_complete', { summary: 'Wrote it.' }, 'g1')
+        : i === 2
+          ? toolCall('read_file', { path: 'a.txt' })
+          : i === 3
+            ? toolCall('goal_complete', { summary: 'Wrote it and read it back: "hi".' }, 'g2')
+            : say('Done.')
+  )
+  const events: StreamEvent[] = []
+  await runAgent(req, (e) => events.push(e), { approver: async () => true })
+  server.close()
+  assert.equal(requests.length, 5)
+  assert.match(JSON.stringify((requests[2] as unknown as Body).messages), /Not marked achieved yet: your last action \(write_file\)/)
+  const goals = events.filter((e) => e.type === 'goal').map((e) => (e as Extract<StreamEvent, { type: 'goal' }>).goal)
+  assert.equal(goals.at(-1)?.status, 'achieved')
+  assert.match(goals.at(-1)?.summary ?? '', /read it back/)
+})
+
+test('goal_complete is accepted on the second ask even without a check, so it cannot deadlock', async () => {
+  const req = request({ goal: { text: 'make b.txt', status: 'active', iterations: 0 } })
+  const { server } = await setup((_b, i) =>
+    i === 0
+      ? toolCall('write_file', { path: 'b.txt', content: 'x' })
+      : i <= 2
+        ? toolCall('goal_complete', { summary: 'Cannot be checked further.' }, `g${i}`)
+        : say('Done.')
+  )
+  const events: StreamEvent[] = []
+  await runAgent(req, (e) => events.push(e), { approver: async () => true })
+  server.close()
+  const last = events.filter((e) => e.type === 'goal').at(-1) as Extract<StreamEvent, { type: 'goal' }>
+  assert.equal(last.goal.status, 'achieved')
+})
+
+test('pausing a running goal stops it at the next continuation, with no reason shown', async () => {
+  const req = request({ goal: { text: 'endless', status: 'active', iterations: 0 } })
+  const { server, requests } = await setup((_b, i) => {
+    if (i === 1) pauseGoal(req.messageId)
+    return say('still working')
+  })
+  const events: StreamEvent[] = []
+  await runAgent(req, (e) => events.push(e))
+  server.close()
+  assert.equal(requests.length, 2, 'the step in hand finishes, then no further continuation')
+  const last = events.filter((e) => e.type === 'goal').at(-1) as Extract<StreamEvent, { type: 'goal' }>
+  assert.equal(last.goal.status, 'paused')
+  assert.equal(last.goal.summary, undefined)
+})
+
+test('a goal over its token budget pauses and says which limit it hit', async () => {
+  store.patchSettings({ work: { goalMaxTokens: 50 } })
+  const { server, requests } = await setup(() => [
+    JSON.stringify({ choices: [{ index: 0, delta: { content: 'working' }, finish_reason: 'stop' }], usage: { prompt_tokens: 40, completion_tokens: 20 } })
+  ])
+  const events: StreamEvent[] = []
+  await runAgent(request({ goal: { text: 'big', status: 'active', iterations: 0 } }), (e) => events.push(e))
+  server.close()
+  store.patchSettings({ work: { goalMaxTokens: 2_000_000 } })
+  assert.equal(requests.length, 1)
+  const last = events.filter((e) => e.type === 'goal').at(-1) as Extract<StreamEvent, { type: 'goal' }>
+  assert.equal(last.goal.status, 'paused')
+  assert.match(last.goal.summary ?? '', /token limit of 50 reached/)
 })

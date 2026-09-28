@@ -13,7 +13,8 @@ import { store } from '../store'
 import { cancelApprovals, requestApproval, type Approver } from './approvals'
 import { buildHistory, estimateMessages, estimateTokens, pruneImages, pruneInFlight, transcriptText } from './context'
 import { chatSystemPrompt, COMPACTION_PROMPT, workSystemPrompt } from './prompts'
-import { capOutput, guidanceFor, isMutating, toolsFor, toSpec, type AgentTool, type ToolContext, type ToolQuery, type TurnState } from './tools'
+import { CallGuard } from './guards'
+import { capOutput, guidanceFor, isMutating, toolsFor, toSpec, WORKFLOW_TOOLS, type AgentTool, type ToolContext, type ToolQuery, type TurnState } from './tools'
 
 /**
  * The agent loop — one implementation for every provider and both modes.
@@ -25,11 +26,36 @@ import { capOutput, guidanceFor, isMutating, toolsFor, toSpec, type AgentTool, t
  */
 
 const activeRuns = new Map<string, AbortController>()
+/** Goal runs the user paused: they finish the step in hand and stop instead of continuing. */
+const pausedGoals = new Set<string>()
 
 export function cancelRun(messageId: string): void {
   activeRuns.get(messageId)?.abort()
   activeRuns.delete(messageId)
   cancelApprovals(messageId)
+}
+
+/**
+ * Pauses a running goal. The model call in flight is left to finish — cutting
+ * it off would lose work — and the loop stops at its next continuation point.
+ */
+export function pauseGoal(messageId: string): void {
+  if (activeRuns.has(messageId)) pausedGoals.add(messageId)
+}
+
+/** Why a goal run must stop before continuing again, or null to keep going. */
+export function goalBudgetExceeded(
+  settings: Settings,
+  startedAt: number,
+  usage: TokenUsage,
+  now = Date.now()
+): string | null {
+  const { goalMaxMinutes, goalMaxTokens } = settings.work
+  if (goalMaxMinutes > 0 && now - startedAt >= goalMaxMinutes * 60_000) return `time limit of ${goalMaxMinutes} min reached`
+  if (goalMaxTokens > 0 && usage.input + usage.output >= goalMaxTokens) {
+    return `token limit of ${goalMaxTokens.toLocaleString('en-US')} reached`
+  }
+  return null
 }
 
 export function isRunning(messageId: string): boolean {
@@ -169,7 +195,8 @@ async function callModel(
             60_000
           )
           const status = error instanceof ProviderHttpError ? ` (${error.status})` : ''
-          note(`The provider is busy${status} — retrying in ${Math.round(wait / 1000)}s.`)
+          const cutOff = error instanceof Error && /stream ended before/.test(error.message)
+          note(`${cutOff ? 'The reply was cut off' : `The provider is busy${status}`} — retrying in ${Math.round(wait / 1000)}s.`)
           await sleep(wait, params.signal)
           continue
         }
@@ -183,21 +210,27 @@ async function callModel(
 async function runTool(
   params: LoopParams,
   turn: TurnState,
+  guard: CallGuard,
   tool: AgentTool | undefined,
   call: { id: string; name: string; input: Record<string, unknown> }
 ): Promise<NeutralToolResult & { status: 'done' | 'denied' | 'error' }> {
   const { emit, request } = params
   emit({ type: 'tool-call', messageId: request.messageId, toolId: call.id, name: call.name, input: call.input })
 
+  /** `forModel` replaces what the model is sent; the user always sees `output`. */
   const finish = (
     output: string,
     status: 'done' | 'denied' | 'error',
-    images: NeutralImage[] = []
+    images: NeutralImage[] = [],
+    forModel = output
   ): NeutralToolResult & { status: 'done' | 'denied' | 'error' } => {
     const paths = images.map(saveImage)
     emit({ type: 'tool-result', messageId: request.messageId, toolId: call.id, output, status, ...(paths.length ? { images: paths } : {}) })
-    return { id: call.id, name: call.name, output, status, ...(images.length ? { images } : {}), ...(status === 'error' ? { isError: true } : {}) }
+    return { id: call.id, name: call.name, output: forModel, status, ...(images.length ? { images } : {}), ...(status === 'error' ? { isError: true } : {}) }
   }
+
+  const refusal = guard.refuse(call.name, call.input)
+  if (refusal) return finish(refusal, 'error')
 
   if (!tool) {
     const names = params.tools.map((t) => t.name).join(', ')
@@ -236,16 +269,38 @@ async function runTool(
     }
   }
 
+  const mutating = isMutating(tool, call.input, ctx)
+  let output: string
+  let status: 'done' | 'error'
+  let images: NeutralImage[] | undefined
   try {
     const result = await tool.run(call.input, ctx)
     const normalized = typeof result === 'string' ? { text: result } : result
-    return finish(capOutput(normalized.text || '(no output)'), normalized.isError ? 'error' : 'done', normalized.images)
+    output = capOutput(normalized.text || '(no output)')
+    status = normalized.isError ? 'error' : 'done'
+    images = normalized.images
   } catch (error) {
     if (params.signal.aborted) return finish('Stopped by the user.', 'error')
     // Reported to the model rather than failing the turn: models routinely
     // recover by trying different arguments.
-    return finish(`Error: ${error instanceof Error ? error.message : String(error)}`, 'error')
+    output = `Error: ${error instanceof Error ? error.message : String(error)}`
+    status = 'error'
   }
+
+  // Goal evidence: a change is a successful mutating call; running a command
+  // or looking at anything counts as checking. A command is both — `npm test`
+  // is how most work gets checked.
+  if (!WORKFLOW_TOOLS.has(call.name)) {
+    const evidence = (turn.evidence ??= { seq: 0 })
+    evidence.seq++
+    if (mutating && status === 'done' && call.name !== 'run_command') evidence.lastChange = { seq: evidence.seq, tool: call.name }
+    else evidence.lastCheck = evidence.seq
+  }
+
+  const note = guard.record(call.name, call.input, status, output, mutating)
+  const repeat =
+    status === 'done' && !mutating && !images?.length ? guard.dedupe(call.name, call.input, call.id, output, params.messages) : null
+  return finish(output, status, images, repeat ?? (note ? output + note : output))
 }
 
 /**
@@ -261,6 +316,7 @@ export function announcesIntent(text: string): boolean {
 export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
   const { messages, signal, request, emit } = params
   const turn: TurnState = { notes: [] }
+  const guard = new CallGuard()
   const usage = emptyUsage()
   const attempts = await credentialAttempts(params.provider)
   const window = contextWindowFor(params.provider, params.modelId, params.model)
@@ -271,6 +327,7 @@ export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
   let emptyNudges = 0
   let announcedNudged = false
   let goal = params.goal
+  const startedAt = Date.now()
 
   for (let round = 0; round < params.maxRounds; round++) {
     // Providers that cannot clear stale tool output server-side get it pruned
@@ -332,7 +389,12 @@ export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
     if (result.calls.length === 0) {
       // Goal mode: stopping is not the same as finishing.
       if (params.depth === 0 && goal?.status === 'active' && !turn.goalResolution && !signal.aborted) {
-        if (goalIterations < params.settings.work.goalMaxIterations) {
+        const stopReason = pausedGoals.has(request.messageId)
+          ? 'paused by you'
+          : goalIterations >= params.settings.work.goalMaxIterations
+            ? `continuation limit of ${params.settings.work.goalMaxIterations} reached`
+            : goalBudgetExceeded(params.settings, startedAt, usage)
+        if (!stopReason) {
           goalIterations++
           goal = { ...goal, iterations: goal.iterations + 1 }
           emit({ type: 'goal', messageId: request.messageId, chatId: request.chatId, goal })
@@ -343,7 +405,14 @@ export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
           })
           continue
         }
-        emit({ type: 'goal', messageId: request.messageId, chatId: request.chatId, goal: { ...goal, status: 'paused' } })
+        const byUser = pausedGoals.has(request.messageId)
+        note(byUser ? 'Goal paused.' : `Goal paused: ${stopReason}. Resume it to keep going.`)
+        emit({
+          type: 'goal',
+          messageId: request.messageId,
+          chatId: request.chatId,
+          goal: { ...goal, status: 'paused', ...(byUser ? {} : { summary: stopReason }) }
+        })
         return { text, usage, turn, stopped: 'goal-limit' }
       }
       return { text, usage, turn, stopped: 'done' }
@@ -355,11 +424,11 @@ export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
     const allReadOnly = tools.every((tool, i) => tool && !isMutating(tool, result.calls[i].input, { settings: params.settings, cwd: params.cwd } as ToolContext))
     const results: NeutralToolResult[] = []
     if (allReadOnly && result.calls.length > 1) {
-      results.push(...(await Promise.all(result.calls.map((call, i) => runTool(params, turn, tools[i], call)))))
+      results.push(...(await Promise.all(result.calls.map((call, i) => runTool(params, turn, guard, tools[i], call)))))
     } else {
       for (let i = 0; i < result.calls.length; i++) {
         if (signal.aborted) break
-        results.push(await runTool(params, turn, tools[i], result.calls[i]))
+        results.push(await runTool(params, turn, guard, tools[i], result.calls[i]))
       }
     }
     if (signal.aborted) throw new Error('aborted')
@@ -541,5 +610,6 @@ export async function runAgent(request: StreamRequest, emit: (event: StreamEvent
     return { text, error: message, usage }
   } finally {
     activeRuns.delete(request.messageId)
+    pausedGoals.delete(request.messageId)
   }
 }
