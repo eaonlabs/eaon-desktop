@@ -1,5 +1,7 @@
+import { statfs } from 'node:fs/promises'
 import os from 'node:os'
-import { libraryProgressKey, pullRef, type LibraryState } from '@shared/modelLibrary'
+import { dirname, join } from 'node:path'
+import { diskShortfall, libraryProgressKey, pullRef, type LibraryState } from '@shared/modelLibrary'
 import type { ModelDownloadProgress } from '@shared/types'
 import { findLibraryModel } from './catalog'
 import { deleteModel, listInstalled, ollamaStatus, ollamaVersion, pullModel, type PullProgress } from './ollama'
@@ -10,10 +12,29 @@ export { startOllama } from './ollama'
 /** In-flight pulls by progress key, so a second click can't start a duplicate and Cancel has something to abort. */
 const inflight = new Map<string, AbortController>()
 
+/**
+ * Free bytes on the disk Ollama writes models to: OLLAMA_MODELS if set, else
+ * ~/.ollama/models. Walks up to the nearest folder that exists, since the
+ * models folder is only created by the first pull.
+ */
+export async function freeDiskBytes(env: NodeJS.ProcessEnv = process.env): Promise<number | null> {
+  let path = env.OLLAMA_MODELS || join(os.homedir(), '.ollama', 'models')
+  for (;;) {
+    try {
+      const info = await statfs(path)
+      return info.bavail * info.bsize
+    } catch {
+      const parent = dirname(path)
+      if (parent === path) return null
+      path = parent
+    }
+  }
+}
+
 export async function libraryState(): Promise<LibraryState> {
   const ollama = await ollamaStatus()
   const installed = ollama.state === 'running' ? await listInstalled().catch(() => []) : []
-  return { ramBytes: os.totalmem(), chip: os.cpus()[0]?.model.trim() ?? '', ollama, installed }
+  return { ramBytes: os.totalmem(), freeDiskBytes: await freeDiskBytes(), chip: os.cpus()[0]?.model.trim() ?? '', ollama, installed }
 }
 
 /**
@@ -33,6 +54,10 @@ export async function pullLibraryVariant(
   if (!model || !variant) throw new Error(`Unknown library model ${modelId}/${variantId}`)
   if (model.unsupported) throw new Error(model.unsupported)
   if (!(await ollamaVersion())) throw new Error('Ollama isn’t running. Start it from the Models page, then try again.')
+  // Checked here too: the page's numbers may be minutes old, and a pull that
+  // fills the disk fails late and leaves the system short of space.
+  const shortfall = diskShortfall(variant.sizeBytes, await freeDiskBytes())
+  if (shortfall) throw new Error(shortfall)
 
   const key = libraryProgressKey(model, variant)
   const id = `${key.repoId}::${key.filename}`

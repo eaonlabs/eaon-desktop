@@ -108,6 +108,8 @@ export interface InstalledModel {
 
 export interface LibraryState {
   ramBytes: number
+  /** Free space on the disk Ollama stores models on; null when it could not be read. */
+  freeDiskBytes: number | null
   chip: string
   ollama: OllamaStatus
   installed: InstalledModel[]
@@ -139,6 +141,17 @@ export const TIGHT_SHARE = 0.85
 /** Weights plus KV cache for a default-sized context and runtime buffers. */
 export function memoryNeeded(sizeBytes: number): number {
   return sizeBytes * 1.1 + 0.75 * GiB
+}
+
+/** Room a download needs: the weights plus headroom so the disk is not left completely full. */
+export function diskNeeded(sizeBytes: number): number {
+  return sizeBytes + 2 * GiB
+}
+
+/** Why a download of this size should not start on this disk, or null when it fits. */
+export function diskShortfall(sizeBytes: number, freeDiskBytes: number | null): string | null {
+  if (freeDiskBytes === null || diskNeeded(sizeBytes) <= freeDiskBytes) return null
+  return `Needs ${formatModelSize(diskNeeded(sizeBytes))} free; this disk has ${formatModelSize(freeDiskBytes)}.`
 }
 
 export function fitFor(sizeBytes: number, ramBytes: number): FitLevel {

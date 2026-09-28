@@ -2,8 +2,12 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { LIBRARY } from '../src/main/modelLibrary/catalog'
 import { PullTracker, ndjson } from '../src/main/modelLibrary/ollama'
+import { freeDiskBytes } from '../src/main/modelLibrary'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import {
   LIBRARY_CATEGORIES,
+  diskShortfall,
   findInstalled,
   findInstalledVariant,
   fitFor,
@@ -247,4 +251,16 @@ test('formatting matches how Hugging Face and Ollama show sizes and context', ()
   assert.equal(formatContext(1_048_576), '1M')
   assert.equal(formatContext(128_000), '125K')
   assert.equal(formatContext(512), '512')
+})
+
+test('a download that would fill the disk is refused with the numbers', () => {
+  const GiB = 1024 ** 3
+  assert.equal(diskShortfall(5 * GiB, 100 * GiB), null)
+  assert.equal(diskShortfall(5 * GiB, null), null, 'unknown free space never blocks')
+  assert.match(diskShortfall(5 * GiB, 6 * GiB) ?? '', /^Needs 7\.5 GB free; this disk has 6\.4 GB\.$/)
+})
+
+test('free space is read from the nearest folder that exists', async () => {
+  const free = await freeDiskBytes({ OLLAMA_MODELS: join(tmpdir(), 'no-such-dir', 'models') })
+  assert.ok(typeof free === 'number' && free > 0)
 })

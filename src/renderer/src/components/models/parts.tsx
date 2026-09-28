@@ -4,6 +4,7 @@ import { downloadPercent } from '../../lib/format'
 import { progressId, useLibrary } from './libraryStore'
 import {
   FIT_LABEL,
+  diskShortfall,
   fitFor,
   formatModelSize,
   type FitLevel,
@@ -125,7 +126,14 @@ export function GetButton({
 
   const ollama = state?.ollama.state
   const fit = state ? fitFor(variant.sizeBytes, state.ramBytes) : 'good'
-  const blocked = ollama === 'missing' ? 'Install Ollama to download models' : fit === 'too-big' ? fitExplanation(fit) : null
+  const blocked =
+    ollama === 'missing'
+      ? 'Install Ollama to download models'
+      : fit === 'too-big'
+        ? fitExplanation(fit)
+        : state
+          ? diskShortfall(variant.sizeBytes, state.freeDiskBytes)
+          : null
 
   return (
     <button
