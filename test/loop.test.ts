@@ -1,6 +1,6 @@
 import { test, before } from 'node:test'
 import assert from 'node:assert/strict'
-import { existsSync, mkdtempSync } from 'node:fs'
+import { existsSync, mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import '../src/main/agent/sources'
@@ -336,4 +336,34 @@ test('prevent sleep holds the machine awake for the run and lets go after', asyn
     server.close()
   })()
   assert.equal(blocker.started, before + 1, 'not held when the setting is off')
+})
+
+test('a failed call is not evidence: write, failed edit, goal_complete is still sent back', async () => {
+  const req = request({ goal: { text: 'make c.txt', status: 'active', iterations: 0 } })
+  const { server, requests } = await setup((_b, i) =>
+    i === 0
+      ? toolCall('write_file', { path: 'c.txt', content: 'one' })
+      : i === 1
+        ? toolCall('edit_file', { path: 'c.txt', old_text: 'not there', new_text: 'two' })
+        : i === 2
+          ? toolCall('goal_complete', { summary: 'Done.' }, 'g1')
+          : say('ok')
+  )
+  await runAgent(req, () => {}, { approver: async () => true })
+  server.close()
+  assert.match(JSON.stringify((requests[3] as unknown as Body).messages), /Not marked achieved yet: your last action \(write_file\)/)
+})
+
+test('a pause lands between tool rounds, not only when the model stops calling tools', async () => {
+  const req = request({ goal: { text: 'keep reading', status: 'active', iterations: 0 } })
+  writeFileSync(join(req.cwd!, 'r.txt'), 'x')
+  const { server, requests } = await setup((_b, i) => {
+    if (i === 1) pauseGoal(req.messageId)
+    return toolCall('read_file', { path: 'r.txt' }, `r${i}`)
+  })
+  const events: StreamEvent[] = []
+  await runAgent(req, (e) => events.push(e))
+  server.close()
+  assert.equal(requests.length, 2, 'no model call after the pause')
+  assert.equal((events.filter((e) => e.type === 'goal').at(-1) as Extract<StreamEvent, { type: 'goal' }>).goal.status, 'paused')
 })

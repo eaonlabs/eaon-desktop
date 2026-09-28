@@ -302,12 +302,13 @@ async function runTool(
   }
 
   // Goal evidence: a change is a successful mutating call; running a command
-  // or looking at anything counts as checking. A command is both — `npm test`
-  // is how most work gets checked.
-  if (!WORKFLOW_TOOLS.has(call.name)) {
+  // or looking at anything counts as checking — `npm test` is how most work
+  // gets checked, and a command's non-zero exit is still a result. A call
+  // that failed outright neither changed nor checked anything.
+  if (!WORKFLOW_TOOLS.has(call.name) && status === 'done') {
     const evidence = (turn.evidence ??= { seq: 0 })
     evidence.seq++
-    if (mutating && status === 'done' && call.name !== 'run_command') evidence.lastChange = { seq: evidence.seq, tool: call.name }
+    if (mutating && call.name !== 'run_command') evidence.lastChange = { seq: evidence.seq, tool: call.name }
     else evidence.lastCheck = evidence.seq
   }
 
@@ -342,8 +343,32 @@ export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
   let announcedNudged = false
   let goal = params.goal
   const startedAt = Date.now()
+  const goalIterationsLeft = (): boolean => goalIterations < params.settings.work.goalMaxIterations
+  /** Why an active goal run must stop now, or null. A pause or spent budget is honoured between rounds, not only when the model stops. */
+  const goalStop = (atContinuation: boolean): string | null =>
+    pausedGoals.has(request.messageId)
+      ? 'paused by you'
+      : atContinuation && !goalIterationsLeft()
+        ? `continuation limit of ${params.settings.work.goalMaxIterations} reached`
+        : goalBudgetExceeded(params.settings, startedAt, usage)
+  const pauseGoalRun = (reason: string): LoopOutcome => {
+    const byUser = pausedGoals.has(request.messageId)
+    note(byUser ? 'Goal paused.' : `Goal paused: ${reason}. Resume it to keep going.`)
+    emit({
+      type: 'goal',
+      messageId: request.messageId,
+      chatId: request.chatId,
+      goal: { ...goal!, status: 'paused', ...(byUser ? {} : { summary: reason }) }
+    })
+    return { text, usage, turn, stopped: 'goal-limit' }
+  }
+  const goalActive = (): boolean => params.depth === 0 && goal?.status === 'active' && !turn.goalResolution && !signal.aborted
 
   for (let round = 0; round < params.maxRounds; round++) {
+    if (round > 0 && goalActive()) {
+      const reason = goalStop(false)
+      if (reason) return pauseGoalRun(reason)
+    }
     // Providers that cannot clear stale tool output server-side get it pruned
     // here, in large batches, once the transcript nears the window.
     if (round > 0 && !params.adapter.managesContext) {
@@ -402,12 +427,8 @@ export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
 
     if (result.calls.length === 0) {
       // Goal mode: stopping is not the same as finishing.
-      if (params.depth === 0 && goal?.status === 'active' && !turn.goalResolution && !signal.aborted) {
-        const stopReason = pausedGoals.has(request.messageId)
-          ? 'paused by you'
-          : goalIterations >= params.settings.work.goalMaxIterations
-            ? `continuation limit of ${params.settings.work.goalMaxIterations} reached`
-            : goalBudgetExceeded(params.settings, startedAt, usage)
+      if (goalActive() && goal) {
+        const stopReason = goalStop(true)
         if (!stopReason) {
           goalIterations++
           goal = { ...goal, iterations: goal.iterations + 1 }
@@ -419,15 +440,7 @@ export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
           })
           continue
         }
-        const byUser = pausedGoals.has(request.messageId)
-        note(byUser ? 'Goal paused.' : `Goal paused: ${stopReason}. Resume it to keep going.`)
-        emit({
-          type: 'goal',
-          messageId: request.messageId,
-          chatId: request.chatId,
-          goal: { ...goal, status: 'paused', ...(byUser ? {} : { summary: stopReason }) }
-        })
-        return { text, usage, turn, stopped: 'goal-limit' }
+        return pauseGoalRun(stopReason)
       }
       return { text, usage, turn, stopped: 'done' }
     }
