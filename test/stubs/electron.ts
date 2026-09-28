@@ -109,3 +109,32 @@ export const nativeImage = {
   createFromBuffer: () => ({ getSize: () => ({ width: 1, height: 1 }), resize: () => ({ toJPEG: () => Buffer.alloc(0) }), toJPEG: () => Buffer.alloc(0) })
 }
 export default { app, safeStorage, shell, nativeTheme, ipcMain, BrowserWindow, Notification, powerMonitor, systemPreferences, screen, nativeImage, desktopCapturer, globalShortcut }
+
+/** Tray and menus exist only so modules that build them can be imported. */
+export class Tray {
+  constructor(_icon: unknown) {}
+  setToolTip(): void {}
+  setContextMenu(): void {}
+  on(): void {}
+  destroy(): void {}
+}
+
+export const Menu = {
+  buildFromTemplate: (template: unknown[]) => ({ items: template })
+}
+
+/** Records what was held, so tests can check a blocker is released. */
+export const powerSaveBlocker = {
+  active: new Set<number>(),
+  started: 0,
+  next: 1,
+  start(_type: string): number {
+    const id = this.next++
+    this.active.add(id)
+    this.started++
+    return id
+  },
+  stop(id: number): void {
+    this.active.delete(id)
+  }
+}

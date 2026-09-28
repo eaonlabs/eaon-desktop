@@ -221,6 +221,9 @@ export const defaultSettings: Settings = {
   },
   notifications: {
     taskComplete: true
+  },
+  background: {
+    enabled: false
   }
 }
 

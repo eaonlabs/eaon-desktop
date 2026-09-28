@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import '../src/main/agent/sources'
 import { announcesIntent, pauseGoal, runAgent } from '../src/main/agent/loop'
+import { powerSaveBlocker } from 'electron'
 import { store } from '../src/main/store'
 import { secrets } from '../src/main/secrets'
 import type { StreamEvent, StreamRequest } from '@shared/types'
@@ -311,4 +312,28 @@ test('a goal over its token budget pauses and says which limit it hit', async ()
   const last = events.filter((e) => e.type === 'goal').at(-1) as Extract<StreamEvent, { type: 'goal' }>
   assert.equal(last.goal.status, 'paused')
   assert.match(last.goal.summary ?? '', /token limit of 50 reached/)
+})
+
+test('prevent sleep holds the machine awake for the run and lets go after', async () => {
+  const blocker = powerSaveBlocker as unknown as { active: Set<number>; started: number }
+  const before = blocker.started
+  store.patchSettings({ general: { preventSleep: true } })
+  let heldDuringRun = false
+  const { server } = await setup(() => {
+    heldDuringRun = blocker.active.size === 1
+    return say('hi')
+  })
+  await runAgent(request({ mode: 'chat' }), () => {})
+  server.close()
+  store.patchSettings({ general: { preventSleep: false } })
+  assert.equal(heldDuringRun, true)
+  assert.equal(blocker.started, before + 1)
+  assert.equal(blocker.active.size, 0)
+
+  await (async () => {
+    const { server } = await setup(() => say('hi'))
+    await runAgent(request({ mode: 'chat' }), () => {})
+    server.close()
+  })()
+  assert.equal(blocker.started, before + 1, 'not held when the setting is off')
 })

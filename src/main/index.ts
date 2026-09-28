@@ -23,9 +23,19 @@ import { listPullRequests } from './github'
 import { buildIndex, cancelIndexing, clearIndex, getIndexStatus, setIndexStatusListener } from './codeIndex'
 import { describeEmbeddingState, EMBEDDING_MODELS } from './embeddings'
 import { deleteDownloadedModel, downloadModel, getDownloadedModels, getModelDetail, searchModels } from './modelHub'
+import { applyRunAtLogin, backgroundSupported, launchedInBackground, syncTray } from './background'
 
 const here = join(fileURLToPath(import.meta.url), '..')
 app.setName('Eaon')
+
+/**
+ * One Eaon per profile. Two would run every scheduled task twice and write
+ * the same JSON store from two processes. A second launch (a double-click
+ * while Eaon runs in the background) hands over to the first, which opens
+ * its window. The capture harness is exempt; it drives its own profile.
+ */
+const primaryInstance = Boolean(process.env['EAON_CAPTURE']) || app.requestSingleInstanceLock()
+if (!primaryInstance) app.quit()
 
 /**
  * `eaon-file://` serves screenshots and attached images to the renderer. The
@@ -378,6 +388,14 @@ function registerIpc(): void {
   // default folder is displayed as ~/Eaon until the first task creates it.
   ipcMain.handle('app:show-item', (_e, path: string) => shell.showItemInFolder(path.replace(/^~(?=\/|$)/, homedir())))
   ipcMain.handle('app:version', () => app.getVersion())
+  ipcMain.handle('background:get', () => ({ supported: backgroundSupported(), enabled: runsInBackground() }))
+  ipcMain.handle('background:set', async (_e, enabled: boolean) => {
+    if (!backgroundSupported()) throw new Error('Running in the background is not available on this system.')
+    applyRunAtLogin(enabled)
+    store.patchSettings({ background: { enabled } })
+    await syncTray(enabled, openMainWindow)
+    return { supported: true, enabled }
+  })
 
   ipcMain.handle('updater:status', (): UpdateStatus => getUpdateStatus())
   ipcMain.handle('updater:check', () => checkForUpdates())
@@ -423,7 +441,25 @@ const featureContext: FeatureContext = {
   emitStream: (event) => streamBatch.emit(event)
 }
 
+/** Brings the window forward, creating it if there is none (background launch, or closed on Windows). */
+function openMainWindow(): void {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    createWindow()
+    return
+  }
+  if (mainWindow.isMinimized()) mainWindow.restore()
+  mainWindow.show()
+  mainWindow.focus()
+}
+
+const runsInBackground = (): boolean => backgroundSupported() && store.getSettings().background.enabled
+
+app.on('second-instance', () => {
+  if (app.isReady()) openMainWindow()
+})
+
 app.whenReady().then(async () => {
+  if (!primaryInstance) return
   // Before anything spawns a process: a Dock-launched app has almost no PATH.
   await adoptLoginShellPath()
   protocol.handle('eaon-file', (request) => {
@@ -455,7 +491,8 @@ app.whenReady().then(async () => {
   nativeTheme.themeSource = settings.appearance.mode
   registerIpc()
   buildMenu()
-  createWindow()
+  // Started at login for scheduled tasks: no window until someone asks for one.
+  if (!launchedInBackground()) createWindow()
   initUpdater(() => mainWindow)
   for (const feature of FEATURES) {
     try {
@@ -486,15 +523,29 @@ app.whenReady().then(async () => {
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
+
+  // Refreshes the login entry if the app moved since it was written.
+  if (runsInBackground()) {
+    try {
+      applyRunAtLogin(true)
+    } catch (error) {
+      console.error('[background] could not update the login entry:', error)
+    }
+  }
+  void syncTray(runsInBackground(), openMainWindow)
 })
 
 app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit()
+  // macOS apps outlive their windows. On Windows, background mode keeps Eaon
+  // in the notification area so scheduled tasks keep running.
+  if (process.platform !== 'darwin' && !runsInBackground()) app.quit()
 })
 
 // Child MCP processes are ours to clean up; leaving them running would orphan
 // stdio servers every time the app quits.
 app.on('before-quit', () => {
+  // A second instance that handed over never started anything to clean up.
+  if (!primaryInstance) return
   void store.flushWrites()
   void shutdownMcp()
   void stopLocalServer()

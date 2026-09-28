@@ -8,9 +8,12 @@ export function GeneralPage(): JSX.Element {
   const isWork = useIsWork()
   const update = useApp((s) => s.updateStatus)
   const [version, setVersion] = useState('')
+  // The same switch as Scheduled → Keep running in the background: one setting, two places.
+  const [background, setBackground] = useState<{ supported: boolean; enabled: boolean } | null>(null)
 
   useEffect(() => {
     void window.api.app.version().then(setVersion)
+    void window.api.app.background().then(setBackground)
   }, [])
 
   if (!settings) return <></>
@@ -120,13 +123,18 @@ export function GeneralPage(): JSX.Element {
               View
             </button>
           </Row>
-          <Row title="Launch at login" description="Start the app when you log in to your Mac">
-            <Switch
-              label="Launch at login"
-              checked={g.launchAtLogin}
-              onChange={(on) => void patchSettings({ general: { launchAtLogin: on } })}
-            />
-          </Row>
+          {background?.supported && (
+            <Row
+              title="Launch at login"
+              description="Start Eaon in the background when you log in, without opening a window, so scheduled tasks run"
+            >
+              <Switch
+                label="Launch at login"
+                checked={background.enabled}
+                onChange={(on) => void window.api.app.setBackground(on).then(setBackground)}
+              />
+            </Row>
+          )}
         </Card>
       </Section>
 

@@ -359,6 +359,14 @@ export interface Settings {
     /** System notification when a Work task or scheduled run finishes while the window is in the background. */
     taskComplete: boolean
   }
+  /**
+   * Keep Eaon running without a window so scheduled tasks fire: start at
+   * login, and on Windows stay in the notification area when the window
+   * closes. See main/background.ts.
+   */
+  background: {
+    enabled: boolean
+  }
 }
 
 export interface McpServer {

@@ -148,6 +148,10 @@ const api = {
     openExternal: (url: string): Promise<void> => ipcRenderer.invoke('app:open-external', url),
     showItem: (path: string): Promise<void> => ipcRenderer.invoke('app:show-item', path),
     version: (): Promise<string> => ipcRenderer.invoke('app:version'),
+    /** Background mode for scheduled tasks; see main/background.ts. */
+    background: (): Promise<{ supported: boolean; enabled: boolean }> => ipcRenderer.invoke('background:get'),
+    setBackground: (enabled: boolean): Promise<{ supported: boolean; enabled: boolean }> =>
+      ipcRenderer.invoke('background:set', enabled),
     openFiles: (options: { properties?: string[] }): Promise<string[]> =>
       ipcRenderer.invoke('dialog:open-files', options),
     /** Absolute path of a file dropped onto the window (File.path was removed in Electron 32). */

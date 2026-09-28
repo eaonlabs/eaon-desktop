@@ -129,8 +129,6 @@ export function CodeIndexPage(): JSX.Element {
               ]}
             />
           </Row>
-        </Card>
-        <Card>
           <Row
             title="Goal: times to keep going"
             description="How many times goal mode may send the agent back to work in one reply before it pauses."

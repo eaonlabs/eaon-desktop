@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { CalendarClock, Plus, X } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import type { ScheduledTask } from '@shared/scheduler'
-import { Card, Modal, Row, Section } from './ui'
+import { Card, Modal, Row, Section, Switch } from './ui'
 import { CollapsedNav } from './CollapsedNav'
 import { revealChat, useApp } from '../state/store'
 import { TaskCard } from './scheduled/TaskCard'
@@ -34,6 +34,12 @@ export function ScheduledPage(): JSX.Element {
   const [deleting, setDeleting] = useState<ScheduledTask | null>(null)
   const [error, setError] = useState<string | null>(null)
   const now = useNow(30_000)
+  const [background, setBackground] = useState<{ supported: boolean; enabled: boolean } | null>(null)
+  const isMac = navigator.platform.startsWith('Mac')
+
+  useEffect(() => {
+    void window.api.app.background().then(setBackground)
+  }, [])
 
   useEffect(() => {
     let live = true
@@ -92,7 +98,7 @@ export function ScheduledPage(): JSX.Element {
         <div className="page__inner page__inner--sched">
           <h1 className="page__title">Scheduled</h1>
           <p className="page__subtitle">
-            Prompts that run on their own, even with the window closed. Each run lands in Recents as a new chat.
+            Prompts that run on their own while Eaon is running. Each run lands in Recents as a new chat.
           </p>
 
           {error && (
@@ -132,6 +138,26 @@ export function ScheduledPage(): JSX.Element {
                 />
               ))}
             </div>
+          )}
+
+          {background?.supported && (
+            <Section label="Background">
+              <Card>
+                <Row
+                  title="Keep running in the background"
+                  description={
+                    isMac
+                      ? 'Starts Eaon when you log in, without opening a window, so schedules keep running after a restart. Quitting Eaon stops them.'
+                      : 'Starts Eaon when you sign in, and keeps it in the notification area when you close the window, so schedules keep running. Quit from that icon to stop them.'
+                  }
+                >
+                  <Switch
+                    checked={background.enabled}
+                    onChange={(enabled) => attempt(() => window.api.app.setBackground(enabled).then(setBackground))}
+                  />
+                </Row>
+              </Card>
+            </Section>
           )}
         </div>
       </div>

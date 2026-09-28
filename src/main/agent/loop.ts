@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { mkdir } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { app } from 'electron'
+import { app, powerSaveBlocker } from 'electron'
 import type { GoalState, ModelInfo, Provider, Settings, StreamEvent, StreamRequest, TokenUsage } from '@shared/types'
 import { adapterFor, getProvider } from '../providers'
 import { addUsage, emptyUsage, ProviderHttpError, type Adapter, type Credentials, type NeutralImage, type NeutralMessage, type NeutralToolResult, type TurnRequest, type TurnResult } from '../providers/adapters/types'
@@ -56,6 +56,20 @@ export function goalBudgetExceeded(
     return `token limit of ${goalMaxTokens.toLocaleString('en-US')} reached`
   }
   return null
+}
+
+/**
+ * Settings → General → Prevent sleep while running: one blocker held while
+ * any run (chat, Work or scheduled) is in progress.
+ */
+let sleepBlocker: number | null = null
+function holdAwake(): void {
+  const wanted = activeRuns.size > 0 && store.getSettings().general.preventSleep
+  if (wanted && sleepBlocker === null) sleepBlocker = powerSaveBlocker.start('prevent-app-suspension')
+  else if (!wanted && sleepBlocker !== null) {
+    powerSaveBlocker.stop(sleepBlocker)
+    sleepBlocker = null
+  }
 }
 
 export function isRunning(messageId: string): boolean {
@@ -524,6 +538,7 @@ export async function runAgent(request: StreamRequest, emit: (event: StreamEvent
   const controller = new AbortController()
   options.signal?.addEventListener('abort', () => controller.abort(), { once: true })
   activeRuns.set(request.messageId, controller)
+  holdAwake()
   let text = ''
 
   try {
@@ -611,5 +626,6 @@ export async function runAgent(request: StreamRequest, emit: (event: StreamEvent
   } finally {
     activeRuns.delete(request.messageId)
     pausedGoals.delete(request.messageId)
+    holdAwake()
   }
 }
