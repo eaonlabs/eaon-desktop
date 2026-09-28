@@ -24,7 +24,9 @@ if (files.length === 0) {
   process.exit(0)
 }
 
-const out = join(root, 'out', 'test')
+// EAON_TEST_OUT (a folder name under out/) lets a quick run go elsewhere while a
+// long live run still uses out/test. It stays inside the repo so node_modules resolves.
+const out = join(root, 'out', process.env.EAON_TEST_OUT || 'test')
 rmSync(out, { recursive: true, force: true })
 mkdirSync(out, { recursive: true })
 
