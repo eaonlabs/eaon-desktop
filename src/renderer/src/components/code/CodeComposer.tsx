@@ -277,10 +277,11 @@ function ModePills(): JSX.Element | null {
       </button>
       <Popover anchor={anchor} open={explain} onClose={() => setExplain(false)} placement="top-start" width={300}>
         <div className="code-explain">
-          <strong>Update Eaon Code to use swarm and plan here</strong>
+          <strong>Plan and swarm switch in the terminal</strong>
           <span>
-            The installed Eaon Code does not accept plan and swarm over its RPC protocol, so the Code tab cannot switch
-            them. They still work in the terminal with <code>/plan</code> and <code>/swarm</code>.
+            This Eaon Code turns plan and swarm on only from its terminal, with <code>/plan</code> and <code>/swarm</code>,
+            not over the protocol the Code tab uses. Sub-agents still work here: ask for them and the agent starts them
+            itself.
           </span>
         </div>
       </Popover>

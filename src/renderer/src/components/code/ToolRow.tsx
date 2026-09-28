@@ -41,6 +41,10 @@ const ICONS: Record<string, typeof Search> = {
   subagent: Network,
   agent: Bot,
   Agent: Bot,
+  // Eaon Code's sub-agent extension (pi-subagents).
+  SubagentWorkflow: Network,
+  get_subagent_result: Bot,
+  steer_subagent: Bot,
   todo: ListTodo,
   pr_review: GitPullRequest,
   web_search: Globe,
@@ -59,6 +63,9 @@ const LABELS: Record<string, string> = {
   subagent: 'Swarm',
   agent: 'Agent',
   Agent: 'Agent',
+  SubagentWorkflow: 'Agent workflow',
+  get_subagent_result: 'Agent result',
+  steer_subagent: 'Steer agent',
   todo: 'Tasks',
   pr_review: 'Review PR',
   claude_code: 'Claude Code'
@@ -75,6 +82,7 @@ function summarise(tool: ToolState): string {
     const agents = Array.isArray(args.agents) ? (args.agents as { role?: string }[]) : []
     return agents.length ? `${agents.length} agents · ${agents.map((a) => a.role ?? 'agent').join(', ')}` : ''
   }
+  if (tool.name === 'steer_subagent') return [str(args.agent_id), str(args.message)].filter(Boolean).join(' — ')
   if (tool.name === 'grep' || tool.name === 'find') {
     const where = str(args.path)
     return [str(args.pattern), where && where !== '.' ? `in ${where}` : ''].filter(Boolean).join(' ')
@@ -83,7 +91,7 @@ function summarise(tool: ToolState): string {
     const range = typeof args.offset === 'number' ? ` :${args.offset}${typeof args.limit === 'number' ? `+${args.limit}` : ''}` : ''
     return str(args.path) + range
   }
-  for (const key of ['path', 'file_path', 'description', 'query', 'url', 'pattern', 'title']) {
+  for (const key of ['path', 'file_path', 'description', 'query', 'url', 'pattern', 'title', 'agent_id', 'name']) {
     if (str(args[key])) return str(args[key])
   }
   return ''
