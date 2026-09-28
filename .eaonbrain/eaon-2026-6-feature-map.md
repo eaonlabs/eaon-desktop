@@ -23,6 +23,12 @@ the old Swift/Tauri repo; see [[The GitHub eaon-desktop repo is not this codebas
 | Code tab | `features/eaonCode/`, `components/code/` | [[Code tab drives Eaon Code over RPC]] |
 | Model library | `modelLibrary/`, `ModelsPage.tsx` | [[Local model hub (Models page)]] |
 | Themes, pets | `lib/themes.ts`, `components/pets/` | [[Coloured themes, text fade and on-accent]], [[Pets — sprites, moods and the desktop window]] |
+| Loop guards, goal limits | `agent/guards.ts`, `loop.ts` | [[Loop guards: repeated failures, duplicate observations, goal evidence]] |
+| Stream truncation | `providers/adapters/` | [[Truncated provider streams are errors]] |
+| Background mode, single instance | `main/background.ts`, `index.ts` | [[Background mode: LaunchAgent, tray and single instance]] |
+| Testing Eaon Code locally | `test/eaon-code-live.test.ts` | [[Testing Eaon Code against Ollama needs a bigger context]] |
+
+Status, evidence and open items for the release: `docs/desktop-next-implementation.md`.
 
 Each feature registers through `src/main/features/<x>.ts` (IPC) and
 `src/preload/features/<x>.ts` (renderer bridge), so features grow without

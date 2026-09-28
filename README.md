@@ -67,7 +67,9 @@ steps.
 ```bash
 npm run typecheck
 npm run test:main                              # main-process tests (esbuild + node --test)
-EAON_LIVE=1 npm run test:main -- agent-live    # real agent runs against local Ollama
+EAON_LIVE=1 npm run test:main -- agent-live    # real agent runs against local Ollama (EAON_LIVE_MODEL)
+EAON_LIVE=1 npm run test:main -- browser-live  # the real extension in Chrome for Testing
+EAON_TEST_OUT=test-quick npm run test:main     # a quick run beside a live one
 npm run verify:plugins                         # checks every catalog plugin live
 npm run verify:models                          # checks every library model resolves
 ```

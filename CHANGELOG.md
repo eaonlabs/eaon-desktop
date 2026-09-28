@@ -24,6 +24,13 @@ All notable changes to Eaon are documented here. Format loosely follows
 - **Scheduled tasks that really run.** They fire on their own timer with the
   window closed and catch up once if a run was missed. Each run leaves a chat
   behind. The agent can create schedules itself.
+- **Keep running in the background** (Scheduled page, or General → Launch
+  at login). Eaon starts at login without a window so schedules run after a
+  restart. On Windows, closing the window leaves Eaon in the notification
+  area. Off by default.
+- **Goal limits.** Goal mode pauses on a time limit (1 hour) or a token limit
+  (2M) as well as its continuation limit. The banner says which one it hit.
+  All three are in Settings → Code index → Agent.
 - **Browser control through a Chrome extension** (`extension/`). It pairs over
   loopback and works in its own tab group. Payments, deletions and password
   fields ask first. The folder includes a Web Store publishing kit.
@@ -62,6 +69,21 @@ All notable changes to Eaon are documented here. Format loosely follows
 - Model selection remembers which provider serves the model.
 
 ### Fixed
+- **Cut-off replies taken as finished.** A stream that closed before the
+  provider said it was done was treated as a complete answer. It could even
+  carry a half-received tool call. Chat-completions, Ollama and Anthropic
+  streams now fail instead, and a cut-off with nothing shown yet is retried.
+- **Work spinning in place.** The same failing tool call is now refused after
+  three identical failures, and re-reading unchanged output costs a short
+  pointer instead of a second copy.
+- **Goals declared done without checking.** A goal is sent back once to
+  verify when its last action was an unchecked change.
+- **Pausing a goal that was running did nothing.** The pause now reaches the
+  agent between steps, as do the time and token limits.
+- **Two copies of Eaon could run at once.** Scheduled tasks then ran twice.
+  A second launch now brings the first one forward.
+- **Launch at login and Prevent sleep did nothing.** Both switches now work.
+- **Model downloads could fill the disk.** Get now checks free space first.
 - **Tool calls dropped by some providers.** Ollama and several gateways sent
   them with an unexpected finish reason. Mistral rejected tool ids made by
   other providers, Gemini rejected common schema keywords, and local models

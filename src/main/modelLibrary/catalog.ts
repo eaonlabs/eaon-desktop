@@ -113,7 +113,7 @@ export const LIBRARY: LibraryModel[] = [
         ['Qwen3.8-27B-UD-Q3_K_XL.gguf', 'mmproj-BF16.gguf'],
         14_077_541_042
       ),
-      ollama('q4_k_m', 'Q4_K_M + MTP', 'qwen3.8:27b', '22130167c4c2', 17_741_872_154),
+      ollama('q4_k_m', 'Q4_K_M + MTP', 'qwen3.8:27b', 'aaee06c39dcf', 17_741_872_154),
       ollama('q8_0', 'Q8_0', 'qwen3.8:27b-q8_0', '8f5fb6b71ea0', 29_978_242_050)
     ],
     recommended: [
