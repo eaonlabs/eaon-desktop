@@ -118,3 +118,14 @@ test('the native host is derived from the OpenAI-style base URL', () => {
   assert.equal(ollamaHost('http://gpu-box:11434/v1/'), 'http://gpu-box:11434')
   assert.equal(ollamaHost('http://gpu-box:11434'), 'http://gpu-box:11434')
 })
+
+test('a stream that closes before the done chunk is an error, not an answer', async () => {
+  const { url, server } = await rawServer(() => ({
+    body: ndjson([{ message: { content: 'Half an ans' } }, { message: { tool_calls: [{ function: { name: 'read_file', arguments: { path: 'a' } } }] } }])
+  }))
+  try {
+    await assert.rejects(ollamaAdapter.turn(request(ollama(url))), /stream ended before it finished/)
+  } finally {
+    server.close()
+  }
+})

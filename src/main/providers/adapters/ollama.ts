@@ -173,6 +173,9 @@ export const ollamaAdapter: Adapter = {
     let text = ''
     let thinking = ''
     let doneReason: string | undefined
+    // Ollama ends every reply with a `done: true` chunk; without it the
+    // connection closed part-way through.
+    let finished = false
     const usage = emptyUsage()
     const calls: NeutralToolCall[] = []
 
@@ -214,6 +217,7 @@ export const ollamaAdapter: Adapter = {
         })
       }
       if (chunk.done) {
+        finished = true
         doneReason = chunk.done_reason
         usage.input = chunk.prompt_eval_count ?? 0
         usage.output = chunk.eval_count ?? 0
@@ -236,6 +240,7 @@ export const ollamaAdapter: Adapter = {
       }
     }
     emit(splitter.flush())
+    if (!finished) throw new Error('The response stream ended before it finished. Try again.')
 
     return {
       text,

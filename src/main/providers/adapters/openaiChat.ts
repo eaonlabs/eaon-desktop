@@ -401,6 +401,9 @@ export const openaiChatAdapter: Adapter = {
     let reasoningField: ReasoningField | null = null
     const details: ReasoningDetail[] = []
     let finishReason: string | null = null
+    // Set by the `[DONE]` sentinel. With a finish_reason, it is how a finished
+    // stream is told apart from a connection that closed part-way through.
+    let sawDone = false
     const usage = emptyUsage()
     // Keyed by index when the provider sends one, else by id, else by arrival order.
     const pending = new Map<string, { id: string; name: string; args: string; order: number; signature?: string }>()
@@ -492,31 +495,48 @@ export const openaiChatAdapter: Adapter = {
       }
     }
 
+    const handleLine = (raw: string): void => {
+      const line = raw.trim()
+      if (!line.startsWith('data:')) return
+      const payload = line.slice(5).trim()
+      if (payload === '[DONE]') sawDone = true
+      if (!payload || payload === '[DONE]') return
+      let chunk: StreamChunk
+      try {
+        chunk = JSON.parse(payload) as StreamChunk
+      } catch {
+        return
+      }
+      handleChunk(chunk)
+    }
+
     while (true) {
       const { done, value } = await reader.read()
-      if (done) break
+      if (done) {
+        // A last event without a trailing newline is still an event.
+        buffer += decoder.decode()
+        if (buffer.trim()) handleLine(buffer)
+        break
+      }
       buffer += decoder.decode(value, { stream: true })
       let boundary = buffer.indexOf('\n')
       while (boundary !== -1) {
-        const line = buffer.slice(0, boundary).trim()
+        const line = buffer.slice(0, boundary)
         buffer = buffer.slice(boundary + 1)
         boundary = buffer.indexOf('\n')
-        if (!line.startsWith('data:')) continue
-        const payload = line.slice(5).trim()
-        if (!payload || payload === '[DONE]') continue
-        let chunk: StreamChunk
-        try {
-          chunk = JSON.parse(payload) as StreamChunk
-        } catch {
-          continue
-        }
-        handleChunk(chunk)
+        handleLine(line)
       }
     }
     emitText(splitter.flush())
 
     if (finishReason === 'network_error' || finishReason === 'error') {
       throw new Error(`The provider stopped mid-reply (${finishReason}). Try again.`)
+    }
+    // The connection closed before the provider said it had finished. What
+    // arrived may be half a sentence or half a tool call's arguments, so it
+    // is not an answer (Eaon Code's provider layer draws the same line).
+    if (!finishReason && !sawDone) {
+      throw new Error('The response stream ended before it finished. Try again.')
     }
 
     const calls: NeutralToolCall[] = []

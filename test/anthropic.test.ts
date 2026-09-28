@@ -138,3 +138,28 @@ test('tool results carry screenshots as image blocks', async () => {
   assert.equal(toolResult.type, 'tool_result')
   assert.equal(toolResult.content[1].type, 'image')
 })
+
+test('a stream cut off before message_stop is reported as a retryable truncation', async () => {
+  const { url, server } = await anthropicServer(toolUseStream.slice(0, 6))
+  try {
+    await assert.rejects(anthropicAdapter.turn(request(url, 'claude-opus-4-7')), /stream ended before it finished/)
+  } finally {
+    server.close()
+  }
+})
+
+test('message_stop without a stop_reason is not taken as a finished reply', async () => {
+  // The last input_json_delta is half an object; the SDK's partial parser
+  // turns it into { path: 'a' }, a call that looks whole.
+  const cut = [
+    ...toolUseStream.slice(0, 5),
+    { event: 'content_block_delta', data: { type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '{"path":"a' } } },
+    { event: 'message_stop', data: { type: 'message_stop' } }
+  ]
+  const { url, server } = await anthropicServer(cut)
+  try {
+    await assert.rejects(anthropicAdapter.turn(request(url, 'claude-opus-4-7')), /stream ended before it finished/)
+  } finally {
+    server.close()
+  }
+})

@@ -240,8 +240,16 @@ export const anthropicAdapter: Adapter = {
           Number.isFinite(retryAfter) ? retryAfter * 1000 : undefined
         )
       }
+      // The SDK's own words for a connection that closed before message_stop.
+      if (error instanceof Error && /stream ended without producing a Message|request ended without sending any chunks/.test(error.message)) {
+        throw new Error('The response stream ended before it finished. Try again.')
+      }
       throw error
     }
+    // message_stop without the message_delta that carries stop_reason: the
+    // SDK still returns the message, with any cut-off tool input filled in
+    // from its partial JSON, so a call can look whole when it is not.
+    if (!final.stop_reason) throw new Error('The response stream ended before it finished. Try again.')
 
     const usage = emptyUsage()
     usage.input = final.usage.input_tokens ?? 0

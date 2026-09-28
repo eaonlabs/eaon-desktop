@@ -167,6 +167,18 @@ test('a 429 is retried after its retry-after, with a visible note', async () => 
   assert.ok(events.some((e) => e.type === 'reasoning' && /busy \(429\)/.test(e.text)))
 })
 
+test('a reply cut off before anything was shown is retried, not accepted', async () => {
+  // First response: the connection closes after a role-only chunk — no
+  // finish_reason, no [DONE]. Nothing reached the user, so it is safe to retry.
+  const { server, requests } = await setup((_b, i) => (i === 0 ? [chunk({ role: 'assistant' })] : say('hello')))
+  const events: StreamEvent[] = []
+  const outcome = await runAgent(request({ mode: 'chat' }), (e) => events.push(e))
+  server.close()
+  assert.equal(outcome.error, undefined)
+  assert.equal(outcome.text, 'hello')
+  assert.equal(requests.length, 2)
+})
+
 test('a tool call cut off by the output limit is not executed', async () => {
   const req = request()
   const { server, requests } = await setup((_b, i) =>

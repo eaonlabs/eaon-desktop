@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { openaiChatAdapter, __test } from '../src/main/providers/adapters/openaiChat'
 import type { TurnRequest } from '../src/main/providers/adapters/types'
-import { chunk, provider, sseServer } from './helpers'
+import { chunk, provider, rawServer, sseServer } from './helpers'
 
 function request(base: string, overrides: Partial<TurnRequest> = {}): TurnRequest {
   return {
@@ -141,4 +141,34 @@ test('Gemini schema sanitising drops unsupported keywords', () => {
   assert.equal(clean.additionalProperties, undefined)
   assert.equal(clean.properties.a.type, 'string')
   assert.equal(clean.properties.a.format, undefined)
+})
+
+test('a stream that closes before finish_reason or [DONE] is an error, not an answer', async () => {
+  const { url, server } = await sseServer(() => [
+    chunk({ content: 'Writing it now.' }),
+    chunk({ tool_calls: [{ index: 0, id: 'c1', function: { name: 'read_file', arguments: '{"path":"a' } }] })
+  ])
+  try {
+    await assert.rejects(openaiChatAdapter.turn(request(url)), /stream ended before it finished/)
+  } finally {
+    server.close()
+  }
+})
+
+test('either finish_reason or [DONE] marks a stream as finished', async () => {
+  const onlyFinish = await sseServer(() => [chunk({ content: 'Hi.' }, 'stop')])
+  const finished = await openaiChatAdapter.turn(request(onlyFinish.url)).finally(() => onlyFinish.server.close())
+  assert.equal(finished.text, 'Hi.')
+  const onlyDone = await sseServer(() => [chunk({ content: 'Hi.' }), '[DONE]'])
+  const done = await openaiChatAdapter.turn(request(onlyDone.url)).finally(() => onlyDone.server.close())
+  assert.equal(done.stop, 'end')
+})
+
+test('a final event without a trailing newline is still read', async () => {
+  const { url, server } = await rawServer(() => ({
+    body: `data: ${chunk({ content: 'Hello' })}\n\ndata: ${chunk({ content: ' there' }, 'stop')}`
+  }))
+  const result = await openaiChatAdapter.turn(request(url + '/v1')).finally(() => server.close())
+  assert.equal(result.text, 'Hello there')
+  assert.equal(result.stop, 'end')
 })
