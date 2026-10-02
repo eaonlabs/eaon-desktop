@@ -7,6 +7,8 @@ updated: 2026-08-26T02:28:24.147Z
 
 # The GitHub eaon-desktop repo is not this codebase
 
+> **Update, Oct 2026:** the remote is now `eaonlabs/eaon-desktop`. Its `main` is still the old multi-app history described below, but this Electron codebase **is** pushed there, on `release/*` branches (`release/2026.5.0`, `release/2026.6.0`). See [[Releasing Eaon Desktop: release branches, rc tags and a public repo]].
+
 `https://github.com/sanscreates/eaon-desktop` and this local
 `~/Downloads/Eaon Desktop` folder are two different products that happen to
 share a name. Worth knowing before you go looking for a file that isn't there.
