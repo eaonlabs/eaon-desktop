@@ -51,6 +51,16 @@ jobs:
       - name: llama-server for Linux
         run: ./scripts/build-llama.sh
 
+      # electron-builder's bundled fpm (which makes the .deb) is an x86 program;
+      # on arm64 the system's own fpm is used instead.
+      - name: fpm for arm64
+        if: matrix.arch == 'arm64'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ruby ruby-dev build-essential > /dev/null
+          sudo gem install --no-document fpm > /dev/null
+          echo "USE_SYSTEM_FPM=true" >> "$GITHUB_ENV"
+
       - name: Build
         run: |
           npx electron-vite build
