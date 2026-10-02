@@ -18,6 +18,7 @@
     "dist:mac": "./scripts/release-mac.sh",
     "release:mac": "./scripts/release-mac.sh --publish",
     "dist:win": "[ -f resources/llama/win32-x64/llama-server.exe ] || ./scripts/fetch-llama-windows.sh; electron-vite build && electron-builder --win --publish never",
+    "dist:linux": "[ -x resources/llama/linux-x64/llama-server ] || ./scripts/fetch-llama-linux.sh; electron-vite build && electron-builder --linux --publish never",
     "release:win": "[ -f resources/llama/win32-x64/llama-server.exe ] || ./scripts/fetch-llama-windows.sh; electron-vite build && electron-builder --win --publish always",
     "test:main": "node scripts/test-main.mjs",
     "postinstall": "node scripts/fix-node-pty.mjs",

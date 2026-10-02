@@ -127,6 +127,22 @@ win:
   # More info -> Run anyway. Signing needs a code-signing certificate, which is
   # a separate purchase from the Apple Developer ID used for macOS.
   artifactName: ${productName}-${version}-setup.${ext}
+# Linux: an AppImage (runs on most distributions, and updates itself) and a
+# .deb, each for x64 and arm64. Built on Linux by .github/workflows/linux.yml:
+# node-pty has no Linux prebuild, so it is compiled there, and llama-server
+# comes from scripts/fetch-llama-linux.sh.
+linux:
+  icon: resources/icon.png
+  category: Utility
+  executableName: eaon
+  synopsis: Every model, on your machine
+  maintainer: Eaon <developer@eaon.dev>
+  extraResources:
+    - from: resources/llama/linux-${arch}
+      to: llama/linux-${arch}
+  target:
+    - AppImage
+    - deb
 nsis:
   # Newer NSIS (3.10+, e.g. Homebrew's native arm64 makensis, used on Apple
   # silicon Macs via ELECTRON_BUILDER_NSIS_DIR) warns about language strings

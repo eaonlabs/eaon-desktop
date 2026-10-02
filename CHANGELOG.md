@@ -5,11 +5,16 @@ All notable changes to Eaon are documented here. Format loosely follows
 
 ## [2026.6.0-rc.1] — 2026-10-01
 
-*macOS and Windows. Release candidate for 2026.6.0: everything below is in,
+*macOS, Windows and Linux. Release candidate for 2026.6.0: everything below is in,
 and what's left is testing. Email on your own domain through Cloudflare is
 labelled beta.*
 
 ### Added
+- **Linux installers**: an AppImage, which runs on most distributions and
+  updates itself, and a `.deb`, for x64 and arm64. They're built on Linux by
+  GitHub Actions (`.github/workflows/linux.yml`), and each is started once
+  before it's attached to the release. Local models use upstream llama.cpp's
+  Linux build, with Vulkan for GPUs and the CPU otherwise.
 - **Three tabs: Chat, Workers and ADE**, centred in the top bar of every
   screen (⌘1 / ⌘2 / ⌘3). Chat now *is* the agent: it answers plainly, and
   when you ask for something it does it with files, the shell, the web, your
