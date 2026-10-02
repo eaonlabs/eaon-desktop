@@ -129,8 +129,8 @@ win:
   artifactName: ${productName}-${version}-setup.${ext}
 # Linux: an AppImage (runs on most distributions, and updates itself) and a
 # .deb, each for x64 and arm64. Built on Linux by .github/workflows/linux.yml:
-# node-pty has no Linux prebuild, so it is compiled there, and llama-server
-# comes from scripts/fetch-llama-linux.sh.
+# node-pty has no Linux prebuild, so it is compiled there, and so is
+# llama-server (scripts/build-llama.sh).
 linux:
   icon: resources/icon.png
   category: Utility

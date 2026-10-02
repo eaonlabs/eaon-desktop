@@ -10,11 +10,17 @@
 # which electron-builder ships as extraResources.
 #
 # Usage:
-#   ./scripts/build-llama.sh              # this Mac's arch (arm64 or x64)
+#   ./scripts/build-llama.sh              # this machine's arch (arm64 or x64)
 #   ./scripts/build-llama.sh x64          # cross-build the Intel binary on Apple silicon
 #   ./scripts/build-llama.sh all          # both, for the universal app
 #
-# Needs: git, cmake (brew install cmake), Xcode command line tools.
+# On Linux it builds for the machine's own arch only, CPU only, into
+# resources/llama/linux-<arch>/. Built on the oldest Linux Eaon supports, so it
+# runs wherever the app does (upstream's arm64 build needs a newer glibc than
+# Ubuntu 22.04 has).
+#
+# Needs: git, cmake and a C++ compiler (macOS: brew install cmake, plus the
+# Xcode command line tools; Linux: build-essential).
 
 set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -22,8 +28,13 @@ SRC="$ROOT/native/llama.cpp"
 FORK="$ROOT/native/llama-fork.json"
 JOBS="$(sysctl -n hw.ncpu 2>/dev/null || nproc)"
 
-want="${1:-$(uname -m | sed 's/x86_64/x64/')}"
+OS="$(uname -s)"
+host="$(uname -m | sed -e 's/x86_64/x64/' -e 's/aarch64/arm64/')"
+want="${1:-$host}"
 [ "$want" = "all" ] && archs="arm64 x64" || archs="$want"
+if [ "$OS" = "Linux" ] && [ "$archs" != "$host" ]; then
+  echo "error: on Linux, llama-server is built for this machine's arch ($host) only" >&2; exit 1
+fi
 
 base="$(node -p "require('$FORK').base")"
 prs="$(node -p "require('$FORK').pulls.map(p => p.number).join(' ')")"
@@ -71,29 +82,34 @@ done
 revision="$(git -C "$SRC" rev-parse --short HEAD)"
 
 for arch in $archs; do
-  case "$arch" in
-    arm64) cmake_arch=arm64; extra=(-DGGML_METAL=ON -DGGML_METAL_EMBED_LIBRARY=ON) ;;
+  platform=darwin
+  osx=(-DCMAKE_OSX_DEPLOYMENT_TARGET=13.3)
+  case "$OS-$arch" in
+    # Linux: no OpenMP, so the binary needs no libgomp on the user's machine.
+    Linux-x64) platform=linux; osx=(); extra=(-DGGML_OPENMP=OFF -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON) ;;
+    Linux-arm64) platform=linux; osx=(); extra=(-DGGML_OPENMP=OFF) ;;
+    *-arm64) cmake_arch=arm64; extra=(-DGGML_METAL=ON -DGGML_METAL_EMBED_LIBRARY=ON) ;;
     # Intel Macs: CPU only, with the AVX2/FMA every Mac since 2013 has. Metal
     # on Intel GPUs is slower than the CPU path for most models.
-    x64) cmake_arch=x86_64; extra=(-DGGML_METAL=OFF -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON) ;;
+    *-x64) cmake_arch=x86_64; extra=(-DGGML_METAL=OFF -DGGML_AVX=ON -DGGML_AVX2=ON -DGGML_FMA=ON -DGGML_F16C=ON) ;;
     *) echo "error: unknown arch $arch" >&2; exit 1 ;;
   esac
   build="$SRC/build-$arch"
-  echo "== Building llama-server for macOS $arch"
+  echo "== Building llama-server for $platform $arch"
+  [ "$platform" = darwin ] && osx+=(-DCMAKE_OSX_ARCHITECTURES="$cmake_arch")
   cmake -S "$SRC" -B "$build" \
     -DCMAKE_BUILD_TYPE=Release \
-    -DCMAKE_OSX_ARCHITECTURES="$cmake_arch" \
-    -DCMAKE_OSX_DEPLOYMENT_TARGET=13.3 \
+    ${osx[@]+"${osx[@]}"} \
     -DBUILD_SHARED_LIBS=OFF \
     -DGGML_NATIVE=OFF \
     -DLLAMA_OPENSSL=OFF \
     -DLLAMA_BUILD_TESTS=OFF \
     -DLLAMA_BUILD_EXAMPLES=OFF \
     -DLLAMA_BUILD_SERVER=ON \
-    "${extra[@]}" >/dev/null
+    ${extra[@]+"${extra[@]}"} >/dev/null
   cmake --build "$build" --config Release --target llama-server -j "$JOBS" 2>&1 | grep -E "error|warning: unused|Built target llama-server" || true
 
-  out="$ROOT/resources/llama/darwin-$arch"
+  out="$ROOT/resources/llama/$platform-$arch"
   mkdir -p "$out"
   cp "$build/bin/llama-server" "$out/llama-server"
   chmod +x "$out/llama-server"
