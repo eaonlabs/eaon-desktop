@@ -24,5 +24,10 @@ The co-founder chose to make `main` this app. GitHub can't open a PR between bra
 - **Licence:** `LICENSE.md` and `NOTICE` (GPL-3.0) were kept from the old `main`, but `package.json` says MIT. That's an open question for the co-founder; don't settle it by deleting files.
 
 ## Apple notarization: "A required agreement is missing or has expired" (HTTP 403)
-`npm run dist:mac` signs fine and then fails at notarytool with that 403. Apple refuses notarization until the account holder accepts the updated developer agreement at developer.apple.com → Account (or App Store Connect → Agreements, Tax, and Banking). Nothing in the repo or keychain fixes it. Don't ship the build un-notarized; rebuild once the agreement is accepted. rc.1 went out Windows-first for this reason, with the Mac build to follow.
+`npm run dist:mac` signs fine and then fails at notarytool with that 403. Apple refuses notarization until the account holder accepts the updated developer agreement at developer.apple.com → Account (or App Store Connect → Agreements, Tax, and Banking). Nothing in the repo or keychain fixes it. rc.1 went out Windows-first for this reason. When the co-founder asked for a dmg anyway, they chose a **signed, un-notarized** stopgap:
+- Build: `npx electron-vite build && npx electron-builder --mac --publish never --config.mac.notarize=false`. This skips `scripts/release-mac.sh`, which always notarizes. Then sign the dmg yourself: `codesign --force --sign "Developer ID Application" --timestamp dist/Eaon-<ver>.dmg`.
+- Check: `codesign --verify --deep --strict` passes on the app. `spctl -a -vvv -t install` on the dmg says `rejected, source=Unnotarized Developer ID`, which is expected for this build.
+- Upload **only the dmg**. Leave out `latest-mac.yml`, the zip and the blockmaps, so existing Mac installs don't auto-update to an un-notarized build. The dmg's blockmap is stale anyway, because signing the dmg changes it.
+- The release notes tell testers to open it once with System Settings → Privacy & Security → **Open Anyway**. On recent macOS, right-click → Open no longer gets past Gatekeeper.
+- Once `notarytool history` stops returning 403, run `npm run dist:mac` again, then upload the notarized dmg, zip, blockmaps and `latest-mac.yml` with `--clobber`, and remove the un-notarized note.
 
