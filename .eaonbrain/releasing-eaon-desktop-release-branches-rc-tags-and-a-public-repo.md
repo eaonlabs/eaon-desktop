@@ -16,3 +16,12 @@ How this Electron codebase reaches GitHub (`eaonlabs/eaon-desktop`, **public**),
   - **Avoid token-shaped literals.** GitHub push protection knows Cloudflare's `cfut_`/`cfat_`/`cfk_` prefixes, so fake test tokens are joined at runtime (`['cfut', '…'].join('_')`, see `test/cloudflareFake.ts`).
   - **Scrub personal details.** Remove personal email addresses, Cloudflare account and zone IDs, private domains, and `/Users/<name>` paths from tests and `.eaonbrain`.
   - **Strip the co-author trailers.** See [[Commits and pushes: no Claude co-author trailer]].
+
+## Merging this app into `main` (PR #7, Oct 1 2026)
+The co-founder chose to make `main` this app. GitHub can't open a PR between branches with no shared history, so the PR's branch (`update-main-2026.6`) is `release/2026.6.0` plus `git merge -s ours --allow-unrelated-histories origin/main`: it keeps this app's tree and records the old `main` as a parent. GitHub then reports it mergeable and clean.
+- **What goes away when it merges:** the old Swift, Tauri and CLI files and the old `.github` workflows, which built the Tauri Linux installers. Linux builds stop until this app has a Linux target.
+- **Licence:** `LICENSE.md` and `NOTICE` (GPL-3.0) were kept from the old `main`, but `package.json` says MIT. That's an open question for the co-founder; don't settle it by deleting files.
+
+## Apple notarization: "A required agreement is missing or has expired" (HTTP 403)
+`npm run dist:mac` signs fine and then fails at notarytool with that 403. Apple refuses notarization until the account holder accepts the updated developer agreement at developer.apple.com → Account (or App Store Connect → Agreements, Tax, and Banking). Nothing in the repo or keychain fixes it. Don't ship the build un-notarized; rebuild once the agreement is accepted. rc.1 went out Windows-first for this reason, with the Mac build to follow.
+
