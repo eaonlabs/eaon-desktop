@@ -1,6 +1,0 @@
-{
-  "latestVersion": "2026.1.8",
-  "downloadURL": "https://github.com/sanscreates/eaon-releases/releases/download/v2026.1.8/Eaon-2026.1.8.zip",
-  "sha256": "REQUIRED: lowercase hex SHA-256 of the .zip above — generate with `shasum -a 256 Eaon-2026.1.8.zip`. The app refuses to install a download whose hash doesn't match this.",
-  "releaseNotes": "• Image generation — API or local models, zero setup\n• Model name/logo shown on every reply\n• Multi-step replies now render as one message, with a live \"what's happening\" indicator\n• A \"Thinking\" dropdown for models that use real reasoning (DeepSeek-R1, QwQ, etc.)\n• \"Always allow tool calls\" — skip confirmation for code execution and plugin calls\n• Local API Server — run a local OpenAI-compatible server other tools can connect to\n• Fixed a stray line in the sidebar; fixed local image models that failed with \"does not support chat\""
-}

@@ -3,573 +3,496 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
-## [2026.4.0] — 2026-07-22
+## [2026.6.0-rc.1] — 2026-10-01
 
-*Windows/Linux app only.*
+*macOS and Windows. Release candidate for 2026.6.0: everything below is in,
+and what's left is testing. Email on your own domain through Cloudflare is
+labelled beta.*
+
+### Added
+- **Three tabs: Chat, Workers and ADE**, centred in the top bar of every
+  screen (⌘1 / ⌘2 / ⌘3). Chat now *is* the agent: it answers plainly, and
+  when you ask for something it does it with files, the shell, the web, your
+  browser and plugins. The old Work tab is folded into Chat, and its chats,
+  projects and folder move across on first launch. The Code tab is now the
+  **ADE** (agentic development environment).
+- **A simpler chat box.** It has +, your message, the model and Send. The
+  approval mode, Plan / Swarm / Goal, the work folder, plugins, browser and
+  computer use all live behind +. Anything switched on shows as a small chip
+  that turns it off again. Under the home composer, chips suggest things Chat
+  can do.
+- **Eaon Workers.** Workers are always-on agents with a name, a colour, a
+  personality and a purpose. Each has one thread that never ends and is
+  compacted automatically, and you can clear it. A worker wakes when you
+  write, when a teammate sends it mail, or on a heartbeat it schedules for
+  itself (every minute while a model trains, for example). Workers hand each
+  other parts of a job, send each other files and check on each other. They
+  create new workers only rarely. Each face is a coloured circle whose eyes
+  show its mood: neutral, happy, serious, angry, asleep, or X'd out when a
+  task failed.
+- **Workers run on their own**, modelled on xAI's Grok Bot and OpenAI's dots:
+  - **Three levels of freedom.** *Autonomous* (the default) uses files,
+    commands, plugins, its own browser and your computer without asking.
+    *Careful* refuses anything risky. *Look only* never changes anything.
+  - **Actions that always need you.** Even an autonomous worker never
+    spends money, types a card number or password, uses `sudo`, erases a
+    disk, force-pushes, or makes a plugin call the plugin marks
+    destructive. For those it asks, and approving lets exactly that one
+    call through, once.
+  - **Questions that don't block.** A worker can ask you something
+    (`ask_user`) and keep working while it waits. Questions show as cards
+    above its message box with quick answers, Approve once or Decline, and
+    a notification.
+  - **Its own memory.** A goal, plus notes on decisions and your
+    preferences. The worker keeps both up to date, and they stay in its
+    prompt even after its thread is summarised.
+  - **Routines.** Several named schedules per worker, such as "every 30
+    minutes, check the deploy" or "daily at 08:30, write the morning
+    brief". They sit alongside the one-off heartbeat. A routine that fails
+    reports and waits for its next run instead of retrying in a loop.
+  - **Reaching out first.** `notify_user` sends a notification when a
+    worker has something you'd want to know now.
+  - **Its own web browser,** through BetterWright. It's a real browser in a
+    hidden window with the worker's own logins, and it can open pages,
+    click, type, search within a page, read and take screenshots. Its
+    Browser card opens the same live view as Chat's, with its cursor and
+    Take control, to watch it or to sign it in somewhere.
+  - **No swarm mode,** since your workers are the swarm. Workers no longer
+    see the scheduler (it starts chats); heartbeats and routines replace it.
+- **Chat apps: Workers in Discord, Telegram and WhatsApp** (Settings → Chat
+  apps). Connect a worker to a Discord bot, a Telegram bot, or a WhatsApp
+  group through your own number linked like WhatsApp Web. Pair your account
+  with a code and you can talk to the worker from your phone and control it
+  with commands: /status, /stop, /pause, /resume, /wake, /workers, /use, and
+  /answer, /approve or /decline for its questions. Friends and groups ask to
+  join, and you let them in from Eaon or with /allow. What a friend may make
+  the worker do is your choice, from "Talk only" (the default: chat and web
+  search, nothing on your computer) up to "Same as you". A friend's message
+  can never change the worker's schedule, notes or team. Workers can also
+  post on their own, such as a daily digest to a group. WhatsApp has no bot
+  API for personal accounts, so it uses an unofficial client and a spare
+  number is safest; Settings says so before you link.
+- **Full autonomy** (+ → Permissions). Chat runs any command and makes any
+  change it needs, anywhere on your computer, without asking. It still stops
+  for anything that can't be undone: sudo, erasing a disk, force-pushing,
+  passwords, payments.
+- **Goals with an end time.** With Goal on, choose how long Eaon keeps at it:
+  until it's done, for 30 minutes up to 8 hours, or until a time you pick. It
+  keeps your computer awake until then, and while it waits for something it
+  pauses instead of spinning.
+- **Eaon's own browser, live.** Chat now has a browser of its own, separate
+  from your Chrome and with its own logins. A panel beside the chat shows the
+  page as it changes, about 8 frames a second, while the panel is open. Eaon's
+  cursor (a blue arrow tagged "Eaon") glides to each thing before it clicks or
+  types, and what it's clicking is ringed. Typing appears letter by letter.
+  The step in hand and the ones before it are listed underneath.
+- **Take control of an agent's browser.** Press Take control and the picture
+  becomes the page: your clicks, scrolls, typing, copy and paste go straight
+  to it, and the address bar takes an address or a search. The agent's next
+  step waits until you press Hand back. It is then told you stepped in and
+  sees the page as you left it. Closing the view hands it back too, so an
+  agent is never left waiting on nobody. Use it to sign the agent in, get it
+  past a captcha, or show it the way. The real window is still one click away.
+- **Its own email** (Settings → Email). Eaon gets an address from AgentMail,
+  set up inside the app; AgentMail emails you a code to confirm. Add your own
+  domain and Eaon lists the DNS records to publish, then checks them. Eaon can
+  read its inbox and write and reply to people. It asks before sending (unless
+  you've given it full autonomy, and never for a worker: a worker always asks,
+  showing you the exact email), has a daily cap, and treats what's in an
+  email as information, never as instructions.
+- **Email on your own domain, without AgentMail — beta** (Settings → Email →
+  "My own domain, on Cloudflare", labelled Beta). Paste a Cloudflare API token, pick a domain on your
+  account and an address, and Eaon sets everything up there: the DNS records
+  (MX, SPF, DKIM, DMARC), Email Routing, and a small `eaon-mail` Worker that
+  keeps incoming mail in your own Workers KV. Sending uses Cloudflare Email
+  Sending. Eaon never takes over a domain that already gets email elsewhere;
+  it asks for a subdomain such as agents.yourdomain.com instead. If the token
+  is missing a permission, Eaon names it. Sending to people needs Cloudflare's
+  Workers Paid plan ($5 a month, 3,000 emails included); receiving is free. An
+  AgentMail inbox you switch from is kept, and disconnecting Cloudflare goes
+  back to it.
+  No custom token needed: paste your Global API Key with your Cloudflare login
+  email, and Eaon uses it once to make a token with only the seven
+  permissions email needs, limited to the chosen domain. It keeps that token,
+  never the key. Whatever you paste is cleaned of spaces, quotes, "Bearer" and
+  invisible characters. A wrong paste says what it is — a zone or account ID,
+  a cut-short token, the Global API Key without its email, or a token
+  Cloudflare doesn't recognise — instead of "didn't accept the API token".
+  Before changing anything, Eaon checks every permission the token needs and
+  lists all that are missing in one message. A good token without Email
+  Sending (which Cloudflare refuses with a 401) is no longer reported as
+  unrecognised.
+  Email Sending no longer blocks setup. Until it is turned on for the Cloudflare
+  account (Email Service → Email Sending, on the Workers Paid plan), Cloudflare
+  offers the token only "Email Sending: Read". Eaon then sets up receiving, shows
+  the address as "Receiving only", explains how to turn sending on, and finishes
+  the job on "Check again". Meanwhile the agent knows it can't send and doesn't
+  ask to.
+  Sending now works without Email Sending too, to the addresses verified in
+  your Cloudflare account (free on any plan): the `eaon-mail` Worker sends them
+  through its own send binding, on a private workers.dev endpoint only Eaon can
+  call. Verify an address from Settings → Email (Cloudflare emails a link), or
+  under Email Service → Email Routing → Destination addresses in Cloudflare.
+  Anyone else is refused before sending, with the way out. When Email Sending
+  is turned on, Eaon notices on its next check and switches to it by itself.
+  A setup made by an older Eaon gets the new Worker the next time Eaon starts.
+- **Workers can have their own email address** on the same domain (Settings →
+  Email → Workers' addresses). A worker's email tools read and send as its own
+  address, and it still always asks you before sending.
+- **Agentic trading** (ADE → Trading). A trading desk shows the account's
+  value over time, today's and total returns, win rate, profit factor,
+  drawdown and Sharpe ratio, your holdings, and every trade with the reason it
+  was placed. Ask Eaon to trade from a chat, place orders yourself, or let it
+  trade on its own in a window you choose: right now until a set time, or on
+  a schedule such as weekdays during market hours. It starts on a simulator
+  priced with real market quotes. Alpaca paper accounts work too. Real money
+  (Alpaca live) needs your keys and a typed confirmation. Every order, yours
+  or Eaon's, has to pass your limits: largest order, largest holding, most
+  invested, a daily loss stop and orders per day. "Stop all trading" halts
+  everything at once.
+- **Library.** Every photo, video and file you have attached to a chat, in
+  one grid you can filter and search. Attachments now also show in the
+  conversation itself; before, they were sent but never displayed.
+- **Projects you can actually create.** The Projects section used to only
+  say "No projects". Now you can create, edit and delete projects, give them
+  instructions, and expand them to see their chats.
+- **Open on launch** (Settings → General): start in Chat, Workers, the ADE,
+  or wherever you left off.
+- **The ADE is a terminal workspace.** It's a grid of real terminals in the
+  project folder, each running Eaon Code, Claude Code, Codex, Gemini CLI,
+  OpenCode or a plain shell, side by side. Panes get names, status dots,
+  maximise, restart and rename, and they keep running when you switch tabs or
+  folders, even across a window reload. The old Agent view (Eaon Code driven
+  over RPC) is gone, so opening a folder no longer starts anything in the
+  background. Eaon Code terminals get Eaon's API keys when Settings → Eaon
+  Code shares them.
+- **A pane's logo follows the CLI running in it.** Quit Codex and type
+  `opencode`, or type `claude` into a plain shell, and within a few seconds
+  the pane's logo and name change to match, in its header and in the sidebar.
+- **The ADE comes back as you left it.** Quit Eaon and reopen it, and every
+  pane returns:
+  - An agent that was in a conversation reopens that conversation: Claude
+    Code with `--resume`, Codex with `resume`, Gemini CLI with `--resume`,
+    OpenCode and Eaon Code with `--session`. This works even for an agent you
+    started by typing its name into a shell.
+  - An agent that hadn't started a conversation starts fresh.
+  - A shell comes back in the folder it had `cd`'d to, showing what it showed
+    before, under a "restored" line.
+  - An editor or monitor that was open (vim, nano, htop, lazygit…) opens
+    again.
+
+  Dev servers and scripts are never re-run on their own. A conversation you
+  exit on purpose stays closed. On Windows, which has no process list to
+  read, a pane's agent continues the folder's latest conversation, but only
+  when it's the only pane of that agent in the folder.
+- **Sign in with your account** where providers officially allow it:
+  - **ChatGPT**: OpenAI's official "Sign in with ChatGPT" (launched
+    2026-09-29). It needs no app registration and uses your plan's limits.
+    The older Codex-based sign-in stays as "ChatGPT (Codex)".
+  - **Hugging Face**: inference billed to your account, with the token
+    refreshed automatically.
+  - **Poe** (new provider): sign-in mints an API key, like OpenRouter.
+
+  Hugging Face and Poe only sign in apps registered with them, so each shows
+  the three setup steps and a field for the Client ID. Providers whose terms
+  forbid third-party sign-in say so instead of offering a button: Anthropic,
+  Gemini, and Kimi's and Z.ai's coding plans. Anthropic also forbids apps
+  from sending requests through a user's Claude Free, Pro or Max plan, so
+  Claude in Eaon uses an API key. To use a Claude plan, run the real Claude
+  Code in the ADE; the Anthropic provider has a button that opens it there.
+- **A cleaner transcript.** Tool calls are no longer a stack of bordered
+  cards. Each run of calls between two sentences folds into one quiet line of
+  what happened, such as "Used 2 skills, listed 7 folders and looked for a
+  file". Click the line to see the calls. While a call is running, the line
+  shows it live. A turn's edits appear once, at the end of the reply, as one
+  "N files changed" card with line counts, and each row opens its diff. The
+  Plan panel above the composer is now a single line showing the current
+  step. The ADE's agent view uses the same design.
+- **Real provider logos.** Every provider in Settings → Model providers, and
+  every agent in the ADE's terminal panes (Claude Code, Codex, Gemini CLI,
+  OpenCode, Eaon Code), now shows its own logo instead of a letter. The logos come from Lobe
+  Icons (MIT); see `assets/providers/NOTICE.md`.
+- **Recommended models.** MiniCPM5 2B, K2 Horizon 7B and Qwen3.8 27B sit in
+  their own section at the top of Models.
+- **Local models run on Eaon's own llama.cpp, not Ollama.** Get downloads a
+  model's GGUF straight from Hugging Face, along with the vision projector
+  for models that see images. A `llama-server` built into the app runs it.
+  Downloaded models appear in the model picker under "On this computer",
+  load on first use and unload after 15 idle minutes. Nothing to install.
+  - Eaon's llama.cpp is upstream plus pull requests that haven't landed yet
+    (`native/llama-fork.json`, built by `scripts/build-llama.sh`). Right now
+    that's #29535, so **K2 Horizon runs**; Ollama couldn't load it.
+  - Every library variant was re-pointed at Hugging Face files and checked
+    (`scripts/verify-model-library.mjs`).
+  - Downloaded embedding models can power the code index too.
+  - Windows ships upstream's prebuilt `llama-server` (Vulkan on x64, CPU on
+    ARM), so K2 Horizon isn't available there yet.
+- **Work mode that actually works.** It acts in a folder you choose, or
+  `~/Eaon` if you don't choose one. It reads, edits and writes files, runs
+  commands with live output, starts background servers, and deletes to the
+  Trash. It can also read web pages and use connected plugins, your browser
+  and your computer. Changes outside the Work folder, and risky commands,
+  always ask first.
+- **Plan, Swarm and Goal modes** in the Work composer.
+  - Plan researches read-only and then presents a plan you approve.
+  - Swarm splits work across 2–6 sub-agents, each limited to its role's tools.
+  - Goal keeps working until the goal is verified done or blocked.
+- **Scheduled tasks that really run.** They fire on their own timer with the
+  window closed and catch up once if a run was missed. Each run leaves a chat
+  behind. The agent can create schedules itself.
+- **Keep running in the background** (Scheduled page, or General → Launch
+  at login). Eaon starts at login without a window so schedules run after a
+  restart. On Windows, closing the window leaves Eaon in the notification
+  area. Off by default.
+- **Goal limits.** Goal mode pauses on a time limit (1 hour) or a token limit
+  (2M) as well as its continuation limit. The banner says which one it hit.
+  All three are in Settings → Code index → Agent.
+- **Browser control through a Chrome extension** (`extension/`). It pairs over
+  loopback and works in its own tab group. Payments, deletions and password
+  fields ask first. The folder includes a Web Store publishing kit.
+- **Computer use.** The agent can take screenshots and drive the mouse and
+  keyboard. An on-screen indicator shows while it does, and ⌃⌥⌘. stops it.
+- **55 model providers.** They include ChatGPT (Codex) and GitHub Copilot
+  sign-in, DeepSeek, Kimi, GLM, Qwen, MiMo, Cerebras, Fireworks, Together,
+  Bedrock, Vercel, Cloudflare, LM Studio, vLLM and Jan. OpenAI and xAI now
+  use the Responses API. Ollama gets a native connection with a full-size
+  context window.
+- **67 verified plugins**, with browser sign-in (MCP OAuth). Seven connect in
+  one click with no account: Context7, DeepWiki, Hugging Face, Microsoft
+  Learn, AWS Knowledge, Cloudflare Docs and Exa.
+- **Real skills.** `SKILL.md` folders are read from `~/.claude/skills`,
+  `~/.eaon/skills` and the project, and loaded only when used. You can install
+  one from GitHub.
+- **A curated local model library**, featuring MiniCPM5 2B, K2 Horizon 7B and
+  Qwen3.8 27B plus 19 current models, with fit badges for your Mac's memory
+  and one-click download.
+- **14 coloured themes**: Nord, Dracula, Tokyo Night, Catppuccin, Gruvbox,
+  Solarized, Rosé Pine, One Dark, Everforest, Kanagawa, Abyss, Forest, Plum
+  and Synthwave. Each has a light and a dark version and passes an AA
+  contrast check.
 
 ### Changed
-- The Windows and Linux app has been rebuilt from scratch on a cleaner
-  foundation — same Tauri (Rust core + web UI) approach as 2026.3.x, same
-  data on disk (existing installs migrate in place, no lost chats or
-  settings), but a reorganized codebase: no more 1,700-line files, every
-  Settings page is its own component, and BYOK connections now support
-  three wire formats instead of one.
-- **BYOK providers can now speak Anthropic Messages and Google Gemini
-  natively**, not just OpenAI-compatible — paste a Claude or Gemini key
-  directly instead of routing it through a compatibility shim.
-- The hosted service is addressed as "Eaon" everywhere in the app; no
-  leftover "Aqua" labels remain in Settings, onboarding, or the model
-  picker.
-- The chat streaming layer, agent tool safety model, MCP client, and Local
-  API Server all carry forward unchanged in behavior, each with unit/e2e
-  test coverage (28 Rust tests).
-
-### Added
-- **A real self-updater** — the app checks a signed release manifest on
-  launch and periodically after that; when a newer version is available,
-  Settings → General downloads it with live progress, verifies its
-  signature, installs, and relaunches automatically. Replaces the old
-  "click through to the GitHub releases page" link.
-- **Full Plugins parity for Windows/Linux** — the same 30-service,
-  individually-verified MCP catalog the Mac app ships (GitHub, Stripe,
-  Sentry, Cloudflare, PostHog, Semrush, Linear, Supabase, Render, Neon,
-  Datadog, Resend, Notion, Vercel, LaunchDarkly, Slack, ClickUp, Trello,
-  Airtable, monday.com, Asana, HubSpot, Intercom, Attio, GitLab, PagerDuty,
-  DigitalOcean, Figma, Exa, Apify, Dropbox), reachable from Settings →
-  Plugins, on top of the custom-server-by-URL support that was already
-  there.
-- **OAuth 2.1 sign-in for MCP plugins** — a from-scratch Rust port of the
-  MCP authorization spec (2025-06-18): RFC 9728/8414 discovery, RFC 7591
-  Dynamic Client Registration, PKCE (S256), and a loopback redirect
-  listener, so services like Notion, Vercel, Figma, and Slack connect with
-  a real browser sign-in instead of a pasted token. Falls back to a
-  one-time manual client ID for the handful of services (Slack, Asana,
-  HubSpot, PagerDuty, Dropbox) that don't support self-service client
-  registration, exactly as the Mac app already handles them.
-- Free Week trial support in the Windows/Linux app (start it from
-  onboarding or Settings → Providers → Eaon API), signed with the same
-  per-device HMAC scheme as the Mac app.
-- A hardware-aware Models library: RAM-based fit estimates (Fits well /
-  Might be tight / Too big) before you download a local model, plus
-  per-platform Ollama install guidance (winget on Windows, curl on Linux).
-- Test connection button in Settings → Network — one real HTTPS request
-  through the current route (proxy or direct) with latency on success and
-  the actual failure text otherwise.
-- The Settings close (X) button is gone; the sidebar and Esc do that job —
-  sidebar navigation now correctly leaves Settings from anywhere.
+- **Plain system fonts.** The UI uses the platform's own typeface, the same
+  stack ChatGPT uses: SF Pro on macOS and Segoe UI on Windows. The Inter,
+  SF Mono and Georgia picker is gone; the text-weight setting stays.
+- **Chat sidebar** follows the new layout: New chat, Models, Library,
+  Plugins, Settings, then Projects and Recents. Scheduled moved to the
+  Workers tab, and Pull requests to the ADE.
+- **Token efficiency.**
+  - Prompt caching on Anthropic.
+  - Stale tool output and screenshots are cleared in batches; old tool
+    output and file bodies are trimmed from history.
+  - Only the newest screenshot is resent.
+  - Plugin schemas are deferred behind a lookup tool.
+  - Conversations are compacted automatically near the context limit.
+  - Each reply shows tokens used and the cached share.
+- Model selection remembers which provider serves the model.
+- **Model lists are generated, not typed in.** Each provider's models come
+  from Pi's provider data and models.dev, newest first, with the right
+  context, output and effort limits. Claude Sonnet 5.5, GPT-6.1 Sol and the
+  rest of this month's releases are in. Eaon checks models.dev once a day,
+  so later releases show up without an update. Providers with a key also
+  merge in their own `/models` list.
+- **Effort follows the model.** The Effort menu lists only the levels the
+  current model accepts, named as providers name them (Off, Minimal, Low,
+  Medium, High, Extra high, Max). Switching to a model with fewer levels no
+  longer overwrites your choice. The "Available reasoning efforts" and
+  "Ultra in model picker slider" settings are gone.
+- The **Star** on a model now marks a favourite: starred models come first in
+  the model menu, and clicking the star again unstars it.
+- The model menu no longer has an **Advanced** row that jumped to Settings.
+  "Manage models…" at the bottom of the model list goes to Model providers.
+- **Agentic trading trades better.**
+  - Protective exits: every buy can carry a stop-loss, take-profit or
+    trailing stop, and Eaon sells at market when one is reached, between
+    the agent's checks, on every broker. The trading desk shows each
+    holding's protection and lets you set or change it, and the ticket takes
+    a stop and a target.
+  - The agent can scan today's gainers, losers and most active stocks, read
+    a stock's latest headlines, and see ATR, MACD and volume against its
+    average for up to five stocks at once.
+  - Each check starts with SPY and QQQ, the strategy's own tickers, and how
+    big the next buy can be. The agent sizes trades to risk about 1% of
+    equity, gives each buy a stop, and doesn't average down.
+  - A finished session says how SPY did over the same time.
+- **Workers can trade for you.** The New worker form has a Trading section:
+  pick where it trades, give it a strategy, choose how often it checks the
+  market (only while it's open), and decide whether it places orders on its
+  own or asks you first. It trades on the trading desk's account (simulator
+  or Alpaca, with the desk's limits and stops), or through a broker you
+  connect right there:
+  - **Robinhood**, through its official agentic-trading connection, from a
+    separate account funded with only what you move into it.
+  - **Interactive Brokers**: reads your account and drafts trades you submit
+    in IBKR.
+  - **Webull**: order instructions you confirm in the Webull app.
+  - **Tradier**, live or paper, with an API token.
+  - Any other broker's MCP server you add yourself.
+- **Brokers on the Plugins page**, in their own section, each saying what an
+  agent can actually do there.
+- **Computer use walks you through macOS permissions.** Settings → Computer
+  use shows a two-step checklist for Accessibility and Screen Recording, with
+  one button per step and "Quit & reopen Eaon" when macOS needs a restart.
+  Permission errors in chat point to it.
 
 ### Fixed
-- Windows installers stay NSIS-only (MSI/WiX rejects the app's CalVer major
-  version) — carried forward and documented in `eaon-tauri/BUILDING.md`
-  alongside the full "how to build the Windows version" walkthrough.
-- The Free Week trial credential was being signed against the wrong host,
-  breaking real (non-catalog) usage; removed the discontinued Fable 5
-  model from the hosted catalog.
-- **MCP catalog services now send their required extra headers** — GitHub's
-  connection was silently dropping `X-MCP-Toolsets`, so it exposed its
-  entire ~90-tool surface instead of the curated repos/issues/PRs set,
-  flooding the model's context. Pinned by a wire-level test.
-- **Custom MCP servers reconnect on launch** — enabled servers now come
-  back by themselves at startup (same as catalog plugins), instead of
-  sitting dead until manually reconnected from Settings.
-- **The Plugins page no longer forgets connections** — leaving Settings and
-  coming back showed "Connect" for custom servers that were still connected;
-  connection state now lives in the shared store the whole app reads.
-- **The Local API server survives a relaunch** — with the toggle left on,
-  the listener now restarts on app launch (after the model list loads, so
-  it serves everything); if the port has been taken meanwhile, the toggle
-  turns itself off and says why instead of lying.
-- **Image generation no longer dies on a half-filled provider card** — a
-  connection missing its base URL or model id (e.g. a fresh "Custom"
-  preset) is skipped, falling through to the next complete connection,
-  Eaon's hosted image models, or Ollama; the card itself now says when and
-  why it's being skipped.
-- **Proxy misconfiguration is no longer silent** — an address Rust rejects
-  used to leave traffic on the old route while the field showed the new
-  one; Settings → Network now surfaces the parse error inline.
+- **Broker orders always wait for you unless you said otherwise.** A
+  connected broker's order tool, or any plugin action that can't be undone,
+  now always asks first: in a chat, even with "Approve for me" or "Allow all
+  MCP tool permissions" on, and for a worker, unless you set that worker up
+  to place orders on its own. Before, a broker that didn't flag its order
+  tool (Tradier's doesn't) could be traded through by an autonomous worker
+  without asking. The trading desk's kill switch now stops broker plugins'
+  orders too.
+- **Long dialogs scroll.** A tall dialog (the New worker form) ran off the
+  bottom of a small window, hiding its Create button.
+- **Practice trading after hours did nothing.** With "fill orders anytime"
+  on, the session's instructions still told the agent to do nothing while
+  the market was closed, and it obeyed. It now trades the simulator.
+- **Trading sessions, workers and scheduled tasks no longer run at Max
+  effort** when the chosen level isn't one the model offers. They use the
+  nearest level below, as the chat does.
+- **"llama-server quit unexpectedly."** With a local model loaded, quitting
+  Eaon that had been started from a terminal (or closing that terminal) made
+  macOS report a llama-server crash. The terminal's Ctrl+C reached the model
+  server as well as Eaon's own stop signal, and llama.cpp aborts on a second
+  one. The model server now runs apart from the terminal and is stopped once;
+  one left behind by an Eaon crash is stopped on the next launch, so it no
+  longer holds the model's memory.
+- **Approving a worker's email now actually lets it send.** Some models (GPT
+  style) name the tool "functions.email_send" when they ask for approval;
+  Eaon compared names literally, so the approval never matched the real call
+  and the email was refused right after you approved it. Tool names are now
+  compared without that prefix (and Gemini's "default_api."). This applies to
+  every approve-once action, orders included.
+- **The worker page no longer slides sideways in a narrow window.** A long
+  check-in note made one of the pills under the worker's name wider than the
+  window, and a sideways trackpad swipe moved the whole page. The pills now end
+  in "…" (the full note is in the tooltip). Chat, worker and ADE threads, pages
+  and settings no longer scroll sideways at all, so nothing wide can bring
+  this back. Header buttons like Check in keep their label on one line.
+- **The chat-apps tests no longer hang the suite.** The Telegram test read
+  the second long-poll before it had always arrived, and a failure left its
+  connector polling forever, so the whole test run never finished. It now
+  waits for that poll and always stops the connector.
+- **Closing the window no longer throws in the background.** With Discord
+  presence on, closing Eaon's window (or quitting) sent a last status update
+  to the page that was already gone, and Electron showed "A JavaScript error
+  occurred in the main process". Messages to a closing window are now dropped.
+- **Settings → Email no longer goes blank** when it can't load. It says what
+  went wrong, and if Eaon was updated while running it says to reopen it.
+- **Crashes recover and leave a record.** A window whose page crashed now
+  reloads by itself (after three crashes in five minutes it asks instead). An
+  error while showing a screen shows "Something went wrong" with a Reload
+  button, not a blank window. Errors are written to `logs/crashes.log` in
+  Eaon's data folder; Help → Show Crash Log opens it.
+- **Model providers page.** Removing a model no longer loses it: it is
+  hidden and can be restored. Rename works (it used a browser prompt that
+  Electron doesn't show). Refresh works without a key and says what it found.
+- **Submenus open beside their menu.** The Model and Effort submenus covered
+  the menu they came from when there was no room on the right. They now open
+  on the other side, and the parent menu stays usable while one is open.
+- **Plugins work in Workers.** Unattended runs refused every plugin call not
+  marked read-only, even with Settings → MCP → "Allow all tool permissions"
+  on. That pre-approval now holds for workers and scheduled runs too.
+- **"Message me now" no longer errors.** A worker asking for an immediate
+  wake-up (`in_minutes: 0`) got "Say when…". It now means "as soon as
+  possible", and a clock time ("9:30 PM") works too.
+- **Top-bar overlap.** Wide header content (the ADE's context meter) drew
+  over the Chat · Workers · ADE switch. Header sides now clip, and overflow
+  never runs leftwards under the switch.
+- **Installers are about 60 MB smaller.** The app used to ship old test
+  builds inside itself. They also broke the universal Mac build whenever tests
+  ran during packaging. Windows installers can now be built on an Apple
+  silicon Mac without Rosetta.
+- **Cut-off replies taken as finished.** A stream that closed before the
+  provider said it was done was treated as a complete answer. It could even
+  carry a half-received tool call. Chat-completions, Ollama and Anthropic
+  streams now fail instead, and a cut-off with nothing shown yet is retried.
+- **Work spinning in place.** The same failing tool call is now refused after
+  three identical failures, and re-reading unchanged output costs a short
+  pointer instead of a second copy.
+- **Goals declared done without checking.** A goal is sent back once to
+  verify when its last action was an unchecked change.
+- **Pausing a goal that was running did nothing.** The pause now reaches the
+  agent between steps, as do the time and token limits.
+- **Two copies of Eaon could run at once.** Scheduled tasks then ran twice.
+  A second launch now brings the first one forward.
+- **Launch at login and Prevent sleep did nothing.** Both switches now work.
+- **Model downloads could fill the disk.** Get now checks free space first.
+- **Tool calls dropped by some providers.** Ollama and several gateways sent
+  them with an unexpected finish reason. Mistral rejected tool ids made by
+  other providers, Gemini rejected common schema keywords, and local models
+  without tool support failed outright.
+- **Ollama models hidden** until you pressed refresh. Local runtimes are now
+  discovered automatically.
+- **Commands failing from a Dock-launched app** because it had no PATH
+  (npx, node, Homebrew). The app now adopts the login shell's PATH.
+- **Small models stalling.** They would end a Work turn after only thinking,
+  or after announcing a plan they never carried out. They are now sent back
+  to act.
+- **Plan mode and scheduled tasks** were settings nothing read. Both now work.
+- **`keys:reveal` exposed more than it should.** It could return plugin
+  tokens and OAuth credentials to the renderer; it now returns only provider
+  keys.
 
-## [2026.3.2] — 2026-07-19
+## [2026.5.0] — 2026-08-27
 
-### Added
-- Free Week — 7 days of every hosted model, free, one click, no
-  account, no card. Bound to this Mac (hardware fingerprint), so
-  reinstalling the app recovers your existing trial instead of
-  starting a new one. Start it from onboarding, Settings → Providers,
-  or the new one-time popup nudge for installs that already dismissed
-  onboarding before this existed.
-- Settings → General → Gifts — a stable place to see and redeem what's
-  currently available, showing the live claimed/remaining count and
-  redemption deadline for the Free Week.
-- Eaon CLI now tells you when the copy installed by a previous version
-  of the app is out of date — a badge and Update button in the CLI
-  hub, plus a status line in General. Updating re-copies the newer
-  bundled build without touching your CLI config or sessions.
+*macOS and Windows.*
 
 ### Changed
-- The bundled Eaon CLI now checks Eaon Desktop's own copy on launch
-  and prints a one-line heads-up in the terminal when it's behind.
-
-## [2026.3.1] — 2026-07-19
-
-### Added
-- One-click Eaon CLI install (Settings → General → Eaon CLI) — a
-  ready-to-run copy now ships inside the Mac app; Install copies it to
-  `~/.eaon/cli-app` and links a global `eaon` command, no npm or
-  network needed.
-
-## [2026.3.0] — 2026-07-18
-
-### Added
-- Eaon is now on Windows and Linux — a ground-up rebuild on Tauri (a
-  Rust core with a web UI, the same cross-platform approach Jan.ai
-  uses) that reaches real feature parity with the Mac app: Agent mode
-  with the full coding toolset and the same safety model, Skills,
-  Memory, MCP plugins (including local `npx`-style servers, which the
-  Mac app doesn't support yet), image generation, live web search,
-  attachments, per-model sampling parameters, a Local API Server, a
-  network proxy setting, read-aloud, and first-run onboarding.
-- Agent mode can now work inside an existing project instead of only
-  building fresh ones — it can search your codebase by keyword/regex
-  and find files by name before editing, and can pause mid-task to ask
-  you a real clarifying question (clickable options or free text)
-  instead of guessing.
-- Eaon Code — a new mode with a real embedded terminal in the app, for
-  driving the standalone Eaon CLI tool when it's installed; falls back
-  to your normal shell otherwise.
-- Quick Assistant — a small floating chat panel you can summon from the
-  menu bar or a global hotkey without opening the main window, sharing
-  your model, instructions, and settings. "Continue in Eaon" hands the
-  conversation to the main app.
-- Replies can now be read aloud — a speaker icon on any assistant
-  message uses your Mac's built-in voices, no account or network
-  needed.
-- Settings → Network — an optional HTTP/HTTPS proxy for all of Eaon's
-  outbound traffic, with a connection test.
-- Settings → Model Parameters — temperature, top-p, max output tokens,
-  and frequency/presence penalties, each opt-in per request; applies
-  to any model, hosted or local.
-- The "Thinking" and research-template items in the composer's "+"
-  menu now actually work (previously silent no-ops) — Thinking toggles
-  real extended reasoning on local Ollama models that support it, and
-  the research templates insert a fillable prompt.
-- Any chat can now generate an image mid-conversation without switching
-  to a dedicated image model, using whichever image backend you have
-  set up.
-- More control over local llama.cpp models: a tunable context window
-  (Compact/Balanced/Large/Huge, replacing llama.cpp's own default of
-  the model's full trained context) and a Flash Attention switch,
-  alongside the existing CPU/GPU mode.
-- A live memory badge on loaded local models, with a one-click eject to
-  free RAM immediately instead of waiting out the keep-alive timer.
-- Hugging Face model browsing redesigned — each result is a card with
-  a one-click default download plus an expandable list of every real
-  quantization, each tagged Small/Balanced/Large with its own fit
-  check; oversized downloads now ask for confirmation first.
-- Settings → Memory → "Import from another AI" — paste a memory list
-  copied from ChatGPT, Claude, or Gemini and Eaon parses and imports it
-  locally, with a report of what was added versus skipped as a
-  duplicate or junk.
-- Your own messages can now be edited and resent — everything after
-  that point is discarded and regenerated.
-- A first-run onboarding flow — three skippable steps covering the
-  app's modes and how to get started, running locally or with an API
-  key.
-- A real font picker — Settings → Appearance → Font, with 16 bundled
-  typefaces plus anything already installed on your Mac, applied to
-  both UI text and code.
-- Up to three of your most recent conversations now appear as
-  quick-open shortcuts on the empty chat screen.
-- Starting a new chat or switching conversations no longer interrupts
-  a reply still streaming elsewhere — each keeps generating in the
-  background, marked by a small pulsing dot in the sidebar.
-- Update downloads are now integrity-checked against a SHA-256 hash
-  before installing, when the update manifest provides one.
-
-### Changed
-- Device Control is now a toggle inside Agent mode instead of a
-  separate "Eaon Claw" mode — turn it on in Settings to give Agent the
-  full file/app/browser/AppleScript toolkit. Same guardrails as before
-  (asks first, Trash not delete, no sudo, no passwords or purchases).
-- Image Studio is no longer a separate mode — image generation still
-  works the same way, just through the model picker (and now
-  mid-chat, see Added) instead of a dedicated tab.
-- Settings is now a full page instead of a popup modal, reorganized
-  into General/Appearance/Shortcuts, Assistant, Tools, and System
-  groups.
-- Memory now only surfaces facts relevant to what you're currently
-  discussing (up to 10, relevance-ranked) instead of injecting
-  everything it knows into every message; your last 30 days of
-  activity still always rides along.
-- If your accent color is set to "Default," it now spreads a 7-color
-  palette across different areas of the UI instead of one flat color —
-  pick any other color in Settings → Appearance if you'd rather keep a
-  single flat accent. New installs default to a plain white accent
-  instead.
-- On-device toggle switches now render a fixed green in their "on"
-  state everywhere, instead of following whatever accent color is
-  selected.
-- A few more leftover "Aqua" references renamed to "Eaon" across
-  Settings and in-chat text.
-
-### Fixed
-- The regenerate button on a reply did nothing — it now actually
-  discards the last reply and generates a new one.
-- Photos added through the general "Add photos & files" picker weren't
-  being sent as images — the model only ever saw a filename note, no
-  thumbnail, unless you used the dedicated image picker. Now any
-  picked file is sent as what it actually is.
-- A DNS-rebinding vulnerability in the Local API Server that could let
-  a malicious webpage reach it from your browser — closed wildcard
-  CORS, added Host-header and Origin validation, and made the API key
-  comparison constant-time.
-- Small local models could take a long time to even start responding —
-  llama.cpp was sizing its memory cache to the model's full trained
-  context by default (often 128K–256K, sometimes multiple gigabytes)
-  even for tiny models; now defaults to a much smaller, adjustable
-  window.
-- The app could stutter while a fast local model streamed a reply —
-  text rendering and local server logs are now both batched to a
-  smooth, fixed rate instead of updating as fast as tokens arrived.
-- The traffic-light window buttons could silently drift out of
-  position over time — they now continuously self-heal instead of
-  only repositioning on specific window events.
-- Toggle switches going nearly invisible when the accent color was set
-  to white (the new default).
-
-## [2026.2.0] — 2026-07-14
+- The app has been **rebuilt on Electron + React**, replacing the native
+  Swift macOS client.
+- **On macOS, existing installs update themselves in place** through the
+  same self-updater as before — the build keeps the `dev.eaon.desktop`
+  bundle identifier and the `Eaon` executable name the installed app
+  validates against, so 2026.4.5 swaps itself for this one and relaunches.
+  No manual download, and chats and settings are untouched at
+  `~/Library/Application Support/Eaon`.
+- **Windows is newly supported**, as a fresh install rather than an update:
+  one `.exe` covering x64, ARM64 and 32-bit, which picks the right build for
+  the machine. The window controls sit where Windows puts them, at the top
+  right, and the header layout accounts for them.
+- **The sidebar is a floating panel.** Rounded, inset from the window edge,
+  with the traffic lights inside it rather than on the strip above. Its
+  controls collapse into a single row and the navigation sits directly
+  beneath them.
+- **One window background.** The sidebar, main area and Settings each used
+  to paint their own, so the translucent sidebar left a visible seam where
+  it met the chat. There is now a single background and the seam is
+  structurally impossible.
+- Every top row across the app shares one baseline, so header controls stop
+  shifting as you move between screens or toggle the sidebar.
+- **Settings** navigation matches the app sidebar, and row titles are
+  weighted so a setting's name reads ahead of its description.
 
 ### Added
-- MCP & Skill integration — connect any custom MCP server with a pasted
-  token, and install a Skill Library from GitHub or your own local Claude
-  Code skills. Invoke any enabled skill directly in chat with
-  `/skill-name`.
-- A rebuilt memory system — Eaon can learn from your conversations over
-  time (with consent), remembering specific things you've shared instead
-  of only static facts, and can learn from a file you pick or from a
-  connected plugin's results.
-- Live code streaming with syntax highlighting — watch code appear in
-  color as the model writes it, and the chat no longer yanks you back to
-  the bottom while you're scrolled up reading.
-- A per-model CPU/GPU control for downloaded Hugging Face (llama.cpp)
-  models — force CPU-only, force max GPU, or leave it on auto.
+- **Web search.** The model can look things up when an answer depends on
+  something current rather than answering from memory, citing the pages it
+  used. Off, snippets, or full-page scrapes — Settings → Configuration.
+- **A theme picker** with eight palettes. The accent colour now drives
+  toggles, links and focus rings, so picking a theme changes the whole
+  interface rather than one decorative detail.
+- **Bring your own key** for any supported provider, with fallback keys
+  tried in order when one fails.
 
 ### Fixed
-- Chat mode not actually writing code to disk when asked.
-- The sidebar re-sorting your chats out of order just from clicking
-  between them.
-- Several Hugging Face model download/run issues: a hard crash on
-  Gemma-family models, misleading "try a different quantization" advice
-  when a model's whole architecture isn't supported, and a truncated
-  error log that hid the real reason a model failed to load.
-- Deleting a downloaded model reporting success without actually freeing
-  disk space.
-- A confusing "wait for models to load from the Aqua API" message
-  appearing even when the real issue had nothing to do with Aqua.
-- `pip`'s "externally-managed-environment" error when Eaon's agent tries
-  to install a Python package.
+- Long replies stay smooth. Streaming used to rebuild every chat in the
+  sidebar and re-join the whole message on each token; it now updates only
+  the message that changed, and the main process batches tokens per frame.
+- Selecting a model no longer falls back to the first one in the list.
+- The light theme no longer leaves the sidebar unreadable on a Mac running
+  the system in Dark.
 
-## [2026.1.9] — 2026-07-13
-
-### Added
-- Eaon Claw — a one-click, on-device agent mode that controls this actual
-  Mac (files, shell, apps, and the browser) to carry out real multi-step
-  tasks, off until explicitly enabled with full disclosure of what it can
-  do and its guardrails (asks first, Trash not delete, no sudo, no
-  passwords/purchases).
-- A 4-mode sidebar: Chat, Agent (sandboxed coding), Eaon Claw (on-device
-  control), and Image Studio — each its own capability context, picked
-  before a conversation starts via a segmented control you can tap or
-  smoothly drag between modes, sitting right on the composer.
-- Several new local models (Qwen3.6, Gemma4 26B, Llama4 Maverick, and
-  more), plus a "NEW" badge in the model library so recently-added models
-  stand out.
-
-### Fixed
-- Eaon Claw denying access to device/browser control on some local models
-  (e.g. Nemotron) — it now leads with a clear statement of what it can do
-  instead of a buried, easily-ignored instruction.
-- Local models (Ollama/llama.cpp) sometimes showing Meta's logo instead
-  of their real provider's — a matching bug caused by the internal
-  `ollama:`/`llamacpp:` id prefixes both containing the substring "llama".
-- Added a real Cerebras logo (was a generic fallback icon before).
-
-## [2026.1.8] — 2026-07-12
-
-### Added
-- Image generation — use an image model over the API (Aqua's hosted
-  models, or a BYOK cloud key) or a local one running on this Mac
-  (Automatic1111-compatible servers like DrawThings/ComfyUI, or an
-  Ollama-served diffusion model), with zero extra setup. Settings →
-  Image Providers.
-- A model attribution header (name + logo) on every reply, so it's always
-  clear which model actually answered.
-- Multi-step agent replies (a tool call followed by more text) now render
-  as one continuous message instead of restarting the header and typing
-  indicator for every step, with a live "what's happening right now"
-  indicator between steps — including a subtle per-letter wave animation
-  on the "Thinking…" text.
-- A "Thinking" dropdown under any reply that used real reasoning
-  (DeepSeek-R1, QwQ, and other reasoning models served locally through
-  Ollama, or DeepSeek's own API) — click to see the model's actual
-  chain-of-thought, collapsed by default instead of dumped as raw
-  `<think>` tags into the reply.
-- "Always allow tool calls" (Settings → Privacy, on by default) — code
-  execution and connected-plugin (MCP) tool calls run without asking
-  each time. Desktop Control still confirms every action regardless,
-  since it can move the mouse and type on your behalf.
-- Local API Server (Settings → Local API Server, off by default) — run a
-  local, OpenAI-compatible server on this Mac that any external tool
-  (a script, a coding CLI, another app) can point at, routed through
-  whichever backend — Aqua, a BYOK key, or a local model — actually
-  serves the requested model. Streaming and non-streaming both work.
-  Bound to this Mac only; requires an API key by default.
-
-### Fixed
-- A stray rounded line could appear along the top of the sidebar, from a
-  system titlebar decoration view rendering at the wrong size once the
-  window's traffic-light controls were repositioned.
-- A downloaded local image-generation model (e.g. from Ollama) failing
-  with "does not support chat" now works — image models need a different
-  endpoint than chat models, handled automatically.
-
-## [2026.1.7] — 2026-07-11
-
-### Added
-- Plugins — connect real accounts (GitHub, Stripe, Cloudflare, PostHog,
-  Semrush, Linear, Supabase, Render, Neon, Datadog, Resend, Sentry,
-  Notion, Vercel, LaunchDarkly, Slack) and let the model call their tools
-  directly on your behalf — create an issue, query analytics, check a
-  deployment, and so on. Every call shows exactly what it's about to do
-  and asks first. Uses native tool-calling where the model supports it,
-  so it works the same reliable way ChatGPT/Claude's tool use does.
-  Settings → Plugins.
-- Computer Control (Beta) — ask Eaon to organize files, run shell
-  commands, or open/close/navigate apps and websites on this Mac. Off by
-  default. Every change asks first; deletions go to the Trash, never a
-  permanent delete; there's no admin (sudo) access, no touching system
-  files, and it will never enter passwords, buy anything, or change
-  account settings. Settings → Computer Control.
-- Settings → Hardware — live CPU, memory, and OS info for this Mac, the
-  same numbers Eaon already checks before telling you whether a local
-  model will actually fit.
-- "Learn from your existing chats" — a one-click, on-demand pass that
-  mines durable facts out of conversations you had before Memory was
-  turned on, instead of only learning going forward. A separate
-  "Automatically learn new facts" toggle lets you keep everything already
-  remembered working while turning off the silent per-message learning
-  specifically. Settings → Memory.
-- Settings → General: an "Automatic Update Check" toggle (checks on
-  startup and periodically while Eaon is open, not just once), and a Data
-  Folder card showing exactly where downloaded local models and
-  attachments live, with Show in Finder / Copy Path.
-- Custom providers can now have their own logo — click the badge on any
-  of your BYOK connections (Settings → Model Providers) to pick an image,
-  for the common case where the closest built-in brand icon doesn't
-  really look like what you connected.
-
-### Fixed
-- The app's on-disk data folder was still physically named "AquaChat"
-  from before the rename — never user-visible until the new Data Folder
-  card was about to display it. Migrated to "Eaon" automatically
-  (renamed, not copied, so existing downloaded models aren't duplicated
-  or orphaned).
-- Gateway 5xx retries were too short to survive a real provider hiccup —
-  three tries across roughly 1.5 seconds, observed to sometimes land
-  entirely inside a several-second flap and surface a hard error the very
-  next try would have cleared. Now five tries with backoff spanning about
-  6 seconds. The model list fetch, which previously had no retry at all,
-  is covered the same way.
-
-### Changed
-- The Privacy page's "Messages & attachments" description is now
-  provider-neutral ("any API provider," not naming Aqua specifically).
-
-## [2026.1.6] — 2026-07-10
-
-### Added
-- Live web search — models can now search the internet for time-sensitive
-  or current information (news, prices, scores, recent releases, "as of
-  today" facts) instead of answering from training data alone. Backed by
-  [MIKLIUM](https://github.com/MIKLIUM-Team/MIKLIUM)'s free, keyless
-  search API. Works automatically across every provider (Aqua, your own
-  API key, and local models) via native tool-calling where the model
-  supports it, with a fenced-text fallback (`eaon:search`) for models that
-  don't. On by default; turn it off in Settings → Privacy, where the new
-  "Web search" toggle also discloses exactly where those queries go.
-- The model is now told the current date and time (from this Mac's clock),
-  so "what's today?" / "what time is it?" are answered instantly and
-  correctly instead of triggering a web search — a search can't reliably
-  report the local wall-clock time anyway. This is also the anchor the
-  model uses to judge what genuinely postdates its training and therefore
-  actually warrants a search.
-
-### Changed
-- Sharpened the web-search guidance so models search only when a question
-  really needs current, outside information — and skip it for things they
-  already know, can reason out, or were just told (like the date/time).
-  Verified live: a model that previously web-searched even for "what time
-  is it" now answers that from context and reserves search for genuinely
-  current questions.
-- Gateway/server errors (HTTP 5xx, including the "API error (502)" some
-  models intermittently return) now say plainly that it's the provider
-  having a temporary problem with that specific model — not something on
-  your end — and suggest switching models, rather than showing a bare
-  status code with no way forward.
-
-## [2026.1.5] — 2026-07-09
-
-### Fixed
-- The traffic-light buttons (close/minimize/zoom) only responded to
-  clicks and hover right at their very edge. Cause: they're nudged down
-  to sit on the sidebar's header row, but their containing titlebar strip
-  stayed its factory height — the moved buttons were still fully
-  *visible* outside it, but hover/click only register on the part still
-  inside the parent, leaving a ~1pt sliver as the only live area. The
-  titlebar strip now resizes along with the buttons.
-- The Models tab could show a large empty region on a wide window, with
-  the actual list pinned to the left edge. The list's content is
-  intentionally capped at 720pt so rows don't stretch absurdly wide, but
-  the container holding it filled the whole window and top-left-aligned
-  everything instead of centering the capped block. Now centered.
-
-## [2026.1.4] — 2026-07-08
-
-### Fixed
-- The model picker's blank-gaps-while-scrolling bug, for real this time.
-  2026.1.3's fix deduplicated Aqua's own catalog, but the actual trigger
-  was the same model id arriving from two different sources at once —
-  e.g. a custom (BYOK) gateway serving `deepseek-v4-flash` while Aqua's
-  catalog also lists it. Both copies land in the same picker section
-  (everything routes by bare model id), and duplicate ids inside one
-  list corrupt SwiftUI's scroll layout. The merged all-sources list is
-  now deduplicated at the point where Aqua, custom-provider, and local
-  models are combined, keeping the copy with the proper display name —
-  so the row also reads "DeepSeek V4 Flash" instead of the raw id.
-
-## [2026.1.3] — 2026-07-08
-
-### Fixed
-- The model picker could show large blank gaps while scrolling, hiding
-  models below the fold. Cause: the live model catalog occasionally
-  listed the same model twice (once with a proper display name, once
-  without) — SwiftUI's model list requires unique ids per row, and a
-  duplicate silently breaks its scroll layout instead of just showing
-  twice. Deduplicated before the list ever reaches the UI, preferring
-  whichever copy has a real name.
-- Three buttons (Update Now, and Save/Add in Custom Instructions and
-  Memory) hardcoded white text on their accent-colored fill — invisible
-  for anyone using the "white" accent option, since that's white text on
-  a white button. Now uses the accent-aware foreground the app already
-  had a helper for (`AppearanceSettings.onAccentColor`), which just
-  hadn't been wired into these three.
-
-### Changed
-- Aqua is no longer a permanent fixture in Settings → Model Providers on
-  a fresh install — it now shows as an "Add Aqua" entry point, same
-  discoverability as adding a custom provider, and only earns a
-  permanent row once a key is actually saved.
-- The update card now has an explicit close (×) button — separate from
-  "Update Now" — so declining is never ambiguous. Closing it (or
-  clicking × without picking Update Now) never installs anything; you
-  can always check again later from Settings → General → Check for
-  Updates. Updates have never installed without an explicit "Update Now"
-  click — this just makes the "no" path as obvious as the "yes" path.
-
-## [2026.1.2] — 2026-07-08
-
-### Added
-- Memory — Eaon can quietly remember durable facts you share (name, role,
-  ongoing projects, preferences) and bring them into future chats. Off by
-  default; reviewable and editable any time in Settings → Memory.
-- Real vision support — attached/pasted images are now actually sent to
-  models that support it (verified via `ModelCatalog.supportsVision`), as
-  a proper multi-part payload in whichever wire format the active
-  provider speaks (OpenAI content-array, Anthropic image blocks, Gemini
-  inline_data). Previously an attachment became nothing but its filename
-  in the text sent to the model, despite the UI showing a vision icon and
-  rendering the image in the chat bubble.
-- A confirmation dialog before the coding agent runs generated code for
-  the first time in a conversation — it executes with full user
-  permissions and no sandbox, so this is a real decision, not a
-  formality. Approving covers the rest of that conversation; a new chat
-  asks again.
-- Lightweight syntax highlighting for chat code blocks and the coding
-  workspace's file editor (keywords, strings, comments, numbers) —
-  covering Python, JS/TS, Swift, Bash, JSON, Go, Rust, Ruby, PHP, HTML,
-  CSS, C/C++, Java, SQL, and YAML.
-- Markdown tables now render as real tables instead of raw pipes/dashes.
-- Real logos for 7 more model providers that previously fell back to a
-  plain SF Symbol: Amazon, Cohere, AI21 Labs, Liquid AI, Allen Institute
-  for AI, Upstage, and Groq — sourced from Simple Icons (CC0) and Lobe
-  Icons (MIT, AI-provider-specific), each verified to actually be that
-  company's mark before bundling. Aqua's own provider row now renders the
-  app's real brand mark natively instead of a generic icon. Reka AI and
-  Writer still have no available permissively-licensed mark and keep
-  their SF Symbol fallback.
-
-### Fixed
-- The update manifest URL pointed at a stale domain/path and never
-  resolved to anything real.
-- "Copy Link" in the share sheet copied a URL with no real page behind
-  it. It now copies the actual chat transcript, which works today.
-- The share sheet's X/LinkedIn/Reddit buttons were silent no-ops; they
-  now show an honest "coming soon" state like the rest of the app does
-  for unbuilt features.
-- `textTertiary`'s light-mode color failed WCAG AA contrast (~3.24:1
-  against white, needs 4.5:1) — most noticeable in timestamps and other
-  small de-emphasized text. Darkened to clear the bar; dark mode was
-  already fine and is unchanged.
-
-### Changed
-- Removed the forced "enter your Aqua API key" screen that gated the
-  entire app on first launch. Eaon now opens straight into the chat —
-  set up whichever provider you actually want (Aqua, your own API key, or
-  a local model) from Settings, whenever you want. The composer's nudge
-  when nothing's configured yet is provider-neutral too, not Aqua-specific.
-- API keys are now stored in UserDefaults instead of the system Keychain.
-  Reason: this app is ad-hoc signed (no paid Apple Developer ID), and an
-  ad-hoc signature isn't stable across rebuilds — every update looked like
-  a "different app" to Keychain, triggering a scary "wants to use your
-  confidential information" system prompt on every single update. Given
-  the choice between that and plain local storage for what's just an API
-  key, plain storage won. If self-updating ever moves to a stable signing
-  identity, this is worth revisiting.
-
-## [2026.1.0] — 2026-07-08
-
-First official release under the new versioning scheme (`YYYY.MINOR.PATCH`
-instead of semver).
-
-### Added
-- Self-updating installer — "Update Now" downloads, verifies, and installs
-  the new version in place and relaunches automatically. No more manual
-  quit-and-drag-to-Applications.
-- One-click download-and-chat for Hugging Face GGUF models and Ollama
-  models, including a real quantization picker.
-- Command palette (⌘K) — jump to Settings pages, switch model, set theme,
-  in addition to conversation search.
-- Idle model auto-unload and configurable keep-alive for local Ollama
-  models, plus background model warming on selection.
-- Custom instructions, applied to every conversation.
-- Export/import all conversations, and delete-all-data.
-- Context-window usage indicator per model.
-- Pinned conversations.
-- Real IBM Plex Mono/Sans typography throughout, with a techy/open-source
-  visual direction.
-- A signed-locally, drag-to-Applications .dmg installer.
-
-### Changed
-- Renamed from AquaChat to Eaon (app identity, source layout, package
-  name); "Aqua" is kept only as the underlying model provider's name.
-- Wider sidebar; removed the redundant account row at the bottom (Settings
-  is still reachable from the main nav).
-
-### Fixed
-- A silent data-loss bug where the AquaChat → Eaon-desktop rename stranded
-  existing conversation history in the old UserDefaults domain — existing
-  users are migrated automatically on first launch.
-
-## [0.8.2] — 2026-07-07
-
-Last release under the old `0.x` versioning, immediately prior to the
-Eaon rename.
+### Known limits
+- **Windows builds are not code-signed.** SmartScreen shows "Windows
+  protected your PC" on first run until an Authenticode certificate is in
+  place — click More info → Run anyway.
+- **Windows and Linux users of the Tauri app do not cross over
+  automatically.** That app updates through its own Ed25519-signed channel,
+  which this build cannot publish into; the Windows installer here is a
+  fresh install rather than an update. Linux is not covered by this release
+  at all.
+- Eaon Work — the agentic coding mode — is hidden in this release. The
+  browser panel, plugin tray and approval controls belong to it and return
+  with it.

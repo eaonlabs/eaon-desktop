@@ -1,0 +1,327 @@
+/* ==================================================================
+   Model Providers additions: search, category groups, the provider
+   heading with its description, sign-in panels and URL fields.
+   Imported by Providers.tsx so this page does not edit the shared
+   settings.css. Selectors are scoped under .providers-shell so they
+   win over settings.css regardless of which sheet loads first.
+   ================================================================== */
+
+/* The shell is a flex item of .settings__full; without this it sized to its
+   content, so the detail pane grew and shrank with each provider's text. */
+.providers-shell {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Title and search stay put and only the list under them scrolls. A sticky
+   header would need a background, and none matches: the window body already
+   paints --canvas (at 82% over vibrancy when translucent), so a second canvas
+   layer on top reads as a near-black band. */
+.providers-shell .providers-list {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-bottom: 0;
+}
+.providers-shell .providers-list__top {
+  flex: none;
+  padding-bottom: 10px;
+  /* The list below gives 10px to its scrollbar; line the search up with the rows. */
+  padding-right: 10px;
+}
+.providers-shell .providers-list__top .providers-list__header {
+  position: static;
+  background: none;
+  padding-bottom: 12px;
+}
+.providers-shell .providers-list__scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0 -10px;
+  padding: 0 10px 24px;
+}
+
+.providers-shell .providers-list__group {
+  margin: 18px 0 4px;
+}
+.providers-shell .providers-list__scroll > div:first-child .providers-list__group {
+  margin-top: 6px;
+}
+
+.providers-shell .providers-list__empty {
+  padding: 18px 8px;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+
+.providers-shell .provider-row {
+  height: 38px;
+}
+.providers-shell .provider-row__badge[data-state='pending'] {
+  background: var(--text-3);
+}
+
+/* Heading: logo, name, one-line description, enable switch. */
+.providers-shell .provider-detail__header {
+  align-items: center;
+  gap: 14px;
+}
+.providers-shell .provider-detail__heading {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.providers-shell .provider-detail__heading .provider-detail__name {
+  flex: none;
+  line-height: 1.15;
+}
+.providers-shell .provider-detail__tagline {
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.providers-shell .provider-detail__title-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.providers-shell .provider-detail__title-row .provider-detail__section-title {
+  margin-bottom: 0;
+}
+
+.provider-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--fs-sm);
+  color: var(--link);
+  white-space: nowrap;
+}
+.provider-link:hover {
+  text-decoration: underline;
+}
+
+.provider-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.provider-status {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--text-2);
+}
+.provider-status[data-tone='error'] {
+  color: var(--danger);
+}
+.provider-status svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+/* ---- Signed-in account ---- */
+
+.provider-account {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 40px;
+}
+.provider-account__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: #34d399;
+}
+.provider-account__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.provider-account__label {
+  font-size: var(--fs-base);
+  color: var(--text);
+}
+.provider-account__sub {
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- Sign-in in progress ---- */
+
+.provider-signin {
+  margin-top: 4px;
+  padding: 16px;
+  border-radius: var(--r-md);
+  background: var(--sunken);
+  border: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.provider-signin__waiting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+.provider-signin__code {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.provider-signin__code-value {
+  font-family: var(--font-mono);
+  font-size: 22px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  color: var(--text);
+  user-select: all;
+}
+.provider-signin__manual {
+  display: flex;
+  gap: 8px;
+}
+.provider-signin__manual .input {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+}
+.provider-signin__toggle {
+  align-self: flex-start;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+.provider-signin__toggle:hover {
+  color: var(--text-2);
+}
+
+/* ---- Templated base URL fields (Cloudflare ids, Bedrock region) ---- */
+
+.provider-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 12px;
+}
+.provider-fields .input {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+}
+.provider-fields .input::placeholder,
+.provider-signin__manual .input::placeholder {
+  font-family: var(--font-ui);
+}
+.provider-url-preview {
+  margin-top: 10px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  word-break: break-all;
+}
+
+/* ---- Model rows: context size ---- */
+
+.providers-shell .model-row__meta {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.providers-shell .model-row__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Registering an OAuth app for a provider that only signs in registered apps. */
+.provider-client-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.provider-client-setup__steps {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  line-height: 1.5;
+}
+.provider-client-setup__steps code {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  padding: 1px 5px;
+  margin: 0 2px;
+  border-radius: var(--r-xs);
+  background: var(--sunken);
+  color: var(--text);
+}
+.provider-client-setup__steps .provider-link {
+  display: inline-flex;
+}
+.provider-client-setup--inline {
+  margin-top: 16px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border);
+}
+.provider-client-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 4px;
+}
+.provider-no-signin {
+  display: flex;
+  gap: 7px;
+  align-items: flex-start;
+  margin: -4px 0 12px;
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  color: var(--text-3);
+}
+.provider-no-signin svg {
+  flex: none;
+  margin-top: 2px;
+}
+.provider-no-signin__action {
+  display: block;
+  margin-top: 4px;
+  font-size: var(--fs-xs);
+}
+
+/* ---- Models: filter for long lists, removed models ---- */
+
+.provider-models__search {
+  margin-bottom: 4px;
+}
+.provider-models__hidden {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+.provider-models__restore-all {
+  margin-top: 8px;
+}

@@ -1,0 +1,270 @@
+/*
+ * Design tokens.
+ *
+ * Colour is driven by four user-editable values per theme — accent, background,
+ * foreground and contrast — exactly as the Appearance settings page exposes them.
+ * Every surface in the app is mixed from those, so changing the background or
+ * dragging the contrast slider re-tones the whole UI coherently.
+ */
+
+:root {
+  /* ---- Metrics (measured from the design frames) ---- */
+  --sidebar-w: 252px;
+  /* The sidebar floats as a rounded panel; this is the gutter around it. */
+  --sidebar-gap: 8px;
+  --r-panel: 14px;
+  /* Space the native window controls occupy over the page, per edge. Every
+     draggable header derives its padding from these rather than hardcoding a
+     number — moving the controls once left four rules 7px too tight.
+
+     macOS puts its traffic lights top-LEFT: they start at
+     trafficLightPosition.x (20) and are three 12pt buttons 20pt apart, ending
+     at 72, plus 10px of breathing room. Nothing is reserved on the right.
+     Windows overrides these below — its caption buttons are on the other side. */
+  --window-controls-left: 82px;
+  --window-controls-right: 0px;
+  --titlebar-h: 36px;
+  --nav-row-h: 27px;
+  --composer-w: 552px;
+  --composer-chat-w: 640px;
+
+  --r-xs: 6px;
+  --r-sm: 8px;
+  --r-md: 10px;
+  --r-lg: 12px;
+  --r-xl: 14px;
+  --r-composer: 18px;
+  --r-pill: 999px;
+
+  /* The platform's own UI face and nothing else — the same stack ChatGPT uses:
+     SF Pro on macOS, Segoe UI on Windows. */
+  --font-ui: ui-sans-serif, -apple-system, system-ui, 'Segoe UI', Helvetica, 'Apple Color Emoji', Arial, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, monospace;
+
+  --fs-base: 14px;
+  --fs-sm: 13px;
+  --fs-xs: 12px;
+  --fs-xxs: 11px;
+  --fs-title: 28px;
+  --fs-h1: 30px;
+  --fs-h2: 15px;
+
+  --ease: cubic-bezier(0.32, 0.72, 0, 1);
+  --dur: 160ms;
+
+  /* ---- Motion ----
+     Three tiers. Enters are springs; the bigger the thing that moves, the
+     slower the tier. Only the largest tier carries any bounce — short travel
+     lands exactly, with no overshoot to distract from what actually changed.
+     Exits are plain tweens one tier quicker, so a dismissal reads as crisp and
+     final rather than replaying the entrance backwards.
+     Motion is information here, never decoration. */
+  --spring-fast: linear(0.0000, 0.0180, 0.0632, 0.1250, 0.1957, 0.2700, 0.3441, 0.4157, 0.4831, 0.5455, 0.6024, 0.6537, 0.6996, 0.7404, 0.7763, 0.8077, 0.8352, 0.8591, 0.8797, 0.8976, 0.9129, 0.9261, 0.9373, 0.9469, 0.9551, 0.9621, 0.9681, 0.9731, 0.9773, 0.9809, 0.9840, 0.9866, 1.0000);
+  --spring-moderate: linear(0.0000, 0.0180, 0.0632, 0.1250, 0.1957, 0.2700, 0.3441, 0.4157, 0.4831, 0.5455, 0.6024, 0.6537, 0.6996, 0.7404, 0.7763, 0.8077, 0.8352, 0.8591, 0.8797, 0.8976, 0.9129, 0.9261, 0.9373, 0.9469, 0.9551, 0.9621, 0.9681, 0.9731, 0.9773, 0.9809, 0.9840, 0.9866, 1.0000);
+  --spring-slow: linear(0.0000, 0.0233, 0.0813, 0.1601, 0.2491, 0.3412, 0.4312, 0.5160, 0.5936, 0.6630, 0.7239, 0.7765, 0.8213, 0.8589, 0.8901, 0.9157, 0.9364, 0.9530, 0.9661, 0.9763, 0.9841, 0.9900, 0.9944, 0.9975, 0.9998, 1.0012, 1.0022, 1.0027, 1.0029, 1.0030, 1.0028, 1.0026, 1.0000);
+  --dur-spring-fast: 80ms;
+  --dur-spring: 160ms;
+  --dur-spring-slow: 240ms;
+  /* Exits: quicker, no bounce. */
+  --exit-fast: 60ms;
+  --exit-moderate: 120ms;
+  --exit-slow: 160ms;
+  --ease-exit: cubic-bezier(0.4, 0, 1, 1);
+  /* Cascade delay between siblings in a staggered reveal. */
+  --stagger: 26ms;
+
+  /* These were once a fixed warm tone (#d97757) held deliberately apart from
+     the app's accent to match a reference design. That read as a bug in
+     practice: primary buttons, provider toggles, radio dots and usage bars
+     came out salmon in an otherwise blue app, and they ignored the accent the
+     user picked in Appearance. They now derive from --accent like every other
+     accented token, so the whole app re-tones together.
+
+     Kept as their own names rather than inlined at the ~16 call sites: the
+     grouping still marks which surfaces these are, and makes diverging again a
+     one-line change. The mixes match `.btn--accent`'s hover convention in
+     controls.css so the two stay visually identical. */
+  --provider-accent: var(--accent);
+  --provider-accent-strong: color-mix(in srgb, var(--accent), #000 12%);
+  --provider-accent-soft: color-mix(in srgb, var(--accent), transparent 86%);
+
+  /* Text and icons drawn on an accent fill. White everywhere used to be fine
+     because every accent was a mid-tone; coloured themes bring pastels
+     (Dracula purple, Catppuccin mauve, Nord frost) where white text drops to
+     about 2:1. This flips to a deep shade of the accent's own hue once the
+     accent's OKLCH lightness passes 0.69, the point where white text on the
+     accent drops under 3:1. Cobalt, Indigo and Graphite keep their white text;
+     brighter accents — Moss, Ember and Rose by night as well as the pastels —
+     get a dark ink they can be read with. */
+  --on-accent: oklch(
+    from var(--accent) calc(1 - clamp(0, (l - 0.69) * 1000, 1) * 0.78) calc(clamp(0, (l - 0.69) * 1000, 1) * c * 0.6) h
+  );
+}
+
+/* ---------- Dark (default) ---------- */
+
+/*
+ * Nothing below names a neutral. Hovers, borders, toggles, the send button,
+ * code blocks, scrollbars and shadows used to be fixed whites, blacks and
+ * greys, which was invisible while every theme had a near-grey background and
+ * wrong the moment one didn't: a white hover on Solarized's teal reads as a grey
+ * smear, and a #fff menu on Gruvbox's cream glows. They are now mixed from
+ * --bg and --fg like the surfaces are. The mix amounts were solved so the
+ * neutral themes land within a level or two of the old hard-coded values —
+ * e.g. dark --toggle-off is 17.5% of #fcfcfc over #111111 = #3a3a3a, where it
+ * used to be #3a3a3c.
+ */
+:root,
+[data-theme='dark'] {
+  --bg: #111111;
+  --fg: #fcfcfc;
+  --accent: #0169cc;
+  --contrast: 60;
+  /* How far the secondary text tones fade toward the background, as a share
+     of the full step. 1 for the neutral themes; coloured palettes sit closer
+     together (Nord's snow on polar night is ~9:1, not ~18:1), so each one
+     carries a smaller value from lib/themes.ts, set by useTheme(), that keeps
+     --text-2 at WCAG AA on every surface. */
+  --text-fade: 1;
+
+  /* Positive lift = lighter than the canvas. Lifting toward the foreground
+     rather than pure white keeps a tinted theme's surfaces in its own hue. */
+  --lift-color: var(--fg);
+  --sink-color: #000000;
+  --u: calc(var(--contrast) * 0.055%);
+
+  --canvas: color-mix(in srgb, var(--bg), var(--sink-color) 22%);
+  --sidebar: var(--bg);
+  --surface-1: color-mix(in srgb, var(--bg), var(--lift-color) calc(var(--u) * 1.6));
+  --surface-2: color-mix(in srgb, var(--bg), var(--lift-color) calc(var(--u) * 2.6));
+  --surface-3: color-mix(in srgb, var(--bg), var(--lift-color) calc(var(--u) * 4.2));
+  --surface-4: color-mix(in srgb, var(--bg), var(--lift-color) calc(var(--u) * 6));
+  --sunken: color-mix(in srgb, var(--bg), var(--sink-color) 34%);
+
+  --hover: color-mix(in srgb, var(--fg) 5.5%, transparent);
+  --hover-strong: color-mix(in srgb, var(--fg) 9%, transparent);
+  --active: color-mix(in srgb, var(--fg) 13%, transparent);
+
+  --border: color-mix(in srgb, var(--bg), var(--lift-color) 8%);
+  --border-soft: color-mix(in srgb, var(--fg) 6%, transparent);
+  --border-strong: color-mix(in srgb, var(--fg) 14%, transparent);
+
+  /* Translucent so `.menu`'s backdrop-filter has something to frost. */
+  --menu-bg: color-mix(in srgb, var(--surface-3), transparent 24%);
+
+  --text: var(--fg);
+  --text-2: color-mix(in srgb, var(--fg), var(--bg) calc(38% * var(--text-fade)));
+  --text-3: color-mix(in srgb, var(--fg), var(--bg) calc(58% * var(--text-fade)));
+  --text-4: color-mix(in srgb, var(--fg), var(--bg) calc(72% * var(--text-fade)));
+
+  --toggle-on: var(--accent);
+  --toggle-off: color-mix(in srgb, var(--bg), var(--fg) 17.5%);
+  --toggle-knob: #ffffff;
+  --danger: #ff453a;
+  --danger-soft: rgba(255, 69, 58, 0.14);
+  /* Lifted off the accent so links stay legible against a dark canvas. */
+  --link: color-mix(in srgb, var(--accent), #ffffff 26%);
+  --send-bg: color-mix(in srgb, var(--fg) 70%, var(--bg));
+  --send-fg: color-mix(in srgb, var(--bg), var(--fg) 4%);
+  --focus-ring: color-mix(in srgb, var(--accent), transparent 10%);
+  --scrollbar: color-mix(in srgb, var(--fg) 16%, transparent);
+  --code-bg: color-mix(in srgb, var(--bg), var(--sink-color) 22%);
+  /* Diff green/red are fixed hues rather than accent mixes: added and removed
+     have to stay green and red whatever accent the theme picks, or the diff
+     stops being readable at a glance. Backgrounds are kept faint so a run of
+     changed lines does not out-shout the code sitting on them. */
+  --diff-add-fg: #3fb950;
+  --diff-add-bg: rgba(63, 185, 80, 0.11);
+  --diff-del-fg: #f85149;
+  --diff-del-bg: rgba(248, 81, 73, 0.11);
+  /* Shadows fall in the background's own darkest shade rather than neutral
+     black, so on a blue or plum theme they read as depth, not as dirt. */
+  --shadow-ink: color-mix(in srgb, var(--bg), #000000 80%);
+  --shadow-menu: 0 0 0 0.5px color-mix(in srgb, var(--shadow-ink) 50%, transparent),
+    0 10px 32px color-mix(in srgb, var(--shadow-ink) 44%, transparent),
+    0 2px 8px color-mix(in srgb, var(--shadow-ink) 30%, transparent);
+  --shadow-modal: 0 24px 64px color-mix(in srgb, var(--shadow-ink) 55%, transparent),
+    0 2px 12px color-mix(in srgb, var(--shadow-ink) 40%, transparent);
+  color-scheme: dark;
+}
+
+/* ---------- Light ---------- */
+
+/* Light mixes toward --fg (a dark ink) instead of black. For the neutral
+   themes --fg is within 26 levels of black, so each alpha is scaled by ~1.11
+   to land on the same composite over white: rgba(0,0,0,.1) and
+   11% of #1a1c1f over #fff both come out at 229. */
+[data-theme='light'] {
+  --bg: #ffffff;
+  --fg: #1a1c1f;
+  --accent: #339cff;
+  --contrast: 45;
+  --text-fade: 1;
+
+  --lift-color: var(--fg);
+  --sink-color: var(--fg);
+  --u: calc(var(--contrast) * 0.055%);
+
+  --canvas: var(--bg);
+  --sidebar: color-mix(in srgb, var(--bg), var(--lift-color) calc(var(--u) * 1.1));
+  --surface-1: color-mix(in srgb, var(--bg), var(--lift-color) calc(var(--u) * 1.5));
+  --surface-2: color-mix(in srgb, var(--bg), var(--lift-color) calc(var(--u) * 2.4));
+  /* The raised surface (menus, popovers, the composer) was a flat #ffffff,
+     which glows on a cream or grey-blue page. Most of the way to white keeps
+     it the brightest thing on screen while holding the page's hue. */
+  --surface-3: color-mix(in srgb, var(--bg), #ffffff 65%);
+  --surface-4: color-mix(in srgb, var(--bg), var(--lift-color) calc(var(--u) * 1.2));
+  --sunken: color-mix(in srgb, var(--bg), var(--lift-color) calc(var(--u) * 1.8));
+
+  --hover: color-mix(in srgb, var(--fg) 5%, transparent);
+  --hover-strong: color-mix(in srgb, var(--fg) 7.8%, transparent);
+  --active: color-mix(in srgb, var(--fg) 11%, transparent);
+
+  --border: color-mix(in srgb, var(--fg) 11%, transparent);
+  --border-soft: color-mix(in srgb, var(--fg) 7.8%, transparent);
+  --border-strong: color-mix(in srgb, var(--fg) 17.8%, transparent);
+
+  --menu-bg: color-mix(in srgb, var(--surface-3), transparent 18%);
+
+  --text: var(--fg);
+  --text-2: color-mix(in srgb, var(--fg), var(--bg) calc(34% * var(--text-fade)));
+  --text-3: color-mix(in srgb, var(--fg), var(--bg) calc(52% * var(--text-fade)));
+  --text-4: color-mix(in srgb, var(--fg), var(--bg) calc(66% * var(--text-fade)));
+
+  --toggle-on: var(--accent);
+  --toggle-off: color-mix(in srgb, var(--bg), var(--fg) 17%);
+  --toggle-knob: #ffffff;
+  --danger: #e5342a;
+  --danger-soft: rgba(229, 52, 42, 0.1);
+  --link: color-mix(in srgb, var(--accent), #000000 18%);
+  --send-bg: var(--fg);
+  --send-fg: var(--bg);
+  --focus-ring: color-mix(in srgb, var(--accent), transparent 10%);
+  --scrollbar: color-mix(in srgb, var(--fg) 22%, transparent);
+  --code-bg: color-mix(in srgb, var(--bg), var(--fg) 4%);
+  /* Darker inks than the dark theme's: the same greens and reds wash out to
+     pastel against white and stop reading as added/removed. */
+  --diff-add-fg: #1a7f37;
+  --diff-add-bg: rgba(26, 127, 55, 0.1);
+  --diff-del-fg: #cf222e;
+  --diff-del-bg: rgba(207, 34, 46, 0.09);
+  --shadow-ink: color-mix(in srgb, var(--fg), #000000 45%);
+  --shadow-menu: 0 0 0 0.5px color-mix(in srgb, var(--shadow-ink) 11%, transparent),
+    0 10px 32px color-mix(in srgb, var(--shadow-ink) 15%, transparent),
+    0 2px 8px color-mix(in srgb, var(--shadow-ink) 9%, transparent);
+  --shadow-modal: 0 24px 64px color-mix(in srgb, var(--shadow-ink) 24%, transparent),
+    0 2px 12px color-mix(in srgb, var(--shadow-ink) 13%, transparent);
+  color-scheme: light;
+}
+
+/* ---------- Windows ---------- */
+
+/* The Window Controls Overlay draws minimise/maximise/close over the page at
+   the top RIGHT, so the reservation flips sides: nothing is needed on the left
+   (the sidebar panel starts at the window edge), and the main header has to
+   keep its own buttons clear of the caption strip. 138px is the three 46px
+   buttons Windows draws at 100% scale. */
+body[data-platform='win32'] {
+  --window-controls-left: 0px;
+  --window-controls-right: 138px;
+}

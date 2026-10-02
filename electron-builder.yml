@@ -1,0 +1,142 @@
+# Both of these are load-bearing for updates from the previous (native Swift)
+# macOS app: its SelfUpdateInstaller validates a downloaded bundle by requiring
+# Contents/MacOS/Eaon to be executable and CFBundleIdentifier to equal exactly
+# "dev.eaon.desktop", and rejects the update otherwise. electron-builder names
+# the executable after productName, so productName must stay "Eaon".
+appId: dev.eaon.desktop
+productName: Eaon
+directories:
+  buildResources: resources
+# Only the three bundles the app runs from. `out/` also collects test and
+# verification builds (out/test, out/workers-full…), which `out/**` shipped
+# inside the asar — and which break the universal merge whenever they change
+# between the x64 and arm64 passes.
+files:
+  - out/main/**
+  - out/preload/**
+  - out/renderer/**
+  - package.json
+  # BetterWright's optional extras that Eaon doesn't use: browser-cookie
+  # import (a per-arch native module, which would also trip the universal
+  # merge) and its patched Playwright.
+  - '!**/node_modules/rookie-cookies*/**'
+  - '!**/node_modules/patchright-core/**'
+# node-pty's native module and its spawn-helper must be real files on disk:
+# the helper is exec'd, which cannot happen from inside an asar archive.
+asarUnpack:
+  - node_modules/node-pty/**
+# node-pty is the only native dependency, and it ships N-API prebuilds for
+# every platform we build (prebuilds/darwin-*, win32-*), which Electron loads
+# as they are. Rebuilding it from source is never needed — and fails outright
+# on current Python, whose missing `distutils` breaks node-pty's bundled gyp.
+npmRebuild: false
+# The Chrome extension ships inside the app (Contents/Resources/extension) so
+# "Load unpacked" works from an installed copy before, or without, the Chrome
+# Web Store. Settings copies it to userData before revealing it, because
+# Chrome's folder picker will not step inside an .app bundle.
+extraResources:
+  - from: extension
+    to: extension
+    filter:
+      - '**/*'
+      - '!STORE_LISTING.md'
+publish:
+  provider: github
+  owner: eaonlabs
+  repo: eaon-desktop
+mac:
+  category: public.app-category.productivity
+  # Explicit rather than relying on electron-builder's default
+  # `${buildResourcesDir}/icon.icns` lookup — same file either way, just
+  # self-documenting alongside everything else this config spells out.
+  icon: resources/icon.icns
+  # Universal, not the host arch. The app this replaces shipped arm64+x86_64,
+  # so an arm64-only build would strand every Intel user mid-update — their
+  # installed copy would swap itself for a binary it cannot execute.
+  target:
+    - target: dmg
+      arch: universal
+    - target: zip
+      arch: universal
+  # Matches the previous app's artifact names (Eaon-<version>.dmg/.zip) rather
+  # than electron-builder's default, which appends the architecture.
+  artifactName: ${productName}-${version}.${ext}
+  darkModeSupport: true
+  # Required for notarization, and already a prerequisite for the entitlements
+  # below to mean anything.
+  hardenedRuntime: true
+  entitlements: resources/entitlements.mac.plist
+  entitlementsInherit: resources/entitlements.mac.plist
+  # The universal merge lipos every Mach-O file that differs between the x64
+  # and arm64 builds and rejects one that is identical but single-arch.
+  # node-pty's prebuilds are both: the same per-arch folders ship in both
+  # builds, and each loads only on its own arch, so they are kept as they are.
+  # Same for Eaon's llama-server (llama/darwin-arm64, llama/darwin-x64).
+  x64ArchFiles: '{**/node_modules/node-pty/prebuilds/**,**/llama/darwin-*/**}'
+  # Eaon's own llama.cpp runtime (scripts/build-llama.sh), both Mac arches:
+  # main/llama/runtime.ts picks the one matching the running process.
+  extraResources:
+    - from: resources/llama
+      to: llama
+      filter:
+        - 'darwin-*/**'
+  # The signing identity is deliberately NOT hardcoded here: this repo is public,
+  # and the identity string contains the certificate holder's legal name.
+  # electron-builder auto-selects the "Developer ID Application" certificate for
+  # dmg/zip targets, which is the only correct choice anyway — the "Apple
+  # Development" certificates also in this keychain are for local testing, and an
+  # app signed with one will not launch on another machine or notarize at all.
+  # Override with CSC_NAME="Developer ID Application: … (TEAMID)" if the keychain
+  # ever holds more than one Developer ID certificate.
+  #
+  # Gatekeeper assessment during the build inspects the not-yet-notarized app and
+  # so always fails; the real check is `spctl -a -vvv -t install` after stapling.
+  gatekeeperAssess: false
+  # Notarization credentials come from the environment and must never be
+  # committed: set APPLE_ID and APPLE_APP_SPECIFIC_PASSWORD (an app-specific
+  # password from appleid.apple.com, not the Apple ID password itself). Without
+  # them the build fails at this step rather than silently shipping unnotarized.
+  # The team ID comes from APPLE_TEAM_ID (exported by scripts/release-mac.sh)
+  # rather than `notarize.teamId`, which electron-builder 25 deprecates.
+  notarize: true
+# Stamps Eaon.exe's icon and version with resedit instead of rcedit-under-wine
+# (see the script for why); only acts on Windows builds.
+afterPack: scripts/win-exe-resources.cjs
+win:
+  icon: resources/icon.ico
+  # llama-server for each Windows arch (scripts/fetch-llama-windows.sh):
+  # upstream's own builds, since they can't be compiled on a Mac.
+  extraResources:
+    - from: resources/llama/win32-${arch}
+      to: llama/win32-${arch}
+  # Off because rcedit needs an Intel wine that Apple silicon Macs can't run;
+  # the afterPack hook above makes the same resource edits. Turn this back on
+  # (and drop the hook) once these builds are Authenticode-signed on Windows.
+  signAndEditExecutable: false
+  # One installer carrying every Windows architecture, so a single .exe works on
+  # any machine: x64 for most PCs, arm64 for Windows-on-ARM, ia32 for the
+  # remaining 32-bit installs. NSIS picks the right payload at install time.
+  target:
+    - target: nsis
+      arch:
+        - x64
+        - arm64
+        - ia32
+  # Unsigned for now. Windows SmartScreen will show "Windows protected your PC"
+  # on first run until these builds carry an Authenticode signature — click
+  # More info -> Run anyway. Signing needs a code-signing certificate, which is
+  # a separate purchase from the Apple Developer ID used for macOS.
+  artifactName: ${productName}-${version}-setup.${ext}
+nsis:
+  # Newer NSIS (3.10+, e.g. Homebrew's native arm64 makensis, used on Apple
+  # silicon Macs via ELECTRON_BUILDER_NSIS_DIR) warns about language strings
+  # electron-builder's templates leave out; those warnings are not failures.
+  warningsAsErrors: false
+  # A per-user install needs no admin prompt, and is what lets the updater
+  # replace the app without elevating.
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: Eaon

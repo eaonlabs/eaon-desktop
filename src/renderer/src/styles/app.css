@@ -1,0 +1,636 @@
+/* Reset, application shell, title bar and sidebar. */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font-ui);
+  font-size: var(--fs-base);
+  line-height: 1.45;
+  color: var(--text);
+  /* The window's one and only background. `.sidebar`, `.main` and `.settings`
+     used to paint their own, which meant any difference between them showed up
+     as a seam down the edge of the sidebar — exactly what the translucent state
+     produced, since the gutter mixed in vibrancy and `.main` did not. Painting
+     it once here makes a seam impossible, and vibrancy still shows through at
+     the same 18% because this element is the bottom of the rendered frame. */
+  background: var(--canvas);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+body[data-translucent='on'] {
+  background: color-mix(in srgb, var(--canvas) 82%, transparent);
+}
+
+body[data-font-smoothing='off'] {
+  -webkit-font-smoothing: auto;
+  -moz-osx-font-smoothing: auto;
+}
+
+body[data-pointer='on'] button,
+body[data-pointer='on'] [role='button'],
+body[data-pointer='on'] a,
+body[data-pointer='on'] label {
+  cursor: pointer;
+}
+
+body[data-reduce-motion='on'] *,
+body[data-reduce-motion='on'] *::before,
+body[data-reduce-motion='on'] *::after {
+  animation-duration: 0.001ms !important;
+  transition-duration: 0.001ms !important;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: default;
+}
+
+input,
+textarea,
+select {
+  font: inherit;
+  color: inherit;
+}
+
+a {
+  color: var(--link);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+:focus {
+  outline: none;
+}
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+  border-radius: var(--r-xs);
+}
+
+::selection {
+  background: color-mix(in srgb, var(--accent), transparent 55%);
+}
+
+/* ---- Scrollbars: only visible while the area is hovered ---- */
+.scroll {
+  overflow-y: auto;
+}
+/* The app's panes scroll up and down only. With just overflow-y set, the
+   browser makes the other axis scrollable too, so one element wider than the
+   pane (a long unbroken note) let a trackpad swipe shift the whole layout
+   sideways. Wide content inside (code, tables, diffs) scrolls in its own box. */
+.thread,
+.page__scroll,
+.settings__scroll,
+.settings__nav-body,
+.sidebar__body,
+.code-home,
+.providers-shell,
+.pr-list,
+.modal__body {
+  overflow-x: hidden;
+  overscroll-behavior-x: none;
+}
+.scroll::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.scroll::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 999px;
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+.scroll:hover::-webkit-scrollbar-thumb {
+  background: var(--scrollbar);
+  background-clip: padding-box;
+}
+.scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ---------------- Shell ---------------- */
+
+.app {
+  display: flex;
+  height: 100%;
+  /* Transparent: `body` paints the window. */
+}
+
+.sidebar {
+  width: var(--sidebar-w);
+  flex: 0 0 var(--sidebar-w);
+  display: flex;
+  flex-direction: column;
+  /* Just the gutter around the floating panel — `body` paints it. */
+  padding: var(--sidebar-gap);
+  user-select: none;
+  overflow: hidden;
+  transition: flex-basis 240ms var(--ease), width 240ms var(--ease), padding 240ms var(--ease);
+}
+
+
+.sidebar__panel {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  /* A raised surface rather than `--sidebar`: that token is tuned for a panel
+     sitting flush at `--bg`, which in the dark theme is only three values off
+     `--canvas` and left the curve almost invisible. `--surface-1` is the
+     token that already means "one step above the canvas". */
+  background: var(--surface-1);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-panel);
+  /* Rounded corners only clip children that are actually painted inside; the
+     menus anchored in here portal to the body, so nothing gets cut off. */
+  overflow: hidden;
+}
+
+
+/* Collapse — the sidebar's own width eases to zero (an accordion on the
+   horizontal axis) while its content slides and fades out in the same
+   direction it's collapsing, rather than just clipping abruptly. */
+.sidebar[data-open='false'] {
+  flex-basis: 0;
+  width: 0;
+  min-width: 0;
+  padding: 0;
+}
+
+.sidebar__content {
+  width: calc(var(--sidebar-w) - var(--sidebar-gap) * 2);
+  min-width: calc(var(--sidebar-w) - var(--sidebar-gap) * 2);
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  transition: opacity 160ms var(--ease), transform 240ms var(--ease);
+}
+
+.sidebar[data-open='false'] .sidebar__content {
+  opacity: 0;
+  transform: translateX(-24px);
+  pointer-events: none;
+}
+
+.main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  /* The top bar's mode switch drops its labels when this gets narrow. */
+  container: main / inline-size;
+}
+
+.drag {
+  -webkit-app-region: drag;
+}
+.no-drag {
+  -webkit-app-region: no-drag;
+}
+
+/* ---------------- Title bar ---------------- */
+
+.titlebar {
+  height: var(--titlebar-h);
+  flex: 0 0 var(--titlebar-h);
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 10px 0 75px;
+  -webkit-app-region: drag;
+}
+
+/* Inside the floating panel the traffic lights sit at window x 20..72 (three
+   12pt buttons, 20pt apart, from trafficLightPosition). The row itself starts
+   --sidebar-gap in from the window edge, so reserving 82px of window space
+   leaves the same 10px breathing room the flush titlebar had. Controls are
+   right-aligned so they sit at the far edge of the panel rather than crowding
+   the lights. */
+.sidebar__panel .titlebar {
+  justify-content: flex-end;
+  /* max() so this collapses to a plain 8px on Windows, where the left
+     reservation is zero and the controls live on the other side. */
+  padding: 0 8px 0 max(8px, calc(var(--window-controls-left) - var(--sidebar-gap)));
+}
+
+.titlebar--collapsed {
+  padding-left: max(14px, var(--window-controls-left));
+  padding-right: calc(10px + var(--window-controls-right));
+}
+
+.titlebar--main {
+  padding: 0 12px 0 14px;
+  justify-content: space-between;
+}
+
+.icon-btn {
+  position: relative;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--r-sm);
+  color: var(--text-3);
+  flex: none;
+  -webkit-app-region: no-drag;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.icon-btn:hover:not(:disabled) {
+  background: var(--hover);
+  color: var(--text);
+}
+.icon-btn:disabled {
+  color: var(--text-4);
+  opacity: 0.5;
+}
+.icon-btn[data-active='true'] {
+  background: var(--hover-strong);
+  color: var(--text);
+}
+
+/* ---------------- Sidebar header ---------------- */
+
+
+
+/* ---------------- Sidebar body ---------------- */
+
+.sidebar__body {
+  flex: 1;
+  min-height: 0;
+  padding: 0 7px;
+  overflow-y: auto;
+}
+
+/* ---------------- Top bar ----------------
+   Every screen's top row: left content · the mode switch · right content. The
+   side columns are equal, so the switch sits at the centre of the window's
+   content area whatever each side holds; when space runs out the sides
+   shrink (titles ellipsise) and the switch keeps its place. Specific enough to
+   beat `.chat-header` / `.page__bar`, which stay for padding and dragging. */
+.chat-header.topbar,
+.page__bar.topbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  column-gap: 12px;
+}
+.chat-header.topbar:not([data-collapsed]),
+.page__bar.topbar:not([data-collapsed]) {
+  /* Same inset on both sides and on both kinds of row, so the switch sits at
+     the true centre and does not shift a few pixels between screens. */
+  padding-left: 16px;
+  padding-right: calc(16px + var(--window-controls-right));
+}
+.topbar__side {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  /* A side never paints over the switch: what does not fit is clipped (menus
+     are portalled, so they are not). The 2px inset keeps focus rings whole. */
+  overflow: hidden;
+  padding: 2px;
+  margin: -2px;
+}
+/* `safe`: when the actions are wider than their column they overflow to the
+   right, off the edge, instead of leftwards under the switch — which is how
+   the ADE's context meter ended up drawn over "Workers". */
+.topbar__side--right {
+  justify-content: safe flex-end;
+}
+.topbar .chat-header__title {
+  max-width: none;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+.topbar .collapsed-nav {
+  margin-right: 2px;
+}
+
+/* Chat ⇄ Workers ⇄ ADE, centred in the top bar.
+   Sits in a sunken track so the raised option reads as the selected one without
+   needing an accent fill, which would fight the accent already spent on primary
+   actions. The header is a drag region, so the buttons opt back out of it or
+   they would move the window instead of switching mode. */
+.mode-switch {
+  flex: none;
+  justify-self: center;
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+  background: var(--sunken);
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-lg);
+  -webkit-app-region: no-drag;
+}
+.mode-switch__option {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  padding: 0 14px;
+  border: 1px solid transparent;
+  border-radius: calc(var(--r-lg) - 4px);
+  color: var(--text-2);
+  font-size: var(--fs-base);
+  font-weight: 500;
+  white-space: nowrap;
+  transition:
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+.mode-switch__option:hover {
+  color: var(--text);
+}
+.mode-switch__option[data-active] {
+  background: var(--surface-3);
+  border-color: var(--border-strong);
+  color: var(--text);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+.mode-switch__option svg {
+  flex: none;
+  color: var(--text-3);
+  transition: color var(--dur) var(--ease);
+}
+.mode-switch__option[data-active] svg {
+  color: var(--text);
+}
+.mode-switch__option {
+  position: relative;
+}
+/* A worker has something for you: unread replies or a failed task. */
+.mode-switch__dot {
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--sunken);
+}
+@container main (max-width: 700px) {
+  .mode-switch__label {
+    display: none;
+  }
+  .mode-switch__option {
+    padding: 0 11px;
+  }
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  height: var(--nav-row-h);
+  padding: 0 8px 0 6px;
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font-size: var(--fs-base);
+  text-align: left;
+  transition: background var(--dur) var(--ease);
+}
+.nav-item:hover {
+  background: var(--hover);
+}
+.nav-item[data-active='true'] {
+  background: var(--surface-2);
+}
+.nav-item__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--text-2);
+  width: 16px;
+}
+.nav-item[data-active='true'] .nav-item__icon {
+  color: var(--text);
+}
+.nav-item__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.nav-item__trail {
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--text-3);
+  opacity: 0;
+}
+.nav-item:hover .nav-item__trail,
+.nav-item__trail[data-always='true'] {
+  opacity: 1;
+}
+
+.sidebar__section {
+  padding: 0 8px;
+  margin: 18px 0 4px;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+  letter-spacing: -0.005em;
+}
+
+.sidebar__section--action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-right: 3px;
+}
+.sidebar__section-btn {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--r-xs);
+  color: var(--text-3);
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease), background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.sidebar__body:hover .sidebar__section-btn,
+.sidebar__section-btn:focus-visible {
+  opacity: 1;
+}
+.sidebar__section-btn:hover {
+  background: var(--hover-strong);
+  color: var(--text);
+}
+
+/* A project row expands to its chats, indented under it. */
+.nav-item__chevron {
+  flex: none;
+  color: var(--text-4);
+  transition: transform var(--dur-spring-fast) var(--spring-fast);
+}
+.nav-item__chevron[data-open] {
+  transform: rotate(90deg);
+}
+.nav-item__action {
+  display: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-right: -4px;
+  border-radius: var(--r-xs);
+  color: var(--text-3);
+}
+.nav-item--project:hover .nav-item__action {
+  display: grid;
+}
+.nav-item--project:hover .nav-item__chevron {
+  display: none;
+}
+.nav-item__action:hover {
+  background: var(--hover-strong);
+  color: var(--text);
+}
+.nav-group {
+  padding-left: 16px;
+}
+.nav-item--muted {
+  color: var(--text-3);
+}
+.nav-item__icon--face {
+  width: 18px;
+}
+
+.unread-badge {
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: var(--r-pill);
+  background: var(--accent);
+  color: var(--on-accent, #fff);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 17px;
+  text-align: center;
+}
+
+.sidebar__empty {
+  padding: 0 8px;
+  height: var(--nav-row-h);
+  display: flex;
+  align-items: center;
+  font-size: var(--fs-base);
+  color: var(--text-4);
+}
+
+.sidebar__footer {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 6px 8px 10px 7px;
+}
+.footer-item {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  padding: 0 8px;
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font-size: var(--fs-base);
+  transition: background var(--dur) var(--ease);
+}
+.footer-item:hover {
+  background: var(--hover);
+}
+
+/* Leading window-controls cluster shown when the sidebar is hidden; always
+   rendered inline inside the screen's own draggable header row, never as a
+   second overlapping drag region. */
+.collapsed-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+  margin-right: 6px;
+}
+
+.spinner {
+  animation: spin 900ms linear infinite;
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* Text that shimmers while the model is working. */
+.shimmer {
+  background: linear-gradient(90deg, var(--text-4) 20%, var(--text) 45%, var(--text-4) 70%);
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 2.4s linear infinite;
+}
+@keyframes shimmer {
+  from {
+    background-position: 140% 0;
+  }
+  to {
+    background-position: -40% 0;
+  }
+}
+
+/* ---- Staggered list entrance ------------------------------------
+   Chat rows cascade in when the list is rebuilt (switching workspace,
+   loading history) so the order is readable instead of everything
+   appearing at once. Keyed rows are reused across re-renders, so this
+   plays on mount only — not on every streamed token. */
+.nav-item--staggered {
+  animation: nav-row-in var(--dur-spring-fast) var(--spring-fast) backwards;
+  animation-delay: calc(var(--i, 0) * var(--stagger));
+}
+@keyframes nav-row-in {
+  from {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+}
+
+/* ---------------- Sidebar density ---------------- */
+
+/* The reference sidebar runs a step smaller than the app's base scale — the
+   nav is a dense index, not body copy. Scoped to `.sidebar` so the settings
+   navigation, which reuses `.nav-item`, keeps the base size. */
+.sidebar .nav-item {
+  font-size: var(--fs-sm);
+}
+.sidebar .sidebar__section {
+  font-size: var(--fs-xs);
+}
+.sidebar .sidebar__empty {
+  font-size: var(--fs-xs);
+}

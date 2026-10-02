@@ -1,0 +1,595 @@
+/* Styles for the models feature: the curated library, installed models and
+   the detail view. The Hugging Face browser keeps its original classes in
+   pages.css (.model-card, .variants-table). */
+
+/* Fit colours are scoped here rather than added to tokens.css: nothing else
+   in the app needs a traffic-light scale. Each is tuned per theme so the
+   label text stays legible on its surface. */
+.mlib {
+  --fit-good: #34d399;
+  --fit-tight: #f5b544;
+  --fit-bad: var(--danger);
+}
+[data-theme='light'] .mlib {
+  --fit-good: #0e8a5f;
+  --fit-tight: #a86400;
+}
+
+/* ---------------- Page head ---------------- */
+
+.mlib-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+.mlib-ollama {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.mlib-ollama__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--fit-good);
+}
+.mlib-ollama[data-state='stopped'] .mlib-ollama__dot {
+  background: var(--fit-tight);
+}
+.mlib-ollama[data-state='missing'] .mlib-ollama__dot {
+  background: var(--text-4);
+}
+.mlib-tabs {
+  margin-bottom: 22px;
+}
+
+.mlib-banner {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 16px;
+  margin-bottom: 8px;
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+  border: 1px solid color-mix(in srgb, var(--fit-tight), transparent 62%);
+}
+.mlib-banner__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  line-height: 1.45;
+}
+.mlib-banner__body strong {
+  font-size: var(--fs-base);
+  font-weight: 500;
+  color: var(--text);
+}
+
+/* ---------------- Sections ---------------- */
+
+.mlib-section {
+  margin-top: 28px;
+}
+.mlib-section__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.mlib-section__title {
+  margin: 0;
+  font-size: var(--fs-h2);
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+.mlib-section__count,
+.mlib-machine {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+
+/* ---------------- Shared bits ---------------- */
+
+.mlib-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  row-gap: 2px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.mlib-meta > * + *::before {
+  content: '·';
+  margin: 0 6px;
+  color: var(--text-4);
+}
+
+.mlib-caps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+.mlib-cap {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 7px;
+  border-radius: var(--r-xs);
+  background: var(--surface-2);
+  color: var(--text-2);
+  font-size: var(--fs-xxs);
+}
+
+.mlib-fit {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.mlib-fit__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.mlib-fit[data-fit='good'] {
+  color: var(--fit-good);
+}
+.mlib-fit[data-fit='tight'] {
+  color: var(--fit-tight);
+}
+.mlib-fit[data-fit='too-big'] {
+  color: var(--text-3);
+}
+.mlib-fit[data-fit='too-big'] .mlib-fit__dot {
+  background: var(--fit-bad);
+}
+
+.mlib-featured {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--accent), transparent 86%);
+  color: var(--link);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.mlib-featured--quiet {
+  padding: 0;
+  background: none;
+  font-size: var(--fs-xxs);
+}
+
+.mlib-installed {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--fit-good);
+  white-space: nowrap;
+}
+.mlib-get {
+  min-width: 62px;
+}
+.mlib-get-note {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.mlib-progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  width: 168px;
+}
+.mlib-progress__label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 36px;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.mlib-progress__track {
+  flex: 1;
+  height: 4px;
+  border-radius: var(--r-pill);
+  background: var(--surface-3);
+  overflow: hidden;
+}
+.mlib-progress__fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 240ms var(--ease);
+}
+.icon-btn.icon-btn--sm {
+  width: 22px;
+  height: 22px;
+}
+
+.mlib-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 2px 0 0;
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+  color: var(--danger);
+}
+.mlib-error svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+.mlib-tag {
+  padding: 1px 6px;
+  border-radius: var(--r-xs);
+  background: var(--surface-2);
+  color: var(--text-3);
+  font-size: var(--fs-xxs);
+}
+.mlib-mono {
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  font-weight: 400;
+}
+.mlib-link {
+  color: var(--link);
+  font-size: inherit;
+}
+.mlib-link:hover {
+  text-decoration: underline;
+}
+.mlib-dim {
+  color: var(--text-4);
+}
+.mlib-confirm {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ---------------- Suggested grid ---------------- */
+
+.mlib-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+.mlib-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 16px;
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+  border: 1px solid var(--border-soft);
+  cursor: pointer;
+  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+.mlib-card:hover {
+  border-color: var(--border-strong);
+}
+.mlib-card:focus-visible,
+.mlib-row:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.mlib-card__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 21px;
+}
+.mlib-card__org {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.mlib-card__name {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+}
+.mlib-card__desc {
+  flex: none;
+  margin: 2px 0 2px;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--text-2);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.mlib-card .mlib-caps {
+  /* Pins capabilities and the footer to the bottom so cards in a row line up
+     whatever their description length; the clamp needs the paragraph at its
+     natural height to cut cleanly. */
+  margin-top: auto;
+}
+.mlib-card__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 39px;
+  margin-top: 6px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-soft);
+}
+.mlib-card__pick {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* ---------------- Category chips + list ---------------- */
+
+.mlib-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.mlib-chip {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--border-soft);
+  background: var(--surface-1);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.mlib-chip:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.mlib-chip[data-active='true'] {
+  background: var(--fg);
+  border-color: transparent;
+  color: var(--bg);
+}
+
+.mlib-list {
+  display: flex;
+  flex-direction: column;
+}
+.mlib-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 10px;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease);
+}
+.mlib-row + .mlib-row {
+  border-top: 1px solid var(--border-soft);
+}
+.mlib-row:hover {
+  background: var(--hover);
+}
+.mlib-row--static {
+  cursor: default;
+}
+.mlib-row--static:hover {
+  background: none;
+}
+.mlib-row__icon {
+  flex: none;
+  display: inline-flex;
+  color: var(--text-3);
+}
+.mlib-row__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.mlib-row__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.mlib-row__name {
+  font-size: var(--fs-base);
+  font-weight: 500;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mlib-row__side {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.mlib-row__size {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+.mlib-row__pick {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* ---------------- Detail ---------------- */
+
+.mlib-detail__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.mlib .mlib-detail__title {
+  margin: 0;
+}
+.mlib-detail__byline {
+  margin: 8px 0 14px;
+  font-size: var(--fs-sm);
+}
+.mlib-detail__desc {
+  max-width: 720px;
+  margin: 0 0 14px;
+  font-size: var(--fs-base);
+  line-height: 1.55;
+  color: var(--text-2);
+}
+.mlib-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-top: 18px;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--fit-tight), transparent 88%);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--text);
+}
+.mlib-notice svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--fit-tight);
+}
+.mlib-facts {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  margin: 22px 0 0;
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  background: var(--border-soft);
+  border: 1px solid var(--border-soft);
+}
+.mlib-fact {
+  padding: 12px 14px;
+  background: var(--surface-1);
+}
+.mlib-fact dt {
+  margin-bottom: 4px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.mlib-fact dd {
+  margin: 0;
+  font-size: var(--fs-base);
+  color: var(--text);
+}
+.mlib-links {
+  display: flex;
+  gap: 6px;
+  margin-top: 12px;
+  margin-left: -10px;
+}
+.mlib .mlib-detail__variants-head {
+  margin-top: 30px;
+}
+
+.mlib-variants__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.5fr) 72px 96px 168px;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 6px;
+  border-bottom: 1px solid var(--border-soft);
+  font-size: var(--fs-sm);
+}
+.mlib-variants__row--head {
+  padding-bottom: 10px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+.mlib-variants__row[data-recommended='true'] {
+  background: color-mix(in srgb, var(--accent), transparent 94%);
+}
+.mlib-variants__quant {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text);
+  white-space: nowrap;
+}
+.mlib-recommended {
+  padding: 1px 7px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--accent), transparent 86%);
+  color: var(--link);
+  font-family: var(--font-ui);
+  font-size: var(--fs-xxs);
+  font-weight: 500;
+}
+.mlib-variants__source {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-2);
+}
+.mlib-variants__size {
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.mlib-variants__action {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.mlib-variants__error {
+  grid-column: 1 / -1;
+}
+
+/* A model that runs only because Eaon's llama.cpp carries a pending PR. */
+.mlib-note {
+  margin: 10px 0 0;
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  color: var(--text-3);
+}
+/* "Unload" next to the loaded model in the page header. */
+.mlib-unload {
+  margin-left: 8px;
+  font-size: var(--fs-xs);
+}
+.mlib-tag--live {
+  color: var(--diff-add-fg);
+}

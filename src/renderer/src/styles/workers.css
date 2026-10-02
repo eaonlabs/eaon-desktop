@@ -1,0 +1,1041 @@
+/*
+ * Eaon Workers: the faces, the team, a worker's page and its editor — plus
+ * the Library page and the attachment / mail bubbles in transcripts, which
+ * the workers' threads share with chats.
+ */
+
+/* ================================================================ Faces */
+
+/* The body is a plain circle and never moves; only the eyes animate. */
+.wf {
+  display: block;
+  flex: none;
+  overflow: visible;
+}
+.wf .wf-look {
+  transition: transform 220ms var(--ease);
+  animation: wf-glance 11s ease-in-out infinite;
+}
+/* Following the pointer writes an inline transform; an animation would beat
+   it (animations outrank inline styles), so the glance stands down. */
+.wf .wf-look[data-following] {
+  animation: none;
+}
+.wf .wf-eye {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: wf-blink 5.3s infinite;
+}
+/* A new expression arrives with a blink rather than a cut: the eye group is
+   keyed by mood, so it remounts and plays this once. */
+.wf .wf-eyes {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: wf-open 220ms var(--spring-fast);
+}
+.wf g:nth-child(2) > .wf-eye {
+  /* The eyes blink together; the second one is only ever a frame behind. */
+  animation-delay: 16ms;
+}
+
+@keyframes wf-blink {
+  0%,
+  93%,
+  100% {
+    transform: scaleY(1);
+  }
+  95.5% {
+    transform: scaleY(0.08);
+  }
+}
+@keyframes wf-open {
+  from {
+    transform: scaleY(0.1);
+  }
+}
+@keyframes wf-glance {
+  0%,
+  18%,
+  100% {
+    transform: translate(0, 0);
+  }
+  22%,
+  34% {
+    transform: translate(-3.2px, 0.4px);
+  }
+  38%,
+  56% {
+    transform: translate(0, 0);
+  }
+  60%,
+  70% {
+    transform: translate(3px, -1.4px);
+  }
+  74% {
+    transform: translate(0, 0);
+  }
+}
+
+/* Busy: reading left to right, line after line. */
+.wf[data-mood='serious'] .wf-look,
+.wf[data-busy] .wf-look {
+  animation: wf-scan 2.6s ease-in-out infinite;
+}
+@keyframes wf-scan {
+  0%,
+  100% {
+    transform: translate(-3.4px, 0.6px);
+  }
+  45%,
+  55% {
+    transform: translate(3.4px, 0.6px);
+  }
+}
+.wf[data-mood='serious'] .wf-eye {
+  animation-duration: 7.9s;
+}
+
+/* Angry: a short tremble every few seconds, and no patience for blinking. */
+.wf[data-mood='angry'] .wf-look {
+  animation: wf-tremble 3.4s infinite;
+}
+.wf[data-mood='angry'] .wf-eye {
+  animation: none;
+}
+@keyframes wf-tremble {
+  0%,
+  86%,
+  100% {
+    transform: translate(0, 0);
+  }
+  88% {
+    transform: translate(-0.9px, 0);
+  }
+  90% {
+    transform: translate(0.9px, 0);
+  }
+  92% {
+    transform: translate(-0.7px, 0);
+  }
+  94% {
+    transform: translate(0.5px, 0);
+  }
+}
+
+/* Happy: bright, a quicker blink. */
+.wf[data-mood='happy'] .wf-eye {
+  animation-duration: 3.6s;
+}
+
+/* Asleep: closed eyes drifting with each slow breath. */
+.wf[data-mood='asleep'] .wf-look {
+  animation: wf-breathe 4.2s ease-in-out infinite;
+}
+.wf[data-mood='asleep'] .wf-eye {
+  animation: none;
+}
+@keyframes wf-breathe {
+  0%,
+  100% {
+    transform: translateY(0);
+  }
+  50% {
+    transform: translateY(1.3px);
+  }
+}
+
+/* Dead: nothing moves. */
+.wf[data-mood='dead'] .wf-look,
+.wf[data-mood='dead'] .wf-eye {
+  animation: none;
+}
+
+/* The global reduce-motion rule shrinks durations to ~0, which makes infinite
+   loops flicker through every keyframe on every frame. Stop them outright;
+   every expression reads correctly at rest. */
+body[data-reduce-motion='on'] .wf *,
+body[data-reduce-motion='on'] .wf {
+  animation: none !important;
+  transition: none !important;
+}
+
+/* ================================================================ Team */
+
+.team {
+  padding-bottom: 40px;
+}
+.team__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 14px;
+  margin-top: 22px;
+}
+
+.worker-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 22px 16px 16px;
+  border-radius: var(--r-xl);
+  background: var(--surface-1);
+  box-shadow: 0 0 0 1px var(--border-soft);
+  text-align: center;
+  transition: background var(--dur) var(--ease), box-shadow var(--dur) var(--ease), transform var(--dur-spring) var(--spring-moderate);
+  animation: card-in var(--dur-spring-slow) var(--spring-slow) backwards;
+  animation-delay: calc(var(--i, 0) * var(--stagger));
+}
+.worker-card:hover {
+  background: var(--surface-2);
+  box-shadow: 0 0 0 1px var(--border-strong);
+}
+.worker-card:active {
+  transform: scale(0.985);
+}
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+.worker-card__face {
+  position: relative;
+  margin-bottom: 10px;
+}
+.worker-card__badge {
+  position: absolute;
+  top: -2px;
+  right: -6px;
+  box-shadow: 0 0 0 3px var(--surface-1);
+}
+.worker-card__name {
+  font-size: var(--fs-h2);
+  font-weight: 600;
+  color: var(--text);
+}
+.worker-card__purpose {
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  min-height: 2.8em;
+}
+.worker-card__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  margin-top: 10px;
+  padding: 3px 9px;
+  border-radius: var(--r-pill);
+  background: var(--sunken);
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+.worker-card__status-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.worker-card--new {
+  justify-content: center;
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--border);
+  border: 0;
+}
+.worker-card--new .worker-card__name {
+  font-weight: 500;
+}
+.worker-card--new:hover {
+  background: var(--hover);
+  box-shadow: inset 0 0 0 1.5px var(--border-strong);
+}
+.worker-card__new-ring {
+  display: grid;
+  place-items: center;
+  width: 72px;
+  height: 72px;
+  margin-bottom: 10px;
+  border-radius: 50%;
+  border: 1.5px dashed var(--border-strong);
+  color: var(--text-3);
+}
+
+/* Status dots: green working, grey idle, violet asleep, red failed, amber paused. */
+.status-dot {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--text-4);
+}
+[data-status='working'] > .status-dot {
+  background: #34c759;
+  box-shadow: 0 0 0 0 rgba(52, 199, 89, 0.55);
+  animation: dot-pulse 1.8s ease-out infinite;
+}
+[data-status='asleep'] > .status-dot {
+  background: #8e8cf0;
+}
+[data-status='failed'] > .status-dot {
+  background: var(--danger);
+}
+[data-status='paused'] > .status-dot {
+  background: #e7a627;
+}
+body[data-reduce-motion='on'] .status-dot {
+  animation: none !important;
+}
+@keyframes dot-pulse {
+  70% {
+    box-shadow: 0 0 0 6px rgba(52, 199, 89, 0);
+  }
+  100% {
+    box-shadow: 0 0 0 0 rgba(52, 199, 89, 0);
+  }
+}
+
+.team-hint {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 4px;
+  padding: 10px 10px 10px 14px;
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+  box-shadow: 0 0 0 1px var(--border-soft);
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+.team-hint > svg {
+  flex: none;
+  color: var(--text-3);
+}
+.team-hint > span {
+  flex: 1;
+}
+
+.team-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 72px 20px 40px;
+}
+.team-empty__faces {
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+  margin-bottom: 28px;
+}
+.team-empty__faces > .wf:first-child,
+.team-empty__faces > .wf:last-child {
+  margin-bottom: 4px;
+}
+.team-empty__title {
+  font-size: var(--fs-title);
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  margin: 0 0 12px;
+}
+.team-empty__text {
+  max-width: 520px;
+  margin: 0 0 26px;
+  font-size: var(--fs-base);
+  line-height: 1.6;
+  color: var(--text-2);
+}
+.btn--lg {
+  height: 38px;
+  padding: 0 18px;
+  font-size: var(--fs-base);
+  border-radius: var(--r-md);
+}
+
+/* ================================================================ A worker's page */
+
+.worker-back {
+  padding-left: 6px;
+}
+.worker-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.worker-profile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 16px 0 10px;
+}
+.worker-profile__name {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin: 14px 0 4px;
+}
+.worker-profile__purpose {
+  max-width: 480px;
+  margin: 0 0 12px;
+  color: var(--text-2);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+/* The full width, not the width of its longest pill: a pill with a long note
+   used to widen the row past the window, and the thread scrolled sideways. */
+.worker-profile__facts {
+  align-self: stretch;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+}
+.worker-fact {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  background: var(--surface-1);
+  box-shadow: 0 0 0 1px var(--border-soft);
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.worker-fact svg {
+  flex: none;
+  color: var(--text-3);
+}
+/* The text shrinks and ends in "…"; the full text is in the pill's tooltip. */
+.worker-fact__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.worker-profile__personality {
+  max-width: 460px;
+  overflow-wrap: anywhere;
+  margin: 12px 0 0;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+  font-style: italic;
+}
+.worker-first-job {
+  align-self: center;
+  max-width: 420px;
+  margin: 4px 0 0;
+  text-align: center;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--text-3);
+}
+.worker-compacted {
+  align-self: center;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  padding: 4px 12px;
+  border-radius: var(--r-pill);
+  background: var(--sunken);
+}
+.worker-stop {
+  color: var(--text);
+}
+
+/* ================================================================ Editor */
+
+.worker-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.worker-editor__preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 0 4px;
+}
+.worker-editor__preview-name {
+  font-size: var(--fs-h2);
+  font-weight: 600;
+  color: var(--text);
+  min-height: 1.4em;
+}
+.worker-editor__row {
+  display: flex;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+.worker-editor__switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  height: 32px;
+}
+.worker-editor__hint {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+}
+.modal__body .field + .field {
+  margin-top: 12px;
+}
+.worker-editor .field + .field {
+  margin-top: 0;
+}
+.field .field-label {
+  margin-bottom: 0;
+}
+
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.swatch {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  color: #fff;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+  transition: transform var(--dur-spring-fast) var(--spring-fast);
+}
+.swatch:hover {
+  transform: scale(1.1);
+}
+.swatch[aria-checked='true'] {
+  box-shadow:
+    0 0 0 2px var(--surface-3),
+    0 0 0 4px var(--text-3);
+}
+.swatch--custom {
+  background: conic-gradient(from 90deg, #e4574b, #e7b727, #3fae6a, #22a7a0, #5b6cf0, #d6509b, #e4574b);
+  cursor: default;
+  overflow: hidden;
+}
+.swatch--custom[data-active] {
+  box-shadow:
+    0 0 0 2px var(--surface-3),
+    0 0 0 4px var(--text-3);
+}
+.swatch--custom input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+}
+.swatch--custom svg {
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.35));
+  pointer-events: none;
+}
+
+.persona-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+.persona-chip {
+  height: 26px;
+  padding: 0 11px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  box-shadow: 0 0 0 1px var(--border);
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease), box-shadow var(--dur) var(--ease);
+}
+.persona-chip:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.persona-chip[data-on] {
+  background: color-mix(in srgb, var(--accent), transparent 84%);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent), transparent 50%);
+  color: var(--text);
+}
+
+/* ================================================================ Transcript extras */
+
+/* A user message with files: the files sit above the bubble, right-aligned. */
+.msg-user-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+.msg-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+  max-width: 78%;
+}
+.msg-attachments[data-align='start'] {
+  justify-content: flex-start;
+  max-width: 100%;
+  margin-top: 6px;
+}
+.msg-attachment {
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+.msg-attachment--media {
+  width: 132px;
+  height: 132px;
+  background: var(--surface-2);
+  box-shadow: 0 0 0 1px var(--border-soft);
+}
+.msg-attachment--media img,
+.msg-attachment--media video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.msg-attachment--file {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 260px;
+  height: 40px;
+  padding: 0 12px;
+  background: var(--surface-2);
+  box-shadow: 0 0 0 1px var(--border-soft);
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+.msg-attachment--file svg {
+  flex: none;
+  color: var(--text-3);
+}
+.msg-attachment--file span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+button.msg-attachment:hover {
+  box-shadow: 0 0 0 1px var(--border-strong);
+}
+
+/* A worker tool's detail is a sentence ("Coordinating the launch assets"). */
+.tool__detail[data-prose] {
+  font-family: var(--font-ui);
+  font-size: var(--fs-sm);
+}
+
+/* Worker turns: mail from teammates, and the quiet heartbeat marker. */
+.msg-row--mail {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.msg__heartbeat {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 90%;
+  padding: 3px 11px;
+  border-radius: var(--r-pill);
+  background: var(--sunken);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.msg__heartbeat svg {
+  flex: none;
+  color: #e5566b;
+}
+.msg-mail {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  max-width: 86%;
+}
+.msg-mail .wf {
+  margin-top: 1px;
+}
+.msg-mail__body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.msg-mail__from {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text-2);
+  margin-bottom: 3px;
+}
+.msg-mail__text {
+  padding: 8px 14px;
+  border-radius: 4px 18px 18px 18px;
+  background: var(--surface-1);
+  box-shadow: 0 0 0 1px var(--border-soft);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.msg-row--queued .msg--user {
+  opacity: 0.7;
+}
+.msg__queued {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--fs-xxs);
+  color: var(--text-3);
+}
+
+/* ================================================================ Library */
+
+.library {
+  padding-bottom: 40px;
+}
+.library__controls {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.library__search {
+  margin-left: auto;
+  width: 240px;
+}
+.library__group {
+  margin-top: 26px;
+}
+.library__group-title {
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--text-3);
+  margin: 0 0 10px;
+}
+.library__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(164px, 1fr));
+  gap: 14px;
+}
+.library-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.library-card__preview {
+  position: relative;
+  aspect-ratio: 1;
+  border-radius: var(--r-lg);
+  overflow: hidden;
+  background: var(--surface-1);
+  box-shadow: 0 0 0 1px var(--border-soft);
+  transition: box-shadow var(--dur) var(--ease);
+}
+.library-card__preview:hover {
+  box-shadow: 0 0 0 1px var(--border-strong);
+}
+.library-card__preview img,
+.library-card__preview video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  transition: transform var(--dur-spring-slow) var(--spring-slow);
+}
+.library-card__preview:hover img,
+.library-card__preview:hover video {
+  transform: scale(1.03);
+}
+.library-card__play {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  margin: -18px 0 0 -18px;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  backdrop-filter: blur(6px);
+}
+.library-card__play svg {
+  margin-left: 2px;
+}
+.library-card__file {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  width: 100%;
+  height: 100%;
+  color: var(--text-3);
+}
+.library-card__ext {
+  padding: 2px 8px;
+  border-radius: var(--r-xs);
+  background: var(--sunken);
+  font-size: var(--fs-xxs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-2);
+}
+.library-card[data-missing] .library-card__preview {
+  opacity: 0.55;
+}
+.library-card__meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 8px 2px 0;
+}
+.library-card__name {
+  font-size: var(--fs-sm);
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.library-card__sub {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.library-card__actions {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--surface-3), transparent 10%);
+  backdrop-filter: blur(10px);
+  box-shadow: 0 0 0 1px var(--border-soft);
+  opacity: 0;
+  transform: translateY(-2px);
+  transition: opacity var(--dur) var(--ease), transform var(--dur) var(--ease);
+}
+.library-card:hover .library-card__actions,
+.library-card:focus-within .library-card__actions {
+  opacity: 1;
+  transform: none;
+}
+.library-card__actions .icon-btn {
+  width: 24px;
+  height: 24px;
+  color: var(--text-2);
+}
+.library-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 10px;
+  padding: 80px 20px;
+  color: var(--text-3);
+}
+.library-empty h2 {
+  margin: 8px 0 0;
+  font-size: var(--fs-h2);
+  font-weight: 600;
+  color: var(--text);
+}
+.library-empty p {
+  max-width: 360px;
+  margin: 0 0 8px;
+  color: var(--text-2);
+  line-height: 1.5;
+}
+.library-none {
+  padding: 40px 0;
+  text-align: center;
+  color: var(--text-3);
+}
+
+/* The Freedom choice's one-line explanation, under the Model / Freedom row. */
+.worker-editor__access-hint {
+  margin: -6px 0 0;
+  line-height: 1.45;
+}
+
+/* ---- Autonomy: questions waiting on the user, the worker's own memory ---- */
+.worker-asks {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 40vh;
+  overflow: auto;
+}
+.worker-ask {
+  padding: 10px 12px;
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+  box-shadow: inset 0 0 0 1px var(--border-soft);
+}
+.worker-ask[data-kind='approve'] {
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent), transparent 60%);
+}
+.worker-ask__head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.worker-ask[data-kind='approve'] .worker-ask__head svg {
+  color: var(--accent);
+}
+.worker-ask__who {
+  color: var(--text-2);
+  font-weight: 500;
+}
+.worker-ask__when {
+  margin-left: auto;
+}
+.worker-ask__question {
+  margin: 6px 0 0;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+.worker-ask__action {
+  margin: 4px 0 0;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+.worker-ask__tool {
+  color: var(--text-4);
+  font-family: var(--font-mono);
+}
+.worker-ask__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+}
+.worker-ask__reply {
+  flex: 1;
+  min-width: 160px;
+  height: 28px;
+  font-size: var(--fs-sm);
+}
+.worker-memory {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: min(560px, 100%);
+  margin: 14px auto 0;
+  padding: 10px 12px;
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  text-align: left;
+}
+.worker-memory__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  line-height: 1.45;
+}
+.worker-memory__row svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--text-3);
+}
+.worker-memory__label {
+  color: var(--text);
+  font-weight: 500;
+}
+.worker-memory__failed {
+  color: var(--danger);
+}
+.worker-memory__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.worker-memory__notes[data-open] .worker-memory__toggle svg {
+  transform: rotate(180deg);
+}
+.worker-memory__text {
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: var(--sunken);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  max-height: 220px;
+  overflow: auto;
+}
+
+/* ---- The editor's trading section ---- */
+.worker-trading {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+}
+.worker-trading__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.worker-trading__title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.worker-trading .worker-editor__hint {
+  margin: 0;
+  line-height: 1.45;
+}
+.worker-trading__connect {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--border);
+}
+.worker-trading__warning[data-warn] {
+  color: var(--text-2);
+}
+
