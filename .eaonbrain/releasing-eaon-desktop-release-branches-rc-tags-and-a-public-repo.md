@@ -19,7 +19,7 @@ How this Electron codebase reaches GitHub (`eaonlabs/eaon-desktop`, **public**),
 
 ## Merging this app into `main` (PR #7, Oct 1 2026)
 The co-founder chose to make `main` this app. GitHub can't open a PR between branches with no shared history, so the PR's branch (`update-main-2026.6`) is `release/2026.6.0` plus `git merge -s ours --allow-unrelated-histories origin/main`: it keeps this app's tree and records the old `main` as a parent. GitHub then reports it mergeable and clean.
-- **What goes away when it merges:** the old Swift, Tauri and CLI files and the old `.github` workflows, which built the Tauri Linux installers. Linux builds stop until this app has a Linux target.
+- **What goes away when it merges:** the old Swift, Tauri and CLI files and the old `.github` workflows, which built the Tauri Linux installers. This app's own `.github/workflows/linux.yml` replaces them for Linux (no `.rpm` yet); see [[Building the Linux installers on GitHub Actions]].
 - **Licence:** `LICENSE.md` and `NOTICE` (GPL-3.0) were kept from the old `main`, but `package.json` says MIT. That's an open question for the co-founder; don't settle it by deleting files.
 
 ## Apple notarization: "A required agreement is missing or has expired" (HTTP 403)
