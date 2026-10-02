@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process'
 import { EAON_CODE_PACKAGE } from '@shared/eaonCode'
-import { checkNode, findOnPath, NODE_REQUIREMENT } from './locate'
+import { checkNode, findOnPath, NODE_REQUIREMENT, spawnSpec } from './locate'
 
 export const INSTALL_ARGS = ['install', '-g', '--ignore-scripts', EAON_CODE_PACKAGE]
 
@@ -59,9 +59,10 @@ export async function installEaonCode(
   onLog(`$ npm ${INSTALL_ARGS.join(' ')}`)
   return new Promise((resolve) => {
     let output = ''
-    const child = spawn(npm, INSTALL_ARGS, {
+    const spec = spawnSpec(npm, INSTALL_ARGS)
+    const child = spawn(spec.command, spec.args, {
       env,
-      shell: process.platform === 'win32',
+      shell: spec.shell,
       windowsHide: true
     })
     const collect = (chunk: Buffer): void => {

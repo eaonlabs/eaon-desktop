@@ -2,14 +2,16 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   Activity,
   Archive,
-  Cat,
   Chrome,
   Code2,
+  Gamepad2,
   ArrowLeft,
   Binary,
   AppWindow,
   AtSign,
   KeyRound,
+  Mail,
+  MessagesSquare,
   Plug,
   Server,
   Settings as SettingsIcon,
@@ -19,6 +21,7 @@ import {
   Terminal,
   Wand2
 } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import { useApp, useIsWork } from '../../state/store'
 import { SearchField } from '../ui'
 import { GeneralPage } from './pages/General'
@@ -36,8 +39,10 @@ import { McpServersPage } from './pages/McpServers'
 import { ClaudeCodePage } from './pages/ClaudeCode'
 import { CodeIndexPage } from './pages/CodeIndex'
 import { BrowserExtensionPage } from './pages/BrowserExtension'
-import { PetsPage } from './pages/Pets'
 import { EaonCodePage } from './pages/EaonCode'
+import { DiscordPage } from './pages/Discord'
+import { ChatAppsPage } from './pages/ChatApps'
+import { EmailPage } from './pages/Email'
 
 interface NavEntry {
   id: string
@@ -54,13 +59,15 @@ const NAV: NavEntry[] = [
   { id: 'appearance', label: 'Appearance', icon: <Sun size={size} strokeWidth={stroke} />, group: 'Personal' },
   { id: 'configuration', label: 'Configuration', icon: <ShieldCheck size={size} strokeWidth={stroke} />, group: 'Personal' },
   { id: 'shortcuts', label: 'Keyboard shortcuts', icon: <SquarePlus size={size} strokeWidth={stroke} />, group: 'Personal' },
-  { id: 'pets', label: 'Pets', icon: <Cat size={size} strokeWidth={stroke} />, group: 'Personal' },
 
   { id: 'providers', label: 'Model providers', icon: <KeyRound size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'computer-use', label: 'Computer use', icon: <Wand2 size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'browser-extension', label: 'Browser extension', icon: <Chrome size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'plugins', label: 'Plugins', icon: <AtSign size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'eaon-code', label: 'Eaon Code', icon: <Code2 size={size} strokeWidth={stroke} />, group: 'Integrations' },
+  { id: 'chat-apps', label: 'Chat apps', icon: <MessagesSquare size={size} strokeWidth={stroke} />, group: 'Integrations' },
+  { id: 'email', label: 'Email', icon: <Mail size={size} strokeWidth={stroke} />, group: 'Integrations' },
+  { id: 'discord', label: 'Discord', icon: <Gamepad2 size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'browser', label: 'Browser', icon: <AppWindow size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'mcp', label: 'MCP Servers', icon: <Plug size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'claude-code', label: 'Claude Code', icon: <Terminal size={size} strokeWidth={stroke} />, group: 'Integrations' },
@@ -85,8 +92,10 @@ const PAGES: Record<string, () => JSX.Element> = {
   providers: ProvidersPage,
   'computer-use': ComputerUsePage,
   'browser-extension': BrowserExtensionPage,
-  pets: PetsPage,
   'eaon-code': EaonCodePage,
+  discord: DiscordPage,
+  'chat-apps': ChatAppsPage,
+  email: EmailPage,
   plugins: PluginsSettingsPage,
   browser: BrowserSettingsPage,
   mcp: McpServersPage,
@@ -98,7 +107,9 @@ const PAGES: Record<string, () => JSX.Element> = {
 }
 
 export function SettingsShell(): JSX.Element {
-  const { settingsPage, setSettingsPage, setView } = useApp()
+  const { settingsPage, setSettingsPage, setView } = useApp(
+    useShallow((s) => ({ settingsPage: s.settingsPage, setSettingsPage: s.setSettingsPage, setView: s.setView }))
+  )
   const isWork = useIsWork()
   const [query, setQuery] = useState('')
 

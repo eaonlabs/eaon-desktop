@@ -4,6 +4,7 @@ import { Pencil, Plus, Trash2 } from 'lucide-react'
 import { useApp } from '../../../state/store'
 import { Card, Modal, Row, Section, Select, Switch } from '../../ui'
 import type { McpServer, McpServerStatus } from '@shared/types'
+import { joinArgs, splitArgs } from '@shared/plugins'
 
 const blank = (): McpServer => ({
   id: '',
@@ -35,7 +36,12 @@ export function McpServersPage(): JSX.Element {
   const statusFor = (id: string): McpServerStatus =>
     statuses.find((s) => s.serverId === id) ?? { serverId: id, state: 'stopped', toolCount: 0 }
 
-  const upsert = (server: McpServer): void => {
+  const upsert = (draft: McpServer): void => {
+    // A new server named like an existing one gets its own id; reusing the id
+    // would silently replace that server.
+    let id = draft.id
+    if (!editing) for (let n = 2; mcpServers.some((s) => s.id === id); n++) id = `${draft.id}-${n}`
+    const server = { ...draft, id }
     const exists = mcpServers.some((s) => s.id === server.id)
     void saveMcpServers(exists ? mcpServers.map((s) => (s.id === server.id ? server : s)) : [...mcpServers, server])
     setEditing(null)
@@ -246,7 +252,7 @@ function ServerCard({
             )}
           </div>
           {status.state === 'error' && status.error && (
-            <div className="row__desc" style={{ color: 'var(--danger)' }}>
+            <div className="row__desc" style={{ color: 'var(--danger)', whiteSpace: 'pre-line' }}>
               {status.error}
             </div>
           )}
@@ -295,7 +301,7 @@ function ServerDialog({
   onSave: (server: McpServer) => void
 }): JSX.Element {
   const [draft, setDraft] = useState<McpServer>(server ?? blank())
-  const [argsText, setArgsText] = useState((server?.args ?? []).join(' '))
+  const [argsText, setArgsText] = useState(joinArgs(server?.args ?? []))
   const [envText, setEnvText] = useState(
     Object.entries(server?.env ?? {})
       .map(([k, v]) => `${k}=${v}`)
@@ -303,8 +309,8 @@ function ServerDialog({
   )
 
   const save = (): void => {
-    const id = draft.id || draft.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-')
-    if (!id) return
+    const id = draft.id || draft.name.trim().toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'server'
+    if (!draft.name.trim()) return
     const env: Record<string, string> = {}
     for (const line of envText.split('\n')) {
       const eq = line.indexOf('=')
@@ -314,7 +320,7 @@ function ServerDialog({
       ...draft,
       id,
       name: draft.name.trim() || id,
-      args: argsText.split(/\s+/).filter(Boolean),
+      args: splitArgs(argsText),
       env
     })
   }

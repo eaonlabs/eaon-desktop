@@ -577,3 +577,19 @@
 .mlib-variants__error {
   grid-column: 1 / -1;
 }
+
+/* A model that runs only because Eaon's llama.cpp carries a pending PR. */
+.mlib-note {
+  margin: 10px 0 0;
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  color: var(--text-3);
+}
+/* "Unload" next to the loaded model in the page header. */
+.mlib-unload {
+  margin-left: 8px;
+  font-size: var(--fs-xs);
+}
+.mlib-tag--live {
+  color: var(--diff-add-fg);
+}

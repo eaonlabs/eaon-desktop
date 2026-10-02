@@ -137,6 +137,102 @@ test('servers without DCR ask for a client id, then sign in with it and its secr
   }
 })
 
+test('parallel calls that find the token expired refresh once and stay signed in', async () => {
+  const fake = await fakeMcp({ oauth: true })
+  try {
+    store.saveMcpServers([row('parallel', fake.url)])
+    await signIn('parallel', fake.url)
+    assert.equal((await reconnectMcpServer('parallel'))?.state, 'ready')
+
+    // The fake rotates refresh tokens, as many vendors do: each one works once.
+    fake.validTokens.clear()
+    const refreshesBefore = fake.tokenRequests.filter((p) => p.get('grant_type') === 'refresh_token').length
+    const results = await Promise.all([
+      callMcpTool('whoami', {}, 5000, 'parallel'),
+      callMcpTool('echo', { text: 'two' }, 5000, 'parallel'),
+      callMcpTool('echo', { text: 'three' }, 5000, 'parallel')
+    ])
+    assert.match(results[0], /^at-/)
+    assert.deepEqual(results.slice(1), ['two', 'three'])
+    assert.equal(fake.tokenRequests.filter((p) => p.get('grant_type') === 'refresh_token').length - refreshesBefore, 1)
+    assert.equal(statusOf('parallel')?.state, 'ready')
+    assert.ok(hasOAuthTokens('parallel', fake.url), 'the tokens survived')
+    // And the stored refresh token is the live one: the next expiry refreshes fine.
+    fake.validTokens.clear()
+    assert.match(await callMcpTool('whoami', {}, 5000, 'parallel'), /^at-/)
+  } finally {
+    await fake.close()
+  }
+})
+
+test('a pasted token rejected mid-session asks for a new token, not a sign-in', async () => {
+  const fake = await fakeMcp({ oauth: true })
+  try {
+    // A catalog token plugin (GitHub), pointed at the fake.
+    fake.validTokens.add('pasted-token')
+    secrets.set('plugin:github', 'pasted-token')
+    store.saveMcpServers([{ ...row('plugin-github', fake.url), pluginId: 'github' }])
+    assert.equal((await reconnectMcpServer('plugin-github'))?.state, 'ready')
+    assert.equal(await callMcpTool('whoami', {}, 5000, 'plugin-github'), 'pasted-token')
+
+    fake.validTokens.clear()
+    await assert.rejects(callMcpTool('whoami', {}, 5000, 'plugin-github'), /rejected its token/)
+    assert.equal(statusOf('plugin-github')?.state, 'error')
+    assert.match(statusOf('plugin-github')?.error ?? '', /Paste a new one/)
+  } finally {
+    secrets.set('plugin:github', '')
+    await fake.close()
+  }
+})
+
+test('a refresh that failed because the vendor was down does not leave the server stuck on "Sign in"', async () => {
+  const fake = await fakeMcp({ oauth: true })
+  try {
+    store.saveMcpServers([row('flaky', fake.url)])
+    await signIn('flaky', fake.url)
+    assert.equal((await reconnectMcpServer('flaky'))?.state, 'ready')
+
+    fake.validTokens.clear()
+    fake.refreshFailures = 1
+    await assert.rejects(callMcpTool('whoami', {}, 5000, 'flaky'), /sign in again/)
+    assert.equal(statusOf('flaky')?.state, 'needs-auth')
+    // The vendor is back; the stored refresh token still works.
+    assert.match(await callMcpTool('whoami', {}, 5000, 'flaky'), /^at-/)
+    assert.equal(statusOf('flaky')?.state, 'ready')
+  } finally {
+    await fake.close()
+  }
+})
+
+test('two sign-ins started together both finish', async () => {
+  const a = await fakeMcp({ oauth: true })
+  const b = await fakeMcp({ oauth: true })
+  try {
+    await Promise.all([signIn('first', a.url), signIn('second', b.url)])
+    assert.ok(hasOAuthTokens('first', a.url))
+    assert.ok(hasOAuthTokens('second', b.url))
+  } finally {
+    await a.close()
+    await b.close()
+  }
+})
+
+test('cancelling before the browser opens stops the sign-in there', async () => {
+  const fake = await fakeMcp({ oauth: true })
+  opened.length = 0
+  try {
+    const pending = signIn('early', fake.url)
+    // Still discovering the server when the user clicks Cancel.
+    cancelSignIn('early')
+    await assert.rejects(pending, /cancelled/)
+    assert.equal(opened.length, 0, 'the browser must not open for a cancelled sign-in')
+    assert.equal(hasOAuthTokens('early', fake.url), false)
+    await assert.rejects(fetch(MCP_OAUTH_REDIRECT_URI, { signal: AbortSignal.timeout(2000) }), 'the listener is released')
+  } finally {
+    await fake.close()
+  }
+})
+
 test('a sign-in can be cancelled, and a redirect with the wrong state is refused', async () => {
   const fake = await fakeMcp({ oauth: true })
   // A browser that never comes back.

@@ -7,6 +7,8 @@ updated: 2026-09-24T00:00:00.000Z
 
 # Curated model library and Ollama pulls
 
+> **Superseded (Sept 30 2026):** downloads and running moved from Ollama to Eaon's own llama.cpp. See [[Eaon's own llama.cpp runtime (no Ollama)]]. The fit model and the per-tier picks below still apply; the Ollama pull, registry and digest parts don't.
+
 The Models page's default tab is a hand-curated catalog of current local
 models (`src/main/modelLibrary/catalog.ts`, 22 entries as of Sept 2026), with
 "Suggested for this Mac", category chips, one-click Get, an Installed tab and

@@ -81,7 +81,7 @@ export function isWebSearchTool(name: string): boolean {
  * sentence rather than throwing on an empty result — a model handles "nothing
  * found" far better than a tool error, and can simply rephrase and retry.
  */
-export async function runWebSearch(args: Record<string, unknown>): Promise<string> {
+export async function runWebSearch(args: Record<string, unknown>, signal?: AbortSignal): Promise<string> {
   const query = String(args.query ?? '').trim()
   if (!query) return 'No search query was provided.'
 
@@ -92,6 +92,9 @@ export async function runWebSearch(args: Record<string, unknown>): Promise<strin
 
   const controller = new AbortController()
   const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
+  // Stop cancels the request too, rather than leaving it to run out its timeout.
+  const stop = (): void => controller.abort()
+  signal?.addEventListener('abort', stop, { once: true })
   try {
     const response = await fetch(ENDPOINT, {
       method: 'POST',
@@ -129,12 +132,33 @@ export async function runWebSearch(args: Record<string, unknown>): Promise<strin
     return `Web search ${reason}. Answer from what you know, and say the search was unavailable.`
   } finally {
     clearTimeout(timer)
+    signal?.removeEventListener('abort', stop)
   }
 }
 
 /* ---------------------------------------------------------------- web_fetch */
 
 const FETCH_LIMIT = 24_000
+/** Bytes of a body read at most. A URL can be a multi-gigabyte file, and only 24k characters of it are shown at a time. */
+const FETCH_MAX_BYTES = 5 * 1024 * 1024
+
+async function readCapped(response: Response): Promise<{ text: string; cut: boolean }> {
+  const reader = response.body?.getReader()
+  if (!reader) return { text: await response.text(), cut: false }
+  const chunks: Uint8Array[] = []
+  let size = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    chunks.push(value)
+    size += value.byteLength
+    if (size >= FETCH_MAX_BYTES) {
+      await reader.cancel().catch(() => {})
+      return { text: new TextDecoder().decode(Buffer.concat(chunks).subarray(0, FETCH_MAX_BYTES)), cut: true }
+    }
+  }
+  return { text: new TextDecoder().decode(Buffer.concat(chunks)), cut: false }
+}
 
 /**
  * Reduces an HTML page to its readable text: scripts, styles, navigation and
@@ -162,7 +186,7 @@ export function htmlToText(html: string): string {
     .trim()
 }
 
-async function fetchPage(args: Record<string, unknown>): Promise<string> {
+async function fetchPage(args: Record<string, unknown>, signal?: AbortSignal): Promise<string> {
   const url = String(args.url ?? '').trim()
   if (!/^https?:\/\//i.test(url)) return 'Pass a full http(s) URL.'
   const response = await fetch(url, {
@@ -171,17 +195,18 @@ async function fetchPage(args: Record<string, unknown>): Promise<string> {
       Accept: 'text/html,application/json,text/plain;q=0.9,*/*;q=0.5'
     },
     redirect: 'follow',
-    signal: AbortSignal.timeout(TIMEOUT_MS)
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(TIMEOUT_MS)]) : AbortSignal.timeout(TIMEOUT_MS)
   })
   const type = response.headers.get('content-type') ?? ''
   if (!response.ok) return `Fetching ${url} failed: HTTP ${response.status}.`
   if (!/text|json|xml|javascript/.test(type)) return `${url} is ${type || 'binary'} content, which cannot be read as text.`
-  const raw = await response.text()
+  const { text: raw, cut } = await readCapped(response)
   const text = /html/.test(type) ? htmlToText(raw) : raw
   const offset = Math.max(0, Number(args.offset) || 0)
   const slice = text.slice(offset, offset + FETCH_LIMIT)
   const more = text.length > offset + FETCH_LIMIT ? `\n\n…[${(text.length - offset - FETCH_LIMIT).toLocaleString()} more characters — call again with offset ${offset + FETCH_LIMIT}]` : ''
-  return `${response.url}\n\n${slice}${more}`
+  const cutNote = cut ? `\n\n(Only the first ${FETCH_MAX_BYTES / 1024 / 1024} MB of this URL were read.)` : ''
+  return `${response.url}\n\n${slice}${more}${cutNote}`
 }
 
 const webSearchTool = (): AgentTool => {
@@ -190,7 +215,7 @@ const webSearchTool = (): AgentTool => {
     ...spec,
     mutating: false,
     describe: (input) => String(input.query ?? ''),
-    run: (input) => runWebSearch(input)
+    run: (input, ctx) => runWebSearch(input, ctx.signal)
   }
 }
 
@@ -207,7 +232,7 @@ const webFetchTool: AgentTool = {
   },
   mutating: false,
   describe: (input) => String(input.url ?? ''),
-  run: (input) => fetchPage(input)
+  run: (input, ctx) => fetchPage(input, ctx.signal)
 }
 
 // Chat's only tool is web search, by design: the chat product is a clean

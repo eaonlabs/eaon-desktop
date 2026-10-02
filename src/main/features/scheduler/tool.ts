@@ -211,6 +211,10 @@ export function scheduleToolSource(engine: SchedulerEngine): ToolSource {
     id: 'scheduler',
     tools: (query) => {
       if (query.mode !== 'work' || query.depth > 0) return []
+      // Workers schedule themselves with set_heartbeat; offering both had a
+      // worker reach for this (which starts separate chats) when asked to
+      // "message me in a minute".
+      if (query.request.workerId) return []
       // A scheduled run does not get to schedule more of itself.
       const history = query.request.history
       if (history[history.length - 1]?.scheduledTaskId) return []

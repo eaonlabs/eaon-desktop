@@ -5,12 +5,19 @@
  * tabs in the Eaon group (which it opens itself, or which the user drags in)
  * and tabs the user shared from the popup. Every other tab is invisible to
  * it — not listed, not read, not screenshotted.
+ *
+ * Browsers without tab groups (and popup windows, which cannot hold one) get
+ * the same rule by bookkeeping instead: the tabs the agent opened itself are
+ * remembered as its own.
  */
 
 import { getSession, patchSession } from './state.js'
 
 const GROUP_TITLE = 'Eaon'
 const GROUP_COLOR = 'blue'
+
+/** Some Chromium browsers ship without the tab groups API; nothing may assume it. */
+export const GROUPS_SUPPORTED = Boolean(chrome.tabGroups && typeof chrome.tabs.group === 'function')
 
 export async function getTab(tabId) {
   try {
@@ -21,7 +28,12 @@ export async function getTab(tabId) {
 }
 
 export function usableIn(session, tab) {
-  return Boolean(tab && (session.groupIds.includes(tab.groupId) || session.sharedTabIds.includes(tab.id)))
+  return Boolean(tab && (ownedIn(session, tab) || session.sharedTabIds.includes(tab.id)))
+}
+
+/** The agent's own tab: in the Eaon group, or opened by the agent where no group could hold it. */
+function ownedIn(session, tab) {
+  return session.groupIds.includes(tab.groupId) || (session.ownedTabIds || []).includes(tab.id)
 }
 
 export async function canUse(tab) {
@@ -32,8 +44,9 @@ export async function isShared(tabId) {
   return (await getSession()).sharedTabIds.includes(tabId)
 }
 
+/** In the Eaon group (or the agent's own tab, where groups are unavailable) — the agent may close it. */
 export async function inAgentGroup(tab) {
-  return Boolean(tab) && (await getSession()).groupIds.includes(tab.groupId)
+  return Boolean(tab) && ownedIn(await getSession(), tab)
 }
 
 /** The agent's current tab, or null if it has none or lost access to it. */
@@ -54,6 +67,7 @@ export async function setCurrentTab(tabId) {
 
 /** A group of ours that still exists, to put new tabs next to the agent's others. */
 async function liveGroup(session) {
+  if (!GROUPS_SUPPORTED) return null
   for (const id of session.groupIds) {
     try {
       return await chrome.tabGroups.get(id)
@@ -64,8 +78,23 @@ async function liveGroup(session) {
   return null
 }
 
-/** Puts a tab into the Eaon group, creating and labelling the group if needed. */
+/**
+ * Puts a tab into the Eaon group, creating and labelling the group if needed.
+ * Where that is impossible — no tab groups in this browser, or a popup
+ * window — the tab is remembered as the agent's own instead.
+ */
 export async function adoptTab(tabId) {
+  try {
+    await groupTab(tabId)
+  } catch {
+    const session = await getSession()
+    const owned = session.ownedTabIds || []
+    if (!owned.includes(tabId)) await patchSession({ ownedTabIds: [...owned, tabId] })
+  }
+}
+
+async function groupTab(tabId) {
+  if (!GROUPS_SUPPORTED) throw new Error('This browser has no tab groups.')
   const session = await getSession()
   const tab = await getTab(tabId)
   if (!tab) return
@@ -159,6 +188,7 @@ export async function forgetTab(tabId) {
   await patchSession({
     nextRefs,
     sharedTabIds: session.sharedTabIds.filter((id) => id !== tabId),
+    ownedTabIds: (session.ownedTabIds || []).filter((id) => id !== tabId),
     agentTabId: session.agentTabId === tabId ? null : session.agentTabId,
     docs
   })

@@ -1,7 +1,8 @@
 import { ArrowRight, PanelLeft, SquarePen } from 'lucide-react'
 import { useApp, useWorkspaceKind } from '../state/store'
 import { DownloadsButton } from './DownloadsPanel'
-import { useCode } from './code/codeStore'
+import { openNewTerminal } from './code/terminal/terminalStore'
+import { useWorkers } from './workers/workersStore'
 
 /**
  * The window-controls cluster shown at the top-left of every screen once the
@@ -32,9 +33,11 @@ export function CollapsedNav(): JSX.Element {
       )}
       <button
         className="icon-btn"
-        onClick={() => (kind === 'code' ? void useCode.getState().newSession() : newChat())}
-        aria-label={kind === 'code' ? 'New session' : 'New chat'}
-        title={kind === 'code' ? 'New session' : 'New chat'}
+        onClick={() =>
+          kind === 'code' ? void openNewTerminal() : kind === 'workers' ? useWorkers.getState().openEditor(null) : newChat()
+        }
+        aria-label={kind === 'code' ? 'New terminal' : kind === 'workers' ? 'New worker' : 'New chat'}
+        title={kind === 'code' ? 'New terminal' : kind === 'workers' ? 'New worker' : 'New chat'}
       >
         <SquarePen size={16} strokeWidth={1.9} />
       </button>

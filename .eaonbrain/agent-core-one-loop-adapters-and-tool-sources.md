@@ -2,7 +2,7 @@
 title: Agent core: one loop, adapters and tool sources
 tags: [eaon-desktop, agent, architecture, tools, providers]
 created: 2026-09-23T00:00:00.000Z
-updated: 2026-09-23T00:00:00.000Z
+updated: 2026-09-29T14:29:38.766Z
 ---
 
 # Agent core: one loop, adapters and tool sources
@@ -60,3 +60,5 @@ real local model through Ollama.
 See [[Token efficiency in the agent loop]] for the cost side, and
 [[Preserved thinking forbids editing earlier turns]] for the constraint that
 shaped where context is trimmed.
+
+Related: [[Agent loop cancellation and tool robustness]]

@@ -41,7 +41,7 @@ export interface TurnState {
 }
 
 /** Tools that steer the turn itself; calling them neither changes nor checks anything. */
-export const WORKFLOW_TOOLS = new Set(['update_plan', 'present_plan', 'goal_complete', 'goal_blocked'])
+export const WORKFLOW_TOOLS = new Set(['update_plan', 'present_plan', 'goal_complete', 'goal_blocked', 'wait'])
 
 export interface ToolContext {
   request: StreamRequest
@@ -81,6 +81,13 @@ export interface AgentTool {
    * Defaults to false: auto mode then runs it without asking.
    */
   risky?: (input: Record<string, unknown>, ctx: ToolContext) => boolean
+  /**
+   * Whether a call could do lasting damage nobody can undo: wiping a disk,
+   * `sudo`, spending money, typing a card number, a plugin action its server
+   * marks destructive. An autonomous worker runs risky calls on its own but
+   * never these. Defaults to false.
+   */
+  catastrophic?: (input: Record<string, unknown>, ctx: ToolContext) => boolean
   /** One-line summary for the approval dialog and the thinking trace. */
   describe?: (input: Record<string, unknown>) => string
   run: (input: Record<string, unknown>, ctx: ToolContext) => Promise<ToolResult | string>
@@ -106,6 +113,12 @@ export interface ToolSource {
 }
 
 const sources: ToolSource[] = []
+/** Which source offered each tool, for policies that depend on where a tool came from. */
+const offeredBy = new WeakMap<AgentTool, string>()
+
+export function toolSourceOf(tool: AgentTool): string | undefined {
+  return offeredBy.get(tool)
+}
 
 export function registerToolSource(source: ToolSource): void {
   const existing = sources.findIndex((s) => s.id === source.id)
@@ -152,18 +165,25 @@ export function toolsFor(query: ToolQuery): AgentTool[] {
       // (run_command, plugin calls, the browser) stay and are checked per call.
       if (query.readOnly && tool.mutating === true) continue
       seen.add(tool.name)
+      offeredBy.set(tool, source.id)
       out.push(tool)
     }
   }
   return out
 }
 
-export function guidanceFor(query: ToolQuery): string[] {
+/**
+ * Each source's guidance, for the sources that offer this run a tool. With
+ * `offer` (a run held to a few tools, like a trading check), a source counts
+ * only if one of its offered tools passes: guidance about tools the model
+ * can't call costs tokens on every request and invites calls that fail.
+ */
+export function guidanceFor(query: ToolQuery, offer?: (name: string) => boolean): string[] {
   const out: string[] = []
   for (const source of sources) {
     try {
       const text = source.guidance?.(query)
-      if (text && source.tools(query).length > 0) out.push(text)
+      if (text && source.tools(query).some((tool) => !offer || offer(tool.name))) out.push(text)
     } catch {
       /* a broken source must not take the prompt down with it */
     }

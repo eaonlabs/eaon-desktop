@@ -6,7 +6,7 @@ import { join } from 'node:path'
 import { app, powerSaveBlocker } from 'electron'
 import type { GoalState, ModelInfo, Provider, Settings, StreamEvent, StreamRequest, TokenUsage } from '@shared/types'
 import { adapterFor, getProvider } from '../providers'
-import { addUsage, emptyUsage, ProviderHttpError, type Adapter, type Credentials, type NeutralImage, type NeutralMessage, type NeutralToolResult, type TurnRequest, type TurnResult } from '../providers/adapters/types'
+import { addUsage, emptyUsage, HEADERS_TIMEOUT_MESSAGE, isHeadersTimeout, ProviderHttpError, type Adapter, type Credentials, type NeutralImage, type NeutralMessage, type NeutralToolResult, type TurnRequest, type TurnResult } from '../providers/adapters/types'
 import { credentialAttempts, isAuthError } from '../providers/credentials'
 import { contextWindowFor } from '../providers/models'
 import { store } from '../store'
@@ -14,7 +14,7 @@ import { cancelApprovals, requestApproval, type Approver } from './approvals'
 import { buildHistory, estimateMessages, estimateTokens, pruneImages, pruneInFlight, transcriptText } from './context'
 import { chatSystemPrompt, COMPACTION_PROMPT, workSystemPrompt } from './prompts'
 import { CallGuard } from './guards'
-import { capOutput, guidanceFor, isMutating, toolsFor, toSpec, WORKFLOW_TOOLS, type AgentTool, type ToolContext, type ToolQuery, type TurnState } from './tools'
+import { capOutput, guidanceFor, isMutating, toolsFor, toolSourceOf, toSpec, WORKFLOW_TOOLS, type AgentTool, type ToolContext, type ToolQuery, type TurnState } from './tools'
 
 /**
  * The agent loop — one implementation for every provider and both modes.
@@ -26,6 +26,8 @@ import { capOutput, guidanceFor, isMutating, toolsFor, toSpec, WORKFLOW_TOOLS, t
  */
 
 const activeRuns = new Map<string, AbortController>()
+/** Runs working toward a goal with an end time: they keep the computer awake whatever the setting says, or sleep would end them early. */
+const untilRuns = new Set<string>()
 /** Goal runs the user paused: they finish the step in hand and stop instead of continuing. */
 const pausedGoals = new Set<string>()
 
@@ -48,10 +50,14 @@ export function goalBudgetExceeded(
   settings: Settings,
   startedAt: number,
   usage: TokenUsage,
-  now = Date.now()
+  now = Date.now(),
+  /** A goal given an end time runs until then instead of for `goalMaxMinutes`. */
+  until: number | null = null
 ): string | null {
   const { goalMaxMinutes, goalMaxTokens } = settings.work
-  if (goalMaxMinutes > 0 && now - startedAt >= goalMaxMinutes * 60_000) return `time limit of ${goalMaxMinutes} min reached`
+  if (until) {
+    if (now >= until) return `the end time (${new Date(until).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}) arrived`
+  } else if (goalMaxMinutes > 0 && now - startedAt >= goalMaxMinutes * 60_000) return `time limit of ${goalMaxMinutes} min reached`
   if (goalMaxTokens > 0 && usage.input + usage.output >= goalMaxTokens) {
     return `token limit of ${goalMaxTokens.toLocaleString('en-US')} reached`
   }
@@ -64,7 +70,7 @@ export function goalBudgetExceeded(
  */
 let sleepBlocker: number | null = null
 function holdAwake(): void {
-  const wanted = activeRuns.size > 0 && store.getSettings().general.preventSleep
+  const wanted = untilRuns.size > 0 || (activeRuns.size > 0 && store.getSettings().general.preventSleep)
   if (wanted && sleepBlocker === null) sleepBlocker = powerSaveBlocker.start('prevent-app-suspension')
   else if (!wanted && sleepBlocker !== null) {
     powerSaveBlocker.stop(sleepBlocker)
@@ -110,10 +116,42 @@ const sleep = (ms: number, signal: AbortSignal): Promise<void> =>
     )
   })
 
+/**
+ * `work`, or a rejection the moment `signal` aborts. Stop must end the turn
+ * even when a tool ignores the signal (a hung plugin call, a slow fetch): the
+ * tool is left to finish on its own and its result is dropped.
+ */
+function unlessAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const onAbort = (): void => reject(new Error('aborted'))
+    if (signal.aborted) onAbort()
+    else signal.addEventListener('abort', onAbort, { once: true })
+    work.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort)
+        resolve(value)
+      },
+      (error) => {
+        signal.removeEventListener('abort', onAbort)
+        reject(error)
+      }
+    )
+  })
+}
+
 function isRetryable(error: unknown): boolean {
   if (error instanceof ProviderHttpError) return [408, 409, 425, 429, 500, 502, 503, 504, 520, 522, 524, 529].includes(error.status)
   const message = error instanceof Error ? `${error.name} ${error.message} ${String((error as { cause?: unknown }).cause ?? '')}` : String(error)
   return /fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket hang up|terminated|network|overloaded|Connection error|stream ended before/i.test(message)
+}
+
+/** "2 h 10 min" until `until`, for a goal with an end time. */
+export function timeLeft(until: number, now = Date.now()): string {
+  const minutes = Math.max(0, Math.round((until - now) / 60_000))
+  if (minutes < 60) return `${minutes} min`
+  const hours = Math.floor(minutes / 60)
+  const rest = minutes % 60
+  return rest ? `${hours} h ${rest} min` : `${hours} h`
 }
 
 /* ---------------------------------------------------------------- the loop */
@@ -136,9 +174,15 @@ export interface LoopParams {
   approver: Approver
   /** Scheduled tasks: see `RunOptions.unattended`. Unset for interactive turns. */
   unattended?: UnattendedPolicy
+  /** See `RunOptions.allowOnce`. */
+  allowOnce?: (tool: string, input: Record<string, unknown>) => boolean
+  /** See `RunOptions.toolGate`. */
+  toolGate?: ToolGate
   maxRounds: number
   /** Goal mode: the loop sends the agent back to work until it resolves the goal. */
   goal: GoalState | null
+  /** Accumulates the run's token usage as it goes, so a caller still has the count when the loop throws. */
+  usage?: TokenUsage
   onText: (delta: string) => void
   onReasoning: (delta: string) => void
 }
@@ -193,6 +237,9 @@ async function callModel(
       } catch (error) {
         lastError = error
         if (params.signal.aborted) throw error
+        // A local model still reading a long prompt after 5 minutes would take
+        // as long again on every retry, and it is not "unreachable" either.
+        if (params.provider.local && isHeadersTimeout(error)) throw new Error(HEADERS_TIMEOUT_MESSAGE)
         // A local runtime that is not running will not start by itself while
         // we wait; say so now instead of after three backoffs.
         if (params.provider.local && /ECONNREFUSED|fetch failed/i.test(`${error instanceof Error ? error.message : ''} ${String((error as { cause?: unknown })?.cause ?? '')}`)) {
@@ -253,6 +300,10 @@ async function runTool(
   if ('__invalid_json' in call.input) {
     return finish(`Your arguments were not valid JSON: ${String(call.input.__invalid_json).slice(0, 500)}. Re-issue the call with valid JSON.`, 'error')
   }
+  // Checked before anything else about the call: a worker answering a guest
+  // in a chat app may not use this tool at all, mutating or not.
+  const gated = params.toolGate?.(tool, call.input)
+  if (gated) return finish(gated, 'denied')
 
   const ctx: ToolContext = {
     request,
@@ -273,12 +324,37 @@ async function runTool(
       return finish('Plan mode is on, so this tool is disabled. Finish researching and call present_plan.', 'denied')
     }
     const risky = tool.risky?.(call.input, ctx) ?? false
+    // Settings → MCP → Allow All MCP Tool Permissions: the user has approved
+    // every plugin call in advance. Plan mode above and scheduled runs below
+    // still refuse exactly as before.
+    const preApproved = params.settings.mcp.allowAllToolPermissions && toolSourceOf(tool) === 'plugins'
+    // What can't be undone (a real-money order, a destructive plugin call) is
+    // never covered by that blanket pre-approval, in any mode.
+    const catastrophic = tool.catastrophic?.(call.input, ctx) ?? false
     // Scheduled tasks (features/scheduler): nobody is there to ask, so the
     // task's own policy stands in for the user's approval setting.
     if (params.unattended) {
       if (params.unattended === 'read-only') return finish(UNATTENDED_READ_ONLY, 'denied')
-      if (risky) return finish(UNATTENDED_RISKY, 'denied')
-    } else if ((params.settings.approvalMode === 'ask' || risky) && !(await params.approver(call.name, call.input, tool.describe?.(call.input)))) {
+      if (params.unattended === 'autonomous') {
+        // Trusted to act alone: everything runs except what can't be undone —
+        // unless the user approved this very call (ask_user).
+        if (catastrophic && !params.allowOnce?.(call.name, call.input)) return finish(UNATTENDED_CATASTROPHIC, 'denied')
+      } else if ((catastrophic || (risky && !preApproved)) && !params.allowOnce?.(call.name, call.input)) {
+        // "Allow All MCP Tool Permissions" approves plugin calls in advance,
+        // for a worker as for a chat.
+        return finish(UNATTENDED_RISKY, 'denied')
+      }
+    } else if (params.settings.approvalMode === 'full') {
+      // Full autonomy: the user is here but has trusted the agent to act.
+      // Everything runs, risky or not — except what can't be undone, which
+      // still waits for them like any approval (plugin pre-approval or not).
+      if (catastrophic && !(await params.approver(call.name, call.input, tool.describe?.(call.input)))) {
+        return finish('The user denied this action. Do not retry it; continue another way or ask how they would like to proceed.', 'denied')
+      }
+    } else if (
+      (catastrophic || (!preApproved && (params.settings.approvalMode === 'ask' || risky))) &&
+      !(await params.approver(call.name, call.input, tool.describe?.(call.input)))
+    ) {
       return finish('The user denied this action. Do not retry it; continue another way or ask how they would like to proceed.', 'denied')
     }
   }
@@ -288,7 +364,7 @@ async function runTool(
   let status: 'done' | 'error'
   let images: NeutralImage[] | undefined
   try {
-    const result = await tool.run(call.input, ctx)
+    const result = await unlessAborted(Promise.resolve(tool.run(call.input, ctx)), params.signal)
     const normalized = typeof result === 'string' ? { text: result } : result
     output = capOutput(normalized.text || '(no output)')
     status = normalized.isError ? 'error' : 'done'
@@ -332,10 +408,17 @@ export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
   const { messages, signal, request, emit } = params
   const turn: TurnState = { notes: [] }
   const guard = new CallGuard()
-  const usage = emptyUsage()
+  const usage = params.usage ?? emptyUsage()
   const attempts = await credentialAttempts(params.provider)
   const window = contextWindowFor(params.provider, params.modelId, params.model)
   const toolsByName = new Map(params.tools.map((tool) => [tool.name, tool]))
+  /**
+   * Call ids already in the transcript. Some runtimes number calls per
+   * response ("call_0") or derive the id from the call, so a call repeated
+   * later repeats its id — and its result then landed on the earlier call's
+   * card while its own stayed "running", and was replayed as interrupted.
+   */
+  const callIds = new Set(messages.flatMap((m) => (m.role === 'assistant' ? m.calls.map((c) => c.id) : [])))
   const note = (text: string): void => params.onReasoning(`\n${text}\n`)
   let text = ''
   let goalIterations = 0
@@ -343,14 +426,15 @@ export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
   let announcedNudged = false
   let goal = params.goal
   const startedAt = Date.now()
-  const goalIterationsLeft = (): boolean => goalIterations < params.settings.work.goalMaxIterations
+  // A goal with an end time is bounded by that time, not by how often it was sent back.
+  const goalIterationsLeft = (): boolean => Boolean(goal?.until) || goalIterations < params.settings.work.goalMaxIterations
   /** Why an active goal run must stop now, or null. A pause or spent budget is honoured between rounds, not only when the model stops. */
   const goalStop = (atContinuation: boolean): string | null =>
     pausedGoals.has(request.messageId)
       ? 'paused by you'
       : atContinuation && !goalIterationsLeft()
         ? `continuation limit of ${params.settings.work.goalMaxIterations} reached`
-        : goalBudgetExceeded(params.settings, startedAt, usage)
+        : goalBudgetExceeded(params.settings, startedAt, usage, Date.now(), goal?.until ?? null)
   const pauseGoalRun = (reason: string): LoopOutcome => {
     const byUser = pausedGoals.has(request.messageId)
     note(byUser ? 'Goal paused.' : `Goal paused: ${reason}. Resume it to keep going.`)
@@ -386,7 +470,9 @@ export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
     if (result.stop === 'max_tokens') {
       // A call cut off mid-way may have truncated arguments; never run it.
       messages.push({ role: 'assistant', text: result.text || '(output cut off)', calls: [] })
-      if (result.calls.length === 0 && round > 0) break
+      // A final answer cut off after tool work stands as the answer; breaking
+      // out of the loop here used to report it as the round limit.
+      if (result.calls.length === 0 && round > 0) return { text, usage, turn, stopped: 'done' }
       messages.push({
         role: 'user',
         text: 'Your last reply hit the output limit and was cut off, so any tool call in it was not run. Continue, and split large files into several smaller write_file/edit_file calls.'
@@ -407,6 +493,10 @@ export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
       continue
     }
 
+    for (const call of result.calls) {
+      if (!call.id || callIds.has(call.id)) call.id = `${call.id || 'call'}_${randomUUID().slice(0, 8)}`
+      callIds.add(call.id)
+    }
     messages.push({ role: 'assistant', text: result.text, calls: result.calls, ...(result.replay ? { replay: result.replay } : {}) })
 
     // The other stall: a Work reply that ends by announcing what it will do
@@ -433,10 +523,13 @@ export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
           goalIterations++
           goal = { ...goal, iterations: goal.iterations + 1 }
           emit({ type: 'goal', messageId: request.messageId, chatId: request.chatId, goal })
-          note(`Continuing toward the goal (${goalIterations}/${params.settings.work.goalMaxIterations}).`)
+          const left = goal.until ? timeLeft(goal.until) : null
+          note(left ? `Continuing toward the goal (${left} left).` : `Continuing toward the goal (${goalIterations}/${params.settings.work.goalMaxIterations}).`)
           messages.push({
             role: 'user',
-            text: 'Keep going toward the goal. Take the next concrete step. If it is achieved and verified, call goal_complete; if you are blocked, call goal_blocked.'
+            text: left
+              ? `Keep going toward the goal; you have ${left} left. Take the next concrete step, or call wait if you are waiting for something to happen. If it is achieved and verified, call goal_complete; if you are blocked, call goal_blocked.`
+              : 'Keep going toward the goal. Take the next concrete step. If it is achieved and verified, call goal_complete; if you are blocked, call goal_blocked.'
           })
           continue
         }
@@ -498,7 +591,8 @@ export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
 async function compact(
   params: Omit<LoopParams, 'system' | 'tools' | 'messages' | 'maxRounds' | 'goal'>,
   messages: NeutralMessage[],
-  window: number
+  window: number,
+  usage: TokenUsage
 ): Promise<string> {
   const attempts = await credentialAttempts(params.provider)
   const transcript = transcriptText(messages, Math.floor(window * 0.5 * 3.6))
@@ -508,6 +602,8 @@ async function compact(
     [{ role: 'user', text: `${transcript}\n\n---\nWrite the summary now.` }],
     () => {}
   )
+  // The summary request reads up to half the window; it is part of what the turn cost.
+  addUsage(usage, result.usage)
   return result.text.trim()
 }
 
@@ -516,14 +612,18 @@ async function compact(
 /**
  * How a run with nobody watching treats changes, in place of the approval
  * prompt: 'read-only' refuses every mutating call, 'safe' runs ordinary ones
- * and refuses the risky ones "Approve for me" would still stop to ask about.
+ * and refuses the risky ones "Approve for me" would still stop to ask about,
+ * 'autonomous' (a worker the user trusts to act alone) runs everything but
+ * the calls a tool marks catastrophic.
  */
-export type UnattendedPolicy = 'read-only' | 'safe'
+export type UnattendedPolicy = 'read-only' | 'safe' | 'autonomous'
 
 const UNATTENDED_READ_ONLY =
-  'This scheduled task is read-only — the user did not allow it to make changes — so this action was not run. Do not retry it or look for another way to make the change; finish with what you can find out, and say in your report what you would have changed.'
+  'This run is read-only — the user did not allow it to make changes — so this action was not run. Do not retry it or look for another way to make the change; finish with what you can find out, and say in your report what you would have changed.'
+const UNATTENDED_CATASTROPHIC =
+  'This action could do lasting damage (spending money, entering a card number or password, sudo, erasing a disk, force-pushing, a plugin action marked destructive), so it never runs without the user\'s approval. Do not work around it. If it is needed, ask with ask_user, passing approve_tool and approve_input with this exact call; once approved you may make it once. Carry on with the rest meanwhile.'
 const UNATTENDED_RISKY =
-  'This action needs the user\'s approval, and a scheduled task runs with nobody to ask, so it was not run. Do not retry it; continue without it and mention it in your report.'
+  'This action needs the user\'s approval, and this run has nobody to ask, so it was not run. Do not retry it; continue without it and mention it in your report.'
 
 export interface RunOptions {
   /** Headless runs (scheduled tasks) answer approvals themselves. */
@@ -531,12 +631,34 @@ export interface RunOptions {
   signal?: AbortSignal
   /** Set by scheduled tasks; decides mutating calls without asking anyone. */
   unattended?: UnattendedPolicy
+  /**
+   * For an unattended run: the user approved this exact call in advance (a
+   * worker's answered ask_user). Consulted only where the call would be
+   * refused; true spends that approval.
+   */
+  allowOnce?: (tool: string, input: Record<string, unknown>) => boolean
+  /**
+   * Refuses a tool call outright, whatever it is: a reason for the model, or
+   * null to let the usual rules decide. A worker answering a guest in a chat
+   * app uses it to hold the turn to what that guest may do.
+   */
+  toolGate?: ToolGate
+  /**
+   * Which tools to offer at all. A run that may only use a few (a trading
+   * session) leaves the rest out of the request: the gate still refuses them,
+   * but their schemas would cost tokens on every call and tempt the model.
+   */
+  offer?: (name: string) => boolean
 }
+
+export type ToolGate = (tool: AgentTool, input: Record<string, unknown>) => string | null
 
 export interface RunOutcome {
   text: string
   error?: string
   usage: TokenUsage
+  /** Stopped before it finished — Stop, Emergency Stop, or the caller's own signal. */
+  cancelled?: boolean
 }
 
 export async function runAgent(request: StreamRequest, emit: (event: StreamEvent) => void, options: RunOptions = {}): Promise<RunOutcome> {
@@ -549,19 +671,27 @@ export async function runAgent(request: StreamRequest, emit: (event: StreamEvent
   }
 
   const controller = new AbortController()
-  options.signal?.addEventListener('abort', () => controller.abort(), { once: true })
+  const forwardAbort = (): void => controller.abort()
+  if (options.signal?.aborted) controller.abort()
+  else options.signal?.addEventListener('abort', forwardAbort, { once: true })
+  // However the run is stopped, nothing may stay parked on an approval.
+  controller.signal.addEventListener('abort', () => cancelApprovals(request.messageId), { once: true })
   activeRuns.set(request.messageId, controller)
+  if (request.goal?.status === 'active' && request.goal.until) untilRuns.add(request.messageId)
   holdAwake()
   let text = ''
 
   try {
+    // Stopped while the run was being set up: end it here, as cancelled.
+    if (controller.signal.aborted) throw new Error('aborted')
     const settings = store.getSettings()
     const raw = request.rawSystem !== undefined
     const mode = request.mode
     const cwd = mode === 'work' && !raw ? await ensureWorkFolder(request.cwd, settings) : ''
     const readOnly = mode === 'work' && request.work.plan
     const query: ToolQuery = { mode, cwd: cwd || null, depth: 0, readOnly, settings, request }
-    const tools = raw ? [] : toolsFor(query)
+    const offered = raw ? [] : toolsFor(query)
+    const tools = options.offer ? offered.filter((tool) => options.offer!(tool.name)) : offered
     const system = raw
       ? (request.rawSystem ?? '')
       : mode === 'chat'
@@ -569,10 +699,13 @@ export async function runAgent(request: StreamRequest, emit: (event: StreamEvent
         : workSystemPrompt({
             cwd,
             projectInstructions: request.projectInstructions,
-            guidance: guidanceFor(query),
+            guidance: guidanceFor(query, options.offer),
             swarm: request.work.swarm && !readOnly,
             plan: readOnly,
-            goal: request.goal
+            goal: request.goal,
+            autonomy: settings.approvalMode === 'full' && !options.unattended,
+            // A worker speaks as itself rather than as the generic agent.
+            ...(request.persona ? { roleBrief: request.persona } : {})
           })
 
     const model = provider.models.find((m) => m.id === request.modelId)
@@ -592,10 +725,15 @@ export async function runAgent(request: StreamRequest, emit: (event: StreamEvent
       settings,
       signal: controller.signal,
       emit,
+      // A tool still finishing after Stop (see unlessAborted) may ask late;
+      // the answer is no, and the dialog is never shown.
       approver:
         options.approver ??
-        ((tool: string, input: Record<string, unknown>, summary?: string) => requestApproval(request.messageId, tool, input, emit, summary)),
+        ((tool: string, input: Record<string, unknown>, summary?: string) =>
+          controller.signal.aborted ? Promise.resolve(false) : requestApproval(request.messageId, tool, input, emit, summary)),
       unattended: options.unattended,
+      allowOnce: options.allowOnce,
+      toolGate: options.toolGate,
       onText: (delta: string) => {
         text += delta
         emit({ type: 'delta', messageId: request.messageId, text: delta })
@@ -607,7 +745,9 @@ export async function runAgent(request: StreamRequest, emit: (event: StreamEvent
     const overhead = estimateTokens(system) + estimateTokens(JSON.stringify(tools.map(toSpec)))
     if (
       !raw &&
-      settings.context.autoCompact &&
+      // A worker's thread never ends, so it always compacts whatever the
+      // chat setting says — otherwise it would outgrow the model and stop.
+      (settings.context.autoCompact || Boolean(request.workerId)) &&
       messages.length >= 6 &&
       overhead + estimateMessages(messages) > window * settings.context.compactAt
     ) {
@@ -616,28 +756,32 @@ export async function runAgent(request: StreamRequest, emit: (event: StreamEvent
       const throughIndex = built.sourceIds.length - 2
       const throughMessageId = built.sourceIds[throughIndex]
       base.onReasoning('\nCompacting earlier conversation to save tokens…\n')
-      const summary = await compact(base, older, window)
+      const summary = await compact(base, older, window, usage)
       if (summary && throughMessageId && throughMessageId !== 'summary' && throughMessageId !== 'placeholder') {
         emit({ type: 'compacted', messageId: request.messageId, chatId: request.chatId, summary, throughMessageId })
         messages = [{ role: 'user', text: `Summary of the conversation so far:\n${summary}` }, last]
       }
     }
 
-    const maxRounds = raw ? 1 : mode === 'chat' ? 8 : Math.min(Math.max(settings.codeIndex.maxToolRounds || 40, 1), 200)
-    const outcome = await runLoop({ ...base, system, tools, messages, maxRounds, goal: request.goal })
-    addUsage(usage, outcome.usage)
+    // A goal with an end time is bounded by that time; the usual round cap would end it hours early.
+    const runsUntil = request.goal?.status === 'active' && request.goal.until && request.goal.until > Date.now()
+    const maxRounds = raw ? 1 : mode === 'chat' ? 8 : runsUntil ? 10_000 : Math.min(Math.max(settings.codeIndex.maxToolRounds || 40, 1), 200)
+    // The loop adds into `usage` as it goes, so a stopped or failed run still reports what it spent.
+    const outcome = await runLoop({ ...base, system, tools, messages, maxRounds, goal: request.goal, usage })
     emit({ type: 'done', messageId: request.messageId })
-    return { text: outcome.text || text, usage }
+    return { text: outcome.text || text, usage, ...(controller.signal.aborted ? { cancelled: true } : {}) }
   } catch (error) {
     if (controller.signal.aborted) {
       emit({ type: 'done', messageId: request.messageId })
-      return { text, usage }
+      return { text, usage, cancelled: true }
     }
     const message = error instanceof Error ? error.message : String(error)
     emit({ type: 'error', messageId: request.messageId, error: message })
     return { text, error: message, usage }
   } finally {
+    options.signal?.removeEventListener('abort', forwardAbort)
     activeRuns.delete(request.messageId)
+    untilRuns.delete(request.messageId)
     pausedGoals.delete(request.messageId)
     holdAwake()
   }

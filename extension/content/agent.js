@@ -4,12 +4,16 @@
  * Runs in the extension's isolated world: the page's own scripts cannot see
  * or tamper with anything here, while the DOM and its events are shared.
  *
- * The service worker calls `globalThis.__eaonAgent.run(action, params)` through
- * chrome.scripting and gets back a plain object — `{ error }` on failure,
- * because an exception thrown here would not survive the trip.
+ * The service worker calls `globalThis['__eaonAgent@<version>'].run(action,
+ * params)` through chrome.scripting and gets back a plain object — `{ error }`
+ * on failure, because an exception thrown here would not survive the trip.
  */
 (() => {
-  if (globalThis.__eaonAgent) return true
+  // One copy per extension version. A page keeps whatever script it was
+  // given, so after an update a tab the old version touched would otherwise
+  // go on answering with the old code — "Unknown page action" for anything new.
+  const KEY = `__eaonAgent@${chrome.runtime.getManifest().version}`
+  if (globalThis[KEY]) return true
 
   /* Identifies this document. Refs are only meaningful inside the document
      that issued them; after a navigation the service worker's recorded docId
@@ -269,11 +273,17 @@
 
   const BLOCK = /^(block|flex|grid|list-item|table|table-row|table-caption|flow-root)$/
 
-  function snapshot({ maxChars = 8000, refBase = 1 } = {}) {
-    // Numbering carries on from the tab's previous page instead of restarting
-    // at 1, so a ref remembered from an older page can never name an element
-    // on this one — it is simply "no longer on the page".
+  /**
+   * Numbering carries on from the tab's previous page instead of restarting
+   * at 1, so a ref remembered from an older page can never name an element
+   * on this one — it is simply "no longer on the page".
+   */
+  function continueRefs(refBase) {
     if (nextRef === 1 && refBase > 1) nextRef = refBase
+  }
+
+  function snapshot({ maxChars = 8000, refBase = 1 } = {}) {
+    continueRefs(refBase)
     const viewportH = innerHeight
     const lines = []
     const elements = []
@@ -924,6 +934,250 @@
     }
   }
 
+  // ------------------------------------------------------------------- Read
+
+  /** Where the page keeps its content: <main>, or a dominant <article>, else the whole body. */
+  function contentRoot() {
+    const body = document.body || document.documentElement
+    const bodyLength = (body.innerText || '').length || 1
+    let best = null
+    let bestLength = 0
+    for (const el of document.querySelectorAll('main, [role=main], article')) {
+      if (!isShown(el)) continue
+      const length = (el.innerText || '').length
+      if (length > bodyLength * 0.35 && length > bestLength) {
+        best = el
+        bestLength = length
+      }
+    }
+    return best || body
+  }
+
+  /**
+   * The page as light Markdown, in document order and regardless of what is
+   * on screen: headings, paragraphs, lists, links, tables and code. Cheaper
+   * than a snapshot for reading an article or docs page end to end, and it
+   * carries no refs, so it never invalidates the ones the agent holds.
+   */
+  function readable(root) {
+    const out = []
+    let line = ''
+    let listDepth = 0
+    let visited = 0
+    const endLine = () => {
+      const text = squash(line)
+      if (text && text !== '-') out.push(text)
+      line = ''
+    }
+    const blank = () => {
+      endLine()
+      if (out.length && out[out.length - 1] !== '') out.push('')
+    }
+    const kids = (el) => {
+      for (const child of el.shadowRoot ? el.shadowRoot.childNodes : el.childNodes) walk(child)
+    }
+
+    function walk(node) {
+      if (++visited > 60000) return
+      if (node.nodeType === Node.TEXT_NODE) {
+        line += node.nodeValue
+        return
+      }
+      if (node.nodeType !== Node.ELEMENT_NODE) return
+      const el = node
+      const tag = el.localName
+      if (SKIP_TAGS.has(tag) || el.hidden || el.getAttribute('aria-hidden') === 'true') return
+      if (tag === 'input' || tag === 'select' || tag === 'textarea' || tag === 'iframe') return
+      const style = getComputedStyle(el)
+      if (style.display === 'none' || style.visibility === 'hidden') return
+      if (tag === 'br') return endLine()
+      if (tag === 'img') {
+        const alt = squash(el.alt)
+        if (alt) line += ` [image: ${clip(alt, 80)}] `
+        return
+      }
+      const heading = /^h[1-6]$/.test(tag) ? Number(tag[1]) : 0
+      if (heading) {
+        blank()
+        line = `${'#'.repeat(heading)} `
+        kids(el)
+        endLine()
+        out.push('')
+        return
+      }
+      if (tag === 'a') {
+        const start = line.length
+        kids(el)
+        const text = squash(line.slice(start))
+        const href = shortHref(el)
+        if (text && href) line = `${line.slice(0, start)} [${text}](${href}) `
+        return
+      }
+      if (tag === 'li') {
+        endLine()
+        line = `${'  '.repeat(Math.max(0, listDepth - 1))}- `
+        kids(el)
+        endLine()
+        return
+      }
+      if (tag === 'ul' || tag === 'ol') {
+        endLine()
+        listDepth++
+        kids(el)
+        listDepth--
+        endLine()
+        return
+      }
+      if (tag === 'pre') {
+        blank()
+        out.push('```', ...String(el.innerText || '').split('\n').slice(0, 300), '```', '')
+        return
+      }
+      if (tag === 'tr') {
+        endLine()
+        const cells = [...el.children].map((cell) => squash(cell.innerText || '')).filter(Boolean)
+        if (cells.length) out.push(`| ${cells.join(' | ')} |`)
+        return
+      }
+      const block = tag === 'p' || BLOCK.test(style.display)
+      if (block) endLine()
+      kids(el)
+      if (block) {
+        if (tag === 'p' || tag === 'section' || tag === 'article' || tag === 'blockquote') blank()
+        else endLine()
+      }
+    }
+
+    walk(root)
+    endLine()
+    return out.join('\n').replace(/\n{3,}/g, '\n\n').trim()
+  }
+
+  function read(p) {
+    const body = document.body || document.documentElement
+    const root = p.all ? body : contentRoot()
+    const full = readable(root)
+    const size = Math.min(40000, Math.max(2000, Number(p.maxChars) || 12000))
+    const start = Math.max(0, Math.min(Number(p.offset) || 0, full.length))
+    let end = Math.min(full.length, start + size)
+    // End on a line break rather than mid-sentence when there is more to come.
+    if (end < full.length) {
+      const cut = full.lastIndexOf('\n', end)
+      if (cut > start + size / 2) end = cut
+    }
+    const header = [
+      `Title: ${document.title || '(untitled)'}`,
+      `URL: ${location.href}`,
+      full.length > size || start > 0
+        ? `Characters ${start}–${end} of ${full.length}${end < full.length ? ` — read again with offset ${end} for the rest` : ' (the end)'}`
+        : '',
+      root !== body ? 'Main content only; read with all:true for the whole page, navigation included.' : ''
+    ]
+      .filter(Boolean)
+      .join('\n')
+    return {
+      text: `${header}\n\n${full.slice(start, end) || '(no readable text on this page)'}`,
+      total: full.length,
+      nextOffset: end < full.length ? end : null
+    }
+  }
+
+  // ------------------------------------------------------------------- Find
+
+  /** Where an element sits relative to the viewport, for the agent's sense of place. */
+  function whereIs(el) {
+    const rect = el.getBoundingClientRect()
+    if (rect.bottom < 0) return 'above'
+    if (rect.top > innerHeight) return 'below'
+    return 'on screen'
+  }
+
+  /**
+   * Finds text on the page — in content and in controls' names — and hands
+   * back refs for the controls among the matches, so the agent can act on a
+   * long page without snapshotting all of it.
+   */
+  function search(p) {
+    const needle = norm(p.text)
+    if (!needle) throw new Error('find needs "text" to look for.')
+    continueRefs(Number(p.refBase) || 1)
+    const limit = Math.min(50, Math.max(1, Number(p.limit) || 20))
+    const cache = { forms: new Map(), dialogs: new Map() }
+    const seen = new Set()
+    const lines = []
+    const elements = []
+    let total = 0
+
+    const snippet = (text) => {
+      const flat = squash(text)
+      const at = flat.toLowerCase().indexOf(needle)
+      if (at < 0) return clip(flat, 140)
+      const from = Math.max(0, at - 60)
+      const to = Math.min(flat.length, at + needle.length + 60)
+      return `${from > 0 ? '…' : ''}${flat.slice(from, to)}${to < flat.length ? '…' : ''}`
+    }
+
+    const addControl = (control, context) => {
+      if (seen.has(control)) return
+      seen.add(control)
+      const parent = control.parentElement
+      const role = interactiveRole(control, getComputedStyle(control), parent ? getComputedStyle(parent) : null) || control.localName
+      const ref = refFor(control)
+      const name = nameOf(control)
+      elements.push({ ref, role, name, ...riskHints(control, cache) })
+      const extra = context && norm(context) !== norm(name) ? ` — ${quote(snippet(context))}` : ''
+      lines.push(`[${ref}] ${role}${name ? ` ${quote(name)}` : ''}${extra} (${whereIs(control)})`)
+    }
+
+    const root = document.body || document.documentElement
+    const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+    for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+      const value = node.nodeValue
+      if (!value || !norm(value).includes(needle)) continue
+      const el = node.parentElement
+      if (!el || SKIP_TAGS.has(el.localName) || el.closest(HOST_TAG) || !isShown(el)) continue
+      total++
+      if (lines.length >= limit) continue
+      const control = el.closest(INTERACTIVE_SELECTOR)
+      if (control && isShown(control)) addControl(control, value)
+      else if (!seen.has(el)) {
+        seen.add(el)
+        lines.push(`${quote(snippet(value))} (${whereIs(el)})`)
+      }
+    }
+    // Controls whose name is not page text: placeholders, aria-labels, values.
+    for (const control of root.querySelectorAll(INTERACTIVE_SELECTOR)) {
+      if (seen.has(control) || !isShown(control) || !norm(nameOf(control)).includes(needle)) continue
+      total++
+      if (lines.length < limit) addControl(control, '')
+    }
+
+    const head = total
+      ? `Found ${total} match${total === 1 ? '' : 'es'} for ${quote(p.text)} on ${location.href}${total > lines.length ? ` (showing ${lines.length})` : ''}:`
+      : `No matches for ${quote(p.text)} on ${location.href}.`
+    return { docId, nextRef, text: [head, ...lines].join('\n'), elements }
+  }
+
+  // ------------------------------------------------------------------- Fill
+
+  /** Several fields in one go — a form is otherwise one round trip per field. */
+  function fill(p) {
+    const fields = Array.isArray(p.fields) ? p.fields : []
+    if (!fields.length) throw new Error('fill needs "fields": a list of {ref, text}.')
+    const done = []
+    for (const field of fields) {
+      const params = { ...field, docId: p.docId }
+      try {
+        const el = resolve(params)
+        done.push((el.localName === 'select' ? select({ ...params, option: field.text }) : type(params)).message)
+      } catch (error) {
+        const before = done.length ? `Filled ${done.length} of ${fields.length} (${done.join('; ')}), then stopped: ` : ''
+        throw new Error(`${before}${error && error.message ? error.message : String(error)}`)
+      }
+    }
+    return { message: done.join('; ') }
+  }
+
   // ------------------------------------------------------------------- Wait
 
   function find(p) {
@@ -1002,6 +1256,8 @@
       return
     }
     if (!indicator || !indicator.isConnected) {
+      // One left behind by the version before an update has a dead Stop button.
+      for (const stale of document.querySelectorAll(HOST_TAG)) stale.remove()
       indicator = buildIndicator()
       // On <html> rather than <body>: a transformed body would turn
       // position: fixed into position: absolute.
@@ -1012,7 +1268,7 @@
 
   // ------------------------------------------------------------- Dispatcher
 
-  const ACTIONS = { snapshot, click, hover, type, select, press, scroll, find }
+  const ACTIONS = { snapshot, click, hover, type, select, press, scroll, find, read, search, fill }
 
   async function run(action, params = {}) {
     try {
@@ -1039,6 +1295,6 @@
     }
   }
 
-  Object.defineProperty(globalThis, '__eaonAgent', { value: { docId, run }, configurable: false })
+  Object.defineProperty(globalThis, KEY, { value: { docId, run }, configurable: false })
   return true
 })()

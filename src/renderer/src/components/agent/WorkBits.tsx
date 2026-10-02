@@ -1,6 +1,7 @@
-import { memo, useMemo, type JSX } from 'react'
+import { memo, useMemo, useState, type JSX } from 'react'
 import {
   Check,
+  ChevronDown,
   CircleDashed,
   CircleDot,
   Lightbulb,
@@ -79,27 +80,34 @@ export function TodoPanel({ chat }: { chat: Chat }): JSX.Element | null {
     return null
   }, [chat.messages])
 
+  const [open, setOpen] = useState(false)
+
   if (!todos) return null
   const done = todos.filter((t) => t.status === 'done').length
   // A finished list has done its job; it stays in the transcript, not pinned.
   if (done === todos.length) return null
+  // Folded, the panel is one line — the step in progress — so it does not
+  // take a third of the window above the composer.
+  const current = todos.find((t) => t.status === 'in_progress') ?? todos.find((t) => t.status === 'pending')
 
   return (
-    <div className="todo-panel">
-      <div className="todo-panel__head">
-        <span>Plan</span>
+    <div className="todo-panel" data-open={open || undefined}>
+      <button className="todo-panel__head" onClick={() => setOpen(!open)} aria-expanded={open}>
+        <span className="todo-panel__title">Plan</span>
         <span className="todo-panel__count">
           {done}/{todos.length}
         </span>
-      </div>
-      <ul className="todo-panel__list">
+        {!open && current && <span className="todo-panel__current">{current.text}</span>}
+        <ChevronDown size={14} strokeWidth={2} className="todo-panel__chevron" />
+      </button>
+      {open && <ul className="todo-panel__list">
         {todos.map((todo, index) => (
           <li key={index} className="todo-panel__item" data-status={todo.status}>
             <span className="todo-panel__icon">{TODO_ICON[todo.status]}</span>
             <span>{todo.text}</span>
           </li>
         ))}
-      </ul>
+      </ul>}
     </div>
   )
 }
@@ -125,7 +133,11 @@ export function GoalBanner({ chat }: { chat: Chat }): JSX.Element | null {
       <span className="goal-banner__body">
         <span className="goal-banner__label">
           {GOAL_LABEL[goal.status]}
-          {goal.iterations > 0 && goal.status === 'active' ? ` · ${goal.iterations} continuation${goal.iterations === 1 ? '' : 's'}` : ''}
+          {goal.until && goal.status === 'active'
+            ? ` · until ${new Date(goal.until).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
+            : goal.iterations > 0 && goal.status === 'active'
+              ? ` · ${goal.iterations} continuation${goal.iterations === 1 ? '' : 's'}`
+              : ''}
           {goal.status === 'paused' && goal.summary ? ` · ${goal.summary}` : ''}
         </span>
         <span className="goal-banner__text" title={goal.text}>

@@ -2,7 +2,7 @@
 title: Eaon Desktop architecture
 tags: [eaon-desktop, electron, react, byok, architecture]
 created: 2026-08-20T00:00:00.000Z
-updated: 2026-08-20T00:00:00.000Z
+updated: 2026-09-29T14:29:41.511Z
 ---
 
 # Eaon Desktop architecture
@@ -54,3 +54,5 @@ foreground, contrast — and every surface in the app is derived from them with
 `color-mix()` in `tokens.css` (`--u: calc(var(--contrast) * 0.055%)`, surfaces
 are `--bg` lifted by multiples of `--u`). Changing the background hex or dragging
 contrast re-tones the whole UI coherently instead of breaking it.
+
+Related: [[App shell: deferred login-shell PATH, secrets vault and download safety]]

@@ -2,7 +2,7 @@
 title: Matching the Eaon Desktop Figma frames
 tags: [eaon-desktop, design, figma, electron, screenshots, gotchas]
 created: 2026-08-20T00:00:00.000Z
-updated: 2026-08-20T00:00:00.000Z
+updated: 2026-09-28T04:05:55.072Z
 ---
 
 # Matching the Eaon Desktop Figma frames
@@ -56,3 +56,5 @@ button by exact text fails when it contains a brand icon with a `<text>` glyph
 Any selector returning a new array must be wrapped in `useShallow` from
 `zustand/react/shallow`. Selectors that return an element found inside stored
 state (`activeChat`, `currentModel`) are stable and do not need it.
+
+Related: [[Capture harness wipes the real profile unless --user-data-dir is set]]

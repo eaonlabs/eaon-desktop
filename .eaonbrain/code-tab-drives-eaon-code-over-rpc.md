@@ -2,7 +2,7 @@
 title: Code tab drives Eaon Code over RPC
 tags: [eaon-desktop, code-tab, eaon-code, rpc, ipc, streaming, gotcha]
 created: 2026-09-24T00:00:00.000Z
-updated: 2026-09-24T00:00:00.000Z
+updated: 2026-09-29T14:29:36.566Z
 ---
 
 # Code tab drives Eaon Code over RPC
@@ -70,3 +70,5 @@ one process, start/stop/commands), `rpc.ts` (spawn, id-correlated requests),
   `EAON_CODE_CODING_AGENT_DIR` to electron so the child gets a models.json.
 
 Related: [[Streaming performance: where the per-token cost lived]], [[Eaon Desktop architecture]]
+
+Related: [[Eaon Code RPC: prompt, steer and Windows spawn gotchas]]

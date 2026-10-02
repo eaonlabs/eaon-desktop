@@ -2,8 +2,8 @@
   "manifest_version": 3,
   "name": "Eaon Browser Control",
   "short_name": "Eaon",
-  "version": "1.0.0",
-  "description": "Lets the agent in the Eaon desktop app use Chrome for you: open pages, read them, click, type and take screenshots.",
+  "version": "1.1.0",
+  "description": "Lets Eaon use your browser for you: open, read and fill in pages, click, type, take screenshots, and send pages to Eaon.",
   "minimum_chrome_version": "116",
   "icons": {
     "16": "icons/icon-16.png",
@@ -23,6 +23,16 @@
     "service_worker": "background.js",
     "type": "module"
   },
-  "permissions": ["alarms", "scripting", "storage", "tabGroups"],
+  "commands": {
+    "_execute_action": {
+      "suggested_key": { "default": "Alt+Shift+E" },
+      "description": "Open the Eaon popup"
+    },
+    "stop-agent": {
+      "suggested_key": { "default": "Alt+Shift+S" },
+      "description": "Stop the agent from using this browser"
+    }
+  },
+  "permissions": ["alarms", "contextMenus", "scripting", "storage", "tabGroups"],
   "host_permissions": ["<all_urls>"]
 }

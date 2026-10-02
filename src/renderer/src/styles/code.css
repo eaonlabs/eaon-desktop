@@ -11,9 +11,6 @@
 
 /* ---------------- Header ---------------- */
 
-.code-header .mode-switch {
-  margin-right: 4px;
-}
 /* The title is what gives way when the row is tight; the controls never wrap. */
 .code-header__title {
   flex: 0 1 auto;
@@ -325,11 +322,13 @@
 }
 .code-assistant > .code-text + .code-text,
 .code-assistant > .tool + .code-text,
+.code-assistant > .activity + .code-text,
 .code-assistant > .code-thinking + .code-text {
   margin-top: 8px;
 }
-.code-assistant > .code-text + .tool {
-  margin-top: 10px;
+.code-assistant > .code-text + .tool,
+.code-assistant > .code-text + .activity {
+  margin-top: 6px;
 }
 .code-text {
   white-space: pre-wrap;
@@ -405,7 +404,7 @@
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
-  padding: 0 10px 9px 34px;
+  padding: 0 0 6px 26px;
 }
 .code-tool__agent {
   display: inline-flex;
@@ -428,9 +427,20 @@
   color: var(--text-3);
 }
 
-/* A shell command the user ran with `!`. */
+/* A shell command the user ran with `!`: the user's own action, so it keeps
+   a card where the agent's calls are plain lines. */
+.code-bash {
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-md);
+  background: var(--surface-1);
+}
 .code-bash .tool__head {
+  height: 32px;
+  padding: 0 10px;
   cursor: default;
+}
+.code-bash .tool__panel {
+  padding: 0 10px 10px;
 }
 .code-bash .tool__head:hover {
   background: none;

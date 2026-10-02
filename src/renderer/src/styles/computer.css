@@ -6,6 +6,46 @@
   gap: 8px;
 }
 
+/* Setup checklist: one row per macOS permission, numbered until it is done. */
+.computer__steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+/* Under the "Started from Terminal" note. */
+.row + .computer__steps {
+  border-top: 1px solid var(--border);
+}
+.computer__step-mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--border-strong);
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+/* The same green as `.badge--ok`, so the tick and "Allowed" read as one state. */
+.computer__step[data-done='true'] .computer__step-mark {
+  border-color: transparent;
+  background: rgba(48, 209, 88, 0.16);
+  color: #4ade80;
+}
+/* Computer use was just switched on and this is the step left to do. Once,
+   and gone under reduce motion like every other animation. */
+.computer__step[data-attention='true'] {
+  animation: computer-attention 1.8s ease-in-out;
+}
+@keyframes computer-attention {
+  15%,
+  50% {
+    background: color-mix(in srgb, var(--accent), transparent 88%);
+  }
+}
+
 .computer__kbd {
   display: inline-flex;
   align-items: center;

@@ -89,6 +89,8 @@ export function inferReasoning(modelId: string): boolean {
 }
 
 const BUDGETS: Record<EffortLevel, number> = {
+  none: 0,
+  minimal: 1024,
   light: 2048,
   medium: 6000,
   high: 12000,
@@ -103,6 +105,7 @@ const BUDGETS: Record<EffortLevel, number> = {
  * Anthropic-compatible endpoints that take a budget (MiniMax).
  */
 export function budgetThinking(effort: EffortLevel, maxTokens: number): { type: 'enabled'; budget_tokens: number } | undefined {
+  if (effort === 'none') return undefined
   const budget = Math.min(BUDGETS[effort], maxTokens - 1024)
   return budget >= 1024 ? { type: 'enabled', budget_tokens: budget } : undefined
 }
@@ -122,6 +125,7 @@ export function anthropicThinking(
   maxTokens: number
 ): { type: 'adaptive'; display: 'summarized' } | { type: 'enabled'; budget_tokens: number } | undefined {
   const family = claudeFamily(modelId.toLowerCase())
+  if (effort === 'none' && family !== 'always-adaptive') return undefined
   if (family === 'always-adaptive' || family === 'adaptive') return { type: 'adaptive', display: 'summarized' }
   if (family === 'budget') return budgetThinking(effort, maxTokens)
   return undefined

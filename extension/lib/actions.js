@@ -25,7 +25,6 @@ import {
   listTabsText,
   openAgentTab,
   setCurrentTab,
-  shareTab,
   tabLabel,
   usableTabs
 } from './tabs.js'
@@ -40,6 +39,20 @@ const MAX_SHOT_HEIGHT = 1600
 const CAPTURE_GAP_MS = 550
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/** The global content/agent.js installs, one per extension version — see the top of that file. */
+const AGENT_KEY = `__eaonAgent@${chrome.runtime.getManifest().version}`
+
+/**
+ * Every action this version can carry out. Sent to the app in the hello, so
+ * a newer app can tell an out-of-date extension apart from a failed action.
+ * The last two are capabilities rather than actions.
+ */
+export const FEATURES = [
+  'navigate', 'new_tab', 'list_tabs', 'switch_tab', 'close_tab', 'snapshot', 'click', 'type', 'press', 'scroll',
+  'select', 'hover', 'back', 'forward', 'wait', 'screenshot', 'get_url', 'read', 'find', 'fill', 'reload',
+  'self-update', 'ask'
+]
 
 class PageError extends Error {}
 
@@ -77,8 +90,8 @@ async function inPage(tab, action, params = {}) {
     await chrome.scripting.executeScript({ target: { tabId: tab.id, frameIds: [0] }, files: ['content/agent.js'] })
     const [injection] = await chrome.scripting.executeScript({
       target: { tabId: tab.id, frameIds: [0] },
-      func: (name, args) => globalThis.__eaonAgent.run(name, args),
-      args: [action, params]
+      func: (key, name, args) => globalThis[key].run(name, args),
+      args: [AGENT_KEY, action, params]
     })
     const value = injection && injection.result
     if (!value) throw new PageError('The page did not respond. It may still be loading — use wait, then try again.')
@@ -154,9 +167,14 @@ async function describeTab(tabId) {
   return tab ? `${JSON.stringify(tabLabel(tab))} — ${tab.url || tab.pendingUrl || 'about:blank'}` : 'a tab that has since closed'
 }
 
-function normalizeUrl(raw) {
+/**
+ * `base` lets a path from a page ("/pricing", as read and find show links on
+ * the same site) resolve against the page it came from.
+ */
+function normalizeUrl(raw, base) {
   let text = String(raw || '').trim()
   if (!text) throw new Error('navigate needs a url.')
+  if (/^\/(?!\/)/.test(text) && base && /^https?:/i.test(base)) text = new URL(text, base).href
   const hasScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(text) || /^(about|data|javascript|chrome|mailto|blob|view-source|file):/i.test(text)
   if (!hasScheme) text = `${/^(localhost|127\.|\[::1\])/i.test(text) ? 'http' : 'https'}://${text}`
   let url
@@ -180,20 +198,15 @@ async function requireTab() {
 
 /** Opens a tab the page spawned into the agent's reach. */
 async function takeOver(tabId) {
-  try {
-    await adoptTab(tabId)
-  } catch {
-    // Popup windows cannot hold tab groups; share it instead so the agent can follow.
-    await shareTab(tabId)
-  }
+  await adoptTab(tabId)
   await setCurrentTab(tabId)
   await waitComplete(tabId, 15_000)
   controlledListener(tabId)
 }
 
 async function navigate(params) {
-  const url = normalizeUrl(params.url)
   let tab = await currentTab()
+  const url = normalizeUrl(params.url, tab && tab.url)
   let loaded
   if (!tab) {
     tab = await openAgentTab(url)
@@ -379,6 +392,41 @@ async function wait(params, signal) {
   throw new Error(`Waited ${seconds} s, but ${what} did not appear.`)
 }
 
+async function read(params) {
+  const tab = await requireTab()
+  const result = await inPage(tab, 'read', { offset: params.offset, maxChars: params.maxChars, all: params.all === true })
+  controlledListener(tab.id)
+  return { tabId: tab.id, text: result.text, nextOffset: result.nextOffset }
+}
+
+/** Like snapshot, the refs it hands out belong to this document; record it so they are honoured. */
+async function findOnPage(params) {
+  const tab = await requireTab()
+  const before = await getSession()
+  const refBase = (before.nextRefs && before.nextRefs[tab.id]) || 1
+  const result = await inPage(tab, 'search', { text: params.text, limit: params.limit, refBase })
+  const session = await getSession()
+  await patchSession({
+    docs: { ...session.docs, [tab.id]: result.docId },
+    nextRefs: { ...(session.nextRefs || {}), [tab.id]: result.nextRef }
+  })
+  controlledListener(tab.id)
+  return { tabId: tab.id, docId: result.docId, text: result.text, elements: result.elements }
+}
+
+async function reload() {
+  const tab = await requireTab()
+  const watch = watchNavigation(tab.id)
+  await chrome.tabs.reload(tab.id)
+  const outcome = await watch.settle({ startWithinMs: 3_000, loadWithinMs: 30_000 })
+  controlledListener(tab.id)
+  await setIndicatorFor(tab.id, true)
+  return {
+    tabId: tab.id,
+    message: `Reloaded ${await describeTab(tab.id)}${outcome.kind === 'loading' ? ', which is still loading' : ''}. Refs from before the reload no longer work — take a new snapshot.`
+  }
+}
+
 // ------------------------------------------------------------- Screenshots
 
 let lastCapture = 0
@@ -477,7 +525,14 @@ export async function perform(action, params, signal) {
     case 'select':
     case 'hover':
     case 'scroll':
+    case 'fill':
       return pageAction(action, params)
+    case 'read':
+      return read(params)
+    case 'find':
+      return findOnPage(params)
+    case 'reload':
+      return reload()
     case 'wait':
       return wait(params, signal)
     case 'screenshot':

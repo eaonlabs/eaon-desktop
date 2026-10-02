@@ -172,3 +172,66 @@ test('a final event without a trailing newline is still read', async () => {
   assert.equal(result.text, 'Hello there')
   assert.equal(result.stop, 'end')
 })
+
+test('a reply the provider interrupted for lack of capacity is an error, not an answer', async () => {
+  // DeepSeek ends a reply it could not finish with this finish_reason; the
+  // text (or tool call) before it is cut off mid-way.
+  const { url, server } = await sseServer(() => [
+    chunk({ tool_calls: [{ index: 0, id: 'c1', function: { name: 'read_file', arguments: '{"path":"a' } }] }),
+    chunk({}, 'insufficient_system_resource'),
+    '[DONE]'
+  ])
+  try {
+    await assert.rejects(openaiChatAdapter.turn(request(url)), /overloaded/)
+  } finally {
+    server.close()
+  }
+})
+
+test('tool arguments are always an object: null is none, double-encoded JSON is unwrapped', async () => {
+  // JSON.parse gave the loop `null` or a string here, and the loop's
+  // `'__invalid_json' in input` check threw a TypeError that ended the turn.
+  const { url, server } = await sseServer(() => [
+    chunk({
+      tool_calls: [
+        { index: 0, id: 'a', function: { name: 'read_file', arguments: 'null' } },
+        { index: 1, id: 'b', function: { name: 'read_file', arguments: JSON.stringify(JSON.stringify({ path: 'a.txt' })) } },
+        { index: 2, id: 'c', function: { name: 'read_file', arguments: '[1,2]' } }
+      ]
+    }),
+    chunk({}, 'tool_calls')
+  ])
+  const result = await openaiChatAdapter.turn(request(url)).finally(() => server.close())
+  assert.deepEqual(result.calls[0].input, {})
+  assert.deepEqual(result.calls[1].input, { path: 'a.txt' })
+  assert.deepEqual(result.calls[2].input, { __invalid_json: '[1,2]' })
+})
+
+test('parallel calls with a null index are kept apart by their ids', async () => {
+  // Servers that serialise unset fields send `index: null`; keyed as "inull",
+  // both calls merged into one with `{"path":"a"}{"path":"b"}` as arguments.
+  const { url, server } = await sseServer(() => [
+    chunk({ tool_calls: [{ index: null, id: 'a', function: { name: 'read_file', arguments: '{"path":"a"}' } }] }),
+    chunk({ tool_calls: [{ index: null, id: 'b', function: { name: 'read_file', arguments: '{"path":"b"}' } }] }),
+    chunk({}, 'tool_calls')
+  ])
+  const result = await openaiChatAdapter.turn(request(url)).finally(() => server.close())
+  assert.deepEqual(result.calls, [
+    { id: 'a', name: 'read_file', input: { path: 'a' } },
+    { id: 'b', name: 'read_file', input: { path: 'b' } }
+  ])
+})
+
+test('images are not counted as text when fitting the output cap into the window', async () => {
+  const { url, server, requests } = await sseServer(() => [chunk({ content: 'ok' }, 'stop')])
+  const shot = { mime: 'image/png', data: 'A'.repeat(300_000) }
+  await openaiChatAdapter
+    .turn(
+      request(url, {
+        model: { id: 'test-model', label: 'm', providerId: 'test', contextWindow: 128_000, maxOutput: 32_000 },
+        messages: [{ role: 'user', text: 'what is on screen?', images: [shot, shot] }]
+      })
+    )
+    .finally(() => server.close())
+  assert.equal(requests[0].max_tokens, 32_000)
+})

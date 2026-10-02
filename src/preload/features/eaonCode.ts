@@ -41,6 +41,8 @@ export const eaonCodeApi = {
   sessions: (cwd: string): Promise<EaonResult<EaonSessionInfo[]>> => ipcRenderer.invoke('eaon-code:sessions', cwd),
   recents: (): Promise<string[]> => ipcRenderer.invoke('eaon-code:recents'),
   forgetRecent: (cwd: string): Promise<string[]> => ipcRenderer.invoke('eaon-code:forget-recent', cwd),
+  /** Makes `cwd` the ADE's folder (recent + reopened at launch); returns the updated recents. */
+  useFolder: (cwd: string): Promise<string[]> => ipcRenderer.invoke('eaon-code:use-folder', cwd),
   pickFolder: (): Promise<string | null> => ipcRenderer.invoke('eaon-code:pick-folder'),
   pickBinary: (): Promise<string | null> => ipcRenderer.invoke('eaon-code:pick-binary'),
   /** Opens a terminal running eaon-code in `cwd`; `continueSession` hands it the current session. */

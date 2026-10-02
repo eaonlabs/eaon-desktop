@@ -10,7 +10,15 @@ import type { PullRequestsResult, PullRequestSummary } from '@shared/types'
  * `gh pr view` call.
  */
 
-const run = promisify(execFile)
+const execFileAsync = promisify(execFile)
+/**
+ * `gh` waits on the network with no limit of its own; a stalled call would
+ * leave the page's spinner up forever. On timeout the child is killed and the
+ * call rejects like any other gh error.
+ */
+const GH_TIMEOUT_MS = 30_000
+const run = (file: string, args: string[]): Promise<{ stdout: string }> =>
+  execFileAsync(file, args, { timeout: GH_TIMEOUT_MS, maxBuffer: 8 * 1024 * 1024 })
 
 interface SearchRow {
   repository: { nameWithOwner: string }
@@ -80,6 +88,7 @@ function describeGhError(error: unknown): string {
   if (/gh auth login|not logged into|authentication/i.test(message)) {
     return 'Not signed in to GitHub CLI. Run "gh auth login" in a terminal.'
   }
+  if ((error as { killed?: boolean }).killed) return 'GitHub didn’t answer in time. Check your connection and try again.'
   return message.split('\n')[0]
 }
 

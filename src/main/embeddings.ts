@@ -1,3 +1,5 @@
+import { findLocalModel, isEmbeddingModel, LOCAL_PROVIDER_ID, localModelId, localModels, runtimeModel } from './llama/models'
+import { llamaRuntime } from './llama/runtime'
 import { secrets } from './secrets'
 import { store } from './store'
 import { getProvider } from './providers'
@@ -21,6 +23,17 @@ export const EMBEDDING_MODELS: { providerId: string; modelId: string; label: str
   { providerId: 'ollama', modelId: 'nomic-embed-text', label: 'Ollama · nomic-embed-text (local)', dimensions: 768 },
   { providerId: 'ollama', modelId: 'mxbai-embed-large', label: 'Ollama · mxbai-embed-large (local)', dimensions: 1024 }
 ]
+
+/**
+ * The fixed list plus every embedding model downloaded on the Models page,
+ * which Eaon's own llama.cpp serves (`--embedding`) on this computer.
+ */
+export function embeddingModels(): { providerId: string; modelId: string; label: string; dimensions: number }[] {
+  const local = localModels()
+    .filter(isEmbeddingModel)
+    .map((m) => ({ providerId: LOCAL_PROVIDER_ID, modelId: localModelId(m), label: `On this computer · ${m.label ?? m.filename}`, dimensions: 0 }))
+  return [...local, ...EMBEDDING_MODELS]
+}
 
 /** Ollama always serves its native API here regardless of the provider baseUrl. */
 const OLLAMA_ROOT = 'http://127.0.0.1:11434'
@@ -51,6 +64,7 @@ export function isEmbeddingConfigured(): boolean {
   const config = getEmbeddingConfig()
   if (!config) return false
   if (config.providerId === 'ollama') return true
+  if (config.providerId === LOCAL_PROVIDER_ID) return Boolean(findLocalModel(config.modelId))
   return secrets.has(config.providerId)
 }
 
@@ -58,17 +72,23 @@ export function isEmbeddingConfigured(): boolean {
 export function describeEmbeddingState(): string {
   const config = getEmbeddingConfig()
   if (!config) return 'No embedding model selected — search uses keyword matching only.'
+  if (config.providerId === LOCAL_PROVIDER_ID) {
+    return findLocalModel(config.modelId)
+      ? `Semantic search enabled via ${config.modelId}, on this computer.`
+      : `${config.modelId} isn’t downloaded any more — search uses keyword matching only.`
+  }
   if (config.providerId !== 'ollama' && !secrets.has(config.providerId)) {
     return `No API key for ${getProvider(config.providerId)?.name ?? config.providerId} — search uses keyword matching only.`
   }
   return `Semantic search enabled via ${config.modelId}.`
 }
 
-async function embedOllama(texts: string[], modelId: string): Promise<number[][]> {
+async function embedOllama(texts: string[], modelId: string, signal?: AbortSignal): Promise<number[][]> {
   const response = await fetch(`${OLLAMA_ROOT}/api/embed`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: modelId, input: texts })
+    body: JSON.stringify({ model: modelId, input: texts }),
+    signal
   })
   if (!response.ok) {
     const detail = await response.text()
@@ -79,7 +99,25 @@ async function embedOllama(texts: string[], modelId: string): Promise<number[][]
   return body.embeddings
 }
 
-async function embedOpenAICompatible(texts: string[], config: EmbeddingConfig): Promise<number[][]> {
+/** A downloaded embedding model on Eaon's llama.cpp: its OpenAI-shaped /v1/embeddings. */
+async function embedLocal(texts: string[], modelId: string, signal?: AbortSignal): Promise<number[][]> {
+  const model = findLocalModel(modelId)
+  if (!model) throw new Error(`${modelId} isn’t downloaded. Get an embedding model on the Models page.`)
+  const target = await llamaRuntime.ensure(runtimeModel(model), 'embedding')
+  const response = await fetch(`${target.baseUrl}/embeddings`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${target.apiKey}` },
+    body: JSON.stringify({ model: modelId, input: texts }),
+    signal
+  })
+  llamaRuntime.touch('embedding')
+  if (!response.ok) throw new Error(`Local embeddings failed (${response.status}): ${(await response.text()).slice(0, 200)}`)
+  const body = (await response.json()) as { data?: { embedding: number[]; index: number }[] }
+  if (!body.data) throw new Error('The local model returned no embeddings')
+  return [...body.data].sort((a, b) => a.index - b.index).map((entry) => entry.embedding)
+}
+
+async function embedOpenAICompatible(texts: string[], config: EmbeddingConfig, signal?: AbortSignal): Promise<number[][]> {
   const provider = getProvider(config.providerId)
   if (!provider) throw new Error(`Unknown embedding provider "${config.providerId}"`)
   const baseUrl = provider.baseUrl.replace(/\/$/, '')
@@ -92,7 +130,8 @@ async function embedOpenAICompatible(texts: string[], config: EmbeddingConfig): 
   const response = await fetch(`${baseUrl}/embeddings`, {
     method: 'POST',
     headers,
-    body: JSON.stringify({ model: config.modelId, input: texts })
+    body: JSON.stringify({ model: config.modelId, input: texts }),
+    signal
   })
   if (!response.ok) {
     const detail = await response.text()
@@ -105,12 +144,17 @@ async function embedOpenAICompatible(texts: string[], config: EmbeddingConfig): 
   return [...body.data].sort((a, b) => a.index - b.index).map((entry) => entry.embedding)
 }
 
-/** Embed one batch, choosing the wire format from the provider. */
-async function embedBatch(texts: string[], config: EmbeddingConfig): Promise<number[][]> {
+/**
+ * Embed one batch, choosing the wire format from the provider. The signal
+ * reaches the request itself: a cancelled build used to wait out a slow
+ * batch, then carry on and overwrite the newer build's index and status.
+ */
+async function embedBatch(texts: string[], config: EmbeddingConfig, signal?: AbortSignal): Promise<number[][]> {
   const clipped = texts.map((text) => (text.length > MAX_CHARS_PER_INPUT ? text.slice(0, MAX_CHARS_PER_INPUT) : text))
+  if (config.providerId === LOCAL_PROVIDER_ID) return embedLocal(clipped, config.modelId, signal)
   return config.providerId === 'ollama'
-    ? embedOllama(clipped, config.modelId)
-    : embedOpenAICompatible(clipped, config)
+    ? embedOllama(clipped, config.modelId, signal)
+    : embedOpenAICompatible(clipped, config, signal)
 }
 
 /**
@@ -129,15 +173,15 @@ export async function embedAll(
   for (let i = 0; i < texts.length; i += BATCH_SIZE) {
     if (signal?.aborted) throw new Error('Indexing cancelled')
     const batch = texts.slice(i, i + BATCH_SIZE)
-    const vectors = await embedBatch(batch, config)
+    const vectors = await embedBatch(batch, config, signal)
     for (const vector of vectors) out.push(normalize(vector))
     onProgress?.(Math.min(i + BATCH_SIZE, texts.length), texts.length)
   }
   return out
 }
 
-export async function embedQuery(text: string): Promise<Float32Array> {
-  const [vector] = await embedAll([text])
+export async function embedQuery(text: string, signal?: AbortSignal): Promise<Float32Array> {
+  const [vector] = await embedAll([text], undefined, signal)
   return vector
 }
 

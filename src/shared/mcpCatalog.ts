@@ -20,8 +20,20 @@
 //   - Ahrefs: registers fine, but its authorize page sits behind a bot
 //     challenge the verifier cannot get past, so the flow is unproven.
 //   - Coda, Circleback, Pulumi: no hosted MCP endpoint answered.
+//   - TradeStation (mcp.tradestation.com/v2/mcp): registers a client, but its
+//     authorize step answers `unauthorized_client`, so sign-in can't finish.
+//   - Alpaca's trading MCP (api.alpaca.markets/mcp): OAuth with no
+//     registration endpoint. Eaon talks to Alpaca directly with keys instead
+//     (the trading desk), which keeps its limits in front of every order.
+//
+// Brokers (category "trading", checked 2026-10-01): their order tools reach a
+// real brokerage account, so `agent/pluginTools.ts` holds them to stricter
+// rules than other plugins — see `tradingNote` and the trading-access gate.
 
 export type McpAuthMode = "pastedToken" | "oauth" | "none";
+
+/** Catalog groups the plugins page and the worker editor sort by. Untagged entries are general tools. */
+export type McpCategory = "trading";
 
 export interface McpCatalogEntry {
   id: string;
@@ -55,6 +67,13 @@ export interface McpCatalogEntry {
   /** The vendor's token endpoint only accepts confidential clients (its
    *  metadata lists no "none" auth method), so the app's secret is needed too. */
   manualClientNeedsSecret?: boolean;
+  /** The header a pasted token goes in, when it isn't `Authorization: <scheme> <token>` (Tradier's `API_KEY`). */
+  tokenHeader?: string;
+  category?: McpCategory;
+  /** Brokers: what an agent can actually do there, in one line, shown wherever the broker is offered. */
+  tradingNote?: string;
+  /** Brokers: orders through it move real money (false for a practice account). */
+  realMoney?: boolean;
   /** Basename in `renderer/src/assets/plugins` (with extension). Only official
    *  marks (Simple Icons, CC0, or the vendor's press kit); without one the UI
    *  draws a monogram rather than something that looks like a logo but isn't. */
@@ -340,7 +359,57 @@ export const MCP_CATALOG: McpCatalogEntry[] = [
     noDynamicRegistration: true,
     logoAssetName: "box.svg",
   },
+
+  // ---- Brokers ----
+  {
+    ...oauth("robinhood", "Robinhood", "Trade US stocks from a dedicated Robinhood agentic account.", "https://agent.robinhood.com/mcp/trading"),
+    category: "trading",
+    realMoney: true,
+    tradingNote: "Places stock orders from a separate Robinhood agentic account, funded with only what you move into it. Robinhood's own limits and approvals apply.",
+  },
+  {
+    ...oauth("ibkr", "Interactive Brokers", "Portfolio, P&L, research and drafted trades.", "https://api.ibkr.com/v1/api/mcp-public"),
+    category: "trading",
+    realMoney: true,
+    tradingNote: "Reads your IBKR account and drafts trade instructions; nothing is placed until you review and submit it in an IBKR app.",
+  },
+  {
+    ...oauth("webull", "Webull", "Account, market data and order instructions.", "https://api.webull.com/mcp"),
+    category: "trading",
+    realMoney: true,
+    tradingNote: "Reads the accounts you allow and creates order instructions you confirm in the Webull app before they execute.",
+  },
+  {
+    id: "tradier", displayName: "Tradier", summary: "Stocks and options, live account.",
+    endpoint: "https://mcp.tradier.com/mcp", authMode: "pastedToken", authScheme: "",
+    // Verified live: the key goes in an `API_KEY` header (a bad one gets
+    // "Invalid Access Token" from the API); PAPER_TRADING picks the account.
+    tokenHeader: "API_KEY",
+    extraHeaders: { PAPER_TRADING: "false" },
+    tokenCreationURL: "https://dash.tradier.com/settings/api",
+    tokenCreationURLIsPrefilled: false,
+    tokenFieldPlaceholder: "Paste your Tradier API access token",
+    category: "trading",
+    realMoney: true,
+    tradingNote: "Places stock and option orders in your Tradier brokerage account, straight away.",
+  },
+  {
+    id: "tradier-paper", displayName: "Tradier paper", summary: "Stocks and options, practice account.",
+    endpoint: "https://mcp.tradier.com/mcp", authMode: "pastedToken", authScheme: "",
+    tokenHeader: "API_KEY",
+    extraHeaders: { PAPER_TRADING: "true" },
+    tokenCreationURL: "https://dash.tradier.com/settings/api",
+    tokenCreationURLIsPrefilled: false,
+    tokenFieldPlaceholder: "Paste your Tradier sandbox (paper) token",
+    tokenHint: "Use the sandbox token from the API settings page, not the live one.",
+    category: "trading",
+    realMoney: false,
+    tradingNote: "Places orders in Tradier's sandbox account: real order handling, pretend money.",
+  },
 ];
+
+/** The brokers in the catalog. */
+export const BROKER_PLUGINS = (): McpCatalogEntry[] => MCP_CATALOG.filter((e) => e.category === "trading");
 
 export function mcpCatalogEntry(id: string): McpCatalogEntry | undefined {
   return MCP_CATALOG.find((e) => e.id === id);

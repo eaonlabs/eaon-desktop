@@ -196,6 +196,12 @@
 .modal {
   width: 360px;
   max-width: calc(100vw - 48px);
+  /* A tall dialog (the worker editor with trading on) scrolls its body; the
+     title and the buttons stay put. Without this it ran off the bottom of a
+     small window and its Create button could not be reached. */
+  max-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
   background: var(--surface-3);
   border-radius: var(--r-xl);
   box-shadow: var(--shadow-modal);
@@ -229,6 +235,11 @@
   color: var(--text-2);
   line-height: 1.5;
   margin-bottom: 22px;
+  min-height: 0;
+  overflow-y: auto;
+  /* Room for focus rings, which the scroll box would otherwise clip. */
+  margin-inline: -4px;
+  padding-inline: 4px;
 }
 .modal__actions {
   display: flex;

@@ -2,7 +2,7 @@
 title: Subscription sign-in: ChatGPT, Copilot and OpenRouter
 tags: [eaon-desktop, providers, oauth, codex, copilot, openrouter, security]
 created: 2026-09-24T13:44:37.000Z
-updated: 2026-09-24T13:44:37.000Z
+updated: 2026-09-30T13:36:43.478Z
 ---
 
 # Subscription sign-in: ChatGPT, Copilot and OpenRouter
@@ -50,3 +50,7 @@ Copilot and an OpenAI key all offering `gpt-5.5`, the first provider in list ord
 wins. Fixing it needs a provider-qualified model key in the store.
 
 Related: [[Model provider quirks and where they live]], [[Eaon Desktop architecture]]
+
+Related: [[Provider OAuth landscape (Sept 2026): which sign-ins are allowed]]
+
+Related: [[Account sign-in: official ChatGPT, Hugging Face and Poe]]

@@ -1,4 +1,5 @@
 import type { Provider } from '@shared/types'
+import type { OAuthClientSetup, ProviderAuthPrompt } from '@shared/providers'
 import type { Credentials } from '../adapters/types'
 
 /**
@@ -12,7 +13,7 @@ import type { Credentials } from '../adapters/types'
 export interface OAuthFlow {
   id: string
   /** Opens the browser (or shows a device code) and resolves once tokens are stored. */
-  signIn(onPrompt: (prompt: { url: string; code?: string; message?: string }) => void, signal: AbortSignal): Promise<void>
+  signIn(onPrompt: (prompt: ProviderAuthPrompt) => void, signal: AbortSignal): Promise<void>
   signOut(): Promise<void>
   isSignedIn(): boolean
   /** Fresh credentials for one request; refreshes the access token first if it is close to expiry. */
@@ -26,6 +27,18 @@ export interface OAuthFlow {
   submitCode?(input: string): void
   /** Marks the stored access token stale after the provider rejected it, so the next request refreshes. */
   expire?(): void
+  /**
+   * For a key provider's sign-in (`ProviderMeta.keyFlow`): true when the
+   * signed-in account's own token is used for requests, alongside any API
+   * key — Hugging Face — rather than minting a key that is stored as the
+   * provider's key (OpenRouter, Poe).
+   */
+  providesCredentials?: boolean
+  /** Set for providers that only sign in apps with a registered OAuth client. */
+  clientSetup?: OAuthClientSetup
+  /** The registered client id in use, or null when none is configured yet. */
+  clientId?(): string | null
+  setClientId?(id: string | null): void
 }
 
 const flows = new Map<string, OAuthFlow>()

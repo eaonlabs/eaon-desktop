@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync, unlinkSync } from 'node:fs'
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { extname, join, relative, sep } from 'node:path'
 import { app } from 'electron'
@@ -273,14 +273,20 @@ function embeddingText(chunk: Chunk): string {
 
 /* ------------------------------------------------------------------- walk */
 
-async function walk(cwd: string): Promise<string[]> {
-  let rules: IgnoreRule[] = []
+async function ignoreRules(cwd: string): Promise<IgnoreRule[]> {
   try {
-    rules = parseGitignore(await readFile(join(cwd, '.gitignore'), 'utf8'))
+    return parseGitignore(await readFile(join(cwd, '.gitignore'), 'utf8'))
   } catch {
-    /* no .gitignore is normal */
+    return [] // no .gitignore is normal
   }
+}
 
+/** Names no walk descends into or lists, whatever .gitignore says. */
+const skippedName = (name: string): boolean =>
+  (name.startsWith('.') && name !== '.github') || ALWAYS_IGNORE.has(name) || IGNORED_FILENAMES.has(name)
+
+async function walk(cwd: string): Promise<string[]> {
+  const rules = await ignoreRules(cwd)
   const found: string[] = []
   const queue: string[] = [cwd]
 
@@ -294,8 +300,7 @@ async function walk(cwd: string): Promise<string[]> {
     }
 
     for (const entry of entries) {
-      if (entry.name.startsWith('.') && entry.name !== '.github') continue
-      if (ALWAYS_IGNORE.has(entry.name) || IGNORED_FILENAMES.has(entry.name)) continue
+      if (skippedName(entry.name)) continue
 
       const full = join(dir, entry.name)
       const rel = relative(cwd, full).split(sep).join('/')
@@ -311,14 +316,64 @@ async function walk(cwd: string): Promise<string[]> {
   return found.sort()
 }
 
+/**
+ * Every file a search of the project should look at: the index's ignore
+ * rules, without its extension and size filters, read fresh from disk. The
+ * index is rebuilt rarely, so searching only what it lists hid every file
+ * created since — including the agent's own — and every Makefile, .xml or
+ * .plist. Breadth-first and capped, so a huge folder (a home folder, where
+ * Library is skipped too) still answers quickly with the files nearest the top.
+ */
+export async function listProjectFiles(cwd: string, limit: number): Promise<{ paths: string[]; truncated: boolean }> {
+  const rules = await ignoreRules(cwd)
+  const paths: string[] = []
+  const queue: string[] = [cwd]
+  for (let next = 0; next < queue.length; next++) {
+    let entries
+    try {
+      entries = await readdir(queue[next], { withFileTypes: true })
+    } catch {
+      continue
+    }
+    for (const entry of entries) {
+      if (skippedName(entry.name) || entry.name === 'Library') continue
+      const full = join(queue[next], entry.name)
+      const rel = relative(cwd, full).split(sep).join('/')
+      if (isIgnored(rel, entry.isDirectory(), rules)) continue
+      if (entry.isDirectory()) queue.push(full)
+      else if (entry.isFile()) {
+        if (paths.length >= limit) return { paths, truncated: true }
+        paths.push(rel)
+      }
+    }
+  }
+  return { paths, truncated: false }
+}
+
 /* --------------------------------------------------------------- persistence */
+
+/**
+ * The last manifest and vectors read, reused while their files are unchanged.
+ * The manifest holds the text of every chunk (tens of MB on a big repo) and
+ * is consulted on every agent turn — whether the search tools are offered —
+ * and by every search; parsing it each time blocked the main process for
+ * ~100 ms a turn. One entry each: only the open Work folder is hot.
+ */
+let manifestCache: { cwd: string; mtimeMs: number; size: number; manifest: Manifest | null } | null = null
+let vectorCache: { cwd: string; mtimeMs: number; size: number; dimensions: number; vectors: Float32Array[] } | null = null
 
 function loadManifest(cwd: string): Manifest | null {
   try {
     const file = manifestPath(cwd)
     if (!existsSync(file)) return null
-    const manifest = JSON.parse(readFileSync(file, 'utf8')) as Manifest
-    return manifest.version === 2 && manifest.cwd === cwd ? manifest : null
+    const info = statSync(file)
+    if (manifestCache && manifestCache.cwd === cwd && manifestCache.mtimeMs === info.mtimeMs && manifestCache.size === info.size) {
+      return manifestCache.manifest
+    }
+    const parsed = JSON.parse(readFileSync(file, 'utf8')) as Manifest
+    const manifest = parsed.version === 2 && parsed.cwd === cwd ? parsed : null
+    manifestCache = { cwd, mtimeMs: info.mtimeMs, size: info.size, manifest }
+    return manifest
   } catch {
     return null
   }
@@ -328,18 +383,32 @@ function loadVectors(cwd: string, count: number, dimensions: number): Float32Arr
   try {
     const file = vectorPath(cwd)
     if (!existsSync(file) || dimensions === 0) return null
+    const info = statSync(file)
+    if (info.size !== count * dimensions * 4) return null
+    const cached = vectorCache
+    if (cached && cached.cwd === cwd && cached.mtimeMs === info.mtimeMs && cached.size === info.size && cached.dimensions === dimensions) {
+      return cached.vectors
+    }
     const buffer = readFileSync(file)
     if (buffer.byteLength !== count * dimensions * 4) return null
     const all = new Float32Array(buffer.buffer, buffer.byteOffset, count * dimensions)
     const vectors: Float32Array[] = []
     for (let i = 0; i < count; i++) vectors.push(all.subarray(i * dimensions, (i + 1) * dimensions))
+    vectorCache = { cwd, mtimeMs: info.mtimeMs, size: info.size, dimensions, vectors }
     return vectors
   } catch {
     return null
   }
 }
 
+/** Every write goes through here too, so a rewrite within the same millisecond is never served stale. */
+function forgetCached(): void {
+  manifestCache = null
+  vectorCache = null
+}
+
 function saveVectors(cwd: string, vectors: Float32Array[], dimensions: number): void {
+  forgetCached()
   const flat = new Float32Array(vectors.length * dimensions)
   vectors.forEach((vector, i) => flat.set(vector, i * dimensions))
   writeFileSync(vectorPath(cwd), Buffer.from(flat.buffer, flat.byteOffset, flat.byteLength))
@@ -389,6 +458,7 @@ export function cancelIndexing(): void {
 }
 
 export function clearIndex(cwd: string): void {
+  forgetCached()
   for (const file of [manifestPath(cwd), vectorPath(cwd)]) {
     try {
       if (existsSync(file)) unlinkSync(file)
@@ -418,6 +488,9 @@ export async function buildIndex(cwd: string, force = false): Promise<IndexStatu
     const embeddingConfig = isEmbeddingConfigured() ? getEmbeddingConfig() : null
     const modelChanged = previous?.embeddingModel !== (embeddingConfig?.modelId ?? null)
 
+    // Looked up once per file below; a linear search here made a rebuild quadratic in the file count.
+    const previousHash = new Map(previous && !modelChanged ? previous.files.map((f) => [f.path, f.hash] as const) : [])
+
     // Hash everything first so the root check can short-circuit a no-op run.
     const hashes = new Map<string, { hash: string; size: number; content: string | null }>()
     for (const path of paths) {
@@ -428,18 +501,21 @@ export async function buildIndex(cwd: string, force = false): Promise<IndexStatu
         const content = await readFile(join(cwd, path), 'utf8')
         // A NUL byte means this is really binary despite the extension.
         if (content.includes('\u0000')) continue
-        hashes.set(path, { hash: createHash('sha256').update(content).digest('hex'), size: info.size, content })
+        const hash = createHash('sha256').update(content).digest('hex')
+        // An unchanged file reuses its chunks; holding its text too only grows the peak.
+        hashes.set(path, { hash, size: info.size, content: previousHash.get(path) === hash ? null : content })
       } catch {
         continue
       }
     }
 
+    if (run.signal.aborted) throw new Error('Indexing cancelled')
     const rootHash = createHash('sha256')
       .update([...hashes.entries()].map(([path, { hash }]) => `${path}:${hash}`).join('\n'))
       .digest('hex')
 
     if (previous && previous.rootHash === rootHash && !modelChanged) {
-      currentRun = null
+      if (currentRun === run) currentRun = null
       const status = statusFromDisk(cwd)
       publish(status)
       return status
@@ -475,11 +551,10 @@ export async function buildIndex(cwd: string, force = false): Promise<IndexStatu
         break
       }
 
-      const unchanged = previous?.files.find((f) => f.path === path && f.hash === info.hash)
       let fileChunks: Chunk[]
       let vectors: (Float32Array | null)[]
 
-      if (unchanged && previousChunkOf.has(path)) {
+      if (info.content === null && previousChunkOf.has(path)) {
         const cached = previousChunkOf.get(path)!
         fileChunks = cached.chunks
         vectors = previousVectors
@@ -544,6 +619,8 @@ export async function buildIndex(cwd: string, force = false): Promise<IndexStatu
         finalVectors = carried as Float32Array[]
       }
     }
+    // Superseded or cancelled while embedding: the newer build owns the files.
+    if (run.signal.aborted) throw new Error('Indexing cancelled')
 
     const manifest: Manifest = {
       version: 2,
@@ -557,11 +634,12 @@ export async function buildIndex(cwd: string, force = false): Promise<IndexStatu
       truncated
     }
 
+    forgetCached()
     writeFileSync(manifestPath(cwd), JSON.stringify(manifest))
     if (finalVectors) saveVectors(cwd, finalVectors, dimensions)
     else if (existsSync(vectorPath(cwd))) unlinkSync(vectorPath(cwd))
 
-    currentRun = null
+    if (currentRun === run) currentRun = null
     const status: IndexStatus = {
       state: 'ready',
       files: files.length,
@@ -576,6 +654,9 @@ export async function buildIndex(cwd: string, force = false): Promise<IndexStatu
     publish(status)
     return status
   } catch (error) {
+    // A newer build has started: it owns `currentRun` and the status line, so
+    // this one bows out without clearing the one or overwriting the other.
+    if (currentRun !== run && currentRun !== null) return lastStatus
     currentRun = null
     const message = error instanceof Error ? error.message : String(error)
     const status: IndexStatus = {
@@ -644,7 +725,7 @@ function fuse(vectorRanked: number[], lexicalRanked: number[], k = 60): Map<numb
   return fused
 }
 
-export async function searchIndex(cwd: string, query: string, limit = 12): Promise<SearchHit[]> {
+export async function searchIndex(cwd: string, query: string, limit = 12, signal?: AbortSignal): Promise<SearchHit[]> {
   const manifest = loadManifest(cwd)
   if (!manifest || manifest.chunks.length === 0) {
     throw new Error('This project has not been indexed yet. Ask the user to run indexing, or use grep instead.')
@@ -657,7 +738,7 @@ export async function searchIndex(cwd: string, query: string, limit = 12): Promi
   if (manifest.embeddingModel && isEmbeddingConfigured()) {
     const vectors = loadVectors(cwd, manifest.chunks.length, manifest.dimensions)
     if (vectors) {
-      const queryVector = await embedQuery(query)
+      const queryVector = await embedQuery(query, signal)
       const scored = vectors.map((vector, i) => [i, dot(queryVector, vector)] as const)
       vectorRanked = scored
         .sort((a, b) => b[1] - a[1])

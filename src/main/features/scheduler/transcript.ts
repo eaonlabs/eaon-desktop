@@ -1,6 +1,17 @@
 import type { Chat, ChatMessage, ChatToolPart, StreamEvent } from '@shared/types'
 
 /**
+ * Anything with a transcript: a run's chat, or a worker's thread (which has
+ * no title, goal or timestamp of its own).
+ */
+export interface TranscriptTarget {
+  messages: ChatMessage[]
+  updatedAt?: number
+  goal?: Chat['goal']
+  summary?: Chat['summary']
+}
+
+/**
  * Applies agent stream events to a chat in the main process.
  *
  * Interactive chats are assembled by the renderer's store, but a scheduled run
@@ -10,9 +21,12 @@ import type { Chat, ChatMessage, ChatToolPart, StreamEvent } from '@shared/types
  * renderer's `chat:event` listener performs, on a copy the runner owns, so it
  * mutates in place instead of preserving identities for React.
  */
-export function applyStreamEvent(chat: Chat, event: StreamEvent): void {
+export function applyStreamEvent(chat: TranscriptTarget, event: StreamEvent): void {
   const message = chat.messages.find((m) => m.id === event.messageId)
   if (!message) return
+  const touch = (): void => {
+    if ('updatedAt' in chat) chat.updatedAt = Date.now()
+  }
   switch (event.type) {
     case 'delta':
       appendText(message, 'text', event.text)
@@ -22,10 +36,10 @@ export function applyStreamEvent(chat: Chat, event: StreamEvent): void {
       break
     case 'error':
       message.error = event.error
-      chat.updatedAt = Date.now()
+      touch()
       break
     case 'done':
-      chat.updatedAt = Date.now()
+      touch()
       break
     case 'usage':
       message.usage = event.usage

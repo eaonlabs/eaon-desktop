@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { useApp, useIsWork } from '../../../state/store'
 import { Card, Row, Section, Select, Switch } from '../../ui'
 import { ExternalLink, Github } from 'lucide-react'
+import type { LaunchMode } from '@shared/types'
 
 export function GeneralPage(): JSX.Element {
-  const { settings, patchSettings } = useApp()
+  const { settings, patchSettings } = useApp(useShallow((s) => ({ settings: s.settings, patchSettings: s.patchSettings })))
   const isWork = useIsWork()
   const update = useApp((s) => s.updateStatus)
   const [version, setVersion] = useState('')
@@ -56,6 +58,18 @@ export function GeneralPage(): JSX.Element {
 
       <Section label="General">
         <Card>
+          <Row title="Open on launch" description="The mode Eaon opens in when it starts">
+            <Select
+              value={g.launchMode ?? 'chat'}
+              onChange={(value) => void patchSettings({ general: { launchMode: value as LaunchMode } })}
+              options={[
+                { value: 'chat', label: 'Chat' },
+                { value: 'workers', label: 'Workers' },
+                { value: 'ade', label: 'ADE' },
+                { value: 'last', label: 'Where I left off' }
+              ]}
+            />
+          </Row>
           <Row title="Default file open destination" description="Where files and folders open by default">
             <Select
               value={g.fileOpenDestination}

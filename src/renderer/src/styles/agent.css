@@ -186,36 +186,41 @@
   min-width: 0;
 }
 
-/* ---------- Tool call ---------- */
+/* ---------- Tool call ----------
+   A call is a quiet line of the reply, not a card: icon, what it did, and the
+   argument that says to what, in the reply's muted colour. A dozen of them in
+   bordered boxes buried the sentences they served. Runs of calls fold into an
+   activity line (below); a lone call shows as its own line. */
 
 .tool {
-  margin: 0 0 6px;
-  border: 1px solid var(--border-soft);
-  border-radius: var(--r-md);
-  background: var(--surface-1);
-  overflow: hidden;
-  /* Enters on a spring; a tool call appearing is information (the agent just
-     did something), so it gets movement rather than a plain fade. */
+  margin: 2px 0;
+  border-radius: var(--r-sm);
+  white-space: normal;
   animation: tool-in var(--dur-spring) var(--spring-moderate) both;
 }
 @keyframes tool-in {
   from {
     opacity: 0;
-    transform: translateY(4px);
+    transform: translateY(3px);
   }
 }
 .tool__head {
   display: flex;
   align-items: center;
   gap: 8px;
-  width: 100%;
-  height: 32px;
-  padding: 0 8px 0 10px;
+  max-width: 100%;
+  height: 28px;
+  padding: 0 8px 0 2px;
+  border-radius: var(--r-sm);
   text-align: left;
-  transition: background var(--dur) var(--ease);
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  transition:
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease);
 }
 .tool__head:hover {
-  background: var(--hover);
+  color: var(--text-2);
 }
 .tool__glyph {
   flex: none;
@@ -231,8 +236,7 @@
 }
 .tool__label {
   flex: none;
-  color: var(--text);
-  font-size: var(--fs-sm);
+  color: var(--text-2);
 }
 .tool__detail {
   min-width: 0;
@@ -250,17 +254,24 @@
   flex: none;
   color: var(--text-3);
 }
+/* Shown on hover and while open: on every line it was noise. */
 .tool__chevron {
   flex: none;
-  color: var(--text-3);
-  transition: transform var(--dur) var(--ease);
+  color: var(--text-4);
+  opacity: 0;
+  transition:
+    transform var(--dur) var(--ease),
+    opacity var(--dur) var(--ease);
+}
+.tool__head:hover .tool__chevron,
+.tool[data-open] .tool__chevron {
+  opacity: 1;
 }
 .tool[data-open] .tool__chevron {
   transform: rotate(90deg);
 }
 .tool__panel {
-  padding: 8px 10px 10px;
-  border-top: 1px solid var(--border-soft);
+  padding: 4px 0 8px 26px;
   animation: tool-panel-in var(--dur-spring) var(--spring-fast) both;
 }
 @keyframes tool-panel-in {
@@ -286,4 +297,189 @@
   padding: 2px 0;
   color: var(--text-3);
   font-size: var(--fs-xs);
+}
+
+/* ---------- Activity: a run of calls as one line ---------- */
+
+.activity {
+  margin: 4px 0;
+  white-space: normal;
+}
+.activity__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  min-height: 28px;
+  padding: 0 8px 0 2px;
+  border-radius: var(--r-sm);
+  text-align: left;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  transition: color var(--dur) var(--ease);
+}
+.activity__head:hover {
+  color: var(--text-2);
+}
+.activity__orb {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+}
+.activity__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.activity__detail {
+  min-width: 0;
+  color: var(--text-4);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.activity__flag {
+  flex: none;
+  color: color-mix(in srgb, var(--danger), var(--text-3) 35%);
+}
+.activity__flag::before {
+  content: '·';
+  margin-right: 8px;
+  color: var(--text-4);
+}
+.activity__chevron {
+  flex: none;
+  color: var(--text-4);
+  transition: transform var(--dur) var(--ease);
+}
+.activity[data-open] .activity__chevron {
+  transform: rotate(90deg);
+}
+/* The calls, hung off a hairline so they read as the line's contents. */
+.activity__list {
+  margin: 2px 0 4px 9px;
+  padding-left: 12px;
+  border-left: 1px solid var(--border-soft);
+  animation: tool-panel-in var(--dur-spring) var(--spring-fast) both;
+}
+.activity__live {
+  margin: 2px 0 6px 26px;
+  max-height: 140px;
+}
+
+/* ---------- Files changed: the turn's edits, once, at the end ---------- */
+
+.files-changed {
+  margin-top: 14px;
+  padding: 10px 6px 6px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  white-space: normal;
+}
+.files-changed__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 8px 6px;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+.files-changed__review {
+  padding: 2px 6px;
+  border-radius: var(--r-xs);
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  transition:
+    color var(--dur) var(--ease),
+    background var(--dur) var(--ease);
+}
+.files-changed__review:hover {
+  color: var(--text);
+  background: var(--hover);
+}
+.files-changed__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  height: 32px;
+  padding: 0 8px;
+  border-radius: var(--r-sm);
+  text-align: left;
+  font-size: var(--fs-sm);
+  transition: background var(--dur) var(--ease);
+}
+.files-changed__row:hover,
+.files-changed__file[data-open] .files-changed__row {
+  background: var(--hover);
+}
+.files-changed__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  color: var(--text-3);
+}
+.files-changed__badge {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #6b9eff;
+}
+.files-changed__badge[data-ext='JS'] {
+  color: #d9b43a;
+}
+.files-changed__badge[data-ext='PY'] {
+  color: #5a9fd4;
+}
+.files-changed__glyph[data-ext='react'] {
+  color: #5cc3e8;
+}
+.files-changed__glyph[data-ext='css'] {
+  color: #a77bf3;
+}
+.files-changed__glyph[data-ext='data'] {
+  color: #d9a53a;
+}
+.files-changed__glyph[data-ext='markup'] {
+  color: #e8784e;
+}
+.files-changed__name {
+  flex: none;
+  max-width: 60%;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.files-changed__folder {
+  min-width: 0;
+  flex: 1;
+  color: var(--text-4);
+  font-size: var(--fs-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.files-changed__stat {
+  flex: none;
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+.files-changed__diffs {
+  padding: 6px 2px 8px;
+}
+.files-changed__diffs .diff {
+  margin: 0 0 8px;
+}
+.files-changed__diffs .diff:last-child {
+  margin-bottom: 0;
 }

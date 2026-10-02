@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, FolderOpen, Github, PencilLine, Plug, RefreshCw, Settings, Trash2 } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { useApp } from '../../state/store'
-import { CollapsedNav } from '../CollapsedNav'
+import { TopBar } from '../TopBar'
 import { SkillIcon } from '../../icons/brand'
 import { MenuItem, MenuSeparator, Modal, Popover, SearchField, Segmented, Switch, useDisclosure } from '../ui'
 import type { SkillInfo, SkillSource } from '@shared/skills'
@@ -14,13 +14,12 @@ const cleanError = (err: unknown): string =>
   (err instanceof Error ? err.message : String(err)).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 
 export function PluginsPage(): JSX.Element {
-  const { pluginsTab, setPluginsTab, setView, setSettingsPage, sidebarOpen } = useApp(
+  const { pluginsTab, setPluginsTab, setView, setSettingsPage } = useApp(
     useShallow((s) => ({
       pluginsTab: s.pluginsTab,
       setPluginsTab: s.setPluginsTab,
       setView: s.setView,
-      setSettingsPage: s.setSettingsPage,
-      sidebarOpen: s.sidebarOpen
+      setSettingsPage: s.setSettingsPage
     }))
   )
   const addAnchor = useRef<HTMLButtonElement>(null)
@@ -55,51 +54,56 @@ export function PluginsPage(): JSX.Element {
 
   return (
     <div className="page">
-      <div className="page__bar" data-collapsed={!sidebarOpen || undefined}>
-        {!sidebarOpen && <CollapsedNav />}
-        <Segmented
-          value={pluginsTab}
-          onChange={setPluginsTab}
-          options={[
-            { value: 'plugins', label: 'Plugins' },
-            { value: 'skills', label: 'Skills' }
-          ]}
-        />
-        <div className="page__bar-spacer" />
-        <button className="icon-btn" aria-label="Refresh" disabled={refreshing} onClick={() => void refresh()}>
-          <RefreshCw size={15} strokeWidth={1.9} />
-        </button>
-        <button className="icon-btn" aria-label="Manage" onClick={() => setView('integrations')}>
-          <Settings size={16} strokeWidth={1.9} />
-        </button>
-        <button ref={addAnchor} className="btn btn--primary" onClick={addMenu.toggle}>
-          Add
-          <ChevronDown size={14} strokeWidth={2} />
-        </button>
-        <Popover anchor={addAnchor} open={addMenu.open} onClose={addMenu.close} placement="bottom-end" width={220}>
-          <MenuItem
-            icon={<PencilLine size={15} strokeWidth={1.8} />}
-            title="Create skill"
-            onClick={() => pick(() => openDialog('create'))}
+      <TopBar
+        variant="page__bar"
+        left={
+          <Segmented
+            value={pluginsTab}
+            onChange={setPluginsTab}
+            options={[
+              { value: 'plugins', label: 'Plugins' },
+              { value: 'skills', label: 'Skills' }
+            ]}
           />
-          <MenuItem
-            icon={<Github size={15} strokeWidth={1.8} />}
-            title="Install skill from GitHub"
-            onClick={() => pick(() => openDialog('install'))}
-          />
-          <MenuItem
-            icon={<FolderOpen size={15} strokeWidth={1.8} />}
-            title="Open skills folder"
-            onClick={() => pick(() => void window.api.pluginAuth.skills.openFolder())}
-          />
-          <MenuSeparator />
-          <MenuItem
-            icon={<Plug size={15} strokeWidth={1.8} />}
-            title="Custom MCP server"
-            onClick={() => pick(() => setSettingsPage('mcp'))}
-          />
-        </Popover>
-      </div>
+        }
+        right={
+          <>
+            <button className="icon-btn" aria-label="Refresh" disabled={refreshing} onClick={() => void refresh()}>
+              <RefreshCw size={15} strokeWidth={1.9} />
+            </button>
+            <button className="icon-btn" aria-label="Manage" onClick={() => setView('integrations')}>
+              <Settings size={16} strokeWidth={1.9} />
+            </button>
+            <button ref={addAnchor} className="btn btn--primary" onClick={addMenu.toggle}>
+              Add
+              <ChevronDown size={14} strokeWidth={2} />
+            </button>
+            <Popover anchor={addAnchor} open={addMenu.open} onClose={addMenu.close} placement="bottom-end" width={220}>
+              <MenuItem
+                icon={<PencilLine size={15} strokeWidth={1.8} />}
+                title="Create skill"
+                onClick={() => pick(() => openDialog('create'))}
+              />
+              <MenuItem
+                icon={<Github size={15} strokeWidth={1.8} />}
+                title="Install skill from GitHub"
+                onClick={() => pick(() => openDialog('install'))}
+              />
+              <MenuItem
+                icon={<FolderOpen size={15} strokeWidth={1.8} />}
+                title="Open skills folder"
+                onClick={() => pick(() => void window.api.pluginAuth.skills.openFolder())}
+              />
+              <MenuSeparator />
+              <MenuItem
+                icon={<Plug size={15} strokeWidth={1.8} />}
+                title="Custom MCP server"
+                onClick={() => pick(() => setSettingsPage('mcp'))}
+              />
+            </Popover>
+          </>
+        }
+      />
 
       <div className="page__scroll scroll">
         <div className="page__inner">
@@ -244,7 +248,7 @@ function SkillsTab({
 
       {skills.length > 0 && (
         <p className="skills__note">
-          Skills are used in Work. The agent sees each one’s name and description, and reads the rest only when it needs it.
+          Skills are used by Chat and Workers. The agent sees each one’s name and description, and reads the rest only when it needs it.
         </p>
       )}
     </>

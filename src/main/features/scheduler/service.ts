@@ -34,6 +34,7 @@ const STARTUP_GRACE_MS = 10_000
 export interface SchedulerOverrides {
   runAgent?: RunAgent
   now?: () => number
+  stallMs?: number
 }
 
 export interface SchedulerService {
@@ -82,7 +83,7 @@ export function createScheduler(ctx: FeatureContext, overrides: SchedulerOverrid
   }
 
   const sink: ChatSink = {
-    put: async (chat) => {
+    put: async (chat, done) => {
       if (rendererReady()) {
         undelivered.delete(chat.id)
         ctx.send('scheduler:chat', chat)
@@ -90,6 +91,12 @@ export function createScheduler(ctx: FeatureContext, overrides: SchedulerOverrid
       }
       undelivered.set(chat.id, chat)
       await writeChat(chat)
+      // Finished with no window at all: the next window reads it from
+      // chats.json. Holding it would keep every windowless run's transcript
+      // in memory (days of them, in background mode) to re-send on open. A
+      // window that is still loading may have read the file before this
+      // write, so for it the chat stays queued.
+      if (done && !ctx.getWindow()) undelivered.delete(chat.id)
     },
     // Without a window this goes nowhere, which is fine: the runner applies
     // every event to its own copy as well.
@@ -138,7 +145,8 @@ export function createScheduler(ctx: FeatureContext, overrides: SchedulerOverrid
     save: (tasks) => store.setJson(TASKS_FILE, tasks),
     onChange: (tasks) => ctx.send('scheduler:tasks', tasks),
     now: overrides.now,
-    execute: (task, handle) => runScheduledTask(task, handle, { runAgent: overrides.runAgent ?? runAgent, sink, notify })
+    execute: (task, handle) =>
+      runScheduledTask(task, handle, { runAgent: overrides.runAgent ?? runAgent, sink, notify, stallMs: overrides.stallMs })
   })
 
   const startEngine = (): void => {

@@ -26,19 +26,20 @@ interface LibraryStore {
   /** Files downloaded through "Browse Hugging Face", from downloaded-models.json. */
   downloaded: DownloadedModel[]
   loadError: string | null
-  /** Last failure per pull (progress id) or per installed model name. */
+  /** Last failure per download (progress id) or per installed model id. */
   errors: Record<string, string>
-  startingOllama: boolean
 
   load: () => Promise<void>
   refresh: () => Promise<void>
   get: (model: LibraryModel, variant: LibraryVariant) => Promise<void>
   cancel: (model: LibraryModel, variant: LibraryVariant) => void
-  remove: (name: string) => Promise<void>
-  /** "Browse Hugging Face": download one GGUF file and register it with Ollama. Errors land under `repoId::filename`. */
+  /** Deletes a downloaded model by its picker id. */
+  remove: (id: string) => Promise<void>
+  /** "Browse Hugging Face": download one GGUF file for Eaon's runtime. Errors land under `repoId::filename`. */
   downloadFile: (repoId: string, filename: string) => Promise<void>
   removeDownloaded: (repoId: string, filename: string) => Promise<void>
-  startOllama: () => Promise<void>
+  /** Frees the memory the loaded model holds. */
+  unload: () => Promise<void>
 }
 
 const message = (error: unknown): string => {
@@ -47,13 +48,12 @@ const message = (error: unknown): string => {
   return text.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 }
 
-/** Makes a model the user just pulled or deleted show up in (or leave) the composer's picker. */
-async function refreshOllamaProvider(): Promise<void> {
-  try {
-    await window.api.providers.refreshModels('ollama')
-  } catch {
-    /* Ollama provider disabled or unreachable — the picker keeps its last list. */
-  }
+/**
+ * Makes a model the user just downloaded or deleted show up in (or leave) the
+ * composer's picker: "On this computer" lists what is on disk, so re-reading
+ * the providers is enough.
+ */
+async function refreshLocalProvider(): Promise<void> {
   await useApp.getState().refreshProviders()
 }
 
@@ -72,7 +72,6 @@ export const useLibrary = create<LibraryStore>((set, get) => ({
   downloaded: [],
   loadError: null,
   errors: {},
-  startingOllama: false,
 
   async load() {
     try {
@@ -99,11 +98,9 @@ export const useLibrary = create<LibraryStore>((set, get) => ({
       return { errors }
     })
     try {
-      // One click should be enough even when Ollama is installed but not running.
-      if (get().state?.ollama.state === 'stopped') await get().startOllama()
       await window.api.modelLibrary.get(model.id, variant.id)
       await get().refresh()
-      await refreshOllamaProvider()
+      await refreshLocalProvider()
     } catch (error) {
       const text = message(error)
       if (text !== 'Download cancelled') set((s) => ({ errors: { ...s.errors, [id]: text } }))
@@ -119,18 +116,18 @@ export const useLibrary = create<LibraryStore>((set, get) => ({
     void window.api.modelLibrary.cancel(model.id, variant.id)
   },
 
-  async remove(name) {
+  async remove(id) {
     set((s) => {
       const errors = { ...s.errors }
-      delete errors[name]
+      delete errors[id]
       return { errors }
     })
     try {
-      await window.api.modelLibrary.remove(name)
+      await window.api.modelLibrary.remove(id)
       await get().refresh()
-      await refreshOllamaProvider()
+      await refreshLocalProvider()
     } catch (error) {
-      set((s) => ({ errors: { ...s.errors, [name]: message(error) } }))
+      set((s) => ({ errors: { ...s.errors, [id]: message(error) } }))
     }
   },
 
@@ -143,31 +140,27 @@ export const useLibrary = create<LibraryStore>((set, get) => ({
     })
     try {
       // The app store's action owns the Downloads panel row for these.
-      const model = await useApp.getState().downloadModel(repoId, filename)
+      await useApp.getState().downloadModel(repoId, filename)
       await get().refresh()
-      if (model.ollamaName) await refreshOllamaProvider()
+      await refreshLocalProvider()
     } catch (error) {
       set((s) => ({ errors: { ...s.errors, [id]: message(error) } }))
     }
   },
 
   async removeDownloaded(repoId, filename) {
-    await window.api.models.delete(repoId, filename)
-    await get().refresh()
-    await refreshOllamaProvider()
+    const id = `${repoId}::${filename}`
+    try {
+      await window.api.models.delete(repoId, filename)
+      await get().refresh()
+      await refreshLocalProvider()
+    } catch (error) {
+      set((s) => ({ errors: { ...s.errors, [id]: message(error) } }))
+    }
   },
 
-  async startOllama() {
-    set({ startingOllama: true })
-    try {
-      await window.api.modelLibrary.startOllama()
-      await get().refresh()
-      await refreshOllamaProvider()
-    } catch (error) {
-      set((s) => ({ errors: { ...s.errors, ollama: message(error) } }))
-      throw error
-    } finally {
-      set({ startingOllama: false })
-    }
+  async unload() {
+    await window.api.modelLibrary.unload()
+    await get().refresh()
   }
 }))

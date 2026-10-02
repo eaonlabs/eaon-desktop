@@ -22,12 +22,12 @@ interface Pending {
   resolve: (value: unknown) => void
   reject: (error: Error) => void
   timer: ReturnType<typeof setTimeout>
+  /** The process the request was written to; only its exit may fail the request. */
+  proc: ChildProcess
 }
 
 export class LineHelper {
   private proc: ChildProcess | null = null
-  private buffer = ''
-  private stderr = ''
   private nextId = 1
   private pending = new Map<number, Pending>()
 
@@ -48,7 +48,7 @@ export class LineHelper {
         this.kill()
         reject(new Error(`The ${this.name} helper did not answer "${cmd}" within ${Math.round(timeoutMs / 1000)}s.`))
       }, timeoutMs)
-      this.pending.set(id, { resolve: resolve as (value: unknown) => void, reject, timer })
+      this.pending.set(id, { resolve: resolve as (value: unknown) => void, reject, timer, proc })
       proc.stdin?.write(`${asciiJson({ id, cmd, ...args })}\n`)
     })
   }
@@ -63,18 +63,29 @@ export class LineHelper {
     if (this.proc && this.proc.exitCode === null && !this.proc.killed) return this.proc
     const proc = spawn(this.command, this.args(), { stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true })
     this.proc = proc
-    this.buffer = ''
-    this.stderr = ''
+    // Per process: a killed helper's exit (which lands after its replacement
+    // has taken requests) and its last output must not touch the new one's.
+    let buffer = ''
+    let stderr = ''
     proc.stdout?.setEncoding('utf8')
-    proc.stdout?.on('data', (chunk: string) => this.onData(chunk))
+    proc.stdout?.on('data', (chunk: string) => {
+      buffer += chunk
+      let newline = buffer.indexOf('\n')
+      while (newline !== -1) {
+        this.onLine(buffer.slice(0, newline).trim())
+        buffer = buffer.slice(newline + 1)
+        newline = buffer.indexOf('\n')
+      }
+    })
     proc.stderr?.setEncoding('utf8')
     proc.stderr?.on('data', (chunk: string) => {
-      this.stderr = (this.stderr + chunk).slice(-2000)
+      stderr = (stderr + chunk).slice(-2000)
     })
     const fail = (reason: string): void => {
       if (this.proc === proc) this.proc = null
-      const detail = this.stderr.trim()
+      const detail = stderr.trim()
       for (const [id, entry] of this.pending) {
+        if (entry.proc !== proc) continue
         clearTimeout(entry.timer)
         entry.reject(new Error(`The ${this.name} helper ${reason}${detail ? `: ${detail.split('\n').slice(-3).join(' ')}` : '.'}`))
         this.pending.delete(id)
@@ -88,26 +99,19 @@ export class LineHelper {
     return proc
   }
 
-  private onData(chunk: string): void {
-    this.buffer += chunk
-    let newline = this.buffer.indexOf('\n')
-    while (newline !== -1) {
-      const line = this.buffer.slice(0, newline).trim()
-      this.buffer = this.buffer.slice(newline + 1)
-      newline = this.buffer.indexOf('\n')
-      if (!line.startsWith('{')) continue
-      let message: { id?: number; ok?: boolean; result?: unknown; error?: string }
-      try {
-        message = JSON.parse(line)
-      } catch {
-        continue
-      }
-      const entry = typeof message.id === 'number' ? this.pending.get(message.id) : undefined
-      if (!entry) continue
-      this.pending.delete(message.id as number)
-      clearTimeout(entry.timer)
-      if (message.ok) entry.resolve(message.result ?? null)
-      else entry.reject(new Error(message.error || 'The helper reported an unknown error.'))
+  private onLine(line: string): void {
+    if (!line.startsWith('{')) return
+    let message: { id?: number; ok?: boolean; result?: unknown; error?: string }
+    try {
+      message = JSON.parse(line)
+    } catch {
+      return
     }
+    const entry = typeof message.id === 'number' ? this.pending.get(message.id) : undefined
+    if (!entry) return
+    this.pending.delete(message.id as number)
+    clearTimeout(entry.timer)
+    if (message.ok) entry.resolve(message.result ?? null)
+    else entry.reject(new Error(message.error || 'The helper reported an unknown error.'))
   }
 }

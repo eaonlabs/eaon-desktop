@@ -1,5 +1,8 @@
 import { createHash } from 'node:crypto'
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { createServer, type IncomingMessage, type Server } from 'node:http'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 
 /**
  * A small but honest MCP server over streamable HTTP, optionally behind an
@@ -17,6 +20,12 @@ export interface FakeMcpOptions {
   /** A pre-made confidential client for the no-DCR case. */
   manualClient?: { id: string; secret: string }
   tools?: { name: string; description: string }[]
+  /** A canned `tools/call` result per tool name, instead of the echo. */
+  results?: Record<string, unknown>
+  /** Tools that never answer, like a server stuck on a slow backend. */
+  hang?: string[]
+  /** Hand out an `mcp-session-id` and insist on it, as stateful servers do. */
+  sessions?: boolean
 }
 
 export interface FakeMcp {
@@ -33,6 +42,13 @@ export interface FakeMcp {
   validTokens: Set<string>
   /** Bearer tokens seen on MCP requests, in order. */
   seenTokens: string[]
+  /** `tools/call` requests that arrived, by tool name, and how many were cancelled by the client. */
+  calls: string[]
+  cancelled: number
+  /** Forgets every session, as a server does when it restarts. */
+  dropSessions: () => void
+  /** The next this-many refresh requests fail with a 500, as a vendor having a bad minute. */
+  refreshFailures: number
   close: () => Promise<void>
 }
 
@@ -65,6 +81,8 @@ export async function fakeMcp(options: FakeMcpOptions = {}): Promise<FakeMcp> {
   const clients = new Map<string, { secret?: string; redirectUris: string[] }>()
   if (options.manualClient) clients.set(options.manualClient.id, { secret: options.manualClient.secret, redirectUris: [] })
   const codes = new Map<string, { challenge: string; clientId: string; redirectUri: string }>()
+  const sessions = new Set<string>()
+  const calls: string[] = []
   let counter = 0
 
   let base = ''
@@ -139,6 +157,10 @@ export async function fakeMcp(options: FakeMcpOptions = {}): Promise<FakeMcp> {
         return issue()
       }
       if (params.get('grant_type') === 'refresh_token') {
+        if (result.refreshFailures > 0) {
+          result.refreshFailures--
+          return json(res, 500, { error: 'server_error' })
+        }
         if (!refreshTokens.delete(params.get('refresh_token') ?? '')) return json(res, 400, { error: 'invalid_grant' })
         return issue()
       }
@@ -166,17 +188,28 @@ export async function fakeMcp(options: FakeMcpOptions = {}): Promise<FakeMcp> {
         return res.end()
       }
       const message = JSON.parse(await readBody(req)) as { id?: number; method: string; params?: Record<string, unknown> }
+      const session = req.headers['mcp-session-id']
+      if (options.sessions && message.method !== 'initialize' && !sessions.has(String(session))) {
+        return json(res, 404, { jsonrpc: '2.0', id: null, error: { code: -32001, message: 'Session not found' } })
+      }
       if (message.id === undefined) {
+        if (message.method === 'notifications/cancelled') result.cancelled++
         res.writeHead(202)
         return res.end()
       }
-      const reply = (result: unknown): void => json(res, 200, { jsonrpc: '2.0', id: message.id, result })
+      const reply = (value: unknown, headers: Record<string, string> = {}): void =>
+        json(res, 200, { jsonrpc: '2.0', id: message.id, result: value }, headers)
       if (message.method === 'initialize') {
-        return reply({
-          protocolVersion: message.params?.protocolVersion,
-          capabilities: { tools: {} },
-          serverInfo: { name: 'fake', version: '1' }
-        })
+        const id = `session-${++counter}`
+        if (options.sessions) sessions.add(id)
+        return reply(
+          {
+            protocolVersion: message.params?.protocolVersion,
+            capabilities: { tools: {} },
+            serverInfo: { name: 'fake', version: '1' }
+          },
+          options.sessions ? { 'mcp-session-id': id } : {}
+        )
       }
       if (message.method === 'tools/list') {
         return reply({
@@ -188,6 +221,10 @@ export async function fakeMcp(options: FakeMcpOptions = {}): Promise<FakeMcp> {
         })
       }
       if (message.method === 'tools/call') {
+        const name = String(message.params?.name)
+        calls.push(name)
+        if (options.hang?.includes(name)) return
+        if (options.results?.[name]) return reply(options.results[name])
         const args = (message.params?.arguments ?? {}) as { text?: string }
         const token = /^Bearer (.+)$/.exec(req.headers.authorization ?? '')?.[1] ?? 'anonymous'
         const text = message.params?.name === 'whoami' ? token : String(args.text ?? '')
@@ -201,7 +238,7 @@ export async function fakeMcp(options: FakeMcpOptions = {}): Promise<FakeMcp> {
   })
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()))
   base = `http://127.0.0.1:${(server.address() as { port: number }).port}`
-  return {
+  const result: FakeMcp = {
     base,
     url: `${base}/mcp`,
     server,
@@ -210,6 +247,164 @@ export async function fakeMcp(options: FakeMcpOptions = {}): Promise<FakeMcp> {
     tokenRequests,
     validTokens,
     seenTokens,
+    calls,
+    cancelled: 0,
+    dropSessions: () => sessions.clear(),
+    refreshFailures: 0,
+    close: () =>
+      new Promise<void>((resolve) => {
+        server.closeAllConnections()
+        server.close(() => resolve())
+      })
+  }
+  return result
+}
+
+/**
+ * A stdio MCP server whose misbehaviour is scripted per test. Written to a
+ * temp file and run with `node <path> '<options json>'`; plain Node, no imports.
+ */
+export interface StdioScript {
+  /** Appends the server's pid to this file on start, one per line. */
+  pidFile?: string
+  /** Answers `initialize` only after this long. */
+  initDelayMs?: number
+  /** `tools/list` fails. */
+  toolsListError?: boolean
+  /** Advertises no tools capability at all (a prompts/resources-only server). */
+  noTools?: boolean
+  /** Advertises `tools.listChanged`; calling `grow` adds a tool and says so. */
+  listChanged?: boolean
+  /** Writes this to stderr and exits with status 1 before answering anything. */
+  dieWith?: string
+  /** Offers a `crash` tool that makes the process exit mid-call. */
+  crashable?: boolean
+}
+
+const STDIO_SCRIPT = `
+const options = JSON.parse(process.argv[2] || '{}')
+const fs = require('node:fs')
+if (options.pidFile) fs.appendFileSync(options.pidFile, process.pid + '\\n')
+if (options.dieWith) {
+  process.stderr.write('starting up\\n' + options.dieWith + '\\n')
+  process.exit(1)
+}
+const tools = [{ name: 'ping', description: 'Answers pong', inputSchema: { type: 'object', properties: {} } }]
+if (options.listChanged) tools.push({ name: 'grow', description: 'Adds a tool', inputSchema: { type: 'object', properties: {} } })
+if (options.crashable) tools.push({ name: 'crash', description: 'Exits', inputSchema: { type: 'object', properties: {} } })
+let buffer = ''
+process.stdin.setEncoding('utf8')
+process.stdin.on('data', (chunk) => {
+  buffer += chunk
+  let newline
+  while ((newline = buffer.indexOf('\\n')) !== -1) {
+    const line = buffer.slice(0, newline).trim()
+    buffer = buffer.slice(newline + 1)
+    if (line) handle(JSON.parse(line))
+  }
+})
+const send = (message) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...message }) + '\\n')
+function handle(message) {
+  if (message.id === undefined) return
+  if (message.method === 'initialize') {
+    const capabilities = options.noTools ? { prompts: {} } : { tools: options.listChanged ? { listChanged: true } : {} }
+    const answer = () => send({ id: message.id, result: { protocolVersion: message.params.protocolVersion, capabilities, serverInfo: { name: 'scripted', version: '1' } } })
+    return options.initDelayMs ? setTimeout(answer, options.initDelayMs) : answer()
+  }
+  if (message.method === 'tools/list') {
+    if (options.toolsListError) return send({ id: message.id, error: { code: -32603, message: 'tools are broken' } })
+    return send({ id: message.id, result: { tools } })
+  }
+  if (message.method === 'tools/call') {
+    if (message.params.name === 'crash') {
+      process.stderr.write('fatal: out of memory\\n')
+      process.exit(3)
+    }
+    if (message.params.name === 'grow') {
+      tools.push({ name: 'grown', description: 'Added later', inputSchema: { type: 'object', properties: {} } })
+      send({ method: 'notifications/tools/list_changed' })
+    }
+    return send({ id: message.id, result: { content: [{ type: 'text', text: 'pong' }] } })
+  }
+  send({ id: message.id, error: { code: -32601, message: 'no such method' } })
+}
+`
+
+let stdioScriptPath: string | null = null
+
+/** Path of the scripted stdio server, written once per test process. */
+export function stdioScript(): string {
+  if (!stdioScriptPath) {
+    const dir = mkdtempSync(join(tmpdir(), 'eaon-mcp-stdio-'))
+    stdioScriptPath = join(dir, 'server.cjs')
+    writeFileSync(stdioScriptPath, STDIO_SCRIPT)
+  }
+  return stdioScriptPath
+}
+
+/** True while a process with this pid exists. */
+export function alive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** Pids a scripted server wrote to its pid file. */
+export function pidsIn(file: string): number[] {
+  try {
+    return readFileSync(file, 'utf8').split('\n').filter(Boolean).map(Number)
+  } catch {
+    return []
+  }
+}
+
+/** Polls until `check` passes or the time runs out; returns whether it passed. */
+export async function eventually(check: () => boolean, timeoutMs = 6000): Promise<boolean> {
+  const end = Date.now() + timeoutMs
+  while (Date.now() < end) {
+    if (check()) return true
+    await new Promise((r) => setTimeout(r, 25))
+  }
+  return check()
+}
+
+/**
+ * A server that only speaks the older HTTP+SSE transport (GET an event
+ * stream, POST to the endpoint it names), which plenty of hand-run servers
+ * still do. Built on the SDK's own server so the wire format is the real one.
+ */
+export async function fakeSseMcp(): Promise<{ url: string; close: () => Promise<void> }> {
+  const { Server } = await import('@modelcontextprotocol/sdk/server/index.js')
+  const { SSEServerTransport } = await import('@modelcontextprotocol/sdk/server/sse.js')
+  const { CallToolRequestSchema, ListToolsRequestSchema } = await import('@modelcontextprotocol/sdk/types.js')
+  const transports = new Map<string, InstanceType<typeof SSEServerTransport>>()
+  const server = createServer(async (req, res) => {
+    const url = new URL(req.url ?? '/', 'http://localhost')
+    if (req.method === 'GET' && url.pathname === '/sse') {
+      const transport = new SSEServerTransport('/messages', res)
+      transports.set(transport.sessionId, transport)
+      const mcp = new Server({ name: 'sse-only', version: '1' }, { capabilities: { tools: {} } })
+      mcp.setRequestHandler(ListToolsRequestSchema, async () => ({
+        tools: [{ name: 'legacy', description: 'Served over SSE', inputSchema: { type: 'object' as const, properties: {} } }]
+      }))
+      mcp.setRequestHandler(CallToolRequestSchema, async () => ({ content: [{ type: 'text' as const, text: 'over sse' }] }))
+      await mcp.connect(transport)
+      return
+    }
+    if (req.method === 'POST' && url.pathname === '/messages') {
+      const transport = transports.get(url.searchParams.get('sessionId') ?? '')
+      if (transport) return void transport.handlePostMessage(req, res)
+    }
+    // What an SSE-only server says to a streamable HTTP POST on /sse.
+    res.writeHead(405).end()
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()))
+  const base = `http://127.0.0.1:${(server.address() as { port: number }).port}`
+  return {
+    url: `${base}/sse`,
     close: () =>
       new Promise<void>((resolve) => {
         server.closeAllConnections()

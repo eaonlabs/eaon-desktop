@@ -4,7 +4,9 @@ import { toolsFor, type ToolContext, type ToolQuery } from '../src/main/agent/to
 import { store, defaultSettings } from '../src/main/store'
 import { describeAction, needsConfirmation, parseAction, riskReason } from '../src/main/features/computer/actions'
 import { frameFor, sameFrame, targetSize, toScreen, toShot, type Frame } from '../src/main/features/computer/geometry'
+import { setInputBackend } from '../src/main/features/computer/backend'
 import { asciiJson } from '../src/main/features/computer/helper'
+import type { InputBackend } from '../src/main/features/computer/input'
 import { dangerousCombo, formatCombo, MAC_KEYCODES, parseCombo, windowsKey, xdotoolKey } from '../src/main/features/computer/keys'
 import '../src/main/features/computerUse'
 import { computerTool } from '../src/main/features/computer/tool'
@@ -183,4 +185,42 @@ test('the tool refuses to act while computer use is off, even mid-turn', async (
   const result = await computerTool.run({ action: 'screenshot' }, { request: { chatId: 'c', messageId: 'm' } } as ToolContext)
   assert.equal(typeof result === 'object' && result.isError, true)
   assert.match(typeof result === 'string' ? result : result.text, /turned off/)
+})
+
+test('without Accessibility, input is refused with the switch to flip and the setup page to follow', async () => {
+  const sent: string[] = []
+  const untrusted: InputBackend = {
+    name: 'untrusted',
+    check: async () => ({ available: true, trusted: false, locked: false }),
+    move: async () => void sent.push('move'),
+    click: async () => void sent.push('click'),
+    drag: async () => void sent.push('drag'),
+    scroll: async () => void sent.push('scroll'),
+    type: async () => void sent.push('type'),
+    key: async () => void sent.push('key'),
+    cursor: async () => ({ x: 0, y: 0 }),
+    frontmost: async () => null,
+    activate: async () => {},
+    locked: async () => false,
+    openApp: async () => {},
+    dispose: () => {}
+  }
+  setInputBackend(untrusted)
+  store.patchSettings({ computerUse: { ...defaultSettings.computerUse, enabled: true } })
+  const controller = new AbortController()
+  try {
+    await assert.rejects(
+      computerTool.run({ action: 'click', x: 10, y: 10 }, { request: { chatId: 'ax', messageId: 'ax-m' }, signal: controller.signal } as ToolContext),
+      (error: Error) => {
+        assert.match(error.message, /System Settings → Privacy & Security → Accessibility/)
+        assert.match(error.message, /Settings → Computer use/)
+        return true
+      }
+    )
+    assert.deepEqual(sent, [], 'nothing was sent')
+  } finally {
+    controller.abort()
+    setInputBackend(null)
+    store.patchSettings({ computerUse: { ...defaultSettings.computerUse } })
+  }
 })

@@ -17,7 +17,6 @@ body {
   font-family: var(--font-ui);
   font-size: var(--fs-base);
   line-height: 1.45;
-  letter-spacing: -0.01em;
   color: var(--text);
   /* The window's one and only background. `.sidebar`, `.main` and `.settings`
      used to paint their own, which meant any difference between them showed up
@@ -95,6 +94,22 @@ a:hover {
 /* ---- Scrollbars: only visible while the area is hovered ---- */
 .scroll {
   overflow-y: auto;
+}
+/* The app's panes scroll up and down only. With just overflow-y set, the
+   browser makes the other axis scrollable too, so one element wider than the
+   pane (a long unbroken note) let a trackpad swipe shift the whole layout
+   sideways. Wide content inside (code, tables, diffs) scrolls in its own box. */
+.thread,
+.page__scroll,
+.settings__scroll,
+.settings__nav-body,
+.sidebar__body,
+.code-home,
+.providers-shell,
+.pr-list,
+.modal__body {
+  overflow-x: hidden;
+  overscroll-behavior-x: none;
 }
 .scroll::-webkit-scrollbar {
   width: 10px;
@@ -184,6 +199,8 @@ a:hover {
   display: flex;
   flex-direction: column;
   position: relative;
+  /* The top bar's mode switch drops its labels when this gets narrow. */
+  container: main / inline-size;
 }
 
 .drag {
@@ -267,13 +284,59 @@ a:hover {
   overflow-y: auto;
 }
 
-/* Chat ⇄ Work, in the window's top bar.
+/* ---------------- Top bar ----------------
+   Every screen's top row: left content · the mode switch · right content. The
+   side columns are equal, so the switch sits at the centre of the window's
+   content area whatever each side holds; when space runs out the sides
+   shrink (titles ellipsise) and the switch keeps its place. Specific enough to
+   beat `.chat-header` / `.page__bar`, which stay for padding and dragging. */
+.chat-header.topbar,
+.page__bar.topbar {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  column-gap: 12px;
+}
+.chat-header.topbar:not([data-collapsed]),
+.page__bar.topbar:not([data-collapsed]) {
+  /* Same inset on both sides and on both kinds of row, so the switch sits at
+     the true centre and does not shift a few pixels between screens. */
+  padding-left: 16px;
+  padding-right: calc(16px + var(--window-controls-right));
+}
+.topbar__side {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  /* A side never paints over the switch: what does not fit is clipped (menus
+     are portalled, so they are not). The 2px inset keeps focus rings whole. */
+  overflow: hidden;
+  padding: 2px;
+  margin: -2px;
+}
+/* `safe`: when the actions are wider than their column they overflow to the
+   right, off the edge, instead of leftwards under the switch — which is how
+   the ADE's context meter ended up drawn over "Workers". */
+.topbar__side--right {
+  justify-content: safe flex-end;
+}
+.topbar .chat-header__title {
+  max-width: none;
+  min-width: 0;
+  flex: 0 1 auto;
+}
+.topbar .collapsed-nav {
+  margin-right: 2px;
+}
+
+/* Chat ⇄ Workers ⇄ ADE, centred in the top bar.
    Sits in a sunken track so the raised option reads as the selected one without
    needing an accent fill, which would fight the accent already spent on primary
    actions. The header is a drag region, so the buttons opt back out of it or
    they would move the window instead of switching mode. */
 .mode-switch {
   flex: none;
+  justify-self: center;
   display: flex;
   gap: 2px;
   padding: 3px;
@@ -315,6 +378,28 @@ a:hover {
 }
 .mode-switch__option[data-active] svg {
   color: var(--text);
+}
+.mode-switch__option {
+  position: relative;
+}
+/* A worker has something for you: unread replies or a failed task. */
+.mode-switch__dot {
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--sunken);
+}
+@container main (max-width: 700px) {
+  .mode-switch__label {
+    display: none;
+  }
+  .mode-switch__option {
+    padding: 0 11px;
+  }
 }
 
 .nav-item {
@@ -373,6 +458,82 @@ a:hover {
   letter-spacing: -0.005em;
 }
 
+.sidebar__section--action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-right: 3px;
+}
+.sidebar__section-btn {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: var(--r-xs);
+  color: var(--text-3);
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease), background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.sidebar__body:hover .sidebar__section-btn,
+.sidebar__section-btn:focus-visible {
+  opacity: 1;
+}
+.sidebar__section-btn:hover {
+  background: var(--hover-strong);
+  color: var(--text);
+}
+
+/* A project row expands to its chats, indented under it. */
+.nav-item__chevron {
+  flex: none;
+  color: var(--text-4);
+  transition: transform var(--dur-spring-fast) var(--spring-fast);
+}
+.nav-item__chevron[data-open] {
+  transform: rotate(90deg);
+}
+.nav-item__action {
+  display: none;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-right: -4px;
+  border-radius: var(--r-xs);
+  color: var(--text-3);
+}
+.nav-item--project:hover .nav-item__action {
+  display: grid;
+}
+.nav-item--project:hover .nav-item__chevron {
+  display: none;
+}
+.nav-item__action:hover {
+  background: var(--hover-strong);
+  color: var(--text);
+}
+.nav-group {
+  padding-left: 16px;
+}
+.nav-item--muted {
+  color: var(--text-3);
+}
+.nav-item__icon--face {
+  width: 18px;
+}
+
+.unread-badge {
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: var(--r-pill);
+  background: var(--accent);
+  color: var(--on-accent, #fff);
+  font-size: 10.5px;
+  font-weight: 600;
+  line-height: 17px;
+  text-align: center;
+}
+
 .sidebar__empty {
   padding: 0 8px;
   height: var(--nav-row-h);
@@ -389,12 +550,6 @@ a:hover {
   justify-content: flex-end;
   gap: 4px;
   padding: 6px 8px 10px 7px;
-}
-/* Eaon Work keeps Settings out of the scrollable nav list (see
-   .eaonbrain/eaon-work-mode.md) and pins it in the footer instead, next to
-   Help — that needs the two ends pushed apart rather than flush right. */
-.sidebar__footer[data-split='true'] {
-  justify-content: space-between;
 }
 .footer-item {
   display: flex;

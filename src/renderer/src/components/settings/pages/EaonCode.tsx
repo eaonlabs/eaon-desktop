@@ -47,7 +47,7 @@ export function EaonCodePage(): JSX.Element {
     setInstalling(false)
     if (result.ok) {
       useCode.setState({ status: result.data })
-      setMessage({ ok: true, text: `Installed Eaon Code ${result.data.version ?? ''}. New sessions use it; a running one keeps its version until restarted.` })
+      setMessage({ ok: true, text: `Installed Eaon Code ${result.data.version ?? ''}. New Eaon Code terminals use it; a running one keeps its version until restarted.` })
     } else {
       setMessage({ ok: false, text: result.error })
       await refreshStatus(true)
@@ -66,8 +66,8 @@ export function EaonCodePage(): JSX.Element {
     <>
       <h1 className="settings__h1">Eaon Code</h1>
       <p className="settings__lede">
-        The Code tab runs Eaon Code — Eaon&rsquo;s coding agent — in a project folder and shows its session here. Anything
-        the tab does not cover is one click away in a terminal.
+        Eaon Code is Eaon&rsquo;s coding agent. In the ADE, choose <strong>New terminal → Eaon Code</strong> to run it
+        in your project folder, next to Claude Code, Codex or a plain shell.
       </p>
 
       <Section label="Installation">
@@ -134,9 +134,9 @@ export function EaonCodePage(): JSX.Element {
             description={
               config.shareKeys
                 ? shared.length > 0
-                  ? `Sessions get ${shared.join(', ')}. Keys you set in Eaon Code itself, or export in your shell, take precedence.`
+                  ? `Eaon Code terminals get ${shared.join(', ')}. Keys you set in Eaon Code itself, or export in your shell, take precedence.`
                   : 'No keys saved in Eaon match a provider Eaon Code knows. Add one in Model providers.'
-                : 'Sessions use only the keys Eaon Code has itself (its /login, or your shell).'
+                : 'Eaon Code terminals use only the keys Eaon Code has itself (its /login, or your shell).'
             }
           >
             <Switch
@@ -147,8 +147,8 @@ export function EaonCodePage(): JSX.Element {
           </Row>
         </Card>
         <p className="settings__lede" style={{ marginTop: 12 }}>
-          Keys reach a session as environment variables when it starts; nothing is written to Eaon Code&rsquo;s own
-          configuration. Changes apply to the next session.
+          Keys reach an Eaon Code terminal as environment variables when it starts; nothing is written to Eaon
+          Code&rsquo;s own configuration. Changes apply to terminals opened (or restarted) after this.
         </p>
       </Section>
 

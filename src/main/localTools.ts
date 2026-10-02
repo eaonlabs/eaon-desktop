@@ -5,8 +5,8 @@ import { homedir, tmpdir } from 'node:os'
 import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { shell } from 'electron'
 import type { Settings } from '@shared/types'
-import { findSymbol, indexedPaths, searchIndex } from './codeIndex'
-import { isReadOnlyCommand, isRiskyCommand } from './agent/approvals'
+import { findSymbol, indexedPaths, listProjectFiles, searchIndex } from './codeIndex'
+import { isCatastrophicCommand, isReadOnlyCommand, isRiskyCommand } from './agent/approvals'
 import { capOutput, registerToolSource, type AgentTool, type ToolContext } from './agent/tools'
 
 /**
@@ -30,6 +30,8 @@ const MAX_COMMAND_TIMEOUT_MS = 600_000
 const DEFAULT_READ_LINES = 300
 const MAX_GREP_MATCHES = 60
 const MAX_LIST_ENTRIES = 200
+/** How many files grep and find_file look through before saying the search was cut short. */
+const MAX_SEARCH_FILES = 20_000
 
 const HOME = homedir()
 
@@ -75,6 +77,47 @@ const display = (cwd: string, path: string): string => {
 
 const background = new Map<number, { command: string; log: string }>()
 
+/** A failed spawn names the shell ("spawn /bin/zsh ENOENT") when what is missing is usually the folder. */
+function spawnError(error: Error, cwd: string): Error {
+  return (error as NodeJS.ErrnoException).code === 'ENOENT' && !existsSync(cwd) ? new Error(`The Work folder ${cwd} does not exist.`) : error
+}
+
+/**
+ * A command's output as its first and last `limit` characters, with a count
+ * of what lies between. A chatty build can print hundreds of megabytes; the
+ * first error and the summary are at the two ends.
+ */
+class HeadAndTail {
+  private head = ''
+  private tail = ''
+  private total = 0
+  constructor(private readonly limit: number) {}
+
+  push(chunk: string): void {
+    this.total += chunk.length
+    if (this.head.length < this.limit) {
+      const room = this.limit - this.head.length
+      this.head += chunk.slice(0, room)
+      chunk = chunk.slice(room)
+    }
+    if (!chunk) return
+    this.tail += chunk
+    if (this.tail.length > 2 * this.limit) this.tail = this.tail.slice(-this.limit)
+  }
+
+  /** The newest `n` characters, for live progress. */
+  recent(n: number): string {
+    return (this.tail.length >= n ? this.tail : this.head + this.tail).slice(-n)
+  }
+
+  text(): string {
+    if (this.head.length + this.tail.length === this.total) return capOutput((this.head + this.tail).trim(), this.limit)
+    const head = Math.floor(this.limit * 0.7)
+    const tail = this.limit - head
+    return `${this.head.slice(0, head).trimStart()}\n\n…[${(this.total - head - tail).toLocaleString()} characters omitted]…\n\n${this.tail.slice(-tail).trimEnd()}`
+  }
+}
+
 /**
  * Runs a command in the Work folder, streaming output into the transcript as
  * it arrives. Killed on timeout and when the turn is stopped — the whole
@@ -82,14 +125,36 @@ const background = new Map<number, { command: string; log: string }>()
  */
 function runCommand(command: string, ctx: ToolContext, timeoutMs: number): Promise<string> {
   return new Promise((resolvePromise, reject) => {
+    if (ctx.signal.aborted) return reject(new Error('aborted'))
     const child = spawn(command, {
       shell: process.platform === 'win32' ? true : process.env.SHELL || '/bin/bash',
       cwd: ctx.cwd,
       detached: process.platform !== 'win32',
+      // No stdin: a command that waits for input (a prompt, `cat` with no
+      // file) reads end-of-file at once instead of hanging until the timeout.
+      stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env, CI: '1', FORCE_COLOR: '0', NO_COLOR: '1', PAGER: 'cat', GIT_PAGER: 'cat' }
     })
-    let output = ''
+    const output = new HeadAndTail(MAX_OUTPUT)
     let lastProgress = 0
+    /** How the shell itself ended, known before 'close' when something it started still holds the output open. */
+    let exit: string | null = null
+    let note = ''
+    let settled = false
+    let grace: ReturnType<typeof setTimeout> | undefined
+    const settle = (): void => {
+      settled = true
+      clearTimeout(timer)
+      clearTimeout(grace)
+      ctx.signal.removeEventListener('abort', onAbort)
+    }
+    const finish = (status: string): void => {
+      if (settled) return
+      settle()
+      child.stdout?.destroy()
+      child.stderr?.destroy()
+      resolvePromise(`${status}\n${output.text() || '(no output)'}${note}`)
+    }
     const kill = (): void => {
       try {
         if (child.pid && process.platform !== 'win32') process.kill(-child.pid, 'SIGKILL')
@@ -97,35 +162,44 @@ function runCommand(command: string, ctx: ToolContext, timeoutMs: number): Promi
       } catch {
         /* already gone */
       }
+      // A process that left the group (setsid, a daemonising server) survives
+      // the kill and can hold the output open, so 'close' never comes. Report
+      // what there is shortly after instead of waiting on it for ever.
+      grace ??= setTimeout(() => finish(exit ?? 'terminated (SIGKILL)'), 2000)
     }
     const timer = setTimeout(() => {
-      output += `\n[killed after ${Math.round(timeoutMs / 1000)}s — pass a longer timeout_seconds, or background: true for servers]`
+      const seconds = Math.round(timeoutMs / 1000)
+      note =
+        exit === null
+          ? `\n[killed after ${seconds}s — pass a longer timeout_seconds, or background: true for servers]`
+          : `\n[stopped waiting after ${seconds}s: the command exited, but a process it started kept its output open — use background: true for servers]`
       kill()
     }, timeoutMs)
     const onAbort = (): void => kill()
     ctx.signal.addEventListener('abort', onAbort, { once: true })
 
-    const onData = (chunk: Buffer): void => {
-      output += chunk.toString()
-      if (output.length > 400_000) output = output.slice(-200_000)
+    const onData = (chunk: string): void => {
+      output.push(chunk)
       const now = Date.now()
       if (now - lastProgress > 250) {
         lastProgress = now
-        ctx.progress(output.slice(-4000))
+        ctx.progress(output.recent(4000))
       }
     }
+    // Decoded per stream, so a character split across two chunks survives.
+    child.stdout?.setEncoding('utf8')
+    child.stderr?.setEncoding('utf8')
     child.stdout?.on('data', onData)
     child.stderr?.on('data', onData)
     child.on('error', (error) => {
-      clearTimeout(timer)
-      reject(error)
+      if (settled) return
+      settle()
+      reject(spawnError(error, ctx.cwd))
     })
-    child.on('close', (code, signal) => {
-      clearTimeout(timer)
-      ctx.signal.removeEventListener('abort', onAbort)
-      const status = signal ? `terminated (${signal})` : `exit code ${code}`
-      resolvePromise(`${status}\n${capOutput(output.trim() || '(no output)', MAX_OUTPUT)}`)
+    child.on('exit', (code, signal) => {
+      exit = signal ? `terminated (${signal})` : `exit code ${code}`
     })
+    child.on('close', (code, signal) => finish(signal ? `terminated (${signal})` : `exit code ${code}`))
   })
 }
 
@@ -137,13 +211,33 @@ async function runBackground(command: string, cwd: string): Promise<string> {
     shell: process.platform === 'win32' ? true : process.env.SHELL || '/bin/bash',
     cwd,
     detached: true,
+    stdio: ['ignore', 'pipe', 'pipe'],
     env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' }
+  })
+  // Without a listener, a spawn that fails is an uncaught exception in the main process.
+  let failed: Error | null = null
+  const started = new Promise<void>((resolveStarted) => {
+    const timer = setTimeout(resolveStarted, 4000)
+    child.once('error', (error) => {
+      failed = error
+      clearTimeout(timer)
+      resolveStarted()
+    })
   })
   child.stdout?.pipe(out)
   child.stderr?.pipe(out)
   child.unref()
-  if (child.pid) background.set(child.pid, { command, log })
-  await new Promise((r) => setTimeout(r, 4000))
+  const pid = child.pid
+  if (pid) {
+    background.set(pid, { command, log })
+    // Forgotten once it exits, so quitting never signals a pid the system has since reused.
+    child.on('exit', () => background.delete(pid))
+  }
+  await started
+  if (failed) {
+    out.destroy()
+    throw spawnError(failed, cwd)
+  }
   const early = existsSync(log) ? await readFile(log, 'utf8').catch(() => '') : ''
   const exited = child.exitCode !== null
   return [
@@ -181,71 +275,93 @@ function renderHits(hits: { path: string; startLine: number; endLine: number; sy
 }
 
 /**
- * Fallback file list for grep/find_file before the folder has been indexed.
- * Hard-capped so an un-indexed home folder cannot stall a tool call.
+ * grep's `include` as models write it: a glob (`*.ts`, `*.{ts,tsx}`, or
+ * with `**` for any depth) or a plain path fragment (`src/`). Treating a glob as a
+ * fragment matched nothing and reported "No matches." for code that exists.
+ * A glob without a slash matches the file name, as in ripgrep and .gitignore.
  */
-async function shallowWalk(cwd: string, limit = 4000): Promise<string[]> {
-  const skip = new Set(['node_modules', '.git', 'dist', 'out', 'build', 'target', '.next', 'venv', '.venv', '__pycache__', 'Library'])
-  const found: string[] = []
-  const queue: string[] = [cwd]
-  while (queue.length > 0 && found.length < limit) {
-    const dir = queue.shift()!
-    let entries
-    try {
-      entries = await readdir(dir, { withFileTypes: true })
-    } catch {
-      continue
-    }
-    for (const entry of entries) {
-      if (entry.name.startsWith('.') || skip.has(entry.name)) continue
-      const full = join(dir, entry.name)
-      if (entry.isDirectory()) queue.push(full)
-      else if (entry.isFile()) found.push(relative(cwd, full).split(sep).join('/'))
-    }
+function includeFilter(include: string): (path: string) => boolean {
+  const pattern = include.trim().replace(/^\.?\//, '')
+  if (!/[*?{]/.test(pattern)) return (path) => path.includes(pattern)
+  let source = ''
+  let braces = 0
+  for (let i = 0; i < pattern.length; i++) {
+    const char = pattern[i]
+    if (char === '*' && pattern[i + 1] === '*') {
+      i++
+      if (pattern[i + 1] === '/') {
+        i++
+        source += '(?:.*/)?'
+      } else source += '.*'
+    } else if (char === '*') source += '[^/]*'
+    else if (char === '?') source += '[^/]'
+    else if (char === '{') {
+      braces++
+      source += '(?:'
+    } else if (char === '}' && braces > 0) {
+      braces--
+      source += ')'
+    } else if (char === ',' && braces > 0) source += '|'
+    else source += char.replace(/[.+^$()|[\]\\{}]/g, '\\$&')
   }
-  return found
+  let regex: RegExp
+  try {
+    regex = new RegExp(`^${source}$`)
+  } catch {
+    return (path) => path.includes(pattern)
+  }
+  return pattern.includes('/') ? (path) => regex.test(path) : (path) => regex.test(path.slice(path.lastIndexOf('/') + 1))
 }
 
-async function projectFiles(cwd: string): Promise<string[]> {
-  const indexed = indexedPaths(cwd)
-  return indexed.length > 0 ? indexed : shallowWalk(cwd)
-}
+/** Never text, so never worth reading for a grep. */
+const BINARY_EXTENSIONS = /\.(png|jpe?g|gif|webp|ico|icns|bmp|tiff?|heic|psd|pdf|zip|gz|tgz|bz2|xz|7z|rar|jar|war|class|o|a|so|dylib|dll|exe|bin|wasm|woff2?|ttf|otf|eot|mp[34]|m4a|mov|avi|mkv|wav|flac|ogg|webm|sqlite3?|db|pyc|node)$/i
 
-async function grepProject(cwd: string, pattern: string, include: string | undefined, caseSensitive: boolean): Promise<string> {
+async function grepProject(cwd: string, pattern: string, include: string | undefined, caseSensitive: boolean, signal?: AbortSignal): Promise<string> {
   let regex: RegExp
   try {
     regex = new RegExp(pattern, caseSensitive ? '' : 'i')
   } catch (error) {
     throw new Error(`Invalid regular expression: ${error instanceof Error ? error.message : String(error)}`)
   }
-  let paths = await projectFiles(cwd)
-  if (include) paths = paths.filter((path) => path.includes(include))
+  const listing = await listProjectFiles(cwd, MAX_SEARCH_FILES)
+  const wanted = include ? includeFilter(include) : null
+  const paths = listing.paths.filter((path) => !BINARY_EXTENSIONS.test(path) && (!wanted || wanted(path)))
 
-  const lines: string[] = []
-  for (const path of paths) {
-    if (lines.length >= MAX_GREP_MATCHES) break
-    let content: string
+  const read = async (path: string): Promise<string | null> => {
     try {
       const full = join(cwd, path)
-      if ((await stat(full)).size > 2_000_000) continue
-      content = await readFile(full, 'utf8')
+      if ((await stat(full)).size > 2_000_000) return null
+      const buffer = await readFile(full)
+      return buffer.subarray(0, 8000).includes(0) ? null : buffer.toString('utf8')
     } catch {
-      continue
-    }
-    if (!regex.test(content)) continue
-    const fileLines = content.split('\n')
-    for (let i = 0; i < fileLines.length && lines.length < MAX_GREP_MATCHES; i++) {
-      if (regex.test(fileLines[i])) lines.push(`${path}:${i + 1}: ${fileLines[i].trim().slice(0, 240)}`)
+      return null
     }
   }
-  if (lines.length === 0) return 'No matches.'
+  const lines: string[] = []
+  // A few reads at a time; matches are still reported in listing order.
+  for (let start = 0; start < paths.length && lines.length < MAX_GREP_MATCHES; start += 16) {
+    if (signal?.aborted) throw new Error('aborted')
+    const batch = paths.slice(start, start + 16)
+    const contents = await Promise.all(batch.map(read))
+    for (let f = 0; f < batch.length && lines.length < MAX_GREP_MATCHES; f++) {
+      const content = contents[f]
+      if (content === null || !regex.test(content)) continue
+      const fileLines = content.split('\n')
+      for (let i = 0; i < fileLines.length && lines.length < MAX_GREP_MATCHES; i++) {
+        if (regex.test(fileLines[i])) lines.push(`${batch[f]}:${i + 1}: ${fileLines[i].trim().slice(0, 240)}`)
+      }
+    }
+  }
+  const partial = listing.truncated ? `\n(Searched the first ${MAX_SEARCH_FILES.toLocaleString()} files only; narrow with include.)` : ''
+  if (lines.length === 0) return `No matches.${partial}`
   const capped = lines.length >= MAX_GREP_MATCHES ? `\n…stopped at ${MAX_GREP_MATCHES} matches; narrow the pattern or use include.` : ''
-  return capOutput(lines.join('\n') + capped, MAX_OUTPUT)
+  return capOutput(lines.join('\n') + capped + partial, MAX_OUTPUT)
 }
 
 async function findFile(cwd: string, query: string): Promise<string> {
   const needle = query.toLowerCase()
-  const scored = (await projectFiles(cwd))
+  const listing = await listProjectFiles(cwd, MAX_SEARCH_FILES)
+  const scored = listing.paths
     .map((path) => {
       const lower = path.toLowerCase()
       const base = lower.slice(lower.lastIndexOf('/') + 1)
@@ -255,7 +371,8 @@ async function findFile(cwd: string, query: string): Promise<string> {
     .filter((entry) => entry.score > 0)
     .sort((a, b) => b.score - a.score || a.path.length - b.path.length)
     .slice(0, 20)
-  return scored.length === 0 ? 'No matching files.' : scored.map((entry) => entry.path).join('\n')
+  const partial = listing.truncated ? `\n(Looked through the first ${MAX_SEARCH_FILES.toLocaleString()} files only.)` : ''
+  return (scored.length === 0 ? 'No matching files.' : scored.map((entry) => entry.path).join('\n')) + partial
 }
 
 async function listDir(cwd: string, target: string): Promise<string> {
@@ -292,6 +409,9 @@ async function readFileRange(cwd: string, target: string, startLine?: number, en
   const buffer = await readFile(path)
   if (buffer.subarray(0, 8000).includes(0)) return `${target} is a binary file (${info.size.toLocaleString()} bytes).`
   const lines = buffer.toString('utf8').split('\n')
+  // A final newline ends the last line; it does not start another.
+  if (lines.length > 1 && lines[lines.length - 1] === '') lines.pop()
+  if (lines.length === 1 && lines[0] === '') return `${target} is empty.`
 
   const from = Math.max(1, Math.floor(startLine ?? 1))
   const to = Math.min(lines.length, Math.floor(endLine ?? from + DEFAULT_READ_LINES - 1))
@@ -329,15 +449,19 @@ async function editFile(cwd: string, target: string, oldTextIn: string, newTextI
   const { path } = resolveWorkPath(cwd, target)
   const content = await readFile(path, 'utf8')
   if (!oldTextIn) throw new Error('old_text is empty. Use write_file to create a file.')
-  let oldText = oldTextIn
-  let newText = newTextIn
-  if (!content.includes(oldText)) {
-    const stripped = stripLineNumbers(oldText)
-    if (stripped && content.includes(stripped)) {
-      oldText = stripped
-      newText = stripLineNumbers(newText) ?? newText
-    }
+  // Readings of the snippet, most literal first: as sent; without read_file's
+  // line-number prefixes; and in a CRLF file, with its line endings — models
+  // always send \n, so no multi-line snippet matched a Windows-style file.
+  const readings: [string, string][] = [[oldTextIn, newTextIn]]
+  const stripped = stripLineNumbers(oldTextIn)
+  if (stripped !== null) readings.push([stripped, stripLineNumbers(newTextIn) ?? newTextIn])
+  if (content.includes('\r\n')) {
+    const crlf = (text: string): string => text.replace(/\r?\n/g, '\r\n')
+    for (const [o, n] of [...readings]) if (o.includes('\n') && !o.includes('\r')) readings.push([crlf(o), crlf(n)])
   }
+  const [oldText, found] = readings.find(([o]) => content.includes(o)) ?? readings[0]
+  // A file that is CRLF throughout stays so, whatever the new text arrived with.
+  const newText = content.includes('\r\n') && !/(^|[^\r])\n/.test(content) ? found.replace(/\r?\n/g, '\r\n') : found
   const occurrences = content.split(oldText).length - 1
   if (occurrences === 0) {
     // The single most common miss is indentation; say so when that is it.
@@ -358,6 +482,16 @@ async function editFile(cwd: string, target: string, oldTextIn: string, newTextI
 /* ------------------------------------------------------------ the tools */
 
 const str = (value: unknown): string => (typeof value === 'string' ? value : value === undefined || value === null ? '' : String(value))
+
+/**
+ * An optional 1-based line bound. Models often fill optional numbers with
+ * null or 0 meaning "not set"; read literally, end_line 0 returned nothing.
+ */
+function lineNumber(value: unknown): number | undefined {
+  if (value === undefined || value === null || value === '') return undefined
+  const n = Number(value)
+  return Number.isFinite(n) && n >= 1 ? n : undefined
+}
 
 function outsideWorkFolder(input: Record<string, unknown>, ctx: ToolContext): boolean {
   try {
@@ -407,13 +541,7 @@ function fileTools(settings: Settings, indexed: boolean): AgentTool[] {
         end_line: { type: 'number', description: '1-based, inclusive' }
       },
       ['path'],
-      (input, ctx) =>
-        readFileRange(
-          ctx.cwd,
-          str(input.path),
-          input.start_line === undefined ? undefined : Number(input.start_line),
-          input.end_line === undefined ? undefined : Number(input.end_line)
-        ),
+      (input, ctx) => readFileRange(ctx.cwd, str(input.path), lineNumber(input.start_line), lineNumber(input.end_line)),
       { describe: (input) => str(input.path) }
     ),
     tool(
@@ -421,11 +549,11 @@ function fileTools(settings: Settings, indexed: boolean): AgentTool[] {
       'Regex search across files in the Work folder. For exact identifiers and strings.',
       {
         pattern: { type: 'string', description: 'JavaScript regular expression' },
-        include: { type: 'string', description: 'Only paths containing this substring, e.g. "src/"' },
+        include: { type: 'string', description: 'Only these files: a glob ("*.ts", "src/**/*.tsx") or a path fragment ("src/")' },
         case_sensitive: { type: 'boolean' }
       },
       ['pattern'],
-      (input, ctx) => grepProject(ctx.cwd, str(input.pattern), input.include ? str(input.include) : undefined, Boolean(input.case_sensitive)),
+      (input, ctx) => grepProject(ctx.cwd, str(input.pattern), input.include ? str(input.include) : undefined, Boolean(input.case_sensitive), ctx.signal),
       { describe: (input) => str(input.pattern) }
     ),
     tool(
@@ -523,6 +651,7 @@ function fileTools(settings: Settings, indexed: boolean): AgentTool[] {
         // neither asks for approval nor is blocked in plan mode.
         mutating: (input) => Boolean(input.background) || !isReadOnlyCommand(str(input.command)),
         risky: (input) => isRiskyCommand(str(input.command)),
+        catastrophic: (input) => isCatastrophicCommand(str(input.command)),
         describe: (input) => str(input.command)
       }
     )
@@ -537,7 +666,7 @@ function fileTools(settings: Settings, indexed: boolean): AgentTool[] {
         ['query'],
         async (input, ctx) => {
           const limit = Number(input.limit) > 0 ? Math.min(Number(input.limit), 25) : 10
-          return capOutput(renderHits(await searchIndex(ctx.cwd, str(input.query), limit)), MAX_OUTPUT)
+          return capOutput(renderHits(await searchIndex(ctx.cwd, str(input.query), limit, ctx.signal)), MAX_OUTPUT)
         },
         { describe: (input) => str(input.query) }
       ),

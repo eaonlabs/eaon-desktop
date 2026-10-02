@@ -174,7 +174,7 @@ test('with the window open the chat goes to the renderer, streams live, and the 
   const chats = sent.filter((s) => s.channel === 'scheduler:chat').map((s) => s.payload as Chat)
   assert.equal(chats.length, 2, 'once when the run starts, once when it ends')
   assert.equal(chats[0].id, chats[1].id)
-  assert.equal(chats[0].workspaceId, 'code', 'Work-mode tasks land in the Work workspace')
+  assert.equal(chats[0].workspaceId, 'work', 'every run lands in Chat, which is the agent now')
   assert.equal(chats[0].messages[1].parts.length, 0, 'inserted empty, before any event')
   assert.equal(text(chats[1]), REPLY)
 

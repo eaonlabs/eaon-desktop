@@ -21,7 +21,7 @@ start at "Eaon 2026.6 feature map"). This file records status and evidence.
   - Chat/Work/Code tabs, and Plan/Swarm/Goal.
   - 51 built-in providers; ChatGPT/Codex, Copilot and OpenRouter sign-in.
   - 67 plugins; the scheduler; the MV3 extension; computer use.
-  - The model library, 14 themes and 6 pets.
+  - The model library and 14 themes.
   - Prompt caching, pruning, compaction and deferred plugin schemas.
 
 ## Changed in this pass
@@ -56,7 +56,7 @@ Legend: **V** = verified end to end on this Mac; **T** = automated tests;
 | Local model IDs | V | `npm run verify:models`: 22 models / 48 variants resolve, with sizes and digests checked. One digest was refreshed: Ollama re-published `qwen3.8:27b`. MiniCPM5 2B (`openbmb/MiniCPM5-2B`), K2 Horizon 7B (`IFM/K2-Horizon-7B`) and Qwen3.8 27B (`Qwen/Qwen3.8-27B`) confirmed on Hugging Face. K2 Horizon still needs a llama.cpp PR (flagged unsupported). |
 | Codex OAuth | I (account) | Client id, URLs, loopback callback, scope and originator match upstream Eaon Code exactly. Adapter tests cover the Codex backend. Sign-in needs a ChatGPT account. |
 | Computer use | T | 21 tests (approvals, per-action confirm, stop). Not driven live: it would move this machine's mouse and needs Screen Recording + Accessibility grants. |
-| Themes / pets | T | AA contrast test per theme (light + dark). Unchanged in this pass. |
+| Themes | T | AA contrast test per theme (light + dark). Unchanged in this pass. |
 | Windows paths of background mode | I (OS) | Code paths written (login item, tray); no Windows machine here. |
 
 ## Token efficiency (measured, `test/token-budget.test.ts`)

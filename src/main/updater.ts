@@ -15,7 +15,21 @@ let interactive = false
 
 function broadcast(next: UpdateStatus): void {
   status = next
-  getWindow()?.webContents.send('updater:status', status)
+  // On macOS the app outlives its window. A destroyed window throws on
+  // `webContents`, which inside electron-updater's event chain aborted the
+  // check (and every later one) while no window was open.
+  const window = getWindow()
+  if (window && !window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send('updater:status', status)
+}
+
+/**
+ * The background poll leaves a check or download in progress alone, and stops
+ * once an update is downloaded: it installs on quit regardless, and a later
+ * failed check (offline, say) would replace "Restart to update" with an error.
+ */
+function poll(): void {
+  if (status.state === 'checking' || status.state === 'downloading' || status.state === 'downloaded') return
+  void checkForUpdates()
 }
 
 export function getUpdateStatus(): UpdateStatus {
@@ -29,7 +43,12 @@ export function initUpdater(windowGetter: () => BrowserWindow | null): void {
   autoUpdater.autoInstallOnAppQuit = true
 
   autoUpdater.on('checking-for-update', () => broadcast({ state: 'checking' }))
-  autoUpdater.on('update-available', (info) => broadcast({ state: 'available', version: info.version }))
+  autoUpdater.on('update-available', (info) => {
+    broadcast({ state: 'available', version: info.version })
+    // The check the user asked about is answered; left set, the next
+    // background failure hours later would pop a dialog nobody asked for.
+    interactive = false
+  })
   autoUpdater.on('download-progress', (progress) =>
     broadcast({ state: 'downloading', percent: Math.round(progress.percent) })
   )
@@ -57,8 +76,8 @@ export function initUpdater(windowGetter: () => BrowserWindow | null): void {
 
   if (!app.isPackaged) return
   // Unpackaged (dev) builds have no update feed, so only a packaged app polls.
-  setTimeout(() => void checkForUpdates(), 10_000)
-  setInterval(() => void checkForUpdates(), CHECK_INTERVAL_MS)
+  setTimeout(poll, 10_000)
+  setInterval(poll, CHECK_INTERVAL_MS)
 }
 
 /**

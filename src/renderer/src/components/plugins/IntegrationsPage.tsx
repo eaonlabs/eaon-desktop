@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Settings } from 'lucide-react'
 import { useApp } from '../../state/store'
-import { CollapsedNav } from '../CollapsedNav'
+import { TopBar } from '../TopBar'
 import { SkillIcon } from '../../icons/brand'
 import { SearchField, Switch } from '../ui'
 import { PluginLogo } from './PluginLogo'
@@ -38,9 +38,7 @@ export function IntegrationsPage(): JSX.Element {
 
   return (
     <div className="page">
-      <div className="page__bar" data-collapsed={!sidebarOpen || undefined}>
-        {!sidebarOpen && <CollapsedNav />}
-      </div>
+      <TopBar variant="page__bar" />
       <div className="page__scroll scroll">
         <div className="page__inner page__inner--narrow">
           <div className="manager__bar">

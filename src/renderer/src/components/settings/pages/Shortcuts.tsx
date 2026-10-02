@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { Pencil, Trash2, Zap } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import { useApp } from '../../../state/store'
 import { Card, Modal, SearchField } from '../../ui'
 
@@ -30,7 +31,7 @@ const SHORTCUTS: ShortcutDef[] = [
 ]
 
 export function ShortcutsPage(): JSX.Element {
-  const { settings, patchSettings } = useApp()
+  const { settings, patchSettings } = useApp(useShallow((s) => ({ settings: s.settings, patchSettings: s.patchSettings })))
   const [query, setQuery] = useState('')
   const [recording, setRecording] = useState<string | null>(null)
   const [captured, setCaptured] = useState<string | null>(null)

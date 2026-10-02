@@ -41,6 +41,8 @@ export const shell = {
   showItemInFolder: () => {}
 }
 
+export const dialog = { showMessageBox: async () => ({ response: -1 }) }
+export const crashReporter = { start: () => {} }
 export const nativeTheme = { shouldUseDarkColors: true, themeSource: 'system' }
 export const ipcMain = { handle: () => {}, on: () => {} }
 /** Constructible, because computer use opens its indicator window with `new BrowserWindow`. */

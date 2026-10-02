@@ -2,7 +2,7 @@
 title: Model provider quirks and where they live
 tags: [eaon-desktop, providers, adapters, compat, openai-compatible, ollama]
 created: 2026-09-24T13:44:37.000Z
-updated: 2026-09-24T13:44:37.000Z
+updated: 2026-09-29T14:29:40.172Z
 ---
 
 # Model provider quirks and where they live
@@ -13,9 +13,11 @@ provider-specific is decided in **`src/main/providers/compat.ts`**, keyed on the
 provider id *or the host* — so a custom endpoint pointed at `api.deepseek.com`
 gets DeepSeek's treatment. Source of truth for the rules was Eaon Code
 (`~/Downloads/eaon-code-main/packages/ai/src/api/openai-completions.ts`
-`detectCompat` and `providers/data/*.json`). Seeds in `catalog.ts` were
-generated from those JSON files; `efforts: []` means "this endpoint takes no
-effort for this model" and hides the picker.
+`detectCompat` and `providers/data/*.json`). Model lists are no longer hand
+seeds in `catalog.ts`: they are generated from Pi's data and models.dev, see
+[[Model catalog: generated from Pi and models.dev, with user overlays]].
+`efforts: []` means "this endpoint takes no effort for this model" and hides
+the picker; `effortReaches` in `compat.ts` enforces it per endpoint.
 
 ## Quirks that break things if you forget them
 
@@ -61,3 +63,7 @@ others `true`. Note `prompt_eval_count` excludes KV-cache-reused tokens, so Olla
 input usage under-reports on later rounds.
 
 Related: [[Subscription sign-in: ChatGPT, Copilot and OpenRouter]], [[Eaon Desktop architecture]], [[Local model hub (Models page)]]
+
+Related: [[Provider adapter gotchas: retry-after, image tokens and timeouts]]
+
+Related: [[Local API Server: origin rules and never routing to itself]]

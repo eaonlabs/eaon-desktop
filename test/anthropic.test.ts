@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createServer } from 'node:http'
 import { anthropicAdapter } from '../src/main/providers/adapters/anthropic'
-import type { TurnRequest } from '../src/main/providers/adapters/types'
+import { ProviderHttpError, type TurnRequest } from '../src/main/providers/adapters/types'
 import { provider } from './helpers'
 
 /**
@@ -159,6 +159,85 @@ test('message_stop without a stop_reason is not taken as a finished reply', asyn
   const { url, server } = await anthropicServer(cut)
   try {
     await assert.rejects(anthropicAdapter.turn(request(url, 'claude-opus-4-7')), /stream ended before it finished/)
+  } finally {
+    server.close()
+  }
+})
+
+test('an overload without retry-after leaves the wait to the loop, and reads as the API message', async () => {
+  // Number(null) is 0: a missing header used to become "retry in 0s", so an
+  // overloaded API was hit three more times back to back.
+  const server = createServer((_req, res) => {
+    res.writeHead(529, { 'Content-Type': 'application/json' })
+    res.end(JSON.stringify({ type: 'error', error: { type: 'overloaded_error', message: 'Overloaded' } }))
+  })
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()))
+  const url = `http://127.0.0.1:${(server.address() as { port: number }).port}`
+  try {
+    const error = (await anthropicAdapter.turn(request(url, 'claude-opus-5')).then(
+      () => assert.fail('expected a rejection'),
+      (e: unknown) => e
+    )) as ProviderHttpError
+    assert.ok(error instanceof ProviderHttpError)
+    assert.equal(error.status, 529)
+    assert.equal(error.retryAfterMs, undefined)
+    assert.equal(error.message, '529: Overloaded')
+  } finally {
+    server.close()
+  }
+})
+
+test('retry-after on a 429 is honoured', async () => {
+  const server = createServer((_req, res) => {
+    res.writeHead(429, { 'Content-Type': 'application/json', 'retry-after': '7' })
+    res.end(JSON.stringify({ type: 'error', error: { type: 'rate_limit_error', message: 'Slow down' } }))
+  })
+  await new Promise<void>((r) => server.listen(0, '127.0.0.1', () => r()))
+  const url = `http://127.0.0.1:${(server.address() as { port: number }).port}`
+  try {
+    await assert.rejects(anthropicAdapter.turn(request(url, 'claude-opus-5')), (error: unknown) => {
+      assert.ok(error instanceof ProviderHttpError)
+      assert.equal(error.retryAfterMs, 7000)
+      return true
+    })
+  } finally {
+    server.close()
+  }
+})
+
+test('a reply stopped by the context window is cut off, so its tool call is not run', async () => {
+  // The SDK fills a half-streamed tool input in from partial JSON; a
+  // write_file cut here would otherwise run with truncated content.
+  const cut = [
+    ...toolUseStream.slice(0, 5),
+    { event: 'content_block_delta', data: { type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '{"path":"a' } } },
+    { event: 'content_block_stop', data: { type: 'content_block_stop', index: 1 } },
+    { event: 'message_delta', data: { type: 'message_delta', delta: { stop_reason: 'model_context_window_exceeded', stop_sequence: null }, usage: { output_tokens: 9 } } },
+    { event: 'message_stop', data: { type: 'message_stop' } }
+  ]
+  const { url, server } = await anthropicServer(cut)
+  try {
+    const result = await anthropicAdapter.turn(request(url, 'claude-opus-5'))
+    assert.equal(result.stop, 'max_tokens')
+  } finally {
+    server.close()
+  }
+})
+
+test('screenshots in the transcript do not squeeze max_tokens to the floor', async () => {
+  // Image base64 was counted as text: four 250 KB screenshots "used" ~280k
+  // of a 200k window, so every reply was capped at 1024 tokens (thinking
+  // included) and the loop kept reporting "hit the output limit".
+  const shot = { mime: 'image/png', data: 'A'.repeat(250_000) }
+  const messages: TurnRequest['messages'] = [{ role: 'user', text: 'click through the settings' }]
+  for (let i = 0; i < 4; i++) {
+    messages.push({ role: 'assistant', text: '', calls: [{ id: `t${i}`, name: 'computer', input: { action: 'screenshot' } }] })
+    messages.push({ role: 'tool', results: [{ id: `t${i}`, name: 'computer', output: '1280x800', images: [shot] }] })
+  }
+  const { url, server, captured } = await anthropicServer(toolUseStream)
+  try {
+    await anthropicAdapter.turn(request(url, 'claude-haiku-4-5', { messages }))
+    assert.ok(captured[0].body.max_tokens > 32_000, `max_tokens was ${captured[0].body.max_tokens}`)
   } finally {
     server.close()
   }

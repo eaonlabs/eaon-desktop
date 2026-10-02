@@ -447,7 +447,7 @@ export const skillsFeature: Feature = {
     })
     ipcMain.handle('skills:reveal', (_e, path: string) => {
       // Only ever a skill folder we listed, not an arbitrary path from the renderer.
-      const known = discoverSkills(store.getWorkspaces().find((w) => w.kind === 'work')?.cwd ?? null)
+      const known = discoverSkills(store.getWorkspaces().find((w) => w.kind === 'chat')?.cwd ?? null)
       if (known.some((s) => s.path === path || s.dir === path)) shell.showItemInFolder(path)
     })
   }

@@ -1,0 +1,254 @@
+/* Settings → Email. Status pills and tables reuse extension.css and trading.css. */
+
+.em-error {
+  margin: 14px 0 0;
+  font-size: var(--fs-sm);
+  color: var(--danger);
+}
+.em-error--inline {
+  margin: 0;
+}
+/* How to get a Cloudflare credential, under its field. */
+.em-howto {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  color: var(--text-3);
+}
+.em-howto b,
+.em-key-note b {
+  font-weight: 500;
+  color: var(--text-2);
+}
+.em-key-note {
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--text-2);
+}
+.em-modal-lede {
+  margin: 0 0 12px;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+.em-footnote {
+  margin: 8px 2px 0;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.em-footnote--flush {
+  margin: 0;
+}
+.em-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  width: 100%;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.em-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  width: 100%;
+}
+.em-actions .input {
+  flex: 1;
+  min-width: 160px;
+}
+.em-address-input {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+}
+.em-address-input .input {
+  flex: 1;
+  min-width: 0;
+}
+/* Next to its button in a row of actions: it grows, the button keeps its size. */
+.em-actions .em-address-input {
+  flex: 1;
+  width: auto;
+  min-width: 240px;
+}
+.em-address-input__domain {
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.em-mono {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+.em-code {
+  max-width: 130px;
+  font-family: var(--font-mono);
+  letter-spacing: 0.2em;
+  text-align: center;
+}
+.em-number {
+  width: 84px;
+  text-align: right;
+}
+.em-address {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.em-address svg {
+  color: var(--text-3);
+}
+.em-section-label {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.em-empty {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.em-message {
+  width: 100%;
+  align-items: flex-start;
+  text-align: left;
+  color: inherit;
+  gap: 10px;
+}
+.em-message:hover {
+  background: var(--hover);
+}
+.em-message__dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  margin-top: 6px;
+  border-radius: 50%;
+}
+.em-message[data-unread] .em-message__dot {
+  background: var(--accent);
+}
+.em-message .row__body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.em-message__top {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: var(--fs-sm);
+}
+.em-message__from {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+.em-message[data-unread] .em-message__from,
+.em-message[data-unread] .em-message__subject {
+  font-weight: 600;
+}
+.em-message__time {
+  flex: none;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.em-message__subject {
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+.em-message__preview {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.em-read {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.em-read__head {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: var(--fs-sm);
+}
+.em-read__body {
+  margin: 0;
+  max-height: 50vh;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-ui);
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+  color: var(--text);
+}
+
+.em-domain {
+  margin-top: 12px;
+}
+.em-records {
+  padding: 4px 16px 14px;
+}
+/* Fixed columns, so a long DKIM value shortens with "…" (and copies whole)
+   instead of pushing Status off the card. */
+.em-records .tr-table {
+  table-layout: fixed;
+}
+.em-records th:nth-child(1) {
+  width: 72px;
+}
+.em-records th:nth-child(2) {
+  width: 34%;
+}
+.em-records th:nth-child(4) {
+  width: 92px;
+}
+.em-cell {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+.em-cell__text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: all;
+}
+.em-record {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.em-record[data-status='VALID'] {
+  color: var(--diff-add-fg);
+}
+.em-record[data-status='INVALID'] {
+  color: var(--danger);
+}
+
+/* The Beta label beside a title (the shared .badge, nudged to sit on the text line). */
+.em-beta {
+  margin-left: 8px;
+  vertical-align: 1px;
+  font-weight: 500;
+}
+.em-address .em-beta {
+  margin-left: 2px;
+}

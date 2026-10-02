@@ -20,14 +20,22 @@ import type {
   UpdateStatus,
   Workspace
 } from '@shared/types'
+import type { ModelEdit, ModelsRefresh } from '@shared/providers'
 import { providerAuthApi } from './features/providerAuth'
 import { pluginsApi } from './features/plugins'
 import { schedulerApi } from './features/scheduler'
 import { computerUseApi } from './features/computerUse'
 import { browserBridgeApi } from './features/browserBridge'
 import { eaonCodeApi } from './features/eaonCode'
-import { petsApi } from './features/pets'
+import { discordApi } from './features/discordPresence'
 import { modelLibraryApi } from './features/modelLibrary'
+import { libraryApi } from './features/library'
+import { terminalsApi } from './features/terminals'
+import { workersApi } from './features/workers'
+import { channelsApi } from './features/channels'
+import { agentBrowserApi } from './features/agentBrowser'
+import { emailApi } from './features/email'
+import { tradingApi } from './features/trading'
 
 const api = {
   /**
@@ -51,7 +59,7 @@ const api = {
   },
   chats: {
     get: (): Promise<Chat[]> => ipcRenderer.invoke('chats:get'),
-    save: (value: Chat[]): Promise<Chat[]> => ipcRenderer.invoke('chats:save', value)
+    save: (value: Chat[]): Promise<void> => ipcRenderer.invoke('chats:save', value)
   },
   mcp: {
     get: (): Promise<McpServer[]> => ipcRenderer.invoke('mcp:get'),
@@ -104,10 +112,14 @@ const api = {
   },
   providers: {
     list: (): Promise<Provider[]> => ipcRenderer.invoke('providers:list'),
-    update: (id: string, patch: Partial<Provider>): Promise<Provider[]> =>
+    update: (id: string, patch: Partial<Pick<Provider, 'baseUrl' | 'enabled' | 'name' | 'kind'>>): Promise<Provider[]> =>
       ipcRenderer.invoke('providers:update', id, patch),
     remove: (id: string): Promise<Provider[]> => ipcRenderer.invoke('providers:remove', id),
     refreshModels: (id: string) => ipcRenderer.invoke('providers:refresh-models', id),
+    /** Re-reads models.dev and, when usable, the provider's own listing; says what changed. */
+    refresh: (id: string): Promise<ModelsRefresh> => ipcRenderer.invoke('providers:refresh', id),
+    /** Remove, restore, add or rename a model; returns the updated providers. */
+    editModels: (id: string, edit: ModelEdit): Promise<Provider[]> => ipcRenderer.invoke('providers:edit-models', id, edit),
     test: (id: string): Promise<{ ok: boolean; message: string }> => ipcRenderer.invoke('providers:test', id),
     /** Fired when a background refresh (local runtimes) changed some provider's model list. */
     onChanged: (handler: () => void): (() => void) => {
@@ -148,6 +160,8 @@ const api = {
     openExternal: (url: string): Promise<void> => ipcRenderer.invoke('app:open-external', url),
     showItem: (path: string): Promise<void> => ipcRenderer.invoke('app:show-item', path),
     version: (): Promise<string> => ipcRenderer.invoke('app:version'),
+    /** Records a renderer error in crashes.log (main/crashGuard.ts). */
+    reportError: (report: { message: string; stack?: string; source?: string }): void => ipcRenderer.send('app:report-error', report),
     /** Background mode for scheduled tasks; see main/background.ts. */
     background: (): Promise<{ supported: boolean; enabled: boolean }> => ipcRenderer.invoke('background:get'),
     setBackground: (enabled: boolean): Promise<{ supported: boolean; enabled: boolean }> =>
@@ -211,8 +225,15 @@ const fullApi = {
   computerUse: computerUseApi,
   browserBridge: browserBridgeApi,
   eaonCode: eaonCodeApi,
-  pets: petsApi,
-  modelLibrary: modelLibraryApi
+  discord: discordApi,
+  modelLibrary: modelLibraryApi,
+  library: libraryApi,
+  terminals: terminalsApi,
+  workers: workersApi,
+  channels: channelsApi,
+  agentBrowser: agentBrowserApi,
+  email: emailApi,
+  trading: tradingApi
 }
 
 contextBridge.exposeInMainWorld('api', fullApi)

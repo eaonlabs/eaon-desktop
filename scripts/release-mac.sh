@@ -49,6 +49,11 @@ if [ "${1:-}" = "--publish" ]; then
   PUBLISH="always"
 fi
 
+# Eaon's own llama.cpp runtime ships inside the app; build it if missing.
+if [ ! -x resources/llama/darwin-arm64/llama-server ] || [ ! -x resources/llama/darwin-x64/llama-server ]; then
+  ./scripts/build-llama.sh all
+fi
+
 echo "Building Eaon for macOS (notarizing as ${APPLE_ID%%@*}@…, publish=$PUBLISH)"
 npx electron-vite build
 npx electron-builder --mac --publish "$PUBLISH"

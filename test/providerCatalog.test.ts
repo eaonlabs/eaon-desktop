@@ -8,6 +8,7 @@ import { copilotBaseUrl } from '../src/main/providers/oauth/copilot'
 import { __test as codex } from '../src/main/providers/oauth/codex'
 import { parseAuthorizationInput, pkce, singleFlight } from '../src/main/providers/oauth/shared'
 import { createHash } from 'node:crypto'
+import { customProviderId } from '@shared/providers'
 
 test('catalog: unique ids, a category and description everywhere, a key link for every key provider', () => {
   const ids = new Set<string>()
@@ -184,4 +185,14 @@ test('OAuth: concurrent refreshes share one request (refresh tokens are single-u
   assert.deepEqual(results, [1, 1, 1])
   assert.equal(calls, 1)
   assert.equal(await refresh(), 2)
+})
+
+test('a custom provider never takes an id that is already in use', () => {
+  // Naming a custom endpoint "OpenAI" used to store it as `openai`, which
+  // replaced the built-in OpenAI's base URL and its saved API key.
+  const taken = BUILT_IN.map((p) => p.id)
+  assert.equal(customProviderId('OpenAI', taken), 'openai-2')
+  assert.equal(customProviderId('Ollama', [...taken, 'ollama-2']), 'ollama-3')
+  assert.equal(customProviderId('  My LLM server! ', taken), 'my-llm-server')
+  assert.equal(customProviderId('!!!', taken), '')
 })

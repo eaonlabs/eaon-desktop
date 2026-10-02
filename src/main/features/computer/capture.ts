@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { desktopCapturer, nativeImage, screen, systemPreferences, type Display, type NativeImage } from 'electron'
 import { targetSize, type Frame, type Quality } from './geometry'
+import { permissionOwnerLabel } from './mac'
 
 const run = promisify(execFile)
 
@@ -56,14 +57,32 @@ async function captureMac(display: Display, primary: boolean): Promise<NativeIma
   } catch (error) {
     const stderr = String((error as { stderr?: string }).stderr ?? '').trim()
     if (/could not create image/i.test(stderr)) {
+      const who = await permissionOwnerLabel()
       throw new ScreenCaptureDenied(
-        'macOS refused the screenshot ("could not create image from display"). Eaon needs Screen Recording permission: System Settings → Privacy & Security → Screen & System Audio Recording → turn on Eaon, then quit and reopen Eaon.'
+        `macOS refused the screenshot: Screen Recording is off for ${who}. Tell the user to open Settings → Computer use in Eaon, which walks through it step by step, or to switch on ${who} in System Settings → Privacy & Security → Screen & System Audio Recording ("Screen Recording" before macOS 15) and then quit and reopen Eaon, since macOS applies it only after a restart. Retry only after they have.`
       )
     }
     throw new Error(stderr || (error as Error).message)
   } finally {
     await rm(file, { force: true })
   }
+}
+
+/**
+ * Puts Eaon in System Settings' Screen Recording list, so the user has a
+ * switch to flip rather than a "+" to hunt with. Only an actual capture
+ * request does that; on a Mac never asked before, macOS also shows its own
+ * prompt here. From Eaon's own process rather than a screencapture child, so
+ * the request is Eaon's beyond doubt. The thumbnail is 1×1 because at 0×0
+ * Electron skips the capture, and with it the request. Capped, since the
+ * pane should open even if the capture hangs.
+ */
+export async function requestScreenAccess(): Promise<void> {
+  if (process.platform !== 'darwin') return
+  await Promise.race([
+    desktopCapturer.getSources({ types: ['screen'], thumbnailSize: { width: 1, height: 1 } }).catch(() => []),
+    new Promise((resolve) => setTimeout(resolve, 3000))
+  ])
 }
 
 async function captureDesktop(display: Display): Promise<NativeImage> {

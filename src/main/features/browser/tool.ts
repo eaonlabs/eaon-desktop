@@ -19,7 +19,7 @@ import { NotConnectedError, type BrowserBridge } from './server'
  * and hover are here too — asking the user to approve a scroll in "Ask for
  * approval" mode would make the tool unusable for no safety gain.
  */
-const READ_ONLY = new Set<BrowserAction>(['snapshot', 'screenshot', 'list_tabs', 'get_url', 'wait', 'scroll', 'hover', 'switch_tab'])
+const READ_ONLY = new Set<BrowserAction>(['snapshot', 'screenshot', 'list_tabs', 'get_url', 'wait', 'scroll', 'hover', 'switch_tab', 'read', 'find'])
 
 /** Element actions that must name a ref. */
 const NEEDS_REF = new Set<BrowserAction>(['click', 'type', 'select', 'hover'])
@@ -56,7 +56,18 @@ const SCHEMA: Record<string, unknown> = {
     option: { type: 'string', description: 'select: the option\'s visible label or value' },
     tabId: { type: 'integer', description: 'switch_tab, close_tab: id from list_tabs' },
     selector: { type: 'string', description: 'wait: CSS selector to wait for' },
-    timeout: { type: 'number', description: 'wait: seconds, default 10, max 30' }
+    timeout: { type: 'number', description: 'wait: seconds, default 10, max 30' },
+    offset: { type: 'integer', description: 'read: where to continue from (the offset the previous read gave)' },
+    all: { type: 'boolean', description: 'read: the whole page, navigation included, not just the main content' },
+    fields: {
+      type: 'array',
+      description: 'fill: the fields to fill, in order',
+      items: {
+        type: 'object',
+        properties: { ref: { type: 'integer' }, text: { type: 'string', description: 'Text to enter, or the option to choose in a select' } },
+        required: ['ref', 'text']
+      }
+    }
   },
   required: ['action']
 }
@@ -65,14 +76,17 @@ const DESCRIPTION = `Use the user's Chrome browser through the Eaon extension. Y
 Actions:
 - navigate {url} / new_tab {url?} / back / forward — open pages in your current tab (a new one if you have none yet)
 - snapshot — the page as numbered interactive elements ([n] role "name" state) plus its text. Call it before acting and again after the page changes
+- read {offset?, all?} — the page's content as Markdown, top to bottom, in pages; for reading articles and docs. No refs
+- find {text} — where text appears on the page, with refs for any controls among the matches
 - click {ref} / hover {ref} / type {ref, text, submit?} / select {ref, option} / press {key, ref?}
+- fill {fields: [{ref, text}]} — several form fields (text or select) in one step
 - scroll {direction?, amount?, ref?} — ref alone scrolls that element into view
 - wait {text? | selector? | timeout?} — for text or an element to appear; with neither, for the page to finish loading
 - screenshot — an image of the visible part of the page, for when layout or visuals matter
-- get_url — current tab's URL, title and loading state
+- get_url — current tab's URL, title and loading state / reload
 - list_tabs / switch_tab {tabId} / close_tab {tabId?} — tabs you may use`
 
-const GUIDANCE = `Browser: read a page with browser {action:"snapshot"}, act on elements by their [n] ref (click, type, select), then snapshot again — refs from before a navigation or a big page change are rejected. Prefer snapshots to screenshots; they are cheaper and give you refs. Your tabs live in the "Eaon" tab group; use the user's other tabs only if list_tabs shows them as shared. Confirm with the user before buying, paying, sending or posting anything, or deleting data, unless that is exactly what they asked for, and never enter passwords or card numbers they did not give you for this task. Input is simulated, so a few sites ignore it — if an action has no effect twice, say so instead of looping.`
+const GUIDANCE = `Browser: read a page with browser {action:"snapshot"}, act on elements by their [n] ref (click, type, select, fill), then snapshot again — refs from before a navigation or a big page change are rejected. To read a long article or docs page use read (and read again with the offset it gives); to locate something on a long page use find. Prefer these to screenshots; they are cheaper. Your tabs live in the "Eaon" tab group; use the user's other tabs only if list_tabs shows them as shared. Confirm with the user before buying, paying, sending or posting anything, or deleting data, unless that is exactly what they asked for, and never enter passwords or card numbers they did not give you for this task. Input is simulated, so a few sites ignore it — if an action has no effect twice, say so instead of looping.`
 
 interface PageMemory {
   /** Tab the extension last reported acting on. */
@@ -109,6 +123,10 @@ function submitIsRisky(el: SnapshotElement): boolean {
   return MESSAGE_FIELD.test(el.name) && !/search|find|filter/i.test(el.name)
 }
 
+/** Buttons that spend money: an autonomous worker may post or send, but never pays. */
+const SPENDING =
+  /\b(buy|purchase|pay|checkout|check out|place (?:your |my |the )?order|order now|complete (?:order|purchase|payment)|confirm (?:order|purchase|payment|booking)|book now|subscribe|donate|transfer|withdraw)\b/i
+
 function clickIsRisky(el: SnapshotElement): boolean {
   if (COMMITTING.test(el.name)) return true
   // "OK" in a "Delete 3 files?" dialog.
@@ -128,6 +146,12 @@ export function createBrowserTool(bridge: BrowserBridge): { tool: AgentTool; sou
     const ref = asInt(input.ref)
     const el = elementFor(ref)
     switch (action) {
+      case 'fill':
+        // Any field that cannot be judged, or that holds a card number or code, is asked about.
+        return fieldsOf(input).some((field) => {
+          const known = elementFor(field.ref)
+          return !known || isSensitive(known)
+        })
       case 'click':
         // A ref with no snapshot behind it cannot be judged, so it is asked about.
         return !el || clickIsRisky(el)
@@ -164,10 +188,24 @@ export function createBrowserTool(bridge: BrowserBridge): { tool: AgentTool; sou
       case 'switch_tab':
       case 'close_tab':
         return `${action}${input.tabId !== undefined ? ` ${String(input.tabId)}` : ''}`
+      case 'fill': {
+        const fields = fieldsOf(input)
+        return `fill ${fields.length} field${fields.length === 1 ? '' : 's'}: ${fields.map((f) => label(elementFor(f.ref), f.ref)).join(', ')}`
+      }
+      case 'find':
+        return `find "${asString(input.text) ?? ''}"`
       default:
         return `${action} ${target}`.trim()
     }
   }
+
+  /** The fields of a fill, keeping only well-formed ones. */
+  const fieldsOf = (input: Record<string, unknown>): { ref: number; text: string }[] =>
+    (Array.isArray(input.fields) ? input.fields : [])
+      .map((raw) => (raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}))
+      .map((raw) => ({ ref: asInt(raw.ref), text: typeof raw.text === 'string' ? raw.text : typeof raw.value === 'string' ? raw.value : undefined }))
+      .filter((field): field is { ref: number; text: string } => field.ref !== undefined && field.text !== undefined)
+      .slice(0, 50)
 
   const setupHelp = (): string => {
     const status = bridge.status()
@@ -248,6 +286,29 @@ export function createBrowserTool(bridge: BrowserBridge): { tool: AgentTool; sou
       case 'snapshot':
         params.maxChars = 8000
         break
+      case 'read': {
+        const offset = asInt(input.offset)
+        if (offset !== undefined && offset > 0) params.offset = offset
+        if (input.all === true) params.all = true
+        params.maxChars = 12000
+        break
+      }
+      case 'find': {
+        const text = asString(input.text)
+        if (!text) return 'find needs "text": the words to look for on the page.'
+        params.text = text
+        break
+      }
+      case 'fill': {
+        const fields = fieldsOf(input)
+        if (!fields.length) return 'fill needs "fields": a list of {ref, text} from the latest snapshot.'
+        // Each field carries its expected name, like a single type does.
+        params.fields = fields.map((field) => {
+          const known = elementFor(field.ref)
+          return known ? { ...field, expectName: known.name } : field
+        })
+        break
+      }
       default:
         break
     }
@@ -256,7 +317,7 @@ export function createBrowserTool(bridge: BrowserBridge): { tool: AgentTool; sou
 
   const timeoutFor = (action: BrowserAction, params: Record<string, unknown>): number => {
     if (action === 'wait') return Number(params.timeoutMs ?? 10_000) + 10_000
-    if (action === 'navigate' || action === 'new_tab' || action === 'back' || action === 'forward') return 45_000
+    if (action === 'navigate' || action === 'new_tab' || action === 'back' || action === 'forward' || action === 'reload') return 45_000
     return 30_000
   }
 
@@ -264,8 +325,9 @@ export function createBrowserTool(bridge: BrowserBridge): { tool: AgentTool; sou
     const tabId = asInt(result.tabId)
     if ('currentTabId' in result) memory.currentTabId = asInt(result.currentTabId) ?? null
     else if (tabId !== undefined) memory.currentTabId = tabId
-    if (action === 'snapshot' && tabId !== undefined && Array.isArray(result.elements)) {
-      const elements = new Map<number, SnapshotElement>()
+    if ((action === 'snapshot' || action === 'find') && tabId !== undefined && Array.isArray(result.elements)) {
+      // A snapshot describes the whole page; find adds to what is known.
+      const elements = action === 'find' ? (memory.elements.get(tabId) ?? new Map<number, SnapshotElement>()) : new Map<number, SnapshotElement>()
       for (const raw of result.elements as SnapshotElement[]) {
         if (raw && typeof raw.ref === 'number') elements.set(raw.ref, { ...raw, name: String(raw.name ?? '') })
       }
@@ -274,6 +336,10 @@ export function createBrowserTool(bridge: BrowserBridge): { tool: AgentTool; sou
     if (action === 'type' && tabId !== undefined) {
       const ref = asInt(input.ref)
       if (ref !== undefined) memory.lastTyped = { tabId, ref }
+    }
+    if (action === 'fill' && tabId !== undefined) {
+      const last = fieldsOf(input).at(-1)
+      if (last) memory.lastTyped = { tabId, ref: last.ref }
     }
     if (action === 'close_tab' && tabId !== undefined) memory.elements.delete(tabId)
   }
@@ -297,6 +363,17 @@ export function createBrowserTool(bridge: BrowserBridge): { tool: AgentTool; sou
     inputSchema: SCHEMA,
     mutating: (input) => !READ_ONLY.has(input.action as BrowserAction),
     risky,
+    // Never unattended: card numbers, passwords and one-time codes, and any
+    // button that spends money.
+    catastrophic: (input) => {
+      const action = input.action as BrowserAction
+      if (action === 'fill') return fieldsOf(input).some((field) => { const el = elementFor(field.ref); return !el || isSensitive(el) })
+      const el = elementFor(asInt(input.ref))
+      if (action === 'type') return !el || isSensitive(el)
+      if (action === 'click') return !el || SPENDING.test(el.name) || Boolean(el.context && CONFIRMING.test(el.name) && SPENDING.test(el.context))
+      if (action === 'press' && /enter/i.test(String(input.key ?? ''))) return Boolean(el && (isSensitive(el) || (el.form && SPENDING.test(el.form))))
+      return false
+    },
     describe,
     run: async (input, ctx) => {
       const action = input.action as BrowserAction
@@ -304,6 +381,17 @@ export function createBrowserTool(bridge: BrowserBridge): { tool: AgentTool; sou
         return { text: `Unknown action "${String(input.action)}". Use one of: ${BROWSER_ACTIONS.join(', ')}.`, isError: true }
       }
       if (!bridge.connected) return { text: setupHelp(), isError: true }
+      if (!bridge.supports(action)) {
+        const updating = bridge.requestUpdate()
+        return {
+          text: `The Eaon extension in the browser (version ${bridge.extensionVersion ?? 'unknown'}) is too old for "${action}". ${
+            updating
+              ? 'Eaon has asked it to update, which takes a few seconds; try again shortly.'
+              : 'Ask the user to update it from Eaon → Settings → Browser extension.'
+          } Until then, use snapshot to read the page and type for each field.`,
+          isError: true
+        }
+      }
       if (bridge.paused) {
         return {
           text: 'The user pressed "Stop agent control" in the Eaon extension. Do not use the browser again unless they ask you to; they can resume from the extension popup.',

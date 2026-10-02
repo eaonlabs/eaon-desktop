@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 import type { McpServer, StreamRequest } from '@shared/types'
+import { joinArgs, splitArgs } from '@shared/plugins'
 import { store } from '../src/main/store'
 import { getStatuses, reconnectMcpServer, shutdownMcp, syncMcpServers } from '../src/main/mcp'
 import { adoptLoginShellPath } from '../src/main/shellEnv'
@@ -53,6 +54,33 @@ test('two servers with the same name and tool names still get distinct, callable
   } finally {
     await a.close()
     await b.close()
+  }
+})
+
+test('stdio arguments typed in one field keep paths with spaces, JSON and Windows paths intact', () => {
+  assert.deepEqual(splitArgs('-y @modelcontextprotocol/server-filesystem "/Users/Jane Doe/My Notes" ~/Documents'), [
+    '-y',
+    '@modelcontextprotocol/server-filesystem',
+    '/Users/Jane Doe/My Notes',
+    '~/Documents'
+  ])
+  assert.deepEqual(splitArgs(`--config {"key":"a value"} 'single quoted' C:\\Tools\\bin  `), [
+    '--config',
+    '{"key":"a',
+    'value"}',
+    'single quoted',
+    'C:\\Tools\\bin'
+  ])
+  assert.deepEqual(splitArgs('--config {"key":1}'), ['--config', '{"key":1}'])
+  assert.deepEqual(splitArgs('  '), [])
+  // Whatever was saved shows up in the field so that saving again changes nothing.
+  for (const args of [
+    ['/Users/Jane Doe/My Notes', '--flag'],
+    ['{"key":"a value"}', "it's"],
+    ['say "hi" and \'bye\'', '', '"quoted"'],
+    ['C:\\Program Files\\node.exe', 'x']
+  ]) {
+    assert.deepEqual(splitArgs(joinArgs(args)), args, joinArgs(args))
   }
 })
 

@@ -7,6 +7,8 @@ updated: 2026-08-20T00:00:00.000Z
 
 # Sidebar nav layout
 
+> **Current layout (Sept 29 2026)** is per tab — see [[Chat, Workers and ADE: the three tabs and Chat as the agent]]. Chat: New chat, Models, Library, Plugins, Settings, then Projects and Recents. Workers: New worker, Team, Scheduled, Plugins, Settings, then the workers. ADE: New session, Pull requests, Models, Plugins, Settings, then sessions and folders. The footer holds only Help. The history below explains how Settings ended up in the top group.
+
 `Sidebar.tsx` (see [[Eaon Desktop architecture]]) has two nav groups: the
 scrollable `.sidebar__body` (New chat, Scheduled, Plugins, Projects, Recents)
 and the pinned `.sidebar__footer` at the very bottom.

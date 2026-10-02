@@ -292,24 +292,6 @@
   margin-top: 1px;
 }
 
-.dock-choice {
-  display: flex;
-  gap: 10px;
-}
-.dock-choice__item {
-  width: 44px;
-  height: 44px;
-  border-radius: 10px;
-  display: grid;
-  place-items: center;
-  border: 1px solid var(--border);
-  overflow: hidden;
-}
-.dock-choice__item[data-active='true'] {
-  outline: 1.5px solid var(--fg);
-  outline-offset: 2px;
-}
-
 .shortcut-row {
   display: flex;
   align-items: center;
@@ -653,11 +635,34 @@
   opacity: 0;
   transition: opacity var(--dur) var(--ease);
 }
-.model-row:hover .model-row__actions {
+.model-row:hover .model-row__actions,
+.model-row__actions:focus-within {
+  opacity: 1;
+}
+/* The star sits outside the hover-only actions: a starred model keeps
+   showing its star, so the toggle reads as a state, not a hidden button. */
+.model-row__star {
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+.model-row:hover .model-row__star,
+.model-row__star:focus-visible,
+.model-row__star[data-on='true'] {
   opacity: 1;
 }
 .model-row__star[data-on='true'] {
   color: var(--provider-accent);
+}
+.model-row__rename {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.model-row--hidden .model-row__name {
+  color: var(--text-2);
+  font-weight: 400;
 }
 
 .add-model-row {

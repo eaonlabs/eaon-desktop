@@ -5,8 +5,10 @@ import {
   clampOutputToWindow,
   describeErrorBody,
   emptyUsage,
+  estimateRequestTokens,
   ProviderHttpError,
   retryAfterFrom,
+  toolInput,
   type Adapter,
   type NeutralToolCall,
   type TurnRequest,
@@ -123,8 +125,6 @@ interface Pending {
   args: string
 }
 
-const estimateTokens = (value: unknown): number => Math.ceil(JSON.stringify(value).length / 3.6)
-
 export const openaiResponsesAdapter: Adapter = {
   id: 'openai-responses',
   managesContext: false,
@@ -133,15 +133,19 @@ export const openaiResponsesAdapter: Adapter = {
     const { provider, credentials, model } = request
     const base = requestBase(provider, credentials.baseUrl)
     const codex = isCodex(request, base)
+    // "Sign in with ChatGPT" (official): the plain Responses API, but with the
+    // plan's rules — system prompt in `instructions` (system message items are
+    // refused), and no output cap or sampling parameters.
+    const plan = vendorOf(provider, base) === 'chatgpt-plan'
     const url = codex ? codexUrl(base) : /\/responses$/.test(base) ? base : `${base}/responses`
     const reasons = model?.reasoning ?? false
     const level = clampEffort(request.effort, effortsFor(request.modelId, model))
     const vendor = vendorOf(provider, base)
     const effort = level ? wireEffort(level, vendor, request.modelId) : undefined
-    const { instructions, input } = toInput(request, codex)
+    const { instructions, input } = toInput(request, codex || plan)
     const window = contextWindowFor(provider, request.modelId, model)
     // Codex rejects an output cap; everyone else gets one that fits the window.
-    const maxOutput = codex ? undefined : clampOutputToWindow(maxOutputFor(provider, request.modelId, model), window, estimateTokens(input))
+    const maxOutput = codex || plan ? undefined : clampOutputToWindow(maxOutputFor(provider, request.modelId, model), window, estimateRequestTokens(input))
     const cacheKey = request.cacheKey.slice(0, 64)
 
     const tools = request.tools.map((tool) => ({
@@ -371,13 +375,7 @@ export const openaiResponsesAdapter: Adapter = {
     const calls: NeutralToolCall[] = []
     for (const [, call] of [...pending.entries()].sort((a, b) => a[0] - b[0])) {
       if (!call.name) continue
-      let parsed: Record<string, unknown>
-      try {
-        parsed = call.args.trim() ? (JSON.parse(call.args) as Record<string, unknown>) : {}
-      } catch {
-        parsed = { __invalid_json: call.args }
-      }
-      calls.push({ id: call.callId || `call_${calls.length}`, name: call.name, input: parsed })
+      calls.push({ id: call.callId || `call_${calls.length}`, name: call.name, input: toolInput(call.args) })
     }
 
     const reason = final.incomplete_details?.reason

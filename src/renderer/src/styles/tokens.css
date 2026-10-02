@@ -36,7 +36,9 @@
   --r-composer: 18px;
   --r-pill: 999px;
 
-  --font-ui: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', 'Segoe UI', system-ui, sans-serif;
+  /* The platform's own UI face and nothing else — the same stack ChatGPT uses:
+     SF Pro on macOS, Segoe UI on Windows. */
+  --font-ui: ui-sans-serif, -apple-system, system-ui, 'Segoe UI', Helvetica, 'Apple Color Emoji', Arial, sans-serif;
   --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, monospace;
 
   --fs-base: 14px;

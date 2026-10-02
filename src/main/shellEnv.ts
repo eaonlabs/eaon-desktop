@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { accessSync, constants } from 'node:fs'
 import { homedir } from 'node:os'
 import { delimiter, join } from 'node:path'
 
@@ -12,7 +13,31 @@ import { delimiter, join } from 'node:path'
  * server, most of what the agent tried in `run_command`, and the Code tab.
  * Asking the login shell once at startup fixes all of them together.
  */
-export async function adoptLoginShellPath(): Promise<void> {
+let adopted: Promise<void> | null = null
+
+export function adoptLoginShellPath(): Promise<void> {
+  return (adopted ??= readLoginShellPath())
+}
+
+/** Where `bin` is on PATH (the login shell's, once adopted), or null. */
+export function onPath(bin: string): string | null {
+  const names = process.platform === 'win32' ? [`${bin}.cmd`, `${bin}.exe`, bin] : [bin]
+  for (const dir of (process.env.PATH ?? '').split(delimiter)) {
+    if (!dir) continue
+    for (const name of names) {
+      const candidate = join(dir, name)
+      try {
+        accessSync(candidate, constants.X_OK)
+        return candidate
+      } catch {
+        /* not here */
+      }
+    }
+  }
+  return null
+}
+
+async function readLoginShellPath(): Promise<void> {
   if (process.platform === 'win32') return
   const shell = process.env.SHELL || (process.platform === 'darwin' ? '/bin/zsh' : '/bin/bash')
   const marker = '__EAON_PATH__'

@@ -118,6 +118,32 @@ export function parseListing(body: unknown, providerId: string, vendor: Vendor):
   return out
 }
 
+/**
+ * `/v1/models` under "Sign in with ChatGPT": `{ models: [{ slug, display_name,
+ * visibility }] }`. Only `visibility: "list"` models are meant to be offered;
+ * `slug` is what requests name.
+ */
+export function parseChatGptPlanListing(body: unknown, providerId: string): ModelInfo[] {
+  type Row = { slug?: string; id?: string; display_name?: string; visibility?: string; context_window?: number }
+  const rows = ((body as { models?: Row[]; data?: Row[] }).models ?? (body as { data?: Row[] }).data ?? []) as Row[]
+  const out: ModelInfo[] = []
+  for (const row of rows) {
+    const id = row.slug ?? row.id
+    if (!id || (row.visibility && row.visibility !== 'list') || out.some((m) => m.id === id)) continue
+    out.push({
+      id,
+      label: row.display_name ?? prettyLabel(id),
+      providerId,
+      tools: true,
+      vision: true,
+      reasoning: true,
+      efforts: OPENAI_EFFORTS,
+      ...(row.context_window ? { contextWindow: row.context_window } : {})
+    })
+  }
+  return out
+}
+
 /** Copilot's `/models`: only models the account may pick, and only ones that can call tools. */
 export function parseCopilotListing(body: unknown): ModelInfo[] {
   type CopilotRow = {

@@ -59,6 +59,10 @@ Verified by seeding the Ember palette into an isolated user-data dir and diffing
 pixels against Codex: canvas `(37,37,37) → (42,38,38)`, sidebar
 `(17,17,17) → (20,16,16)`, toggle `(10,128,247) → (247,104,59)`.
 
+## Later: the typeface picker went too (Sept 29 2026)
+
+The design spec asked for "no special fonts", like ChatGPT's. `--font-ui` is now the plain system stack and the Inter / SF Mono / Georgia picker was removed; `palette.fontFamily` is still stored by older installs and deliberately ignored in `useTheme`. Only the text weight remains. See [[Chat, Workers and ADE: the three tabs and Chat as the agent]].
+
 ## Kept, not deleted
 
 **UI font** and **Translucent sidebar** lived inside the removed cards. They are

@@ -36,7 +36,14 @@ function statusOf(providerId: string): ProviderAuthStatus | null {
   const flow = flowFor(providerId)
   if (!flow) return null
   const signedIn = flow.isSignedIn()
-  return { providerId, flow: flow.id, signedIn, state: 'idle', ...(signedIn && flow.account?.() ? { account: flow.account() } : {}) }
+  return { providerId, flow: flow.id, signedIn, state: 'idle', ...(signedIn && flow.account?.() ? { account: flow.account() } : {}), ...clientFields(flow) }
+}
+
+/** For providers that only sign in registered apps: whether Eaon has a client id, and how to get one. */
+function clientFields(flow: OAuthFlow): Partial<ProviderAuthStatus> {
+  if (!flow.clientSetup) return {}
+  const clientId = flow.clientId?.() ?? null
+  return { clientSetup: flow.clientSetup, needsClientId: !clientId, ...(clientId ? { clientId } : {}) }
 }
 
 function allStatuses(): ProviderAuthStatus[] {
@@ -116,12 +123,27 @@ export const providerAuthFeature: Feature = {
     ipcMain.handle('provider-auth:sign-out', async (_e, providerId: string) => {
       running.get(providerId)?.controller.abort()
       await flowFor(providerId)?.signOut()
-      return statusOf(providerId)
+      const status = statusOf(providerId)
+      // The settings page refreshes `signedIn` and the model list on status events.
+      if (status) publish(status)
+      return status
     })
     ipcMain.handle('provider-auth:submit-code', (_e, providerId: string, input: string) => {
       flowFor(providerId)?.submitCode?.(input)
     })
     ipcMain.handle('provider-auth:open', (_e, url: string) => openInBrowser(url))
+    // The client id of an OAuth app registered with the provider (Hugging
+    // Face, Poe). Public, not a secret — but kept in the vault with the rest.
+    ipcMain.handle('provider-auth:set-client-id', (_e, providerId: string, clientId: string | null) => {
+      const flow = flowFor(providerId)
+      if (!flow?.setClientId) throw new Error(`${providerId} does not take a client id.`)
+      const value = clientId?.trim() || null
+      if (value && !/^[\w.:/@-]{4,200}$/.test(value)) throw new Error('That does not look like a client id.')
+      flow.setClientId(value)
+      const status = statusOf(providerId)
+      if (status) publish(status)
+      return status
+    })
   },
 
   dispose() {

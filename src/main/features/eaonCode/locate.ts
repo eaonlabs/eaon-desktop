@@ -16,14 +16,32 @@ export interface RunResult {
   error?: string
 }
 
+/** Quote an argument for cmd.exe, which is what runs npm's `.cmd` shims. */
+export const winQuote = (arg: string): string => (/[\s"&|<>^]/.test(arg) ? `"${arg.replace(/"/g, '""')}"` : arg)
+
+/**
+ * How to spawn `command`. npm's `.cmd` shims on Windows run only through
+ * cmd.exe, and with `shell: true` Node joins the command line unquoted — so
+ * `C:\Program Files\nodejs\npm.cmd`, where Node installs npm by default, would
+ * run `C:\Program`. Everything is quoted for cmd.exe here instead.
+ */
+export function spawnSpec(
+  command: string,
+  args: string[],
+  platform: NodeJS.Platform = process.platform
+): { command: string; args: string[]; shell: boolean } {
+  const shell = platform === 'win32' && /\.(cmd|bat)$/i.test(command)
+  return shell ? { command: winQuote(command), args: args.map(winQuote), shell } : { command, args, shell }
+}
+
 /** execFile as a promise that never rejects; `.cmd` shims need a shell on Windows. */
 export function run(command: string, args: string[], options: { timeoutMs?: number; cwd?: string } = {}): Promise<RunResult> {
   return new Promise((resolve) => {
-    const shell = process.platform === 'win32' && /\.(cmd|bat)$/i.test(command)
+    const spec = spawnSpec(command, args)
     execFile(
-      command,
-      args,
-      { timeout: options.timeoutMs ?? 15_000, cwd: options.cwd, shell, windowsHide: true, maxBuffer: 4 * 1024 * 1024 },
+      spec.command,
+      spec.args,
+      { timeout: options.timeoutMs ?? 15_000, cwd: options.cwd, shell: spec.shell, windowsHide: true, maxBuffer: 4 * 1024 * 1024 },
       (error, stdout, stderr) => {
         const code = error && typeof (error as { code?: unknown }).code === 'number' ? ((error as { code: number }).code) : error ? null : 0
         resolve({

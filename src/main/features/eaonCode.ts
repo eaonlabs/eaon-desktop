@@ -79,6 +79,16 @@ export const eaonCodeFeature: Feature = {
 
     ipcMain.handle('eaon-code:sessions', (_e, cwd: string) => result(() => active.sessions(cwd)))
     ipcMain.handle('eaon-code:recents', () => recents.list())
+    // The ADE's folder: remembered as recent and reopened next launch. Nothing
+    // is started — the ADE is terminals only, and each pane runs its own CLI.
+    ipcMain.handle('eaon-code:use-folder', (_e, cwd: string) => {
+      if (typeof cwd !== 'string' || !cwd) return recents.list()
+      recents.add(cwd)
+      if (store.getSettings().eaonCode.lastCwd !== cwd) {
+        store.patchSettings({ eaonCode: { ...store.getSettings().eaonCode, lastCwd: cwd } })
+      }
+      return recents.list()
+    })
     ipcMain.handle('eaon-code:forget-recent', (_e, cwd: string) => recents.remove(cwd))
 
     ipcMain.handle('eaon-code:pick-folder', async () => {

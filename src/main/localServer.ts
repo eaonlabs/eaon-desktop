@@ -1,7 +1,10 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
+import { isIP } from 'node:net'
+import { hostname } from 'node:os'
 import type { LocalServerStatus, StreamEvent } from '@shared/types'
 import type { ChatMessage } from '@shared/types'
 import { listProviders } from './providers'
+import { isLoopbackHost, isOwnServerUrl, setOwnServerPort } from './providers/compat'
 import { runAgent } from './agent/loop'
 import { store } from './store'
 
@@ -34,7 +37,7 @@ function publish(next: LocalServerStatus): void {
 
 function json(res: ServerResponse, code: number, body: unknown): void {
   const payload = JSON.stringify(body)
-  res.writeHead(code, { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' })
+  res.writeHead(code, { 'Content-Type': 'application/json' })
   res.end(payload)
 }
 
@@ -42,12 +45,64 @@ async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> 
   const chunks: Buffer[] = []
   for await (const chunk of req) chunks.push(chunk as Buffer)
   const raw = Buffer.concat(chunks).toString('utf8')
-  return raw ? (JSON.parse(raw) as Record<string, unknown>) : {}
+  const body = raw ? (JSON.parse(raw) as unknown) : {}
+  if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('not an object')
+  return body as Record<string, unknown>
+}
+
+/**
+ * Browser pages may call the server only from loopback origins or from
+ * desktop-app schemes (Obsidian's app://, VS Code webviews, extensions) —
+ * Ollama's default rule. Binding to 127.0.0.1 keeps the network out, but not
+ * a website open in the user's browser, which could otherwise spend their
+ * keys through this server. CLIs and SDKs send no Origin at all.
+ */
+function allowedOrigin(origin: string | undefined): boolean {
+  if (origin === undefined) return true
+  try {
+    const url = new URL(origin)
+    if (url.protocol === 'http:' || url.protocol === 'https:') return isLoopbackHost(url.hostname)
+    return ['app:', 'file:', 'tauri:', 'vscode-webview:', 'vscode-file:', 'chrome-extension:', 'moz-extension:', 'safari-web-extension:'].includes(url.protocol)
+  } catch {
+    // "null": a sandboxed iframe or a redirect, which any site can arrange.
+    return false
+  }
+}
+
+/**
+ * A DNS-rebinding page reaches this socket under its own public domain name.
+ * Anything else is let through, as Ollama does: IP literals, `localhost`,
+ * `.localhost`/`.local`/`.internal` names (Docker's host.docker.internal), and
+ * this machine's hostname.
+ */
+function allowedHost(host: string | undefined): boolean {
+  if (!host) return true
+  let name: string
+  try {
+    name = new URL(`http://${host}`).hostname.toLowerCase()
+  } catch {
+    return false
+  }
+  if (isIP(name.replace(/^\[|\]$/g, ''))) return true
+  return name === 'localhost' || /\.(localhost|local|internal)$/.test(name) || name === hostname().toLowerCase()
+}
+
+/** OpenAI message content: a string, or parts of which the text is kept (images are not proxied). */
+function contentText(content: unknown): string {
+  if (typeof content === 'string') return content
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => (part && typeof (part as { text?: unknown }).text === 'string' ? (part as { text: string }).text : ''))
+      .filter(Boolean)
+      .join('\n')
+  }
+  return content == null ? '' : JSON.stringify(content)
 }
 
 /** Resolve a model id to the provider that serves it. */
 function resolveModel(modelId: string | undefined): { providerId: string; modelId: string } | null {
-  const providers = listProviders().filter((p) => p.enabled && (p.hasKey || p.local))
+  // Never route to a provider that points back at this server.
+  const providers = listProviders().filter((p) => p.enabled && (p.hasKey || p.local) && !isOwnServerUrl(p.baseUrl))
   if (modelId) {
     for (const provider of providers) {
       const match = provider.models.find((m) => m.id === modelId)
@@ -118,11 +173,19 @@ const DOCS_HTML = `<!doctype html>
 </html>`
 
 async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  const url = new URL(req.url ?? '/', `http://${req.headers.host ?? '127.0.0.1'}`)
+  const origin = req.headers.origin
+  if (!allowedOrigin(origin) || !allowedHost(req.headers.host)) {
+    json(res, 403, { error: { message: 'The Local API Server only answers this machine’s apps and loopback pages.' } })
+    return
+  }
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin)
+    res.setHeader('Vary', 'Origin')
+  }
+  const url = new URL(req.url ?? '/', 'http://127.0.0.1')
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204, {
-      'Access-Control-Allow-Origin': '*',
       'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type,Authorization'
     })
@@ -143,7 +206,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 
   if (url.pathname === '/v1/models' && req.method === 'GET') {
     const models = listProviders()
-      .filter((p) => p.enabled && (p.hasKey || p.local))
+      .filter((p) => p.enabled && (p.hasKey || p.local) && !isOwnServerUrl(p.baseUrl))
       .flatMap((p) => p.models)
       .map((m) => ({ id: m.id, object: 'model', owned_by: m.providerId }))
     json(res, 200, { object: 'list', data: models })
@@ -159,8 +222,8 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       return
     }
 
-    const messages = (body.messages ?? []) as { role: string; content: string }[]
-    if (!Array.isArray(messages) || messages.length === 0) {
+    const messages = (body.messages ?? []) as { role: string; content: unknown }[]
+    if (!Array.isArray(messages) || messages.length === 0 || !messages.every((m) => m && typeof m === 'object')) {
       json(res, 400, { error: { message: '`messages` is required' } })
       return
     }
@@ -172,13 +235,18 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     }
 
     const settings = store.getSettings()
-    const system = messages.find((m) => m.role === 'system')?.content ?? ''
+    // Newer OpenAI clients send the system prompt as `developer`.
+    const isSystem = (m: { role: string }): boolean => m.role === 'system' || m.role === 'developer'
+    const system = messages
+      .filter(isSystem)
+      .map((m) => contentText(m.content))
+      .join('\n\n')
     const history: ChatMessage[] = messages
-      .filter((m) => m.role !== 'system')
+      .filter((m) => !isSystem(m))
       .map((m, index) => ({
         id: `m${index}`,
         role: m.role === 'assistant' ? 'assistant' : 'user',
-        parts: [{ type: 'text', text: typeof m.content === 'string' ? m.content : JSON.stringify(m.content) }],
+        parts: [{ type: 'text', text: contentText(m.content) }],
         createdAt: 0
       }))
 
@@ -190,13 +258,18 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
       res.writeHead(200, {
         'Content-Type': 'text/event-stream',
         'Cache-Control': 'no-cache',
-        Connection: 'keep-alive',
-        'Access-Control-Allow-Origin': '*'
+        Connection: 'keep-alive'
       })
     }
 
     let full = ''
     let failed: string | null = null
+    // A client that hangs up (Ctrl-C in a CLI, a closed tab, Stop Server)
+    // stops the run; otherwise the model keeps generating, and billing, for nobody.
+    const controller = new AbortController()
+    res.on('close', () => {
+      if (!res.writableFinished) controller.abort()
+    })
 
     await runAgent(
       {
@@ -232,8 +305,10 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
         } else if (event.type === 'error') {
           failed = event.error
         }
-      }
+      },
+      { signal: controller.signal }
     )
+    if (controller.signal.aborted) return
 
     if (wantsStream) {
       if (failed) {
@@ -284,18 +359,28 @@ export async function startLocalServer(): Promise<LocalServerStatus> {
       })
     })
 
-    next.on('error', (error) => {
+    const fail = (error: Error): void => {
       server = null
+      setOwnServerPort(null)
       publish({ running: false, port, url: null, error: error.message })
       resolve(status)
-    })
+    }
+    next.on('error', fail)
 
-    // Loopback only — this proxies the user's API keys.
-    next.listen(port, '127.0.0.1', () => {
-      server = next
-      publish({ running: true, port, url: `http://127.0.0.1:${port}` })
-      resolve(status)
-    })
+    // Claimed before listening: at launch local discovery runs alongside this,
+    // and a probe that passed the check could still land here once we listen.
+    setOwnServerPort(port)
+    try {
+      // Loopback only — this proxies the user's API keys.
+      next.listen(port, '127.0.0.1', () => {
+        server = next
+        publish({ running: true, port, url: `http://127.0.0.1:${port}` })
+        resolve(status)
+      })
+    } catch (error) {
+      // A port out of range throws here rather than emitting 'error'.
+      fail(error instanceof Error ? error : new Error(String(error)))
+    }
   })
 }
 
@@ -307,7 +392,13 @@ export async function stopLocalServer(): Promise<LocalServerStatus> {
   }
   const closing = server
   server = null
-  await new Promise<void>((resolve) => closing.close(() => resolve()))
+  setOwnServerPort(null)
+  const closed = new Promise<void>((resolve) => closing.close(() => resolve()))
+  // close() waits for open connections; a client mid-stream (or holding a
+  // keep-alive socket) would keep Stop Server spinning. Its run is aborted
+  // by the response's close handler.
+  closing.closeAllConnections()
+  await closed
   publish({ running: false, port, url: null })
   return status
 }

@@ -1,9 +1,10 @@
-import { shell, systemPreferences } from 'electron'
+import { app, shell, systemPreferences } from 'electron'
 import type { ComputerTestResult, ComputerUseStatus, PermissionKind, PermissionState } from '@shared/computerUse'
 import { registerToolSource } from '../agent/tools'
 import { store } from '../store'
 import { disposeInput, inputBackend, interruptInput } from './computer/backend'
-import { captureDisplay, orderedDisplays } from './computer/capture'
+import { captureDisplay, orderedDisplays, requestScreenAccess, ScreenCaptureDenied } from './computer/capture'
+import { permissionOwner } from './computer/mac'
 import { configureSession, disposeSession, isDriving, STOP_LABEL, stopAll, withEaonHidden } from './computer/session'
 import { COMPUTER_GUIDANCE, computerTool } from './computer/tool'
 import type { Feature } from './types'
@@ -21,6 +22,15 @@ const PRIVACY_PANES: Record<PermissionKind, string> = {
   screen: 'x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture',
   accessibility: 'x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility'
 }
+
+/**
+ * Set when the setup step asks for Screen Recording. Eaon's own answer
+ * (`getMediaAccessStatus`) only changes once Eaon restarts, so this is how
+ * the page knows to offer "Quit & reopen" after the user comes back from
+ * System Settings. Kept here rather than in the page so it survives leaving
+ * Settings and coming back.
+ */
+let screenRequested = false
 
 function screenPermission(): PermissionState {
   if (process.platform !== 'darwin') return 'not-needed'
@@ -46,6 +56,9 @@ async function status(): Promise<ComputerUseStatus> {
     platform,
     screen: screenPermission(),
     accessibility,
+    owner: platform === 'darwin' ? await permissionOwner() : null,
+    screenRequested,
+    canRelaunch: app.isPackaged,
     input: { available: check.available, backend: backend.name, ...(check.detail ? { detail: check.detail } : {}) },
     locked: platform === 'darwin' ? (check.locked ?? null) : null,
     displays: orderedDisplays().map((d, i) => ({
@@ -76,7 +89,12 @@ async function test(): Promise<ComputerTestResult> {
       ...(shot.warning ? { error: shot.warning } : {})
     }
   } catch (error) {
-    return { ok: false, error: (error as Error).message, ms: Date.now() - started }
+    // The tool's wording is written for the model; the page has the setup steps.
+    const message =
+      error instanceof ScreenCaptureDenied
+        ? 'macOS blocked the screenshot because Screen Recording is off. Follow the setup steps at the top of this page.'
+        : (error as Error).message
+    return { ok: false, error: message, ms: Date.now() - started }
   }
 }
 
@@ -95,10 +113,25 @@ export const computerUseFeature: Feature = {
     ipcMain.handle('computer-use:stop', () => stopAll())
     ipcMain.handle('computer-use:open-permission', async (_e, kind: PermissionKind) => {
       if (process.platform !== 'darwin' || !(kind in PRIVACY_PANES)) return
-      // Asking with prompt=true is what adds Eaon to the Accessibility list,
-      // so the user has a switch to turn on rather than a "+" to hunt for.
+      // Each list only shows apps that have asked, so ask first: the user
+      // then has a switch to turn on rather than a "+" to hunt for. Asking
+      // with prompt=true is what adds Eaon to the Accessibility list.
       if (kind === 'accessibility') systemPreferences.isTrustedAccessibilityClient(true)
+      else {
+        screenRequested = true
+        await requestScreenAccess()
+      }
       await shell.openExternal(PRIVACY_PANES[kind])
+    })
+    // Screen Recording applies only after a relaunch. app.quit() rather than
+    // app.exit() so the held quit in index.ts still saves chats and closes
+    // MCP servers; the relaunch happens when the process finally exits.
+    // Not in development: the dev server would not come back with it.
+    ipcMain.handle('computer-use:relaunch', () => {
+      if (!app.isPackaged) return false
+      app.relaunch()
+      app.quit()
+      return true
     })
   },
   dispose: () => {

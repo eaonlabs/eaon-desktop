@@ -124,20 +124,23 @@ async function runSubagent(
       approver: (tool, input, summary) => ctx.confirm(tool, input, summary),
       maxRounds: SUBAGENT_ROUNDS,
       goal: null,
+      // Filled round by round, so a sub-agent that fails part-way still
+      // counts what it spent.
+      usage,
       onText: () => {},
       onReasoning: () => {}
     })
-    addUsage(usage, outcome.usage)
     const output = outcome.text.trim() || '(the sub-agent finished without a report)'
     const done = { ...run, status: 'done' as const, output: output.slice(0, 4000), activity: undefined }
     publish(done)
-    ctx.turn.extraUsage = addUsage(ctx.turn.extraUsage ?? emptyUsage(), usage)
     return { run: done, output }
   } catch (error) {
     const message = ctx.signal.aborted ? 'Stopped.' : error instanceof Error ? error.message : String(error)
     const failed = { ...run, status: 'error' as const, output: message, activity: undefined }
     publish(failed)
     return { run: failed, output: `Failed: ${message}` }
+  } finally {
+    ctx.turn.extraUsage = addUsage(ctx.turn.extraUsage ?? emptyUsage(), usage)
   }
 }
 

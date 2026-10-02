@@ -2,7 +2,7 @@
 title: MCP OAuth sign-in for plugins
 tags: [eaon-desktop, plugins, mcp, oauth, security]
 created: 2026-09-23T00:00:00.000Z
-updated: 2026-09-23T00:00:00.000Z
+updated: 2026-09-29T14:29:38.114Z
 ---
 
 # MCP OAuth sign-in for plugins
@@ -57,3 +57,5 @@ loopback listener the browser comes back to.
   `globalThis.__eaonOpenExternal` so a test can play the browser.
 
 See also [[Plugin catalog verification]] and [[Skills loaded on demand]].
+
+Related: [[MCP server lifecycle and SDK gotchas]]

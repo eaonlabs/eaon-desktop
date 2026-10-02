@@ -3,7 +3,7 @@ import { FolderOpen, Hammer, MessagesSquare, X } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { draftError, type ScheduledTask, type TaskDraft } from '@shared/scheduler'
 import type { AgentMode } from '@shared/types'
-import { useApp } from '../../state/store'
+import { agentWorkspace, useApp } from '../../state/store'
 import { Modal, Segmented, Select, Switch } from '../ui'
 import { formFromSchedule, scheduleFromForm, SchedulePicker, type ScheduleForm } from './SchedulePicker'
 
@@ -32,7 +32,7 @@ export function TaskEditor({
       models: s.availableModels(),
       current: s.currentModel(),
       providers: s.providers,
-      workCwd: s.workspaces.find((w) => w.kind === 'work')?.cwd ?? null
+      workCwd: agentWorkspace(s.workspaces)?.cwd ?? null
     }))
   )
   const [name, setName] = useState('')
@@ -172,7 +172,7 @@ export function TaskEditor({
                 label: (
                   <span className="sched-seg">
                     <MessagesSquare size={14} strokeWidth={2} />
-                    Chat
+                    Answer
                   </span>
                 )
               },
@@ -181,14 +181,14 @@ export function TaskEditor({
                 label: (
                   <span className="sched-seg">
                     <Hammer size={14} strokeWidth={2} />
-                    Work
+                    Agent
                   </span>
                 )
               }
             ]}
           />
           <span className="sched-field__hint">
-            {mode === 'chat' ? 'Answers with web search, nothing else.' : 'The full agent: files, shell, web and plugins.'}
+            {mode === 'chat' ? 'Researches and answers with web search. Changes nothing.' : 'The full agent: files, shell, web and plugins.'}
           </span>
         </div>
 
@@ -205,14 +205,14 @@ export function TaskEditor({
         {mode === 'work' && (
           <>
             <div className="sched-field">
-              <span className="field-label">Work folder</span>
+              <span className="field-label">Folder</span>
               <div className="sched-folder">
                 <FolderOpen size={15} strokeWidth={1.9} />
                 <span className="sched-folder__path" title={cwd ?? workCwd ?? undefined}>
-                  {cwd ?? (workCwd ? `Work tab's folder (${workCwd})` : "Work tab's folder")}
+                  {cwd ?? (workCwd ? `Chat's folder (${workCwd})` : "Chat's folder (~/Eaon)")}
                 </span>
                 {cwd && (
-                  <button type="button" className="icon-btn" aria-label="Use the Work tab's folder" onClick={() => setCwd(null)}>
+                  <button type="button" className="icon-btn" aria-label="Use Chat's folder" onClick={() => setCwd(null)}>
                     <X size={14} strokeWidth={2} />
                   </button>
                 )}

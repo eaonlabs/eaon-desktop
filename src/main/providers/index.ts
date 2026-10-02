@@ -1,7 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { ModelInfo, Provider } from '@shared/types'
+import type { ModelEdit, ModelsRefresh } from '@shared/providers'
 import { secrets } from '../secrets'
-import { store } from '../store'
+import { store, type ProviderOverride } from '../store'
 import { anthropicAdapter } from './adapters/anthropic'
 import { ollamaAdapter, ollamaHost } from './adapters/ollama'
 import { openaiChatAdapter } from './adapters/openaiChat'
@@ -9,9 +10,12 @@ import { openaiResponsesAdapter } from './adapters/openaiResponses'
 import { routerAdapter } from './adapters/router'
 import { ProviderHttpError, type Adapter } from './adapters/types'
 import { BUILT_IN, LEGACY_DEFAULT_URLS, providerMeta } from './catalog'
-import { anthropicCompat, authHeaders, chatCompat, isMixedApiProvider, normalizeBaseUrl, requestBase, vendorOf } from './compat'
-import { credentialAttempts } from './credentials'
-import { parseCopilotListing, parseListing } from './listing'
+import { anthropicCompat, authHeaders, chatCompat, effortReaches, isMixedApiProvider, isOwnServerUrl, normalizeBaseUrl, requestBase, vendorOf } from './compat'
+import { accountFlow, credentialAttempts } from './credentials'
+import { findLocalModel, isEmbeddingModel, LOCAL_PROVIDER_ID, localModelInfo, localModels, runtimeModel } from '../llama/models'
+import { llamaRuntime } from '../llama/runtime'
+import { parseChatGptPlanListing, parseCopilotListing, parseListing } from './listing'
+import { catalogFetchedAt, catalogFor, hasCatalog, refreshCatalog } from './modelCatalog'
 import { enrichModel, isChatModelId, isOllamaCloudModel, LOCAL_CONTEXT, OPENAI_EFFORTS, prettyLabel } from './models'
 import { oauthFlow } from './oauth'
 import { COPILOT_API_VERSION } from './oauth/copilot'
@@ -69,7 +73,29 @@ function withFreshCredentials(adapter: Adapter): Adapter {
   }
 }
 
+/**
+ * Eaon's own runtime: load the model into llama-server (first use, or after
+ * idling out), then talk to it like any OpenAI-compatible server — its port
+ * and key change every time it starts, so they come in per request.
+ */
+const localRuntimeAdapter: Adapter = {
+  ...openaiChatAdapter,
+  async turn(request) {
+    const model = findLocalModel(request.modelId)
+    if (!model) throw new Error(`${request.modelId} isn’t downloaded on this computer. Get it on the Models page.`)
+    const target = await llamaRuntime.ensure(runtimeModel(model))
+    const keepAlive = setInterval(() => llamaRuntime.touch(), 30_000)
+    try {
+      return await openaiChatAdapter.turn({ ...request, credentials: { ...request.credentials, apiKey: target.apiKey, baseUrl: target.baseUrl } })
+    } finally {
+      clearInterval(keepAlive)
+      llamaRuntime.touch()
+    }
+  }
+}
+
 export function adapterFor(provider: Provider): Adapter {
+  if (provider.id === LOCAL_PROVIDER_ID) return localRuntimeAdapter
   let adapter: Adapter
   const registered = extraAdapters.get(provider.kind)
   if (registered) adapter = registered
@@ -80,55 +106,112 @@ export function adapterFor(provider: Provider): Adapter {
   return provider.auth === 'oauth' ? withFreshCredentials(adapter) : adapter
 }
 
+/**
+ * Plan listings say what the account may use (Copilot hides models its
+ * policy turns off; the ChatGPT plan lists its own set), so once one exists
+ * it bounds the catalog. Everywhere else a listing only adds to it.
+ */
+const LISTING_IS_ENTITLEMENT = new Set(['github-copilot', 'chatgpt'])
+
+/** Saves from before overlays kept the whole list in `models`; it was the last listing. */
+const listedOf = (override: ProviderOverride): ModelInfo[] => override.listed ?? override.models ?? []
+
+/**
+ * A provider's models, built in layers like Pi's model registry: the catalog
+ * (corrected limits and effort levels) first, newest first; then whatever the
+ * provider's own `/models` returned that the catalog lacks; then models the
+ * user added by id. The user's renames apply on top, and models they removed
+ * are set aside in `hiddenModels` rather than lost, so nothing removed by
+ * accident is gone for good and an app update can still add new models.
+ */
+function composeModels(provider: Provider, seed: ModelInfo[], override: ProviderOverride): Pick<Provider, 'models' | 'hiddenModels'> {
+  const listed = listedOf(override)
+  const catalog = hasCatalog(provider.id) ? catalogFor(provider.id) : seed
+  const allowed = LISTING_IS_ENTITLEMENT.has(provider.id) && listed.length > 0 ? new Set(listed.map((m) => m.id)) : null
+  const byId = new Map<string, ModelInfo>()
+  for (const model of catalog) if (!allowed || allowed.has(model.id)) byId.set(model.id, model)
+  for (const model of listed) {
+    const known = byId.get(model.id)
+    // The catalog's limits and effort levels are corrected; the listing only fills gaps.
+    byId.set(model.id, known ? { ...model, ...known } : model)
+  }
+  for (const model of override.custom ?? []) if (!byId.has(model.id)) byId.set(model.id, { ...model, custom: true })
+
+  const hidden = new Set(override.hidden ?? [])
+  const labels = override.labels ?? {}
+  const models: ModelInfo[] = []
+  const hiddenModels: ModelInfo[] = []
+  for (const raw of byId.values()) {
+    const model = enrichModel({ ...raw, providerId: provider.id, ...(labels[raw.id] ? { label: labels[raw.id] } : {}) })
+    if (model.efforts?.length && !effortReaches(provider, model.id, model)) model.efforts = []
+    ;(hidden.has(model.id) ? hiddenModels : models).push(model)
+  }
+  return { models, hiddenModels }
+}
+
+function builtInProvider(seed: (typeof BUILT_IN)[number], override: ProviderOverride): Provider {
+  const auth = seed.auth ?? (seed.local ? 'none' : 'key')
+  const flow = auth === 'oauth' ? oauthFlow(seed.oauthFlow) : undefined
+  const signedIn = auth === 'oauth' ? Boolean(flow?.isSignedIn()) : undefined
+  // An untouched old default for a provider whose endpoint moved is not a user choice.
+  const overrideUrl = override.baseUrl
+  const baseUrl = overrideUrl && !LEGACY_DEFAULT_URLS[seed.id]?.includes(overrideUrl) ? overrideUrl : seed.baseUrl
+  const provider: Provider = {
+    ...seed,
+    auth,
+    local: seed.local ?? false,
+    baseUrl,
+    enabled: override.enabled ?? seed.enabled,
+    models: [],
+    // A key provider signed in with the account (Hugging Face) is usable without a key.
+    hasKey: auth === 'oauth' ? Boolean(signedIn) : secrets.has(seed.id) || Boolean(accountFlow(seed.id)),
+    signedIn,
+    fallbackCount: auth === 'oauth' ? 0 : secrets.getFallbacks(seed.id).length
+  }
+  if (seed.id === LOCAL_PROVIDER_ID) {
+    provider.models = localModels().filter((m) => !isEmbeddingModel(m)).map(localModelInfo)
+    return provider
+  }
+  return { ...provider, ...composeModels(provider, seed.models, override) }
+}
+
+/** A custom OpenAI-compatible endpoint the user added themselves. */
+function customProvider(id: string, override: ProviderOverride): Provider {
+  const provider: Provider = {
+    id,
+    name: override.name ?? id,
+    kind: (override.kind as Provider['kind']) ?? 'openai-compatible',
+    baseUrl: override.baseUrl ?? '',
+    hasKey: secrets.has(id),
+    enabled: override.enabled ?? true,
+    builtIn: false,
+    local: false,
+    auth: 'key',
+    category: 'custom',
+    fallbackCount: secrets.getFallbacks(id).length,
+    models: []
+  }
+  return { ...provider, ...composeModels(provider, [], override) }
+}
+
 export function listProviders(): Provider[] {
   const overrides = store.getProviderConfig()
-  const merged: Provider[] = BUILT_IN.map((provider) => {
-    const override = overrides[provider.id] ?? {}
-    const auth = provider.auth ?? (provider.local ? 'none' : 'key')
-    const flow = auth === 'oauth' ? oauthFlow(provider.oauthFlow) : undefined
-    const signedIn = auth === 'oauth' ? Boolean(flow?.isSignedIn()) : undefined
-    // An untouched old default for a provider whose endpoint moved is not a user choice.
-    const overrideUrl = override.baseUrl as string | undefined
-    const baseUrl = overrideUrl && !LEGACY_DEFAULT_URLS[provider.id]?.includes(overrideUrl) ? overrideUrl : provider.baseUrl
-    return {
-      ...provider,
-      auth,
-      local: provider.local ?? false,
-      baseUrl,
-      enabled: (override.enabled as boolean) ?? provider.enabled,
-      models: ((override.models as ModelInfo[]) ?? provider.models).map(enrichModel),
-      hasKey: auth === 'oauth' ? Boolean(signedIn) : secrets.has(provider.id),
-      signedIn,
-      fallbackCount: auth === 'oauth' ? 0 : secrets.getFallbacks(provider.id).length
-    }
-  })
-
-  // Custom OpenAI-compatible endpoints the user added themselves.
+  const merged = BUILT_IN.map((seed) => builtInProvider(seed, overrides[seed.id] ?? {}))
   for (const [id, override] of Object.entries(overrides)) {
-    if (merged.some((p) => p.id === id)) continue
-    merged.push({
-      id,
-      name: (override.name as string) ?? id,
-      kind: (override.kind as Provider['kind']) ?? 'openai-compatible',
-      baseUrl: (override.baseUrl as string) ?? '',
-      hasKey: secrets.has(id),
-      enabled: (override.enabled as boolean) ?? true,
-      builtIn: false,
-      local: false,
-      auth: 'key',
-      category: 'custom',
-      fallbackCount: secrets.getFallbacks(id).length,
-      models: ((override.models as ModelInfo[]) ?? []).map(enrichModel)
-    })
+    if (!BUILT_IN.some((p) => p.id === id)) merged.push(customProvider(id, override))
   }
   return merged
 }
 
+/** One provider, without building the other sixty (the agent loop asks once per turn). */
 export function getProvider(id: string): Provider | undefined {
-  return listProviders().find((p) => p.id === id)
+  const override = store.getProviderConfig()[id]
+  const seed = BUILT_IN.find((p) => p.id === id)
+  if (seed) return builtInProvider(seed, override ?? {})
+  return override ? customProvider(id, override) : undefined
 }
 
-export function updateProvider(id: string, patch: Partial<Provider>): Provider[] {
+export function updateProvider(id: string, patch: Partial<Pick<Provider, 'baseUrl' | 'enabled' | 'name' | 'kind'>>): Provider[] {
   const config = store.getProviderConfig()
   const existing = config[id] ?? {}
   const current = BUILT_IN.find((p) => p.id === id) ?? { id, kind: (patch.kind ?? existing.kind ?? 'openai-compatible') as Provider['kind'], baseUrl: '' }
@@ -136,11 +219,54 @@ export function updateProvider(id: string, patch: Partial<Provider>): Provider[]
     ...existing,
     ...(patch.baseUrl !== undefined ? { baseUrl: normalizeBaseUrl(current, patch.baseUrl) } : {}),
     ...(patch.enabled !== undefined ? { enabled: patch.enabled } : {}),
-    ...(patch.models !== undefined ? { models: patch.models } : {}),
     ...(patch.name !== undefined ? { name: patch.name } : {}),
     ...(patch.kind !== undefined ? { kind: patch.kind } : {})
   }
   store.saveProviderConfig(config)
+  return listProviders()
+}
+
+/** Rewrites one provider's overlay, folding a pre-overlay `models` list into `listed` on the way. */
+function editOverride(id: string, edit: (override: ProviderOverride) => ProviderOverride): void {
+  const config = store.getProviderConfig()
+  const { models: legacy, ...existing } = config[id] ?? {}
+  config[id] = edit({ ...existing, ...(legacy && !existing.listed ? { listed: legacy } : {}) })
+  store.saveProviderConfig(config)
+}
+
+/** Stores what the provider's own `/models` returned. */
+function setListed(id: string, models: ModelInfo[]): void {
+  editOverride(id, (override) => ({ ...override, listed: models }))
+}
+
+/**
+ * The user's changes to a model list. Removing a model hides it (a model added
+ * by hand is deleted outright); restoring brings it back; renaming stores a
+ * label that survives every refresh.
+ */
+export function editModels(id: string, edit: ModelEdit): Provider[] {
+  editOverride(id, (override) => {
+    const hidden = new Set(override.hidden ?? [])
+    let custom = override.custom ?? []
+    const labels = { ...override.labels }
+    if ('remove' in edit) {
+      if (custom.some((m) => m.id === edit.remove)) custom = custom.filter((m) => m.id !== edit.remove)
+      else hidden.add(edit.remove)
+    } else if ('restore' in edit) hidden.delete(edit.restore)
+    else if ('restoreAll' in edit) hidden.clear()
+    else if ('add' in edit) {
+      const modelId = edit.add.trim()
+      if (modelId) {
+        hidden.delete(modelId)
+        if (!custom.some((m) => m.id === modelId)) custom = [...custom, { id: modelId, label: modelId, providerId: id, custom: true }]
+      }
+    } else if ('rename' in edit) {
+      const label = edit.label?.trim()
+      if (label) labels[edit.rename] = label
+      else delete labels[edit.rename]
+    }
+    return { ...override, hidden: [...hidden], custom, labels }
+  })
   return listProviders()
 }
 
@@ -150,21 +276,6 @@ export function removeProvider(id: string): Provider[] {
   store.saveProviderConfig(config)
   secrets.clear(id)
   return listProviders()
-}
-
-/**
- * Keeps what the seed list knew (context window, output cap, effort levels,
- * vision) when a refreshed listing returns the same id with less. Anything
- * the listing does report — OpenRouter's `context_length`, say — wins, since
- * it is the provider's own current answer.
- */
-function mergeWithSeed(providerId: string, fresh: ModelInfo[]): ModelInfo[] {
-  const seed = BUILT_IN.find((p) => p.id === providerId)?.models ?? []
-  const byId = new Map(seed.map((model) => [model.id, model]))
-  return fresh.map((model) => {
-    const known = byId.get(model.id)
-    return enrichModel({ ...known, ...model, ...(known?.label ? { label: known.label } : {}) })
-  })
 }
 
 /** Ollama's native API knows each model's trained context and capabilities; `/v1/models` knows neither. */
@@ -220,15 +331,17 @@ async function listOllamaModels(provider: Provider): Promise<ModelInfo[]> {
 export async function refreshModels(providerId: string): Promise<ModelInfo[]> {
   const provider = getProvider(providerId)
   if (!provider) throw new Error(`Unknown provider ${providerId}`)
+  if (isOwnServerUrl(provider.baseUrl)) {
+    throw new Error(`${provider.name}'s base URL is Eaon's own Local API Server. Change the port of one of them.`)
+  }
   const meta = providerMeta(providerId)
 
   // Codex, Perplexity and Cloudflare have no listing endpoint; their list is the catalog's.
   if (!meta.listsModels) return provider.models
 
   if (provider.kind === 'ollama') {
-    const models = (await listOllamaModels(provider)).map(enrichModel)
-    updateProvider(providerId, { models })
-    return models
+    setListed(providerId, await listOllamaModels(provider))
+    return getProvider(providerId)?.models ?? []
   }
 
   const [credentials] = await credentialAttempts(provider)
@@ -254,9 +367,8 @@ export async function refreshModels(providerId: string): Promise<ModelInfo[]> {
         ...(info.max_tokens ? { maxOutput: Math.min(info.max_tokens, 64_000) } : {})
       })
     }
-    const merged = mergeWithSeed(providerId, models)
-    updateProvider(providerId, { models: merged })
-    return merged
+    setListed(providerId, models)
+    return getProvider(providerId)?.models ?? []
   }
 
   const base = requestBase(provider, credentials.baseUrl)
@@ -271,10 +383,71 @@ export async function refreshModels(providerId: string): Promise<ModelInfo[]> {
   const response = await fetch(`${base}/models`, { headers, signal: AbortSignal.timeout(20_000) })
   if (!response.ok) throw new Error(`${response.status} ${(await response.text()).slice(0, 300)}`)
   const body = (await response.json()) as unknown
-  const models = vendor === 'copilot' ? parseCopilotListing(body) : parseListing(body, providerId, vendor)
-  const merged = mergeWithSeed(providerId, models)
-  updateProvider(providerId, { models: merged })
-  return merged
+  const models =
+    vendor === 'copilot'
+      ? parseCopilotListing(body)
+      : vendor === 'chatgpt-plan'
+        ? parseChatGptPlanListing(body, providerId)
+        : parseListing(body, providerId, vendor)
+  setListed(providerId, models)
+  return getProvider(providerId)?.models ?? []
+}
+
+/** Local discovery: a runtime that is gone, or Eaon's own server on its port, lists nothing. */
+export function clearListed(providerId: string): void {
+  setListed(providerId, [])
+}
+
+const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error))
+
+/**
+ * The Refresh button: re-read models.dev (no key needed, so it works before
+ * a provider is set up) and, when the provider is usable, its own `/models`.
+ * Says what changed, so pressing it never looks like nothing happened.
+ */
+export async function refreshProviderModels(providerId: string): Promise<ModelsRefresh> {
+  const provider = getProvider(providerId)
+  if (!provider) throw new Error(`Unknown provider ${providerId}`)
+  const before = new Set([...provider.models, ...(provider.hiddenModels ?? [])].map((m) => m.id))
+
+  let catalogError: string | null = null
+  if (hasCatalog(providerId)) {
+    try {
+      await refreshCatalog()
+    } catch (error) {
+      catalogError = errorText(error)
+    }
+  }
+  const usable = provider.local || provider.hasKey
+  const lists = providerMeta(providerId).listsModels && provider.id !== LOCAL_PROVIDER_ID
+  let listingError: string | null = null
+  if (usable && lists) {
+    try {
+      await refreshModels(providerId)
+    } catch (error) {
+      listingError = errorText(error)
+    }
+  }
+
+  const after = getProvider(providerId) ?? provider
+  const added = after.models.filter((m) => !before.has(m.id)).map((m) => m.label)
+  const count = `${after.models.length} model${after.models.length === 1 ? '' : 's'}`
+  const news = added.length
+    ? `${added.length} new: ${added.slice(0, 3).join(', ')}${added.length > 3 ? ` and ${added.length - 3} more` : ''}`
+    : 'nothing new'
+  if (listingError) {
+    return { ok: false, added, message: `${provider.name} didn’t answer (${listingError.slice(0, 160)}). Showing the catalog’s ${count}.` }
+  }
+  if (catalogError && !(usable && lists)) {
+    const stamp = catalogFetchedAt()
+    return {
+      ok: false,
+      added,
+      message: `Couldn’t reach models.dev to check for new models${stamp ? ` — the list is from ${new Date(stamp).toLocaleDateString()}` : ''}.`
+    }
+  }
+  const source = usable && lists ? `${provider.name} and models.dev` : provider.local ? provider.name : 'models.dev'
+  return { ok: true, added, message: `Checked ${source} — ${count}, ${news}.` }
 }
 
 export async function testProvider(providerId: string): Promise<{ ok: boolean; message: string }> {

@@ -26,7 +26,10 @@ export function LibraryView(): JSX.Element {
   const [category, setCategory] = useState<LibraryCategory | 'all'>('all')
 
   const ram = state?.ramBytes ?? 0
-  const suggested = useMemo(() => (ram ? suggestFor(catalog, ram) : []), [catalog, ram])
+  // The three the design spec names come first, on their own, whatever this
+  // machine can run — then what else suits it.
+  const recommended = useMemo(() => catalog.filter((m) => m.featured), [catalog])
+  const suggested = useMemo(() => (ram ? suggestFor(catalog, ram).filter((m) => !m.featured) : []), [catalog, ram])
   const filtered = useMemo(
     () =>
       catalog
@@ -39,7 +42,7 @@ export function LibraryView(): JSX.Element {
     <>
       <section className="mlib-section">
         <div className="mlib-section__head">
-          <h2 className="mlib-section__title">Suggested for this {DEVICE}</h2>
+          <h2 className="mlib-section__title">Recommended</h2>
           {state && (
             <span className="mlib-machine">
               <MemoryStick size={14} strokeWidth={1.9} />
@@ -49,11 +52,24 @@ export function LibraryView(): JSX.Element {
           )}
         </div>
         <div className="mlib-grid">
-          {suggested.map((model) => (
+          {recommended.map((model) => (
             <LibraryCard key={model.id} model={model} />
           ))}
         </div>
       </section>
+
+      {suggested.length > 0 && (
+        <section className="mlib-section">
+          <div className="mlib-section__head">
+            <h2 className="mlib-section__title">Also good on this {DEVICE}</h2>
+          </div>
+          <div className="mlib-grid">
+            {suggested.map((model) => (
+              <LibraryCard key={model.id} model={model} />
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="mlib-section">
         <div className="mlib-section__head">
@@ -112,7 +128,7 @@ function LibraryCard({ model }: { model: LibraryModel }): JSX.Element {
       <div className="mlib-card__top">
         {model.featured ? (
           <span className="mlib-featured">
-            <Sparkles size={12} strokeWidth={2} /> Featured
+            <Sparkles size={12} strokeWidth={2} /> Recommended
           </span>
         ) : (
           <span className="mlib-card__org">{model.org}</span>
@@ -159,7 +175,7 @@ function LibraryRow({ model }: { model: LibraryModel }): JSX.Element {
           <span className="mlib-row__name">{model.name}</span>
           {model.featured && (
             <span className="mlib-featured mlib-featured--quiet">
-              <Sparkles size={11} strokeWidth={2} /> Featured
+              <Sparkles size={11} strokeWidth={2} /> Recommended
             </span>
           )}
         </div>

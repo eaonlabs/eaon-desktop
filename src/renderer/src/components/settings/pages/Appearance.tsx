@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { useApp } from '../../../state/store'
 import { Card, Row, Section, Segmented, Select, Switch } from '../../ui'
 import type { ThemeMode } from '@shared/types'
@@ -28,7 +29,7 @@ function useResolvedTone(mode: ThemeMode): 'light' | 'dark' {
 }
 
 export function AppearancePage(): JSX.Element {
-  const { settings, patchSettings } = useApp()
+  const { settings, patchSettings } = useApp(useShallow((s) => ({ settings: s.settings, patchSettings: s.patchSettings })))
   const a = settings?.appearance
   const tone = useResolvedTone(a?.mode ?? 'dark')
   if (!settings || !a) return <></>
@@ -109,21 +110,6 @@ export function AppearancePage(): JSX.Element {
               onChange={(on) => void patchSettings({ appearance: { pointerCursors: on } })}
             />
           </Row>
-          <Row title="Dock icon" description="Choose the icon the app will use in the dock">
-            <div className="dock-choice">
-              {(['mono', 'color'] as const).map((choice) => (
-                <button
-                  key={choice}
-                  className="dock-choice__item"
-                  data-active={a.dockIcon === choice}
-                  onClick={() => void patchSettings({ appearance: { dockIcon: choice } })}
-                  aria-label={choice === 'mono' ? 'Monochrome icon' : 'Colour icon'}
-                >
-                  <DockGlyph variant={choice} />
-                </button>
-              ))}
-            </div>
-          </Row>
           <Row title="Reduce motion" description="Reduce animations or match your system">
             <Segmented
               value={a.reduceMotion}
@@ -137,34 +123,14 @@ export function AppearancePage(): JSX.Element {
           </Row>
           <Row title="UI font size" description="Adjust the base size used for the app UI">
             <span className="stepper">
-              <input
-                type="number"
-                min={11}
-                max={20}
-                value={a.fontSize}
-                onChange={(e) =>
-                  void patchSettings({
-                    appearance: { fontSize: Math.min(20, Math.max(11, Number(e.target.value) || 14)) }
-                  })
-                }
-              />
+              <FontSizeInput value={a.fontSize} onChange={(fontSize) => void patchSettings({ appearance: { fontSize } })} />
               px
             </span>
           </Row>
-          <Row title="UI font" description="Typeface and weight used across the app">
-            <Select
-              width={150}
-              value={a[tone].fontFamily}
-              onChange={(fontFamily) =>
-                void patchSettings({ appearance: { light: { fontFamily }, dark: { fontFamily } } })
-              }
-              options={[
-                { value: 'System default', label: 'System default' },
-                { value: 'Inter', label: 'Inter' },
-                { value: 'SF Mono', label: 'SF Mono' },
-                { value: 'Georgia', label: 'Georgia' }
-              ]}
-            />
+          {/* Weight only: the typeface is always the system's own, the way
+              ChatGPT's is — a picker of novelty faces made the app look
+              less like a tool and more like a theme demo. */}
+          <Row title="Text weight" description="How heavy text looks across the app">
             <Select
               width={116}
               value={a[tone].fontWeight}
@@ -199,6 +165,41 @@ export function AppearancePage(): JSX.Element {
         </Card>
       </Section>
     </>
+  )
+}
+
+const FONT_MIN = 11
+const FONT_MAX = 20
+
+/**
+ * Clamping on every keystroke made most sizes impossible to type: "1" became
+ * 11 and the "6" after it made 116, so 20. What is typed stays as typed; an
+ * in-range value applies at once and anything else is clamped on blur or Enter.
+ */
+function FontSizeInput({ value, onChange }: { value: number; onChange: (size: number) => void }): JSX.Element {
+  const [draft, setDraft] = useState(String(value))
+  useEffect(() => setDraft(String(value)), [value])
+  const commit = (): void => {
+    const size = Math.min(FONT_MAX, Math.max(FONT_MIN, Math.round(Number(draft)) || value))
+    setDraft(String(size))
+    if (size !== value) onChange(size)
+  }
+  return (
+    <input
+      type="number"
+      min={FONT_MIN}
+      max={FONT_MAX}
+      value={draft}
+      onChange={(e) => {
+        setDraft(e.target.value)
+        const size = Number(e.target.value)
+        if (Number.isInteger(size) && size >= FONT_MIN && size <= FONT_MAX && size !== value) onChange(size)
+      }}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') commit()
+      }}
+    />
   )
 }
 
@@ -262,32 +263,6 @@ function DiffPreview(): JSX.Element {
       {side('sidebar', '#2563eb', '42', 'del')}
       {side('sidebar-elevated', '#0ea5e9', '68', 'add')}
     </div>
-  )
-}
-
-
-function DockGlyph({ variant }: { variant: 'mono' | 'color' }): JSX.Element {
-  return (
-    <svg width="44" height="44" viewBox="0 0 44 44" aria-hidden="true">
-      <defs>
-        <linearGradient id={`dock-${variant}`} x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0%" stopColor="#7c8cff" />
-          <stop offset="100%" stopColor="#b06cf5" />
-        </linearGradient>
-      </defs>
-      <rect width="44" height="44" fill={variant === 'mono' ? '#0d0d0d' : `url(#dock-${variant})`} />
-      {variant === 'mono' ? (
-        <path
-          d="M22 10c6.6 0 12 5.4 12 12s-5.4 12-12 12-12-5.4-12-12 5.4-12 12-12zm0 4a8 8 0 1 0 0 16 8 8 0 0 0 0-16zm0 3.4a4.6 4.6 0 1 1 0 9.2 4.6 4.6 0 0 1 0-9.2z"
-          fill="#fff"
-        />
-      ) : (
-        <>
-          <circle cx="22" cy="22" r="9.5" fill="rgba(255,255,255,0.9)" />
-          <circle cx="22" cy="22" r="4.6" fill="rgba(124,140,255,0.95)" />
-        </>
-      )}
-    </svg>
   )
 }
 

@@ -1,4 +1,4 @@
-import { Binary, Brain, Check, CircleAlert, CodeXml, Download, ExternalLink, Eye, Loader2, Play, Wrench, X } from 'lucide-react'
+import { Binary, Brain, Check, CircleAlert, CodeXml, Download, Eye, Loader2, Wrench, X } from 'lucide-react'
 import { useApp } from '../../state/store'
 import { downloadPercent } from '../../lib/format'
 import { progressId, useLibrary } from './libraryStore'
@@ -7,6 +7,7 @@ import {
   diskShortfall,
   fitFor,
   formatModelSize,
+  runtimeGap,
   type FitLevel,
   type LibraryCapability,
   type LibraryModel,
@@ -16,8 +17,6 @@ import {
 /** Small building blocks shared by the library's cards, rows and detail view. */
 
 export const DEVICE = window.api.platform === 'darwin' ? 'Mac' : 'PC'
-
-export const OLLAMA_DOWNLOAD_URL = 'https://ollama.com/download'
 
 export function FitBadge({ level, title }: { level: FitLevel; title?: string }): JSX.Element {
   return (
@@ -93,10 +92,11 @@ export function GetButton({
   const cancel = useLibrary((s) => s.cancel)
   const progress = useApp((s) => s.modelDownloads[progressId(model, variant)])
 
-  if (model.unsupported) {
+  const gap = runtimeGap(model, state?.runtime)
+  if (gap) {
     return (
-      <span className="mlib-get-note" title={model.unsupported}>
-        Not in Ollama yet
+      <span className="mlib-get-note" title={gap}>
+        Not supported yet
       </span>
     )
   }
@@ -124,11 +124,10 @@ export function GetButton({
     )
   }
 
-  const ollama = state?.ollama.state
   const fit = state ? fitFor(variant.sizeBytes, state.ramBytes) : 'good'
   const blocked =
-    ollama === 'missing'
-      ? 'Install Ollama to download models'
+    state && !state.runtime.available
+      ? 'This build of Eaon has no local runtime'
       : fit === 'too-big'
         ? fitExplanation(fit)
         : state
@@ -155,40 +154,28 @@ export function InstalledMark({ quant }: { quant?: string }): JSX.Element {
   return (
     <span className="mlib-installed">
       <Check size={13} strokeWidth={2.4} />
-      Installed{quant ? ` · ${quant}` : ''}
+      Downloaded{quant ? ` · ${quant}` : ''}
     </span>
   )
 }
 
-/** Shown under the tabs whenever Ollama isn't answering; nothing can be pulled or run without it. */
-export function OllamaBanner(): JSX.Element | null {
-  const status = useLibrary((s) => s.state?.ollama)
-  const starting = useLibrary((s) => s.startingOllama)
-  const error = useLibrary((s) => s.errors.ollama)
-  const start = useLibrary((s) => s.startOllama)
-  if (!status || status.state === 'running') return null
-
+/**
+ * Shown under the tabs only when this build has no llama-server for this
+ * machine (a development checkout that never ran scripts/build-llama.sh).
+ * Everything else about running models is automatic.
+ */
+export function RuntimeBanner(): JSX.Element | null {
+  const runtime = useLibrary((s) => s.state?.runtime)
+  if (!runtime || runtime.available) return null
   return (
     <div className="mlib-banner" role="status">
       <div className="mlib-banner__body">
-        <strong>{status.state === 'stopped' ? 'Ollama isn’t running' : 'Ollama isn’t installed'}</strong>
+        <strong>No local runtime in this build</strong>
         <span>
-          {status.state === 'stopped'
-            ? 'Models download and run through Ollama. Start it to get models and use them in chat.'
-            : `Eaon runs local models through Ollama, a free app. Install it, open it once, then come back here.`}
+          Eaon runs downloaded models with its own llama.cpp, which this copy doesn&rsquo;t include. Build it with{' '}
+          <code>scripts/build-llama.sh</code>, or use a cloud model meanwhile.
         </span>
-        <ErrorLine text={error} />
       </div>
-      {status.state === 'stopped' ? (
-        <button className="btn btn--primary" disabled={starting} onClick={() => void start().catch(() => {})}>
-          {starting ? <Loader2 size={14} strokeWidth={2} className="spinner" /> : <Play size={14} strokeWidth={2} />}
-          {starting ? 'Starting…' : 'Start Ollama'}
-        </button>
-      ) : (
-        <button className="btn btn--primary" onClick={() => void window.api.app.openExternal(OLLAMA_DOWNLOAD_URL)}>
-          Download Ollama <ExternalLink size={13} strokeWidth={2} />
-        </button>
-      )}
     </div>
   )
 }

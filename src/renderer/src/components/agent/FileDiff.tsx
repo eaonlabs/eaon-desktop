@@ -1,4 +1,4 @@
-import { useMemo, type JSX } from 'react'
+import { memo, useMemo, type JSX } from 'react'
 
 /**
  * The change an `edit_file` or `write_file` call made, as a unified diff.
@@ -66,7 +66,20 @@ function diffLines(before: string[], after: string[]): Row[] {
 
 const MARKER: Record<RowKind, string> = { add: '+', del: '−', ctx: ' ' }
 
-export function FileDiff({
+/** Lines added and removed by one change, counted the way the diff draws them. */
+export function diffStats(before: string, after: string): { added: number; removed: number } {
+  if (before.length === 0) return { added: after.length === 0 ? 0 : after.split('\n').length, removed: 0 }
+  let added = 0
+  let removed = 0
+  for (const row of diffLines(before.split('\n'), after.split('\n'))) {
+    if (row.kind === 'add') added++
+    else if (row.kind === 'del') removed++
+  }
+  return { added, removed }
+}
+
+/** Memoised: its props are strings, and an open diff can be a thousand rows. */
+export const FileDiff = memo(function FileDiff({
   file,
   before,
   after
@@ -107,4 +120,4 @@ export function FileDiff({
       </div>
     </div>
   )
-}
+})

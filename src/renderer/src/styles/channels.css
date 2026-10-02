@@ -1,0 +1,221 @@
+/* Settings → Chat apps, and the chat-app bits of the Workers tab. The status
+   pill, pairing code and numbered steps are the Browser extension page's
+   (extension.css); only what is new lives here. */
+
+/* The three "connect" tiles. */
+.ch-apps {
+  display: grid;
+  /* Three across in a wide window, stacked when the settings column is narrow. */
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 10px;
+}
+.ch-app {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 12px;
+  border-radius: var(--r-lg);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  text-align: left;
+  color: var(--text);
+  transition:
+    background var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+.ch-app:hover:not(:disabled) {
+  background: var(--surface-3);
+  border-color: var(--border-strong, var(--border));
+}
+.ch-app:disabled {
+  opacity: 0.6;
+}
+.ch-app__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.ch-app__name {
+  font-weight: 600;
+  font-size: var(--fs-base);
+}
+.ch-app__blurb {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  line-height: 1.35;
+}
+.ch-app__plus {
+  flex: none;
+  color: var(--text-3);
+}
+
+.ch-logo {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+}
+
+/* One connection. */
+.ch-card__head {
+  min-height: 64px;
+}
+.ch-card__account {
+  font-weight: 400;
+  color: var(--text-2);
+}
+.ch-card__head .row__trail {
+  gap: 8px;
+}
+
+/* Its people, groups and options sit right under it, tighter than a new section. */
+.ch-subsection {
+  margin-top: 14px;
+}
+
+.ch-token {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+.ch-token .input {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+}
+
+.ch-error {
+  margin: 8px 0 0;
+  font-size: var(--fs-sm);
+  color: var(--danger);
+}
+.row .ch-error {
+  margin: 0;
+}
+.ch-note {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+
+.ch-who {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+.ch-who svg {
+  flex: none;
+  color: var(--text-3);
+}
+.ch-who--warn svg {
+  color: #d18b0f;
+}
+
+.ch-explain {
+  padding-top: 11px;
+  padding-bottom: 11px;
+  min-height: 0;
+}
+.ch-explain .row__desc {
+  margin: 0;
+}
+
+/* WhatsApp: the caution and the code to scan. Amber is a fixed hue, as in
+   extension.css: it has to read as "take care" on any theme. */
+.ch-warn {
+  --ch-amber: #d18b0f;
+  display: flex;
+  gap: 9px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--ch-amber), transparent 90%);
+  border: 1px solid color-mix(in srgb, var(--ch-amber), transparent 65%);
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  line-height: 1.45;
+}
+.ch-warn svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--ch-amber);
+}
+.ch-link {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  width: 100%;
+}
+.ch-link .bx-steps {
+  flex: 1;
+}
+/* The code stays black on white in every theme: phones scan dark on light. */
+.ch-qr {
+  flex: none;
+  width: 196px;
+  height: 196px;
+  border-radius: var(--r-md);
+  background: #fff;
+  box-shadow: 0 0 0 1px var(--border);
+}
+.ch-qr--wait {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--fs-sm);
+  color: #666;
+}
+
+.ch-popover-note {
+  padding: 10px 12px;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+.ch-group-list {
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+/* Workers tab: which apps a worker answers in, on its profile. Buttons: they open Chat apps. */
+.worker-fact--app {
+  font: inherit;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+  transition: background var(--dur) var(--ease);
+}
+.worker-fact--app:hover {
+  background: var(--surface-2);
+}
+
+/* A guest's message in a worker's thread. */
+.msg-mail__from .ch-logo {
+  margin-right: 6px;
+  vertical-align: -2px;
+}
+.msg-mail__where {
+  font-weight: 400;
+  color: var(--text-3);
+}
+.msg-mail__avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--surface-3);
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 600;
+}
+.msg__via {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  align-self: flex-end;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}

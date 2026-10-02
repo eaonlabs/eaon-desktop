@@ -7,6 +7,8 @@ updated: 2026-08-26T01:44:14.640Z
 
 # Eaon Work hidden and the workspace switcher removed
 
+> **Superseded.** Work was brought back and later folded into Chat for good — see [[Chat, Workers and ADE: the three tabs and Chat as the agent]]. Don't use the restore steps below.
+
 User asked to "remove eaon work as a option for now and remove the selector for
 now". Explicitly temporary, so this hides the product rather than deleting it —
 everything in [[Eaon Work mode]] is still in the tree and still compiles.
@@ -58,7 +60,7 @@ projects**, so running it against the real dir to check a UI change would
 destroy chat history. A backup of the store dir was taken first regardless.
 
 **One thing was lost:** the Eaon Work workspace had a saved project folder,
-`/Users/sanshraychada/Downloads/portfolio website`. Dropping the entry drops
+`~/Downloads/portfolio website`. Dropping the entry drops
 that `cwd`; it's one re-pick when the product returns.
 
 Links: [[Eaon Work mode]], [[Sidebar nav layout]]

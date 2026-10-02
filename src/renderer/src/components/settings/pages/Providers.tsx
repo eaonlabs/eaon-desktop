@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Copy,
   ExternalLink,
@@ -8,17 +8,24 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  RotateCcw,
   Star,
   Trash2,
   TriangleAlert,
+  Info,
   Wrench
 } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import { useApp } from '../../../state/store'
 import { BrandIcon } from '../../../icons/brand'
 import { Modal, SearchField, Switch } from '../../ui'
 import type { ModelInfo, Provider } from '@shared/types'
-import type { ProviderAuthStatus, ProviderMeta } from '@shared/providers'
+import { customProviderId, type ModelEdit, type ModelsRefresh, type ProviderAuthStatus, type ProviderMeta } from '@shared/providers'
 import '../../../styles/providers.css'
+import { openInAde } from '../../code/terminal/terminalStore'
+
+/** The plan's own CLI, named for the button that opens it in the ADE. */
+const PLAN_CLI = { claude: 'Claude Code', gemini: 'Gemini CLI', codex: 'Codex' } as const
 
 type Category = NonNullable<Provider['category']>
 
@@ -225,18 +232,6 @@ function ProviderDetail({
 }): JSX.Element {
   const refreshProviders = useApp((s) => s.refreshProviders)
   const [status, setStatus] = useState<{ ok: boolean; message: string } | null>(null)
-  const [busy, setBusy] = useState(false)
-
-  const refreshModelsList = async (): Promise<void> => {
-    setBusy(true)
-    setStatus(null)
-    try {
-      setStatus(await window.api.providers.test(provider.id))
-      await refreshProviders()
-    } finally {
-      setBusy(false)
-    }
-  }
 
   return (
     <>
@@ -253,7 +248,7 @@ function ProviderDetail({
         />
       </div>
 
-      {provider.auth === 'oauth' && <AccountSection provider={provider} meta={meta} auth={auth} />}
+      {(provider.auth === 'oauth' || meta.accountSignIn) && <AccountSection provider={provider} meta={meta} auth={auth} />}
       {meta.fields && meta.baseUrlTemplate && <UrlFieldsSection provider={provider} meta={meta} />}
       {meta.baseUrlLabel && <EndpointSection provider={provider} meta={meta} />}
       {provider.local && <LocalUrlSection provider={provider} />}
@@ -261,7 +256,7 @@ function ProviderDetail({
         <KeySection provider={provider} meta={meta} auth={auth} onStatus={setStatus} status={status} />
       )}
 
-      <ModelsSection provider={provider} busy={busy} onRefresh={() => void refreshModelsList()} status={provider.auth === 'oauth' ? status : null} />
+      <ModelsSection provider={provider} />
     </>
   )
 }
@@ -277,7 +272,7 @@ function AccountSection({
   auth: ProviderAuthStatus | undefined
 }): JSX.Element {
   const pending = auth?.state === 'pending'
-  const signedIn = provider.signedIn ?? auth?.signedIn ?? false
+  const signedIn = (provider.auth === 'oauth' ? provider.signedIn : undefined) ?? auth?.signedIn ?? false
   const label = meta.signInLabel ?? `Sign in to ${provider.name}`
 
   return (
@@ -299,17 +294,24 @@ function AccountSection({
           <p className="provider-detail__section-desc">
             {provider.id === 'github-copilot'
               ? 'Use the models in your GitHub Copilot plan. You’ll confirm a short code on github.com.'
-              : provider.id === 'openai-codex'
-                ? 'Use your ChatGPT Plus or Pro plan. Usage counts against your plan’s limits, not an API bill.'
-                : `Sign in to use ${provider.name} through your existing plan.`}
+              : provider.id === 'chatgpt'
+                ? 'Use your ChatGPT plan with OpenAI’s official Sign in with ChatGPT. Usage counts against your plan’s limits, not an API bill.'
+                : provider.id === 'openai-codex'
+                  ? 'Use your ChatGPT Plus or Pro plan through the Codex CLI’s sign-in. The ChatGPT provider above is the official way.'
+                  : provider.id === 'huggingface'
+                    ? 'Sign in with your Hugging Face account and inference is billed to it — or use an access token below.'
+                    : `Sign in to use ${provider.name} through your existing plan.`}
           </p>
           {pending ? (
             <SignInProgress provider={provider} auth={auth} />
+          ) : auth?.needsClientId && auth.clientSetup ? (
+            <ClientSetup provider={provider} auth={auth} />
           ) : (
             <div className="provider-actions" style={{ marginTop: 0 }}>
               <button className="btn btn--provider" onClick={() => void window.api.providerAuth.signIn(provider.id)}>
                 {label}
               </button>
+              {auth?.clientId && <ClientIdNote provider={provider} clientId={auth.clientId} />}
             </div>
           )}
         </>
@@ -321,6 +323,84 @@ function AccountSection({
         </div>
       )}
     </div>
+  )
+}
+
+/**
+ * Registering an OAuth app with a provider that only signs in registered apps
+ * (Hugging Face, Poe): where to create it, what to register, and a field for
+ * the client id it shows. Public PKCE clients have no secret to paste.
+ */
+function ClientSetup({ provider, auth }: { provider: Provider; auth: ProviderAuthStatus }): JSX.Element {
+  const setup = auth.clientSetup!
+  const [value, setValue] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const save = async (): Promise<void> => {
+    setError(null)
+    try {
+      await window.api.providerAuth.setClientId(provider.id, value.trim())
+    } catch (e) {
+      setError(e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(e))
+    }
+  }
+  const host = setup.registerUrl.replace(/^https?:\/\//, '').split('/')[0]
+  return (
+    <div className="provider-client-setup">
+      <p className="provider-detail__section-desc" style={{ margin: 0 }}>
+        {provider.name} signs in apps that are registered with it. Register Eaon once — it takes a minute:
+      </p>
+      <ol className="provider-client-setup__steps">
+        <li>
+          Create an app at{' '}
+          <button className="provider-link" onClick={() => void window.api.app.openExternal(setup.registerUrl)}>
+            {host}
+            <ExternalLink size={11} strokeWidth={2} />
+          </button>
+          {setup.note ? ` — ${setup.note}` : ''}
+        </li>
+        <li>
+          Add the redirect URL {setup.redirectUris.map((uri) => <code key={uri}>{uri}</code>)}
+          {setup.scopes ? (
+            <>
+              {' '}and the scopes <code>{setup.scopes}</code>
+            </>
+          ) : null}
+          .
+        </li>
+        <li>Paste the Client ID it gives you:</li>
+      </ol>
+      <div className="fallback-row">
+        <input
+          className="input"
+          value={value}
+          placeholder="Client ID"
+          spellCheck={false}
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && value.trim() && void save()}
+        />
+        <button className="btn btn--provider" disabled={!value.trim()} onClick={() => void save()}>
+          Save
+        </button>
+      </div>
+      {error && (
+        <div className="provider-status" data-tone="error">
+          <TriangleAlert size={14} strokeWidth={1.9} />
+          {error}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Which registered app a sign-in uses, with a way to change it. */
+function ClientIdNote({ provider, clientId }: { provider: Provider; clientId: string }): JSX.Element {
+  return (
+    <span className="provider-detail__hint provider-client-note">
+      App {clientId.length > 14 ? `${clientId.slice(0, 6)}…${clientId.slice(-4)}` : clientId}
+      <button className="provider-link" onClick={() => void window.api.providerAuth.setClientId(provider.id, null)}>
+        Change
+      </button>
+    </span>
   )
 }
 
@@ -515,7 +595,10 @@ function KeySection({
   status: { ok: boolean; message: string } | null
   onStatus: (status: { ok: boolean; message: string } | null) => void
 }): JSX.Element {
-  const { refreshProviders, selectModel, settings } = useApp()
+  // Narrow: a whole-store subscription re-renders this (and every model row) per streamed token.
+  const { refreshProviders, selectModel, settings } = useApp(
+    useShallow((s) => ({ refreshProviders: s.refreshProviders, selectModel: s.selectModel, settings: s.settings }))
+  )
   const [key, setKey] = useState('')
   const [reveal, setReveal] = useState(false)
   const [revealedSaved, setRevealedSaved] = useState<string | null>(null)
@@ -607,6 +690,19 @@ function KeySection({
       <p className="provider-detail__section-desc">
         Enter your API key. You can add extra keys in Advanced, and Eaon will try the next one automatically if a key fails.
       </p>
+      {meta.noSignInReason && (
+        <div className="provider-no-signin">
+          <Info size={13} strokeWidth={2} />
+          <span>
+            {meta.noSignInReason}
+            {meta.planInAde && (
+              <button className="provider-link provider-no-signin__action" onClick={() => void openInAde(meta.planInAde!)}>
+                Open {PLAN_CLI[meta.planInAde]} in the ADE
+              </button>
+            )}
+          </span>
+        </div>
+      )}
       <div className="key-field">
         <input
           type={reveal ? 'text' : 'password'}
@@ -683,7 +779,7 @@ function KeySection({
         <button className="btn btn--provider" disabled={busy || !key.trim()} onClick={() => void saveKey()}>
           {busy ? 'Saving…' : 'Save'}
         </button>
-        {meta.keyFlow && !provider.hasKey && (
+        {meta.keyFlow && !meta.accountSignIn && !provider.hasKey && !auth?.needsClientId && (
           <button className="btn" disabled={minting} onClick={() => void mintKey()}>
             {minting ? <Loader2 size={13} strokeWidth={2} className="spinner" /> : null}
             {minting ? 'Waiting for your browser…' : (meta.signInLabel ?? 'Sign in')}
@@ -701,6 +797,13 @@ function KeySection({
         )}
       </div>
 
+      {meta.keyFlow && !meta.accountSignIn && !provider.hasKey && auth?.needsClientId && auth.clientSetup && (
+        <div className="provider-client-setup--inline">
+          <div className="field-label">{meta.signInLabel ?? 'Sign in'} instead</div>
+          <ClientSetup provider={provider} auth={auth} />
+        </div>
+      )}
+
       {status && (
         <div className="provider-status" data-tone={status.ok ? undefined : 'error'}>
           {!status.ok && <TriangleAlert size={14} strokeWidth={1.9} />}
@@ -711,44 +814,56 @@ function KeySection({
   )
 }
 
-function ModelsSection({
-  provider,
-  busy,
-  onRefresh,
-  status
-}: {
-  provider: Provider
-  busy: boolean
-  onRefresh: () => void
-  status: { ok: boolean; message: string } | null
-}): JSX.Element {
-  const { refreshProviders, selectModel, settings } = useApp()
+/**
+ * The provider's models. The list itself is built in the main process
+ * (catalog, then the provider's own listing, then models added here); this
+ * section edits the user's layer on top of it. Removing hides a model rather
+ * than deleting it, so "Hidden" can always bring it back, and Refresh checks
+ * models.dev even before a key is added.
+ */
+function ModelsSection({ provider }: { provider: Provider }): JSX.Element {
+  // Narrow: a whole-store subscription re-renders this (and every model row) per streamed token.
+  const { refreshProviders, toggleFavorite, favorites } = useApp(
+    useShallow((s) => ({ refreshProviders: s.refreshProviders, toggleFavorite: s.toggleFavorite, favorites: s.settings?.favoriteModels }))
+  )
   const [addingModel, setAddingModel] = useState(false)
   const [newModelId, setNewModelId] = useState('')
+  const [renaming, setRenaming] = useState<string | null>(null)
+  const [showHidden, setShowHidden] = useState(false)
+  const [query, setQuery] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [status, setStatus] = useState<ModelsRefresh | null>(null)
   const ready = provider.local || provider.hasKey
+  const hidden = provider.hiddenModels ?? []
+  const starred = new Set(favorites ?? [])
+
+  const edit = async (change: ModelEdit): Promise<void> => {
+    await window.api.providers.editModels(provider.id, change)
+    await refreshProviders()
+  }
+
+  const refresh = async (): Promise<void> => {
+    setBusy(true)
+    setStatus(null)
+    try {
+      setStatus(await window.api.providers.refresh(provider.id))
+    } catch (error) {
+      setStatus({ ok: false, added: [], message: error instanceof Error ? error.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(error) })
+    } finally {
+      await refreshProviders()
+      setBusy(false)
+    }
+  }
 
   const addModel = async (): Promise<void> => {
     if (!newModelId.trim()) return
-    const model: ModelInfo = { id: newModelId.trim(), label: newModelId.trim(), providerId: provider.id }
-    await window.api.providers.update(provider.id, { models: [...provider.models, model] })
-    await refreshProviders()
+    await edit({ add: newModelId.trim() })
     setNewModelId('')
     setAddingModel(false)
   }
 
-  const removeModel = async (modelId: string): Promise<void> => {
-    await window.api.providers.update(provider.id, { models: provider.models.filter((m) => m.id !== modelId) })
-    await refreshProviders()
-  }
-
-  const renameModel = async (model: ModelInfo): Promise<void> => {
-    const next = window.prompt('Model display name', model.label)
-    if (!next || !next.trim()) return
-    await window.api.providers.update(provider.id, {
-      models: provider.models.map((m) => (m.id === model.id ? { ...m, label: next.trim() } : m))
-    })
-    await refreshProviders()
-  }
+  const needle = query.trim().toLowerCase()
+  const shown = needle ? provider.models.filter((m) => `${m.label} ${m.id}`.toLowerCase().includes(needle)) : provider.models
 
   return (
     <div className="provider-detail__section">
@@ -757,10 +872,10 @@ function ModelsSection({
           Models
         </div>
         <div className="provider-detail__section-actions">
-          <button className="icon-btn" aria-label="Refresh models" disabled={!ready} onClick={onRefresh}>
+          <button className="icon-btn" aria-label="Refresh models" title="Check for new models" disabled={busy} onClick={() => void refresh()}>
             <RefreshCw size={15} strokeWidth={1.9} className={busy ? 'spinner' : undefined} />
           </button>
-          <button className="icon-btn" aria-label="Add model" onClick={() => setAddingModel((v) => !v)}>
+          <button className="icon-btn" aria-label="Add model" title="Add a model by id" onClick={() => setAddingModel((v) => !v)}>
             <Plus size={16} strokeWidth={2.1} />
           </button>
         </div>
@@ -775,7 +890,10 @@ function ModelsSection({
             placeholder="Model id, e.g. llama-3.1-8b"
             spellCheck={false}
             onChange={(e) => setNewModelId(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && void addModel()}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') void addModel()
+              if (e.key === 'Escape') setAddingModel(false)
+            }}
           />
           <button className="btn btn--provider" disabled={!newModelId.trim()} onClick={() => void addModel()}>
             Add
@@ -783,10 +901,16 @@ function ModelsSection({
         </div>
       )}
 
-      {status && (
-        <div className="provider-status" data-tone={status.ok ? undefined : 'error'} style={{ marginTop: 0, marginBottom: 8 }}>
-          {!status.ok && <TriangleAlert size={14} strokeWidth={1.9} />}
-          {status.message}
+      {(busy || status) && (
+        <div className="provider-status" data-tone={status && !status.ok ? 'error' : undefined} role="status" style={{ marginTop: 0, marginBottom: 8 }}>
+          {status && !status.ok && <TriangleAlert size={14} strokeWidth={1.9} />}
+          {busy ? 'Checking for new models…' : status?.message}
+        </div>
+      )}
+
+      {provider.models.length > 12 && (
+        <div className="provider-models__search">
+          <SearchField value={query} onChange={setQuery} placeholder={`Search ${provider.models.length} models`} variant="sm" />
         </div>
       )}
 
@@ -798,37 +922,126 @@ function ModelsSection({
               ? 'Sign in, then refresh to load your models.'
               : 'Add an API key, then refresh to load models.'}
         </div>
+      ) : shown.length === 0 ? (
+        <div className="empty-models">No models match “{query.trim()}”.</div>
       ) : (
-        provider.models.map((model) => (
-          <div className="model-row" key={model.id}>
-            <span className="model-row__name" title={model.id}>
-              {model.label}
-            </span>
-            <span className="model-row__badges">
-              {model.tools !== false && <Wrench size={13} strokeWidth={1.8} aria-label="Tools" />}
-              {model.vision && <Eye size={14} strokeWidth={1.8} aria-label="Images" />}
-            </span>
-            <span className="model-row__spacer" />
-            {model.contextWindow && <span className="model-row__meta">{formatTokens(model.contextWindow)}</span>}
-            <span className="model-row__actions">
-              <button className="icon-btn" aria-label="Rename model" onClick={() => void renameModel(model)}>
-                <Pencil size={14} strokeWidth={1.8} />
-              </button>
-              <button
-                className="icon-btn model-row__star"
-                data-on={(settings?.selectedModelId === model.id && (!settings?.selectedProviderId || settings.selectedProviderId === model.providerId)) || undefined}
-                aria-label="Set as default model"
-                onClick={() => selectModel(model.id, model.providerId)}
-              >
-                <Star size={14} strokeWidth={1.8} fill={settings?.selectedModelId === model.id && (!settings?.selectedProviderId || settings.selectedProviderId === model.providerId) ? 'currentColor' : 'none'} />
-              </button>
-              <button className="icon-btn" aria-label="Remove model" onClick={() => void removeModel(model.id)}>
-                <Trash2 size={14} strokeWidth={1.8} />
-              </button>
-            </span>
-          </div>
-        ))
+        shown.map((model) => {
+          const key = `${model.providerId}:${model.id}`
+          const on = starred.has(key)
+          return (
+            <div className="model-row" key={model.id}>
+              {renaming === model.id ? (
+                <RenameField
+                  model={model}
+                  onDone={(label) => {
+                    setRenaming(null)
+                    if (label !== undefined) void edit({ rename: model.id, label })
+                  }}
+                />
+              ) : (
+                <>
+                  <span className="model-row__name" title={model.id}>
+                    {model.label}
+                  </span>
+                  <span className="model-row__badges">
+                    {model.tools !== false && <Wrench size={13} strokeWidth={1.8} aria-label="Tools" />}
+                    {model.vision && <Eye size={14} strokeWidth={1.8} aria-label="Images" />}
+                  </span>
+                  <span className="model-row__spacer" />
+                  {model.contextWindow && <span className="model-row__meta">{formatTokens(model.contextWindow)}</span>}
+                  <span className="model-row__actions">
+                    <button className="icon-btn" aria-label={`Rename ${model.label}`} title="Rename" onClick={() => setRenaming(model.id)}>
+                      <Pencil size={14} strokeWidth={1.8} />
+                    </button>
+                    <button
+                      className="icon-btn"
+                      aria-label={`Remove ${model.label}`}
+                      title={model.custom ? 'Delete' : 'Remove (you can restore it below)'}
+                      onClick={() => void edit({ remove: model.id })}
+                    >
+                      <Trash2 size={14} strokeWidth={1.8} />
+                    </button>
+                  </span>
+                  <button
+                    className="icon-btn model-row__star"
+                    data-on={on || undefined}
+                    aria-pressed={on}
+                    aria-label={on ? `Unstar ${model.label}` : `Star ${model.label}`}
+                    title={on ? 'Unstar' : 'Star — starred models come first in the model menu'}
+                    onClick={() => toggleFavorite(model.id, model.providerId)}
+                  >
+                    <Star size={14} strokeWidth={1.8} fill={on ? 'currentColor' : 'none'} />
+                  </button>
+                </>
+              )}
+            </div>
+          )
+        })
       )}
+
+      {hidden.length > 0 && (
+        <div className="provider-models__hidden">
+          <button className="provider-signin__toggle" aria-expanded={showHidden} onClick={() => setShowHidden((v) => !v)}>
+            {showHidden ? 'Hide removed models' : `${hidden.length} removed model${hidden.length === 1 ? '' : 's'} — show`}
+          </button>
+          {showHidden && (
+            <>
+              {hidden.map((model) => (
+                <div className="model-row model-row--hidden" key={model.id}>
+                  <span className="model-row__name" title={model.id}>
+                    {model.label}
+                  </span>
+                  <span className="model-row__spacer" />
+                  <button className="btn btn--sm" onClick={() => void edit({ restore: model.id })}>
+                    <RotateCcw size={13} strokeWidth={1.9} />
+                    Restore
+                  </button>
+                </div>
+              ))}
+              {hidden.length > 1 && (
+                <button className="btn btn--sm provider-models__restore-all" onClick={() => void edit({ restoreAll: true })}>
+                  Restore all
+                </button>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Inline rename: Enter saves, Escape cancels, an empty name goes back to the catalog's. */
+function RenameField({ model, onDone }: { model: ModelInfo; onDone: (label?: string | null) => void }): JSX.Element {
+  const [value, setValue] = useState(model.label)
+  const done = useRef(false)
+  const finish = (label?: string | null): void => {
+    if (done.current) return
+    done.current = true
+    onDone(label)
+  }
+  const save = (): void => {
+    const next = value.trim()
+    if (next === model.label) finish(undefined)
+    else finish(next || null)
+  }
+  return (
+    <div className="model-row__rename">
+      <input
+        autoFocus
+        className="input"
+        value={value}
+        aria-label={`New name for ${model.id}`}
+        spellCheck={false}
+        onFocus={(e) => e.currentTarget.select()}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={save}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') save()
+          if (e.key === 'Escape') finish(undefined)
+        }}
+      />
+      <span className="provider-detail__hint">Enter to save · Esc to cancel · empty resets</span>
     </div>
   )
 }
@@ -845,6 +1058,7 @@ function AddCustomProviderModal({
   onCreated: (id: string) => void
 }): JSX.Element {
   const refreshProviders = useApp((s) => s.refreshProviders)
+  const providers = useApp((s) => s.providers)
   const [name, setName] = useState('')
   const [format, setFormat] = useState<'openai-compatible' | 'anthropic' | 'openai-responses'>('openai-compatible')
   const [baseUrl, setBaseUrl] = useState('')
@@ -858,11 +1072,8 @@ function AddCustomProviderModal({
   }
 
   const create = async (): Promise<void> => {
-    const id = name
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
+    // Never an id in use: that provider's settings and key would be overwritten.
+    const id = customProviderId(name, providers.map((p) => p.id))
     if (!id) return
     await window.api.providers.update(id, { name: name.trim(), kind: format, baseUrl: baseUrl.trim(), enabled: true })
     if (key.trim()) await window.api.keys.set(id, key.trim())

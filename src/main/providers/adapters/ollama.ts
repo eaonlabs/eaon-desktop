@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto'
 import { clampEffort, effortsFor } from '../compat'
 import { contextWindowFor, isOllamaCloudModel } from '../models'
 import { ThinkTagSplitter } from './thinkTags'
-import { describeErrorBody, emptyUsage, ProviderHttpError, retryAfterFrom, type Adapter, type NeutralToolCall, type TurnRequest, type TurnResult } from './types'
+import { describeErrorBody, emptyUsage, HEADERS_TIMEOUT_MESSAGE, isHeadersTimeout, ProviderHttpError, retryAfterFrom, toolInput, type Adapter, type NeutralToolCall, type TurnRequest, type TurnResult } from './types'
 
 /**
  * Ollama's native `/api/chat`.
@@ -96,7 +96,7 @@ function thinkValue(request: TurnRequest): boolean | string | undefined {
   if (!request.model?.reasoning) return undefined
   if (/gpt-oss/.test(request.modelId)) {
     const level = clampEffort(request.effort, effortsFor(request.modelId, request.model)) ?? 'medium'
-    return level === 'light' ? 'low' : level === 'medium' ? 'medium' : 'high'
+    return level === 'none' || level === 'minimal' || level === 'light' ? 'low' : level === 'medium' ? 'medium' : 'high'
   }
   return true
 }
@@ -141,6 +141,7 @@ export const ollamaAdapter: Adapter = {
         response = await fetch(`${host}/api/chat`, { method: 'POST', headers, body: JSON.stringify(body()), signal: request.signal })
       } catch (error) {
         if (request.signal.aborted) throw error
+        if (isHeadersTimeout(error)) throw new Error(HEADERS_TIMEOUT_MESSAGE)
         throw new Error(`Could not reach Ollama at ${host} — make sure it is installed and running.`)
       }
       if (response.ok) break
@@ -201,15 +202,7 @@ export const ollamaAdapter: Adapter = {
       for (const call of message?.tool_calls ?? []) {
         const name = call.function?.name
         if (!name) continue
-        const raw = call.function?.arguments
-        let input: Record<string, unknown>
-        if (typeof raw === 'string') {
-          try {
-            input = JSON.parse(raw) as Record<string, unknown>
-          } catch {
-            input = { __invalid_json: raw }
-          }
-        } else input = raw ?? {}
+        const input = toolInput(call.function?.arguments)
         calls.push({
           id: call.id || `call_${createHash('sha1').update(`${name}${calls.length}${JSON.stringify(input)}`).digest('hex').slice(0, 20)}`,
           name,
@@ -235,7 +228,15 @@ export const ollamaAdapter: Adapter = {
         if (line) handle(JSON.parse(line) as OllamaChunk)
       }
       if (done) {
-        if (buffer.trim()) handle(JSON.parse(buffer) as OllamaChunk)
+        // A last line that does not parse is half a chunk: the connection
+        // dropped mid-line, which the `finished` check below reports.
+        let last: OllamaChunk | null = null
+        try {
+          last = buffer.trim() ? (JSON.parse(buffer) as OllamaChunk) : null
+        } catch {
+          /* truncated */
+        }
+        if (last) handle(last)
         break
       }
     }

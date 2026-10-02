@@ -1,22 +1,23 @@
 import type { ModelInfo, Provider } from '@shared/types'
 import type { ProviderMeta } from '@shared/providers'
-import { ALL_EFFORTS, OPENAI_EFFORTS } from './models'
+import generated from './catalog.generated.json'
+import type { CatalogModel } from './catalogSources'
+import { OPENAI_EFFORTS } from './models'
 
 /**
  * Every provider the app ships knowing about. Users can disable any of them
  * and add their own OpenAI-compatible endpoints on top (see `index.ts`).
  *
- * Base URLs, auth and seed models follow Eaon Code's provider package
- * (`packages/ai/src/providers/*`, generated from models.dev plus its own
- * corrections), which is kept current; hosts it does not cover were checked
- * by hand. Seed model lists are a starting point only: once a key is added the
- * list is refreshed from the provider's own `/models`, so a new release shows
- * up without an app update. Seeds exist so the picker is useful before that
- * first refresh, and they carry capabilities (context window, output cap,
- * which effort levels the endpoint takes) that `/models` endpoints rarely
- * report. `efforts: []` means the endpoint does not take a reasoning effort
- * for that model, so the picker is hidden rather than offering a setting the
- * request would ignore.
+ * Base URLs and auth follow Eaon Code's provider package; hosts it does not
+ * cover were checked by hand. Model lists are not typed in here: they come
+ * from `catalog.generated.json` (Pi's provider data and models.dev, see
+ * `scripts/generate-models.mjs`), are topped up from models.dev at runtime
+ * (`modelCatalog.ts`), and merged with the provider's own `/models` once a key
+ * is added. The few hand lists left below are for hosts neither source knows.
+ * Catalog entries carry what `/models` endpoints rarely report — context
+ * window, output cap, which effort levels the endpoint takes. `efforts: []`
+ * means the endpoint does not take a reasoning effort for that model, so the
+ * picker is hidden rather than offering a setting the request would ignore.
  */
 
 export type SeedProvider = Omit<Provider, 'hasKey' | 'local' | 'fallbackCount' | 'signedIn'> & { local?: boolean }
@@ -77,11 +78,28 @@ const COPILOT_HEADERS: Record<string, string> = {
   'Copilot-Integration-Id': 'vscode-chat'
 }
 
-export const BUILT_IN: SeedProvider[] = [
+const PROVIDERS: SeedProvider[] = [
   // ---- Subscriptions: sign in with an existing plan, or a coding-plan key ----
   {
-    id: 'openai-codex',
+    // OpenAI's official "Sign in with ChatGPT" for open-source and local apps
+    // (oauth/siwc.ts). The plain Responses API on api.openai.com, drawing on
+    // the person's ChatGPT plan; the model list comes from /v1/models once
+    // signed in, these are only the seed.
+    id: 'chatgpt',
     name: 'ChatGPT',
+    kind: 'openai-responses',
+    baseUrl: 'https://api.openai.com/v1',
+    enabled: true,
+    builtIn: true,
+    auth: 'oauth',
+    oauthFlow: 'openai-siwc',
+    category: 'subscription',
+    description: 'Use your ChatGPT plan — official Sign in with ChatGPT',
+    models: []
+  },
+  {
+    id: 'openai-codex',
+    name: 'ChatGPT (Codex)',
     kind: 'openai-responses',
     baseUrl: 'https://chatgpt.com/backend-api',
     enabled: true,
@@ -89,15 +107,8 @@ export const BUILT_IN: SeedProvider[] = [
     auth: 'oauth',
     oauthFlow: 'openai-codex',
     category: 'subscription',
-    description: 'Use your ChatGPT Plus or Pro plan (Codex)',
-    models: [
-      m('openai-codex', 'gpt-6-astra', 'GPT-6 Astra', { efforts: ALL_EFFORTS, contextWindow: 272_000, maxOutput: 128_000, vision: true, reasoning: true }),
-      m('openai-codex', 'gpt-5.6-sol', 'GPT-5.6 Sol', { efforts: ALL_EFFORTS, contextWindow: 272_000, maxOutput: 128_000, vision: true, reasoning: true }),
-      m('openai-codex', 'gpt-5.6-terra', 'GPT-5.6 Terra', { efforts: ALL_EFFORTS, contextWindow: 272_000, maxOutput: 128_000, vision: true, reasoning: true }),
-      m('openai-codex', 'gpt-5.6-luna', 'GPT-5.6 Luna', { efforts: ALL_EFFORTS, contextWindow: 272_000, maxOutput: 128_000, vision: true, reasoning: true }),
-      m('openai-codex', 'gpt-5.5', 'GPT-5.5', { efforts: ['light', 'medium', 'high', 'extra-high'], contextWindow: 272_000, maxOutput: 128_000, vision: true, reasoning: true }),
-      m('openai-codex', 'gpt-5.3-codex-spark', 'GPT-5.3 Codex Spark', { efforts: ['light', 'medium', 'high', 'extra-high'], contextWindow: 128_000, maxOutput: 128_000, reasoning: true })
-    ]
+    description: 'Your ChatGPT plan through the Codex CLI sign-in',
+    models: []
   },
   {
     id: 'github-copilot',
@@ -111,26 +122,7 @@ export const BUILT_IN: SeedProvider[] = [
     category: 'subscription',
     description: 'Claude, GPT and Gemini through your Copilot plan',
     headers: COPILOT_HEADERS,
-    models: [
-      m('github-copilot', 'claude-sonnet-5', 'Claude Sonnet 5', { contextWindow: 1_000_000, maxOutput: 128_000, vision: true, reasoning: true }),
-      m('github-copilot', 'claude-opus-5', 'Claude Opus 5', { contextWindow: 1_000_000, maxOutput: 64_000, vision: true, reasoning: true }),
-      m('github-copilot', 'claude-fable-5.1', 'Claude Fable 5.1', { contextWindow: 1_000_000, maxOutput: 128_000, vision: true, reasoning: true }),
-      m('github-copilot', 'claude-opus-4.8', 'Claude Opus 4.8', { contextWindow: 1_000_000, maxOutput: 64_000, vision: true, reasoning: true }),
-      m('github-copilot', 'claude-sonnet-4.6', 'Claude Sonnet 4.6', { contextWindow: 1_000_000, maxOutput: 32_000, vision: true, reasoning: true }),
-      m('github-copilot', 'claude-haiku-4.5', 'Claude Haiku 4.5 (latest)', { contextWindow: 200_000, maxOutput: 64_000, vision: true, reasoning: true }),
-      m('github-copilot', 'gpt-6-astra', 'GPT-6 Astra', { efforts: ALL_EFFORTS, contextWindow: 1_050_000, maxOutput: 128_000, vision: true, reasoning: true }),
-      m('github-copilot', 'gpt-5.6-sol', 'GPT-5.6 Sol', { efforts: ALL_EFFORTS, contextWindow: 1_050_000, maxOutput: 128_000, vision: true, reasoning: true }),
-      m('github-copilot', 'gpt-5.6-terra', 'GPT-5.6 Terra', { efforts: ALL_EFFORTS, contextWindow: 1_050_000, maxOutput: 128_000, vision: true, reasoning: true }),
-      m('github-copilot', 'gpt-5.6-luna', 'GPT-5.6 Luna', { efforts: ALL_EFFORTS, contextWindow: 1_050_000, maxOutput: 128_000, vision: true, reasoning: true }),
-      m('github-copilot', 'gpt-5.5', 'GPT-5.5', { efforts: ['light', 'medium', 'high', 'extra-high'], contextWindow: 1_000_000, maxOutput: 128_000, vision: true, reasoning: true }),
-      m('github-copilot', 'gpt-5.4', 'GPT-5.4', { efforts: ['light', 'medium', 'high', 'extra-high'], contextWindow: 1_000_000, maxOutput: 128_000, vision: true, reasoning: true }),
-      m('github-copilot', 'gpt-5.3-codex', 'GPT-5.3 Codex', { efforts: ['light', 'medium', 'high', 'extra-high'], contextWindow: 1_000_000, maxOutput: 128_000, vision: true, reasoning: true }),
-      m('github-copilot', 'gpt-5-mini', 'GPT-5 Mini', { efforts: OPENAI_EFFORTS, contextWindow: 264_000, maxOutput: 64_000, vision: true, reasoning: true }),
-      m('github-copilot', 'gemini-3.8-flash', 'Gemini 3.8 Flash', { efforts: [], contextWindow: 1_000_000, maxOutput: 64_000, vision: true, reasoning: true }),
-      m('github-copilot', 'grok-4.6', 'Grok 4.6', { efforts: ['light', 'medium', 'high', 'extra-high'], contextWindow: 500_000, maxOutput: 128_000, vision: true, reasoning: true }),
-      m('github-copilot', 'kimi-k3', 'Kimi K3', { efforts: [], contextWindow: 1_048_576, maxOutput: 131_072, vision: true, reasoning: true }),
-      m('github-copilot', 'mai-code-1.1-flash', 'MAI-Code-1.1-Flash', { efforts: OPENAI_EFFORTS, contextWindow: 256_000, maxOutput: 128_000, vision: true, reasoning: true })
-    ]
+    models: []
   },
   {
     id: 'kimi-coding',
@@ -143,21 +135,9 @@ export const BUILT_IN: SeedProvider[] = [
     category: 'subscription',
     description: "Moonshot's Kimi coding plan",
     keyUrl: 'https://www.kimi.com/code',
-    models: [
-      m('kimi-coding', 'k3', 'Kimi K3', { efforts: ['light', 'high', 'ultra'], contextWindow: 1_048_576, maxOutput: 131_072, vision: true, reasoning: true }),
-      m('kimi-coding', 'k3-256k', 'Kimi K3-256K', { efforts: ['light', 'high', 'ultra'], contextWindow: 262_144, maxOutput: 131_072, vision: true, reasoning: true }),
-      m('kimi-coding', 'kimi-for-coding', 'Kimi K2.7 Code', { efforts: OPENAI_EFFORTS, contextWindow: 262_144, maxOutput: 32_768, vision: true, reasoning: true }),
-      m('kimi-coding', 'kimi-for-coding-highspeed', 'Kimi For Coding HighSpeed', { efforts: OPENAI_EFFORTS, contextWindow: 262_144, maxOutput: 32_768, vision: true, reasoning: true })
-    ]
+    models: []
   },
-  hosted('zai-coding', 'GLM Coding Plan', 'subscription', 'https://api.z.ai/api/coding/paas/v4', "Z.ai's GLM coding subscription", 'https://z.ai/manage-apikey/apikey-list', [
-    m('zai-coding', 'glm-5.3', 'GLM-5.3', { efforts: ['light', 'high', 'ultra'], contextWindow: 1_000_000, maxOutput: 131_072, reasoning: true }),
-    m('zai-coding', 'glm-5.3-highspeed', 'GLM-5.3 Highspeed', { efforts: ['light', 'high', 'ultra'], contextWindow: 1_000_000, maxOutput: 131_072, reasoning: true }),
-    m('zai-coding', 'glm-5.3-flash', 'GLM-5.3-Flash', { efforts: ['light', 'high', 'ultra'], contextWindow: 1_000_000, maxOutput: 131_072, vision: true, reasoning: true }),
-    m('zai-coding', 'glm-5.2', 'GLM-5.2', { efforts: ['high', 'ultra'], contextWindow: 1_000_000, maxOutput: 131_072, reasoning: true }),
-    m('zai-coding', 'glm-5-turbo', 'GLM-5-Turbo', { efforts: [], contextWindow: 200_000, maxOutput: 131_072, reasoning: true }),
-    m('zai-coding', 'glm-4.7', 'GLM-4.7', { efforts: [], contextWindow: 204_800, maxOutput: 131_072, reasoning: true })
-  ]),
+  hosted('zai-coding', 'GLM Coding Plan', 'subscription', 'https://api.z.ai/api/coding/paas/v4', "Z.ai's GLM coding subscription", 'https://z.ai/manage-apikey/apikey-list', []),
   hosted(
     'qwen-token-plan',
     'Qwen Token Plan',
@@ -165,33 +145,10 @@ export const BUILT_IN: SeedProvider[] = [
     'https://token-plan.ap-southeast-1.maas.aliyuncs.com/compatible-mode/v1',
     "Alibaba Cloud's coding plan: Qwen, DeepSeek, GLM and Kimi",
     'https://modelstudio.console.alibabacloud.com/?tab=playground#/api-key',
-    [
-      m('qwen-token-plan', 'qwen3.8-max', 'Qwen3.8 Max', { efforts: ['light', 'medium', 'extra-high'], contextWindow: 1_000_000, maxOutput: 131_072, vision: true, reasoning: true }),
-      m('qwen-token-plan', 'qwen3.8-flash', 'Qwen3.8 Flash', { efforts: ['light', 'medium', 'extra-high'], contextWindow: 1_000_000, maxOutput: 131_072, vision: true, reasoning: true }),
-      m('qwen-token-plan', 'qwen3.7-max', 'Qwen3.7 Max', { efforts: [], contextWindow: 1_000_000, maxOutput: 131_072, reasoning: true }),
-      m('qwen-token-plan', 'qwen3.7-plus', 'Qwen3.7 Plus', { efforts: [], contextWindow: 1_000_000, maxOutput: 65_536, vision: true, reasoning: true }),
-      m('qwen-token-plan', 'qwen3.6-plus', 'Qwen3.6 Plus', { efforts: [], contextWindow: 1_000_000, maxOutput: 65_536, vision: true, reasoning: true }),
-      m('qwen-token-plan', 'deepseek-v4-pro', 'DeepSeek V4 Pro', { efforts: ['high', 'ultra'], contextWindow: 1_000_000, maxOutput: 384_000, reasoning: true }),
-      m('qwen-token-plan', 'glm-5.2', 'GLM-5.2', { efforts: ['high', 'ultra'], contextWindow: 1_000_000, maxOutput: 131_072, reasoning: true }),
-      m('qwen-token-plan', 'kimi-k2.7-code', 'Kimi K2.7 Code', { efforts: [], contextWindow: 262_144, maxOutput: 262_144, vision: true, reasoning: true }),
-      m('qwen-token-plan', 'MiniMax-M2.5', 'MiniMax-M2.5', { efforts: [], contextWindow: 196_608, maxOutput: 32_768, reasoning: true })
-    ]
+    []
   ),
-  hosted('xiaomi-token-plan', 'MiMo Token Plan', 'subscription', 'https://token-plan-sgp.xiaomimimo.com/v1', "Xiaomi's MiMo subscription (Singapore or Amsterdam)", 'https://platform.xiaomimimo.com', [
-    m('xiaomi-token-plan', 'mimo-v2.5-pro', 'MiMo-V2.5-Pro', { efforts: [], contextWindow: 1_048_576, maxOutput: 131_072, reasoning: true }),
-    m('xiaomi-token-plan', 'mimo-v2.5', 'MiMo-V2.5', { efforts: [], contextWindow: 1_048_576, maxOutput: 131_072, vision: true, reasoning: true })
-  ]),
-  hosted('opencode-go', 'OpenCode Go', 'subscription', 'https://opencode.ai/zen/go/v1', 'Flat-rate open models from OpenCode', 'https://opencode.ai/auth', [
-    m('opencode-go', 'kimi-k3', 'Kimi K3', { efforts: ['ultra'], contextWindow: 1_048_576, maxOutput: 131_072, vision: true, reasoning: true }),
-    m('opencode-go', 'glm-5.3', 'GLM-5.3', { efforts: ['light', 'high', 'ultra'], contextWindow: 1_000_000, maxOutput: 131_072, reasoning: true }),
-    m('opencode-go', 'deepseek-v4-pro', 'DeepSeek V4 Pro (New)', { efforts: ['high', 'ultra'], contextWindow: 1_000_000, maxOutput: 384_000, reasoning: true }),
-    m('opencode-go', 'deepseek-v4.1-flash', 'DeepSeek V4.1 Flash', { efforts: ['high', 'ultra'], contextWindow: 1_000_000, maxOutput: 384_000, vision: true, reasoning: true }),
-    m('opencode-go', 'qwen3.8-max', 'Qwen3.8 Max', { efforts: ['light', 'medium', 'extra-high'], contextWindow: 1_000_000, maxOutput: 131_072, vision: true, reasoning: true }),
-    m('opencode-go', 'minimax-m3', 'MiniMax-M3', { efforts: OPENAI_EFFORTS, contextWindow: 1_000_000, maxOutput: 131_072, vision: true, reasoning: true }),
-    m('opencode-go', 'mimo-v2.5-pro', 'MiMo V2.5 Pro', { efforts: OPENAI_EFFORTS, contextWindow: 1_048_576, maxOutput: 128_000, reasoning: true }),
-    m('opencode-go', 'gpt-5.6-luna', 'GPT-5.6 Luna', { efforts: ALL_EFFORTS, contextWindow: 1_050_000, maxOutput: 128_000, vision: true, reasoning: true }),
-    m('opencode-go', 'grok-4.6', 'Grok 4.6', { efforts: ['light', 'medium', 'high', 'extra-high'], contextWindow: 500_000, maxOutput: 500_000, vision: true, reasoning: true })
-  ]),
+  hosted('xiaomi-token-plan', 'MiMo Token Plan', 'subscription', 'https://token-plan-sgp.xiaomimimo.com/v1', "Xiaomi's MiMo subscription (Singapore or Amsterdam)", 'https://platform.xiaomimimo.com', []),
+  hosted('opencode-go', 'OpenCode Go', 'subscription', 'https://opencode.ai/zen/go/v1', 'Flat-rate open models from OpenCode', 'https://opencode.ai/auth', []),
 
   // ---- Local runtimes: no key required, endpoint points at a port on this machine ----
   {
@@ -207,6 +164,10 @@ export const BUILT_IN: SeedProvider[] = [
     description: 'Run open models on this computer',
     models: []
   },
+  // Eaon's own runtime (main/llama): the models downloaded on the Models page,
+  // run by the llama-server built from Eaon's llama.cpp. The base URL is a
+  // placeholder — each request gets the running server's port and key.
+  local('eaon-local', 'On this computer', 'http://127.0.0.1/v1', 'Models you download in Eaon, run by its built-in llama.cpp'),
   local('lm-studio', 'LM Studio', 'http://127.0.0.1:1234/v1', 'LM Studio’s local server on port 1234'),
   local('llama-cpp', 'Llama.cpp', 'http://127.0.0.1:8080/v1', 'llama-server on port 8080'),
   local('mlx', 'MLX', 'http://127.0.0.1:8080/v1', 'mlx_lm.server on Apple silicon'),
@@ -225,14 +186,7 @@ export const BUILT_IN: SeedProvider[] = [
     category: 'frontier',
     description: 'Claude',
     keyUrl: 'https://console.anthropic.com/settings/keys',
-    models: [
-      m('anthropic', 'claude-opus-5-5', 'Opus 5.5', { efforts: ALL_EFFORTS, contextWindow: 1_000_000, maxOutput: 64_000, vision: true, reasoning: true }),
-      m('anthropic', 'claude-fable-5-1', 'Fable 5.1', { efforts: ALL_EFFORTS, contextWindow: 1_000_000, maxOutput: 64_000, vision: true, reasoning: true }),
-      m('anthropic', 'claude-opus-5', 'Opus 5', { efforts: ALL_EFFORTS, contextWindow: 1_000_000, maxOutput: 64_000, vision: true, reasoning: true }),
-      m('anthropic', 'claude-sonnet-5', 'Sonnet 5', { efforts: ALL_EFFORTS, contextWindow: 1_000_000, maxOutput: 64_000, vision: true, reasoning: true }),
-      m('anthropic', 'claude-opus-4-8', 'Opus 4.8', { efforts: ALL_EFFORTS, contextWindow: 1_000_000, maxOutput: 64_000, vision: true, reasoning: true }),
-      m('anthropic', 'claude-haiku-4-5', 'Haiku 4.5', { contextWindow: 200_000, maxOutput: 64_000, vision: true, reasoning: true })
-    ]
+    models: []
   },
   {
     id: 'openai',
@@ -247,34 +201,9 @@ export const BUILT_IN: SeedProvider[] = [
     category: 'frontier',
     description: 'GPT and the o-series',
     keyUrl: 'https://platform.openai.com/api-keys',
-    models: [
-      m('openai', 'gpt-6-astra', 'GPT-6 Astra', { efforts: ALL_EFFORTS, contextWindow: 272_000, maxOutput: 128_000, vision: true, reasoning: true }),
-      m('openai', 'gpt-5.6-sol', 'GPT-5.6 Sol', { efforts: ALL_EFFORTS, contextWindow: 272_000, maxOutput: 128_000, vision: true, reasoning: true }),
-      m('openai', 'gpt-5.6-terra', 'GPT-5.6 Terra', { efforts: ALL_EFFORTS, contextWindow: 272_000, maxOutput: 128_000, vision: true, reasoning: true }),
-      m('openai', 'gpt-5.6-luna', 'GPT-5.6 Luna', { efforts: ALL_EFFORTS, contextWindow: 272_000, maxOutput: 128_000, vision: true, reasoning: true }),
-      m('openai', 'gpt-5.5', 'GPT-5.5', { efforts: ['light', 'medium', 'high', 'extra-high'], contextWindow: 272_000, maxOutput: 128_000, vision: true, reasoning: true }),
-      m('openai', 'gpt-5.5-pro', 'GPT-5.5 Pro', { efforts: ['medium', 'high', 'extra-high'], contextWindow: 1_050_000, maxOutput: 128_000, vision: true, reasoning: true }),
-      m('openai', 'gpt-5.4', 'GPT-5.4', { efforts: ['light', 'medium', 'high', 'extra-high'], contextWindow: 272_000, maxOutput: 128_000, vision: true, reasoning: true }),
-      m('openai', 'gpt-5.4-mini', 'GPT-5.4 mini', { efforts: ['light', 'medium', 'high', 'extra-high'], contextWindow: 400_000, maxOutput: 128_000, vision: true, reasoning: true }),
-      m('openai', 'gpt-5.4-nano', 'GPT-5.4 nano', { efforts: ['light', 'medium', 'high', 'extra-high'], contextWindow: 400_000, maxOutput: 128_000, vision: true, reasoning: true }),
-      m('openai', 'gpt-5.3-codex', 'GPT-5.3 Codex', { efforts: ['light', 'medium', 'high', 'extra-high'], contextWindow: 400_000, maxOutput: 128_000, vision: true, reasoning: true }),
-      m('openai', 'gpt-5', 'GPT-5', { efforts: OPENAI_EFFORTS, contextWindow: 400_000, maxOutput: 128_000, vision: true, reasoning: true }),
-      m('openai', 'gpt-5-mini', 'GPT-5 Mini', { efforts: OPENAI_EFFORTS, contextWindow: 400_000, maxOutput: 128_000, vision: true, reasoning: true }),
-      m('openai', 'gpt-4.1', 'GPT-4.1', { efforts: [], contextWindow: 1_047_576, maxOutput: 32_768, vision: true, reasoning: false }),
-      m('openai', 'gpt-4o', 'GPT-4o', { efforts: [], contextWindow: 128_000, maxOutput: 16_384, vision: true, reasoning: false }),
-      m('openai', 'o3', 'o3', { efforts: OPENAI_EFFORTS, contextWindow: 200_000, maxOutput: 100_000, vision: true, reasoning: true }),
-      m('openai', 'o4-mini', 'o4-mini', { efforts: OPENAI_EFFORTS, contextWindow: 200_000, maxOutput: 100_000, vision: true, reasoning: true })
-    ]
+    models: []
   },
-  hosted('gemini', 'Gemini', 'frontier', 'https://generativelanguage.googleapis.com/v1beta/openai', 'Google AI Studio', 'https://aistudio.google.com/app/apikey', [
-    m('gemini', 'gemini-3.8-flash', 'Gemini 3.8 Flash', { efforts: OPENAI_EFFORTS, contextWindow: 1_048_576, maxOutput: 65_536, vision: true, reasoning: true }),
-    m('gemini', 'gemini-3.7-flash', 'Gemini 3.7 Flash', { efforts: OPENAI_EFFORTS, contextWindow: 1_048_576, maxOutput: 65_536, vision: true, reasoning: true }),
-    m('gemini', 'gemini-3.5-flash-lite', 'Gemini 3.5 Flash Lite', { efforts: OPENAI_EFFORTS, contextWindow: 1_048_576, maxOutput: 65_536, vision: true, reasoning: true }),
-    m('gemini', 'gemini-3.1-pro-preview', 'Gemini 3.1 Pro Preview', { efforts: ['light', 'high'], contextWindow: 1_048_576, maxOutput: 65_536, vision: true, reasoning: true }),
-    m('gemini', 'gemini-2.5-pro', 'Gemini 2.5 Pro', { efforts: OPENAI_EFFORTS, contextWindow: 1_048_576, maxOutput: 65_536, vision: true, reasoning: true }),
-    m('gemini', 'gemini-2.5-flash', 'Gemini 2.5 Flash', { efforts: OPENAI_EFFORTS, contextWindow: 1_048_576, maxOutput: 65_536, vision: true, reasoning: true }),
-    m('gemini', 'gemma-4-31b-it', 'Gemma 4 31B IT', { efforts: [], contextWindow: 262_144, maxOutput: 32_768, vision: true, reasoning: true })
-  ]),
+  hosted('gemini', 'Gemini', 'frontier', 'https://generativelanguage.googleapis.com/v1beta/openai', 'Google AI Studio', 'https://aistudio.google.com/app/apikey', []),
   {
     id: 'xai',
     name: 'xAI',
@@ -286,43 +215,12 @@ export const BUILT_IN: SeedProvider[] = [
     category: 'frontier',
     description: 'Grok',
     keyUrl: 'https://console.x.ai',
-    models: [
-      m('xai', 'grok-4.6', 'Grok 4.6', { efforts: ['light', 'medium', 'high', 'extra-high'], contextWindow: 500_000, maxOutput: 500_000, vision: true, reasoning: true }),
-      m('xai', 'grok-4.5', 'Grok 4.5', { efforts: OPENAI_EFFORTS, contextWindow: 500_000, maxOutput: 500_000, vision: true, reasoning: true }),
-      m('xai', 'grok-4.3', 'Grok 4.3', { efforts: OPENAI_EFFORTS, contextWindow: 1_000_000, maxOutput: 30_000, vision: true, reasoning: true })
-    ]
+    models: []
   },
-  hosted('mistral', 'Mistral', 'frontier', 'https://api.mistral.ai/v1', 'Mistral, Magistral, Devstral and Codestral', 'https://console.mistral.ai/api-keys', [
-    m('mistral', 'mistral-large-latest', 'Mistral Large (latest)', { efforts: [], contextWindow: 262_144, maxOutput: 262_144, vision: true, reasoning: false }),
-    m('mistral', 'mistral-medium-latest', 'Mistral Medium (latest)', { efforts: [], contextWindow: 262_144, maxOutput: 262_144, vision: true, reasoning: true }),
-    m('mistral', 'mistral-small-latest', 'Mistral Small (latest)', { efforts: [], contextWindow: 256_000, maxOutput: 256_000, vision: true, reasoning: true }),
-    m('mistral', 'magistral-medium-latest', 'Magistral Medium (latest)', { efforts: [], contextWindow: 128_000, maxOutput: 16_384, reasoning: true }),
-    m('mistral', 'devstral-latest', 'Devstral 2', { efforts: [], contextWindow: 262_144, maxOutput: 262_144, reasoning: false }),
-    m('mistral', 'devstral-medium-latest', 'Devstral 2 (latest)', { efforts: [], contextWindow: 262_144, maxOutput: 262_144, reasoning: false }),
-    m('mistral', 'codestral-latest', 'Codestral (latest)', { efforts: [], contextWindow: 256_000, maxOutput: 4_096, reasoning: false }),
-    m('mistral', 'ministral-8b-latest', 'Ministral 8B (latest)', { efforts: [], contextWindow: 128_000, maxOutput: 128_000, reasoning: false }),
-    m('mistral', 'pixtral-large-latest', 'Pixtral Large (latest)', { efforts: [], contextWindow: 128_000, maxOutput: 128_000, vision: true, reasoning: false })
-  ]),
-  hosted('deepseek', 'DeepSeek', 'frontier', 'https://api.deepseek.com', 'DeepSeek V4, direct from the lab', 'https://platform.deepseek.com/api_keys', [
-    m('deepseek', 'deepseek-v4-pro', 'DeepSeek V4 Pro', { efforts: ['high', 'ultra'], contextWindow: 1_000_000, maxOutput: 384_000, reasoning: true }),
-    m('deepseek', 'deepseek-flash', 'DeepSeek V4.1 Flash', { efforts: ['light', 'high', 'ultra'], contextWindow: 1_000_000, maxOutput: 384_000, vision: true, reasoning: true }),
-    m('deepseek', 'deepseek-chat', 'DeepSeek Chat', { efforts: [], contextWindow: 128_000, maxOutput: 8192, reasoning: false }),
-    m('deepseek', 'deepseek-reasoner', 'DeepSeek Reasoner', { efforts: [], contextWindow: 128_000, maxOutput: 65_536, reasoning: true })
-  ]),
-  hosted('moonshot', 'Kimi', 'frontier', 'https://api.moonshot.ai/v1', "Moonshot AI's Kimi models", 'https://platform.moonshot.ai/console/api-keys', [
-    m('moonshot', 'kimi-k3', 'Kimi K3', { efforts: ['light', 'high', 'ultra'], contextWindow: 1_048_576, maxOutput: 131_072, vision: true, reasoning: true }),
-    m('moonshot', 'kimi-k2.7-code', 'Kimi K2.7 Code', { efforts: [], contextWindow: 262_144, maxOutput: 262_144, vision: true, reasoning: true }),
-    m('moonshot', 'kimi-k2.7-code-highspeed', 'Kimi K2.7 Code HighSpeed', { efforts: [], contextWindow: 262_144, maxOutput: 262_144, vision: true, reasoning: true }),
-    m('moonshot', 'kimi-k2.6', 'Kimi K2.6', { efforts: [], contextWindow: 262_144, maxOutput: 262_144, vision: true, reasoning: true })
-  ]),
-  hosted('zai', 'Z.ai', 'frontier', 'https://api.z.ai/api/paas/v4', 'GLM models, pay as you go', 'https://z.ai/manage-apikey/apikey-list', [
-    m('zai', 'glm-5.3', 'GLM-5.3', { efforts: ['light', 'high', 'ultra'], contextWindow: 1_000_000, maxOutput: 131_072, reasoning: true }),
-    m('zai', 'glm-5.3-highspeed', 'GLM-5.3 Highspeed', { efforts: ['light', 'high', 'ultra'], contextWindow: 1_000_000, maxOutput: 131_072, reasoning: true }),
-    m('zai', 'glm-5.3-flash', 'GLM-5.3-Flash', { efforts: ['light', 'high', 'ultra'], contextWindow: 1_000_000, maxOutput: 131_072, vision: true, reasoning: true }),
-    m('zai', 'glm-5.2', 'GLM-5.2', { efforts: ['high', 'ultra'], contextWindow: 1_000_000, maxOutput: 131_072, reasoning: true }),
-    m('zai', 'glm-5-turbo', 'GLM-5-Turbo', { efforts: [], contextWindow: 200_000, maxOutput: 131_072, reasoning: true }),
-    m('zai', 'glm-4.7', 'GLM-4.7', { efforts: [], contextWindow: 204_800, maxOutput: 131_072, reasoning: true })
-  ]),
+  hosted('mistral', 'Mistral', 'frontier', 'https://api.mistral.ai/v1', 'Mistral, Magistral, Devstral and Codestral', 'https://console.mistral.ai/api-keys', []),
+  hosted('deepseek', 'DeepSeek', 'frontier', 'https://api.deepseek.com', 'DeepSeek V4, direct from the lab', 'https://platform.deepseek.com/api_keys', []),
+  hosted('moonshot', 'Kimi', 'frontier', 'https://api.moonshot.ai/v1', "Moonshot AI's Kimi models", 'https://platform.moonshot.ai/console/api-keys', []),
+  hosted('zai', 'Z.ai', 'frontier', 'https://api.z.ai/api/paas/v4', 'GLM models, pay as you go', 'https://z.ai/manage-apikey/apikey-list', []),
   hosted(
     'qwen',
     'Qwen',
@@ -330,14 +228,7 @@ export const BUILT_IN: SeedProvider[] = [
     'https://dashscope-intl.aliyuncs.com/compatible-mode/v1',
     'Alibaba Cloud Model Studio (international)',
     'https://modelstudio.console.alibabacloud.com/?tab=playground#/api-key',
-    [
-      m('qwen', 'qwen3.8-max', 'Qwen3.8 Max', { efforts: ['light', 'medium', 'extra-high'], contextWindow: 1_000_000, maxOutput: 131_072, vision: true, reasoning: true }),
-      m('qwen', 'qwen3.8-flash', 'Qwen3.8 Flash', { efforts: ['light', 'medium', 'extra-high'], contextWindow: 1_000_000, maxOutput: 131_072, vision: true, reasoning: true }),
-      m('qwen', 'qwen3.7-plus', 'Qwen3.7 Plus', { efforts: [], contextWindow: 1_000_000, maxOutput: 65_536, vision: true, reasoning: true }),
-      m('qwen', 'qwen3-coder-plus', 'Qwen3 Coder Plus', { efforts: [], contextWindow: 1_000_000, maxOutput: 65_536, reasoning: false }),
-      m('qwen', 'qwen-plus', 'Qwen Plus', { efforts: [], contextWindow: 1_000_000, maxOutput: 32_768, reasoning: true }),
-      m('qwen', 'qwen-flash', 'Qwen Flash', { efforts: [], contextWindow: 1_000_000, maxOutput: 32_768, reasoning: true })
-    ]
+    []
   ),
   {
     id: 'minimax',
@@ -352,47 +243,18 @@ export const BUILT_IN: SeedProvider[] = [
     category: 'frontier',
     description: 'MiniMax M3 and M2.7 (international)',
     keyUrl: 'https://platform.minimax.io/user-center/basic-information/interface-key',
-    models: [
-      m('minimax', 'MiniMax-M3', 'MiniMax-M3', { efforts: OPENAI_EFFORTS, contextWindow: 1_048_576, maxOutput: 512_000, vision: true, reasoning: true }),
-      m('minimax', 'MiniMax-M2.7', 'MiniMax-M2.7', { efforts: OPENAI_EFFORTS, contextWindow: 204_800, maxOutput: 131_072, reasoning: true }),
-      m('minimax', 'MiniMax-M2.7-highspeed', 'MiniMax-M2.7-highspeed', { efforts: OPENAI_EFFORTS, contextWindow: 204_800, maxOutput: 131_072, reasoning: true })
-    ]
+    models: []
   },
-  hosted('xiaomi', 'Xiaomi MiMo', 'frontier', 'https://api.xiaomimimo.com/v1', 'MiMo V2.5, pay as you go', 'https://platform.xiaomimimo.com', [
-    m('xiaomi', 'mimo-v2.5-pro', 'MiMo-V2.5-Pro', { efforts: [], contextWindow: 1_048_576, maxOutput: 131_072, reasoning: true }),
-    m('xiaomi', 'mimo-v2.5', 'MiMo-V2.5', { efforts: [], contextWindow: 1_048_576, maxOutput: 131_072, vision: true, reasoning: true }),
-    m('xiaomi', 'mimo-v2.5-pro-ultraspeed', 'MiMo-V2.5-Pro-UltraSpeed', { efforts: [], contextWindow: 1_048_576, maxOutput: 131_072, reasoning: true })
-  ]),
-  hosted('cohere', 'Cohere', 'frontier', 'https://api.cohere.ai/compatibility/v1', 'Command A, through the OpenAI-compatible API', 'https://dashboard.cohere.com/api-keys', [
-    m('cohere', 'command-a-03-2025', 'Command A', { efforts: [], contextWindow: 256_000, maxOutput: 8000, reasoning: false }),
-    m('cohere', 'command-a-reasoning-08-2025', 'Command A Reasoning', { efforts: [], contextWindow: 256_000, maxOutput: 32_000, reasoning: true }),
-    m('cohere', 'command-a-vision-07-2025', 'Command A Vision', { efforts: [], contextWindow: 128_000, maxOutput: 8000, vision: true, reasoning: false, tools: false }),
-    m('cohere', 'command-r-plus-08-2024', 'Command R+', { efforts: [], contextWindow: 128_000, maxOutput: 4000, reasoning: false }),
-    m('cohere', 'command-r7b-12-2024', 'Command R7B', { efforts: [], contextWindow: 128_000, maxOutput: 4000, reasoning: false })
-  ]),
-  hosted('perplexity', 'Perplexity', 'frontier', 'https://api.perplexity.ai', 'Sonar: answers grounded in live web search', 'https://www.perplexity.ai/settings/api', [
-    // Sonar does not take function tools; the adapter leaves them off.
-    m('perplexity', 'sonar-pro', 'Sonar Pro', { efforts: [], contextWindow: 200_000, maxOutput: 8000, reasoning: false, tools: false }),
-    m('perplexity', 'sonar', 'Sonar', { efforts: [], contextWindow: 128_000, reasoning: false, tools: false }),
-    m('perplexity', 'sonar-reasoning-pro', 'Sonar Reasoning Pro', { efforts: [], contextWindow: 128_000, reasoning: true, tools: false }),
-    m('perplexity', 'sonar-deep-research', 'Sonar Deep Research', { efforts: [], contextWindow: 128_000, reasoning: true, tools: false })
-  ]),
+  hosted('xiaomi', 'Xiaomi MiMo', 'frontier', 'https://api.xiaomimimo.com/v1', 'MiMo V2.5, pay as you go', 'https://platform.xiaomimimo.com', []),
+  hosted('cohere', 'Cohere', 'frontier', 'https://api.cohere.ai/compatibility/v1', 'Command A, through the OpenAI-compatible API', 'https://dashboard.cohere.com/api-keys', []),
+  hosted('perplexity', 'Perplexity', 'frontier', 'https://api.perplexity.ai', 'Sonar: answers grounded in live web search', 'https://www.perplexity.ai/settings/api', []),
 
   // ---- Gateways: many labs behind one key ----
   hosted('openrouter', 'OpenRouter', 'gateway', 'https://openrouter.ai/api/v1', 'Hundreds of models behind one key', 'https://openrouter.ai/keys', [], {
     headers: { 'HTTP-Referer': 'https://eaon.dev', 'X-Title': 'Eaon' }
   }),
-  hosted('vercel', 'Vercel AI Gateway', 'gateway', 'https://ai-gateway.vercel.sh/v1', 'Every major lab through Vercel, with fallbacks', 'https://vercel.com/docs/ai-gateway/authentication', [
-    m('vercel', 'anthropic/claude-sonnet-5', 'Claude Sonnet 5', { contextWindow: 1_000_000, maxOutput: 64_000, vision: true, reasoning: true }),
-    m('vercel', 'anthropic/claude-opus-5.5', 'Claude Opus 5.5', { contextWindow: 1_000_000, maxOutput: 64_000, vision: true, reasoning: true }),
-    m('vercel', 'openai/gpt-6-astra', 'GPT-6 Astra', { efforts: OPENAI_EFFORTS, contextWindow: 1_050_000, maxOutput: 128_000, vision: true, reasoning: true }),
-    m('vercel', 'openai/gpt-5.6-sol', 'GPT-5.6 Sol', { efforts: OPENAI_EFFORTS, contextWindow: 1_050_000, maxOutput: 128_000, vision: true, reasoning: true }),
-    m('vercel', 'google/gemini-3.8-flash', 'Gemini 3.8 Flash', { efforts: OPENAI_EFFORTS, contextWindow: 1_000_000, maxOutput: 65_535, vision: true, reasoning: true }),
-    m('vercel', 'xai/grok-4.6', 'Grok 4.6', { efforts: OPENAI_EFFORTS, contextWindow: 500_000, maxOutput: 128_000, vision: true, reasoning: true }),
-    m('vercel', 'moonshotai/kimi-k3', 'Kimi K3', { efforts: [], contextWindow: 1_000_000, maxOutput: 131_072, vision: true, reasoning: true }),
-    m('vercel', 'zai/glm-5.3', 'GLM 5.3', { efforts: [], contextWindow: 1_000_000, maxOutput: 131_072, reasoning: true }),
-    m('vercel', 'deepseek/deepseek-v4-pro', 'DeepSeek V4 Pro', { efforts: [], contextWindow: 1_000_000, maxOutput: 384_000, reasoning: true })
-  ]),
+  hosted('poe', 'Poe', 'gateway', 'https://api.poe.com/v1', 'Chat and agent models billed from your Poe points', 'https://poe.com/api_key', []),
+  hosted('vercel', 'Vercel AI Gateway', 'gateway', 'https://ai-gateway.vercel.sh/v1', 'Every major lab through Vercel, with fallbacks', 'https://vercel.com/docs/ai-gateway/authentication', []),
   hosted(
     'cloudflare-ai-gateway',
     'Cloudflare AI Gateway',
@@ -400,12 +262,7 @@ export const BUILT_IN: SeedProvider[] = [
     'https://gateway.ai.cloudflare.com/v1/{account_id}/{gateway_id}/compat',
     'Workers AI, plus labs you add keys for in the gateway',
     'https://dash.cloudflare.com/profile/api-tokens',
-    [
-      m('cloudflare-ai-gateway', 'workers-ai/@cf/moonshotai/kimi-k2.6', 'Kimi K2.6', { efforts: [], contextWindow: 262_144, maxOutput: 256_000, vision: true, reasoning: true }),
-      m('cloudflare-ai-gateway', 'workers-ai/@cf/zai-org/glm-5.3', 'GLM 5.3', { efforts: [], contextWindow: 1_310_720, maxOutput: 1_310_720, reasoning: true }),
-      m('cloudflare-ai-gateway', 'workers-ai/@cf/openai/gpt-oss-120b', 'GPT OSS 120B', { efforts: [], contextWindow: 128_000, maxOutput: 16_384, reasoning: true }),
-      m('cloudflare-ai-gateway', 'workers-ai/@cf/qwen/qwen3.8-27b', 'Qwen3.8 27B', { efforts: [], contextWindow: 262_144, maxOutput: 262_144, vision: true, reasoning: true })
-    ]
+    []
   ),
   {
     id: 'opencode',
@@ -418,35 +275,9 @@ export const BUILT_IN: SeedProvider[] = [
     category: 'gateway',
     description: 'Coding models curated and tested by OpenCode',
     keyUrl: 'https://opencode.ai/auth',
-    models: [
-      m('opencode', 'claude-sonnet-5', 'Claude Sonnet 5', { contextWindow: 1_000_000, maxOutput: 128_000, vision: true, reasoning: true }),
-      m('opencode', 'claude-opus-5', 'Claude Opus 5', { contextWindow: 1_000_000, maxOutput: 128_000, vision: true, reasoning: true }),
-      m('opencode', 'claude-fable-5-1', 'Claude Fable 5.1', { contextWindow: 1_000_000, maxOutput: 128_000, vision: true, reasoning: true }),
-      m('opencode', 'gpt-6-astra', 'GPT-6 Astra', { efforts: ALL_EFFORTS, contextWindow: 1_050_000, maxOutput: 128_000, vision: true, reasoning: true }),
-      m('opencode', 'gpt-5.6-sol', 'GPT-5.6 Sol (50% Off)', { efforts: ALL_EFFORTS, contextWindow: 1_050_000, maxOutput: 128_000, vision: true, reasoning: true }),
-      m('opencode', 'gpt-5.5', 'GPT-5.5', { efforts: ['light', 'medium', 'high', 'extra-high'], contextWindow: 1_050_000, maxOutput: 128_000, vision: true, reasoning: true }),
-      m('opencode', 'gpt-5.3-codex', 'GPT-5.3 Codex', { efforts: ['light', 'medium', 'high', 'extra-high'], contextWindow: 400_000, maxOutput: 128_000, vision: true, reasoning: true }),
-      m('opencode', 'grok-4.6', 'Grok 4.6', { efforts: ['light', 'medium', 'high', 'extra-high'], contextWindow: 500_000, maxOutput: 500_000, vision: true, reasoning: true }),
-      m('opencode', 'kimi-k3', 'Kimi K3', { efforts: ['ultra'], contextWindow: 1_048_576, maxOutput: 131_072, vision: true, reasoning: true }),
-      m('opencode', 'glm-5.3', 'GLM-5.3', { efforts: ['light', 'high', 'ultra'], contextWindow: 1_000_000, maxOutput: 131_072, reasoning: true }),
-      m('opencode', 'deepseek-v4-pro', 'DeepSeek V4 Pro', { efforts: ['high', 'ultra'], contextWindow: 1_000_000, maxOutput: 384_000, reasoning: true }),
-      m('opencode', 'minimax-m3', 'MiniMax-M3', { efforts: OPENAI_EFFORTS, contextWindow: 512_000, maxOutput: 128_000, vision: true, reasoning: true }),
-      m('opencode', 'qwen3.6-plus', 'Qwen3.6 Plus', { efforts: OPENAI_EFFORTS, contextWindow: 262_144, maxOutput: 65_536, vision: true, reasoning: true }),
-      m('opencode', 'big-pickle', 'Big Pickle', { efforts: OPENAI_EFFORTS, contextWindow: 200_000, maxOutput: 32_000, reasoning: true })
-    ]
+    models: []
   },
-  hosted('huggingface', 'Hugging Face', 'gateway', 'https://router.huggingface.co/v1', 'Open models routed across inference partners', 'https://huggingface.co/settings/tokens', [
-    m('huggingface', 'moonshotai/Kimi-K3', 'Kimi K3', { efforts: ['light', 'high', 'ultra'], contextWindow: 1_000_000, maxOutput: 131_072, vision: true, reasoning: true }),
-    m('huggingface', 'zai-org/GLM-5.3', 'GLM-5.3', { efforts: ['light', 'high', 'ultra'], contextWindow: 1_048_576, maxOutput: 131_072, reasoning: true }),
-    m('huggingface', 'deepseek-ai/DeepSeek-V4.1-Flash', 'DeepSeek V4.1 Flash', { efforts: ['light', 'high', 'extra-high', 'ultra'], contextWindow: 1_048_576, maxOutput: 384_000, vision: true, reasoning: true }),
-    m('huggingface', 'deepseek-ai/DeepSeek-V4-Pro', 'DeepSeek V4 Pro', { efforts: ['high'], contextWindow: 1_048_576, maxOutput: 393_216, reasoning: true }),
-    m('huggingface', 'Qwen/Qwen3.8-2.4T-A95B', 'Qwen3.8 2.4T A95B', { efforts: ['light', 'medium', 'extra-high'], contextWindow: 262_144, maxOutput: 131_072, reasoning: true }),
-    m('huggingface', 'MiniMaxAI/MiniMax-M3', 'MiniMax-M3', { efforts: OPENAI_EFFORTS, contextWindow: 524_288, maxOutput: 512_000, vision: true, reasoning: true }),
-    m('huggingface', 'XiaomiMiMo/MiMo-V2.5-Pro', 'MiMo-V2.5-Pro', { efforts: ['light', 'medium', 'high', 'extra-high'], contextWindow: 1_048_576, maxOutput: 131_072, reasoning: true }),
-    m('huggingface', 'openai/gpt-oss-120b', 'GPT OSS 120B', { efforts: OPENAI_EFFORTS, contextWindow: 131_072, maxOutput: 32_768, reasoning: true }),
-    m('huggingface', 'Qwen/Qwen3-Coder-480B-A35B-Instruct', 'Qwen3-Coder-480B-A35B-Instruct', { efforts: [], contextWindow: 262_144, maxOutput: 66_536, reasoning: false }),
-    m('huggingface', 'meta-llama/Llama-3.3-70B-Instruct', 'Llama-3.3-70B-Instruct', { efforts: [], contextWindow: 131_072, maxOutput: 4_096, reasoning: false })
-  ]),
+  hosted('huggingface', 'Hugging Face', 'gateway', 'https://router.huggingface.co/v1', 'Open models routed across inference partners', 'https://huggingface.co/settings/tokens', []),
   hosted('azure', 'Azure OpenAI', 'gateway', '', 'Azure OpenAI and AI Foundry deployments', 'https://ai.azure.com', []),
   hosted(
     'amazon-bedrock',
@@ -462,86 +293,21 @@ export const BUILT_IN: SeedProvider[] = [
   ),
 
   // ---- Fast inference hosts for open models ----
-  hosted('groq', 'Groq', 'inference', 'https://api.groq.com/openai/v1', 'Very fast open models on LPUs', 'https://console.groq.com/keys', [
-    m('groq', 'openai/gpt-oss-120b', 'GPT OSS 120B', { efforts: OPENAI_EFFORTS, contextWindow: 131_072, maxOutput: 65_536, reasoning: true }),
-    m('groq', 'openai/gpt-oss-20b', 'GPT OSS 20B', { efforts: OPENAI_EFFORTS, contextWindow: 131_072, maxOutput: 65_536, reasoning: true }),
-    m('groq', 'qwen/qwen3.8-27b', 'Qwen3.8 27B', { efforts: OPENAI_EFFORTS, contextWindow: 131_042, maxOutput: 16_384, vision: true, reasoning: true }),
-    m('groq', 'qwen/qwen3.6-27b', 'Qwen3.6 27B', { efforts: ['high'], contextWindow: 131_072, maxOutput: 16_384, vision: true, reasoning: true }),
-    m('groq', 'llama-3.3-70b-versatile', 'Llama 3.3 70B', { efforts: [], contextWindow: 131_072, maxOutput: 32_768, reasoning: false }),
-    m('groq', 'llama-3.1-8b-instant', 'Llama 3.1 8B', { efforts: [], contextWindow: 131_072, maxOutput: 131_072, reasoning: false })
-  ]),
-  hosted('cerebras', 'Cerebras', 'inference', 'https://api.cerebras.ai/v1', 'Wafer-scale inference, thousands of tokens a second', 'https://cloud.cerebras.ai', [
-    m('cerebras', 'gpt-oss-120b', 'GPT OSS 120B', { efforts: OPENAI_EFFORTS, contextWindow: 131_072, maxOutput: 40_960, reasoning: true }),
-    m('cerebras', 'qwen-3.8-27b', 'Qwen3.8 27B', { efforts: OPENAI_EFFORTS, contextWindow: 65_536, maxOutput: 32_768, vision: true, reasoning: true })
-  ]),
-  hosted('fireworks', 'Fireworks', 'inference', 'https://api.fireworks.ai/inference/v1', 'Fast serverless open models', 'https://fireworks.ai/account/api-keys', [
-    m('fireworks', 'accounts/fireworks/models/kimi-k3', 'Kimi K3', { efforts: ['light', 'high', 'ultra'], contextWindow: 1_048_576, maxOutput: 131_072, vision: true, reasoning: true }),
-    m('fireworks', 'accounts/fireworks/models/glm-5p3', 'GLM 5.3', { efforts: ['light', 'high', 'ultra'], contextWindow: 1_048_573, maxOutput: 262_144, reasoning: true }),
-    m('fireworks', 'accounts/fireworks/models/glm-5p3-flash', 'GLM 5.3 Flash', { efforts: ['light', 'high', 'ultra'], contextWindow: 1_048_573, maxOutput: 131_072, vision: true, reasoning: true }),
-    m('fireworks', 'accounts/fireworks/models/deepseek-v4p1-flash', 'DeepSeek V4.1 Flash', { efforts: ['light', 'high', 'ultra'], contextWindow: 1_000_000, maxOutput: 384_000, vision: true, reasoning: true }),
-    m('fireworks', 'accounts/fireworks/models/deepseek-v4-pro-0813', 'DeepSeek V4 Pro 0813', { efforts: ['light', 'high', 'ultra'], contextWindow: 1_000_000, maxOutput: 384_000, reasoning: true }),
-    m('fireworks', 'accounts/fireworks/models/qwen3p8-max', 'Qwen3.8 Max', { efforts: ['light', 'medium', 'extra-high'], contextWindow: 262_144, maxOutput: 131_072, reasoning: true }),
-    m('fireworks', 'accounts/fireworks/models/minimax-m3', 'MiniMax-M3', { efforts: OPENAI_EFFORTS, contextWindow: 512_000, maxOutput: 512_000, vision: true, reasoning: true }),
-    m('fireworks', 'accounts/fireworks/models/gpt-oss-120b', 'GPT OSS 120B', { efforts: OPENAI_EFFORTS, contextWindow: 131_072, maxOutput: 32_768, reasoning: true })
-  ]),
-  hosted('together', 'Together AI', 'inference', 'https://api.together.ai/v1', 'Open models, serverless or dedicated', 'https://api.together.ai/settings/api-keys', [
-    m('together', 'moonshotai/Kimi-K3', 'Kimi K3', { efforts: [], contextWindow: 1_048_576, maxOutput: 131_072, vision: true, reasoning: true }),
-    m('together', 'zai-org/GLM-5.3', 'GLM-5.3', { efforts: [], contextWindow: 1_048_576, maxOutput: 262_144, reasoning: true }),
-    m('together', 'deepseek-ai/DeepSeek-V4-Pro', 'DeepSeek V4 Pro', { efforts: ['high'], contextWindow: 512_000, maxOutput: 384_000, reasoning: true }),
-    m('together', 'deepseek-ai/DeepSeek-V4-Flash-0731', 'DeepSeek V4 Flash 0731', { efforts: [], contextWindow: 1_000_000, maxOutput: 384_000, reasoning: true }),
-    m('together', 'Qwen/Qwen3.7-Max', 'Qwen3.7 Max', { efforts: [], contextWindow: 1_000_000, maxOutput: 500_000, reasoning: false }),
-    m('together', 'MiniMaxAI/MiniMax-M3', 'MiniMax-M3', { efforts: [], contextWindow: 524_288, maxOutput: 250_000, vision: true, reasoning: true }),
-    m('together', 'openai/gpt-oss-120b', 'GPT OSS 120B', { efforts: OPENAI_EFFORTS, contextWindow: 131_072, maxOutput: 131_072, reasoning: true }),
-    m('together', 'meta-llama/Llama-3.3-70B-Instruct-Turbo', 'Llama 3.3 70B', { efforts: [], contextWindow: 131_072, maxOutput: 131_072, reasoning: false })
-  ]),
-  hosted('baseten', 'Baseten', 'inference', 'https://inference.baseten.co/v1', 'Model APIs on dedicated-grade infrastructure', 'https://app.baseten.co/settings/api_keys', [
-    m('baseten', 'moonshotai/Kimi-K3', 'Kimi K3', { efforts: ['light', 'high', 'ultra'], contextWindow: 1_048_576, maxOutput: 262_144, vision: true, reasoning: true }),
-    m('baseten', 'zai-org/GLM-5.3', 'GLM 5.3', { efforts: ['light', 'high', 'ultra'], contextWindow: 1_048_576, maxOutput: 262_144, vision: true, reasoning: true }),
-    m('baseten', 'deepseek-ai/DeepSeek-V4-Pro', 'DeepSeek V4 Pro', { efforts: ALL_EFFORTS, contextWindow: 1_048_576, maxOutput: 262_144, reasoning: true }),
-    m('baseten', 'deepseek-ai/DeepSeek-V4.1-Flash', 'DeepSeek V4.1 Flash', { efforts: ['light', 'high', 'ultra'], contextWindow: 1_048_576, maxOutput: 32_768, vision: true, reasoning: true }),
-    m('baseten', 'openai/gpt-oss-120b', 'OpenAI GPT 120B', { efforts: ALL_EFFORTS, contextWindow: 128_072, maxOutput: 128_072, reasoning: true }),
-    m('baseten', 'thinkingmachines/inkling', 'Inkling', { efforts: ALL_EFFORTS, contextWindow: 1_048_576, maxOutput: 32_768, vision: true, reasoning: true })
-  ]),
-  hosted('deepinfra', 'DeepInfra', 'inference', 'https://api.deepinfra.com/v1/openai', 'Low-cost serverless open models', 'https://deepinfra.com/dash/api_keys', [
-    m('deepinfra', 'moonshotai/Kimi-K3', 'Kimi K3', { efforts: [], contextWindow: 1_048_576, maxOutput: 131_072, vision: true, reasoning: true }),
-    m('deepinfra', 'zai-org/GLM-5.3', 'GLM-5.3', { efforts: [], contextWindow: 1_048_576, maxOutput: 131_072, reasoning: true }),
-    m('deepinfra', 'deepseek-ai/DeepSeek-V4-Pro', 'DeepSeek V4 Pro', { efforts: [], contextWindow: 1_048_576, maxOutput: 384_000, reasoning: true }),
-    m('deepinfra', 'deepseek-ai/DeepSeek-V4.1-Flash', 'DeepSeek V4.1 Flash', { efforts: [], contextWindow: 1_048_576, maxOutput: 384_000, vision: true, reasoning: true }),
-    m('deepinfra', 'Qwen/Qwen3.8-Max', 'Qwen3.8 Max', { efforts: OPENAI_EFFORTS, contextWindow: 256_000, maxOutput: 131_072, reasoning: true }),
-    m('deepinfra', 'MiniMaxAI/MiniMax-M3', 'MiniMax-M3', { efforts: [], contextWindow: 524_288, maxOutput: 131_072, vision: true, reasoning: true }),
-    m('deepinfra', 'openai/gpt-oss-120b', 'GPT OSS 120B', { efforts: OPENAI_EFFORTS, contextWindow: 131_072, maxOutput: 32_768, reasoning: true })
-  ]),
-  hosted('novita', 'Novita AI', 'inference', 'https://api.novita.ai/openai/v1', 'Serverless open models', 'https://novita.ai/settings/key-management', [
-    m('novita', 'moonshotai/kimi-k3', 'Kimi K3', { efforts: [], contextWindow: 1_048_576, maxOutput: 131_072, reasoning: true }),
-    m('novita', 'zai-org/glm-5.3', 'GLM-5.3', { efforts: [], contextWindow: 1_048_576, maxOutput: 131_072, reasoning: true }),
-    m('novita', 'deepseek/deepseek-v4-pro', 'DeepSeek V4 Pro', { efforts: [], contextWindow: 1_048_576, maxOutput: 393_216, reasoning: true }),
-    m('novita', 'deepseek/deepseek-v4.1-flash', 'DeepSeek V4.1 Flash', { efforts: [], contextWindow: 1_048_576, maxOutput: 393_216, reasoning: true }),
-    m('novita', 'qwen/qwen3.8-max', 'Qwen3.8 Max', { efforts: [], contextWindow: 1_000_000, maxOutput: 131_072, reasoning: true }),
-    m('novita', 'minimax/minimax-m3', 'MiniMax-M3', { efforts: [], contextWindow: 1_000_000, maxOutput: 131_072, reasoning: true }),
-    m('novita', 'xiaomimimo/mimo-v2.5-pro', 'MiMo-V2.5-Pro', { efforts: [], contextWindow: 1_048_576, maxOutput: 131_072, reasoning: true })
-  ]),
+  hosted('groq', 'Groq', 'inference', 'https://api.groq.com/openai/v1', 'Very fast open models on LPUs', 'https://console.groq.com/keys', []),
+  hosted('cerebras', 'Cerebras', 'inference', 'https://api.cerebras.ai/v1', 'Wafer-scale inference, thousands of tokens a second', 'https://cloud.cerebras.ai', []),
+  hosted('fireworks', 'Fireworks', 'inference', 'https://api.fireworks.ai/inference/v1', 'Fast serverless open models', 'https://fireworks.ai/account/api-keys', []),
+  hosted('together', 'Together AI', 'inference', 'https://api.together.ai/v1', 'Open models, serverless or dedicated', 'https://api.together.ai/settings/api-keys', []),
+  hosted('baseten', 'Baseten', 'inference', 'https://inference.baseten.co/v1', 'Model APIs on dedicated-grade infrastructure', 'https://app.baseten.co/settings/api_keys', []),
+  hosted('deepinfra', 'DeepInfra', 'inference', 'https://api.deepinfra.com/v1/openai', 'Low-cost serverless open models', 'https://deepinfra.com/dash/api_keys', []),
+  hosted('novita', 'Novita AI', 'inference', 'https://api.novita.ai/openai/v1', 'Serverless open models', 'https://novita.ai/settings/key-management', []),
   hosted('sambanova', 'SambaNova', 'inference', 'https://api.sambanova.ai/v1', 'Fast open models on RDUs', 'https://cloud.sambanova.ai/apis', [
     m('sambanova', 'MiniMax-M3', 'MiniMax-M3', { efforts: [], contextWindow: 1_048_576, maxOutput: 131_072, reasoning: true }),
     m('sambanova', 'DeepSeek-V3.1', 'DeepSeek V3.1', { efforts: [], contextWindow: 131_072, maxOutput: 7168, reasoning: true }),
     m('sambanova', 'gpt-oss-120b', 'GPT OSS 120B', { efforts: OPENAI_EFFORTS, contextWindow: 131_072, maxOutput: 32_768, reasoning: true }),
     m('sambanova', 'Meta-Llama-3.3-70B-Instruct', 'Llama 3.3 70B', { efforts: [], contextWindow: 131_072, maxOutput: 3072, reasoning: false })
   ]),
-  hosted('nebius', 'Nebius Token Factory', 'inference', 'https://api.tokenfactory.nebius.com/v1', 'Open models on Nebius (formerly AI Studio)', 'https://studio.nebius.com/settings/api-keys', [
-    m('nebius', 'moonshotai/Kimi-K2.6', 'Kimi K2.6', { efforts: [], contextWindow: 262_144, maxOutput: 131_072, reasoning: true }),
-    m('nebius', 'deepseek-ai/DeepSeek-V3.2', 'DeepSeek V3.2', { efforts: [], contextWindow: 163_840, maxOutput: 65_536, reasoning: true }),
-    m('nebius', 'Qwen/Qwen3-Coder-480B-A35B-Instruct', 'Qwen3 Coder 480B', { efforts: [], contextWindow: 262_144, maxOutput: 65_536, reasoning: false }),
-    m('nebius', 'openai/gpt-oss-120b', 'GPT OSS 120B', { efforts: OPENAI_EFFORTS, contextWindow: 131_072, maxOutput: 32_768, reasoning: true })
-  ]),
-  hosted('nvidia-nim', 'NVIDIA NIM', 'inference', 'https://integrate.api.nvidia.com/v1', 'NVIDIA-hosted open models, free to try', 'https://build.nvidia.com', [
-    m('nvidia-nim', 'moonshotai/kimi-k3', 'Kimi K3', { efforts: [], contextWindow: 1_048_576, maxOutput: 131_072, vision: true, reasoning: true }),
-    m('nvidia-nim', 'deepseek-ai/deepseek-v4-pro-0813', 'DeepSeek V4 Pro 0813', { efforts: [], contextWindow: 1_000_000, maxOutput: 384_000, reasoning: true }),
-    m('nvidia-nim', 'deepseek-ai/deepseek-v4-flash-0731', 'DeepSeek V4 Flash 0731', { efforts: [], contextWindow: 1_000_000, maxOutput: 384_000, reasoning: true }),
-    m('nvidia-nim', 'nvidia/nemotron-3-ultra-550b-a55b', 'Nemotron 3 Ultra 550B A55B', { efforts: [], contextWindow: 1_000_000, maxOutput: 65_536, reasoning: true }),
-    m('nvidia-nim', 'nvidia/nemotron-3-super-120b-a12b', 'Nemotron 3 Super', { efforts: [], contextWindow: 262_144, maxOutput: 262_144, reasoning: true }),
-    m('nvidia-nim', 'moonshotai/kimi-k2.6', 'Kimi K2.6', { efforts: [], contextWindow: 262_144, maxOutput: 262_144, vision: true, reasoning: true }),
-    m('nvidia-nim', 'openai/gpt-oss-20b', 'GPT OSS 20B', { efforts: [], contextWindow: 131_072, maxOutput: 32_768, reasoning: true }),
-    m('nvidia-nim', 'nvidia/llama-3.1-nemotron-ultra-253b-v1', 'Llama 3.1 Nemotron Ultra 253B', { efforts: [], contextWindow: 128_000, maxOutput: 16_384, reasoning: true })
-  ]),
+  hosted('nebius', 'Nebius Token Factory', 'inference', 'https://api.tokenfactory.nebius.com/v1', 'Open models on Nebius (formerly AI Studio)', 'https://studio.nebius.com/settings/api-keys', []),
+  hosted('nvidia-nim', 'NVIDIA NIM', 'inference', 'https://integrate.api.nvidia.com/v1', 'NVIDIA-hosted open models, free to try', 'https://build.nvidia.com', []),
   hosted(
     'cloudflare-workers-ai',
     'Cloudflare Workers AI',
@@ -549,49 +315,14 @@ export const BUILT_IN: SeedProvider[] = [
     'https://api.cloudflare.com/client/v4/accounts/{account_id}/ai/v1',
     'Open models on Cloudflare’s network',
     'https://dash.cloudflare.com/profile/api-tokens',
-    [
-      m('cloudflare-workers-ai', '@cf/moonshotai/kimi-k2.6', 'Kimi K2.6', { efforts: OPENAI_EFFORTS, contextWindow: 262_144, maxOutput: 256_000, vision: true, reasoning: true }),
-      m('cloudflare-workers-ai', '@cf/zai-org/glm-5.3', 'GLM 5.3', { efforts: OPENAI_EFFORTS, contextWindow: 1_310_720, maxOutput: 1_310_720, reasoning: true }),
-      m('cloudflare-workers-ai', '@cf/deepseek-ai/deepseek-v4-pro-0813', 'DeepSeek V4 Pro 0813', { efforts: ['high', 'ultra'], contextWindow: 1_048_576, maxOutput: 1_048_576, reasoning: true }),
-      m('cloudflare-workers-ai', '@cf/openai/gpt-oss-120b', 'GPT OSS 120B', { efforts: OPENAI_EFFORTS, contextWindow: 128_000, maxOutput: 16_384, reasoning: true }),
-      m('cloudflare-workers-ai', '@cf/qwen/qwen3.8-27b', 'Qwen3.8 27B', { efforts: ['light', 'medium', 'extra-high'], contextWindow: 262_144, maxOutput: 262_144, vision: true, reasoning: true }),
-      m('cloudflare-workers-ai', '@cf/google/gemma-4-26b-a4b-it', 'Gemma 4 26B A4B IT', { efforts: OPENAI_EFFORTS, contextWindow: 256_000, maxOutput: 16_384, vision: true, reasoning: true }),
-      m('cloudflare-workers-ai', '@cf/meta/llama-4-scout-17b-16e-instruct', 'Llama 4 Scout 17B 16E Instruct', { efforts: [], contextWindow: 131_000, maxOutput: 16_384, vision: true, reasoning: false }),
-      m('cloudflare-workers-ai', '@cf/meta/llama-3.3-70b-instruct-fp8-fast', 'Llama 3.3 70B Instruct fp8 Fast', { efforts: [], contextWindow: 24_000, maxOutput: 24_000, reasoning: false })
-    ]
+    []
   ),
 
   // ---- China region endpoints: separate accounts and keys from the international ones ----
-  hosted('moonshot-cn', 'Kimi (China)', 'regional', 'https://api.moonshot.cn/v1', 'Moonshot AI, mainland China platform', 'https://platform.moonshot.cn/console/api-keys', [
-    m('moonshot-cn', 'kimi-k3', 'Kimi K3', { efforts: ['light', 'high', 'ultra'], contextWindow: 1_048_576, maxOutput: 131_072, vision: true, reasoning: true }),
-    m('moonshot-cn', 'kimi-k2.7-code', 'Kimi K2.7 Code', { efforts: [], contextWindow: 262_144, maxOutput: 262_144, vision: true, reasoning: true }),
-    m('moonshot-cn', 'kimi-k2.7-code-highspeed', 'Kimi K2.7 Code HighSpeed', { efforts: [], contextWindow: 262_144, maxOutput: 262_144, vision: true, reasoning: true }),
-    m('moonshot-cn', 'kimi-k2.6', 'Kimi K2.6', { efforts: [], contextWindow: 262_144, maxOutput: 262_144, vision: true, reasoning: true })
-  ]),
-  hosted('zai-cn', 'BigModel', 'regional', 'https://open.bigmodel.cn/api/paas/v4', "Zhipu's GLM platform (China)", 'https://open.bigmodel.cn/usercenter/apikeys', [
-    m('zai-cn', 'glm-5.3', 'GLM-5.3', { efforts: ['light', 'high', 'ultra'], contextWindow: 1_000_000, maxOutput: 131_072, reasoning: true }),
-    m('zai-cn', 'glm-5.3-highspeed', 'GLM-5.3 Highspeed', { efforts: ['light', 'high', 'ultra'], contextWindow: 1_000_000, maxOutput: 131_072, reasoning: true }),
-    m('zai-cn', 'glm-5.3-flash', 'GLM-5.3-Flash', { efforts: ['light', 'high', 'ultra'], contextWindow: 1_000_000, maxOutput: 131_072, vision: true, reasoning: true }),
-    m('zai-cn', 'glm-5.2', 'GLM-5.2', { efforts: ['high', 'ultra'], contextWindow: 1_000_000, maxOutput: 131_072, reasoning: true }),
-    m('zai-cn', 'glm-5.1', 'GLM-5.1', { efforts: [], contextWindow: 200_000, maxOutput: 131_072, reasoning: true }),
-    m('zai-cn', 'glm-5v-turbo', 'GLM-5V-Turbo', { efforts: [], contextWindow: 200_000, maxOutput: 131_072, vision: true, reasoning: true }),
-    m('zai-cn', 'glm-4.7', 'GLM-4.7', { efforts: [], contextWindow: 204_800, maxOutput: 131_072, reasoning: true })
-  ]),
-  hosted('zai-coding-cn', 'GLM Coding Plan (China)', 'regional', 'https://open.bigmodel.cn/api/coding/paas/v4', "Zhipu's GLM coding subscription (China)", 'https://open.bigmodel.cn/usercenter/apikeys', [
-    m('zai-coding-cn', 'glm-5.3', 'GLM-5.3', { efforts: ['light', 'high', 'ultra'], contextWindow: 1_000_000, maxOutput: 131_072, reasoning: true }),
-    m('zai-coding-cn', 'glm-5.3-highspeed', 'GLM-5.3 Highspeed', { efforts: ['light', 'high', 'ultra'], contextWindow: 1_000_000, maxOutput: 131_072, reasoning: true }),
-    m('zai-coding-cn', 'glm-5.3-flash', 'GLM-5.3-Flash', { efforts: ['light', 'high', 'ultra'], contextWindow: 1_000_000, maxOutput: 131_072, vision: true, reasoning: true }),
-    m('zai-coding-cn', 'glm-5.2', 'GLM-5.2', { efforts: ['high', 'ultra'], contextWindow: 1_000_000, maxOutput: 131_072, reasoning: true }),
-    m('zai-coding-cn', 'glm-5.1', 'GLM-5.1', { efforts: [], contextWindow: 200_000, maxOutput: 131_072, reasoning: true }),
-    m('zai-coding-cn', 'glm-5v-turbo', 'GLM-5V-Turbo', { efforts: [], contextWindow: 200_000, maxOutput: 131_072, vision: true, reasoning: true }),
-    m('zai-coding-cn', 'glm-4.7', 'GLM-4.7', { efforts: [], contextWindow: 204_800, maxOutput: 131_072, reasoning: true })
-  ]),
-  hosted('qwen-cn', 'Qwen (China)', 'regional', 'https://dashscope.aliyuncs.com/compatible-mode/v1', 'Alibaba Cloud Bailian (China)', 'https://bailian.console.aliyun.com/?tab=model#/api-key', [
-    m('qwen-cn', 'qwen3.8-max', 'Qwen3.8 Max', { efforts: ['light', 'medium', 'extra-high'], contextWindow: 1_000_000, maxOutput: 131_072, vision: true, reasoning: true }),
-    m('qwen-cn', 'qwen3.8-flash', 'Qwen3.8 Flash', { efforts: ['light', 'medium', 'extra-high'], contextWindow: 1_000_000, maxOutput: 131_072, vision: true, reasoning: true }),
-    m('qwen-cn', 'qwen3.7-plus', 'Qwen3.7 Plus', { efforts: [], contextWindow: 1_000_000, maxOutput: 65_536, vision: true, reasoning: true }),
-    m('qwen-cn', 'qwen3-coder-plus', 'Qwen3 Coder Plus', { efforts: [], contextWindow: 1_000_000, maxOutput: 65_536, reasoning: false })
-  ]),
+  hosted('moonshot-cn', 'Kimi (China)', 'regional', 'https://api.moonshot.cn/v1', 'Moonshot AI, mainland China platform', 'https://platform.moonshot.cn/console/api-keys', []),
+  hosted('zai-cn', 'BigModel', 'regional', 'https://open.bigmodel.cn/api/paas/v4', "Zhipu's GLM platform (China)", 'https://open.bigmodel.cn/usercenter/apikeys', []),
+  hosted('zai-coding-cn', 'GLM Coding Plan (China)', 'regional', 'https://open.bigmodel.cn/api/coding/paas/v4', "Zhipu's GLM coding subscription (China)", 'https://open.bigmodel.cn/usercenter/apikeys', []),
+  hosted('qwen-cn', 'Qwen (China)', 'regional', 'https://dashscope.aliyuncs.com/compatible-mode/v1', 'Alibaba Cloud Bailian (China)', 'https://bailian.console.aliyun.com/?tab=model#/api-key', []),
   hosted(
     'qwen-token-plan-cn',
     'Qwen Token Plan (China)',
@@ -599,16 +330,7 @@ export const BUILT_IN: SeedProvider[] = [
     'https://token-plan.cn-beijing.maas.aliyuncs.com/compatible-mode/v1',
     "Alibaba Cloud's coding plan (China)",
     'https://bailian.console.aliyun.com/?tab=model#/api-key',
-    [
-      m('qwen-token-plan-cn', 'qwen3.8-max', 'Qwen3.8 Max', { efforts: ['light', 'medium', 'extra-high'], contextWindow: 1_000_000, maxOutput: 131_072, vision: true, reasoning: true }),
-      m('qwen-token-plan-cn', 'qwen3.8-flash', 'Qwen3.8 Flash', { efforts: ['light', 'medium', 'extra-high'], contextWindow: 1_000_000, maxOutput: 131_072, vision: true, reasoning: true }),
-      m('qwen-token-plan-cn', 'qwen3.7-max', 'Qwen3.7 Max', { efforts: [], contextWindow: 1_000_000, maxOutput: 131_072, reasoning: true }),
-      m('qwen-token-plan-cn', 'qwen3.7-plus', 'Qwen3.7 Plus', { efforts: [], contextWindow: 1_000_000, maxOutput: 65_536, vision: true, reasoning: true }),
-      m('qwen-token-plan-cn', 'qwen3.6-plus', 'Qwen3.6 Plus', { efforts: [], contextWindow: 1_000_000, maxOutput: 65_536, vision: true, reasoning: true }),
-      m('qwen-token-plan-cn', 'deepseek-v4-pro', 'DeepSeek V4 Pro', { efforts: ['high', 'ultra'], contextWindow: 1_000_000, maxOutput: 384_000, reasoning: true }),
-      m('qwen-token-plan-cn', 'glm-5.2', 'GLM-5.2', { efforts: ['high', 'ultra'], contextWindow: 1_000_000, maxOutput: 131_072, reasoning: true }),
-      m('qwen-token-plan-cn', 'kimi-k2.7-code', 'Kimi K2.7 Code', { efforts: [], contextWindow: 262_144, maxOutput: 262_144, vision: true, reasoning: true })
-    ]
+    []
   ),
   {
     id: 'minimax-cn',
@@ -621,24 +343,35 @@ export const BUILT_IN: SeedProvider[] = [
     category: 'regional',
     description: 'MiniMax, mainland China platform',
     keyUrl: 'https://platform.minimaxi.com/user-center/basic-information/interface-key',
-    models: [
-      m('minimax-cn', 'MiniMax-M3', 'MiniMax-M3', { efforts: OPENAI_EFFORTS, contextWindow: 1_048_576, maxOutput: 512_000, vision: true, reasoning: true }),
-      m('minimax-cn', 'MiniMax-M2.7', 'MiniMax-M2.7', { efforts: OPENAI_EFFORTS, contextWindow: 204_800, maxOutput: 131_072, reasoning: true }),
-      m('minimax-cn', 'MiniMax-M2.7-highspeed', 'MiniMax-M2.7-highspeed', { efforts: OPENAI_EFFORTS, contextWindow: 204_800, maxOutput: 131_072, reasoning: true })
-    ]
+    models: []
   },
-  hosted('xiaomi-token-plan-cn', 'MiMo Token Plan (China)', 'regional', 'https://token-plan-cn.xiaomimimo.com/v1', "Xiaomi's MiMo subscription (China)", 'https://platform.xiaomimimo.com', [
-    m('xiaomi-token-plan-cn', 'mimo-v2.5-pro', 'MiMo-V2.5-Pro', { efforts: [], contextWindow: 1_048_576, maxOutput: 131_072, reasoning: true }),
-    m('xiaomi-token-plan-cn', 'mimo-v2.5', 'MiMo-V2.5', { efforts: [], contextWindow: 1_048_576, maxOutput: 131_072, vision: true, reasoning: true })
-  ])
+  hosted('xiaomi-token-plan-cn', 'MiMo Token Plan (China)', 'regional', 'https://token-plan-cn.xiaomimimo.com/v1', "Xiaomi's MiMo subscription (China)", 'https://platform.xiaomimimo.com', [])
 ]
+
+const shipped = (generated as unknown as { providers: Record<string, CatalogModel[]> }).providers
+
+/** The shipped catalog's models for a provider, or its hand list where the catalog has none. */
+export const BUILT_IN: SeedProvider[] = PROVIDERS.map((provider) => {
+  const models = shipped[provider.id]
+  return models ? { ...provider, models: models.map(({ released: _released, ...model }) => ({ ...model, providerId: provider.id })) } : provider
+})
 
 /**
  * What the settings page needs beyond the provider itself: base-URL templates
  * with the fields to fill in, whether a listing exists, sign-in labels.
  */
 export const PROVIDER_META: Record<string, ProviderMeta> = {
-  'openai-codex': { id: 'openai-codex', listsModels: false, signInLabel: 'Sign in with ChatGPT' },
+  'eaon-local': { id: 'eaon-local', listsModels: false },
+  chatgpt: { id: 'chatgpt', listsModels: true, signInLabel: 'Sign in with ChatGPT' },
+  'openai-codex': { id: 'openai-codex', listsModels: false, signInLabel: 'Sign in with ChatGPT (Codex)' },
+  // Account sign-in next to the key field; both need a registered OAuth client (oauth/appClients.ts).
+  huggingface: { id: 'huggingface', listsModels: true, signInLabel: 'Sign in with Hugging Face', keyFlow: 'huggingface', accountSignIn: true },
+  poe: { id: 'poe', listsModels: true, signInLabel: 'Sign in with Poe', keyFlow: 'poe' },
+  // No sign-in, and why — for the providers people most expect one from (checked Sept 2026).
+  anthropic: { id: 'anthropic', listsModels: true, noSignInReason: 'Anthropic doesn’t allow other apps to sign in with Claude Free, Pro or Max accounts, or to send requests through them, so Claude in Eaon needs an API key. Your plan still works in Claude Code itself, which you can run in the ADE.', planInAde: 'claude' },
+  gemini: { id: 'gemini', listsModels: true, noSignInReason: 'Google forbids other apps from reusing the Gemini CLI or Antigravity sign-in and suspends accounts that do, so Gemini needs an API key from Google AI Studio.' },
+  'kimi-coding': { id: 'kimi-coding', listsModels: true, noSignInReason: 'This provider only lets its own tools sign in with a subscription, so other apps need an API key.' },
+  'zai-coding': { id: 'zai-coding', listsModels: true, noSignInReason: 'This provider only lets its own tools sign in with a subscription, so other apps need an API key.' },
   'github-copilot': { id: 'github-copilot', listsModels: true, signInLabel: 'Sign in with GitHub' },
   openrouter: { id: 'openrouter', listsModels: true, signInLabel: 'Sign in with OpenRouter', keyFlow: 'openrouter' },
   perplexity: { id: 'perplexity', listsModels: false },

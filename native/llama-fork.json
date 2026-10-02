@@ -1,0 +1,17 @@
+{
+  "//": "Eaon's llama.cpp: this upstream commit plus these pull requests, merged in order by scripts/build-llama.sh. Drop a PR once it is merged upstream and the base moves past it.",
+  "base": "f7b384c1e5c5b2c5b321a4a7cefea04b15b54cb7",
+  "pulls": [
+    {
+      "number": 29535,
+      "title": "model : add K2 Horizon dense and MoVA support",
+      "why": "K2 Horizon (IFM) architecture 'k2-horizon'; open upstream as of 2026-09-30.",
+      "resolve": {
+        "common/jinja/value.cpp": "base",
+        "conversion/base.py": "base",
+        "tests/test-jinja.cpp": "base"
+      },
+      "resolveWhy": "The PR's jinja change is superseded by #29574 (merged); the other two only conflict with later master refactors. The model code under src/ merges cleanly."
+    }
+  ]
+}

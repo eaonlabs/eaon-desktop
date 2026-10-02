@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { RefreshCw, Trash2 } from 'lucide-react'
-import { useApp } from '../../../state/store'
+import { useShallow } from 'zustand/react/shallow'
+import { agentWorkspace, useApp } from '../../../state/store'
 import { Card, Row, Section, Select, Switch } from '../../ui'
 
 type EmbeddingModel = { providerId: string; modelId: string; label: string; dimensions: number }
@@ -12,11 +13,19 @@ type EmbeddingModel = { providerId: string; modelId: string; label: string; dime
  * matching — because Anthropic-only users have no embeddings endpoint at all.
  */
 export function CodeIndexPage(): JSX.Element {
-  const { settings, patchSettings, workspaces, indexStatus, reindex } = useApp()
+  const { settings, patchSettings, workspaces, indexStatus, reindex } = useApp(
+    useShallow((s) => ({
+      settings: s.settings,
+      patchSettings: s.patchSettings,
+      workspaces: s.workspaces,
+      indexStatus: s.indexStatus,
+      reindex: s.reindex
+    }))
+  )
   const [models, setModels] = useState<EmbeddingModel[]>([])
   const [state, setState] = useState('')
 
-  const cwd = workspaces.find((w) => w.kind === 'work')?.cwd ?? null
+  const cwd = agentWorkspace(workspaces)?.cwd ?? null
 
   useEffect(() => {
     void window.api.codeIndex.embeddingModels().then((result) => {
@@ -46,7 +55,7 @@ export function CodeIndexPage(): JSX.Element {
     <>
       <h1 className="settings__h1">Code index</h1>
       <p className="settings__lede">
-        Eaon Work indexes your project folder so it can search code by meaning, not just by keyword. The index is
+        Eaon indexes the folder Chat works in so it can search code by meaning, not just by keyword. The index is
         built and stored entirely on this machine.
       </p>
 
@@ -54,7 +63,7 @@ export function CodeIndexPage(): JSX.Element {
         <Card>
           <Row
             title="Project folder"
-            description={cwd ?? 'No folder chosen yet — pick one from the Eaon Work composer.'}
+            description={cwd ?? 'No folder chosen yet — pick one from the + menu in Chat.'}
           />
           <Row
             title="Index"

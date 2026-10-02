@@ -6,8 +6,10 @@ import {
   clampOutputToWindow,
   describeErrorBody,
   emptyUsage,
+  estimateRequestTokens,
   ProviderHttpError,
   retryAfterFrom,
+  toolInput,
   type Adapter,
   type NeutralMessage,
   type NeutralToolCall,
@@ -255,7 +257,7 @@ interface StreamChunk {
       thinking?: string | null
       reasoning_details?: ReasoningDetail[]
       tool_calls?: {
-        index?: number
+        index?: number | null
         id?: string
         type?: string
         function?: { name?: string; arguments?: string | Record<string, unknown> }
@@ -278,9 +280,6 @@ interface Usage {
   cached_tokens?: number
 }
 
-/** Rough token count of a request body, for fitting the output cap into the window. */
-const estimateTokens = (value: unknown): number => Math.ceil(JSON.stringify(value).length / 3.6)
-
 export const openaiChatAdapter: Adapter = {
   id: 'openai-chat',
   managesContext: false,
@@ -297,7 +296,7 @@ export const openaiChatAdapter: Adapter = {
     const effort = compat.sendsEffort && level ? wireEffort(level, compat.vendor, request.modelId) : undefined
     const messages = toWire(request, compat)
     const window = contextWindowFor(provider, request.modelId, model)
-    const maxOutput = clampOutputToWindow(maxOutputFor(provider, request.modelId, model), window, estimateTokens(messages))
+    const maxOutput = clampOutputToWindow(maxOutputFor(provider, request.modelId, model), window, estimateRequestTokens(messages))
 
     // Models the catalog marks as tool-less (Perplexity's Sonar) are not offered tools at all.
     let tools =
@@ -316,16 +315,19 @@ export const openaiChatAdapter: Adapter = {
     let sendEffort = Boolean(effort)
     let sendThinking = reasons
     let sendCap = Boolean(maxOutput)
+    // "Off" on a host that toggles thinking is the toggle switched off, not an effort value.
+    const off = level === 'none'
+    const toggles = compat.thinking === 'deepseek' || compat.thinking === 'zai' || compat.thinking === 'qwen' || compat.thinking === 'together'
 
     const thinkingFields = (): Record<string, unknown> => {
       const out: Record<string, unknown> = {}
       if (sendThinking) {
-        if (compat.thinking === 'deepseek') out.thinking = { type: 'enabled' }
-        else if (compat.thinking === 'zai') out.thinking = { type: 'enabled', clear_thinking: false }
-        else if (compat.thinking === 'qwen') out.enable_thinking = true
-        else if (compat.thinking === 'together') out.reasoning = { enabled: true }
+        if (compat.thinking === 'deepseek') out.thinking = { type: off ? 'disabled' : 'enabled' }
+        else if (compat.thinking === 'zai') out.thinking = off ? { type: 'disabled' } : { type: 'enabled', clear_thinking: false }
+        else if (compat.thinking === 'qwen') out.enable_thinking = !off
+        else if (compat.thinking === 'together') out.reasoning = { enabled: !off }
       }
-      if (sendEffort && effort) {
+      if (sendEffort && effort && !(off && toggles)) {
         if (compat.thinking === 'openrouter') out.reasoning = { effort }
         else out.reasoning_effort = effort
       }
@@ -474,8 +476,9 @@ export const openaiChatAdapter: Adapter = {
       if (content) emitText(splitter.push(content))
 
       for (const call of delta.tool_calls ?? []) {
+        // Only a numeric index counts: some servers send `index: null`.
         const key =
-          call.index !== undefined
+          typeof call.index === 'number'
             ? `i${call.index}`
             : call.id
               ? `id:${call.id}`
@@ -532,6 +535,11 @@ export const openaiChatAdapter: Adapter = {
     if (finishReason === 'network_error' || finishReason === 'error') {
       throw new Error(`The provider stopped mid-reply (${finishReason}). Try again.`)
     }
+    // DeepSeek's "ran out of capacity" stop: the reply, and any call in it, is
+    // cut off. Worded so the loop retries it like any other overload.
+    if (finishReason === 'insufficient_system_resource') {
+      throw new Error('The provider was overloaded and stopped mid-reply. Try again.')
+    }
     // The connection closed before the provider said it had finished. What
     // arrived may be half a sentence or half a tool call's arguments, so it
     // is not an answer (Eaon Code's provider layer draws the same line).
@@ -543,14 +551,9 @@ export const openaiChatAdapter: Adapter = {
     const signatures: Record<string, string> = {}
     for (const call of [...pending.values()].sort((a, b) => a.order - b.order)) {
       if (!call.name) continue
-      let input: Record<string, unknown> = {}
-      try {
-        input = call.args.trim() ? (JSON.parse(call.args) as Record<string, unknown>) : {}
-      } catch {
-        // Reported back to the model as a tool error by the loop, so it can
-        // re-issue the call instead of the whole turn failing.
-        input = { __invalid_json: call.args }
-      }
+      // Invalid JSON is reported back to the model as a tool error by the
+      // loop, so it can re-issue the call instead of the whole turn failing.
+      const input = toolInput(call.args)
       const id = call.id || `call_${createHash('sha1').update(`${call.name}${call.order}${call.args}`).digest('hex').slice(0, 20)}`
       if (call.signature) signatures[id] = call.signature
       calls.push({ id, name: call.name, input })

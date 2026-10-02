@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useMemo } from 'react'
+import { memo, useEffect, useRef, useState, useMemo } from 'react'
 import { ChevronRight } from 'lucide-react'
 import { ThinkingOrb } from './ThinkingOrb'
 
@@ -51,7 +51,11 @@ export function parseThinkingSteps(reasoning: string): ThinkingStep[] {
   return steps
 }
 
-export function ThinkingSteps({
+/**
+ * Memoised: the message row it sits in re-renders on every batch of streamed
+ * text, while the reasoning (compared by value) usually has not changed.
+ */
+export const ThinkingSteps = memo(function ThinkingSteps({
   reasoning,
   streaming
 }: {
@@ -128,7 +132,7 @@ export function ThinkingSteps({
       </div>
     </div>
   )
-}
+})
 
 /** Auto-scrolls its container as content streams in, unless the user scrolled away. */
 export function useStickToBottom(deps: unknown[]): React.RefObject<HTMLDivElement> {

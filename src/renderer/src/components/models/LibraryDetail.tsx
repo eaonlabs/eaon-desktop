@@ -10,7 +10,7 @@ import {
   formatModelSize,
   minRamGB,
   pickVariant,
-  pullRef,
+  runtimeGap,
   type LibraryModel,
   type LibraryVariant
 } from '@shared/modelLibrary'
@@ -42,7 +42,7 @@ export function LibraryDetail({ modelId, onBack }: { modelId: string; onBack: ()
         <h1 className="page__title mlib-detail__title">{model.name}</h1>
         {model.featured && (
           <span className="mlib-featured">
-            <Sparkles size={12} strokeWidth={2} /> Featured
+            <Sparkles size={12} strokeWidth={2} /> Recommended
           </span>
         )}
       </div>
@@ -54,11 +54,17 @@ export function LibraryDetail({ modelId, onBack }: { modelId: string; onBack: ()
       <p className="mlib-detail__desc">{model.description}</p>
       <Capabilities list={model.capabilities} />
 
-      {model.unsupported && (
+      {runtimeGap(model, state?.runtime) && (
         <div className="mlib-notice">
           <CircleAlert size={15} strokeWidth={2} />
-          <span>{model.unsupported}</span>
+          <span>{runtimeGap(model, state?.runtime)}</span>
         </div>
+      )}
+      {model.requires && !runtimeGap(model, state?.runtime) && (
+        <p className="mlib-note">
+          Runs on Eaon&rsquo;s llama.cpp, which adds support for the {model.requires.architecture} architecture before upstream
+          llama.cpp does (PR #{model.requires.pull}).
+        </p>
       )}
 
       <dl className="mlib-facts">
@@ -83,11 +89,6 @@ export function LibraryDetail({ modelId, onBack }: { modelId: string; onBack: ()
         {model.links.huggingFace && (
           <a className="btn btn--sm btn--ghost" href={`https://huggingface.co/${model.links.huggingFace}`} target="_blank" rel="noreferrer">
             Hugging Face <ExternalLink size={12} strokeWidth={2} />
-          </a>
-        )}
-        {model.links.ollama && (
-          <a className="btn btn--sm btn--ghost" href={`https://ollama.com/library/${model.links.ollama}`} target="_blank" rel="noreferrer">
-            Ollama library <ExternalLink size={12} strokeWidth={2} />
           </a>
         )}
       </div>
@@ -137,8 +138,8 @@ function VariantRow({ model, variant, recommended }: { model: LibraryModel; vari
   const state = useLibrary((s) => s.state)
   const remove = useLibrary((s) => s.remove)
   const removeError = useLibrary((s) => {
-    const name = s.state ? findInstalled(variant, s.state.installed)?.name : undefined
-    return name ? s.errors[name] : undefined
+    const id = s.state ? findInstalled(variant, s.state.installed)?.id : undefined
+    return id ? s.errors[id] : undefined
   })
   const error = useVariantError(model, variant)
   const installed = state ? findInstalled(variant, state.installed) : undefined
@@ -151,8 +152,8 @@ function VariantRow({ model, variant, recommended }: { model: LibraryModel; vari
         {variant.quant}
         {recommended && <span className="mlib-recommended">Recommended</span>}
       </span>
-      <span className="mlib-variants__source" title={pullRef(variant)}>
-        {source.kind === 'ollama' ? `Ollama · ${source.tag}` : `Hugging Face · ${source.repo.split('/')[0]}`}
+      <span className="mlib-variants__source" title={`${source.repo} · ${source.files.join(', ')}`}>
+        Hugging Face · {source.repo.split('/')[0]}
       </span>
       <span className="mlib-variants__size">{formatModelSize(variant.sizeBytes)}</span>
       <span>{fit && !model.unsupported ? <FitBadge level={fit} title={fitExplanation(fit)} /> : <span className="mlib-dim">—</span>}</span>
@@ -160,7 +161,7 @@ function VariantRow({ model, variant, recommended }: { model: LibraryModel; vari
         {installed ? (
           <>
             <InstalledMark />
-            <ConfirmDelete label={`Delete ${installed.name}`} onConfirm={() => void remove(installed.name)} />
+            <ConfirmDelete label={`Delete ${installed.label}`} onConfirm={() => void remove(installed.id)} />
           </>
         ) : (
           <GetButton model={model} variant={variant} />

@@ -1,6 +1,6 @@
 /**
  * The curated local-model library, shared by the main process (which owns the
- * catalog and talks to Ollama) and the Models page. The sizing logic lives here
+ * catalog and downloads models for Eaon's llama.cpp) and the Models page. The sizing logic lives here
  * rather than in either process so it can be unit-tested under plain Node and
  * so the badge a card shows is computed by exactly the code the tests cover.
  *
@@ -21,29 +21,19 @@ export const LIBRARY_CATEGORIES: { id: LibraryCategory; label: string }[] = [
 export type LibraryCapability = 'tools' | 'vision' | 'reasoning' | 'coding' | 'embedding'
 
 /**
- * Where a variant is pulled from. Both kinds go through Ollama's `/api/pull`:
- * library tags from registry.ollama.ai, and Hugging Face GGUF repos through
- * Ollama's `hf.co/<repo>:<quant>` integration, which resolves the quant to a
- * file in the repo and brings the chat template and any vision projector with
- * it. That keeps one download path, one progress stream and one copy on disk.
+ * Where a variant comes from: GGUF files in a Hugging Face repo — the model,
+ * plus a vision projector (mmproj) for models that see images. Eaon downloads
+ * them directly and runs them with its own llama.cpp.
  */
-export type VariantSource =
-  | {
-      kind: 'ollama'
-      /** Full library tag, e.g. `qwen3.8:27b`. */
-      tag: string
-      /** First 12 hex chars of the manifest's sha256 — the ID `ollama list` shows. */
-      digest: string
-    }
-  | {
-      kind: 'hf'
-      /** GGUF repo on Hugging Face, e.g. `openbmb/MiniCPM5-2B-GGUF`. */
-      repo: string
-      /** Quant tag Ollama resolves against the repo's files, e.g. `Q4_K_M`. */
-      quant: string
-      /** The repo files that quant pulls (model, plus mmproj for vision models). */
-      files: string[]
-    }
+export type VariantSource = {
+  kind: 'hf'
+  /** GGUF repo on Hugging Face, e.g. `openbmb/MiniCPM5-2B-GGUF`. */
+  repo: string
+  /** The quantisation, as the repo names it (`Q4_K_M`, `UD-Q3_K_XL`). */
+  quant: string
+  /** Every file the variant downloads: the model's shards, then any mmproj. */
+  files: string[]
+}
 
 export interface LibraryVariant {
   /** Stable within its model, e.g. `q4_k_m`. */
@@ -72,7 +62,7 @@ export interface LibraryModel {
   license: { name: string; url?: string }
   /** YYYY-MM-DD, from the official repo's creation date or release note. */
   released: string
-  links: { huggingFace?: string; ollama?: string }
+  links: { huggingFace?: string }
   variants: LibraryVariant[]
   /**
    * Curated pick per memory tier, ascending: on a machine with at least
@@ -81,37 +71,50 @@ export interface LibraryModel {
   recommended: { ramGB: number; variant: string }[]
   /** One of the models the user asked for by name; always shown first. */
   featured?: boolean
-  /** Set when the current Ollama cannot load this model. Get stays disabled and this explains why. */
+  /** Set when the model can't run anywhere yet. Get stays disabled and this explains why. */
   unsupported?: string
+  /**
+   * The model's architecture needs a llama.cpp pull request that is not
+   * upstream yet. Eaon's build carries it (native/llama-fork.json); a runtime
+   * built without it can't load the model, and the page says so.
+   */
+  requires?: { pull: number; architecture: string }
 }
 
-export type OllamaStatus =
-  | { state: 'running'; version: string }
-  /** The binary exists but nothing answers on 11434. */
-  | { state: 'stopped'; binary: string }
-  | { state: 'missing' }
+/** Eaon's own llama.cpp runtime, as the Models page shows it. */
+export interface RuntimeInfo {
+  /** This build of Eaon ships llama-server for this machine. */
+  available: boolean
+  /** llama-server's version line, e.g. "0.5.0-dev (build 11311, commit f7b384c)". */
+  version: string | null
+  /** llama.cpp pull requests the bundled build carries beyond upstream (native/llama-fork.json). */
+  pulls: number[]
+  /** The chat model loaded right now, if any. */
+  loaded: { modelId: string; state: 'loading' | 'ready' } | null
+}
 
-/** One row of Ollama's `GET /api/tags`. */
+/** A model downloaded on this computer — from the library or Browse Hugging Face. */
 export interface InstalledModel {
-  name: string
-  digest: string
+  /** The id it has in the model picker ("On this computer"). */
+  id: string
+  label: string
+  repoId: string
+  /** The model's GGUF (the first shard of a split model). */
+  filename: string
+  quant: string
   sizeBytes: number
-  modifiedAt: string
-  parameterSize?: string
-  quantization?: string
-  family?: string
-  /** As Ollama reports them: `completion`, `tools`, `thinking`, `vision`, `embedding`… */
-  capabilities?: string[]
-  /** Ollama cloud models are aliases with no local weights. */
-  cloud?: boolean
+  downloadedAt: number
+  library?: { modelId: string; variantId: string }
+  vision: boolean
+  embedding: boolean
 }
 
 export interface LibraryState {
   ramBytes: number
-  /** Free space on the disk Ollama stores models on; null when it could not be read. */
+  /** Free space on the disk Eaon keeps models on; null when it could not be read. */
   freeDiskBytes: number | null
   chip: string
-  ollama: OllamaStatus
+  runtime: RuntimeInfo
   installed: InstalledModel[]
 }
 
@@ -130,8 +133,8 @@ export const FIT_LABEL: Record<FitLevel, string> = {
 /**
  * Share of RAM the GPU gets on Apple silicon by default. Metal's working-set
  * limit is roughly 2/3 to 3/4 of unified memory depending on macOS version and
- * RAM size (Ollama 0.30.4 on a 24 GB M5 reports 17.8 GiB). A model inside it
- * runs fully on the GPU; past it Ollama offloads layers to the CPU, which
+ * RAM size (llama.cpp and Ollama both report about 17.8 GiB on a 24 GB M5). A
+ * model inside it runs fully on the GPU; past it llama.cpp keeps layers on the CPU, which
  * still works but is several times slower.
  */
 export const GPU_SHARE = 0.72
@@ -224,34 +227,24 @@ export function suggestFor(models: LibraryModel[], ramBytes: number, limit = 6):
   return out
 }
 
-/* --------------------------------------------------------- Ollama naming */
+/* --------------------------------------------------------- Files and matching */
 
-/** The name to pass to `/api/pull` — and the name the model is listed under afterwards. */
-export function pullRef(variant: LibraryVariant): string {
-  return variant.source.kind === 'ollama' ? variant.source.tag : `hf.co/${variant.source.repo}:${variant.source.quant}`
+/** The variant's model file (the first shard of a split model), as opposed to its vision projector. */
+export function mainFile(variant: LibraryVariant): string {
+  return variant.source.files.find((f) => !/mmproj/i.test(f)) ?? variant.source.files[0]
 }
 
-/** Ollama treats a bare name as `:latest` and matches case-insensitively. */
-export function normalizeModelName(name: string): string {
-  const lower = name.trim().toLowerCase()
-  const lastSegment = lower.slice(lower.lastIndexOf('/') + 1)
-  return lastSegment.includes(':') ? lower : `${lower}:latest`
+/** The variant's vision projector, if it has one. */
+export function projectorFile(variant: LibraryVariant): string | undefined {
+  return variant.source.files.find((f) => /mmproj/i.test(f))
 }
 
-/**
- * The installed model this variant corresponds to, if any. Library tags also
- * match by digest, so `gemma4:e2b` pulled as `gemma4:e2b-it-q4_K_M` (the same
- * manifest under another tag) still counts as installed.
- */
+/** The downloaded copy of this variant, if there is one. */
 export function findInstalled(variant: LibraryVariant, installed: InstalledModel[]): InstalledModel | undefined {
-  const want = normalizeModelName(pullRef(variant))
-  const digest = variant.source.kind === 'ollama' ? variant.source.digest : null
-  return installed.find(
-    (m) => normalizeModelName(m.name) === want || (digest !== null && m.digest.toLowerCase().startsWith(digest))
-  )
+  return installed.find((m) => m.repoId === variant.source.repo && m.filename === mainFile(variant))
 }
 
-/** The first of a model's variants that is installed, preferring the one this machine would pick. */
+/** The first of a model's variants that is downloaded, preferring the one this machine would pick. */
 export function findInstalledVariant(
   model: LibraryModel,
   installed: InstalledModel[],
@@ -266,18 +259,29 @@ export function findInstalledVariant(
 }
 
 /**
- * Progress for library pulls rides the same `models:download-progress` channel
- * and `modelDownloads` store map as Hugging Face file downloads, so the header
- * Downloads panel shows both. The panel titles a row with the part of `repoId`
- * after the first slash, hence the `library/` prefix.
+ * Why this model can't run on the bundled runtime, or null when it can: its
+ * architecture needs a llama.cpp PR this build doesn't carry.
+ */
+export function runtimeGap(model: LibraryModel, runtime: RuntimeInfo | undefined): string | null {
+  if (model.unsupported) return model.unsupported
+  if (!model.requires || !runtime) return null
+  if (runtime.pulls.includes(model.requires.pull)) return null
+  return `This build's llama.cpp can't load the ${model.requires.architecture} architecture yet (it needs llama.cpp PR #${model.requires.pull}).`
+}
+
+/**
+ * Library downloads ride the same `models:download-progress` channel and
+ * `modelDownloads` store map as Browse Hugging Face files, so the header's
+ * Downloads panel shows both. The panel titles a row with the part of
+ * `repoId` after the first slash, hence the `library/` prefix.
  */
 export function libraryProgressKey(model: LibraryModel, variant: LibraryVariant): { repoId: string; filename: string } {
-  return { repoId: `library/${model.name}`, filename: pullRef(variant) }
+  return { repoId: `library/${model.name}`, filename: `${variant.source.repo}:${variant.quant}` }
 }
 
 /* ------------------------------------------------------------ Formatting */
 
-/** Model sizes in decimal gigabytes — the unit Hugging Face and ollama.com both show. */
+/** Model sizes in decimal gigabytes — the unit Hugging Face shows. */
 export function formatModelSize(bytes: number): string {
   if (!bytes) return '—'
   if (bytes >= 1e9) return `${(bytes / 1e9).toFixed(bytes >= 10e9 ? 0 : 1)} GB`

@@ -218,17 +218,79 @@ export class McpOAuthProvider implements OAuthClientProvider {
   }
 }
 
+/* ------------------------------------------------------ Shared refreshes */
+
+interface RefreshAnswer {
+  status: number
+  statusText: string
+  headers: [string, string][]
+  body: string
+}
+
+/** Successful refreshes by (token endpoint, refresh token), replayed for a minute. */
+const refreshes = new Map<string, { at: number; answer: Promise<RefreshAnswer> }>()
+const REFRESH_REPLAY_MS = 60_000
+
+/**
+ * The fetch every OAuth server's transport uses, which shares refreshes.
+ *
+ * Each request that finds the access token expired runs its own refresh, and
+ * the agent sends read-only plugin calls in parallel. Vendors that rotate
+ * refresh tokens honour only the first of those; the SDK answers the others'
+ * `invalid_grant` by dropping the stored tokens — including the ones the first
+ * refresh has just saved — and the user is signed out. So one refresh goes out
+ * per refresh token, and its answer is handed to every request that asks with
+ * that same token, in flight or shortly after.
+ */
+export async function oauthFetch(input: string | URL, init?: RequestInit): Promise<Response> {
+  const body = init?.body
+  const refreshToken =
+    init?.method === 'POST' && body instanceof URLSearchParams && body.get('grant_type') === 'refresh_token' ? body.get('refresh_token') : null
+  if (!refreshToken) return fetch(input, init)
+
+  const now = Date.now()
+  for (const [key, entry] of refreshes) if (now - entry.at > REFRESH_REPLAY_MS) refreshes.delete(key)
+  const key = `${String(input)}\n${refreshToken}`
+  let entry = refreshes.get(key)
+  if (!entry) {
+    const answer = fetch(input, init).then(async (res) => ({
+      status: res.status,
+      statusText: res.statusText,
+      headers: [...res.headers],
+      body: await res.text()
+    }))
+    entry = { at: now, answer }
+    refreshes.set(key, entry)
+    // Only a success is replayed; a failure is left for the next caller to retry.
+    answer.then(
+      (a) => a.status >= 400 && refreshes.delete(key),
+      () => refreshes.delete(key)
+    )
+  }
+  const answer = await entry.answer
+  return new Response(answer.body, { status: answer.status, statusText: answer.statusText, headers: answer.headers })
+}
+
 /* ------------------------------------------------------ Loopback redirect */
 
 interface Waiter {
   serverId: string
+  /** The sign-in this waiter belongs to, so it cleans up only its own. */
+  owner: AbortController
   resolve: (code: string) => void
   reject: (error: Error) => void
 }
 
 /** Sign-ins waiting for the browser, keyed by their OAuth `state`. */
 const waiting = new Map<string, Waiter>()
+/**
+ * Sign-ins under way, from the click on. Most of a sign-in happens before the
+ * browser opens (discovery, registration), so a cancel has to reach it there
+ * too, and the listener must stay up for it even while nothing is waiting yet.
+ */
+const signingIn = new Map<string, AbortController>()
 let listener: Server | null = null
+let listening: Promise<void> | null = null
 
 const redirect = new URL(MCP_OAUTH_REDIRECT_URI)
 
@@ -275,30 +337,38 @@ function handleCallback(req: IncomingMessage, res: ServerResponse): void {
   closeListenerIfIdle()
 }
 
-async function ensureListener(): Promise<void> {
-  if (listener) return
-  const server = createServer(handleCallback)
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', (error: NodeJS.ErrnoException) =>
+/** Starts the loopback listener once, however many sign-ins ask for it at the same moment. */
+function ensureListener(): Promise<void> {
+  if (listener) return Promise.resolve()
+  listening ??= new Promise<void>((resolve, reject) => {
+    const server = createServer(handleCallback)
+    server.once('error', (error: NodeJS.ErrnoException) => {
+      listening = null
       reject(
         error.code === 'EADDRINUSE'
           ? new Error(`Port ${redirect.port} is in use by another program, so the sign-in cannot finish. Close it and try again.`)
           : error
       )
-    )
-    server.listen(Number(redirect.port), redirect.hostname, () => resolve())
+    })
+    server.listen(Number(redirect.port), redirect.hostname, () => {
+      listener = server
+      listening = null
+      resolve()
+    })
   })
-  listener = server
+  return listening
 }
 
 function closeListenerIfIdle(): void {
-  if (waiting.size > 0 || !listener) return
+  if (waiting.size > 0 || signingIn.size > 0 || !listener) return
   listener.close()
   listener = null
 }
 
-/** Cancels a sign-in that is waiting on the browser. */
+/** Cancels a sign-in, whether it is still finding its way or already waiting on the browser. */
 export function cancelSignIn(serverId: string): void {
+  signingIn.get(serverId)?.abort()
+  signingIn.delete(serverId)
   for (const [state, waiter] of waiting) {
     if (waiter.serverId !== serverId) continue
     waiting.delete(state)
@@ -308,7 +378,7 @@ export function cancelSignIn(serverId: string): void {
 }
 
 export function isSigningIn(serverId: string): boolean {
-  return [...waiting.values()].some((w) => w.serverId === serverId)
+  return signingIn.has(serverId) || [...waiting.values()].some((w) => w.serverId === serverId)
 }
 
 /* ------------------------------------------------------------ The flow */
@@ -328,11 +398,15 @@ export interface SignInOptions {
  * protected-resource metadata and the scope, and servers that publish their
  * metadata somewhere other than the well-known path only say so there.
  */
-async function challenge(serverUrl: string, headers: Record<string, string>): Promise<{ resourceMetadataUrl?: URL; scope?: string }> {
+async function challenge(
+  serverUrl: string,
+  headers: Record<string, string>,
+  cancelled: AbortSignal
+): Promise<{ resourceMetadataUrl?: URL; scope?: string }> {
   try {
     const res = await fetch(serverUrl, {
       method: 'POST',
-      signal: AbortSignal.timeout(15_000),
+      signal: AbortSignal.any([AbortSignal.timeout(15_000), cancelled]),
       headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', ...headers },
       body: JSON.stringify({
         jsonrpc: '2.0',
@@ -356,12 +430,42 @@ async function challenge(serverUrl: string, headers: Record<string, string>): Pr
  */
 export async function signIn(serverId: string, serverUrl: string, options: SignInOptions = {}): Promise<void> {
   cancelSignIn(serverId)
-  await ensureListener()
+  const owner = new AbortController()
+  signingIn.set(serverId, owner)
+  const stopIfCancelled = (): void => {
+    if (owner.signal.aborted) throw new Error('Sign-in cancelled.')
+  }
+  try {
+    await ensureListener()
+    stopIfCancelled()
+    await authorize(serverId, serverUrl, options, owner, stopIfCancelled)
+  } finally {
+    if (signingIn.get(serverId) === owner) signingIn.delete(serverId)
+    // Only this sign-in's own waiter: a newer one for the same server may already be under way.
+    for (const [state, waiter] of waiting) {
+      if (waiter.owner !== owner) continue
+      waiting.delete(state)
+      waiter.reject(new Error('Sign-in cancelled.'))
+    }
+    closeListenerIfIdle()
+  }
+}
+
+async function authorize(
+  serverId: string,
+  serverUrl: string,
+  options: SignInOptions,
+  owner: AbortController,
+  stopIfCancelled: () => void
+): Promise<void> {
   // Filled in when the SDK hands over the authorization URL.
   const browser: { code?: Promise<string> } = {}
   const provider = new McpOAuthProvider(serverId, serverUrl, {
     interactive: true,
     openBrowser: async (url) => {
+      // Cancelled while discovery or registration was still running: the
+      // browser must not open for a sign-in the user already called off.
+      stopIfCancelled()
       const state = url.searchParams.get('state') ?? ''
       browser.code = new Promise<string>((resolve, reject) => {
         const timer = setTimeout(() => {
@@ -371,6 +475,7 @@ export async function signIn(serverId: string, serverUrl: string, options: SignI
         }, options.timeoutMs ?? 5 * 60_000)
         waiting.set(state, {
           serverId,
+          owner,
           resolve: (code) => {
             clearTimeout(timer)
             resolve(code)
@@ -390,12 +495,14 @@ export async function signIn(serverId: string, serverUrl: string, options: SignI
 
   provider.resetForSignIn(options.client)
 
-  const { resourceMetadataUrl, scope } = await challenge(serverUrl, options.headers ?? {})
+  const { resourceMetadataUrl, scope } = await challenge(serverUrl, options.headers ?? {}, owner.signal)
+  stopIfCancelled()
   try {
     const result = await auth(provider, { serverUrl, resourceMetadataUrl, scope })
     if (result === 'AUTHORIZED') return
     if (!browser.code) throw new Error('The server did not start a browser sign-in.')
     const code = await browser.code
+    stopIfCancelled()
     const exchanged = await auth(provider, { serverUrl, resourceMetadataUrl, scope, authorizationCode: code })
     if (exchanged !== 'AUTHORIZED') throw new Error('The server did not issue a token.')
   } catch (error) {
@@ -403,8 +510,6 @@ export async function signIn(serverId: string, serverUrl: string, options: SignI
       throw new ClientIdRequiredError()
     }
     throw error
-  } finally {
-    cancelSignIn(serverId)
   }
 }
 

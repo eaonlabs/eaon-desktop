@@ -48,3 +48,14 @@ the theme. The old white `<img>` marks were invisible on the light theme.
 Vendors without an official mark get a monogram.
 
 See [[MCP OAuth sign-in for plugins]].
+
+## Brokers (2026-10-01)
+
+Robinhood, IBKR (`mcp-public`) and Webull pass with DCR; TradeStation
+registers but its authorize answers `unauthorized_client`; Alpaca's trading
+MCP has no registration endpoint. Tradier answers anonymous MCP requests and
+checks the key per call, in an `API_KEY` header (`tokenHeader`), so the
+verifier now passes a pasted-token entry that lists tools anonymously. Probe a
+header-key server by calling a read tool with a bogus key: Tradier answers
+"Invalid Access Token", which proves the header is read. Details and the
+approval rules for brokers: [[Trading workers and broker plugins: Robinhood MCP, approvals and the kill switch]].

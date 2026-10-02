@@ -10,8 +10,10 @@ export const computerUseApi = {
   status: (): Promise<ComputerUseStatus> => ipcRenderer.invoke('computer-use:status'),
   /** Takes a screenshot exactly as the agent would receive it. */
   test: (): Promise<ComputerTestResult> => ipcRenderer.invoke('computer-use:test'),
-  /** Opens the macOS privacy pane for `kind`; for Accessibility, also adds Eaon to its list. */
+  /** Asks macOS for `kind` (which adds Eaon to its list, and may show the system prompt), then opens its privacy pane. */
   openPermission: (kind: PermissionKind): Promise<void> => ipcRenderer.invoke('computer-use:open-permission', kind),
+  /** Quits and reopens Eaon so a new Screen Recording grant applies; false when it cannot (development). */
+  relaunch: (): Promise<boolean> => ipcRenderer.invoke('computer-use:relaunch'),
   /** Same as the emergency-stop shortcut. */
   stop: (): Promise<void> => ipcRenderer.invoke('computer-use:stop')
 }

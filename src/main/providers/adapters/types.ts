@@ -134,6 +134,71 @@ export class ProviderHttpError extends Error {
 }
 
 /**
+ * Node's fetch gives up when no response has started within 5 minutes. A
+ * local model on a CPU can spend that long reading a long prompt before its
+ * first byte, and the failure is the same "fetch failed" as a server that is
+ * not running — so it is told apart by its cause.
+ */
+export function isHeadersTimeout(error: unknown): boolean {
+  const cause = (error as { cause?: { code?: unknown } } | null)?.cause
+  return cause?.code === 'UND_ERR_HEADERS_TIMEOUT'
+}
+
+export const HEADERS_TIMEOUT_MESSAGE =
+  'The model took more than 5 minutes to start answering, so the request was abandoned. The conversation may be too long for this machine — start a new chat, or use a smaller or faster model.'
+
+/**
+ * A tool call's arguments as the object the loop expects. Empty or `null`
+ * means no arguments; a JSON string holding an object (double-encoded, as
+ * some served models send) is unwrapped. Anything else is handed back as
+ * `__invalid_json`, which the loop reports to the model — a non-object input
+ * would otherwise throw inside the loop and end the turn.
+ */
+export function toolInput(raw: unknown): Record<string, unknown> {
+  let value = raw
+  if (typeof raw === 'string') {
+    if (!raw.trim()) return {}
+    try {
+      value = JSON.parse(raw)
+    } catch {
+      return { __invalid_json: raw }
+    }
+    if (typeof value === 'string') {
+      try {
+        value = JSON.parse(value)
+      } catch {
+        /* a bare string: invalid below */
+      }
+    }
+  }
+  if (value === null || value === undefined) return {}
+  if (typeof value === 'object' && !Array.isArray(value)) return value as Record<string, unknown>
+  return { __invalid_json: typeof raw === 'string' ? raw : JSON.stringify(raw) }
+}
+
+/** An image's cost, as the loop estimates it in `agent/context.ts`. */
+const IMAGE_TOKENS = 1600
+
+/**
+ * Rough token count of a request body, for fitting the output cap into the
+ * window. Inline images count at a flat rate: counted as text, the base64 of
+ * a few screenshots "filled" the window and pinned the cap at its floor.
+ */
+export function estimateRequestTokens(value: unknown): number {
+  let images = 0
+  const text = JSON.stringify(value, function (this: unknown, key: string, item: unknown) {
+    if (typeof item !== 'string' || item.length < 256) return item
+    // Anthropic's base64 sources; `data:` URLs on the OpenAI formats.
+    if ((key === 'data' && (this as { type?: unknown }).type === 'base64') || /^data:[^,]{1,100};base64,/.test(item.slice(0, 128))) {
+      images++
+      return ''
+    }
+    return item
+  })
+  return Math.ceil((text?.length ?? 0) / 3.6) + images * IMAGE_TOKENS
+}
+
+/**
  * An output cap that still fits the window. Hosts that serve from vLLM (most
  * of the open-model inference providers) reject a request outright when
  * prompt + `max_tokens` exceeds the context length, and catalogs often list a

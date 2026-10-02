@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import type { EaonEvent } from '@shared/eaonCode'
 import { attachJsonlReader } from './jsonl'
+import { spawnSpec } from './locate'
 
 /** How much of stderr to keep for crash reports. */
 const STDERR_TAIL = 8_000
@@ -30,9 +31,6 @@ interface Pending {
   type: string
 }
 
-/** Quote an argument for cmd.exe, which is what runs npm's `.cmd` shims. */
-const winQuote = (arg: string): string => (/[\s"&|<>^]/.test(arg) ? `"${arg.replace(/"/g, '""')}"` : arg)
-
 /**
  * One `eaon-code --mode rpc` process: commands in on stdin, responses and
  * events out on stdout, each a JSON line.
@@ -51,9 +49,9 @@ export class RpcChild {
   private exited = false
 
   constructor(private readonly options: RpcChildOptions) {
-    const windowsShim = process.platform === 'win32' && /\.(cmd|bat)$/i.test(options.command)
-    this.child = windowsShim
-      ? spawn(winQuote(options.command), options.args.map(winQuote), {
+    const spec = spawnSpec(options.command, options.args)
+    this.child = spec.shell
+      ? spawn(spec.command, spec.args, {
           cwd: options.cwd,
           env: options.env,
           shell: true,

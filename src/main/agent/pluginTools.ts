@@ -1,6 +1,7 @@
 import type { McpTool } from '@shared/types'
-import { callMcpTool, getTools, serverName } from '../mcp'
-import { capOutput, registerToolSource, safeToolName, type AgentTool } from './tools'
+import { callMcpToolResult, getTools, serverNames, type McpCallResult } from '../mcp'
+import { brokerOf, brokerWriteNeedsUser, tradingHalted, writesToBroker } from '../features/trading/access'
+import { capOutput, registerToolSource, safeToolName, type AgentTool, type ToolContext, type ToolResult } from './tools'
 
 /**
  * Connected plugins (MCP servers) as agent tools, in Work mode only.
@@ -20,34 +21,67 @@ import { capOutput, registerToolSource, safeToolName, type AgentTool } from './t
 
 const DIRECT_LIMIT = 12
 
-const directName = (tool: McpTool): string => safeToolName(`${serverName(tool.serverId).toLowerCase()}__${tool.name}`)
+/** Server display names, read once per listing (each lookup would otherwise re-read mcp.json). */
+type Names = Map<string, string>
+const nameOf = (names: Names, tool: McpTool): string => names.get(tool.serverId) ?? tool.serverId
+const directName = (names: Names, tool: McpTool): string => safeToolName(`${nameOf(names, tool).toLowerCase()}__${tool.name}`)
 
-function plugin(tool: McpTool): AgentTool {
+async function call(tool: McpTool, input: Record<string, unknown>, ctx: ToolContext): Promise<ToolResult | string> {
+  // The trading desk's kill switch stops every order, a broker plugin's too.
+  if (tradingHalted() && writesToBroker(tool) && brokerOf(tool.serverId, ctx.request.chatId)) {
+    return { text: 'Trading is halted: the kill switch on the trading desk is on, so no orders can be placed or changed until it is switched off.', isError: true }
+  }
+  const result: McpCallResult = await callMcpToolResult(tool.name, input, ctx.settings.mcp.toolCallTimeoutSeconds * 1000, tool.serverId, ctx.signal)
+  const text = capOutput(result.text)
+  return result.images || result.isError ? { ...result, text } : text
+}
+
+function plugin(tool: McpTool, names: Names): AgentTool {
   return {
-    name: directName(tool),
-    description: `[${serverName(tool.serverId)}] ${tool.description}`.slice(0, 1024),
+    name: directName(names, tool),
+    description: `[${nameOf(names, tool)}] ${tool.description}`.slice(0, 1024),
     inputSchema: tool.inputSchema,
     mutating: !tool.readOnly,
     // An action through a plugin reaches another service — a message sent,
     // an issue filed — so only calls the server marks non-destructive skip
     // the question in "Approve for me".
     risky: () => tool.destructive === true || !tool.readOnly,
-    run: async (input, ctx) =>
-      capOutput(await callMcpTool(tool.name, input, ctx.settings.mcp.toolCallTimeoutSeconds * 1000, tool.serverId))
+    // The server itself says this deletes or overwrites something — or it is
+    // an order at a broker the user hasn't let this run trade at on its own.
+    catastrophic: (_input, ctx) => tool.destructive === true || brokerWriteNeedsUser(tool, ctx.request.chatId),
+    run: (input, ctx) => call(tool, input, ctx)
   }
 }
 
-function findTool(all: McpTool[], name: string): McpTool | undefined {
+function findTool(all: McpTool[], names: Names, name: string): McpTool | undefined {
   const wanted = name.trim()
   return (
-    all.find((t) => `${serverName(t.serverId)}/${t.name}` === wanted) ??
-    all.find((t) => directName(t) === wanted) ??
+    all.find((t) => `${nameOf(names, t)}/${t.name}` === wanted) ??
+    all.find((t) => directName(names, t) === wanted) ??
     all.find((t) => t.name === wanted)
   )
 }
 
-function deferred(all: McpTool[]): AgentTool[] {
-  const servers = [...new Set(all.map((t) => serverName(t.serverId)))]
+/**
+ * `use_plugin_tool`'s arguments. The schema says object, but models often
+ * send an untyped object parameter as a JSON string instead; reading that as
+ * "no arguments" would run the tool with none. Anything else is refused.
+ */
+function pluginArguments(value: unknown): Record<string, unknown> | null {
+  if (value === undefined || value === null || value === '') return {}
+  let parsed = value
+  if (typeof value === 'string') {
+    try {
+      parsed = JSON.parse(value)
+    } catch {
+      return null
+    }
+  }
+  return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Record<string, unknown>) : null
+}
+
+function deferred(all: McpTool[], names: Names): AgentTool[] {
+  const servers = [...new Set(all.map((t) => nameOf(names, t)))]
   return [
     {
       name: 'plugin_tools',
@@ -63,14 +97,14 @@ function deferred(all: McpTool[]): AgentTool[] {
       describe: (input) => String(input.name ?? input.plugin ?? 'all'),
       run: async (input) => {
         if (typeof input.name === 'string' && input.name) {
-          const tool = findTool(all, input.name)
+          const tool = findTool(all, names, input.name)
           if (!tool) return `No plugin tool named "${input.name}". Call plugin_tools without arguments to list them.`
-          return `${serverName(tool.serverId)}/${tool.name}\n${tool.description}\n\nInput schema:\n${JSON.stringify(tool.inputSchema)}`
+          return `${nameOf(names, tool)}/${tool.name}\n${tool.description}\n\nInput schema:\n${JSON.stringify(tool.inputSchema)}`
         }
         const filter = typeof input.plugin === 'string' ? input.plugin.toLowerCase() : ''
         const rows = all
-          .filter((t) => !filter || serverName(t.serverId).toLowerCase().includes(filter))
-          .map((t) => `${serverName(t.serverId)}/${t.name}${t.readOnly ? '' : ' ✎'} — ${t.description.split('\n')[0].slice(0, 110)}`)
+          .filter((t) => !filter || nameOf(names, t).toLowerCase().includes(filter))
+          .map((t) => `${nameOf(names, t)}/${t.name}${t.readOnly ? '' : ' ✎'} — ${t.description.split('\n')[0].slice(0, 110)}`)
         return rows.length > 0
           ? `${rows.join('\n')}\n\n(✎ = changes data.) Get a schema with plugin_tools {name}, then call use_plugin_tool.`
           : 'No matching plugin tools.'
@@ -87,17 +121,22 @@ function deferred(all: McpTool[]): AgentTool[] {
         },
         required: ['name']
       },
-      mutating: (input) => !findTool(all, String(input.name ?? ''))?.readOnly,
+      mutating: (input) => !findTool(all, names, String(input.name ?? ''))?.readOnly,
       risky: (input) => {
-        const tool = findTool(all, String(input.name ?? ''))
+        const tool = findTool(all, names, String(input.name ?? ''))
         return !tool || tool.destructive === true || !tool.readOnly
+      },
+      catastrophic: (input, ctx) => {
+        const tool = findTool(all, names, String(input.name ?? ''))
+        return tool?.destructive === true || (tool !== undefined && brokerWriteNeedsUser(tool, ctx.request.chatId))
       },
       describe: (input) => String(input.name ?? ''),
       run: async (input, ctx) => {
-        const tool = findTool(all, String(input.name ?? ''))
+        const tool = findTool(all, names, String(input.name ?? ''))
         if (!tool) return { text: `No plugin tool named "${String(input.name ?? '')}". Call plugin_tools to list them.`, isError: true }
-        const args = (input.arguments && typeof input.arguments === 'object' ? input.arguments : {}) as Record<string, unknown>
-        return capOutput(await callMcpTool(tool.name, args, ctx.settings.mcp.toolCallTimeoutSeconds * 1000, tool.serverId))
+        const args = pluginArguments(input.arguments)
+        if (!args) return { text: 'arguments must be a JSON object matching the tool\'s input schema.', isError: true }
+        return call(tool, args, ctx)
       }
     }
   ]
@@ -111,7 +150,10 @@ registerToolSource({
     if (all.length === 0) return []
     const usable = query.readOnly ? all.filter((t) => t.readOnly) : all
     if (usable.length === 0) return []
+    const names = serverNames()
     // "Smart routing" in Settings now means: defer schemas once there are many.
-    return usable.length <= DIRECT_LIMIT || !query.settings.mcp.smartRouting ? usable.map(plugin) : deferred(usable)
+    return usable.length <= DIRECT_LIMIT || !query.settings.mcp.smartRouting
+      ? usable.map((tool) => plugin(tool, names))
+      : deferred(usable, names)
   }
 })

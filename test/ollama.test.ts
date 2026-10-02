@@ -129,3 +129,45 @@ test('a stream that closes before the done chunk is an error, not an answer', as
     server.close()
   }
 })
+
+test('a stream cut in the middle of a line is a retryable truncation, not a JSON error', async () => {
+  // The connection dropped part-way through a chunk: the last line is half a
+  // JSON object. That used to surface as "Unterminated string in JSON", which
+  // the loop does not retry.
+  const { url, server } = await rawServer(() => ({
+    body: `${JSON.stringify({ message: { content: 'Hel' }, done: false })}\n{"message":{"content":"lo wor`
+  }))
+  try {
+    await assert.rejects(ollamaAdapter.turn(request(ollama(url))), /stream ended before it finished/)
+  } finally {
+    server.close()
+  }
+})
+
+test('Ollama tool arguments are always an object', async () => {
+  const { url, server } = await rawServer(() => ({
+    body: ndjson([
+      { message: { content: '', tool_calls: [{ function: { name: 'read_file', arguments: null } }, { function: { name: 'read_file', arguments: '"{\\"path\\":\\"b\\"}"' } }] }, done: false },
+      { message: { content: '' }, done: true, done_reason: 'stop' }
+    ])
+  }))
+  const result = await ollamaAdapter.turn(request(ollama(url))).finally(() => server.close())
+  assert.deepEqual(result.calls.map((call) => call.input), [{}, { path: 'b' }])
+})
+
+test('a model too slow to start answering is not reported as Ollama being down', async () => {
+  const realFetch = globalThis.fetch
+  // What Node's fetch throws when no response starts within its 5-minute headers timeout.
+  globalThis.fetch = (async () => {
+    throw Object.assign(new TypeError('fetch failed'), { cause: Object.assign(new Error('Headers Timeout Error'), { code: 'UND_ERR_HEADERS_TIMEOUT' }) })
+  }) as typeof fetch
+  try {
+    await assert.rejects(ollamaAdapter.turn(request(ollama('http://127.0.0.1:1'))), (error: Error) => {
+      assert.match(error.message, /more than 5 minutes to start answering/)
+      assert.doesNotMatch(error.message, /installed and running/)
+      return true
+    })
+  } finally {
+    globalThis.fetch = realFetch
+  }
+})

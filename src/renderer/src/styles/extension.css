@@ -119,3 +119,48 @@
   direction: rtl;
   text-align: left;
 }
+
+/* One button per installed browser that opens its extensions page. */
+.bx-browsers {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  vertical-align: middle;
+}
+
+/* The Swift-era extension is still installed. Amber is a fixed hue, like the
+   connected green above: it has to read as "needs attention" on any theme. */
+.bx-legacy {
+  --bx-amber: #d18b0f;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border-radius: var(--r-lg);
+  background: color-mix(in srgb, var(--bx-amber), transparent 90%);
+  border: 1px solid color-mix(in srgb, var(--bx-amber), transparent 65%);
+}
+.bx-legacy__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  color: var(--text);
+}
+.bx-legacy__head svg {
+  color: var(--bx-amber);
+  flex: none;
+}
+.bx-legacy__text,
+.bx-legacy__foot {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+.bx-legacy__foot {
+  color: var(--text-3);
+}
+.bx-legacy .bx-steps strong {
+  color: var(--text);
+  font-weight: 600;
+}

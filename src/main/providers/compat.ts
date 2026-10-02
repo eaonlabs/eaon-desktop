@@ -1,5 +1,8 @@
 import type { EffortLevel, ModelInfo, Provider } from '@shared/types'
+import { WIRE_EFFORT } from '@shared/effort'
 import { inferEfforts } from './models'
+
+export { clampEffort } from '@shared/effort'
 
 /**
  * Per-provider quirks, in one place.
@@ -41,6 +44,7 @@ export type Vendor =
   | 'cloudflare-gateway'
   | 'perplexity'
   | 'ollama'
+  | 'chatgpt-plan'
   | 'other'
 
 function hostOf(url: string): string {
@@ -83,6 +87,7 @@ const HOSTS: [RegExp, Vendor][] = [
 const IDS: Record<string, Vendor> = {
   openai: 'openai',
   'openai-codex': 'codex',
+  chatgpt: 'chatgpt-plan',
   'github-copilot': 'copilot',
   azure: 'azure',
   openrouter: 'openrouter',
@@ -132,31 +137,9 @@ export function vendorOf(provider: Pick<Provider, 'id' | 'kind' | 'baseUrl'>, ba
 
 /* --------------------------------------------------------------- effort */
 
-const WIRE_EFFORT: Record<EffortLevel, string> = {
-  light: 'low',
-  medium: 'medium',
-  high: 'high',
-  'extra-high': 'xhigh',
-  ultra: 'max'
-}
-
-const ORDER: EffortLevel[] = ['light', 'medium', 'high', 'extra-high', 'ultra']
-
 /** The model's effort levels: from the catalog, else inferred from its id. */
 export function effortsFor(modelId: string, model: ModelInfo | undefined): EffortLevel[] {
   return model?.efforts ?? inferEfforts(modelId) ?? []
-}
-
-/**
- * The level to actually request: the chosen one if the model takes it,
- * otherwise the nearest level below it the model does take (a model that stops
- * at "high" gets "high" for "ultra", not its lowest setting).
- */
-export function clampEffort(requested: EffortLevel, efforts: EffortLevel[]): EffortLevel | undefined {
-  if (efforts.length === 0) return undefined
-  if (efforts.includes(requested)) return requested
-  for (let i = ORDER.indexOf(requested); i >= 0; i--) if (efforts.includes(ORDER[i])) return ORDER[i]
-  return efforts[0]
 }
 
 /**
@@ -300,6 +283,36 @@ export function requestBase(provider: Provider, credentialsBase: string | undefi
   return vendorOf(provider, base) === 'azure' ? normalizeAzureUrl(base) : base
 }
 
+/* ------------------------------------------------ this app's own server */
+
+/** Names that reach this machine's loopback interface. */
+export function isLoopbackHost(hostname: string): boolean {
+  return ['127.0.0.1', 'localhost', '[::1]', '::1', '0.0.0.0'].includes(hostname.toLowerCase())
+}
+
+let ownServerPort: number | null = null
+
+/** Claimed by the Local API Server as it starts (before it listens), released when it stops or fails to bind. */
+export function setOwnServerPort(port: number | null): void {
+  ownServerPort = port
+}
+
+/**
+ * True when `baseUrl` is the Local API Server itself. Jan's default port is
+ * the server's default too: listing "Jan" there copies every model the app
+ * serves under Jan's name, and a request for one is proxied straight back.
+ */
+export function isOwnServerUrl(baseUrl: string): boolean {
+  if (ownServerPort === null) return false
+  try {
+    const url = new URL(baseUrl)
+    const port = Number(url.port || (url.protocol === 'https:' ? 443 : 80))
+    return port === ownServerPort && isLoopbackHost(url.hostname)
+  } catch {
+    return false
+  }
+}
+
 /* -------------------------------------------------------------- routing */
 
 /** Wire format of one request. */
@@ -340,6 +353,23 @@ export function wireApiFor(provider: Provider, modelId: string): WireApi {
   // Copilot: GPT-5 and later, recent Grok and MAI models answer on /responses only.
   if (/^(gpt-5|gpt-6|o[1-9])/.test(id) || /^grok-4\.[5-9]|^mai-/.test(id)) return 'openai-responses'
   return 'openai-chat'
+}
+
+/**
+ * Whether a chosen effort reaches this model at all. The catalog's effort
+ * list describes the model; some endpoints still drop the field (Copilot's
+ * and xAI's chat-completions, NVIDIA, Perplexity, Ollama outside gpt-oss),
+ * and a picker there would change nothing.
+ */
+export function effortReaches(provider: Provider, modelId: string, model: ModelInfo | undefined): boolean {
+  const wire = wireApiFor(provider, modelId)
+  if (wire === 'openai-responses') return true
+  if (wire === 'ollama') return /gpt-oss/.test(modelId)
+  if (wire === 'anthropic') {
+    const thinking = anthropicCompat(provider, provider.baseUrl, modelId, model).thinking
+    return thinking === 'claude' || thinking === 'adaptive'
+  }
+  return chatCompat(provider, provider.baseUrl, modelId).sendsEffort
 }
 
 /**

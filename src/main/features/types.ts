@@ -26,4 +26,9 @@ export interface Feature {
   register: (ctx: FeatureContext) => void | Promise<void>
   /** Called from before-quit. Must not block. */
   dispose?: () => void
+  /**
+   * Called from before-quit, which holds the quit (capped) until it settles —
+   * for child processes that must be reaped before the process exits.
+   */
+  shutdown?: () => Promise<void>
 }

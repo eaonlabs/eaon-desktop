@@ -17,6 +17,7 @@ import { captureDisplay, orderedDisplays, type Shot } from './capture'
 import { frameFor, sameFrame, toScreen, toShot, type Frame, type Point, type Quality } from './geometry'
 import type { AppRef } from './input'
 import { formatCombo } from './keys'
+import { permissionOwnerLabel } from './mac'
 import { beginDriving, bringEaonForward, eaonHasFocus, STOP_LABEL, withEaonHidden } from './session'
 
 /**
@@ -274,8 +275,9 @@ async function run(input: Record<string, unknown>, ctx: ToolContext): Promise<To
     const check = await backend.check()
     if (!check.available) throw new Error(`Input is unavailable on this computer: ${check.detail ?? backend.name}`)
     if (check.trusted === false) {
+      const who = await permissionOwnerLabel()
       throw new Error(
-        'macOS has not allowed Eaon to control the computer. Ask the user to turn on Eaon in System Settings → Privacy & Security → Accessibility (Settings → Computer use has a button), then retry.'
+        `macOS has not let Eaon control the mouse and keyboard: Accessibility is off for ${who}. Tell the user to open Settings → Computer use in Eaon, which walks through it step by step, or to switch on ${who} in System Settings → Privacy & Security → Accessibility. It takes effect at once, with no restart; retry only after they have.`
       )
     }
     if (check.locked && INPUT_ACTIONS.has(action.action)) {
@@ -303,6 +305,8 @@ async function run(input: Record<string, unknown>, ctx: ToolContext): Promise<To
   const wantShot = input.screenshot !== false
 
   return exclusive(async () => {
+    // It may have waited behind another chat's action, and been stopped meanwhile.
+    if (signal.aborted) throw new Error('Stopped by the user.')
     if (KEYBOARD_ACTIONS.has(action.action)) await ensureFocusAway(chatId, signal)
     const result = await withEaonHidden(async () => {
       const head = await perform(action, frame, signal)
@@ -347,6 +351,8 @@ export const computerTool: AgentTool = {
   },
   mutating: (input) => !isLookingAction(input),
   risky: (input) => riskReason(input, process.platform) !== null,
+  // Destructive key combos and destructive commands typed into a terminal.
+  catastrophic: (input) => riskReason(input, process.platform) !== null,
   describe: describeAction,
   run
 }

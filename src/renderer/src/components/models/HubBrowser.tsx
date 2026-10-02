@@ -8,7 +8,7 @@ import type { ModelDetail, ModelDownloadProgress, ModelSearchResult } from '@sha
 
 /**
  * "Browse Hugging Face": search any GGUF repo, pick a file, download it to
- * Eaon's models folder and register it with Ollama (modelHub.ts). Moved here
+ * Eaon's models folder, where Eaon's own llama.cpp runs it (modelHub.ts). Moved here
  * from ModelsPage unchanged in behaviour when the curated library became the
  * page's default; downloaded files now show on the Installed tab.
  */

@@ -205,7 +205,7 @@
 }
 .manager__tab {
   display: inline-flex;
-  align-items: baseline;
+  align-items: center;
   gap: 7px;
   height: 28px;
   padding: 0 11px;
@@ -305,6 +305,36 @@
 .empty-state__body {
   font-size: var(--fs-base);
   color: var(--text-3);
+}
+
+/* The whole-window error screen (CrashScreen.tsx); the strip keeps the window draggable. */
+.crash-screen {
+  position: relative;
+  height: 100%;
+  padding: 0 24px;
+}
+.crash-screen__drag {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 40px;
+  -webkit-app-region: drag;
+}
+.crash-screen .empty-state__body {
+  max-width: 420px;
+}
+.crash-screen__error {
+  max-width: min(560px, 100%);
+  max-height: 120px;
+  margin: 8px 0 12px;
+  padding: 8px 12px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  background: var(--hover);
+  border-radius: 8px;
 }
 
 /* ---------------- Built-in browser panel ---------------- */
@@ -432,7 +462,11 @@
   border: 0;
 }
 
-/* ---- Pull requests (Eaon Work) — real data from the gh CLI ---- */
+/* ---- Pull requests — real data from the gh CLI ----
+   Two columns under the top bar. The list column carries its own controls
+   (tabs, search, sort) on the same 12px inset as its rows, so the tabs, the
+   search field and every row share one left and one right edge; the detail
+   reads from the top of its column, level with the tabs. */
 
 .pr-page {
   display: flex;
@@ -440,37 +474,71 @@
   height: 100%;
   min-width: 0;
 }
-.pr-page .chat-header {
-  gap: 14px;
-}
-.pr-search {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 0 16px 14px;
-}
-.pr-search .search-field {
-  flex: 1;
-}
 .pr-shell {
   flex: 1;
   min-height: 0;
   display: flex;
+  border-top: 1px solid var(--border-soft);
 }
-.pr-list {
-  width: 360px;
+
+.pr-pane {
+  /* The top bar's own inset, so the column lines up under its title. */
+  --pr-inset: 16px;
+  width: clamp(300px, 34%, 400px);
   flex: none;
-  overflow-y: auto;
-  padding: 0 10px 24px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
   border-right: 1px solid var(--border-soft);
 }
-.pr-list__group {
+.pr-pane__head {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px var(--pr-inset) 6px;
+}
+/* The tabs fill the column, in equal thirds. */
+.pr-pane__head .segment {
+  display: flex;
+  padding: 2px;
+  border-radius: var(--r-md);
+  background: var(--surface-1);
+}
+.pr-pane__head .segment__item {
+  flex: 1;
+  height: 28px;
+}
+.pr-search {
   display: flex;
   align-items: center;
-  padding: 0 8px;
-  margin: 14px 0 4px;
-  font-size: var(--fs-sm);
+  gap: 6px;
+}
+.pr-search .search-field {
+  flex: 1;
+  min-width: 0;
+}
+.pr-search .icon-btn {
+  flex: none;
+  width: 34px;
+  height: 34px;
+}
+
+.pr-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  /* The scrollbar's 10px always reserved and taken out of the right inset, so
+     rows end where the tabs and search end, scrolling or not. */
+  scrollbar-gutter: stable;
+  padding: 0 calc(var(--pr-inset) - 10px) 24px var(--pr-inset);
+}
+.pr-list__group {
+  padding: 0 10px;
+  margin: 12px 0 4px;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  letter-spacing: 0.02em;
   color: var(--text-3);
 }
 .pr-empty {
@@ -488,13 +556,15 @@
 }
 
 .pr-row {
+  position: relative;
   display: flex;
   align-items: flex-start;
   gap: 10px;
   width: 100%;
-  padding: 9px 8px;
+  padding: 9px 10px;
   border-radius: var(--r-md);
   text-align: left;
+  cursor: default;
   transition: background var(--dur) var(--ease);
 }
 .pr-row:hover {
@@ -504,30 +574,29 @@
   background: var(--surface-2);
 }
 .pr-row__icon {
-  position: relative;
   flex: none;
   display: grid;
   place-items: center;
+  height: 20px;
   color: var(--text-3);
-  margin-top: 2px;
-}
-.pr-row__dot {
-  position: absolute;
-  right: -2px;
-  bottom: -2px;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  box-shadow: 0 0 0 2px var(--canvas);
 }
 .pr-row__body {
   flex: 1;
   min-width: 0;
 }
-.pr-row__top {
+.pr-row__top,
+.pr-row__bottom {
   display: flex;
-  align-items: baseline;
-  gap: 8px;
+  align-items: center;
+  gap: 10px;
+}
+.pr-row__top {
+  height: 20px;
+}
+.pr-row__bottom {
+  margin-top: 2px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
 }
 .pr-row__title {
   flex: 1;
@@ -542,14 +611,7 @@
   flex: none;
   font-size: var(--fs-xs);
   color: var(--text-3);
-}
-.pr-row__bottom {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 3px;
-  font-size: var(--fs-xs);
-  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
 }
 .pr-row__repo {
   flex: 1;
@@ -560,52 +622,122 @@
 }
 .pr-row__branch {
   color: var(--text-3);
-}
-.pr-row__stats {
-  flex: none;
-  font-family: var(--font-mono);
+  opacity: 0.8;
 }
 .pr-row__open {
-  flex: none;
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 26px;
+  height: 26px;
   opacity: 0;
+  pointer-events: none;
 }
-.pr-row:hover .pr-row__open {
+.pr-row:hover .pr-row__open,
+.pr-row:focus-within .pr-row__open {
   opacity: 1;
+  pointer-events: auto;
+}
+.pr-row:hover .pr-row__time,
+.pr-row:focus-within .pr-row__time {
+  visibility: hidden;
+}
+
+/* State colours, GitHub's: open green, merged purple, closed red, draft grey. */
+.pr-page [data-state='open'] {
+  --pr-state: #3fb950;
+}
+.pr-page [data-state='merged'] {
+  --pr-state: #a371f7;
+}
+.pr-page [data-state='closed'] {
+  --pr-state: #f85149;
+}
+.pr-page [data-state='draft'] {
+  --pr-state: var(--text-3);
+}
+.pr-row__icon[data-state] {
+  color: var(--pr-state);
+}
+
+.pr-stats {
+  flex: none;
+  display: inline-flex;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+.pr-stats__add {
+  color: #3fb950;
+}
+.pr-stats__del {
+  color: #f85149;
 }
 
 .pr-detail {
   flex: 1;
   min-width: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
+  overflow-y: auto;
 }
 .pr-detail__empty {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  padding: 24px;
   color: var(--text-3);
-  font-size: var(--fs-h2);
+  font-size: var(--fs-base);
 }
-.pr-detail__card {
-  width: 100%;
-  max-width: 460px;
+.pr-detail__inner {
+  max-width: 760px;
+  /* Starts level with the tabs across the divider. */
+  padding: 12px 32px 32px;
 }
 .pr-detail__repo {
   font-size: var(--fs-sm);
   color: var(--text-3);
 }
 .pr-detail__title {
-  font-size: 20px;
+  margin: 6px 0 14px;
+  font-size: 22px;
   font-weight: 500;
-  margin: 6px 0 12px;
+  line-height: 1.3;
+  letter-spacing: -0.01em;
+  color: var(--text);
 }
 .pr-detail__meta {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 14px;
-  margin-bottom: 18px;
+  gap: 8px 14px;
+  margin-bottom: 20px;
   font-size: var(--fs-sm);
   color: var(--text-2);
-  text-transform: capitalize;
+}
+.pr-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 10px;
+  border-radius: var(--r-pill);
+  font-weight: 500;
+  color: var(--pr-state);
+  background: color-mix(in srgb, var(--pr-state) 14%, transparent);
+}
+.pr-detail__branch {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+.pr-detail__meta .pr-stats {
+  font-size: var(--fs-sm);
+}
+.pr-detail__time {
+  color: var(--text-3);
 }
 
 /* ---------------- Models (local model hub) ---------------- */
@@ -884,4 +1016,205 @@
 .variants-table__error {
   color: var(--danger);
   max-width: 220px;
+}
+
+/* ---------------- The agent's own browser, live ---------------- */
+
+.agent-browser__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text);
+  -webkit-app-region: no-drag;
+}
+.agent-browser__live {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 4px;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--danger), transparent 86%);
+  color: var(--danger);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+.agent-browser__live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: bx-pulse 1.2s ease-in-out infinite;
+}
+.agent-browser .header-btn {
+  -webkit-app-region: no-drag;
+}
+.agent-browser__url {
+  margin: 0;
+  gap: 8px;
+  color: var(--text-3);
+  overflow: hidden;
+}
+.agent-browser__url-text {
+  font-size: var(--fs-sm);
+  color: var(--text);
+  white-space: nowrap;
+}
+.agent-browser__page-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-xs);
+}
+/* The page sits on a neutral stage at its own aspect, never stretched. */
+.agent-browser__stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  margin: 0 12px;
+  border-radius: var(--r-md);
+  background: var(--sunken);
+  border: 1px solid var(--border-soft);
+  overflow: hidden;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  transition: box-shadow var(--dur) var(--ease);
+}
+.agent-browser__stage[data-working] {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent), transparent 55%);
+}
+.agent-browser__frame {
+  display: block;
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  user-select: none;
+}
+.agent-browser__empty {
+  margin: auto;
+  max-width: 260px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+.agent-browser__now {
+  position: absolute;
+  left: 10px;
+  right: 10px;
+  bottom: 10px;
+  padding: 7px 11px;
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--canvas), transparent 8%);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.18), 0 0 0 1px var(--border-soft);
+  font-size: var(--fs-sm);
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.agent-browser__now[data-done] {
+  color: var(--text-3);
+}
+.agent-browser__steps {
+  flex: none;
+  max-height: 150px;
+  margin: 8px 12px 12px;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  overflow-y: auto;
+}
+.agent-browser__steps li {
+  display: flex;
+  gap: 10px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  min-width: 0;
+}
+.agent-browser__step-time {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+}
+.agent-browser__step-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Taking control: the picture becomes the page. A clear frame says whose turn it is. */
+.agent-browser__stage[data-control] {
+  box-shadow: 0 0 0 2px var(--accent);
+  outline: none;
+}
+.agent-browser__stage[data-control] .agent-browser__frame {
+  cursor: default;
+}
+.agent-browser__now--control {
+  pointer-events: none;
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent), var(--canvas) 82%);
+}
+.agent-browser__url-input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text);
+  outline: none;
+}
+.header-btn--primary {
+  background: var(--accent);
+  color: var(--on-accent, #fff);
+}
+.header-btn--primary:hover {
+  background: color-mix(in srgb, var(--accent), #000 10%);
+  color: var(--on-accent, #fff);
+}
+.header-btn:disabled,
+.agent-browser .icon-btn:disabled {
+  opacity: 0.45;
+  pointer-events: none;
+}
+
+/* A worker's browser, in its dialog. */
+.agent-browser--dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.agent-browser--dialog .agent-browser__bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.agent-browser--dialog .agent-browser__url {
+  flex: 1;
+  min-width: 0;
+}
+.agent-browser--dialog .agent-browser__stage {
+  margin: 0;
+  height: min(540px, 58vh);
+  flex: none;
+}
+.agent-browser--dialog .agent-browser__steps {
+  margin: 0;
+  max-height: 110px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-browser__live-dot {
+    animation: none;
+  }
 }

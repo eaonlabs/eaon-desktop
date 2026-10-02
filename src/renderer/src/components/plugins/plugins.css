@@ -80,6 +80,9 @@
   color: var(--text-3);
   line-height: 1.5;
 }
+.plugin-row__trading {
+  color: var(--text-2);
+}
 .plugin-row__hint code {
   font-family: var(--font-mono);
   font-size: var(--fs-xs);

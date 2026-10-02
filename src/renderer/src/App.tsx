@@ -12,7 +12,14 @@ import { ModelsPage } from './components/ModelsPage'
 import { SettingsShell } from './components/settings/SettingsShell'
 import { UpdateToast } from './components/UpdateToast'
 import { CodeView } from './components/code/CodeView'
-import { PetLayer } from './components/pets/PetLayer'
+import { LibraryPage } from './components/LibraryPage'
+import { WorkersView } from './components/workers/WorkersView'
+import { useWorkers } from './components/workers/workersStore'
+import { DiscordPresence } from './components/discord/DiscordPresence'
+import { BrowserAsk } from './components/browser/BrowserAsk'
+import { AgentBrowserPanel } from './components/agentBrowser/AgentBrowserPanel'
+import { TradingDesk } from './components/trading/TradingDesk'
+import { useAgentBrowser } from './components/agentBrowser/agentBrowserStore'
 import { THEMES } from './lib/themes'
 
 export default function App(): JSX.Element {
@@ -20,11 +27,14 @@ export default function App(): JSX.Element {
 
   useEffect(() => {
     void init()
+    void useWorkers.getState().init()
+    useAgentBrowser.getState().init(() => useApp.getState().activeChatId)
   }, [init])
 
 
   const isWork = useIsWork()
   const kind = useWorkspaceKind()
+  const agentBrowserOpen = useAgentBrowser((s) => s.open)
 
   useTheme()
 
@@ -64,19 +74,23 @@ export default function App(): JSX.Element {
         <div className="app">
           <Sidebar />
           <div className="main">
-            {view === 'chat' && (kind === 'code' ? <CodeView /> : <ChatView />)}
+            {view === 'chat' && (kind === 'code' ? <CodeView /> : kind === 'workers' ? <WorkersView /> : <ChatView />)}
+            {view === 'library' && <LibraryPage />}
             {view === 'plugins' && <PluginsPage />}
             {view === 'integrations' && <IntegrationsPage />}
             {view === 'scheduled' && <ScheduledPage />}
             {view === 'pull-requests' && <PullRequestsPage />}
+            {view === 'trading' && <TradingDesk />}
             {view === 'models' && <ModelsPage />}
           </div>
           {isWork && browserOpen && <BrowserPanel />}
+          {isWork && view === 'chat' && kind === 'chat' && agentBrowserOpen && !browserOpen && <AgentBrowserPanel />}
           <GlobalKeys onSettings={() => setSettingsPage('general')} onPlugins={() => setView('plugins')} />
         </div>
       )}
       <UpdateToast />
-      <PetLayer />
+      <DiscordPresence />
+      <BrowserAsk />
     </>
   )
 }
@@ -96,6 +110,16 @@ function GlobalKeys({ onSettings, onPlugins }: { onSettings: () => void; onPlugi
       if (event.shiftKey && event.key.toLowerCase() === 'p') {
         event.preventDefault()
         onPlugins()
+      }
+      // ⌘1 / ⌘2 / ⌘3: Chat, Workers, ADE — the top bar's switch, from the keyboard.
+      const kind = ({ '1': 'chat', '2': 'workers', '3': 'code' } as const)[event.key as '1' | '2' | '3']
+      if (kind && !event.shiftKey && !event.altKey) {
+        const app = useApp.getState()
+        const target = app.workspaces.find((w) => w.kind === kind)
+        if (!target) return
+        event.preventDefault()
+        if (target.id !== app.settings?.activeWorkspaceId) app.setWorkspace(target.id)
+        if (app.view !== 'chat') app.setView('chat')
       }
     }
     window.addEventListener('keydown', onKey)
@@ -128,12 +152,9 @@ function useTheme(): void {
       const tone = THEMES.find((theme) => theme.name === palette.preset)?.[resolved]
       root.style.setProperty('--text-fade', String(tone?.textFade ?? 1))
       root.style.setProperty('--fs-base', `${appearance.fontSize}px`)
-      root.style.setProperty(
-        '--font-ui',
-        palette.fontFamily === 'System default'
-          ? "-apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Inter', system-ui, sans-serif"
-          : `'${palette.fontFamily}', -apple-system, system-ui, sans-serif`
-      )
+      // No --font-ui override: the typeface is always the system stack in
+      // tokens.css. `palette.fontFamily` is still stored by older installs
+      // (Inter, SF Mono, Georgia) and deliberately ignored.
       root.style.setProperty(
         '--font-weight-ui',
         palette.fontWeight === 'Light' ? '300' : palette.fontWeight === 'Medium' ? '500' : '400'

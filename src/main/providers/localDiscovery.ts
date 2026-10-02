@@ -1,4 +1,6 @@
-import { listProviders, refreshModels } from './index'
+import { LOCAL_PROVIDER_ID } from '../llama/models'
+import { isOwnServerUrl } from './compat'
+import { clearListed, listProviders, refreshModels } from './index'
 
 /**
  * Keeps local runtimes' model lists current without the user asking.
@@ -21,9 +23,19 @@ export function refreshLocalProviders(force = false): Promise<boolean> {
   last = Date.now()
   running = (async () => {
     let changed = false
-    const locals = listProviders().filter((p) => p.local && p.enabled && p.baseUrl)
+    // Eaon's own runtime lists what is downloaded; there is no server to probe.
+    const locals = listProviders().filter((p) => p.local && p.enabled && p.baseUrl && p.id !== LOCAL_PROVIDER_ID)
     await Promise.all(
       locals.map(async (provider) => {
+        // The app's own Local API Server holds that port, so anything listed
+        // there came from this app (see `isOwnServerUrl`); never probe it.
+        if (isOwnServerUrl(provider.baseUrl)) {
+          if (provider.models.length > 0) {
+            clearListed(provider.id)
+            changed = true
+          }
+          return
+        }
         const before = provider.models.map((m) => m.id).join('\n')
         try {
           const models = await Promise.race([

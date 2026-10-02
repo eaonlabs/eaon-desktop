@@ -2,7 +2,7 @@
 title: Computer use: how the computer tool sees and drives the screen
 tags: [eaon-desktop, agent, tools, computer-use, macos, permissions]
 created: 2026-09-24T00:00:00.000Z
-updated: 2026-09-24T00:00:00.000Z
+updated: 2026-10-01T02:34:38.327Z
 ---
 
 # Computer use: how the computer tool sees and drives the screen
@@ -64,3 +64,5 @@ backend per OS behind `input.ts`). It plugs in as a tool source, see
   (posted events reach the lock screen).
 
 Related gotcha: [[Calling a tool's run() directly skips approval]].
+
+Related: [[Computer use setup: macOS permissions, who owns them, and relaunch]]

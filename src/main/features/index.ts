@@ -1,10 +1,17 @@
 import { browserBridgeFeature } from './browserBridge'
 import { computerUseFeature } from './computerUse'
+import { discordPresenceFeature } from './discordPresence'
 import { eaonCodeFeature } from './eaonCode'
-import { petsFeature } from './pets'
 import { schedulerFeature } from './scheduler'
 import { skillsFeature } from './skills'
 import { modelLibraryFeature } from './modelLibrary'
+import { libraryFeature } from './library'
+import { terminalsFeature } from './terminals'
+import { workersFeature } from './workers'
+import { channelsFeature } from './channels'
+import { agentBrowserFeature } from './agentBrowser'
+import { emailFeature } from './email'
+import { tradingFeature } from './trading'
 import { pluginsFeature } from './plugins'
 import { providerAuthFeature } from './providerAuth'
 import type { Feature } from './types'
@@ -19,5 +26,13 @@ export const FEATURES: Feature[] = [
   browserBridgeFeature,
   schedulerFeature,
   eaonCodeFeature,
-  petsFeature
+  libraryFeature,
+  terminalsFeature,
+  workersFeature,
+  // Built on the workers engine, so after it.
+  channelsFeature,
+  agentBrowserFeature,
+  emailFeature,
+  tradingFeature,
+  discordPresenceFeature
 ]

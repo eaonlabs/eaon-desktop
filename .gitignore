@@ -5,3 +5,7 @@ dist/
 *.log
 # Incremental typecheck caches — build artifacts, not source.
 *.tsbuildinfo
+
+# Eaon llama.cpp runtime: the checkout, and the binaries scripts/build-llama.sh builds
+native/llama.cpp/
+resources/llama/

@@ -28,7 +28,7 @@ publisher; `scripts/pack-extension.mjs` leaves it out of the uploaded zip.
 
 ```sh
 node scripts/pack-extension.mjs
-# → dist/eaon-browser-extension-1.0.0.zip
+# → dist/eaon-browser-extension-<version>.zip (1.1.0 at the time of writing)
 ```
 
 The script refuses to pack if the manifest has problems the store would
@@ -112,6 +112,7 @@ tab") rather than naming features.
 | `scripting` | The agent reads and operates web pages: the extension injects its script into the tab the agent is working in to list the page's links, buttons and fields, and to click, type, select and scroll. The script is injected only into tabs in the agent's "Eaon" tab group or tabs the user explicitly shared, and only when the agent acts on them. It is never injected into other tabs. |
 | `tabGroups` | Every tab the agent opens is placed in a tab group titled "Eaon" so the user can see at a glance which tabs the agent is using. Membership of that group is also how the extension decides which tabs the agent may touch. |
 | `storage` | Stores the pairing token that lets the extension reconnect to the Eaon app on the same computer, the connection port, and, for the current browser session only, which tabs belong to the agent and which the user has shared. Nothing is synced or sent anywhere. |
+| `contextMenus` | Adds "Ask Eaon about this page", "Ask Eaon about “selection”" and "Send link to Eaon" to the right-click menu. Choosing one sends that page's address and title, the selected text, or the link to the Eaon app on the same computer, where it becomes a draft in a new chat for the user to finish and send. Nothing is sent unless the user picks one of these items. |
 | `alarms` | While the Eaon app is closed the extension's service worker is suspended. A 30-second alarm wakes it to reconnect, so browser control works again as soon as the user opens Eaon, without them having to click anything. |
 | Host permission `<all_urls>` | The user asks the agent to work on whatever website their task needs, which cannot be known in advance. Host access is required to inject the page script into those tabs and to capture a screenshot of the visible tab (`tabs.captureVisibleTab`). The extension uses it only on tabs in the agent's "Eaon" tab group or tabs the user explicitly shared from the popup. |
 

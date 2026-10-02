@@ -32,26 +32,41 @@ your user-data directory, and never sent to the renderer process or anywhere
 except the provider you entered them for. After saving a key the app calls the
 provider's model list, so the picker fills in immediately.
 
-The composer's **Effort** control maps onto real reasoning-effort levels:
-Light, Medium, High, Extra High, Ultra.
+Model lists come from a catalog generated from Pi's provider data and
+[models.dev](https://models.dev) (`npm run generate:models`), checked against
+models.dev once a day while the app runs, and merged with each provider's own
+`/models` once a key is added. Removing a model in Settings → Model providers
+hides it, and it can be restored from the same page.
+
+The composer's **Effort** control offers exactly the levels the chosen model
+takes, named the way providers name them: Off, Minimal, Low, Medium, High,
+Extra high and Max.
 
 ## What's in the app
 
-Three tabs across the top:
+Three tabs, centred at the top of every screen (⌘1 / ⌘2 / ⌘3):
 
-- **Chat**: a plain assistant with streaming replies and web search. Nothing
-  else touches your machine.
-- **Work**: an agent that does the task. It works on files and commands in
-  the Work folder, and can also use the web, connected plugins, your browser
-  (through the Eaon Chrome extension) and your computer. Plan, Swarm and Goal
-  modes sit in the composer. Anything that changes things asks first unless
-  you choose "Approve for me", and risky actions always ask.
-- **Code**: a graphical front end for an [Eaon Code](https://github.com/eaonlabs/eaon-code)
-  session in a project folder.
+- **Chat**: the assistant, and an agent underneath. It answers questions
+  plainly, and when you ask for something to be done it does it: files and
+  commands in its folder (`~/Eaon` unless you pick one), the web, connected
+  plugins, your browser (through the Eaon Chrome extension) and your
+  computer. The chat box stays simple — Plan, Swarm and Goal modes, the
+  folder, plugins and permissions all sit behind its + button. Anything that
+  changes things asks first unless you choose "Auto-approve", and risky
+  actions always ask.
+- **Workers**: always-on agents, each with a name, colour, personality and
+  purpose, one never-ending thread, and heartbeats it schedules for itself.
+  Workers message each other, hand over files and share out big jobs. They
+  run with risky actions refused, since nobody is there to approve them.
+- **ADE**: the agentic development environment — a graphical front end for
+  an [Eaon Code](https://github.com/eaonlabs/eaon-code) session in a project
+  folder.
+
+The Library collects every file you have attached to a chat.
 
 Also: scheduled tasks that run in the background, 67 plugins with browser
-sign-in, skills (`SKILL.md`), a curated local model library, coloured themes,
-and pets.
+sign-in, skills (`SKILL.md`), a curated local model library and coloured
+themes.
 
 ## Browser extension
 

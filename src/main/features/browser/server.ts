@@ -3,7 +3,10 @@ import type { IncomingMessage } from 'node:http'
 import { WebSocket, WebSocketServer } from 'ws'
 import {
   BRIDGE_PROTOCOL,
+  isNewerVersion,
+  V1_ACTIONS,
   type BrowserAction,
+  type BrowserAsk,
   type BrowserBridgeStatus,
   type DesktopMessage,
   type ExtensionMessage,
@@ -61,6 +64,10 @@ export interface BridgeOptions {
   pairingTtlMs?: number
   /** A connection silent for this long is presumed dead and dropped. */
   staleAfterMs?: number
+  /** The extension version this app ships, offered to older extensions. */
+  bundledVersion?: () => string | null
+  /** The user sent something to Eaon from the extension's right-click menu. */
+  onAsk?: (ask: BrowserAsk) => void
 }
 
 export class NotConnectedError extends Error {}
@@ -74,7 +81,13 @@ interface ActiveConnection {
   socket: WebSocket
   origin: string
   lastSeen: number
+  version: string
+  /** What the extension said it can do; null for 1.0.0, which did not say. */
+  features: Set<string> | null
+  installType: string | null
 }
+
+type UpdateState = BrowserBridgeStatus['update']
 
 const sha256 = (text: string): string => createHash('sha256').update(text).digest('hex')
 
@@ -102,6 +115,9 @@ export class BrowserBridge {
   private queue: Promise<unknown> = Promise.resolve()
   private heartbeat: NodeJS.Timeout | null = null
   private remote: { paused: boolean; agentTab: { title: string; url: string } | null } = { paused: false, agentTab: null }
+  private updateState: UpdateState = 'idle'
+  /** Versions already offered to the extension on connect, so a failed update is not retried in a loop. */
+  private offered = new Set<string>()
 
   constructor(private readonly options: BridgeOptions) {
     this.record = options.store.load()
@@ -189,9 +205,12 @@ export class BrowserBridge {
     this.changed()
   }
 
-  status(): Omit<BrowserBridgeStatus, 'enabled' | 'bundledExtensionVersion'> {
+  status(): Omit<BrowserBridgeStatus, 'enabled' | 'bundledExtensionVersion' | 'legacyExtensionSeenAt'> {
     const record = this.record
+    const active = this.active
     return {
+      canSelfUpdate: active !== null && active.installType === 'development' && active.features?.has('self-update') === true,
+      update: active ? this.updateState : 'idle',
       listening: this.wss !== null,
       port: this.port,
       error: this.error,
@@ -201,6 +220,7 @@ export class BrowserBridge {
         ? {
             browser: record.browser,
             extensionVersion: record.extensionVersion,
+            installType: active ? active.installType : null,
             pairedAt: record.pairedAt,
             lastSeenAt: this.active ? Date.now() : record.lastSeenAt
           }
@@ -284,7 +304,49 @@ export class BrowserBridge {
     return result
   }
 
+  /** Whether the connected extension can carry out `action` — older ones lack the newer actions. */
+  supports(action: BrowserAction): boolean {
+    const active = this.active
+    if (!active) return false
+    return active.features ? active.features.has(action) : V1_ACTIONS.includes(action)
+  }
+
+  /** The connected extension's version, or null. */
+  get extensionVersion(): string | null {
+    return this.active?.version ?? null
+  }
+
+  /**
+   * Asks the connected extension to update to the version this app ships.
+   * Returns false when there is nothing to ask: no connection, nothing newer,
+   * or an extension too old to update itself.
+   */
+  requestUpdate(): boolean {
+    const active = this.active
+    const latest = this.latestFor(active)
+    if (!active || !latest || !active.features?.has('self-update')) return false
+    this.updateState = 'reloading'
+    send(active.socket, { type: 'update', version: latest })
+    this.changed()
+    return true
+  }
+
   // ------------------------------------------------------------ Internals
+
+  /** The shipped version, if it is newer than what this connection runs. */
+  private latestFor(active: ActiveConnection | null): string | null {
+    const latest = this.options.bundledVersion?.() ?? null
+    return active && latest && isNewerVersion(latest, active.version) ? latest : null
+  }
+
+  /** Unpacked extensions are updated as soon as they connect — once per version per run of the app. */
+  private offerUpdate(): void {
+    const active = this.active
+    const latest = this.latestFor(active)
+    if (!active || !latest || active.installType !== 'development' || this.offered.has(latest)) return
+    this.offered.add(latest)
+    this.requestUpdate()
+  }
 
   private handshakeAllowed(req: IncomingMessage): boolean {
     const origin = req.headers.origin ?? ''
@@ -347,6 +409,12 @@ export class BrowserBridge {
     const browser = clean(message.browser, 'Browser')
     const extensionVersion = clean(message.extensionVersion, 'unknown')
     const now = Date.now()
+    const client = {
+      version: extensionVersion,
+      features: Array.isArray(message.features) ? new Set(message.features.filter((f): f is string => typeof f === 'string').slice(0, 100)) : null,
+      installType: typeof message.installType === 'string' ? clean(message.installType, 'unknown') : null
+    }
+    const latestExtension = this.latestFor({ ...client, socket, origin, lastSeen: now }) ?? undefined
 
     if (typeof message.pairingCode === 'string' && message.pairingCode) {
       if (!this.codeMatches(message.pairingCode)) {
@@ -357,9 +425,10 @@ export class BrowserBridge {
       this.pairing = null
       this.setRecord({ tokenHash: sha256(token), origin, browser, extensionVersion, pairedAt: now, lastSeenAt: now })
       // Whoever was connected before held the previous token, which is now void.
-      this.attach(socket, origin, 'unpaired')
-      send(socket, { type: 'welcome', protocol: BRIDGE_PROTOCOL, appVersion: this.options.appVersion, token })
+      this.attach(socket, origin, 'unpaired', client)
+      send(socket, { type: 'welcome', protocol: BRIDGE_PROTOCOL, appVersion: this.options.appVersion, token, latestExtension })
       this.changed()
+      this.offerUpdate()
       return true
     }
 
@@ -370,9 +439,10 @@ export class BrowserBridge {
         return false
       }
       this.setRecord({ ...record, browser, extensionVersion, lastSeenAt: now })
-      this.attach(socket, origin, 'replaced')
-      send(socket, { type: 'welcome', protocol: BRIDGE_PROTOCOL, appVersion: this.options.appVersion })
+      this.attach(socket, origin, 'replaced', client)
+      send(socket, { type: 'welcome', protocol: BRIDGE_PROTOCOL, appVersion: this.options.appVersion, latestExtension })
       this.changed()
+      this.offerUpdate()
       return true
     }
 
@@ -395,7 +465,12 @@ export class BrowserBridge {
     return ok
   }
 
-  private attach(socket: WebSocket, origin: string, displacedReason: RejectReason): void {
+  private attach(
+    socket: WebSocket,
+    origin: string,
+    displacedReason: RejectReason,
+    client: Pick<ActiveConnection, 'version' | 'features' | 'installType'>
+  ): void {
     if (this.active && this.active.socket !== socket) {
       this.reject(
         this.active.socket,
@@ -404,7 +479,10 @@ export class BrowserBridge {
       )
       this.detach('The browser extension reconnected. Try again.')
     }
-    this.active = { socket, origin, lastSeen: Date.now() }
+    // A reconnect after "reloading" is the update landing (or not — the
+    // extension says 'stuck' if the reload brought no new version).
+    if (this.updateState === 'reloading' && this.active?.version !== client.version) this.updateState = 'idle'
+    this.active = { socket, origin, lastSeen: Date.now(), ...client }
     this.remote = { paused: false, agentTab: null }
   }
 
@@ -430,6 +508,25 @@ export class BrowserBridge {
       case 'ping':
         if (this.active) send(this.active.socket, { type: 'pong' })
         return
+      case 'update-status':
+        if (message.state === 'reloading' || message.state === 'stuck' || message.state === 'store') {
+          this.updateState = message.state
+          this.changed()
+        }
+        return
+      case 'ask': {
+        if (message.kind !== 'page' && message.kind !== 'selection' && message.kind !== 'link') return
+        // Page text is the page's words, not the user's: bounded here, and
+        // the app only ever puts it in the composer for the user to send.
+        this.options.onAsk?.({
+          kind: message.kind,
+          text: typeof message.text === 'string' ? message.text.slice(0, 20_000) : '',
+          url: typeof message.url === 'string' ? message.url.slice(0, 2_000) : '',
+          title: typeof message.title === 'string' ? message.title.replace(/[\u0000-\u001f]/g, ' ').slice(0, 300) : '',
+          tabId: typeof message.tabId === 'number' && Number.isInteger(message.tabId) ? message.tabId : null
+        })
+        return
+      }
       case 'unpair':
         this.setRecord(null)
         if (this.active) this.active.socket.close(1000, 'unpaired')

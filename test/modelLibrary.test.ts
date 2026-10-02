@@ -1,10 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { LIBRARY } from '../src/main/modelLibrary/catalog'
-import { PullTracker, ndjson } from '../src/main/modelLibrary/ollama'
-import { freeDiskBytes } from '../src/main/modelLibrary'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { freeBytes } from '../src/main/modelHub'
 import {
   LIBRARY_CATEGORIES,
   diskShortfall,
@@ -13,11 +11,14 @@ import {
   fitFor,
   formatContext,
   formatModelSize,
+  libraryProgressKey,
+  mainFile,
   minRamGB,
-  normalizeModelName,
   pickVariant,
-  pullRef,
+  projectorFile,
+  runtimeGap,
   suggestFor,
+  type RuntimeInfo,
   type InstalledModel,
   type LibraryModel
 } from '@shared/modelLibrary'
@@ -29,7 +30,18 @@ const model = (id: string): LibraryModel => {
   assert.ok(found, `catalog has ${id}`)
   return found
 }
-const installed = (name: string, digest = 'f'.repeat(64)): InstalledModel => ({ name, digest, sizeBytes: 1, modifiedAt: '' })
+const installed = (repoId: string, filename: string): InstalledModel => ({
+  id: `${repoId}:${filename}`,
+  label: filename,
+  repoId,
+  filename,
+  quant: '',
+  sizeBytes: 1,
+  downloadedAt: 0,
+  vision: false,
+  embedding: false
+})
+const runtime = (pulls: number[]): RuntimeInfo => ({ available: true, version: null, pulls, loaded: null })
 
 /* ---------------------------------------------------------------- fit */
 
@@ -108,19 +120,21 @@ test('catalog: every entry is complete and internally consistent', () => {
     assert.match(m.released, /^20\d\d-\d\d-\d\d$/, `${m.id} released`)
     assert.ok(m.contextLength >= 512, `${m.id} context`)
     assert.ok(m.license.name, `${m.id} license`)
-    assert.ok(m.links.huggingFace || m.links.ollama, `${m.id} links`)
+    assert.ok(m.links.huggingFace, `${m.id} links`)
     assert.ok(m.categories.length > 0 && m.capabilities.length > 0, `${m.id} categories/capabilities`)
 
     const variantIds = new Set(m.variants.map((v) => v.id))
     assert.equal(variantIds.size, m.variants.length, `${m.id} duplicate variant ids`)
     for (const v of m.variants) {
       assert.ok(v.sizeBytes > 50e6, `${m.id}/${v.id} size`)
-      if (v.source.kind === 'ollama') {
-        assert.match(v.source.digest, /^[0-9a-f]{12}$/, `${m.id}/${v.id} digest`)
-        assert.ok(v.source.tag.includes(':'), `${m.id}/${v.id} tag should be explicit`)
-      } else {
-        assert.ok(v.source.files.length > 0 && v.source.files.every((f) => f.endsWith('.gguf')), `${m.id}/${v.id} files`)
-      }
+      // Every variant is Hugging Face GGUF files, run by Eaon's llama.cpp.
+      assert.equal(v.source.kind, 'hf')
+      assert.match(v.source.repo, /^[\w.-]+\/[\w.-]+$/, `${m.id}/${v.id} repo`)
+      assert.ok(v.source.files.length > 0 && v.source.files.every((f) => f.endsWith('.gguf')), `${m.id}/${v.id} files`)
+      // Speculative-decoding drafts are not the model.
+      assert.doesNotMatch(mainFile(v), /(^|\/)(mtp|dflash)[-_/]/i, `${m.id}/${v.id} main file is a draft model`)
+      // A model that sees images brings its projector with every variant.
+      if (m.capabilities.includes('vision')) assert.ok(projectorFile(v), `${m.id}/${v.id} has no mmproj`)
     }
 
     assert.ok(m.recommended.length > 0, `${m.id} has no tiers`)
@@ -140,11 +154,19 @@ test('catalog: every entry is complete and internally consistent', () => {
   }
 })
 
-test('catalog: K2 Horizon carries its runtime caveat, nothing else does', () => {
+test('catalog: K2 Horizon needs the llama.cpp PR that Eaon builds in; nothing is unsupported outright', () => {
+  assert.deepEqual(LIBRARY.filter((m) => m.unsupported).map((m) => m.id), [])
   assert.deepEqual(
-    LIBRARY.filter((m) => m.unsupported).map((m) => m.id),
-    ['k2-horizon-7b']
+    LIBRARY.filter((m) => m.requires).map((m) => [m.id, m.requires?.pull]),
+    [['k2-horizon-7b', 29535]]
   )
+})
+
+test('runtimeGap: a model needing a PR runs only on a build that carries it', () => {
+  const k2 = model('k2-horizon-7b')
+  assert.equal(runtimeGap(k2, runtime([29535])), null)
+  assert.match(runtimeGap(k2, runtime([])) ?? '', /k2-horizon architecture.*#29535/)
+  assert.equal(runtimeGap(model('minicpm5-2b'), runtime([])), null)
 })
 
 /* --------------------------------------------------------- suggestions */
@@ -174,76 +196,38 @@ test('suggestFor on an 8 GB machine only adds models that fit it', () => {
 
 /* ------------------------------------------------------ installed state */
 
-test('pullRef names library tags and Hugging Face quants the way /api/tags lists them', () => {
-  assert.equal(pullRef(model('qwen3.8-27b').variants[1]), 'qwen3.8:27b')
-  assert.equal(pullRef(model('minicpm5-2b').variants[0]), 'hf.co/openbmb/MiniCPM5-2B-GGUF:Q4_K_M')
+test('mainFile and projectorFile tell the model from its vision projector', () => {
+  const qwen = model('qwen3.8-27b').variants[0]
+  assert.doesNotMatch(mainFile(qwen), /mmproj/i)
+  assert.match(projectorFile(qwen) ?? '', /mmproj/i)
+  assert.equal(projectorFile(model('minicpm5-2b').variants[0]), undefined)
 })
 
-test('normalizeModelName adds :latest and ignores case', () => {
-  assert.equal(normalizeModelName('Gemma4'), 'gemma4:latest')
-  assert.equal(normalizeModelName('hf.co/OpenBMB/MiniCPM5-2B-GGUF:Q4_K_M'), 'hf.co/openbmb/minicpm5-2b-gguf:q4_k_m')
-  assert.equal(normalizeModelName('library/model'), 'library/model:latest')
-})
-
-test('findInstalled matches by name, case-insensitively, or by manifest digest under another tag', () => {
-  const e2b = model('gemma-4-e2b').variants.find((v) => v.id === 'q4_k_m')!
-  assert.ok(findInstalled(e2b, [installed('gemma4:e2b')]))
-  // Same manifest pulled under its long tag: `ollama list` shows the same ID.
-  assert.ok(findInstalled(e2b, [installed('gemma4:e2b-it-q4_K_M', '7fbdbf8f5e45a75bb122155ed546e765b4d9c53a1285f62fd9f506baa1c5a47e')]))
-  assert.equal(findInstalled(e2b, [installed('gemma4:e4b')]), undefined)
-
+test('findInstalled matches a download by repo and model file', () => {
   const mini = model('minicpm5-2b').variants[0]
-  assert.ok(findInstalled(mini, [installed('hf.co/openbmb/minicpm5-2b-gguf:q4_k_m')]))
+  assert.ok(findInstalled(mini, [installed(mini.source.repo, mainFile(mini))]))
+  assert.equal(findInstalled(mini, [installed(mini.source.repo, 'other.gguf')]), undefined)
+  assert.equal(findInstalled(mini, [installed('someone/else', mainFile(mini))]), undefined)
 })
 
 test('findInstalledVariant reports whichever variant is installed, preferring the pick', () => {
   const qwen = model('qwen3.8-27b')
-  const found = findInstalledVariant(qwen, [installed('qwen3.8:27b-q8_0'), installed('qwen3.8:27b')], qwen.variants[1])
-  assert.equal(found?.variant.id, 'q4_k_m')
-  assert.equal(findInstalledVariant(qwen, [installed('qwen3.8:27b-q8_0')])?.variant.id, 'q8_0')
+  const on = (v: (typeof qwen.variants)[number]): InstalledModel => installed(v.source.repo, mainFile(v))
+  const [q3, q4, q8] = ['ud-q3_k_xl', 'q4_k_m', 'q8_0'].map((id) => qwen.variants.find((v) => v.id === id)!)
+  assert.equal(findInstalledVariant(qwen, [on(q8), on(q4)], q4)?.variant.id, 'q4_k_m')
+  assert.equal(findInstalledVariant(qwen, [on(q8)])?.variant.id, 'q8_0')
+  assert.equal(findInstalledVariant(qwen, [on(q3)], q4)?.variant.id, 'ud-q3_k_xl')
   assert.equal(findInstalledVariant(qwen, []), undefined)
 })
 
-/* -------------------------------------------------------- pull progress */
-
-test('PullTracker sums layers, never reports less than the expected total, and flags the finishing phase', () => {
-  const tracker = new PullTracker(1000)
-  assert.deepEqual(tracker.update({ status: 'pulling manifest' }), { receivedBytes: 0, totalBytes: 1000, phase: 'downloading' })
-  tracker.update({ status: 'pulling a', digest: 'sha256:a', total: 600, completed: 100 })
-  const mid = tracker.update({ status: 'pulling b', digest: 'sha256:b', total: 400, completed: 50 })
-  assert.deepEqual(mid, { receivedBytes: 150, totalBytes: 1000, phase: 'downloading' })
-  // Out-of-order events never move a layer backwards.
-  assert.equal(tracker.update({ status: 'pulling a', digest: 'sha256:a', total: 600, completed: 80 }).receivedBytes, 150)
-  assert.equal(tracker.update({ status: 'verifying sha256 digest' }).phase, 'registering')
-  assert.deepEqual(tracker.update({ status: 'success' }), { receivedBytes: 1000, totalBytes: 1000, phase: 'registering' })
-})
-
-test('PullTracker grows the total when Ollama announces more than the catalog expected', () => {
-  const tracker = new PullTracker(100)
-  assert.equal(tracker.update({ digest: 'sha256:a', total: 300, completed: 30 }).totalBytes, 300)
-})
-
-test('PullTracker turns an error event into a thrown error', () => {
-  assert.throws(() => new PullTracker(1).update({ error: 'pull model manifest: file does not exist' }), /file does not exist/)
-})
-
-test('ndjson reassembles lines split across chunks', async () => {
-  const encoder = new TextEncoder()
-  const chunks = ['{"status":"pull', 'ing manifest"}\n{"status":"su', 'ccess"}\n']
-  const body = new ReadableStream<Uint8Array>({
-    start(controller) {
-      for (const chunk of chunks) controller.enqueue(encoder.encode(chunk))
-      controller.close()
-    }
-  })
-  const events = []
-  for await (const event of ndjson(body)) events.push(event.status)
-  assert.deepEqual(events, ['pulling manifest', 'success'])
+test('library progress rows are keyed per variant, under the model name', () => {
+  const mini = model('minicpm5-2b')
+  assert.deepEqual(libraryProgressKey(mini, mini.variants[0]), { repoId: 'library/MiniCPM5 2B', filename: 'openbmb/MiniCPM5-2B-GGUF:Q4_K_M' })
 })
 
 /* --------------------------------------------------------- formatting */
 
-test('formatting matches how Hugging Face and Ollama show sizes and context', () => {
+test('formatting matches how Hugging Face shows sizes and context', () => {
   assert.equal(formatModelSize(17_741_872_154), '18 GB')
   assert.equal(formatModelSize(1_561_319_197), '1.6 GB')
   assert.equal(formatModelSize(621_875_917), '622 MB')
@@ -260,7 +244,8 @@ test('a download that would fill the disk is refused with the numbers', () => {
   assert.match(diskShortfall(5 * GiB, 6 * GiB) ?? '', /^Needs 7\.5 GB free; this disk has 6\.4 GB\.$/)
 })
 
-test('free space is read from the nearest folder that exists', async () => {
-  const free = await freeDiskBytes({ OLLAMA_MODELS: join(tmpdir(), 'no-such-dir', 'models') })
+test('free space is read for the models folder, and is null for a folder that does not exist', async () => {
+  const free = await freeBytes(tmpdir())
   assert.ok(typeof free === 'number' && free > 0)
+  assert.equal(await freeBytes('/no/such/folder/anywhere'), null)
 })

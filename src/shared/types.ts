@@ -1,5 +1,7 @@
 /** Types shared between the main and renderer processes. */
 
+import type { WorkerMail } from './workers'
+
 /**
  * Wire format a provider speaks. `openai-responses` is OpenAI's Responses API
  * (also what ChatGPT/Codex subscriptions are served over); everything else that
@@ -25,9 +27,16 @@ export interface ModelInfo {
   vision?: boolean
   /** True for models that think before answering (reasoning / extended thinking). */
   reasoning?: boolean
+  /** Added by hand in Settings → Model providers, rather than from the catalog or the provider's listing. */
+  custom?: boolean
 }
 
-export type EffortLevel = 'light' | 'medium' | 'high' | 'extra-high' | 'ultra'
+/**
+ * Reasoning effort, lowest to highest. `light`, `extra-high` and `ultra` are
+ * the old ids for low, xhigh and max — see `shared/effort.ts` for the labels
+ * and wire names.
+ */
+export type EffortLevel = 'none' | 'minimal' | 'light' | 'medium' | 'high' | 'extra-high' | 'ultra'
 
 export interface Provider {
   id: string
@@ -58,6 +67,8 @@ export interface Provider {
   keyUrl?: string
   /** Extra headers every request to this provider carries (OpenRouter attribution, etc.). */
   headers?: Record<string, string>
+  /** Models the user removed from this provider's list; kept so they can be restored. */
+  hiddenModels?: ModelInfo[]
 }
 
 export interface ChatTextPart {
@@ -142,6 +153,11 @@ export interface GoalState {
   iterations: number
   /** Set when the agent reports the goal achieved or blocked. */
   summary?: string
+  /**
+   * Work on it until this time (a timestamp), instead of stopping after the
+   * usual number of continuations or minutes. Unset for an ordinary goal.
+   */
+  until?: number | null
 }
 
 export type ChatMessagePart = ChatTextPart | ChatToolPart
@@ -164,6 +180,14 @@ export interface ChatMessage {
   attachments?: string[]
   /** Set on messages a scheduled task produced, so the UI can label them. */
   scheduledTaskId?: string
+  /**
+   * Workers: the mail this turn was woken by, one entry per sender. The model
+   * reads the combined text in `parts`; the transcript shows each piece of
+   * mail as its own bubble, with the sender's face.
+   */
+  mail?: WorkerMail[]
+  /** Workers: set when a scheduled heartbeat woke this turn — the worker's own note. */
+  heartbeat?: string
 }
 
 export interface Chat {
@@ -200,16 +224,28 @@ export interface Workspace {
   id: string
   name: string
   /**
-   * 'chat' is the plain assistant (web search only), 'work' is the agent that
-   * acts on the computer, and 'code' is the Eaon Code session UI.
+   * The top-bar modes. 'chat' is the assistant — an agent that can use files,
+   * the shell, the browser and plugins behind a simple composer. 'workers' is
+   * the team of always-on agents (`shared/workers.ts`), and 'code' is the ADE,
+   * the Eaon Code session UI.
+   *
+   * 'work' was the separate agent tab before Chat absorbed it; it no longer
+   * appears in a migrated install but stays in the union so old data parses.
    */
-  kind: 'chat' | 'work' | 'code'
-  /** Project folder Eaon Work runs commands and file edits against. Null until chosen. */
+  kind: 'chat' | 'work' | 'code' | 'workers'
+  /** Folder the chat agent runs commands and file edits in. Null until chosen (~/Eaon). */
   cwd?: string | null
 }
 
 export type ThemeMode = 'system' | 'light' | 'dark'
-export type ApprovalMode = 'ask' | 'auto'
+export type LaunchMode = 'chat' | 'workers' | 'ade' | 'last'
+/**
+ * How the chat agent asks before acting. `ask`: before every change. `auto`:
+ * only before risky ones. `full`: never, except for what can't be undone —
+ * sudo, erasing disks, force-pushing, credentials, passwords and payments
+ * (a tool's `catastrophic`) still wait for the user.
+ */
+export type ApprovalMode = 'ask' | 'auto' | 'full'
 
 export interface ThemePalette {
   preset: string
@@ -233,13 +269,14 @@ export interface Settings {
     preventSleep: boolean
     suggestedPrompts: boolean
     launchAtLogin: boolean
+    /** Which mode the app opens in: a fixed one, or wherever it was left. */
+    launchMode: LaunchMode
   }
   appearance: {
     mode: ThemeMode
     light: ThemePalette
     dark: ThemePalette
     pointerCursors: boolean
-    dockIcon: 'mono' | 'color'
     reduceMotion: 'system' | 'on' | 'off'
     fontSize: number
     fontSmoothing: boolean
@@ -251,8 +288,6 @@ export interface Settings {
     webSearch: string
     outputDetail: string
     reasoningSummary: string
-    availableEfforts: EffortLevel[]
-    ultraInPicker: boolean
     workspaceDependencies: boolean
   }
   browser: {
@@ -300,6 +335,8 @@ export interface Settings {
    * ChatGPT sign-in, Copilot and an OpenAI key all offer the same model.
    */
   selectedProviderId: string | null
+  /** Starred models, as `providerId:modelId`; they head the model menu. */
+  favoriteModels: string[]
   effort: EffortLevel
   approvalMode: ApprovalMode
   /** Plan mode (Work): read-only research, then a plan the user approves before anything changes. */
@@ -339,20 +376,22 @@ export interface Settings {
     /** Loopback port the Chrome extension connects to. */
     port: number
   }
-  pets: {
+  /** Discord Rich Presence — see main/features/discordPresence.ts. */
+  discord: {
+    /** Show "Playing Eaon Desktop" on the user's Discord profile while the window is open. */
     enabled: boolean
-    species: string
-    name: string
-    size: 'small' | 'medium' | 'large'
-    /** Also float the pet over the desktop in its own always-on-top window. */
-    desktop: boolean
+    /** What Eaon is doing (thinking, running tools, away) and which tab is open. Never chat contents. */
+    showStatus: boolean
+    showElapsed: boolean
+    /** The "Get Eaon Desktop" button linking to eaon.dev. */
+    showButton: boolean
   }
   eaonCode: {
     /** Explicit path to the eaon-code binary; null means find it on PATH. */
     binaryPath: string | null
     /** Folder the Code tab last opened. */
     lastCwd: string | null
-    /** Hand the API keys saved in Eaon to Eaon Code sessions as environment variables. */
+    /** Hand the API keys saved in Eaon to the ADE's Eaon Code terminals as environment variables. */
     shareKeys: boolean
   }
   notifications: {
@@ -427,6 +466,8 @@ export interface WorkOptions {
 
 export interface StreamRequest {
   chatId: string
+  /** For the "Task finished" notification, so main need not read every chat to find it. */
+  chatTitle?: string
   messageId: string
   providerId: string
   modelId: string
@@ -453,6 +494,10 @@ export interface StreamRequest {
    * Local API Server, which proxies other apps' requests verbatim.
    */
   rawSystem?: string
+  /** Set on a worker's turn: which worker is running, for the worker tools. */
+  workerId?: string
+  /** Replaces the agent's opening identity line in the system prompt (a worker's persona). */
+  persona?: string
 }
 
 export type StreamEvent =
@@ -589,17 +634,33 @@ export interface ModelDetail {
   variants: ModelVariant[]
 }
 
+/**
+ * A model file on this computer, run by Eaon's own llama.cpp runtime
+ * (`main/llama/`). Downloaded from the curated library or from Browse Hugging
+ * Face; kept in `downloaded-models.json`.
+ */
 export interface DownloadedModel {
   repoId: string
+  /** The model's GGUF (the first shard of a split model). */
   filename: string
   quant: string
+  /** Everything downloaded for it, vision projector included. */
   sizeBytes: number
   path: string
   downloadedAt: number
-  /** Name it was registered under with the local Ollama daemon, if that succeeded. */
-  ollamaName: string | null
-  /** Set when the download succeeded but Ollama registration failed. */
-  ollamaError: string | null
+  /** The vision projector downloaded with it, for models that see images. */
+  mmprojFilename?: string
+  mmprojPath?: string
+  /** Set when it came from the curated library: which entry and variant. */
+  library?: { modelId: string; variantId: string }
+  /** How the model picker names it ("MiniCPM5 2B · Q4_K_M"). */
+  label?: string
+  /** From the library entry: tools, vision, reasoning, coding, embedding. */
+  capabilities?: string[]
+  contextLength?: number
+  /** From the Ollama era; ignored. */
+  ollamaName?: string | null
+  ollamaError?: string | null
 }
 
 export interface ModelDownloadProgress {

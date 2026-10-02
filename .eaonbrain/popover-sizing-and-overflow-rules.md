@@ -114,4 +114,29 @@ Assert `bottom <= viewport` and `chipOverflows === false`. Step
 `36-model-menu-dark` repeats it in the dark theme and logs `DARKBAR {...}` with
 the header's computed background — assert it has no alpha.
 
+## 6. Submenus covered their own parent menu (Sept 30, 2026)
+
+The composer's model menu opens `bottom-end` from a chip at the right of the
+composer, so its `right-start` submenus (Model, Effort, and the + menu's
+Plugins/Permissions) never had room on the right. The generic clamp
+`left = trigger.right - w` then put the submenu **on top of** the parent
+menu. Each submenu also rendered its own full-screen `.layer` click-catcher
+above the parent, so the parent's other rows couldn't be hovered or clicked
+("appears on top… a pain to get out of it").
+
+Now `right-start`/`left-start` mean "submenu" in `Popover`:
+- they are positioned against the parent `.menu`'s edge (`anchor.closest('.menu')`),
+  not the row's, and flip to the other side when one side doesn't fit
+  (falling back to whichever side has more room, never over the parent);
+- they render **no layer**: the parent's layer already closes everything on
+  an outside click, and the parent stays live;
+- their Escape listener is on the capture phase and stops propagation, so
+  Escape closes the innermost menu only.
+
+Verified in the built app at 1270 and 980 px wide: parent 826–1038, submenu
+570–820; one `.layer` in the DOM; hovering Effort while Model is open swaps
+the submenu. Gotcha for scripted checks: a dispatched `mouseenter` does not
+reach React's `onMouseEnter` (React synthesises it from mouseover/out), so
+use CDP `Input.dispatchMouseEvent` `mouseMoved` over the row.
+
 Related: [[Glass-blur popovers and sidebar vibrancy]]

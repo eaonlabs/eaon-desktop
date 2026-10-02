@@ -2,7 +2,7 @@
 title: Model Providers page: real local-runtime logos and type alignment
 tags: [eaon-desktop, providers, logos, css, design-system, settings]
 created: 2026-08-26T01:57:30.279Z
-updated: 2026-08-26T01:57:30.279Z
+updated: 2026-09-30T13:58:02.512Z
 ---
 
 # Model Providers page: real local-runtime logos and type alignment
@@ -67,3 +67,5 @@ for the exact code and the false bug hunt it caused. Use a capture step after
 `26-light-theme` instead.
 
 Links: [[Eaon Desktop architecture]], [[Matching the Eaon Desktop Figma frames]]
+
+Related: [[Provider logos: Lobe Icons tiles and where they map]]

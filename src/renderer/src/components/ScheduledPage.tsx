@@ -3,7 +3,7 @@ import { CalendarClock, Plus, X } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import type { ScheduledTask } from '@shared/scheduler'
 import { Card, Modal, Row, Section, Switch } from './ui'
-import { CollapsedNav } from './CollapsedNav'
+import { TopBar } from './TopBar'
 import { revealChat, useApp } from '../state/store'
 import { TaskCard } from './scheduled/TaskCard'
 import { cleanError, TaskEditor } from './scheduled/TaskEditor'
@@ -25,8 +25,8 @@ function useNow(every: number): number {
 }
 
 export function ScheduledPage(): JSX.Element {
-  const { sidebarOpen, models, providers } = useApp(
-    useShallow((s) => ({ sidebarOpen: s.sidebarOpen, models: s.availableModels(), providers: s.providers }))
+  const { models, providers } = useApp(
+    useShallow((s) => ({ models: s.availableModels(), providers: s.providers }))
   )
   const [tasks, setTasks] = useState<ScheduledTask[] | null>(null)
   const [editing, setEditing] = useState<ScheduledTask | null>(null)
@@ -85,14 +85,15 @@ export function ScheduledPage(): JSX.Element {
 
   return (
     <div className="page">
-      <div className="page__bar" data-collapsed={!sidebarOpen || undefined}>
-        {!sidebarOpen && <CollapsedNav />}
-        <div className="page__bar-spacer" />
-        <button className="btn btn--primary" onClick={() => openEditor(null)}>
-          <Plus size={14} strokeWidth={2} />
-          New schedule
-        </button>
-      </div>
+      <TopBar
+        variant="page__bar"
+        right={
+          <button className="btn btn--primary" onClick={() => openEditor(null)}>
+            <Plus size={14} strokeWidth={2} />
+            New schedule
+          </button>
+        }
+      />
 
       <div className="page__scroll scroll">
         <div className="page__inner page__inner--sched">

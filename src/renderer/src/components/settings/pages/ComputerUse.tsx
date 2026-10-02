@@ -1,55 +1,64 @@
-import { useCallback, useEffect, useState } from 'react'
-import { Camera, ExternalLink, OctagonX } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { Camera, Check, ExternalLink, OctagonX, RotateCw } from 'lucide-react'
 import type { ComputerTestResult, ComputerUseStatus, PermissionKind, PermissionState } from '@shared/computerUse'
 import { useApp } from '../../../state/store'
 import { Card, Row, Section, Segmented, Switch } from '../../ui'
 
 /**
  * Settings → Computer use. Everything here is real: the switches are
- * `settings.computerUse` (read live by the `computer` tool), the permission
- * rows come from the main process, and Test takes a screenshot through the
- * same code path the agent uses.
+ * `settings.computerUse` (read live by the `computer` tool), the setup steps
+ * and status rows come from the main process, and Test takes a screenshot
+ * through the same code path the agent uses.
+ *
+ * On a Mac missing either permission, the page opens with a setup checklist:
+ * one row per permission, each with the one button that does the work (asks
+ * macOS, which puts Eaon in the list, then opens that exact pane). Once both
+ * are allowed it folds into a single "Ready" line under Status.
  */
 
-const PERMISSION_LABEL: Record<PermissionState, string> = {
-  granted: 'Allowed',
-  denied: 'Not allowed',
-  'not-determined': 'Not asked yet',
-  restricted: 'Blocked by policy',
-  unknown: 'Unknown',
-  'not-needed': 'Not needed'
-}
+const allowed = (state: PermissionState): boolean => state === 'granted' || state === 'not-needed'
 
-function PermissionBadge({ state }: { state: PermissionState }): JSX.Element {
-  const ok = state === 'granted' || state === 'not-needed'
-  return <span className={`badge ${ok ? 'badge--ok' : 'badge--warn'}`}>{PERMISSION_LABEL[state]}</span>
-}
-
-function PermissionRow({
-  kind,
+function SetupStep({
+  n,
   title,
   description,
-  state
+  state,
+  attention,
+  children
 }: {
-  kind: PermissionKind
+  n: number
   title: string
   description: string
   state: PermissionState
+  /** Plays a one-off highlight: the step to do next, right after computer use was switched on. */
+  attention: boolean
+  children: ReactNode
 }): JSX.Element {
+  const done = allowed(state)
   return (
-    <Row title={title} description={description}>
-      <div className="computer__trail">
-        <PermissionBadge state={state} />
-        {state !== 'granted' && (
-          <button className="btn" onClick={() => void window.api.computerUse.openPermission(kind)}>
-            Open
-            <ExternalLink size={13} strokeWidth={1.9} />
-          </button>
+    <li className="row computer__step" data-done={done} data-attention={attention || undefined}>
+      <span className="computer__step-mark" aria-hidden="true">
+        {done ? <Check size={12} strokeWidth={2.4} /> : n}
+      </span>
+      <div className="row__body">
+        <div className="row__title">{title}</div>
+        <div className="row__desc">{description}</div>
+      </div>
+      <div className="row__trail">
+        {done ? (
+          <span className="badge badge--ok">Allowed</span>
+        ) : state === 'restricted' ? (
+          <span className="badge badge--warn">Blocked by policy</span>
+        ) : (
+          children
         )}
       </div>
-    </Row>
+    </li>
   )
 }
+
+/** The last status seen, so coming back to the page doesn't redraw the setup a beat late. */
+let lastStatus: ComputerUseStatus | null = null
 
 function formatBytes(bytes: number): string {
   return bytes < 1024 * 1024 ? `${Math.round(bytes / 1024)} KB` : `${(bytes / 1024 / 1024).toFixed(1)} MB`
@@ -58,12 +67,20 @@ function formatBytes(bytes: number): string {
 export function ComputerUsePage(): JSX.Element {
   const settings = useApp((s) => s.settings)
   const patchSettings = useApp((s) => s.patchSettings)
-  const [status, setStatus] = useState<ComputerUseStatus | null>(null)
+  const [status, setStatus] = useState<ComputerUseStatus | null>(lastStatus)
   const [testing, setTesting] = useState(false)
   const [result, setResult] = useState<ComputerTestResult | null>(null)
+  const [opening, setOpening] = useState<PermissionKind | null>(null)
+  const [relaunching, setRelaunching] = useState(false)
+  /** Bumped when computer use is switched on with setup unfinished; replays the next step's highlight. */
+  const [attention, setAttention] = useState(0)
+  const setupRef = useRef<HTMLElement>(null)
 
   const refresh = useCallback(() => {
-    void window.api.computerUse.status().then(setStatus)
+    void window.api.computerUse.status().then((next) => {
+      lastStatus = next
+      setStatus(next)
+    })
   }, [])
 
   // Permissions change in System Settings, outside Eaon; poll while the page
@@ -82,6 +99,44 @@ export function ComputerUsePage(): JSX.Element {
   const cu = settings.computerUse
   const mac = status?.platform === 'darwin'
 
+  // macOS lists the app that started Eaon, not Eaon, when it runs from a terminal.
+  const owner = status?.owner
+  const who = !owner || owner.self ? 'Eaon' : (owner.name ?? 'that app')
+  const axDone = !!status && allowed(status.accessibility)
+  const screenDone = !!status && allowed(status.screen)
+  const setupNeeded = !!status && mac && !(axDone && screenDone)
+  const next: PermissionKind | null = !setupNeeded
+    ? null
+    : !axDone && status.accessibility !== 'restricted'
+      ? 'accessibility'
+      : !screenDone && status.screen !== 'restricted'
+        ? 'screen'
+        : null
+
+  const setEnabled = (on: boolean): void => {
+    void patchSettings({ computerUse: { enabled: on } })
+    if (!on || !setupNeeded) return
+    // Switched on but it can't see or click yet: point at what's left to do.
+    setAttention((n) => n + 1)
+    const reduced = document.body.dataset.reduceMotion === 'on'
+    setupRef.current?.scrollIntoView({ block: 'nearest', behavior: reduced ? 'auto' : 'smooth' })
+  }
+
+  const openPermission = async (kind: PermissionKind): Promise<void> => {
+    setOpening(kind)
+    try {
+      await window.api.computerUse.openPermission(kind)
+    } finally {
+      setOpening(null)
+      refresh()
+    }
+  }
+
+  const relaunch = async (): Promise<void> => {
+    setRelaunching(true)
+    if (!(await window.api.computerUse.relaunch().catch(() => false))) setRelaunching(false)
+  }
+
   const runTest = async (): Promise<void> => {
     setTesting(true)
     try {
@@ -91,6 +146,29 @@ export function ComputerUsePage(): JSX.Element {
       refresh()
     }
   }
+
+  const openButton = (kind: PermissionKind, primary: boolean): JSX.Element => (
+    <button
+      className={`btn${primary ? ' btn--primary' : ''}`}
+      disabled={opening !== null || relaunching}
+      onClick={() => void openPermission(kind)}
+    >
+      {opening === kind ? 'Opening…' : 'Open settings'}
+      <ExternalLink size={13} strokeWidth={1.9} />
+    </button>
+  )
+
+  // Screen Recording, once asked for, only applies after a restart, and
+  // Eaon can't see the switch until then — so from that point the step
+  // offers the restart alongside the pane.
+  const screenWaiting = !!status?.screenRequested && !screenDone
+  const screenDescription = screenDone
+    ? 'Lets Eaon see your screen.'
+    : !screenWaiting
+      ? `Lets Eaon see your screen. Switch on ${who} in the list that opens.`
+      : status.canRelaunch
+        ? `Switch on ${who} in the list, then quit and reopen Eaon so macOS applies it.`
+        : `Switch on ${who} in the list, then restart Eaon so macOS applies it. If it still can't see the screen, restart ${who} too.`
 
   const inputDescription = !status
     ? 'Checking…'
@@ -102,17 +180,72 @@ export function ComputerUsePage(): JSX.Element {
     <>
       <h1 className="settings__h1">Computer use</h1>
       <p className="settings__lede">
-        Let Eaon see your screen and use the mouse and keyboard in Work mode, for apps it can't reach any other way.
+        Let Eaon see your screen and use the mouse and keyboard from Chat and Workers, for apps it can't reach any other way.
       </p>
+
+      {setupNeeded && (
+        <section className="settings__section" ref={setupRef}>
+          <div className="settings__section-label">Setup</div>
+          <Card>
+            {owner && !owner.self && (
+              <Row
+                title={`Started from ${owner.name ?? 'a terminal'}`}
+                description={`macOS gives these permissions to the app that started Eaon, so switch on ${owner.name ?? 'that app (usually your terminal)'} below, not Eaon or Electron.`}
+              />
+            )}
+            <ol className="computer__steps">
+              <SetupStep
+                key={`accessibility-${next === 'accessibility' ? attention : 0}`}
+                n={1}
+                title="Allow Accessibility"
+                description={
+                  axDone
+                    ? 'Lets Eaon move the pointer, click and type.'
+                    : `Lets Eaon move the pointer, click and type. Switch on ${who} in the list that opens.`
+                }
+                state={status.accessibility}
+                attention={next === 'accessibility' && attention > 0}
+              >
+                {openButton('accessibility', next === 'accessibility')}
+              </SetupStep>
+              <SetupStep
+                key={`screen-${next === 'screen' ? attention : 0}`}
+                n={2}
+                title="Allow Screen Recording"
+                description={screenDescription}
+                state={status.screen}
+                attention={next === 'screen' && attention > 0}
+              >
+                {screenWaiting && status.canRelaunch ? (
+                  <>
+                    {openButton('screen', false)}
+                    <button
+                      className={`btn${next === 'screen' ? ' btn--primary' : ''}`}
+                      disabled={relaunching}
+                      onClick={() => void relaunch()}
+                    >
+                      <RotateCw size={13} strokeWidth={1.9} />
+                      {relaunching ? 'Reopening…' : 'Quit & reopen Eaon'}
+                    </button>
+                  </>
+                ) : (
+                  openButton('screen', next === 'screen')
+                )}
+              </SetupStep>
+            </ol>
+          </Card>
+        </section>
+      )}
 
       <Section label="Access">
         <Card>
-          <Row title="Enable computer use" description="Offers the agent a computer tool in Work mode">
-            <Switch
-              label="Enable computer use"
-              checked={cu.enabled}
-              onChange={(on) => void patchSettings({ computerUse: { enabled: on } })}
-            />
+          <Row
+            title="Enable computer use"
+            description={
+              cu.enabled && setupNeeded ? 'Offers the agent a computer tool. Finish the setup above first.' : 'Offers the agent a computer tool'
+            }
+          >
+            <Switch label="Enable computer use" checked={cu.enabled} onChange={setEnabled} />
           </Row>
           <Row
             title="Confirm each action"
@@ -138,23 +271,15 @@ export function ComputerUsePage(): JSX.Element {
         </Card>
       </Section>
 
-      <Section label="Permissions">
+      <Section label="Status">
         <Card>
-          {mac && status && (
-            <>
-              <PermissionRow
-                kind="screen"
-                title="Screen Recording"
-                description="Lets Eaon take screenshots. After turning it on, quit and reopen Eaon."
-                state={status.screen}
-              />
-              <PermissionRow
-                kind="accessibility"
-                title="Accessibility"
-                description="Lets Eaon move the pointer, click and type"
-                state={status.accessibility}
-              />
-            </>
+          {mac && !setupNeeded && (
+            <Row
+              title="Permissions"
+              description={`Accessibility and Screen Recording are allowed${owner && !owner.self ? ` for ${who}` : ''}`}
+            >
+              <span className="badge badge--ok">Ready</span>
+            </Row>
           )}
           <Row title="Input" description={inputDescription}>
             {status && (
@@ -168,7 +293,6 @@ export function ComputerUsePage(): JSX.Element {
           )}
         </Card>
       </Section>
-
       <Section label="Safety">
         <Card>
           <Row

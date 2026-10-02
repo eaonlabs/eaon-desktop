@@ -16,6 +16,9 @@ export const providerAuthApi = {
   signOut: (providerId: string): Promise<ProviderAuthStatus | null> => ipcRenderer.invoke('provider-auth:sign-out', providerId),
   /** The redirect URL or code, pasted when the browser could not reach Eaon's callback. */
   submitCode: (providerId: string, input: string): Promise<void> => ipcRenderer.invoke('provider-auth:submit-code', providerId, input),
+  /** Saves (or clears, with null) the client id of the OAuth app registered with the provider. */
+  setClientId: (providerId: string, clientId: string | null): Promise<ProviderAuthStatus | null> =>
+    ipcRenderer.invoke('provider-auth:set-client-id', providerId, clientId),
   /** Opens a sign-in page (the device-code page, after the code has been shown). */
   open: (url: string): Promise<void> => ipcRenderer.invoke('provider-auth:open', url),
   onStatus: (handler: (status: ProviderAuthStatus) => void): (() => void) => {

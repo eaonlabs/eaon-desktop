@@ -26,13 +26,16 @@ export function SystemMonitorPage(): JSX.Element {
   useEffect(() => {
     let cancelled = false
     const poll = async (): Promise<void> => {
-      const next = await window.api.system.info()
-      if (!cancelled) setInfo(next)
+      const next = await window.api.system.info().catch(() => null)
+      if (!cancelled && next) setInfo(next)
     }
     void poll()
     // CPU usage is a delta between samples, so it needs a steady cadence to
-    // read meaningfully; 2s is responsive without being noisy.
-    const timer = setInterval(() => void poll(), 2000)
+    // read meaningfully; 2s is responsive without being noisy. Nothing is
+    // sampled while the window is hidden or minimised.
+    const timer = setInterval(() => {
+      if (!document.hidden) void poll()
+    }, 2000)
     return () => {
       cancelled = true
       clearInterval(timer)

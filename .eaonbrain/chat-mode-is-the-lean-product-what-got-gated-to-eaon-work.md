@@ -7,6 +7,8 @@ updated: 2026-08-26T12:49:01.902Z
 
 # Chat mode is the lean product: what got gated to Eaon Work
 
+> **Superseded (Sept 29 2026).** The design spec made Chat the agent and removed the Work tab. Every gate described below now evaluates true in Chat, and the approval chip, mode pills, project bar and plugin tray are gone, replaced by the composer's + menu. See [[Chat, Workers and ADE: the three tabs and Chat as the agent]]. The notes on `body` as the only background and the shared header baseline still hold.
+
 A run of user requests all pushing the same direction: strip the chat home down
 to a sidebar and a composer, and move everything else behind Eaon Work.
 

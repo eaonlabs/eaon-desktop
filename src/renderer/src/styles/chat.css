@@ -12,10 +12,10 @@
 
 .home__title {
   font-size: var(--fs-title);
-  font-weight: 400;
+  font-weight: 500;
   letter-spacing: -0.02em;
   color: var(--text);
-  margin: 0 0 30px;
+  margin: 0 0 26px;
   text-align: center;
 }
 .home__icon {
@@ -23,8 +23,54 @@
   margin-bottom: 18px;
 }
 
-/* Eaon Work's suggestion cards (see .eaonbrain/eaon-work-mode.md) — wired to
-   settings.general.suggestedPrompts, which existed but was unused before. */
+/* Capability chips under the home composer: a starting prompt each, and the
+   first hint that Chat does things rather than only answering. They wrap to a
+   second line on a narrow window instead of shrinking into unreadable pills. */
+.home-chips {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  width: var(--composer-chat-w);
+  max-width: calc(100% - 48px);
+  margin: 18px 0 0;
+}
+.suggestion-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 14px 0 12px;
+  border-radius: var(--r-pill);
+  box-shadow: 0 0 0 1px var(--border-soft);
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  white-space: nowrap;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+  animation: chip-in var(--dur-spring) var(--spring-moderate) backwards;
+  animation-delay: calc(80ms + var(--i, 0) * var(--stagger));
+}
+.suggestion-chip svg {
+  color: var(--text-3);
+  transition: color var(--dur) var(--ease);
+}
+.suggestion-chip:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.suggestion-chip:hover svg {
+  color: var(--text-2);
+}
+@keyframes chip-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+
+/* The ADE home's suggestion cards — wired to settings.general.suggestedPrompts.
+   Chat's home uses the lighter .home-chips row instead; the two must keep
+   separate class names, since the ADE reuses these (see code/CodeView.tsx). */
 .suggestions {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -56,21 +102,9 @@
   white-space: pre-line;
 }
 
-/* ---------------- Composer ---------------- */
-
-.composer-stack {
-  width: var(--composer-w);
-  max-width: calc(100% - 48px);
-  position: relative;
-}
-
-.composer-stack--chat {
-  width: var(--composer-chat-w);
-}
-
-/* Eaon Work's project-folder picker, stacked above .composer the same way
-   .tray stacks below it — negative margin equal to the padding tucks the
-   shared edge behind the composer's rounded corner (z-index 2 > 1). */
+/* The ADE home's project-folder bar, stacked above .composer — negative
+   margin equal to the padding tucks the shared edge behind the composer's
+   rounded corner (z-index 2 > 1). Chat no longer has one; the ADE does. */
 .project-bar {
   position: relative;
   z-index: 1;
@@ -123,6 +157,18 @@
 }
 .project-bar__status[data-error='true'] {
   color: var(--danger);
+}
+
+/* ---------------- Composer ---------------- */
+
+.composer-stack {
+  width: var(--composer-chat-w);
+  max-width: calc(100% - 48px);
+  position: relative;
+}
+
+.composer-stack--chat {
+  width: var(--composer-chat-w);
 }
 
 .composer {
@@ -259,52 +305,91 @@
   color: var(--bg);
 }
 
-/* ---------------- Tray tucked under the composer ---------------- */
+/* The + menu holds every agent control in one short list; it is sized to
+   show all of it without scrolling, which the general 340px cap would not. */
+.menu.menu--tall {
+  max-height: min(460px, calc(100vh - 24px));
+}
 
-.tray {
-  position: relative;
-  z-index: 1;
-  margin: -18px 11px 0;
-  height: 51px;
-  padding: 18px 12px 0;
-  border-radius: 0 0 var(--r-xl) var(--r-xl);
-  background: var(--surface-1);
+/* ---------------- Chips for what is switched on ---------------- */
+
+/* Sit between + and the model: one per mode or setting in effect, each with
+   its own off switch, so tucking the controls into + never hides state. */
+.composer__chips {
   display: flex;
   align-items: center;
   gap: 4px;
+  min-width: 0;
+  overflow: hidden;
 }
-
-.tray__btn {
+.composer-chip {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 5px;
   height: 26px;
-  padding: 0 8px;
-  border-radius: var(--r-sm);
-  font-size: var(--fs-base);
-  color: var(--text-2);
+  padding: 0 3px 0 9px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--accent), transparent 86%);
+  color: color-mix(in srgb, var(--accent), var(--fg) 35%);
+  font-size: var(--fs-xs);
+  font-weight: 500;
   white-space: nowrap;
-  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+  min-width: 0;
+  animation: chip-in var(--dur-spring-fast) var(--spring-fast);
 }
-.tray__btn:hover,
-.tray__btn[data-open='true'] {
-  background: var(--hover-strong);
-  color: var(--text);
+.composer-chip__label {
+  min-width: 0;
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
-.tray__spacer {
+.composer-chip__clear {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--r-pill);
+  color: inherit;
+  opacity: 0.7;
+  transition: background var(--dur) var(--ease), opacity var(--dur) var(--ease);
+}
+.composer-chip__clear:hover {
+  opacity: 1;
+  background: color-mix(in srgb, var(--accent), transparent 78%);
+}
+/* A chip that opens a choice rather than clearing one: the goal's end time. */
+.composer-chip--button {
+  padding: 0 8px 0 9px;
+  cursor: pointer;
+  transition: background var(--dur) var(--ease);
+}
+.composer-chip--button:hover {
+  background: color-mix(in srgb, var(--accent), transparent 78%);
+}
+.goal-end__at {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px 6px;
+  margin-top: 4px;
+  border-top: 1px solid var(--border);
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+.goal-end__time {
   flex: 1;
+  height: 30px;
+  font-variant-numeric: tabular-nums;
+}
+
+.chip__chevron {
+  color: var(--text-3);
+  margin-left: -2px;
 }
 
 .plugin-stack {
   display: flex;
   align-items: center;
-}
-.plugin-stack > * {
-  margin-right: -3px;
-  border-radius: 4px;
-}
-.plugin-stack > *:last-child {
-  margin-right: 0;
 }
 
 /* ---------------- Conversation ---------------- */
@@ -348,10 +433,12 @@
 
 .header-btn {
   display: inline-flex;
+  flex: none;
   align-items: center;
   gap: 5px;
   height: 26px;
   padding: 0 9px;
+  white-space: nowrap;
   border-radius: var(--r-sm);
   font-size: var(--fs-sm);
   color: var(--text-2);
@@ -420,6 +507,10 @@
   padding: 10px 12px;
   font-size: var(--fs-sm);
 }
+/* Under the part of the reply that arrived before the failure. */
+.msg--assistant + .msg__error {
+  margin-top: 10px;
+}
 
 .msg__status {
   display: flex;
@@ -429,10 +520,13 @@
   font-size: var(--fs-base);
 }
 
+/* A column: in Work the goal banner and checklist stack above the composer.
+   As a row they sat beside it, both squeezed to half width. */
 .composer-dock {
   flex: none;
   display: flex;
-  justify-content: center;
+  flex-direction: column;
+  align-items: center;
   padding: 8px 0 13px;
 }
 
@@ -453,13 +547,11 @@
 }
 @container (max-width: 430px) {
   .chip__label,
-  .chip--model .chip__effort {
+  .chip--model .chip__effort,
+  .composer-chip__label {
     display: none;
   }
   .chip {
-    padding: 0 6px;
-  }
-  .tray__btn {
     padding: 0 6px;
   }
 }

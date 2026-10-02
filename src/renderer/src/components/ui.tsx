@@ -59,6 +59,13 @@ export function Popover({
       let top: number
       let left: number
 
+      // A side placement is a submenu: it sits against its parent menu's
+      // edge, not the row's, and flips to the other side when this one has no
+      // room — never back over the parent, where it hid the rows people were
+      // trying to reach.
+      const side = placement === 'right-start' || placement === 'left-start'
+      const parent = side ? (anchor.current?.closest('.menu')?.getBoundingClientRect() ?? trigger) : trigger
+
       switch (placement) {
         case 'bottom-end':
           top = trigger.bottom + offset
@@ -74,11 +81,11 @@ export function Popover({
           break
         case 'right-start':
           top = trigger.top - 5
-          left = trigger.right + offset
+          left = parent.right + offset
           break
         case 'left-start':
           top = trigger.top - 5
-          left = trigger.left - w - offset
+          left = parent.left - w - offset
           break
         default:
           top = trigger.bottom + offset
@@ -90,11 +97,25 @@ export function Popover({
         const flipped = placement.startsWith('bottom') ? trigger.top - h - offset : window.innerHeight - h - margin
         top = Math.max(margin, flipped)
       }
-      if (left + w > window.innerWidth - margin) left = Math.max(margin, trigger.right - w)
+      if (side) {
+        const roomRight = window.innerWidth - margin - (parent.right + offset)
+        const roomLeft = parent.left - offset - margin
+        const fitsRight = roomRight >= w
+        const fitsLeft = roomLeft >= w
+        if (placement === 'right-start' && !fitsRight && (fitsLeft || roomLeft > roomRight)) left = parent.left - w - offset
+        if (placement === 'left-start' && !fitsLeft && (fitsRight || roomRight > roomLeft)) left = parent.right + offset
+        left = Math.min(Math.max(margin, left), window.innerWidth - w - margin)
+      } else if (left + w > window.innerWidth - margin) left = Math.max(margin, trigger.right - w)
       if (left < margin) left = margin
       if (top < margin) top = margin
 
-      setStyle({ top, left, ...(width ? { width } : {}), opacity: 1 })
+      // Runs on every scroll anywhere in the window — including the thread
+      // following a streaming reply — so only a real move re-renders the menu.
+      setStyle((prev) =>
+        prev.top === top && prev.left === left && prev.width === width && prev.opacity === 1
+          ? prev
+          : { top, left, ...(width ? { width } : {}), opacity: 1 }
+      )
     }
     place()
     const observer = new ResizeObserver(place)
@@ -108,6 +129,8 @@ export function Popover({
     }
   }, [open, placement, offset, width, anchor])
 
+  const submenu = placement === 'right-start' || placement === 'left-start'
+
   useEffect(() => {
     if (!open) return
     const onKey = (event: KeyboardEvent): void => {
@@ -116,14 +139,20 @@ export function Popover({
         onClose()
       }
     }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [open, onClose])
+    // A submenu hears Escape first (capture) and keeps it, so Escape closes
+    // the innermost menu rather than every menu at once.
+    document.addEventListener('keydown', onKey, submenu)
+    return () => document.removeEventListener('keydown', onKey, submenu)
+  }, [open, onClose, submenu])
 
   if (!open) return null
   return createPortal(
     <>
-      <div className="layer layer--transparent" onMouseDown={onClose} onContextMenu={onClose} />
+      {/* A submenu has no click-catcher of its own: the parent menu's layer
+          already closes everything on an outside click, and a second layer
+          would cover the parent, so its other rows could not be hovered or
+          clicked while the submenu was open. */}
+      {!submenu && <div className="layer layer--transparent" onMouseDown={onClose} onContextMenu={onClose} />}
       <div ref={ref} className={`menu ${className ?? ''}`} style={style} role="menu">
         {children}
       </div>

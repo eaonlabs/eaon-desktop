@@ -1,17 +1,14 @@
 import type { LibraryModel, LibraryVariant } from '@shared/modelLibrary'
 
 /**
- * The curated local-model library, researched against the live Hugging Face
- * and Ollama registries in September 2026. Every repo, file, tag, size and
- * digest here was read from those registries, not remembered —
- * `node scripts/verify-model-library.mjs` re-checks all of them, so run it
- * whenever you touch this file.
+ * The curated local-model library. Every variant is a GGUF on Hugging Face
+ * (plus a vision projector for models that see images), downloaded directly
+ * and run by Eaon's own llama.cpp (`main/llama/`) — no Ollama. Repos, files
+ * and sizes were read from the Hugging Face API (Sept 30 2026), preferring the
+ * model's own org, then ggml-org, unsloth, LiquidAI, ibm-granite, bartowski.
+ * `node scripts/verify-model-library.mjs` re-checks them.
  *
- * - `sizeBytes` is the whole pull: every manifest layer, vision projector
- *   included, which is what actually lands on disk.
- * - Ollama `digest` is the first 12 hex chars of the manifest's sha256, the ID
- *   `ollama list` prints. It lets the page recognise a model the user pulled
- *   under a different tag.
+ * - `sizeBytes` is every file of the variant, projector included: what lands on disk.
  * - `released` is the date the model's first official artifact appeared.
  * - `recommended` tiers are curated rather than derived: the smallest tier is
  *   the model's minimum, and test/modelLibrary.test.ts checks every pick at
@@ -24,12 +21,9 @@ const OPENMDW = { name: 'OpenMDW 1.1', url: 'https://openmdw.ai/license/1-1/' }
 const LFM = { name: 'LFM Open License 1.0', url: 'https://huggingface.co/LiquidAI/LFM2.5-8B-A1B/blob/main/LICENSE' }
 const GEMMA_4 = { name: 'Apache 2.0', url: 'https://ai.google.dev/gemma/docs/gemma_4_license' }
 
-function ollama(id: string, quant: string, tag: string, digest: string, sizeBytes: number): LibraryVariant {
-  return { id, quant, sizeBytes, source: { kind: 'ollama', tag, digest } }
-}
-
-function hf(id: string, quant: string, repo: string, files: string[], sizeBytes: number, pullQuant = quant): LibraryVariant {
-  return { id, quant, sizeBytes, source: { kind: 'hf', repo, quant: pullQuant, files } }
+/** One variant: the GGUF (plus any vision projector) Eaon downloads from the repo, and their total size. */
+function hf(id: string, quant: string, repo: string, files: string[], sizeBytes: number): LibraryVariant {
+  return { id, quant, sizeBytes, source: { kind: 'hf', repo, quant, files } }
 }
 
 export const LIBRARY: LibraryModel[] = [
@@ -50,8 +44,8 @@ export const LIBRARY: LibraryModel[] = [
     released: '2026-09-05',
     links: { huggingFace: 'openbmb/MiniCPM5-2B' },
     variants: [
-      hf('q4_k_m', 'Q4_K_M', 'openbmb/MiniCPM5-2B-GGUF', ['MiniCPM5-2B-Q4_K_M.gguf'], 1_561_319_197),
-      hf('q8_0', 'Q8_0', 'openbmb/MiniCPM5-2B-GGUF', ['MiniCPM5-2B-Q8_0.gguf'], 2_679_711_517)
+      hf('q4_k_m', 'Q4_K_M', 'openbmb/MiniCPM5-2B-GGUF', ['MiniCPM5-2B-Q4_K_M.gguf'], 1_561_318_368),
+      hf('q8_0', 'Q8_0', 'openbmb/MiniCPM5-2B-GGUF', ['MiniCPM5-2B-Q8_0.gguf'], 2_679_710_688)
     ],
     recommended: [
       { ramGB: 8, variant: 'q4_k_m' },
@@ -75,20 +69,18 @@ export const LIBRARY: LibraryModel[] = [
     released: '2026-09-01',
     links: { huggingFace: 'IFM/K2-Horizon-7B' },
     variants: [
-      hf('q4_k_m', 'Q4_K_M', 'IFM/K2-Horizon-7B-GGUF', ['K2-Horizon-7B-Q4_K_M.gguf'], 5_592_218_900),
-      hf('q8_0', 'Q8_0', 'IFM/K2-Horizon-7B-GGUF', ['K2-Horizon-7B-Q8_0.gguf'], 9_573_965_076)
+      hf('q4_k_m', 'Q4_K_M', 'IFM/K2-Horizon-7B-GGUF', ['K2-Horizon-7B-Q4_K_M.gguf'], 5_592_217_984),
+      hf('q8_0', 'Q8_0', 'IFM/K2-Horizon-7B-GGUF', ['K2-Horizon-7B-Q8_0.gguf'], 9_573_964_160)
     ],
     recommended: [
       { ramGB: 16, variant: 'q4_k_m' },
       { ramGB: 24, variant: 'q8_0' }
     ],
     featured: true,
-    // Checked by pulling IFM/K2-Horizon-0.9B-GGUF (same architecture) into
-    // Ollama 0.30.4: the pull succeeds, loading fails with "unknown model
-    // architecture: 'k2-horizon'". IFM's GGUF card says llama.cpp support is
-    // an open pull request. Remove this once a released Ollama loads it.
-    unsupported:
-      'Ollama can’t load the K2 Horizon architecture yet — llama.cpp support is still an open pull request. The GGUF files are published and ready once it lands.'
+    // Upstream llama.cpp can't load 'k2-horizon' until ggml-org/llama.cpp#29535
+    // merges; Eaon's build carries that PR (native/llama-fork.json). Drop this
+    // once the base commit includes it.
+    requires: { pull: 29535, architecture: 'k2-horizon' }
   },
   {
     id: 'qwen3.8-27b',
@@ -104,17 +96,11 @@ export const LIBRARY: LibraryModel[] = [
     contextLength: 262_144,
     license: APACHE,
     released: '2026-08-05',
-    links: { huggingFace: 'Qwen/Qwen3.8-27B', ollama: 'qwen3.8' },
+    links: { huggingFace: 'Qwen/Qwen3.8-27B' },
     variants: [
-      hf(
-        'ud-q3_k_xl',
-        'UD-Q3_K_XL',
-        'unsloth/Qwen3.8-27B-GGUF',
-        ['Qwen3.8-27B-UD-Q3_K_XL.gguf', 'mmproj-BF16.gguf'],
-        14_077_541_042
-      ),
-      ollama('q4_k_m', 'Q4_K_M + MTP', 'qwen3.8:27b', 'aaee06c39dcf', 17_741_872_154),
-      ollama('q8_0', 'Q8_0', 'qwen3.8:27b-q8_0', '8f5fb6b71ea0', 29_978_242_050)
+      hf('ud-q3_k_xl', 'UD-Q3_K_XL', 'unsloth/Qwen3.8-27B-GGUF', ['Qwen3.8-27B-UD-Q3_K_XL.gguf', 'mmproj-F16.gguf'], 14_074_000_992),
+      hf('q4_k_m', 'Q4_K_M', 'unsloth/Qwen3.8-27B-GGUF', ['Qwen3.8-27B-UD-Q4_K_M.gguf', 'mmproj-F16.gguf'], 17_392_047_712),
+      hf('q8_0', 'Q8_0', 'unsloth/Qwen3.8-27B-GGUF', ['Qwen3.8-27B-Q8_0.gguf', 'mmproj-F16.gguf'], 29_974_693_536)
     ],
     recommended: [
       { ramGB: 24, variant: 'ud-q3_k_xl' },
@@ -139,11 +125,11 @@ export const LIBRARY: LibraryModel[] = [
     contextLength: 262_144,
     license: GEMMA_4,
     released: '2026-05-23',
-    links: { huggingFace: 'google/gemma-4-12B-it', ollama: 'gemma4' },
+    links: { huggingFace: 'google/gemma-4-12B-it' },
     variants: [
-      ollama('qat', 'QAT Q4', 'gemma4:12b-it-qat', '38044be4f923', 7_151_003_754),
-      ollama('q4_k_m', 'Q4_K_M', 'gemma4:12b', '4eb23ef187e2', 7_556_508_396),
-      ollama('q8_0', 'Q8_0', 'gemma4:12b-it-q8_0', '41c402fdddc2', 12_844_772_074)
+      hf('qat', 'QAT Q4', 'unsloth/gemma-4-12B-it-qat-GGUF', ['gemma-4-12B-it-qat-UD-Q4_K_XL.gguf', 'mmproj-F16.gguf'], 6_891_472_640),
+      hf('q4_k_m', 'Q4_K_M', 'unsloth/gemma-4-12b-it-GGUF', ['gemma-4-12b-it-Q4_K_M.gguf', 'mmproj-F16.gguf'], 7_296_977_280),
+      hf('q8_0', 'Q8_0', 'unsloth/gemma-4-12b-it-GGUF', ['gemma-4-12b-it-Q8_0.gguf', 'mmproj-F16.gguf'], 12_844_763_520)
     ],
     recommended: [
       { ramGB: 16, variant: 'qat' },
@@ -164,10 +150,10 @@ export const LIBRARY: LibraryModel[] = [
     contextLength: 131_072,
     license: APACHE,
     released: '2026-08-09',
-    links: { huggingFace: 'meta-models/Muse-Glimmer-30B', ollama: 'muse-glimmer' },
+    links: { huggingFace: 'meta-models/Muse-Glimmer-30B' },
     variants: [
-      ollama('q4_k_m', 'Q4_K_M', 'muse-glimmer:30b', 'de878ce33ad8', 18_157_010_252),
-      ollama('q8_0', 'Q8_0', 'muse-glimmer:30b-q8_0', '6ffafcdbd728', 31_013_287_242)
+      hf('q4_k_m', 'Q4_K_M', 'lmstudio-community/Muse-Glimmer-30B-GGUF', ['Muse-Glimmer-30B-KQuant-17GB-Q4_K_M.gguf', 'mmproj-Muse-Glimmer-30B-Q4_K_M.gguf'], 18_157_012_832),
+      hf('q8_0', 'Q8_0', 'unsloth/Muse-Glimmer-30B-GGUF', ['Muse-Glimmer-30B-Q8_0.gguf', 'mmproj-Muse-Glimmer-30B-Q8_0.gguf'], 31_664_643_072)
     ],
     recommended: [
       { ramGB: 24, variant: 'q4_k_m' },
@@ -188,10 +174,10 @@ export const LIBRARY: LibraryModel[] = [
     contextLength: 131_072,
     license: APACHE,
     released: '2026-08-07',
-    links: { huggingFace: 'ibm-granite/granite-4.2-8b', ollama: 'granite4.2' },
+    links: { huggingFace: 'ibm-granite/granite-4.2-8b' },
     variants: [
-      ollama('q4_k_m', 'Q4_K_M', 'granite4.2:8b', 'f586c02fdecd', 5_347_929_757),
-      ollama('q8_0', 'Q8_0', 'granite4.2:8b-q8_0', '62837636dd31', 9_345_625_755)
+      hf('q4_k_m', 'Q4_K_M', 'ibm-granite/granite-4.2-8b-GGUF', ['granite-4.2-8b-Q4_K_M.gguf'], 5_347_917_952),
+      hf('q8_0', 'Q8_0', 'ibm-granite/granite-4.2-8b-GGUF', ['granite-4.2-8b-Q8_0.gguf'], 9_345_613_952)
     ],
     recommended: [
       { ramGB: 16, variant: 'q4_k_m' },
@@ -212,10 +198,10 @@ export const LIBRARY: LibraryModel[] = [
     contextLength: 262_144,
     license: APACHE,
     released: '2026-02-27',
-    links: { huggingFace: 'Qwen/Qwen3.5-9B', ollama: 'qwen3.5' },
+    links: { huggingFace: 'Qwen/Qwen3.5-9B' },
     variants: [
-      ollama('q4_k_m', 'Q4_K_M', 'qwen3.5:9b', '6488c96fa5fa', 6_594_474_711),
-      ollama('q8_0', 'Q8_0', 'qwen3.5:9b-q8_0', '441ec31e4d2a', 10_699_928_277)
+      hf('q4_k_m', 'Q4_K_M', 'unsloth/Qwen3.5-9B-GGUF', ['Qwen3.5-9B-Q4_K_M.gguf', 'mmproj-F16.gguf'], 6_598_688_544),
+      hf('q8_0', 'Q8_0', 'unsloth/Qwen3.5-9B-GGUF', ['Qwen3.5-9B-Q8_0.gguf', 'mmproj-F16.gguf'], 10_445_668_128)
     ],
     recommended: [
       { ramGB: 16, variant: 'q4_k_m' },
@@ -245,14 +231,14 @@ export const LIBRARY: LibraryModel[] = [
         'Q4_K_M',
         'bartowski/MiMo-V2.6-Distill-Qwen-9B-GGUF',
         ['MiMo-V2.6-Distill-Qwen-9B-Q4_K_M.gguf', 'mmproj-MiMo-V2.6-Distill-Qwen-9B-f16.gguf'],
-        6_759_216_058
+        6_759_215_168
       ),
       hf(
         'q8_0',
         'Q8_0',
         'bartowski/MiMo-V2.6-Distill-Qwen-9B-GGUF',
         ['MiMo-V2.6-Distill-Qwen-9B-Q8_0.gguf', 'mmproj-MiMo-V2.6-Distill-Qwen-9B-f16.gguf'],
-        10_464_146_362
+        10_464_145_472
       )
     ],
     recommended: [
@@ -274,11 +260,11 @@ export const LIBRARY: LibraryModel[] = [
     contextLength: 262_144,
     license: GEMMA_4,
     released: '2026-03-11',
-    links: { huggingFace: 'google/gemma-4-26B-A4B-it', ollama: 'gemma4' },
+    links: { huggingFace: 'google/gemma-4-26B-A4B-it' },
     variants: [
-      ollama('qat', 'QAT Q4', 'gemma4:26b-a4b-it-qat', '2dd70431afed', 15_634_199_946),
-      ollama('q4_k_m', 'Q4_K_M + MTP', 'gemma4:26b', '08ae7ec1744b', 18_604_148_513),
-      ollama('q8_0', 'Q8_0', 'gemma4:26b-a4b-it-q8_0', '6bfaf9a8cb37', 28_052_911_389)
+      hf('qat', 'QAT Q4', 'unsloth/gemma-4-26B-A4B-it-qat-GGUF', ['gemma-4-26B-A4B-it-qat-UD-Q4_K_XL.gguf', 'mmproj-F16.gguf'], 15_442_105_888),
+      hf('q4_k_m', 'Q4_K_M', 'unsloth/gemma-4-26B-A4B-it-GGUF', ['gemma-4-26B-A4B-it-UD-Q4_K_M.gguf', 'mmproj-F16.gguf'], 18_140_600_512),
+      hf('q8_0', 'Q8_0', 'unsloth/gemma-4-26B-A4B-it-GGUF', ['gemma-4-26B-A4B-it-Q8_0.gguf', 'mmproj-F16.gguf'], 28_052_920_512)
     ],
     recommended: [
       { ramGB: 24, variant: 'qat' },
@@ -300,10 +286,10 @@ export const LIBRARY: LibraryModel[] = [
     contextLength: 1_048_576,
     license: OPENMDW,
     released: '2026-08-01',
-    links: { huggingFace: 'nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16', ollama: 'nemotron-3.5-lightning' },
+    links: { huggingFace: 'nvidia/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-BF16' },
     variants: [
-      ollama('q4_k_m', 'Q4_K_M', 'nemotron-3.5-lightning:30b', 'e7a64ff15fb1', 25_430_749_387),
-      ollama('q8_0', 'Q8_0', 'nemotron-3.5-lightning:30b-a3b-q8_0', '9983b24ee511', 35_004_652_745)
+      hf('q4_k_m', 'Q4_K_M', 'unsloth/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-GGUF', ['NVIDIA-Nemotron-3.5-Lightning-30B-A3B-UD-Q4_K_M.gguf'], 25_266_255_936),
+      hf('q8_0', 'Q8_0', 'ggml-org/NVIDIA-Nemotron-3.5-Lightning-30B-A3B-GGUF', ['NVIDIA-Nemotron-3.5-Lightning-30B-A3B-Q8_0.gguf'], 33_585_495_616)
     ],
     recommended: [
       { ramGB: 32, variant: 'q4_k_m' },
@@ -326,15 +312,15 @@ export const LIBRARY: LibraryModel[] = [
     contextLength: 262_144,
     license: MIT,
     released: '2026-08-18',
-    links: { huggingFace: 'ornith-ai/Ornith-1.5-9B', ollama: 'ornith-1.5' },
+    links: { huggingFace: 'ornith-ai/Ornith-1.5-9B' },
     variants: [
-      ollama('q4_k_m', 'Q4_K_M', 'ornith-1.5:9b', 'e5df7dcdd8a2', 6_550_813_657),
+      hf('q4_k_m', 'Q4_K_M', 'ornith-ai/Ornith-1.5-9B-GGUF', ['Ornith-1.5-9B-Q4_K_M.gguf', 'mmproj-Ornith-1.5-9B-BF16.gguf'], 6_701_795_488),
       hf(
         'q8_0',
         'Q8_0',
         'ornith-ai/Ornith-1.5-9B-GGUF',
         ['Ornith-1.5-9B-Q8_0.gguf', 'mmproj-Ornith-1.5-9B-BF16.gguf'],
-        10_707_765_951
+        10_707_765_056
       )
     ],
     recommended: [
@@ -356,11 +342,11 @@ export const LIBRARY: LibraryModel[] = [
     contextLength: 262_144,
     license: APACHE,
     released: '2026-06-05',
-    links: { huggingFace: 'CohereLabs/North-Mini-Code-1.0', ollama: 'north-mini-code-1.0' },
+    links: { huggingFace: 'CohereLabs/North-Mini-Code-1.0' },
     variants: [
-      hf('ud-q3_k_xl', 'UD-Q3_K_XL', 'unsloth/North-Mini-Code-1.0-GGUF', ['North-Mini-Code-1.0-UD-Q3_K_XL.gguf'], 14_343_037_929),
-      ollama('q4_k_m', 'Q4_K_M', 'north-mini-code-1.0:q4_K_M', 'd8b269ad5c7c', 18_593_967_008),
-      ollama('q8_0', 'Q8_0', 'north-mini-code-1.0:q8_0', 'b6c144236e03', 32_437_275_550)
+      hf('ud-q3_k_xl', 'UD-Q3_K_XL', 'unsloth/North-Mini-Code-1.0-GGUF', ['North-Mini-Code-1.0-UD-Q3_K_XL.gguf'], 14_343_037_024),
+      hf('q4_k_m', 'Q4_K_M', 'unsloth/North-Mini-Code-1.0-GGUF', ['North-Mini-Code-1.0-UD-Q4_K_M.gguf'], 19_203_186_784),
+      hf('q8_0', 'Q8_0', 'unsloth/North-Mini-Code-1.0-GGUF', ['North-Mini-Code-1.0-Q8_0.gguf'], 32_437_264_480)
     ],
     recommended: [
       { ramGB: 24, variant: 'ud-q3_k_xl' },
@@ -382,11 +368,11 @@ export const LIBRARY: LibraryModel[] = [
     contextLength: 262_144,
     license: OPENMDW,
     released: '2026-06-20',
-    links: { huggingFace: 'poolside/Laguna-XS-2.1', ollama: 'laguna-xs-2.1' },
+    links: { huggingFace: 'poolside/Laguna-XS-2.1' },
     variants: [
-      hf('q3_k_m', 'Q3_K_M', 'bartowski/Laguna-XS-2.1-GGUF', ['Laguna-XS-2.1-Q3_K_M.gguf'], 15_575_904_899),
-      ollama('q4_k_m', 'Q4_K_M', 'laguna-xs-2.1:q4_K_M', '0175be1e57f4', 20_274_303_147),
-      ollama('q8_0', 'Q8_0', 'laguna-xs-2.1:q8_0', 'a249c0765c04', 35_597_119_657)
+      hf('q3_k_m', 'Q3_K_M', 'bartowski/Laguna-XS-2.1-GGUF', ['Laguna-XS-2.1-Q3_K_M.gguf'], 15_575_904_128),
+      hf('q4_k_m', 'Q4_K_M', 'poolside/Laguna-XS-2.1-GGUF', ['Laguna-XS-2.1-Q4_K_M.gguf'], 20_274_300_032),
+      hf('q8_0', 'Q8_0', 'bartowski/Laguna-XS-2.1-GGUF', ['Laguna-XS-2.1-Q8_0.gguf'], 35_597_116_800)
     ],
     recommended: [
       { ramGB: 24, variant: 'q3_k_m' },
@@ -410,10 +396,10 @@ export const LIBRARY: LibraryModel[] = [
     contextLength: 262_144,
     license: APACHE,
     released: '2026-04-13',
-    links: { huggingFace: 'openbmb/MiniCPM-V-4.6', ollama: 'minicpm-v4.6' },
+    links: { huggingFace: 'openbmb/MiniCPM-V-4.6' },
     variants: [
-      ollama('q4_k_m', 'Q4_K_M', 'minicpm-v4.6:1b', 'e95583acac77', 1_637_848_812),
-      ollama('q8_0', 'Q8_0', 'minicpm-v4.6:q8_0', 'ceb4ec05ddf6', 1_920_338_922)
+      hf('q4_k_m', 'Q4_K_M', 'openbmb/MiniCPM-V-4.6-gguf', ['MiniCPM-V-4_6-Q4_K_M.gguf', 'mmproj-model-f16.gguf'], 1_637_848_448),
+      hf('q8_0', 'Q8_0', 'openbmb/MiniCPM-V-4.6-gguf', ['MiniCPM-V-4_6-Q8_0.gguf', 'mmproj-model-f16.gguf'], 1_920_338_560)
     ],
     recommended: [
       { ramGB: 8, variant: 'q4_k_m' },
@@ -436,10 +422,10 @@ export const LIBRARY: LibraryModel[] = [
     contextLength: 131_072,
     license: GEMMA_4,
     released: '2026-03-02',
-    links: { huggingFace: 'google/gemma-4-E2B-it', ollama: 'gemma4' },
+    links: { huggingFace: 'google/gemma-4-E2B-it' },
     variants: [
-      ollama('qat', 'QAT Q4', 'gemma4:e2b-it-qat', '07ea59a47401', 4_336_358_185),
-      ollama('q4_k_m', 'Q4_K_M', 'gemma4:e2b', '7fbdbf8f5e45', 7_162_405_886)
+      hf('qat', 'QAT Q4', 'unsloth/gemma-4-E2B-it-qat-GGUF', ['gemma-4-E2B-it-qat-UD-Q4_K_XL.gguf', 'mmproj-F16.gguf'], 3_606_025_056),
+      hf('q4_k_m', 'Q4_K_M', 'unsloth/gemma-4-E2B-it-GGUF', ['gemma-4-E2B-it-Q4_K_M.gguf', 'mmproj-F16.gguf'], 4_092_392_352)
     ],
     recommended: [
       { ramGB: 8, variant: 'qat' },
@@ -460,10 +446,10 @@ export const LIBRARY: LibraryModel[] = [
     contextLength: 128_000,
     license: LFM,
     released: '2026-05-24',
-    links: { huggingFace: 'LiquidAI/LFM2.5-8B-A1B', ollama: 'lfm2.5' },
+    links: { huggingFace: 'LiquidAI/LFM2.5-8B-A1B' },
     variants: [
-      ollama('q4_k_m', 'Q4_K_M', 'lfm2.5:8b', '9cf756159fc2', 5_156_075_525),
-      ollama('q8_0', 'Q8_0', 'lfm2.5:8b-a1b-q8_0', '4fa3787050ca', 9_010_706_435)
+      hf('q4_k_m', 'Q4_K_M', 'LiquidAI/LFM2.5-8B-A1B-GGUF', ['LFM2.5-8B-A1B-Q4_K_M.gguf'], 5_155_564_768),
+      hf('q8_0', 'Q8_0', 'LiquidAI/LFM2.5-8B-A1B-GGUF', ['LFM2.5-8B-A1B-Q8_0.gguf'], 9_010_195_680)
     ],
     recommended: [
       { ramGB: 8, variant: 'q4_k_m' },
@@ -486,8 +472,8 @@ export const LIBRARY: LibraryModel[] = [
     released: '2026-07-28',
     links: { huggingFace: 'LiquidAI/LFM2.5-2.6B' },
     variants: [
-      hf('q4_k_m', 'Q4_K_M', 'LiquidAI/LFM2.5-2.6B-GGUF', ['LFM2.5-2.6B-Q4_K_M.gguf'], 1_674_466_581),
-      hf('q8_0', 'Q8_0', 'LiquidAI/LFM2.5-2.6B-GGUF', ['LFM2.5-2.6B-Q8_0.gguf'], 2_874_791_189)
+      hf('q4_k_m', 'Q4_K_M', 'LiquidAI/LFM2.5-2.6B-GGUF', ['LFM2.5-2.6B-Q4_K_M.gguf'], 1_674_455_040),
+      hf('q8_0', 'Q8_0', 'LiquidAI/LFM2.5-2.6B-GGUF', ['LFM2.5-2.6B-Q8_0.gguf'], 2_874_779_648)
     ],
     recommended: [
       { ramGB: 8, variant: 'q4_k_m' },
@@ -508,10 +494,10 @@ export const LIBRARY: LibraryModel[] = [
     contextLength: 262_144,
     license: APACHE,
     released: '2026-02-27',
-    links: { huggingFace: 'Qwen/Qwen3.5-4B', ollama: 'qwen3.5' },
+    links: { huggingFace: 'Qwen/Qwen3.5-4B' },
     variants: [
-      ollama('q4_k_m', 'Q4_K_M', 'qwen3.5:4b', '2a654d98e6fb', 3_389_983_735),
-      ollama('q8_0', 'Q8_0', 'qwen3.5:4b-q8_0', '8722f47c2791', 5_279_294_453)
+      hf('q4_k_m', 'Q4_K_M', 'unsloth/Qwen3.5-4B-GGUF', ['Qwen3.5-4B-Q4_K_M.gguf', 'mmproj-F16.gguf'], 3_413_361_504),
+      hf('q8_0', 'Q8_0', 'unsloth/Qwen3.5-4B-GGUF', ['Qwen3.5-4B-Q8_0.gguf', 'mmproj-F16.gguf'], 5_154_827_104)
     ],
     recommended: [
       { ramGB: 8, variant: 'q4_k_m' },
@@ -532,10 +518,10 @@ export const LIBRARY: LibraryModel[] = [
     contextLength: 131_072,
     license: APACHE,
     released: '2026-08-07',
-    links: { huggingFace: 'ibm-granite/granite-4.2-3b', ollama: 'granite4.2' },
+    links: { huggingFace: 'ibm-granite/granite-4.2-3b' },
     variants: [
-      ollama('q4_k_m', 'Q4_K_M', 'granite4.2:3b', '40577dc168a3', 2_244_023_965),
-      ollama('q8_0', 'Q8_0', 'granite4.2:3b-q8_0', 'f8163a0ed616', 3_892_663_963)
+      hf('q4_k_m', 'Q4_K_M', 'ibm-granite/granite-4.2-3b-GGUF', ['granite-4.2-3b-Q4_K_M.gguf'], 2_244_011_552),
+      hf('q8_0', 'Q8_0', 'ibm-granite/granite-4.2-3b-GGUF', ['granite-4.2-3b-Q8_0.gguf'], 3_892_651_552)
     ],
     recommended: [
       { ramGB: 8, variant: 'q4_k_m' },
@@ -560,8 +546,8 @@ export const LIBRARY: LibraryModel[] = [
     released: '2026-05-05',
     links: { huggingFace: 'LiquidAI/LFM2.5-Embedding-350M' },
     variants: [
-      hf('q8_0', 'Q8_0', 'LiquidAI/LFM2.5-Embedding-350M-GGUF', ['LFM2.5-Embedding-350M-Q8_0.gguf'], 379_228_180),
-      hf('q4_k_m', 'Q4_K_M', 'LiquidAI/LFM2.5-Embedding-350M-GGUF', ['LFM2.5-Embedding-350M-Q4_K_M.gguf'], 229_322_772)
+      hf('q8_0', 'Q8_0', 'LiquidAI/LFM2.5-Embedding-350M-GGUF', ['LFM2.5-Embedding-350M-Q8_0.gguf'], 379_216_640),
+      hf('q4_k_m', 'Q4_K_M', 'LiquidAI/LFM2.5-Embedding-350M-GGUF', ['LFM2.5-Embedding-350M-Q4_K_M.gguf'], 229_311_232)
     ],
     recommended: [{ ramGB: 8, variant: 'q8_0' }]
   },
@@ -579,12 +565,12 @@ export const LIBRARY: LibraryModel[] = [
     contextLength: 2048,
     license: { name: 'Gemma Terms of Use', url: 'https://ai.google.dev/gemma/terms' },
     released: '2025-09-04',
-    links: { huggingFace: 'google/embeddinggemma-300m', ollama: 'embeddinggemma' },
+    links: { huggingFace: 'google/embeddinggemma-300m' },
     variants: [
-      ollama('bf16', 'BF16', 'embeddinggemma:300m', '85462619ee72', 621_875_917),
-      ollama('qat-q8_0', 'QAT Q8_0', 'embeddinggemma:300m-qat-q8_0', 'e84a7acc2394', 338_023_149)
+      hf('q8_0', 'Q8_0', 'ggml-org/embeddinggemma-300M-GGUF', ['embeddinggemma-300M-Q8_0.gguf'], 333_590_944),
+      hf('qat-q8_0', 'QAT Q8_0', 'ggml-org/embeddinggemma-300m-qat-q8_0-GGUF', ['embeddinggemma-300m-qat-Q8_0.gguf'], 328_577_056)
     ],
-    recommended: [{ ramGB: 8, variant: 'bf16' }]
+    recommended: [{ ramGB: 8, variant: 'q8_0' }]
   },
   {
     id: 'qwen3-embedding-0.6b',
@@ -600,8 +586,8 @@ export const LIBRARY: LibraryModel[] = [
     contextLength: 32_768,
     license: APACHE,
     released: '2025-06-03',
-    links: { huggingFace: 'Qwen/Qwen3-Embedding-0.6B', ollama: 'qwen3-embedding' },
-    variants: [ollama('q8_0', 'Q8_0', 'qwen3-embedding:0.6b', 'ac6da0dfba84', 639_150_858)],
+    links: { huggingFace: 'Qwen/Qwen3-Embedding-0.6B' },
+    variants: [hf('q8_0', 'Q8_0', 'Qwen/Qwen3-Embedding-0.6B-GGUF', ['Qwen3-Embedding-0.6B-Q8_0.gguf'], 639_150_592)],
     recommended: [{ ramGB: 8, variant: 'q8_0' }]
   }
 ]

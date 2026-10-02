@@ -9,6 +9,11 @@ import type { Readable } from 'node:stream'
  * unescaped inside JSON strings, so a model that writes either character would
  * split one event into two unparseable halves. The StringDecoder keeps a
  * multi-byte character that straddles two chunks in one piece.
+ *
+ * Only the new chunk is searched for a newline. Searching the whole buffer
+ * made a long record — a resumed session's `get_messages`, a big `agent_end` —
+ * quadratic in its length: a 20MB line in 64KB chunks held the main process
+ * for ~430ms, against ~8ms this way.
  */
 export function attachJsonlReader(stream: Readable, onLine: (line: string) => void): () => void {
   const decoder = new StringDecoder('utf8')
@@ -17,13 +22,21 @@ export function attachJsonlReader(stream: Readable, onLine: (line: string) => vo
   const emit = (line: string): void => onLine(line.endsWith('\r') ? line.slice(0, -1) : line)
 
   const onData = (chunk: Buffer | string): void => {
-    buffer += typeof chunk === 'string' ? chunk : decoder.write(chunk)
-    let newline = buffer.indexOf('\n')
-    while (newline !== -1) {
-      emit(buffer.slice(0, newline))
-      buffer = buffer.slice(newline + 1)
-      newline = buffer.indexOf('\n')
+    const text = typeof chunk === 'string' ? chunk : decoder.write(chunk)
+    let newline = text.indexOf('\n')
+    if (newline === -1) {
+      buffer += text
+      return
     }
+    emit(buffer + text.slice(0, newline))
+    let start = newline + 1
+    newline = text.indexOf('\n', start)
+    while (newline !== -1) {
+      emit(text.slice(start, newline))
+      start = newline + 1
+      newline = text.indexOf('\n', start)
+    }
+    buffer = text.slice(start)
   }
   const onEnd = (): void => {
     buffer += decoder.end()

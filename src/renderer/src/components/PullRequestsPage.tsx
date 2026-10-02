@@ -1,9 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { ExternalLink, Filter, GitPullRequest, Loader2, RefreshCw } from 'lucide-react'
-import { useApp } from '../state/store'
-import { CollapsedNav } from './CollapsedNav'
-import { ModeSwitch } from './ModeSwitch'
-import { SearchField } from './ui'
+import {
+  ArrowDownWideNarrow,
+  ArrowUpNarrowWide,
+  ExternalLink,
+  GitBranch,
+  GitMerge,
+  GitPullRequest,
+  GitPullRequestClosed,
+  GitPullRequestDraft,
+  Loader2,
+  RefreshCw,
+  type LucideIcon
+} from 'lucide-react'
+import { TopBar } from './TopBar'
+import { SearchField, Segmented } from './ui'
 import type { PullRequestsResult, PullRequestSummary } from '@shared/types'
 
 type Tab = 'all' | 'reviewing' | 'authored'
@@ -14,11 +24,12 @@ const TABS: { value: Tab; label: string }[] = [
   { value: 'authored', label: 'Authored' }
 ]
 
-const STATE_COLOR: Record<PullRequestSummary['state'], string> = {
-  open: '#3fb950',
-  merged: '#a371f7',
-  closed: '#f85149',
-  draft: 'var(--text-3)'
+/** GitHub's own mark for each state: the icon carries the state, in its colour. */
+const STATE: Record<PullRequestSummary['state'], { icon: LucideIcon; label: string }> = {
+  open: { icon: GitPullRequest, label: 'Open' },
+  merged: { icon: GitMerge, label: 'Merged' },
+  closed: { icon: GitPullRequestClosed, label: 'Closed' },
+  draft: { icon: GitPullRequestDraft, label: 'Draft' }
 }
 
 function timeAgo(iso: string): string {
@@ -39,7 +50,6 @@ function timeAgo(iso: string): string {
 
 /** Real pull requests via the `gh` CLI — see .eaonbrain/eaon-work-mode.md. */
 export function PullRequestsPage(): JSX.Element {
-  const sidebarOpen = useApp((s) => s.sidebarOpen)
   const [tab, setTab] = useState<Tab>('all')
   const [query, setQuery] = useState('')
   const [newestFirst, setNewestFirst] = useState(true)
@@ -49,10 +59,17 @@ export function PullRequestsPage(): JSX.Element {
 
   const load = useCallback(() => {
     setLoading(true)
-    void window.api.github.pullRequests().then((result) => {
-      setData(result)
-      setLoading(false)
-    })
+    void window.api.github
+      .pullRequests()
+      .catch((error: unknown): PullRequestsResult => ({
+        authored: [],
+        reviewing: [],
+        error: error instanceof Error ? error.message : String(error)
+      }))
+      .then((result) => {
+        setData(result)
+        setLoading(false)
+      })
   }, [])
 
   useEffect(() => {
@@ -89,90 +106,100 @@ export function PullRequestsPage(): JSX.Element {
 
   return (
     <div className="pr-page">
-      <div className="chat-header" data-collapsed={!sidebarOpen || undefined}>
-        {!sidebarOpen && <CollapsedNav />}
-        <ModeSwitch />
-        <div className="manager__tabs">
-          {TABS.map((t) => (
-            <button key={t.value} className="manager__tab" data-active={tab === t.value} onClick={() => setTab(t.value)}>
-              <span>{t.label}</span>
-            </button>
-          ))}
-        </div>
-        <div className="chat-header__spacer" />
-        <button className="icon-btn" aria-label="Refresh" onClick={load} disabled={loading}>
-          <RefreshCw size={15} strokeWidth={1.9} className={loading ? 'spinner' : undefined} />
-        </button>
-      </div>
-
-      <div className="pr-search">
-        <SearchField value={query} onChange={setQuery} placeholder="Search pull requests" variant="pill" />
-        <button
-          className="icon-btn"
-          aria-label={newestFirst ? 'Sort: newest first' : 'Sort: oldest first'}
-          title={newestFirst ? 'Newest first' : 'Oldest first'}
-          onClick={() => setNewestFirst((v) => !v)}
-        >
-          <Filter size={16} strokeWidth={1.9} />
-        </button>
-      </div>
+      <TopBar
+        left={<span className="chat-header__title">Pull requests</span>}
+        right={
+          <button className="icon-btn" aria-label="Refresh" title="Refresh" onClick={load} disabled={loading}>
+            <RefreshCw size={15} strokeWidth={1.9} className={loading ? 'spinner' : undefined} />
+          </button>
+        }
+      />
 
       <div className="pr-shell">
-        <div className="pr-list scroll">
-          {loading && (
-            <div className="pr-empty">
-              <Loader2 size={16} strokeWidth={2} className="spinner" />
-              Loading pull requests…
-            </div>
-          )}
-          {!loading && data?.error && (
-            <div className="pr-empty pr-empty--error">
-              {data.error}
-              <button className="btn btn--sm" onClick={load}>
-                Retry
+        {/* The list's controls live in its own column, on the same edges as its rows. */}
+        <aside className="pr-pane">
+          <div className="pr-pane__head">
+            <Segmented value={tab} onChange={setTab} options={TABS} />
+            <div className="pr-search">
+              <SearchField value={query} onChange={setQuery} placeholder="Search pull requests" variant="sm" />
+              <button
+                className="icon-btn"
+                aria-label={newestFirst ? 'Newest first' : 'Oldest first'}
+                title={newestFirst ? 'Newest first' : 'Oldest first'}
+                onClick={() => setNewestFirst((v) => !v)}
+              >
+                {newestFirst ? <ArrowDownWideNarrow size={15} strokeWidth={1.9} /> : <ArrowUpNarrowWide size={15} strokeWidth={1.9} />}
               </button>
             </div>
-          )}
-          {!loading && !data?.error && groups.length === 0 && <div className="pr-empty">No pull requests</div>}
-          {!loading &&
-            groups.map((group) => (
-              <div key={group.label}>
-                <div className="pr-list__group">{group.label}</div>
-                {group.items.map((pr) => (
-                  <PrRow key={pr.id} pr={pr} active={pr.id === selectedId} onSelect={() => setSelectedId(pr.id)} />
-                ))}
-              </div>
-            ))}
-        </div>
+          </div>
 
-        <div className="pr-detail">
-          {selected ? (
-            <div className="pr-detail__card">
-              <span className="pr-detail__repo">{selected.repo}</span>
-              <h2 className="pr-detail__title">{selected.title}</h2>
-              <div className="pr-detail__meta">
-                <span style={{ color: STATE_COLOR[selected.state] }}>{selected.state}</span>
-                <span>{selected.branch}</span>
-                <span>
-                  <span style={{ color: '#3fb950' }}>+{selected.additions.toLocaleString()}</span>{' '}
-                  <span style={{ color: '#f85149' }}>-{selected.deletions.toLocaleString()}</span>
-                </span>
+          <div className="pr-list scroll">
+            {loading && (
+              <div className="pr-empty">
+                <Loader2 size={16} strokeWidth={2} className="spinner" />
+                Loading pull requests…
               </div>
-              <button className="btn" onClick={() => void window.api.app.openExternal(selected.url)}>
-                <ExternalLink size={14} strokeWidth={1.9} />
-                Open in GitHub
-              </button>
-            </div>
-          ) : (
-            <div className="pr-detail__empty">Select pull request to view</div>
-          )}
-        </div>
+            )}
+            {!loading && data?.error && (
+              <div className="pr-empty pr-empty--error">
+                {data.error}
+                <button className="btn btn--sm" onClick={load}>
+                  Retry
+                </button>
+              </div>
+            )}
+            {!loading && !data?.error && groups.length === 0 && <div className="pr-empty">No pull requests</div>}
+            {!loading &&
+              groups.map((group) => (
+                <div key={group.label}>
+                  <div className="pr-list__group">{group.label}</div>
+                  {group.items.map((pr) => (
+                    <PrRow key={pr.id} pr={pr} active={pr.id === selectedId} onSelect={() => setSelectedId(pr.id)} />
+                  ))}
+                </div>
+              ))}
+          </div>
+        </aside>
+
+        <section className="pr-detail scroll">
+          {selected ? <PrDetail pr={selected} /> : <div className="pr-detail__empty">Select a pull request to see it here</div>}
+        </section>
       </div>
     </div>
   )
 }
 
+function PrDetail({ pr }: { pr: PullRequestSummary }): JSX.Element {
+  const { icon: Icon, label } = STATE[pr.state]
+  return (
+    <div className="pr-detail__inner">
+      <div className="pr-detail__repo">{pr.repo}</div>
+      <h1 className="pr-detail__title">{pr.title}</h1>
+      <div className="pr-detail__meta">
+        <span className="pr-state" data-state={pr.state}>
+          <Icon size={13} strokeWidth={2.2} />
+          {label}
+        </span>
+        <span className="pr-detail__branch">
+          <GitBranch size={13} strokeWidth={2} />
+          {pr.branch}
+        </span>
+        <span className="pr-stats">
+          <span className="pr-stats__add">+{pr.additions.toLocaleString()}</span>
+          <span className="pr-stats__del">−{pr.deletions.toLocaleString()}</span>
+        </span>
+        <span className="pr-detail__time">Updated {timeAgo(pr.updatedAt)} ago</span>
+      </div>
+      <button className="btn" onClick={() => void window.api.app.openExternal(pr.url)}>
+        <ExternalLink size={14} strokeWidth={1.9} />
+        Open in GitHub
+      </button>
+    </div>
+  )
+}
+
 function PrRow({ pr, active, onSelect }: { pr: PullRequestSummary; active: boolean; onSelect: () => void }): JSX.Element {
+  const { icon: Icon, label } = STATE[pr.state]
   return (
     <div
       className="pr-row"
@@ -182,9 +209,8 @@ function PrRow({ pr, active, onSelect }: { pr: PullRequestSummary; active: boole
       onClick={onSelect}
       onKeyDown={(e) => e.key === 'Enter' && onSelect()}
     >
-      <span className="pr-row__icon">
-        <GitPullRequest size={16} strokeWidth={1.8} />
-        <span className="pr-row__dot" style={{ background: STATE_COLOR[pr.state] }} />
+      <span className="pr-row__icon" data-state={pr.state} title={label}>
+        <Icon size={16} strokeWidth={1.9} />
       </span>
       <div className="pr-row__body">
         <div className="pr-row__top">
@@ -195,21 +221,23 @@ function PrRow({ pr, active, onSelect }: { pr: PullRequestSummary; active: boole
           <span className="pr-row__repo">
             {pr.repo} <span className="pr-row__branch">{pr.branch}</span>
           </span>
-          <span className="pr-row__stats">
-            <span style={{ color: '#3fb950' }}>+{pr.additions.toLocaleString()}</span>{' '}
-            <span style={{ color: '#f85149' }}>-{pr.deletions.toLocaleString()}</span>
+          <span className="pr-stats">
+            <span className="pr-stats__add">+{pr.additions.toLocaleString()}</span>
+            <span className="pr-stats__del">−{pr.deletions.toLocaleString()}</span>
           </span>
         </div>
       </div>
+      {/* Over the time on hover, rather than a column of its own that leaves every row short of the edge. */}
       <button
         className="icon-btn pr-row__open"
         aria-label="Open in GitHub"
+        title="Open in GitHub"
         onClick={(e) => {
           e.stopPropagation()
           void window.api.app.openExternal(pr.url)
         }}
       >
-        <ExternalLink size={14} strokeWidth={1.9} />
+        <ExternalLink size={13} strokeWidth={1.9} />
       </button>
     </div>
   )

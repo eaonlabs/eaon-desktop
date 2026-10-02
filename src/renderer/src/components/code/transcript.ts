@@ -72,8 +72,8 @@ export interface Transcript {
   statuses: Record<string, string>
   /** Extension text widgets (`setWidget`). */
   widgets: Record<string, string[]>
-  /** Extension dialogs awaiting an answer, oldest first. */
-  dialogs: EaonUiRequest[]
+  /** Extension dialogs awaiting an answer, oldest first, with when each arrived. */
+  dialogs: (EaonUiRequest & { receivedAt: number })[]
   /** Text an extension asked to put in the composer, consumed once. */
   editorText: string | null
   /** The assistant message currently streaming, if any. */
@@ -123,9 +123,9 @@ const formatTokens = (n: number): string => (n >= 1000 ? `${(n / 1000).toFixed(n
 /**
  * Applies a batch of events. Everything the batch touches is copied once and
  * then mutated in place, so the cost is per batch, not per event; everything
- * it does not touch keeps its identity for React.memo.
+ * it does not touch keeps its identity for React.memo. `now` stamps dialogs.
  */
-export function applyEvents(previous: Transcript, events: EaonEvent[]): Transcript {
+export function applyEvents(previous: Transcript, events: EaonEvent[], now = Date.now()): Transcript {
   const t: Transcript = { ...previous, items: previous.items.slice(), tools: { ...previous.tools } }
   const ownedItems = new Set<Item>()
   const ownedTools = new Set<ToolState>()
@@ -415,8 +415,9 @@ export function applyEvents(previous: Transcript, events: EaonEvent[]): Transcri
       case 'extension_ui_request': {
         const method = String(event.method ?? '')
         if (method === 'select' || method === 'confirm' || method === 'input' || method === 'editor') {
+          // Its timeout runs from now on Eaon Code's side, not from when it is shown.
           const { type: _type, ...request } = event
-          t.dialogs = [...t.dialogs, request as unknown as EaonUiRequest]
+          t.dialogs = [...t.dialogs, { ...(request as unknown as EaonUiRequest), receivedAt: now }]
         } else if (method === 'notify') {
           const kind = event.notifyType === 'error' ? 'error' : event.notifyType === 'warning' ? 'warning' : 'info'
           notice(null, { tone: kind, icon: 'extension', text: String(event.message ?? '') })
@@ -455,6 +456,56 @@ export function applyEvents(previous: Transcript, events: EaonEvent[]): Transcri
     }
   }
   return t
+}
+
+/**
+ * The transcript once its process has gone mid-turn — crashed, stopped, or
+ * handed to a terminal. Nothing more will arrive for what was in flight, so
+ * nothing may keep spinning: the turn ends, running tools and commands read
+ * as interrupted, and the dead process's dialogs, queue and extension
+ * statuses go with it. Returns `t` itself when nothing was live.
+ */
+export function interruptTranscript(t: Transcript): Transcript {
+  const liveTool = (state: ToolState): boolean => state.status === 'running' || state.status === 'preparing'
+  const liveItem = (item: Item): boolean =>
+    (item.kind === 'assistant' && item.streaming) || (item.kind === 'bash' && item.running) || (item.kind === 'notice' && item.pending === true)
+  const tools = Object.values(t.tools).filter(liveTool)
+  const live =
+    t.running ||
+    t.compacting ||
+    t.currentAssistant !== null ||
+    tools.length > 0 ||
+    t.items.some(liveItem) ||
+    t.dialogs.length > 0 ||
+    t.queue.steering.length + t.queue.followUp.length > 0 ||
+    Object.keys(t.statuses).length > 0 ||
+    Object.keys(t.widgets).length > 0
+  if (!live) return t
+
+  const next: Transcript = {
+    ...t,
+    items: t.items.map((item) => {
+      if (!liveItem(item)) return item
+      if (item.kind === 'assistant') return { ...item, streaming: false }
+      if (item.kind === 'bash') return { ...item, running: false, output: item.output || 'Interrupted' }
+      return { ...item, pending: false }
+    }),
+    tools: { ...t.tools },
+    running: false,
+    compacting: false,
+    queue: { steering: [], followUp: [] },
+    statuses: {},
+    widgets: {},
+    dialogs: [],
+    currentAssistant: null,
+    compactionNotice: null,
+    retryNotice: null
+  }
+  for (const state of tools) {
+    const output = state.output || [state.partial, 'Interrupted'].filter(Boolean).join('\n\n')
+    next.tools[state.id] = { ...state, status: 'error', output, partial: '' }
+  }
+  return next
 }
 
 /** Extensions style their status text for a terminal; the escapes mean nothing here. */

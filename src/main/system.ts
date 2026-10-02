@@ -1,6 +1,9 @@
 import os from 'node:os'
-import { execFileSync } from 'node:child_process'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import type { SystemInfo } from '@shared/types'
+
+const run = promisify(execFile)
 
 /**
  * Live hardware and OS stats for the System Monitor page.
@@ -59,25 +62,27 @@ function osName(): string {
 
 // os.release() returns the Darwin kernel version (e.g. 25.6.0), not the macOS
 // version users recognise (26.6.2). sw_vers is the accurate source; cache it
-// since the OS version cannot change while the app is running.
-let cachedVersion: string | null = null
+// since the OS version cannot change while the app is running. Asked
+// asynchronously: a synchronous spawn stalls every IPC call and stream.
+let cachedVersion: Promise<string> | null = null
 
-function osVersion(): string {
-  if (cachedVersion !== null) return cachedVersion
-  if (process.platform === 'darwin') {
-    try {
-      const product = execFileSync('sw_vers', ['-productVersion'], { encoding: 'utf8' }).trim()
-      cachedVersion = `macOS ${product}`
-      return cachedVersion
-    } catch {
-      /* fall through to the kernel release below */
+function osVersion(): Promise<string> {
+  cachedVersion ??= (async () => {
+    if (process.platform === 'darwin') {
+      try {
+        const { stdout } = await run('sw_vers', ['-productVersion'], { encoding: 'utf8', timeout: 5000 })
+        return `macOS ${stdout.trim()}`
+      } catch {
+        /* fall through to the kernel release below */
+      }
     }
-  }
-  cachedVersion = os.release()
+    return os.release()
+  })()
   return cachedVersion
 }
 
-export function getSystemInfo(): SystemInfo {
+export async function getSystemInfo(): Promise<SystemInfo> {
+  const version = await osVersion()
   const cpus = os.cpus()
   const totalBytes = os.totalmem()
   const availableBytes = os.freemem()
@@ -85,7 +90,7 @@ export function getSystemInfo(): SystemInfo {
   return {
     os: {
       name: osName(),
-      version: osVersion()
+      version
     },
     cpu: {
       model: cpus[0]?.model?.trim() ?? 'Unknown',

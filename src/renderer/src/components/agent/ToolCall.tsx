@@ -1,4 +1,4 @@
-import { useState, type JSX } from 'react'
+import { memo, useState, type JSX } from 'react'
 import {
   Ban,
   ChevronRight,
@@ -11,15 +11,34 @@ import {
   Trash2,
   TriangleAlert,
   FileText,
-  Check,
   Monitor,
   AppWindow,
   CalendarClock,
-  Sparkles
+  Sparkles,
+  Send,
+  Users,
+  Eye,
+  HeartPulse,
+  Activity,
+  UserPlus,
+  Repeat,
+  Target,
+  CircleHelp,
+  Bell,
+  Hourglass,
+  Mail,
+  MailOpen,
+  Reply,
+  Wallet,
+  CandlestickChart,
+  Receipt,
+  MessagesSquare
 } from 'lucide-react'
 import type { ChatToolPart } from '@shared/types'
 import { ThinkingOrb } from '../ThinkingOrb'
+import type { ActivityCall } from './Activity'
 import { FileDiff } from './FileDiff'
+import type { FileChange } from './FilesChanged'
 import { SwarmCard, ToolImages } from './WorkBits'
 
 /**
@@ -48,8 +67,53 @@ const ICONS: Record<string, typeof Search> = {
   computer: Monitor,
   browser: AppWindow,
   schedule: CalendarClock,
-  load_skill: Sparkles
+  load_skill: Sparkles,
+  list_workers: Users,
+  message_worker: Send,
+  check_worker: Eye,
+  set_heartbeat: HeartPulse,
+  set_status: Activity,
+  create_worker: UserPlus,
+  add_routine: Repeat,
+  remove_routine: Repeat,
+  set_goal: Target,
+  update_notes: FileText,
+  ask_user: CircleHelp,
+  notify_user: Bell,
+  web_browser: AppWindow,
+  wait: Hourglass,
+  email_inbox: Mail,
+  email_read: MailOpen,
+  email_send: Send,
+  email_reply: Reply,
+  trading_account: Wallet,
+  trading_quote: CandlestickChart,
+  trading_history: CandlestickChart,
+  trading_order: Receipt,
+  trading_cancel: Receipt,
+  trading_session: CalendarClock,
+  send_chat_message: MessagesSquare
 }
+
+/** Tools whose detail is a sentence, not a path or a command — set in the UI face, not mono. */
+const PROSE = new Set([
+  'message_worker',
+  'check_worker',
+  'set_status',
+  'set_heartbeat',
+  'create_worker',
+  'add_routine',
+  'set_goal',
+  'update_notes',
+  'ask_user',
+  'notify_user',
+  'wait',
+  'email_send',
+  'email_reply',
+  'trading_order',
+  'trading_session',
+  'send_chat_message'
+])
 
 /** The single argument worth putting next to the tool's name. */
 function summarise(name: string, input: Record<string, unknown>): string {
@@ -63,6 +127,32 @@ function summarise(name: string, input: Record<string, unknown>): string {
   if (name === 'run_command') return first('command')
   if (name === 'spawn_agents') return Array.isArray(input.agents) ? `${input.agents.length} agents` : ''
   if (name === 'move_file') return [first('from'), first('to')].filter(Boolean).join(' → ')
+  // Workers' own tools read as sentences: "Messaged Pixel", "Every 30 min".
+  if (name === 'message_worker') return first('to')
+  if (name === 'set_status') return first('activity')
+  if (name === 'ask_user') return first('question')
+  if (name === 'notify_user') return first('title', 'message')
+  if (name === 'set_goal') return first('goal')
+  if (name === 'update_notes') return first('add') || 'rewrote them'
+  if (name === 'add_routine') return [first('name'), first('daily') ? `daily ${first('daily')}` : input.every_minutes ? `every ${input.every_minutes} min` : ''].filter(Boolean).join(' · ')
+  if (name === 'web_browser') return [first('action'), first('url', 'text', 'key', 'ref')].filter(Boolean).join(' ')
+  if (name === 'wait') return [input.minutes ? `${input.minutes} min` : '', first('reason')].filter(Boolean).join(' · ')
+  if (name === 'email_send') return [Array.isArray(input.to) ? input.to.join(', ') : '', first('subject')].filter(Boolean).join(' — ')
+  if (name === 'trading_quote') return Array.isArray(input.symbols) ? input.symbols.join(', ') : ''
+  if (name === 'trading_history') return [first('symbol'), first('range')].filter(Boolean).join(' · ')
+  if (name === 'trading_order') {
+    const size = input.qty ? `${input.qty}` : input.notional ? `$${input.notional} of` : ''
+    return [first('side'), size, first('symbol')].filter(Boolean).join(' ')
+  }
+  if (name === 'trading_session') return first('action')
+  if (name === 'send_chat_message') return first('chat')
+  if (name === 'set_heartbeat') {
+    if (input.stop === true) return 'stopped'
+    const every = Number(input.every_minutes)
+    const once = Number(input.in_minutes)
+    const when = every > 0 ? `every ${every} min` : once > 0 ? `in ${once} min` : ''
+    return [when, first('note')].filter(Boolean).join(' · ')
+  }
   return first('path', 'query', 'pattern', 'name', 'url', 'action', 'title')
 }
 
@@ -90,10 +180,60 @@ const LABELS: Record<string, string> = {
   computer: 'Computer',
   browser: 'Browser',
   schedule: 'Schedule',
-  load_skill: 'Skill'
+  load_skill: 'Skill',
+  list_workers: 'Looked at the team',
+  message_worker: 'Messaged',
+  check_worker: 'Checked on',
+  set_heartbeat: 'Heartbeat',
+  set_status: 'Status',
+  create_worker: 'Created worker',
+  add_routine: 'Routine',
+  remove_routine: 'Removed routine',
+  set_goal: 'Goal',
+  update_notes: 'Notes',
+  ask_user: 'Asked you',
+  notify_user: 'Told you',
+  web_browser: 'Browser',
+  wait: 'Waited',
+  email_inbox: 'Checked email',
+  email_read: 'Read email',
+  email_send: 'Emailed',
+  email_reply: 'Replied',
+  trading_account: 'Trading account',
+  trading_quote: 'Quote',
+  trading_history: 'Price history',
+  trading_order: 'Order',
+  trading_cancel: 'Cancelled order',
+  trading_session: 'Trading session',
+  send_chat_message: 'Posted'
 }
 
-export function ToolCall({ part }: { part: ChatToolPart }): JSX.Element {
+/** The call as its activity line counts it. */
+export function describeToolPart(part: ChatToolPart): ActivityCall {
+  return { name: part.name, status: part.status, label: LABELS[part.name] ?? part.name, detail: summarise(part.name, part.input) }
+}
+
+/** The edits a turn's finished `edit_file` / `write_file` calls made, for the files-changed card. */
+export function toolPartChanges(parts: ChatToolPart[]): FileChange[] {
+  const changes: FileChange[] = []
+  for (const part of parts) {
+    if (part.status !== 'done' || typeof part.input.path !== 'string') continue
+    if (part.name === 'edit_file' && typeof part.input.old_text === 'string' && typeof part.input.new_text === 'string') {
+      changes.push({ file: part.input.path, before: part.input.old_text, after: part.input.new_text })
+    } else if (part.name === 'write_file' && typeof part.input.content === 'string') {
+      changes.push({ file: part.input.path, before: '', after: part.input.content })
+    }
+  }
+  return changes
+}
+
+/**
+ * Memoised on the part object. A Work turn can hold dozens of calls, and the
+ * reply they sit in re-renders on every batch of streamed tokens; the stream
+ * reducer only replaces the part that changed, so the rest — including any
+ * open diff, which can run to a thousand rows — are skipped.
+ */
+export const ToolCall = memo(function ToolCall({ part }: { part: ChatToolPart }): JSX.Element {
   // A command still running opens itself so its live output is visible.
   const [open, setOpen] = useState(false)
   const showProgress = part.status === 'running' && Boolean(part.progress)
@@ -129,9 +269,11 @@ export function ToolCall({ part }: { part: ChatToolPart }): JSX.Element {
           )}
         </span>
         <span className="tool__label">{label}</span>
-        {detail && <span className="tool__detail">{detail}</span>}
-        <span className="tool__spacer" />
-        {part.status === 'done' && !open && <Check size={13} strokeWidth={2} className="tool__done" />}
+        {detail && (
+          <span className="tool__detail" data-prose={PROSE.has(part.name) || undefined}>
+            {detail}
+          </span>
+        )}
         <ChevronRight size={14} strokeWidth={2} className="tool__chevron" />
       </button>
 
@@ -156,4 +298,4 @@ export function ToolCall({ part }: { part: ChatToolPart }): JSX.Element {
       )}
     </div>
   )
-}
+})

@@ -1,29 +1,22 @@
 import os from 'node:os'
-import { createHash } from 'node:crypto'
-import { createReadStream, createWriteStream, existsSync, mkdirSync } from 'node:fs'
-import { unlink } from 'node:fs/promises'
-import { basename, dirname, join } from 'node:path'
+import { createWriteStream, existsSync, mkdirSync, rmSync } from 'node:fs'
+import { rename, statfs, unlink } from 'node:fs/promises'
+import { dirname, join } from 'node:path'
 import { Readable } from 'node:stream'
+import { pipeline } from 'node:stream/promises'
+import type { ReadableStream as NodeReadableStream } from 'node:stream/web'
 import { app } from 'electron'
+import { diskShortfall } from '@shared/modelLibrary'
 import type { DownloadedModel, ModelDetail, ModelSearchResult, ModelVariant } from '@shared/types'
 import { store } from './store'
 
 /**
- * Browse and download GGUF models from Hugging Face, then hand them to a local
- * Ollama daemon to actually run: the file is uploaded to Ollama's blob store
- * and a model is created from it by digest (see `registerWithOllama`), without
- * shelling out to the `ollama` CLI. Ollama always listens on 11434 regardless
- * of what the "Ollama" provider's own (OpenAI-compatible) baseUrl has been
- * changed to, so that port is hardcoded here rather than shared with
- * providers.ts.
- *
- * The curated library on the Models page does not use this path — it pulls
- * through Ollama directly (see modelLibrary/ollama.ts). This one serves
- * "Browse Hugging Face", where the user picks an arbitrary file.
+ * Browse Hugging Face for GGUF models and download them into Eaon's models
+ * folder, where Eaon's own llama.cpp runs them (`main/llama/`). Also home to
+ * the file fetcher the curated library uses for its variants.
  */
 
 const HF_API = 'https://huggingface.co'
-const OLLAMA_ROOT = 'http://127.0.0.1:11434'
 
 const QUANT_RE = /((?:IQ|Q)\d[\w-]*|F16|F32|BF16)/i
 
@@ -187,108 +180,141 @@ export async function getModelDetail(repoId: string): Promise<ModelDetail> {
   }
 }
 
-function modelsDir(): string {
+export function modelsDir(): string {
   const dir = join(app.getPath('userData'), 'models')
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
   return dir
 }
 
+type DownloadProgress = { receivedBytes: number; totalBytes: number; phase: 'downloading' | 'registering' }
+
 /**
- * Imports a local GGUF into Ollama. Current Ollama (checked on 0.30.4) no
- * longer reads a `modelfile` in `/api/create` — `FROM <path>` is rejected with
- * "neither 'from' or 'files' was specified" — so the file goes into Ollama's
- * blob store first and the model is created from its digest. The upload is
- * skipped when Ollama already has the blob (a re-download of the same file).
+ * Downloads in flight, by destination file: a second click on the same file
+ * joins the first instead of writing it twice at once, and quitting can stop
+ * them and remove their partial files.
  */
-async function registerWithOllama(name: string, ggufPath: string, sha256: string): Promise<void> {
-  const digest = `sha256:${sha256}`
-  let response: Response
+const downloads = new Map<string, { controller: AbortController; part: string; promise: Promise<DownloadedModel> }>()
+
+export async function freeBytes(dir: string): Promise<number | null> {
   try {
-    const head = await fetch(`${OLLAMA_ROOT}/api/blobs/${digest}`, { method: 'HEAD' })
-    if (!head.ok) {
-      const upload = await fetch(`${OLLAMA_ROOT}/api/blobs/${digest}`, {
-        method: 'POST',
-        body: Readable.toWeb(createReadStream(ggufPath)) as ReadableStream<Uint8Array>,
-        // Required by Node's fetch for a streamed request body.
-        duplex: 'half'
-      } as RequestInit)
-      if (!upload.ok) throw new Error(`Ollama rejected the file (${upload.status}): ${(await upload.text()).slice(0, 300)}`)
-    }
-    response = await fetch(`${OLLAMA_ROOT}/api/create`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model: name, files: { [basename(ggufPath)]: digest }, stream: false })
-    })
-  } catch (error) {
-    if (error instanceof Error && error.message.startsWith('Ollama rejected')) throw error
-    throw new Error('Could not reach Ollama — make sure it is installed and running.')
+    const info = await statfs(dir)
+    return info.bavail * info.bsize
+  } catch {
+    return null
   }
-  if (!response.ok) throw new Error(`Ollama returned ${response.status}: ${(await response.text()).slice(0, 300)}`)
 }
 
-export async function downloadModel(
+/** Where a repo's file lands: `<models>/<owner>__<repo>/<file>` (subfolders kept). */
+export function localPathFor(repoId: string, filename: string): string {
+  return join(modelsDir(), repoId.replace('/', '__'), filename)
+}
+
+/**
+ * Streams one file of a Hugging Face repo to `dest`. Written under `.part`
+ * and renamed when complete, so an interrupted download never passes for the
+ * finished file; `pipeline` handles backpressure, and a write error (a full
+ * disk) or an abort rejects here and closes both ends. `onBytes` gets the
+ * running total, at most a few times a second.
+ */
+export async function fetchHfFile(
   repoId: string,
   filename: string,
-  onProgress: (progress: { receivedBytes: number; totalBytes: number; phase: 'downloading' | 'registering' }) => void
-): Promise<DownloadedModel> {
-  const url = `${HF_API}/${repoId}/resolve/main/${filename}`
-  const response = await fetch(url)
-  if (!response.ok || !response.body) throw new Error(`Download failed: ${response.status}`)
-  const totalBytes = Number(response.headers.get('content-length') ?? 0)
-
-  const dir = join(modelsDir(), repoId.replace('/', '__'))
-  const dest = join(dir, filename)
-  // Some repos keep variants in subfolders (`BF16/…-00001-of-00002.gguf`).
-  mkdirSync(dirname(dest), { recursive: true })
-
-  let receivedBytes = 0
-  let lastReport = 0
-  // Hashed while writing so registration needn't re-read a multi-gigabyte file.
-  const hash = createHash('sha256')
-  const reader = response.body.getReader()
-  const out = createWriteStream(dest)
+  dest: string,
+  signal: AbortSignal,
+  onBytes: (received: number, total: number) => void
+): Promise<number> {
+  const part = `${dest}.part`
+  const url = `${HF_API}/${repoId}/resolve/main/${filename.split('/').map(encodeURIComponent).join('/')}`
+  let received = 0
   try {
-    for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      receivedBytes += value.byteLength
-      hash.update(value)
-      // Chunks arrive every few kilobytes and each report is an IPC message
-      // that re-renders the Downloads panel; a few per second is plenty.
-      const now = Date.now()
-      if (now - lastReport > 150) {
-        lastReport = now
-        onProgress({ receivedBytes, totalBytes, phase: 'downloading' })
-      }
-      if (!out.write(value)) await new Promise<void>((resolve) => out.once('drain', () => resolve()))
-    }
-    await new Promise<void>((resolve, reject) => out.end((err?: Error | null) => (err ? reject(err) : resolve())))
+    const response = await fetch(url, { signal })
+    if (!response.ok || !response.body) throw new Error(`Download of ${filename} failed: ${response.status}`)
+    const total = Number(response.headers.get('content-length') ?? 0)
+    mkdirSync(dirname(dest), { recursive: true })
+    let lastReport = 0
+    await pipeline(
+      Readable.fromWeb(response.body as unknown as NodeReadableStream<Uint8Array>),
+      async function* (source: AsyncIterable<Uint8Array>) {
+        for await (const chunk of source) {
+          received += chunk.byteLength
+          const now = Date.now()
+          if (now - lastReport > 150) {
+            lastReport = now
+            onBytes(received, total)
+          }
+          yield chunk
+        }
+      },
+      createWriteStream(part),
+      { signal }
+    )
+    await rename(part, dest)
+    onBytes(received, total || received)
+    return received
   } catch (error) {
-    out.destroy()
-    await unlink(dest).catch(() => {})
+    await unlink(part).catch(() => {})
+    if (signal.aborted) throw new Error('Download cancelled')
     throw error
   }
+}
 
-  const quant = parseQuant(filename)
-  const ollamaName = `${repoName(repoId)}-${quant}`.toLowerCase().replace(/[^a-z0-9._-]+/g, '-')
-  onProgress({ receivedBytes, totalBytes: totalBytes || receivedBytes, phase: 'registering' })
+export function downloadModel(
+  repoId: string,
+  filename: string,
+  onProgress: (progress: DownloadProgress) => void
+): Promise<DownloadedModel> {
+  const dest = localPathFor(repoId, filename)
+  const running = downloads.get(dest)
+  if (running) return running.promise
+  const controller = new AbortController()
+  const part = `${dest}.part`
+  const promise = fetchModelFile(repoId, filename, dest, controller.signal, onProgress).finally(() => downloads.delete(dest))
+  downloads.set(dest, { controller, part, promise })
+  return promise
+}
 
-  let ollamaError: string | null = null
-  try {
-    await registerWithOllama(ollamaName, dest, hash.digest('hex'))
-  } catch (error) {
-    ollamaError = error instanceof Error ? error.message : String(error)
+/**
+ * Called on quit. The partial file goes synchronously: the process may be gone
+ * before an async unlink runs, and a leftover would sit in the models folder,
+ * gigabytes large and listed nowhere.
+ */
+export function cancelAllDownloads(): void {
+  for (const { controller, part } of downloads.values()) {
+    controller.abort()
+    try {
+      rmSync(part, { force: true })
+    } catch {
+      /* still open on Windows; the next download of this file overwrites it */
+    }
   }
+}
 
+/** "Browse Hugging Face": one GGUF file, run by Eaon's own llama.cpp once it lands. */
+async function fetchModelFile(
+  repoId: string,
+  filename: string,
+  dest: string,
+  signal: AbortSignal,
+  onProgress: (progress: DownloadProgress) => void
+): Promise<DownloadedModel> {
+  // A file that fills the disk fails late and leaves the system short of space.
+  const head = await fetch(`${HF_API}/${repoId}/resolve/main/${filename}`, { method: 'HEAD', redirect: 'follow', signal }).catch(() => null)
+  const expected = Number(head?.headers.get('content-length') ?? 0)
+  const shortfall = expected > 0 ? diskShortfall(expected, await freeBytes(modelsDir())) : null
+  if (shortfall) throw new Error(shortfall)
+
+  const sizeBytes = await fetchHfFile(repoId, filename, dest, signal, (receivedBytes, totalBytes) =>
+    onProgress({ receivedBytes, totalBytes, phase: 'downloading' })
+  )
+  const quant = parseQuant(filename)
   const model: DownloadedModel = {
     repoId,
     filename,
     quant,
-    sizeBytes: totalBytes || receivedBytes,
+    sizeBytes,
     path: dest,
     downloadedAt: Date.now(),
-    ollamaName: ollamaError ? null : ollamaName,
-    ollamaError
+    label: `${repoName(repoId).replace(/-gguf$/i, '')} · ${quant}`
   }
   const existing = store.getDownloadedModels().filter((m) => !(m.repoId === repoId && m.filename === filename))
   store.saveDownloadedModels([...existing, model])
@@ -299,18 +325,22 @@ export function getDownloadedModels(): DownloadedModel[] {
   return store.getDownloadedModels()
 }
 
+/** Deletes a downloaded model's files (its projector too) and forgets it. */
 export async function deleteDownloadedModel(repoId: string, filename: string): Promise<void> {
   const models = store.getDownloadedModels()
   const target = models.find((m) => m.repoId === repoId && m.filename === filename)
   if (target) {
     await unlink(target.path).catch(() => {})
-    if (target.ollamaName) {
-      await fetch(`${OLLAMA_ROOT}/api/delete`, {
-        method: 'DELETE',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: target.ollamaName })
-      }).catch(() => {})
+    // Split models: the other shards sit next to the first.
+    const shard = /-00001-of-(\d{5})\.gguf$/.exec(target.path)
+    if (shard) {
+      for (let i = 2; i <= Number(shard[1]); i++) {
+        await unlink(target.path.replace(/-00001-of-/, `-${String(i).padStart(5, '0')}-of-`)).catch(() => {})
+      }
     }
+    // A projector shared by another variant of the same repo stays.
+    const sharedProjector = models.some((m) => m !== target && m.mmprojPath === target.mmprojPath)
+    if (target.mmprojPath && !sharedProjector) await unlink(target.mmprojPath).catch(() => {})
   }
   store.saveDownloadedModels(models.filter((m) => !(m.repoId === repoId && m.filename === filename)))
 }

@@ -12,6 +12,36 @@ import huggingfaceLogo from '../assets/providers/huggingface.png'
 import nvidiaLogo from '../assets/providers/nvidia.png'
 import ollamaLogo from '../assets/providers/ollama.png'
 import llamaCppLogo from '../assets/providers/llama-cpp.png'
+import deepseekLogo from '../assets/providers/deepseek.svg'
+import cohereLogo from '../assets/providers/cohere.svg'
+import perplexityLogo from '../assets/providers/perplexity.svg'
+import poeLogo from '../assets/providers/poe.svg'
+import cerebrasLogo from '../assets/providers/cerebras.svg'
+import fireworksLogo from '../assets/providers/fireworks.svg'
+import togetherLogo from '../assets/providers/together.svg'
+import deepinfraLogo from '../assets/providers/deepinfra.svg'
+import novitaLogo from '../assets/providers/novita.svg'
+import sambanovaLogo from '../assets/providers/sambanova.svg'
+import kimiLogo from '../assets/providers/kimi.svg'
+import qwenLogo from '../assets/providers/qwen.svg'
+import zaiLogo from '../assets/providers/zai.svg'
+import zhipuLogo from '../assets/providers/zhipu.svg'
+import vllmLogo from '../assets/providers/vllm.svg'
+import workersaiLogo from '../assets/providers/workersai.svg'
+import cloudflareLogo from '../assets/providers/cloudflare.svg'
+import bedrockLogo from '../assets/providers/bedrock.svg'
+import xiaomimimoLogo from '../assets/providers/xiaomimimo.svg'
+import opencodeLogo from '../assets/providers/opencode.svg'
+import vercelLogo from '../assets/providers/vercel.svg'
+import basetenLogo from '../assets/providers/baseten.svg'
+import nebiusLogo from '../assets/providers/nebius.svg'
+import lmstudioLogo from '../assets/providers/lmstudio.svg'
+import janLogo from '../assets/providers/jan.png'
+import githubcopilotLogo from '../assets/providers/githubcopilot.svg'
+import claudecodeLogo from '../assets/providers/claudecode.svg'
+import codexLogo from '../assets/providers/codex.svg'
+import geminicliLogo from '../assets/providers/geminicli.svg'
+import eaonLogo from '../assets/providers/eaon.png'
 
 /**
  * Icons for the integrations and model providers shown in the directory.
@@ -429,6 +459,49 @@ export function GenericIcon({ size = 40, letter, color }: TileProps & { letter: 
   )
 }
 
+/**
+ * The rest of the providers' marks, from Lobe Icons (MIT, @lobehub/icons-static-svg
+ * 1.95.1), baked into square tiles by scripts/make-provider-tiles.py: colour
+ * marks on white, single-colour marks in white on the brand's own colour.
+ * The brands themselves belong to their owners; they identify the provider.
+ */
+const logo =
+  (src: string) =>
+  (props: TileProps): JSX.Element => <ImageTile {...props} src={src} />
+
+export const LOGOS = {
+  deepseek: logo(deepseekLogo),
+  cohere: logo(cohereLogo),
+  perplexity: logo(perplexityLogo),
+  poe: logo(poeLogo),
+  cerebras: logo(cerebrasLogo),
+  fireworks: logo(fireworksLogo),
+  together: logo(togetherLogo),
+  deepinfra: logo(deepinfraLogo),
+  novita: logo(novitaLogo),
+  sambanova: logo(sambanovaLogo),
+  kimi: logo(kimiLogo),
+  qwen: logo(qwenLogo),
+  zai: logo(zaiLogo),
+  zhipu: logo(zhipuLogo),
+  vllm: logo(vllmLogo),
+  workersai: logo(workersaiLogo),
+  cloudflare: logo(cloudflareLogo),
+  bedrock: logo(bedrockLogo),
+  xiaomi: logo(xiaomimimoLogo),
+  opencode: logo(opencodeLogo),
+  vercel: logo(vercelLogo),
+  baseten: logo(basetenLogo),
+  nebius: logo(nebiusLogo),
+  lmstudio: logo(lmstudioLogo),
+  jan: logo(janLogo),
+  copilot: logo(githubcopilotLogo),
+  claudeCode: logo(claudecodeLogo),
+  codex: logo(codexLogo),
+  geminiCli: logo(geminicliLogo),
+  eaon: logo(eaonLogo)
+}
+
 export const BRAND_ICONS: Record<string, (props: TileProps) => JSX.Element> = {
   documents: DocumentsIcon,
   pdf: PdfIcon,
@@ -452,7 +525,8 @@ export const BRAND_ICONS: Record<string, (props: TileProps) => JSX.Element> = {
   openai: OpenAiIcon,
   // ChatGPT sign-in is OpenAI's own product, and Copilot is GitHub's.
   'openai-codex': OpenAiIcon,
-  'github-copilot': GithubIcon,
+  chatgpt: OpenAiIcon,
+  'github-copilot': LOGOS.copilot,
   azure: AzureIcon,
   anthropic: AnthropicIcon,
   openrouter: OpenRouterIcon,
@@ -466,7 +540,43 @@ export const BRAND_ICONS: Record<string, (props: TileProps) => JSX.Element> = {
   'nvidia-nim': NvidiaIcon,
   'llama-cpp': LlamaCppIcon,
   mlx: MlxIcon,
-  ollama: OllamaIcon
+  ollama: OllamaIcon,
+  deepseek: LOGOS.deepseek,
+  cohere: LOGOS.cohere,
+  perplexity: LOGOS.perplexity,
+  poe: LOGOS.poe,
+  cerebras: LOGOS.cerebras,
+  fireworks: LOGOS.fireworks,
+  together: LOGOS.together,
+  deepinfra: LOGOS.deepinfra,
+  novita: LOGOS.novita,
+  sambanova: LOGOS.sambanova,
+  moonshot: LOGOS.kimi,
+  'moonshot-cn': LOGOS.kimi,
+  'kimi-coding': LOGOS.kimi,
+  qwen: LOGOS.qwen,
+  'qwen-cn': LOGOS.qwen,
+  'qwen-token-plan': LOGOS.qwen,
+  'qwen-token-plan-cn': LOGOS.qwen,
+  zai: LOGOS.zai,
+  'zai-coding': LOGOS.zai,
+  // BigModel is Zhipu's own China site; its coding plan too.
+  'zai-cn': LOGOS.zhipu,
+  'zai-coding-cn': LOGOS.zhipu,
+  xiaomi: LOGOS.xiaomi,
+  'xiaomi-token-plan': LOGOS.xiaomi,
+  'xiaomi-token-plan-cn': LOGOS.xiaomi,
+  opencode: LOGOS.opencode,
+  'opencode-go': LOGOS.opencode,
+  vercel: LOGOS.vercel,
+  baseten: LOGOS.baseten,
+  nebius: LOGOS.nebius,
+  'cloudflare-workers-ai': LOGOS.workersai,
+  'cloudflare-ai-gateway': LOGOS.cloudflare,
+  'amazon-bedrock': LOGOS.bedrock,
+  'lm-studio': LOGOS.lmstudio,
+  vllm: LOGOS.vllm,
+  jan: LOGOS.jan
 }
 
 /**

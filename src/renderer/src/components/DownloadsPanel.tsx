@@ -16,7 +16,7 @@ function isUpdateVisible(state: string): boolean {
 
 /** One ring on the button can only show one number — average every active
  * download rather than picking one arbitrarily. A phase with no byte count of
- * its own (just started, or wrapping up with Ollama) is pinned to a sensible
+ * its own (just started, or finishing) is pinned to a sensible
  * stand-in rather than left out, so it still nudges the average. */
 function overallPercent(modelDownloads: Record<string, ModelDownloadProgress>, updateStatus: UpdateStatus): number | null {
   const percents: number[] = []
@@ -142,7 +142,7 @@ function DownloadsPanel({
               key={k}
               icon={<Boxes size={15} strokeWidth={1.9} />}
               title={repoName(p.repoId)}
-              subtitle={p.phase === 'registering' ? 'Registering with Ollama…' : p.filename}
+              subtitle={p.phase === 'registering' ? 'Finishing…' : p.filename}
               percent={p.phase === 'downloading' ? downloadPercent(p) : undefined}
             />
           ))}

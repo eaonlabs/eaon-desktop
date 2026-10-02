@@ -1,33 +1,16 @@
-import { useRef, useState } from 'react'
+import { useState } from 'react'
 import { ArrowUpRight, Download, Search } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import { useApp, useIsWork } from '../../../state/store'
-import { Card, MenuItem, Popover, Row, Section, Select, Switch, useDisclosure } from '../../ui'
-import type { EffortLevel } from '@shared/types'
-
-const EFFORTS: { value: EffortLevel; label: string }[] = [
-  { value: 'light', label: 'Light' },
-  { value: 'medium', label: 'Medium' },
-  { value: 'high', label: 'High' },
-  { value: 'extra-high', label: 'Extra High' },
-  { value: 'ultra', label: 'Ultra' }
-]
+import { Card, Row, Section, Select, Switch } from '../../ui'
 
 export function ConfigurationPage(): JSX.Element {
-  const { settings, patchSettings } = useApp()
+  const { settings, patchSettings } = useApp(useShallow((s) => ({ settings: s.settings, patchSettings: s.patchSettings })))
   const isWork = useIsWork()
   const [diagnosing, setDiagnosing] = useState(false)
-  const effortAnchor = useRef<HTMLButtonElement>(null)
-  const effortMenu = useDisclosure()
 
   if (!settings) return <></>
   const c = settings.configuration
-
-  const toggleEffort = (effort: EffortLevel): void => {
-    const next = c.availableEfforts.includes(effort)
-      ? c.availableEfforts.filter((e) => e !== effort)
-      : EFFORTS.map((e) => e.value).filter((e) => c.availableEfforts.includes(e) || e === effort)
-    void patchSettings({ configuration: { availableEfforts: next } })
-  }
 
   return (
     <>
@@ -116,43 +99,6 @@ export function ConfigurationPage(): JSX.Element {
                 { value: 'Detailed', label: 'Detailed' },
                 { value: 'None', label: 'None' }
               ]}
-            />
-          </Row>
-        </Card>
-      </Section>
-
-      <Section label="Model features">
-        <Card>
-          <Row
-            title="Available reasoning efforts"
-            description="Choose which reasoning effort levels appear in model controls. Availability varies by model"
-          >
-            <button ref={effortAnchor} className="select" data-open={effortMenu.open || undefined} onClick={effortMenu.toggle}>
-              <span>{c.availableEfforts.length} selected</span>
-              <span className="select__chevron">▾</span>
-            </button>
-            <Popover
-              anchor={effortAnchor}
-              open={effortMenu.open}
-              onClose={effortMenu.close}
-              placement="bottom-end"
-              width={190}
-            >
-              {EFFORTS.map((effort) => (
-                <MenuItem
-                  key={effort.value}
-                  title={effort.label}
-                  checked={c.availableEfforts.includes(effort.value)}
-                  onClick={() => toggleEffort(effort.value)}
-                />
-              ))}
-            </Popover>
-          </Row>
-          <Row title="Ultra in model picker slider" description="Show Ultra as the highest slider option">
-            <Switch
-              label="Ultra in model picker slider"
-              checked={c.ultraInPicker}
-              onChange={(on) => void patchSettings({ configuration: { ultraInPicker: on } })}
             />
           </Row>
         </Card>

@@ -146,6 +146,15 @@ main section {
   font-size: 12px;
   color: var(--danger);
 }
+.note--ok {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ok);
+}
+.hint--center {
+  margin-top: 6px;
+  text-align: center;
+}
 .row {
   display: flex;
   gap: 8px;
@@ -168,6 +177,13 @@ main section {
 }
 .card--paused {
   background: var(--danger-soft);
+}
+.card--update {
+  background: color-mix(in srgb, var(--ok), transparent 90%);
+}
+.update__text {
+  margin: 0;
+  color: var(--fg);
 }
 .paused__text {
   margin: 0;

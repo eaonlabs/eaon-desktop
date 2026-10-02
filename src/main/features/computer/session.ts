@@ -152,26 +152,42 @@ const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout
  * one action avoids all three: the agent sees and clicks the screen as if Eaon
  * were not there, and the user gets their window back the moment the action
  * is done — a brief blink per step.
+ *
+ * Calls that overlap (Settings → Test while an agent action runs) share one
+ * hide, undone when the last of them ends. Hiding separately, the second would
+ * save the first's zero opacity as the one to restore and leave Eaon invisible.
  */
-export async function withEaonHidden<T>(fn: () => Promise<T>): Promise<T> {
+let hide: { saved: { w: BrowserWindow; opacity: number; passThrough: boolean }[]; settled: Promise<void> } | null = null
+let hideDepth = 0
+
+function hideWindows(): NonNullable<typeof hide> {
   const main = getMain()
   const windows = BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed() && w.isVisible() && !w.webContents.isOffscreen())
-  const saved = windows.map((w) => ({ w, opacity: w.getOpacity() }))
-  for (const { w } of saved) {
+  // Mouse pass-through only on windows we own the state of; another
+  // feature's window may be deliberately click-through already.
+  const saved = windows.map((w) => ({ w, opacity: w.getOpacity(), passThrough: w === main || w === indicator }))
+  for (const { w, passThrough } of saved) {
     w.setOpacity(0)
-    // Mouse pass-through only on windows we own the state of; another
-    // feature's window may be deliberately click-through already.
-    if (w === main || w === indicator) w.setIgnoreMouseEvents(true)
+    if (passThrough) w.setIgnoreMouseEvents(true)
   }
   // Give the window server a frame or two to composite the change.
-  if (saved.length > 0) await sleep(90)
+  return { saved, settled: saved.length > 0 ? sleep(90) : Promise.resolve() }
+}
+
+export async function withEaonHidden<T>(fn: () => Promise<T>): Promise<T> {
+  const current = (hide ??= hideWindows())
+  hideDepth++
   try {
+    await current.settled
     return await fn()
   } finally {
-    for (const { w, opacity } of saved) {
-      if (w.isDestroyed()) continue
-      if (w === main || w === indicator) w.setIgnoreMouseEvents(false)
-      w.setOpacity(opacity)
+    if (--hideDepth === 0) {
+      hide = null
+      for (const { w, opacity, passThrough } of current.saved) {
+        if (w.isDestroyed()) continue
+        if (passThrough) w.setIgnoreMouseEvents(false)
+        w.setOpacity(opacity)
+      }
     }
   }
 }

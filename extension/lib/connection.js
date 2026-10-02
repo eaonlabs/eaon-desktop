@@ -11,6 +11,7 @@
  * again, so the connection comes back on its own once the app is started.
  */
 
+import { FEATURES } from './actions.js'
 import { emit, getLocal, setLocal } from './state.js'
 
 const PROTOCOL = 1
@@ -23,7 +24,9 @@ export const connection = {
   status: 'connecting',
   /** Human-readable reason for the current status, if any. */
   message: '',
-  appVersion: null
+  appVersion: null,
+  /** The extension version the connected app ships, when it is newer than this one. */
+  latestExtension: null
 }
 
 let socket = null
@@ -35,7 +38,7 @@ let pairing = null
 let halted = false
 /** A connect() is between reading storage and creating its socket. */
 let starting = false
-let handlers = { onCall: () => {}, onCancel: () => {}, onConnected: () => {}, onDisconnected: () => {} }
+let handlers = { onCall: () => {}, onCancel: () => {}, onConnected: () => {}, onDisconnected: () => {}, onUpdate: () => {} }
 
 export function setConnectionHandlers(next) {
   handlers = { ...handlers, ...next }
@@ -59,6 +62,19 @@ export function isConnected() {
   return connection.status === 'connected' && socket !== null && socket.readyState === WebSocket.OPEN
 }
 
+/**
+ * How this copy was installed: 'development' when loaded unpacked (it can
+ * reload itself from its folder), 'normal' from a store. getSelf needs no
+ * permission, but not every Chromium browser implements chrome.management.
+ */
+export async function installType() {
+  try {
+    return (await chrome.management.getSelf()).installType || 'unknown'
+  } catch {
+    return 'unknown'
+  }
+}
+
 async function browserName() {
   try {
     if (navigator.brave && (await navigator.brave.isBrave())) return 'Brave'
@@ -66,7 +82,8 @@ async function browserName() {
     /* not Brave */
   }
   const brands = (navigator.userAgentData && navigator.userAgentData.brands) || []
-  const order = ['Microsoft Edge', 'Opera', 'Vivaldi', 'Google Chrome', 'Chromium']
+  // Most specific first: every one of these also reports a "Chromium" brand.
+  const order = ['Microsoft Edge', 'Opera GX', 'Opera', 'Vivaldi', 'Comet', 'Dia', 'Arc', 'Yandex', 'Google Chrome', 'Chromium']
   for (const wanted of order) {
     const brand = brands.find((b) => b.brand === wanted)
     if (brand) return `${wanted.replace('Google ', '').replace('Microsoft ', '')} ${brand.version}`
@@ -123,7 +140,10 @@ async function open(pairingCode) {
       type: 'hello',
       protocol: PROTOCOL,
       extensionVersion: chrome.runtime.getManifest().version,
-      browser: await browserName()
+      browser: await browserName(),
+      // Additions since 1.0.0; an app that predates them ignores both.
+      features: FEATURES,
+      installType: await installType()
     }
     if (pairingCode) hello.pairingCode = pairingCode
     else hello.token = token
@@ -149,6 +169,7 @@ async function onMessage(ws, event) {
       if (message.token) await setLocal({ token: message.token })
       attempt = 0
       connection.appVersion = message.appVersion || null
+      connection.latestExtension = message.latestExtension || null
       setStatus('connected')
       startPing()
       settlePairing({ ok: true })
@@ -162,6 +183,9 @@ async function onMessage(ws, event) {
       return
     case 'cancel':
       handlers.onCancel(message.id)
+      return
+    case 'update':
+      handlers.onUpdate(message)
       return
     default:
       return

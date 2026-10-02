@@ -96,6 +96,11 @@ export interface LoopbackServer {
   redirectUri: string
   /** Resolves with the authorization code, or null once `cancel` is called. */
   code: Promise<string | null>
+  /**
+   * Every query parameter of the redirect that delivered the code — some
+   * providers return more than the code (OpenAI's issued `client_id`).
+   */
+  params(): URLSearchParams | null
   cancel(): void
   close(): void
 }
@@ -114,6 +119,7 @@ export async function startLoopback(options: {
   service: string
 }): Promise<LoopbackServer> {
   let settle: (code: string | null) => void = () => {}
+  let received: URLSearchParams | null = null
   const code = new Promise<string | null>((resolve) => {
     let settled = false
     settle = (value) => {
@@ -142,6 +148,7 @@ export async function startLoopback(options: {
     const value = url.searchParams.get('code')
     if (!value) return reply(400, 'Sign-in failed', 'No authorization code came back.')
     reply(200, `Signed in to ${escapeHtml(options.service)}`, 'You can close this tab and return to Eaon.')
+    received = url.searchParams
     settle(value)
   })
 
@@ -160,6 +167,7 @@ export async function startLoopback(options: {
   return {
     redirectUri: `http://${options.redirectHost}:${port}${options.path}`,
     code,
+    params: () => received,
     cancel: () => settle(null),
     close: () => server.close()
   }

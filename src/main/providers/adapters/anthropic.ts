@@ -4,8 +4,11 @@ import { anthropicCompat, clampEffort, effortsFor, missingUrlFields } from '../c
 import { anthropicThinking, budgetThinking, contextWindowFor, maxOutputFor } from '../models'
 import {
   clampOutputToWindow,
+  describeErrorBody,
   emptyUsage,
+  estimateRequestTokens,
   ProviderHttpError,
+  retryAfterFrom,
   type Adapter,
   type NeutralMessage,
   type NeutralToolCall,
@@ -38,7 +41,10 @@ import {
  * Code's catalog says they take it: Kimi adaptively, MiniMax with a budget.
  */
 
+/** Anthropic has no "none" or "minimal" effort; the catalog never offers them for Claude, and clamping keeps it so. */
 const EFFORT_TO_ANTHROPIC: Record<EffortLevel, 'low' | 'medium' | 'high' | 'xhigh' | 'max'> = {
+  none: 'low',
+  minimal: 'low',
   light: 'low',
   medium: 'medium',
   high: 'high',
@@ -154,12 +160,12 @@ export const anthropicAdapter: Adapter = {
     }
 
     const window = contextWindowFor(provider, modelId, request.model)
-    const estimate = Math.ceil((JSON.stringify(messages).length + request.system.length) / 3.6)
+    const estimate = estimateRequestTokens(messages) + Math.ceil(request.system.length / 3.6)
     const maxTokens = clampOutputToWindow(maxOutputFor(provider, modelId, request.model) ?? 32_000, window, estimate) ?? 32_000
     const effort = clampEffort(request.effort, effortsFor(modelId, request.model))
     const thinking =
       compat.thinking === 'claude'
-        ? anthropicThinking(modelId, request.effort, maxTokens)
+        ? anthropicThinking(modelId, effort ?? request.effort, maxTokens)
         : compat.thinking === 'adaptive'
           ? ({ type: 'adaptive', display: 'summarized' } as const)
           : compat.thinking === 'budget'
@@ -233,11 +239,14 @@ export const anthropicAdapter: Adapter = {
       final = await stream.finalMessage()
     } catch (error) {
       if (error instanceof Anthropic.APIError && typeof error.status === 'number') {
-        const retryAfter = Number(error.headers?.get?.('retry-after'))
+        // `error.error` is the parsed body; the SDK's own message is the status
+        // plus that body as raw JSON. A missing retry-after must stay
+        // undefined (not 0) so the loop backs off instead of retrying at once.
+        const body = error.error !== undefined ? JSON.stringify(error.error) : error.message.replace(/^\d{3}\s+/, '')
         throw new ProviderHttpError(
           error.status,
-          `${error.status}: ${error.message}`,
-          Number.isFinite(retryAfter) ? retryAfter * 1000 : undefined
+          describeErrorBody(error.status, body),
+          error.headers instanceof Headers ? retryAfterFrom(error.headers) : undefined
         )
       }
       // The SDK's own words for a connection that closed before message_stop.
@@ -277,12 +286,14 @@ export const anthropicAdapter: Adapter = {
       .filter((block): block is Anthropic.Beta.BetaToolUseBlock => block.type === 'tool_use')
       .map((block) => ({ id: block.id, name: block.name, input: (block.input ?? {}) as Record<string, unknown> }))
 
+    // A turn cut off by max_tokens (or by the context window filling up) may
+    // carry a half-written tool call whose input was truncated; the loop must
+    // not execute it.
+    const cutOff = final.stop_reason === 'max_tokens' || final.stop_reason === 'model_context_window_exceeded'
     return {
       text,
       calls,
-      // A turn cut off by max_tokens may carry a half-written tool call whose
-      // input was truncated; the loop must not execute it.
-      stop: final.stop_reason === 'max_tokens' ? 'max_tokens' : calls.length > 0 ? 'tool_use' : 'end',
+      stop: cutOff ? 'max_tokens' : calls.length > 0 ? 'tool_use' : 'end',
       usage,
       replay: { adapter: 'anthropic', modelId, data: final.content }
     }

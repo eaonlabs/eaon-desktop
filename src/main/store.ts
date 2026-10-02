@@ -3,7 +3,28 @@ import os from 'node:os'
 import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
 import { rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
-import type { Chat, DownloadedModel, McpServer, Project, Settings, Workspace } from '@shared/types'
+import type { Chat, DownloadedModel, McpServer, ModelInfo, Project, Settings, Workspace } from '@shared/types'
+
+/**
+ * What `providers.json` keeps per provider: the user's changes, layered over
+ * the catalog rather than replacing it (see `providers/index.ts`).
+ */
+export interface ProviderOverride {
+  baseUrl?: string
+  enabled?: boolean
+  name?: string
+  kind?: string
+  /** What the provider's own `/models` returned on the last refresh. */
+  listed?: ModelInfo[]
+  /** Models the user added by id. */
+  custom?: ModelInfo[]
+  /** Ids the user removed; restorable. */
+  hidden?: string[]
+  /** Display names the user chose, by model id. */
+  labels?: Record<string, string>
+  /** Before overlays: the whole list, replaced on every refresh. Read once as `listed`. */
+  models?: ModelInfo[]
+}
 
 const dataDir = () => join(app.getPath('userData'), 'store')
 
@@ -23,6 +44,8 @@ function writeJson(name: string, value: unknown): void {
 }
 
 const writeQueues = new Map<string, Promise<void>>()
+/** The newest value waiting for a file's queued write, which has not started yet. */
+const pendingValues = new Map<string, unknown>()
 
 /**
  * Atomic write that does not block the main process.
@@ -33,14 +56,25 @@ const writeQueues = new Map<string, Promise<void>>()
  * overtaken by the next, and the output is compact rather than pretty-printed:
  * nothing reads this file by hand, and the indentation roughly doubled both the
  * bytes and the stringify cost.
+ *
+ * Saves that arrive while a write is still running collapse into one: only the
+ * newest is written, and it is only stringified when its turn comes. Each save
+ * is the whole file, so the ones in between would be overwritten unread — and
+ * every one held its own multi-megabyte string until then.
  */
 function writeJsonAsync(name: string, value: unknown): void {
+  const alreadyQueued = pendingValues.has(name)
+  pendingValues.set(name, value)
+  if (alreadyQueued) return
   const dir = ensureDir()
   const target = join(dir, name)
   const tmp = `${target}.tmp`
-  const body = JSON.stringify(value)
   const queued = (writeQueues.get(name) ?? Promise.resolve())
-    .then(() => writeFile(tmp, body, 'utf8'))
+    .then(() => {
+      const latest = pendingValues.get(name)
+      pendingValues.delete(name)
+      return writeFile(tmp, JSON.stringify(latest), 'utf8')
+    })
     .then(() => rename(tmp, target))
     .catch((error) => console.error(`[store] failed to write ${name}:`, error))
   writeQueues.set(name, queued)
@@ -57,22 +91,23 @@ function readJson<T>(name: string, fallback: T): T {
 }
 
 /**
- * Three workspaces, one per top-bar tab: Chat, Work and Code.
+ * Three workspaces, one per top-bar tab: Chat, Workers and ADE.
  *
  * The ids look scrambled and are kept that way on purpose. The chat workspace
- * has always been `work` and the agent workspace `code`, and every chat and
- * project on disk points at one of them — renaming an id would move that
- * history into the wrong tab. Only the Eaon Code tab, which is new, got an id
- * that matches its name.
+ * has always been `work`, and every chat and project on disk points at it —
+ * renaming an id would move that history into the wrong tab. The old agent
+ * tab ("Work", id `code`) was folded into Chat when Chat became the agent; see
+ * `migrateWorkspaces`. Workers keep their own store (features/workers), so
+ * their tab holds no chats.
  */
 export const DEFAULT_WORKSPACES: Workspace[] = [
-  { id: 'work', name: 'Chat', kind: 'chat' },
-  { id: 'code', name: 'Work', kind: 'work', cwd: null },
-  { id: 'eaon-code', name: 'Code', kind: 'code', cwd: null }
+  { id: 'work', name: 'Chat', kind: 'chat', cwd: null },
+  { id: 'workers', name: 'Workers', kind: 'workers' },
+  { id: 'eaon-code', name: 'ADE', kind: 'code', cwd: null }
 ]
 
 const CHAT_WORKSPACE_ID = DEFAULT_WORKSPACES[0].id
-const WORK_WORKSPACE_ID = DEFAULT_WORKSPACES[1].id
+const WORKERS_WORKSPACE_ID = DEFAULT_WORKSPACES[1].id
 const CODE_WORKSPACE_ID = DEFAULT_WORKSPACES[2].id
 
 export const defaultSettings: Settings = {
@@ -85,7 +120,8 @@ export const defaultSettings: Settings = {
     bottomPanel: false,
     preventSleep: false,
     suggestedPrompts: true,
-    launchAtLogin: false
+    launchAtLogin: false,
+    launchMode: 'chat'
   },
   appearance: {
     mode: 'dark',
@@ -110,7 +146,6 @@ export const defaultSettings: Settings = {
       contrast: 60
     },
     pointerCursors: false,
-    dockIcon: 'color',
     reduceMotion: 'system',
     fontSize: 14,
     fontSmoothing: true
@@ -122,8 +157,6 @@ export const defaultSettings: Settings = {
     webSearch: 'Cached',
     outputDetail: 'Model default',
     reasoningSummary: 'Auto',
-    availableEfforts: ['light', 'medium', 'high', 'extra-high', 'ultra'],
-    ultraInPicker: false,
     workspaceDependencies: true
   },
   browser: {
@@ -182,6 +215,7 @@ export const defaultSettings: Settings = {
   activeWorkspaceId: 'work',
   selectedModelId: null,
   selectedProviderId: null,
+  favoriteModels: [],
   effort: 'light',
   approvalMode: 'ask',
   planMode: false,
@@ -207,12 +241,11 @@ export const defaultSettings: Settings = {
     enabled: true,
     port: 47821
   },
-  pets: {
+  discord: {
     enabled: false,
-    species: 'fox',
-    name: 'Pip',
-    size: 'medium',
-    desktop: false
+    showStatus: true,
+    showElapsed: true,
+    showButton: true
   },
   eaonCode: {
     binaryPath: null,
@@ -252,9 +285,17 @@ function merge<T>(base: T, patch: unknown): T {
   return out as T
 }
 
+/**
+ * Top-level settings that features which no longer exist wrote. merge() keeps
+ * keys it doesn't know, so without this they would be written back forever.
+ */
+const REMOVED_SETTINGS = ['pets']
+
 export const store = {
   getSettings(): Settings {
-    return merge(defaultSettings, readJson<Partial<Settings>>('settings.json', {}))
+    const saved = readJson<Record<string, unknown>>('settings.json', {})
+    if (saved && typeof saved === 'object') for (const key of REMOVED_SETTINGS) delete saved[key]
+    return merge(defaultSettings, saved)
   },
   saveSettings(settings: Settings): Settings {
     writeJson('settings.json', settings)
@@ -275,16 +316,18 @@ export const store = {
   },
 
   /**
-   * Brings an install up to the canonical three-workspace layout: Chat, Work,
-   * Code.
+   * Brings an install up to the canonical three-workspace layout: Chat,
+   * Workers, ADE.
    *
    * Runs against every shape of stored data seen so far — the old free-form
    * workspaces, the single collapsed one written while the agent was hidden,
-   * the Chat/Work pair, and the current trio. Anything pointing at a workspace
-   * that no longer exists is re-homed to Chat rather than dropped, so no chat
-   * or project disappears from view; a folder already chosen for Work or Code
-   * is carried across. The active id is repaired for the same reason: pointing
-   * at a missing workspace opens to an empty list with no way out.
+   * the Chat/Work pair, the Chat/Work/Code trio, and the current layout.
+   * Anything pointing at a workspace that no longer exists is re-homed to Chat
+   * rather than dropped, so no chat or project disappears from view. That is
+   * how the Work tab's history lands in Chat now that Chat is the agent; the
+   * folder chosen for Work comes along, since Chat now works in it. The active
+   * id is repaired for the same reason: pointing at a missing workspace opens
+   * to an empty list with no way out.
    */
   migrateWorkspaces(): void {
     const existing = readJson<Workspace[]>('workspaces.json', [])
@@ -294,20 +337,19 @@ export const store = {
     const work = existing.find((w) => w.kind === 'work')
     const code = existing.find((w) => w.kind === 'code')
     const chatId = chat?.id ?? CHAT_WORKSPACE_ID
-    const workId = work?.id ?? WORK_WORKSPACE_ID
     const codeId = code?.id ?? CODE_WORKSPACE_ID
     // Names are the tab labels, so they are reset rather than carried over —
-    // older installs called these "Eaon" and "Code".
+    // older installs called these "Eaon", "Work" and "Code".
     const workspaces: Workspace[] = [
-      { id: chatId, name: 'Chat', kind: 'chat' },
-      { id: workId, name: 'Work', kind: 'work', cwd: work?.cwd ?? null },
-      { id: codeId, name: 'Code', kind: 'code', cwd: code?.cwd ?? null }
+      { id: chatId, name: 'Chat', kind: 'chat', cwd: chat?.cwd ?? work?.cwd ?? null },
+      { id: WORKERS_WORKSPACE_ID, name: 'Workers', kind: 'workers' },
+      { id: codeId, name: 'ADE', kind: 'code', cwd: code?.cwd ?? null }
     ]
 
-    const known = new Set([chatId, workId, codeId])
+    const known = new Set(workspaces.map((w) => w.id))
     const active = settings.activeWorkspaceId && known.has(settings.activeWorkspaceId) ? settings.activeWorkspaceId : chatId
     const canonical =
-      existing.length === 3 &&
+      existing.length === workspaces.length &&
       existing.every((w, i) => w.id === workspaces[i].id && w.kind === workspaces[i].kind && w.name === workspaces[i].name) &&
       settings.activeWorkspaceId === active
     if (canonical) return
@@ -330,6 +372,20 @@ export const store = {
     if (settings.activeWorkspaceId !== active) writeJson('settings.json', { ...settings, activeWorkspaceId: active })
   },
 
+  /**
+   * Opens the app in the mode chosen under Settings → General → Open on
+   * launch. Runs once at startup, after `migrateWorkspaces`; "last" leaves
+   * the mode the app was closed in.
+   */
+  applyLaunchMode(): void {
+    const settings = this.getSettings()
+    const mode = settings.general.launchMode
+    if (!mode || mode === 'last') return
+    const kind = mode === 'ade' ? 'code' : mode
+    const target = this.getWorkspaces().find((w) => w.kind === kind)
+    if (target && target.id !== settings.activeWorkspaceId) this.saveSettings({ ...settings, activeWorkspaceId: target.id })
+  },
+
   getProjects(): Project[] {
     return readJson<Project[]>('projects.json', [])
   },
@@ -341,9 +397,13 @@ export const store = {
   getChats(): Chat[] {
     return readJson<Chat[]>('chats.json', [])
   },
-  saveChats(chats: Chat[]): Chat[] {
+  /**
+   * Returns nothing on purpose: this is what `chats:save` answers the renderer
+   * with, and echoing the array back cloned the whole history across IPC a
+   * second time on every save, for a reply nobody read.
+   */
+  saveChats(chats: Chat[]): void {
     writeJsonAsync('chats.json', chats)
-    return chats
   },
 
   /** Awaits any in-flight async write so quitting cannot drop the last save. */
@@ -382,7 +442,7 @@ export const store = {
     return servers
   },
 
-  getProviderConfig(): Record<string, { baseUrl?: string; enabled?: boolean; models?: unknown[]; name?: string; kind?: string }> {
+  getProviderConfig(): Record<string, ProviderOverride> {
     return readJson('providers.json', {})
   },
   saveProviderConfig(config: Record<string, unknown>): void {
@@ -399,6 +459,10 @@ export const store = {
   },
   setJson(name: string, value: unknown): void {
     writeJson(name, value)
+  },
+  /** `setJson` for documents that grow without bound (worker threads): off the main thread, newest write wins. */
+  setJsonAsync(name: string, value: unknown): void {
+    writeJsonAsync(name, value)
   },
 
   getDownloadedModels(): DownloadedModel[] {

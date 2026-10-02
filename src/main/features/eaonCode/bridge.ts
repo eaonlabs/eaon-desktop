@@ -33,9 +33,14 @@ export interface BridgeDeps {
   detect?: (configured: string | null) => Promise<EaonCodeStatus>
 }
 
-/** Commands the renderer may send, and how long each may take. 0 = no limit. */
+/**
+ * Commands the renderer may send, and how long each may take. 0 = no limit.
+ * `prompt` is answered only after its preflight, which can run a whole
+ * compaction or an extension command first; a limit there reported a failure
+ * for a prompt that was in fact accepted and went on to run.
+ */
 const COMMAND_TIMEOUTS: Record<EaonCommand['type'], number> = {
-  prompt: 120_000,
+  prompt: 0,
   steer: 30_000,
   follow_up: 30_000,
   abort: 60_000,
@@ -196,6 +201,10 @@ export class EaonCodeBridge {
         this.child = null
         this.batcher = null
         batcher.dispose()
+        // The binary may be what broke — uninstalled, or moved by an nvm or
+        // npm update — so "Try again" looks for it afresh instead of reusing
+        // a cached "ready" that would fail the same way every time.
+        this.cachedStatus = null
         this.setInfo({ state: 'exited', cwd, stderr: child.stderrTail(), crashed: true, exitCode: null })
         const message = (error as Error).message
         throw new Error(tail && !message.includes(tail) ? `${message}\n${tail}` : message)
@@ -208,7 +217,8 @@ export class EaonCodeBridge {
   async command(command: EaonCommand): Promise<unknown> {
     const child = this.child
     if (!child || !child.running) throw new Error('No Eaon Code session is running.')
-    if (!(command.type in COMMAND_TIMEOUTS)) throw new Error(`Unsupported command: ${command.type}`)
+    // hasOwn, not `in`: `in` also admits "constructor", "toString" and the rest of Object's prototype.
+    if (!Object.hasOwn(COMMAND_TIMEOUTS, command.type)) throw new Error(`Unsupported command: ${command.type}`)
     // Anything not yet delivered must reach the renderer before the answer does,
     // or a state it asks for could land ahead of the events that produced it.
     this.batcher?.flush()

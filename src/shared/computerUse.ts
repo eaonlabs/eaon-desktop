@@ -8,6 +8,18 @@ export type PermissionState = 'granted' | 'denied' | 'not-determined' | 'restric
 
 export type PermissionKind = 'screen' | 'accessibility'
 
+/**
+ * The app macOS charges Eaon's privacy permissions to (its "responsible"
+ * process). That is Eaon when it is opened from Finder or the Dock, and the
+ * terminal when it is started from one — `npm run dev`, for instance.
+ */
+export interface PermissionOwner {
+  /** True when it is Eaon itself. */
+  self: boolean
+  /** The name System Settings lists it under; null when it could not be told. */
+  name: string | null
+}
+
 export interface ComputerDisplay {
   id: number
   primary: boolean
@@ -23,6 +35,16 @@ export interface ComputerUseStatus {
   screen: PermissionState
   /** Accessibility on macOS — needed to post mouse and keyboard events. */
   accessibility: PermissionState
+  /** macOS: whose switch to turn on in System Settings; null on other platforms. */
+  owner: PermissionOwner | null
+  /**
+   * macOS: Screen Recording has been asked for since Eaon started. macOS
+   * applies it only after a relaunch, so until Eaon restarts `screen` can
+   * read "denied" even once the switch is on.
+   */
+  screenRequested: boolean
+  /** "Quit & reopen" can bring Eaon back by itself (false in development, where the terminal has to). */
+  canRelaunch: boolean
   input: {
     available: boolean
     /** e.g. "CoreGraphics via JXA". */

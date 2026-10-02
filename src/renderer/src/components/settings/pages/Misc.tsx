@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
 import { useApp } from '../../../state/store'
 import { Card, Row, Section, Select, Switch } from '../../ui'
 
@@ -64,7 +65,7 @@ export function AppshotsPage(): JSX.Element {
 /* -------------------------------------------------------- Browser settings */
 
 export function BrowserSettingsPage(): JSX.Element {
-  const { settings, patchSettings } = useApp()
+  const { settings, patchSettings } = useApp(useShallow((s) => ({ settings: s.settings, patchSettings: s.patchSettings })))
   const [engine, setEngine] = useLocal('browser.engine', 'DuckDuckGo')
   const [blockTrackers, setBlockTrackers] = useLocal('browser.blockTrackers', true)
 

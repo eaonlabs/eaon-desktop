@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
+import type { PermissionOwner } from '@shared/computerUse'
 import type { Point } from './geometry'
 import { LineHelper } from './helper'
 import type { AppRef, BackendCheck, InputBackend, MouseButton } from './input'
@@ -213,6 +214,49 @@ function main() {
 main()
 `
 
+/**
+ * Who macOS charges Eaon's privacy permissions to. TCC attributes a process
+ * to the app that started it unless it was launched through LaunchServices:
+ * opened from Finder or the Dock, Eaon's parent is launchd and the
+ * permissions are Eaon's own. Started from a shell (`npm run dev`, or the
+ * binary run directly) they belong to the terminal, and switching on Eaon or
+ * Electron does nothing. The osascript and screencapture children inherit the
+ * same owner. The terminal is the nearest ancestor that is an app bundle;
+ * under tmux the chain ends at launchd first and the name stays unknown.
+ */
+let owner: Promise<PermissionOwner> | null = null
+
+export function permissionOwner(): Promise<PermissionOwner> {
+  if (process.platform !== 'darwin' || process.ppid === 1) return Promise.resolve({ self: true, name: 'Eaon' })
+  owner ??= (async (): Promise<PermissionOwner> => {
+    const { stdout } = await run('/bin/ps', ['-axww', '-o', 'pid=,ppid=,comm='], { maxBuffer: 16 * 1024 * 1024 })
+    const parents = new Map<number, { ppid: number; path: string }>()
+    for (const line of stdout.split('\n')) {
+      const match = /^\s*(\d+)\s+(\d+)\s+(.+)$/.exec(line)
+      if (match) parents.set(Number(match[1]), { ppid: Number(match[2]), path: match[3] })
+    }
+    let pid = process.ppid
+    for (let hops = 0; pid > 1 && hops < 32; hops++) {
+      const proc = parents.get(pid)
+      if (!proc) break
+      // The outermost bundle: VS Code's shells run under "Visual Studio
+      // Code.app/…/Code Helper (Plugin).app", and the list says Visual Studio Code.
+      const bundle = /\/([^/]+)\.app(?:\/|$)/.exec(proc.path)
+      if (bundle) return { self: false, name: bundle[1] }
+      pid = proc.ppid
+    }
+    return { self: false, name: null }
+  })().catch(() => ({ self: false, name: null }))
+  return owner
+}
+
+/** The owner as tool errors name it, so the model can tell the user which switch to flip. */
+export async function permissionOwnerLabel(): Promise<string> {
+  const who = await permissionOwner()
+  if (who.self) return 'Eaon'
+  return who.name ? `${who.name} (the app Eaon was started from)` : 'the app Eaon was started from (usually a terminal)'
+}
+
 export class MacInput implements InputBackend {
   readonly name = 'CoreGraphics via JXA'
   private helper = new LineHelper('JXA', '/usr/bin/osascript', () => ['-l', 'JavaScript', '-e', SCRIPT])
@@ -220,12 +264,9 @@ export class MacInput implements InputBackend {
   async check(): Promise<BackendCheck> {
     try {
       const result = await this.helper.request<{ trusted: boolean; locked: boolean }>('check', {}, 8000)
-      return {
-        available: true,
-        trusted: result.trusted,
-        locked: result.locked,
-        ...(result.trusted ? {} : { detail: 'Eaon is not allowed to control the computer yet (Accessibility).' })
-      }
+      // An untrusted helper is still available: the setup steps in Settings
+      // and the tool's own error say what to switch on.
+      return { available: true, trusted: result.trusted, locked: result.locked }
     } catch (error) {
       return { available: false, detail: (error as Error).message }
     }

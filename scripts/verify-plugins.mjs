@@ -105,9 +105,9 @@ async function tryAuthorize(url) {
   return { status: res.status, accepted, detail }
 }
 
-async function listToolsLive(endpoint) {
+async function listToolsLive(endpoint, headers = {}) {
   const client = new Client({ name: 'eaon-verify', version: '1' })
-  const transport = new StreamableHTTPClientTransport(new URL(endpoint))
+  const transport = new StreamableHTTPClientTransport(new URL(endpoint), { requestInit: { headers } })
   try {
     await client.connect(transport)
     const { tools } = await client.listTools()
@@ -192,6 +192,19 @@ async function verify(entry, clientMetadata, redirectUri) {
   row.authServer = metadata ? new URL(metadata.issuer ?? authServerUrl).host : null
   row.registration = Boolean(metadata?.registration_endpoint)
 
+  if (entry.authMode === 'pastedToken' && res.ok) {
+    // Some token servers (Tradier) let anyone connect and list tools, and
+    // check the key on each call instead. Alive means it speaks MCP.
+    try {
+      const tools = await listToolsLive(entry.endpoint, entry.extraHeaders ?? {})
+      row.tools = tools.length
+      row.verdict = tools.length > 0 ? 'OK' : 'FAIL'
+      row.note = `token checked per call (anonymous → ${res.status}); ${tools.length} tools`
+    } catch (error) {
+      row.note = `connect failed: ${errorText(error)}`
+    }
+    return row
+  }
   if (entry.authMode === 'pastedToken') {
     // A token server is alive when it refuses an anonymous request as
     // unauthorised rather than 404ing or erroring.

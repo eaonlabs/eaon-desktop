@@ -104,6 +104,15 @@ export function summariseSession(path: string, raw: string, mtimeMs: number): Ea
 }
 
 /**
+ * Summaries by file, reused while its size and mtime stand still. The list is
+ * re-read after every turn, when only the running session's file has moved;
+ * parsing every line of every other session again each time was main-process
+ * work that grew with the project's history.
+ */
+const summaryCache = new Map<string, { mtimeMs: number; size: number; summary: EaonSessionInfo | null }>()
+const SUMMARY_CACHE_MAX = 2000
+
+/**
  * Sessions saved for `cwd`, newest first. `extraDirs` adds folders to scan —
  * the directory of the running session's own file, which is authoritative
  * even when a project-level setting moved it somewhere we could not predict.
@@ -119,7 +128,7 @@ export async function listSessions(
   const custom = customSessionDir(info, agentDir, env)
   const dirs = [...new Set([custom ?? defaultSessionDir(agentDir, cwd), ...(options.extraDirs ?? [])])]
 
-  const files: { path: string; mtimeMs: number }[] = []
+  const files: { path: string; mtimeMs: number; size: number }[] = []
   for (const dir of dirs) {
     if (!existsSync(dir)) continue
     let names: string[]
@@ -132,7 +141,8 @@ export async function listSessions(
       if (!name.endsWith('.jsonl')) continue
       const path = join(dir, name)
       try {
-        files.push({ path, mtimeMs: (await stat(path)).mtimeMs })
+        const { mtimeMs, size } = await stat(path)
+        files.push({ path, mtimeMs, size })
       } catch {
         /* removed while listing */
       }
@@ -143,13 +153,21 @@ export async function listSessions(
   const limit = options.limit ?? 60
   const sessions: EaonSessionInfo[] = []
   for (const file of files.slice(0, limit * 2)) {
-    let raw: string
-    try {
-      raw = await readFile(file.path, 'utf8')
-    } catch {
-      continue
+    const cached = summaryCache.get(file.path)
+    let summary: EaonSessionInfo | null
+    if (cached && cached.mtimeMs === file.mtimeMs && cached.size === file.size) {
+      summary = cached.summary
+    } else {
+      let raw: string
+      try {
+        raw = await readFile(file.path, 'utf8')
+      } catch {
+        continue
+      }
+      summary = summariseSession(file.path, raw, file.mtimeMs)
+      if (summaryCache.size >= SUMMARY_CACHE_MAX) summaryCache.clear()
+      summaryCache.set(file.path, { mtimeMs: file.mtimeMs, size: file.size, summary })
     }
-    const summary = summariseSession(file.path, raw, file.mtimeMs)
     if (!summary) continue
     // A shared folder mixes projects; the default one is per-project already.
     if (summary.cwd && canonicalCwd(summary.cwd) !== target && resolve(summary.cwd) !== resolve(cwd)) continue

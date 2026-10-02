@@ -209,9 +209,10 @@ export class SchedulerEngine {
       const expected = nextRunAfter(task.schedule, now)
 
       if (this.running.has(task.id)) {
-        // Never two at once: a slot that comes due mid-run is skipped.
+        // Never two at once: a slot that comes due mid-run is skipped. A
+        // one-off's only slot is then used up, so it is switched off.
         if (task.nextRunAt <= now) {
-          task.nextRunAt = expected
+          this.advance(task, now)
           changed = true
         }
         continue

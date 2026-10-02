@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { describeSchedule, type ScheduledTask } from '@shared/scheduler'
 import type { Chat, ChatMessage, ModelInfo, Provider, Settings, StreamEvent, StreamRequest } from '@shared/types'
+import { clampEffort } from '@shared/effort'
 import type { RunOptions, RunOutcome } from '../../agent/loop'
 import { listProviders } from '../../providers'
 import { store } from '../../store'
@@ -17,8 +18,8 @@ import { applyStreamEvent, summariseReply } from './transcript'
  */
 
 export interface ChatSink {
-  /** The chat as it stands. Called when the run starts and when it ends. */
-  put: (chat: Chat) => Promise<void>
+  /** The chat as it stands. Called when the run starts and when it ends (`done`). */
+  put: (chat: Chat, done?: boolean) => Promise<void>
   stream: (event: StreamEvent) => void
 }
 
@@ -28,7 +29,18 @@ export interface RunnerDeps {
   runAgent: RunAgent
   sink: ChatSink
   notify: (task: ScheduledTask, chatId: string, result: RunResult) => void
+  /** Overrides STALL_MS; for tests. */
+  stallMs?: number
 }
+
+/**
+ * A run with no sign of life for this long is presumed hung and stopped.
+ * Nothing legitimate is silent that long: the model streams as it goes, and
+ * the slowest tool (run_command, at most 10 minutes) is killed before then.
+ * Without it a stream that died with the network — the Mac slept mid-run —
+ * holds the task as running forever, and every later slot is skipped.
+ */
+export const STALL_MS = 15 * 60_000
 
 type Resolved = { ok: true; providerId: string; modelId: string; model: ModelInfo | undefined } | { ok: false; error: string }
 
@@ -37,7 +49,13 @@ type Resolved = { ok: true; providerId: string; modelId: string; model: ModelInf
  * provider is usable; otherwise it follows the app's current choice, resolved
  * the way the composer does (`currentModel()` in the renderer store).
  */
-export function resolveModel(task: ScheduledTask, settings: Settings, providers: Provider[] = listProviders()): Resolved {
+export function resolveModel(
+  task: { model: ScheduledTask['model'] },
+  settings: Settings,
+  providers: Provider[] = listProviders(),
+  /** What the messages call the thing that pinned the model — a task, or a worker. */
+  noun = 'task'
+): Resolved {
   const usable = providers.filter((p) => p.enabled && (p.hasKey || p.local))
   if (task.model) {
     const provider = usable.find((p) => p.id === task.model!.providerId)
@@ -46,8 +64,8 @@ export function resolveModel(task: ScheduledTask, settings: Settings, providers:
       return {
         ok: false,
         error: known
-          ? `${known.name} is turned off or has no key, so this task's model (${task.model.modelId}) is unavailable. Fix it in Settings → Model providers, or edit the task to use another model.`
-          : `This task's model provider (${task.model.providerId}) no longer exists. Edit the task to pick another model.`
+          ? `${known.name} is turned off or has no key, so this ${noun}'s model (${task.model.modelId}) is unavailable. Fix it in Settings → Model providers, or edit the ${noun} to use another model.`
+          : `This ${noun}'s model provider (${task.model.providerId}) no longer exists. Edit the ${noun} to pick another model.`
       }
     }
     return { ok: true, providerId: provider.id, modelId: task.model.modelId, model: provider.models.find((m) => m.id === task.model!.modelId) }
@@ -57,15 +75,18 @@ export function resolveModel(task: ScheduledTask, settings: Settings, providers:
     models.find((m) => m.id === settings.selectedModelId && m.providerId === settings.selectedProviderId) ??
     models.find((m) => m.id === settings.selectedModelId) ??
     models[0]
-  if (!chosen) return { ok: false, error: 'No model is available. Add an API key in Settings → Model providers, or pick a model for this task.' }
+  if (!chosen) return { ok: false, error: `No model is available. Add an API key in Settings → Model providers, or pick a model for this ${noun}.` }
   return { ok: true, providerId: chosen.providerId, modelId: chosen.id, model: chosen }
 }
 
-/** Chat workspace is id `work`, Work is `code` — see DEFAULT_WORKSPACES for why. */
-function workspaceFor(task: ScheduledTask): { id: string; cwd: string | null } {
-  const kind = task.mode === 'work' ? 'work' : 'chat'
-  const workspace = store.getWorkspaces().find((w) => w.kind === kind)
-  return { id: workspace?.id ?? (kind === 'work' ? 'code' : 'work'), cwd: workspace?.cwd ?? null }
+/**
+ * Every run's chat lands in Chat, which is also the agent now that the
+ * separate Work tab is gone; the task's mode still decides its tools. Chat's
+ * id is `work` — see DEFAULT_WORKSPACES for why.
+ */
+function workspaceFor(_task: ScheduledTask): { id: string; cwd: string | null } {
+  const workspace = store.getWorkspaces().find((w) => w.kind === 'chat')
+  return { id: workspace?.id ?? 'work', cwd: workspace?.cwd ?? null }
 }
 
 /**
@@ -108,10 +129,9 @@ export async function runScheduledTask(task: ScheduledTask, handle: RunHandle, d
     scheduledTaskId: task.id,
     ...(target.ok ? { model: target.modelId } : {})
   }
-  // Effort vocabularies differ per model; clamp the app's level the way the
-  // composer does when the model changes.
-  const efforts = target.ok ? (target.model?.efforts ?? []) : []
-  const effort = efforts.length > 0 && !efforts.includes(settings.effort) ? efforts[efforts.length - 1] : settings.effort
+  // The app's level clamped down to what the model takes, as the composer
+  // shows it — never bumped to the model's highest, which ran tasks at Max.
+  const effort = (target.ok ? clampEffort(settings.effort, target.model?.efforts) : undefined) ?? settings.effort
   const chat: Chat = {
     id: randomUUID(),
     workspaceId: workspace.id,
@@ -133,7 +153,7 @@ export async function runScheduledTask(task: ScheduledTask, handle: RunHandle, d
   if (!target.ok) {
     assistant.error = target.error
     chat.updatedAt = Date.now()
-    await deps.sink.put(chat)
+    await deps.sink.put(chat, true)
     result = { status: 'failed', chatId: chat.id, error: target.error }
   } else {
     const request: StreamRequest = {
@@ -153,30 +173,68 @@ export async function runScheduledTask(task: ScheduledTask, handle: RunHandle, d
       work: { swarm: false, plan: false },
       goal: null
     }
-    const outcome = await deps.runAgent(
-      request,
-      (event) => {
-        applyStreamEvent(chat, event)
-        deps.sink.stream(event)
-      },
-      {
-        signal: handle.signal,
-        unattended: task.mode === 'work' && task.allowChanges ? 'safe' : 'read-only',
-        // Only reached by a tool's own extra confirmation (computer use asking
-        // before each click); with nobody to ask, the answer is no.
-        approver: async () => false
+    // The run's own signal: Stop (the engine's) or the stall watchdog.
+    const controller = new AbortController()
+    const stop = (): void => controller.abort()
+    handle.signal.addEventListener('abort', stop, { once: true })
+    const stallMs = deps.stallMs ?? STALL_MS
+    let stalled = false
+    // Monotonic, like the timer: time asleep does not count, so a local model
+    // that carries on after the Mac wakes is not cut off for it.
+    let lastSign = performance.now()
+    let watchdog: ReturnType<typeof setTimeout> | undefined
+    const check = (): void => {
+      const quiet = performance.now() - lastSign
+      if (quiet < stallMs) {
+        watchdog = setTimeout(check, stallMs - quiet)
+        return
       }
-    )
-    const cancelled = handle.signal.aborted && !outcome.error
-    if (outcome.error && !assistant.error) assistant.error = outcome.error
+      stalled = true
+      controller.abort()
+    }
+    let outcome: RunOutcome
+    try {
+      watchdog = setTimeout(check, stallMs)
+      // Stopped while the chat was being saved: an abort that has already
+      // happened would never reach runAgent's listener.
+      outcome = handle.signal.aborted
+        ? { text: '', usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, cancelled: true }
+        : await deps.runAgent(
+            request,
+            (event) => {
+              lastSign = performance.now()
+              applyStreamEvent(chat, event)
+              deps.sink.stream(event)
+            },
+            {
+              signal: controller.signal,
+              unattended: task.mode === 'work' && task.allowChanges ? 'safe' : 'read-only',
+              // Only reached by a tool's own extra confirmation (computer use asking
+              // before each click); with nobody to ask, the answer is no.
+              approver: async () => false
+            }
+          )
+    } finally {
+      clearTimeout(watchdog)
+      handle.signal.removeEventListener('abort', stop)
+    }
+    const error =
+      outcome.error ??
+      (stalled
+        ? `No progress for ${Math.round(stallMs / 60_000)} minutes, so the run was stopped. The model or a tool stopped responding — a dropped connection, or the computer sleeping mid-run, can do that.`
+        : undefined)
+    // The loop's own flag as well as ours: Emergency Stop cancels the loop
+    // directly, and without it that run was recorded as having succeeded.
+    const cancelled = (handle.signal.aborted || outcome.cancelled === true) && !error
+    if (error && !assistant.error) assistant.error = error
     chat.updatedAt = Date.now()
-    await deps.sink.put(chat)
+    await deps.sink.put(chat, true)
     const summary = summariseReply(outcome.text)
     result = {
-      status: outcome.error ? 'failed' : cancelled ? 'cancelled' : 'succeeded',
+      status: error ? 'failed' : cancelled ? 'cancelled' : 'succeeded',
       chatId: chat.id,
-      ...(outcome.error ? { error: outcome.error } : {}),
-      ...(summary ? { summary } : !outcome.error && !cancelled ? { summary: 'Finished without a written reply.' } : {})
+      ...(error ? { error } : {}),
+      ...(summary ? { summary } : !error && !cancelled ? { summary: 'Finished without a written reply.' } : {})
     }
   }
   deps.notify(task, chat.id, result)

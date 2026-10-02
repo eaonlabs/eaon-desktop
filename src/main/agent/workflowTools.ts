@@ -122,6 +122,49 @@ const goalBlocked: AgentTool = {
   }
 }
 
+/** The longest one wait may last; the agent can wait again. */
+const MAX_WAIT_MINUTES = 120
+
+/**
+ * A goal with an end time runs for hours, and much of a long task is
+ * waiting — for a build, a reply, a price. Without this the agent either
+ * stops (and is sent straight back) or polls in a tight loop, paying for a
+ * model call every few seconds. Never past the goal's end time.
+ */
+const wait: AgentTool = {
+  name: 'wait',
+  description: 'Pause for a number of minutes before your next step, when you are waiting for something to happen. Never past your end time.',
+  inputSchema: {
+    type: 'object',
+    properties: {
+      minutes: { type: 'number', description: `1–${MAX_WAIT_MINUTES}` },
+      reason: { type: 'string', description: 'What you are waiting for' }
+    },
+    required: ['minutes']
+  },
+  mutating: false,
+  describe: (input) => `${Number(input.minutes) || 1} min${str(input.reason) ? ` · ${str(input.reason)}` : ''}`,
+  run: async (input, ctx) => {
+    const until = ctx.request.goal?.until ?? Date.now()
+    const asked = Math.min(Math.max(Number(input.minutes) || 1, 1), MAX_WAIT_MINUTES) * 60_000
+    const ms = Math.max(0, Math.min(asked, until - Date.now()))
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, ms)
+      ctx.signal?.addEventListener(
+        'abort',
+        () => {
+          clearTimeout(timer)
+          resolve()
+        },
+        { once: true }
+      )
+    })
+    const now = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+    const left = Math.max(0, Math.round((until - Date.now()) / 60_000))
+    return left > 0 ? `Waited ${Math.round(ms / 60_000)} min. It is ${now}; ${left} min left.` : `Waited until the end time (${now}). Wrap up now.`
+  }
+}
+
 registerToolSource({
   id: 'workflow',
   tools: (query) => {
@@ -129,6 +172,7 @@ registerToolSource({
     const tools = [updatePlan]
     if (query.readOnly) tools.push(presentPlan)
     if (query.request.goal?.status === 'active' && !query.readOnly) tools.push(goalComplete, goalBlocked)
+    if (query.request.goal?.status === 'active' && query.request.goal.until && !query.readOnly) tools.push(wait)
     return tools
   }
 })

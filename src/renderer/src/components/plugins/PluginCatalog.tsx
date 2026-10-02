@@ -35,7 +35,9 @@ export function PluginCatalog(): JSX.Element {
   const matches = (entry: McpCatalogEntry): boolean =>
     !q || entry.displayName.toLowerCase().includes(q) || entry.summary.toLowerCase().includes(q)
   const mine = MCP_CATALOG.filter((entry) => connectedIds.has(entry.id) && matches(entry))
-  const rest = MCP_CATALOG.filter((entry) => !connectedIds.has(entry.id) && matches(entry))
+  // Brokers get their own group: what each lets an agent do matters more than the rest of the list.
+  const brokers = MCP_CATALOG.filter((entry) => entry.category === 'trading' && !connectedIds.has(entry.id) && matches(entry))
+  const rest = MCP_CATALOG.filter((entry) => entry.category !== 'trading' && !connectedIds.has(entry.id) && matches(entry))
 
   const row = (entry: McpCatalogEntry): JSX.Element => (
     <PluginRow
@@ -66,7 +68,13 @@ export function PluginCatalog(): JSX.Element {
         </Section>
       )}
 
-      <Section label={mine.length > 0 || q ? 'Available' : undefined}>
+      {brokers.length > 0 && (
+        <Section label="Brokers — let a worker trade for you">
+          <div className="plugin-list">{brokers.map(row)}</div>
+        </Section>
+      )}
+
+      <Section label={mine.length > 0 || brokers.length > 0 || q ? 'Available' : undefined}>
         {rest.length > 0 ? (
           <div className="plugin-list">{rest.map(row)}</div>
         ) : (
@@ -147,17 +155,42 @@ function PluginRow({
 
       {expanded && (
         <div className="plugin-row__panel">
-          {entry.authMode === 'none' ? (
-            <OpenPanel entry={entry} connected={connected} />
-          ) : entry.authMode === 'oauth' ? (
-            <OAuthPanel entry={entry} connected={connected} status={status} />
-          ) : (
-            <TokenPanel entry={entry} connected={connected} />
-          )}
-          {connected && status?.state === 'error' && status.error && <ErrorNote text={status.error} />}
+          <PluginConnect entry={entry} connected={connected} status={status} />
         </div>
       )}
     </div>
+  )
+}
+
+/**
+ * The connect controls for one catalog entry — sign in, paste a token, or one
+ * click — exactly as its catalog row shows them. Exported so the worker
+ * editor can connect a broker in place without a second implementation.
+ */
+export function PluginConnect({
+  entry,
+  connected,
+  status,
+  hideNote = false
+}: {
+  entry: McpCatalogEntry
+  connected: boolean
+  status: McpServerStatus | undefined
+  /** The caller already says what the broker does. */
+  hideNote?: boolean
+}): JSX.Element {
+  return (
+    <>
+      {entry.tradingNote && !hideNote && <p className="plugin-row__hint plugin-row__trading">{entry.tradingNote}</p>}
+      {entry.authMode === 'none' ? (
+        <OpenPanel entry={entry} connected={connected} />
+      ) : entry.authMode === 'oauth' ? (
+        <OAuthPanel entry={entry} connected={connected} status={status} />
+      ) : (
+        <TokenPanel entry={entry} connected={connected} />
+      )}
+      {connected && status?.state === 'error' && status.error && <ErrorNote text={status.error} />}
+    </>
   )
 }
 
@@ -198,7 +231,7 @@ function OpenPanel({ entry, connected }: { entry: McpCatalogEntry; connected: bo
   const { busy, error, run } = useAction()
   return (
     <>
-      <p className="plugin-row__hint">No account needed — {entry.displayName} is public. Its tools become available in Work.</p>
+      <p className="plugin-row__hint">No account needed — {entry.displayName} is public. Its tools become available in Chat and to Workers.</p>
       <div className="plugin-row__actions">
         {connected ? (
           <button className="btn" disabled={busy} onClick={() => void run(() => window.api.pluginAuth.disconnect(entry.id))}>

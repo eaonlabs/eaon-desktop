@@ -1,18 +1,18 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { useApp } from '../state/store'
-import { CollapsedNav } from './CollapsedNav'
+import { TopBar } from './TopBar'
 import { Segmented } from './ui'
 import { useLibrary } from './models/libraryStore'
-import { DEVICE, OllamaBanner } from './models/parts'
+import { DEVICE, RuntimeBanner } from './models/parts'
 import { LibraryView } from './models/LibraryView'
 import { LibraryDetail } from './models/LibraryDetail'
 import { InstalledView } from './models/InstalledView'
 import { HubBrowser, HubDetail } from './models/HubBrowser'
 
 /**
- * Local models. Three tabs: the curated Library (suggestions sized to this
- * machine, one-click Get through Ollama), what is Installed, and the original
- * Hugging Face browser for anything else. See .eaonbrain/local-model-hub.md.
+ * Local models, run by Eaon's own llama.cpp. Three tabs: the curated Library
+ * (suggestions sized to this machine, one-click Get), what is downloaded, and
+ * the Hugging Face browser for anything else. See .eaonbrain/local-model-hub.md.
  *
  * Which detail view is open lives in the store's `modelsRepo` — a Hugging
  * Face repo id, or `library:<id>` for a catalog model — so clicking Models in
@@ -23,7 +23,6 @@ import { HubBrowser, HubDetail } from './models/HubBrowser'
 type Tab = 'library' | 'installed' | 'hub'
 
 export function ModelsPage(): JSX.Element {
-  const sidebarOpen = useApp((s) => s.sidebarOpen)
   const selected = useApp((s) => s.modelsRepo)
   const setSelected = useApp((s) => s.setModelsRepo)
   const load = useLibrary((s) => s.load)
@@ -34,7 +33,7 @@ export function ModelsPage(): JSX.Element {
 
   useEffect(() => {
     void load()
-    // Ollama may have been started, or a model pulled, from outside the app.
+    // A model may have finished loading or unloaded while the window was away.
     const onFocus = (): void => void refresh().catch(() => {})
     window.addEventListener('focus', onFocus)
     return () => window.removeEventListener('focus', onFocus)
@@ -52,21 +51,21 @@ export function ModelsPage(): JSX.Element {
       <>
         <div className="mlib-head">
           <h1 className="page__title">Models</h1>
-          <OllamaStatusLine />
+          <RuntimeStatusLine />
         </div>
-        <p className="page__subtitle">Open models that run privately on this {DEVICE}, through Ollama.</p>
+        <p className="page__subtitle">Open models that run privately on this {DEVICE}, with Eaon&rsquo;s built-in llama.cpp.</p>
         <div className="mlib-tabs">
           <Segmented
             value={tab}
             onChange={setTab}
             options={[
               { value: 'library', label: 'Library' },
-              { value: 'installed', label: installedCount ? `Installed · ${installedCount}` : 'Installed' },
+              { value: 'installed', label: installedCount ? `Downloaded · ${installedCount}` : 'Downloaded' },
               { value: 'hub', label: 'Browse Hugging Face' }
             ]}
           />
         </div>
-        {tab !== 'hub' && <OllamaBanner />}
+        {tab !== 'hub' && <RuntimeBanner />}
         {loadError && <div className="models-empty models-empty--error">{loadError}</div>}
         {tab === 'library' && <LibraryView />}
         {tab === 'installed' && <InstalledView />}
@@ -77,9 +76,7 @@ export function ModelsPage(): JSX.Element {
 
   return (
     <div className="page">
-      <div className="page__bar" data-collapsed={!sidebarOpen || undefined}>
-        {!sidebarOpen && <CollapsedNav />}
-      </div>
+      <TopBar variant="page__bar" />
       <div className="page__scroll scroll">
         <div className="page__inner page__inner--wide mlib">{body}</div>
       </div>
@@ -87,13 +84,25 @@ export function ModelsPage(): JSX.Element {
   )
 }
 
-function OllamaStatusLine(): JSX.Element | null {
-  const ollama = useLibrary((s) => s.state?.ollama)
-  if (!ollama) return null
+/** Which llama.cpp this build runs, and the model it has loaded right now (with a way to free the memory). */
+function RuntimeStatusLine(): JSX.Element | null {
+  const runtime = useLibrary((s) => s.state?.runtime)
+  const unload = useLibrary((s) => s.unload)
+  if (!runtime) return null
+  const build = runtime.version ? /build (\d+)/.exec(runtime.version)?.[1] : null
   return (
-    <span className="mlib-ollama" data-state={ollama.state}>
+    <span className="mlib-ollama" data-state={runtime.available ? 'running' : 'missing'} title={runtime.version ?? undefined}>
       <span className="mlib-ollama__dot" aria-hidden="true" />
-      {ollama.state === 'running' ? `Ollama ${ollama.version}` : ollama.state === 'stopped' ? 'Ollama stopped' : 'Ollama not installed'}
+      {!runtime.available
+        ? 'Local runtime missing'
+        : runtime.loaded
+          ? `${runtime.loaded.state === 'loading' ? 'Loading' : 'Running'} ${runtime.loaded.modelId}`
+          : `llama.cpp${build ? ` b${build}` : ''}`}
+      {runtime.loaded && (
+        <button className="provider-link mlib-unload" onClick={() => void unload()}>
+          Unload
+        </button>
+      )}
     </span>
   )
 }

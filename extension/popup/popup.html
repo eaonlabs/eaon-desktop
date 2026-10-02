@@ -47,6 +47,12 @@
 
       <!-- Connected -->
       <section id="view-connected" hidden>
+        <p class="note note--ok" id="updated" role="status" hidden></p>
+        <div class="card card--update" id="update" hidden>
+          <p class="update__text" id="update-text"></p>
+          <button type="button" class="btn btn--primary btn--block" id="update-button">Update now</button>
+          <p class="note note--error" id="update-error" role="alert" hidden></p>
+        </div>
         <div class="card">
           <div class="card__label">Agent's tab</div>
           <button type="button" class="tab" id="agent-tab" hidden>
@@ -69,6 +75,7 @@
 
         <div id="control">
           <button type="button" class="btn btn--danger btn--block" id="stop">Stop agent control</button>
+          <p class="hint hint--center" id="stop-shortcut" hidden></p>
         </div>
         <div class="card card--paused" id="paused" hidden>
           <p class="paused__text">Agent control is stopped. The agent can't use this browser until you allow it again.</p>

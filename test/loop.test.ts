@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import '../src/main/agent/sources'
 import { announcesIntent, pauseGoal, runAgent } from '../src/main/agent/loop'
+import { registerToolSource, type AgentTool } from '../src/main/agent/tools'
 import { powerSaveBlocker } from 'electron'
 import { store } from '../src/main/store'
 import { secrets } from '../src/main/secrets'
@@ -366,4 +367,309 @@ test('a pause lands between tool rounds, not only when the model stops calling t
   server.close()
   assert.equal(requests.length, 2, 'no model call after the pause')
   assert.equal((events.filter((e) => e.type === 'goal').at(-1) as Extract<StreamEvent, { type: 'goal' }>).goal.status, 'paused')
+})
+
+/* Tools that misbehave on purpose, offered only to the chats named here. */
+const stubborn: AgentTool[] = [
+  // Ignores the abort signal and never finishes, like a hung plugin call.
+  { name: 'hang', description: 'never returns', inputSchema: { type: 'object', properties: {} }, mutating: false, run: () => new Promise(() => {}) },
+  // Asks for its own confirmation after a delay, as computer use does.
+  {
+    name: 'late_confirm',
+    description: 'confirms late',
+    inputSchema: { type: 'object', properties: {} },
+    mutating: false,
+    run: async (_input, ctx) => {
+      await new Promise((r) => setTimeout(r, 100))
+      return (await ctx.confirm('late_confirm', {})) ? 'approved' : 'denied'
+    }
+  }
+]
+registerToolSource({ id: 'loop-test-stubborn', tools: (query) => (query.request.chatId === 'stubborn' ? stubborn : []) })
+
+test('Stop ends the turn even when a running tool ignores the abort signal', { timeout: 5000 }, async () => {
+  const { server } = await setup((_b, i) => (i === 0 ? toolCall('hang', {}) : say('unreachable')))
+  const controller = new AbortController()
+  const events: StreamEvent[] = []
+  const outcome = await runAgent(
+    request({ chatId: 'stubborn' }),
+    (e) => {
+      events.push(e)
+      if (e.type === 'tool-call') setTimeout(() => controller.abort(), 20)
+    },
+    { signal: controller.signal }
+  )
+  server.close()
+  assert.equal(outcome.error, undefined)
+  assert.equal(outcome.cancelled, true)
+  assert.ok(events.some((e) => e.type === 'done'))
+  const result = events.find((e) => e.type === 'tool-result') as Extract<StreamEvent, { type: 'tool-result' }>
+  assert.equal(result?.status, 'error', 'the tool card is closed, not left running')
+})
+
+test('a stopped run asks for no approval afterwards', { timeout: 5000 }, async () => {
+  const { server } = await setup((_b, i) => (i === 0 ? toolCall('late_confirm', {}) : say('unreachable')))
+  const controller = new AbortController()
+  const events: StreamEvent[] = []
+  await runAgent(
+    request({ chatId: 'stubborn' }),
+    (e) => {
+      events.push(e)
+      if (e.type === 'tool-call') setTimeout(() => controller.abort(), 20)
+    },
+    { signal: controller.signal }
+  )
+  server.close()
+  await new Promise((r) => setTimeout(r, 250))
+  assert.equal(events.filter((e) => e.type === 'approval-request').length, 0)
+})
+
+test('a run whose signal is already aborted never calls the model, and says it was cancelled', async () => {
+  const { server, requests } = await setup(() => say('hi'))
+  const events: StreamEvent[] = []
+  const outcome = await runAgent(request(), (e) => events.push(e), { signal: AbortSignal.abort() })
+  server.close()
+  assert.equal(requests.length, 0)
+  assert.equal(outcome.cancelled, true)
+  assert.equal(outcome.error, undefined)
+  assert.ok(events.some((e) => e.type === 'done'))
+
+  const again = await setup(() => say('hi'))
+  const finished = await runAgent(request(), () => {})
+  again.server.close()
+  assert.equal(finished.cancelled, undefined, 'a run that finishes is not cancelled')
+})
+
+test('a final answer cut off by the output limit is not reported as a round limit', async () => {
+  const req = request()
+  writeFileSync(join(req.cwd!, 'f.txt'), 'x')
+  const { server } = await setup((_b, i) => (i === 0 ? toolCall('read_file', { path: 'f.txt' }) : [chunk({ content: 'The file says x and' }, 'length')]))
+  const outcome = await runAgent(req, () => {})
+  server.close()
+  assert.equal(outcome.error, undefined)
+  assert.doesNotMatch(outcome.text, /tool rounds/)
+})
+
+test('a sub-agent that fails still counts the tokens it spent', async () => {
+  let main = 0
+  let sub = 0
+  const { server } = await setup((body) => {
+    if (isSubagent(body)) {
+      return sub++ === 0
+        ? [
+            JSON.stringify({
+              choices: [{ index: 0, delta: { tool_calls: [{ index: 0, id: 's1', function: { name: 'list_dir', arguments: '{}' } }] }, finish_reason: 'tool_calls' }],
+              usage: { prompt_tokens: 1000, completion_tokens: 100 }
+            })
+          ]
+        : { status: 400, body: JSON.stringify({ error: { message: 'bad request' } }) }
+    }
+    return main++ === 0 ? toolCall('spawn_agents', { agents: [{ role: 'scout', task: 'look around' }] }) : say('ok')
+  })
+  const events: StreamEvent[] = []
+  await runAgent(request({ work: { swarm: true, plan: false } }), (e) => events.push(e))
+  server.close()
+  const failed = events.find((e) => e.type === 'subagent' && e.run.status === 'error')
+  assert.ok(failed, 'the sub-agent failed')
+  const last = events.filter((e) => e.type === 'usage').at(-1) as Extract<StreamEvent, { type: 'usage' }>
+  assert.ok(last.usage.input >= 1000, `input ${last.usage.input}`)
+})
+
+test('the compaction request counts toward the turn\'s usage', async () => {
+  const { server, requests, url } = await setup((_b, i) => [
+    JSON.stringify({ choices: [{ index: 0, delta: { content: i === 0 ? 'SUMMARY' : 'answer' }, finish_reason: 'stop' }], usage: { prompt_tokens: i === 0 ? 700 : 50, completion_tokens: 5 } })
+  ])
+  store.saveProviderConfig({
+    fake: { name: 'Fake', kind: 'openai-compatible', baseUrl: url, models: [{ id: 'fake-model', label: 'Fake', providerId: 'fake', contextWindow: 2000 }] }
+  })
+  const long = 'word '.repeat(400)
+  const history = [1, 2, 3, 4].flatMap((n) => [
+    { id: `u${n}`, role: 'user' as const, createdAt: 0, parts: [{ type: 'text' as const, text: `${n} ${long}` }] },
+    { id: `a${n}`, role: 'assistant' as const, createdAt: 0, parts: [{ type: 'text' as const, text: `reply ${n}` }] }
+  ])
+  history.push({ id: 'u5', role: 'user', createdAt: 0, parts: [{ type: 'text', text: 'and now?' }] })
+  const events: StreamEvent[] = []
+  await runAgent(request({ mode: 'chat', history }), (e) => events.push(e))
+  server.close()
+  assert.equal(requests.length, 2, 'summary, then the answer')
+  assert.ok(events.some((e) => e.type === 'compacted'))
+  const last = events.filter((e) => e.type === 'usage').at(-1) as Extract<StreamEvent, { type: 'usage' }>
+  assert.equal(last.usage.input, 750)
+})
+
+test('a repeated call id is made unique, so each result lands on its own call', async () => {
+  // Several local runtimes number calls per response ("call_0") or derive
+  // the id from the call itself, so the same call made twice repeats its id.
+  const req = request()
+  writeFileSync(join(req.cwd!, 'f.txt'), 'x')
+  const { server, requests } = await setup((_b, i) => (i < 2 ? toolCall('read_file', { path: 'f.txt' }, 'call_0') : say('done')))
+  const events: StreamEvent[] = []
+  await runAgent(req, (e) => events.push(e))
+  server.close()
+  const calls = events.filter((e) => e.type === 'tool-call') as Extract<StreamEvent, { type: 'tool-call' }>[]
+  const results = events.filter((e) => e.type === 'tool-result') as Extract<StreamEvent, { type: 'tool-result' }>[]
+  assert.equal(calls.length, 2)
+  assert.notEqual(calls[0].toolId, calls[1].toolId)
+  assert.deepEqual(results.map((r) => r.toolId), calls.map((c) => c.toolId))
+  // What goes back to the provider pairs up the same way.
+  const sent = (requests[2] as unknown as { messages: { role: string; tool_calls?: { id: string }[]; tool_call_id?: string }[] }).messages
+  const callIds = sent.flatMap((m) => m.tool_calls?.map((c) => c.id) ?? [])
+  const resultIds = sent.filter((m) => m.role === 'tool').map((m) => m.tool_call_id)
+  assert.equal(new Set(callIds).size, 2)
+  assert.deepEqual(resultIds, callIds)
+})
+
+/* Stands in for the plugins source (no MCP server is connected in these tests). */
+let pluginCalls = 0
+registerToolSource({
+  id: 'plugins',
+  tools: (query) =>
+    query.request.chatId === 'plugin-policy'
+      ? [
+          {
+            name: 'crm__create_lead',
+            description: 'Create a lead',
+            inputSchema: { type: 'object', properties: {} },
+            mutating: () => true,
+            risky: () => true,
+            run: async () => {
+              pluginCalls++
+              return 'Lead created.'
+            }
+          }
+        ]
+      : query.request.chatId === 'plugin-broker'
+        ? [
+            {
+              name: 'broker__place_order',
+              description: 'A real-money order (catastrophic, as pluginTools marks broker writes)',
+              inputSchema: { type: 'object', properties: {} },
+              mutating: () => true,
+              risky: () => true,
+              catastrophic: () => true,
+              run: async () => {
+                pluginCalls++
+                return 'Order placed.'
+              }
+            }
+          ]
+        : []
+})
+
+test('"Allow all MCP tool permissions" skips the prompt for plugin calls, but not plan mode or scheduled runs', async () => {
+  const run = async (overrides: Partial<StreamRequest>, options: Parameters<typeof runAgent>[2] = {}) => {
+    const { server } = await setup((_b, i) => (i === 0 ? toolCall('crm__create_lead', {}) : say('ok')))
+    const asked: string[] = []
+    const events: StreamEvent[] = []
+    await runAgent(request({ chatId: 'plugin-policy', ...overrides }), (e) => events.push(e), { approver: async (tool) => (asked.push(tool), false), ...options })
+    server.close()
+    const result = events.find((e) => e.type === 'tool-result') as Extract<StreamEvent, { type: 'tool-result' }>
+    return { asked, status: result.status }
+  }
+  try {
+    pluginCalls = 0
+    assert.deepEqual(await run({}), { asked: ['crm__create_lead'], status: 'denied' }, 'off: the user is asked')
+    assert.equal(pluginCalls, 0)
+
+    store.patchSettings({ mcp: { allowAllToolPermissions: true } })
+    assert.deepEqual(await run({}), { asked: [], status: 'done' }, 'on: runs without asking')
+    assert.equal(pluginCalls, 1)
+    assert.deepEqual(await run({ work: { swarm: false, plan: true } }), { asked: [], status: 'denied' }, 'plan mode still refuses')
+    assert.deepEqual(await run({}, { unattended: 'read-only' }), { asked: [], status: 'denied' }, 'a read-only scheduled run still refuses')
+    // The user approved every plugin call in advance: that holds for a worker
+    // or a scheduled run too. (Refusing here is why plugins "didn't work" in
+    // Workers.)
+    assert.deepEqual(await run({}, { unattended: 'safe' }), { asked: [], status: 'done' }, 'an unattended run honours the pre-approval')
+    assert.equal(pluginCalls, 2)
+  } finally {
+    store.patchSettings({ mcp: { allowAllToolPermissions: false } })
+  }
+})
+
+/* An autonomous worker's gate: risky runs, catastrophic never — unless approved once. */
+const gateCalls: string[] = []
+registerToolSource({
+  id: 'loop-test-gate',
+  tools: (query) =>
+    query.request.chatId === 'autonomy-gate'
+      ? [
+          {
+            name: 'deploy',
+            description: 'Deploy (risky)',
+            inputSchema: { type: 'object', properties: {} },
+            mutating: () => true,
+            risky: () => true,
+            run: async () => (gateCalls.push('deploy'), 'Deployed.')
+          },
+          {
+            name: 'pay',
+            description: 'Pay (catastrophic)',
+            inputSchema: { type: 'object', properties: { amount: { type: 'number' } } },
+            mutating: () => true,
+            risky: () => true,
+            catastrophic: () => true,
+            run: async () => (gateCalls.push('pay'), 'Paid.')
+          }
+        ]
+      : []
+})
+
+test('autonomous runs risky calls alone, never catastrophic ones — except the one call the user approved', async () => {
+  const run = async (tool: string, options: Parameters<typeof runAgent>[2]) => {
+    const { server } = await setup((_b, i) => (i === 0 ? toolCall(tool, { amount: 12 }) : say('ok')))
+    const events: StreamEvent[] = []
+    await runAgent(request({ chatId: 'autonomy-gate' }), (e) => events.push(e), options)
+    server.close()
+    return events.find((e) => e.type === 'tool-result') as Extract<StreamEvent, { type: 'tool-result' }>
+  }
+  gateCalls.length = 0
+  assert.equal((await run('deploy', { unattended: 'autonomous' })).status, 'done')
+  assert.equal((await run('deploy', { unattended: 'safe' })).status, 'denied', 'a Careful worker still refuses risky calls')
+  const refused = await run('pay', { unattended: 'autonomous' })
+  assert.equal(refused.status, 'denied')
+  assert.match(refused.output, /ask_user.*approve_tool/)
+  const asked: [string, Record<string, unknown>][] = []
+  const approved = await run('pay', { unattended: 'autonomous', allowOnce: (tool, input) => (asked.push([tool, input]), true) })
+  assert.equal(approved.status, 'done')
+  assert.deepEqual(asked, [['pay', { amount: 12 }]], 'the exact call is what gets checked')
+  assert.deepEqual(gateCalls, ['deploy', 'pay'])
+})
+
+test('"Allow all MCP tool permissions" never covers a call that can’t be undone, like a real-money order', async () => {
+  const run = async (options: Parameters<typeof runAgent>[2]) => {
+    const { server } = await setup((_b, i) => (i === 0 ? toolCall('broker__place_order', {}) : say('ok')))
+    const asked: string[] = []
+    const events: StreamEvent[] = []
+    await runAgent(request({ chatId: 'plugin-broker' }), (e) => events.push(e), { approver: async (tool) => (asked.push(tool), false), ...options })
+    server.close()
+    return { asked, status: (events.find((e) => e.type === 'tool-result') as Extract<StreamEvent, { type: 'tool-result' }>).status }
+  }
+  store.patchSettings({ mcp: { allowAllToolPermissions: true } })
+  try {
+    pluginCalls = 0
+    assert.deepEqual(await run({}), { asked: ['broker__place_order'], status: 'denied' }, 'a chat still asks')
+    store.patchSettings({ approvalMode: 'auto' })
+    assert.deepEqual(await run({}), { asked: ['broker__place_order'], status: 'denied' }, '"Approve for me" still asks')
+    assert.deepEqual(await run({ unattended: 'safe' }), { asked: [], status: 'denied' }, 'a Careful worker never places it')
+    assert.deepEqual(await run({ unattended: 'autonomous' }), { asked: [], status: 'denied' }, 'an autonomous worker needs Approve once')
+    assert.deepEqual(await run({ unattended: 'autonomous', allowOnce: () => true }), { asked: [], status: 'done' }, 'and with it, goes ahead')
+    assert.equal(pluginCalls, 1)
+  } finally {
+    store.patchSettings({ mcp: { allowAllToolPermissions: false }, approvalMode: 'ask' })
+  }
+})
+
+test('"Allow all MCP tool permissions" does not pre-approve tools that are not plugins', async () => {
+  store.patchSettings({ mcp: { allowAllToolPermissions: true } })
+  try {
+    const req = request()
+    const { server } = await setup((_b, i) => (i === 0 ? toolCall('write_file', { path: 'w.txt', content: 'x' }) : say('ok')))
+    const asked: string[] = []
+    await runAgent(req, () => {}, { approver: async (tool) => (asked.push(tool), false) })
+    server.close()
+    assert.deepEqual(asked, ['write_file'])
+    assert.equal(existsSync(join(req.cwd!, 'w.txt')), false)
+  } finally {
+    store.patchSettings({ mcp: { allowAllToolPermissions: false } })
+  }
 })

@@ -93,7 +93,22 @@ function render() {
   if (view === 'connected') renderConnected(s)
 }
 
+function renderUpdate(s) {
+  show('updated', Boolean(s.lastUpdate))
+  if (s.lastUpdate) $('updated').textContent = `Updated from ${s.lastUpdate.from} to ${s.lastUpdate.to}.`
+  show('update', Boolean(s.latestExtension))
+  if (!s.latestExtension) return
+  const unpacked = s.installType === 'development'
+  $('update-text').textContent = unpacked
+    ? `Eaon has extension ${s.latestExtension} ready. Updating takes a second and keeps your pairing.`
+    : `Extension ${s.latestExtension} is out. Your browser installs it from its store; this asks it to check now.`
+  $('update-button').textContent = unpacked ? 'Update now' : 'Check for update'
+}
+
 function renderConnected(s) {
+  renderUpdate(s)
+  show('stop-shortcut', Boolean(s.stopShortcut))
+  if (s.stopShortcut) $('stop-shortcut').textContent = `Shortcut: ${s.stopShortcut}`
   show('agent-tab', Boolean(s.agentTab))
   show('agent-tab-empty', !s.agentTab)
   if (s.agentTab) {
@@ -152,6 +167,16 @@ $('port').addEventListener('change', async () => {
   }
 })
 
+$('update-button').addEventListener('click', async () => {
+  show('update-error', false)
+  $('update-button').disabled = true
+  const result = await request('update')
+  $('update-button').disabled = false
+  if (!result.ok) {
+    $('update-error').textContent = result.error || 'The update did not go through.'
+    show('update-error', true)
+  }
+})
 $('retry').addEventListener('click', () => request('retry'))
 $('retry-error').addEventListener('click', () => request('retry'))
 $('unpair').addEventListener('click', () => request('unpair'))

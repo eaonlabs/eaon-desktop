@@ -2,7 +2,7 @@
 title: Scheduled tasks engine and headless runs
 tags: [eaon-desktop, scheduler, agent, electron, chats, gotchas]
 created: 2026-09-23T21:30:00.000Z
-updated: 2026-09-23T21:30:00.000Z
+updated: 2026-09-29T14:29:37.547Z
 ---
 
 # Scheduled tasks engine and headless runs
@@ -86,3 +86,5 @@ last history message's `scheduledTaskId`.
 - `EAON_LIVE=1 npm run test:main -- scheduler-live` runs on Ollama.
 - The capture harness can seed tasks through `window.api.scheduler.save`.
   `location.reload()` inside a step works; the next step runs on the reloaded page.
+
+Related: [[Scheduled runs: stall watchdog, monotonic clocks and windowless memory]]

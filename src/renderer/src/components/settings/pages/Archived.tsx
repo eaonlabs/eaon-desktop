@@ -1,9 +1,12 @@
 import { ArchiveRestore, Trash2 } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import { useApp } from '../../../state/store'
 import { Card, Row, Section } from '../../ui'
 
 export function ArchivedPage(): JSX.Element {
-  const { chats, restoreChat, deleteChat } = useApp()
+  const { chats, restoreChat, deleteChat } = useApp(
+    useShallow((s) => ({ chats: s.chats, restoreChat: s.restoreChat, deleteChat: s.deleteChat }))
+  )
   const archived = chats.filter((c) => c.archived).sort((a, b) => b.updatedAt - a.updatedAt)
 
   return (

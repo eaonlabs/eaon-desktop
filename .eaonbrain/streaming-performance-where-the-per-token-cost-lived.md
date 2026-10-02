@@ -2,7 +2,7 @@
 title: Streaming performance: where the per-token cost lived
 tags: [performance, streaming, zustand, ipc, renderer]
 created: 2026-08-22T19:59:58.406Z
-updated: 2026-08-22T19:59:58.406Z
+updated: 2026-09-29T14:29:35.829Z
 ---
 
 # Streaming performance: where the per-token cost lived
@@ -71,3 +71,5 @@ Shimmer/spin CSS animations only mount while work is in flight. `codeIndex`
 already uses async fs throughout.
 
 Related: [[zustand selector identity and React error #185]]
+
+Related: [[Streaming UI: per-token work that remained, and one reply at a time]]

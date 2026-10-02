@@ -190,3 +190,35 @@ test('a failed response and a stream that never finishes both surface as errors'
   await assert.rejects(openaiResponsesAdapter.turn(request(provider({ id: 'openai', baseUrl: cut.url }))), /ended before it finished/)
   cut.server.close()
 })
+
+test('Responses tool arguments are always an object', async () => {
+  const { url, server } = await rawServer(() => ({
+    body: sse([
+      { type: 'response.output_item.added', output_index: 0, item: { type: 'function_call', call_id: 'c1', name: 'read_file', arguments: '' } },
+      { type: 'response.function_call_arguments.done', output_index: 0, arguments: 'null' },
+      { type: 'response.output_item.done', output_index: 0, item: { type: 'function_call', call_id: 'c1', name: 'read_file', arguments: 'null' } },
+      { type: 'response.completed', response: { status: 'completed', output: [], usage: { input_tokens: 1, output_tokens: 1 } } }
+    ])
+  }))
+  const result = await openaiResponsesAdapter
+    .turn(request(provider({ id: 'openai', kind: 'openai-responses', baseUrl: `${url}/v1` })))
+    .finally(() => server.close())
+  assert.deepEqual(result.calls, [{ id: 'c1', name: 'read_file', input: {} }])
+})
+
+test('Sign in with ChatGPT: plain Responses API, system prompt in instructions, no output cap', async () => {
+  const done = sse([{ type: 'response.completed', response: { id: 'r', status: 'completed', output: [], usage: { input_tokens: 5, output_tokens: 1 } } }])
+  const { url, server, requests } = await rawServer(() => ({ body: done }))
+  await openaiResponsesAdapter.turn(request(provider({ id: 'chatgpt', kind: 'openai-responses', baseUrl: `${url}/v1` }), { credentials: { apiKey: 'plan-token' } }))
+  server.close()
+  assert.equal(requests[0].url, '/v1/responses')
+  const body = requests[0].body
+  assert.equal(body.instructions, 'be brief')
+  assert.ok(!(body.input as { role?: string }[]).some((item) => item.role === 'system' || item.role === 'developer'), 'no system message items')
+  assert.equal(body.max_output_tokens, undefined)
+  assert.equal(body.temperature, undefined)
+  assert.equal(body.store, false)
+  assert.equal(body.stream, true)
+  assert.equal(requests[0].headers.authorization, 'Bearer plan-token')
+  assert.equal(requests[0].headers['chatgpt-account-id'], undefined)
+})
