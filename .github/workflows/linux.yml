@@ -1,8 +1,8 @@
 # Linux installers: an AppImage and a .deb for x64 and arm64, each built on a
-# Linux machine of that arch (node-pty has no Linux prebuild and is compiled
-# here). The app is started headless once to make sure it runs, then the files
-# are attached to the GitHub release for package.json's version, if there is
-# one, and kept on the run either way.
+# Linux machine of that arch (node-pty has no Linux prebuild, and llama-server
+# is compiled here too). The app is started headless once to make sure it
+# runs, then the files are attached to the GitHub release for package.json's
+# version, if there is one, and kept on the run either way.
 #
 # Runs on a push to a release branch or a version tag, or by hand.
 name: Linux installers
@@ -47,8 +47,9 @@ jobs:
       - name: Install
         run: npm ci --legacy-peer-deps
 
+      # Eaon's own llama.cpp (native/llama-fork.json), compiled on this machine.
       - name: llama-server for Linux
-        run: ./scripts/fetch-llama-linux.sh ${{ matrix.arch }}
+        run: ./scripts/build-llama.sh
 
       - name: Build
         run: |
