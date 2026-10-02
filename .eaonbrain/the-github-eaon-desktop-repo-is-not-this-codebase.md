@@ -7,7 +7,7 @@ updated: 2026-08-26T02:28:24.147Z
 
 # The GitHub eaon-desktop repo is not this codebase
 
-> **Update, Oct 2026:** the remote is now `eaonlabs/eaon-desktop`. Its `main` is still the old multi-app history described below, but this Electron codebase **is** pushed there, on `release/*` branches (`release/2026.5.0`, `release/2026.6.0`). See [[Releasing Eaon Desktop: release branches, rc tags and a public repo]].
+> **Update, Oct 2 2026: no longer true.** The remote is now `eaonlabs/eaon-desktop`, and PR #7 (merged Oct 2 2026) made its `main` this Electron app. The old multi-app history described below is still in `main`'s history as the merge's second parent, so `git merge-base` with `origin/main` now works. Release branches (`release/2026.5.0`, `release/2026.6.0`) still carry each release. See [[Releasing Eaon Desktop: release branches, rc tags and a public repo]].
 
 `https://github.com/sanscreates/eaon-desktop` and this local
 `~/Downloads/Eaon Desktop` folder are two different products that happen to
