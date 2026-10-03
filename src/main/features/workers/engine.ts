@@ -15,6 +15,7 @@ import {
   WORKER_COLORS,
   WORKER_CONCURRENCY,
   describeWorker,
+  mentionedWorkers,
   relativeTime,
   TRADING_ROUTINE_NAME,
   type Worker,
@@ -25,6 +26,7 @@ import {
   type WorkerAsk,
   type WorkerMail,
   type WorkerMood,
+  type WorkerSendOptions,
   type WorkerThread
 } from '@shared/workers'
 import type { GuestAccess } from '@shared/channels'
@@ -482,13 +484,46 @@ export class WorkersEngine {
     await this.deps.deleteThread(id)
   }
 
-  /** The user writes to a worker. It reads it as soon as it is free. */
-  send(id: string, text: string, files: string[] = []): void {
+  /**
+   * The user writes to a worker. It reads it as soon as it is free.
+   *
+   * Colleagues the message @mentions get their own copy, as they would in a
+   * group chat: the user addressed them, so they hear it straight away
+   * rather than only if this worker decides to pass it on. This worker is
+   * told they have it, so it doesn't forward it again. Only the user's own
+   * messages route this way; a guest's (channels, `receive`) never reach
+   * other workers by naming them.
+   */
+  send(id: string, text: string, files: string[] = [], options: WorkerSendOptions = {}): void {
     const worker = this.require(id)
     const body = typeof text === 'string' ? text.trim() : ''
     const paths = (Array.isArray(files) ? files : []).filter((f): f is string => typeof f === 'string' && f.length > 0)
     if (!body && paths.length === 0) throw new Error('Write a message first.')
-    this.deliverMail(worker, { id: randomUUID(), from: 'user', fromName: 'You', text: body, files: paths, at: this.now() })
+    const at = this.now()
+    const goal = options?.goal === true && body.length > 0
+    if (goal) worker.goal = body.slice(0, MAX_GOAL_CHARS)
+    const mentioned = mentionedWorkers(body, this.workers, worker.id)
+    this.deliverMail(worker, {
+      id: randomUUID(),
+      from: 'user',
+      fromName: 'You',
+      text: body,
+      files: paths,
+      at,
+      ...(goal ? { goal: true } : {}),
+      ...(mentioned.length > 0 ? { mentions: mentioned.map((w) => ({ id: w.id, name: w.name })) } : {})
+    })
+    for (const colleague of mentioned) {
+      this.deliverMail(colleague, {
+        id: randomUUID(),
+        from: 'user',
+        fromName: 'You',
+        text: body,
+        files: paths,
+        at,
+        via: { workerId: worker.id, name: worker.name }
+      })
+    }
     this.commit()
     this.tick()
   }

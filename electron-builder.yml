@@ -62,6 +62,9 @@ mac:
   # than electron-builder's default, which appends the architecture.
   artifactName: ${productName}-${version}.${ext}
   darkModeSupport: true
+  # Shown when dictation first asks for the microphone; Electron's own line is generic.
+  extendInfo:
+    NSMicrophoneUsageDescription: Eaon uses the microphone when you dictate a message.
   # Required for notarization, and already a prerequisite for the entitlements
   # below to mean anything.
   hardenedRuntime: true

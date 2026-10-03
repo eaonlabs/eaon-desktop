@@ -1,0 +1,106 @@
+/* Dictation: the mic button and the bar that takes the text box's place while recording. */
+
+.composer__mic[data-active='true'] {
+  color: var(--accent);
+}
+
+.voice-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  /* The text box's own height and inset, so nothing jumps when it swaps in. */
+  min-height: 46px;
+  padding: 8px 6px 4px;
+}
+
+.voice-bar__btn {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-pill);
+  color: var(--text-2);
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease), opacity var(--dur) var(--ease);
+}
+.voice-bar__btn:hover:not(:disabled) {
+  background: var(--surface-4);
+  color: var(--text);
+}
+.voice-bar__btn:disabled {
+  opacity: 0.4;
+}
+.voice-bar__btn--done {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+.voice-bar__btn--done:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent), #000000 12%);
+  color: var(--on-accent);
+}
+
+.voice-wave {
+  flex: 1;
+  min-width: 0;
+  height: 30px;
+  /* Older bars fade out at the left edge rather than being cut off. */
+  mask-image: linear-gradient(90deg, transparent, #000000 22%);
+}
+
+.voice-bar__time {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  min-width: 44px;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+}
+.voice-bar[data-state='transcribing'] .voice-bar__time {
+  min-width: 0;
+}
+
+/* The recording light: a slow breath, not a blink. */
+.voice-bar__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--danger);
+  animation: voice-breath 1.6s ease-in-out infinite;
+}
+@keyframes voice-breath {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.82);
+  }
+}
+
+/* Something went wrong: what and why, above the toolbar, until dismissed. */
+.voice-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 6px 8px 2px;
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  color: var(--danger);
+}
+.voice-error__text {
+  flex: 1;
+}
+.voice-error button {
+  flex: none;
+  color: var(--text-3);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .voice-bar__dot {
+    animation: none;
+  }
+}

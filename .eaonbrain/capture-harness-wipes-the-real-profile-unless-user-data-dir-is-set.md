@@ -26,7 +26,7 @@ Other things learned while driving it for the 2026.6 launch video:
 
 - **`window.__perfStore` no longer exists.** Steps `34-model-menu-long` etc. in
   `capture.ts` reference it and silently skip seeding. Seed state through the
-  preload API instead — `window.api.chats.save([...])`, `window.api.settings.patch`,
+  preload API instead — `window.api.chats.apply([...], [])` (it was `chats.save` before multi-window), `window.api.settings.patch`,
   `window.api.workspaces.save` — then `location.reload()`; the capture-mode reset
   only happens at main-process startup, not on reload.
 - Offscreen capture comes out at **2x** (2540×1594 for the 1270×797 window) and has

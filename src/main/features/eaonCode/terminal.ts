@@ -14,10 +14,11 @@ const appleString = (value: string): string => `"${value.replace(/\\/g, '\\\\').
  */
 export async function openInTerminal(
   cwd: string,
-  binary: string,
+  launch: { command: string; args: string[] },
   sessionFile?: string
 ): Promise<{ ok: true } | { ok: false; error: string }> {
-  const args = sessionFile ? ['--session', sessionFile] : []
+  const binary = launch.command
+  const args = [...launch.args, ...(sessionFile ? ['--session', sessionFile] : [])]
 
   if (process.platform === 'darwin') {
     const line = `cd ${shellQuote(cwd)} && ${[binary, ...args].map(shellQuote).join(' ')}`

@@ -218,13 +218,13 @@ a:hover {
   display: flex;
   align-items: center;
   gap: 2px;
-  padding: 0 10px 0 75px;
+  padding: 0 10px 0 var(--window-controls-left);
   -webkit-app-region: drag;
 }
 
-/* Inside the floating panel the traffic lights sit at window x 20..72 (three
-   12pt buttons, 20pt apart, from trafficLightPosition). The row itself starts
-   --sidebar-gap in from the window edge, so reserving 82px of window space
+/* Inside the floating panel the traffic lights sit at window x 19..79 (three
+   14pt buttons, 23pt apart, from trafficLightPosition). The row itself starts
+   --sidebar-gap in from the window edge, so reserving 89px of window space
    leaves the same 10px breathing room the flush titlebar had. Controls are
    right-aligned so they sit at the far edge of the panel rather than crowding
    the lights. */

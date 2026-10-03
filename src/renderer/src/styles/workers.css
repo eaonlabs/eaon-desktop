@@ -888,16 +888,24 @@ button.msg-attachment:hover {
 }
 
 /* ---- Autonomy: questions waiting on the user, the worker's own memory ---- */
+/* Questions sit on the composer, in its column: the dock centres its
+   children, and without a width of its own a long question stretched this
+   to the whole pane, wider than both the thread and the composer. */
 .worker-asks {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  width: var(--composer-chat-w);
+  max-width: calc(100% - 48px);
   max-height: 40vh;
+  margin-bottom: 8px;
   overflow: auto;
+  overscroll-behavior: contain;
 }
 .worker-ask {
-  padding: 10px 12px;
-  border-radius: var(--r-lg);
+  flex: none;
+  padding: 12px 14px;
+  border-radius: var(--r-composer);
   background: var(--surface-1);
   box-shadow: inset 0 0 0 1px var(--border-soft);
 }
@@ -941,11 +949,24 @@ button.msg-attachment:hover {
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  margin-top: 8px;
+  margin-top: 10px;
 }
+/* An answer can be a sentence: it wraps inside its chip rather than running
+   past the card. */
+.worker-ask__actions .btn {
+  max-width: 100%;
+  height: auto;
+  min-height: 28px;
+  padding-top: 4px;
+  padding-bottom: 4px;
+  white-space: normal;
+  text-align: left;
+  line-height: 1.35;
+}
+/* The reply box takes a line of its own once the chips leave it too little. */
 .worker-ask__reply {
-  flex: 1;
-  min-width: 160px;
+  flex: 1 1 220px;
+  min-width: 0;
   height: 28px;
   font-size: var(--fs-sm);
 }

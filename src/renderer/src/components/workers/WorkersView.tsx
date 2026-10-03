@@ -4,7 +4,6 @@ import {
   CandlestickChart,
   AlarmClock,
   ArrowLeft,
-  ArrowUp,
   Clock,
   Eraser,
   FileText,
@@ -16,7 +15,6 @@ import {
   PencilLine,
   Play,
   Plus,
-  Square,
   Trash2,
   X
 } from 'lucide-react'
@@ -28,6 +26,7 @@ import { Modal } from '../ui'
 import { WorkerFace } from './WorkerFace'
 import { WorkerEditor } from './WorkerEditor'
 import { WorkerAsks, WorkerBrowserFact, WorkerMemory } from './WorkerAutonomy'
+import { WorkerComposer } from './WorkerComposer'
 import { useWorkers } from './workersStore'
 import { fileName, fileUrl, isImagePath } from '../../lib/files'
 import { MAX_WORKERS, TRADING_DESK, describeWorker, relativeTime, workerMood, type Worker } from '@shared/workers'
@@ -264,7 +263,7 @@ function WorkerPage({ worker }: { worker: Worker }): JSX.Element {
             </p>
           )}
           {thread?.messages.map((message) => (
-            <MessageRow key={message.id} message={message} streaming={message.id === worker.runningMessageId} />
+            <MessageRow key={message.id} message={message} streaming={message.id === worker.runningMessageId} quietWhenEmpty />
           ))}
           {queued.map((mail) => (
             <div key={mail.id} className="msg-row msg-user-block msg-row--queued">
@@ -509,103 +508,6 @@ function WorkerActions({ worker }: { worker: Worker }): JSX.Element {
         {working ? `${worker.name} stops what it is doing, and its` : `${worker.name}’s`} thread is deleted. Its folder stays on disk at{' '}
         <code>{worker.folder}</code>.
       </Modal>
-    </div>
-  )
-}
-
-/** Writing to a worker: text and files. While it is busy, messages queue and arrive with its next turn. */
-function WorkerComposer({ worker }: { worker: Worker }): JSX.Element {
-  const { send, stop } = useWorkers(useShallow((s) => ({ send: s.send, stop: s.stop })))
-  const [text, setText] = useState('')
-  const [files, setFiles] = useState<string[]>([])
-  const [dragging, setDragging] = useState(false)
-  const box = useRef<HTMLTextAreaElement>(null)
-  const working = worker.status === 'working'
-
-  useEffect(() => {
-    const node = box.current
-    if (!node) return
-    node.style.height = 'auto'
-    node.style.height = `${Math.min(node.scrollHeight, 260)}px`
-  }, [text])
-
-  const submit = (): void => {
-    if (!text.trim() && files.length === 0) return
-    void send(worker.id, text.trim(), files)
-    setText('')
-    setFiles([])
-  }
-
-  return (
-    <div
-      className="composer-stack composer-stack--chat"
-      data-dragging={dragging || undefined}
-      onDragOver={(e) => {
-        if (!e.dataTransfer.types.includes('Files')) return
-        e.preventDefault()
-        setDragging(true)
-      }}
-      onDragLeave={() => setDragging(false)}
-      onDrop={(e) => {
-        e.preventDefault()
-        setDragging(false)
-        const dropped = [...e.dataTransfer.files].map((file) => window.api.app.pathForFile(file)).filter(Boolean)
-        setFiles((current) => [...new Set([...current, ...dropped])].slice(0, 12))
-      }}
-    >
-      <div className="composer">
-        {files.length > 0 && (
-          <div className="composer__attachments">
-            {files.map((path) => (
-              <span key={path} className="attachment-chip" title={path}>
-                {isImagePath(path) ? <img className="attachment-chip__thumb" src={fileUrl(path)} alt="" /> : <FileText size={14} strokeWidth={1.8} />}
-                <span className="attachment-chip__name">{fileName(path)}</span>
-                <button className="attachment-chip__remove" aria-label={`Remove ${path}`} onClick={() => setFiles((c) => c.filter((p) => p !== path))}>
-                  <X size={12} strokeWidth={2.2} />
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
-        <textarea
-          ref={box}
-          className="composer__input"
-          rows={1}
-          value={text}
-          placeholder={worker.paused ? `${worker.name} is paused — messages wait until you resume it` : `Message ${worker.name}`}
-          onChange={(e) => setText(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-              e.preventDefault()
-              submit()
-            }
-          }}
-        />
-        <div className="composer__toolbar">
-          <button
-            className="composer__round"
-            aria-label="Attach files"
-            title="Attach files"
-            onClick={() =>
-              void window.api.app
-                .openFiles({ properties: ['openFile', 'openDirectory', 'multiSelections'] })
-                .then((paths) => setFiles((current) => [...new Set([...current, ...paths])].slice(0, 12)))
-            }
-          >
-            <Plus size={18} strokeWidth={1.9} />
-          </button>
-          <div className="composer__spacer" />
-          {working && (
-            <button className="chip worker-stop" onClick={() => void stop(worker.id)} title={`Stop what ${worker.name} is doing now`}>
-              <Square size={10} strokeWidth={0} fill="currentColor" />
-              <span className="chip__label">Stop</span>
-            </button>
-          )}
-          <button className="send" disabled={!text.trim() && files.length === 0} onClick={submit} aria-label="Send">
-            <ArrowUp size={17} strokeWidth={2.2} />
-          </button>
-        </div>
-      </div>
     </div>
   )
 }

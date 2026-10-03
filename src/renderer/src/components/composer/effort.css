@@ -1,0 +1,21 @@
+/* The model menu's Effort submenu: a heading, the slider, and a note for the levels that need one. */
+.effort-slider {
+  padding: 8px 12px 10px;
+}
+.effort-slider__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 4px;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+.effort-slider__level {
+  color: var(--text);
+  font-weight: 500;
+}
+.effort-slider__note {
+  margin: 8px 0 0;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}

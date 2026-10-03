@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import type { TerminalAgentId } from '@shared/terminals'
+import { knownAgent, type TerminalAgentId } from '@shared/terminals'
 
 /**
  * What each ADE pane was last seen running, and what it last showed — kept
@@ -62,7 +62,11 @@ export class PaneRecords {
     }
     const cutoff = Date.now() - STALE_MS
     for (const [paneId, entry] of Object.entries(raw ?? {})) {
-      if (entry && typeof entry.agent === 'string' && entry.at > cutoff) this.map.set(paneId, entry)
+      // An agent this version no longer has (Gemini CLI) comes back as the shell it ran in.
+      if (entry && typeof entry.agent === 'string' && entry.at > cutoff) {
+        const agent = knownAgent(entry.agent)
+        this.map.set(paneId, agent === entry.agent ? entry : { ...entry, agent, sessionId: undefined })
+      }
     }
   }
 

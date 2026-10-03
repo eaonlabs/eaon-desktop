@@ -114,7 +114,8 @@ export class EaonCodeBridge {
     const generation = ++this.generation
     let status = await this.status()
     if (status.state !== 'ready') status = await this.status(true)
-    if (status.state !== 'ready' || !status.binaryPath) {
+    const launch = status.launch
+    if (status.state !== 'ready' || !launch) {
       throw new Error(status.error ?? 'Eaon Code is not installed.')
     }
     try {
@@ -134,8 +135,8 @@ export class EaonCodeBridge {
       if (this.batcher === batcher) this.deps.onEvents(events)
     }, this.deps.batchMs)
     const child: RpcChild = new RpcChild({
-      command: status.binaryPath,
-      args,
+      command: launch.command,
+      args: [...launch.args, ...args],
       cwd,
       env,
       onEvent: (event) => {

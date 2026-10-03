@@ -2,7 +2,7 @@ import { app, Notification, powerMonitor } from 'electron'
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { ChatMessage, StreamEvent } from '@shared/types'
-import type { Worker, WorkerDraft, WorkerMessageEvent, WorkerStreamEvent, WorkerThread } from '@shared/workers'
+import type { Worker, WorkerDraft, WorkerMessageEvent, WorkerSendOptions, WorkerStreamEvent, WorkerThread } from '@shared/workers'
 import { runAgent } from '../../agent/loop'
 import { registerToolSource, safeToolName } from '../../agent/tools'
 import { BROKERS } from '@shared/trading'
@@ -229,7 +229,7 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
       await engine.remove(id)
       await browsers.close(id)
     })
-    ipcMain.handle('workers:send', (_e, id: string, text: string, files: string[]) => engine.send(id, text, files))
+    ipcMain.handle('workers:send', (_e, id: string, text: string, files: string[], options?: WorkerSendOptions) => engine.send(id, text, files, options))
     ipcMain.handle('workers:clear', (_e, id: string) => engine.clear(id))
     ipcMain.handle('workers:set-paused', (_e, id: string, paused: boolean) => engine.setPaused(id, paused))
     ipcMain.handle('workers:wake', (_e, id: string) => engine.wake(id))

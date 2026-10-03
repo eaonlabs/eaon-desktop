@@ -4,12 +4,28 @@ import { Download, ExternalLink, FolderSearch, RefreshCw, RotateCcw } from 'luci
 import { useApp } from '../../../state/store'
 import { useCode } from '../../code/codeStore'
 import { Card, Row, Section, Switch } from '../../ui'
-import { EAON_CODE_PACKAGE, EAON_CODE_REPO } from '@shared/eaonCode'
+import { EAON_CODE_REPO, type EaonCodeStatus } from '@shared/eaonCode'
 
-const SOURCE: Record<string, string> = {
-  setting: 'set below',
-  path: 'found on PATH',
-  'npm-prefix': "found in npm's global folder"
+const when = (at: number): string =>
+  new Date(at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+
+/**
+ * What the Installation row says. No version number: the installer builds
+ * from the latest commit, so a version wouldn't say how current a copy is.
+ */
+function describe(status: EaonCodeStatus | null): string {
+  if (!status) return 'Checking…'
+  if (status.state === 'missing') return 'Not installed'
+  if (status.state === 'broken') return status.error ?? 'Found, but it would not run.'
+  switch (status.source) {
+    case 'installer':
+      return status.updatedAt ? `Installed · last updated ${when(status.updatedAt)}` : 'Installed'
+    case 'setting':
+      return 'Using the file set below'
+    default:
+      // An npm copy, most likely. Updating installs the current build next to it, which Eaon then uses.
+      return 'Found on your PATH. Check for updates installs the latest build from GitHub, which Eaon then uses.'
+  }
 }
 
 /** Settings → Eaon Code: where the binary is, keeping it installed, and key sharing. */
@@ -20,6 +36,7 @@ export function EaonCodePage(): JSX.Element {
   )
   const [shared, setShared] = useState<string[]>([])
   const [installing, setInstalling] = useState(false)
+  const [progress, setProgress] = useState<string | null>(null)
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null)
   const [draftPath, setDraftPath] = useState(settings?.eaonCode.binaryPath ?? '')
 
@@ -29,6 +46,8 @@ export function EaonCodePage(): JSX.Element {
   useEffect(() => {
     void window.api.eaonCode.sharedKeys().then(setShared)
   }, [settings?.eaonCode.shareKeys])
+  // The installer clones and builds, which takes a few minutes; its latest line shows it is moving.
+  useEffect(() => window.api.eaonCode.onInstallLog((line) => setProgress(line.trim().slice(0, 160))), [])
 
   if (!settings) return <></>
   const config = settings.eaonCode
@@ -37,30 +56,29 @@ export function EaonCodePage(): JSX.Element {
     await patchSettings({ eaonCode: { ...config, binaryPath } })
     setDraftPath(binaryPath ?? '')
     const next = await refreshStatus(true)
-    setMessage(next.state === 'ready' ? { ok: true, text: `Using Eaon Code ${next.version}.` } : { ok: false, text: next.error ?? 'Eaon Code was not found.' })
+    setMessage(next.state === 'ready' ? { ok: true, text: 'Eaon Code runs from there.' } : { ok: false, text: next.error ?? 'Eaon Code was not found.' })
   }
 
+  const updating = status?.state === 'ready'
   const install = async (): Promise<void> => {
     setInstalling(true)
+    setProgress(null)
     setMessage(null)
     const result = await window.api.eaonCode.install()
     setInstalling(false)
+    setProgress(null)
     if (result.ok) {
       useCode.setState({ status: result.data })
-      setMessage({ ok: true, text: `Installed Eaon Code ${result.data.version ?? ''}. New Eaon Code terminals use it; a running one keeps its version until restarted.` })
+      setMessage({
+        ok: true,
+        text: `${updating ? 'Eaon Code is up to date' : 'Eaon Code is installed'}. New Eaon Code terminals use it; one already running keeps the old build until it restarts.`
+      })
     } else {
       setMessage({ ok: false, text: result.error })
       await refreshStatus(true)
     }
   }
 
-  const statusText = !status
-    ? 'Checking…'
-    : status.state === 'ready'
-      ? `Version ${status.version} · ${SOURCE[status.source ?? ''] ?? ''}`
-      : status.state === 'broken'
-        ? (status.error ?? 'Found, but it would not run.')
-        : 'Not installed'
 
   return (
     <>
@@ -72,14 +90,14 @@ export function EaonCodePage(): JSX.Element {
 
       <Section label="Installation">
         <Card>
-          <Row title="Eaon Code" description={statusText}>
-            <button className="btn btn--ghost" disabled={checking} onClick={() => void refreshStatus(true)}>
-              <RefreshCw size={14} strokeWidth={1.9} className={checking ? 'spinner' : undefined} />
-              Check
-            </button>
-            <button className="btn" disabled={installing || !status?.node.ok} onClick={() => void install()}>
-              <Download size={14} strokeWidth={1.9} className={installing ? 'spinner' : undefined} />
-              {installing ? 'Installing…' : status?.state === 'ready' ? 'Update' : 'Install'}
+          <Row title="Eaon Code" description={installing && progress ? progress : describe(status)}>
+            <button className="btn" disabled={installing || checking || !status?.node.ok} onClick={() => void install()}>
+              {updating ? (
+                <RefreshCw size={14} strokeWidth={1.9} className={installing ? 'spinner' : undefined} />
+              ) : (
+                <Download size={14} strokeWidth={1.9} className={installing ? 'spinner' : undefined} />
+              )}
+              {installing ? (updating ? 'Updating…' : 'Installing…') : updating ? 'Check for updates' : 'Install'}
             </button>
           </Row>
           <Row
@@ -92,7 +110,16 @@ export function EaonCodePage(): JSX.Element {
                 : 'Checking…'
             }
           />
-          <Row title="Binary path" description={status?.binaryPath ?? 'Leave empty to find eaon-code on your PATH.'}>
+          <Row
+            title="Binary path"
+            description={
+              config.binaryPath
+                ? config.binaryPath
+                : status?.source === 'installer'
+                  ? `Using ${status.installDir ?? 'the installed copy'}. Set a path only to run a different build.`
+                  : (status?.binaryPath ?? 'Leave empty to use the installed copy, or eaon-code on your PATH.')
+            }
+          >
             <input
               className="input code-settings__path"
               value={draftPath}
@@ -154,7 +181,6 @@ export function EaonCodePage(): JSX.Element {
 
       <Section label="About">
         <Card>
-          <Row title="Package" description={<code>{EAON_CODE_PACKAGE}</code>} />
           <Row title="Source" description="Issues, docs and releases">
             <button className="btn btn--ghost" onClick={() => void window.api.app.openExternal(EAON_CODE_REPO)}>
               <ExternalLink size={14} strokeWidth={1.9} />

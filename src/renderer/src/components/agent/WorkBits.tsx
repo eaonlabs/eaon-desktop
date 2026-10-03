@@ -3,7 +3,6 @@ import {
   Check,
   ChevronDown,
   CircleDashed,
-  CircleDot,
   Lightbulb,
   Loader2,
   Pause,
@@ -14,6 +13,7 @@ import {
 } from 'lucide-react'
 import type { Chat, ChatMessage, GoalState, PlanProposal, SubagentRun, TodoItem, TokenUsage } from '@shared/types'
 import { useApp } from '../../state/store'
+import '../../styles/tasklist.css'
 
 /**
  * The pieces of a Work turn that are not text or a single tool call: the plan
@@ -64,11 +64,42 @@ export function PlanCard({ message, plan }: { message: ChatMessage; plan: PlanPr
 
 /* --------------------------------------------------------------- checklist */
 
-const TODO_ICON = {
-  done: <Check size={13} strokeWidth={2.4} />,
-  in_progress: <CircleDot size={13} strokeWidth={2.2} />,
-  pending: <CircleDashed size={13} strokeWidth={2} />
+/** How far along the plan is, as a ring: it fills as steps get done. */
+function PlanRing({ value }: { value: number }): JSX.Element {
+  const r = 5.5
+  const length = 2 * Math.PI * r
+  return (
+    <svg className="tasks__ring" viewBox="0 0 14 14" width={14} height={14} aria-hidden="true">
+      <circle className="tasks__ring-track" cx={7} cy={7} r={r} />
+      <circle
+        className="tasks__ring-fill"
+        cx={7}
+        cy={7}
+        r={r}
+        strokeDasharray={length}
+        strokeDashoffset={length * (1 - Math.min(1, Math.max(0, value)))}
+      />
+    </svg>
+  )
 }
+
+/**
+ * A step's mark. Every state is drawn at once and CSS shows the right one,
+ * so a step that gets done animates from what it was: the dot fills, then the
+ * check draws.
+ */
+function StepMark(): JSX.Element {
+  return (
+    <svg className="tasks__mark" viewBox="0 0 16 16" width={16} height={16} aria-hidden="true">
+      <circle className="tasks__mark-ring" cx={8} cy={8} r={6} />
+      <circle className="tasks__mark-orbit" cx={8} cy={8} r={6} />
+      <circle className="tasks__mark-fill" cx={8} cy={8} r={7} />
+      <path className="tasks__mark-check" d="M5.1 8.3 7.1 10.2 10.9 6.1" />
+    </svg>
+  )
+}
+
+const STEP_STATE: Record<TodoItem['status'], string> = { done: 'Done', in_progress: 'In progress', pending: 'To do' }
 
 /** The latest checklist in the chat, pinned above the composer while it has open items. */
 export function TodoPanel({ chat }: { chat: Chat }): JSX.Element | null {
@@ -91,23 +122,42 @@ export function TodoPanel({ chat }: { chat: Chat }): JSX.Element | null {
   const current = todos.find((t) => t.status === 'in_progress') ?? todos.find((t) => t.status === 'pending')
 
   return (
-    <div className="todo-panel" data-open={open || undefined}>
-      <button className="todo-panel__head" onClick={() => setOpen(!open)} aria-expanded={open}>
-        <span className="todo-panel__title">Plan</span>
-        <span className="todo-panel__count">
-          {done}/{todos.length}
+    <div className="tasks" data-open={open || undefined}>
+      <button className="tasks__head" onClick={() => setOpen(!open)} aria-expanded={open}>
+        <PlanRing value={done / todos.length} />
+        <span className="tasks__title">Plan</span>
+        <span className="tasks__count" aria-label={`${done} of ${todos.length} done`}>
+          {/* Keyed, so a step getting done ticks the number over. */}
+          <span key={done} className="tasks__count-done">
+            {done}
+          </span>
+          <span className="tasks__count-of">of {todos.length}</span>
         </span>
-        {!open && current && <span className="todo-panel__current">{current.text}</span>}
-        <ChevronDown size={14} strokeWidth={2} className="todo-panel__chevron" />
+        {!open && current && (
+          <span key={current.text} className="tasks__current">
+            {current.text}
+          </span>
+        )}
+        <ChevronDown size={14} strokeWidth={2} className="tasks__chevron" />
       </button>
-      {open && <ul className="todo-panel__list">
-        {todos.map((todo, index) => (
-          <li key={index} className="todo-panel__item" data-status={todo.status}>
-            <span className="todo-panel__icon">{TODO_ICON[todo.status]}</span>
-            <span>{todo.text}</span>
-          </li>
-        ))}
-      </ul>}
+      {open && (
+        <ol className="tasks__list">
+          {todos.map((todo, index) => (
+            <li
+              key={index}
+              className="tasks__item"
+              data-status={todo.status}
+              style={{ ['--i' as string]: Math.min(index, 10) }}
+              aria-label={`${STEP_STATE[todo.status]}: ${todo.text}`}
+            >
+              <StepMark />
+              <span className="tasks__text">
+                <span className="tasks__label">{todo.text}</span>
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
     </div>
   )
 }

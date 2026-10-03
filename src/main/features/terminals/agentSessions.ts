@@ -1,5 +1,4 @@
 import { execFile } from 'node:child_process'
-import { createHash } from 'node:crypto'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
@@ -15,16 +14,16 @@ const exec = promisify(execFile)
  * Every agent keeps its conversations on disk under its own config folder, in
  * its own shape, and every one of them can be told to reopen a particular
  * conversation — but each spells it differently. Measured against the real
- * CLIs (Claude Code 2.1, Codex 0.159, Gemini CLI 0.62, OpenCode 1.16, Eaon
+ * CLIs (Claude Code 2.1, Codex 0.159, Antigravity CLI 1.2, OpenCode 1.16, Eaon
  * Code 1.0), not guessed from their docs:
  *
  *   claude     ~/.claude/projects/<slug>/<id>.jsonl      claude --resume <id>
  *              and sessions/<pid>.json, which names the conversation a
  *              running process holds — exact, and the only agent that says.
  *   codex      ~/.codex/sessions/Y/M/D/rollout-…-<id>.jsonl  codex resume <id>
- *   gemini     ~/.gemini/tmp/<project>/chats/session-….jsonl gemini --resume <id>
- *              (<project> from ~/.gemini/projects.json; a sha256 of the path
- *              in older versions)
+ *   antigravity  ~/.gemini/antigravity-cli/brain/<id>/     agy --conversation <id>
+ *              and cache/last_conversations.json, which names the latest
+ *              conversation for each folder (the CLI's `agy -c`).
  *   opencode   a SQLite database, table `session`        opencode --session <id>
  *   eaon-code  ~/.eaon/agent/sessions/--<path>--/<ts>_<id>.jsonl
  *                                                        eaon-code --session <id>
@@ -79,7 +78,7 @@ const env = (): NodeJS.ProcessEnv => envOverride ?? process.env
 
 export const claudeDir = (): string => env().CLAUDE_CONFIG_DIR || path.join(home(), '.claude')
 const codexDir = (): string => env().CODEX_HOME || path.join(home(), '.codex')
-const geminiDir = (): string => path.join(env().GEMINI_CLI_HOME || home(), '.gemini')
+const antigravityDir = (): string => path.join(home(), '.gemini', 'antigravity-cli')
 const opencodeDb = (): string => path.join(env().XDG_DATA_HOME || path.join(home(), '.local', 'share'), 'opencode', 'opencode.db')
 
 function eaonAgentDir(): string {
@@ -261,53 +260,57 @@ const codex: AgentKind = {
   continueLatest: (command) => `${command} resume --last`
 }
 
-/* ------------------------------------------------------------------ gemini */
+/* ------------------------------------------------------------------ antigravity */
 
-/** The chats folders Gemini CLI could be keeping a folder's conversations in. */
-function geminiChatDirs(cwd: string): string[] {
-  const dirs: string[] = []
-  const resolved = path.resolve(cwd)
-  const key = process.platform === 'win32' ? resolved.toLowerCase() : resolved
+/**
+ * The conversation Antigravity's CLI would carry on in a folder: its
+ * last_conversations.json maps each folder (an absolute path) to its latest
+ * conversation. Read loosely, since the CLI is young and its files are not
+ * documented: a plain id, or an object carrying one, both count.
+ */
+function antigravityLatest(cwd: string): string | null {
+  let map: unknown
   try {
-    const registry = JSON.parse(fs.readFileSync(path.join(geminiDir(), 'projects.json'), 'utf8')) as { projects?: Record<string, string> }
-    const short = registry.projects?.[key]
-    if (short && /^[a-z0-9-]+$/.test(short)) dirs.push(path.join(geminiDir(), 'tmp', short, 'chats'))
+    map = JSON.parse(fs.readFileSync(path.join(antigravityDir(), 'cache', 'last_conversations.json'), 'utf8'))
   } catch {
-    /* no registry yet */
+    return null
   }
-  // Before the registry, the folder was a sha256 of the path.
-  dirs.push(path.join(geminiDir(), 'tmp', createHash('sha256').update(resolved).digest('hex'), 'chats'))
-  return dirs
+  if (!map || typeof map !== 'object') return null
+  const resolved = path.resolve(cwd)
+  const want = process.platform === 'win32' ? resolved.toLowerCase() : resolved
+  for (const [folder, value] of Object.entries(map as Record<string, unknown>)) {
+    const key = process.platform === 'win32' ? path.resolve(folder).toLowerCase() : path.resolve(folder)
+    if (key !== want) continue
+    const id = typeof value === 'string' ? value : JSON.stringify(value ?? '').match(new RegExp(UUID))?.[0]
+    if (id && UUID_RE.test(id)) return id
+  }
+  return null
 }
 
-const GEMINI_ID_RE = /"sessionId"\s*:\s*"([^"]+)"/
-const GEMINI_TURN_RE = /"type"\s*:\s*"user"/
-
-const gemini: AgentKind = {
-  id: 'gemini',
-  bins: ['gemini'],
-  named: named(new RegExp(`(?:--resume|-r|--session-id)(?:\\s+|=)(${UUID})`)),
+const antigravity: AgentKind = {
+  id: 'antigravity',
+  bins: ['agy'],
+  named: named(new RegExp(`--conversation(?:\\s+|=)(${UUID})`)),
+  /*
+   * Only the folder's latest conversation can be told apart from the rest:
+   * the brain folders hold every conversation, filed by id alone. That is
+   * the one a pane quit mid-way was holding, which is what restore needs.
+   */
   async conversations(cwd) {
     const out = new Map<string, Conversation>()
-    if (!cwd) return out
-    for (const dir of geminiChatDirs(cwd)) {
-      // The file name carries only the id's first eight characters; the full
-      // one is in its first record.
-      const files = await filesIn(dir, (n) => (n.startsWith('session-') && /\.jsonl?$/.test(n) ? n : null))
-      for (const conv of files.values()) {
-        const id = GEMINI_ID_RE.exec(head(conv.file!, 8 * 1024))?.[1]
-        if (id) out.set(id, { ...conv, id })
-      }
+    const id = cwd ? antigravityLatest(cwd) : null
+    if (!id) return out
+    try {
+      const st = await fs.promises.stat(path.join(antigravityDir(), 'brain', id))
+      out.set(id, { id, born: st.birthtimeMs || st.ctimeMs, touched: st.mtimeMs })
+    } catch {
+      // Named in the map but not on disk (deleted): nothing to reopen.
     }
     return out
   },
-  // Gemini writes the file the moment it starts, before anybody has typed.
-  async resumable(cwd, id) {
-    const conv = (await gemini.conversations(cwd)).get(id)
-    return Boolean(conv?.file && GEMINI_TURN_RE.test(head(conv.file)))
-  },
-  resume: (command, id) => `${command} --resume ${id}`,
-  continueLatest: (command) => `${command} --resume latest`
+  resumable: async (cwd, id) => UUID_RE.test(id) && (await antigravity.conversations(cwd)).has(id),
+  resume: (command, id) => `${command} --conversation ${id}`,
+  continueLatest: (command) => `${command} --continue`
 }
 
 /* ------------------------------------------------------------------ opencode */
@@ -374,7 +377,7 @@ const eaonCode: AgentKind = {
 export const AGENT_KINDS: Record<AgentId, AgentKind> = {
   claude,
   codex,
-  gemini,
+  antigravity,
   opencode,
   'eaon-code': eaonCode
 }
@@ -385,6 +388,18 @@ const extraBins = new Map<string, AgentId>()
 export function setExtraAgentBin(bin: string | null, id: AgentId): void {
   for (const [name, owner] of extraBins) if (owner === id) extraBins.delete(name)
   if (bin) extraBins.set(binName(bin), id)
+}
+
+/**
+ * Scripts an agent runs as, matched on their whole path. Eaon Code's
+ * installer leaves it at `…/dist/bundle/cli.js`, and `cli` alone is too
+ * common a name to go by.
+ */
+const extraScripts = new Map<string, AgentId>()
+
+export function setAgentScript(script: string | null, id: AgentId): void {
+  for (const [path, owner] of extraScripts) if (owner === id) extraScripts.delete(path)
+  if (script) extraScripts.set(script, id)
 }
 
 /** A program's name as `ps` shows it, without the folder or a script/exe suffix. */
@@ -411,9 +426,9 @@ export function agentOfArgs(args: string): AgentId | null {
   const direct = BY_BIN.get(first) ?? extraBins.get(first)
   if (direct) return direct
   if (!RUNTIMES.has(first)) return null
-  // `node --max-old-space-size=… /path/to/gemini`: the script is the first non-flag word.
+  // `node --max-old-space-size=… /path/to/codex`: the script is the first non-flag word.
   const script = words.slice(1).find((w) => !w.startsWith('-'))
   if (!script) return null
   const name = binName(script)
-  return BY_BIN.get(name) ?? extraBins.get(name) ?? null
+  return extraScripts.get(script) ?? BY_BIN.get(name) ?? extraBins.get(name) ?? null
 }

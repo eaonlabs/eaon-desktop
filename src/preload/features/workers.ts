@@ -1,5 +1,5 @@
 import { ipcRenderer } from 'electron'
-import type { Worker, WorkerDraft, WorkerMessageEvent, WorkerStreamEvent, WorkerThread } from '@shared/workers'
+import type { Worker, WorkerDraft, WorkerMessageEvent, WorkerSendOptions, WorkerStreamEvent, WorkerThread } from '@shared/workers'
 
 /**
  * Renderer bridge for Eaon Workers. Exposed as `window.api.workers`. Main owns
@@ -20,8 +20,12 @@ export const workersApi = {
   save: (draft: WorkerDraft): Promise<Worker> => ipcRenderer.invoke('workers:save', draft),
   /** Stops any running turn and forgets the worker; its folder stays on disk. */
   remove: (id: string): Promise<void> => ipcRenderer.invoke('workers:remove', id),
-  /** Mail from the user. Files are absolute paths, referenced as they are. */
-  send: (id: string, text: string, files: string[] = []): Promise<void> => ipcRenderer.invoke('workers:send', id, text, files),
+  /**
+   * Mail from the user. Files are absolute paths, referenced as they are.
+   * Colleagues the text @mentions by name get their own copy.
+   */
+  send: (id: string, text: string, files: string[] = [], options: WorkerSendOptions = {}): Promise<void> =>
+    ipcRenderer.invoke('workers:send', id, text, files, options),
   /** Empties the thread and its summary; mail, heartbeat and settings stay. */
   clear: (id: string): Promise<void> => ipcRenderer.invoke('workers:clear', id),
   setPaused: (id: string, paused: boolean): Promise<Worker> => ipcRenderer.invoke('workers:set-paused', id, paused),

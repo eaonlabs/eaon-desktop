@@ -52,13 +52,12 @@ export const eaonCodeFeature: Feature = {
       result(async () => {
         const outcome = await installEaonCode((line) => send('eaon-code:install-log', line))
         const status = await active.status(true)
-        if (outcome.ok && status.state !== 'ready') {
-          throw new Error(
-            status.error ??
-              'npm reported success, but eaon-code is still not on your PATH. Open a new terminal and run `npm prefix -g` to see where it went.'
-          )
-        }
         if (!outcome.ok) throw new Error(outcome.message)
+        if (status.state !== 'ready') throw new Error(status.error ?? "The installer finished, but Eaon Code wasn't found where it puts it.")
+        // A path set in Settings still wins over what was just installed; say so rather than look like nothing happened.
+        if (status.source !== 'installer') {
+          throw new Error(`Installed, but Eaon is still using ${status.binaryPath}, the path set below. Clear it to use the new install.`)
+        }
         return status
       })
     )
@@ -116,13 +115,13 @@ export const eaonCodeFeature: Feature = {
     ipcMain.handle('eaon-code:open-terminal', (_e, cwd: string, continueSession?: boolean) =>
       result(async () => {
         const status = await active.status()
-        if (!status.binaryPath || status.state !== 'ready') throw new Error(status.error ?? 'Eaon Code is not installed.')
+        if (!status.launch || status.state !== 'ready') throw new Error(status.error ?? 'Eaon Code is not installed.')
         // A session is only written to disk after its first reply; before that
         // there is nothing for the terminal to continue.
         const current = continueSession ? active.currentSessionFile() : null
         const sessionFile = current && existsSync(current) ? current : null
         if (sessionFile) await active.stop()
-        const opened = await openInTerminal(cwd, status.binaryPath, sessionFile ?? undefined)
+        const opened = await openInTerminal(cwd, status.launch, sessionFile ?? undefined)
         if (!opened.ok) throw new Error(opened.error)
         return { continued: Boolean(sessionFile) }
       })

@@ -2,7 +2,7 @@
 title: Eaon 2026.6 feature map
 tags: [eaon-desktop, architecture, index]
 created: 2026-09-24T00:00:00.000Z
-updated: 2026-10-01T03:47:19.217Z
+updated: 2026-10-03T00:20:43.961Z
 ---
 
 # Eaon 2026.6 feature map
@@ -65,3 +65,5 @@ Related: [[Chat agent's own browser and the live view]]
 Related: [[Agentic trading backend: engine, brokers, sessions and guardrails]]
 
 Related: [[Agent email through AgentMail: backend, decisions and API gotchas]]
+
+Related: [[Step cards, loaders and the Cursor-style transcript]]

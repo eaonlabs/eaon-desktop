@@ -20,10 +20,20 @@ let indicator: BrowserWindow | null = null
 let poll: ReturnType<typeof setInterval> | null = null
 let shortcutHeld = false
 let getMain: () => BrowserWindow | null = () => null
+/** Every Eaon window; there can be several. */
+let getAppWindows: () => BrowserWindow[] = () => {
+  const main = getMain()
+  return main ? [main] : []
+}
 let onStopped: (() => void) | null = null
 
-export function configureSession(options: { getWindow: () => BrowserWindow | null; onStopped?: () => void }): void {
+export function configureSession(options: {
+  getWindow: () => BrowserWindow | null
+  getWindows?: () => BrowserWindow[]
+  onStopped?: () => void
+}): void {
   getMain = options.getWindow
+  if (options.getWindows) getAppWindows = options.getWindows
   onStopped = options.onStopped ?? null
 }
 
@@ -161,11 +171,11 @@ let hide: { saved: { w: BrowserWindow; opacity: number; passThrough: boolean }[]
 let hideDepth = 0
 
 function hideWindows(): NonNullable<typeof hide> {
-  const main = getMain()
+  const own = new Set(getAppWindows())
   const windows = BrowserWindow.getAllWindows().filter((w) => !w.isDestroyed() && w.isVisible() && !w.webContents.isOffscreen())
   // Mouse pass-through only on windows we own the state of; another
   // feature's window may be deliberately click-through already.
-  const saved = windows.map((w) => ({ w, opacity: w.getOpacity(), passThrough: w === main || w === indicator }))
+  const saved = windows.map((w) => ({ w, opacity: w.getOpacity(), passThrough: own.has(w) || w === indicator }))
   for (const { w, passThrough } of saved) {
     w.setOpacity(0)
     if (passThrough) w.setIgnoreMouseEvents(true)

@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { ChatMessage, ChatToolPart, StreamEvent } from '@shared/types'
-import type { Worker, WorkerDraft, WorkerThread } from '@shared/workers'
+import type { Worker, WorkerDraft, WorkerSendOptions, WorkerThread } from '@shared/workers'
 
 /**
  * The Workers tab's state. Workers live in the main process, which runs them
@@ -27,7 +27,7 @@ interface WorkersState {
   closeEditor: () => void
   save: (draft: WorkerDraft) => Promise<Worker>
   remove: (id: string) => Promise<void>
-  send: (id: string, text: string, files?: string[]) => Promise<void>
+  send: (id: string, text: string, files?: string[], options?: WorkerSendOptions) => Promise<void>
   clear: (id: string) => Promise<void>
   setPaused: (id: string, paused: boolean) => Promise<void>
   wake: (id: string) => Promise<void>
@@ -126,8 +126,8 @@ export const useWorkers = create<WorkersState>((set, get) => ({
       return { workers: s.workers.filter((w) => w.id !== id), threads, selectedId: s.selectedId === id ? null : s.selectedId }
     })
   },
-  async send(id, text, files = []) {
-    await window.api.workers.send(id, text, files)
+  async send(id, text, files = [], options = {}) {
+    await window.api.workers.send(id, text, files, options)
   },
   async clear(id) {
     await window.api.workers.clear(id)

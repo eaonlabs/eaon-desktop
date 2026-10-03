@@ -1,6 +1,8 @@
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import type { PermissionOwner } from '@shared/computerUse'
+import { readFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import type { EaonCopy, PermissionOwner } from '@shared/computerUse'
 import type { Point } from './geometry'
 import { LineHelper } from './helper'
 import type { AppRef, BackendCheck, InputBackend, MouseButton } from './input'
@@ -248,6 +250,73 @@ export function permissionOwner(): Promise<PermissionOwner> {
     return { self: false, name: null }
   })().catch(() => ({ self: false, name: null }))
   return owner
+}
+
+/** This app's bundle (…/Eaon.app) when it runs from one; null for a dev build. */
+function ownBundle(): string | null {
+  return /^(.*?\.app)\/Contents\/MacOS\//.exec(process.execPath)?.[1] ?? null
+}
+
+function plistValue(bundle: string, key: string): string | null {
+  try {
+    const plist = readFileSync(`${bundle}/Contents/Info.plist`, 'utf8')
+    return new RegExp(`<key>${key}</key>\\s*<string>([^<]*)</string>`).exec(plist)?.[1] ?? null
+  } catch {
+    return null
+  }
+}
+
+/** A bundle's designated requirement: what macOS checks a privacy grant against. */
+async function designated(bundle: string): Promise<string | null> {
+  try {
+    const { stdout, stderr } = await run('/usr/bin/codesign', ['-d', '-r-', bundle], { timeout: 10_000 })
+    return /designated => (.+)/.exec(`${stdout}\n${stderr}`)?.[1]?.trim() ?? null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Other copies of Eaon on this Mac with the same bundle id but a different
+ * signature: the old Swift Eaon (ad-hoc signed) is one. macOS keeps a single
+ * "Eaon" switch per bundle id, checked against the signature of whichever
+ * copy asked first, so a switch made for an old copy shows as on while this
+ * copy is still refused. Found through Spotlight; a copy since deleted can
+ * leave the same stale switch behind without showing up here.
+ */
+let copies: Promise<EaonCopy[]> | null = null
+export function differentlySignedCopies(): Promise<EaonCopy[]> {
+  const own = ownBundle()
+  const id = own ? plistValue(own, 'CFBundleIdentifier') : null
+  if (process.platform !== 'darwin' || !own || !id) return Promise.resolve([])
+  copies ??= (async (): Promise<EaonCopy[]> => {
+    const mine = await designated(own)
+    const { stdout } = await run('/usr/bin/mdfind', [`kMDItemCFBundleIdentifier == "${id}"`], { timeout: 10_000 })
+    const found: EaonCopy[] = []
+    for (const path of stdout.split('\n').map((line) => line.trim()).filter((line) => line.endsWith('.app') && line !== own).slice(0, 40)) {
+      const theirs = await designated(path)
+      if (theirs && theirs !== mine) found.push({ path: path.replace(homedir(), '~'), version: plistValue(path, 'CFBundleShortVersionString') })
+    }
+    return found
+  })().catch(() => [])
+  return copies
+}
+
+/**
+ * Clears Eaon's Accessibility entry so this copy can ask afresh. Switching a
+ * stale entry off and on keeps the old signature; only removing it helps.
+ */
+export async function resetAccessibility(): Promise<{ ok: boolean; error?: string }> {
+  const own = ownBundle()
+  const id = own ? plistValue(own, 'CFBundleIdentifier') : null
+  if (!id) return { ok: false, error: 'Eaon is not running from an app bundle, so there is no entry of its own to reset.' }
+  try {
+    await run('/usr/bin/tccutil', ['reset', 'Accessibility', id], { timeout: 10_000 })
+    copies = null
+    return { ok: true }
+  } catch (error) {
+    return { ok: false, error: (error as Error).message }
+  }
 }
 
 /** The owner as tool errors name it, so the model can tell the user which switch to flip. */

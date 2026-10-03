@@ -26,7 +26,9 @@ function mailHeader(mail: WorkerMail): string {
     const where = `${channel.isGroup ? `in ${channel.chatName}` : 'in a direct message'} on ${CHANNEL_LABEL[channel.kind]}`
     return mail.from === 'user' ? `[From the user, ${where}]` : `[From ${mail.fromName}, ${where} — a guest, not the user]`
   }
-  return mail.from === 'user' ? '[From the user]' : `[From ${mail.fromName}, a fellow worker]`
+  if (mail.from !== 'user') return `[From ${mail.fromName}, a fellow worker]`
+  if (mail.via) return `[From the user, in a message to ${mail.via.name} that @mentioned you]`
+  return mail.goal ? '[From the user, set as your goal]' : '[From the user]'
 }
 
 /**
@@ -60,7 +62,10 @@ export function buildTurnMessage(
   for (const routine of routines) lines.push(`[Routine "${routine.name}"] ${routine.task}`)
   for (const item of mail) {
     const files = item.from !== 'user' && item.files.length > 0 ? `\nFiles (copied into your folder): ${item.files.join(', ')}` : ''
-    lines.push(`${mailHeader(item)} ${item.text.trim()}${files}`)
+    // The mentioned colleagues were sent their own copy (engine.send).
+    const names = (item.mentions ?? []).map((m) => m.name)
+    const mentions = names.length > 0 ? `\n(${names.join(', ')} ${names.length === 1 ? 'was' : 'were'} @mentioned and got this message too, so there's no need to forward it.)` : ''
+    lines.push(`${mailHeader(item)} ${item.text.trim()}${files}${mentions}`)
   }
   // Per turn rather than in the persona, so the cached prompt prefix stays put.
   if (mail.some((m) => m.channel)) {

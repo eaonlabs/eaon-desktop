@@ -36,6 +36,14 @@ import { channelsApi } from './features/channels'
 import { agentBrowserApi } from './features/agentBrowser'
 import { emailApi } from './features/email'
 import { tradingApi } from './features/trading'
+import { voiceApi } from './features/voice'
+
+/** Subscribes to a main-process event; returns the unsubscribe. */
+function on<T>(channel: string, handler: (payload: T) => void): () => void {
+  const listener = (_e: unknown, payload: T): void => handler(payload)
+  ipcRenderer.on(channel, listener)
+  return () => ipcRenderer.removeListener(channel, listener)
+}
 
 const api = {
   /**
@@ -47,19 +55,35 @@ const api = {
   platform: process.platform as 'darwin' | 'win32' | 'linux',
   settings: {
     get: (): Promise<Settings> => ipcRenderer.invoke('settings:get'),
-    patch: (patch: Partial<Settings>): Promise<Settings> => ipcRenderer.invoke('settings:patch', patch)
+    patch: (patch: Partial<Settings>): Promise<Settings> => ipcRenderer.invoke('settings:patch', patch),
+    /** Another window changed the settings; carries the whole new object. */
+    onChanged: (handler: (settings: Settings) => void): (() => void) => on('settings:changed', handler)
   },
   workspaces: {
     get: (): Promise<Workspace[]> => ipcRenderer.invoke('workspaces:get'),
-    save: (value: Workspace[]): Promise<Workspace[]> => ipcRenderer.invoke('workspaces:save', value)
+    save: (value: Workspace[]): Promise<Workspace[]> => ipcRenderer.invoke('workspaces:save', value),
+    onChanged: (handler: (workspaces: Workspace[]) => void): (() => void) => on('workspaces:changed', handler)
   },
   projects: {
     get: (): Promise<Project[]> => ipcRenderer.invoke('projects:get'),
-    save: (value: Project[]): Promise<Project[]> => ipcRenderer.invoke('projects:save', value)
+    save: (value: Project[]): Promise<Project[]> => ipcRenderer.invoke('projects:save', value),
+    onChanged: (handler: (projects: Project[]) => void): (() => void) => on('projects:changed', handler)
   },
   chats: {
     get: (): Promise<Chat[]> => ipcRenderer.invoke('chats:get'),
-    save: (value: Chat[]): Promise<void> => ipcRenderer.invoke('chats:save', value)
+    /**
+     * Saves the chats this window changed and the ones it deleted; main merges
+     * them into the one list every window shares and tells the other windows.
+     */
+    apply: (upserts: Chat[], removed: string[]): Promise<void> => ipcRenderer.invoke('chats:apply', upserts, removed),
+    /** Another window (or a scheduled run) changed these chats. */
+    onChanged: (handler: (change: { upserts: Chat[]; removed: string[] }) => void): (() => void) => on('chats:changed', handler),
+    /** Replies being written right now, in any window: not to be marked interrupted on load. */
+    activeRuns: (): Promise<string[]> => ipcRenderer.invoke('chat:active-runs')
+  },
+  window: {
+    /** Opens another Eaon window. */
+    open: (): Promise<void> => ipcRenderer.invoke('window:new')
   },
   mcp: {
     get: (): Promise<McpServer[]> => ipcRenderer.invoke('mcp:get'),
@@ -233,7 +257,8 @@ const fullApi = {
   channels: channelsApi,
   agentBrowser: agentBrowserApi,
   email: emailApi,
-  trading: tradingApi
+  trading: tradingApi,
+  voice: voiceApi
 }
 
 contextBridge.exposeInMainWorld('api', fullApi)

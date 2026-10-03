@@ -96,7 +96,7 @@ export interface ProviderMeta {
    * the ADE's terminal view (Claude Code for Anthropic): offered as a button
    * under `noSignInReason`.
    */
-  planInAde?: 'claude' | 'gemini' | 'codex'
+  planInAde?: 'claude' | 'antigravity' | 'codex'
   /**
    * The key flow signs in an account whose own token is used (Hugging Face),
    * rather than minting a key: shown as an Account section above the keys.

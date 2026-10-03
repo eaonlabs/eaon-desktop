@@ -3,7 +3,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { Eraser, Maximize2, Minimize2, MoreHorizontal, PencilLine, Plus, RotateCcw, SquareTerminal, X } from 'lucide-react'
 import claudeCodeLogo from '../../../assets/providers/claudecode.svg'
 import codexLogo from '../../../assets/providers/codex.svg'
-import geminiCliLogo from '../../../assets/providers/geminicli.svg'
+import antigravityLogo from '../../../assets/providers/antigravity.png'
 import openCodeLogo from '../../../assets/providers/opencode.svg'
 import eaonLogo from '../../../assets/providers/eaon.png'
 import { useApp } from '../../../state/store'
@@ -17,7 +17,7 @@ import { gridColumns, type TerminalAgent, type TerminalAgentId, type TerminalPan
 
 /**
  * The ADE's terminal view: a grid of real terminals in the project folder,
- * each a shell or a CLI agent — Eaon Code, Claude Code, Codex, Gemini — side by
+ * each a shell or a CLI agent — Eaon Code, Claude Code, Codex, Antigravity — side by
  * side, like Eaon ADE. Panes keep running when the view is switched away.
  */
 export function TerminalWorkspace(): JSX.Element {
@@ -239,7 +239,7 @@ export function AgentMark({ agent, size }: { agent: TerminalAgentId; size: numbe
 const AGENT_LOGOS: Partial<Record<TerminalAgentId, string>> = {
   claude: claudeCodeLogo,
   codex: codexLogo,
-  gemini: geminiCliLogo,
+  antigravity: antigravityLogo,
   opencode: openCodeLogo,
   'eaon-code': eaonLogo
 }

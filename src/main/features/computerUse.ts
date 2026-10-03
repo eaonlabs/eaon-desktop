@@ -4,7 +4,7 @@ import { registerToolSource } from '../agent/tools'
 import { store } from '../store'
 import { disposeInput, inputBackend, interruptInput } from './computer/backend'
 import { captureDisplay, orderedDisplays, requestScreenAccess, ScreenCaptureDenied } from './computer/capture'
-import { permissionOwner } from './computer/mac'
+import { differentlySignedCopies, permissionOwner, resetAccessibility } from './computer/mac'
 import { configureSession, disposeSession, isDriving, STOP_LABEL, stopAll, withEaonHidden } from './computer/session'
 import { COMPUTER_GUIDANCE, computerTool } from './computer/tool'
 import type { Feature } from './types'
@@ -52,11 +52,13 @@ async function status(): Promise<ComputerUseStatus> {
     const trusted = check.trusted ?? systemPreferences.isTrustedAccessibilityClient(false)
     accessibility = trusted ? 'granted' : 'denied'
   }
+  const owner = platform === 'darwin' ? await permissionOwner() : null
   return {
     platform,
     screen: screenPermission(),
     accessibility,
-    owner: platform === 'darwin' ? await permissionOwner() : null,
+    owner,
+    ...(accessibility === 'denied' && owner?.self ? { otherCopies: await differentlySignedCopies() } : {}),
     screenRequested,
     canRelaunch: app.isPackaged,
     input: { available: check.available, backend: backend.name, ...(check.detail ? { detail: check.detail } : {}) },
@@ -106,8 +108,8 @@ registerToolSource({
 
 export const computerUseFeature: Feature = {
   id: 'computer-use',
-  register: ({ ipcMain, getWindow }) => {
-    configureSession({ getWindow, onStopped: interruptInput })
+  register: ({ ipcMain, getWindow, getWindows }) => {
+    configureSession({ getWindow, getWindows, onStopped: interruptInput })
     ipcMain.handle('computer-use:status', () => status())
     ipcMain.handle('computer-use:test', () => test())
     ipcMain.handle('computer-use:stop', () => stopAll())
@@ -122,6 +124,17 @@ export const computerUseFeature: Feature = {
         await requestScreenAccess()
       }
       await shell.openExternal(PRIVACY_PANES[kind])
+    })
+    // A switch that shows as on while Eaon is still refused belongs to an
+    // older, differently signed Eaon: clear the entry, ask again, and open
+    // the list so the user can switch this copy on.
+    ipcMain.handle('computer-use:reset-accessibility', async () => {
+      if (process.platform !== 'darwin') return { ok: false, error: 'Only macOS has this list.' }
+      const result = await resetAccessibility()
+      if (!result.ok) return result
+      systemPreferences.isTrustedAccessibilityClient(true)
+      await shell.openExternal(PRIVACY_PANES.accessibility)
+      return result
     })
     // Screen Recording applies only after a relaunch. app.quit() rather than
     // app.exit() so the held quit in index.ts still saves chats and closes

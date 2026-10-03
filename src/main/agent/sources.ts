@@ -9,3 +9,5 @@ import '../localTools'
 import '../webSearch'
 import './pluginTools'
 import './swarm'
+// Image generation lives with the features but is offered like a built-in tool.
+import '../features/images/tool'

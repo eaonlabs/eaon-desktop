@@ -31,6 +31,11 @@ const untilRuns = new Set<string>()
 /** Goal runs the user paused: they finish the step in hand and stop instead of continuing. */
 const pausedGoals = new Set<string>()
 
+/** Messages whose reply is being written right now, by any window or by a scheduled run. */
+export function activeRunIds(): string[] {
+  return [...activeRuns.keys()]
+}
+
 export function cancelRun(messageId: string): void {
   activeRuns.get(messageId)?.abort()
   activeRuns.delete(messageId)

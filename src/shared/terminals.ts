@@ -5,7 +5,17 @@
  * renderer; the renderer only draws them (`components/code/terminal/`).
  */
 
-export type TerminalAgentId = 'shell' | 'eaon-code' | 'claude' | 'codex' | 'gemini' | 'opencode'
+export const TERMINAL_AGENT_IDS = ['shell', 'eaon-code', 'claude', 'codex', 'antigravity', 'opencode'] as const
+export type TerminalAgentId = (typeof TERMINAL_AGENT_IDS)[number]
+
+/**
+ * A pane's agent as saved by an older version, made current. Gemini CLI was
+ * replaced by Antigravity; a pane saved as Gemini (or anything else this
+ * version doesn't know) comes back as a plain shell.
+ */
+export function knownAgent(agent: unknown): TerminalAgentId {
+  return (TERMINAL_AGENT_IDS as readonly unknown[]).includes(agent) ? (agent as TerminalAgentId) : 'shell'
+}
 
 export interface TerminalAgent {
   id: TerminalAgentId
