@@ -9,3 +9,6 @@ dist/
 # Eaon llama.cpp runtime: the checkout, and the binaries scripts/build-llama.sh builds
 native/llama.cpp/
 resources/llama/
+
+# Claude Code project instructions: kept locally, not published.
+CLAUDE.md
