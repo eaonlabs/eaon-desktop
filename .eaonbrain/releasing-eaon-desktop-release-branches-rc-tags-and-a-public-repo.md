@@ -31,3 +31,21 @@ The co-founder chose to make `main` this app. GitHub can't open a PR between bra
 - The release notes tell testers to open it once with System Settings → Privacy & Security → **Open Anyway**. On recent macOS, right-click → Open no longer gets past Gatekeeper.
 - Once `notarytool history` stops returning 403, run `npm run dist:mac` again, then upload the notarized dmg, zip, blockmaps and `latest-mac.yml` with `--clobber`, and remove the un-notarized note.
 
+
+## The official 2026.6.0 release (Oct 2 2026): how it went out
+`v2026.6.0` (tag on `ef01e32`, release branch `release/2026.6.0`) is a normal release marked **Latest**, with 14 files: Mac `.dmg`, `.zip`, both blockmaps and `latest-mac.yml`; Windows `-setup.exe`, blockmap and `latest.yml`; Linux both AppImages, both `.deb`s, `latest-linux.yml` and `latest-linux-arm64.yml`. The co-founder chose to **hold the release until the Mac build was notarized** rather than ship any platform early.
+- **Order that keeps users from seeing half a release:**
+  1. Push the commit to `release/<version>` only. `linux.yml` builds and smoke-tests the Linux files; with no release yet they stay as run artifacts (`gh run download <id>`).
+  2. Build Windows locally.
+  3. Run `npm run dist:mac`.
+  4. Create the release in one go: `gh release create v<ver> --target <sha> --latest <every file>`. That also creates the tag.
+- **The tag starts `linux.yml` again**, which would rebuild and `--clobber` the checked Linux files. Cancel that run (`gh run list … --json headBranch` = the tag) straight after creating the release.
+- **Who updates:**
+  - Electron installs on stable read `releases/latest` → `latest*.yml`. Prerelease builds (betas, RCs) read the Atom feed and need semver tags.
+  - The **old Swift Mac app** reads `https://downloads.eaon.dev/update-manifest.json` (Cloudflare Pages `eaon-downloads`; see [[Migrating updates from the old Swift Eaon to this Electron app]]). Update it with `latestVersion`, the zip's GitHub URL and its sha256, and redeploy **with `robots.txt` alongside**: `npx wrangler pages deploy <dir> --project-name eaon-downloads --branch main --commit-dirty=true`. Wrangler on this Mac is logged in. Copy the current files from the latest deployment's `*.eaon-downloads.pages.dev` URL first.
+- **Verify like an updater:** download `releases/latest/download/latest*.yml` and check each file's sha512 and size against the real download, and check the manifest's sha256 against the zip.
+- **Gotchas met:**
+  - `release-mac.sh` notarizes the app, then signs and notarizes the dmg. The dmg upload died once with `NSURLErrorDomain -1005 "The network connection was lost"`. Retrying `notarytool submit … --wait` then `stapler staple` on the dmg was enough; no rebuild needed.
+  - Stapling changes the dmg, so `latest-mac.yml`'s dmg hash and the dmg blockmap are stale. That's harmless, because updates use the zip.
+  - In zsh, an unmatched glob (`rm -rf dist/mac-universal-*-temp`) errors only that command, so a backgrounded build "failed" in its first lines yet carried on.
+  - The agreement 403 cleared about 25 minutes after the account holder accepted it.
