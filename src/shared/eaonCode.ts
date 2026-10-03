@@ -59,14 +59,26 @@ export interface EaonSlashCommand {
   source: 'extension' | 'prompt' | 'skill' | 'builtin'
 }
 
-/** Where the `eaon-code` binary is and whether it can run. */
+/** Where Eaon Code is and whether it can run. */
 export interface EaonCodeStatus {
   /** `ready`: found and answered `--version`. `missing`: nothing found. `broken`: found but would not run. */
   state: 'ready' | 'missing' | 'broken'
+  /** What was found: the installer's built `cli.js`, or an `eaon-code` binary. */
   binaryPath: string | null
-  /** How the binary was found. */
-  source: 'setting' | 'path' | 'npm-prefix' | null
+  /**
+   * How to start it. The installer's copy runs as `node <cli.js>`, never
+   * through the `eaon-code` wrapper it also writes: that wrapper fetches from
+   * GitHub and may rebuild on every start, which would stall the ADE.
+   */
+  launch: { command: string; args: string[] } | null
+  /** How it was found. */
+  source: 'setting' | 'installer' | 'path' | 'npm-prefix' | null
+  /** What `--version` printed. Not shown: the installer builds from main, so it doesn't say how current a copy is. */
   version: string | null
+  /** The installer's checkout, for a copy it made. */
+  installDir?: string
+  /** When the installer last finished, for a copy it made. */
+  updatedAt?: number
   /** The `node` on PATH, which is what `#!/usr/bin/env node` will run. */
   node: { path: string | null; version: string | null; ok: boolean }
   /** Eaon Code's `engines.node`, e.g. ">=22.19.0". */
@@ -164,4 +176,9 @@ export type EaonCommand =
 export type EaonResult<T = unknown> = { ok: true; data: T } | { ok: false; error: string }
 
 export const EAON_CODE_REPO = 'https://github.com/eaonlabs/eaon-code'
-export const EAON_CODE_PACKAGE = '@eaonlabs/eaon-code'
+/**
+ * Eaon Code's installer. It clones (or fast-forwards) the repo into
+ * ~/.local/share/eaon-code and builds it there, so running it again is how an
+ * install is updated. Eaon Code isn't kept current on npm.
+ */
+export const EAON_CODE_INSTALLER = 'https://raw.githubusercontent.com/eaonlabs/eaon-code/main/install.sh'

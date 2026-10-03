@@ -1,7 +1,6 @@
 import { after, before, beforeEach, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { createHash } from 'node:crypto'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -16,7 +15,7 @@ import {
 import { PaneRecords, restoredScreen, SCROLLBACK_BYTES } from '../src/main/features/terminals/paneRecords'
 import { agentUnder, byParent, programLine, SessionWatch, type Proc, type WatchDeps } from '../src/main/features/terminals/sessionWatch'
 import { createTerminals } from '../src/main/features/terminals'
-import type { TerminalAgent, TerminalAgentId, TerminalSpawnResult } from '@shared/terminals'
+import { knownAgent, type TerminalAgent, type TerminalAgentId, type TerminalSpawnResult } from '@shared/terminals'
 
 /**
  * Bringing ADE panes back after a quit, and following which CLI runs in each:
@@ -60,7 +59,9 @@ test('agents are recognised by their own name, not by a word in a path', () => {
   assert.equal(agentOfArgs('/Users/me/.local/bin/claude'), 'claude')
   assert.equal(agentOfArgs('eaon-code '), 'eaon-code')
   assert.equal(agentOfArgs('node /Users/me/.nvm/versions/node/v24/bin/opencode'), 'opencode')
-  assert.equal(agentOfArgs('/usr/local/bin/node --max-old-space-size=8192 /opt/lib/gemini-cli/bin/gemini'), 'gemini')
+  assert.equal(agentOfArgs('/usr/local/bin/node --max-old-space-size=8192 /opt/lib/codex/bin/codex'), 'codex')
+  assert.equal(agentOfArgs('/Users/me/.local/bin/agy -c'), 'antigravity')
+  assert.equal(agentOfArgs('gemini --resume latest'), null, 'Gemini CLI is no longer one of the ADE agents')
   assert.equal(agentOfArgs('node /x/@openai/codex/bin/codex.js resume'), 'codex')
   assert.equal(agentOfArgs('C:\\tools\\codex.exe'), 'codex')
   assert.equal(agentOfArgs('-zsh'), null)
@@ -146,23 +147,33 @@ test('Codex: conversations are found by the folder in their first line', async (
   assert.equal(kind.continueLatest('codex'), 'codex resume --last')
 })
 
-/* ------------------------------------------------------------------ gemini */
+/* ------------------------------------------------------------------ antigravity */
 
-test('Gemini CLI: the project registry leads to its chats, and an untouched chat is not reopened', async () => {
-  const kind = AGENT_KINDS.gemini
-  write(join(home, '.gemini', 'projects.json'), JSON.stringify({ projects: { [project]: 'my-project' } }))
-  const chats = join(home, '.gemini', 'tmp', 'my-project', 'chats')
-  write(join(chats, 'session-2026-09-30T10-00-11111111.jsonl'), `${JSON.stringify({ sessionId: ID_A, projectHash: 'x' })}\n${JSON.stringify({ id: 'm1', type: 'user', content: 'hi' })}\n`)
-  write(join(chats, 'session-2026-09-30T11-00-66666666.jsonl'), `${JSON.stringify({ sessionId: ID_B, projectHash: 'x' })}\n`)
-  // Older versions filed by a hash of the path.
-  const legacy = join(home, '.gemini', 'tmp', createHash('sha256').update(project).digest('hex'), 'chats')
-  write(join(legacy, 'session-2025-01-01T00-00-bbbbbbbb.json'), JSON.stringify({ sessionId: ID_C, messages: [{ type: 'user', content: 'old' }] }))
+test("Antigravity: the folder's latest conversation comes from its cache and must still be on disk", async () => {
+  const kind = AGENT_KINDS.antigravity
+  const root = join(home, '.gemini', 'antigravity-cli')
+  write(join(root, 'cache', 'last_conversations.json'), JSON.stringify({ [project]: ID_A, '/somewhere/else': ID_B }))
+  write(join(root, 'brain', ID_A, '.system_generated', 'logs', 'transcript.jsonl'), '{}\n')
 
-  assert.deepEqual([...(await kind.conversations(project)).keys()].sort(), [ID_A, ID_B, ID_C].sort())
+  assert.deepEqual([...(await kind.conversations(project)).keys()], [ID_A])
   assert.equal(await kind.resumable(project, ID_A), true)
-  assert.equal(await kind.resumable(project, ID_B), false)
-  assert.equal(await kind.resumable(project, ID_C), true)
-  assert.equal(kind.resume('gemini', ID_A), `gemini --resume ${ID_A}`)
+  assert.equal(await kind.resumable(project, ID_B), false, "another folder's conversation")
+  assert.equal(await kind.resumable('/somewhere/else', ID_B), false, 'named in the cache but gone from disk')
+  assert.equal(kind.named(`agy --conversation ${ID_C}`), ID_C)
+  assert.equal(kind.named(`agy --conversation=${ID_C}`), ID_C)
+  assert.equal(kind.resume('agy', ID_A), `agy --conversation ${ID_A}`)
+  assert.equal(kind.continueLatest('agy'), 'agy --continue')
+  assert.equal(agentOfArgs(`/Users/me/.local/bin/agy --conversation ${ID_A}`), 'antigravity')
+
+  // An object entry carrying the id counts too.
+  write(join(root, 'cache', 'last_conversations.json'), JSON.stringify({ [project]: { conversationId: ID_A, updatedAt: 1 } }))
+  assert.deepEqual([...(await kind.conversations(project)).keys()], [ID_A])
+})
+
+test('a Gemini CLI pane saved by an older version comes back as a shell', () => {
+  assert.equal(knownAgent('gemini'), 'shell')
+  assert.equal(knownAgent('antigravity'), 'antigravity')
+  assert.equal(knownAgent(undefined), 'shell')
 })
 
 /* ------------------------------------------------------------------ opencode */

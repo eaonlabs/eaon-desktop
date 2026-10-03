@@ -20,6 +20,17 @@ const PIECES = [
   '* star item',
   '1. numbered',
   '2) numbered again',
+  '3. **Bold lead:** after a blank line',
+  '   - nested under the number',
+  '     continued in the nested item',
+  '  plain continuation of an item',
+  '- [ ] a task',
+  '- [x] a done task',
+  '| Name | Size | Notes |',
+  '|:-----|-----:|:-----:|',
+  '| `a.ts` | 12 KB | ok |',
+  '| b.ts | 3 KB | needs a look |',
+  '\tindented with a tab',
   '> quoted',
   '> still quoted',
   '---',
@@ -48,7 +59,7 @@ function document(rand: () => number, lines: number): string {
 }
 
 test('parsing on from the settled prefix matches a whole parse at every step of a stream', () => {
-  for (let seed = 1; seed <= 60; seed++) {
+  for (let seed = 1; seed <= 150; seed++) {
     const rand = random(seed)
     const text = document(rand, 40)
     let previous = null as ReturnType<typeof parseMarkdown> | null
@@ -91,4 +102,69 @@ test('text that is not an extension of the last parse is parsed whole', () => {
     { kind: 'para', text: 'Different.' },
     { kind: 'heading', level: 1, text: 'Title' }
   ])
+})
+
+const list = (blocks: ReturnType<typeof parseMarkdown>['blocks'], at = 0) => {
+  const block = blocks[at]
+  assert.equal(block?.kind, 'list')
+  return block as Extract<typeof block, { kind: 'list' }>
+}
+
+test('a numbered list spaced out with blank lines stays one list, numbered on', () => {
+  const { blocks } = parseMarkdown('1. First\n\n2. Second\n\n3. Third\n\nAfter the list.')
+  assert.equal(blocks.length, 2)
+  const ol = list(blocks)
+  assert.equal(ol.ordered, true)
+  assert.equal(ol.start, 1)
+  assert.deepEqual(ol.items.map((i) => i.text), ['First', 'Second', 'Third'])
+  assert.deepEqual(blocks[1], { kind: 'para', text: 'After the list.' })
+})
+
+test('a list that starts at 4 keeps its number', () => {
+  assert.equal(list(parseMarkdown('4. Fourth\n5. Fifth').blocks).start, 4)
+})
+
+test('sub-bullets and continuation lines stay inside their item', () => {
+  const { blocks } = parseMarkdown('1. **Disk:** check usage\n   - Caches: 41 GB\n   - Mail: 3 GB\n2. **RAM:** fine\n   more about RAM')
+  assert.equal(blocks.length, 1)
+  const ol = list(blocks)
+  assert.equal(ol.items.length, 2)
+  assert.equal(ol.items[0].text, '**Disk:** check usage')
+  assert.deepEqual(list(ol.items[0].children).items.map((i) => i.text), ['Caches: 41 GB', 'Mail: 3 GB'])
+  assert.equal(ol.items[1].text, '**RAM:** fine\nmore about RAM')
+})
+
+test('code nested in a list item is a code block in that item', () => {
+  const ol = list(parseMarkdown('1. Run this:\n\n   ```sh\n   npm test\n   ```\n2. Then this.').blocks)
+  assert.equal(ol.items.length, 2)
+  assert.deepEqual(ol.items[0].children, [{ kind: 'code', lang: 'sh', code: 'npm test', streaming: false }])
+})
+
+test('task items carry their box', () => {
+  const ul = list(parseMarkdown('- [ ] write it\n- [x] test it\n- plain').blocks)
+  assert.deepEqual(ul.items.map((i) => [i.text, i.checked]), [['write it', false], ['test it', true], ['plain', null]])
+})
+
+test('a pipe table becomes a table, with alignment and ragged rows evened out', () => {
+  const { blocks } = parseMarkdown('Here:\n| Name | Size |\n|:--|--:|\n| a.ts | 12 KB |\n| b.ts |\n\nDone.')
+  assert.deepEqual(blocks, [
+    { kind: 'para', text: 'Here:' },
+    { kind: 'table', align: ['left', 'right'], header: ['Name', 'Size'], rows: [['a.ts', '12 KB'], ['b.ts', '']] },
+    { kind: 'para', text: 'Done.' }
+  ])
+})
+
+test("lines that only look like lists or tables aren't", () => {
+  assert.deepEqual(parseMarkdown('-5 degrees today').blocks, [{ kind: 'para', text: '-5 degrees today' }])
+  assert.deepEqual(parseMarkdown('1.5 million rows').blocks, [{ kind: 'para', text: '1.5 million rows' }])
+  assert.deepEqual(parseMarkdown('**Bold** start').blocks, [{ kind: 'para', text: '**Bold** start' }])
+  assert.deepEqual(parseMarkdown('a | b\n---').blocks, [{ kind: 'para', text: 'a | b' }, { kind: 'rule' }])
+  assert.deepEqual(parseMarkdown('---').blocks, [{ kind: 'rule' }])
+})
+
+test('after a list, a blank line settles only once the next line is plainly not more of it', () => {
+  // The next line could still become "2. …".
+  assert.equal(parseMarkdown('1. a\n\n2').settledBlocks, 0)
+  // It can't any more.
+  assert.equal(parseMarkdown('1. a\n\nSo').settledBlocks, 1)
 })

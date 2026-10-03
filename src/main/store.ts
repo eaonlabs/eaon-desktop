@@ -28,6 +28,14 @@ export interface ProviderOverride {
 
 const dataDir = () => join(app.getPath('userData'), 'store')
 
+/**
+ * chats.json as last saved. Every window, the scheduler and the migrations go
+ * through this copy: the file itself lags behind an async write, and with
+ * several windows a change has to land on the latest list, not on whatever a
+ * window last loaded.
+ */
+let chatsCache: Chat[] | null = null
+
 function ensureDir(): string {
   const dir = dataDir()
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
@@ -360,6 +368,7 @@ export const store = {
         'chats.json',
         chats.map((c) => (known.has(c.workspaceId) ? c : { ...c, workspaceId: chatId }))
       )
+      chatsCache = null
     }
     const projects = readJson<Project[]>('projects.json', [])
     if (projects.some((p) => !known.has(p.workspaceId))) {
@@ -394,16 +403,30 @@ export const store = {
     return projects
   },
 
+  /** A copy of the list, safe for the caller to reorder or extend before saving it back. */
   getChats(): Chat[] {
-    return readJson<Chat[]>('chats.json', [])
+    chatsCache ??= readJson<Chat[]>('chats.json', [])
+    return chatsCache.slice()
+  },
+  /** Replaces the whole list. Returns nothing: nobody needs the array echoed back. */
+  saveChats(chats: Chat[]): void {
+    chatsCache = chats
+    writeJsonAsync('chats.json', chats)
   },
   /**
-   * Returns nothing on purpose: this is what `chats:save` answers the renderer
-   * with, and echoing the array back cloned the whole history across IPC a
-   * second time on every save, for a reply nobody read.
+   * Applies one window's edits: the chats it changed (replaced in place, or
+   * added at the top when new) and the ones it deleted. Windows send only what
+   * they changed, so two windows saving at once don't overwrite each other.
    */
-  saveChats(chats: Chat[]): void {
-    writeJsonAsync('chats.json', chats)
+  applyChats(upserts: Chat[], removed: string[]): void {
+    if (upserts.length === 0 && removed.length === 0) return
+    const gone = new Set(removed)
+    const incoming = new Map(upserts.map((chat) => [chat.id, chat]))
+    const current = this.getChats()
+    const next = current.filter((chat) => !gone.has(chat.id)).map((chat) => incoming.get(chat.id) ?? chat)
+    const known = new Set(current.map((chat) => chat.id))
+    const added = upserts.filter((chat) => !known.has(chat.id) && !gone.has(chat.id))
+    this.saveChats([...added, ...next])
   },
 
   /** Awaits any in-flight async write so quitting cannot drop the last save. */

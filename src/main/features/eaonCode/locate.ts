@@ -100,6 +100,38 @@ export async function checkNode(): Promise<EaonCodeStatus['node']> {
   return { path, version: parsed ? parsed.join('.') : null, ok: parsed ? versionAtLeast(parsed, MIN_NODE) : false }
 }
 
+/** Where Eaon Code's installer keeps its checkout, read the way install.sh reads it. */
+export function installerDir(env: NodeJS.ProcessEnv = process.env): string {
+  return env.EAON_CODE_PREFIX || join(homedir(), '.local', 'share', 'eaon-code')
+}
+
+export interface InstallerCopy {
+  /** The checkout, ~/.local/share/eaon-code by default. */
+  dir: string
+  /** The built CLI, run with Node. */
+  cli: string
+  /** When the installer last finished: it rewrites its marker at the very end. */
+  updatedAt: number
+}
+
+/**
+ * The copy Eaon Code's installer made, if there is one. The installer marks a
+ * finished install with `.git/eaon-code-install.json`; without the marker, or
+ * without the built CLI, the checkout is half-made and doesn't count.
+ */
+export function findInstallerCopy(env: NodeJS.ProcessEnv = process.env): InstallerCopy | null {
+  const dir = installerDir(env)
+  const marker = join(dir, '.git', 'eaon-code-install.json')
+  const cli = join(dir, 'packages', 'coding-agent', 'dist', 'bundle', 'cli.js')
+  try {
+    const parsed = JSON.parse(readFileSync(marker, 'utf8')) as { kind?: string }
+    if (parsed.kind !== 'eaon-code-source-install' || !statSync(cli).isFile()) return null
+    return { dir, cli, updatedAt: statSync(marker).mtimeMs }
+  } catch {
+    return null
+  }
+}
+
 /** Where `npm install -g` puts binaries, for when that folder is not on PATH yet. */
 async function npmGlobalBin(name: string): Promise<string | null> {
   const npm = findOnPath('npm')
@@ -174,29 +206,45 @@ export function agentDirFor(info: EaonPackageInfo, env: NodeJS.ProcessEnv = proc
   return join(homedir(), info.configDir, 'agent')
 }
 
+const isScript = (path: string): boolean => /\.[cm]?js$/i.test(path)
+
 /**
- * Finds the binary and checks it runs: the configured path if there is one,
- * otherwise `eaon-code` then `pi` on PATH, then npm's global bin folder.
+ * Finds Eaon Code and checks it runs: the configured path if there is one,
+ * then the installer's copy, then `eaon-code` or `pi` on PATH, then npm's
+ * global bin folder. The installer's copy comes before PATH because it's the
+ * one Settings → Eaon Code installs and updates; an older npm copy on PATH
+ * would otherwise shadow it.
  */
-export async function detectEaonCode(configured: string | null): Promise<EaonCodeStatus> {
+export async function detectEaonCode(configured: string | null, env: NodeJS.ProcessEnv = process.env): Promise<EaonCodeStatus> {
   const node = await checkNode()
   const base = { node, nodeRequirement: NODE_REQUIREMENT }
+  const viaNode = (script: string): EaonCodeStatus['launch'] => ({ command: node.path ?? 'node', args: [script] })
 
   let binaryPath: string | null = null
+  let launch: EaonCodeStatus['launch'] = null
   let source: EaonCodeStatus['source'] = null
+  let copy: InstallerCopy | null = null
   if (configured) {
-    if (!isAbsolute(configured) || !isExecutable(configured)) {
+    // A picked cli.js is run with Node, so it needn't be executable itself.
+    const usable = isAbsolute(configured) && (isScript(configured) ? existsSync(configured) : isExecutable(configured))
+    if (!usable) {
       return {
         ...base,
         state: 'broken',
         binaryPath: configured,
+        launch: null,
         source: 'setting',
         version: null,
         error: `The path set in Settings → Eaon Code is not an executable file: ${configured}`
       }
     }
     binaryPath = configured
+    launch = isScript(configured) ? viaNode(configured) : { command: configured, args: [] }
     source = 'setting'
+  } else if ((copy = findInstallerCopy(env))) {
+    binaryPath = copy.cli
+    launch = viaNode(copy.cli)
+    source = 'installer'
   } else {
     binaryPath = findOnPath('eaon-code') ?? findOnPath('pi')
     source = binaryPath ? 'path' : null
@@ -204,23 +252,23 @@ export async function detectEaonCode(configured: string | null): Promise<EaonCod
       binaryPath = await npmGlobalBin('eaon-code')
       source = binaryPath ? 'npm-prefix' : null
     }
+    launch = binaryPath ? { command: binaryPath, args: [] } : null
   }
-  if (!binaryPath) return { ...base, state: 'missing', binaryPath: null, source: null, version: null }
+  if (!binaryPath || !launch) return { ...base, state: 'missing', binaryPath: null, launch: null, source: null, version: null }
 
-  const result = await run(binaryPath, ['--version'], { timeoutMs: 20_000 })
+  const found = { ...base, binaryPath, launch, source, ...(copy ? { installDir: copy.dir, updatedAt: copy.updatedAt } : {}) }
+  const result = await run(launch.command, [...launch.args, '--version'], { timeoutMs: 20_000 })
   const parsed = parseVersion(result.stdout)
   if (!result.ok || !parsed) {
     const detail = (result.stderr || result.stdout || result.error || '').trim().split('\n').slice(-3).join(' ')
     return {
-      ...base,
+      ...found,
       state: 'broken',
-      binaryPath,
-      source,
       version: null,
       error: !node.ok
         ? `Eaon Code needs Node ${NODE_REQUIREMENT}, but ${node.version ? `Node ${node.version}` : 'no Node'} is on your PATH.`
-        : `"${binaryPath} --version" failed${detail ? `: ${detail}` : '.'}`
+        : `"${[launch.command, ...launch.args].join(' ')} --version" failed${detail ? `: ${detail}` : '.'}`
     }
   }
-  return { ...base, state: 'ready', binaryPath, source, version: parsed.join('.') }
+  return { ...found, state: 'ready', version: parsed.join('.') }
 }

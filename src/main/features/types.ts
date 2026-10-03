@@ -8,9 +8,14 @@ import type { StreamEvent } from '@shared/types'
  */
 export interface FeatureContext {
   ipcMain: IpcMain
-  /** The main window, or null while it is closed (macOS keeps the app alive). */
+  /**
+   * The Eaon window to act on: the focused one, else the one last in front.
+   * Null while every window is closed (macOS keeps the app alive).
+   */
   getWindow: () => BrowserWindow | null
-  /** Sends to the main window's renderer if it exists. */
+  /** Every open Eaon window. */
+  getWindows: () => BrowserWindow[]
+  /** Sends to every window's renderer. */
   send: (channel: string, ...args: unknown[]) => void
   /**
    * Forwards agent stream events to the renderer, batched like interactive

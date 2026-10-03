@@ -8,10 +8,11 @@ import { attachJsonlReader } from '../src/main/features/eaonCode/jsonl'
 import { createEventBatcher, slimEvent } from '../src/main/features/eaonCode/batch'
 import { EaonCodeBridge } from '../src/main/features/eaonCode/bridge'
 import { buildChildEnv } from '../src/main/features/eaonCode/env'
-import { agentDirFor, parseVersion, spawnSpec, versionAtLeast } from '../src/main/features/eaonCode/locate'
+import { agentDirFor, detectEaonCode, findInstallerCopy, parseVersion, spawnSpec, versionAtLeast } from '../src/main/features/eaonCode/locate'
 import { defaultSessionDir, listSessions, summariseSession } from '../src/main/features/eaonCode/sessions'
 import { shellQuote } from '../src/main/features/eaonCode/terminal'
-import { explainInstallFailure } from '../src/main/features/eaonCode/install'
+import { explainInstallFailure, installEaonCode } from '../src/main/features/eaonCode/install'
+import { agentOfArgs, setAgentScript } from '../src/main/features/terminals/agentSessions'
 import {
   applyEvents,
   emptyTranscript,
@@ -181,6 +182,7 @@ function fakeBridge(binary: string, processes: EaonProcessInfo[] = [], probes = 
   const status: EaonCodeStatus = {
     state: 'ready',
     binaryPath: binary,
+    launch: { command: binary, args: [] },
     source: 'setting',
     version: '1.0.1',
     node: { path: null, version: null, ok: true },
@@ -462,5 +464,97 @@ test('terminal and install helpers', () => {
   assert.equal(shellQuote("it's here"), `'it'\\''s here'`)
   assert.match(explainInstallFailure('npm error code EACCES\nnpm error syscall mkdir', 243), /permission denied/)
   assert.match(explainInstallFailure('npm error code ENOTFOUND', 1), /registry/)
+  assert.match(explainInstallFailure("fatal: unable to access 'https://github.com/eaonlabs/eaon-code/'", 128), /reach GitHub/)
   assert.match(explainInstallFailure('weird\nfailure', 7), /code 7: weird failure/)
+  // install.sh's own checks end in `eaon-code: <reason>`, which is the answer.
+  assert.equal(
+    explainInstallFailure('Installing Eaon Code…\neaon-code: /x contains local changes. Move them first.\n', 1),
+    '/x contains local changes. Move them first.'
+  )
+})
+
+/**
+ * A stand-in for Eaon Code's install.sh: it lays out what the real one
+ * leaves behind (a checkout with the built CLI, and the marker written last)
+ * in $EAON_CODE_PREFIX.
+ */
+const FAKE_INSTALLER = `#!/usr/bin/env bash
+set -euo pipefail
+PREFIX="$EAON_CODE_PREFIX"
+echo "Installing Eaon Code…"
+mkdir -p "$PREFIX/.git" "$PREFIX/packages/coding-agent/dist/bundle"
+echo '{"name":"@eaonlabs/eaon-code","eaonConfig":{"name":"eaon-code","configDir":".eaon"}}' > "$PREFIX/packages/coding-agent/package.json"
+echo 'console.log("1.0.9")' > "$PREFIX/packages/coding-agent/dist/bundle/cli.js"
+echo "Building Eaon Code…"
+echo '{"kind":"eaon-code-source-install","schemaVersion":1,"repo":"eaonlabs/eaon-code","ref":"main","binDir":"x","installedCommit":"abc"}' > "$PREFIX/.git/eaon-code-install.json"
+echo "Eaon Code installed."
+`
+
+test('install: runs the installer script, then finds its copy and launches it with Node, not through PATH', async () => {
+  const prefix = join(mkdtempSync(join(tmpdir(), 'eaon-code-prefix-')), 'eaon-code')
+  const env = { ...process.env, EAON_CODE_PREFIX: prefix }
+  assert.equal(findInstallerCopy(env), null, 'nothing there yet')
+
+  const lines: string[] = []
+  const first = installEaonCode((line) => lines.push(line), { env, fetchScript: async () => FAKE_INSTALLER })
+  // A second click (or a second window) joins the run instead of building the same folder twice.
+  const second = installEaonCode(() => {}, { env, fetchScript: async () => 'exit 9' })
+  assert.equal(first, second)
+  const outcome = await first
+  assert.deepEqual(outcome, { ok: true, message: 'Eaon Code is installed.' })
+  assert.ok(lines.includes('Building Eaon Code…'), 'the installer output streams line by line')
+
+  const copy = findInstallerCopy(env)
+  assert.ok(copy)
+  const status = await detectEaonCode(null, env)
+  assert.equal(status.state, 'ready')
+  assert.equal(status.source, 'installer')
+  assert.equal(status.binaryPath, copy.cli)
+  assert.deepEqual(status.launch?.args, [copy.cli])
+  assert.match(status.launch?.command ?? '', /node(\.exe)?$/)
+  assert.equal(status.installDir, prefix)
+  assert.ok(status.updatedAt && Date.now() - status.updatedAt < 60_000)
+})
+
+test('install: a failing installer reports its own reason', async () => {
+  const prefix = join(mkdtempSync(join(tmpdir(), 'eaon-code-prefix-')), 'eaon-code')
+  const outcome = await installEaonCode(() => {}, {
+    env: { ...process.env, EAON_CODE_PREFIX: prefix },
+    fetchScript: async () => 'echo "eaon-code: Node.js >= 22.19 is required (found v20.1.0)." >&2; exit 1'
+  })
+  assert.deepEqual(outcome, { ok: false, message: 'Node.js >= 22.19 is required (found v20.1.0).' })
+  const unreachable = await installEaonCode(() => {}, {
+    env: { ...process.env, EAON_CODE_PREFIX: prefix },
+    fetchScript: async () => {
+      throw new Error('fetch failed')
+    }
+  })
+  assert.equal(unreachable.ok, false)
+  assert.match(unreachable.message, /Could not download Eaon Code's installer: fetch failed/)
+})
+
+test("locate: a half-made checkout (no marker, or no built CLI) isn't an install", () => {
+  const prefix = mkdtempSync(join(tmpdir(), 'eaon-code-half-'))
+  const env = { ...process.env, EAON_CODE_PREFIX: prefix }
+  mkdirSync(join(prefix, '.git'), { recursive: true })
+  writeFileSync(join(prefix, '.git', 'eaon-code-install.json'), '{"kind":"eaon-code-source-install"}')
+  assert.equal(findInstallerCopy(env), null, 'marker without the CLI')
+  mkdirSync(join(prefix, 'packages/coding-agent/dist/bundle'), { recursive: true })
+  writeFileSync(join(prefix, 'packages/coding-agent/dist/bundle/cli.js'), '')
+  assert.ok(findInstallerCopy(env))
+  writeFileSync(join(prefix, '.git', 'eaon-code-install.json'), '{"kind":"something-else"}')
+  assert.equal(findInstallerCopy(env), null, 'a marker that is not the installer\'s')
+})
+
+test("terminals: the installer's cli.js is known by its whole path, not by the name `cli`", () => {
+  const cli = '/Users/me/.local/share/eaon-code/packages/coding-agent/dist/bundle/cli.js'
+  assert.equal(agentOfArgs(`node ${cli} --session 0b4d`), null)
+  setAgentScript(cli, 'eaon-code')
+  try {
+    assert.equal(agentOfArgs(`node ${cli} --session 0b4d`), 'eaon-code')
+    assert.equal(agentOfArgs(`/opt/homebrew/bin/node ${cli}`), 'eaon-code')
+    assert.equal(agentOfArgs('node /somewhere/else/dist/cli.js'), null, "a different tool's cli.js")
+  } finally {
+    setAgentScript(null, 'eaon-code')
+  }
 })

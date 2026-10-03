@@ -1,0 +1,287 @@
+/*
+ * The generate_image card (components/agent/ImageGeneration.tsx).
+ *
+ * A tile per image, drawn at the shape that was asked for, so the picture
+ * lands in the space that was waiting for it. While it is being made the
+ * tile "develops": a soft field of the theme's accent drifts under film
+ * grain while a band of light passes over it. When the file arrives it
+ * resolves out of a blur, each tile a beat after the one before.
+ */
+
+.imggen {
+  margin: 6px 0 10px;
+  max-width: 560px;
+  animation: tool-in var(--dur-spring) var(--spring-moderate) both;
+}
+
+.imggen__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 2px;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+.imggen__glyph {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+}
+.imggen[data-status='error'] .imggen__glyph,
+.imggen[data-status='denied'] .imggen__glyph {
+  color: var(--danger);
+}
+.imggen__title {
+  color: var(--text-2);
+}
+.imggen__meta {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+
+.imggen__prompt {
+  margin: 0 0 8px 26px;
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+  color: var(--text-3);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.imggen__error {
+  margin: 0 0 0 26px;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--danger) 9%, transparent);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+}
+
+/* One image sits at a comfortable size; two and four tile in pairs, three in a row. */
+.imggen__grid {
+  display: grid;
+  gap: 8px;
+  margin-left: 26px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.imggen[data-count='1'] .imggen__grid {
+  grid-template-columns: minmax(0, 380px);
+}
+.imggen[data-count='3'] .imggen__grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.imggen__tile {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  border-radius: var(--r-lg);
+  background: var(--sunken);
+  box-shadow: inset 0 0 0 1px var(--border-soft);
+}
+
+/* The developing field: two soft lights in the accent drifting past each other. */
+.imggen__field {
+  position: absolute;
+  inset: -45%;
+  z-index: 0;
+  background:
+    radial-gradient(closest-side at 34% 38%, color-mix(in srgb, var(--accent) 42%, transparent), transparent),
+    radial-gradient(closest-side at 68% 66%, color-mix(in srgb, var(--accent) 22%, color-mix(in srgb, var(--fg) 14%, transparent)), transparent),
+    radial-gradient(closest-side at 52% 50%, color-mix(in srgb, var(--fg) 6%, transparent), transparent);
+  filter: blur(22px);
+  opacity: 0.9;
+  animation: imggen-drift 7.5s ease-in-out infinite alternate;
+  animation-delay: calc(var(--i, 0) * -1.9s);
+}
+@keyframes imggen-drift {
+  from {
+    transform: translate(-7%, -5%) rotate(0deg) scale(1);
+  }
+  to {
+    transform: translate(7%, 6%) rotate(28deg) scale(1.14);
+  }
+}
+
+/* Film grain, so the field reads as an exposure rather than a gradient. */
+.imggen__grain {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0.16;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  background-size: 160px 160px;
+  animation: imggen-grain 0.9s steps(3) infinite;
+}
+@keyframes imggen-grain {
+  0% {
+    background-position: 0 0;
+  }
+  33% {
+    background-position: -37px 21px;
+  }
+  66% {
+    background-position: 19px -43px;
+  }
+}
+
+/* A band of light passing over, every couple of seconds. */
+.imggen__sweep {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  pointer-events: none;
+  background: linear-gradient(
+    105deg,
+    transparent 30%,
+    color-mix(in srgb, var(--fg) 9%, transparent) 46%,
+    color-mix(in srgb, var(--fg) 14%, transparent) 50%,
+    color-mix(in srgb, var(--fg) 9%, transparent) 54%,
+    transparent 70%
+  );
+  transform: translateX(-100%);
+  animation: imggen-sweep 2.6s cubic-bezier(0.45, 0, 0.25, 1) infinite;
+  animation-delay: calc(var(--i, 0) * 0.35s);
+}
+@keyframes imggen-sweep {
+  60%,
+  100% {
+    transform: translateX(100%);
+  }
+}
+
+.imggen__stage {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  z-index: 3;
+  max-width: calc(100% - 20px);
+  padding: 3px 9px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg) 62%, transparent);
+  backdrop-filter: blur(8px);
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Once a file is there the field stops moving; the picture resolves over it. */
+.imggen__tile:not([data-state='developing']) .imggen__field,
+.imggen__tile:not([data-state='developing']) .imggen__grain {
+  animation-play-state: paused;
+}
+.imggen__tile[data-state='shown'] .imggen__grain {
+  opacity: 0;
+  transition: opacity 600ms var(--ease);
+}
+
+.imggen__open {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: block;
+  cursor: zoom-in;
+}
+.imggen__open img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  opacity: 0;
+}
+.imggen__tile[data-state='shown'] .imggen__open img {
+  animation: imggen-reveal 820ms cubic-bezier(0.2, 0.75, 0.25, 1) both;
+  animation-delay: calc(var(--i, 0) * 90ms);
+}
+@keyframes imggen-reveal {
+  from {
+    opacity: 0;
+    filter: blur(18px) saturate(0.4) brightness(1.18);
+    transform: scale(1.035);
+  }
+  55% {
+    opacity: 1;
+  }
+  to {
+    opacity: 1;
+    filter: none;
+    transform: none;
+  }
+}
+
+/* Copy path and Show in Finder, in the corner on hover. */
+.imggen__actions {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 4;
+  display: flex;
+  gap: 4px;
+  opacity: 0;
+  transform: translateY(-2px);
+  transition:
+    opacity var(--dur) var(--ease),
+    transform var(--dur) var(--ease);
+}
+.imggen__tile:hover .imggen__actions,
+.imggen__tile:focus-within .imggen__actions {
+  opacity: 1;
+  transform: none;
+}
+.imggen__action {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, #000 45%, transparent);
+  backdrop-filter: blur(10px);
+  color: #fff;
+  transition: background var(--dur) var(--ease);
+}
+.imggen__action:hover {
+  background: color-mix(in srgb, #000 62%, transparent);
+}
+
+/* Full size, in the modal. */
+.imggen-view img {
+  display: block;
+  max-width: 100%;
+  max-height: 66vh;
+  margin: 0 auto;
+  border-radius: var(--r-md);
+  object-fit: contain;
+}
+.imggen-view__prompt {
+  margin: 12px 0 0;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .imggen__field,
+  .imggen__grain,
+  .imggen__sweep {
+    animation: none;
+  }
+  .imggen__sweep {
+    display: none;
+  }
+  .imggen__tile[data-state='shown'] .imggen__open img {
+    animation-duration: 1ms;
+  }
+}

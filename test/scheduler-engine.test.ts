@@ -223,6 +223,8 @@ test('a window that opens mid-run is sent the live chat once it is ready', async
   await until(() => service!.engine.list()[0].history[0].chatId !== null)
   await store.flushWrites()
   await until(() => store.getChats().length === 1)
+  // The first part has streamed; the run is now held at the gate.
+  await until(() => windowed.streamed.some((event) => event.type === 'delta'))
 
   windowOpen = true
   service.rendererReady(windowed.sender)

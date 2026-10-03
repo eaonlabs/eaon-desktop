@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell, nativeTheme, dialog, Menu, Notification, net, protocol } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, nativeTheme, dialog, Menu, Notification, net, protocol, screen } from 'electron'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { extname, join } from 'node:path'
@@ -11,7 +11,7 @@ import { editModels, listProviders, refreshModels, refreshProviderModels, remove
 import { refreshLocalProviders } from './providers/localDiscovery'
 import { refreshCatalogInBackground } from './providers/modelCatalog'
 import { resolveApproval } from './agent/approvals'
-import { cancelRun, pauseGoal, runAgent } from './agent/loop'
+import { activeRunIds, cancelRun, pauseGoal, runAgent } from './agent/loop'
 import './agent/sources'
 import { killBackgroundProcesses } from './localTools'
 import { adoptLoginShellPath } from './shellEnv'
@@ -55,17 +55,43 @@ protocol.registerSchemesAsPrivileged([
 ])
 // Media only — images, and videos so the Library and attachments can preview them.
 const SERVABLE_IMAGES = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.heic', '.avif', '.mp4', '.m4v', '.mov', '.webm'])
-let mainWindow: BrowserWindow | null = null
+/**
+ * Every Eaon window, oldest first. Helper windows (the computer-use pill, the
+ * agent's browser) are not in here: they don't run the app's page.
+ */
+const appWindows = new Set<BrowserWindow>()
+/** The Eaon window last in front, for dialogs, notifications and "bring Eaon forward". */
+let lastFocused: BrowserWindow | null = null
+
+function openWindows(): BrowserWindow[] {
+  return [...appWindows].filter((window) => !window.isDestroyed())
+}
+
+/** The window to act on: the focused Eaon window, else the one last in front, else the newest. */
+function currentWindow(): BrowserWindow | null {
+  const focused = BrowserWindow.getFocusedWindow()
+  if (focused && appWindows.has(focused) && !focused.isDestroyed()) return focused
+  if (lastFocused && appWindows.has(lastFocused) && !lastFocused.isDestroyed()) return lastFocused
+  return openWindows().at(-1) ?? null
+}
 
 /**
- * The main window's page, if it can still be sent to. While a window closes
- * its webContents is destroyed before the window is, and sending to it then
+ * A window's page, if it can still be sent to. While a window closes its
+ * webContents is destroyed before the window is, and sending to it then
  * throws "Object has been destroyed" — which a 'destroyed' listener that
  * reports state (Discord presence does) would hit on every close.
  */
-function liveContents(): Electron.WebContents | null {
-  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return null
-  return mainWindow.webContents
+function liveContents(window: BrowserWindow): Electron.WebContents | null {
+  if (window.isDestroyed() || window.webContents.isDestroyed()) return null
+  return window.webContents
+}
+
+/** Sends to every window's page; `except` leaves out the page that made the change. */
+function broadcast(channel: string, payload?: unknown, except?: Electron.WebContents): void {
+  for (const window of appWindows) {
+    const contents = liveContents(window)
+    if (contents && contents !== except) contents.send(channel, ...(payload === undefined ? [] : [payload]))
+  }
 }
 let capturing = false
 /**
@@ -124,22 +150,48 @@ function titleBarOverlayFor(settings: Settings): { color: string; symbolColor: s
  */
 function applyWindowAppearance(settings: Settings): void {
   nativeTheme.themeSource = settings.appearance.mode
-  if (!mainWindow || mainWindow.isDestroyed()) return
-  if (isMac) {
-    mainWindow.setVibrancy(wantsVibrancy(settings) ? 'sidebar' : null)
-    return
+  for (const window of openWindows()) {
+    if (isMac) {
+      window.setVibrancy(wantsVibrancy(settings) ? 'sidebar' : null)
+      pinTrafficLights(window)
+    } else if (process.platform === 'win32') {
+      // Windows: repaint the caption-button strip to match the new theme.
+      window.setTitleBarOverlay(titleBarOverlayFor(settings))
+    }
   }
-  // Windows: repaint the caption-button strip to match the new theme.
-  if (process.platform === 'win32') mainWindow.setTitleBarOverlay(titleBarOverlayFor(settings))
 }
 
-function createWindow(): void {
+/**
+ * Where the traffic lights go: centred in the 36px titlebar row at the top of
+ * the floating sidebar panel, which is inset 8px from the window. That is the
+ * spot macOS 26 and later give a window with a toolbar (19, 19): the buttons
+ * are 14pt there, 23pt apart, so they end at x = 19 + 60 = 79. `--traffic-clear`
+ * in tokens.css is derived from that; change both together.
+ */
+const TRAFFIC_LIGHTS = { x: 19, y: 19 }
+
+/**
+ * Puts the traffic lights back where they belong. AppKit lays the titlebar
+ * out again on its own after some changes, and the buttons sometimes came
+ * back at the default top-left corner instead: after leaving full screen, a
+ * vibrancy or light/dark switch (including the automatic one at sunset), or a
+ * title change. It only happened on some of those, which is why it looked
+ * random. Re-asserting the position after each is cheap and harmless.
+ */
+function pinTrafficLights(window: BrowserWindow): void {
+  if (isMac && !window.isDestroyed()) window.setWindowButtonPosition(TRAFFIC_LIGHTS)
+}
+
+function createWindow(): BrowserWindow {
   const settings = store.getSettings()
   const vibrant = wantsVibrancy(settings)
+  // A second window opens down and to the right of the one in front, as macOS windows cascade.
+  const from = currentWindow()?.getBounds()
 
-  mainWindow = new BrowserWindow({
-    width: process.env['EAON_CAPTURE'] ? 1270 : 1280,
-    height: process.env['EAON_CAPTURE'] ? 797 : 820,
+  const window = new BrowserWindow({
+    width: from?.width ?? (process.env['EAON_CAPTURE'] ? 1270 : 1280),
+    height: from?.height ?? (process.env['EAON_CAPTURE'] ? 797 : 820),
+    ...(from ? { x: from.x + 28, y: from.y + 28 } : {}),
     minWidth: 720,
     minHeight: 520,
     show: false,
@@ -151,11 +203,8 @@ function createWindow(): void {
     ...(isMac
       ? {
           titleBarStyle: 'hiddenInset' as const,
-          // The sidebar is a floating panel inset by --sidebar-gap (8px) with a
-          // 36px titlebar row as its first child. These coordinates centre the
-          // buttons in that row *inside* the panel rather than on the gutter
-          // above it.
-          trafficLightPosition: { x: 20, y: 20 }
+          // Inside the floating sidebar panel; see TRAFFIC_LIGHTS.
+          trafficLightPosition: TRAFFIC_LIGHTS
         }
       : {
           titleBarStyle: 'hidden' as const,
@@ -172,42 +221,56 @@ function createWindow(): void {
       webviewTag: true,
       spellcheck: true,
       // Offscreen painting keeps capturePage in sync with the DOM when the
-      // window is not frontmost; only used by the screenshot harness.
-      ...(process.env['EAON_CAPTURE'] ? { offscreen: true } : {})
+      // window is not frontmost; only used by the screenshot harness. Its
+      // scale is set rather than left to Electron, whose default became 1x.
+      ...(process.env['EAON_CAPTURE'] ? { offscreen: { deviceScaleFactor: screen.getPrimaryDisplay().scaleFactor } } : {})
     }
   })
+  appWindows.add(window)
+  lastFocused ??= window
 
   if (process.env['EAON_CAPTURE']) {
-    mainWindow.webContents.on('console-message', (_e, level, message, line, source) =>
-      console.log(`[renderer:${level}] ${message} (${source}:${line})`)
+    window.webContents.on('console-message', ({ level, message, lineNumber, sourceId }) =>
+      console.log(`[renderer:${level}] ${message} (${sourceId}:${lineNumber})`)
     )
   }
 
-  // Local runtimes change underneath us (a model pulled in a terminal); pick
-  // that up when the user comes back to the app.
-  mainWindow.on('focus', () => {
+  window.on('focus', () => {
+    lastFocused = window
+    pinTrafficLights(window)
+    // Local runtimes change underneath us (a model pulled in a terminal); pick
+    // that up when the user comes back to the app.
     void refreshLocalProviders().then((changed) => {
-      if (changed) liveContents()?.send('providers:changed')
+      if (changed) broadcast('providers:changed')
     })
   })
+  for (const event of ['leave-full-screen', 'show', 'restore', 'resized'] as const) {
+    window.on(event as 'show', () => pinTrafficLights(window))
+  }
+  window.webContents.on('page-title-updated', () => pinTrafficLights(window))
+  window.on('closed', () => {
+    appWindows.delete(window)
+    if (lastFocused === window) lastFocused = openWindows().at(-1) ?? null
+  })
 
-  mainWindow.on('ready-to-show', () => {
-    mainWindow?.show()
+  window.on('ready-to-show', () => {
+    window.show()
     const captureDir = process.env['EAON_CAPTURE']
-    if (captureDir && mainWindow && !capturing) {
+    if (captureDir && !capturing) {
       capturing = true
-      void import('./capture').then(({ runCapture }) => runCapture(mainWindow!, captureDir).then(() => app.quit()))
+      void import('./capture').then(({ runCapture }) => runCapture(window, captureDir).then(() => app.quit()))
     }
   })
 
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+  window.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url)
     return { action: 'deny' }
   })
 
   const devServer = process.env['ELECTRON_RENDERER_URL']
-  if (devServer) mainWindow.loadURL(devServer)
-  else mainWindow.loadFile(join(here, '../renderer/index.html'))
+  if (devServer) window.loadURL(devServer)
+  else window.loadFile(join(here, '../renderer/index.html'))
+  return window
 }
 
 function buildMenu(): void {
@@ -234,6 +297,8 @@ function buildMenu(): void {
       submenu: [
         { label: 'New Chat', accelerator: 'Cmd+N', click: () => send('menu:new-chat') },
         { label: 'New Temporary Chat', accelerator: 'Shift+Cmd+N', click: () => send('menu:new-temp-chat') },
+        // ⌥⌘N, as in Mail's New Viewer Window: ⌘N is already New Chat.
+        { label: 'New Window', accelerator: 'Alt+CmdOrCtrl+N', click: () => void createWindow() },
         { type: 'separator' },
         { label: 'Archive Chat', accelerator: 'Shift+Cmd+A', click: () => send('menu:archive-chat') }
       ]
@@ -316,18 +381,35 @@ function frameBatched(send: (event: StreamEvent) => void): {
 
 function registerIpc(): void {
   ipcMain.handle('settings:get', (): Settings => store.getSettings())
-  ipcMain.handle('settings:patch', (_e, patch: Partial<Settings>): Settings => {
+  // Each window keeps its own copy of these, so a change made in one is sent
+  // to the others; see the matching listeners in the renderer's store.
+  ipcMain.handle('settings:patch', (e, patch: Partial<Settings>): Settings => {
     const next = store.patchSettings(patch)
     if (patch.appearance) applyWindowAppearance(next)
+    broadcast('settings:changed', next, e.sender)
     return next
   })
 
   ipcMain.handle('workspaces:get', (): Workspace[] => store.getWorkspaces())
-  ipcMain.handle('workspaces:save', (_e, value: Workspace[]) => store.saveWorkspaces(value))
+  ipcMain.handle('workspaces:save', (e, value: Workspace[]) => {
+    const saved = store.saveWorkspaces(value)
+    broadcast('workspaces:changed', saved, e.sender)
+    return saved
+  })
   ipcMain.handle('projects:get', (): Project[] => store.getProjects())
-  ipcMain.handle('projects:save', (_e, value: Project[]) => store.saveProjects(value))
+  ipcMain.handle('projects:save', (e, value: Project[]) => {
+    const saved = store.saveProjects(value)
+    broadcast('projects:changed', saved, e.sender)
+    return saved
+  })
   ipcMain.handle('chats:get', (): Chat[] => store.getChats())
-  ipcMain.handle('chats:save', (_e, value: Chat[]) => store.saveChats(value))
+  // Returns nothing: echoing chats back cloned them across IPC again for a reply nobody read.
+  ipcMain.handle('chats:apply', (e, upserts: Chat[], removed: string[]): void => {
+    store.applyChats(upserts, removed)
+    broadcast('chats:changed', { upserts, removed }, e.sender)
+  })
+  ipcMain.handle('chat:active-runs', (): string[] => activeRunIds())
+  ipcMain.handle('window:new', () => void createWindow())
   ipcMain.handle('mcp:get', (): McpServer[] => store.getMcpServers())
   ipcMain.handle('mcp:save', (_e, value: McpServer[]) => {
     // A hand-added server deleted here takes its sign-in with it; left in the
@@ -422,8 +504,12 @@ function registerIpc(): void {
     // waits for the login shell's PATH.
     await shellPath
     const sender = event.sender
+    // The window that started the run gets every event. The others get the
+    // reply as it is written, to show it live if they have that chat open,
+    // but not its approval prompts: only the starting window answers those.
     const batch = frameBatched((payload) => {
       if (!sender.isDestroyed()) sender.send('chat:event', payload)
+      if (payload.type !== 'approval-request') broadcast('chat:event', payload, sender)
     })
     // The renderer that started a chat run is the only thing that saves it or
     // answers its approvals. It cancels on unload itself; this covers one that
@@ -470,9 +556,10 @@ function registerIpc(): void {
     flushedAfterClose = true
     quitAndInstall()
   })
-  ipcMain.handle('dialog:open-files', async (_e, options: Electron.OpenDialogOptions) => {
-    if (!mainWindow) return []
-    const result = await dialog.showOpenDialog(mainWindow, options)
+  ipcMain.handle('dialog:open-files', async (e, options: Electron.OpenDialogOptions) => {
+    const parent = BrowserWindow.fromWebContents(e.sender) ?? currentWindow()
+    if (!parent) return []
+    const result = await dialog.showOpenDialog(parent, options)
     return result.canceled ? [] : result.filePaths
   })
 }
@@ -485,7 +572,7 @@ function registerIpc(): void {
 function notifyIfAway(request: StreamRequest, error: string | undefined, elapsedMs: number): void {
   if (request.mode !== 'work' || elapsedMs < 20_000) return
   if (!store.getSettings().notifications.taskComplete || !Notification.isSupported()) return
-  if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isFocused()) return
+  if (openWindows().some((window) => window.isFocused())) return
   const notification = new Notification({
     title: error ? 'Task stopped with an error' : 'Task finished',
     body: request.chatTitle || 'Eaon'
@@ -497,9 +584,7 @@ function notifyIfAway(request: StreamRequest, error: string | undefined, elapsed
 }
 
 /** Shared with every feature module; see `features/types.ts`. */
-const streamBatch = frameBatched((payload) => {
-  liveContents()?.send('chat:event', payload)
-})
+const streamBatch = frameBatched((payload) => broadcast('chat:event', payload))
 /**
  * Feature handlers can spawn processes (Eaon Code, plugins, Ollama), so each
  * call waits for the login shell's PATH as the core handlers that spawn do.
@@ -521,22 +606,24 @@ const featureIpc = new Proxy(ipcMain, {
 })
 const featureContext: FeatureContext = {
   ipcMain: featureIpc,
-  getWindow: () => (mainWindow && !mainWindow.isDestroyed() ? mainWindow : null),
+  getWindow: currentWindow,
+  getWindows: openWindows,
   send: (channel, ...args) => {
-    liveContents()?.send(channel, ...args)
+    for (const window of appWindows) liveContents(window)?.send(channel, ...args)
   },
   emitStream: (event) => streamBatch.emit(event)
 }
 
-/** Brings the window forward, creating it if there is none (background launch, or closed on Windows). */
+/** Brings the window in front forward, creating one if there is none (background launch, or closed on Windows). */
 function openMainWindow(): void {
-  if (!mainWindow || mainWindow.isDestroyed()) {
+  const window = currentWindow()
+  if (!window) {
     createWindow()
     return
   }
-  if (mainWindow.isMinimized()) mainWindow.restore()
-  mainWindow.show()
-  mainWindow.focus()
+  if (window.isMinimized()) window.restore()
+  window.show()
+  window.focus()
 }
 
 const runsInBackground = (): boolean => backgroundSupported() && store.getSettings().background.enabled
@@ -591,7 +678,9 @@ app.whenReady().then(async () => {
   buildMenu()
   // Started at login for scheduled tasks: no window until someone asks for one.
   if (!launchedInBackground()) createWindow()
-  initUpdater(featureContext.getWindow)
+  initUpdater(openWindows)
+  // macOS switching light/dark by itself (Auto appearance) lays the titlebar out again too.
+  nativeTheme.on('updated', () => openWindows().forEach(pinTrafficLights))
   for (const feature of FEATURES) {
     try {
       await feature.register(featureContext)
@@ -600,15 +689,9 @@ app.whenReady().then(async () => {
     }
   }
 
-  setMcpStatusListener((statuses) => {
-    liveContents()?.send('mcp:status', statuses)
-  })
-  setLocalServerListener((status) => {
-    liveContents()?.send('local-server:status', status)
-  })
-  setIndexStatusListener((status) => {
-    liveContents()?.send('index:status', status)
-  })
+  setMcpStatusListener((statuses) => broadcast('mcp:status', statuses))
+  setLocalServerListener((status) => broadcast('local-server:status', status))
+  setIndexStatusListener((status) => broadcast('index:status', status))
 
   // Connect any enabled MCP servers and honour the local server's auto-start
   // preference, both without blocking window creation. Stdio servers are
@@ -617,19 +700,20 @@ app.whenReady().then(async () => {
   void syncMcpServers()
   if (settings.localServer.autoStart) void startLocalServer()
   void refreshLocalProviders(true).then((changed) => {
-    if (changed) liveContents()?.send('providers:changed')
+    if (changed) broadcast('providers:changed')
   })
   // Models released since this build, from models.dev; at most once a day.
   void refreshCatalogInBackground().then((changed) => {
-    if (changed) liveContents()?.send('providers:changed')
+    if (changed) broadcast('providers:changed')
   })
 
   app.on('activate', () => {
-    // Only the main window counts. The computer-use pill is a window too, and
+    // Only Eaon's own windows count. The computer-use pill is a window too, and
     // with it open a Dock click (or a scheduled task's notification, which
     // raises this event) would otherwise do nothing.
-    if (!mainWindow || mainWindow.isDestroyed()) createWindow()
+    if (openWindows().length === 0) createWindow()
   })
+  if (isMac) app.dock?.setMenu(Menu.buildFromTemplate([{ label: 'New Window', click: () => void createWindow() }]))
 
   // Refreshes the login entry if the app moved since it was written.
   if (runsInBackground()) {

@@ -35,7 +35,7 @@
 }
 
 /* The traffic lights sit inside this row, so it has to be tall enough to hold
-   them with room to breathe: they end at y 32 and this row runs to y 44 once
+   them with room to breathe: they end at y 33 and this row runs to y 44 once
    the panel's 8px top inset is counted. At the old 36px the "Back to app"
    button started 4px under the buttons and read as if it were colliding. */
 .settings__nav-top {

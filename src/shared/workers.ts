@@ -93,6 +93,54 @@ export interface WorkerMail {
   at: number
   /** Set when it came in through Discord, Telegram or WhatsApp — see shared/channels.ts. */
   channel?: WorkerMailChannel
+  /** The user made this message the worker's goal (Goal in the composer's + menu). */
+  goal?: boolean
+  /** Colleagues the user @mentioned in it, who were each sent their own copy. */
+  mentions?: { id: string; name: string }[]
+  /** On a mentioned colleague's copy: the worker the user was writing to. */
+  via?: { workerId: string; name: string }
+}
+
+/** What the composer sends with a message, besides its text and files. */
+export interface WorkerSendOptions {
+  /** Make this message the worker's goal, replacing the one it had. */
+  goal?: boolean
+}
+
+/**
+ * The colleagues `text` @mentions by name, ignoring case, in the order they
+ * first appear. A name counts only as a whole word after the @ ("@Nova",
+ * "@nova," but not "@Novak"), and longer names are tried first, so "@Nova
+ * Prime" is Nova Prime even when there is also a Nova. `selfId` is never
+ * returned: mentioning the worker being written to changes nothing.
+ */
+export function mentionedWorkers<T extends Pick<Worker, 'id' | 'name'>>(text: string, workers: T[], selfId: string | null = null): T[] {
+  const lower = text.toLowerCase()
+  const byLength = [...workers].sort((a, b) => b.name.length - a.name.length)
+  const found: { worker: T; at: number }[] = []
+  const taken: [number, number][] = []
+  for (const worker of byLength) {
+    const needle = `@${worker.name.toLowerCase()}`
+    let from = 0
+    for (;;) {
+      const at = lower.indexOf(needle, from)
+      if (at === -1) break
+      from = at + 1
+      const end = at + needle.length
+      const before = at === 0 ? '' : lower[at - 1]
+      const after = lower[end] ?? ''
+      if (before && /[\w@]/.test(before)) continue
+      if (after && /[\w-]/.test(after)) continue
+      if (taken.some(([s, e]) => at < e && end > s)) continue
+      taken.push([at, end])
+      if (!found.some((f) => f.worker.id === worker.id)) found.push({ worker, at })
+      break
+    }
+  }
+  return found
+    .filter((f) => f.worker.id !== selfId)
+    .sort((a, b) => a.at - b.at)
+    .map((f) => f.worker)
 }
 
 /** Where a chat-app message came from, so the reply goes back there. */

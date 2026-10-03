@@ -6,7 +6,7 @@ import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { shell } from 'electron'
 import type { Settings } from '@shared/types'
 import { findSymbol, indexedPaths, listProjectFiles, searchIndex } from './codeIndex'
-import { isCatastrophicCommand, isReadOnlyCommand, isRiskyCommand } from './agent/approvals'
+import { isCatastrophicCommand, isReadOnlyCommand, isRiskyCommand, writtenPaths } from './agent/approvals'
 import { capOutput, registerToolSource, type AgentTool, type ToolContext } from './agent/tools'
 
 /**
@@ -650,7 +650,12 @@ function fileTools(settings: Settings, indexed: boolean): AgentTool[] {
         // Looking (ls, git status, grep) is not changing anything, so it
         // neither asks for approval nor is blocked in plan mode.
         mutating: (input) => Boolean(input.background) || !isReadOnlyCommand(str(input.command)),
-        risky: (input) => isRiskyCommand(str(input.command)),
+        // Writes outside the work folder ask, as file edits there do,
+        // unless Full access is on.
+        risky: (input, ctx) =>
+          isRiskyCommand(str(input.command)) ||
+          (!settings.general.fullAccess &&
+            writtenPaths(str(input.command)).some((path) => outsideWorkFolder({ path: path.replace(/^\$(HOME\b|\{HOME\})/, '~') }, ctx))),
         catastrophic: (input) => isCatastrophicCommand(str(input.command)),
         describe: (input) => str(input.command)
       }

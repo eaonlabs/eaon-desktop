@@ -24,7 +24,8 @@ import { scheduleToolSource } from './tool'
  *
  * "Ready" is the renderer saying so over `scheduler:ready` after its
  * listeners are bound; a window that exists but is still loading would drop
- * the message.
+ * the message. With several windows, each one says so, and a window that
+ * becomes ready mid-run is sent the runs still going.
  */
 
 const TASKS_FILE = 'scheduled-tasks.json'
@@ -50,16 +51,19 @@ export interface SchedulerService {
 }
 
 export function createScheduler(ctx: FeatureContext, overrides: SchedulerOverrides = {}): SchedulerService {
-  let readySender: WebContents | null = null
+  /** Pages that have said they are ready (one per window), until they reload or close. */
+  const readySenders = new Set<WebContents>()
   /** Live chats the renderer has not seen yet, by id. Sent (current state) when it becomes ready. */
   const undelivered = new Map<string, Chat>()
+  /** Runs still going, as last sent: a window that opens mid-run gets them when it is ready. */
+  const live = new Map<string, Chat>()
   let pendingOpen: string | null = null
   let startTimer: ReturnType<typeof setTimeout> | null = null
   const notifications = new Set<Notification>()
 
   const rendererReady = (): boolean => {
-    const window = ctx.getWindow()
-    return Boolean(window && readySender && !readySender.isDestroyed() && window.webContents === readySender)
+    const windows = ctx.getWindows?.() ?? [ctx.getWindow()].filter((window) => window !== null)
+    return windows.some((window) => readySenders.has(window.webContents) && !window.webContents.isDestroyed())
   }
 
   /**
@@ -73,8 +77,9 @@ export function createScheduler(ctx: FeatureContext, overrides: SchedulerOverrid
       await store.flushWrites()
       const chats = store.getChats()
       const index = chats.findIndex((c) => c.id === chat.id)
-      if (index === -1) chats.unshift(chat)
-      else chats[index] = mergeRunChat(chats[index], chat)
+      // A snapshot: the runner keeps writing into its own copy as the run goes.
+      if (index === -1) chats.unshift(structuredClone(chat))
+      else chats[index] = mergeRunChat(chats[index], structuredClone(chat))
       store.saveChats(chats)
       await store.flushWrites()
     })
@@ -84,6 +89,8 @@ export function createScheduler(ctx: FeatureContext, overrides: SchedulerOverrid
 
   const sink: ChatSink = {
     put: async (chat, done) => {
+      if (done) live.delete(chat.id)
+      else live.set(chat.id, chat)
       if (rendererReady()) {
         undelivered.delete(chat.id)
         ctx.send('scheduler:chat', chat)
@@ -156,12 +163,13 @@ export function createScheduler(ctx: FeatureContext, overrides: SchedulerOverrid
   }
 
   const ready = (sender: WebContents): void => {
-    readySender = sender
+    readySenders.add(sender)
     // A reload drops the renderer's listeners until it says ready again.
-    sender.once?.('did-start-loading', () => {
-      if (readySender === sender) readySender = null
-    })
+    sender.once?.('did-start-loading', () => readySenders.delete(sender))
+    sender.once?.('destroyed', () => readySenders.delete(sender))
     for (const chat of undelivered.values()) ctx.send('scheduler:chat', chat)
+    // Runs other windows already have: this one opened after they started.
+    for (const [id, chat] of live) if (!undelivered.has(id) && !sender.isDestroyed?.()) sender.send?.('scheduler:chat', chat)
     undelivered.clear()
     if (pendingOpen) {
       ctx.send('scheduler:open-chat', pendingOpen)

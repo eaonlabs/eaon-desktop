@@ -1,0 +1,22 @@
+/* The composer's "/" and "@" menus. They sit just above the composer box,
+   inside .composer-stack (position: relative), rather than in a portal: the
+   text box keeps focus and stays clickable while the menu is open. Looks come
+   from .menu; only placement changes here. */
+.menu.suggest-menu {
+  position: absolute;
+  left: 4px;
+  bottom: calc(100% + 6px);
+  width: min(340px, calc(100% - 8px));
+  max-height: min(300px, 45vh);
+  z-index: 20;
+  transform-origin: bottom left;
+}
+.menu.suggest-menu .menu__item-hint {
+  color: var(--text-3);
+}
+
+/* A plugin pulled into the message with "@": shown with its logo among the chips. */
+.composer-chip__logo {
+  display: grid;
+  place-items: center;
+}

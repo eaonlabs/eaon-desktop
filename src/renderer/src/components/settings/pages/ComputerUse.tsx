@@ -28,7 +28,7 @@ function SetupStep({
 }: {
   n: number
   title: string
-  description: string
+  description: ReactNode
   state: PermissionState
   /** Plays a one-off highlight: the step to do next, right after computer use was switched on. */
   attention: boolean
@@ -72,6 +72,8 @@ export function ComputerUsePage(): JSX.Element {
   const [result, setResult] = useState<ComputerTestResult | null>(null)
   const [opening, setOpening] = useState<PermissionKind | null>(null)
   const [relaunching, setRelaunching] = useState(false)
+  const [resetting, setResetting] = useState(false)
+  const [resetError, setResetError] = useState<string | null>(null)
   /** Bumped when computer use is switched on with setup unfinished; replays the next step's highlight. */
   const [attention, setAttention] = useState(0)
   const setupRef = useRef<HTMLElement>(null)
@@ -137,6 +139,20 @@ export function ComputerUsePage(): JSX.Element {
     if (!(await window.api.computerUse.relaunch().catch(() => false))) setRelaunching(false)
   }
 
+  // A switch that is on while Eaon is still refused was made for an older,
+  // differently signed Eaon; clearing it lets this copy ask again.
+  const resetAccessibility = async (): Promise<void> => {
+    setResetting(true)
+    setResetError(null)
+    try {
+      const result = await window.api.computerUse.resetAccessibility()
+      if (!result.ok) setResetError(result.error ?? 'macOS would not reset the entry.')
+    } finally {
+      setResetting(false)
+      refresh()
+    }
+  }
+
   const runTest = async (): Promise<void> => {
     setTesting(true)
     try {
@@ -199,14 +215,35 @@ export function ComputerUsePage(): JSX.Element {
                 n={1}
                 title="Allow Accessibility"
                 description={
-                  axDone
-                    ? 'Lets Eaon move the pointer, click and type.'
-                    : `Lets Eaon move the pointer, click and type. Switch on ${who} in the list that opens.`
+                  axDone ? (
+                    'Lets Eaon move the pointer, click and type.'
+                  ) : (
+                    <>
+                      Lets Eaon move the pointer, click and type. Switch on {who} in the list that opens.
+                      {owner?.self && (
+                        <span className="computer__stale">
+                          {' '}
+                          Already on? macOS keeps one switch for every copy of Eaon, tied to whichever copy asked first.
+                          {status.otherCopies?.length
+                            ? ` This Mac has ${status.otherCopies.length === 1 ? 'another copy' : `${status.otherCopies.length} other copies`} signed differently, such as ${status.otherCopies[0].path}${status.otherCopies[0].version ? ` (${status.otherCopies[0].version})` : ''}.`
+                            : ''}{' '}
+                          Reset the switch, then turn Eaon on again.
+                        </span>
+                      )}
+                      {resetError && <span className="computer__stale computer__stale--error"> {resetError}</span>}
+                    </>
+                  )
                 }
                 state={status.accessibility}
                 attention={next === 'accessibility' && attention > 0}
               >
                 {openButton('accessibility', next === 'accessibility')}
+                {!axDone && owner?.self && (
+                  <button className="btn" disabled={resetting || opening !== null} onClick={() => void resetAccessibility()}>
+                    <RotateCw size={13} strokeWidth={1.9} />
+                    {resetting ? 'Resetting…' : 'Reset and ask again'}
+                  </button>
+                )}
               </SetupStep>
               <SetupStep
                 key={`screen-${next === 'screen' ? attention : 0}`}

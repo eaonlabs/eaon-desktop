@@ -25,7 +25,7 @@ import '../../../styles/providers.css'
 import { openInAde } from '../../code/terminal/terminalStore'
 
 /** The plan's own CLI, named for the button that opens it in the ADE. */
-const PLAN_CLI = { claude: 'Claude Code', gemini: 'Gemini CLI', codex: 'Codex' } as const
+const PLAN_CLI = { claude: 'Claude Code', antigravity: 'Antigravity', codex: 'Codex' } as const
 
 type Category = NonNullable<Provider['category']>
 

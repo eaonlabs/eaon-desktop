@@ -3,6 +3,8 @@ import { AppWindow, Check, ChevronDown, CircleHelp, Repeat, ShieldAlert, Target,
 import { relativeTime, type Worker, type WorkerAsk } from '@shared/workers'
 import { workerBrowserTarget } from '@shared/agentBrowser'
 import { Modal } from '../ui'
+import { Markdown } from '../agent/Markdown'
+import { ApprovalCard, CallPreview, CommandPreview } from '../agent/ApprovalCard'
 import { LiveBrowserAddress, LiveBrowserControls, LiveBrowserStage, LiveBrowserSteps, useLiveBrowser } from '../agentBrowser/LiveBrowser'
 
 /**
@@ -36,45 +38,64 @@ function AskCard({ worker, ask }: { worker: Worker; ask: WorkerAsk }): JSX.Eleme
       setBusy(false)
     }
   }
+  if (ask.approve) {
+    const { tool, input, summary } = ask.approve
+    const note = reply.trim() || undefined
+    return (
+      <ApprovalCard
+        variant="inline"
+        tool={tool}
+        input={input}
+        title={`${worker.name} needs your OK`}
+        asker={worker.name}
+        since={relativeTime(ask.at)}
+        lead={<Markdown text={ask.question} />}
+        approveLabel="Approve once"
+        denyLabel="Decline"
+        busy={busy}
+        extra={
+          <input
+            className="input approval__note"
+            value={reply}
+            placeholder="Add a note (optional)"
+            onChange={(e) => setReply(e.target.value)}
+          />
+        }
+        onApprove={() => void answer({ approved: true, text: note })}
+        onDeny={() => void answer({ approved: false, text: note })}
+      >
+        {tool === 'run_command' && typeof input.command === 'string' ? (
+          <CommandPreview command={input.command} />
+        ) : (
+          <CallPreview summary={summary} args={input} />
+        )}
+      </ApprovalCard>
+    )
+  }
   return (
-    <div className="worker-ask" data-kind={ask.approve ? 'approve' : 'question'}>
+    <div className="worker-ask" data-kind="question">
       <div className="worker-ask__head">
-        {ask.approve ? <ShieldAlert size={15} strokeWidth={2} /> : <CircleHelp size={15} strokeWidth={2} />}
-        <span className="worker-ask__who">{ask.approve ? `${worker.name} needs your OK` : `${worker.name} asks`}</span>
+        <CircleHelp size={15} strokeWidth={2} />
+        <span className="worker-ask__who">{worker.name} asks</span>
         <span className="worker-ask__when">{relativeTime(ask.at)}</span>
       </div>
-      <p className="worker-ask__question">{ask.question}</p>
-      {ask.approve && (
-        <p className="worker-ask__action" title={JSON.stringify(ask.approve.input)}>
-          {ask.approve.summary} <span className="worker-ask__tool">· {ask.approve.tool}</span>
-        </p>
-      )}
+      {/* Written by the model, so it gets the same Markdown as the thread. */}
+      <div className="worker-ask__question">
+        <Markdown text={ask.question} />
+      </div>
       <div className="worker-ask__actions">
-        {ask.approve ? (
-          <>
-            <button className="btn btn--sm btn--primary" disabled={busy} onClick={() => void answer({ approved: true, text: reply.trim() || undefined })}>
-              <Check size={13} strokeWidth={2.4} />
-              Approve once
-            </button>
-            <button className="btn btn--sm" disabled={busy} onClick={() => void answer({ approved: false, text: reply.trim() || undefined })}>
-              <X size={13} strokeWidth={2.4} />
-              Decline
-            </button>
-          </>
-        ) : (
-          ask.options.map((option) => (
-            <button key={option} className="btn btn--sm" disabled={busy} onClick={() => void answer({ text: option })}>
-              {option}
-            </button>
-          ))
-        )}
+        {ask.options.map((option) => (
+          <button key={option} className="btn btn--sm" disabled={busy} onClick={() => void answer({ text: option })}>
+            {option}
+          </button>
+        ))}
         <input
           className="input worker-ask__reply"
           value={reply}
-          placeholder={ask.approve ? 'Add a note (optional)' : 'Or write an answer…'}
+          placeholder="Or write an answer…"
           onChange={(e) => setReply(e.target.value)}
           onKeyDown={(e) => {
-            if (e.key === 'Enter' && reply.trim() && !ask.approve) void answer({ text: reply.trim() })
+            if (e.key === 'Enter' && reply.trim()) void answer({ text: reply.trim() })
           }}
         />
       </div>

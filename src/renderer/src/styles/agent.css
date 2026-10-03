@@ -35,6 +35,131 @@
 .md__list li::marker {
   color: var(--text-3);
 }
+/* A list inside an item sits tight under it rather than a paragraph's gap below. */
+.md__list li > .md__list {
+  margin: 3px 0 0;
+}
+.md__list li > .md__p,
+.md__list li > .md__table-wrap {
+  margin: 6px 0;
+}
+/* Task items: a box instead of the bullet. */
+.md__list[data-tasks] {
+  padding-left: 4px;
+  list-style: none;
+}
+.md__task {
+  display: block;
+}
+.md__check {
+  display: inline-block;
+  width: 13px;
+  height: 13px;
+  margin: 0 8px -2px 0;
+  border: 1.5px solid var(--text-3);
+  border-radius: 4px;
+}
+.md__check[data-checked] {
+  border-color: var(--accent);
+  background: var(--accent)
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 6.2 5 8.6l4.5-5' fill='none' stroke='white' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+    center / 11px no-repeat;
+}
+.md__task:has(.md__check[data-checked]) {
+  color: var(--text-2);
+}
+/* Tables: adapted from AICSS (MIT, Copyright (c) 2026 AICSS); see
+   components/aicss/LICENSE. A card whose top band carries the muted header,
+   with the rows on an inset sheet split by hairlines. They scroll sideways in
+   their own box; the thread itself never does. */
+.md__table-wrap {
+  max-width: 100%;
+  margin: 2px 0 12px;
+  /* Room for the card's ring and shadow, which overflow would clip. */
+  padding: 1px 1px 3px;
+  overflow-x: auto;
+}
+.tbl {
+  --tbl-bg: color-mix(in srgb, var(--bg), var(--fg) 9%);
+  --tbl-body-bg: color-mix(in srgb, var(--bg), var(--fg) 4%);
+  --tbl-line: color-mix(in srgb, var(--bg), var(--fg) 14%);
+  --tbl-ring: color-mix(in srgb, var(--fg) 12%, transparent);
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 12px;
+  background: var(--tbl-bg);
+  box-shadow:
+    0 0 0 0.5px var(--tbl-ring),
+    0 1px 2px color-mix(in srgb, var(--sink-color) 5%, transparent),
+    0 2px 4px color-mix(in srgb, var(--sink-color) 2%, transparent);
+  font-size: 13px;
+}
+[data-theme='light'] .tbl {
+  --tbl-bg: color-mix(in srgb, var(--bg), var(--fg) 2%);
+  --tbl-body-bg: var(--bg);
+  --tbl-line: color-mix(in srgb, var(--bg), var(--fg) 10%);
+  --tbl-ring: color-mix(in srgb, var(--fg) 8%, transparent);
+}
+.tbl__head {
+  display: flex;
+  color: var(--text-3);
+  font-weight: 500;
+}
+.tbl__head .tbl__cell {
+  padding-top: 7px;
+  padding-bottom: 7px;
+}
+/* A header too long for its column ends in an ellipsis rather than running
+   into the next one; the body's cells wrap instead (see .tbl__text). */
+.tbl__head .tbl__text {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.tbl__body {
+  display: flex;
+  flex-direction: column;
+  margin: 0 -0.5px -0.5px;
+  border: 0.5px solid var(--tbl-line);
+  border-radius: 12px 12px 0 0;
+  background: var(--tbl-body-bg);
+}
+.tbl__row {
+  display: flex;
+}
+.tbl__row:not(:last-child) {
+  border-bottom: 0.5px solid var(--tbl-line);
+}
+.tbl__cell {
+  display: flex;
+  flex: 1 1 0;
+  align-items: center;
+  min-width: 0;
+  padding: 9px 12px;
+  color: var(--text);
+}
+.tbl__head .tbl__cell {
+  color: inherit;
+}
+.tbl__cell:not(:last-child) {
+  border-right: 0.5px solid var(--tbl-line);
+}
+/* The cell's text lives in its own box: a flex container would split
+   "a **b** c" into separate items and drop the spaces between them. Long
+   text wraps rather than being cut off, since a reply's cell is meant to
+   be read. */
+.tbl__text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.tbl__yes {
+  color: var(--diff-add-fg);
+}
+.tbl__no {
+  color: var(--text-3);
+}
 .md__quote {
   margin: 0 0 10px;
   padding: 2px 0 2px 12px;
@@ -110,39 +235,91 @@
   tab-size: 2;
 }
 
-/* ---------- Diff ---------- */
+/* ---------- Diff ----------
+   Adapted from AICSS (MIT, Copyright (c) 2026 AICSS); see components/aicss/LICENSE.
+   A raised card: file and counts on top, then two line-number gutters split
+   from the code by a hairline, a sign column, and an accent bar on the left of
+   each changed line (solid for additions, hatched for deletions). Colours come
+   from the theme, so it sits right on every palette. */
 
 .diff {
+  --diff-card: color-mix(in srgb, var(--bg), var(--lift-color) calc(var(--u) * 1.2));
+  --diff-ring: color-mix(in srgb, var(--fg) 12%, transparent);
+  --diff-line: var(--border);
+  --diff-muted: var(--text-3);
+  --diff-code: var(--text);
+  /* Dark is the default theme; the light palette follows below. */
+  --diff-kw: #ff7b72;
+  --diff-str: #a5d6ff;
+  --diff-fn: #d2a8ff;
+  --diff-num: #79c0ff;
+  --diff-cm: #8b949e;
+  /* The gutters fold away when no line number is known (see FileDiff.tsx). */
+  --diff-ln: 0px;
   margin: 0 0 8px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-md);
-  background: var(--sunken);
+  padding: 12px 16px 16px;
+  border-radius: 12px;
+  background: var(--diff-card);
+  box-shadow:
+    0 1px 2px color-mix(in srgb, var(--sink-color) 5%, transparent),
+    0 2px 4px color-mix(in srgb, var(--sink-color) 2%, transparent),
+    0 0 0 0.5px var(--diff-ring);
   overflow: hidden;
+  font-family: var(--font-mono);
+}
+[data-theme='light'] .diff {
+  --diff-card: var(--bg);
+  --diff-ring: color-mix(in srgb, var(--fg) 8%, transparent);
+  --diff-kw: #cf222e;
+  --diff-str: #0a3069;
+  --diff-fn: #8250df;
+  --diff-num: #0550ae;
+  --diff-cm: #6e7781;
+}
+.diff[data-numbered] {
+  --diff-ln: 32px;
 }
 .diff__head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  height: 30px;
-  padding: 0 10px;
-  border-bottom: 1px solid var(--border-soft);
-  font-size: var(--fs-xxs);
+  gap: 8px;
+  margin: -12px -16px 0;
+  padding: 10px 12px;
+  border-bottom: 0.5px solid var(--diff-line);
+  font-size: 12.5px;
+}
+.diff__file-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+.diff__icon {
+  display: block;
+  flex: none;
+  width: 15px;
+  height: 15px;
+  color: var(--diff-muted);
 }
 .diff__file {
-  font-family: var(--font-mono);
-  color: var(--text-2);
   overflow: hidden;
-  text-overflow: ellipsis;
+  color: var(--diff-code);
+  line-height: 1;
   white-space: nowrap;
+  text-overflow: ellipsis;
+  /* A long path keeps its file name and loses the front of the folders. */
   direction: rtl;
   text-align: left;
 }
 .diff__stat {
-  display: flex;
+  display: inline-flex;
   flex: none;
+  align-items: center;
   gap: 8px;
-  font-family: var(--font-mono);
+  margin-left: auto;
+  font-size: 12px;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 .diff__stat-add {
   color: var(--diff-add-fg);
@@ -151,18 +328,90 @@
   color: var(--diff-del-fg);
 }
 .diff__body {
+  position: relative;
   max-height: 340px;
-  overflow: auto;
+  margin: 0 -16px -16px;
   padding: 4px 0;
-  font-family: var(--font-mono);
-  font-size: var(--fs-xs);
-  line-height: 1.5;
+  overflow: auto;
+  font-size: 12.5px;
+  line-height: 20px;
+  /* No horizontal bar: long lines scroll sideways on a trackpad, and a bar
+     under every short diff was noise. */
+  scrollbar-width: none;
+}
+.diff__body::-webkit-scrollbar:horizontal {
+  display: none;
+}
+.diff__lines {
+  position: relative;
+  width: max-content;
+  min-width: 100%;
+}
+/* The hairline between the gutters and the code, full height, on the inner
+   track so it stays put while the body scrolls sideways. */
+.diff__lines::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--diff-ln) * 2);
+  z-index: 1;
+  width: 0.5px;
+  background: var(--diff-line);
+  pointer-events: none;
+}
+.diff:not([data-numbered]) .diff__lines::before {
+  display: none;
 }
 .diff__row {
-  display: flex;
-  gap: 8px;
-  padding: 0 10px;
+  position: relative;
+  display: grid;
+  grid-template-columns: var(--diff-ln) var(--diff-ln) 18px 1fr;
+  align-items: stretch;
+}
+.diff:not([data-numbered]) .diff__row {
+  grid-template-columns: 0 0 22px 1fr;
+}
+.diff__ln,
+.diff__sign {
+  color: var(--diff-muted);
+  font-size: 11px;
+  user-select: none;
+}
+.diff__ln {
+  overflow: hidden;
+  padding: 0 7px;
+  text-align: right;
+}
+.diff:not([data-numbered]) .diff__ln {
+  padding: 0;
+}
+.diff__sign {
+  text-align: center;
+}
+.diff:not([data-numbered]) .diff__sign {
+  padding-left: 4px;
+}
+.diff__code {
+  padding: 0 12px 0 8px;
+  color: var(--diff-muted);
   white-space: pre;
+}
+/* Accent bar: solid for additions, hatched for deletions. */
+.diff__row[data-kind='add']::before,
+.diff__row[data-kind='del']::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 3px;
+}
+.diff__row[data-kind='add']::before {
+  background: var(--diff-add-fg);
+}
+.diff__row[data-kind='del']::before {
+  background: repeating-linear-gradient(45deg, var(--diff-del-fg) 0, var(--diff-del-fg) 1.5px, transparent 1.5px, transparent 3px);
 }
 .diff__row[data-kind='add'] {
   background: var(--diff-add-bg);
@@ -170,30 +419,180 @@
 .diff__row[data-kind='del'] {
   background: var(--diff-del-bg);
 }
-.diff__marker {
-  flex: none;
-  width: 8px;
-  color: var(--text-3);
-  user-select: none;
-}
-.diff__row[data-kind='add'] .diff__marker {
+.diff__row[data-kind='add'] .diff__sign,
+.diff__row[data-kind='add'] .diff__ln--new {
   color: var(--diff-add-fg);
 }
-.diff__row[data-kind='del'] .diff__marker {
+.diff__row[data-kind='del'] .diff__sign,
+.diff__row[data-kind='del'] .diff__ln--old {
   color: var(--diff-del-fg);
 }
-.diff__text {
-  min-width: 0;
+.diff__row[data-kind='add'] .diff__code,
+.diff__row[data-kind='del'] .diff__code {
+  color: var(--diff-code);
+}
+.diff__code .tk-kw {
+  color: var(--diff-kw);
+}
+.diff__code .tk-str {
+  color: var(--diff-str);
+}
+.diff__code .tk-fn {
+  color: var(--diff-fn);
+}
+.diff__code .tk-num {
+  color: var(--diff-num);
+}
+.diff__code .tk-cm {
+  color: var(--diff-cm);
+}
+
+/* ---------- Working marks: shimmer, spinner, pixel grid ----------
+   Adapted from MIT and Apache-2.0 components; see components/agent/LICENSES.txt.
+   A label that is still happening has a slow sweep of light across it; a call
+   in flight has a thin arc; the model at work has a 3×3 grid with a wave
+   crossing it. All three stop under reduced motion. */
+
+.step-shimmer {
+  background-image: linear-gradient(
+    90deg,
+    var(--text-3) 0%,
+    var(--text-3) 38%,
+    var(--text) 50%,
+    var(--text-3) 62%,
+    var(--text-3) 100%
+  );
+  background-size: 250% 100%;
+  background-repeat: no-repeat;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: step-shimmer 1.4s linear infinite;
+}
+/* The sweep runs through nested spans (a file name in a card's title) too,
+   and they take the plain colour back when the sweep is off. */
+.step-shimmer *,
+.step-card__title.step-shimmer .step-card__file {
+  color: inherit;
+}
+@keyframes step-shimmer {
+  from {
+    background-position: 100% center;
+  }
+  to {
+    background-position: 0% center;
+  }
+}
+
+.spin-arc {
+  display: block;
+  flex: none;
+  animation: spin-arc 850ms linear infinite;
+}
+@keyframes spin-arc {
+  to {
+    rotate: 360deg;
+  }
+}
+
+.pixel-grid {
+  display: inline-grid;
+  flex: none;
+  grid-template-columns: repeat(3, var(--cell));
+  gap: calc(var(--cell) * 0.375);
+}
+.pixel-grid__cell {
+  width: var(--cell);
+  height: var(--cell);
+  border-radius: 1px;
+  background: var(--text);
+  opacity: 0.15;
+  animation: pixel-on 650ms ease-in-out infinite;
+}
+@keyframes pixel-on {
+  0%,
+  40%,
+  100% {
+    opacity: 0.15;
+  }
+  20% {
+    opacity: 1;
+  }
+}
+
+/* A reply that has started and has nothing to show yet. */
+.loading-state {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: fit-content;
+  min-height: 28px;
+}
+.loading-state__label {
+  font-size: var(--fs-sm);
+  font-weight: 500;
+}
+.loading-state__clock {
+  color: var(--text-4);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .step-shimmer,
+  .pixel-grid__cell,
+  .spin-arc {
+    animation: none;
+  }
+}
+body[data-reduce-motion='on'] .step-shimmer,
+body[data-reduce-motion='on'] .pixel-grid__cell,
+body[data-reduce-motion='on'] .spin-arc {
+  animation: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .step-shimmer {
+    background: none;
+    color: var(--text-2);
+  }
+}
+body[data-reduce-motion='on'] .step-shimmer {
+  background: none;
+  color: var(--text-2);
+}
+
+/* File-type marks, shared by the edit cards and the files-changed card. */
+.file-icon {
+  display: block;
+  flex: none;
+  color: var(--text-3);
+}
+.file-icon[data-ext='react'] {
+  color: #5cc3e8;
+}
+.file-icon[data-ext='css'] {
+  color: #a77bf3;
+}
+.file-icon[data-ext='data'] {
+  color: #d9a53a;
+}
+.file-icon[data-ext='markup'] {
+  color: #e8784e;
+}
+.file-icon[data-ext='code'] {
+  color: #6b9eff;
 }
 
 /* ---------- Tool call ----------
-   A call is a quiet line of the reply, not a card: icon, what it did, and the
-   argument that says to what, in the reply's muted colour. A dozen of them in
-   bordered boxes buried the sentences they served. Runs of calls fold into an
-   activity line (below); a lone call shows as its own line. */
+   A call is a quiet line of the reply, not a card: icon, what it did, and a
+   chip naming what it did it to. Runs of calls fold into an activity line
+   (below); a lone call shows as its own line. Under the pointer the icon
+   turns into the chevron, so the row says it opens without a column of
+   chevrons down every line. */
 
 .tool {
-  margin: 2px 0;
+  margin: 0;
   border-radius: var(--r-sm);
   white-space: normal;
   animation: tool-in var(--dur-spring) var(--spring-moderate) both;
@@ -210,7 +609,7 @@
   gap: 8px;
   max-width: 100%;
   height: 28px;
-  padding: 0 8px 0 2px;
+  padding: 0 7px 0 2px;
   border-radius: var(--r-sm);
   text-align: left;
   color: var(--text-3);
@@ -219,7 +618,8 @@
     background var(--dur) var(--ease),
     color var(--dur) var(--ease);
 }
-.tool__head:hover {
+.tool__head:not([data-static]):hover {
+  background: var(--hover);
   color: var(--text-2);
 }
 .tool__glyph {
@@ -230,6 +630,33 @@
   height: 16px;
   color: var(--text-3);
 }
+.tool__icon,
+.tool__chevron {
+  grid-area: 1 / 1;
+  transition:
+    opacity 100ms var(--ease),
+    transform 150ms var(--ease);
+}
+.tool__icon {
+  display: grid;
+  place-items: center;
+}
+.tool__chevron {
+  color: var(--text-2);
+  opacity: 0;
+}
+/* A running call and a thought being written keep their moving mark. */
+.tool:not([data-status='running']):not([data-live]) > .tool__head:not([data-static]):hover .tool__icon,
+.tool[data-open]:not([data-status='running']):not([data-live]) > .tool__head .tool__icon {
+  opacity: 0;
+}
+.tool:not([data-status='running']):not([data-live]) > .tool__head:not([data-static]):hover .tool__chevron,
+.tool[data-open]:not([data-status='running']):not([data-live]) > .tool__head .tool__chevron {
+  opacity: 1;
+}
+.tool[data-open] > .tool__head .tool__chevron {
+  transform: rotate(90deg);
+}
 .tool[data-status='error'] .tool__glyph,
 .tool[data-status='denied'] .tool__glyph {
   color: var(--danger);
@@ -237,6 +664,7 @@
 .tool__label {
   flex: none;
   color: var(--text-2);
+  font-weight: 450;
 }
 .tool__detail {
   min-width: 0;
@@ -247,62 +675,83 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.tool__spacer {
-  flex: 1;
-}
-.tool__done {
-  flex: none;
+/* What the call was about — a file, a query, a URL — as a small pill. */
+.tool__chip {
+  display: inline-block;
+  min-width: 0;
+  max-width: 100%;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: var(--r-pill);
+  background: var(--hover);
+  box-shadow: inset 0 0 0 0.5px var(--border-soft);
   color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 20px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: color var(--dur) var(--ease);
 }
-/* Shown on hover and while open: on every line it was noise. */
-.tool__chevron {
+.tool__head:hover .tool__chip {
+  color: var(--text-2);
+}
+.tool__range {
   flex: none;
   color: var(--text-4);
-  opacity: 0;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+/* What a call returned, hung off a hairline under its row. Panels open by
+   growing to their height rather than appearing at full size. */
+.tool__panel,
+.step-card__panel {
+  overflow: hidden;
+  interpolate-size: allow-keywords;
   transition:
-    transform var(--dur) var(--ease),
-    opacity var(--dur) var(--ease);
+    height 220ms var(--ease),
+    opacity 160ms var(--ease);
 }
-.tool__head:hover .tool__chevron,
-.tool[data-open] .tool__chevron {
-  opacity: 1;
-}
-.tool[data-open] .tool__chevron {
-  transform: rotate(90deg);
-}
-.tool__panel {
-  padding: 4px 0 8px 26px;
-  animation: tool-panel-in var(--dur-spring) var(--spring-fast) both;
-}
-@keyframes tool-panel-in {
-  from {
+@starting-style {
+  .tool__panel,
+  .step-card__panel {
+    height: 0;
     opacity: 0;
   }
 }
+.tool__panel > div {
+  margin: 2px 0 6px 9px;
+  padding-left: 15px;
+  border-left: 1px solid var(--border-soft);
+}
 .tool__output {
   margin: 0;
-  max-height: 260px;
+  max-height: 240px;
   overflow: auto;
-  padding: 8px 10px;
-  border-radius: var(--r-sm);
-  background: var(--sunken);
-  color: var(--text-2);
+  padding: 2px 4px 2px 0;
+  color: var(--text-3);
   font-family: var(--font-mono);
-  font-size: var(--fs-xs);
-  line-height: 1.5;
+  font-size: 11.5px;
+  line-height: 1.6;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
+.tool__panel .diff {
+  margin: 4px 0 6px;
+}
 .tool__waiting {
   padding: 2px 0;
-  color: var(--text-3);
   font-size: var(--fs-xs);
 }
 
-/* ---------- Activity: a run of calls as one line ---------- */
+/* ---------- Activity: a run of calls as one line ----------
+   The line says what the run did ("Thought, read 3 files and ran 2
+   searches"); while it is live it is the step in progress, with a clock. */
 
 .activity {
-  margin: 4px 0;
+  margin: 2px 0;
   white-space: normal;
 }
 .activity__head {
@@ -311,14 +760,17 @@
   gap: 8px;
   max-width: 100%;
   min-height: 28px;
-  padding: 0 8px 0 2px;
+  padding: 0 7px 0 2px;
   border-radius: var(--r-sm);
   text-align: left;
   color: var(--text-3);
   font-size: var(--fs-sm);
-  transition: color var(--dur) var(--ease);
+  transition:
+    color var(--dur) var(--ease),
+    background var(--dur) var(--ease);
 }
 .activity__head:hover {
+  background: var(--hover);
   color: var(--text-2);
 }
 .activity__orb {
@@ -343,6 +795,12 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.activity__clock {
+  flex: none;
+  color: var(--text-4);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
 .activity__flag {
   flex: none;
   color: color-mix(in srgb, var(--danger), var(--text-3) 35%);
@@ -360,40 +818,307 @@
 .activity[data-open] .activity__chevron {
   transform: rotate(90deg);
 }
-/* The calls, hung off a hairline so they read as the line's contents. */
+/* The steps, hung off a hairline so they read as the line's contents. */
 .activity__list {
   margin: 2px 0 4px 9px;
   padding-left: 12px;
   border-left: 1px solid var(--border-soft);
-  animation: tool-panel-in var(--dur-spring) var(--spring-fast) both;
+  overflow: hidden;
+  interpolate-size: allow-keywords;
+  transition:
+    height 240ms var(--ease),
+    opacity 160ms var(--ease);
+}
+@starting-style {
+  .activity__list {
+    height: 0;
+    opacity: 0;
+  }
+}
+/* A live run past a few steps: a window onto the newest, fading out at the
+   top, that follows each step as it lands. */
+.activity__list[data-window] {
+  max-height: 172px;
+  overflow-y: auto;
+  scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 40px);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 40px);
+}
+.activity__list > .step {
+  animation: step-in 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
+  animation-delay: calc(var(--i, 0) * 45ms);
+}
+.activity__list .tool {
+  animation: none;
+}
+@keyframes step-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
 }
 .activity__live {
   margin: 2px 0 6px 26px;
   max-height: 140px;
 }
 
+/* ---------- Step cards: an edit's diff, a command and its output ----------
+   Adapted from MIT and Apache-2.0 components; see components/agent/LICENSES.txt.
+   A bordered card with a quiet header band: what happened, to what, and how
+   it ended, over the thing itself. */
+
+.step-card,
+.files-changed {
+  --card-line: var(--border);
+  --card-head: color-mix(in srgb, var(--bg), var(--fg) 4%);
+  --card-body: color-mix(in srgb, var(--bg), var(--sink-color) 22%);
+}
+[data-theme='light'] .step-card,
+[data-theme='light'] .files-changed {
+  --card-head: color-mix(in srgb, var(--bg), var(--fg) 3%);
+  --card-body: var(--bg);
+}
+.step-card {
+  margin: 8px 0;
+  border: 1px solid var(--card-line);
+  border-radius: var(--r-md);
+  background: var(--card-body);
+  overflow: hidden;
+  white-space: normal;
+  animation: tool-in var(--dur-spring) var(--spring-moderate) both;
+}
+.step-card__head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  height: 30px;
+  padding: 0 9px 0 10px;
+  background: var(--card-head);
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  text-align: left;
+  transition: color var(--dur) var(--ease);
+}
+.step-card__head:not(:disabled):hover {
+  color: var(--text-2);
+}
+.step-card[data-open] > .step-card__head,
+.command-card > .step-card__head {
+  border-bottom: 1px solid var(--card-line);
+}
+.step-card__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  color: var(--text-3);
+}
+.step-card[data-status='error'] .step-card__icon,
+.step-card[data-status='denied'] .step-card__icon {
+  color: var(--danger);
+}
+.step-card__title {
+  flex: 0 1 auto;
+  min-width: 0;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.step-card__file {
+  color: var(--text);
+  font-weight: 500;
+}
+.step-card__folder {
+  flex: 0 1 auto;
+  min-width: 0;
+  color: var(--text-4);
+  font-size: var(--fs-xxs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.step-card__end {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  padding-left: 6px;
+}
+.step-card__stat {
+  display: inline-flex;
+  gap: 6px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xxs);
+  font-variant-numeric: tabular-nums;
+}
+.step-card__note {
+  color: var(--text-3);
+  font-size: var(--fs-xxs);
+}
+.step-card__exit {
+  color: var(--diff-del-fg);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xxs);
+}
+.step-card__chevron {
+  color: var(--text-4);
+  transition: transform var(--dur) var(--ease);
+}
+.step-card[data-open] .step-card__chevron {
+  transform: rotate(180deg);
+}
+.step-card__message {
+  margin: 0;
+  max-height: 160px;
+  overflow: auto;
+  padding: 8px 10px;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* The diff sits flush in the card, without its own card around it. */
+.edit-card__body {
+  position: relative;
+}
+.edit-card__body[data-clipped] {
+  max-height: 168px;
+  overflow: hidden;
+}
+.step-card .diff,
+.files-changed .diff {
+  margin: 0;
+  padding: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+.step-card .diff__body,
+.files-changed .diff__body {
+  max-height: 420px;
+  margin: 0;
+  padding: 5px 0;
+}
+.edit-card__body[data-clipped] .diff__body {
+  max-height: none;
+  overflow: hidden;
+}
+/* Folded: a fade over the last lines with "Show more"; open, a bar under them. */
+.step-card__more {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 100%;
+  height: 28px;
+  border-top: 1px solid var(--card-line);
+  color: var(--text-3);
+  font-size: var(--fs-xxs);
+  transition: color var(--dur) var(--ease);
+}
+.step-card__more:hover {
+  color: var(--text);
+}
+.edit-card__body[data-clipped] .step-card__more {
+  position: absolute;
+  inset: auto 0 0;
+  height: 56px;
+  align-items: flex-end;
+  padding-bottom: 7px;
+  border-top: 0;
+  background: linear-gradient(to bottom, transparent, var(--card-body) 80%);
+}
+.edit-card__body:not([data-clipped]) .step-card__more svg {
+  transform: rotate(180deg);
+}
+
+/* A command: the line it ran, then the tail of what it printed. */
+.command-card__body {
+  padding: 8px 10px 9px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: 17px;
+}
+.command-card__line {
+  display: flex;
+  gap: 7px;
+}
+.command-card__prompt {
+  flex: none;
+  color: #d29922;
+  user-select: none;
+}
+[data-theme='light'] .command-card__prompt {
+  color: #b26b00;
+}
+.command-card__command {
+  min-width: 0;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.step-card[data-status='denied'] .command-card__command {
+  color: var(--text-3);
+}
+.command-card__output {
+  margin: 6px 0 0;
+  max-height: 84px;
+  overflow: hidden;
+  color: var(--text-3);
+  font: inherit;
+  font-size: 11.5px;
+  line-height: 16px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+/* Folded output shows its last lines; the ones above fade out. */
+.command-card__output[data-overflow='true']:not([data-open]) {
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 22px);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 22px);
+}
+.command-card__output[data-open] {
+  max-height: 340px;
+  overflow-y: auto;
+}
+
 /* ---------- Files changed: the turn's edits, once, at the end ---------- */
 
 .files-changed {
   margin-top: 14px;
-  padding: 10px 6px 6px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-xl);
+  border: 1px solid var(--card-line);
+  border-radius: var(--r-md);
+  background: var(--card-body);
+  overflow: hidden;
   white-space: normal;
 }
 .files-changed__head {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 0 8px 6px;
+  gap: 10px;
+  height: 34px;
+  padding: 0 6px 0 12px;
+  border-bottom: 1px solid var(--card-line);
+  background: var(--card-head);
   color: var(--text-2);
-  font-size: var(--fs-sm);
+  font-size: var(--fs-xs);
+}
+.files-changed__title {
+  font-weight: 500;
 }
 .files-changed__review {
-  padding: 2px 6px;
+  height: 24px;
+  margin-left: auto;
+  padding: 0 9px;
   border-radius: var(--r-xs);
-  color: var(--text-3);
-  font-size: var(--fs-sm);
+  color: var(--text-2);
+  font-size: var(--fs-xs);
   transition:
     color var(--dur) var(--ease),
     background var(--dur) var(--ease);
@@ -402,14 +1127,16 @@
   color: var(--text);
   background: var(--hover);
 }
+.files-changed__file + .files-changed__file {
+  border-top: 1px solid var(--border-soft);
+}
 .files-changed__row {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   width: 100%;
   height: 32px;
-  padding: 0 8px;
-  border-radius: var(--r-sm);
+  padding: 0 12px 0 8px;
   text-align: left;
   font-size: var(--fs-sm);
   transition: background var(--dur) var(--ease);
@@ -418,36 +1145,19 @@
 .files-changed__file[data-open] .files-changed__row {
   background: var(--hover);
 }
+.files-changed__chevron {
+  flex: none;
+  color: var(--text-4);
+  transition: transform var(--dur) var(--ease);
+}
+.files-changed__file[data-open] .files-changed__chevron {
+  transform: rotate(90deg);
+}
 .files-changed__icon {
   flex: none;
   display: grid;
   place-items: center;
-  width: 18px;
-  color: var(--text-3);
-}
-.files-changed__badge {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.02em;
-  color: #6b9eff;
-}
-.files-changed__badge[data-ext='JS'] {
-  color: #d9b43a;
-}
-.files-changed__badge[data-ext='PY'] {
-  color: #5a9fd4;
-}
-.files-changed__glyph[data-ext='react'] {
-  color: #5cc3e8;
-}
-.files-changed__glyph[data-ext='css'] {
-  color: #a77bf3;
-}
-.files-changed__glyph[data-ext='data'] {
-  color: #d9a53a;
-}
-.files-changed__glyph[data-ext='markup'] {
-  color: #e8784e;
+  width: 16px;
 }
 .files-changed__name {
   flex: none;
@@ -470,16 +1180,16 @@
   flex: none;
   display: flex;
   gap: 8px;
-  margin-left: auto;
-  font-size: var(--fs-sm);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xxs);
   font-variant-numeric: tabular-nums;
 }
+.files-changed__row .files-changed__stat {
+  margin-left: auto;
+}
 .files-changed__diffs {
-  padding: 6px 2px 8px;
+  border-top: 1px solid var(--border-soft);
 }
-.files-changed__diffs .diff {
-  margin: 0 0 8px;
-}
-.files-changed__diffs .diff:last-child {
-  margin-bottom: 0;
+.files-changed__diffs .diff + .diff {
+  border-top: 1px dashed var(--border-soft);
 }

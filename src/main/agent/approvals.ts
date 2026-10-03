@@ -1,5 +1,9 @@
 import { randomUUID } from 'node:crypto'
 import type { StreamEvent } from '@shared/types'
+import { CREDENTIAL_PATHS } from '@shared/commandRisk'
+
+// Command risk lives in shared/ so the approval card can colour a command the same way.
+export { isCatastrophicCommand, isRiskyCommand, writtenPaths } from '@shared/commandRisk'
 
 /**
  * The approval round-trip: the loop emits an `approval-request` over the
@@ -45,64 +49,6 @@ export function cancelApprovals(messageId: string): void {
   }
 }
 
-/**
- * Shell commands that can destroy work or reach beyond the project, which
- * "Approve for me" still stops to ask about. A deny-list is not a sandbox and
- * does not pretend to be one — it catches the commands a model most plausibly
- * runs by mistake, so auto mode is safe to leave on for ordinary work.
- */
-const RISKY_COMMANDS: RegExp[] = [
-  /\brm\s+(-[a-zA-Z]*[rf][a-zA-Z]*\s+)+/, // rm -rf, rm -r, rm -f
-  /\bsudo\b/,
-  /\bmkfs\b|\bdd\s+if=|\bdiskutil\s+(erase|partition)/,
-  /\bchmod\s+(-R\s+)?[0-7]*7{2}\b|\bchown\s+-R\b/,
-  /\bgit\s+push\b[^\n]*(--force|-f\b)/,
-  /\bgit\s+(reset\s+--hard|clean\s+-[a-z]*f|checkout\s+--\s|branch\s+-D|stash\s+(drop|clear)|filter-branch)/,
-  /\bgit\s+push\b/,
-  /(curl|wget)[^|\n]*\|\s*(sh|bash|zsh|python)/,
-  /\b(shutdown|reboot|halt)\b|\blaunchctl\b|\bsystemctl\b|\bdefaults\s+write\b|\bcrontab\b/,
-  /\bkill(all)?\s+-9\b|\bpkill\b/,
-  /\b(npm|pnpm|yarn)\s+publish\b|\bcargo\s+publish\b|\btwine\s+upload\b/,
-  /\bdocker\s+(system\s+prune|rm\s+-f|volume\s+rm)/,
-  /\bDROP\s+(TABLE|DATABASE)\b|\bTRUNCATE\b/i,
-  />\s*\/dev\/(sd|disk)/,
-  /\bsecurity\s+(delete|dump|find-(generic|internet)-password)|\bkeychain\b/
-]
-
-/**
- * The part of RISKY_COMMANDS nobody should run unattended even when trusted
- * to act alone: privilege, disks, the machine itself, credentials, piping the
- * internet into a shell, rewriting published history, publishing packages.
- * An autonomous worker runs other risky commands (`rm -rf build`, `git push`).
- */
-const CATASTROPHIC_COMMANDS: RegExp[] = [
-  /\bsudo\b/,
-  /\bmkfs\b|\bdd\s+if=|\bdiskutil\s+(erase|partition)/,
-  /\brm\s+(-[a-zA-Z]*[rf][a-zA-Z]*\s+)+(\/|~|\$HOME|\/\*|~\/\*)(\s|$)/,
-  /\bgit\s+push\b[^\n]*(--force|-f\b)/,
-  /\bgit\s+filter-branch\b/,
-  /(curl|wget)[^|\n]*\|\s*(sh|bash|zsh|python)/,
-  /\b(shutdown|reboot|halt)\b/,
-  /\b(npm|pnpm|yarn)\s+publish\b|\bcargo\s+publish\b|\btwine\s+upload\b/,
-  /\bDROP\s+(TABLE|DATABASE)\b/i,
-  />\s*\/dev\/(sd|disk)/,
-  /\bsecurity\s+(delete|dump|find-(generic|internet)-password)|\bkeychain\b/
-]
-
-export function isCatastrophicCommand(command: string): boolean {
-  return CREDENTIAL_PATHS.test(command) || CATASTROPHIC_COMMANDS.some((pattern) => pattern.test(command))
-}
-
-/**
- * The credential folders read_file and friends refuse outright (FORBIDDEN in
- * localTools.ts). `cat ~/.ssh/id_rsa` is the same read by another route, so a
- * command naming one always asks.
- */
-const CREDENTIAL_PATHS = /(^|[\s'"=:~/])\.(ssh|aws|gnupg|netrc)(\/|\b)|\.config\/gh\b|\.docker\/config\.json|Library\/(Keychains|Cookies)\b/
-
-export function isRiskyCommand(command: string): boolean {
-  return CREDENTIAL_PATHS.test(command) || RISKY_COMMANDS.some((pattern) => pattern.test(command))
-}
 
 /**
  * Commands that only look: listing, reading, searching, inspecting git. They

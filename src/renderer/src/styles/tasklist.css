@@ -1,0 +1,269 @@
+/*
+ * The agent's plan, pinned above the composer (WorkBits.tsx TodoPanel).
+ *
+ * Folded it is one line: a ring that fills as steps get done, the count, and
+ * the step in progress. Open it is a timeline: a rail runs down the marks and
+ * fills behind the steps that are done, the step in progress has an arc
+ * circling its mark, and a step that gets done fills its dot, draws its check
+ * and strikes its text through, left to right.
+ */
+
+.tasks {
+  --tasks-on: var(--accent);
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+  box-shadow: inset 0 0 0 1px var(--border-soft);
+  max-height: 220px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
+/* ---- the folded line ---- */
+
+.tasks__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 34px;
+  padding: 0 12px;
+  text-align: left;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+  border-radius: inherit;
+}
+.tasks__head:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.tasks__ring {
+  flex: none;
+  transform: rotate(-90deg);
+}
+.tasks__ring circle {
+  fill: none;
+  stroke-width: 2;
+}
+.tasks__ring-track {
+  stroke: var(--border-strong);
+}
+.tasks__ring-fill {
+  stroke: var(--tasks-on);
+  stroke-linecap: round;
+  transition: stroke-dashoffset 640ms var(--spring-slow);
+}
+
+.tasks__title {
+  flex: none;
+  color: var(--text-2);
+  font-weight: 500;
+}
+
+.tasks__count {
+  flex: none;
+  display: inline-flex;
+  gap: 0.28em;
+  font-variant-numeric: tabular-nums;
+}
+.tasks__count-done {
+  display: inline-block;
+  color: var(--text-2);
+  animation: tasks-tick 320ms var(--spring-fast) both;
+}
+
+.tasks__current {
+  min-width: 0;
+  flex: 1;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  animation: tasks-swap 360ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.tasks__current::before {
+  content: '·';
+  margin-right: 8px;
+  color: var(--text-4);
+}
+
+.tasks__chevron {
+  flex: none;
+  margin-left: auto;
+  color: var(--text-4);
+  transition: transform var(--dur) var(--ease);
+}
+.tasks[data-open] .tasks__chevron {
+  transform: rotate(180deg);
+}
+
+/* ---- the open list ---- */
+
+.tasks__list {
+  list-style: none;
+  margin: 0;
+  padding: 2px 12px 10px;
+}
+
+.tasks__item {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 4px 0;
+  font-size: var(--fs-sm);
+  line-height: 18px;
+  color: var(--text-2);
+  animation: tasks-in 340ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(var(--i, 0) * 32ms);
+}
+
+/* The rail: from under this mark to the next one, filled once this step is done. */
+.tasks__item:not(:last-child)::before {
+  content: '';
+  position: absolute;
+  left: 7.25px;
+  top: 21px;
+  bottom: -3px;
+  width: 1.5px;
+  border-radius: 1px;
+  background: var(--border-strong);
+}
+.tasks__item:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  left: 7.25px;
+  top: 21px;
+  bottom: -3px;
+  width: 1.5px;
+  border-radius: 1px;
+  background: color-mix(in srgb, var(--tasks-on) 70%, transparent);
+  transform: scaleY(0);
+  transform-origin: top;
+  transition: transform 420ms cubic-bezier(0.22, 1, 0.36, 1) 160ms;
+}
+.tasks__item[data-status='done']:not(:last-child)::after {
+  transform: scaleY(1);
+}
+
+.tasks__mark {
+  flex: none;
+  margin-top: 1px;
+  overflow: visible;
+}
+.tasks__mark circle,
+.tasks__mark path {
+  fill: none;
+  stroke-width: 1.5;
+}
+.tasks__mark-ring {
+  stroke: var(--text-4);
+  transition: stroke 200ms ease;
+}
+.tasks__mark-orbit {
+  stroke: var(--tasks-on);
+  stroke-linecap: round;
+  stroke-dasharray: 9 29;
+  opacity: 0;
+  transform-origin: 8px 8px;
+  transition: opacity 200ms ease;
+}
+.tasks__mark-fill {
+  fill: var(--tasks-on) !important;
+  stroke: none !important;
+  transform-origin: 8px 8px;
+  transform: scale(0);
+  transition: transform 360ms var(--spring-moderate);
+}
+.tasks__mark-check {
+  stroke: var(--on-accent, #fff) !important;
+  stroke-width: 1.7 !important;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-dasharray: 9;
+  stroke-dashoffset: 9;
+  transition: stroke-dashoffset 300ms cubic-bezier(0.65, 0, 0.35, 1) 140ms;
+}
+
+.tasks__item[data-status='in_progress'] {
+  color: var(--text);
+}
+.tasks__item[data-status='in_progress'] .tasks__mark-ring {
+  stroke: color-mix(in srgb, var(--tasks-on) 28%, transparent);
+}
+.tasks__item[data-status='in_progress'] .tasks__mark-orbit {
+  opacity: 1;
+  animation: tasks-orbit 1.1s linear infinite;
+}
+
+.tasks__item[data-status='done'] {
+  color: var(--text-3);
+}
+.tasks__item[data-status='done'] .tasks__mark-ring {
+  stroke: transparent;
+}
+.tasks__item[data-status='done'] .tasks__mark-fill {
+  transform: scale(1);
+}
+.tasks__item[data-status='done'] .tasks__mark-check {
+  stroke-dashoffset: 0;
+}
+
+.tasks__text {
+  min-width: 0;
+  flex: 1;
+  overflow-wrap: anywhere;
+}
+/* The strike is a drawn line, not text-decoration, so it can sweep across. */
+.tasks__label {
+  background: linear-gradient(currentColor, currentColor) no-repeat 0 58% / 0% 1px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+  transition:
+    background-size 420ms cubic-bezier(0.65, 0, 0.35, 1) 180ms,
+    color 200ms ease;
+}
+.tasks__item[data-status='done'] .tasks__label {
+  background-size: 100% 1px;
+}
+
+@keyframes tasks-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+@keyframes tasks-tick {
+  from {
+    opacity: 0;
+    transform: translateY(55%);
+  }
+}
+@keyframes tasks-swap {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+    filter: blur(2px);
+  }
+}
+@keyframes tasks-orbit {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tasks__item,
+  .tasks__count-done,
+  .tasks__current,
+  .tasks__item[data-status='in_progress'] .tasks__mark-orbit {
+    animation: none;
+  }
+  .tasks__ring-fill,
+  .tasks__item::after,
+  .tasks__mark-fill,
+  .tasks__mark-check,
+  .tasks__label {
+    transition: none;
+  }
+}

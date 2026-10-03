@@ -14,6 +14,7 @@ import { emailFeature } from './email'
 import { tradingFeature } from './trading'
 import { pluginsFeature } from './plugins'
 import { providerAuthFeature } from './providerAuth'
+import { voiceFeature } from './voice'
 import type { Feature } from './types'
 
 /** Every feature module, registered in this order at startup. */
@@ -34,5 +35,6 @@ export const FEATURES: Feature[] = [
   agentBrowserFeature,
   emailFeature,
   tradingFeature,
+  voiceFeature,
   discordPresenceFeature
 ]

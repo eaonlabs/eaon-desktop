@@ -38,6 +38,8 @@ await build({
   format: 'esm',
   target: 'node20',
   sourcemap: 'inline',
+  // Renderer components imported by a test compile as the app compiles them.
+  jsx: 'automatic',
   alias: {
     electron: join(root, 'test/stubs/electron.ts'),
     '@shared': join(root, 'src/shared')

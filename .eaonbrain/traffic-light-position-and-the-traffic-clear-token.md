@@ -2,62 +2,28 @@
 title: Traffic light position and the --traffic-clear token
 tags: [eaon-desktop, sidebar, titlebar, macos, layout, gotcha]
 created: 2026-08-26T03:42:06.877Z
-updated: 2026-08-26T03:42:06.877Z
+updated: 2026-10-02T03:06:09.331Z
 ---
 
-# Traffic light position and the `--traffic-clear` token
+# Traffic light position and the window-controls token
 
-When the sidebar became a floating panel ([[Floating curved sidebar]]), the
-first version put the titlebar row *outside* the panel so the macOS traffic
-lights sat in the gutter above it. The user rejected that — the reference (Jan)
-has the lights **inside** the rounded shape.
+**Current (Oct 2 2026, Electron 43):** `TRAFFIC_LIGHTS = { x: 19, y: 19 }` in `src/main/index.ts`, and the CSS token is `--window-controls-left: 89px` in `tokens.css` (it used to be called `--traffic-clear`). Change the two together.
 
-## The change
+## Why 19, 19 and 89
+With an app built against the macOS 26+ SDK (Electron 39 and later; see [[Electron 43 upgrade and the macOS 26 window look]]), the window buttons are **14pt, 23pt apart**. Electron 33 was linked against SDK 14, so macOS 27 drew the old look: 12pt buttons, 20pt apart. They were measured with a throwaway Swift probe built against the macOS 27 SDK. It made `NSWindow`s with `.fullSizeContentView` and a transparent titlebar and printed `standardWindowButton(...).frame`:
+- titlebar only: first button at (9, 9)
+- unified toolbar: (19, 19)
+- unified compact: (12, 13)
 
-- `Sidebar.tsx`: the `.titlebar` row moved *inside* `.sidebar__panel`, and
-  `.sidebar` now pads all four sides (`padding: var(--sidebar-gap)`) so the
-  panel is inset from the top too.
-- `main/index.ts`: `trafficLightPosition` moved from `{x: 13, y: 13}` to
-  `{x: 20, y: 20}`. With the panel starting at (8, 8) and a 36px titlebar row,
-  that puts the buttons 12pt inside the panel's left and top edges, vertically
-  centred in the row `((36 - 12) / 2 = 12)`, and clear of the 14px corner curve.
-- The panel's titlebar controls are `justify-content: flex-end` so they sit at
-  the far right of the panel instead of crowding the lights — this matches the
-  reference and is what the gutter-less layout needs.
+(19, 19) is also exactly centred in the 36px titlebar row of the floating sidebar panel, which starts 8px in: row centre 26 = 19 + 14/2. The buttons span x 19..79 (19 + 2×23 + 14), and the token adds 10px of breathing room, which gives 89. `.sidebar__panel .titlebar`, `.titlebar--collapsed`, `.page__bar[data-collapsed]`, `.chat-header[data-collapsed]` and the base `.titlebar` all derive from the token.
 
-## The gotcha this exposed
+## Buttons that jump back "only sometimes"
+The co-founder reported the buttons were sometimes misplaced. AppKit lays the titlebar out again on its own after some events, and the buttons could come back at the default corner. Known triggers: leaving full screen, `setVibrancy` (theme switch), a light/dark change (including macOS's automatic one at sunset), a page title change. `pinTrafficLights(window)` calls `setWindowButtonPosition(TRAFFIC_LIGHTS)` on `focus`, `show`, `restore`, `resized`, `leave-full-screen`, `page-title-updated`, `nativeTheme` `updated`, and after every `setVibrancy`. It's cheap. **Not reproduced first-hand**: the terminal has no Screen Recording permission, and offscreen capture never draws native buttons. So the fix covers the known triggers rather than an observed case.
 
-Moving `trafficLightPosition` silently broke **three other screens**. The lights
-are drawn by macOS on top of the web contents, so every header that can sit
-behind them reserves left padding — and all of those were hardcoded:
+## Verifying is awkward
+Native traffic lights are **not drawn in offscreen rendering** (`EAON_CAPTURE`), and `screencapture` needs Screen Recording. Check geometry arithmetically, and check `win.getWindowButtonPosition()` over CDP (the E2E multi-window run read {19,19} for both windows).
 
-    .titlebar--collapsed                  padding-left: 75px
-    .page__bar[data-collapsed='true']     padding-left: 78px
-    .chat-header[data-collapsed='true']   padding-left: 78px
+## History
+Originally the lights sat in the gutter above the panel. The user wanted them inside the rounded panel (as in Jan), so the titlebar row moved into `.sidebar__panel` and the position went (13,13) → (20,20) → (19,19). Moving the position once left three hardcoded header paddings too tight, which is why every header reads the token.
 
-The buttons end at `x = trafficLightPosition.x + 2*20 + 12`. That moved from 65
-to 72, so every one of those went from ~10-13pt of clearance to 3-6pt, and the
-collapsed header's icons ended up jammed against the green button. The user
-caught it in the collapsed state, which is easy to miss because the sidebar
-panel is not on screen there at all.
-
-All four now derive from one token in `tokens.css`:
-
-    --traffic-clear: 82px;   /* lights end at 72, plus 10px breathing room */
-
-`.sidebar__panel .titlebar` subtracts `--sidebar-gap` (it starts inset from the
-window edge); the two collapsed headers add 3px, preserving their original
-slightly-wider relationship. **If `trafficLightPosition` ever changes again,
-change `--traffic-clear` with it and nothing else needs touching.**
-
-## Verifying this is awkward
-
-Native traffic lights are **not drawn in offscreen rendering**, which is what
-`EAON_CAPTURE` uses — so screenshots from the harness show only the reserved
-empty space, never the buttons. `screencapture -R` against the live window needs
-Screen Recording permission, which this terminal does not have. The geometry is
-deterministic though, so verify it arithmetically:
-`lights span x = tlp.x .. tlp.x + 52`, and check each header's padding against
-that.
-
-Links: [[Floating curved sidebar]], [[Eaon Desktop architecture]]
+Links: [[Floating curved sidebar]], [[Eaon Desktop architecture]], [[Several Eaon windows: how chats and settings stay in step]]

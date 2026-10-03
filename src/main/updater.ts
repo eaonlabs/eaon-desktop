@@ -9,17 +9,18 @@ const { autoUpdater } = electronUpdater
 
 const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000
 
-let getWindow: () => BrowserWindow | null = () => null
+let getWindows: () => BrowserWindow[] = () => []
 let status: UpdateStatus = { state: 'idle' }
 let interactive = false
 
 function broadcast(next: UpdateStatus): void {
   status = next
-  // On macOS the app outlives its window. A destroyed window throws on
+  // On macOS the app outlives its windows. A destroyed window throws on
   // `webContents`, which inside electron-updater's event chain aborted the
   // check (and every later one) while no window was open.
-  const window = getWindow()
-  if (window && !window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send('updater:status', status)
+  for (const window of getWindows()) {
+    if (!window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send('updater:status', status)
+  }
 }
 
 /**
@@ -37,8 +38,8 @@ export function getUpdateStatus(): UpdateStatus {
 }
 
 /** Wires autoUpdater events once; the app.whenReady handler calls this before the first check. */
-export function initUpdater(windowGetter: () => BrowserWindow | null): void {
-  getWindow = windowGetter
+export function initUpdater(windows: () => BrowserWindow[]): void {
+  getWindows = windows
   autoUpdater.autoDownload = true
   autoUpdater.autoInstallOnAppQuit = true
 

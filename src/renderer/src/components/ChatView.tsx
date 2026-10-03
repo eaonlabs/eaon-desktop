@@ -1,9 +1,9 @@
-import { useLayoutEffect, useRef, useState, memo, useMemo } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, memo, useMemo } from 'react'
+import { createPortal } from 'react-dom'
 import { useShallow } from 'zustand/react/shallow'
 import {
   Archive,
   CalendarClock,
-  Check,
   Compass,
   Copy,
   FileText,
@@ -15,23 +15,24 @@ import {
   MoreHorizontal,
   PanelRight,
   PencilLine,
-  Share,
   Trash2,
   TriangleAlert
 } from 'lucide-react'
-import { agentWorkspace, messageText, useApp, useIsWork } from '../state/store'
+import { agentWorkspace, messageText, useApp, useIsWork, type PendingApproval } from '../state/store'
 import { Composer } from './Composer'
 import { ContextMenu } from './Sidebar'
 import { Modal } from './ui'
-import { ThinkingSteps } from './ThinkingSteps'
-import { ThinkingOrb } from './ThinkingOrb'
 import { Markdown } from './agent/Markdown'
-import { ActivityGroup } from './agent/Activity'
 import { FilesChanged } from './agent/FilesChanged'
-import { ToolCall, describeToolPart, toolPartChanges } from './agent/ToolCall'
+import { LoadingState } from './agent/Loaders'
+import { toolPartChanges } from './agent/ToolCall'
+import { StepRun } from './agent/TurnSteps'
+import { turnItems } from './agent/turnItems'
 import { TopBar } from './TopBar'
 import { GoalBanner, PlanCard, TodoPanel, UsageLine } from './agent/WorkBits'
 import { FileDiff } from './agent/FileDiff'
+import { MessageActions } from './agent/MessageActions'
+import { ApprovalCard, CallPreview, CommandPreview } from './agent/ApprovalCard'
 import { WorkerFace } from './workers/WorkerFace'
 import { ChannelLogo } from './channels/ChannelLogo'
 import { AgentBrowserToggle } from './agentBrowser/AgentBrowserPanel'
@@ -147,19 +148,69 @@ function approvalSummary(tool: string, input: Record<string, unknown>): string {
   return pick('path') || pick('name') || pick('action') || ''
 }
 
-function ApprovalPrompt(): JSX.Element {
-  const pending = useApp((s) => s.pendingApproval)
-  const respondApproval = useApp((s) => s.respondApproval)
-  const tool = pending?.tool ?? ''
-  const input = pending?.input ?? {}
+/**
+ * Asking before a tool runs, as a card over the chat (agent/ApprovalCard.tsx).
+ * It stays a moment after it's answered so it can leave the way it was
+ * answered, and the next approval in the queue slides in where it was.
+ */
+function ApprovalPrompt(): JSX.Element | null {
+  const { pending, waiting, respondApproval } = useApp(
+    useShallow((s) => ({ pending: s.pendingApproval, waiting: s.approvalQueue.length, respondApproval: s.respondApproval }))
+  )
+  const [shown, setShown] = useState<PendingApproval | null>(pending)
+  const [answer, setAnswer] = useState<'approve' | 'deny' | null>(null)
+  const [swap, setSwap] = useState(false)
 
-  const mono = { margin: 0, fontFamily: 'var(--font-mono)', fontSize: 12.5, color: 'var(--text-2)', whiteSpace: 'pre-wrap' as const }
+  useEffect(() => {
+    if (pending) {
+      setSwap((current) => current || (shown !== null && shown.requestId !== pending.requestId))
+      setShown(pending)
+      setAnswer(null)
+      return
+    }
+    if (!shown) return
+    const timer = setTimeout(() => {
+      setShown(null)
+      setAnswer(null)
+      setSwap(false)
+    }, 200)
+    return () => clearTimeout(timer)
+    // `shown` is what the card shows now; only a change in what's pending moves it on.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pending])
+
+  const respond = (approved: boolean): void => {
+    if (!pending) return
+    setAnswer(approved ? 'approve' : 'deny')
+    respondApproval(approved)
+  }
+
+  // ⏎ approves and esc denies, unless a button has focus: it answers ⏎ itself.
+  useEffect(() => {
+    if (!pending) return
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        respond(false)
+      } else if (event.key === 'Enter' && !event.isComposing && !(event.target instanceof HTMLButtonElement)) {
+        event.preventDefault()
+        respond(true)
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  })
+
+  if (!shown) return null
+  const tool = shown.tool
+  const input = shown.input
   const text = (key: string): string => String(input[key] ?? '')
+  const edit = tool === 'write_file' || tool === 'edit_file'
 
   let body: JSX.Element
   if (tool === 'run_command') {
-    body = <pre style={mono}>{text('command')}</pre>
-  } else if (tool === 'write_file' || tool === 'edit_file') {
+    body = <CommandPreview command={text('command')} />
+  } else if (edit) {
     body = (
       <div className="approval__diff">
         <FileDiff
@@ -170,35 +221,27 @@ function ApprovalPrompt(): JSX.Element {
       </div>
     )
   } else {
-    const summary = pending?.summary || approvalSummary(tool, input)
-    const args = tool === 'use_plugin_tool' ? input.arguments : input
-    body = (
-      <>
-        {summary && <p style={{ margin: '0 0 8px' }}>{summary}</p>}
-        <pre style={{ ...mono, maxHeight: 220, overflow: 'auto' }}>{JSON.stringify(args, null, 2).slice(0, 3000)}</pre>
-      </>
-    )
+    body = <CallPreview summary={shown.summary || approvalSummary(tool, input)} args={tool === 'use_plugin_tool' ? input.arguments : input} />
   }
 
-  return (
-    <Modal
-      open={Boolean(pending)}
-      onClose={() => respondApproval(false)}
-      title={APPROVAL_TITLES[tool] ?? `Allow ${tool.replace(/_/g, ' ')}?`}
-      width={tool === 'write_file' || tool === 'edit_file' ? 620 : 460}
-      actions={
-        <>
-          <button className="btn btn--ghost" onClick={() => respondApproval(false)}>
-            Deny
-          </button>
-          <button className="btn btn--danger" autoFocus onClick={() => respondApproval(true)}>
-            Approve
-          </button>
-        </>
-      }
-    >
-      {body}
-    </Modal>
+  return createPortal(
+    <div className="approval-layer" data-state={pending ? 'in' : 'out'} data-answer={answer ?? undefined} data-wide={edit || undefined}>
+      <ApprovalCard
+        key={shown.requestId}
+        variant="dialog"
+        tool={tool}
+        input={shown.input}
+        title={APPROVAL_TITLES[tool] ?? `Allow ${tool.replace(/_/g, ' ')}?`}
+        waiting={pending ? waiting : 0}
+        busy={!pending}
+        onApprove={() => respond(true)}
+        onDeny={() => respond(false)}
+        swap={swap}
+      >
+        {body}
+      </ApprovalCard>
+    </div>,
+    document.body
   )
 }
 
@@ -211,6 +254,14 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
   const moreButton = useRef<HTMLButtonElement>(null)
 
   const streaming = streamingChatId === chat.id
+  // Only the last reply can be asked again; see retryPlan.
+  const lastReplyId = useMemo(() => {
+    for (let i = chat.messages.length - 1; i >= 0; i--) {
+      if (chat.messages[i].role === 'assistant') return chat.messages[i].id
+      if (chat.messages[i].role === 'user') return null
+    }
+    return null
+  }, [chat.messages])
 
   // Keep the newest content in view while tokens arrive — but only while the
   // reader is at the bottom, which their own scrolling decides. Measuring after
@@ -259,10 +310,6 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
         }
         right={
           <div className="chat-header__actions">
-            <button className="header-btn" onClick={() => void copyTranscript(chat)} title="Copy the conversation as text">
-              <Share size={14} strokeWidth={1.9} />
-              <span>Share</span>
-            </button>
             {isWork && <AgentBrowserToggle />}
             {isWork && !browserOpen && <BrowserToggle onClick={() => toggleBrowser()} />}
           </div>
@@ -288,6 +335,9 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
               key={message.id}
               message={message}
               streaming={message.id === streamingMessageId}
+              chatActions
+              last={message.id === lastReplyId}
+              canRetry={message.id === lastReplyId && !streamingChatId}
             />
           ))}
         </div>
@@ -355,51 +405,6 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
 }
 
 /**
- * Calls the transcript already shows elsewhere: the plan lives in the panel
- * above the composer and a presented plan in its own card, so their rows
- * only repeated them.
- */
-const SHOWN_ELSEWHERE = new Set(['update_plan', 'present_plan'])
-
-type Segment = { kind: 'text'; key: string; text: string } | { kind: 'tools'; key: string; parts: ChatToolPart[] }
-
-/**
- * A reply as it reads: its sentences, and between them each run of tool calls
- * as one group. Whitespace between two calls does not split a run, and a swarm
- * keeps its own row, since its live card of sub-agents is the point.
- */
-function segmentParts(parts: ChatMessage['parts']): Segment[] {
-  const segments: Segment[] = []
-  parts.forEach((part, index) => {
-    if (part.type === 'text') {
-      if (part.text.trim()) segments.push({ kind: 'text', key: `t${index}`, text: part.text })
-      return
-    }
-    if (part.type !== 'tool' || SHOWN_ELSEWHERE.has(part.name)) return
-    const last = segments[segments.length - 1]
-    const joins = last?.kind === 'tools' && part.name !== 'spawn_agents' && last.parts[0].name !== 'spawn_agents'
-    if (joins) last.parts.push(part)
-    else segments.push({ kind: 'tools', key: part.id, parts: [part] })
-  })
-  return segments
-}
-
-function ToolRun({ parts }: { parts: ChatToolPart[] }): JSX.Element {
-  if (parts.length === 1) return <ToolCall part={parts[0]} />
-  const running = parts.find((part) => part.status === 'running' && part.progress)
-  return (
-    <ActivityGroup
-      calls={parts.map(describeToolPart)}
-      live={running && <pre className="tool__output tool__output--live activity__live scroll">{running.progress}</pre>}
-    >
-      {parts.map((part) => (
-        <ToolCall key={part.id} part={part} />
-      ))}
-    </ActivityGroup>
-  )
-}
-
-/**
  * Memoised deliberately: during streaming the store hands back a new `chats`
  * array every token, but `.map()` preserves the identity of every message
  * except the one being written to. Without this, a 100-turn conversation
@@ -408,24 +413,46 @@ function ToolRun({ parts }: { parts: ChatToolPart[] }): JSX.Element {
  */
 export const MessageRow = memo(function MessageRow({
   message,
-  streaming
+  streaming,
+  quietWhenEmpty = false,
+  chatActions = false,
+  last = false,
+  canRetry = false
 }: {
   message: ChatMessage
   streaming: boolean
-}): JSX.Element {
-  const [copied, setCopied] = useState(false)
+  /**
+   * A chat's reply: thumbs, emoji, reply, fork and (for the last reply) try
+   * again, all kept in the chat. A worker's reply has nowhere to keep them, so
+   * its bar is copy, read aloud and the time.
+   */
+  chatActions?: boolean
+  /** The chat's latest reply: its bar stays in view rather than waiting for a hover. */
+  last?: boolean
+  canRetry?: boolean
+  /**
+   * A finished turn with nothing in it shows nothing, rather than "No
+   * response". A worker's turn that was stopped, or woke and had nothing to
+   * say, is not a reply that went missing.
+   */
+  quietWhenEmpty?: boolean
+}): JSX.Element | null {
+  const row = useRef<HTMLDivElement>(null)
   // Joining the parts is O(total length); recomputing it on unrelated renders
   // is what made a long reply quadratic.
   const body = useMemo(() => messageText(message), [message])
-  const reasoning = useMemo(() => messageText(message, 'reasoning'), [message])
-  // A turn that only called tools and said nothing still has content to show;
-  // testing the joined text alone would render it as "No response".
-  const hasContent = body.length > 0 || message.parts.some((part) => part.type === 'tool')
-  const segments = useMemo(() => segmentParts(message.parts), [message.parts])
+  // Thinking, calls and sentences in the order they happened; see turnItems.ts.
+  const items = useMemo(() => turnItems(message.parts), [message.parts])
+  // A turn that only thought or called tools and said nothing still has
+  // content to show; testing the joined text alone would render it as "No response".
+  const hasContent = items.length > 0
   const changes = useMemo(
     () => toolPartChanges(message.parts.filter((part): part is ChatToolPart => part.type === 'tool')),
     [message.parts]
   )
+  // Still being written, by this window's run or another's (another window, a
+  // scheduled task): its action bar waits until it is finished.
+  const unfinished = streaming || message.parts.some((part) => part.type === 'tool' && part.status === 'running')
 
   if (message.role === 'user') {
     // A worker's turn: each piece of mail is its own bubble, and a heartbeat
@@ -489,27 +516,28 @@ export const MessageRow = memo(function MessageRow({
     )
   }
 
-  return (
-    <div className="msg-row">
-      <ThinkingSteps reasoning={reasoning} streaming={streaming} />
+  if (!hasContent && !streaming && !message.error && !message.plan && quietWhenEmpty) return null
 
+  return (
+    <div className="msg-row" ref={row}>
       {/* An error no longer replaces what the turn already did: a Work turn
           that failed on its twentieth call used to hide the nineteen edits and
           commands before it, which still happened. */}
       {hasContent ? (
-        // Rendered part by part rather than as one joined string, so a tool call
-        // stays where the model made it — between the sentence that led to it
-        // and the one that follows from its result.
+        // Rendered part by part rather than as one joined string, so a thought
+        // or a tool call stays where the model made it — between the sentence
+        // that led to it and the one that follows from its result.
         <div className="msg--assistant" data-streaming={streaming || undefined}>
-          {segments.map((segment) =>
-            segment.kind === 'text' ? <Markdown key={segment.key} text={segment.text} /> : <ToolRun key={segment.key} parts={segment.parts} />
+          {items.map((item, index) =>
+            item.kind === 'text' ? (
+              <Markdown key={item.key} text={item.text} />
+            ) : (
+              <StepRun key={item.key} steps={item.steps} active={streaming && index === items.length - 1} />
+            )
           )}
         </div>
       ) : streaming ? (
-        <div className="msg__status">
-          <ThinkingOrb />
-          <span className="shimmer">Thinking</span>
-        </div>
+        <LoadingState label="Thinking" />
       ) : message.error ? null : (
         <div className="msg__status" style={{ color: 'var(--text-3)' }}>
           No response
@@ -527,25 +555,63 @@ export const MessageRow = memo(function MessageRow({
 
       {!streaming && changes.length > 0 && <FilesChanged changes={changes} />}
 
-      {(body || message.usage) && !streaming && (
-        <div className="msg__actions">
-          <button
-            className="icon-btn"
-            aria-label="Copy"
-            onClick={() => {
-              void navigator.clipboard.writeText(body)
-              setCopied(true)
-              setTimeout(() => setCopied(false), 1400)
-            }}
-          >
-            {copied ? <Check size={14} strokeWidth={2} /> : <Copy size={14} strokeWidth={1.9} />}
-          </button>
-          {message.usage && <UsageLine usage={message.usage} />}
+      {(body || message.usage) && !unfinished && (
+        <div className="msg__actions" data-pinned={last || Boolean(message.feedback) || undefined}>
+          <ReplyActions message={message} text={body} row={row} chatActions={chatActions} canRetry={canRetry} />
         </div>
       )}
     </div>
   )
 })
+
+/**
+ * A reply's action bar (see agent/MessageActions.tsx) with what it does in a
+ * chat: thumbs and emoji kept on the message, Reply quoting the reply (or the
+ * part of it that is selected) into the message box, Try again, and Fork.
+ */
+function ReplyActions({
+  message,
+  text,
+  row,
+  chatActions,
+  canRetry
+}: {
+  message: ChatMessage
+  text: string
+  row: React.RefObject<HTMLDivElement>
+  chatActions: boolean
+  canRetry: boolean
+}): JSX.Element {
+  const { setMessageFeedback, retryReply, forkChat, setComposerDraft } = useApp(
+    useShallow((s) => ({ setMessageFeedback: s.setMessageFeedback, retryReply: s.retryReply, forkChat: s.forkChat, setComposerDraft: s.setComposerDraft }))
+  )
+  const quote = (): void => {
+    const selection = window.getSelection()
+    const picked = selection && !selection.isCollapsed && row.current?.contains(selection.anchorNode) ? selection.toString().trim() : ''
+    const source = picked || text.trim()
+    const excerpt = source.length > 280 ? `${source.slice(0, 280).trimEnd()}…` : source
+    setComposerDraft(`${excerpt.split('\n').map((line) => `> ${line}`).join('\n')}\n\n`)
+  }
+  return (
+    <MessageActions
+      text={text}
+      sentAt={new Date(message.createdAt)}
+      vote={message.feedback?.vote ?? null}
+      reaction={message.feedback?.reaction ?? null}
+      {...(chatActions
+        ? {
+            onVote: (vote) => setMessageFeedback(message.id, { vote }),
+            onReact: (reaction) => setMessageFeedback(message.id, { reaction }),
+            onReply: quote,
+            onFork: () => forkChat(message.id),
+            ...(canRetry ? { onRetry: () => retryReply(message.id) } : {})
+          }
+        : {})}
+    >
+      {message.usage && <UsageLine usage={message.usage} />}
+    </MessageActions>
+  )
+}
 
 /**
  * Files sent with a message. They were attached and sent to the model but

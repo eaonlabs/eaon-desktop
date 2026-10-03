@@ -10,6 +10,7 @@ import {
   Hand,
   Laptop,
   Lightbulb,
+  Mic,
   Network,
   Paperclip,
   Plus,
@@ -18,6 +19,8 @@ import {
   Target,
   AtSign,
   Clock3,
+  MessageSquarePlus,
+  Sparkles,
   X,
   Zap
 } from 'lucide-react'
@@ -26,9 +29,28 @@ import { MenuItem, MenuSearch, MenuSeparator, Popover, useDisclosure } from './u
 import { mcpCatalogEntry } from '@shared/mcpCatalog'
 import { PluginLogo } from './plugins/PluginLogo'
 import { useMcpStatuses } from './plugins/usePlugins'
+import { useSkills } from './plugins/usePlugins'
 import { fileName, fileUrl, isImagePath } from '../lib/files'
-import type { EffortLevel, ModelInfo } from '@shared/types'
+import type { EffortLevel, McpServer, ModelInfo } from '@shared/types'
+import { useSuggest, type SuggestItem, type SuggestSources } from './composer/SuggestMenu'
+import { liveMentions, permissionItems, pluginItems, skillItems, toolMentionItems, type Mention } from './composer/sources'
+import { removeMention } from './composer/suggest'
 import { clampEffort, EFFORT_LABEL } from '@shared/effort'
+import { ReasoningEffort } from './composer/ReasoningEffort'
+import { joinTranscript, useDictation } from './composer/useDictation'
+import { VoiceBar } from './composer/VoiceBar'
+import './composer/effort.css'
+
+/**
+ * The model as the effort slider names it while you drag: short enough to sit
+ * beside the level in the slider's label ("Opus 4.7", not "Claude Opus 4.7").
+ */
+function shortModelName(label: string | undefined): string {
+  if (!label) return ''
+  const words = label.trim().split(/\s+/)
+  const short = words.length >= 3 ? words.slice(1).join(' ') : label.trim()
+  return short.length > 16 ? `${short.slice(0, 15)}…` : short
+}
 
 /** A line under the levels that need one. */
 const EFFORT_NOTE: Partial<Record<EffortLevel, string>> = {
@@ -60,6 +82,20 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       patchSettings: s.patchSettings
     }))
   )
+  const { mcpServers, saveMcpServers, toggleBrowser, setSettingsPage, setView, newChat } = useApp(
+    useShallow((s) => ({
+      mcpServers: s.mcpServers,
+      saveMcpServers: s.saveMcpServers,
+      toggleBrowser: s.toggleBrowser,
+      setSettingsPage: s.setSettingsPage,
+      setView: s.setView,
+      newChat: s.newChat
+    }))
+  )
+  const statuses = useMcpStatuses()
+  const { skills } = useSkills()
+  // Plugins pulled in with "@", shown as chips while their "@Name" is in the text.
+  const [mentions, setMentions] = useState<Mention[]>([])
   const cwd = useApp((s) => agentWorkspace(s.workspaces)?.cwd ?? null)
   const [text, setText] = useState('')
   const [attachments, setAttachments] = useState<string[]>([])
@@ -71,6 +107,16 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
   const [dragging, setDragging] = useState(false)
   const textarea = useRef<HTMLTextAreaElement>(null)
   const isAgent = useIsWork()
+  // Dictation: what is said lands at the end of the message, ready to edit, never sent by itself.
+  const dictation = useDictation((spoken) => {
+    setText((current) => joinTranscript(current, spoken))
+    requestAnimationFrame(() => {
+      const node = textarea.current
+      node?.focus()
+      node?.setSelectionRange(node.value.length, node.value.length)
+    })
+  })
+  const dictating = dictation.state !== 'idle'
 
   const plusAnchor = useRef<HTMLButtonElement>(null)
   const modelAnchor = useRef<HTMLButtonElement>(null)
@@ -119,15 +165,85 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
     void send(text, { attachments, goal: isAgent && goalArmed, until: isAgent && goalArmed ? goalEndAt(goalUntil) : null })
     setText('')
     setAttachments([])
+    setMentions([])
     setGoalArmed(false)
     setGoalUntil({ kind: 'none' })
   }
+
+  const pickFiles = (): void =>
+    void window.api.app
+      .openFiles({ properties: isAgent ? ['openFile', 'openDirectory', 'multiSelections'] : ['openFile', 'multiSelections'] })
+      .then(addAttachments)
+
+  /**
+   * The "/" and "@" menus. "/" runs what the + menu offers, plus skills; "@"
+   * pulls in a plugin, the browser or the computer. Chat has no "@worker":
+   * workers are their own tab with their own composer.
+   */
+  const sources: SuggestSources = {
+    '/': () => {
+      const items: SuggestItem[] = [
+        { id: 'attach', title: 'Add photos and files', keywords: 'attach file image upload', section: 'Add', icon: <Paperclip size={16} strokeWidth={1.8} />, run: pickFiles }
+      ]
+      if (isAgent) {
+        items.push(
+          {
+            id: 'folder',
+            title: 'Work in a folder',
+            keywords: 'folder directory project cwd',
+            section: 'Add',
+            icon: <Folder size={16} strokeWidth={1.8} />,
+            hint: cwd ? fileName(cwd) : undefined,
+            run: () => void window.api.app.openFiles({ properties: ['openDirectory'] }).then((paths) => paths[0] && setWorkCwd(paths[0]))
+          },
+          { id: 'goal', title: 'Goal', keywords: 'goal until done', description: 'Keep working until it is done', section: 'Modes', icon: <Target size={16} strokeWidth={1.8} />, checked: goalArmed, run: () => setGoalArmed(!goalArmed) },
+          { id: 'plan', title: 'Plan first', keywords: 'plan approve', description: 'Research, then ask you to approve a plan', section: 'Modes', icon: <Lightbulb size={16} strokeWidth={1.8} />, checked: Boolean(settings?.planMode), run: () => void patchSettings({ planMode: !settings?.planMode }) },
+          { id: 'swarm', title: 'Swarm', keywords: 'swarm parallel helpers sub-agents', description: 'Split work across parallel helpers', section: 'Modes', icon: <Network size={16} strokeWidth={1.8} />, checked: Boolean(settings?.work.swarm), run: () => void patchSettings({ work: { swarm: !settings?.work.swarm } }) },
+          ...permissionItems(
+            [
+              { id: 'ask' as const, title: 'Ask first', keywords: 'ask', icon: <Hand size={16} strokeWidth={1.8} /> },
+              { id: 'auto' as const, title: 'Auto-approve', keywords: 'auto', icon: <ShieldCheck size={16} strokeWidth={1.8} /> },
+              { id: 'full' as const, title: 'Full autonomy', keywords: 'full autonomy', icon: <Zap size={16} strokeWidth={1.8} /> }
+            ],
+            settings?.approvalMode,
+            (approvalMode) => void patchSettings({ approvalMode })
+          ),
+          { id: 'browser', title: 'Browser', keywords: 'web browse', section: 'Tools', icon: <Globe size={16} strokeWidth={1.8} />, run: () => toggleBrowser(true) },
+          { id: 'computer', title: 'Computer use', keywords: 'computer screen mouse', section: 'Tools', icon: <Laptop size={16} strokeWidth={1.8} />, hint: settings?.computerUse.enabled ? 'On' : 'Off', run: () => setSettingsPage('computer-use') },
+          { id: 'plugins', title: 'Browse plugins', keywords: 'plugins mcp integrations', section: 'Tools', icon: <AtSign size={16} strokeWidth={1.8} />, run: () => setView('plugins') }
+        )
+      }
+      items.push(
+        { id: 'model', title: 'Model', keywords: 'model effort switch', section: 'Chat', icon: <Sparkles size={16} strokeWidth={1.8} />, hint: model?.label, run: () => modelMenu.setOpen(true) },
+        { id: 'new', title: 'New chat', keywords: 'new clear reset', section: 'Chat', icon: <MessageSquarePlus size={16} strokeWidth={1.8} />, run: () => newChat() }
+      )
+      return isAgent ? [...items, ...skillItems(skills, settings?.disabledSkills ?? [])] : items
+    },
+    ...(isAgent
+      ? {
+          '@': () => [
+            ...pluginItems(mcpServers, statuses, (server: McpServer) => {
+              // The + menu's toggle: on everywhere, which is how plugins work.
+              if (!server.enabled) void saveMcpServers(mcpServers.map((m) => (m.id === server.id ? { ...m, enabled: true } : m)))
+              setMentions((current) => (current.some((m) => m.id === server.id) ? current : [...current, { id: server.id, name: server.name, pluginId: server.pluginId }]))
+            }),
+            ...toolMentionItems({
+              computerOn: Boolean(settings?.computerUse.enabled),
+              onBrowser: () => toggleBrowser(true),
+              onComputerSettings: () => setSettingsPage('computer-use')
+            })
+          ]
+        }
+      : {})
+  }
+  const suggest = useSuggest({ text, setText, textarea, sources, label: { '/': 'Commands', '@': 'Plugins and tools' } })
+  const shownMentions = liveMentions(mentions, text)
 
   const planOn = isAgent && Boolean(settings?.planMode)
   const swarmOn = isAgent && Boolean(settings?.work.swarm)
   const autoApprove = isAgent && settings?.approvalMode === 'auto'
   const fullAutonomy = isAgent && settings?.approvalMode === 'full'
-  const hasChips = Boolean(cwd) || planOn || swarmOn || goalArmed || autoApprove || fullAutonomy
+  const hasChips = Boolean(cwd) || planOn || swarmOn || goalArmed || autoApprove || fullAutonomy || shownMentions.length > 0
 
   return (
     <div
@@ -167,6 +283,9 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
             ))}
           </div>
         )}
+        {dictating ? (
+          <VoiceBar dictation={dictation} />
+        ) : (
         <textarea
           ref={textarea}
           className="composer__input"
@@ -181,14 +300,28 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
           }
           value={text}
           rows={1}
-          onChange={(e) => setText(e.target.value)}
+          onChange={(e) => {
+            setText(e.target.value)
+            suggest.onCaret()
+          }}
+          onSelect={suggest.onCaret}
           onKeyDown={(e) => {
+            if (suggest.onKeyDown(e)) return
             if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault()
               submit()
             }
           }}
         />
+        )}
+        {dictation.error && (
+          <div className="voice-error" role="alert">
+            <span className="voice-error__text">{dictation.error}</span>
+            <button onClick={dictation.dismissError} aria-label="Dismiss">
+              <X size={12} strokeWidth={2.2} />
+            </button>
+          </div>
+        )}
 
         <div className="composer__toolbar">
           <button
@@ -213,6 +346,23 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
               {swarmOn && <ActiveChip icon={<Network size={13} strokeWidth={2} />} label="Swarm" title="Eaon can split work across parallel sub-agents" onClear={() => void patchSettings({ work: { swarm: false } })} clearLabel="Turn off Swarm" />}
               {autoApprove && <ActiveChip icon={<ShieldCheck size={13} strokeWidth={2} />} label="Auto-approve" title="Eaon only asks before actions that look unsafe" onClear={() => void patchSettings({ approvalMode: 'ask' })} clearLabel="Ask before every action again" />}
               {fullAutonomy && <ActiveChip icon={<Zap size={13} strokeWidth={2} />} label="Full autonomy" title="Eaon runs any command and change on its own, and only stops for what can't be undone" onClear={() => void patchSettings({ approvalMode: 'ask' })} clearLabel="Ask before every action again" />}
+              {shownMentions.map((mention) => (
+                <ActiveChip
+                  key={mention.id}
+                  icon={
+                    <span className="composer-chip__logo">
+                      <PluginLogo logo={mention.pluginId ? mcpCatalogEntry(mention.pluginId)?.logoAssetName : undefined} name={mention.name} size={13} />
+                    </span>
+                  }
+                  label={mention.name}
+                  title={`${mention.name} is mentioned in this message`}
+                  onClear={() => {
+                    setMentions((current) => current.filter((m) => m.id !== mention.id))
+                    setText(removeMention(text, mention.name))
+                  }}
+                  clearLabel={`Remove @${mention.name}`}
+                />
+              ))}
             </div>
           )}
 
@@ -230,8 +380,19 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
           </button>
 
           <button
+            className="composer__round composer__mic"
+            data-active={dictating || undefined}
+            onClick={() => (dictating ? dictation.cancel() : void dictation.start())}
+            disabled={dictation.state === 'transcribing'}
+            aria-label={dictating ? 'Stop dictating' : 'Dictate'}
+            title={dictating ? 'Stop dictating' : 'Dictate a message'}
+          >
+            <Mic size={16} strokeWidth={1.9} />
+          </button>
+
+          <button
             className={`send ${streaming ? 'send--stop' : ''}`}
-            disabled={busyElsewhere || (!streaming && !text.trim() && attachments.length === 0)}
+            disabled={busyElsewhere || (!streaming && (dictating || (!text.trim() && attachments.length === 0)))}
             onClick={submit}
             aria-label={streaming ? 'Stop' : 'Send'}
             title={busyElsewhere ? 'Eaon is still replying in another chat' : undefined}
@@ -245,6 +406,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
         </div>
       </div>
 
+      {suggest.menu}
       <AddMenu
         anchor={plusAnchor}
         open={plusMenu.open}
@@ -663,20 +825,24 @@ function ModelMenu({
         onClose={() => setSub(null)}
       />
 
-      <Popover anchor={effortRow} open={sub === 'effort'} onClose={() => setSub(null)} placement="right-start" width={230}>
-        {efforts.map((level) => (
-          <MenuItem
-            key={level}
-            title={EFFORT_LABEL[level]}
-            description={EFFORT_NOTE[level]}
-            checked={level === effort}
-            onClick={() => {
-              setEffort(level)
-              setSub(null)
-              onClose()
-            }}
-          />
-        ))}
+      <Popover anchor={effortRow} open={sub === 'effort'} onClose={() => setSub(null)} placement="right-start" width={252}>
+        {effort && efforts.length >= 2 ? (
+          <div className="effort-slider">
+            <div className="effort-slider__head">
+              <span>Effort</span>
+              <span className="effort-slider__level">{EFFORT_LABEL[effort]}</span>
+            </div>
+            <ReasoningEffort
+              labels={efforts.map((level) => EFFORT_LABEL[level])}
+              value={efforts.indexOf(effort)}
+              model={shortModelName(current?.label)}
+              onChange={(index) => setEffort(efforts[index])}
+            />
+            {EFFORT_NOTE[effort] && <p className="effort-slider__note">{EFFORT_NOTE[effort]}</p>}
+          </div>
+        ) : (
+          effort && <MenuItem title={EFFORT_LABEL[effort]} description="The only level this model takes" checked />
+        )}
       </Popover>
     </Popover>
   )
@@ -772,7 +938,7 @@ function ModelSubmenu({
  * Toggling one switches its connection on or off, which is what decides
  * whether the agent gets its tools.
  */
-function PluginsSubmenu({
+export function PluginsSubmenu({
   anchor,
   open,
   onClose,

@@ -1,6 +1,7 @@
 import { memo, useMemo, useRef, type JSX, type ReactNode } from 'react'
 import { CodeBlock } from './CodeBlock'
-import { parseMarkdown, type Block, type ParsedMarkdown } from './markdownBlocks'
+import { MarkdownTable } from './MarkdownTables'
+import { parseMarkdown, type Block, type ListItem, type ParsedMarkdown } from './markdownBlocks'
 
 /**
  * A small Markdown renderer, written rather than installed.
@@ -17,44 +18,72 @@ import { parseMarkdown, type Block, type ParsedMarkdown } from './markdownBlocks
  */
 
 // Code spans are matched first and consume their contents, so `**` inside
-// backticks stays literal rather than turning into bold.
-const INLINE = /(`+)([\s\S]*?)\1|\*\*([\s\S]+?)\*\*|(?<![\w*])\*([^*\n]+?)\*(?!\w)|\[([^\]]*)\]\(([^)\s]+)\)/g
+// backticks stays literal rather than turning into bold. `_` and `__` only
+// count at word edges, so snake_case names stay as they are.
+const INLINE = new RegExp(
+  [
+    '(?<tick>`+)(?<code>[\\s\\S]*?)\\k<tick>',
+    '\\*\\*(?<bold>[\\s\\S]+?)\\*\\*',
+    '(?<![\\w_])__(?<boldU>[^_\\s](?:[\\s\\S]*?[^_\\s])?)__(?![\\w_])',
+    '~~(?<strike>[^~\\n]+?)~~',
+    '(?<![\\w*])\\*(?<italic>[^*\\n]+?)\\*(?!\\w)',
+    '(?<![\\w_])_(?<italicU>[^_\\s](?:[^_\\n]*?[^_\\s])?)_(?![\\w_])',
+    '\\[(?<linkText>[^\\]]*)\\]\\((?<href>[^)\\s]+)\\)',
+    '<(?<angle>https?:\\/\\/[^\\s>]+)>',
+    // A bare address, without the punctuation a sentence puts after it.
+    '(?<bare>https?:\\/\\/[^\\s<>()\\[\\]]*[^\\s<>()\\[\\].,;:!?\'"*_~])'
+  ].join('|'),
+  'g'
+)
+
+/** Links open in the user's browser; anything but the web and mail is shown as text. */
+const OPENABLE = /^(https?:|mailto:)/i
 
 function renderInline(text: string, keyPrefix: string): ReactNode[] {
   const out: ReactNode[] = []
   let last = 0
   let key = 0
 
+  const link = (href: string, label: ReactNode): ReactNode =>
+    OPENABLE.test(href) ? (
+      <a
+        key={`${keyPrefix}-${key++}`}
+        href={href}
+        onClick={(event) => {
+          // Opened in the user's browser rather than navigating this window,
+          // which has no chrome to get back from.
+          event.preventDefault()
+          void window.api.app.openExternal(href)
+        }}
+      >
+        {label}
+      </a>
+    ) : (
+      <span key={`${keyPrefix}-${key++}`}>{label}</span>
+    )
+
   for (const match of text.matchAll(INLINE)) {
     const at = match.index ?? 0
     if (at > last) out.push(text.slice(last, at))
-    const [, , code, bold, italic, linkText, href] = match
+    const g = match.groups ?? {}
 
-    if (code !== undefined) {
+    if (g.code !== undefined) {
       out.push(
         <code key={`${keyPrefix}-${key++}`} className="md__code">
-          {code}
+          {g.code}
         </code>
       )
-    } else if (bold !== undefined) {
-      out.push(<strong key={`${keyPrefix}-${key++}`}>{renderInline(bold, `${keyPrefix}-${key}`)}</strong>)
-    } else if (italic !== undefined) {
-      out.push(<em key={`${keyPrefix}-${key++}`}>{renderInline(italic, `${keyPrefix}-${key}`)}</em>)
-    } else if (href !== undefined) {
-      // Opened in the user's browser rather than navigating this window, which
-      // has no chrome to get back from.
-      out.push(
-        <a
-          key={`${keyPrefix}-${key++}`}
-          href={href}
-          onClick={(event) => {
-            event.preventDefault()
-            void window.api.app.openExternal(href)
-          }}
-        >
-          {linkText || href}
-        </a>
-      )
+    } else if (g.bold !== undefined || g.boldU !== undefined) {
+      out.push(<strong key={`${keyPrefix}-${key++}`}>{renderInline(g.bold ?? g.boldU, `${keyPrefix}-${key}`)}</strong>)
+    } else if (g.strike !== undefined) {
+      out.push(<del key={`${keyPrefix}-${key++}`}>{renderInline(g.strike, `${keyPrefix}-${key}`)}</del>)
+    } else if (g.italic !== undefined || g.italicU !== undefined) {
+      out.push(<em key={`${keyPrefix}-${key++}`}>{renderInline(g.italic ?? g.italicU, `${keyPrefix}-${key}`)}</em>)
+    } else if (g.href !== undefined) {
+      out.push(link(g.href, g.linkText ? renderInline(g.linkText, `${keyPrefix}-${key}`) : g.href))
+    } else if (g.angle !== undefined || g.bare !== undefined) {
+      const href = g.angle ?? g.bare
+      out.push(link(href, href))
     }
     last = at + match[0].length
   }
@@ -95,20 +124,22 @@ const MarkdownBlock = memo(function MarkdownBlock({ block, id }: { block: Block;
       const Tag = `h${Math.min(block.level + 2, 6)}` as 'h3'
       return <Tag className="md__heading">{renderInline(block.text, id)}</Tag>
     }
-    case 'list':
+    case 'list': {
+      const items = block.items.map((item, i) => <ListEntry key={i} item={item} id={`${id}-${i}`} />)
+      const tasks = block.items.some((item) => item.checked !== null)
       return block.ordered ? (
-        <ol className="md__list">
-          {block.items.map((item, i) => (
-            <li key={i}>{renderInline(item, `${id}-${i}`)}</li>
-          ))}
+        <ol className="md__list" start={block.start === 1 ? undefined : block.start}>
+          {items}
         </ol>
       ) : (
-        <ul className="md__list">
-          {block.items.map((item, i) => (
-            <li key={i}>{renderInline(item, `${id}-${i}`)}</li>
-          ))}
+        <ul className="md__list" data-tasks={tasks || undefined}>
+          {items}
         </ul>
       )
+    }
+    case 'table':
+      // A comparison or a data table, depending on what the cells hold (MarkdownTables.tsx).
+      return <MarkdownTable header={block.header} rows={block.rows} align={block.align} renderCell={renderInline} id={id} />
     case 'quote':
       return <blockquote className="md__quote">{renderInline(block.lines.join('\n'), id)}</blockquote>
     case 'rule':
@@ -117,3 +148,18 @@ const MarkdownBlock = memo(function MarkdownBlock({ block, id }: { block: Block;
       return <p className="md__p">{renderInline(block.text, id)}</p>
   }
 })
+
+/** One list item: its own text, a task box if it is one, and whatever is nested under it. */
+function ListEntry({ item, id }: { item: ListItem; id: string }): JSX.Element {
+  return (
+    <li className={item.checked !== null ? 'md__task' : undefined}>
+      {item.checked !== null && (
+        <span className="md__check" data-checked={item.checked || undefined} aria-label={item.checked ? 'Done' : 'Not done'} role="img" />
+      )}
+      {renderInline(item.text, id)}
+      {item.children.map((child, c) => (
+        <MarkdownBlock key={c} block={child} id={`${id}-c${c}`} />
+      ))}
+    </li>
+  )
+}

@@ -3,14 +3,15 @@ import path from 'node:path'
 import { app } from 'electron'
 import type { Feature } from './types'
 import { PtyManager, type RestorePlan } from './terminals/ptyManager'
-import { AGENT_KINDS, setExtraAgentBin } from './terminals/agentSessions'
+import { AGENT_KINDS, setAgentScript, setExtraAgentBin } from './terminals/agentSessions'
 import { PaneRecords, restoredScreen } from './terminals/paneRecords'
 import { cwdsOf, SessionWatch } from './terminals/sessionWatch'
 import { onPath } from '../shellEnv'
 import { secrets } from '../secrets'
 import { store } from '../store'
 import { buildChildEnv } from './eaonCode/env'
-import type { TerminalAgent, TerminalAgentId, TerminalLayout, TerminalSpawnRequest } from '@shared/terminals'
+import { findInstallerCopy } from './eaonCode/locate'
+import { knownAgent, type TerminalAgent, type TerminalAgentId, type TerminalLayout, type TerminalSpawnRequest } from '@shared/terminals'
 
 /**
  * The ADE's terminal view: real shells in the project folder, each optionally
@@ -24,7 +25,15 @@ const AGENTS: { id: TerminalAgentId; label: string; bin: string | null; installH
   { id: 'eaon-code', label: 'Eaon Code', bin: 'eaon-code', installHint: 'Settings → Eaon Code' },
   { id: 'claude', label: 'Claude Code', bin: 'claude', installHint: 'npm install -g @anthropic-ai/claude-code' },
   { id: 'codex', label: 'Codex', bin: 'codex', installHint: 'npm install -g @openai/codex' },
-  { id: 'gemini', label: 'Gemini CLI', bin: 'gemini', installHint: 'npm install -g @google/gemini-cli' },
+  {
+    id: 'antigravity',
+    label: 'Antigravity',
+    bin: 'agy',
+    installHint:
+      process.platform === 'win32'
+        ? 'irm https://antigravity.google/cli/install.ps1 | iex'
+        : 'curl -fsSL https://antigravity.google/cli/install.sh | bash'
+  },
   { id: 'opencode', label: 'OpenCode', bin: 'opencode', installHint: 'npm install -g opencode-ai' },
   { id: 'shell', label: 'Shell', bin: null }
 ]
@@ -34,19 +43,38 @@ function shellQuote(value: string): string {
   return /^[\w@%+=:,./-]+$/.test(value) ? value : `'${value.replace(/'/g, `'\\''`)}'`
 }
 
+/**
+ * How an Eaon Code pane starts it: the path pinned in Settings, else the
+ * installer's copy, else `eaon-code` off PATH (the same order as Settings →
+ * Eaon Code). The installer's copy runs as `node …/cli.js`, not through the
+ * `eaon-code` wrapper it writes: the wrapper fetches and rebuilds on start,
+ * and the panes a launch restores would all rebuild one folder at once.
+ */
+function eaonCodeCommand(pinned: string | null): string | null {
+  if (pinned) return /\.[cm]?js$/i.test(pinned) ? `node ${shellQuote(pinned)}` : shellQuote(pinned)
+  const copy = findInstallerCopy()
+  if (copy) return `node ${shellQuote(copy.cli)}`
+  return onPath('eaon-code') ? 'eaon-code' : null
+}
+
 function agents(): TerminalAgent[] {
   const eaonBinary = store.getSettings().eaonCode.binaryPath
-  // Eaon Code run from a pinned binary shows up under that binary's name.
+  const copy = eaonBinary ? null : findInstallerCopy()
+  // Eaon Code run from a pinned binary shows up under that binary's name, and
+  // the installer's copy under its script's whole path (`cli` alone could be anything).
   setExtraAgentBin(eaonBinary || null, 'eaon-code')
+  setAgentScript(copy?.cli ?? (eaonBinary && /\.[cm]?js$/i.test(eaonBinary) ? eaonBinary : null), 'eaon-code')
   return AGENTS.map(({ id, label, bin, installHint }) => {
     if (!bin) return { id, label, command: null, installed: true }
-    const pinned = id === 'eaon-code' && eaonBinary ? eaonBinary : null
-    const found = pinned ?? onPath(bin)
+    if (id === 'eaon-code') {
+      const command = eaonCodeCommand(eaonBinary || null)
+      return { id, label, command: command ?? bin, installed: Boolean(command), ...(installHint ? { installHint } : {}) }
+    }
     return {
       id,
       label,
-      command: pinned ? shellQuote(pinned) : bin,
-      installed: Boolean(found),
+      command: bin,
+      installed: Boolean(onPath(bin)),
       ...(installHint ? { installHint } : {})
     }
   })
@@ -66,6 +94,13 @@ function agentEnv(agent: TerminalAgentId | undefined): Record<string, string> {
     if (value && !process.env[name]) extra[name] = value
   }
   return extra
+}
+
+/** A saved grid with each pane's agent made current (a Gemini CLI pane from before comes back as a shell). */
+function currentLayout(layout: TerminalLayout): TerminalLayout {
+  return Object.fromEntries(
+    Object.entries(layout ?? {}).map(([cwd, panes]) => [cwd, (panes ?? []).map((pane) => ({ ...pane, agent: knownAgent(pane.agent) }))])
+  )
 }
 
 /** Every pane id in the saved grid, across folders. */
@@ -209,7 +244,7 @@ export function createTerminals(options: TerminalsOptions = {}): Feature & { tic
         return manager.spawn(req, agentEnv(req.agent))
       })
       ipcMain.handle('terminal:running', () => watch?.snapshot() ?? {})
-      ipcMain.handle('terminal:layout', () => store.getJson<TerminalLayout>(LAYOUT_FILE, {}))
+      ipcMain.handle('terminal:layout', () => currentLayout(store.getJson<TerminalLayout>(LAYOUT_FILE, {})))
       ipcMain.handle('terminal:save-layout', (_e, layout: TerminalLayout) => {
         store.setJson(LAYOUT_FILE, layout)
         paneRecords().prune(layoutPaneIds(layout))

@@ -162,6 +162,12 @@ export interface GoalState {
 
 export type ChatMessagePart = ChatTextPart | ChatToolPart
 
+/** What the user said about a reply: a thumb and one emoji, either or both. */
+export interface MessageFeedback {
+  vote?: 'up' | 'down' | null
+  reaction?: string | null
+}
+
 export interface ChatMessage {
   id: string
   role: 'user' | 'assistant' | 'system'
@@ -178,6 +184,8 @@ export interface ChatMessage {
   todos?: TodoItem[]
   /** Files the user attached to this message, as absolute paths. */
   attachments?: string[]
+  /** The user's thumbs and emoji on a reply, from its action bar. */
+  feedback?: MessageFeedback
   /** Set on messages a scheduled task produced, so the UI can label them. */
   scheduledTaskId?: string
   /**

@@ -159,3 +159,15 @@ test('grep include accepts globs as well as path fragments', async () => {
   assert.deepEqual(await grep('**/*.md'), ['notes.md'])
   assert.deepEqual(await grep('src/'), ['src/main.ts', 'src/ui/view.tsx'])
 })
+
+test('in auto-approve, run_command asks before writing outside the work folder', () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'eaon-risky-'))
+  const { get, ctx } = tools(cwd)
+  const risky = (command: string): boolean => Boolean(get('run_command').risky?.({ command }, ctx))
+  assert.equal(risky('echo hi > notes.txt'), false, 'inside the folder')
+  assert.equal(risky('npm test 2>&1 | tee test.log'), false)
+  assert.equal(risky('echo "alias ls=rm" >> ~/.zshrc'), true)
+  assert.equal(risky('echo x > $HOME/.profile'), true)
+  assert.equal(risky('mv ~/Documents ./docs'), true, 'moves the user\'s folder away')
+  assert.equal(risky('echo x > /tmp/scratch.txt'), false, 'scratch space')
+})

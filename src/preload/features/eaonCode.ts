@@ -24,7 +24,7 @@ function listen<T>(channel: string, handler: (payload: T) => void): () => void {
 export const eaonCodeApi = {
   /** Where Eaon Code is and whether it runs; `refresh` re-probes instead of using the cache. */
   status: (refresh = false): Promise<EaonCodeStatus> => ipcRenderer.invoke('eaon-code:status', refresh),
-  /** `npm install -g --ignore-scripts @eaonlabs/eaon-code`; output streams to `onInstallLog`. */
+  /** Runs Eaon Code's installer, which installs or updates it; output streams to `onInstallLog`. */
   install: (): Promise<EaonResult<EaonCodeStatus>> => ipcRenderer.invoke('eaon-code:install'),
   onInstallLog: (handler: (line: string) => void): (() => void) => listen('eaon-code:install-log', handler),
 

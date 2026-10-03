@@ -1,0 +1,383 @@
+/*
+ * The approval card (agent/ApprovalCard.tsx): the dialog over Chat and the
+ * card above a worker's composer.
+ *
+ * Risk sets one colour, `--risk`, which tints the tile, the line under the
+ * title and the Approve button: danger for what can't be taken back (sending,
+ * money), amber for acting on the computer, the accent for editing a file.
+ */
+
+.approval {
+  --risk: #e8a33d;
+  --risk-ink: #1f1300;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 16px;
+  background: var(--surface-1);
+  color: var(--text);
+  box-shadow: inset 0 0 0 1px var(--border-soft);
+}
+[data-theme='light'] .approval {
+  --risk: #b86e00;
+  --risk-ink: #ffffff;
+  background: var(--bg);
+}
+.approval[data-risk='high'] {
+  --risk: var(--danger);
+  --risk-ink: #ffffff;
+}
+.approval[data-risk='low'] {
+  --risk: var(--accent);
+  --risk-ink: var(--on-accent, #ffffff);
+}
+
+/* ---- header ---- */
+
+.approval__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.approval__tile {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  color: var(--risk);
+  background: color-mix(in srgb, var(--risk) 14%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--risk) 22%, transparent);
+}
+/* Something that can't be undone gets one soft ring when the card arrives. */
+.approval[data-risk='high'] .approval__tile::after {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: inherit;
+  box-shadow: 0 0 0 0 color-mix(in srgb, var(--risk) 45%, transparent);
+  animation: approval-ring 1.4s cubic-bezier(0.22, 1, 0.36, 1) 260ms 1 both;
+}
+.approval__titles {
+  min-width: 0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.approval__title {
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: -0.005em;
+}
+.approval__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.approval__does {
+  color: color-mix(in srgb, var(--risk) 85%, var(--text));
+  white-space: nowrap;
+}
+.approval__tool {
+  min-width: 0;
+  padding: 1px 6px;
+  border-radius: 5px;
+  background: var(--hover);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.approval__queue {
+  flex: none;
+  align-self: flex-start;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--r-pill);
+  background: var(--hover-strong);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 20px;
+  text-align: center;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- why, and what exactly ---- */
+
+.approval__lead {
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--text-2);
+}
+.approval__lead .md__p {
+  margin-bottom: 6px;
+}
+
+.approval__preview {
+  min-width: 0;
+}
+.approval__cmd {
+  display: flex;
+  gap: 10px;
+  max-height: 220px;
+  overflow: auto;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--sunken);
+  box-shadow: inset 0 0 0 1px var(--border-soft);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+}
+.approval__prompt {
+  flex: none;
+  color: var(--risk);
+  user-select: none;
+}
+.approval__cmd code {
+  min-width: 0;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.approval__call {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--sunken);
+  box-shadow: inset 0 0 0 1px var(--border-soft);
+}
+.approval__summary {
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.approval__details-toggle {
+  margin-top: 6px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.approval__details-toggle:hover {
+  color: var(--text);
+}
+.approval__json {
+  margin: 8px 0 0;
+  max-height: 200px;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.5;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  animation: approval-reveal 200ms ease both;
+}
+/* FileDiff caps its own body and scrolls it; a cap here too would nest two scroll areas. */
+.approval .approval__diff {
+  border-radius: 10px;
+}
+
+.approval .approval__note {
+  width: 100%;
+  height: 30px;
+  font-size: var(--fs-sm);
+}
+
+/* ---- answers ---- */
+
+.approval__foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 2px;
+}
+.approval__waiting {
+  min-width: 0;
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* A slow breath: it is paused on you, not stuck. */
+.approval__dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--risk);
+  animation: approval-breathe 2.4s ease-in-out infinite;
+}
+/* Two classes: this file can load before controls.css, whose .btn would win a tie. */
+.approval .approval__approve {
+  background: var(--risk);
+  color: var(--risk-ink);
+  font-weight: 600;
+}
+.approval .approval__approve:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--risk), #000 10%);
+}
+.approval__approve:focus-visible,
+.approval__deny:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.approval__approve:active:not(:disabled),
+.approval__deny:active:not(:disabled) {
+  transform: scale(0.97);
+}
+.approval__kbd {
+  margin-left: 2px;
+  padding: 0 4px;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 10.5px;
+  line-height: 16px;
+  opacity: 0.62;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+}
+
+/* ---- the dialog over Chat ---- */
+
+.approval-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.42);
+  animation: approval-scrim 180ms ease both;
+}
+.approval-layer[data-state='out'] {
+  animation: approval-scrim-out 200ms ease both;
+  pointer-events: none;
+}
+.approval-layer .approval {
+  width: min(460px, 100%);
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  box-shadow:
+    inset 0 0 0 1px var(--border-soft),
+    var(--shadow-modal);
+  animation: approval-in 380ms var(--spring-moderate) both;
+}
+.approval-layer[data-wide] .approval {
+  width: min(640px, 100%);
+}
+/* The next one in the queue slides in where the last one was. */
+.approval-layer .approval[data-swap] {
+  animation: approval-next 300ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+/* It leaves the way it was answered: up and away when approved, down when denied. */
+.approval-layer[data-state='out'][data-answer='approve'] .approval {
+  animation: approval-out-up 200ms var(--ease-exit) both;
+}
+.approval-layer[data-state='out'][data-answer='deny'] .approval {
+  animation: approval-out-down 200ms var(--ease-exit) both;
+}
+
+/* ---- the card above a worker's composer ---- */
+
+.approval[data-variant='inline'] {
+  padding: 14px;
+  gap: 10px;
+  animation: approval-rise 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+.approval[data-variant='inline'] .approval__title {
+  font-size: var(--fs-md, 14px);
+}
+
+@keyframes approval-scrim {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes approval-scrim-out {
+  to {
+    opacity: 0;
+  }
+}
+@keyframes approval-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px) scale(0.97);
+  }
+}
+@keyframes approval-next {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+}
+@keyframes approval-out-up {
+  to {
+    opacity: 0;
+    transform: translateY(-10px) scale(0.98);
+  }
+}
+@keyframes approval-out-down {
+  to {
+    opacity: 0;
+    transform: translateY(12px) scale(0.98);
+  }
+}
+@keyframes approval-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+@keyframes approval-ring {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--risk) 45%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 10px color-mix(in srgb, var(--risk) 0%, transparent);
+  }
+}
+@keyframes approval-breathe {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes approval-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .approval-layer,
+  .approval-layer .approval,
+  .approval[data-variant='inline'],
+  .approval__dot,
+  .approval__json,
+  .approval[data-risk='high'] .approval__tile::after {
+    animation: none !important;
+  }
+}

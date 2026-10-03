@@ -18,10 +18,11 @@
      number — moving the controls once left four rules 7px too tight.
 
      macOS puts its traffic lights top-LEFT: they start at
-     trafficLightPosition.x (20) and are three 12pt buttons 20pt apart, ending
-     at 72, plus 10px of breathing room. Nothing is reserved on the right.
+     trafficLightPosition.x (19, TRAFFIC_LIGHTS in main/index.ts) and are three
+     14pt buttons 23pt apart (macOS 26 and later), ending at 79, plus 10px of
+     breathing room. Nothing is reserved on the right.
      Windows overrides these below — its caption buttons are on the other side. */
-  --window-controls-left: 82px;
+  --window-controls-left: 89px;
   --window-controls-right: 0px;
   --titlebar-h: 36px;
   --nav-row-h: 27px;

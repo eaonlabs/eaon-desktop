@@ -1,0 +1,107 @@
+# Linux installers: an AppImage and a .deb for x64 and arm64, each built on a
+# Linux machine of that arch (node-pty has no Linux prebuild, and llama-server
+# is compiled here too). The app is started headless once to make sure it
+# runs, then the files are attached to the GitHub release for package.json's
+# version, if there is one, and kept on the run either way.
+#
+# Runs on a push to a release branch or a version tag, or by hand.
+name: Linux installers
+
+on:
+  push:
+    branches: ['release/**']
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: linux-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Linux ${{ matrix.arch }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # 22.04 rather than the newest: an AppImage runs on distributions at
+          # least as new as the glibc it was built against.
+          - runner: ubuntu-22.04
+            arch: x64
+          - runner: ubuntu-22.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # The lockfile is installed as it is; --legacy-peer-deps matches how it
+      # was made (betterwright's optional peer wants a newer Electron).
+      - name: Install
+        run: npm ci --legacy-peer-deps
+
+      # Eaon's own llama.cpp (native/llama-fork.json), compiled on this machine.
+      - name: llama-server for Linux
+        run: ./scripts/build-llama.sh
+
+      # electron-builder's bundled fpm (which makes the .deb) is an x86 program;
+      # on arm64 the system's own fpm is used instead.
+      - name: fpm for arm64
+        if: matrix.arch == 'arm64'
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq ruby ruby-dev build-essential > /dev/null
+          sudo gem install --no-document fpm > /dev/null
+          echo "USE_SYSTEM_FPM=true" >> "$GITHUB_ENV"
+
+      - name: Build
+        run: |
+          npx electron-vite build
+          npx electron-builder --linux --${{ matrix.arch }} --publish never
+
+      # Started under a virtual display for 25 seconds: still running at the
+      # end (exit 124 from timeout) means it came up. The bundled llama-server
+      # is run from inside the package as well.
+      - name: Smoke test
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq xvfb > /dev/null
+          APPIMAGE="$(ls dist/*.AppImage | head -1)"
+          chmod +x "$APPIMAGE"
+          (cd dist && "../$APPIMAGE" --appimage-extract > /dev/null)
+          ARCHDIR="linux-${{ matrix.arch }}"
+          dist/squashfs-root/resources/llama/$ARCHDIR/llama-server --version
+          set +e
+          timeout 25 xvfb-run -a dist/squashfs-root/eaon --no-sandbox --disable-gpu > smoke.log 2>&1
+          code=$?
+          set -e
+          tail -n 40 smoke.log
+          if [ "$code" != "124" ]; then echo "Eaon exited early (code $code)"; exit 1; fi
+          rm -rf dist/squashfs-root
+
+      - name: Keep the files on the run
+        uses: actions/upload-artifact@v4
+        with:
+          name: eaon-linux-${{ matrix.arch }}
+          path: |
+            dist/*.AppImage
+            dist/*.deb
+            dist/latest-linux*.yml
+          if-no-files-found: error
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          if gh release view "v$VERSION" > /dev/null 2>&1; then
+            gh release upload "v$VERSION" dist/*.AppImage dist/*.deb dist/latest-linux*.yml --clobber
+          else
+            echo "No release v$VERSION yet; the files are on this run."
+          fi

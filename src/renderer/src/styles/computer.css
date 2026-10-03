@@ -89,3 +89,8 @@
   line-height: 1.45;
   overflow-wrap: anywhere;
 }
+
+/* The note under Accessibility for a switch that is on but belongs to another copy of Eaon. */
+.computer__stale--error {
+  color: var(--danger);
+}

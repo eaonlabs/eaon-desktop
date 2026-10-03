@@ -7,6 +7,7 @@ import type {
   EffortLevel,
   IndexStatus,
   McpServer,
+  MessageFeedback,
   ModelDownloadProgress,
   ModelInfo,
   Project,
@@ -18,6 +19,9 @@ import type {
   Workspace
 } from '@shared/types'
 import { mergeRunChat } from '@shared/scheduler'
+import { lastTurnFailed } from './chatStatus'
+import { chatChanges } from './chatSync'
+import { forkedChat, retryPlan, withFeedback } from './chatEdits'
 import { migrateLegacySchedules } from '../components/scheduled/legacy'
 
 export type View = 'chat' | 'plugins' | 'integrations' | 'scheduled' | 'settings' | 'pull-requests' | 'models' | 'library' | 'trading'
@@ -92,6 +96,12 @@ interface AppState {
   stop: () => void
   /** Plan mode: the user accepted the plan in `messageId`; run it with plan mode off. */
   approvePlan: (messageId: string) => void
+  /** A reply's thumbs and emoji, from its action bar. */
+  setMessageFeedback: (messageId: string, feedback: MessageFeedback) => void
+  /** Asks the last question again, in place of its reply. */
+  retryReply: (messageId: string) => void
+  /** Opens a copy of the active chat up to `messageId`, to go another way from there. */
+  forkChat: (messageId: string) => void
   /** Clears or pauses the active chat's goal. */
   setGoalStatus: (status: 'paused' | 'active' | null) => void
   respondApproval: (approved: boolean) => void
@@ -171,9 +181,18 @@ const listItems = new WeakMap<Chat, ChatListItem>()
 
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 /**
- * Debounced save of every chat. It saves what the store holds when the timer
- * fires, not an array handed in earlier — a snapshot from before the last
- * change (a pin written straight to disk, say) would quietly undo it.
+ * Each chat as main last has it: what this window saved, or what another
+ * window (or a scheduled run) sent over. A chat whose object differs from
+ * this is one this window changed, and only those are saved, so two windows
+ * never overwrite each other's chats with stale copies.
+ */
+let synced = new Map<string, Chat>()
+
+/**
+ * Debounced save of the chats this window changed. It saves what the store
+ * holds when the timer fires, not an array handed in earlier — a snapshot from
+ * before the last change (a pin written straight to disk, say) would quietly
+ * undo it.
  */
 function persistChats(): void {
   if (saveTimer) clearTimeout(saveTimer)
@@ -182,7 +201,31 @@ function persistChats(): void {
 function saveChatsNow(): void {
   if (saveTimer) clearTimeout(saveTimer)
   saveTimer = null
-  void window.api.chats.save(useApp.getState().chats)
+  const chats = useApp.getState().chats
+  const { upserts, removed } = chatChanges(synced, chats)
+  synced = new Map(chats.map((chat) => [chat.id, chat]))
+  if (upserts.length > 0 || removed.length > 0) void window.api.chats.apply(upserts, removed)
+}
+
+/**
+ * Takes in chats another window changed. The chat this window is writing a
+ * reply into is left alone: this window's copy is the one being written, and
+ * it is saved when the reply ends.
+ */
+function receiveChats(change: { upserts: Chat[]; removed: string[] }): void {
+  const { getState: get, setState: set } = useApp
+  const mine = get().streamingChatId
+  const upserts = change.upserts.filter((chat) => chat.id !== mine)
+  const removed = new Set(change.removed.filter((id) => id !== mine))
+  for (const chat of upserts) synced.set(chat.id, chat)
+  for (const id of removed) synced.delete(id)
+  set((state) => {
+    const incoming = new Map(upserts.map((chat) => [chat.id, chat]))
+    const known = new Set(state.chats.map((chat) => chat.id))
+    const added = upserts.filter((chat) => !known.has(chat.id))
+    const chats = [...added, ...state.chats.filter((chat) => !removed.has(chat.id)).map((chat) => incoming.get(chat.id) ?? chat)]
+    return { chats, ...(state.activeChatId && removed.has(state.activeChatId) ? { activeChatId: null } : {}) }
+  })
 }
 
 const IDLE = { streamingMessageId: null, streamingChatId: null }
@@ -358,7 +401,10 @@ function applyStreamEvent(event: StreamEvent): void {
   }
 
   set({ chats, ...(finished ? { ...(ownsStream ? IDLE : {}), ...withoutApprovals(state, event.messageId) } : {}) })
-  if (finished || nextChat) persistChats()
+  // Another window's reply (or a scheduled run's) is shown as it comes, but
+  // saved by whoever is writing it; here it only becomes the synced copy.
+  if (!ownsStream) synced.set(target.id, chats[chatIndex])
+  else if (finished || nextChat) persistChats()
 }
 
 /**
@@ -420,13 +466,26 @@ export const useApp = create<AppState>((set, get) => ({
       window.api.mcp.get()
     ])
     // Nothing is running for this renderer yet, so a call still marked
-    // running was cut off by a crash or a quit; see sealInterrupted.
-    set({ settings, workspaces, projects, chats: sealInterrupted(chats), providers, mcpServers, ready: true })
+    // running was cut off by a crash or a quit (see sealInterrupted) unless
+    // another window is writing that reply right now.
+    const live = new Set(await window.api.chats.activeRuns())
+    const sealed = chats.map((chat) => (chat.messages.some((m) => live.has(m.id)) ? chat : sealInterrupted([chat])[0]))
+    synced = new Map(chats.map((chat) => [chat.id, chat]))
+    set({ settings, workspaces, projects, chats: sealed, providers, mcpServers, ready: true })
 
     if (listenersBound) return
     listenersBound = true
 
     window.api.chat.onEvent(applyStreamEvent)
+
+    // Other windows: each keeps its own copy of these, and main passes on
+    // what the others change. The open tab stays this window's own.
+    window.api.chats.onChanged(receiveChats)
+    window.api.projects.onChanged((projects) => set({ projects }))
+    window.api.workspaces.onChanged((workspaces) => set({ workspaces }))
+    window.api.settings.onChanged((next) =>
+      set((state) => ({ settings: { ...next, activeWorkspaceId: state.settings?.activeWorkspaceId ?? next.activeWorkspaceId } }))
+    )
 
     // Closing the window or reloading ends this renderer, and with it the only
     // copy of the reply in flight, the pending debounced save and any approval
@@ -478,7 +537,10 @@ export const useApp = create<AppState>((set, get) => ({
 
   async patchSettings(patch) {
     const next = await window.api.settings.patch(patch as Partial<Settings>)
-    set({ settings: next })
+    // Main's activeWorkspaceId is whichever window switched tabs last; this
+    // window keeps showing its own tab unless this patch is the switch.
+    const own = get().settings?.activeWorkspaceId
+    set({ settings: 'activeWorkspaceId' in patch || !own ? next : { ...next, activeWorkspaceId: own } })
   },
 
   setView: (view) => {
@@ -641,7 +703,9 @@ export const useApp = create<AppState>((set, get) => ({
     }
 
     set({ chats, activeChatId: chat.id, streamingMessageId: assistantMessage.id, streamingChatId: chat.id, view: 'chat' })
-    persistChats()
+    // Saved straight away rather than debounced: other windows need the new
+    // messages before the reply's first words reach them.
+    saveChatsNow()
 
     if (!model) {
       const failed = chats.map((c) =>
@@ -713,6 +777,33 @@ export const useApp = create<AppState>((set, get) => ({
     if (!id) return
     void window.api.chat.cancel(id)
     set((s) => ({ ...IDLE, ...withoutApprovals(s, id) }))
+  },
+
+  setMessageFeedback(messageId, feedback) {
+    const chat = get().activeChat()
+    if (!chat) return
+    const next = withFeedback(chat, messageId, feedback)
+    if (next === chat) return
+    set({ chats: get().chats.map((c) => (c.id === chat.id ? next : c)) })
+    persistChats()
+  },
+
+  retryReply(messageId) {
+    const chat = get().activeChat()
+    if (!chat || get().streamingMessageId) return
+    const plan = retryPlan(chat, messageId)
+    if (!plan) return
+    set({ chats: get().chats.map((c) => (c.id === chat.id ? { ...c, messages: plan.messages } : c)) })
+    void get().send(plan.text, plan.attachments ? { attachments: plan.attachments } : {})
+  },
+
+  forkChat(messageId) {
+    const chat = get().activeChat()
+    if (!chat) return
+    const fork = forkedChat(chat, messageId, uid(), Date.now())
+    if (!fork) return
+    set((s) => ({ chats: [fork, ...s.chats], activeChatId: fork.id, view: 'chat' }))
+    persistChats()
   },
 
   approvePlan(messageId) {
@@ -913,7 +1004,7 @@ export const useApp = create<AppState>((set, get) => ({
     const items = visible.map((chat, index) => {
       const cached = listItems.get(chat)
       if (cached) return cached
-      const failed = chat.messages.some((m) => m.error)
+      const failed = lastTurnFailed(chat.messages)
       const before = previous[index]
       const item =
         before && before.id === chat.id && before.title === chat.title && before.pinned === chat.pinned && before.failed === failed

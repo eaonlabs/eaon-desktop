@@ -457,7 +457,12 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 24px 0 12px;
+  /* The top bar sits --sidebar-gap below the window's top edge; the thread
+     starts the same distance below the bar, so scrolled-up messages disappear
+     with room to spare instead of jammed against it. The padding is trimmed
+     by as much, so the first message still starts where it did. */
+  margin-top: var(--sidebar-gap);
+  padding: calc(24px - var(--sidebar-gap)) 0 12px;
 }
 
 .thread__inner {
@@ -537,8 +542,13 @@
   opacity: 0;
   transition: opacity var(--dur) var(--ease);
 }
-.msg-row:hover .msg__actions {
+.msg-row:hover .msg__actions,
+.msg__actions:focus-within,
+.msg__actions[data-pinned] {
   opacity: 1;
+}
+.msg__actions .usage-line {
+  margin-left: 8px;
 }
 
 /* The composer sheds its labels when it gets narrow (e.g. browser panel open). */
@@ -557,144 +567,53 @@
 }
 
 /* ==================================================================
-   Motion: thinking orb, thinking steps, message entrances.
+   Motion: thinking orb, thoughts, message entrances.
    Every animation here reports state — what is running, what arrived,
    in what order. All of it collapses to nothing under reduce-motion
    via the global rule in app.css.
    ================================================================== */
 
-/* ---- Thinking steps -------------------------------------------- */
+/* ---- Thoughts --------------------------------------------------- */
 
-.thinking {
-  align-self: stretch;
-  margin-bottom: 4px;
-}
-
-.thinking__summary {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  height: 26px;
-  padding: 0 8px 0 6px;
-  margin-left: -6px;
-  border-radius: var(--r-sm);
-  font-size: var(--fs-sm);
-  color: var(--text-2);
-  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
-}
-.thinking__summary:hover {
-  background: var(--hover);
-  color: var(--text);
-}
-
-.thinking__dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--text-4);
-  flex: none;
-}
-
-.thinking__chevron {
-  color: var(--text-3);
-  transition: transform var(--dur-spring-fast) var(--spring-fast);
-}
-.thinking__chevron[data-open='true'] {
-  transform: rotate(90deg);
-}
-
-/* Height animates via grid-template-rows, which unlike max-age hacks lands on
-   the content's real height with no magic numbers and no clipping. */
-.thinking__body {
-  display: grid;
-  grid-template-rows: 0fr;
-  transition: grid-template-rows var(--dur-spring-slow) var(--spring-slow);
-}
-.thinking__body[data-open='true'] {
-  grid-template-rows: 1fr;
-}
-.thinking__list {
-  overflow: hidden;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-.thinking__body[data-open='true'] .thinking__list {
-  padding: 6px 0 2px;
-}
-
-.thinking__step {
-  display: flex;
-  gap: 10px;
-  padding: 0 0 2px;
-  /* Cascade: each step arrives just after the one above it, so the order the
-     work happened in is legible at a glance. */
-  animation: step-in var(--dur-spring-slow) var(--spring-slow) backwards;
-  animation-delay: calc(var(--i) * var(--stagger));
-}
-
-@keyframes step-in {
-  from {
-    opacity: 0;
-    transform: translateY(-4px);
-  }
-}
-
-.thinking__marker {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  flex: none;
-  width: 12px;
-  padding-top: 5px;
-}
-.thinking__bullet {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--text-4);
-  flex: none;
-  transition: background var(--dur) var(--ease), transform var(--dur-spring-fast) var(--spring-fast);
-}
-.thinking__step[data-active='true'] .thinking__bullet {
-  background: var(--provider-accent);
-  transform: scale(1.35);
-}
-.thinking__connector {
-  flex: 1;
-  width: 1.5px;
-  margin: 4px 0 0;
-  border-radius: 1px;
-  background: var(--border);
-  min-height: 10px;
-}
-
-.thinking__content {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+/* A thought is a row among the turn's tool calls (agent.css `.tool`), in the
+   order it happened: "Thought" and its title, opening into the reasoning. The
+   title is prose, so it gets the reply's font rather than a call's mono. */
+.thought__title {
   min-width: 0;
-  padding-bottom: 8px;
-}
-.thinking__label {
-  font-size: var(--fs-sm);
-  color: var(--text-2);
-}
-.thinking__label code {
-  font-family: var(--font-mono);
-  font-size: var(--fs-xs);
-  background: var(--surface-2);
-  border-radius: var(--r-xs);
-  padding: 1px 6px;
-  color: var(--text);
-}
-.thinking__detail {
-  font-size: var(--fs-sm);
   color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.thought .tool__head[data-static] {
+  cursor: default;
+}
+.thought .tool__head[data-static]:hover {
+  color: var(--text-3);
+}
+/* The reasoning itself, quieter than the reply it led to: a short window
+   under the row (agent.css .tool__panel) that follows it as it streams. */
+.thought__body {
+  max-height: 175px;
+  padding: 2px 4px 2px 0;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
   line-height: 1.55;
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+.thought__body strong {
+  color: var(--text-2);
+  font-weight: 600;
+}
+.thought__body .md__p {
+  margin-bottom: 6px;
+}
+.thought__body .md__p:last-child {
+  margin-bottom: 0;
+}
+.thought__body .md__heading {
+  margin: 8px 0 4px;
+  font-size: var(--fs-sm);
 }
 
 /* ---- Message entrances ------------------------------------------ */

@@ -3,13 +3,116 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [2026.6.0] — 2026-10-02
+
+*macOS, Windows and Linux. The release of everything in 2026.6: the
+release candidate below, plus what was added and fixed since.*
+
+### Added
+- **More than one window.** File → New Window (⌥⌘N), or the Dock menu,
+  opens another Eaon window. Each window keeps its own tab and chat. Chats,
+  projects and settings changed in one window show up in the others, and a
+  reply being written in one window can be watched live from another.
+- **`/` and `@` in Chat's message box.** `/` lists what the + menu can do
+  (files, folder, Goal, Plan, Swarm, permissions, browser, computer use,
+  plugins, model, new chat) plus your skills. `@` brings up your plugins and
+  switches one on for the chat.
+- **Workers' + menu** now has Goal, the worker's browser, computer use,
+  plugins and the worker's permission level, besides files. There's no Swarm
+  or Plan: workers already work as a team, and run without anyone to approve
+  a plan.
+- **@ a worker in Workers.** Mentioning a colleague in a message to a worker
+  sends it to both. Workers don't appear in Chat's `@`.
+- **Antigravity in the ADE**, in place of Gemini CLI. A pane saved as Gemini
+  CLI comes back as a plain shell.
+- **Voice input.** A mic button in Chat's and Workers' message boxes records
+  you, shows a live waveform with a timer, and drops the transcript into the
+  box (it's never sent on its own). It transcribes with your OpenAI key
+  (`gpt-4o-mini-transcribe`) or, without one, your Groq key (Whisper).
+- **Image generation.** Chat and workers can make or edit images with your
+  OpenAI key (`gpt-image-1`) or Gemini key, saved into the work folder. A card
+  in the conversation shows the images developing, then fading in; click one
+  to see it full size.
+- **Reasoning effort as a slider** in the model menu, stepped through the
+  model's own levels.
+- **Message actions under replies**: thumbs up or down, emoji reactions (kept
+  with the chat), copy, reply-with-quote, read aloud, try again and fork chat.
+- **Tables and diffs look the part.** Tables in replies are drawn as proper
+  data tables, and as comparison tables (✓ and —) when they compare options.
+  Code changes show in a new diff card with line numbers where they're known.
+
+### Changed
+- **The agent's work reads like a coding agent's.** Each edit shows as a card
+  with its diff where it happened ("Edited store.ts +12 −3"), and each command
+  as a card with the command and the end of its output, plus its exit code
+  when it fails. A command waiting on your OK says so. Reads and searches fold
+  into one line that, while the agent works, shows a short scrolling window of
+  its latest steps and how long it's been going. Before a reply has anything
+  to show, it shows what it's doing and a timer.
+- **Eaon Code installs and updates from its own installer** instead of npm,
+  which no longer carries current builds. Settings → Eaon Code shows no
+  version number, just Install, or Check for updates, which runs the installer
+  again. The app starts the installed build with Node directly rather than
+  through the `eaon-code` wrapper, which checks GitHub and can rebuild on
+  every start.
+- **Electron 43** (from 33). It's built for macOS 26 and later, so the
+  window gets the current macOS look: the larger 14pt window buttons and
+  their spacing. It also drops Electron 33's bug that made macOS 26 and later
+  lag while an Electron app was open. macOS 12 is now the oldest supported.
+- **Tool calls read like a coding agent's.** An edit shows as a card with the
+  file and its diff, a command as a card with what ran and the end of its
+  output (and the exit code if it failed), and a call waiting on you says so.
+  New loaders show the model working and a reply on its way.
+- **A turn reads in the order it happened**: thinking, tool, tool, thinking.
+  Each thought is a row you can open, and a finished turn folds to one line.
+  Reasoning summaries render as Markdown instead of showing `**`.
+- **A new plan checklist and approval prompt.** The plan shows a progress
+  ring and a timeline whose steps check off as they finish. The approval
+  prompt says what's about to happen and shows it, coloured by how much it
+  matters (a command that deletes or touches credentials is red), with ⏎ to
+  approve and esc to deny; workers' approvals use the same card.
+
+### Fixed
+- **Markdown in replies.** Numbered lists spaced with blank lines no longer
+  restart at 1, sub-bullets stay under their item, tables render, and
+  `_italic_`, `__bold__`, `~~strike~~`, task boxes and bare links work.
+  Worker questions render Markdown too.
+- **Auto-approve asks before more dangerous commands.** It used to let
+  through `rm --recursive`, `find … -delete`, `git checkout .`, uploads like
+  `curl -d @.env`, AppleScript, deleting from `python -c`, disguised
+  `bash -c "$(… base64 -d)"`, and any command writing outside the work folder.
+  It still uses rules, not a model.
+- The chat list's error mark only shows when the chat's latest reply failed,
+  not for good after any earlier error.
+- The window buttons sometimes landed in the wrong place, after leaving full
+  screen, a light/dark switch (including macOS switching by itself) or a
+  title change. Eaon now puts them back after each.
+- Computer use reporting Accessibility as off while the Eaon switch in System
+  Settings is on. That switch can belong to an older, differently signed copy
+  of Eaon (old builds share its bundle id). Settings → Computer use now says
+  so, lists such copies, and has a "Reset and ask again" button that clears
+  the stale entry.
+- A worker's question card fits the composer's width instead of the whole
+  pane, and empty worker turns no longer show "No response".
+- The conversation no longer scrolls flush under the top bar; it stops with
+  the same gap as the bar has to the top of the window.
+
+### Removed
+- The Share button in the chat's top bar. Copy transcript is still in the
+  chat's … menu.
+
 ## [2026.6.0-rc.1] — 2026-10-01
 
-*macOS and Windows. Release candidate for 2026.6.0: everything below is in,
+*macOS, Windows and Linux. Release candidate for 2026.6.0: everything below is in,
 and what's left is testing. Email on your own domain through Cloudflare is
 labelled beta.*
 
 ### Added
+- **Linux installers**: an AppImage, which runs on most distributions and
+  updates itself, and a `.deb`, for x64 and arm64. They're built on Linux by
+  GitHub Actions (`.github/workflows/linux.yml`), and each is started once
+  before it's attached to the release. Local models run on Eaon's own
+  llama.cpp, compiled for Linux on the CPU, so K2 Horizon runs there too.
 - **Three tabs: Chat, Workers and ADE**, centred in the top bar of every
   screen (⌘1 / ⌘2 / ⌘3). Chat now *is* the agent: it answers plainly, and
   when you ask for something it does it with files, the shell, the web, your

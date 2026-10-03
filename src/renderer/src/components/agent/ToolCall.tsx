@@ -32,13 +32,17 @@ import {
   Wallet,
   CandlestickChart,
   Receipt,
-  MessagesSquare
+  MessagesSquare,
+  ImagePlus
 } from 'lucide-react'
 import type { ChatToolPart } from '@shared/types'
-import { ThinkingOrb } from '../ThinkingOrb'
 import type { ActivityCall } from './Activity'
 import { FileDiff } from './FileDiff'
+import { splitPath } from './FileIcon'
 import type { FileChange } from './FilesChanged'
+import { ImageGeneration } from './ImageGeneration'
+import { Spinner } from './Loaders'
+import { CommandCard, EditCard } from './StepCards'
 import { SwarmCard, ToolImages } from './WorkBits'
 
 /**
@@ -92,7 +96,8 @@ const ICONS: Record<string, typeof Search> = {
   trading_order: Receipt,
   trading_cancel: Receipt,
   trading_session: CalendarClock,
-  send_chat_message: MessagesSquare
+  send_chat_message: MessagesSquare,
+  generate_image: ImagePlus
 }
 
 /** Tools whose detail is a sentence, not a path or a command — set in the UI face, not mono. */
@@ -112,7 +117,8 @@ const PROSE = new Set([
   'email_reply',
   'trading_order',
   'trading_session',
-  'send_chat_message'
+  'send_chat_message',
+  'generate_image'
 ])
 
 /** The single argument worth putting next to the tool's name. */
@@ -125,6 +131,8 @@ function summarise(name: string, input: Record<string, unknown>): string {
     return ''
   }
   if (name === 'run_command') return first('command')
+  // A search is named by what it looked for, not where.
+  if (name === 'grep' || name === 'codebase_search' || name === 'find_symbol' || name === 'find_file') return first('pattern', 'query', 'name', 'path')
   if (name === 'spawn_agents') return Array.isArray(input.agents) ? `${input.agents.length} agents` : ''
   if (name === 'move_file') return [first('from'), first('to')].filter(Boolean).join(' → ')
   // Workers' own tools read as sentences: "Messaged Pixel", "Every 30 min".
@@ -146,6 +154,7 @@ function summarise(name: string, input: Record<string, unknown>): string {
   }
   if (name === 'trading_session') return first('action')
   if (name === 'send_chat_message') return first('chat')
+  if (name === 'generate_image') return first('prompt')
   if (name === 'set_heartbeat') {
     if (input.stop === true) return 'stopped'
     const every = Number(input.every_minutes)
@@ -205,7 +214,8 @@ const LABELS: Record<string, string> = {
   trading_order: 'Order',
   trading_cancel: 'Cancelled order',
   trading_session: 'Trading session',
-  send_chat_message: 'Posted'
+  send_chat_message: 'Posted',
+  generate_image: 'Image'
 }
 
 /** The call as its activity line counts it. */
@@ -234,13 +244,36 @@ export function toolPartChanges(parts: ChatToolPart[]): FileChange[] {
  * open diff, which can run to a thousand rows — are skipped.
  */
 export const ToolCall = memo(function ToolCall({ part }: { part: ChatToolPart }): JSX.Element {
-  // A command still running opens itself so its live output is visible.
+  // A generated image is shown, not summarised, and so are an edit's diff and
+  // a command's output: each has a card of its own.
+  if (part.name === 'generate_image') return <ImageGeneration part={part} />
+  if (part.name === 'edit_file' || part.name === 'write_file') return <EditCard part={part} />
+  if (part.name === 'run_command') return <CommandCard part={part} />
+  return <ToolRow part={part} />
+})
+
+/** Calls whose detail is a path: the chip names the file, and the whole path is its tooltip. */
+const PATH_DETAIL = new Set(['read_file', 'list_dir', 'delete_file'])
+
+/** The lines a `read_file` asked for, when it asked: "L12–80". */
+function lineRange(part: ChatToolPart): string {
+  if (part.name !== 'read_file') return ''
+  const start = Number(part.input.start_line)
+  const end = Number(part.input.end_line)
+  if (start > 0 && end >= start) return start === end ? `L${start}` : `L${start}–${end}`
+  return start > 0 ? `L${start}` : ''
+}
+
+const ToolRow = memo(function ToolRow({ part }: { part: ChatToolPart }): JSX.Element {
   const [open, setOpen] = useState(false)
+  // A call still running shows what it has printed so far, folded or not.
   const showProgress = part.status === 'running' && Boolean(part.progress)
 
   const Icon = ICONS[part.name] ?? SquareTerminal
   const label = LABELS[part.name] ?? part.name
   const detail = summarise(part.name, part.input)
+  const chip = PATH_DETAIL.has(part.name) ? splitPath(detail).name || detail : detail
+  const range = lineRange(part)
   const running = part.status === 'running'
 
   const before = typeof part.input.old_text === 'string' ? part.input.old_text : null
@@ -257,24 +290,33 @@ export const ToolCall = memo(function ToolCall({ part }: { part: ChatToolPart })
   return (
     <div className="tool" data-status={part.status} data-open={open || showProgress || undefined}>
       <button className="tool__head" onClick={() => setOpen(!open)} aria-expanded={open}>
+        {/* The call's icon, which turns into the chevron under the pointer. */}
         <span className="tool__glyph">
-          {running ? (
-            <ThinkingOrb size={14} state="searching" />
-          ) : part.status === 'denied' ? (
-            <Ban size={14} strokeWidth={2} />
-          ) : part.status === 'error' ? (
-            <TriangleAlert size={14} strokeWidth={2} />
-          ) : (
-            <Icon size={14} strokeWidth={1.9} />
-          )}
-        </span>
-        <span className="tool__label">{label}</span>
-        {detail && (
-          <span className="tool__detail" data-prose={PROSE.has(part.name) || undefined}>
-            {detail}
+          <span className="tool__icon">
+            {running ? (
+              <Spinner />
+            ) : part.status === 'denied' ? (
+              <Ban size={13} strokeWidth={2} />
+            ) : part.status === 'error' ? (
+              <TriangleAlert size={13} strokeWidth={2} />
+            ) : (
+              <Icon size={13} strokeWidth={1.9} />
+            )}
           </span>
-        )}
-        <ChevronRight size={14} strokeWidth={2} className="tool__chevron" />
+          <ChevronRight size={13} strokeWidth={2.2} className="tool__chevron" />
+        </span>
+        <span className={`tool__label${running ? ' step-shimmer' : ''}`}>{label}</span>
+        {detail &&
+          (PROSE.has(part.name) ? (
+            <span className="tool__detail" data-prose>
+              {detail}
+            </span>
+          ) : (
+            <span className="tool__chip" title={detail}>
+              {chip}
+            </span>
+          ))}
+        {range && <span className="tool__range">{range}</span>}
       </button>
 
       {part.agents && part.agents.length > 0 && <SwarmCard agents={part.agents} />}
@@ -282,18 +324,20 @@ export const ToolCall = memo(function ToolCall({ part }: { part: ChatToolPart })
 
       {showProgress && !open && (
         <div className="tool__panel">
-          <pre className="tool__output tool__output--live scroll">{part.progress}</pre>
+          <div>
+            <pre className="tool__output tool__output--live scroll">{part.progress}</pre>
+          </div>
         </div>
       )}
 
       {open && (
         <div className="tool__panel">
-          {diff && <FileDiff file={diff.file} before={diff.before} after={diff.after} />}
-          {part.output !== null && part.output.length > 0 && (
-            <pre className="tool__output scroll">{part.output}</pre>
-          )}
-          {running && part.progress && <pre className="tool__output tool__output--live scroll">{part.progress}</pre>}
-          {running && !part.progress && <div className="tool__waiting shimmer">Running…</div>}
+          <div>
+            {diff && <FileDiff file={diff.file} before={diff.before} after={diff.after} />}
+            {part.output !== null && part.output.length > 0 && <pre className="tool__output scroll">{part.output}</pre>}
+            {running && part.progress && <pre className="tool__output tool__output--live scroll">{part.progress}</pre>}
+            {running && !part.progress && <div className="tool__waiting step-shimmer">Running…</div>}
+          </div>
         </div>
       )}
     </div>

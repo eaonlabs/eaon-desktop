@@ -156,92 +156,6 @@
   white-space: nowrap;
 }
 
-.todo-panel {
-  padding: 0 12px;
-  border-radius: var(--r-lg);
-  background: var(--surface-1);
-  box-shadow: inset 0 0 0 1px var(--border-soft);
-  max-height: 200px;
-  overflow: auto;
-}
-.todo-panel[data-open] {
-  padding-bottom: 8px;
-}
-.todo-panel__head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  height: 34px;
-  text-align: left;
-  font-size: var(--fs-sm);
-  color: var(--text-3);
-}
-.todo-panel__title {
-  flex: none;
-  color: var(--text-2);
-}
-.todo-panel__count {
-  flex: none;
-  font-variant-numeric: tabular-nums;
-}
-.todo-panel__current {
-  min-width: 0;
-  flex: 1;
-  color: var(--text-2);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.todo-panel__current::before {
-  content: '·';
-  margin-right: 8px;
-  color: var(--text-4);
-}
-.todo-panel__chevron {
-  flex: none;
-  margin-left: auto;
-  color: var(--text-4);
-  transition: transform var(--dur) var(--ease);
-}
-.todo-panel[data-open] .todo-panel__chevron {
-  transform: rotate(180deg);
-}
-.todo-panel__list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-.todo-panel__item {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 3px 0;
-  font-size: var(--fs-sm);
-  color: var(--text-2);
-}
-.todo-panel__item[data-status='done'] {
-  color: var(--text-4);
-  text-decoration: line-through;
-  text-decoration-color: var(--text-4);
-}
-.todo-panel__item[data-status='in_progress'] {
-  color: var(--text);
-}
-.todo-panel__icon {
-  flex: none;
-  display: grid;
-  place-items: center;
-  height: 18px;
-  color: var(--text-3);
-}
-.todo-panel__item[data-status='in_progress'] .todo-panel__icon {
-  color: var(--accent);
-}
-.todo-panel__item[data-status='done'] .todo-panel__icon {
-  color: var(--diff-add-fg);
-}
-
 /* ---- Plan card ---- */
 .plan-card {
   margin: 10px 0 4px;
@@ -376,13 +290,6 @@
   color: var(--text-4);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
-}
-
-/* ---- Approval dialog ---- */
-.approval__diff {
-  max-height: 340px;
-  overflow: auto;
-  border-radius: var(--r-sm);
 }
 
 .msg__scheduled {

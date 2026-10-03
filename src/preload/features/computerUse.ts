@@ -14,6 +14,8 @@ export const computerUseApi = {
   openPermission: (kind: PermissionKind): Promise<void> => ipcRenderer.invoke('computer-use:open-permission', kind),
   /** Quits and reopens Eaon so a new Screen Recording grant applies; false when it cannot (development). */
   relaunch: (): Promise<boolean> => ipcRenderer.invoke('computer-use:relaunch'),
+  /** Clears Eaon's Accessibility entry (a stale one from an older copy) and asks again. */
+  resetAccessibility: (): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('computer-use:reset-accessibility'),
   /** Same as the emergency-stop shortcut. */
   stop: (): Promise<void> => ipcRenderer.invoke('computer-use:stop')
 }

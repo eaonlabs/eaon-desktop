@@ -29,6 +29,12 @@ export interface ComputerDisplay {
   scaleFactor: number
 }
 
+/** Another copy of Eaon on this Mac. */
+export interface EaonCopy {
+  path: string
+  version: string | null
+}
+
 export interface ComputerUseStatus {
   platform: 'darwin' | 'win32' | 'linux'
   /** Screen Recording on macOS. */
@@ -37,6 +43,12 @@ export interface ComputerUseStatus {
   accessibility: PermissionState
   /** macOS: whose switch to turn on in System Settings; null on other platforms. */
   owner: PermissionOwner | null
+  /**
+   * macOS, while Accessibility is refused: other copies of Eaon signed
+   * differently (the old Swift app, say). macOS keeps one "Eaon" switch for
+   * all of them, so the one showing as on may be theirs.
+   */
+  otherCopies?: EaonCopy[]
   /**
    * macOS: Screen Recording has been asked for since Eaon started. macOS
    * applies it only after a relaunch, so until Eaon restarts `screen` can
