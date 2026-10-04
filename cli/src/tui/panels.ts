@@ -44,7 +44,7 @@ function modelItems(models: ModelInfo[], extra: PickItem<ModelInfo | null>[] = [
 export function openModelPicker(app: App, onPick: (model: ModelInfo | null) => void, options: { title?: string; follow?: string; current?: ModelInfo | null } = {}): void {
   const models = availableModels()
   if (models.length === 0) {
-    app.toast('No models yet — /import, /key or /login first', 'error')
+    app.toast('No models yet — /keys, /import or /login first', 'error')
     return
   }
   app.push(
@@ -177,60 +177,6 @@ function providerTag(p: Provider): { tag: string; style: { fg: string } } {
   if (p.local) return { tag: 'local', style: { fg: C.muted } }
   if (p.auth === 'oauth') return p.signedIn ? { tag: 'signed in', style: { fg: C.green } } : { tag: 'sign in', style: { fg: C.muted } }
   return p.hasKey ? { tag: `key ✓ ${p.models.length} models`, style: { fg: C.green } } : { tag: 'no key', style: { fg: C.faint } }
-}
-
-export async function saveKey(app: App, provider: Provider, key: string): Promise<string | void> {
-  const trimmed = key.trim()
-  if (!trimmed) return 'Paste a key, or press Esc.'
-  secrets.set(provider.id, trimmed)
-  try {
-    const models = await refreshModels(provider.id)
-    app.toast(`${provider.name}: key saved, ${models.length} models`, 'success')
-  } catch (error) {
-    app.toast(`${provider.name}: key saved, but listing models failed — ${error instanceof Error ? error.message : String(error)}`, 'error')
-  }
-  events.emit('providers:changed')
-}
-
-export function openKeys(app: App, providerId?: string): void {
-  const providers = listProviders().filter((p) => !p.local)
-  const ask = (provider: Provider): void => {
-    if (provider.auth === 'oauth') return signIn(app, provider.id)
-    app.push(
-      new PromptModal({
-        title: `${provider.name} API key`,
-        label: `${provider.description ?? ''}${provider.keyUrl ? `\nGet a key at ${provider.keyUrl}` : ''}\nIt's kept in this computer's keychain-protected vault and never shown again.`.trim(),
-        mask: true,
-        placeholder: provider.hasKey ? 'A key is saved — paste a new one to replace it' : 'Paste the key',
-        hint: 'save',
-        onSubmit: (value) => saveKey(app, provider, value)
-      })
-    )
-  }
-  if (providerId) {
-    const provider = providers.find((p) => p.id === providerId || p.name.toLowerCase() === providerId.toLowerCase())
-    if (!provider) return app.toast(`No provider called “${providerId}”`, 'error')
-    return ask(provider)
-  }
-  app.push(
-    new PickerModal<Provider>({
-      title: 'Model providers',
-      width: 96,
-      items: () =>
-        listProviders()
-          .filter((p) => !p.local)
-          .map((p) => ({ label: p.name, detail: p.description, ...((t) => ({ tag: t.tag, tagStyle: t.style }))(providerTag(p)), value: p })),
-      onPick: ask,
-      hints: [['⌃X', 'remove key']],
-      onKey: (key, provider) => {
-        if (key !== 'ctrl+x') return false
-        secrets.clear(provider.id)
-        events.emit('providers:changed')
-        app.toast(`${provider.name}: key removed`)
-        return true
-      }
-    })
-  )
 }
 
 /** Runs a provider's browser sign-in and shows its progress (the URL, a device code) until it ends. */
@@ -633,7 +579,7 @@ export function helpLines(): { text: string; style?: { fg: string; bold?: boolea
 
 const COMMAND_HELP: [string, string][] = [
   ['/model', 'models per job (chat, trading sessions, sub-agents, routing)'],
-  ['/key /login', 'add an API key · sign in with ChatGPT or Copilot'],
+  ['/keys /login', 'API keys for 100 providers (/key groq goes straight to one) · sign in with ChatGPT or Copilot'],
   ['/import', 'copy keys, models, plugins and trading setup from Eaon Desktop'],
   ['/chats /new', 'switch chat (desktop chats too) · start a new one'],
   ['/sessions', 'other Eaon, Claude Code and Codex sessions'],

@@ -50,6 +50,44 @@ eaon
 `bin/eaon.mjs` runs the built bundle, so after pulling changes,
 `npm run build:cli` is all it takes to update the command.
 
+## API keys
+
+`/keys` in the app, or `eaon keys` in a shell, lists 95 providers you can add a key for, grouped:
+
+- **Model makers:** Anthropic, OpenAI, Gemini, xAI, DeepSeek, Mistral, Cohere, Meta's Llama API and more.
+- **Coding plans and sign-ins:** ChatGPT, GitHub Copilot, GLM Coding Plan, Kimi For Coding and others.
+- **Gateways and routers:** OpenRouter, Vercel, Requesty, Helicone and others.
+- **Inference hosts:** Groq, Cerebras, Together, Fireworks, SiliconFlow, Ollama Cloud and others.
+- **China and regional platforms.**
+- **Your own endpoints.**
+
+Local runtimes (Ollama, LM Studio, llama.cpp, MLX, vLLM, Jan) need no key; start one and its models show up.
+
+Using the screen:
+
+- Type to search, then press **⏎** to add or replace a key. ChatGPT and Copilot sign in with your browser instead. A provider that needs more than a key asks for it in the same form, such as an Azure endpoint, a Cloudflare account ID or a Bedrock region.
+- The key is checked straight away by listing the provider's models, which then appear in `/model`. A key that fails the check is kept, and its row is marked ✗ with the provider's reason.
+- **⌃T** checks a key again and **⌃D** removes it.
+- **⌃O** opens the page where you make a key, and **⌃E** edits the endpoint.
+- **⌃N** adds a provider of your own: any OpenAI-compatible, Anthropic or OpenAI Responses API, such as a LiteLLM proxy or a company gateway.
+- `/key groq` goes straight to one provider.
+
+Keys are kept in the CLI's vault (the keychain on macOS) and never shown again.
+
+```
+eaon keys                         what's set up
+eaon keys list --all              every provider
+eaon keys add groq                asks for the key without showing it
+pbpaste | eaon keys add openai    or pipe it in
+eaon keys add azure --base-url https://my-resource.openai.azure.com
+eaon keys add cloudflare-workers-ai --account-id <id>
+eaon keys add --custom "Company gateway" --base-url https://llm.example.com/v1
+eaon keys check groq
+eaon keys remove groq
+```
+
+A key is never taken as an argument, so it stays out of your shell history.
+
 ## Updates
 
 A few seconds after it opens, Eaon checks npm for a newer version, at most
@@ -81,6 +119,7 @@ eaon ask "…"              answer once and exit (--allow lets it make changes)
 eaon status               the desk in a few lines
 eaon quote NVDA ^VIX GC=F BTC-USD
 eaon order buy 10 AAPL --stop 180 --reason "…"   (also $500, --limit, --target, --trail)
+eaon keys [add <provider>]  API keys for 95 providers (see below)
 eaon import               bring your setup over from Eaon Desktop
 eaon peers | send | connect | disconnect | mcp
 eaon doctor

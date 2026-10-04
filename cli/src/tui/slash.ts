@@ -9,7 +9,8 @@ import { openInTerminal } from '../bus/external'
 import type { ChatController } from '../core/chat'
 import { chatModel, effortsOf } from '../core/models'
 import type { App, Mode } from './app'
-import { openChats, openConfirm, openHelp, openImport, openKeys, openMcp, openModelChains, openSessions, runConnect, signIn } from './panels'
+import { openChats, openConfirm, openHelp, openImport, openMcp, openModelChains, openSessions, runConnect, signIn } from './panels'
+import { openKeys } from './keys'
 import { DiffViewer } from './diffviewer'
 import { LinkedAccountsModal } from './views/trading/accounts'
 import type { TradingView } from './views/trading/index'
@@ -223,7 +224,8 @@ export const COMMANDS: Command[] = [
       ctx.app.toast(`Working in ${path}`)
     }
   },
-  { name: '/key', description: 'add or change a provider’s API key', takesArgs: true, run: (ctx, args) => openKeys(ctx.app, args.trim() || undefined) },
+  { name: '/keys', description: 'API keys: 100 providers to add a key for, and which are set up', takesArgs: true, run: (ctx, args) => openKeys(ctx.app, args.trim() || undefined) },
+  { name: '/key', description: 'add a provider’s API key (/key groq goes straight to it)', takesArgs: true, run: (ctx, args) => openKeys(ctx.app, args.trim() || undefined) },
   { name: '/login', description: 'sign in with ChatGPT, GitHub Copilot…', takesArgs: true, run: (ctx, args) => signIn(ctx.app, args.trim() || undefined) },
   { name: '/import', description: 'bring keys, models, plugins and trading setup from Eaon Desktop', run: (ctx) => openImport(ctx.app) },
   { name: '/sessions', description: 'other Eaon, Claude Code and Codex sessions', run: (ctx) => openSessions(ctx.app, ctx.bus, ctx.chat.cwd) },
