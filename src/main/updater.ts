@@ -1,6 +1,7 @@
 import { app, BrowserWindow, dialog } from 'electron'
 import electronUpdater from 'electron-updater'
 import type { UpdateStatus } from '@shared/types'
+import { updateChannelFor } from './updateChannel'
 
 // electron-updater exposes `autoUpdater` via a lazy getter on its CJS exports,
 // which Node's ESM/CJS interop can't statically detect as a named export —
@@ -42,6 +43,12 @@ export function initUpdater(windows: () => BrowserWindow[]): void {
   getWindows = windows
   autoUpdater.autoDownload = true
   autoUpdater.autoInstallOnAppQuit = true
+  const channel = updateChannelFor(app.getVersion())
+  if (channel) {
+    autoUpdater.channel = channel
+    // Setting a channel also allows downgrades; an install should only move forward.
+    autoUpdater.allowDowngrade = false
+  }
 
   autoUpdater.on('checking-for-update', () => broadcast({ state: 'checking' }))
   autoUpdater.on('update-available', (info) => {
