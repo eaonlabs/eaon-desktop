@@ -217,8 +217,11 @@ describe('Discord presence feature', () => {
     await waitFor(() => statuses.at(-1)?.state === 'off', 1000, 'off')
     const before = discord.activities.length
     sync({ ...snapshot, showStatus: false, showElapsed: false, showButton: false })
-    await waitFor(() => discord.activities.length > before, 3000, 'an activity')
-    const { activity } = discord.activities.at(-1)!
+    // Turning it off sends a clear, which can land after `before` was read;
+    // wait for the activity that is actually set, not just any new message.
+    const set = (): typeof discord.activities => discord.activities.slice(before).filter((a) => a.activity)
+    await waitFor(() => set().length > 0, 3000, 'an activity')
+    const { activity } = set().at(-1)!
     assert.equal(activity?.details, undefined)
     assert.equal(activity?.state, undefined)
     assert.equal(activity?.timestamps, undefined)
