@@ -74,7 +74,7 @@ themes.
 trading desk in place of the ADE. It runs this app's main process headless,
 can import your setup from the desktop app, and talks to other terminal
 sessions, including Claude Code and Codex. Install it with
-`npm install -g @eaonlabs/cli` and run `eaon`. It updates itself when a new version
+`npm install -g eaon-cli` and run `eaon`. It updates itself when a new version
 is out. From a checkout, build it with `npm run build:cli` and run `eaon`
 after `npm link`. See [cli/README.md](cli/README.md).
 

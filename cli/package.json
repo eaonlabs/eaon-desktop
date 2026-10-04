@@ -1,6 +1,6 @@
 {
-  "name": "@eaonlabs/cli",
-  "version": "0.1.0-beta.1",
+  "name": "eaon-cli",
+  "version": "1.0.0-beta.1",
   "description": "Eaon in your terminal (beta): chat, background workers and an agentic trading desk, with your own models and keys.",
   "license": "GPL-3.0-only",
   "author": "The Eaon Authors",

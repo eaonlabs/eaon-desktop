@@ -30,13 +30,11 @@ as they do in the app.
 ## Install
 
 ```bash
-npm install -g @eaonlabs/cli
+npm install -g eaon-cli
 eaon
 ```
 
-It needs Node 22 or newer, and the command it installs is `eaon`. `npx @eaonlabs/cli` runs it without installing. If you have
-the older `eaon-cli` package (a different, earlier CLI that also installs an
-`eaon` command), remove it first with `npm uninstall -g eaon-cli`.
+It needs Node 22 or newer, and the command it installs is `eaon`. `npx eaon-cli` runs it without installing. Versions of `eaon-cli` before 1.0 were a different, earlier CLI; installing 1.0 replaces it.
 
 To run it from a source checkout of this repository instead:
 
@@ -94,7 +92,7 @@ A few seconds after it opens, Eaon checks npm for a newer version, at most
 every six hours. When one is out, a popup asks whether to update:
 
 - **⏎** installs it now, with the package manager that installed this copy
-  (`npm install -g @eaonlabs/cli@<version>` into the same place);
+  (`npm install -g eaon-cli@<version>` into the same place);
 - **l** asks again tomorrow;
 - **s** skips that version.
 
@@ -445,15 +443,15 @@ a screen without opening the app (`--html out.html` writes it in colour,
 
 ### Releasing to npm
 
-The package is `@eaonlabs/cli` on npm (npm refused the bare name `eaon` as too close to bson, cron, json, yarn and nan). `cli/package.json` is its manifest and gives the
+The package is `eaon-cli` on npm (npm refused the bare name `eaon` as too close to bson, cron, json, yarn and nan). `cli/package.json` is its manifest and gives the
 CLI its name and version.
 
-1. Bump the version in `cli/package.json`. Betas look like `0.1.0-beta.2`.
+1. Bump the version in `cli/package.json`. Betas look like `1.0.0-beta.2`.
 2. Run `npm run pack:cli`. It builds the bundle and assembles
    `out/cli-package`: the bundle without its source map, the manifest, this
    README, `LICENSE.md` and `NOTICE`.
 3. Check the package with `npm pack --dry-run out/cli-package`.
 4. Run `npm publish out/cli-package --tag latest`. For a beta, also run
-   `npm dist-tag add @eaonlabs/cli@<version> beta`.
+   `npm dist-tag add eaon-cli@<version> beta`.
 
 Installed copies see the new version within six hours and offer to update.
