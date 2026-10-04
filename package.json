@@ -3,6 +3,9 @@
   "version": "2026.6.0",
   "description": "The Eaon desktop app — a bring-your-own-key AI chat client",
   "main": "./out/main/index.js",
+  "bin": {
+    "eaon": "bin/eaon.mjs"
+  },
   "author": "Eaon",
   "license": "MIT",
   "type": "module",
@@ -14,7 +17,10 @@
     "dev": "electron-vite dev",
     "build": "electron-vite build",
     "start": "electron-vite preview",
-    "typecheck": "tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.node.json",
+    "build:cli": "node scripts/build-cli.mjs",
+    "pack:cli": "node scripts/build-cli.mjs --package",
+    "cli": "node scripts/build-cli.mjs && node out/cli/eaon.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.web.json && tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.cli.json",
     "dist:mac": "./scripts/release-mac.sh",
     "release:mac": "./scripts/release-mac.sh --publish",
     "dist:win": "[ -f resources/llama/win32-x64/llama-server.exe ] || ./scripts/fetch-llama-windows.sh; electron-vite build && electron-builder --win --publish never",

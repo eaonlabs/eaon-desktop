@@ -2,7 +2,7 @@
 title: Agentic trading backend: engine, brokers, sessions and guardrails
 tags: [eaon-desktop, trading, agent, workers, gotchas]
 created: 2026-10-01T03:40:45.224Z
-updated: 2026-10-01T14:00:09.050Z
+updated: 2026-10-03T15:27:36.659Z
 ---
 
 # Agentic trading backend: engine, brokers, sessions and guardrails
@@ -31,3 +31,5 @@ The main-process side of agentic stock trading (Sept 30, 2026). Contract: `src/s
 Related: [[Agentic trading: protective exits, the agent's market view and live testing]]
 
 Related: [[Trading workers and broker plugins: Robinhood MCP, approvals and the kill switch]]
+
+Related: [[Eaon CLI: the desktop's main process in a terminal]]

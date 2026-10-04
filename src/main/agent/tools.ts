@@ -120,6 +120,11 @@ export function toolSourceOf(tool: AgentTool): string | undefined {
   return offeredBy.get(tool)
 }
 
+/** A registered source by id, so another front end (the CLI) can wrap it before replacing it. */
+export function getToolSource(id: string): ToolSource | undefined {
+  return sources.find((s) => s.id === id)
+}
+
 export function registerToolSource(source: ToolSource): void {
   const existing = sources.findIndex((s) => s.id === source.id)
   if (existing === -1) sources.push(source)
