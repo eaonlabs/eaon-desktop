@@ -20,7 +20,6 @@ import type { FeatureContext } from './features/types'
 import { getStatuses, getTools, setMcpStatusListener, shutdownMcp, syncMcpServers } from './mcp'
 import { forgetServer } from './mcpOAuth'
 import { getLocalServerStatus, setLocalServerListener, startLocalServer, stopLocalServer } from './localServer'
-import { applyClaudeCodeConfig, buildClaudeCodeEnv, getClaudeCodeConfigPath, resetClaudeCodeConfig } from './claudeCode'
 import { getSystemInfo } from './system'
 import { checkForUpdates, getUpdateStatus, initUpdater, quitAndInstall } from './updater'
 import { listPullRequests } from './github'
@@ -29,6 +28,7 @@ import { describeEmbeddingState, embeddingModels } from './embeddings'
 import { cancelAllDownloads, deleteDownloadedModel, downloadModel, getDownloadedModels, getModelDetail, searchModels } from './modelHub'
 import { applyRunAtLogin, backgroundSupported, launchedInBackground, syncTray } from './background'
 import { crashLogPath, installCrashGuard } from './crashGuard'
+import { applyAppIcon, currentAppIconFile } from './appIcon'
 
 const here = join(fileURLToPath(import.meta.url), '..')
 app.setName('Eaon')
@@ -215,6 +215,8 @@ function createWindow(): BrowserWindow {
     // transparent (not just theme-colored) so the vibrancy view can show.
     backgroundColor: vibrant ? '#00000000' : activePalette(settings).background,
     ...(vibrant ? { vibrancy: 'sidebar' as const, visualEffectState: 'active' as const } : {}),
+    // The icon picked in Settings → Appearance; macOS shows it on the Dock instead (appIcon.ts).
+    ...(isMac ? {} : { icon: currentAppIconFile(settings.appearance.appIcon) ?? undefined }),
     webPreferences: {
       preload: join(here, '../preload/index.mjs'),
       sandbox: false,
@@ -386,6 +388,7 @@ function registerIpc(): void {
   ipcMain.handle('settings:patch', (e, patch: Partial<Settings>): Settings => {
     const next = store.patchSettings(patch)
     if (patch.appearance) applyWindowAppearance(next)
+    if (patch.appearance?.appIcon) applyAppIcon(next.appearance.appIcon, appWindows)
     broadcast('settings:changed', next, e.sender)
     return next
   })
@@ -436,13 +439,6 @@ function registerIpc(): void {
   ipcMain.handle('local-server:status', () => getLocalServerStatus())
   ipcMain.handle('local-server:start', () => startLocalServer())
   ipcMain.handle('local-server:stop', () => stopLocalServer())
-
-  ipcMain.handle('claude-code:preview', () => ({
-    path: getClaudeCodeConfigPath(),
-    env: buildClaudeCodeEnv()
-  }))
-  ipcMain.handle('claude-code:apply', () => applyClaudeCodeConfig())
-  ipcMain.handle('claude-code:reset', () => resetClaudeCodeConfig())
 
   ipcMain.handle('system:info', () => getSystemInfo())
   ipcMain.handle('github:pull-requests', () => shellPath.then(() => listPullRequests()))
@@ -652,15 +648,10 @@ app.whenReady().then(async () => {
     if (!SERVABLE_IMAGES.has(extname(path).toLowerCase())) return new Response('Not found', { status: 404 })
     return net.fetch(pathToFileURL(path).toString())
   })
-  // A packaged app gets its icon from the .icns baked into the bundle at
-  // build time (see electron-builder.yml) — this only matters for `npm run
-  // dev`, which would otherwise show the generic Electron icon in the Dock.
-  // `app.getAppPath()` resolves to `out/main` (not the project root) when
-  // launched as `electron out/main/index.js` rather than `electron .`, so
-  // this goes up from `here` the same way the preload path below does.
-  if (process.platform === 'darwin' && !app.isPackaged) {
-    app.dock?.setIcon(join(here, '../../resources/icon.png'))
-  }
+  // The Dock icon picked in Settings → Appearance. In a packaged app the
+  // default is the bundle's own icon; a dev run would otherwise show the
+  // generic Electron icon, so it always sets one (appIcon.ts).
+  applyAppIcon(store.getSettings().appearance.appIcon, appWindows)
   store.migrateWorkspaces()
   store.applyLaunchMode()
   if (process.env['EAON_CAPTURE']) {

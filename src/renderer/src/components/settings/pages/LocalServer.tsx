@@ -3,17 +3,24 @@ import { useShallow } from 'zustand/react/shallow'
 import { useApp } from '../../../state/store'
 import { Card, Row, Section, Select, Switch } from '../../ui'
 import type { LocalServerStatus } from '@shared/types'
+import type { GatewayInfo } from '@shared/gateway'
 
 export function LocalServerPage(): JSX.Element {
   const { settings, patchSettings } = useApp()
   const models = useApp(useShallow((s) => s.availableModels()))
   const [status, setStatus] = useState<LocalServerStatus>({ running: false, port: 1337, url: null })
   const [busy, setBusy] = useState(false)
+  const [gateway, setGateway] = useState<GatewayInfo | null>(null)
+  const [copied, setCopied] = useState(false)
 
   useEffect(() => {
     void window.api.localServer.status().then(setStatus)
     return window.api.localServer.onStatus(setStatus)
   }, [])
+  // The key and the model list; re-read when the server starts or stops.
+  useEffect(() => {
+    void window.api.gateway.info().then(setGateway)
+  }, [status.running])
 
   if (!settings) return <></>
   const local = settings.localServer
@@ -57,19 +64,47 @@ export function LocalServerPage(): JSX.Element {
             />
           </Row>
           <Row
-            title="Default Model Local API Server"
-            description="Model used when a request doesn't name one."
+            title="Default model"
+            description="Used when an app asks for a model Eaon doesn't have, like Claude Code's or Codex's own model names."
           >
             <Select
-              width={200}
-              value={local.defaultModelId ?? ''}
-              onChange={(value) => void patchSettings({ localServer: { defaultModelId: value || null } })}
+              width={220}
+              value={gateway?.defaultModel ?? ''}
+              onChange={(value) => void window.api.gateway.setDefaults({ defaultModel: value || null }).then(setGateway)}
               options={
-                models.length > 0
-                  ? models.map((m) => ({ value: m.id, label: m.label }))
-                  : [{ value: '', label: 'Select a local ...' }]
+                gateway && gateway.models.length > 0
+                  ? gateway.models.map((m) => ({ value: m.id, label: `${m.label} · ${m.providerName}` }))
+                  : [{ value: '', label: models.length ? 'Loading…' : 'No models yet' }]
               }
             />
+          </Row>
+          <Row title="Fast model" description="Used when an app asks for a small, fast model (a haiku or mini). Defaults to the model above.">
+            <Select
+              width={220}
+              value={gateway?.smallModel ?? ''}
+              onChange={(value) => void window.api.gateway.setDefaults({ smallModel: value || null }).then(setGateway)}
+              options={[
+                { value: '', label: 'Same as default' },
+                ...(gateway?.models ?? []).map((m) => ({ value: m.id, label: `${m.label} · ${m.providerName}` }))
+              ]}
+            />
+          </Row>
+          <Row title="Key" description="Apps connected to Eaon send this. Requests with no key still work; a wrong key is refused.">
+            <code className="code-settings__path" style={{ fontSize: 12 }}>
+              {gateway ? `${gateway.token.slice(0, 10)}…` : '…'}
+            </code>
+            <button
+              className="btn btn--ghost"
+              disabled={!gateway}
+              onClick={() => {
+                if (!gateway) return
+                void navigator.clipboard.writeText(gateway.token)
+                setCopied(true)
+                setTimeout(() => setCopied(false), 1500)
+              }}
+            >
+              {copied ? 'Copied' : 'Copy'}
+            </button>
           </Row>
         </Card>
       </Section>
@@ -98,8 +133,9 @@ export function LocalServerPage(): JSX.Element {
         </Card>
         {status.running && (
           <p className="settings__lede" style={{ marginTop: 12 }}>
-            Point any OpenAI-compatible client at <code>{status.url}/v1</code>. Requests use whichever provider key
-            you have configured. The server is bound to loopback only.
+            OpenAI-style apps use <code>{status.url}/v1</code>; Anthropic-style apps (Claude Code) use{' '}
+            <code>{status.url}</code>. Tools work in both. Models are named <code>provider/model</code>, and each
+            request uses the keys you saved in Eaon. The server only answers this computer.
           </p>
         )}
       </Section>

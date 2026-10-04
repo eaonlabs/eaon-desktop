@@ -6,7 +6,11 @@
 
 /* ================================================================ Faces */
 
-/* The body is a plain circle and never moves; only the eyes animate. */
+/* The body is a circle that only breathes; the eyes do the living. Their gaze
+   and blinks are scheduled per face in JS (useLivingEyes in WorkerFace.tsx)
+   with random timing, because a fixed CSS loop repeats visibly and keeps
+   every face on screen in step. CSS supplies the motion itself: the dart of
+   a glance, the shape of a blink. */
 .wf {
   display: block;
   flex: none;
@@ -14,17 +18,57 @@
 }
 .wf .wf-look {
   transition: transform 220ms var(--ease);
-  animation: wf-glance 11s ease-in-out infinite;
 }
-/* Following the pointer writes an inline transform; an animation would beat
-   it (animations outrank inline styles), so the glance stands down. */
+/* A glance: a fast dart that eases out, like a saccade, to wherever
+   useLivingEyes points --gx/--gy. */
+.wf .wf-gaze {
+  transform: translate(var(--gx, 0px), var(--gy, 0px));
+  transition: transform 150ms cubic-bezier(0.25, 0.9, 0.3, 1);
+}
+/* Following the pointer writes an inline transform on .wf-look; the eyes'
+   own glances stand down meanwhile so the two don't add up. */
 .wf .wf-look[data-following] {
   animation: none;
+}
+.wf .wf-look[data-following] .wf-gaze {
+  transform: none;
 }
 .wf .wf-eye {
   transform-box: fill-box;
   transform-origin: center;
-  animation: wf-blink 5.3s infinite;
+}
+/* A blink, when useLivingEyes sets data-blink: closes fast, opens a touch
+   slower. The second eye is a frame behind, as real eyes are. */
+.wf .wf-focus[data-blink] .wf-eye {
+  animation: wf-blink 180ms ease-in-out;
+}
+.wf .wf-focus[data-blink] .wf-eyes > g:nth-child(2) .wf-eye {
+  animation-delay: 14ms;
+}
+@keyframes wf-blink {
+  0%,
+  100% {
+    transform: scaleY(1);
+  }
+  38%,
+  52% {
+    transform: scaleY(0.08);
+  }
+}
+/* A wink (a click reaction): the right eye closes and holds while the left
+   smiles. */
+.wf .wf-focus[data-wink] .wf-eyes > g:nth-child(2) .wf-eye {
+  animation: wf-wink 1300ms ease-in-out both;
+}
+@keyframes wf-wink {
+  0%,
+  100% {
+    transform: scaleY(1);
+  }
+  12%,
+  78% {
+    transform: scaleY(0.1);
+  }
 }
 /* A new expression arrives with a blink rather than a cut: the eye group is
    keyed by mood, so it remounts and plays this once. */
@@ -33,74 +77,83 @@
   transform-origin: center;
   animation: wf-open 220ms var(--spring-fast);
 }
-.wf g:nth-child(2) > .wf-eye {
-  /* The eyes blink together; the second one is only ever a frame behind. */
-  animation-delay: 16ms;
-}
-
-@keyframes wf-blink {
-  0%,
-  93%,
-  100% {
-    transform: scaleY(1);
-  }
-  95.5% {
-    transform: scaleY(0.08);
-  }
-}
 @keyframes wf-open {
   from {
     transform: scaleY(0.1);
   }
 }
-@keyframes wf-glance {
-  0%,
-  18%,
-  100% {
-    transform: translate(0, 0);
+/* Surprise widens the eyes with a little overshoot; delight bounces them. */
+.wf[data-mood='surprised'] .wf-eyes {
+  animation: wf-startle 420ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@keyframes wf-startle {
+  from {
+    transform: scale(0.55);
   }
-  22%,
-  34% {
-    transform: translate(-3.2px, 0.4px);
+}
+.wf[data-mood='excited'] .wf-eyes {
+  animation: wf-delight 520ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@keyframes wf-delight {
+  0% {
+    transform: translateY(3px) scaleY(0.4);
   }
-  38%,
-  56% {
-    transform: translate(0, 0);
+  60% {
+    transform: translateY(-1.5px) scaleY(1.05);
   }
-  60%,
-  70% {
-    transform: translate(3px, -1.4px);
-  }
-  74% {
-    transform: translate(0, 0);
+}
+/* Sleepy: heavy lids, and the eyes drift rather than dart. */
+.wf[data-mood='sleepy'] .wf-gaze {
+  transition: transform 900ms ease-in-out;
+}
+.wf[data-mood='sleepy'] .wf-focus[data-blink] .wf-eye {
+  animation-duration: 470ms;
+}
+
+/* Breathing: a scale too small to notice except as "alive", each face at its
+   own phase (--breath-delay, random per face). Big faces only. */
+.wf .wf-body {
+  transform-box: view-box;
+  transform-origin: 50px 50px;
+}
+.wf[data-alive] .wf-body {
+  animation: wf-breath 4.8s ease-in-out var(--breath-delay, 0s) infinite alternate;
+}
+.wf[data-alive][data-mood='asleep'] .wf-body,
+.wf[data-alive][data-mood='sleepy'] .wf-body {
+  animation-duration: 6.4s;
+}
+@keyframes wf-breath {
+  to {
+    transform: scale(1.016);
   }
 }
 
-/* Busy: reading left to right, line after line. */
+/* Busy: reading left to right, pausing at each end of the line. It starts
+   and ends looking ahead, where the resting eyes usually are, so switching
+   to it eases off rather than jumping. */
 .wf[data-mood='serious'] .wf-look,
 .wf[data-busy] .wf-look {
-  animation: wf-scan 2.6s ease-in-out infinite;
+  animation: wf-scan 3.2s ease-in-out infinite;
 }
 @keyframes wf-scan {
   0%,
   100% {
-    transform: translate(-3.4px, 0.6px);
+    transform: translate(0, 0);
   }
-  45%,
-  55% {
-    transform: translate(3.4px, 0.6px);
+  22%,
+  38% {
+    transform: translate(-3.2px, 0.5px);
+  }
+  62%,
+  78% {
+    transform: translate(3.2px, 0.5px);
   }
 }
-.wf[data-mood='serious'] .wf-eye {
-  animation-duration: 7.9s;
-}
-
-/* Angry: a short tremble every few seconds, and no patience for blinking. */
+/* Angry: a short tremble every few seconds, and no patience for blinking
+   (useLivingEyes skips blinks). */
 .wf[data-mood='angry'] .wf-look {
   animation: wf-tremble 3.4s infinite;
-}
-.wf[data-mood='angry'] .wf-eye {
-  animation: none;
 }
 @keyframes wf-tremble {
   0%,
@@ -122,17 +175,9 @@
   }
 }
 
-/* Happy: bright, a quicker blink. */
-.wf[data-mood='happy'] .wf-eye {
-  animation-duration: 3.6s;
-}
-
 /* Asleep: closed eyes drifting with each slow breath. */
 .wf[data-mood='asleep'] .wf-look {
   animation: wf-breathe 4.2s ease-in-out infinite;
-}
-.wf[data-mood='asleep'] .wf-eye {
-  animation: none;
 }
 @keyframes wf-breathe {
   0%,
@@ -144,10 +189,159 @@
   }
 }
 
-/* Dead: nothing moves. */
-.wf[data-mood='dead'] .wf-look,
-.wf[data-mood='dead'] .wf-eye {
+/* Dead: nothing moves (no gaze, no blinks, no breath). */
+.wf[data-mood='dead'] .wf-look {
   animation: none;
+}
+
+/* ---- Working -------------------------------------------------------------
+   One orchestrated motion, not a pile of loops. When a turn starts the eyes
+   narrow into focus and the ring draws in around the face, both easing out
+   over about half a second; then the ring's arc chases round (a linear spin,
+   its length breathing in and out) until the turn ends. The body stays a
+   still circle the whole time.
+
+   Ending: finishing well brightens the track into a complete ring that
+   ripples outward and fades while the face pops once; stopping or failing
+   just fades the ring. WorkerFace keeps the ring mounted for RING_EXIT_MS so
+   these can play. */
+.wf .wf-focus {
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 320ms var(--ease);
+}
+.wf[data-busy] .wf-focus {
+  transform: scaleY(0.8);
+}
+.wf .wf-ring,
+.wf .wf-ring__spin {
+  transform-box: view-box;
+  transform-origin: 50px 50px;
+}
+.wf .wf-ring {
+  animation: wf-ring-in 480ms var(--ease) both;
+}
+@keyframes wf-ring-in {
+  from {
+    opacity: 0;
+    transform: scale(0.88);
+  }
+}
+.wf .wf-ring__track {
+  stroke-opacity: 0.18;
+}
+.wf .wf-ring__spin {
+  animation: wf-ring-spin 1.8s linear infinite;
+}
+@keyframes wf-ring-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+/* The arc grows from a dot to a third of the ring and its tail catches up,
+   so it never looks like a fixed segment sliding round. */
+.wf .wf-ring__arc {
+  stroke-dasharray: 1 150;
+  animation: wf-ring-arc 1.5s ease-in-out infinite;
+}
+@keyframes wf-ring-arc {
+  0% {
+    stroke-dasharray: 1 150;
+    stroke-dashoffset: 0;
+  }
+  50% {
+    stroke-dasharray: 34 150;
+    stroke-dashoffset: -10;
+  }
+  100% {
+    stroke-dasharray: 34 150;
+    stroke-dashoffset: -98;
+  }
+}
+.wf .wf-ring[data-ending='stopped'] {
+  animation: wf-ring-out 240ms ease-out forwards;
+}
+@keyframes wf-ring-out {
+  to {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+}
+.wf .wf-ring[data-ending='done'] {
+  animation: wf-ring-done 560ms var(--ease) forwards;
+}
+.wf .wf-ring[data-ending='done'] .wf-ring__track {
+  animation: wf-ring-fill 160ms ease-out forwards;
+}
+@keyframes wf-ring-done {
+  0%,
+  25% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.16);
+  }
+}
+@keyframes wf-ring-fill {
+  to {
+    stroke-opacity: 1;
+  }
+}
+.wf[data-done] .wf-body {
+  animation: wf-pop 520ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+@keyframes wf-pop {
+  0% {
+    transform: scale(1);
+  }
+  40% {
+    transform: scale(1.07);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+.wf .wf-attention {
+  stroke: var(--bg);
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: wf-ping 2.2s ease-out infinite;
+}
+@keyframes wf-ping {
+  0%,
+  70%,
+  100% {
+    transform: scale(1);
+  }
+  15% {
+    transform: scale(1.22);
+  }
+  30% {
+    transform: scale(0.96);
+  }
+}
+/* Arriving: drops in and bounces into place, staggered by the card's --i. */
+.wf[data-enter] {
+  animation: wf-enter 640ms cubic-bezier(0.34, 1.56, 0.64, 1) both;
+  animation-delay: calc(var(--i, 0) * 70ms);
+}
+@keyframes wf-enter {
+  0% {
+    transform: translateY(-14px) scale(0.4);
+    opacity: 0;
+  }
+  55% {
+    transform: translateY(2px) scale(1.08);
+    opacity: 1;
+  }
+  80% {
+    transform: translateY(0) scale(0.97);
+  }
+  100% {
+    transform: translateY(0) scale(1);
+  }
 }
 
 /* The global reduce-motion rule shrinks durations to ~0, which makes infinite
@@ -157,6 +351,10 @@ body[data-reduce-motion='on'] .wf *,
 body[data-reduce-motion='on'] .wf {
   animation: none !important;
   transition: none !important;
+}
+/* With nothing moving, the ring shows a fixed arc so it still reads as working. */
+body[data-reduce-motion='on'] .wf .wf-ring__arc {
+  stroke-dasharray: 26 150;
 }
 
 /* ================================================================ Team */

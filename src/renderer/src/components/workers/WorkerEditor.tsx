@@ -34,7 +34,7 @@ export function WorkerEditor({ workerId }: { workerId: string | null }): JSX.Ele
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
 
-  const mood: WorkerMood = focus === 'purpose' ? 'serious' : name.trim() ? 'happy' : 'neutral'
+  const mood: WorkerMood = focus === 'purpose' ? 'curious' : name.trim() ? 'happy' : 'neutral'
   const modelOptions = useMemo(() => {
     const duplicated = new Set(models.filter((m, i) => models.findIndex((o) => o.id === m.id) !== i).map((m) => m.id))
     return [

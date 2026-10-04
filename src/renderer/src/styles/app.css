@@ -400,6 +400,13 @@ a:hover {
   .mode-switch__option {
     padding: 0 11px;
   }
+  /* A side panel leaves the header little room: its buttons keep their icon (and title). */
+  .chat-header__actions .header-btn > span {
+    display: none;
+  }
+  .chat-header__actions .header-btn {
+    padding: 0 7px;
+  }
 }
 
 .nav-item {

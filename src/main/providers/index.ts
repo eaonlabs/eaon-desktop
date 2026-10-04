@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
-import type { ModelInfo, Provider } from '@shared/types'
+import type { ModelInfo, Provider, TokenUsage } from '@shared/types'
 import type { ModelEdit, ModelsRefresh } from '@shared/providers'
 import { secrets } from '../secrets'
 import { store, type ProviderOverride } from '../store'
@@ -94,16 +94,51 @@ const localRuntimeAdapter: Adapter = {
   }
 }
 
-export function adapterFor(provider: Provider): Adapter {
-  if (provider.id === LOCAL_PROVIDER_ID) return localRuntimeAdapter
+type UsageListener = (providerId: string, modelId: string, usage: TokenUsage) => void
+const usageListeners = new Set<UsageListener>()
+
+/**
+ * Called after every model request Eaon makes for itself, with what the
+ * provider billed. Settings → Usage counts these (features/usage).
+ */
+export function onModelUsage(listener: UsageListener): () => void {
+  usageListeners.add(listener)
+  return () => usageListeners.delete(listener)
+}
+
+function tracked(adapter: Adapter, provider: Provider): Adapter {
+  return {
+    ...adapter,
+    async turn(request) {
+      const result = await adapter.turn(request)
+      for (const listener of usageListeners) {
+        try {
+          listener(provider.id, request.modelId, result.usage)
+        } catch (error) {
+          console.error('[usage] listener failed:', error)
+        }
+      }
+      return result
+    }
+  }
+}
+
+/**
+ * The adapter for a provider. `track: false` leaves its requests out of
+ * Eaon's usage: the gateway's, which other apps make through Eaon and which
+ * are counted as those apps (Claude Code's by Tokn's own CLI), not twice.
+ */
+export function adapterFor(provider: Provider, options: { track?: boolean } = {}): Adapter {
   let adapter: Adapter
   const registered = extraAdapters.get(provider.kind)
-  if (registered) adapter = registered
+  if (provider.id === LOCAL_PROVIDER_ID) adapter = localRuntimeAdapter
+  else if (registered) adapter = registered
   else if (provider.kind === 'anthropic') {
     adapter = anthropicCompat(provider, provider.baseUrl, '', undefined).firstParty ? anthropicAdapter : anthropicCompatibleAdapter
   } else if (isMixedApiProvider(provider)) adapter = routerAdapter
   else adapter = openaiChatAdapter
-  return provider.auth === 'oauth' ? withFreshCredentials(adapter) : adapter
+  if (provider.auth === 'oauth') adapter = withFreshCredentials(adapter)
+  return options.track === false ? adapter : tracked(adapter, provider)
 }
 
 /**

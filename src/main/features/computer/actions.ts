@@ -28,7 +28,7 @@ export const ACTIONS = [
 export type ActionName = (typeof ACTIONS)[number]
 
 export type Action =
-  | { action: 'screenshot'; display?: number }
+  | { action: 'screenshot'; display?: number; app?: string; region?: [number, number, number, number]; saveTo?: string }
   | { action: 'click'; x: number; y: number; button: MouseButton; clicks: number }
   | { action: 'move'; x: number; y: number }
   | { action: 'drag'; x: number; y: number; toX: number; toY: number }
@@ -59,12 +59,97 @@ export const INPUT_ACTIONS: ReadonlySet<string> = new Set(['click', 'drag', 'typ
 /** Actions whose keystrokes go to whichever app has focus, so Eaon must not be it. */
 export const KEYBOARD_ACTIONS: ReadonlySet<string> = new Set(['type', 'key'])
 
+/**
+ * Other names for the same actions — chiefly Anthropic's computer-use
+ * vocabulary, which many models were trained on (`left_click`,
+ * `coordinate: [x, y]`, `scroll_direction`…) — so a call that means the same
+ * thing is taken rather than failed. Everything else is left as it came.
+ */
+const COMPUTER_ALIASES: Record<string, Record<string, unknown>> = {
+  left_click: { action: 'click', button: 'left' },
+  right_click: { action: 'click', button: 'right' },
+  middle_click: { action: 'click', button: 'middle' },
+  double_click: { action: 'click', clicks: 2 },
+  triple_click: { action: 'click', clicks: 3 },
+  tap: { action: 'click' },
+  mouse_move: { action: 'move' },
+  move_mouse: { action: 'move' },
+  hover: { action: 'move' },
+  left_click_drag: { action: 'drag' },
+  drag_and_drop: { action: 'drag' },
+  key_press: { action: 'key' },
+  keypress: { action: 'key' },
+  press_key: { action: 'key' },
+  press: { action: 'key' },
+  hotkey: { action: 'key' },
+  shortcut: { action: 'key' },
+  type_text: { action: 'type' },
+  write: { action: 'type' },
+  take_screenshot: { action: 'screenshot' },
+  capture: { action: 'screenshot' },
+  zoom: { action: 'screenshot' },
+  get_cursor_position: { action: 'cursor_position' },
+  mouse_position: { action: 'cursor_position' },
+  sleep: { action: 'wait' },
+  pause: { action: 'wait' },
+  launch_app: { action: 'open_app' },
+  open_application: { action: 'open_app' },
+  launch: { action: 'open_app' },
+  open: { action: 'open_app' }
+}
+
+const pair = (value: unknown): [number, number] | null =>
+  Array.isArray(value) && value.length >= 2 && value.slice(0, 2).every((n) => typeof n === 'number' && Number.isFinite(n)) ? [value[0], value[1]] : null
+
+/** A computer call in this tool's own terms. Pure; used before every check, so the rules see what will run. */
+export function normalizeComputerInput(input: Record<string, unknown>): Record<string, unknown> {
+  const raw = typeof input.action === 'string' ? input.action.trim().toLowerCase().replace(/[\s-]+/g, '_') : ''
+  const alias = COMPUTER_ALIASES[raw]
+  const out: Record<string, unknown> = { ...input, ...(alias ?? {}), action: alias ? alias.action : raw || input.action }
+  // An alias only fills what the call didn't say (a right_click with clicks: 2 keeps them).
+  for (const key of ['button', 'clicks'] as const) if (alias && input[key] !== undefined) out[key] = input[key]
+  const at = pair(input.coordinate) ?? pair(input.coordinates) ?? pair(input.position) ?? pair(input.point)
+  const from = pair(input.start_coordinate) ?? pair(input.from)
+  if (out.action === 'drag') {
+    if (from && at) Object.assign(out, { x: from[0], y: from[1], to_x: at[0], to_y: at[1] })
+    else {
+      const to = pair(input.to)
+      if (from) Object.assign(out, { x: from[0], y: from[1] })
+      if (to) Object.assign(out, { to_x: to[0], to_y: to[1] })
+    }
+  } else if (at && (out.x === undefined || out.y === undefined)) Object.assign(out, { x: at[0], y: at[1] })
+  // key: Anthropic's sends the combo as text.
+  if (out.action === 'key' && typeof out.keys !== 'string' && typeof out.key !== 'string' && typeof input.text === 'string') out.keys = input.text
+  if (out.action === 'open_app' && typeof out.app !== 'string') {
+    const app = [input.application, input.name, input.app_name, input.text].find((v) => typeof v === 'string' && v.trim())
+    if (app) out.app = app
+  }
+  if (out.action === 'scroll' && out.dx === undefined && out.dy === undefined && typeof input.scroll_direction === 'string') {
+    const amount = Math.max(1, Math.min(MAX_SCROLL, Math.round(Number(input.scroll_amount ?? input.amount ?? 3)) || 3))
+    const dir = input.scroll_direction.toLowerCase()
+    if (dir === 'up' || dir === 'down') out.dy = dir === 'down' ? amount : -amount
+    if (dir === 'left' || dir === 'right') out.dx = dir === 'right' ? amount : -amount
+  }
+  // zoom: a region given as two corners [x1, y1, x2, y2].
+  if (raw === 'zoom' && Array.isArray(input.region) && input.region.length === 4 && out.region === input.region) {
+    const [x1, y1, x2, y2] = input.region as number[]
+    if ([x1, y1, x2, y2].every((n) => typeof n === 'number')) out.region = [Math.min(x1, x2), Math.min(y1, y2), Math.abs(x2 - x1), Math.abs(y2 - y1)]
+  }
+  if (out.action === 'wait' && out.seconds === undefined && typeof input.duration === 'number') out.seconds = input.duration
+  return out
+}
+
 function actionName(input: Record<string, unknown>): string {
   return typeof input.action === 'string' ? input.action.trim().toLowerCase() : ''
 }
 
 export function isLookingAction(input: Record<string, unknown>): boolean {
   return LOOKING.has(actionName(input))
+}
+
+/** A screenshot saved to a file writes one; any other looking action changes nothing. */
+export function changesNothing(input: Record<string, unknown>): boolean {
+  return isLookingAction(input) && !(typeof input.save_to === 'string' && input.save_to.trim() !== '')
 }
 
 export function needsConfirmation(input: Record<string, unknown>): boolean {
@@ -93,10 +178,30 @@ export function parseAction(input: Record<string, unknown>): Action {
   const action = actionName(input)
   switch (action) {
     case 'screenshot': {
-      if (input.display === undefined || input.display === null) return { action }
-      const display = optionalInt(input, 'display', 0)
-      if (display < 0) throw new Error('"display" is a display number from 0 (the main display).')
-      return { action, display }
+      const out: Extract<Action, { action: 'screenshot' }> = { action }
+      if (input.display !== undefined && input.display !== null) {
+        const display = optionalInt(input, 'display', 0)
+        if (display < 0) throw new Error('"display" is a display number from 0 (the main display).')
+        out.display = display
+      }
+      if (input.app !== undefined && input.app !== null && input.app !== '') {
+        if (typeof input.app !== 'string' || !input.app.trim()) throw new Error('"app" is the name of an app with a window on screen, e.g. "iPhone Mirroring".')
+        out.app = input.app.trim()
+      }
+      if (input.region !== undefined && input.region !== null) {
+        const r = input.region
+        if (!Array.isArray(r) || r.length !== 4 || !r.every((n) => typeof n === 'number' && Number.isFinite(n))) {
+          throw new Error('"region" is [x, y, width, height] in the latest screenshot\'s pixels.')
+        }
+        out.region = [r[0], r[1], r[2], r[3]]
+      }
+      if (out.app && out.region) throw new Error('Pass "app" or "region", not both.')
+      if (out.display !== undefined && (out.app || out.region)) throw new Error('"display" takes a whole display; leave it out with "app" or "region".')
+      if (input.save_to !== undefined && input.save_to !== null && input.save_to !== '') {
+        if (typeof input.save_to !== 'string' || /[\0\n\r]/.test(input.save_to)) throw new Error('"save_to" is a file path (.png) or a folder.')
+        out.saveTo = input.save_to.trim()
+      }
+      return out
     }
     case 'click': {
       const button = input.button === undefined ? 'left' : String(input.button).toLowerCase()
@@ -161,7 +266,7 @@ export function parseAction(input: Record<string, unknown>): Action {
     case '':
       throw new Error(`"action" is required: one of ${ACTIONS.join(', ')}.`)
     default:
-      throw new Error(`Unknown action "${String(input.action)}". Use one of ${ACTIONS.join(', ')}.`)
+      throw new Error(`Unknown action "${String(input.action)}". Use one of ${ACTIONS.join(', ')}, with x and y in screenshot pixels.`)
   }
 }
 
@@ -204,6 +309,8 @@ export function describeAction(input: Record<string, unknown>): string {
       return `open ${String(input.app ?? '')}`
     case 'wait':
       return `wait ${String(input.seconds ?? 1)}s`
+    case 'screenshot':
+      return `screenshot${typeof input.app === 'string' && input.app ? ` of ${input.app}` : ''}${typeof input.save_to === 'string' && input.save_to ? ` → ${input.save_to}` : ''}`
     default:
       return `${action.replace('_', ' ')}${at}`
   }

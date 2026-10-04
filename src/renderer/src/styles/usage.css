@@ -1,0 +1,406 @@
+/* Settings → Usage (pages/Usage.tsx): Eaon's spend, tracked with Tokn. */
+
+.tokn-mark {
+  flex: none;
+  display: block;
+}
+
+/* ---- Signed out ---- */
+
+.usage-hero {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  padding: 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+}
+.usage-hero .tokn-mark {
+  border-radius: 10px;
+}
+.usage-hero__text {
+  min-width: 0;
+  flex: 1;
+}
+.usage-hero__title {
+  font-size: var(--fs-h2);
+  font-weight: 600;
+  color: var(--text);
+}
+.usage-hero__body {
+  margin: 4px 0 14px;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+.usage-hero__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.usage-hero__signin {
+  gap: 8px;
+}
+.usage-hero__signin .tokn-mark {
+  border-radius: 4px;
+}
+.usage-hero__hint {
+  margin: 10px 0 0;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.usage-paste {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+}
+.usage-paste .input {
+  flex: 1;
+  min-width: 0;
+}
+.usage-error {
+  margin: 10px 0 0;
+  color: var(--danger);
+  font-size: var(--fs-sm);
+}
+.usage-counted {
+  margin: 10px 2px 0;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+
+/* ---- Signed in ---- */
+
+.usage-account {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.usage-account .tokn-mark {
+  border-radius: 5px;
+}
+.usage-account__actions {
+  display: flex;
+  gap: 6px;
+}
+
+.usage-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  margin: 18px 0 12px;
+}
+
+.usage-tiles {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 22px;
+}
+@media (max-width: 760px) {
+  .usage-tiles {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+.usage-tile {
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface-1);
+  min-width: 0;
+}
+.usage-tile__label {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.usage-tile__value {
+  margin-top: 4px;
+  color: var(--text);
+  font-size: 20px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+/* One series, so no legend: the section label names it. Bars in the accent,
+   text in text colours, the axis recessive. */
+.usage-chart {
+  position: relative;
+  padding: 12px 14px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+}
+.usage-chart--empty {
+  padding: 22px 14px;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  text-align: center;
+}
+.usage-chart__readout {
+  height: 20px;
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.usage-chart__readout strong {
+  color: var(--text);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  margin-right: 4px;
+}
+.usage-chart__plot {
+  display: flex;
+  align-items: stretch;
+  height: 120px;
+  margin-top: 6px;
+  border-bottom: 1px solid var(--border);
+}
+/* The slot is the hover target: the whole column, not just the bar. */
+.usage-chart__slot {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: flex-end;
+  padding: 0 1px;
+}
+.usage-chart__bar {
+  width: 100%;
+  max-width: 22px;
+  margin: 0 auto;
+  border-radius: 4px 4px 0 0;
+  background: var(--accent);
+  opacity: 0.8;
+  transition:
+    opacity var(--dur) var(--ease),
+    height 320ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.usage-chart__slot[data-hover] .usage-chart__bar {
+  opacity: 1;
+}
+.usage-chart__plot:hover .usage-chart__slot:not([data-hover]) .usage-chart__bar {
+  opacity: 0.45;
+}
+.usage-chart__axis {
+  position: relative;
+  height: 20px;
+  color: var(--text-3);
+  font-size: var(--fs-xxs);
+}
+.usage-chart__axis span {
+  position: absolute;
+  top: 5px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+.usage-chart__axis span:first-child {
+  transform: none;
+  left: 0 !important;
+}
+.usage-chart__axis span:last-child:not(:first-child) {
+  transform: none;
+  left: auto !important;
+  right: 0;
+}
+
+/* ---- Activity: a year of days, one column per week ---- */
+
+.usage-heat {
+  padding: 12px 14px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+}
+.usage-heat__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.usage-heat__top .usage-chart__readout {
+  flex: 1;
+  min-width: 0;
+}
+.usage-heat__body {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 6px;
+  row-gap: 4px;
+}
+.usage-heat__months {
+  display: grid;
+  grid-template-columns: repeat(var(--weeks), minmax(0, 1fr));
+  column-gap: 3px;
+  height: 14px;
+  color: var(--text-3);
+  font-size: var(--fs-xxs);
+  line-height: 14px;
+}
+.usage-heat__months span {
+  grid-row: 1;
+  white-space: nowrap;
+  overflow: visible;
+}
+.usage-heat__weekdays {
+  display: grid;
+  grid-template-rows: repeat(7, minmax(0, 1fr));
+  row-gap: 3px;
+  color: var(--text-3);
+  font-size: 10px;
+}
+.usage-heat__weekdays span {
+  display: flex;
+  align-items: center;
+  line-height: 1;
+}
+.usage-heat__grid {
+  display: grid;
+  grid-template-rows: repeat(7, auto);
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 3px;
+}
+/* Empty days sit just above the panel; used days step up through the accent.
+   The accent is mixed into the surface, not made transparent, so the steps
+   read the same in every theme. */
+.usage-heat__cell {
+  display: block;
+  aspect-ratio: 1;
+  border-radius: 3px;
+  background: var(--surface-3);
+  transition: box-shadow var(--dur) var(--ease);
+}
+.usage-heat__cell[data-level='1'] {
+  background: color-mix(in srgb, var(--accent) 40%, var(--surface-2));
+}
+.usage-heat__cell[data-level='2'] {
+  background: color-mix(in srgb, var(--accent) 60%, var(--surface-2));
+}
+.usage-heat__cell[data-level='3'] {
+  background: color-mix(in srgb, var(--accent) 80%, var(--surface-2));
+}
+.usage-heat__cell[data-level='4'] {
+  background: var(--accent);
+}
+.usage-heat__grid .usage-heat__cell[data-hover] {
+  box-shadow: 0 0 0 1.5px var(--text);
+}
+/* The year fills in week by week from the left as the section opens. */
+.usage-heat__grid .usage-heat__cell {
+  animation: usage-heat-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(var(--w) * 9ms);
+}
+@keyframes usage-heat-in {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+}
+.usage-heat__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+  color: var(--text-3);
+  font-size: var(--fs-xxs);
+}
+.usage-heat__legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.usage-heat__legend .usage-heat__cell {
+  width: 10px;
+  margin: 0 1px;
+}
+.usage-heat__legend .usage-heat__cell:first-of-type {
+  margin-left: 5px;
+}
+.usage-heat__legend .usage-heat__cell:last-of-type {
+  margin-right: 5px;
+}
+
+.usage-tiles--activity {
+  margin: 8px 0 0;
+}
+.usage-tile__sub {
+  margin-top: 2px;
+  color: var(--text-3);
+  font-size: var(--fs-xxs);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.usage-table {
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+  overflow: hidden;
+}
+.usage-table__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 80px 80px 96px;
+  gap: 12px;
+  align-items: center;
+  padding: 9px 14px;
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.usage-table__row + .usage-table__row {
+  border-top: 1px solid var(--border);
+}
+.usage-table__row > span:not(:first-child) {
+  text-align: right;
+}
+.usage-table__row--head {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  padding-top: 8px;
+  padding-bottom: 8px;
+}
+.usage-table__model {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.usage-table__name {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.usage-table__via {
+  flex: none;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.usage-table__cost[data-muted] {
+  color: var(--text-3);
+}
+
+.usage-footnote {
+  margin: 14px 2px 0;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .usage-chart__bar {
+    transition: none;
+  }
+  .usage-heat__grid .usage-heat__cell {
+    animation: none;
+  }
+}

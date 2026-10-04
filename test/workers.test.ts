@@ -244,7 +244,7 @@ test('mail that arrives mid-turn waits for the next turn, and is read in one go'
 
 test(`at most two turns run at once, oldest waiting first`, async () => {
   const agent = heldAgent()
-  const { engine } = start(agent.runAgent)
+  const { engine } = start(agent.runAgent, { concurrency: 2 })
   const a = engine.save(draft('Ada'))
   const b = engine.save(draft('Bea'))
   const c = engine.save(draft('Cy'))
@@ -268,7 +268,7 @@ test(`at most two turns run at once, oldest waiting first`, async () => {
 
 test('a due heartbeat that cannot start yet waits quietly instead of spinning the timer', async () => {
   const agent = heldAgent()
-  const { engine } = start(agent.runAgent)
+  const { engine } = start(agent.runAgent, { concurrency: 2 })
   const a = engine.save(draft('Ada'))
   const b = engine.save(draft('Bea'))
   const c = engine.save(draft('Cy'))

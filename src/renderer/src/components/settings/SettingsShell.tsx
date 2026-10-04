@@ -7,8 +7,11 @@ import {
   Gamepad2,
   ArrowLeft,
   Binary,
+  Cable,
   AppWindow,
   AtSign,
+  BarChart3,
+  CreditCard,
   KeyRound,
   Mail,
   MessagesSquare,
@@ -18,7 +21,6 @@ import {
   ShieldCheck,
   SquarePlus,
   Sun,
-  Terminal,
   Wand2
 } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
@@ -36,13 +38,15 @@ import { PluginsSettingsPage } from './pages/Plugins'
 import { LocalServerPage } from './pages/LocalServer'
 import { SystemMonitorPage } from './pages/SystemMonitor'
 import { McpServersPage } from './pages/McpServers'
-import { ClaudeCodePage } from './pages/ClaudeCode'
+import { ConnectAppsPage } from './pages/ConnectApps'
 import { CodeIndexPage } from './pages/CodeIndex'
 import { BrowserExtensionPage } from './pages/BrowserExtension'
 import { EaonCodePage } from './pages/EaonCode'
 import { DiscordPage } from './pages/Discord'
 import { ChatAppsPage } from './pages/ChatApps'
 import { EmailPage } from './pages/Email'
+import { UsagePage } from './pages/Usage'
+import { PaymentsPage } from './pages/Payments'
 
 interface NavEntry {
   id: string
@@ -59,9 +63,11 @@ const NAV: NavEntry[] = [
   { id: 'appearance', label: 'Appearance', icon: <Sun size={size} strokeWidth={stroke} />, group: 'Personal' },
   { id: 'configuration', label: 'Configuration', icon: <ShieldCheck size={size} strokeWidth={stroke} />, group: 'Personal' },
   { id: 'shortcuts', label: 'Keyboard shortcuts', icon: <SquarePlus size={size} strokeWidth={stroke} />, group: 'Personal' },
+  { id: 'usage', label: 'Usage', icon: <BarChart3 size={size} strokeWidth={stroke} />, group: 'Personal' },
 
   { id: 'providers', label: 'Model providers', icon: <KeyRound size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'computer-use', label: 'Computer use', icon: <Wand2 size={size} strokeWidth={stroke} />, group: 'Integrations' },
+  { id: 'payments', label: 'Payments', icon: <CreditCard size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'browser-extension', label: 'Browser extension', icon: <Chrome size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'plugins', label: 'Plugins', icon: <AtSign size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'eaon-code', label: 'Eaon Code', icon: <Code2 size={size} strokeWidth={stroke} />, group: 'Integrations' },
@@ -70,7 +76,7 @@ const NAV: NavEntry[] = [
   { id: 'discord', label: 'Discord', icon: <Gamepad2 size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'browser', label: 'Browser', icon: <AppWindow size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'mcp', label: 'MCP Servers', icon: <Plug size={size} strokeWidth={stroke} />, group: 'Integrations' },
-  { id: 'claude-code', label: 'Claude Code', icon: <Terminal size={size} strokeWidth={stroke} />, group: 'Integrations' },
+  { id: 'connect-apps', label: 'Connect apps', icon: <Cable size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'code-index', label: 'Code index', icon: <Binary size={size} strokeWidth={stroke} />, group: 'Integrations' },
 
   { id: 'local-server', label: 'Local API Server', icon: <Server size={size} strokeWidth={stroke} />, group: 'Advanced' },
@@ -89,8 +95,10 @@ const PAGES: Record<string, () => JSX.Element> = {
   appearance: AppearancePage,
   configuration: ConfigurationPage,
   shortcuts: ShortcutsPage,
+  usage: UsagePage,
   providers: ProvidersPage,
   'computer-use': ComputerUsePage,
+  payments: PaymentsPage,
   'browser-extension': BrowserExtensionPage,
   'eaon-code': EaonCodePage,
   discord: DiscordPage,
@@ -99,7 +107,7 @@ const PAGES: Record<string, () => JSX.Element> = {
   plugins: PluginsSettingsPage,
   browser: BrowserSettingsPage,
   mcp: McpServersPage,
-  'claude-code': ClaudeCodePage,
+  'connect-apps': ConnectAppsPage,
   'code-index': CodeIndexPage,
   'local-server': LocalServerPage,
   system: SystemMonitorPage,

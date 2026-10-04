@@ -1,8 +1,10 @@
-import { readFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, writeFile } from 'node:fs/promises'
+import { dirname, isAbsolute, join, resolve } from 'node:path'
 import { BrowserWindow, type NativeImage } from 'electron'
 import type { BrowserInput } from '@shared/agentBrowser'
 import type { AgentTool, ToolSource } from '../../agent/tools'
 import type { NeutralImage } from '../../providers/adapters/types'
+import { purchaseCovers, redactPaymentSecrets } from '../payments/access'
 
 /**
  * Every worker's own web browser, driven through BetterWright
@@ -17,9 +19,10 @@ import type { NeutralImage } from '../../providers/adapters/types'
  * actions rather than raw Playwright code: small local models drive them
  * reliably, and each one is checked before it runs (see `catastrophic`).
  *
- * Pinned to 2.8.8. It declares Electron ≥ 43 as a peer; Eaon is on 33, where
- * everything used here was verified (open, snapshot, click by ref, type,
- * press, read, screenshot). Revisit when Eaon moves to a newer Electron.
+ * Pinned to 2.8.8, which declares Electron ≥ 43 as a peer; Eaon is on 43. One
+ * connection lasts for the browser's life: attaching re-points the session's
+ * proxy and cuts every open connection, so it must not happen per page (see
+ * `landed`).
  */
 
 type BetterWrightInstance = { run: (code: string) => Promise<{ result?: unknown; error?: string } | unknown>; close: () => Promise<void> }
@@ -97,6 +100,20 @@ const CURSOR_SCRIPT = `async ({ x, y, fromX, fromY, box, mode }) => {
 const SENSITIVE = /password|passcode|card ?number|credit card|\bcvc\b|\bcvv\d?\b|security code|expir|\biban\b|routing number|account number|one-time|verification code|\b2fa\b|\bpin\b/i
 const SPENDING = /\b(buy|purchase|pay|checkout|check out|place (?:your |my |the )?order|order now|complete (?:order|purchase|payment)|confirm (?:order|purchase|payment|booking)|book now|subscribe|donate|transfer|withdraw)\b/i
 
+/**
+ * Electron's default user agent as a plain Chrome would send it: without the
+ * app's name and the Electron token, and with the version reduced the way
+ * Chrome reduces it (`Chrome/146.0.0.0`).
+ */
+export function chromeUserAgent(electronAgent: string): string {
+  return electronAgent
+    .replace(/\s+Electron\/\S+/g, '')
+    .replace(/\s+(?!Chrome\/|Safari\/|AppleWebKit\/|Mozilla\/|Version\/|Mobile\/)[\w.-]+\/\d[\w.]*(?=\s+Chrome\/)/g, '')
+    .replace(/Chrome\/(\d+)\.[\d.]+/, 'Chrome/$1.0.0.0')
+    .replace(/\s{2,}/g, ' ')
+    .trim()
+}
+
 /** `- button "Sign in" [ref=e12]` → e12 → { role: button, name: Sign in }. */
 export function parseRefs(snapshot: string): Map<string, { role: string; name: string }> {
   const refs = new Map<string, { role: string; name: string }>()
@@ -157,6 +174,11 @@ export class WorkerBrowsers {
         backgroundThrottling: false
       }
     })
+    // Look like the Chrome it is. Electron's default agent names Electron and
+    // the app ("eaon-desktop/2026.6.0 … Electron/43.7.7"), which bot checks
+    // (Cloudflare, Akamai, Google sign-in) answer with a challenge, a block
+    // or a stripped-down page.
+    window.webContents.setUserAgent(chromeUserAgent(window.webContents.getUserAgent()))
     // Closing the window only hides it: the session, its logins and the
     // worker's place in a task survive the user looking away.
     window.on('close', (event) => {
@@ -197,6 +219,7 @@ export class WorkerBrowsers {
   async snapshot(workerId: string, diff = false): Promise<string> {
     const code = `return await snapshot({ interactive: true, maxChars: 20000${diff ? ', diff: true' : ''} })`
     let text = ''
+    let reattached = false
     // Caught between two pages (a click that navigates): again, once it has landed.
     for (let attempt = 0; ; attempt++) {
       try {
@@ -206,6 +229,14 @@ export class WorkerBrowsers {
         const transient = /context was destroyed|navigat|Target closed/i.test(String(error))
         if (transient && attempt < 2) {
           await new Promise((resolve) => setTimeout(resolve, 800))
+          continue
+        }
+        // A connection that lost track of its page (the old Electron 33 bug,
+        // should it come back): attach afresh, once, and look again.
+        if (!reattached && /does not match any element|Target closed|has been closed|detached/i.test(String(error))) {
+          reattached = true
+          await this.reattach(workerId)
+          attempt = -1
           continue
         }
         // Some pages (XHTML ones, like iana.org) can't be snapshotted: give their text instead.
@@ -224,25 +255,34 @@ export class WorkerBrowsers {
     const session = this.sessions.get(workerId)
     if (session && !diff) session.refs = parseRefs(text)
     else if (session) for (const [ref, info] of parseRefs(text)) session.refs.set(ref, info)
-    return clip(text)
+    // A checkout snapshot shows what was typed into each field, card number included.
+    return clip(redactPaymentSecrets(text))
   }
 
   /**
-   * After a step that navigated (a link to another site, back): wait for
-   * Electron to say the page has loaded, then reconnect BetterWright. On
-   * Electron 33, Playwright's view of a page that swapped renderer process
-   * goes stale — evaluate sees the new page, but snapshots and load waits
-   * don't — and a fresh connection to the same window sees it correctly. The
-   * page itself, its session and logins are untouched.
+   * After a step that navigated (a link to another site, back): wait until
+   * the new page is usable, through the same connection.
+   *
+   * This used to close BetterWright and attach afresh after every navigation
+   * — a workaround for Electron 33, where Playwright's view of a page that
+   * swapped renderer process went stale. It was the main reason sites loaded
+   * slowly or not at all: attaching points the session at that worker's own
+   * proxy and calls `closeAllConnections()`, so the page being loaded lost its
+   * proxy mid-flight, then had every in-flight request cut, on top of a new
+   * worker process starting each time. On Electron 43 the connection follows
+   * the navigation, so this only waits; `reattach` stays as the fallback for
+   * a connection that really did go stale (see `snapshot`).
    */
   async landed(workerId: string): Promise<void> {
     const session = this.sessions.get(workerId)
     if (!session || session.window.isDestroyed()) return
-    // Reconnect first — the old connection's view of a page that changed
-    // process is what hangs — then wait, through the fresh one, until the new
-    // page is usable. Straight away, too: the page's traffic goes through
-    // BetterWright's guard proxy, and with no connection it can't load.
-    await sleep(300)
+    await this.run(workerId, `await page.waitForFunction(() => document.readyState !== 'loading', null, { timeout: 12000 }).catch(() => {}); return 1`).catch(() => undefined)
+  }
+
+  /** Closes BetterWright and attaches afresh to the same window: for a connection that lost track of its page. */
+  private async reattach(workerId: string): Promise<void> {
+    const session = this.sessions.get(workerId)
+    if (!session || session.window.isDestroyed()) return
     session.queue = session.queue.then(async () => {
       const browser = session.browser
       session.browser = null
@@ -316,6 +356,13 @@ export class WorkerBrowsers {
    * a ref — the way into a page too big to snapshot whole.
    */
   async find(workerId: string, query: string): Promise<string> {
+    const found = await this.findRefs(workerId, query)
+    if (found.length === 0) return `Nothing on this page matches "${query}".`
+    return redactPaymentSecrets(found.map((el) => `- ${el.role} "${el.name}"${el.href ? ` (${el.href.slice(0, 80)})` : ''} [ref=${el.ref}]`).join('\n'))
+  }
+
+  /** The interactive elements matching `query`, each with a ref (`find-N`) usable until the next find. */
+  async findRefs(workerId: string, query: string): Promise<{ ref: string; role: string; name: string; href: string }[]> {
     const code =
       `return await page.evaluate((q) => { document.querySelectorAll('[data-eaon-find]').forEach((e) => e.removeAttribute('data-eaon-find')); const out = [];` +
       ` for (const el of document.querySelectorAll('a, button, input, textarea, select, [role=button], [role=link], [role=tab], [role=menuitem], [role=checkbox], [contenteditable=true]')) {` +
@@ -332,14 +379,38 @@ export class WorkerBrowsers {
     } catch {
       found = []
     }
-    if (found.length === 0) return `Nothing on this page matches "${query}".`
     const session = this.sessions.get(workerId)
-    return found
-      .map((el, i) => {
-        session?.refs.set(`find-${i}`, { role: el.role, name: el.name })
-        return `- ${el.role} "${el.name}"${el.href ? ` (${el.href.slice(0, 80)})` : ''} [ref=find-${i}]`
-      })
-      .join('\n')
+    return found.map((el, i) => {
+      session?.refs.set(`find-${i}`, { role: el.role, name: el.name })
+      return { ...el, ref: `find-${i}` }
+    })
+  }
+
+  /**
+   * Types a value the model must not see (a card number) into a ref. The
+   * value never comes back: errors have it blanked, and the caller returns
+   * no snapshot. A <select> (expiry month or year) gets the matching option.
+   */
+  async fillSecret(workerId: string, ref: string, value: string): Promise<void> {
+    if (!isRef(ref)) throw new Error(`"${ref}" is not a ref from your latest snapshot.`)
+    if (!this.window(workerId)) throw new Error('Your browser has no page open.')
+    if (this.controlled(workerId)) throw new Error('The user has taken control of your browser. Wait until they hand it back, then snapshot again.')
+    const locator = locatorFor(ref)
+    await this.pointAt(workerId, locator, 'type')
+    const v = js(value)
+    const code =
+      `const loc = ${locator}; const tag = await loc.evaluate((el) => el.tagName, null, { timeout: 10000 });` +
+      ` if (tag === 'SELECT') { const v = ${v}; const tries = [{ value: v }, { label: v }, { value: String(Number(v)) }, { label: String(Number(v)) }, { value: v.slice(-2) }, { label: v.slice(-2) }];` +
+      ` let ok = false; for (const t of tries) { try { await loc.selectOption(t, { timeout: 2000 }); ok = true; break } catch {} } if (!ok) throw new Error('no option in that list matched') }` +
+      ` else { await loc.click({ timeout: 10000 }); await loc.fill('', { timeout: 10000 }).catch(() => {});` +
+      ` if (typeof loc.pressSequentially === 'function') await loc.pressSequentially(${v}, { delay: 35, timeout: 20000 }); else await loc.fill(${v}, { timeout: 10000 }) }` +
+      ` return 'ok'`
+    try {
+      await this.run(workerId, code)
+    } catch (error) {
+      const message = String((error as Error)?.message ?? error)
+      throw new Error(`Could not type into ${ref}: ${value ? message.split(value).join('••••') : message}`)
+    }
   }
 
   /** What the latest snapshot says a ref is, for judging a step before it runs. */
@@ -351,6 +422,44 @@ export class WorkerBrowsers {
     const text = await this.run(workerId, `const shot = await screenshot({ annotate: true, type: 'jpeg', quality: 70 }); return shot.path`)
     const path = text.replace(/^"|"$/g, '')
     return { mime: 'image/jpeg', data: (await readFile(path)).toString('base64') }
+  }
+
+  /**
+   * A clean PNG of the page, no ref boxes, copied to `dest`. With `fullPage`
+   * it first scrolls through the page so lazy images load, then captures the
+   * whole scrollable length.
+   */
+  async saveScreenshot(workerId: string, dest: string, fullPage: boolean): Promise<void> {
+    const warm = fullPage
+      ? `await page.evaluate(async () => { const step = innerHeight || 800; for (let y = 0; y < document.documentElement.scrollHeight && y < 30000; y += step) { scrollTo(0, y); await new Promise((r) => setTimeout(r, 120)) } scrollTo(0, 0) }).catch(() => {}); await page.waitForTimeout(300);`
+      : ''
+    const text = await this.run(workerId, `${warm} const shot = await screenshot({ fullPage: ${fullPage}, type: 'png' }); return shot.path`)
+    await mkdir(dirname(dest), { recursive: true })
+    await copyFile(text.replace(/^"|"$/g, ''), dest)
+  }
+
+  async title(workerId: string): Promise<string> {
+    return (await this.run(workerId, 'return await page.title()')).replace(/^"|"$/g, '')
+  }
+
+  /**
+   * Links on the page that stay on `site` (a hostname, subdomains allowed),
+   * without fragments, de-duplicated and capped in the page so the list fits
+   * one result.
+   */
+  async siteLinks(workerId: string, site: string): Promise<string[]> {
+    const code =
+      `return await page.evaluate((site) => { const out = new Set(); let size = 0; for (const a of document.querySelectorAll('a[href]')) {` +
+      ` let u; try { u = new URL(a.href, location.href) } catch { continue } if (!/^https?:$/.test(u.protocol)) continue;` +
+      ` const host = u.hostname.replace(/^www\\./, ''); if (host !== site && !host.endsWith('.' + site)) continue; u.hash = '';` +
+      ` if (u.href.length > 300) continue; out.add(u.href); size += u.href.length + 3; if (size > 9000) break } return [...out] }, ${js(site)})`
+    try {
+      let parsed: unknown = JSON.parse(await this.run(workerId, code))
+      if (typeof parsed === 'string') parsed = JSON.parse(parsed)
+      return Array.isArray(parsed) ? parsed.filter((u): u is string => typeof u === 'string') : []
+    } catch {
+      return []
+    }
   }
 
   /** The user's view of a worker's browser: shown to watch or to sign in; hidden again after. */
@@ -567,6 +676,62 @@ const KEY_CODES: Record<string, string> = {
 const str = (value: unknown): string => (typeof value === 'string' ? value : '')
 const js = (value: string): string => JSON.stringify(value)
 
+/* ------------------------------------------------------------ site capture */
+
+export const MAX_CAPTURE_PAGES = 200
+const DEFAULT_CAPTURE_PAGES = 30
+
+/** Files, not pages; and links whose mere opening signs out, unsubscribes or deletes. */
+const NOT_A_PAGE = /\.(pdf|zip|gz|tgz|dmg|exe|msi|pkg|apk|png|jpe?g|gif|svg|webp|ico|mp[34]|mov|webm|wav|xml|json|css|js|txt|csv|xlsx?|docx?|pptx?)$/i
+const DANGEROUS_PATH = /\/(log-?out|sign-?out|logoff|unsubscribe|delete|remove|deactivate|cancel(?:-account|-subscription)?)(\/|$|\?)/i
+
+/** The page a link stands for: no fragment, no trailing slash, and no query unless asked to keep it. */
+export function normalizeCrawlUrl(raw: string, keepQuery: boolean): string | null {
+  let url: URL
+  try {
+    url = new URL(raw)
+  } catch {
+    return null
+  }
+  if (!/^https?:$/.test(url.protocol)) return null
+  url.hash = ''
+  if (!keepQuery) url.search = ''
+  if (url.pathname.length > 1) url.pathname = url.pathname.replace(/\/+$/, '')
+  return url.href
+}
+
+/** Whether a crawl should leave this link alone. */
+export function skipCrawl(url: string): boolean {
+  try {
+    const { pathname } = new URL(url)
+    return NOT_A_PAGE.test(pathname) || DANGEROUS_PATH.test(pathname)
+  } catch {
+    return true
+  }
+}
+
+/** "003-pricing-plans.png" for the third page, /pricing/plans. */
+export function captureFileName(index: number, url: string): string {
+  let path = ''
+  try {
+    path = new URL(url).pathname
+  } catch {
+    /* falls back to "home" */
+  }
+  const slug = path.replace(/^\/+|\/+$/g, '').replace(/[^a-z0-9]+/gi, '-').replace(/^-|-$/g, '').toLowerCase().slice(0, 60) || 'home'
+  return `${String(index).padStart(3, '0')}-${slug}.png`
+}
+
+/** A path the agent gave, made absolute against its working folder. */
+export function resolveOutPath(cwd: string, path: string): string {
+  return isAbsolute(path) ? path : resolve(cwd, path)
+}
+
+function stamp(at = new Date()): string {
+  const p = (n: number): string => String(n).padStart(2, '0')
+  return `${at.getFullYear()}${p(at.getMonth() + 1)}${p(at.getDate())}-${p(at.getHours())}${p(at.getMinutes())}`
+}
+
 export interface BrowserToolOptions {
   /** Whose browser a call drives: a worker's id, or the chat agent's fixed one. Null refuses the call. */
   idOf: (ctx: Parameters<AgentTool['run']>[1]) => string | null
@@ -574,6 +739,115 @@ export interface BrowserToolOptions {
   signInHint: string
   /** Each step as it starts and ends — the chat agent's live view shows them. */
   onStep?: (ctx: Parameters<AgentTool['run']>[1], step: { action: string; detail: string; done: boolean }) => void
+}
+
+export const BROWSER_ACTIONS = ['open', 'snapshot', 'find', 'click', 'type', 'select', 'press', 'scroll', 'back', 'reload', 'wait', 'read', 'screenshot', 'capture_site'] as const
+
+/**
+ * What models call these actions when they guess — many learned other
+ * browser tools ("navigate", "goto", "new_tab", Playwright's "fill"…). A
+ * guess that means the same thing is taken rather than failed.
+ */
+const ACTION_ALIASES: Record<string, { action: string; direction?: 'up' | 'down' }> = {
+  navigate: { action: 'open' },
+  goto: { action: 'open' },
+  go_to: { action: 'open' },
+  go: { action: 'open' },
+  visit: { action: 'open' },
+  new_tab: { action: 'open' },
+  open_tab: { action: 'open' },
+  open_url: { action: 'open' },
+  open_page: { action: 'open' },
+  load: { action: 'open' },
+  browse: { action: 'open' },
+  tap: { action: 'click' },
+  click_element: { action: 'click' },
+  click_link: { action: 'click' },
+  click_button: { action: 'click' },
+  press_button: { action: 'click' },
+  fill: { action: 'type' },
+  input: { action: 'type' },
+  type_text: { action: 'type' },
+  enter_text: { action: 'type' },
+  write: { action: 'type' },
+  fill_input: { action: 'type' },
+  select_option: { action: 'select' },
+  choose: { action: 'select' },
+  dropdown: { action: 'select' },
+  key: { action: 'press' },
+  keypress: { action: 'press' },
+  press_key: { action: 'press' },
+  send_keys: { action: 'press' },
+  keyboard: { action: 'press' },
+  scroll_down: { action: 'scroll', direction: 'down' },
+  scroll_up: { action: 'scroll', direction: 'up' },
+  page_down: { action: 'scroll', direction: 'down' },
+  page_up: { action: 'scroll', direction: 'up' },
+  go_back: { action: 'back' },
+  navigate_back: { action: 'back' },
+  previous: { action: 'back' },
+  refresh: { action: 'reload' },
+  sleep: { action: 'wait' },
+  pause: { action: 'wait' },
+  wait_for: { action: 'wait' },
+  get_text: { action: 'read' },
+  read_page: { action: 'read' },
+  extract: { action: 'read' },
+  extract_text: { action: 'read' },
+  get_content: { action: 'read' },
+  get_page_content: { action: 'read' },
+  look: { action: 'snapshot' },
+  observe: { action: 'snapshot' },
+  get_elements: { action: 'snapshot' },
+  accessibility_tree: { action: 'snapshot' },
+  find_text: { action: 'find' },
+  find_element: { action: 'find' },
+  search_page: { action: 'find' },
+  locate: { action: 'find' },
+  take_screenshot: { action: 'screenshot' },
+  capture: { action: 'screenshot' },
+  crawl: { action: 'capture_site' },
+  screenshot_site: { action: 'capture_site' }
+}
+
+const pick = (input: Record<string, unknown>, ...keys: string[]): string => {
+  for (const key of keys) {
+    const value = input[key]
+    if (typeof value === 'string' && value.trim()) return value
+    if (typeof value === 'number') return String(value)
+  }
+  return ''
+}
+
+/**
+ * A call as the tool understands it: the action under its own name, and the
+ * usual other names for its arguments (`href`, `element`, `value`…) folded in.
+ */
+export function normalizeBrowserInput(input: Record<string, unknown>): Record<string, unknown> {
+  const raw = str(input.action).trim().toLowerCase().replace(/[\s-]+/g, '_')
+  const alias = ACTION_ALIASES[raw]
+  const action = alias?.action ?? raw
+  const out: Record<string, unknown> = { ...input, action }
+  if (alias?.direction && !input.direction) out.direction = alias.direction
+  const url = pick(input, 'url', 'href', 'link', 'address', 'uri')
+  if (url) out.url = url
+  else if (action === 'open' && /^(https?:\/\/|www\.|[\w-]+\.[a-z]{2,}(\/|$))/i.test(pick(input, 'text', 'query', 'target').trim())) out.url = pick(input, 'text', 'query', 'target').trim()
+  const ref = pick(input, 'ref', 'element', 'element_ref', 'elementRef', 'ref_id', 'id', 'target')
+  if (isRef(ref.trim())) out.ref = ref.trim()
+  const text = pick(input, 'text', 'value', 'content', 'query', 'search')
+  if (text && action !== 'open') out.text = text
+  const key = pick(input, 'key', 'keys')
+  if (key) out.key = key
+  if (action === 'scroll' && !out.direction) out.direction = /up/i.test(pick(input, 'dir', 'amount')) ? 'up' : 'down'
+  return out
+}
+
+/** The words a call names its element by when it has no ref: the visible text, or a field's label. */
+function targetWords(input: Record<string, unknown>): string {
+  const action = str(input.action)
+  return action === 'type' || action === 'select'
+    ? pick(input, 'label', 'field', 'placeholder', 'name', 'selector')
+    : pick(input, 'label', 'name', 'selector') || (action === 'click' ? str(input.text) : '')
 }
 
 /** The `web_browser` tool over `browsers`, for whichever agent `idOf` names. */
@@ -585,36 +859,54 @@ export function browserTool(browsers: WorkerBrowsers, options: BrowserToolOption
   }
   const tool: AgentTool = {
     name: 'web_browser',
-    description: `Your own web browser (a real one, with your own saved logins). open {url} → an interactive snapshot where every element has a ref; then click {ref}, type {ref, text, submit?}, press {key}, scroll {direction}, back, read (the page text), find {text} (refs of the links/buttons matching words — for big pages), snapshot, or screenshot (an image, when layout matters). Refs change when the page changes: act on the latest snapshot. ${options.signInHint}`,
+    description: `Your own web browser (a real one, with your own saved logins). open {url} (also for a new page — there are no tabs) → an interactive snapshot where every element has a ref; then click {ref}, type {ref, text, submit?}, select {ref, text} (a dropdown option), press {key}, scroll {direction}, back, reload, wait {seconds}, read (the page text), find {text} (refs of the links/buttons matching words — for big pages), snapshot, or screenshot (an image, when layout matters; with save_to it saves a clean PNG file instead, full_page for the whole scrollable page). capture_site {url, max_pages?, folder?} opens a site and saves a full-page screenshot of every page it links to on the same site, with an index — use it when the user wants screenshots of a whole site. Refs change when the page changes: act on the latest snapshot. ${options.signInHint}`,
     inputSchema: {
       type: 'object',
       properties: {
-        action: { type: 'string', enum: ['open', 'snapshot', 'find', 'click', 'type', 'press', 'scroll', 'back', 'read', 'screenshot'] },
+        action: { type: 'string', enum: [...BROWSER_ACTIONS] },
+        seconds: { type: 'number', description: 'wait: how long (default 2, at most 30)' },
         url: { type: 'string' },
         ref: { type: 'string', description: 'e.g. "e12", from the latest snapshot' },
         text: { type: 'string' },
         submit: { type: 'boolean', description: 'type: press Enter after' },
         key: { type: 'string', description: 'press: e.g. "Enter", "Escape", "ArrowDown"' },
-        direction: { type: 'string', enum: ['up', 'down'] }
+        direction: { type: 'string', enum: ['up', 'down'] },
+        save_to: { type: 'string', description: 'screenshot: a .png path (relative to the work folder) to save a clean screenshot to' },
+        full_page: { type: 'boolean', description: 'screenshot with save_to / capture_site: the whole scrollable page (capture_site defaults to true)' },
+        max_pages: { type: 'integer', description: `capture_site: most pages to capture (default ${DEFAULT_CAPTURE_PAGES}, at most ${MAX_CAPTURE_PAGES})` },
+        folder: { type: 'string', description: 'capture_site: folder for the screenshots (default screenshots/<site>-<date> in the work folder)' },
+        keep_query: { type: 'boolean', description: 'capture_site: treat ?query variants as separate pages (default false)' }
       },
       required: ['action']
     },
-    mutating: (input) => !['snapshot', 'read', 'screenshot'].includes(str(input.action)),
+    // A screenshot saved to a file writes one; looking doesn't.
+    mutating: (raw) => {
+      const input = normalizeBrowserInput(raw)
+      return !['snapshot', 'read', 'wait'].includes(str(input.action)) && !(str(input.action) === 'screenshot' && !str(input.save_to))
+    },
     // Clicks and typing reach other people's services; a Careful worker is asked (and refused).
-    risky: (input) => ['click', 'type', 'press'].includes(str(input.action)),
+    risky: (raw) => ['click', 'type', 'select', 'press'].includes(str(normalizeBrowserInput(raw).action)),
     // Never alone: typing a password, card number or code, or pressing a button that spends money.
-    catastrophic: (input, ctx) => {
+    catastrophic: (raw, ctx) => {
+      const input = normalizeBrowserInput(raw)
       const action = str(input.action)
       if (action !== 'type' && action !== 'click' && action !== 'press') return false
       const id = options.idOf(ctx)
       if (!id) return false
       const el = browsers.describe(id, input.ref)
-      if (action === 'type') return !el || SENSITIVE.test(el.name) || /password/i.test(el.role)
-      if (action === 'click') return !el || SPENDING.test(el.name)
+      // No ref: the element is found by the words given, so judge by those words.
+      const name = el?.name ?? targetWords(input)
+      if (action === 'type') return (!el && !name) || SENSITIVE.test(name) || /password/i.test(el?.role ?? '')
+      // A purchase authorized for this site through payment_card already had its say.
+      if (action === 'click') return (!el && !name) || (SPENDING.test(name) && !purchaseCovers(ctx.request.chatId, browsers.url(id)))
       return false
     },
-    describe: (input) => [str(input.action), str(input.url) || str(input.ref) || str(input.key)].filter(Boolean).join(' '),
-    run: async (input, ctx) => {
+    describe: (raw) => {
+      const input = normalizeBrowserInput(raw)
+      return [str(input.action), str(input.url) || str(input.ref) || targetWords(input) || str(input.key)].filter(Boolean).join(' ')
+    },
+    run: async (raw, ctx) => {
+      const input = normalizeBrowserInput(raw)
       const id = self(ctx)
       const action = str(input.action)
       // The user has the wheel: wait until they hand it back, then don't act
@@ -635,16 +927,116 @@ export function browserTool(browsers: WorkerBrowsers, options: BrowserToolOption
       const detail = str(input.url) || (target ? `${target.role} "${target.name}"` : str(input.ref)) || str(input.key) || str(input.text)
       options.onStep?.(ctx, { action, detail, done: false })
       try {
-        return await step(id, action, input)
+        return await step(id, action, input, ctx)
       } finally {
         options.onStep?.(ctx, { action, detail, done: true })
       }
     }
   }
 
-  async function step(id: string, action: string, input: Record<string, unknown>): Promise<Awaited<ReturnType<AgentTool['run']>>> {
-    const ref = str(input.ref)
-    if (['click', 'type'].includes(action) && !isRef(ref)) return { text: `${action} needs a ref like "e12" from the latest snapshot.`, isError: true }
+  type Ctx = Parameters<AgentTool['run']>[1]
+
+  /**
+   * Breadth-first over the site's own links from `start`: each page opened,
+   * scrolled through and saved as a full-page PNG, then an index.md that
+   * lists them. Links that would sign out, unsubscribe or delete are never
+   * opened, and neither are files.
+   */
+  async function captureSite(id: string, input: Record<string, unknown>, ctx: Ctx): Promise<string> {
+    let start = str(input.url).trim() || browsers.url(id)
+    if (!start || start === 'about:blank') throw new Error('capture_site needs a url.')
+    if (!/^[a-z][\w+.-]*:/i.test(start)) start = `https://${start}`
+    const keepQuery = input.keep_query === true
+    const first = normalizeCrawlUrl(start, keepQuery)
+    if (!first) throw new Error('Only http(s) sites can be captured.')
+    const site = new URL(first).hostname.replace(/^www\./, '')
+    const requested = Math.round(Number(input.max_pages ?? DEFAULT_CAPTURE_PAGES))
+    const max = Math.min(MAX_CAPTURE_PAGES, Math.max(1, Number.isFinite(requested) ? requested : DEFAULT_CAPTURE_PAGES))
+    const fullPage = input.full_page !== false
+    const folder = resolveOutPath(ctx.cwd, str(input.folder).trim() || join('screenshots', `${site}-${stamp()}`))
+    await mkdir(folder, { recursive: true })
+
+    const queue = [first]
+    const seen = new Set(queue)
+    const saved: { url: string; title: string; file: string }[] = []
+    const failed: { url: string; error: string }[] = []
+    while (queue.length > 0 && saved.length < max) {
+      if (ctx.signal.aborted) break
+      if (browsers.controlled(id)) await browsers.waitForUser(id, ctx.signal)
+      const url = queue.shift()!
+      try {
+        await browsers.open(id, url)
+        const landed = browsers.url(id)
+        const host = new URL(landed).hostname.replace(/^www\./, '')
+        if (host !== site && !host.endsWith(`.${site}`)) {
+          failed.push({ url, error: `went to another site (${host})` })
+          continue
+        }
+        const file = captureFileName(saved.length + 1, landed)
+        await browsers.saveScreenshot(id, join(folder, file), fullPage)
+        saved.push({ url: landed, title: await browsers.title(id).catch(() => ''), file })
+        seen.add(normalizeCrawlUrl(landed, keepQuery) ?? landed)
+        ctx.progress(`Captured ${saved.length} of up to ${max}: ${landed}`)
+        for (const link of await browsers.siteLinks(id, site)) {
+          const next = normalizeCrawlUrl(link, keepQuery)
+          if (next && !seen.has(next) && !skipCrawl(next)) {
+            seen.add(next)
+            queue.push(next)
+          }
+        }
+      } catch (error) {
+        if (ctx.signal.aborted) break
+        failed.push({ url, error: String((error as Error)?.message ?? error).slice(0, 160) })
+      }
+    }
+
+    const index = [
+      `# Screenshots of ${site}`,
+      '',
+      `Captured ${saved.length} page${saved.length === 1 ? '' : 's'} on ${new Date().toLocaleString()}.`,
+      '',
+      ...saved.map((s, i) => `${i + 1}. [${s.title || s.url}](${s.file}) — ${s.url}`),
+      ...(failed.length ? ['', '## Not captured', '', ...failed.map((f) => `- ${f.url}: ${f.error}`)] : [])
+    ].join('\n')
+    await writeFile(join(folder, 'index.md'), `${index}\n`)
+
+    const left = queue.length
+    return [
+      `Saved ${saved.length} full-page screenshot${saved.length === 1 ? '' : 's'} of ${site} to ${folder} (index.md lists them).`,
+      ...saved.slice(0, 40).map((s) => `- ${s.file}: ${s.title || s.url}`),
+      saved.length > 40 ? `- …and ${saved.length - 40} more` : '',
+      failed.length ? `${failed.length} page${failed.length === 1 ? '' : 's'} could not be captured (listed in index.md).` : '',
+      left > 0 ? `Stopped at the ${max}-page limit with ${left} more link${left === 1 ? '' : 's'} found; raise max_pages to go further.` : '',
+      ctx.signal.aborted ? 'Stopped by the user before finishing.' : ''
+    ]
+      .filter(Boolean)
+      .join('\n')
+  }
+
+  /**
+   * The ref for a click or a field named by its words instead of a ref: the
+   * one match, or the one whose name is exactly those words. Otherwise the
+   * matches, for the model to pick from.
+   */
+  async function resolveRef(id: string, action: string, words: string): Promise<{ ref: string } | { text: string; isError: true }> {
+    const fields = action === 'type' || action === 'select'
+    const found = (await browsers.findRefs(id, words)).filter((el) => !fields || /textbox|combobox|searchbox|textarea|input|select/i.test(el.role))
+    const exact = found.filter((el) => el.name.trim().toLowerCase() === words.trim().toLowerCase())
+    const only = exact.length === 1 ? exact[0] : found.length === 1 ? found[0] : null
+    if (only) return { ref: only.ref }
+    if (found.length === 0) return { text: `${action} needs a ref like "e12" from the latest snapshot; nothing on this page matches "${words}". Take a snapshot and use a ref from it.`, isError: true }
+    return { text: `More than one element matches "${words}"; ${action} the one you mean by its ref:\n${found.map((el) => `- ${el.role} "${el.name}" [ref=${el.ref}]`).join('\n')}`, isError: true }
+  }
+
+  async function step(id: string, action: string, input: Record<string, unknown>, ctx: Ctx): Promise<Awaited<ReturnType<AgentTool['run']>>> {
+    let ref = str(input.ref)
+    if (['click', 'type', 'select'].includes(action) && !isRef(ref)) {
+      const words = targetWords(input)
+      if (!words) return { text: `${action} needs a ref like "e12" from the latest snapshot.`, isError: true }
+      const resolved = await resolveRef(id, action, words)
+      if ('isError' in resolved) return resolved
+      ref = resolved.ref
+    }
     const locator = isRef(ref) ? locatorFor(ref) : ''
     switch (action) {
       case 'open': {
@@ -685,9 +1077,35 @@ export function browserTool(browsers: WorkerBrowsers, options: BrowserToolOption
           if (moved) await browsers.landed(id)
           return browsers.snapshot(id, !moved)
         }
+      case 'select': {
+        const value = str(input.text) || str(input.option)
+        if (!value) return { text: 'select needs text: the option to choose.', isError: true }
+        await browsers.pointAt(id, locator, 'click')
+        const v = js(value)
+        await browsers.run(
+          id,
+          `const loc = ${locator}; const tries = [{ label: ${v} }, { value: ${v} }]; let ok = false; for (const t of tries) { try { await loc.selectOption(t, { timeout: 3000 }); ok = true; break } catch {} }` +
+            ` if (!ok) throw new Error('no option called ' + ${v} + ' in that list'); await page.waitForTimeout(400); return 'ok'`
+        )
+        return browsers.snapshot(id, true)
+      }
       case 'press':
         await browsers.run(id, `await page.keyboard.press(${js(str(input.key) || 'Enter')}); await page.waitForTimeout(500); return 'ok'`)
         return browsers.snapshot(id, true)
+      case 'wait': {
+        const seconds = Math.min(30, Math.max(0.5, Number(input.seconds ?? input.duration ?? 2) || 2))
+        await new Promise<void>((resolve, reject) => {
+          const timer = setTimeout(resolve, seconds * 1000)
+          ctx.signal.addEventListener('abort', () => (clearTimeout(timer), reject(new Error('Stopped by the user.'))), { once: true })
+        })
+        return browsers.snapshot(id, true)
+      }
+      case 'reload': {
+        const url = browsers.url(id)
+        if (!url || url === 'about:blank') return { text: 'There is no page to reload. open one first.', isError: true }
+        await browsers.open(id, url)
+        return browsers.snapshot(id)
+      }
       case 'scroll':
         await browsers.run(id, `await page.mouse.wheel(0, ${str(input.direction) === 'up' ? -900 : 900}); await page.waitForTimeout(300); return 'ok'`)
         return browsers.snapshot(id)
@@ -699,10 +1117,18 @@ export function browserTool(browsers: WorkerBrowsers, options: BrowserToolOption
           await browsers.run(id, `return (await page.title()) + '\\n' + page.url() + '\\n\\n' + (await page.evaluate(() => document.body?.innerText ?? '')).slice(0, 20000)`),
           20_000
         )
-      case 'screenshot':
-        return { text: 'Screenshot of your browser (refs are drawn on it).', images: [await browsers.screenshot(id)] }
+      case 'screenshot': {
+        const saveTo = str(input.save_to).trim()
+        if (!saveTo) return { text: 'Screenshot of your browser (refs are drawn on it).', images: [await browsers.screenshot(id)] }
+        if (!browsers.window(id)) return { text: 'Your browser has no page open.', isError: true }
+        const dest = resolveOutPath(ctx.cwd, /\.png$/i.test(saveTo) ? saveTo : `${saveTo.replace(/\/+$/, '')}/${captureFileName(1, browsers.url(id))}`)
+        await browsers.saveScreenshot(id, dest, input.full_page === true)
+        return `Saved a ${input.full_page === true ? 'full-page' : 'viewport'} screenshot of ${browsers.url(id)} to ${dest}.`
+      }
+      case 'capture_site':
+        return captureSite(id, input, ctx)
       default:
-        return { text: `Unknown action "${action}".`, isError: true }
+        return { text: `Unknown action "${action}". Use one of: ${BROWSER_ACTIONS.join(', ')}. To go to a page (or a "new tab"), use open {url}.`, isError: true }
     }
   }
   return tool

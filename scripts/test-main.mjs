@@ -42,7 +42,8 @@ await build({
   jsx: 'automatic',
   alias: {
     electron: join(root, 'test/stubs/electron.ts'),
-    '@shared': join(root, 'src/shared')
+    '@shared': join(root, 'src/shared'),
+    '@main': join(root, 'src/main')
   },
   // Real dependencies load from node_modules as they do in the app.
   packages: 'external',

@@ -156,7 +156,8 @@ export const defaultSettings: Settings = {
     pointerCursors: false,
     reduceMotion: 'system',
     fontSize: 14,
-    fontSmoothing: true
+    fontSmoothing: true,
+    appIcon: 'default'
   },
   configuration: {
     configScope: 'User config',
@@ -182,7 +183,9 @@ export const defaultSettings: Settings = {
   localServer: {
     autoStart: false,
     port: 1337,
-    defaultModelId: null
+    defaultModelId: null,
+    smallModelId: null,
+    token: null
   },
   claudeCode: {
     largeModelId: null,

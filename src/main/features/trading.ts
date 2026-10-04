@@ -1,4 +1,5 @@
 import type { BarRange, ExitRequest, OrderRequest, StartSessionRequest, TradingScheduleDraft } from '@shared/trading'
+import type { StreamEvent } from '@shared/types'
 import { runAgent } from '../agent/loop'
 import { registerToolSource } from '../agent/tools'
 import { secrets } from '../secrets'
@@ -67,6 +68,19 @@ function throttle(fn: () => void, ms: number): { call: () => void; cancel: () =>
   }
 }
 
+/** Orders and sessions wait for the trading disclaimer. The CLI turns this on before the engine starts; the desktop doesn't. */
+let disclaimerRequired = false
+export function requireTradingDisclaimer(): void {
+  disclaimerRequired = true
+}
+
+/** Listeners for the session agent's stream events (the CLI's desk shows each step). The desktop has none. */
+const agentListeners = new Set<(sessionId: string, event: StreamEvent) => void>()
+export function onTradingAgentEvent(fn: (sessionId: string, event: StreamEvent) => void): () => void {
+  agentListeners.add(fn)
+  return () => agentListeners.delete(fn)
+}
+
 export const tradingFeature: Feature = {
   id: 'trading',
   register: (ctx) => {
@@ -104,7 +118,11 @@ export const tradingFeature: Feature = {
       saveSim: (state) => store.setJsonAsync(FILES.sim, state),
       loadExits: () => store.getJson<unknown>(FILES.exits, {}),
       saveExits: (exits) => store.setJson(FILES.exits, exits),
-      onChange: push.call
+      onChange: push.call,
+      onAgentEvent: (sessionId, event) => {
+        for (const fn of agentListeners) fn(sessionId, event)
+      },
+      requireDisclaimer: () => disclaimerRequired
     })
     engine = trading
     trading.load()
@@ -138,6 +156,17 @@ export const tradingFeature: Feature = {
     ipcMain.handle('trading:remove-schedule', (_e, id: string) => trading.removeSchedule(String(id ?? '')))
     ipcMain.handle('trading:start-session', (_e, request: StartSessionRequest) => trading.startSession(request ?? ({} as StartSessionRequest)))
     ipcMain.handle('trading:stop-session', (_e, id: string) => trading.stopSession(String(id ?? '')))
+    ipcMain.handle('trading:check-now', (_e, id: string) => trading.checkNow(String(id ?? '')))
+    ipcMain.handle('trading:tell-session', (_e, id: string, text: string) => trading.tellSession(String(id ?? ''), String(text ?? '')))
+    // A session Claude Code runs, through Eaon's MCP server: its checks, decisions, orders and the steps the feed shows.
+    ipcMain.handle('trading:wait-check', (_e, id: string, maxWaitMs?: number) => trading.waitForCheck(String(id ?? ''), Number(maxWaitMs) || undefined))
+    ipcMain.handle('trading:wait-session', (_e, maxWaitMs?: number) => trading.waitForSession(Number(maxWaitMs) || undefined))
+    ipcMain.handle('trading:log-decision', (_e, id: string, text: string) => trading.logDecision(String(id ?? ''), String(text ?? '')))
+    ipcMain.handle('trading:session-order', (_e, id: string, request: OrderRequest) => trading.sessionOrder(String(id ?? ''), request ?? ({} as OrderRequest)))
+    ipcMain.handle('trading:external-tool', (_e, name: string, input: Record<string, unknown>, output: string, ok: boolean) =>
+      trading.recordExternalTool(String(name ?? ''), input ?? {}, String(output ?? ''), ok !== false)
+    )
+    ipcMain.handle('trading:accept-disclaimer', (_e, version: number) => trading.acceptDisclaimer(Number(version)))
     // Not in the original list: lets the desk say it is on screen, for 30-second refreshes.
     ipcMain.handle('trading:desk-open', (_e, open: boolean) => trading.setDeskOpen(open === true))
 

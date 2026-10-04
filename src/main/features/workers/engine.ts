@@ -7,6 +7,9 @@ import type { ChatMessage, Settings, StreamEvent } from '@shared/types'
 import {
   MAX_GOAL_CHARS,
   MAX_NOTES_CHARS,
+  MAX_ROOM_MEMBERS,
+  MAX_ROOM_POSTS,
+  MAX_ROOMS,
   MAX_ROUTINES,
   MAX_TURNS_PER_HOUR,
   MAX_WORKERS,
@@ -27,7 +30,11 @@ import {
   type WorkerMail,
   type WorkerMood,
   type WorkerSendOptions,
-  type WorkerThread
+  type WorkerThread,
+  type RoomPost,
+  type WorkerHandoff,
+  type WorkerRoom,
+  type WorkerTemplate
 } from '@shared/workers'
 import type { GuestAccess } from '@shared/channels'
 import { summariseReply } from '../scheduler/transcript'
@@ -77,6 +84,11 @@ export interface WorkersDeps {
   reachOut?: (worker: Worker, message: { title: string; body: string }) => void
   /** Describes a trading worker's account for its prompt (features/trading/access). */
   tradingVenue?: (via: string) => TradingVenue | null
+  /** Group chats: where they are kept, and who is told when they change. */
+  loadRooms?: () => unknown
+  saveRooms?: (data: RoomsFile) => void
+  onRoomsChange?: (rooms: WorkerRoom[]) => void
+  onRoomPost?: (roomId: string, post: RoomPost) => void
   now?: () => number
   stallMs?: number
   maxTurnsPerHour?: number
@@ -100,6 +112,23 @@ export interface WorkerObserver {
   notified?: (worker: Worker, message: { title: string; body: string }) => void
 }
 
+/** What `worker-rooms.json` holds. `seen` is, per room, when each member last caught up. */
+export interface RoomsFile {
+  rooms: WorkerRoom[]
+  posts: Record<string, RoomPost[]>
+  seen: Record<string, Record<string, number>>
+}
+
+/** A new team: specialists to create (from templates or written out), colleagues to add, and a first message. */
+export interface TeamDraft {
+  name: string
+  roles: (Pick<WorkerTemplate, 'role' | 'purpose' | 'personality'> & { color?: string; name?: string })[]
+  /** Existing workers to add to the team's group chat. */
+  memberIds?: string[]
+  kickoff?: string
+  model?: { providerId: string; modelId: string } | null
+}
+
 interface Running {
   controller: AbortController
   messageId: string
@@ -117,6 +146,8 @@ interface Running {
   /** The user's mail or "Wake now" started it — worth a notification. */
   userTriggered: boolean
   stoppedByUser: boolean
+  /** Rooms the worker posted to itself this turn (post_to_room); its reply isn't posted there again. */
+  postedRooms: Set<string>
 }
 
 const TICK_MS = 30_000
@@ -131,7 +162,14 @@ const MAX_SENDS_PER_HOUR = 30
 const MAX_CREATED_PER_DAY = 2
 const MAX_TRANSFER_BYTES = 500 * 1024 * 1024
 const HINT_MS = 30 * 60_000
-const HINT_MOODS: WorkerMood[] = ['neutral', 'happy', 'serious', 'angry']
+const MAX_OPEN_HANDOFFS = 20
+/** Workers may wake each other this many times in a room before the user posts again. */
+export const MAX_ROOM_CHAIN = 8
+/** Room context and shared thread excerpts stay small: they go into a prompt. */
+const CONTEXT_CHARS = 4000
+const POST_CHARS = 8000
+/** Moods a worker may pick with set_status. The rest (sleepy, asleep, dead) describe its state and are only derived. */
+export const HINT_MOODS: WorkerMood[] = ['neutral', 'happy', 'excited', 'serious', 'curious', 'surprised', 'sad', 'angry']
 
 const clone = <T>(value: T): T => structuredClone(value)
 const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error))
@@ -220,8 +258,10 @@ function normalize(raw: Partial<Worker> & { id: string; name: string }, now: num
     lastOutcome: raw.lastOutcome ?? null,
     lastError: typeof raw.lastError === 'string' ? raw.lastError : null,
     inbox: Array.isArray(raw.inbox) ? raw.inbox : [],
+    handoffs: Array.isArray(raw.handoffs) ? raw.handoffs.filter((h) => h && typeof h.id === 'string' && typeof h.task === 'string') : [],
     unread: typeof raw.unread === 'number' ? raw.unread : 0,
-    runningMessageId: typeof raw.runningMessageId === 'string' ? raw.runningMessageId : null
+    runningMessageId: typeof raw.runningMessageId === 'string' ? raw.runningMessageId : null,
+    runningRooms: []
   }
 }
 
@@ -269,10 +309,60 @@ function stableJson(value: unknown): string {
   return JSON.stringify(value)
 }
 
+/** The text of a message, tool calls named but not shown — for sharing a thread with a colleague. */
+function messageText(message: ChatMessage): string {
+  const out: string[] = []
+  const tools: string[] = []
+  for (const part of message.parts) {
+    if (part.type === 'text' && part.text.trim()) out.push(part.text.trim())
+    else if (part.type === 'tool') tools.push(part.name)
+  }
+  if (tools.length) out.push(`[used ${[...new Set(tools)].join(', ')}]`)
+  return out.join('\n')
+}
+
+/** The answer a turn ended on: the text after its last tool call, without the narration before it. */
+export function finalReply(message: ChatMessage): string {
+  const parts: string[] = []
+  for (let i = message.parts.length - 1; i >= 0; i--) {
+    const part = message.parts[i]
+    if (part.type === 'tool') break
+    if (part.type === 'text') parts.unshift(part.text)
+  }
+  return parts.join('').trim()
+}
+
+const clip = (text: string, max: number): string => (text.length > max ? `${text.slice(0, max - 1).trimEnd()}…` : text)
+
+function normalizeRooms(raw: unknown, workerIds: Set<string>): RoomsFile {
+  const v = (raw && typeof raw === 'object' ? raw : {}) as Partial<RoomsFile>
+  const rooms = (Array.isArray(v.rooms) ? v.rooms : [])
+    .filter((r): r is WorkerRoom => !!r && typeof r.id === 'string' && typeof r.name === 'string')
+    .map((r) => ({
+      id: r.id,
+      name: r.name,
+      members: (Array.isArray(r.members) ? r.members : []).filter((m) => workerIds.has(m)),
+      createdAt: typeof r.createdAt === 'number' ? r.createdAt : 0,
+      lastAt: typeof r.lastAt === 'number' ? r.lastAt : 0,
+      unread: typeof r.unread === 'number' ? r.unread : 0
+    }))
+  const posts: Record<string, RoomPost[]> = {}
+  const seen: Record<string, Record<string, number>> = {}
+  for (const room of rooms) {
+    const list = v.posts?.[room.id]
+    posts[room.id] = Array.isArray(list) ? list.filter((p) => p && typeof p.id === 'string').slice(-MAX_ROOM_POSTS) : []
+    seen[room.id] = v.seen?.[room.id] && typeof v.seen[room.id] === 'object' ? { ...v.seen[room.id] } : {}
+  }
+  return { rooms, posts, seen }
+}
+
 export class WorkersEngine {
   /** One-time approvals from answered `approve` questions, per worker. */
   private grants = new Map<string, { tool: string; input: string; expires: number }[]>()
   private workers: Worker[] = []
+  private roomsFile: RoomsFile = { rooms: [], posts: {}, seen: {} }
+  /** Per room, how many times workers have woken each other since the user last posted there. */
+  private readonly roomChains = new Map<string, number>()
   private readonly threads = new Map<string, WorkerThread>()
   private readonly running = new Map<string, Running>()
   private readonly inflight = new Set<Promise<void>>()
@@ -313,6 +403,7 @@ export class WorkersEngine {
     }
     this.createdLog = this.workers.filter((w) => w.createdBy !== null).map((w) => w.createdAt)
     this.deps.saveWorkers(this.workers)
+    this.roomsFile = normalizeRooms(this.deps.loadRooms?.() ?? null, new Set(this.workers.map((w) => w.id)))
   }
 
   start(): void {
@@ -348,6 +439,7 @@ export class WorkersEngine {
       if (worker) {
         worker.status = worker.paused ? 'paused' : 'idle'
         worker.runningMessageId = null
+        worker.runningRooms = []
         worker.lastError = 'Interrupted when Eaon quit'
       }
     }
@@ -456,6 +548,7 @@ export class WorkersEngine {
       lastOutcome: null,
       lastError: null,
       inbox: [],
+      handoffs: [],
       unread: 0,
       runningMessageId: null
     }
@@ -480,6 +573,10 @@ export class WorkersEngine {
     this.wakes.delete(id)
     this.turnLog.delete(id)
     this.sentLog.delete(id)
+    if (this.roomsFile.rooms.some((r) => r.members.includes(id))) {
+      for (const room of this.roomsFile.rooms) room.members = room.members.filter((m) => m !== id)
+      this.commitRooms()
+    }
     this.commit()
     await this.deps.deleteThread(id)
   }
@@ -620,7 +717,13 @@ export class WorkersEngine {
    * folder (`from-<sender>/`), so each worker only ever works in its own
    * folder, and the mail lists where they landed.
    */
-  async message(fromId: string, to: string, text: string, files: string[] = []): Promise<{ recipient: Worker; delivered: string[] }> {
+  async message(
+    fromId: string,
+    to: string,
+    text: string,
+    files: string[] = [],
+    options: { shareContext?: boolean; extra?: Partial<WorkerMail> } = {}
+  ): Promise<{ recipient: Worker; delivered: string[] }> {
     const sender = this.require(fromId)
     const target = this.lookup(to)
     if (!target) throw new Error(`There is no worker called "${to}". Use list_workers to see your colleagues.`)
@@ -628,11 +731,42 @@ export class WorkersEngine {
     const body = text.trim()
     if (!body && files.length === 0) throw new Error('The message is empty.')
     const now = this.now()
-    const sent = (this.sentLog.get(sender.id) ?? []).filter((at) => at > now - HOUR)
+    const sent = this.checkSendBudget(sender.id, now)
+    const delivered = await this.copyFiles(sender, target, files)
+
+    // The copy took time; either side may have been removed meanwhile.
+    const recipient = this.find(target.id)
+    const from = this.find(sender.id)
+    if (!recipient) throw new Error(`${target.name} was removed while the files were being sent.`)
+    this.sentLog.set(sender.id, [...sent, now])
+    const context = options.shareContext ? this.threadExcerpt(sender.id, 10, CONTEXT_CHARS) : ''
+    this.deliverMail(recipient, {
+      id: randomUUID(),
+      from: sender.id,
+      fromName: from?.name ?? sender.name,
+      fromColor: from?.color ?? sender.color,
+      text: body,
+      files: delivered,
+      at: now,
+      ...(context ? { context } : {}),
+      ...options.extra
+    })
+    this.commit()
+    this.tick()
+    return { recipient: clone(recipient), delivered }
+  }
+
+  /** Sends left in the hour, or a model-facing error when the cap is reached. */
+  private checkSendBudget(id: string, now: number): number[] {
+    const sent = (this.sentLog.get(id) ?? []).filter((at) => at > now - HOUR)
     if (sent.length >= MAX_SENDS_PER_HOUR) {
       throw new Error(`You have sent ${MAX_SENDS_PER_HOUR} messages in the last hour. Wait before sending more, and batch what you need into one message.`)
     }
+    return sent
+  }
 
+  /** Copies files from the sender's folder into `<target>/from-<sender>/`; the paths they landed at. */
+  private async copyFiles(sender: Worker, target: Worker, files: string[]): Promise<string[]> {
     const sources = files.map((file) => (isAbsolute(file) ? file : resolve(sender.folder, file)))
     let total = 0
     for (const source of sources) {
@@ -650,28 +784,317 @@ export class WorkersEngine {
         delivered.push(dest)
       }
     }
+    return delivered
+  }
 
-    // The copy took time; either side may have been removed meanwhile.
-    const recipient = this.find(target.id)
-    const from = this.find(sender.id)
-    if (!recipient) throw new Error(`${target.name} was removed while the files were being sent.`)
-    this.sentLog.set(sender.id, [...sent, now])
-    this.deliverMail(recipient, {
-      id: randomUUID(),
-      from: sender.id,
-      fromName: from?.name ?? sender.name,
-      fromColor: from?.color ?? sender.color,
-      text: body,
-      files: delivered,
-      at: now
+  /**
+   * The last `count` messages of a worker's thread as plain text — what the
+   * user and colleagues told it, what it said, which tools it used — for a
+   * colleague to read instead of being told everything again.
+   */
+  threadExcerpt(id: string, count: number, maxChars = CONTEXT_CHARS): string {
+    const worker = this.require(id)
+    const thread = this.thread(id)
+    const lines: string[] = []
+    for (const message of thread.messages.slice(-Math.max(1, Math.min(count, 40)))) {
+      const text = messageText(message)
+        // The turn's clock line is noise to anyone else.
+        .replace(/^\[[A-Z][a-z]{2}, [A-Z][a-z]{2} \d{1,2}, \d{1,2}:\d{2} [AP]M\]\n?/, '')
+        .trim()
+      if (!text) continue
+      lines.push(`${message.role === 'user' ? 'Incoming' : worker.name}: ${clip(text, 900)}`)
+    }
+    if (thread.summary && lines.length < count) lines.unshift(`(Earlier, summarised) ${clip(thread.summary.text, 800)}`)
+    const joined = lines.join('\n\n')
+    return joined.length > maxChars ? `…${joined.slice(-maxChars)}` : joined
+  }
+
+  /* ---------------------------------------------------------------- handoffs */
+
+  /**
+   * One worker hands another a task. The recipient gets the task, the
+   * sender's recent thread (so it needn't ask what's going on) and any
+   * files, and keeps the task open until it reports back with
+   * finish_handoff — which sends the result straight to the sender.
+   */
+  async handOff(fromId: string, to: string, task: string, files: string[] = [], shareContext = true): Promise<{ recipient: Worker; handoff: WorkerHandoff; delivered: string[] }> {
+    const sender = this.require(fromId)
+    const target = this.lookup(to)
+    if (!target) throw new Error(`There is no worker called "${to}". Use list_workers to see your colleagues.`)
+    const body = task.trim()
+    if (!body) throw new Error('Say what the task is.')
+    if (target.handoffs.length >= MAX_OPEN_HANDOFFS) throw new Error(`${target.name} already has ${MAX_OPEN_HANDOFFS} open tasks. Wait for some to finish.`)
+    const handoff: WorkerHandoff = { id: `task_${randomUUID().slice(0, 8)}`, fromId: sender.id, fromName: sender.name, task: clip(body, 2000), at: this.now() }
+    const { recipient, delivered } = await this.message(fromId, to, body, files, { shareContext, extra: { handoff: { id: handoff.id, task: handoff.task } } })
+    const live = this.find(recipient.id)
+    if (live) {
+      live.handoffs.push(handoff)
+      this.commit()
+    }
+    return { recipient, handoff, delivered }
+  }
+
+  /** The recipient reports back on a handed-off task; the result goes to whoever handed it over. */
+  async finishHandoff(byId: string, handoffId: string, result: string, files: string[] = [], ok = true): Promise<string> {
+    const worker = this.require(byId)
+    const handoff = worker.handoffs.find((h) => h.id === handoffId.trim())
+    if (!handoff) {
+      const open = worker.handoffs.map((h) => `${h.id} (from ${h.fromName})`).join(', ')
+      throw new Error(`No open task "${handoffId}".${open ? ` Open tasks: ${open}.` : ' You have no open tasks.'}`)
+    }
+    const close = (): void => {
+      const live = this.find(byId)
+      if (live) live.handoffs = live.handoffs.filter((h) => h.id !== handoff.id)
+      this.commit()
+    }
+    const sender = this.find(handoff.fromId)
+    if (!sender) {
+      close()
+      return `Closed ${handoff.id}. ${handoff.fromName} no longer exists, so the result went nowhere.`
+    }
+    // Sent first: if sending fails (the hourly cap), the task stays open to try again.
+    await this.message(byId, sender.id, result.trim() || (ok ? 'Done.' : 'Could not finish it.'), files, {
+      extra: { handoffResult: { id: handoff.id, task: handoff.task, ok } }
     })
+    close()
+    return `Sent the result to ${sender.name} and closed ${handoff.id}.`
+  }
+
+  /* -------------------------------------------------------------- group chats */
+
+  rooms(): WorkerRoom[] {
+    return clone(this.roomsFile.rooms)
+  }
+
+  roomPosts(roomId: string): RoomPost[] {
+    this.requireRoom(roomId)
+    return clone(this.roomsFile.posts[roomId] ?? [])
+  }
+
+  /** Rooms a worker is in, as the model sees them. */
+  roomsOf(workerId: string): WorkerRoom[] {
+    return clone(this.roomsFile.rooms.filter((r) => r.members.includes(workerId)))
+  }
+
+  /** Creates a group chat, or updates the one `draft.id` names. */
+  saveRoom(draft: { id?: string; name: string; members: string[] }): WorkerRoom {
+    const name = str(draft.name).replace(/\s+/g, ' ').slice(0, 60)
+    if (!name) throw new Error('Give the group chat a name.')
+    const members = [...new Set((Array.isArray(draft.members) ? draft.members : []).filter((id) => this.has(id)))]
+    if (members.length === 0) throw new Error('Add at least one worker.')
+    if (members.length > MAX_ROOM_MEMBERS) throw new Error(`A group chat can have up to ${MAX_ROOM_MEMBERS} workers.`)
+    const existing = draft.id ? this.roomsFile.rooms.find((r) => r.id === draft.id) : undefined
+    if (draft.id && !existing) throw new Error('That group chat no longer exists.')
+    if (existing) {
+      existing.name = name
+      existing.members = members
+      this.commitRooms()
+      return clone(existing)
+    }
+    if (this.roomsFile.rooms.length >= MAX_ROOMS) throw new Error(`You can have up to ${MAX_ROOMS} group chats.`)
+    const now = this.now()
+    const room: WorkerRoom = { id: randomUUID(), name, members, createdAt: now, lastAt: now, unread: 0 }
+    this.roomsFile.rooms.push(room)
+    this.roomsFile.posts[room.id] = []
+    // Members start caught up: nothing before they joined is news.
+    this.roomsFile.seen[room.id] = Object.fromEntries(members.map((m) => [m, now]))
+    this.commitRooms()
+    return clone(room)
+  }
+
+  removeRoom(roomId: string): void {
+    this.requireRoom(roomId)
+    this.roomsFile.rooms = this.roomsFile.rooms.filter((r) => r.id !== roomId)
+    delete this.roomsFile.posts[roomId]
+    delete this.roomsFile.seen[roomId]
+    this.commitRooms()
+  }
+
+  markRoomRead(roomId: string): void {
+    const room = this.requireRoom(roomId)
+    if (room.unread === 0) return
+    room.unread = 0
+    this.commitRooms()
+  }
+
+  /**
+   * The user posts in a group chat. Every member hears it — or, when it
+   * @mentions some of them, only those — with what was said since each last
+   * caught up. Their replies come back to the room.
+   */
+  postAsUser(roomId: string, text: string, files: string[] = []): RoomPost {
+    const room = this.requireRoom(roomId)
+    const body = str(text)
+    const paths = (Array.isArray(files) ? files : []).filter((f): f is string => typeof f === 'string' && f.length > 0)
+    if (!body && paths.length === 0) throw new Error('Write a message first.')
+    const members = room.members.map((id) => this.find(id)).filter((w): w is Worker => !!w)
+    const mentioned = mentionedWorkers(body, members)
+    const post = this.addPost(room, { from: 'user', fromName: 'You', text: body, files: paths, mentions: mentioned.map((w) => w.id) })
+    room.unread = 0
+    this.roomChains.delete(room.id)
+    for (const member of mentioned.length > 0 ? mentioned : members) {
+      this.deliverMail(member, {
+        id: randomUUID(),
+        from: 'user',
+        fromName: 'You',
+        text: body,
+        files: paths,
+        at: post.at,
+        room: { id: room.id, name: room.name },
+        ...this.catchUp(room, member.id, post.id)
+      })
+    }
+    this.commitRooms()
     this.commit()
     this.tick()
-    return { recipient: clone(recipient), delivered }
+    return clone(post)
+  }
+
+  /**
+   * A worker posts in a group chat it is in. Colleagues it @mentions are woken
+   * with the post (and files copied to them); everyone else reads it the next
+   * time they are spoken to in the room. That keeps a room from talking
+   * itself into a loop.
+   */
+  async postAsWorker(workerId: string, roomRef: string, text: string, files: string[] = []): Promise<{ room: WorkerRoom; woke: string[] }> {
+    const worker = this.require(workerId)
+    const key = roomRef.trim().toLowerCase()
+    const room = this.roomsFile.rooms.find((r) => r.members.includes(workerId) && (r.id === roomRef.trim() || r.name.toLowerCase() === key))
+    if (!room) {
+      const mine = this.roomsOf(workerId).map((r) => `"${r.name}"`)
+      throw new Error(`You are not in a group chat called "${roomRef}".${mine.length ? ` Yours: ${mine.join(', ')}.` : ''}`)
+    }
+    const body = str(text)
+    if (!body && files.length === 0) throw new Error('The message is empty.')
+    const now = this.now()
+    const sent = this.checkSendBudget(workerId, now)
+    const run = this.running.get(workerId)
+    if (run) run.postedRooms.add(room.id)
+    const woke = await this.publish(worker, room, body, files)
+    this.sentLog.set(workerId, [...sent, now])
+    return { room: clone(room), woke }
+  }
+
+  /** Records a worker's post and wakes the colleagues it @mentions. Returns their names. */
+  private async publish(worker: Worker, room: WorkerRoom, body: string, files: string[]): Promise<string[]> {
+    const members = room.members.filter((id) => id !== worker.id).map((id) => this.find(id)).filter((w): w is Worker => !!w)
+    // Workers waking workers in a room stops after a while without the user:
+    // the post is still there for everyone to read, it just wakes nobody.
+    const chain = this.roomChains.get(room.id) ?? 0
+    const mentioned = chain < MAX_ROOM_CHAIN ? mentionedWorkers(body, members) : []
+    if (mentioned.length > 0) this.roomChains.set(room.id, chain + 1)
+    const post = this.addPost(room, { from: worker.id, fromName: worker.name, fromColor: worker.color, text: clip(body, POST_CHARS), files, mentions: mentioned.map((w) => w.id) })
+    room.unread += 1
+    this.roomsFile.seen[room.id] = { ...this.roomsFile.seen[room.id], [worker.id]: post.at }
+    const woke: string[] = []
+    for (const colleague of mentioned) {
+      let delivered: string[] = []
+      try {
+        delivered = await this.copyFiles(worker, colleague, files)
+      } catch {
+        delivered = []
+      }
+      const live = this.find(colleague.id)
+      if (!live) continue
+      this.deliverMail(live, {
+        id: randomUUID(),
+        from: worker.id,
+        fromName: worker.name,
+        fromColor: worker.color,
+        text: body,
+        files: delivered,
+        at: post.at,
+        room: { id: room.id, name: room.name },
+        ...this.catchUp(room, live.id, post.id)
+      })
+      woke.push(live.name)
+    }
+    this.commitRooms()
+    this.commit()
+    this.tick()
+    return woke
+  }
+
+  /** Reads a room's recent posts, for read_room. */
+  readRoom(workerId: string, roomRef: string, count = 20): string {
+    const key = roomRef.trim().toLowerCase()
+    const room = this.roomsFile.rooms.find((r) => r.members.includes(workerId) && (r.id === roomRef.trim() || r.name.toLowerCase() === key))
+    if (!room) throw new Error(`You are not in a group chat called "${roomRef}".`)
+    const posts = (this.roomsFile.posts[room.id] ?? []).slice(-Math.max(1, Math.min(count, 60)))
+    const names = room.members.map((id) => this.find(id)?.name).filter(Boolean)
+    this.roomsFile.seen[room.id] = { ...this.roomsFile.seen[room.id], [workerId]: this.now() }
+    this.commitRooms()
+    const lines = posts.map((p) => `${p.from === 'user' ? 'The user' : p.fromName}: ${clip(p.text, 1200)}${p.files.length ? ` [files: ${p.files.join(', ')}]` : ''}`)
+    return [`Group chat "${room.name}" — members: you, the user, ${names.filter((n) => n !== this.find(workerId)?.name).join(', ') || 'nobody else'}.`, ...(lines.length ? lines : ['(no posts yet)'])].join('\n')
+  }
+
+  /**
+   * Creates a team in one go: specialists from templates, plus any existing
+   * workers, all in a new group chat — and posts the first message there, so
+   * they start on it side by side.
+   */
+  createTeam(draft: TeamDraft): { room: WorkerRoom; workers: Worker[] } {
+    const name = str(draft.name).slice(0, 60) || 'Team'
+    const roles = Array.isArray(draft.roles) ? draft.roles.filter((r) => r && str(r.role)) : []
+    const existing = (draft.memberIds ?? []).filter((id) => this.has(id))
+    if (roles.length + existing.length === 0) throw new Error('Pick at least one specialist for the team.')
+    if (roles.length + existing.length > MAX_ROOM_MEMBERS) throw new Error(`A team can have up to ${MAX_ROOM_MEMBERS} workers.`)
+    if (this.workers.length + roles.length > MAX_WORKERS) {
+      throw new Error(`That would make ${this.workers.length + roles.length} workers; the most is ${MAX_WORKERS}. Remove some, or add existing workers to the team instead.`)
+    }
+    const created: Worker[] = []
+    for (const role of roles) {
+      const base = str(role.name) || str(role.role)
+      let candidate = base
+      for (let n = 2; this.workers.some((w) => w.name.toLowerCase() === candidate.toLowerCase()); n++) candidate = `${base} ${n}`
+      created.push(
+        this.save({
+          name: candidate,
+          color: role.color ?? '',
+          personality: str(role.personality),
+          purpose: `${str(role.purpose)} Part of the "${name}" team.`,
+          ...(draft.model !== undefined ? { model: draft.model } : {})
+        })
+      )
+    }
+    const room = this.saveRoom({ name, members: [...created.map((w) => w.id), ...existing] })
+    if (str(draft.kickoff)) this.postAsUser(room.id, str(draft.kickoff))
+    return { room: clone(this.requireRoom(room.id)), workers: created }
+  }
+
+  private requireRoom(roomId: string): WorkerRoom {
+    const room = this.roomsFile.rooms.find((r) => r.id === roomId)
+    if (!room) throw new Error('That group chat no longer exists.')
+    return room
+  }
+
+  private addPost(room: WorkerRoom, post: Omit<RoomPost, 'id' | 'roomId' | 'at'>): RoomPost {
+    const full: RoomPost = { ...post, id: randomUUID(), roomId: room.id, at: Math.max(this.now(), room.lastAt + 1) }
+    const list = (this.roomsFile.posts[room.id] ??= [])
+    list.push(full)
+    if (list.length > MAX_ROOM_POSTS) list.splice(0, list.length - MAX_ROOM_POSTS)
+    room.lastAt = full.at
+    this.deps.onRoomPost?.(room.id, clone(full))
+    return full
+  }
+
+  /** What was said in the room since `memberId` last caught up (not by it, not `exceptPostId`); marks it caught up. */
+  private catchUp(room: WorkerRoom, memberId: string, exceptPostId: string): { roomContext?: string } {
+    const since = this.roomsFile.seen[room.id]?.[memberId] ?? 0
+    const missed = (this.roomsFile.posts[room.id] ?? []).filter((p) => p.at > since && p.id !== exceptPostId && p.from !== memberId).slice(-12)
+    this.roomsFile.seen[room.id] = { ...this.roomsFile.seen[room.id], [memberId]: this.now() }
+    if (missed.length === 0) return {}
+    const text = missed.map((p) => `${p.from === 'user' ? 'The user' : p.fromName}: ${clip(p.text, 600)}`).join('\n')
+    return { roomContext: text.length > CONTEXT_CHARS ? `…${text.slice(-CONTEXT_CHARS)}` : text }
+  }
+
+  private commitRooms(): void {
+    this.deps.saveRooms?.(this.roomsFile)
+    this.deps.onRoomsChange?.(clone(this.roomsFile.rooms))
   }
 
   /** What `check_worker` reports: status, schedule, and the latest thing it said. */
-  inspect(nameOrId: string): string {
+  inspect(nameOrId: string, messages = 0): string {
     const worker = this.lookup(nameOrId)
     if (!worker) throw new Error(`There is no worker called "${nameOrId}". Use list_workers to see your colleagues.`)
     const now = this.now()
@@ -700,6 +1123,8 @@ export class WorkersEngine {
       lines.push(`Latest reply${message.id === worker.runningMessageId ? ' (still writing)' : ''}:\n${excerpt}`)
       break
     }
+    if (worker.handoffs.length > 0) lines.push(`Open tasks: ${worker.handoffs.map((h) => `${h.id} from ${h.fromName}: ${clip(h.task, 120)}`).join('; ')}`)
+    if (messages > 0) lines.push(`Recent thread:\n${this.threadExcerpt(worker.id, messages, 6000) || '(empty)'}`)
     return lines.filter(Boolean).join('\n')
   }
 
@@ -1125,11 +1550,13 @@ export class WorkersEngine {
       heartbeatSet: false,
       // Not for chat-app mail: the reply goes back to the chat it came from.
       userTriggered: woke || mail.some((m) => m.from === 'user' && !m.channel),
-      stoppedByUser: false
+      stoppedByUser: false,
+      postedRooms: new Set()
     }
     this.running.set(worker.id, run)
     worker.status = 'working'
     worker.runningMessageId = assistant.id
+    worker.runningRooms = [...new Set(mail.flatMap((m) => (m.room ? [m.room.id] : [])))]
     worker.lastRunAt = now
     // The previous turn's line would read as what it is doing now.
     worker.activity = ''
@@ -1145,7 +1572,14 @@ export class WorkersEngine {
       worker: snapshot,
       thread,
       assistant,
-      persona: workerPersona(snapshot, creator, snapshot.trading ? (this.deps.tradingVenue?.(snapshot.trading.via) ?? null) : null),
+      persona: workerPersona(
+        snapshot,
+        creator,
+        snapshot.trading ? (this.deps.tradingVenue?.(snapshot.trading.via) ?? null) : null,
+        this.roomsFile.rooms
+          .filter((r) => r.members.includes(snapshot.id))
+          .map((r) => ({ name: r.name, members: r.members.filter((m) => m !== snapshot.id).map((m) => this.find(m)?.name ?? '').filter(Boolean) }))
+      ),
       settings: this.deps.getSettings(),
       signal: run.controller.signal,
       runAgent: this.deps.runAgent,
@@ -1174,6 +1608,7 @@ export class WorkersEngine {
     }
     const now = this.now()
     worker.runningMessageId = null
+    worker.runningRooms = []
 
     // The heartbeat this turn used up: a steady beat carries on from now, a
     // one-off is spent — unless the worker scheduled something itself.
@@ -1210,12 +1645,14 @@ export class WorkersEngine {
 
     const thread = this.threads.get(id)
     if (thread && thread.messages.includes(assistant)) {
-      worker.unread += 1
+      // A turn only group-chat posts woke answers in the room, where the user reads it.
+      if (!(run.mail.length > 0 && run.mail.every((m) => m.room))) worker.unread += 1
       this.prune(thread)
       this.deps.onMessage?.(id, clone(assistant))
       this.deps.saveThread(thread)
     }
     this.commit()
+    if (!outcome.cancelled) this.replyInRooms(worker, run, assistant, outcome)
     this.tell((o) =>
       o.turnEnded?.(clone(worker), { mail: clone(run.mail), reply: clone(assistant), ...(outcome.error ? { error: outcome.error } : {}), cancelled: outcome.cancelled })
     )
@@ -1226,6 +1663,25 @@ export class WorkersEngine {
       })
     }
     this.tick()
+  }
+
+  /**
+   * A turn woken by a group chat answers there: its final reply is posted to
+   * each room its mail came from, unless it already posted there itself with
+   * post_to_room. A failed turn says so in the room, so the user isn't left
+   * waiting on a silent member.
+   */
+  private replyInRooms(worker: Worker, run: Running, assistant: ChatMessage, outcome: TurnOutcome): void {
+    const rooms = new Map<string, string>()
+    for (const mail of run.mail) if (mail.room) rooms.set(mail.room.id, mail.room.name)
+    for (const roomId of rooms.keys()) {
+      if (run.postedRooms.has(roomId)) continue
+      const room = this.roomsFile.rooms.find((r) => r.id === roomId && r.members.includes(worker.id))
+      if (!room) continue
+      const text = outcome.error ? `I hit a problem and couldn’t finish: ${outcome.error}` : finalReply(assistant)
+      if (!text) continue
+      void this.publish(worker, room, text, []).catch((error) => console.error('[workers] room reply failed:', error))
+    }
   }
 
   /**

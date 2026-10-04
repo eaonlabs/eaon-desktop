@@ -93,8 +93,8 @@ const STEPS: Step[] = [
     script: `await click(byText('System Monitor', '.nav-item'), 500);`
   },
   {
-    name: '25e-claude-code',
-    script: `await click(byText('Claude Code', '.nav-item'), 420);`
+    name: '25e-connect-apps',
+    script: `await click(byText('Connect apps', '.nav-item'), 600);`
   },
   { name: '26-light-theme', script: `await reset(); await click(byText('Appearance', '.nav-item'), 320); await click(byText('Light', '.theme-card'), 420);` },
   {

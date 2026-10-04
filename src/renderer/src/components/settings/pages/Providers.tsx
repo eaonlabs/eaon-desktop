@@ -13,6 +13,7 @@ import {
   Trash2,
   TriangleAlert,
   Info,
+  Link2,
   Wrench
 } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
@@ -23,6 +24,7 @@ import type { ModelInfo, Provider } from '@shared/types'
 import { customProviderId, type ModelEdit, type ModelsRefresh, type ProviderAuthStatus, type ProviderMeta } from '@shared/providers'
 import '../../../styles/providers.css'
 import { openInAde } from '../../code/terminal/terminalStore'
+import { LinkAccounts } from '../../LinkAccounts'
 
 /** The plan's own CLI, named for the button that opens it in the ADE. */
 const PLAN_CLI = { claude: 'Claude Code', antigravity: 'Antigravity', codex: 'Codex' } as const
@@ -124,6 +126,7 @@ export function ProvidersPage(): JSX.Element {
   const auth = useAuthStatuses()
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [addingCustom, setAddingCustom] = useState(false)
+  const [linking, setLinking] = useState(false)
   const [query, setQuery] = useState('')
 
   useEffect(() => {
@@ -136,7 +139,9 @@ export function ProvidersPage(): JSX.Element {
       !needle || [p.name, p.id, p.description ?? ''].some((field) => field.toLowerCase().includes(needle))
     return GROUPS.map((group) => ({
       ...group,
-      providers: providers.filter((p) => categoryOf(p) === group.id && matches(p))
+      // The old ChatGPT sign-in borrows the Codex CLI's client id; the official
+      // Sign in with ChatGPT replaces it, so it stays only for people signed in with it.
+      providers: providers.filter((p) => categoryOf(p) === group.id && matches(p) && !(p.id === 'openai-codex' && !p.signedIn))
     })).filter((group) => group.providers.length > 0)
   }, [providers, query])
 
@@ -148,6 +153,9 @@ export function ProvidersPage(): JSX.Element {
         <div className="providers-list__top">
           <div className="providers-list__header">
             <span className="providers-list__title">Model Providers</span>
+            <button className="icon-btn" onClick={() => setLinking(true)} aria-label="Link accounts" title="Link accounts">
+              <Link2 size={16} strokeWidth={2.1} />
+            </button>
             <button className="icon-btn" onClick={() => setAddingCustom(true)} aria-label="Add custom provider">
               <Plus size={17} strokeWidth={2.1} />
             </button>
@@ -193,6 +201,7 @@ export function ProvidersPage(): JSX.Element {
           setAddingCustom(false)
         }}
       />
+      <LinkAccounts open={linking} onClose={() => setLinking(false)} />
     </div>
   )
 }

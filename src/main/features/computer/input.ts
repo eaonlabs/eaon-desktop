@@ -27,6 +27,17 @@ export interface BackendCheck {
   locked?: boolean
 }
 
+/** An on-screen app window, bounds in screen points. */
+export interface WindowInfo {
+  app: string
+  pid: number
+  title: string
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 export interface InputBackend {
   readonly name: string
   check(): Promise<BackendCheck>
@@ -43,5 +54,7 @@ export interface InputBackend {
   /** True while the lock screen is up (macOS); false where it cannot be told. */
   locked(): Promise<boolean>
   openApp(name: string): Promise<void>
+  /** On-screen app windows, front to back. Only macOS has it so far. */
+  windows?(): Promise<WindowInfo[]>
   dispose(): void
 }

@@ -1,18 +1,19 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { isIP } from 'node:net'
 import { hostname } from 'node:os'
-import type { LocalServerStatus, StreamEvent } from '@shared/types'
-import type { ChatMessage } from '@shared/types'
-import { listProviders } from './providers'
-import { isLoopbackHost, isOwnServerUrl, setOwnServerPort } from './providers/compat'
-import { runAgent } from './agent/loop'
+import type { LocalServerStatus } from '@shared/types'
+import { isLoopbackHost, setOwnServerPort } from './providers/compat'
+import { anthropicError, anthropicModelList, serveCountTokens, serveMessages } from './gateway/anthropic'
+import { gatewayModels, tokenAllowed } from './gateway/models'
+import { serveChatCompletions } from './gateway/openaiChat'
+import { serveResponses } from './gateway/responses'
 import { store } from './store'
 
 /**
- * An OpenAI-compatible HTTP server so other tools on this machine can talk to
- * whichever provider the app is configured with. Requests are translated into
- * the same runStream() path the chat UI uses, so BYOK keys, fallback keys and
- * provider routing all apply identically.
+ * Eaon's gateway: a local server that lets other apps on this machine use the
+ * models set up in Eaon. It speaks OpenAI chat completions and Responses and
+ * Anthropic Messages (see `gateway/`), tools included, through the same
+ * provider adapters, keys and fallback keys the chat uses.
  *
  * Bound to 127.0.0.1 only — this exposes the user's API keys by proxy, so it
  * must never be reachable from the network.
@@ -87,72 +88,20 @@ function allowedHost(host: string | undefined): boolean {
   return name === 'localhost' || /\.(localhost|local|internal)$/.test(name) || name === hostname().toLowerCase()
 }
 
-/** OpenAI message content: a string, or parts of which the text is kept (images are not proxied). */
-function contentText(content: unknown): string {
-  if (typeof content === 'string') return content
-  if (Array.isArray(content)) {
-    return content
-      .map((part) => (part && typeof (part as { text?: unknown }).text === 'string' ? (part as { text: string }).text : ''))
-      .filter(Boolean)
-      .join('\n')
-  }
-  return content == null ? '' : JSON.stringify(content)
-}
-
-/** Resolve a model id to the provider that serves it. */
-function resolveModel(modelId: string | undefined): { providerId: string; modelId: string } | null {
-  // Never route to a provider that points back at this server.
-  const providers = listProviders().filter((p) => p.enabled && (p.hasKey || p.local) && !isOwnServerUrl(p.baseUrl))
-  if (modelId) {
-    for (const provider of providers) {
-      const match = provider.models.find((m) => m.id === modelId)
-      if (match) return { providerId: provider.id, modelId: match.id }
-    }
-  }
-  const fallback = store.getSettings().localServer.defaultModelId
-  if (fallback && fallback !== modelId) return resolveModel(fallback)
-  const first = providers.flatMap((p) => p.models)[0]
-  return first ? { providerId: first.providerId, modelId: first.id } : null
-}
-
 const OPENAPI_SPEC = {
   openapi: '3.0.0',
-  info: { title: 'Eaon Local API', version: '1.0.0', description: 'OpenAI-compatible local endpoint.' },
+  info: {
+    title: 'Eaon Local API',
+    version: '2.0.0',
+    description:
+      'The models set up in Eaon, over the OpenAI (chat completions, Responses) and Anthropic (Messages) APIs, tools included. Send the key from Eaon → Settings → Local API Server as a Bearer token or x-api-key.'
+  },
   paths: {
-    '/v1/models': {
-      get: {
-        summary: 'List available models',
-        responses: { '200': { description: 'A list of models currently reachable with your configured keys.' } }
-      }
-    },
-    '/v1/chat/completions': {
-      post: {
-        summary: 'Create a chat completion',
-        requestBody: {
-          required: true,
-          content: {
-            'application/json': {
-              schema: {
-                type: 'object',
-                required: ['messages'],
-                properties: {
-                  model: { type: 'string' },
-                  stream: { type: 'boolean' },
-                  messages: {
-                    type: 'array',
-                    items: {
-                      type: 'object',
-                      properties: { role: { type: 'string' }, content: { type: 'string' } }
-                    }
-                  }
-                }
-              }
-            }
-          }
-        },
-        responses: { '200': { description: 'A completion, or an SSE stream when stream=true.' } }
-      }
-    }
+    '/v1/models': { get: { summary: 'List the models Eaon can reach (Anthropic shape when anthropic-version is sent)' } },
+    '/v1/chat/completions': { post: { summary: 'OpenAI chat completions, streaming or not, with tools' } },
+    '/v1/responses': { post: { summary: 'OpenAI Responses, streaming or not, with function and custom tools' } },
+    '/v1/messages': { post: { summary: 'Anthropic Messages, streaming or not, with tools and thinking' } },
+    '/v1/messages/count_tokens': { post: { summary: 'An estimate of the input tokens for a Messages request' } }
   }
 }
 
@@ -187,7 +136,7 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
   if (req.method === 'OPTIONS') {
     res.writeHead(204, {
       'Access-Control-Allow-Methods': 'GET,POST,OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type,Authorization'
+      'Access-Control-Allow-Headers': 'Content-Type,Authorization,x-api-key,anthropic-version,anthropic-beta,openai-beta'
     })
     res.end()
     return
@@ -204,143 +153,50 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     return
   }
 
-  if (url.pathname === '/v1/models' && req.method === 'GET') {
-    const models = listProviders()
-      .filter((p) => p.enabled && (p.hasKey || p.local) && !isOwnServerUrl(p.baseUrl))
-      .flatMap((p) => p.models)
-      .map((m) => ({ id: m.id, object: 'model', owned_by: m.providerId }))
-    json(res, 200, { object: 'list', data: models })
+  // Health checks: Claude Code sends HEAD /api/hello before its first request.
+  if ((req.method === 'GET' || req.method === 'HEAD') && (url.pathname === '/' || url.pathname === '/api/hello')) {
+    json(res, 200, { status: 'ok', name: 'Eaon Local API' })
     return
   }
 
-  if (url.pathname === '/v1/chat/completions' && req.method === 'POST') {
+  // Apps whose base URL leaves out /v1 call /chat/completions and the like.
+  const path = /^\/(models|chat\/completions|responses|messages(\/count_tokens)?)$/.test(url.pathname.replace(/\/+$/, ''))
+    ? `/v1${url.pathname.replace(/\/+$/, '')}`
+    : url.pathname.replace(/\/+$/, '')
+  const anthropicStyle = path.startsWith('/v1/messages') || typeof req.headers['anthropic-version'] === 'string'
+
+  if (!tokenAllowed(req.headers)) {
+    const message = 'That key is not this Eaon’s. The key is in Eaon → Settings → Local API Server.'
+    json(res, 401, anthropicStyle ? anthropicError(message, 'authentication_error') : { error: { message, type: 'invalid_api_key', code: 'invalid_api_key' } })
+    return
+  }
+
+  if (path === '/v1/models' && req.method === 'GET') {
+    if (typeof req.headers['anthropic-version'] === 'string') {
+      json(res, 200, anthropicModelList())
+      return
+    }
+    const created = Math.floor(Date.now() / 1000)
+    json(res, 200, { object: 'list', data: gatewayModels().map((m) => ({ id: m.id, object: 'model', created, owned_by: m.provider })) })
+    return
+  }
+
+  const routes: Record<string, (body: Record<string, unknown>) => Promise<void> | void> = {
+    '/v1/chat/completions': (body) => serveChatCompletions(res, body),
+    '/v1/responses': (body) => serveResponses(res, body),
+    '/v1/messages': (body) => serveMessages(res, body),
+    '/v1/messages/count_tokens': (body) => serveCountTokens(res, body)
+  }
+  const route = routes[path]
+  if (route && req.method === 'POST') {
     let body: Record<string, unknown>
     try {
       body = await readBody(req)
     } catch {
-      json(res, 400, { error: { message: 'Invalid JSON body' } })
+      json(res, 400, anthropicStyle ? anthropicError('Invalid JSON body', 'invalid_request_error') : { error: { message: 'Invalid JSON body', type: 'invalid_request_error' } })
       return
     }
-
-    const messages = (body.messages ?? []) as { role: string; content: unknown }[]
-    if (!Array.isArray(messages) || messages.length === 0 || !messages.every((m) => m && typeof m === 'object')) {
-      json(res, 400, { error: { message: '`messages` is required' } })
-      return
-    }
-
-    const resolved = resolveModel(body.model as string | undefined)
-    if (!resolved) {
-      json(res, 400, { error: { message: 'No model available. Add an API key in Settings → Model providers.' } })
-      return
-    }
-
-    const settings = store.getSettings()
-    // Newer OpenAI clients send the system prompt as `developer`.
-    const isSystem = (m: { role: string }): boolean => m.role === 'system' || m.role === 'developer'
-    const system = messages
-      .filter(isSystem)
-      .map((m) => contentText(m.content))
-      .join('\n\n')
-    const history: ChatMessage[] = messages
-      .filter((m) => !isSystem(m))
-      .map((m, index) => ({
-        id: `m${index}`,
-        role: m.role === 'assistant' ? 'assistant' : 'user',
-        parts: [{ type: 'text', text: contentText(m.content) }],
-        createdAt: 0
-      }))
-
-    const wantsStream = body.stream === true
-    const id = `chatcmpl-${Math.random().toString(36).slice(2)}`
-    const created = Math.floor(Date.now() / 1000)
-
-    if (wantsStream) {
-      res.writeHead(200, {
-        'Content-Type': 'text/event-stream',
-        'Cache-Control': 'no-cache',
-        Connection: 'keep-alive'
-      })
-    }
-
-    let full = ''
-    let failed: string | null = null
-    // A client that hangs up (Ctrl-C in a CLI, a closed tab, Stop Server)
-    // stops the run; otherwise the model keeps generating, and billing, for nobody.
-    const controller = new AbortController()
-    res.on('close', () => {
-      if (!res.writableFinished) controller.abort()
-    })
-
-    await runAgent(
-      {
-        chatId: 'local-api',
-        messageId: id,
-        providerId: resolved.providerId,
-        modelId: resolved.modelId,
-        effort: settings.effort,
-        mode: 'chat',
-        // Proxied verbatim: the caller's own system prompt, and no tools.
-        rawSystem: system,
-        history,
-        summary: null,
-        projectInstructions: '',
-        cwd: null,
-        work: { swarm: false, plan: false },
-        goal: null
-      },
-      (event: StreamEvent) => {
-        if (event.type === 'delta') {
-          full += event.text
-          if (wantsStream) {
-            res.write(
-              `data: ${JSON.stringify({
-                id,
-                object: 'chat.completion.chunk',
-                created,
-                model: resolved.modelId,
-                choices: [{ index: 0, delta: { content: event.text }, finish_reason: null }]
-              })}\n\n`
-            )
-          }
-        } else if (event.type === 'error') {
-          failed = event.error
-        }
-      },
-      { signal: controller.signal }
-    )
-    if (controller.signal.aborted) return
-
-    if (wantsStream) {
-      if (failed) {
-        res.write(`data: ${JSON.stringify({ error: { message: failed } })}\n\n`)
-      } else {
-        res.write(
-          `data: ${JSON.stringify({
-            id,
-            object: 'chat.completion.chunk',
-            created,
-            model: resolved.modelId,
-            choices: [{ index: 0, delta: {}, finish_reason: 'stop' }]
-          })}\n\n`
-        )
-      }
-      res.write('data: [DONE]\n\n')
-      res.end()
-      return
-    }
-
-    if (failed) {
-      json(res, 502, { error: { message: failed } })
-      return
-    }
-
-    json(res, 200, {
-      id,
-      object: 'chat.completion',
-      created,
-      model: resolved.modelId,
-      choices: [{ index: 0, message: { role: 'assistant', content: full }, finish_reason: 'stop' }]
-    })
+    await route(body)
     return
   }
 

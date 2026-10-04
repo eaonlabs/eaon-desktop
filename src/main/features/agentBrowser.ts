@@ -150,6 +150,31 @@ function pushStatus(target: BrowserTarget): void {
   send('agent-browser:status', status(target))
 }
 
+/** The browser a tool call's agent owns: a worker's own, else the chat agent's. */
+function browserOf(ctx: ToolContext): { browsers: WorkerBrowsers; id: string } | null {
+  if (ctx.request.workerId) return workerBrowsers ? { browsers: workerBrowsers, id: ctx.request.workerId } : null
+  return agentBrowsers ? { browsers: agentBrowsers, id: AGENT } : null
+}
+
+/** The page the calling agent's browser is on; null when it has none open. */
+export function agentBrowserUrl(ctx: ToolContext): string | null {
+  const found = browserOf(ctx)
+  const url = found ? found.browsers.url(found.id) : ''
+  return url && url !== 'about:blank' ? url : null
+}
+
+/** Types a value the model must not see (card details) into a ref of the calling agent's browser. */
+export async function typeSecretInAgentBrowser(ctx: ToolContext, ref: string, value: string): Promise<void> {
+  const found = browserOf(ctx)
+  if (!found) throw new Error('This agent has no browser of its own.')
+  reportBrowserStep(ctx.request.workerId ? `worker:${ctx.request.workerId}` : AGENT_BROWSER, ctx, { action: 'type', detail: 'card details', done: false })
+  try {
+    await found.browsers.fillSecret(found.id, ref, value)
+  } finally {
+    reportBrowserStep(ctx.request.workerId ? `worker:${ctx.request.workerId}` : AGENT_BROWSER, ctx, { action: 'type', detail: 'card details', done: true })
+  }
+}
+
 /** A step an agent takes in its browser, for the live view. Workers' browsers report through this too. */
 export function reportBrowserStep(target: BrowserTarget, ctx: ToolContext, step: { action: string; detail: string; done: boolean }): void {
   const event: AgentBrowserStep = { target, chatId: ctx.request.chatId, action: step.action, detail: step.detail, done: step.done, at: Date.now() }

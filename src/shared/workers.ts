@@ -20,7 +20,23 @@ import type { ChatMessage, StreamEvent } from './types'
  * The faces a worker can make — see `WorkerFace` in the renderer. Only the
  * eyes change; the round body never moves.
  */
-export type WorkerMood = 'neutral' | 'happy' | 'serious' | 'angry' | 'asleep' | 'dead'
+/**
+ * A face's expression. Most are derived from what the worker is doing
+ * (workerMood); a worker can also pick one for a while with set_status
+ * (HINT_MOODS in the engine).
+ */
+export type WorkerMood =
+  | 'neutral'
+  | 'happy'
+  | 'excited'
+  | 'serious'
+  | 'curious'
+  | 'surprised'
+  | 'sad'
+  | 'angry'
+  | 'sleepy'
+  | 'asleep'
+  | 'dead'
 
 export type WorkerStatus =
   /** Awake with nothing to do right now. */
@@ -99,7 +115,140 @@ export interface WorkerMail {
   mentions?: { id: string; name: string }[]
   /** On a mentioned colleague's copy: the worker the user was writing to. */
   via?: { workerId: string; name: string }
+  /** Posted in a group chat this worker is in; replies go back to the room. */
+  room?: { id: string; name: string }
+  /** What was said in the room since this worker last saw it, oldest first. */
+  roomContext?: string
+  /** The sender's recent thread, shared so the recipient needn't ask (message_worker share_context, hand_off). */
+  context?: string
+  /** A task handed to this worker; it reports back with finish_handoff. */
+  handoff?: { id: string; task: string }
+  /** A colleague finished a task this worker handed it. */
+  handoffResult?: { id: string; task: string; ok: boolean }
 }
+
+/** A task one worker handed another, open until the recipient reports back. */
+export interface WorkerHandoff {
+  id: string
+  fromId: string
+  fromName: string
+  task: string
+  at: number
+}
+
+/**
+ * A group chat: the user and several workers in one shared conversation.
+ * The user's posts reach every member (or only the ones @mentioned); a
+ * worker's post wakes only the colleagues it @mentions, so a room can't
+ * talk itself into a loop. Each member also gets what was said since it
+ * last looked, so nobody has to copy context between bots.
+ */
+export interface WorkerRoom {
+  id: string
+  name: string
+  /** Worker ids. */
+  members: string[]
+  createdAt: number
+  lastAt: number
+  /** Posts since the user last opened the room. */
+  unread: number
+}
+
+export interface RoomPost {
+  id: string
+  roomId: string
+  /** 'user', or the id of the worker that posted. */
+  from: string
+  fromName: string
+  fromColor?: string
+  text: string
+  files: string[]
+  at: number
+  /** Worker ids the post @mentioned. */
+  mentions?: string[]
+}
+
+/** `workers:room-post` — a post was added to a room. */
+export interface RoomPostEvent {
+  roomId: string
+  post: RoomPost
+}
+
+/** What the New team dialog sends: specialists to create, existing workers to add, and the first message to them. */
+export interface TeamDraftInput {
+  name: string
+  roles: { role: string; purpose: string; personality: string; color?: string; name?: string }[]
+  memberIds?: string[]
+  kickoff?: string
+}
+
+/** A specialist the New team dialog (and the chat agent's team tool) can create. */
+export interface WorkerTemplate {
+  id: string
+  role: string
+  purpose: string
+  personality: string
+  color: string
+}
+
+export const WORKER_TEMPLATES: WorkerTemplate[] = [
+  {
+    id: 'researcher',
+    role: 'Researcher',
+    purpose: 'Finds and checks information: searches the web, reads sources and docs, and reports findings with links, clearly separating facts from guesses.',
+    personality: 'Inquisitive and thorough. Digs until it understands why.',
+    color: '#3E86C6'
+  },
+  {
+    id: 'writer',
+    role: 'Writer',
+    purpose: 'Turns notes and findings into clear writing: drafts, edits and polishes documents, posts, emails and docs in the requested voice.',
+    personality: 'Warm and precise. Cuts filler and keeps the reader in mind.',
+    color: '#D6509B'
+  },
+  {
+    id: 'coder',
+    role: 'Coder',
+    purpose: 'Writes and changes code: implements features, fixes bugs, runs the tests and explains what changed.',
+    personality: 'Methodical and pragmatic. Tests before calling anything done.',
+    color: '#5B6CF0'
+  },
+  {
+    id: 'bug-reproducer',
+    role: 'Bug Reproducer',
+    purpose: 'Reproduces reported bugs: works out exact steps, environment and expected vs actual behaviour, writes a minimal repro, and hands it to whoever fixes it.',
+    personality: 'Meticulous and skeptical. Trusts only what it can make happen again.',
+    color: '#E4574B'
+  },
+  {
+    id: 'reviewer',
+    role: 'Reviewer',
+    purpose: 'Reviews work from colleagues: checks code, writing and plans for mistakes, gaps and risks, and gives specific, actionable feedback.',
+    personality: 'Blunt but fair. Points at the problem and the fix.',
+    color: '#EE8A36'
+  },
+  {
+    id: 'analyst',
+    role: 'Data Analyst',
+    purpose: 'Works with data: cleans files, runs analyses, makes charts and summarises what the numbers say and how sure it is.',
+    personality: 'Calm and numerate. Shows its working.',
+    color: '#22A7A0'
+  },
+  {
+    id: 'designer',
+    role: 'Designer',
+    purpose: 'Designs interfaces and visuals: layouts, mockups, copy for UI, and critiques of existing screens.',
+    personality: 'Curious and opinionated about craft, open to other views.',
+    color: '#8E5CE6'
+  },
+  {
+    id: 'planner',
+    role: 'Project Lead',
+    purpose: 'Breaks a goal into tasks, hands them to the right colleagues, follows up, and pulls the results together for the user.',
+    personality: 'Steady and organised. Keeps everyone moving and the user informed.',
+    color: '#3FAE6A'
+  }
+]
 
 /** What the composer sends with a message, besides its text and files. */
 export interface WorkerSendOptions {
@@ -244,10 +393,14 @@ export interface Worker {
   lastError: string | null
   /** Mail waiting for the next turn, oldest first. */
   inbox: WorkerMail[]
+  /** Tasks colleagues handed this worker that it hasn't reported back on yet. */
+  handoffs: WorkerHandoff[]
   /** Thread messages that arrived since the user last looked at this worker. */
   unread: number
   /** The assistant message streaming right now; null when not running. */
   runningMessageId: string | null
+  /** Group chats the running turn was woken by, so a room can show who is answering it. */
+  runningRooms?: string[]
 }
 
 export interface WorkerThread {
@@ -284,8 +437,17 @@ export interface WorkerMessageEvent {
 
 /** Hard ceiling on how many workers can exist at once. */
 export const MAX_WORKERS = 16
-/** How many worker turns may run at the same time, across all workers. */
-export const WORKER_CONCURRENCY = 2
+/**
+ * How many worker turns may run at the same time, across all workers — a
+ * team of specialists works side by side. Computer use still acts one step
+ * at a time across all of them (it has one pointer).
+ */
+export const WORKER_CONCURRENCY = 4
+/** Group chats, and how many members one can have. */
+export const MAX_ROOMS = 20
+export const MAX_ROOM_MEMBERS = 8
+/** Posts kept per room; older ones are dropped from the saved file. */
+export const MAX_ROOM_POSTS = 500
 /** At most this many routines per worker. */
 export const MAX_ROUTINES = 20
 /** Goal and notes are part of every prompt, so they stay short. */
@@ -299,6 +461,8 @@ export const MAX_TURNS_PER_HOUR = 60
 export const HAPPY_FOR_MS = 10 * 60_000
 /** Awake with nothing scheduled for this long, a worker falls asleep. */
 export const DOZE_AFTER_MS = 15 * 60_000
+/** Idle this long with nothing scheduled and its eyes start to droop, before dozing off at DOZE_AFTER_MS. */
+export const SLEEPY_AFTER_MS = 5 * 60_000
 
 export const WORKER_COLORS = [
   '#3E86C6',
@@ -332,11 +496,14 @@ export function workerMood(worker: Worker, now = Date.now()): WorkerMood {
   if (worker.status === 'failed') return 'dead'
   if (worker.moodHint && worker.moodHint.until > now) return worker.moodHint.mood
   if (worker.status === 'working') return 'serious'
-  if (worker.lastOutcome?.ok && now - worker.lastOutcome.at < HAPPY_FOR_MS) return 'happy'
+  // Waiting on the user's answer: an inquisitive look rather than a blank one.
+  if (worker.asks.length > 0) return 'curious'
+  if (worker.lastOutcome && now - worker.lastOutcome.at < HAPPY_FOR_MS) return worker.lastOutcome.ok ? 'happy' : 'sad'
   if (worker.status === 'asleep') return 'asleep'
   if (worker.heartbeat.nextAt === null && worker.inbox.length === 0) {
     const since = worker.lastRunAt ?? worker.createdAt
     if (now - since > DOZE_AFTER_MS) return 'asleep'
+    if (now - since > SLEEPY_AFTER_MS) return 'sleepy'
   }
   return 'neutral'
 }
@@ -381,6 +548,7 @@ export function describeWorker(worker: Worker, now = Date.now()): string {
   if (worker.status === 'failed') return worker.lastError ? `Stopped: ${worker.lastError}` : 'Last task failed'
   if (worker.asks?.length) return worker.asks.length === 1 ? 'Has a question for you' : `Has ${worker.asks.length} questions for you`
   if (worker.inbox.length > 0) return `${worker.inbox.length} message${worker.inbox.length === 1 ? '' : 's'} waiting`
+  if (worker.handoffs?.length) return worker.handoffs.length === 1 ? `On a task from ${worker.handoffs[0].fromName}` : `On ${worker.handoffs.length} handed-off tasks`
   if (worker.heartbeat.nextAt !== null) {
     const every = worker.heartbeat.everyMs ? ` · every ${Math.round(worker.heartbeat.everyMs / 60_000)} min` : ''
     return `Next heartbeat ${relativeTime(worker.heartbeat.nextAt, now)}${every}`

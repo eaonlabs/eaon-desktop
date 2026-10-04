@@ -2,6 +2,7 @@ import { useEffect, useId, useRef, useState, type JSX, type ReactNode } from 're
 import {
   CalendarClock,
   CandlestickChart,
+  CreditCard,
   FilePen,
   FolderInput,
   Globe,
@@ -9,6 +10,7 @@ import {
   MousePointerClick,
   Plug,
   ShieldAlert,
+  Smartphone,
   SquareTerminal,
   Trash2
 } from 'lucide-react'
@@ -33,6 +35,7 @@ const RISK: Record<string, ApprovalRisk> = {
   email_reply: 'high',
   trading_order: 'high',
   trading_session: 'high',
+  payment_card: 'high',
   write_file: 'low',
   edit_file: 'low'
 }
@@ -61,6 +64,8 @@ const DOES: Record<string, string> = {
   email_reply: 'Sends an email as you',
   trading_order: 'Places an order',
   trading_session: 'Trades for you',
+  payment_card: 'Spends money on your card',
+  ios_simulator: 'Controls the iOS Simulator',
   use_plugin_tool: 'Acts through a plugin',
   schedule: 'Changes your schedules'
 }
@@ -78,6 +83,8 @@ const ICON: Record<string, typeof ShieldAlert> = {
   email_reply: Mail,
   trading_order: CandlestickChart,
   trading_session: CandlestickChart,
+  payment_card: CreditCard,
+  ios_simulator: Smartphone,
   use_plugin_tool: Plug,
   schedule: CalendarClock
 }

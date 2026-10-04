@@ -5,7 +5,7 @@ import { homedir } from 'node:os'
 import type { EaonCopy, PermissionOwner } from '@shared/computerUse'
 import type { Point } from './geometry'
 import { LineHelper } from './helper'
-import type { AppRef, BackendCheck, InputBackend, MouseButton } from './input'
+import type { AppRef, BackendCheck, InputBackend, MouseButton, WindowInfo } from './input'
 import { MAC_KEYCODES, MAC_MODIFIERS, type Combo } from './keys'
 
 const run = promisify(execFile)
@@ -164,6 +164,22 @@ function activate(pid) {
   return app.activateWithOptions(2)
 }
 
+// On-screen app windows (layer 0), front to back, bounds in global points.
+// Needs no permission for bounds; titles are blank without Screen Recording.
+function windows() {
+  var ref = $.CGWindowListCopyWindowInfo(1 | 16, 0)
+  if (!ref) return []
+  var list = ObjC.deepUnwrap(ObjC.castRefToObject(ref)) || []
+  var out = []
+  for (var i = 0; i < list.length; i++) {
+    var w = list[i]
+    if (w.kCGWindowLayer !== 0 || !w.kCGWindowBounds) continue
+    var b = w.kCGWindowBounds
+    out.push({ app: w.kCGWindowOwnerName || '', pid: w.kCGWindowOwnerPID || 0, title: w.kCGWindowName || '', x: b.X, y: b.Y, width: b.Width, height: b.Height })
+  }
+  return out
+}
+
 function locked() {
   var ref = $.CGSessionCopyCurrentDictionary()
   if (!ref) return false
@@ -185,6 +201,7 @@ function handle(req) {
     case 'frontmost': return frontmost()
     case 'activate': return activate(req.pid)
     case 'locked': return locked()
+    case 'windows': return windows()
     default: throw new Error('unknown command ' + req.cmd)
   }
 }
@@ -386,10 +403,23 @@ export class MacInput implements InputBackend {
     return this.helper.request<boolean>('locked').catch(() => false)
   }
 
+  async windows(): Promise<WindowInfo[]> {
+    return this.helper.request<WindowInfo[]>('windows')
+  }
+
   async openApp(name: string): Promise<void> {
     try {
       await run('/usr/bin/open', ['-a', name], { timeout: 15_000 })
     } catch (error) {
+      // Xcode 27 replaced Simulator with DeviceHub, and "Simulator" can still
+      // resolve to the deleted app.
+      if (/^(ios )?simulator$/i.test(name.trim())) {
+        const ok = await run('/usr/bin/open', ['-b', 'com.apple.dt.Devices'], { timeout: 15_000 }).then(
+          () => true,
+          () => false
+        )
+        if (ok) return
+      }
       const stderr = String((error as { stderr?: string }).stderr ?? '').trim()
       throw new Error(stderr || `Could not open "${name}".`)
     }

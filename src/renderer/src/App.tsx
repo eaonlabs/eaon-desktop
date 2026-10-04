@@ -14,6 +14,7 @@ import { UpdateToast } from './components/UpdateToast'
 import { CodeView } from './components/code/CodeView'
 import { LibraryPage } from './components/LibraryPage'
 import { WorkersView } from './components/workers/WorkersView'
+import { WorkerBrowserPanel } from './components/workers/WorkerAutonomy'
 import { useWorkers } from './components/workers/workersStore'
 import { DiscordPresence } from './components/discord/DiscordPresence'
 import { BrowserAsk } from './components/browser/BrowserAsk'
@@ -35,6 +36,8 @@ export default function App(): JSX.Element {
   const isWork = useIsWork()
   const kind = useWorkspaceKind()
   const agentBrowserOpen = useAgentBrowser((s) => s.open)
+  // A worker's browser beside its page, while that page is the one open.
+  const browserWorker = useWorkers((s) => (s.browserFor && s.selectedId === s.browserFor && !s.selectedRoomId ? s.workers.find((w) => w.id === s.browserFor) ?? null : null))
 
   useTheme()
 
@@ -85,6 +88,7 @@ export default function App(): JSX.Element {
           </div>
           {isWork && browserOpen && <BrowserPanel />}
           {isWork && view === 'chat' && kind === 'chat' && agentBrowserOpen && !browserOpen && <AgentBrowserPanel />}
+          {view === 'chat' && kind === 'workers' && browserWorker && <WorkerBrowserPanel key={browserWorker.id} worker={browserWorker} />}
           <GlobalKeys onSettings={() => setSettingsPage('general')} onPlugins={() => setView('plugins')} />
         </div>
       )}

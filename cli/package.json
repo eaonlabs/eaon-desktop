@@ -1,0 +1,51 @@
+{
+  "name": "eaon-cli",
+  "version": "1.0.0-beta.1",
+  "description": "Eaon in your terminal (beta): chat, background workers and an agentic trading desk, with your own models and keys.",
+  "license": "GPL-3.0-only",
+  "author": "The Eaon Authors",
+  "type": "module",
+  "bin": {
+    "eaon": "eaon.mjs"
+  },
+  "files": [
+    "eaon.mjs",
+    "README.md",
+    "LICENSE.md",
+    "NOTICE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@xterm/headless": "^6.0.0"
+  },
+  "optionalDependencies": {
+    "node-pty": "^1.1.0"
+  },
+  "scripts": {
+    "prepublishOnly": "node -e \"require('fs').accessSync('eaon.mjs')\" || (echo 'Publish out/cli-package (npm run pack:cli), not cli/.' && exit 1)"
+  },
+  "keywords": [
+    "cli",
+    "tui",
+    "ai",
+    "agent",
+    "trading",
+    "claude-code",
+    "mcp",
+    "ollama"
+  ],
+  "homepage": "https://github.com/eaonlabs/eaon-desktop/tree/main/cli#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/eaonlabs/eaon-desktop.git",
+    "directory": "cli"
+  },
+  "bugs": {
+    "url": "https://github.com/eaonlabs/eaon-desktop/issues"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -46,9 +46,10 @@ publish:
   repo: eaon-desktop
 mac:
   category: public.app-category.productivity
-  # Explicit rather than relying on electron-builder's default
-  # `${buildResourcesDir}/icon.icns` lookup — same file either way, just
-  # self-documenting alongside everything else this config spells out.
+  # The pre-rendered icon, for macOS before 26. It, the Liquid Glass
+  # Assets.car below and the Windows/Linux icons are all built from the Icon
+  # Composer documents resources/Eaon.icon and EaonAgent.icon by
+  # scripts/make-icon.py.
   icon: resources/icon.icns
   # Universal, not the host arch. The app this replaces shipped arm64+x86_64,
   # so an arm64-only build would strand every Intel user mid-update — their
@@ -65,6 +66,10 @@ mac:
   # Shown when dictation first asks for the microphone; Electron's own line is generic.
   extendInfo:
     NSMicrophoneUsageDescription: Eaon uses the microphone when you dictate a message.
+    # macOS 26+ draws the app icon from Assets.car (copied in by extraResources
+    # below) under this name, with its dark, clear and tinted looks; older
+    # macOS ignores it and uses icon.icns.
+    CFBundleIconName: Eaon
   # Required for notarization, and already a prerequisite for the entitlements
   # below to mean anything.
   hardenedRuntime: true
@@ -83,6 +88,12 @@ mac:
       to: llama
       filter:
         - 'darwin-*/**'
+    # The Liquid Glass icon, compiled by scripts/make-icon.py (CFBundleIconName above).
+    - from: resources/Assets.car
+      to: Assets.car
+    # The agent icon, for the Dock when it's picked in Settings (main/appIcon.ts).
+    - from: resources/icon-agent.png
+      to: icons/agent.png
   # The signing identity is deliberately NOT hardcoded here: this repo is public,
   # and the identity string contains the certificate holder's legal name.
   # electron-builder auto-selects the "Developer ID Application" certificate for
@@ -112,6 +123,11 @@ win:
   extraResources:
     - from: resources/llama/win32-${arch}
       to: llama/win32-${arch}
+    # Window and taskbar icons for the Settings app-icon choice (main/appIcon.ts).
+    - from: resources/icon.ico
+      to: icons/default.ico
+    - from: resources/icon-agent.ico
+      to: icons/agent.ico
   # Off because rcedit needs an Intel wine that Apple silicon Macs can't run;
   # the afterPack hook above makes the same resource edits. Turn this back on
   # (and drop the hook) once these builds are Authenticode-signed on Windows.
@@ -143,6 +159,11 @@ linux:
   extraResources:
     - from: resources/llama/linux-${arch}
       to: llama/linux-${arch}
+    # Window icons for the Settings app-icon choice (main/appIcon.ts).
+    - from: resources/icon.png
+      to: icons/default.png
+    - from: resources/icon-agent.png
+      to: icons/agent.png
   target:
     - AppImage
     - deb

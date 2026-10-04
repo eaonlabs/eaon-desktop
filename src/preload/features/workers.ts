@@ -1,5 +1,16 @@
 import { ipcRenderer } from 'electron'
-import type { Worker, WorkerDraft, WorkerMessageEvent, WorkerSendOptions, WorkerStreamEvent, WorkerThread } from '@shared/workers'
+import type {
+  RoomPost,
+  RoomPostEvent,
+  TeamDraftInput,
+  Worker,
+  WorkerDraft,
+  WorkerMessageEvent,
+  WorkerRoom,
+  WorkerSendOptions,
+  WorkerStreamEvent,
+  WorkerThread
+} from '@shared/workers'
 
 /**
  * Renderer bridge for Eaon Workers. Exposed as `window.api.workers`. Main owns
@@ -47,5 +58,20 @@ export const workersApi = {
   /** A thread message added or replaced whole (turn start, turn end). */
   onMessage: (handler: (event: WorkerMessageEvent) => void): (() => void) => subscribe('workers:message', handler),
   /** A worker notification was clicked: show that worker. */
-  onOpen: (handler: (workerId: string) => void): (() => void) => subscribe('workers:open', handler)
+  onOpen: (handler: (workerId: string) => void): (() => void) => subscribe('workers:open', handler),
+
+  /* Group chats: the user and several workers in one conversation. */
+  rooms: (): Promise<WorkerRoom[]> => ipcRenderer.invoke('workers:rooms'),
+  roomPosts: (roomId: string): Promise<RoomPost[]> => ipcRenderer.invoke('workers:room-posts', roomId),
+  saveRoom: (draft: { id?: string; name: string; members: string[] }): Promise<WorkerRoom> => ipcRenderer.invoke('workers:room-save', draft),
+  removeRoom: (roomId: string): Promise<void> => ipcRenderer.invoke('workers:room-remove', roomId),
+  /** Posts as the user; members (or only those @mentioned) hear it. */
+  postToRoom: (roomId: string, text: string, files: string[] = []): Promise<RoomPost> => ipcRenderer.invoke('workers:room-post', roomId, text, files),
+  markRoomRead: (roomId: string): Promise<void> => ipcRenderer.invoke('workers:room-read', roomId),
+  /** Creates the specialists and their group chat, and posts the kickoff. */
+  createTeam: (draft: TeamDraftInput): Promise<{ room: WorkerRoom; workers: Worker[] }> => ipcRenderer.invoke('workers:create-team', draft),
+  onRoomsChanged: (handler: (rooms: WorkerRoom[]) => void): (() => void) => subscribe('workers:rooms-changed', handler),
+  onRoomPost: (handler: (event: RoomPostEvent) => void): (() => void) => subscribe('workers:room-post', handler),
+  /** The chat agent started a team: show its group chat. */
+  onOpenRoom: (handler: (roomId: string) => void): (() => void) => subscribe('workers:open-room', handler)
 }

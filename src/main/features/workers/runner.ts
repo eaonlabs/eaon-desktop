@@ -26,6 +26,16 @@ function mailHeader(mail: WorkerMail): string {
     const where = `${channel.isGroup ? `in ${channel.chatName}` : 'in a direct message'} on ${CHANNEL_LABEL[channel.kind]}`
     return mail.from === 'user' ? `[From the user, ${where}]` : `[From ${mail.fromName}, ${where} — a guest, not the user]`
   }
+  if (mail.room) {
+    return mail.from === 'user'
+      ? `[In the group chat "${mail.room.name}", from the user]`
+      : `[In the group chat "${mail.room.name}", from ${mail.fromName}, who @mentioned you]`
+  }
+  if (mail.handoff) return `[Task ${mail.handoff.id}, handed to you by ${mail.fromName}]`
+  if (mail.handoffResult) {
+    const task = mail.handoffResult.task.length > 120 ? `${mail.handoffResult.task.slice(0, 119)}…` : mail.handoffResult.task
+    return `[${mail.fromName} ${mail.handoffResult.ok ? 'finished' : 'could not finish'} task ${mail.handoffResult.id} you handed over ("${task}")]`
+  }
   if (mail.from !== 'user') return `[From ${mail.fromName}, a fellow worker]`
   if (mail.via) return `[From the user, in a message to ${mail.via.name} that @mentioned you]`
   return mail.goal ? '[From the user, set as your goal]' : '[From the user]'
@@ -65,7 +75,15 @@ export function buildTurnMessage(
     // The mentioned colleagues were sent their own copy (engine.send).
     const names = (item.mentions ?? []).map((m) => m.name)
     const mentions = names.length > 0 ? `\n(${names.join(', ')} ${names.length === 1 ? 'was' : 'were'} @mentioned and got this message too, so there's no need to forward it.)` : ''
-    lines.push(`${mailHeader(item)} ${item.text.trim()}${files}${mentions}`)
+    const extra = [
+      item.context ? `\n${item.fromName}'s recent thread, shared with you so you have the background:\n${item.context}` : '',
+      item.roomContext ? `\nSaid in "${item.room?.name}" since you last looked:\n${item.roomContext}` : '',
+      item.handoff ? `\nWhen it's done (or you can't do it), report back with finish_handoff {task_id: "${item.handoff.id}", result}; the result goes straight to ${item.fromName}.` : ''
+    ].join('')
+    lines.push(`${mailHeader(item)} ${item.text.trim()}${files}${mentions}${extra}`)
+  }
+  if (mail.some((m) => m.room)) {
+    lines.push('[Group chat] Your final reply is posted to the group chat. Write it for everyone there; @Name a colleague in the room to wake them for their part.')
   }
   // Per turn rather than in the persona, so the cached prompt prefix stays put.
   if (mail.some((m) => m.channel)) {

@@ -445,7 +445,8 @@
   -webkit-app-region: no-drag;
   transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
 }
-.header-btn:hover {
+.header-btn:hover,
+.header-btn[data-active] {
   background: var(--hover);
   color: var(--text);
 }

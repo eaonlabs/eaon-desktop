@@ -3,6 +3,7 @@ import type { EffortLevel } from '@shared/types'
 import { anthropicCompat, clampEffort, effortsFor, missingUrlFields } from '../compat'
 import { anthropicThinking, budgetThinking, contextWindowFor, maxOutputFor } from '../models'
 import {
+  capOutput,
   clampOutputToWindow,
   describeErrorBody,
   emptyUsage,
@@ -161,7 +162,7 @@ export const anthropicAdapter: Adapter = {
 
     const window = contextWindowFor(provider, modelId, request.model)
     const estimate = estimateRequestTokens(messages) + Math.ceil(request.system.length / 3.6)
-    const maxTokens = clampOutputToWindow(maxOutputFor(provider, modelId, request.model) ?? 32_000, window, estimate) ?? 32_000
+    const maxTokens = capOutput(request.outputCap, clampOutputToWindow(maxOutputFor(provider, modelId, request.model) ?? 32_000, window, estimate)) ?? 32_000
     const effort = clampEffort(request.effort, effortsFor(modelId, request.model))
     const thinking =
       compat.thinking === 'claude'

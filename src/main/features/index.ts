@@ -15,6 +15,11 @@ import { tradingFeature } from './trading'
 import { pluginsFeature } from './plugins'
 import { providerAuthFeature } from './providerAuth'
 import { voiceFeature } from './voice'
+import { gatewayFeature } from './gateway'
+import { connectAppsFeature } from './connectApps'
+import { linkAccountsFeature } from './linkAccounts'
+import { usageFeature } from './usage'
+import { paymentsFeature } from './payments'
 import type { Feature } from './types'
 
 /** Every feature module, registered in this order at startup. */
@@ -33,8 +38,14 @@ export const FEATURES: Feature[] = [
   // Built on the workers engine, so after it.
   channelsFeature,
   agentBrowserFeature,
+  // Types card details into the agent's browser, so after it.
+  paymentsFeature,
   emailFeature,
   tradingFeature,
   voiceFeature,
+  gatewayFeature,
+  connectAppsFeature,
+  linkAccountsFeature,
+  usageFeature,
   discordPresenceFeature
 ]

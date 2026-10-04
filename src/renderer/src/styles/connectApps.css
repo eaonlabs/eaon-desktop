@@ -1,0 +1,342 @@
+/* Settings → Connect apps (components/settings/pages/ConnectApps.tsx). */
+
+/* ---------------- Logos ---------------- */
+
+.ca-logo {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  border-radius: 24%;
+  overflow: hidden;
+  /* Logos are drawn for a light ground; the tile keeps them legible on dark themes, the outline on light ones. */
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.ca-logo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+.ca-logo[data-mark] {
+  background: #ffffff;
+}
+.ca-logo[data-mark] img {
+  width: 72%;
+  height: 72%;
+  object-fit: contain;
+}
+.ca-logo--icon {
+  background: var(--surface-4);
+  color: var(--text-2);
+}
+
+/* ---------------- Status dot ---------------- */
+
+.ca-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--text-4);
+}
+/* Fixed green, as on the Browser extension page: "working" whatever the accent. */
+.ca-dot[data-tone='on'] {
+  background: var(--diff-add-fg);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--diff-add-fg), transparent 80%);
+}
+.ca-dot[data-tone='waiting'] {
+  background: var(--accent);
+}
+.ca-dot[data-tone='error'] {
+  background: var(--danger);
+}
+
+/* ---------------- Recommended ---------------- */
+
+.ca-featured {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 10px;
+}
+.ca-feature {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 14px 14px 12px;
+  border-radius: var(--r-lg);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  transition:
+    background var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+.ca-feature:hover {
+  background: var(--surface-3);
+}
+.ca-feature__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  color: var(--text);
+}
+.ca-feature__text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.ca-feature__name {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: var(--fs-base);
+}
+.ca-feature__blurb {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  line-height: 1.35;
+}
+
+/* The white pill from the reference design; inverted on light themes so it still reads as a button. */
+.ca-pill {
+  flex: none;
+  height: 30px;
+  padding: 0 16px;
+  border-radius: var(--r-pill);
+  background: var(--fg);
+  color: var(--bg);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  white-space: nowrap;
+  transition:
+    background var(--dur) var(--ease),
+    opacity var(--dur) var(--ease);
+}
+.ca-pill:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--fg), var(--bg) 14%);
+}
+.ca-pill[data-on] {
+  background: var(--surface-4);
+  color: var(--text);
+}
+.ca-pill[data-on]:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--surface-4), var(--fg) 8%);
+}
+.ca-pill:disabled {
+  opacity: 0.45;
+}
+
+/* ---------------- Other apps ---------------- */
+
+.ca-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 6px;
+}
+.ca-app {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  padding: 8px 10px 8px 8px;
+  border-radius: var(--r-md);
+  background: var(--surface-1);
+  border: 1px solid transparent;
+  text-align: left;
+  color: var(--text);
+  transition:
+    background var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+.ca-app:hover {
+  background: var(--surface-3);
+  border-color: var(--border);
+}
+.ca-app__name {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-base);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ca-app__chevron {
+  flex: none;
+  color: var(--text-4);
+}
+
+/* ---------------- Gateway row ---------------- */
+
+.ca-gateway__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ---------------- Sheet ---------------- */
+
+.ca-sheet {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.ca-sheet__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.ca-sheet__headtext {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.ca-sheet__blurb {
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+.ca-sheet__status {
+  height: 22px;
+  font-size: var(--fs-xs);
+}
+.ca-sheet__notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px 9px 12px;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  line-height: 1.45;
+}
+.ca-sheet__notice > span {
+  flex: 1;
+  min-width: 0;
+}
+.ca-code {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.ca-sheet__fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.ca-field {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.ca-field__label {
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+.ca-field > .ca-field__label {
+  width: 84px;
+  flex: none;
+}
+.ca-picker {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  /* The sheet is the same surface as a select, so it needs an edge of its own. */
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.ca-picker__label {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ca-picker__provider {
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.ca-sheet__note {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  line-height: 1.45;
+}
+.ca-sheet__files {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.ca-file {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 7px;
+  color: var(--text-3);
+}
+.ca-file svg {
+  align-self: center;
+}
+.ca-file__path {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text);
+}
+.ca-file__keys {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--text-3);
+  overflow-wrap: anywhere;
+}
+.ca-sheet__fine {
+  display: block;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  line-height: 1.45;
+}
+.ca-sheet__gateway {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.ca-sheet__gateway > .ca-dot {
+  margin-top: 6px;
+}
+.ca-sheet__gateway-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+.ca-sheet__error {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--danger);
+  line-height: 1.45;
+}
+.ca-sheet__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  flex-wrap: wrap;
+}
+.ca-sheet__spacer {
+  flex: 1;
+}

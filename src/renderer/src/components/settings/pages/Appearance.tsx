@@ -2,8 +2,16 @@ import { useEffect, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useApp } from '../../../state/store'
 import { Card, Row, Section, Segmented, Select, Switch } from '../../ui'
-import type { ThemeMode } from '@shared/types'
+import type { AppIcon, ThemeMode } from '@shared/types'
 import { THEMES, type Palette, type Theme } from '../../../lib/themes'
+import defaultIcon from '../../../assets/app-icons/default.png'
+import agentIcon from '../../../assets/app-icons/agent.png'
+
+/** Built from resources/Eaon.icon and EaonAgent.icon by scripts/make-icon.py. */
+const APP_ICONS: { id: AppIcon; label: string; image: string }[] = [
+  { id: 'default', label: 'Eaon', image: defaultIcon },
+  { id: 'agent', label: 'Agent', image: agentIcon }
+]
 
 const GROUPS: { id: Theme['group']; label: string }[] = [
   { id: 'neutral', label: 'Neutral' },
@@ -103,6 +111,30 @@ export function AppearancePage(): JSX.Element {
 
       <Section label="Preferences">
         <Card>
+          <Row
+            title="App icon"
+            description={
+              window.api.platform === 'darwin'
+                ? 'Shown in the Dock while Eaon is running'
+                : "Shown on Eaon's windows and taskbar button"
+            }
+          >
+            <div className="app-icon-picker" role="radiogroup" aria-label="App icon">
+              {APP_ICONS.map((icon) => (
+                <button
+                  key={icon.id}
+                  className="app-icon-choice"
+                  role="radio"
+                  aria-checked={a.appIcon === icon.id}
+                  data-active={a.appIcon === icon.id}
+                  onClick={() => void patchSettings({ appearance: { appIcon: icon.id } })}
+                >
+                  <img className="app-icon-choice__image" src={icon.image} alt="" width={56} height={56} />
+                  <span className="app-icon-choice__label">{icon.label}</span>
+                </button>
+              ))}
+            </div>
+          </Row>
           <Row title="Use pointer cursors" description="Change the cursor to a pointer when hovering over interactive elements">
             <Switch
               label="Use pointer cursors"

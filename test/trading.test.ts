@@ -35,6 +35,7 @@ import {
 import { parseDays, tradingToolSource } from '../src/main/features/trading/tools'
 import { setWorkerTradingLookup } from '../src/main/features/trading/access'
 import type { Quote, TradingConfig, TradingOrder, TradingSession } from '@shared/trading'
+import { TRADING_DISCLAIMER_VERSION } from '@shared/trading'
 import type { StreamEvent, StreamRequest } from '@shared/types'
 
 /**
@@ -968,6 +969,158 @@ test('sessions: checks run on their interval, trade through the tools, end on ti
   assert.ok(session.log.some((e) => e.kind === 'order' && /Bought 3 AAPL/.test(e.text)))
 })
 
+test('sessions: the agent’s stream events reach a listener, the desk sees checks and the next one’s time, and a check can run now', async () => {
+  const events: { sessionId: string; type: string }[] = []
+  let checks = 0
+  const agent = async (request: StreamRequest, emit: (event: StreamEvent) => void): Promise<RunOutcome> => {
+    checks++
+    emit({ type: 'reasoning', messageId: request.messageId, text: 'Looking at AAPL.' })
+    emit({ type: 'tool-call', messageId: request.messageId, toolId: `t${checks}`, name: 'trading_quote', input: { symbols: ['AAPL'] } })
+    emit({ type: 'tool-result', messageId: request.messageId, toolId: `t${checks}`, output: 'AAPL: $100.00', status: 'done' })
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    return { text: 'Held.', usage }
+  }
+  const { engine } = harness({ deps: { runAgent: agent, minuteMs: 60_000, onAgentEvent: (sessionId, event) => void events.push({ sessionId, type: event.type }) } })
+  const session = await engine.startSession({ strategy: 'Watch AAPL', until: Date.now() + 10 * 60_000, everyMinutes: 5 })
+  // The first check runs at once; while it does, the desk says so.
+  await until(() => engine.snapshot().agent?.checking === true)
+  assert.ok(engine.snapshot().agent!.checkStartedAt! <= Date.now())
+  await until(() => checks === 1 && engine.snapshot().agent?.checking === false)
+  assert.deepEqual([...new Set(events.map((e) => e.sessionId))], [session.id])
+  assert.deepEqual(events.map((e) => e.type).filter((t) => t !== 'delta'), ['reasoning', 'tool-call', 'tool-result'])
+  // The next check is five minutes out, and "now" brings it forward.
+  const next = engine.snapshot().agent!.nextCheckAt!
+  assert.ok(next > Date.now() + 4 * 60_000, `next check at ${next - Date.now()} ms`)
+  const snap = engine.checkNow(session.id)
+  assert.equal(snap.agent!.checking, true)
+  await until(() => checks === 2)
+  assert.throws(() => engine.checkNow('nope'), /isn’t running/)
+  await engine.stopSession(session.id)
+  assert.equal(engine.snapshot().agent, null)
+})
+
+test('disclaimer: where it’s required, nothing trades until it’s accepted — except protective sells', async () => {
+  const { engine } = harness({ deps: { requireDisclaimer: () => true } })
+  assert.equal(engine.snapshot().needsDisclaimer, true)
+  const refused = await engine.placeOrder({ symbol: 'AAPL', side: 'buy', qty: 1, reason: 'test' }, 'user')
+  assert.equal(refused.status, 'rejected')
+  assert.match(refused.error!, /accept the trading disclaimer/)
+  await assert.rejects(engine.startSession({ strategy: 'Anything', until: Date.now() + 60_000 }), /accept the trading disclaimer/)
+  assert.throws(() => engine.acceptDisclaimer(TRADING_DISCLAIMER_VERSION + 1), /current disclaimer/)
+  const accepted = engine.acceptDisclaimer(TRADING_DISCLAIMER_VERSION)
+  assert.equal(accepted.needsDisclaimer, false)
+  assert.equal(accepted.config.disclaimer!.version, TRADING_DISCLAIMER_VERSION)
+  assert.equal((await engine.placeOrder({ symbol: 'AAPL', side: 'buy', qty: 1, reason: 'test' }, 'user')).status, 'filled')
+  // Without the requirement (the desktop), nothing changes.
+  const { engine: desktop } = harness()
+  assert.equal(desktop.snapshot().needsDisclaimer, false)
+  assert.equal((await desktop.placeOrder({ symbol: 'AAPL', side: 'buy', qty: 1, reason: 'test' }, 'user')).status, 'filled')
+})
+
+test('sessions: the user can write to the agent mid-session; it reads the message in a check that starts at once', async () => {
+  const briefs: string[] = []
+  const agent = async (request: StreamRequest): Promise<RunOutcome> => {
+    briefs.push((request.history.at(-1)!.parts[0] as { text: string }).text)
+    return { text: 'Done.', usage }
+  }
+  const { engine } = harness({ deps: { runAgent: agent, minuteMs: 60_000 } })
+  const session = await engine.startSession({ strategy: 'Watch AAPL', until: Date.now() + 10 * 60_000, everyMinutes: 5 })
+  await until(() => briefs.length === 1 && engine.snapshot().agent?.checking === false)
+  engine.tellSession(session.id, 'Sell half of AAPL and be more careful.')
+  await until(() => briefs.length === 2)
+  assert.match(briefs[1], /^MESSAGE FROM THE USER \(.+\): Sell half of AAPL and be more careful\./)
+  assert.ok(engine.snapshot().activeSession!.log.some((e) => e.kind === 'message' && /Sell half/.test(e.text)))
+  assert.throws(() => engine.tellSession('nope', 'hi'), /isn’t running/)
+  await engine.stopSession(session.id)
+})
+
+test('sessions: between checks prices are watched; a sharp move wakes the agent early with an alert, and each check says what moved', async () => {
+  const briefs: string[] = []
+  const agent = async (request: StreamRequest): Promise<RunOutcome> => {
+    briefs.push((request.history.at(-1)!.parts[0] as { text: string }).text)
+    return { text: 'Looked.', usage }
+  }
+  const h = harness({ deps: { runAgent: agent, minuteMs: 60_000, watchMs: 25, alertGapMs: 0 } })
+  const { engine } = h
+  await engine.placeOrder({ symbol: 'AAPL', side: 'buy', qty: 5, reason: 'held' }, 'user')
+  const session = await engine.startSession({ strategy: 'Hold AAPL, watch MSFT', until: Date.now() + 10 * 60_000, everyMinutes: 5 })
+  await until(() => briefs.length === 1 && engine.snapshot().agent?.checking === false)
+  // The watch is running between checks.
+  await until(() => (engine.snapshot().agent?.watchedAt ?? 0) > 0)
+  assert.ok(engine.snapshot().agent!.watching!.includes('AAPL'))
+  // A small move doesn't wake it; a sharp one does.
+  h.prices.AAPL = 100.5
+  await new Promise((r) => setTimeout(r, 120))
+  assert.equal(briefs.length, 1)
+  h.prices.AAPL = 103
+  await until(() => briefs.length === 2)
+  assert.match(briefs[1], /^ALERT: AAPL \+3\.00% since the last check \(\$100\.00 → \$103\.00\), which you hold\./)
+  assert.match(briefs[1], /Since your last check \(Eaon watches prices every 0 s\): AAPL \$100\.00 → \$103\.00 \(\+3\.00%\)/)
+  assert.ok(engine.snapshot().activeSession!.log.some((e) => e.kind === 'note' && /⚡ AAPL \+3\.00%/.test(e.text)))
+  await engine.stopSession(session.id)
+})
+
+test('sessions run by Claude Code: Eaon never runs its own agent; Claude Code takes each check, and messages, check-now and the end wake it', async () => {
+  let ran = 0
+  const events: string[] = []
+  const { engine } = harness({
+    deps: {
+      runAgent: async () => {
+        ran++
+        return { text: 'x', usage }
+      },
+      minuteMs: 60_000,
+      onAgentEvent: (_id, event) => void events.push(event.type)
+    }
+  })
+  const session = await engine.startSession({ strategy: 'Hold AAPL', until: Date.now() + 10 * 60_000, everyMinutes: 5, driver: 'claude-code' })
+  assert.equal(session.driver, 'claude-code')
+  assert.equal(engine.snapshot().agent!.driver, 'claude-code')
+  assert.equal(engine.snapshot().agent!.connected, false)
+
+  const first = await engine.waitForCheck(session.id, 1000)
+  assert.equal(first.state, 'check')
+  if (first.state !== 'check') return
+  assert.equal(first.check, 1)
+  assert.match(first.brief, /Account \(Simulator\): equity/)
+  assert.match(first.brief, /eaon_log_decision/)
+  assert.equal(engine.snapshot().agent!.checking, true)
+  const order = await engine.sessionOrder(session.id, { symbol: 'AAPL', side: 'buy', qty: 1, reason: 'test' })
+  assert.equal(order.source, 'session')
+  assert.equal(order.sessionId, session.id)
+  engine.recordExternalTool('trading_quote', { symbols: ['AAPL'] }, 'AAPL: $100.00, +0.50% today', true)
+  engine.logDecision(session.id, 'Bought 1 AAPL.')
+  assert.equal(engine.snapshot().agent!.checking, false)
+  assert.ok(engine.snapshot().activeSession!.log.some((e) => e.kind === 'decision' && e.text === 'Bought 1 AAPL.'))
+
+  // Nothing is due for five minutes: a short wait comes back empty-handed.
+  assert.equal((await engine.waitForCheck(session.id, 50)).state, 'waiting')
+  // The user writing wakes a waiting Claude Code at once, with the message first.
+  const waiting = engine.waitForCheck(session.id, 5000)
+  await new Promise((r) => setTimeout(r, 30))
+  assert.equal(engine.snapshot().agent!.connected, true)
+  engine.tellSession(session.id, 'Sell it.')
+  const second = await waiting
+  assert.equal(second.state, 'check')
+  if (second.state === 'check') assert.match(second.brief, /^MESSAGE FROM THE USER \(.+\): Sell it\./)
+  engine.logDecision(session.id, 'Sold.')
+  // So does "check now"; and the session ending ends the wait.
+  const third = engine.waitForCheck(session.id, 5000)
+  engine.checkNow(session.id)
+  assert.equal((await third).state, 'check')
+  const fourth = engine.waitForCheck(session.id, 5000)
+  await engine.stopSession(session.id)
+  assert.equal((await fourth).state, 'ended')
+
+  assert.equal(ran, 0, 'Eaon’s own agent never ran')
+  assert.deepEqual(events.slice(0, 5), ['usage', 'tool-call', 'tool-result', 'delta', 'done'])
+  assert.throws(() => engine.logDecision(session.id, 'x'), /isn’t running/)
+  // Eaon's own sessions don't take Claude Code's calls.
+  const own = await engine.startSession({ strategy: 'Own', until: Date.now() + 10 * 60_000, everyMinutes: 5 })
+  await assert.rejects(engine.waitForCheck(own.id, 10), /Eaon’s own agent/)
+  await engine.stopSession(own.id)
+})
+
 test('sessions: a closed market skips checks (noted once) unless the simulator trades anytime', async () => {
   const saturday = at('2026-10-03T15:00:00Z')
   const t0 = Date.now()
@@ -1148,6 +1301,48 @@ test('schedules: a session starts when the window opens, once per window, and en
 
   const removed = engine.removeSchedule(schedule.id)
   assert.equal(removed.schedules.length, 1)
+})
+
+test('missions: a market-hours schedule trades from the open to just before the close, every market day, and Claude Code can wait for the next one', async () => {
+  const t0 = Date.now()
+  let offset = at('2026-10-05T14:00:00Z') - t0 // Monday 10:00 AM ET
+  const now = (): number => Date.now() + offset
+  const { engine } = harness({ deps: { now, runAgent: async () => ({ text: 'held', usage }) } })
+  const mission = engine.saveSchedule({ name: 'Mission', days: [], start: '', end: '', strategy: 'Momentum in large caps', everyMinutes: 5, flattenAtEnd: true, enabled: true, marketHours: true, driver: 'claude-code' })
+  assert.equal(mission.marketHours, true)
+  assert.equal(mission.driver, 'claude-code')
+  await engine.tickSchedules()
+  const monday = engine.snapshot().activeSession!
+  assert.equal(monday.scheduleId, mission.id)
+  assert.equal(monday.driver, 'claude-code')
+  assert.equal(monday.endsAt, at('2026-10-05T20:00:00Z') - 5 * 60_000, 'until five minutes before the 4 PM bell')
+  assert.deepEqual(await engine.waitForSession(10), { state: 'session', id: monday.id })
+
+  // Stopped by hand: it stays stopped for the rest of the day.
+  await engine.stopSession(monday.id)
+  await engine.tickSchedules()
+  assert.equal(engine.snapshot().activeSession, null)
+  const pending = engine.waitForSession(10)
+  assert.equal(engine.snapshot().claudeWaiting, true, 'the desk shows Claude Code waiting for the open')
+  const waiting = await pending
+  assert.deepEqual(waiting, { state: 'waiting', nextAt: at('2026-10-06T13:30:00Z') })
+
+  // The next open starts it again.
+  offset = at('2026-10-06T13:31:00Z') - Date.now() // Tuesday 9:31 AM ET
+  await engine.tickSchedules()
+  const tuesday = engine.snapshot().activeSession!
+  assert.notEqual(tuesday.id, monday.id)
+  assert.equal(tuesday.scheduleId, mission.id)
+  await engine.stopSession(tuesday.id)
+
+  // Nothing on a Saturday; the next start is Monday's open.
+  offset = at('2026-10-10T15:00:00Z') - Date.now()
+  await engine.tickSchedules()
+  assert.equal(engine.snapshot().activeSession, null)
+  assert.equal(engine.nextScheduledStart('claude-code'), at('2026-10-12T13:30:00Z'))
+  // Switched off, there's nothing left for Claude Code to wait for.
+  engine.saveSchedule({ ...mission, enabled: false })
+  assert.deepEqual(await engine.waitForSession(10), { state: 'none' })
 })
 
 test('schedules: a window that can’t start (no keys) shows a failed session and isn’t retried at once', async () => {

@@ -267,8 +267,10 @@ export function Modal({
     const onKey = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') onClose()
     }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
+    // On window, after document: a menu open inside the dialog hears Escape first and keeps it,
+    // so Escape closes that menu and leaves the dialog (and what was picked in it) open.
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
   }, [open, onClose])
 
   if (!open) return null

@@ -73,6 +73,8 @@ export interface TradingConfig {
   liveConfirmedAt: number | null
   /** The model trading sessions run on; null follows the app's selected model. */
   model: { providerId: string; modelId: string } | null
+  /** When the user accepted the trading disclaimer, and which version (apps that ask for it). */
+  disclaimer?: { version: number; acceptedAt: number } | null
   /** The kill switch: no orders at all and no sessions, until switched off. */
   halted: boolean
 }
@@ -213,6 +215,14 @@ export interface TradingSchedule {
   flattenAtEnd: boolean
   enabled: boolean
   createdAt: number
+  /**
+   * The window is the market's regular session each trading day — from the
+   * open to just before the close, holidays and half days included — rather
+   * than `days`/`start`/`end`. A mission: the agent trades every market day.
+   */
+  marketHours?: boolean
+  /** Who runs its sessions: Eaon's agent (absent) or Claude Code. */
+  driver?: SessionDriver
 }
 
 export type TradingScheduleDraft = Omit<TradingSchedule, 'id' | 'createdAt'> & { id?: string }
@@ -221,7 +231,8 @@ export type SessionStatus = 'running' | 'done' | 'stopped' | 'failed'
 
 export interface TradingLogEntry {
   at: number
-  kind: 'decision' | 'order' | 'note' | 'error'
+  /** `message`: something the user wrote to the agent during the session. */
+  kind: 'decision' | 'order' | 'note' | 'error' | 'message'
   text: string
 }
 
@@ -249,7 +260,14 @@ export interface TradingSession {
   error: string | null
   /** SPY at the start and the end, so the result can be compared with simply holding the market. */
   benchmark?: { symbol: string; start: number; end: number | null } | null
+  /**
+   * Who makes the decisions: Eaon's own agent (absent or `eaon`), or the
+   * user's Claude Code, which takes each check through Eaon's MCP tools.
+   */
+  driver?: SessionDriver
 }
+
+export type SessionDriver = 'eaon' | 'claude-code'
 
 export interface StartSessionRequest {
   strategy: string
@@ -258,6 +276,7 @@ export interface StartSessionRequest {
   everyMinutes?: number
   flattenAtEnd?: boolean
   name?: string
+  driver?: SessionDriver
 }
 
 export interface TradingSnapshot {
@@ -275,6 +294,24 @@ export interface TradingSnapshot {
   /** Newest first, at most 50. */
   sessions: TradingSession[]
   activeSession: TradingSession | null
+  /**
+   * The running session's agent: whether a check is under way, when the next
+   * is due, and the prices it watches between checks. Null with no session.
+   */
+  agent?: {
+    checking: boolean
+    checkStartedAt: number | null
+    nextCheckAt: number | null
+    watchedAt?: number | null
+    watching?: string[]
+    driver?: SessionDriver
+    /** Claude Code sessions: it is waiting for the next check, or took one recently. */
+    connected?: boolean
+  } | null
+  /** Claude Code is waiting for the next session of a mission it runs (overnight, over a weekend). */
+  claudeWaiting?: boolean
+  /** Orders and sessions wait for the trading disclaimer (apps that ask for it). */
+  needsDisclaimer?: boolean
   /** The last problem talking to the broker or the price feed, if it hasn't recovered. */
   error: string | null
   /** Where prices come from, for the desk's footnote. */
@@ -324,6 +361,21 @@ export type BarRange = '1d' | '5d' | '1mo' | '6mo' | '1y'
 
 /** Typed to confirm real-money trading. */
 export const LIVE_CONFIRMATION = 'I understand this trades real money'
+
+/** Bump when the disclaimer's substance changes: everyone accepts the new one before trading again. */
+export const TRADING_DISCLAIMER_VERSION = 1
+
+export const TRADING_DISCLAIMER = {
+  title: 'Before you trade with Eaon',
+  paragraphs: [
+    'Trading stocks and other securities carries a high risk of loss. You can lose some or all of the money you trade with, and past results don’t predict future ones.',
+    'Eaon’s trading agent is software driven by an AI model. It can misread the market, act on delayed or wrong data, misunderstand your strategy, or fail in ways nobody foresaw, and while a session runs it places orders on its own, without asking you. Your limits and the kill switch reduce the risk; they don’t remove it.',
+    'Nothing Eaon or its agent says or does is financial, investment, tax or legal advice. You decide whether to trade, with which account, with how much money and under which limits, and you are solely responsible for every order placed through your accounts — including every order the agent, a worker or a connected app places.',
+    'To the fullest extent the law allows, Eaon and its makers are not responsible or liable for any loss of money, profits or opportunity, or for any other damages, that come from trading through Eaon: its agent, its tools, connected brokers and apps, or the market data it uses.',
+    'Practise on the simulator or a paper account first, and never trade money you can’t afford to lose.'
+  ],
+  checkbox: 'I have read this. I understand the risks, and I accept that I alone am responsible for any money I lose trading with Eaon.'
+}
 
 export const EMPTY_STATS: TradingStats = {
   totalReturn: 0,
