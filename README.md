@@ -68,6 +68,16 @@ Also: scheduled tasks that run in the background, 67 plugins with browser
 sign-in, skills (`SKILL.md`), a curated local model library and coloured
 themes.
 
+## Eaon CLI (beta)
+
+`cli/` is Eaon in a terminal: Chat and Workers as in the app, with an agentic
+trading desk in place of the ADE. It runs this app's main process headless,
+can import your setup from the desktop app, and talks to other terminal
+sessions, including Claude Code and Codex. Install it with
+`npm install -g eaon` and run `eaon`. It updates itself when a new version
+is out. From a checkout, build it with `npm run build:cli` and run `eaon`
+after `npm link`. See [cli/README.md](cli/README.md).
+
 ## Browser extension
 
 `extension/` holds the Chrome extension. To try it before it's on the Web

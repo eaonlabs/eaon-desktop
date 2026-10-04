@@ -2,7 +2,7 @@
 title: Claude plan through the user's own Claude Code (headless provider)
 tags: [providers, oauth, policy, claude-code, eaon-desktop]
 created: 2026-09-30T13:57:50.568Z
-updated: 2026-09-30T22:56:11.316Z
+updated: 2026-10-03T15:27:37.065Z
 ---
 
 **Removed on Sept 30, 2026. Do not rebuild this.** For about a day a "Claude (Claude Code)" provider (kind `claude-code`) answered Eaon's chats by spawning the user's own `claude -p` headless, using Claude Code's login. The co-founder pointed out that Anthropic's terms forbid it, and the provider was deleted: adapter, flow, catalog entry and tests.
@@ -23,3 +23,5 @@ Eaon spawning `claude -p` to answer *Eaon's* chats is routing Eaon's requests th
 Technical notes from the removed implementation, in case they matter again for an **API-key** integration: `claude -p --output-format stream-json --include-partial-messages` streams `stream_event` deltas and ends with a `result` event. `--bare` never reads OAuth.
 
 Related: [[Provider OAuth landscape (Sept 2026): which sign-ins are allowed]], [[ADE terminal view: node-pty, xterm and the pane grid]]
+
+Related: [[Eaon CLI session bus and the Claude Code bridge]]

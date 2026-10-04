@@ -8,6 +8,7 @@ import {
   DEFAULT_LIMITS,
   EMPTY_STATS,
   LIVE_CONFIRMATION,
+  TRADING_DISCLAIMER_VERSION,
   type Bar,
   type BarRange,
   type BrokerKind,
@@ -18,6 +19,7 @@ import {
   type OrderType,
   type PositionExit,
   type Quote,
+  type SessionDriver,
   type StartSessionRequest,
   type TradingAccount,
   type TradingConfig,
@@ -35,7 +37,7 @@ import type { RunOptions, RunOutcome, ToolGate } from '../../agent/loop'
 import { resolveModel as resolveAppModel, STALL_MS } from '../scheduler/runner'
 import { AlpacaBroker, type AlpacaKind } from './alpaca'
 import { roundMoney, roundPrice, roundQty, type AlpacaKeys, type Broker, type BrokerOrder } from './brokers'
-import { formatMarketTime } from './marketHours'
+import { formatMarketTime, marketDate, nextOpen, sessionOn } from './marketHours'
 import { normalizeSymbol, type Headline, type PriceFeed, type ScreenKind, type ScreenRow } from './marketData'
 import { SimulatorBroker, type SimState } from './simulator'
 
@@ -63,7 +65,7 @@ export type RunAgent = (request: StreamRequest, emit: (event: StreamEvent) => vo
 export type KeyKind = 'paper' | 'live'
 export type OrderSource = TradingOrder['source']
 /** What the desk may change; `liveConfirmedAt` only through `confirmLive`. */
-export type TradingConfigPatch = Partial<Omit<TradingConfig, 'limits' | 'liveConfirmedAt'>> & { limits?: Partial<TradingLimits> }
+export type TradingConfigPatch = Partial<Omit<TradingConfig, 'limits' | 'liveConfirmedAt' | 'disclaimer'>> & { limits?: Partial<TradingLimits> }
 
 /** A ledger entry: the order as the desk shows it, plus how to find it at the broker. */
 export interface StoredOrder extends TradingOrder {
@@ -111,6 +113,8 @@ export interface TradingDeps {
   saveExits?: (exits: ExitBook) => void
   /** Something the desk shows changed. Cheap and frequent; the feature throttles what it sends. */
   onChange?: () => void
+  /** Every stream event of a session's checks (tool calls, reasoning, text), for a screen that shows the agent at work. */
+  onAgentEvent?: (sessionId: string, event: StreamEvent) => void
   now?: () => number
   /** Makes an Alpaca client; tests point it at a fake server. */
   createBroker?: (kind: AlpacaKind, keys: AlpacaKeys) => Broker
@@ -126,6 +130,15 @@ export interface TradingDeps {
   /** How often prices are checked while an exit could fire; 15 s by default. */
   exitRefreshMs?: number
   scheduleTickMs?: number
+  /**
+   * Orders and sessions wait for the user to accept the trading disclaimer
+   * (`acceptDisclaimer`). The CLI asks for it; the desktop doesn't set this.
+   */
+  requireDisclaimer?: () => boolean
+  /** How often a session's prices are watched between checks; 15 s by default. */
+  watchMs?: number
+  /** The least time between a check and an early one woken by a price alert; 60 s by default. */
+  alertGapMs?: number
 }
 
 /* ------------------------------------------------------------------ limits */
@@ -153,6 +166,13 @@ const BENCHMARK = 'SPY'
 const MARKET_INDEXES = ['SPY', 'QQQ']
 /** A slow quote doesn't hold up a check; the line is left out instead. */
 const CONTEXT_TIMEOUT_MS = 4000
+/** Moves since the last check that wake the agent early: a holding, a watched ticker, the market. */
+const ALERT_HOLDING_PCT = 1.5
+const ALERT_WATCHED_PCT = 2.5
+const ALERT_MARKET_PCT = 0.75
+/** A holding this close to its stop wakes the agent too. */
+const ALERT_STOP_PCT = 0.5
+const DISCLAIMER_REFUSAL = 'Trading hasn’t been switched on yet: accept the trading disclaimer first (on the trading desk, press G or open Setup). Until then no order can be placed and no session can start.'
 export const TRADING_CHAT_PREFIX = 'trading:'
 const EMPTY_USAGE: TokenUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }
 const OPEN_STATUSES = new Set<TradingOrder['status']>(['pending', 'open', 'partially_filled'])
@@ -275,8 +295,14 @@ export function normalizeConfig(raw: unknown): TradingConfig {
     simulatorAnytime: v.simulatorAnytime === true,
     liveConfirmedAt: typeof v.liveConfirmedAt === 'number' ? v.liveConfirmedAt : null,
     model: normalizeModel(v.model),
-    halted: v.halted === true
+    halted: v.halted === true,
+    disclaimer: normalizeDisclaimer(v.disclaimer)
   }
+}
+
+function normalizeDisclaimer(raw: unknown): TradingConfig['disclaimer'] {
+  const v = raw as { version?: unknown; acceptedAt?: unknown } | null
+  return v && typeof v.version === 'number' && typeof v.acceptedAt === 'number' ? { version: v.version, acceptedAt: v.acceptedAt } : null
 }
 
 const DAYS = new Set([0, 1, 2, 3, 4, 5, 6])
@@ -313,7 +339,9 @@ function normalizeSchedule(raw: unknown, now: number): TradingSchedule | null {
     everyMinutes: everyMinutesOf(v.everyMinutes),
     flattenAtEnd: v.flattenAtEnd === true,
     enabled: v.enabled !== false,
-    createdAt: typeof v.createdAt === 'number' ? v.createdAt : now
+    createdAt: typeof v.createdAt === 'number' ? v.createdAt : now,
+    ...(v.marketHours === true ? { marketHours: true } : {}),
+    ...(v.driver === 'claude-code' ? { driver: 'claude-code' as const } : {})
   }
 }
 
@@ -343,7 +371,8 @@ function normalizeSession(raw: unknown): TradingSession | null {
     benchmark:
       v.benchmark && typeof v.benchmark.symbol === 'string' && finite(v.benchmark.start) !== undefined
         ? { symbol: v.benchmark.symbol, start: finite(v.benchmark.start)!, end: finite(v.benchmark.end) ?? null }
-        : null
+        : null,
+    ...(v.driver === 'claude-code' ? { driver: 'claude-code' as const } : {})
   }
 }
 
@@ -840,10 +869,35 @@ interface ActiveSession {
   ending: boolean
   /** Eaon is quitting; the session stays `running` on disk and resumes at the next launch. */
   quitting: boolean
+  /** When the check in progress started, and when the next one is due (while its timer is set). */
+  turnStartedAt: number | null
+  nextTurnAt: number | null
+  /** Messages the user sent the agent, for its next check. */
+  inbox: { at: number; text: string }[]
+  /** What woke the agent early, for its next check. */
+  alerts: string[]
+  /** Prices when the last check began, and the newest the watch has seen. */
+  basePrices: Map<string, number>
+  latestPrices: Map<string, number>
+  watchTimer: ReturnType<typeof setTimeout> | null
+  lastWatchAt: number | null
+  /** Claude Code sessions: its calls waiting for the next check, and when it last took one or waited. */
+  waiters: Set<() => void>
+  lastExternalAt: number | null
+  /** The check Claude Code is on, for the feed's steps. */
+  externalMessageId: string | null
 }
 
+/** A market-hours window ends this long before the bell, so the last orders and the sell-off fill. */
+export const CLOSE_MARGIN_MS = 5 * 60_000
+
 /** The window a schedule is in at `now` (it may have opened yesterday if it runs past midnight), or null. */
-export function scheduleWindow(schedule: Pick<TradingSchedule, 'days' | 'start' | 'end'>, now: number): { start: number; end: number } | null {
+export function scheduleWindow(schedule: Pick<TradingSchedule, 'days' | 'start' | 'end' | 'marketHours'>, now: number): { start: number; end: number } | null {
+  if (schedule.marketHours) {
+    const session = sessionOn(marketDate(now))
+    const end = session ? session.close - CLOSE_MARGIN_MS : 0
+    return session && now >= session.open && now < end ? { start: session.open, end } : null
+  }
   const at = (day: Date, clock: string, plusDays = 0): number => {
     const [h, m] = clock.split(':').map(Number)
     // The local Date constructor, never "+24 h": a day across a DST change is 23 or 25 hours.
@@ -880,6 +934,13 @@ export class TradingEngine {
   private readonly alpaca = new Map<AlpacaKind, Broker>()
   private keyState = { paper: false, live: false }
   private active: ActiveSession | null = null
+  /** Claude Code's pending waits for a mission's next session, and when the last one returned. */
+  private missionWaiters = 0
+  private missionWaitedAt: number | null = null
+  /** When each session's latest check began, for spacing early checks. */
+  private lastTurnAt = new Map<string, number>()
+  /** The quotes the latest check's market lines came from. */
+  private contextQuotes: Quote[] = []
   private syncing: Promise<void> | null = null
   /**
    * Bumped when the account underneath changes wholesale (a simulator reset,
@@ -1050,6 +1111,9 @@ export class TradingEngine {
       schedules: clone(this.schedules),
       sessions: clone(this.sessions.slice(0, MAX_SESSIONS)),
       activeSession: this.activeSession(),
+      agent: this.active ? this.agentState(this.active) : null,
+      ...(this.claudeWaiting() ? { claudeWaiting: true } : {}),
+      needsDisclaimer: this.needsDisclaimer(),
       error: this.error,
       dataSource: this.deps.prices.source
     }
@@ -1206,7 +1270,7 @@ export class TradingEngine {
     const broker = this.broker()
     if (!broker) return refuse(this.missingKeys(kind))
     // The switches first: they need no prices, and a halted desk shouldn't even ask.
-    const early = checkSwitches(this.config, order.symbol, options.flatten)
+    const early = checkSwitches(this.config, order.symbol, options.flatten) ?? (this.needsDisclaimer() && !options.flatten ? DISCLAIMER_REFUSAL : null)
     if (early) return refuse(early)
     let state: Awaited<ReturnType<TradingEngine['limitState']>>
     try {
@@ -1459,6 +1523,9 @@ export class TradingEngine {
     const now = this.now()
     const strategy = str(draft?.strategy)
     if (!strategy) throw new Error('Describe the strategy: what to trade and how.')
+    // A mission follows the market's own hours; its clock times and days are only for show.
+    const market = draft.marketHours === true
+    if (market) draft = { ...draft, start: '09:30', end: '16:00', days: [1, 2, 3, 4, 5] }
     const start = clockText(draft.start)
     const end = clockText(draft.end)
     if (!start || !end) throw new Error('Give the window as 24-hour times, like 09:30 and 16:00.')
@@ -1477,7 +1544,9 @@ export class TradingEngine {
       everyMinutes: everyMinutesOf(draft.everyMinutes),
       flattenAtEnd: draft.flattenAtEnd === true,
       enabled: draft.enabled !== false,
-      createdAt: existing?.createdAt ?? now
+      createdAt: existing?.createdAt ?? now,
+      ...(market ? { marketHours: true } : {}),
+      ...(draft.driver === 'claude-code' ? { driver: 'claude-code' as const } : {})
     }
     if (existing) this.schedules[this.schedules.indexOf(existing)] = schedule
     else this.schedules.push(schedule)
@@ -1518,7 +1587,14 @@ export class TradingEngine {
       if (failedId && tried && now - tried.at < SCHEDULE_RETRY_MS) continue
       try {
         await this.startSession(
-          { strategy: schedule.strategy, until: window.end, everyMinutes: schedule.everyMinutes, flattenAtEnd: schedule.flattenAtEnd, name: schedule.name },
+          {
+            strategy: schedule.strategy,
+            until: window.end,
+            everyMinutes: schedule.everyMinutes,
+            flattenAtEnd: schedule.flattenAtEnd,
+            name: schedule.name,
+            ...(schedule.driver === 'claude-code' ? { driver: 'claude-code' as const } : {})
+          },
           schedule.id
         )
         this.scheduleTries.delete(schedule.id)
@@ -1567,6 +1643,7 @@ export class TradingEngine {
   async startSession(request: StartSessionRequest, scheduleId: string | null = null): Promise<TradingSession> {
     const now = this.now()
     if (this.config.halted) throw new Error('Trading is halted (the kill switch is on). Switch it off on the trading desk before starting a session.')
+    if (this.needsDisclaimer()) throw new Error(DISCLAIMER_REFUSAL)
     this.ensureNoSession()
     const strategy = str(request?.strategy).slice(0, 4000)
     if (!strategy) throw new Error('Describe the strategy for the session: what to trade and how.')
@@ -1602,7 +1679,8 @@ export class TradingEngine {
       log: [],
       summary: null,
       error: null,
-      benchmark: benchmark === null ? null : { symbol: BENCHMARK, start: benchmark, end: null }
+      benchmark: benchmark === null ? null : { symbol: BENCHMARK, start: benchmark, end: null },
+      ...(request.driver === 'claude-code' ? { driver: 'claude-code' as const } : {})
     }
     this.sessions.unshift(session)
     this.trimSessions()
@@ -1611,7 +1689,9 @@ export class TradingEngine {
     this.log(
       session,
       'note',
-      `Started on ${brokerLabel(this.config.broker)}: a check every ${everyMinutes} min until ${localTime(until)}${session.flattenAtEnd ? ', selling everything at the end' : ''}.`
+      `Started on ${brokerLabel(this.config.broker)}: a check every ${everyMinutes} min until ${localTime(until)}${session.flattenAtEnd ? ', selling everything at the end' : ''}.${
+        session.driver === 'claude-code' ? ' Claude Code makes the decisions; it takes the first check when you hand it the session.' : ''
+      }`
     )
     this.armSession(active, 0)
     this.armRefresh()
@@ -1670,7 +1750,18 @@ export class TradingEngine {
       failures: 0,
       stopAfterTurn: false,
       ending: false,
-      quitting: false
+      quitting: false,
+      turnStartedAt: null,
+      nextTurnAt: null,
+      inbox: [],
+      alerts: [],
+      basePrices: new Map(),
+      latestPrices: new Map(),
+      watchTimer: null,
+      lastWatchAt: null,
+      waiters: new Set(),
+      lastExternalAt: null,
+      externalMessageId: null
     }
   }
 
@@ -1679,23 +1770,389 @@ export class TradingEngine {
     const left = Math.max(0, active.session.endsAt - this.now())
     active.endTimer = setTimeout(() => void this.endSession(active, 'done', 'The session’s time is up.'), left)
     active.endTimer.unref?.()
-    this.scheduleTurn(active, firstTurnDelay)
+    // Claude Code takes its checks itself (waitForCheck); the first is due now.
+    if (active.session.driver === 'claude-code') active.nextTurnAt = this.now() + firstTurnDelay
+    else this.scheduleTurn(active, firstTurnDelay)
+    this.scheduleWatch(active)
   }
 
   private clearSessionTimers(active: ActiveSession): void {
     if (active.turnTimer) clearTimeout(active.turnTimer)
     if (active.endTimer) clearTimeout(active.endTimer)
+    if (active.watchTimer) clearTimeout(active.watchTimer)
     active.turnTimer = null
     active.endTimer = null
+    active.watchTimer = null
+    active.nextTurnAt = null
+  }
+
+  /* ---------------------------------------------------------- live watch */
+
+  private scheduleWatch(active: ActiveSession): void {
+    if (active.watchTimer) clearTimeout(active.watchTimer)
+    active.watchTimer = setTimeout(() => {
+      active.watchTimer = null
+      void this.watchTick(active).finally(() => {
+        if (this.active === active && !active.ending && !this.disposed) this.scheduleWatch(active)
+      })
+    }, this.deps.watchMs ?? 15_000)
+    active.watchTimer.unref?.()
+  }
+
+  /** The symbols a session watches between checks: its holdings, the tickers in its strategy, and the market. */
+  private watchedSymbols(session: TradingSession): string[] {
+    return [...new Set([...this.positions.map((p) => p.symbol), ...tickersIn(session.strategy), BENCHMARK])].slice(0, 12)
+  }
+
+  /**
+   * Between checks, prices every few seconds: the agent's next check learns
+   * what moved, and a sharp move — a holding, a ticker the strategy names,
+   * the market — or a holding nearing its stop wakes it early.
+   */
+  private async watchTick(active: ActiveSession): Promise<void> {
+    if (this.active !== active || active.ending || active.running || this.disposed || this.config.halted) return
+    const session = active.session
+    const quoteOf = (symbol: string): Promise<Quote | null> =>
+      Promise.race([
+        this.deps.prices.quote(symbol).catch(() => null),
+        new Promise<null>((resolve) => setTimeout(() => resolve(null), CONTEXT_TIMEOUT_MS).unref?.())
+      ])
+    const symbols = this.watchedSymbols(session)
+    const quotes = (await Promise.all(symbols.map(quoteOf))).filter((q): q is Quote => q !== null)
+    if (this.active !== active || active.ending || active.running) return
+    active.lastWatchAt = this.now()
+    const held = new Map(this.positions.map((p) => [p.symbol, p]))
+    const alerts: string[] = []
+    for (const q of quotes) {
+      active.latestPrices.set(q.symbol, q.price)
+      const base = active.basePrices.get(q.symbol)
+      if (base === undefined) {
+        active.basePrices.set(q.symbol, q.price)
+        continue
+      }
+      const move = base > 0 ? ((q.price - base) / base) * 100 : 0
+      const position = held.get(q.symbol)
+      const limit = q.symbol === BENCHMARK ? ALERT_MARKET_PCT : position ? ALERT_HOLDING_PCT : ALERT_WATCHED_PCT
+      if (Math.abs(move) >= limit) alerts.push(`${q.symbol} ${signedPct(move)} since the last check (${money(base)} → ${money(q.price)})${position ? ', which you hold' : ''}.`)
+      const stop = position?.exit?.activeStop
+      if (stop && q.price > stop && (q.price - stop) / q.price <= ALERT_STOP_PCT / 100) alerts.push(`${q.symbol} is ${(((q.price - stop) / q.price) * 100).toFixed(2)}% above its stop (${money(stop)}).`)
+    }
+    this.changed()
+    if (alerts.length === 0) return
+    const anytime = this.config.broker === 'simulator' && this.config.simulatorAnytime
+    if (!this.account?.marketOpen && !anytime) return
+    if (this.now() - (this.lastTurnAt.get(session.id) ?? 0) < (this.deps.alertGapMs ?? 60_000)) return
+    // The check this wakes starts the next baseline, so each move alerts once.
+    active.alerts.push(...alerts)
+    this.log(session, 'note', `⚡ ${alerts.join(' ')} Checking now.`)
+    if (session.driver === 'claude-code') return this.wake(active)
+    if (active.turnTimer) clearTimeout(active.turnTimer)
+    active.turnTimer = null
+    active.nextTurnAt = null
+    void this.runTurn(active)
+  }
+
+  /** Lines for a check: what moved since the last one, from the watch. */
+  private liveLines(active: ActiveSession): string[] {
+    const moves: string[] = []
+    for (const [symbol, base] of active.basePrices) {
+      const latest = active.latestPrices.get(symbol)
+      if (latest === undefined || base <= 0 || latest === base) continue
+      moves.push(`${symbol} ${money(base)} → ${money(latest)} (${signedPct(((latest - base) / base) * 100)})`)
+    }
+    return moves.length ? [`Since your last check (Eaon watches prices every ${Math.round((this.deps.watchMs ?? 15_000) / 1000)} s): ${moves.join(' · ')}.`] : []
+  }
+
+  /* ---------------------------------------------------- talking to the agent */
+
+  /**
+   * A message from the user to the session's agent. It is logged, and the
+   * agent reads it in a check that starts now — or as soon as the one under
+   * way ends.
+   */
+  tellSession(id: string, text: string): TradingSnapshot {
+    const active = this.active
+    if (!active || active.session.id !== id) throw new Error('That session isn’t running.')
+    const message = str(text).slice(0, 2000)
+    if (!message) throw new Error('Write something to send.')
+    active.inbox.push({ at: this.now(), text: message })
+    this.log(active.session, 'message', message)
+    if (active.session.driver === 'claude-code') {
+      this.wake(active)
+      return this.snapshot()
+    }
+    if (!active.running && !active.ending && !this.config.halted) {
+      if (active.turnTimer) clearTimeout(active.turnTimer)
+      active.turnTimer = null
+      active.nextTurnAt = null
+      void this.runTurn(active)
+    }
+    return this.snapshot()
+  }
+
+  /* ------------------------------------------------- Claude Code as the agent */
+
+  private agentState(active: ActiveSession): NonNullable<TradingSnapshot['agent']> {
+    const external = active.session.driver === 'claude-code'
+    const every = active.session.everyMinutes * this.minuteMs
+    return {
+      checking: external ? active.turnStartedAt !== null : Boolean(active.running),
+      checkStartedAt: active.turnStartedAt,
+      nextCheckAt: external ? active.nextTurnAt : active.turnTimer ? active.nextTurnAt : null,
+      watchedAt: active.lastWatchAt,
+      watching: this.watchedSymbols(active.session),
+      driver: external ? 'claude-code' : 'eaon',
+      ...(external ? { connected: active.waiters.size > 0 || (active.lastExternalAt !== null && this.now() - active.lastExternalAt < every + 120_000) } : {})
+    }
+  }
+
+  private wake(active: ActiveSession): void {
+    for (const fn of [...active.waiters]) fn()
+  }
+
+  private externalSession(id: string): ActiveSession {
+    const active = this.active
+    if (!active || active.session.id !== id) throw new Error('That session isn’t running.')
+    if (active.session.driver !== 'claude-code') throw new Error('That session is run by Eaon’s own agent, not Claude Code.')
+    return active
+  }
+
+  /** Stream events for a Claude Code session's checks, so the desk's feed shows its steps like Eaon's agent's. */
+  private externalEvent(active: ActiveSession, event: Omit<StreamEvent, 'messageId'> & { type: StreamEvent['type'] }): void {
+    if (!active.externalMessageId) return
+    try {
+      this.deps.onAgentEvent?.(active.session.id, { ...event, messageId: active.externalMessageId } as StreamEvent)
+    } catch (error) {
+      console.error('[trading] agent event listener failed:', error)
+    }
+  }
+
+  /**
+   * Claude Code taking the next check of the session it runs: waits until
+   * it is due — the interval, a message from the user, a price alert, or
+   * "check now" — then returns the same brief Eaon's own agent would get.
+   * Returns `waiting` when nothing came due within `maxWaitMs` (ask again),
+   * and `ended` once the session is over.
+   */
+  async waitForCheck(
+    id: string,
+    maxWaitMs = 9 * 60_000
+  ): Promise<{ state: 'check'; check: number; brief: string; endsAt: number } | { state: 'waiting'; nextCheckAt: number | null } | { state: 'ended'; status: string; summary: string | null }> {
+    const ended = () => {
+      const s = this.sessions.find((x) => x.id === id)
+      return { state: 'ended' as const, status: s?.status ?? 'over', summary: s?.summary ?? null }
+    }
+    if (!this.active || this.active.session.id !== id || this.active.ending) return ended()
+    const active = this.externalSession(id)
+    const session = active.session
+    const every = session.everyMinutes * this.minuteMs
+    // A check Claude Code left without logging a decision is over now.
+    if (active.turnStartedAt !== null) {
+      active.turnStartedAt = null
+      this.externalEvent(active, { type: 'done' } as never)
+    }
+    const deadline = this.now() + Math.max(0, maxWaitMs)
+    for (;;) {
+      if (this.active !== active || active.ending) return ended()
+      active.lastExternalAt = this.now()
+      const due = active.inbox.length > 0 || active.alerts.length > 0 || (active.nextTurnAt !== null && this.now() >= active.nextTurnAt)
+      if (due && !this.config.halted) {
+        const brief = await this.externalBrief(active)
+        if (this.active !== active || active.ending) return ended()
+        if ('brief' in brief) {
+          const now = this.now()
+          session.checks++
+          active.turnStartedAt = now
+          active.nextTurnAt = now + every
+          this.lastTurnAt.set(id, now)
+          active.externalMessageId = `claude-code:${id}:${session.checks}`
+          // Opens the check in the desk's feed.
+          this.externalEvent(active, { type: 'usage', usage: EMPTY_USAGE } as never)
+          this.deps.saveSessions(this.sessions)
+          this.changed()
+          return { state: 'check', check: session.checks, brief: brief.brief, endsAt: session.endsAt }
+        }
+        // Closed market, or the broker didn't answer: try again at the next interval.
+        active.nextTurnAt = this.now() + every
+        if ('error' in brief) this.log(session, 'error', brief.error)
+        else if (!active.closedNoted) {
+          this.log(session, 'note', 'The market is closed, so there is nothing to do until it opens.')
+          active.closedNoted = true
+        }
+      }
+      if (this.now() >= deadline) return { state: 'waiting', nextCheckAt: active.nextTurnAt }
+      const until = Math.min(deadline, active.nextTurnAt ?? deadline)
+      this.changed()
+      await new Promise<void>((resolve) => {
+        const done = (): void => {
+          clearTimeout(timer)
+          active.waiters.delete(done)
+          resolve()
+        }
+        const timer = setTimeout(done, Math.max(20, until - this.now()))
+        active.waiters.add(done)
+      })
+    }
+  }
+
+  /** When the next session of an enabled schedule run by `driver` starts, if any is enabled. */
+  nextScheduledStart(driver: SessionDriver = 'claude-code', at = this.now()): number | null {
+    let best: number | null = null
+    for (const schedule of this.schedules) {
+      if (!schedule.enabled || (schedule.driver ?? 'eaon') !== driver) continue
+      // A window that already had its session (even one stopped by hand) doesn't start another.
+      const fresh = (w: { start: number; end: number } | null): boolean =>
+        w !== null && !this.sessions.some((s) => s.scheduleId === schedule.id && s.startedAt >= w.start && s.startedAt < w.end && s.status !== 'failed')
+      let next: number | null = null
+      if (schedule.marketHours) next = fresh(scheduleWindow(schedule, at)) ? at : nextOpen(at)
+      else
+        for (let i = 0; i < 8 * 24 * 60 && next === null; i += 15) {
+          const t = at + i * 60_000
+          if (fresh(scheduleWindow(schedule, t))) next = t
+        }
+      if (next !== null && (best === null || next < best)) best = next
+    }
+    return best
+  }
+
+  /**
+   * Claude Code waiting between sessions of a mission it runs (overnight,
+   * over a weekend): resolves with the session once one it drives is
+   * running, `waiting` with when the next starts if none did by
+   * `maxWaitMs`, or `none` when no mission is left for it.
+   */
+  async waitForSession(maxWaitMs = 4 * 3_600_000): Promise<{ state: 'session'; id: string } | { state: 'waiting'; nextAt: number | null } | { state: 'none' }> {
+    const deadline = this.now() + Math.max(0, maxWaitMs)
+    // The desk shows Claude Code as waiting for the open while one of these is pending.
+    this.missionWaiters++
+    if (this.missionWaiters === 1) this.changed()
+    try {
+      for (;;) {
+        const active = this.active
+        if (active && active.session.driver === 'claude-code' && !active.ending) return { state: 'session', id: active.session.id }
+        const next = this.nextScheduledStart('claude-code')
+        if (next === null) return { state: 'none' }
+        if (this.now() >= deadline) return { state: 'waiting', nextAt: next }
+        // Sessions start from the schedule tick; looking twice a minute is plenty. (Not unref'd: someone is waiting on it.)
+        await new Promise((resolve) => setTimeout(resolve, Math.max(20, Math.min(30_000, deadline - this.now()))))
+      }
+    } finally {
+      this.missionWaiters--
+      this.missionWaitedAt = this.now()
+      if (this.missionWaiters === 0) this.changed()
+    }
+  }
+
+  /** Whether Claude Code is waiting for its mission's next session (between calls of a long wait counts too). */
+  private claudeWaiting(): boolean {
+    return this.missionWaiters > 0 || (this.missionWaitedAt !== null && this.now() - this.missionWaitedAt < 2 * 60_000)
+  }
+
+  /** The brief for a Claude Code check, built as `turn` builds Eaon's agent's. */
+  private async externalBrief(active: ActiveSession): Promise<{ brief: string } | { closed: true } | { error: string }> {
+    const session = active.session
+    await this.sync()
+    const account = this.account
+    if (!account) return { error: this.error ?? 'Couldn’t read the account from the broker.' }
+    const anytime = this.config.broker === 'simulator' && this.config.simulatorAnytime
+    if (!account.marketOpen && !anytime && active.inbox.length === 0) return { closed: true }
+    active.closedNoted = false
+    const market = await this.marketContext(session)
+    const now = this.now()
+    const inbox = active.inbox.splice(0)
+    const alerts = active.alerts.splice(0)
+    const live = this.liveLines(active)
+    const lead = [
+      ...inbox.map((m) => `MESSAGE FROM THE USER (${localTime(m.at)}): ${m.text}\nAnswer it in your decision, and act on it where it fits your limits; it overrides the strategy.`),
+      ...alerts.map((a) => `ALERT: ${a}`)
+    ]
+    active.basePrices = new Map([...this.positions.map((p) => [p.symbol, p.price] as const), ...this.contextQuotes.map((q) => [q.symbol, q.price] as const)])
+    active.latestPrices = new Map(active.basePrices)
+    const brief = [
+      ...lead,
+      this.turnMessage(session, account, now, [...market, ...live]),
+      'When you are done, call eaon_log_decision with that one line, then eaon_wait_for_check for the next check.'
+    ].join('\n\n')
+    return { brief }
+  }
+
+  /** Claude Code's one line at the end of a check. */
+  logDecision(id: string, text: string): TradingSnapshot {
+    const active = this.externalSession(id)
+    const line = str(text).slice(0, 1200)
+    if (!line) throw new Error('Write the decision: one line on what you did and why.')
+    this.log(active.session, 'decision', line)
+    this.externalEvent(active, { type: 'delta', text: line } as never)
+    this.externalEvent(active, { type: 'done' } as never)
+    active.turnStartedAt = null
+    this.changed()
+    return this.snapshot()
+  }
+
+  /** An order Claude Code places for the session it runs: the session's, with every limit checked. */
+  sessionOrder(id: string, request: OrderRequest): Promise<TradingOrder> {
+    this.externalSession(id)
+    return this.placeOrder(request, 'session', { sessionId: id })
+  }
+
+  /** A tool Claude Code used during a check, for the desk's feed (named as Eaon's agent's tools, so it reads the same). */
+  recordExternalTool(name: string, input: Record<string, unknown>, output: string, ok: boolean): void {
+    const active = this.active
+    if (!active || active.session.driver !== 'claude-code' || !active.externalMessageId) return
+    const toolId = randomUUID()
+    this.externalEvent(active, { type: 'tool-call', toolId, name, input } as never)
+    this.externalEvent(active, { type: 'tool-result', toolId, output, status: ok ? 'done' : 'error' } as never)
+  }
+
+  /* ----------------------------------------------------------- disclaimer */
+
+  /** Whether orders and sessions still wait for the disclaimer. */
+  needsDisclaimer(): boolean {
+    return Boolean(this.deps.requireDisclaimer?.()) && (this.config.disclaimer?.version ?? 0) < TRADING_DISCLAIMER_VERSION
+  }
+
+  /** The user ticked the box under the trading disclaimer (this version of it). */
+  acceptDisclaimer(version: number): TradingSnapshot {
+    if (version !== TRADING_DISCLAIMER_VERSION) throw new Error('That isn’t the current disclaimer. Read it again and accept it.')
+    this.config.disclaimer = { version, acceptedAt: this.now() }
+    this.deps.saveConfig(this.config)
+    this.changed()
+    return this.snapshot()
   }
 
   private scheduleTurn(active: ActiveSession, delay: number): void {
     if (active.turnTimer) clearTimeout(active.turnTimer)
+    active.nextTurnAt = this.now() + Math.max(0, delay)
     active.turnTimer = setTimeout(() => {
       active.turnTimer = null
+      active.nextTurnAt = null
       void this.runTurn(active)
     }, Math.max(0, delay))
     active.turnTimer.unref?.()
+    this.changed()
+  }
+
+  /**
+   * Runs the running session's next check now instead of waiting for its
+   * timer; the one after is timed from this one. Does nothing while a check
+   * is already under way.
+   */
+  checkNow(id: string): TradingSnapshot {
+    const active = this.active
+    if (!active || active.session.id !== id) throw new Error('That session isn’t running.')
+    if (this.config.halted) throw new Error('The kill switch is on; nothing runs until it is off.')
+    if (active.session.driver === 'claude-code') {
+      active.nextTurnAt = this.now()
+      this.wake(active)
+      return this.snapshot()
+    }
+    if (!active.running && !active.ending) {
+      if (active.turnTimer) clearTimeout(active.turnTimer)
+      active.turnTimer = null
+      active.nextTurnAt = null
+      void this.runTurn(active)
+    }
+    return this.snapshot()
   }
 
   /** One check, then the next is scheduled — only once this one has finished, so two never overlap. */
@@ -1703,6 +2160,9 @@ export class TradingEngine {
     if (this.active !== active || active.running || active.ending || this.disposed) return
     const started = this.now()
     const every = active.session.everyMinutes * this.minuteMs
+    active.turnStartedAt = started
+    this.lastTurnAt.set(active.session.id, started)
+    this.changed()
     active.running = this.turn(active)
       .catch((error) => {
         console.error('[trading] session check failed:', error)
@@ -1710,13 +2170,17 @@ export class TradingEngine {
       .finally(() => {
         active.running = null
         active.controller = null
+        active.turnStartedAt = null
+        this.changed()
         if (this.active !== active || active.ending || this.disposed) return
         if (active.stopAfterTurn) {
           void this.endSession(active, 'stopped', 'The agent stopped the session.')
           return
         }
-        // Every N minutes from the start of the last check, but never straight back to back.
-        this.scheduleTurn(active, Math.max(every / 4, started + every - this.now()))
+        // A message that came in during the check is read straight away; otherwise
+        // every N minutes from the start of the last check, never back to back.
+        if (active.inbox.length > 0) this.scheduleTurn(active, 0)
+        else this.scheduleTurn(active, Math.max(every / 4, started + every - this.now()))
       })
     await active.running
   }
@@ -1739,7 +2203,8 @@ export class TradingEngine {
       return
     }
     const anytime = this.config.broker === 'simulator' && this.config.simulatorAnytime
-    if (!account.marketOpen && !anytime) {
+    // The user writing to the agent gets an answer even while the market is closed.
+    if (!account.marketOpen && !anytime && active.inbox.length === 0) {
       if (!active.closedNoted) {
         const opens = account.nextOpen ? ` Waiting for the open at ${formatMarketTime(account.nextOpen, this.now())}.` : ''
         this.log(session, 'note', `The market is closed, so there is nothing to do.${opens}`)
@@ -1761,7 +2226,19 @@ export class TradingEngine {
     const market = await this.marketContext(session)
     if (this.active !== active || active.ending) return
     const now = this.now()
-    const userMessage: ChatMessage = { id: randomUUID(), role: 'user', parts: [{ type: 'text', text: this.turnMessage(session, account, now, market) }], createdAt: now }
+    // What the user wrote and what woke the agent early come first; what moved since the last check after the market.
+    const inbox = active.inbox.splice(0)
+    const alerts = active.alerts.splice(0)
+    const live = this.liveLines(active)
+    const lead = [
+      ...inbox.map((m) => `MESSAGE FROM THE USER (${localTime(m.at)}): ${m.text}\nAnswer it in your final line, and act on it where it fits your limits; it overrides the strategy.`),
+      ...alerts.map((a) => `ALERT: ${a}`)
+    ]
+    // The prices this check starts from are the baseline for the next alert.
+    active.basePrices = new Map([...this.positions.map((p) => [p.symbol, p.price] as const), ...this.contextQuotes.map((q) => [q.symbol, q.price] as const)])
+    active.latestPrices = new Map(active.basePrices)
+    const brief = [...lead, this.turnMessage(session, account, now, [...market, ...live])].join('\n\n')
+    const userMessage: ChatMessage = { id: randomUUID(), role: 'user', parts: [{ type: 'text', text: brief }], createdAt: now }
     const assistantId = randomUUID()
     const request: StreamRequest = {
       chatId: `${TRADING_CHAT_PREFIX}${session.id}`,
@@ -1821,8 +2298,13 @@ export class TradingEngine {
       watchdog = setTimeout(check, stallMs)
       outcome = await this.deps.runAgent(
         request,
-        () => {
+        (event) => {
           lastSign = performance.now()
+          try {
+            this.deps.onAgentEvent?.(active.session.id, event)
+          } catch (error) {
+            console.error('[trading] agent event listener failed:', error)
+          }
         },
         {
           signal: controller.signal,
@@ -1863,6 +2345,8 @@ export class TradingEngine {
   private async endSession(active: ActiveSession, status: 'done' | 'stopped' | 'failed', note: string, error?: string): Promise<void> {
     if (active.ending) return
     active.ending = true
+    // Claude Code waiting for a check hears that the session is over.
+    this.wake(active)
     this.clearSessionTimers(active)
     active.controller?.abort()
     if (active.running) {
@@ -1947,6 +2431,7 @@ export class TradingEngine {
         new Promise<null>((resolve) => setTimeout(() => resolve(null), CONTEXT_TIMEOUT_MS).unref?.())
       ])
     const [indexes, watched] = await Promise.all([Promise.all(MARKET_INDEXES.map(quoteOf)), Promise.all(watch.map(quoteOf))])
+    this.contextQuotes = [...indexes, ...watched].filter((q): q is Quote => q !== null)
     const lines: string[] = []
     const shown = indexes.filter((q): q is Quote => q !== null)
     if (shown.length > 0) {
@@ -1984,6 +2469,8 @@ export class TradingEngine {
         ? '- The simulator fills orders even while the market is closed, at the last price, so trade as you would in market hours.'
         : '- When the market is closed, orders don’t fill: do nothing and say so.',
       '- Nobody can answer questions or approve anything: decide on your own and never ask.',
+      `- Between checks Eaon watches your holdings, the tickers in the strategy and the market every few seconds. A sharp move or a holding near its stop wakes you early; those checks start with ALERT. Each check also lists what moved since the last one.`,
+      '- The user may write to you during the session. Their message starts the check as MESSAGE FROM THE USER: answer it in your final line and act on it where it fits your limits.',
       '- End every check with one line: what you did and why.',
       '',
       `Your limits (orders past them are refused): ${describeLimits(this.config.limits)}.`
