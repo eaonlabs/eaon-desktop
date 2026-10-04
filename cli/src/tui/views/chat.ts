@@ -538,7 +538,7 @@ export class ChatView implements View {
         ]
       : [
           ['/import', 'bring your keys, models and plugins over from Eaon Desktop'],
-          ['/key', 'paste an API key (Anthropic, OpenAI, OpenRouter…)'],
+          ['/keys', 'add an API key: Anthropic, OpenAI, OpenRouter, Groq and 90 more'],
           ['/login', 'sign in with ChatGPT or GitHub Copilot'],
           ['ollama', 'a local model works too: start Ollama and it appears in /model']
         ]

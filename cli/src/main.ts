@@ -28,6 +28,8 @@ Usage
                            --limit, --stop, --target, --trail, --reason;
                            order close AAPL, order cancel <id>)
 
+  eaon keys                API keys: add one (eaon keys add groq), list,
+                           check or remove; 100 providers
   eaon import              bring keys, models, plugins and the trading
                            setup over from Eaon Desktop (--all, --dry-run)
   eaon desktop             what Eaon Desktop has, read-only
@@ -80,7 +82,7 @@ async function doctor(): Promise<number> {
   console.log(`eaon       ${VERSION}${CLI_BETA ? ' (beta)' : ''} on Node ${process.versions.node}`)
   console.log(`profile    ${cliHome()}`)
   console.log(`desktop    ${desktop ? `${desktopHome()}${desktop.running ? ' (running)' : ''}` : 'not found'}`)
-  console.log(`providers  ${usable.map((p) => `${p.id}(${p.models.length})`).join(', ') || 'none with a key — run eaon import, or /key in the app'}`)
+  console.log(`providers  ${usable.map((p) => `${p.id}(${p.models.length})`).join(', ') || 'none with a key — run eaon keys add <provider>, eaon import, or /keys in the app'}`)
   console.log(`model      ${settings.selectedModelId ?? 'first available'}`)
   console.log(`tools      ${tools.map((t) => t.name).join(', ')}`)
   console.log(`sessions   ${listPeers().length} on the bus${lock ? `, engines in pid ${lock.pid}` : ', engines not running'}`)
@@ -108,7 +110,7 @@ async function ask(args: string[]): Promise<number> {
   const settings = store.getSettings()
   const model = chatModel(settings)
   if (!model) {
-    console.error('No model is set up. Run `eaon import`, or open eaon and use /key or /login.')
+    console.error('No model is set up. Add a key with `eaon keys add <provider>` (anthropic, openai, openrouter, groq…), run `eaon import`, or open eaon and use /keys or /login.')
     await bus.close()
     await shutdown()
     return 1
@@ -231,6 +233,9 @@ async function main(argv: string[]): Promise<number> {
     case 'mcp':
       await (await import('./bus/mcpServer')).runMcpServer({ control: rest.includes('--control') })
       return -1
+    case 'keys':
+    case 'key':
+      return (await import('./commands/keys')).runKeysCommand(rest)
     case 'update':
     case 'upgrade':
       return (await import('./commands/update')).runUpdateCommand(rest)
@@ -272,7 +277,7 @@ async function main(argv: string[]): Promise<number> {
 
 /** After a one-shot command: a line about a newer version the app's last check found (no network here). */
 async function updateNotice(command: string | undefined): Promise<void> {
-  if (!command || !['doctor', 'ask', '-p', 'quote', 'status', 'order', 'import', 'desktop', 'peers', 'sessions', 'send', 'connect', 'disconnect'].includes(command)) return
+  if (!command || !['doctor', 'ask', '-p', 'quote', 'status', 'order', 'import', 'desktop', 'peers', 'sessions', 'send', 'connect', 'disconnect', 'keys', 'key'].includes(command)) return
   if (!process.stderr.isTTY) return
   const { knownUpdate } = await import('./core/update')
   const latest = knownUpdate()

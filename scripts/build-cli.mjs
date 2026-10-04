@@ -9,7 +9,7 @@
  * output runs anywhere with Node 22, except the few that are native or only
  * load inside Electron — nothing the CLI reaches imports those.
  *
- * The npm package (`eaon`) is described by cli/package.json, which also
+ * The npm package (`eaon-cli`) is described by cli/package.json, which also
  * gives the CLI its name and version. `--package` assembles what gets
  * published in out/cli-package: the bundle without its source map, that
  * manifest, the README and the licence files.

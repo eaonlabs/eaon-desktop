@@ -41,21 +41,21 @@ test('channels: a beta follows beta and latest; a stable version only latest', (
 
 test('installs: the package manager and prefix come from where the bundle runs', () => {
   const { detectInstall, updateCommand, manualUpdate } = update
-  const mac = detectInstall('/opt/homebrew/lib/node_modules/eaon/eaon.mjs', 'darwin')
-  assert.deepEqual(mac, { kind: 'npm', prefix: '/opt/homebrew', dir: '/opt/homebrew/lib/node_modules/eaon' })
-  assert.deepEqual(updateCommand(mac, '0.1.0-beta.2', {}), { command: 'npm', args: ['install', '--global', '--prefix', '/opt/homebrew', 'eaon@0.1.0-beta.2'] })
-  const nvm = detectInstall('/home/ada/.nvm/versions/node/v22.11.0/lib/node_modules/eaon/eaon.mjs', 'linux')
+  const mac = detectInstall('/opt/homebrew/lib/node_modules/eaon-cli/eaon.mjs', 'darwin')
+  assert.deepEqual(mac, { kind: 'npm', prefix: '/opt/homebrew', dir: '/opt/homebrew/lib/node_modules/eaon-cli' })
+  assert.deepEqual(updateCommand(mac, '0.1.0-beta.2', {}), { command: 'npm', args: ['install', '--global', '--prefix', '/opt/homebrew', 'eaon-cli@0.1.0-beta.2'] })
+  const nvm = detectInstall('/home/ada/.nvm/versions/node/v22.11.0/lib/node_modules/eaon-cli/eaon.mjs', 'linux')
   assert.equal(nvm.prefix, '/home/ada/.nvm/versions/node/v22.11.0')
-  const win = detectInstall('C:\\Users\\Ada\\AppData\\Roaming\\npm\\node_modules\\eaon\\eaon.mjs', 'win32')
-  assert.deepEqual(win, { kind: 'npm', prefix: 'C:\\Users\\Ada\\AppData\\Roaming\\npm', dir: 'C:\\Users\\Ada\\AppData\\Roaming\\npm\\node_modules\\eaon' })
-  assert.match(manualUpdate(win, '1.0.0'), /^npm install --global --prefix C:\\Users\\Ada\\AppData\\Roaming\\npm eaon@1\.0\.0$/)
-  assert.equal(detectInstall('/home/ada/.npm/_npx/1a2b/node_modules/eaon/eaon.mjs', 'linux').kind, 'npx')
-  assert.equal(detectInstall('/home/ada/.bun/install/global/node_modules/eaon/eaon.mjs', 'linux').kind, 'bun')
-  assert.equal(detectInstall('/home/ada/.local/share/pnpm/global/5/node_modules/eaon/eaon.mjs', 'linux').kind, 'pnpm')
+  const win = detectInstall('C:\\Users\\Ada\\AppData\\Roaming\\npm\\node_modules\\eaon-cli\\eaon.mjs', 'win32')
+  assert.deepEqual(win, { kind: 'npm', prefix: 'C:\\Users\\Ada\\AppData\\Roaming\\npm', dir: 'C:\\Users\\Ada\\AppData\\Roaming\\npm\\node_modules\\eaon-cli' })
+  assert.match(manualUpdate(win, '1.0.0'), /^npm install --global --prefix C:\\Users\\Ada\\AppData\\Roaming\\npm eaon-cli@1\.0\.0$/)
+  assert.equal(detectInstall('/home/ada/.npm/_npx/1a2b/node_modules/eaon-cli/eaon.mjs', 'linux').kind, 'npx')
+  assert.equal(detectInstall('/home/ada/.bun/install/global/node_modules/eaon-cli/eaon.mjs', 'linux').kind, 'bun')
+  assert.equal(detectInstall('/home/ada/.local/share/pnpm/global/5/node_modules/eaon-cli/eaon.mjs', 'linux').kind, 'pnpm')
   assert.equal(detectInstall('/Users/ada/src/eaon-desktop/out/cli/eaon.mjs', 'darwin').kind, 'source')
   assert.equal(updateCommand({ kind: 'source' }, '1.0.0'), null)
   // A mirror (or a test registry) is used for the install too.
-  assert.deepEqual(updateCommand(mac, '1.0.0', { EAON_UPDATE_REGISTRY: 'http://127.0.0.1:4873/' })!.args, ['install', '--global', '--prefix', '/opt/homebrew', '--registry', 'http://127.0.0.1:4873', 'eaon@1.0.0'])
+  assert.deepEqual(updateCommand(mac, '1.0.0', { EAON_UPDATE_REGISTRY: 'http://127.0.0.1:4873/' })!.args, ['install', '--global', '--prefix', '/opt/homebrew', '--registry', 'http://127.0.0.1:4873', 'eaon-cli@1.0.0'])
 })
 
 test('check: asks the registry at most every few hours, remembers the tags, and stays off in CI', async () => {
@@ -63,7 +63,7 @@ test('check: asks the registry at most every few hours, remembers the tags, and 
   let asked = 0
   const fetchImpl = (async (url: string) => {
     asked++
-    assert.match(String(url), /\/-\/package\/eaon\/dist-tags$/)
+    assert.match(String(url), /\/-\/package\/eaon-cli\/dist-tags$/)
     return new Response(JSON.stringify({ latest: '0.1.0-beta.1', beta: '0.1.0-beta.2' }), { status: 200 })
   }) as typeof fetch
   const t0 = Date.parse('2026-10-05T12:00:00Z')
@@ -105,7 +105,7 @@ test('popup: later and skip are remembered; ⏎ installs and then offers to quit
     onInstalled: (v: string) => void (installedAs = v)
   }
   const offer = { current: '0.1.0-beta.1', latest: '0.1.0-beta.2' }
-  const install = { kind: 'npm' as const, prefix: '/usr/local', dir: '/usr/local/lib/node_modules/eaon' }
+  const install = { kind: 'npm' as const, prefix: '/usr/local', dir: '/usr/local/lib/node_modules/eaon-cli' }
   const settle = async (): Promise<void> => new Promise((r) => setTimeout(r, 750))
   const key = (modal: InstanceType<typeof UpdateModal>, name: string, ch?: string): void => modal.onEvent({ type: 'key', name, ch, ctrl: false, meta: false, shift: false } as never)
   const { Screen } = await import('../cli/src/tui/screen')
@@ -114,7 +114,7 @@ test('popup: later and skip are remembered; ⏎ installs and then offers to quit
   // What it says.
   const asking = draw(new UpdateModal(host, offer, { install }))
   assert.match(asking, /Eaon CLI 0\.1\.0-beta\.2 is out\. You have 0\.1\.0-beta\.1\./)
-  assert.match(asking, /npm install --global --prefix \/usr\/local eaon@0\.1\.0-beta\.2/)
+  assert.match(asking, /npm install --global --prefix \/usr\/local eaon-cli@0\.1\.0-beta\.2/)
   assert.match(asking, /update now/)
   assert.match(asking, /skip this version/)
 
@@ -169,7 +169,7 @@ test('popup: later and skip are remembered; ⏎ installs and then offers to quit
     install,
     run: async () => {
       tries++
-      return { ok: false, installed: '0.1.0-beta.1', output: 'npm error code EACCES', hint: 'npm couldn’t write to /usr/local. Run it yourself with sudo:', command: 'sudo npm install --global --prefix /usr/local eaon@0.1.0-beta.2' }
+      return { ok: false, installed: '0.1.0-beta.1', output: 'npm error code EACCES', hint: 'npm couldn’t write to /usr/local. Run it yourself with sudo:', command: 'sudo npm install --global --prefix /usr/local eaon-cli@0.1.0-beta.2' }
     }
   })
   failing.close = () => {}
@@ -179,7 +179,7 @@ test('popup: later and skip are remembered; ⏎ installs and then offers to quit
   assert.equal(failing.installed, false)
   const failed = draw(failing)
   assert.match(failed, /npm couldn’t write to \/usr\/local\. Run it yourself with sudo:/)
-  assert.match(failed, /│\s+sudo npm install --global --prefix \/usr\/local eaon@0\.1\.0-beta\.2\s/, 'the command gets a line of its own')
+  assert.match(failed, /│\s+sudo npm install --global --prefix \/usr\/local eaon-cli@0\.1\.0-beta\.2\s/, 'the command gets a line of its own')
   key(failing, 'enter')
   await new Promise((r) => setTimeout(r, 10))
   assert.equal(tries, 2)
@@ -196,7 +196,7 @@ test('runUpdate: streams the package manager’s output and reads the installed 
   const { runUpdate } = update
   const { EventEmitter } = await import('node:events')
   const { mkdirSync, writeFileSync } = await import('node:fs')
-  const dir = join(process.env.EAON_CLI_HOME!, 'prefix', 'lib', 'node_modules', 'eaon')
+  const dir = join(process.env.EAON_CLI_HOME!, 'prefix', 'lib', 'node_modules', 'eaon-cli')
   mkdirSync(dir, { recursive: true })
   const calls: { command: string; args: string[] }[] = []
   const fakeSpawn = (command: string, args: string[]) => {
@@ -206,7 +206,7 @@ test('runUpdate: streams the package manager’s output and reads the installed 
     child.stderr = new EventEmitter()
     setTimeout(() => {
       child.stdout.emit('data', Buffer.from('changed 1 package in 2s\n'))
-      writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'eaon', version: '0.1.0-beta.2' }))
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'eaon-cli', version: '0.1.0-beta.2' }))
       child.emit('close', 0)
     }, 5)
     return child as never
@@ -217,7 +217,7 @@ test('runUpdate: streams the package manager’s output and reads the installed 
   assert.equal(result.installed, '0.1.0-beta.2')
   assert.deepEqual(lines, ['changed 1 package in 2s'])
   assert.equal(calls[0].command, 'npm')
-  assert.deepEqual(calls[0].args.slice(-1), ['eaon@0.1.0-beta.2'])
+  assert.deepEqual(calls[0].args.slice(-1), ['eaon-cli@0.1.0-beta.2'])
 
   const denied = await runUpdate('0.1.0-beta.2', () => {}, { kind: 'npm', prefix: '/usr/local', dir }, ((() => {
     const child = new EventEmitter() as EventEmitter & { stdout: EventEmitter; stderr: EventEmitter }
@@ -231,5 +231,5 @@ test('runUpdate: streams the package manager’s output and reads the installed 
   }) as never))
   assert.equal(denied.ok, false)
   assert.match(denied.hint!, /couldn’t write to \/usr\/local/)
-  assert.equal(denied.command, 'sudo npm install --global --prefix /usr/local eaon@0.1.0-beta.2')
+  assert.equal(denied.command, 'sudo npm install --global --prefix /usr/local eaon-cli@0.1.0-beta.2')
 })
