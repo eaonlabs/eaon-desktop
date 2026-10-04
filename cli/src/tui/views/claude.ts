@@ -3,6 +3,7 @@ import { createRequire } from 'node:module'
 import { homedir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import type { TradingSnapshot } from '@shared/trading'
+import { CLI_PACKAGE } from '../../core/version'
 import { nextOpen } from '@main/features/trading/marketHours'
 import { workFolderOf } from '../../core/chat'
 import { events, hasHandler, invoke } from '../../runtime/ipc'
@@ -203,7 +204,7 @@ export class ClaudeView implements View {
       pty = require_('node-pty')
       Terminal = require_('@xterm/headless').Terminal
     } catch (error) {
-      this.problem = `Couldn’t load the terminal (${error instanceof Error ? error.message : String(error)}). Reinstall eaon (npm install -g eaon), or run npm install in the Eaon folder for a source checkout.`
+      this.problem = `Couldn’t load the terminal (${error instanceof Error ? error.message : String(error)}). Reinstall Eaon CLI (npm install -g ${CLI_PACKAGE}), or run npm install in the Eaon folder for a source checkout.`
       return
     }
     this.term = new Terminal({ cols, rows, scrollback: 5000, allowProposedApi: true })

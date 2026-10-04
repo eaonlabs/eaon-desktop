@@ -13,7 +13,7 @@ import { CLI_PACKAGE, CLI_VERSION } from './version'
  * profile (`update.json`). When a newer version is out it asks whether to
  * update now (`tui/update.ts`); `eaon update` does the same from a shell.
  * Updating runs the package manager that installed this copy — for npm,
- * `npm install --global --prefix <this install's prefix> eaon@<version>` —
+ * `npm install --global --prefix <this install's prefix> @eaonlabs/cli@<version>` —
  * so it replaces this install rather than one somewhere else. A beta follows
  * the `beta` tag as well as `latest`; a stable version only `latest`.
  *
