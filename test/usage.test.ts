@@ -205,7 +205,7 @@ test('Sign in with Tokn: PKCE against a loopback redirect, and the token is kept
   const restore = withFetch((url, init) => {
     if (url !== 'https://tokn.test/api/oauth/token') return undefined
     exchange = new URLSearchParams(String(init?.body))
-    return json({ access_token: 'tok_eaon', token_type: 'Bearer', user: { id: 'u_1', handle: 'sanshray', name: 'Sanshray' }, profile_url: 'https://tokn.test/profile/sanshray' })
+    return json({ access_token: 'tok_eaon', token_type: 'Bearer', user: { id: 'u_1', handle: 'ada', name: 'Ada' }, profile_url: 'https://tokn.test/profile/ada' })
   })
   try {
     const open = approve('toknac_abc')
@@ -213,8 +213,8 @@ test('Sign in with Tokn: PKCE against a loopback redirect, and the token is kept
       authorize = new URL(url)
       open(url)
     }, new AbortController().signal)
-    assert.equal(account.handle, 'sanshray')
-    assert.deepEqual(toknAccount(), { id: 'u_1', handle: 'sanshray', name: 'Sanshray', profileUrl: 'https://tokn.test/profile/sanshray' })
+    assert.equal(account.handle, 'ada')
+    assert.deepEqual(toknAccount(), { id: 'u_1', handle: 'ada', name: 'Ada', profileUrl: 'https://tokn.test/profile/ada' })
 
     const a = authorize as unknown as URL
     assert.equal(a.origin + a.pathname, 'https://tokn.test/oauth/authorize')
