@@ -10,6 +10,7 @@ dist/
 native/llama.cpp/
 resources/llama/
 
-# Claude Code project instructions and skills: kept locally, not published.
+# Claude Code project instructions, skills and project memory: kept locally, not published.
 CLAUDE.md
 .claude/skills/eaon-brain/
+.eaonbrain/
