@@ -1,7 +1,7 @@
 import { isAbsolute, resolve } from 'node:path'
 import { describeWorker, MAIN_THREAD, MAX_SLEEP_MINUTES } from '@shared/workers'
 import type { AgentTool, ToolContext, ToolSource } from '../../agent/tools'
-import { HINT_MOODS, type WorkersEngine } from './engine'
+import { HINT_MOODS, type TransferWatch, type WorkersEngine } from './engine'
 
 /**
  * The tools a worker gets on top of the Work agent's: see its colleagues,
@@ -46,6 +46,15 @@ export function parseWakeTime(text: string, now: number): number | null {
 
 const fileList = (value: unknown): string[] => (Array.isArray(value) ? value.filter((f): f is string => typeof f === 'string' && f.trim().length > 0) : [])
 
+/** A file transfer the tool's Stop ends, with "Copying 120 of 480 MB…" as it goes. */
+function transferOf(ctx: ToolContext): TransferWatch {
+  const mb = (bytes: number): string => `${Math.round(bytes / (1024 * 1024))}`
+  return {
+    signal: ctx.signal,
+    onProgress: (p) => ctx.progress?.(p.total > 8 * 1024 * 1024 ? `Copying ${mb(p.bytes)} of ${mb(p.total)} MB…` : `Copying files… (${p.files})`)
+  }
+}
+
 function self(ctx: ToolContext): string {
   const id = ctx.request.workerId
   if (!id) throw new Error('Only a worker can use this tool.')
@@ -88,7 +97,11 @@ export function workersToolSource(engine: WorkersEngine): ToolSource {
     describe: (input) => `Message ${str(input.to)}`,
     run: async (input, ctx) => {
       const files = fileList(input.files)
-      const { recipient, delivered } = await engine.message(self(ctx), str(input.to), str(input.message), files, { shareContext: input.share_context === true })
+      const { recipient, delivered } = await engine.message(self(ctx), str(input.to), str(input.message), files, {
+        shareContext: input.share_context === true,
+        fromThreadId: threadOf(ctx),
+        transfer: transferOf(ctx)
+      })
       const where = delivered.length > 0 ? ` Files delivered to:\n${delivered.map((p) => `- ${p}`).join('\n')}` : ''
       const paused = recipient.paused ? ` ${recipient.name} is paused and will read it when resumed.` : ''
       return `Sent to ${recipient.name}.${paused}${where}`
@@ -133,7 +146,8 @@ export function workersToolSource(engine: WorkersEngine): ToolSource {
         context: str(input.context),
         requiredOutput: str(input.required_output),
         deadlineMinutes: num(input.deadline_minutes),
-        fromThreadId: threadOf(ctx)
+        fromThreadId: threadOf(ctx),
+        transfer: transferOf(ctx)
       })
       return `Delegated ${delegation.id} to ${recipient.name}${recipient.paused ? ' (paused: it starts when resumed)' : ''}. Its result will arrive as mail; carry on meanwhile.${
         delivered.length ? ` Files delivered:\n${delivered.map((p) => `- ${p}`).join('\n')}` : ''
@@ -156,7 +170,7 @@ export function workersToolSource(engine: WorkersEngine): ToolSource {
     },
     mutating: false,
     describe: (input) => `Report on ${str(input.task_id)}`,
-    run: async (input, ctx) => engine.finishHandoff(self(ctx), str(input.task_id), str(input.result), fileList(input.files), input.ok !== false, threadOf(ctx))
+    run: async (input, ctx) => engine.finishHandoff(self(ctx), str(input.task_id), str(input.result), fileList(input.files), input.ok !== false, threadOf(ctx), transferOf(ctx))
   }
 
   const postToRoom: AgentTool = {
@@ -170,7 +184,7 @@ export function workersToolSource(engine: WorkersEngine): ToolSource {
     mutating: false,
     describe: (input) => `Post in ${str(input.room)}`,
     run: async (input, ctx) => {
-      const { room, woke } = await engine.postAsWorker(self(ctx), str(input.room), str(input.message), fileList(input.files), threadOf(ctx))
+      const { room, woke } = await engine.postAsWorker(self(ctx), str(input.room), str(input.message), fileList(input.files), threadOf(ctx), transferOf(ctx))
       return `Posted in "${room.name}".${woke.length ? ` Woke ${woke.join(', ')}.` : ''}`
     }
   }

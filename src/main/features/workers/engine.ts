@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync, mkdirSync } from 'node:fs'
-import { cp, lstat, mkdir, readdir } from 'node:fs/promises'
+import { mkdir, rm } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, extname, isAbsolute, join, resolve } from 'node:path'
 import type { ChatMessage, GoalState, Settings, StreamEvent, TokenUsage } from '@shared/types'
@@ -60,6 +60,13 @@ import { buildTurnMessage, CHECK_IN_NOTE, RESUME_NOTE, RETRY_NOTE, runWorkerTurn
 import { ExecutionLog, isEnded } from './executions'
 import { delegationRefusal, isOpenDelegation, normalizeDelegations, pruneDelegations } from './delegations'
 import { watchFor, type WakeCondition } from './watch'
+import { copyTree, sizeOf, transferRefusal, type TransferProgress } from './transfer'
+
+/** How a tool follows a file transfer: its stop button, and a line of progress. */
+export interface TransferWatch {
+  signal?: AbortSignal
+  onProgress?: (progress: TransferProgress) => void
+}
 
 /**
  * When worker turns run, and everything that changes a worker.
@@ -426,18 +433,6 @@ function sealInterrupted(message: ChatMessage | undefined): boolean {
     }
   }
   return sealed
-}
-
-/** Everything under `path`, in bytes, without following symlinks. */
-async function sizeOf(path: string, limit: number): Promise<number> {
-  const info = await lstat(path)
-  if (!info.isDirectory()) return info.size
-  let total = 0
-  for (const entry of await readdir(path)) {
-    total += await sizeOf(join(path, entry), limit)
-    if (total > limit) return total
-  }
-  return total
 }
 
 /** `dir/name`, or `dir/name (2).ext` and so on when that is taken. */
@@ -1150,6 +1145,7 @@ export class WorkersEngine {
       extra?: Partial<WorkerMail>
       /** The recipient's thread to deliver to; the main one by default. Returns false when it no longer exists. */
       toThreadId?: () => string
+      transfer?: TransferWatch
     } = {}
   ): Promise<{ recipient: Worker; delivered: string[]; threadId: string }> {
     const sender = this.require(fromId)
@@ -1160,7 +1156,7 @@ export class WorkersEngine {
     if (!body && files.length === 0) throw new Error('The message is empty.')
     const now = this.now()
     const sent = this.checkSendBudget(sender.id, now)
-    const delivered = await this.copyFiles(sender, target, files)
+    const delivered = await this.copyFiles(sender, target, files, options.transfer)
 
     // The copy took time; either side may have been removed meanwhile.
     const recipient = this.find(target.id)
@@ -1201,24 +1197,42 @@ export class WorkersEngine {
     return sent
   }
 
-  /** Copies files from the sender's folder into `<target>/from-<sender>/`; the paths they landed at. */
-  private async copyFiles(sender: Worker, target: Worker, files: string[]): Promise<string[]> {
+  /**
+   * Copies files from the sender into `<target>/from-<sender>/` and returns
+   * where they landed. Nothing there is overwritten (a taken name gets a
+   * number); credential stores are refused; a big transfer reports progress
+   * and can be stopped, and a stopped or failed one leaves nothing behind.
+   */
+  private async copyFiles(sender: Worker, target: Worker, files: string[], transfer: TransferWatch = {}): Promise<string[]> {
     const sources = files.map((file) => (isAbsolute(file) ? file : resolve(sender.folder, file)))
     let total = 0
     for (const source of sources) {
       if (!existsSync(source)) throw new Error(`Cannot send ${source}: it does not exist.`)
+      const refused = await transferRefusal(source)
+      if (refused) throw new Error(refused)
       total += await sizeOf(source, MAX_TRANSFER_BYTES)
       if (total > MAX_TRANSFER_BYTES) throw new Error('Those files are over 500 MB together. Send a smaller set, or tell your colleague where to find them.')
     }
     const delivered: string[] = []
-    if (sources.length > 0) {
-      const inboxDir = join(target.folder, `from-${workerSlug(sender.name)}`)
-      await mkdir(inboxDir, { recursive: true })
+    if (sources.length === 0) return delivered
+    const inboxDir = join(target.folder, `from-${workerSlug(sender.name)}`)
+    await mkdir(inboxDir, { recursive: true })
+    let done = 0
+    try {
       for (const source of sources) {
         const dest = freePath(inboxDir, basename(source))
-        await cp(source, dest, { recursive: true, errorOnExist: true, force: false })
         delivered.push(dest)
+        await copyTree(source, dest, {
+          signal: transfer.signal,
+          total,
+          onProgress: transfer.onProgress ? (p) => transfer.onProgress!({ ...p, bytes: done + p.bytes }) : undefined
+        })
+        done += await sizeOf(dest, MAX_TRANSFER_BYTES)
       }
+    } catch (error) {
+      // All or nothing: the recipient never gets half a delivery.
+      await Promise.all(delivered.map((path) => rm(path, { recursive: true, force: true }).catch(() => {})))
+      throw error
     }
     return delivered
   }
@@ -1261,7 +1275,7 @@ export class WorkersEngine {
     to: string,
     task: string,
     files: string[] = [],
-    options: { shareContext?: boolean; context?: string; requiredOutput?: string; deadlineMinutes?: number; fromThreadId?: string } = {}
+    options: { shareContext?: boolean; context?: string; requiredOutput?: string; deadlineMinutes?: number; fromThreadId?: string; transfer?: TransferWatch } = {}
   ): Promise<{ recipient: Worker; delegation: WorkerDelegation; delivered: string[] }> {
     const sender = this.require(fromId)
     const target = this.lookup(to)
@@ -1305,6 +1319,7 @@ export class WorkersEngine {
       sent = await this.message(fromId, target.id, objective, files, {
         shareContext: options.shareContext === true,
         fromThreadId,
+        transfer: options.transfer,
         brief: delegation.context,
         extra: { handoff: { id: delegation.id, task: delegation.objective, requiredOutput: delegation.requiredOutput, deadlineAt: delegation.deadlineAt } },
         // Created only once the message is sure to go (the send budget and the
@@ -1333,7 +1348,7 @@ export class WorkersEngine {
    * failed. A job can also be found by the thread working on it, so a worker
    * that forgot the id can still report.
    */
-  async finishHandoff(byId: string, handoffId: string, result: string, files: string[] = [], ok = true, threadId?: string): Promise<string> {
+  async finishHandoff(byId: string, handoffId: string, result: string, files: string[] = [], ok = true, threadId?: string, transfer?: TransferWatch): Promise<string> {
     const worker = this.require(byId)
     const key = handoffId.trim()
     const mine = this.delegationList.filter((d) => d.recipient.workerId === byId && isOpenDelegation(d))
@@ -1351,7 +1366,8 @@ export class WorkersEngine {
     // Sent first: if sending fails (the hourly cap), the job stays open to try again.
     const { delivered } = await this.message(byId, parent.id, body, files, {
       extra: { handoffResult: { id: delegation.id, task: delegation.objective, ok, state: ok ? 'completed' : 'failed' } },
-      toThreadId: () => delegation.parent.threadId
+      toThreadId: () => delegation.parent.threadId,
+      transfer
     })
     const run = [...this.running.values()].find((r) => r.workerId === byId && r.delegationId === delegation.id)
     if (run) run.reported = true
@@ -1523,7 +1539,7 @@ export class WorkersEngine {
    * time they are spoken to in the room. That keeps a room from talking
    * itself into a loop.
    */
-  async postAsWorker(workerId: string, roomRef: string, text: string, files: string[] = [], threadId: string = MAIN_THREAD): Promise<{ room: WorkerRoom; woke: string[] }> {
+  async postAsWorker(workerId: string, roomRef: string, text: string, files: string[] = [], threadId: string = MAIN_THREAD, transfer?: TransferWatch): Promise<{ room: WorkerRoom; woke: string[] }> {
     const worker = this.require(workerId)
     const key = roomRef.trim().toLowerCase()
     const room = this.roomsFile.rooms.find((r) => r.members.includes(workerId) && (r.id === roomRef.trim() || r.name.toLowerCase() === key))
@@ -1537,13 +1553,13 @@ export class WorkersEngine {
     const sent = this.checkSendBudget(workerId, now)
     const run = this.running.get(slotKey(workerId, threadId))
     if (run) run.postedRooms.add(room.id)
-    const woke = await this.publish(worker, room, body, files)
+    const woke = await this.publish(worker, room, body, files, transfer)
     this.sentLog.set(workerId, [...sent, now])
     return { room: clone(room), woke }
   }
 
   /** Records a worker's post and wakes the colleagues it @mentions. Returns their names. */
-  private async publish(worker: Worker, room: WorkerRoom, body: string, files: string[]): Promise<string[]> {
+  private async publish(worker: Worker, room: WorkerRoom, body: string, files: string[], transfer?: TransferWatch): Promise<string[]> {
     const members = room.members.filter((id) => id !== worker.id).map((id) => this.find(id)).filter((w): w is Worker => !!w)
     // Workers waking workers in a room stops after a while without the user:
     // the post is still there for everyone to read, it just wakes nobody.
@@ -1557,7 +1573,7 @@ export class WorkersEngine {
     for (const colleague of mentioned) {
       let delivered: string[] = []
       try {
-        delivered = await this.copyFiles(worker, colleague, files)
+        delivered = await this.copyFiles(worker, colleague, files, transfer)
       } catch {
         delivered = []
       }
