@@ -141,6 +141,9 @@ export function paymentTool(engine: () => PaymentsEngine | null, fillers: Paymen
     },
     // Authorizing and typing the card act on the world; looking and reporting don't.
     mutating: (input) => ['authorize', 'fill'].includes(action(input)),
+    // Both lead to money leaving the user's account, so neither is ever done
+    // for a guest's or a colleague's request (agent/policy.ts).
+    spends: (input) => ['authorize', 'fill'].includes(action(input)),
     risky: (input) => action(input) === 'authorize' && needsUser(input),
     catastrophic: (input, ctx) => {
       if (action(input) !== 'authorize') return false

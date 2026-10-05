@@ -1,5 +1,6 @@
 import type { AgentMode, GoalState, PlanProposal, Settings, StreamEvent, StreamRequest, TokenUsage } from '@shared/types'
 import type { NeutralImage, ToolSpec } from '../providers/adapters/types'
+import type { RunPolicy } from './policy'
 
 /**
  * The tool registry.
@@ -70,6 +71,12 @@ export interface ToolContext {
    * single click. Resolves false when denied.
    */
   confirm: (title: string, detail: Record<string, unknown>, summary?: string) => Promise<boolean>
+  /**
+   * The limits this run works under (agent/policy.ts). A tool that starts
+   * agents of its own (swarm) hands them on, so a sub-agent can never do
+   * more than the run that started it.
+   */
+  policy?: RunPolicy
 }
 
 export interface AgentTool {
@@ -94,6 +101,18 @@ export interface AgentTool {
    * never these. Defaults to false.
    */
   catastrophic?: (input: Record<string, unknown>, ctx: ToolContext) => boolean
+  /**
+   * Whether a call spends the user's money (a card payment). Refused in a
+   * turn that carries work from a guest or a colleague, whatever else
+   * allows it — see agent/policy.ts.
+   */
+  spends?: (input: Record<string, unknown>, ctx: ToolContext) => boolean
+  /**
+   * Whether a call hands work to an agent that acts with its own access
+   * rather than this run's (creating or writing to workers). Counted as
+   * risky; see `DELEGATING` in agent/policy.ts.
+   */
+  delegates?: (input: Record<string, unknown>, ctx: ToolContext) => boolean
   /** One-line summary for the approval dialog and the thinking trace. */
   describe?: (input: Record<string, unknown>) => string
   run: (input: Record<string, unknown>, ctx: ToolContext) => Promise<ToolResult | string>

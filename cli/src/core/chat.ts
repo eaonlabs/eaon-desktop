@@ -7,6 +7,7 @@ import type { Chat, ChatMessage, ChatToolPart, StreamEvent, StreamRequest } from
 import { app } from 'electron'
 import { cancelRun, pauseGoal, runAgent } from '@main/agent/loop'
 import { resolveApproval } from '@main/agent/approvals'
+import { runsWithoutAsking } from '@main/agent/policy'
 import { toolsFor, type ToolContext } from '@main/agent/tools'
 import { store } from '@main/store'
 import type { BusNode, PeerMessage } from '../bus/bus'
@@ -93,9 +94,9 @@ interface LiveTurn {
  * Whether the approval mode the user has now lets this call through. The
  * loop reads the mode once, when the turn starts; pressing `a` on an
  * approval (or ⇧⇥) mid-turn changes it, and this applies the loop's own rule
- * again with the live setting — "approve for me" still asks for what is
- * risky, "full access" for what can't be undone. Approvals that aren't for a
- * tool call (a tool confirming a step of its own) always ask.
+ * (agent/policy.ts) again with the live setting — "approve for me" still
+ * asks for what is risky, "full access" for what can't be undone. Approvals
+ * that aren't for a tool call (a tool confirming a step of its own) always ask.
  */
 function allowedNow(request: StreamRequest, modeAtStart: string, tool: string, input: Record<string, unknown>): boolean {
   const settings = store.getSettings()
@@ -104,8 +105,7 @@ function allowedNow(request: StreamRequest, modeAtStart: string, tool: string, i
     const found = toolsFor({ mode: request.mode, cwd: request.cwd ?? null, depth: 0, readOnly: false, settings, request }).find((t) => t.name === tool)
     if (!found) return false
     const ctx = { request, cwd: request.cwd ?? '', settings, depth: 0, readOnly: false } as unknown as ToolContext
-    if (found.catastrophic?.(input, ctx)) return false
-    return settings.approvalMode === 'full' || !(found.risky?.(input, ctx) ?? false)
+    return runsWithoutAsking(found, input, ctx, settings.approvalMode)
   } catch {
     return false
   }
