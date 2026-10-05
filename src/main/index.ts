@@ -11,6 +11,7 @@ import { editModels, listProviders, refreshModels, refreshProviderModels, remove
 import { refreshLocalProviders } from './providers/localDiscovery'
 import { refreshCatalogInBackground } from './providers/modelCatalog'
 import { resolveApproval } from './agent/approvals'
+import { hardenAppWindow, openExternalSafely } from './externalLinks'
 import { activeRunIds, cancelRun, pauseGoal, runAgent } from './agent/loop'
 import './agent/sources'
 import { killBackgroundProcesses } from './localTools'
@@ -264,10 +265,10 @@ function createWindow(): BrowserWindow {
     }
   })
 
-  window.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
-    return { action: 'deny' }
-  })
+  // New windows open in the user's browser (web and email links only), the
+  // window never navigates away from the app, and the browser panel's
+  // <webview> gets no Node and no popups (externalLinks.ts).
+  hardenAppWindow(window)
 
   const devServer = process.env['ELECTRON_RENDERER_URL']
   if (devServer) window.loadURL(devServer)
@@ -528,7 +529,7 @@ function registerIpc(): void {
   ipcMain.handle('chat:pause-goal', (_e, messageId: string) => pauseGoal(messageId))
   ipcMain.handle('chat:approve', (_e, requestId: string, approved: boolean) => resolveApproval(requestId, approved))
 
-  ipcMain.handle('app:open-external', (_e, url: string) => shell.openExternal(url))
+  ipcMain.handle('app:open-external', (_e, url: string) => openExternalSafely(url))
   // `~` arrives from the renderer, which has no idea where home is; Work's
   // default folder is displayed as ~/Eaon until the first task creates it.
   ipcMain.handle('app:show-item', (_e, path: string) => shell.showItemInFolder(path.replace(/^~(?=\/|$)/, homedir())))
