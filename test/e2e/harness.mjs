@@ -102,7 +102,10 @@ function getJson(url) {
 /** @returns {{ pid: number, ppid: number, command: string }[]} */
 function processTable() {
   try {
-    const out = execFileSync('ps', ['-axo', 'pid=,ppid=,command='], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 })
+    // Every process with its full command line. (`-e` lists all processes on
+    // Linux but means "show the environment" on macOS, hence two spellings.)
+    const all = process.platform === 'darwin' ? '-ax' : '-e'
+    const out = execFileSync('ps', [all, '-o', 'pid=,ppid=,args='], { encoding: 'utf8', maxBuffer: 32 * 1024 * 1024 })
     return out
       .split('\n')
       .map((line) => /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line))

@@ -114,7 +114,9 @@ scenario('Settings → General: every control does something', { timeout: 150_00
 })
 
 scenario('software update: checking while offline shows a failure, not a crash or a hang', { timeout: 120_000 }, async (s) => {
-  const app = await s.launch()
+  // On Linux electron-updater only updates an AppImage and skips the check
+  // without APPIMAGE; pretending to be one gets the real check to run.
+  const app = await s.launch(process.platform === 'linux' ? { env: { APPIMAGE: join(s.homeDir, 'Eaon.AppImage') } } : {})
   const page = app.page
   // A built-from-source app has no update feed and checkForUpdates() returns
   // early (updater.ts), so the real electron-updater is pointed at a feed on
