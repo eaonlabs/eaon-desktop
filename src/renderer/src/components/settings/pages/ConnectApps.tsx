@@ -82,15 +82,23 @@ export function ConnectAppsPage(): JSX.Element {
   const [open, setOpen] = useState<ConnectAppId | null>(null)
   const [background, setBackground] = useState<{ supported: boolean; enabled: boolean } | null>(null)
 
+  const [loadError, setLoadError] = useState<string | null>(null)
+
   const refresh = useCallback(async (): Promise<void> => {
-    const [list, info] = await Promise.all([window.api.connectApps.list(), window.api.gateway.info()])
-    setApps(list)
-    setGateway(info)
+    try {
+      const [list, info] = await Promise.all([window.api.connectApps.list(), window.api.gateway.info()])
+      setApps(list)
+      setGateway(info)
+      setLoadError(null)
+    } catch (e) {
+      // Without this the lists stayed empty and every Connect button disabled, with nothing said.
+      setLoadError(e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '') : String(e))
+    }
   }, [])
 
   useEffect(() => {
     void refresh()
-    void window.api.app.background().then(setBackground)
+    window.api.app.background().then(setBackground, () => setBackground(null))
     // Another app (or the user) may change these files while the page is open.
     const onFocus = (): void => void refresh()
     window.addEventListener('focus', onFocus)
@@ -107,6 +115,18 @@ export function ConnectAppsPage(): JSX.Element {
         Use the models you&apos;ve added to Eaon in your other AI apps. Eaon sets each app up to talk to it, with your keys staying
         here.
       </p>
+
+      {loadError && (
+        <Section>
+          <Card>
+            <Row title="Couldn't read your apps' settings" description={loadError}>
+              <button className="btn btn--sm" onClick={() => void refresh()}>
+                Try again
+              </button>
+            </Row>
+          </Card>
+        </Section>
+      )}
 
       <Section label="Recommended">
         <div className="ca-featured">

@@ -157,6 +157,9 @@ export function ComputerUsePage(): JSX.Element {
     setTesting(true)
     try {
       setResult(await window.api.computerUse.test())
+    } catch (error) {
+      // The check itself failed to run (not "ran and found a problem"): say so here, not in the console.
+      setResult({ ok: false, error: `The test couldn't run: ${(error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '')}` })
     } finally {
       setTesting(false)
       refresh()
