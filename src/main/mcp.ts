@@ -10,6 +10,7 @@ import { store } from './store'
 import { secrets } from './secrets'
 import { mcpCatalogEntry } from '@shared/mcpCatalog'
 import { McpOAuthProvider, oauthFetch, SignInRequiredError } from './mcpOAuth'
+import { sameOrigin } from './ipcGuards'
 
 /**
  * MCP client pool. Each enabled server gets a live connection; tools discovered
@@ -129,7 +130,10 @@ function httpAuthFor(server: McpServer): HttpAuth {
 function httpHeadersFor(server: McpServer): Record<string, string> {
   if (!server.pluginId) return {}
   const entry = mcpCatalogEntry(server.pluginId)
-  if (!entry) return {}
+  // A pasted token is for the vendor's own server: a row whose URL was
+  // changed to point elsewhere (mcp:save takes the whole list from the
+  // renderer) must not carry it there.
+  if (!entry || !sameOrigin(server.url, entry.endpoint)) return {}
   const token = entry.authMode === 'pastedToken' ? secrets.get(`plugin:${server.pluginId}`) : undefined
   return {
     ...entry.extraHeaders,

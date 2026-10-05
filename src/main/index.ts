@@ -12,6 +12,7 @@ import { refreshLocalProviders } from './providers/localDiscovery'
 import { refreshCatalogInBackground } from './providers/modelCatalog'
 import { resolveApproval } from './agent/approvals'
 import { hardenAppWindow, openExternalSafely } from './externalLinks'
+import { providerKeyId } from './ipcGuards'
 import { activeRunIds, cancelRun, pauseGoal, runAgent } from './agent/loop'
 import './agent/sources'
 import { killBackgroundProcesses } from './localTools'
@@ -473,15 +474,20 @@ function registerIpc(): void {
   ipcMain.handle('providers:edit-models', (_e, id: string, edit: ModelEdit) => editModels(id, edit))
   ipcMain.handle('providers:test', (_e, id: string) => testProvider(id))
 
+  // Model-provider keys only: the vault's namespaced entries (plugin and
+  // chat-app tokens, the payment card, OAuth) are not the renderer's to
+  // read back, replace or clear (ipcGuards.ts).
+  const providerKey = (id: unknown): string => providerKeyId(id, listProviders().map((p) => p.id))
   ipcMain.handle('keys:set', (_e, id: string, key: string) => {
-    secrets.set(id, key)
+    if (typeof key !== 'string') throw new Error('A key is text.')
+    secrets.set(providerKey(id), key)
     return listProviders()
   })
   ipcMain.handle('keys:clear', (_e, id: string) => {
-    secrets.clear(id)
+    secrets.clear(providerKey(id))
     return listProviders()
   })
-  ipcMain.handle('keys:hint', (_e, id: string) => secrets.hint(id))
+  ipcMain.handle('keys:hint', (_e, id: string) => secrets.hint(providerKey(id)))
   // Decrypts on demand for the user's own reveal/copy click — never held in
   // renderer state; `keys:hint` above stays the default, ambient-safe signal.
   // Only model-provider keys the user typed in. The vault also holds plugin
@@ -490,9 +496,10 @@ function registerIpc(): void {
   ipcMain.handle('keys:reveal', (_e, id: string) =>
     listProviders().some((p) => p.id === id && p.auth !== 'oauth') ? (secrets.get(id) ?? null) : null
   )
-  ipcMain.handle('keys:get-fallbacks', (_e, id: string) => secrets.getFallbacks(id))
+  ipcMain.handle('keys:get-fallbacks', (_e, id: string) => secrets.getFallbacks(providerKey(id)))
   ipcMain.handle('keys:set-fallbacks', (_e, id: string, keys: string[]) => {
-    secrets.setFallbacks(id, keys)
+    if (!Array.isArray(keys) || !keys.every((key) => typeof key === 'string')) throw new Error('Fallback keys are a list of text.')
+    secrets.setFallbacks(providerKey(id), keys)
     return listProviders()
   })
 
