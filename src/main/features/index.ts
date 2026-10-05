@@ -20,11 +20,14 @@ import { connectAppsFeature } from './connectApps'
 import { linkAccountsFeature } from './linkAccounts'
 import { usageFeature } from './usage'
 import { paymentsFeature } from './payments'
+import { enginesFeature } from './engines'
 import type { Feature } from './types'
 
 /** Every feature module, registered in this order at startup. */
 export const FEATURES: Feature[] = [
   providerAuthFeature,
+  // Agent engines (Codex…) before workers, which run turns on them.
+  enginesFeature,
   pluginsFeature,
   modelLibraryFeature,
   skillsFeature,
