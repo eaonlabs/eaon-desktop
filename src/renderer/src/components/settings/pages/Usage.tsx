@@ -476,7 +476,7 @@ function costTitle(model: UsageModelRow): string | undefined {
 
 function ModelTable({ models }: { models: UsageModelRow[] }): JSX.Element {
   const providers = useApp((s) => s.providers)
-  const nameOf = (id: string): string => providers.find((p) => p.id === id)?.name ?? id
+  const nameOf = (id: string): string => providers.find((p) => p.id === id)?.name ?? (id.startsWith('codex') ? 'Codex' : id)
   if (models.length === 0) return <div className="usage-chart usage-chart--empty">No requests in this range yet.</div>
   return (
     <div className="usage-table" role="table" aria-label="Usage by model">

@@ -14,6 +14,9 @@ import {
   type WorkerThread
 } from '@shared/workers'
 import { engine as engineAdapter } from '../../engines'
+import { withUsageSource } from '../usage/attribution'
+import { recordUsage } from '../usage/ledger'
+import { setLeaseNames } from '../computer/tool'
 import { EngineError } from '../../engines/types'
 import { pauseGoal, runAgent } from '../../agent/loop'
 import { registerToolSource, safeToolName } from '../../agent/tools'
@@ -217,13 +220,23 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
     await rm(join(app.getPath('userData'), 'store', name), { force: true })
   }
   const engine = new WorkersEngine({
-    runAgent: overrides.runAgent ?? runAgent,
+    // Everything a worker's run asks of a model — its loop, sub-agents,
+    // compaction — is counted as the workers' (Settings → Usage).
+    runAgent: overrides.runAgent ?? ((request, emit, options) => withUsageSource('worker', () => runAgent(request, emit, options))),
     runEngineTurn:
       overrides.runEngineTurn ??
       (async (id, input) => {
         const adapter = engineAdapter(id)
         if (!adapter) throw new EngineError('not-installed', `The ${id} engine isn't available in this version of Eaon.`)
-        return adapter.runTurn(input)
+        const result = await adapter.runTurn(input)
+        // An agent engine bypasses Eaon's providers, so its tokens are counted
+        // here: once per turn, under the engine's own name, as the workers'.
+        // A turn that reported no tokens is left out rather than counted as free.
+        if (result.usage.input + result.usage.output + result.usage.cacheRead + result.usage.cacheWrite > 0) {
+          const paidFor = result.billing === 'api-key' ? ':api' : result.billing === 'provider' ? ':provider' : ''
+          recordUsage(`${id}${paidFor}`, input.model ?? 'default', result.usage, new Date(), 'worker')
+        }
+        return result
       }),
     getSettings: () => store.getSettings(),
     loadWorkers: () => store.getJson<unknown>(WORKERS_FILE, []),
@@ -278,7 +291,8 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
     })
     ipcMain.handle('workers:remove', async (_e, id: unknown) => {
       await engine.remove(idOf(id))
-      await browsers.close(idOf(id))
+      // Not just closed: its cookies and cache go too, so a later worker never inherits its sign-ins.
+      await browsers.forget(idOf(id))
     })
     ipcMain.handle('workers:send', (_e, id: unknown, text: unknown, files: unknown, options?: WorkerSendOptions) =>
       engine.send(
@@ -328,6 +342,8 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
     registerIpc,
     start: () => {
       engine.load()
+      // The computer's one pointer is leased to a run at a time; its indicator names the worker.
+      setLeaseNames((id) => engine.list().find((w) => w.id === id)?.name ?? null)
       registerToolSource(workersToolSource(engine))
       // The chat agent's way to start a team and talk to it.
       registerToolSource(teamToolSource(engine, (roomId) => ctx.send('workers:open-room', roomId)))

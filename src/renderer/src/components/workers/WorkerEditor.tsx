@@ -3,6 +3,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { Check, Pipette } from 'lucide-react'
 import { useApp } from '../../state/store'
 import { Modal, Select } from '../ui'
+import { ModelSelect } from '../composer/ModelSelect'
 import { WorkerFace } from './WorkerFace'
 import { WorkerTradingFields } from './WorkerTradingFields'
 import { useWorkers } from './workersStore'
@@ -61,7 +62,6 @@ export function WorkerEditor({ workerId }: { workerId: string | null }): JSX.Ele
   )
   const existing = workerId ? workers.find((w) => w.id === workerId) ?? null : null
   const models = useApp((s) => s.availableModels())
-  const providers = useApp((s) => s.providers)
 
   const [name, setName] = useState(existing?.name ?? '')
   const [color, setColor] = useState(existing?.color ?? pickColor(workers.map((w) => w.color)))
@@ -81,28 +81,6 @@ export function WorkerEditor({ workerId }: { workerId: string | null }): JSX.Ele
   const [saving, setSaving] = useState(false)
 
   const mood: WorkerMood = focus === 'purpose' ? 'curious' : name.trim() ? 'happy' : 'neutral'
-  const modelOptions = useMemo(() => {
-    if (engine !== 'native') {
-      const list = engines.models[engine]?.models ?? []
-      const options = [
-        { value: '', label: `${ENGINE_LABEL[engine]}’s default` },
-        ...list.map((m) => ({ value: `${engine}::${m.id}`, label: m.isDefault ? `${m.label} (default)` : m.label }))
-      ]
-      // A pinned model the engine no longer lists stays visible, marked, rather than silently changing.
-      if (model && !options.some((o) => o.value === model)) options.push({ value: model, label: `${model.split('::')[1]} (not offered now)` })
-      return options
-    }
-    const duplicated = new Set(models.filter((m, i) => models.findIndex((o) => o.id === m.id) !== i).map((m) => m.id))
-    const options = [
-      { value: '', label: 'Follow Chat’s model' },
-      ...models.map((m) => ({
-        value: `${m.providerId}::${m.id}`,
-        label: duplicated.has(m.id) ? `${m.label} · ${providers.find((p) => p.id === m.providerId)?.name ?? m.providerId}` : m.label
-      }))
-    ]
-    if (model && !options.some((o) => o.value === model)) options.push({ value: model, label: `${model.split('::')[1]} (unavailable)` })
-    return options
-  }, [models, providers, engine, engines.models, model])
   // The levels the chosen model takes, when known; otherwise none are offered
   // (an unknown model may not think in levels at all).
   const effortLevels = useMemo((): EffortLevel[] => {
@@ -256,7 +234,14 @@ export function WorkerEditor({ workerId }: { workerId: string | null }): JSX.Ele
         <div className="worker-editor__row">
           <div className="field field--inline">
             <span className="field-label">Model</span>
-            <Select width={240} value={model} onChange={setModel} options={modelOptions} />
+            <ModelSelect
+              width={240}
+              engine={engine}
+              label="Model"
+              value={model ? { providerId: model.split('::')[0], modelId: model.split('::')[1] } : null}
+              onChange={(ref) => setModel(ref && ref.modelId ? `${ref.providerId ?? engine}::${ref.modelId}` : '')}
+              defaultLabel={engine === 'native' ? 'Follow Chat’s model' : `${ENGINE_LABEL[engine]}’s default`}
+            />
           </div>
           {effortLevels.length > 0 && (
             <div className="field field--inline">

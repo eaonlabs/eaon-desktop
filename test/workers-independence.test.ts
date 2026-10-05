@@ -824,3 +824,28 @@ test('a delegated job that asks the user something is waiting, not done, and the
   await until(() => !!agent.of('Nova'))
   agent.of('Nova')!.release()
 })
+
+test('a Codex turn’s tokens are counted in Usage as the workers’, on the plan unless it was an API key', async () => {
+  const { ledgerSources, resetLedgerForTests } = await import('../src/main/features/usage/ledger')
+  const { registerEngine } = await import('../src/main/engines')
+  resetLedgerForTests()
+  const codex = fakeEngine()
+  // The real wiring: the service reaches the engine through the registry, and counts what it reports.
+  registerEngine({
+    id: 'codex',
+    detect: async () => ({}) as never,
+    listModels: async () => ({ engine: 'codex', models: [], retrievedAt: null, staleBecause: null }),
+    runTurn: (input) => codex.runEngineTurn('codex', input),
+    dispose: async () => {}
+  })
+  const { engine } = start(heldAgent().runAgent)
+  const nova = engine.save(draft('Nova', { engine: 'codex', model: { providerId: 'codex', modelId: 'gpt-6-luna' } }))
+  codex.setNext({ billing: 'plan' })
+  engine.send(nova.id, 'Go')
+  await until(() => receipts(engine, nova.id).at(-1)?.state === 'completed')
+  assert.match(JSON.stringify(ledgerSources()), /"worker":\{"codex":\{"gpt-6-luna":\{"requests":1,"input":10,"output":5/)
+  codex.setNext({ billing: 'api-key' })
+  engine.send(nova.id, 'Again')
+  await until(() => receipts(engine, nova.id).filter((e) => e.state === 'completed').length === 2)
+  assert.match(JSON.stringify(ledgerSources()), /"codex:api":\{"gpt-6-luna"/)
+})

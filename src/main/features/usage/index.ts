@@ -67,8 +67,13 @@ function billingLookup(): BillingOf {
   return (providerId) => {
     let billing = known.get(providerId)
     if (!billing) {
-      const provider = providerId === LOCAL_PROVIDER_ID ? null : getProvider(providerId)
-      billing = providerId === LOCAL_PROVIDER_ID || provider?.local ? 'local' : provider?.category === 'subscription' ? 'plan' : 'api'
+      // An agent engine's turns (workers on Codex) are recorded under the
+      // engine's name plus how it was paid for: the user's plan (the default),
+      // their API key, or a provider the engine was set up with, which Eaon
+      // can't price.
+      const engineBilling = providerId === 'codex' ? 'plan' : providerId === 'codex:api' ? 'api' : providerId === 'codex:provider' ? 'local' : null
+      const provider = engineBilling || providerId === LOCAL_PROVIDER_ID ? null : getProvider(providerId)
+      billing = engineBilling ?? (providerId === LOCAL_PROVIDER_ID || provider?.local ? 'local' : provider?.category === 'subscription' ? 'plan' : 'api')
       known.set(providerId, billing)
     }
     return billing

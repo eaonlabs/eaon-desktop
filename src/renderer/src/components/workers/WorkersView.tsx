@@ -34,6 +34,7 @@ import { WorkerComposer } from './WorkerComposer'
 import { RoomEditor, RoomPage, TeamDialog } from './WorkerRooms'
 import { ThreadTabs } from './WorkerThreads'
 import { useWorkers } from './workersStore'
+import { useComputerLease, workerComputerStatus } from '../computer/useComputerLease'
 import { fileName, fileUrl, isImagePath } from '../../lib/files'
 import { MAIN_THREAD, MAX_WORKERS, TRADING_DESK, describeWorker, relativeTime, runningThreads, threadKey, workerMood, type Worker, type WorkerThreadInfo } from '@shared/workers'
 import type { McpServer } from '@shared/types'
@@ -417,6 +418,7 @@ function WorkerProfile({ worker, now, mood }: { worker: Worker; now: number; moo
           <span className="status-dot" />
           <span className="worker-fact__text">{statusLine(worker)}</span>
         </span>
+        <ComputerFact workerId={worker.id} />
         {worker.heartbeat.nextAt !== null && !worker.paused && (
           <span className="worker-fact" title={worker.heartbeat.note || undefined}>
             <HeartPulse size={13} strokeWidth={2} />
@@ -457,6 +459,19 @@ function WorkerProfile({ worker, now, mood }: { worker: Worker; now: number; moo
       {worker.personality && <p className="worker-profile__personality">“{worker.personality}”</p>}
       <WorkerMemory worker={worker} now={now} />
     </div>
+  )
+}
+
+/** "Using the computer" or "Waiting for the computer — Nova is using it", while that is so: the computer has one pointer, and one run holds it at a time. */
+function ComputerFact({ workerId }: { workerId: string }): JSX.Element | null {
+  const lease = useComputerLease()
+  const status = workerComputerStatus(lease, workerId)
+  if (!status) return null
+  return (
+    <span className="worker-fact" data-status={status.kind === 'using' ? 'working' : 'paused'} title={status.text}>
+      <span className="status-dot" />
+      <span className="worker-fact__text">{status.text}</span>
+    </span>
   )
 }
 
