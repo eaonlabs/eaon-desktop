@@ -95,6 +95,8 @@ export interface WorkerAsk {
   options: string[]
   approve: { tool: string; input: Record<string, unknown>; summary: string } | null
   at: number
+  /** The thread it was asked from; the answer goes back there. The main thread when absent. */
+  threadId?: string
 }
 
 /**

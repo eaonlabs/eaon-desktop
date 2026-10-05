@@ -211,6 +211,8 @@ interface Running {
   delegationId: string | null
   /** The delegated job this run finished with finish_handoff, if it did. */
   reported: boolean
+  /** The run asked the user something (ask_user) and is waiting on the answer. */
+  asked: boolean
   /** The user's mail woke it (for the stale wake-up count). */
   fromUser: boolean
 }
@@ -1955,7 +1957,7 @@ export class WorkersEngine {
    * question asks for one specific action; approving it lets that exact call
    * through once (see allowOnce).
    */
-  ask(id: string, input: { question: string; options?: string[]; approve?: WorkerAsk['approve'] }): WorkerAsk {
+  ask(id: string, input: { question: string; options?: string[]; approve?: WorkerAsk['approve'] }, threadId: string = MAIN_THREAD): WorkerAsk {
     const worker = this.require(id)
     const question = str(input.question).slice(0, 800)
     if (!question) throw new Error('Ask a question.')
@@ -1965,8 +1967,11 @@ export class WorkersEngine {
       question,
       options: (input.options ?? []).map(str).filter(Boolean).slice(0, 4),
       approve: input.approve ?? null,
-      at: this.now()
+      at: this.now(),
+      ...(threadId !== MAIN_THREAD ? { threadId } : {})
     }
+    const asking = this.running.get(slotKey(id, threadId))
+    if (asking) asking.asked = true
     worker.asks.push(ask)
     worker.unread += 1
     this.commit()
@@ -1994,7 +1999,9 @@ export class WorkersEngine {
     } else {
       text = str(answer.text) || '(no answer)'
     }
-    this.deliverMail(worker, { id: randomUUID(), from: 'user', fromName: 'You', text: `[Answer to "${ask.question.slice(0, 120)}"] ${text}`, files: [], at: this.now() })
+    // The answer goes back to the thread that asked (a delegated job, a side task), if it still exists.
+    const back = ask.threadId && this.info(worker, ask.threadId) ? ask.threadId : MAIN_THREAD
+    this.deliverMail(worker, { id: randomUUID(), from: 'user', fromName: 'You', text: `[Answer to "${ask.question.slice(0, 120)}"] ${text}`, files: [], at: this.now() }, back)
     this.commit()
     this.tick()
   }
@@ -2600,6 +2607,7 @@ export class WorkersEngine {
       routineId: routine?.id ?? null,
       delegationId: delegation?.id ?? null,
       reported: false,
+      asked: false,
       fromUser
     }
     this.running.set(key, run)
@@ -2804,7 +2812,8 @@ export class WorkersEngine {
       if (outcome.error) this.endDelegation(delegation, 'failed', `${worker.name} hit a problem: ${clip(outcome.error, 300)}`)
       else if (outcome.cancelled && run.stoppedByUser) this.endDelegation(delegation, 'cancelled', `You stopped ${worker.name}’s work on it.`)
       else if (!outcome.cancelled && !run.reported) {
-        if (slot.heartbeat.nextAt !== null) this.settleDelegation(delegation, 'waiting')
+        // Waiting on the user (it asked) or on its own wake-up: not done yet.
+        if (slot.heartbeat.nextAt !== null || run.asked || worker.asks.some((a) => a.threadId === run.threadId)) this.settleDelegation(delegation, 'waiting')
         else this.autoReport(worker, delegation, assistant)
       }
     }

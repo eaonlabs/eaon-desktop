@@ -366,11 +366,15 @@ export function workersToolSource(engine: WorkersEngine): ToolSource {
       const tool = str(input.approve_tool)
       const approveInput = input.approve_input && typeof input.approve_input === 'object' ? (input.approve_input as Record<string, unknown>) : null
       if (tool && !approveInput) return { text: 'An approval needs approve_input: the exact input you will call it with.', isError: true }
-      engine.ask(self(ctx), {
-        question: str(input.question),
-        options: Array.isArray(input.options) ? input.options.filter((o): o is string => typeof o === 'string') : [],
-        approve: tool && approveInput ? { tool, input: approveInput, summary: str(input.approve_summary) || str(input.question) } : null
-      })
+      engine.ask(
+        self(ctx),
+        {
+          question: str(input.question),
+          options: Array.isArray(input.options) ? input.options.filter((o): o is string => typeof o === 'string') : [],
+          approve: tool && approveInput ? { tool, input: approveInput, summary: str(input.approve_summary) || str(input.question) } : null
+        },
+        threadOf(ctx)
+      )
       return tool
         ? 'Asked. If the user approves, you may make exactly that call once. Carry on with other work; the answer arrives as mail.'
         : 'Asked. Carry on with other work; the answer arrives as mail.'

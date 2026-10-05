@@ -797,3 +797,30 @@ test('a routine that is running doesn’t make the user wait (the 2026.6.1 behav
   const history = receipts(engine, nova.id).map((e) => `${e.trigger.label}: ${e.state}`).sort()
   assert.deepEqual(history, ['Routine: Sweep: completed', 'Your message: completed'], 'each run has its own receipt')
 })
+
+test('a delegated job that asks the user something is waiting, not done, and the answer goes back to that job', async () => {
+  const agent = heldAgent()
+  const { engine } = start(agent.runAgent)
+  const nova = engine.save(draft('Nova'))
+  const vega = engine.save(draft('Vega'))
+  await engine.handOff(nova.id, 'Vega', 'Book the venue')
+  await until(() => !!agent.of('Vega'))
+  const job = agent.of('Vega')!
+  const threadId = job.request.workerThreadId!
+  const ask = engine.ask(vega.id, { question: 'Which date works?' }, threadId)
+  assert.equal(ask.threadId, threadId)
+  job.release('I need to know the date before I can book.')
+  await until(() => !engine.isRunning(vega.id))
+  assert.equal(engine.delegations()[0].state, 'waiting', 'it asked; the job is not finished')
+  assert.equal(agent.pending.length, 0, 'and nothing was reported to Nova yet')
+  engine.answer(vega.id, ask.id, { text: 'Friday' })
+  await until(() => !!agent.of('Vega'))
+  const again = agent.of('Vega')!
+  assert.equal(again.request.workerThreadId, threadId, 'the answer reached the job’s own thread')
+  assert.match(lastUserText(again.request), /\[Answer to "Which date works\?"\] Friday/)
+  again.release('Booked for Friday.')
+  await until(() => engine.delegations()[0].state === 'completed')
+  assert.match(engine.delegations()[0].result ?? '', /Booked for Friday/)
+  await until(() => !!agent.of('Nova'))
+  agent.of('Nova')!.release()
+})
