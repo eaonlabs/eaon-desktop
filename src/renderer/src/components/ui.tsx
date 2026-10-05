@@ -145,6 +145,54 @@ export function Popover({
     return () => document.removeEventListener('keydown', onKey, submenu)
   }, [open, onClose, submenu])
 
+  // Keyboard use. Opening moves focus into the menu (its first item, unless
+  // something inside, a search field, already took it), and closing puts it
+  // back on the trigger, so a keyboard user is never left on <body>. A
+  // submenu opens on hover, so it leaves focus where it is.
+  useLayoutEffect(() => {
+    if (!open || submenu) return
+    const surface = ref.current
+    const trigger = anchor.current
+    if (surface && !surface.contains(document.activeElement)) {
+      const first = surface.querySelector<HTMLElement>('[role="menuitem"]:not(:disabled)')
+      ;(first ?? surface).focus({ preventScroll: true })
+    }
+    return () => {
+      const active = document.activeElement
+      // Only when focus is still ours to give back: a menu item that opened a
+      // dialog has already moved it there.
+      if (trigger?.isConnected && (!active || active === document.body || surface?.contains(active))) trigger.focus({ preventScroll: true })
+    }
+  }, [open, submenu, anchor])
+
+  const onMenuKey = (event: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (event.defaultPrevented) return
+    const surface = ref.current
+    if (!surface) return
+    if (event.key === 'Tab' && !submenu) {
+      // Tab leaves the menu as it would leave the trigger: close, put focus
+      // back on the trigger, and let the browser move on from there.
+      onClose()
+      anchor.current?.focus({ preventScroll: true })
+      return
+    }
+    const target = event.target as HTMLElement
+    // Arrows walk the items; a search field or other control inside keeps its own keys.
+    if (target !== surface && target.getAttribute('role') !== 'menuitem') return
+    const items = [...surface.querySelectorAll<HTMLElement>('[role="menuitem"]:not(:disabled)')]
+    if (items.length === 0) return
+    const index = items.indexOf(target)
+    let next: HTMLElement | undefined
+    if (event.key === 'ArrowDown') next = items[(index + 1) % items.length]
+    else if (event.key === 'ArrowUp') next = items[(index - 1 + items.length) % items.length]
+    else if (event.key === 'Home') next = items[0]
+    else if (event.key === 'End') next = items[items.length - 1]
+    if (next) {
+      event.preventDefault()
+      next.focus()
+    }
+  }
+
   if (!open) return null
   return createPortal(
     <>
@@ -153,7 +201,7 @@ export function Popover({
           would cover the parent, so its other rows could not be hovered or
           clicked while the submenu was open. */}
       {!submenu && <div className="layer layer--transparent" onMouseDown={onClose} onContextMenu={onClose} />}
-      <div ref={ref} className={`menu ${className ?? ''}`} style={style} role="menu">
+      <div ref={ref} className={`menu ${className ?? ''}`} style={style} role="menu" tabIndex={-1} onKeyDown={onMenuKey}>
         {children}
       </div>
     </>,
@@ -245,6 +293,16 @@ export function MenuSearch({
 
 /* -------------------------------------------------------------------- Modal */
 
+/** Open dialogs, innermost last: Escape and the Tab trap belong to the top one. */
+const openModals: HTMLElement[] = []
+
+const FOCUSABLE = 'a[href], button:not(:disabled), input:not(:disabled), textarea:not(:disabled), select:not(:disabled), [tabindex]:not([tabindex="-1"]), [contenteditable="true"]'
+
+/** What Tab can reach inside `root`, in order, skipping anything hidden. */
+function focusablesIn(root: HTMLElement): HTMLElement[] {
+  return [...root.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((el) => el.offsetParent !== null || el === document.activeElement)
+}
+
 export function Modal({
   open,
   onClose,
@@ -262,10 +320,31 @@ export function Modal({
   showClose?: boolean
   width?: number
 }): JSX.Element | null {
+  const dialog = useRef<HTMLDivElement>(null)
+  const titleId = useRef(`modal-title-${Math.random().toString(36).slice(2)}`).current
+
   useEffect(() => {
     if (!open) return
     const onKey = (event: KeyboardEvent): void => {
+      const node = dialog.current
+      // Only the dialog on top answers; one opened from another closes alone.
+      if (!node || openModals[openModals.length - 1] !== node) return
       if (event.key === 'Escape') onClose()
+      else if (event.key === 'Tab' && node.contains(document.activeElement)) {
+        // Focus stays inside the dialog: Tab from the last control wraps to
+        // the first, Shift+Tab from the first to the last.
+        const items = focusablesIn(node)
+        if (items.length === 0) return
+        const first = items[0]
+        const last = items[items.length - 1]
+        if (event.shiftKey && document.activeElement === first) {
+          event.preventDefault()
+          last.focus()
+        } else if (!event.shiftKey && document.activeElement === last) {
+          event.preventDefault()
+          first.focus()
+        }
+      }
     }
     // On window, after document: a menu open inside the dialog hears Escape first and keeps it,
     // so Escape closes that menu and leaves the dialog (and what was picked in it) open.
@@ -273,21 +352,100 @@ export function Modal({
     return () => window.removeEventListener('keydown', onKey)
   }, [open, onClose])
 
+  // Focus moves into the dialog when it opens (a field or button inside that
+  // asked for it with autoFocus keeps it), and back to whatever had it before
+  // when it closes, so keyboard and screen-reader users land where they were.
+  useLayoutEffect(() => {
+    const node = dialog.current
+    if (!open || !node) return
+    const before = document.activeElement as HTMLElement | null
+    openModals.push(node)
+    if (!node.contains(document.activeElement)) {
+      const body = node.querySelector<HTMLElement>('.modal__body, .modal__actions')
+      const target = (body && focusablesIn(body)[0]) ?? focusablesIn(node).find((el) => !el.classList.contains('modal__close'))
+      ;(target ?? node).focus({ preventScroll: true })
+    }
+    return () => {
+      openModals.splice(openModals.indexOf(node), 1)
+      const active = document.activeElement
+      if (before?.isConnected && (!active || active === document.body || node.contains(active))) before.focus({ preventScroll: true })
+    }
+  }, [open])
+
   if (!open) return null
   return createPortal(
     <div className="layer layer--scrim" onMouseDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="modal" style={width ? { width } : undefined} role="dialog" aria-modal="true" aria-label={title}>
+      <div
+        ref={dialog}
+        className="modal"
+        style={width ? { width } : undefined}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+      >
         {showClose && (
           <button type="button" className="modal__close" onClick={onClose} aria-label="Close">
             <X size={16} strokeWidth={2} />
           </button>
         )}
-        <h2 className="modal__title">{title}</h2>
+        <h2 className="modal__title" id={titleId}>
+          {title}
+        </h2>
         {children && <div className="modal__body">{children}</div>}
         <div className="modal__actions">{actions}</div>
       </div>
     </div>,
     document.body
+  )
+}
+
+/**
+ * Asks before something that can't be undone. Cancel has focus, so a stray
+ * Enter keeps things as they are.
+ */
+export function ConfirmDialog({
+  open,
+  title,
+  children,
+  confirmLabel,
+  danger = true,
+  onConfirm,
+  onClose
+}: {
+  open: boolean
+  title: string
+  children?: ReactNode
+  confirmLabel: string
+  danger?: boolean
+  onConfirm: () => void
+  onClose: () => void
+}): JSX.Element | null {
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={title}
+      actions={
+        <>
+          <button type="button" className="btn btn--ghost" autoFocus onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            type="button"
+            className={`btn ${danger ? 'btn--danger' : 'btn--primary'}`}
+            onClick={() => {
+              onConfirm()
+              onClose()
+            }}
+          >
+            {confirmLabel}
+          </button>
+        </>
+      }
+    >
+      {children}
+    </Modal>
   )
 }
 
@@ -373,6 +531,8 @@ export function Select<T extends string>({
         ref={anchor}
         type="button"
         className="select"
+        aria-haspopup="menu"
+        aria-expanded={open}
         data-open={open || undefined}
         style={width ? { width } : undefined}
         onClick={() => setOpen((v) => !v)}

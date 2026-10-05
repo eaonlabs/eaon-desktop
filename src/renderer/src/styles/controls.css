@@ -91,8 +91,17 @@
 }
 .menu__item:hover:not(:disabled),
 .menu__item[data-open='true'],
-.menu__item[data-highlight='true'] {
+.menu__item[data-highlight='true'],
+.menu__item:focus-visible {
   background: var(--hover-strong);
+}
+/* Arrow keys move focus row to row (Popover in ui.tsx); the ring sits inside the row. */
+.menu__item:focus-visible {
+  outline-offset: -2px;
+}
+/* The surface takes focus only to hold it when a menu has no items; no ring for that. */
+.menu:focus-visible {
+  outline: none;
 }
 .menu__item:disabled {
   color: var(--text-4);
@@ -452,8 +461,9 @@ textarea.input {
 .search-field input::placeholder {
   color: var(--text-3);
 }
+/* The same accent edge as .input: --border-strong alone was barely visible. */
 .search-field input:focus {
-  border-color: var(--border-strong);
+  border-color: color-mix(in srgb, var(--toggle-on), transparent 30%);
 }
 .search-field--sm input {
   height: 34px;

@@ -198,7 +198,13 @@ function useTheme(): void {
     }
 
     apply()
+    // The system's light/dark and reduce-motion settings can change while Eaon is open.
+    const motion = window.matchMedia('(prefers-reduced-motion: reduce)')
     media.addEventListener('change', apply)
-    return () => media.removeEventListener('change', apply)
+    motion.addEventListener('change', apply)
+    return () => {
+      media.removeEventListener('change', apply)
+      motion.removeEventListener('change', apply)
+    }
   }, [settings])
 }

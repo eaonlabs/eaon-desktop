@@ -85,11 +85,11 @@ function Home(): JSX.Element {
         <h1 className="home__title">What can I help with?</h1>
         <Composer variant="home" />
         {showSuggestions && (
-          <div className="home-chips" role="list" aria-label="Things Eaon can do">
+          <div className="home-chips" role="group" aria-label="Things Eaon can do">
             {SUGGESTIONS.map((s, index) => (
               <button
                 key={s.label}
-                role="listitem"
+                type="button"
                 className="suggestion-chip"
                 style={{ ['--i' as string]: index }}
                 onClick={() => setComposerDraft(s.prompt)}
