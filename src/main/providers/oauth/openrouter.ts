@@ -4,6 +4,7 @@ import { secrets } from '../../secrets'
 import type { Credentials } from '../adapters/types'
 import type { OAuthFlow } from './index'
 import { parseAuthorizationInput, pkce, startLoopback } from './shared'
+import { providerFetch } from '../safeFetch'
 
 /**
  * "Sign in with OpenRouter": OpenRouter's PKCE flow mints an ordinary,
@@ -45,7 +46,7 @@ export const openRouterFlow: OAuthFlow = {
       if (signal.aborted) throw new Error('Sign-in cancelled')
       if (!code) throw new Error('No authorization code came back from OpenRouter.')
 
-      const response = await fetch(KEY_URL, {
+      const response = await providerFetch(KEY_URL, {
         method: 'POST',
         headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
         body: JSON.stringify({ code, code_verifier: verifier, code_challenge_method: 'S256' }),

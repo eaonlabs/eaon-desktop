@@ -17,6 +17,7 @@ import { buildHistory, estimateMessages, estimateTokens, pruneImages, pruneInFli
 import { chatSystemPrompt, COMPACTION_PROMPT, workSystemPrompt } from './prompts'
 import { CallGuard } from './guards'
 import { capOutput, guidanceFor, isMutating, toolsFor, toolSourceOf, toSpec, WORKFLOW_TOOLS, type AgentTool, type ToolContext, type ToolQuery, type TurnState } from './tools'
+import { redactSecrets } from '../providers/redact'
 
 /**
  * The agent loop — one implementation for every provider and both modes.
@@ -838,7 +839,7 @@ export async function runAgent(request: StreamRequest, emit: (event: StreamEvent
     // expired. Sign in again."), with the raw words kept for Copy details;
     // anything else keeps its own message.
     const issue = classifyProviderError(error, provider)
-    const message = issue.kind === 'other' ? (error instanceof Error ? error.message : String(error)) : issue.message
+    const message = issue.kind === 'other' ? redactSecrets(error instanceof Error ? error.message : String(error)) : issue.message
     noteProviderHealth(provider.id, issue)
     emit({ type: 'error', messageId: request.messageId, error: message, ...(issue.kind === 'other' ? {} : { issue }) })
     return { text, error: message, usage }

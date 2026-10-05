@@ -3,6 +3,8 @@ import type { Provider } from '@shared/types'
 import type { Credentials } from '../adapters/types'
 import type { OAuthFlow } from './index'
 import { jwtClaims, pkce, randomState, singleFlight, startLoopback, tokenStore } from './shared'
+import { providerFetch } from '../safeFetch'
+import { redactSecrets } from '../redact'
 
 /**
  * "Sign in with ChatGPT" — OpenAI's official way for open-source and locally
@@ -76,7 +78,7 @@ let manualInput: ((input: string) => void) | null = null
 let jwksCache: { at: number; keys: (JsonWebKey & { kid?: string })[] } | null = null
 
 async function openIdConfig(): Promise<{ jwks_uri?: string; revocation_endpoint?: string }> {
-  const response = await fetch(`${ISSUER}/.well-known/openid-configuration`, { signal: AbortSignal.timeout(15_000) })
+  const response = await providerFetch(`${ISSUER}/.well-known/openid-configuration`, { signal: AbortSignal.timeout(15_000) })
   if (!response.ok) throw new Error(`OpenAI's sign-in configuration is unavailable (${response.status}).`)
   return (await response.json()) as { jwks_uri?: string; revocation_endpoint?: string }
 }
@@ -85,7 +87,7 @@ async function signingKeys(): Promise<(JsonWebKey & { kid?: string })[]> {
   if (jwksCache && Date.now() - jwksCache.at < 60 * 60_000) return jwksCache.keys
   const { jwks_uri } = await openIdConfig()
   if (!jwks_uri) throw new Error('OpenAI did not publish its signing keys.')
-  const response = await fetch(jwks_uri, { signal: AbortSignal.timeout(15_000) })
+  const response = await providerFetch(jwks_uri, { signal: AbortSignal.timeout(15_000) })
   const body = (await response.json()) as { keys?: (JsonWebKey & { kid?: string })[] }
   jwksCache = { at: Date.now(), keys: body.keys ?? [] }
   return jwksCache.keys
@@ -128,7 +130,7 @@ interface TokenResponse {
 }
 
 async function tokenRequest(body: Record<string, string>, signal?: AbortSignal): Promise<TokenResponse> {
-  const response = await fetch(TOKEN_URL, {
+  const response = await providerFetch(TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
     body: new URLSearchParams(body).toString(),
@@ -136,7 +138,7 @@ async function tokenRequest(body: Record<string, string>, signal?: AbortSignal):
   })
   const json = (await response.json().catch(() => ({}))) as TokenResponse
   if (!response.ok || !json.access_token) {
-    throw Object.assign(new Error(`ChatGPT sign-in failed (${response.status})${json.error_description ? `: ${json.error_description}` : json.error ? `: ${json.error}` : ''}.`), {
+    throw Object.assign(new Error(redactSecrets(`ChatGPT sign-in failed (${response.status})${json.error_description ? `: ${json.error_description}` : json.error ? `: ${json.error}` : ''}.`)), {
       status: response.status
     })
   }
@@ -278,7 +280,7 @@ export const siwcFlow: OAuthFlow = {
     try {
       const { revocation_endpoint } = await openIdConfig()
       if (revocation_endpoint) {
-        await fetch(revocation_endpoint, {
+        await providerFetch(revocation_endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
           body: new URLSearchParams({ token: current.refresh, token_type_hint: 'refresh_token', client_id: clientId }).toString(),

@@ -1,6 +1,8 @@
 import type { Provider } from '@shared/types'
 import type { ProviderIssue } from '@shared/providers'
 import { retryAfterFrom } from './adapters/types'
+import { redactSecrets } from './redact'
+import { RedirectRefusedError } from './safeFetch'
 
 /**
  * Provider failures as something a person can act on.
@@ -32,15 +34,7 @@ export class ProviderIssueError extends Error {
   }
 }
 
-/** Keys, bearer tokens and long secret-looking strings out of text that may be shown or copied. */
-export function redactSecrets(text: string): string {
-  return text
-    .replace(/([?&](?:key|api_key|apikey|token|access_token)=)[^&\s]+/gi, '$1[redacted]')
-    .replace(/\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{8,}/gi, '$1 [redacted]')
-    .replace(/\b(sk|rk|pk|gsk|xai|hf|ghu|gho|ghp|github_pat|csk|nvapi|pplx|fw|tgp)[-_][A-Za-z0-9._-]{8,}/g, '[redacted key]')
-    .replace(/\bAIza[0-9A-Za-z_-]{20,}/g, '[redacted key]')
-    .replace(/\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{5,}/g, '[redacted token]')
-}
+export { redactSecrets }
 
 const NETWORK_CODES = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ENETUNREACH', 'EHOSTUNREACH', 'ECONNREFUSED', 'ECONNRESET', 'EPIPE', 'UND_ERR_SOCKET', 'ENETDOWN'])
 const TIMEOUT_CODES = new Set(['ETIMEDOUT', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT', 'ESOCKETTIMEDOUT'])
@@ -91,6 +85,13 @@ function retryAfterOf(headers: unknown): number | undefined {
   return typeof value === 'string' ? retryAfterFrom(new Headers({ [record['retry-after-ms'] ? 'retry-after-ms' : 'retry-after']: value })) : undefined
 }
 
+/** The error and each `cause` below it. */
+function causeChain(error: unknown): unknown[] {
+  const chain: unknown[] = []
+  for (let cursor: unknown = error; cursor && chain.length < 5; cursor = (cursor as { cause?: unknown }).cause) chain.push(cursor)
+  return chain
+}
+
 const issue = (
   provider: ProviderLike,
   kind: ProviderIssue['kind'],
@@ -119,6 +120,11 @@ export function classifyProviderError(error: unknown, provider: ProviderLike, co
   const { status, text } = f
   const name = provider.name
   const oauth = provider.auth === 'oauth'
+
+  // Refused by Eaon, not by the provider: the endpoint tried to send the request (and the key) elsewhere.
+  // The Anthropic SDK wraps it as "Connection error." with the refusal as its cause, so look down the chain.
+  const refusal = causeChain(error).find((e): e is RedirectRefusedError => e instanceof RedirectRefusedError)
+  if (refusal) return issue(provider, 'other', redactSecrets(refusal.message), 'open-settings', f)
 
   // ---- the request never got an answer
   const timedOut =

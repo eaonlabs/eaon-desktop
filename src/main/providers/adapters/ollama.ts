@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto'
 import { clampEffort, effortsFor } from '../compat'
 import { contextWindowFor, isOllamaCloudModel } from '../models'
 import { ThinkTagSplitter } from './thinkTags'
+import { guardedAdapter, type StreamGuard } from '../streamGuard'
+import { providerFetch, RedirectRefusedError } from '../safeFetch'
 import { describeErrorBody, emptyUsage, HEADERS_TIMEOUT_MESSAGE, isHeadersTimeout, ProviderHttpError, retryAfterFrom, toolInput, type Adapter, type NeutralToolCall, type TurnRequest, type TurnResult } from './types'
 
 /**
@@ -101,11 +103,11 @@ function thinkValue(request: TurnRequest): boolean | string | undefined {
   return true
 }
 
-export const ollamaAdapter: Adapter = {
+export const ollamaAdapter: Adapter = guardedAdapter({
   id: 'ollama',
   managesContext: false,
 
-  async turn(request: TurnRequest): Promise<TurnResult> {
+  async turn(request: TurnRequest, guard: StreamGuard): Promise<TurnResult> {
     const { provider, model } = request
     const host = ollamaHost(request.credentials.baseUrl ?? provider.baseUrl)
     const numCtx = contextWindowFor(provider, request.modelId, model)
@@ -138,9 +140,11 @@ export const ollamaAdapter: Adapter = {
     let response: Response | null = null
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        response = await fetch(`${host}/api/chat`, { method: 'POST', headers, body: JSON.stringify(body()), signal: request.signal })
+        response = await providerFetch(`${host}/api/chat`, { method: 'POST', headers, body: JSON.stringify(body()), signal: request.signal })
       } catch (error) {
         if (request.signal.aborted) throw error
+        // Refused by Eaon, not unreachable: it says where the request was sent.
+        if (error instanceof RedirectRefusedError) throw error
         if (isHeadersTimeout(error)) throw new Error(HEADERS_TIMEOUT_MESSAGE)
         throw new Error(`Could not reach Ollama at ${host} — make sure it is installed and running.`)
       }
@@ -165,6 +169,7 @@ export const ollamaAdapter: Adapter = {
     }
     if (!response?.ok) throw new Error('Ollama rejected the request.')
     if (!response.body) throw new Error('Ollama returned an empty response body.')
+    guard.touch()
 
     const reader = response.body.getReader()
     const decoder = new TextDecoder()
@@ -219,6 +224,7 @@ export const ollamaAdapter: Adapter = {
 
     while (true) {
       const { done, value } = await reader.read()
+      guard.touch()
       buffer += done ? decoder.decode() : decoder.decode(value, { stream: true })
       let newline = buffer.indexOf('\n')
       while (newline !== -1) {
@@ -251,7 +257,7 @@ export const ollamaAdapter: Adapter = {
       ...(thinking ? { replay: { adapter: 'ollama', modelId: request.modelId, data: { thinking } } } : {})
     }
   }
-}
+})
 
 /** Exposed for the adapter tests. */
 export const __test = { toMessages, thinkValue }

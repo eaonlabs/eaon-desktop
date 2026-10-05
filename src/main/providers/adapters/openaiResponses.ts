@@ -1,6 +1,8 @@
 import { arch, platform, release } from 'node:os'
 import { clampEffort, effortsFor, requestBase, vendorOf, wireEffort } from '../compat'
 import { contextWindowFor, maxOutputFor } from '../models'
+import { guardedAdapter, type StreamGuard } from '../streamGuard'
+import { providerFetch } from '../safeFetch'
 import {
   capOutput,
   clampOutputToWindow,
@@ -126,11 +128,11 @@ interface Pending {
   args: string
 }
 
-export const openaiResponsesAdapter: Adapter = {
+export const openaiResponsesAdapter: Adapter = guardedAdapter({
   id: 'openai-responses',
   managesContext: false,
 
-  async turn(request: TurnRequest): Promise<TurnResult> {
+  async turn(request: TurnRequest, guard: StreamGuard): Promise<TurnResult> {
     const { provider, credentials, model } = request
     const base = requestBase(provider, credentials.baseUrl)
     const codex = isCodex(request, base)
@@ -206,7 +208,7 @@ export const openaiResponsesAdapter: Adapter = {
 
     let response: Response | null = null
     for (let attempt = 0; attempt < 5; attempt++) {
-      response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body()), signal: request.signal })
+      response = await providerFetch(url, { method: 'POST', headers, body: JSON.stringify(body()), signal: request.signal })
       if (response.ok) break
       const text = await response.text()
       const lower = text.toLowerCase()
@@ -238,6 +240,7 @@ export const openaiResponsesAdapter: Adapter = {
     }
     if (!response?.ok) throw new Error('The provider rejected the request.')
     if (!response.body) throw new Error('The provider returned an empty response body.')
+    guard.touch()
 
     const reader = response.body.getReader()
     const decoder = new TextDecoder()
@@ -339,6 +342,7 @@ export const openaiResponsesAdapter: Adapter = {
 
     while (true) {
       const { done: finished, value } = await reader.read()
+      guard.touch()
       buffer += finished ? decoder.decode() : decoder.decode(value, { stream: true })
       buffer = buffer.replace(/\r\n/g, '\n')
       let boundary = buffer.indexOf('\n\n')
@@ -400,7 +404,7 @@ export const openaiResponsesAdapter: Adapter = {
       ...(items.length > 0 ? { replay: { adapter: 'openai-responses', modelId: request.modelId, data: { items } satisfies ResponsesReplay } } : {})
     }
   }
-}
+})
 
 /** Exposed for the adapter tests. */
 export const __test = { toInput, codexLimitMessage }

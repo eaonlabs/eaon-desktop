@@ -23,6 +23,7 @@ import { enrichModel, isChatModelId, isOllamaCloudModel, LOCAL_CONTEXT, OPENAI_E
 import { oauthFlow } from './oauth'
 import { COPILOT_API_VERSION } from './oauth/copilot'
 import './oauth/flows'
+import { providerFetch, sdkFetch } from './safeFetch'
 
 /**
  * Bring-your-own-key (and sign-in) model access.
@@ -445,7 +446,7 @@ async function listOllamaModels(provider: Provider): Promise<ModelInfo[]> {
   const host = ollamaHost(provider.baseUrl)
   let tags: Response
   try {
-    tags = await fetch(`${host}/api/tags`, { signal: AbortSignal.timeout(5000) })
+    tags = await providerFetch(`${host}/api/tags`, { signal: AbortSignal.timeout(5000) })
   } catch (error) {
     // The cause (connection refused, timed out) is what tells "not running" from "slow".
     throw new Error(`Could not reach Ollama at ${host} — make sure it is installed and running.`, { cause: error })
@@ -458,7 +459,7 @@ async function listOllamaModels(provider: Provider): Promise<ModelInfo[]> {
       let capabilities: string[] | undefined
       let trained: number | undefined
       try {
-        const show = await fetch(`${host}/api/show`, { method: 'POST', body: JSON.stringify({ model: name }), signal: AbortSignal.timeout(8000) })
+        const show = await providerFetch(`${host}/api/show`, { method: 'POST', body: JSON.stringify({ model: name }), signal: AbortSignal.timeout(8000) })
         if (show.ok) {
           const body = (await show.json()) as { capabilities?: string[]; model_info?: Record<string, unknown> }
           capabilities = body.capabilities
@@ -541,7 +542,8 @@ async function fetchListing(provider: Provider): Promise<ModelInfo[]> {
       defaultHeaders: { ...provider.headers, ...credentials.headers },
       maxRetries: 0,
       // Listing is a quick GET; a hung host must not hold the Refresh button forever.
-      timeout: 20_000
+      timeout: 20_000,
+      fetch: sdkFetch
     })
     const models: ModelInfo[] = []
     for await (const model of client.models.list()) {
@@ -570,7 +572,7 @@ async function fetchListing(provider: Provider): Promise<ModelInfo[]> {
     ...authHeaders(auth, credentials.apiKey),
     ...(vendor === 'copilot' ? { 'X-GitHub-Api-Version': COPILOT_API_VERSION } : {})
   }
-  const response = await fetch(`${base}/models`, { headers, signal: AbortSignal.timeout(20_000) })
+  const response = await providerFetch(`${base}/models`, { headers, signal: AbortSignal.timeout(20_000) })
   if (!response.ok) throw new ProviderHttpError(response.status, describeErrorBody(response.status, await response.text()), retryAfterFrom(response.headers))
   const body = (await response.json()) as unknown
   return vendor === 'copilot'
