@@ -220,7 +220,9 @@ function tokens(execution: WorkerExecution): string | null {
   if (!usage) return null
   const total = usage.input + usage.output
   if (total === 0) return null
-  return total >= 1000 ? `${Math.round(total / 100) / 10}k tokens` : `${total} tokens`
+  const count = total >= 1000 ? `${Math.round(total / 100) / 10}k tokens` : `${total} tokens`
+  // A subscription's tokens count against its limits; they aren't a bill.
+  return execution.billing === 'plan' ? `${count} · on your plan` : count
 }
 
 /**

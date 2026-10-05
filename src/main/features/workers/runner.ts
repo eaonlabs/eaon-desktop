@@ -210,6 +210,10 @@ export interface TurnOutcome {
   sessionId?: string | null
   /** An agent engine ran something that changes things outside the transcript. */
   sideEffects?: boolean
+  /** Something about this turn worth knowing that isn't an error ("started a fresh Codex session"). */
+  notice?: string | null
+  /** Who pays for an agent engine turn's tokens: the user's plan (no price to show), their API key, or unknown. */
+  billing?: EngineTurnResult['billing']
 }
 
 /**
@@ -367,6 +371,8 @@ export function engineErrorText(engine: Worker['engine'], kind: EngineTurnResult
       return `${name} couldn't reach its service. Check your connection, then retry.`
     case 'engine-crashed':
       return `${name} stopped responding and was restarted. Retry the run.`
+    case 'misconfigured':
+      return `${name} is set up to send its requests through Eaon, so Eaon can't run it (that would loop back into itself). Switch it back in Settings → Connect apps, or give this worker Eaon's own engine.`
     default:
       return detail || `${name} couldn't finish this turn.`
   }
@@ -440,7 +446,9 @@ async function runOnEngine(input: TurnInput): Promise<TurnOutcome> {
     modelId: model ?? '',
     // A session the engine no longer knows (auth expired, wiped) starts afresh next time.
     sessionId: result.errorKind === 'auth-expired' || result.errorKind === 'signed-out' ? (input.engineSession?.sessionId ?? null) : result.sessionId,
-    sideEffects: result.sideEffects
+    sideEffects: result.sideEffects,
+    notice: result.notice ?? null,
+    billing: result.billing
   }
 }
 

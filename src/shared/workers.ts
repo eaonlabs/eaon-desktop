@@ -248,6 +248,13 @@ export interface WorkerExecution {
   modelId: string | null
   usage: TokenUsage | null
   /**
+   * Who pays for those tokens: `plan` for a subscription (Codex through
+   * ChatGPT: they count against its limits and have no price to show), `api`
+   * when billed per token to the user's own key, `local` for a model on this
+   * computer. Null when it isn't known.
+   */
+  billing: 'plan' | 'api' | 'local' | null
+  /**
    * Something that changes things outside the transcript ran (a command, a
    * file write, a click, a message sent). A run like that is never replayed
    * by itself after a crash: it may already have acted.

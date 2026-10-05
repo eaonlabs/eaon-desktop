@@ -2675,7 +2675,10 @@ export class WorkersEngine {
     const execution = run.execution
     const ended = {
       state: outcome.error ? ('failed' as const) : outcome.cancelled ? ('cancelled' as const) : ('completed' as const),
-      reason: outcome.cancelled && !outcome.error ? (run.stoppedByUser ? 'Stopped.' : 'Cut short before it finished.') : execution.reason,
+      // Why it ended as it did; a notice from the engine (a fresh session
+      // after the old one was lost) is worth showing when nothing else is.
+      reason: outcome.cancelled && !outcome.error ? (run.stoppedByUser ? 'Stopped.' : 'Cut short before it finished.') : (execution.reason ?? outcome.notice ?? null),
+      billing: outcome.billing === 'plan' ? ('plan' as const) : outcome.billing === 'api-key' ? ('api' as const) : null,
       error: outcome.error ?? null,
       result: outcome.text ? clip(summariseReply(outcome.text) || outcome.text, 300) : null,
       usage: outcome.usage ?? execution.usage,

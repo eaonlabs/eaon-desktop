@@ -755,3 +755,20 @@ test('an approval the user gave covers that call only: key order and a namespace
   assert.equal(engine.allowOnce(nova.id, 'email_send', { body: 'x', subject: 'Hi', to: 'a@b.c' }), true)
   assert.equal(engine.allowOnce(nova.id, 'email_send', { to: 'a@b.c', subject: 'Hi', body: 'x' }), false, 'spent: once means once')
 })
+
+test('a Codex turn that lost its session says so, is marked as on the user’s plan, and a gateway loop gets its own explanation', async () => {
+  const codex = fakeEngine()
+  const { engine } = start(heldAgent().runAgent, { runEngineTurn: codex.runEngineTurn })
+  const nova = engine.save(draft('Nova', { engine: 'codex', model: null }))
+  codex.setNext({ notice: 'Codex no longer had the earlier session, so this turn started a new one without the earlier history.', billing: 'plan' })
+  engine.send(nova.id, 'Continue')
+  await until(() => receipts(engine, nova.id).at(-1)?.state === 'completed')
+  const run = receipts(engine, nova.id).at(-1)!
+  assert.match(run.reason ?? '', /started a new one without the earlier history/)
+  assert.equal(run.billing, 'plan')
+
+  codex.setNext({ error: 'config points at 127.0.0.1:1337', errorKind: 'misconfigured', text: '' })
+  engine.send(nova.id, 'Again')
+  await until(() => receipts(engine, nova.id).at(-1)?.state === 'failed')
+  assert.match(worker(engine, nova.id).lastError ?? '', /set up to send its requests through Eaon, so Eaon can't run it/)
+})
