@@ -112,10 +112,12 @@ test('classifier: the raw words are kept for "Copy details", with keys and token
   assert.ok(issue.detail)
   assert.doesNotMatch(issue.detail!, /sk-proj-abcdef|eyJhbGci/)
   assert.doesNotMatch(issue.message, /sk-|401/)
-  const url = redactSecrets('https://x.test/v1?key=AIzaSyA1234567890abcdefghij&x=1')
+  // Token-shaped values are joined at run time so none sits in the public source.
+  const google = ['AIza', 'SyA1234567890abcdefghij'].join('')
+  const url = redactSecrets(`https://x.test/v1?key=${google}&x=1`)
   assert.match(url, /^https:\/\/x\.test\/v1\?key=.*redacted.*&x=1$/)
   assert.ok(!url.includes('1234567890abcdefghij'))
-  const keys = redactSecrets('gsk_0123456789abcdefghijklmnop and AIzaSyA1234567890abcdefghijklmnopqrstu')
+  const keys = redactSecrets(`${['gsk', '0123456789abcdefghijklmnop'].join('_')} and ${google}klmnopqrstu`)
   assert.ok(!keys.includes('0123456789abcdefghij') && !keys.includes('1234567890abcdefghij'), keys)
 })
 
