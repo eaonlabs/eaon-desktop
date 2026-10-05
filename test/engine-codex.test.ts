@@ -214,7 +214,7 @@ test('EAON_CODEX_BIN replaces the search; "none" means not installed', async () 
     fakeCodex(join(root, 'path-bin'), '0.170.0')
     const base = { home: root, platform: 'darwin' as const, appDirs: [], npmPrefix: async () => null, systemDirs: [] }
     const chosen = await findCodexCandidates({ ...base, env: { PATH: join(root, 'path-bin'), EAON_CODEX_BIN: custom } })
-    assert.deepEqual(chosen, [{ path: custom, source: 'override' }])
+    assert.deepEqual(chosen, [{ path: custom, source: 'path' }])
     assert.deepEqual(await findCodexCandidates({ ...base, env: { PATH: join(root, 'path-bin'), EAON_CODEX_BIN: 'none' } }), [])
   } finally {
     rmSync(root, { recursive: true, force: true })

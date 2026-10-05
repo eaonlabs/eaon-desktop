@@ -12,6 +12,7 @@ import {
   AtSign,
   BarChart3,
   CreditCard,
+  Cpu,
   KeyRound,
   Mail,
   MessagesSquare,
@@ -47,6 +48,7 @@ import { ChatAppsPage } from './pages/ChatApps'
 import { EmailPage } from './pages/Email'
 import { UsagePage } from './pages/Usage'
 import { PaymentsPage } from './pages/Payments'
+import { EnginesPage } from './pages/Engines'
 
 interface NavEntry {
   id: string
@@ -66,6 +68,7 @@ const NAV: NavEntry[] = [
   { id: 'usage', label: 'Usage', icon: <BarChart3 size={size} strokeWidth={stroke} />, group: 'Personal' },
 
   { id: 'providers', label: 'Model providers', icon: <KeyRound size={size} strokeWidth={stroke} />, group: 'Integrations' },
+  { id: 'engines', label: 'Agent engines', icon: <Cpu size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'computer-use', label: 'Computer use', icon: <Wand2 size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'payments', label: 'Payments', icon: <CreditCard size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'browser-extension', label: 'Browser extension', icon: <Chrome size={size} strokeWidth={stroke} />, group: 'Integrations' },
@@ -97,6 +100,7 @@ const PAGES: Record<string, () => JSX.Element> = {
   shortcuts: ShortcutsPage,
   usage: UsagePage,
   providers: ProvidersPage,
+  engines: EnginesPage,
   'computer-use': ComputerUsePage,
   payments: PaymentsPage,
   'browser-extension': BrowserExtensionPage,

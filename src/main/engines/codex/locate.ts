@@ -127,7 +127,8 @@ export async function findCodexCandidates(options: DiscoveryOptions = {}): Promi
   const override = env.EAON_CODEX_BIN?.trim()
   if (override) {
     if (override === 'none') return []
-    return isExecutable(override, platform) ? [{ path: override, source: 'override' }] : []
+    // Classified like any other copy, so the update hint matches where it really lives.
+    return isExecutable(override, platform) ? [{ path: override, source: classify(override, home) }] : []
   }
 
   const names = platform === 'win32' ? ['codex.cmd', 'codex.exe', 'codex'] : ['codex']
