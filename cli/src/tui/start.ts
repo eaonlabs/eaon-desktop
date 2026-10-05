@@ -23,6 +23,7 @@ import { ChatView } from './views/chat'
 import { ClaudeView } from './views/claude'
 import { TradingView, type Page } from './views/trading/index'
 import { WorkersView } from './views/workers'
+import { redactSecrets } from '@main/redact'
 
 /**
  * Starts the full-screen CLI: the main-process runtime, this session on
@@ -44,12 +45,13 @@ export interface TuiOptions {
 function captureConsole(): () => void {
   const dir = join(cliHome(), 'logs')
   mkdirSync(dir, { recursive: true })
-  const stream = createWriteStream(join(dir, 'cli.log'), { flags: 'a' })
+  // Readable by the user only, and with keys blanked: everything any feature prints lands here.
+  const stream = createWriteStream(join(dir, 'cli.log'), { flags: 'a', mode: 0o600 })
   const original = { log: console.log, info: console.info, warn: console.warn, error: console.error, debug: console.debug }
   const write =
     (level: string) =>
     (...args: unknown[]): void => {
-      stream.write(`${new Date().toISOString()} ${level} ${format(...args)}\n`)
+      stream.write(`${new Date().toISOString()} ${level} ${redactSecrets(format(...args))}\n`)
     }
   console.log = write('log')
   console.info = write('info')

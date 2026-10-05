@@ -1,6 +1,7 @@
 import { app, BrowserWindow, crashReporter, dialog, ipcMain, shell } from 'electron'
 import { appendFileSync, mkdirSync, renameSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { redactSecrets } from './redact'
 
 /**
  * What happens when something in Eaon crashes: it leaves evidence, and the
@@ -35,7 +36,9 @@ const describe = (detail: unknown): string => {
 
 /** Appends one entry to crashes.log, keeping the previous megabyte in crashes.old.log. Never throws. */
 export function logCrash(kind: string, detail: unknown): void {
-  const text = describe(detail).slice(0, MAX_ENTRY_CHARS)
+  // A rejection can carry a request's headers, a page URL an OAuth code or
+  // key; the log is a plain file that ends up in bug reports.
+  const text = redactSecrets(describe(detail).slice(0, MAX_ENTRY_CHARS))
   console.error(`[crash] ${kind}: ${text}`)
   try {
     const path = crashLogPath()
