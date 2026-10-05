@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useApp } from '../../../state/store'
 import { Card, Row, Section, Switch } from '../../ui'
+import { notify } from '../../Notice'
+import { CLIPBOARD_FAILED, copyText } from '../../../lib/clipboard'
 import { ModelSelect, type ModelRef } from '../../composer/ModelSelect'
 import type { ModelOption } from '@shared/modelSelection'
 import type { LocalServerStatus } from '@shared/types'
@@ -98,9 +100,12 @@ export function LocalServerPage(): JSX.Element {
               disabled={!gateway}
               onClick={() => {
                 if (!gateway) return
-                void navigator.clipboard.writeText(gateway.token)
-                setCopied(true)
-                setTimeout(() => setCopied(false), 1500)
+                // "Copied" only once it really is: the clipboard refuses while another app has focus.
+                void copyText(gateway.token).then((ok) => {
+                  setCopied(ok)
+                  if (ok) setTimeout(() => setCopied(false), 1500)
+                  else notify(CLIPBOARD_FAILED, 'error')
+                })
               }}
             >
               {copied ? 'Copied' : 'Copy'}

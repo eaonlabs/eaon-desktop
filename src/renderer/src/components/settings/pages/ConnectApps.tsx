@@ -3,6 +3,7 @@ import { Check, ChevronDown, ChevronRight, Copy, FolderOpen, RotateCw, SquareTer
 import type { ConnectAppId, ConnectAppStatus, ConnectChoice, ConnectWritten } from '@shared/connectApps'
 import type { GatewayInfo, GatewayModel } from '@shared/gateway'
 import { useApp } from '../../../state/store'
+import { CLIPBOARD_FAILED, copyText } from '../../../lib/clipboard'
 import { Card, MenuItem, MenuSearch, Modal, Popover, Row, Section, Switch } from '../../ui'
 import claudeCodeLogo from '../../../assets/providers/claudecode.svg'
 import chatgptLogo from '../../../assets/providers/openai.png'
@@ -372,8 +373,8 @@ function AppSheet({
     setError(null)
     const result = await window.api.connectApps.manual(app.id, choice)
     if (!result.ok) return setError(result.error)
-    await navigator.clipboard.writeText(result.text)
-    flash('settings')
+    if (await copyText(result.text)) flash('settings')
+    else setError(CLIPBOARD_FAILED)
   }
 
   const actions = (
@@ -441,8 +442,7 @@ function AppSheet({
                 title="Copy"
                 aria-label="Copy the install command"
                 onClick={() => {
-                  void navigator.clipboard.writeText(app.installHint ?? '')
-                  flash('install')
+                  void copyText(app.installHint ?? '').then((ok) => (ok ? flash('install') : setError(CLIPBOARD_FAILED)))
                 }}
               >
                 {copied === 'install' ? <Check size={14} strokeWidth={2.2} /> : <Copy size={14} strokeWidth={2} />}
@@ -546,8 +546,7 @@ function AppSheet({
             className="btn btn--ghost btn--sm"
             title="Copy the gateway key"
             onClick={() => {
-              void navigator.clipboard.writeText(gateway.token)
-              flash('key')
+              void copyText(gateway.token).then((ok) => (ok ? flash('key') : setError(CLIPBOARD_FAILED)))
             }}
           >
             {copied === 'key' ? 'Copied' : `Key ${gateway.token.slice(0, 8)}…`}
