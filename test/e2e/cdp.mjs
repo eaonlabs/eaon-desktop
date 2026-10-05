@@ -127,11 +127,18 @@ export function callExpression(fn, args) {
  * @param {{ timeout?: number, commandLineApi?: boolean }} [options]
  */
 export async function evaluate(cdp, expression, { timeout = 15_000, commandLineApi = false } = {}) {
-  const result = await cdp.send(
-    'Runtime.evaluate',
-    { expression, awaitPromise: true, returnByValue: true, includeCommandLineAPI: commandLineApi, userGesture: true },
-    { timeout }
-  )
+  let result
+  try {
+    result = await cdp.send(
+      'Runtime.evaluate',
+      { expression, awaitPromise: true, returnByValue: true, includeCommandLineAPI: commandLineApi, userGesture: true },
+      { timeout }
+    )
+  } catch (error) {
+    // Protocol-level failures ("Promise was collected", a timeout) don't say
+    // what was being evaluated.
+    throw new Error(`${error instanceof Error ? error.message : error}\n  in: ${expression.slice(0, 300)}`)
+  }
   if (result.exceptionDetails) {
     const details = result.exceptionDetails
     const text = details.exception?.description ?? details.exception?.value ?? details.text

@@ -253,6 +253,8 @@ export class App {
     this.seen = new Map()
     /** @type {Map<string, Page>} */
     this.pagesById = new Map()
+    /** Screenshots that could not be taken, and why. */
+    this.screenshotFailures = []
     /** @type {Cdp | null} */
     this.mainCdp = null
     this.devtoolsUrl = ''
@@ -669,37 +671,58 @@ export class Page {
 
   /**
    * Clicks an element the way a person would: scrolled into view, a real
-   * mouse press at its centre. Fails if something else covers that point.
+   * mouse press at its centre. The element is found, checked (visible,
+   * enabled, nothing covering its centre) and measured in one evaluation, and
+   * the whole thing is retried until the timeout: a button whose label or
+   * state is changing under the page (an unread badge appearing, a menu still
+   * animating in) is clicked once it settles, never at where it used to be.
    * @param {string} selector
    * @param {{ text?: string | RegExp, timeout?: number, enabled?: boolean }} [options]
    */
-  async click(selector, options = {}) {
-    await this.find(selector, { enabled: true, ...options })
-    const textSource = options.text instanceof RegExp ? { source: options.text.source, flags: options.text.flags } : options.text === undefined ? null : { literal: options.text }
-    const point = await this.eval(
-      (selector, textSource) => {
-        const matches = (el) => {
-          if (!textSource) return true
-          const content = (el.innerText || el.textContent || el.getAttribute('aria-label') || '').trim()
-          return textSource.literal !== undefined ? content.includes(textSource.literal) : new RegExp(textSource.source, textSource.flags).test(content)
-        }
-        const el = [...document.querySelectorAll(selector)].find((e) => matches(e) && e.getBoundingClientRect().width > 0)
-        if (!el) return { error: 'gone' }
-        el.scrollIntoView({ block: 'center', inline: 'center' })
-        const rect = el.getBoundingClientRect()
-        const x = rect.x + rect.width / 2
-        const y = rect.y + rect.height / 2
-        const hit = document.elementFromPoint(x, y)
-        if (hit && hit !== el && !el.contains(hit) && !hit.contains(el)) {
-          return { error: `covered by <${hit.tagName.toLowerCase()} class="${hit.className}">` }
-        }
-        return { x, y }
-      },
-      selector,
-      textSource
-    )
-    if ('error' in point) throw new Error(`${this.cdp.label}: cannot click ${selector}${options.text ? ` (${options.text})` : ''}: ${point.error}`)
-    await this.mouse(point.x, point.y)
+  async click(selector, { text, timeout = 10_000, enabled = true } = {}) {
+    const textSource = text instanceof RegExp ? { source: text.source, flags: text.flags } : text === undefined ? null : { literal: text }
+    const what = `${selector}${text ? ` with text ${text}` : ''}`
+    const deadline = Date.now() + timeout
+    for (;;) {
+      const probe = await this.eval(
+        (selector, textSource, enabled) => {
+          const matches = (el) => {
+            if (!textSource) return true
+            const content = (el.innerText || el.textContent || el.getAttribute('aria-label') || '').trim()
+            return textSource.literal !== undefined ? content.includes(textSource.literal) : new RegExp(textSource.source, textSource.flags).test(content)
+          }
+          const candidates = [...document.querySelectorAll(selector)].filter(matches)
+          if (candidates.length === 0) return { why: 'no such element' }
+          const visible = candidates.filter((el) => {
+            const rect = el.getBoundingClientRect()
+            const style = getComputedStyle(el)
+            return rect.width > 0 && rect.height > 0 && style.visibility !== 'hidden' && style.display !== 'none'
+          })
+          if (visible.length === 0) return { why: 'not visible' }
+          const usable = visible.filter((el) => !enabled || !(el.disabled || el.getAttribute('aria-disabled') === 'true'))
+          if (usable.length === 0) return { why: 'disabled' }
+          const el = usable[0]
+          el.scrollIntoView({ block: 'center', inline: 'center' })
+          const rect = el.getBoundingClientRect()
+          const x = rect.x + rect.width / 2
+          const y = rect.y + rect.height / 2
+          const hit = document.elementFromPoint(x, y)
+          if (hit && hit !== el && !el.contains(hit) && !hit.contains(el)) {
+            return { why: `covered by <${hit.tagName.toLowerCase()} class="${hit.className}">` }
+          }
+          return { x, y }
+        },
+        selector,
+        textSource,
+        enabled
+      )
+      if (probe.x !== undefined) {
+        await this.mouse(probe.x, probe.y)
+        return
+      }
+      if (Date.now() > deadline) throw new Error(`${this.cdp.label}: cannot click ${what}: ${probe.why} (after ${timeout} ms)`)
+      await sleep(100)
+    }
   }
 
   /** A real left click at a point in the page. */
@@ -740,24 +763,62 @@ export class Page {
   }
 
   /**
-   * Saves a PNG of the window into the screenshots folder and returns its path.
-   * Falls back to the main process's capturePage if DevTools gets no frame.
+   * Saves a PNG of the window into the screenshots folder and returns its
+   * path, or null if no frame could be had. A screenshot is evidence for a
+   * person reading the run, not an assertion, so failing to take one is
+   * reported (`app.screenshotFailures`) rather than failing the scenario.
+   *
+   * DevTools can refuse a capture for a moment (a window that has just
+   * reloaded or resized has no frame yet), so it is retried after waiting for
+   * two animation frames, and finally asked of the main process, whose own
+   * capture is given a deadline: capturePage on a window that never paints
+   * never settles.
    * @param {string} name
+   * @returns {Promise<string | null>}
    */
   async screenshot(name) {
     mkdirSync(screensDir, { recursive: true })
     const path = join(screensDir, `${name.replace(/[^a-z0-9._-]+/gi, '-')}.png`)
-    let data
-    try {
-      data = (await this.cdp.send('Page.captureScreenshot', { format: 'png' }, { timeout: 10_000 })).data
-    } catch {
-      data = await this.app.main(async (targetId) => {
-        const { webContents } = require('electron')
-        const contents = webContents.fromDevToolsTargetId(targetId)
-        return contents ? (await contents.capturePage()).toPNG().toString('base64') : null
-      }, this.targetId)
+    const failures = []
+    let data = null
+    for (let attempt = 1; attempt <= 3 && !data; attempt++) {
+      try {
+        await this.eval(
+          () =>
+            new Promise((done) => {
+              const timer = setTimeout(done, 1500)
+              requestAnimationFrame(() =>
+                requestAnimationFrame(() => {
+                  clearTimeout(timer)
+                  done(true)
+                })
+              )
+            })
+        )
+        data = (await this.cdp.send('Page.captureScreenshot', { format: 'png', fromSurface: true }, { timeout: 10_000 })).data
+      } catch (error) {
+        failures.push(`attempt ${attempt}: ${error instanceof Error ? error.message.split('\n')[0] : error}`)
+        await this.cdp.send('Page.bringToFront').catch(() => undefined)
+      }
     }
-    if (data) writeFileSync(path, Buffer.from(data, 'base64'))
+    if (!data) {
+      try {
+        data = await this.app.main(async (targetId) => {
+          const { webContents } = require('electron')
+          const contents = webContents.fromDevToolsTargetId(targetId)
+          if (!contents) return null
+          const image = await Promise.race([contents.capturePage(), new Promise((resolve) => setTimeout(() => resolve(null), 5000))])
+          return image ? image.toPNG().toString('base64') : null
+        }, this.targetId)
+      } catch (error) {
+        failures.push(`main: ${error instanceof Error ? error.message.split('\n')[0] : error}`)
+      }
+    }
+    if (!data) {
+      this.app.screenshotFailures.push(`${name}: ${failures.join('; ')}`)
+      return null
+    }
+    writeFileSync(path, Buffer.from(data, 'base64'))
     return path
   }
 

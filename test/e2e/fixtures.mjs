@@ -77,7 +77,7 @@ export class Scenario {
   async shot(page, label) {
     this.shots += 1
     const path = await page.screenshot(`${this.slug}-${String(this.shots).padStart(2, '0')}-${label}`)
-    this.t.diagnostic(`screenshot: ${path}`)
+    this.t.diagnostic(path ? `screenshot: ${path}` : `screenshot "${label}" could not be taken: ${page.app.screenshotFailures.at(-1)}`)
     return path
   }
 
