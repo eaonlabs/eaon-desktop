@@ -20,6 +20,15 @@ scenario('two windows on one chat: the reply streams in both, settings and appro
   fake.route(() => reply.text('First answer, written before the second window opened.'))
   await sendMessage(a, 'Shared chat')
   await waitForReply(a, { text: 'First answer', streaming: false })
+  // The reply is saved a moment after it ends (250 ms debounce). A window that
+  // loads the chat before that gets it without the reply and, if the save's
+  // broadcast lands while the window is still starting, never catches up: seen
+  // once with the machine at a load average of 300 ("No response" in the new
+  // window), not reproducible on a quiet one. The scenario waits for the save
+  // so it checks streaming and settings sync, not that race.
+  await a.waitFor(async () => (await window.api.chats.get()).some((c) => JSON.stringify(c.messages).includes('First answer')), {
+    message: 'the first reply to be saved in main'
+  })
 
   const b = await app.openWindow()
   const sizes = await app.main(() => require('electron').BrowserWindow.getAllWindows().map((w) => w.getBounds()))

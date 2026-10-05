@@ -7,6 +7,7 @@
  * or a process that died fails the test with a message instead of hanging it.
  */
 import WebSocket from 'ws'
+import { scaled } from './timing.mjs'
 
 export class Cdp {
   /** @param {WebSocket} socket @param {string} label */
@@ -43,6 +44,7 @@ export class Cdp {
 
   /** @param {string} url @param {string} label */
   static connect(url, label, timeout = 10_000) {
+    timeout = scaled(timeout)
     return new Promise((resolve, reject) => {
       const socket = new WebSocket(url, { perMessageDeflate: false, maxPayload: 512 * 1024 * 1024 })
       const timer = setTimeout(() => {
@@ -67,6 +69,7 @@ export class Cdp {
    * @returns {Promise<any>}
    */
   send(method, params = {}, { timeout = 15_000 } = {}) {
+    timeout = scaled(timeout)
     if (this.closed) return Promise.reject(new Error(`${this.label}: ${method} after the connection closed`))
     const id = this.nextId++
     return new Promise((resolve, reject) => {
@@ -126,12 +129,12 @@ export function callExpression(fn, args) {
  * @param {string} expression
  * @param {{ timeout?: number, commandLineApi?: boolean }} [options]
  */
-export async function evaluate(cdp, expression, { timeout = 15_000, commandLineApi = false } = {}) {
+export async function evaluate(cdp, expression, { timeout = 15_000, commandLineApi = false, awaitPromise = true } = {}) {
   let result
   try {
     result = await cdp.send(
       'Runtime.evaluate',
-      { expression, awaitPromise: true, returnByValue: true, includeCommandLineAPI: commandLineApi, userGesture: true },
+      { expression, awaitPromise, returnByValue: true, includeCommandLineAPI: commandLineApi, userGesture: true },
       { timeout }
     )
   } catch (error) {

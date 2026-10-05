@@ -4,7 +4,7 @@
  * fake model server (test/e2e). Each scenario is a node:test test.
  *
  *   npm run test:e2e                 build if needed, then every scenario
- *   npm run test:e2e -- chat         only files whose name contains "chat"
+ *   npm run test:e2e -- chat         only files whose name contains "chat" (several names: chat windows)
  *   npm run test:e2e -- --no-build   use out/ as it is
  *   npm run test:e2e -- --repeat 3   run the whole selection three times
  *
@@ -15,6 +15,8 @@
  *   EAON_E2E_ARTIFACTS  where profiles, logs and screenshots go (default out/e2e)
  *   EAON_E2E_SCREENS    screenshots only (default <artifacts>/screens)
  *   EAON_E2E_KEEP=1     keep each scenario's profile and HOME afterwards
+ *   EAON_E2E_TIMEOUT_SCALE=<n>  stretch every timeout n times (default: 1, up to 4
+ *                       when the machine's load average is high; see timing.mjs)
  *
  * On Linux it needs a display; CI runs it under `xvfb-run`.
  */
@@ -22,12 +24,15 @@ import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, readdirSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 
+import { loadavg, cpus } from 'node:os'
+import { timeoutScale } from '../test/e2e/timing.mjs'
+
 const root = resolve(import.meta.dirname, '..')
 const args = process.argv.slice(2)
 const noBuild = args.includes('--no-build')
 const repeatAt = args.indexOf('--repeat')
 const repeat = repeatAt === -1 ? 1 : Math.max(1, Number(args[repeatAt + 1]) || 1)
-const filter = args.filter((a, i) => !a.startsWith('--') && args[i - 1] !== '--repeat')[0] ?? ''
+const filters = args.filter((a, i) => !a.startsWith('--') && args[i - 1] !== '--repeat')
 
 /** Newest modification time under a path (files only). */
 function newest(path) {
@@ -59,7 +64,7 @@ if (!noBuild && (built === 0 || built < sources)) {
 
 const dir = join(root, 'test', 'e2e')
 const files = readdirSync(dir)
-  .filter((f) => f.endsWith('.e2e.mjs') && f.includes(filter))
+  .filter((f) => f.endsWith('.e2e.mjs') && (filters.length === 0 || filters.some((name) => f.includes(name))))
   .sort()
   .map((f) => join(dir, f))
 if (files.length === 0) {
@@ -77,6 +82,10 @@ if (process.platform === 'darwin') {
   } catch {
     /* no caffeinate: the run still works */
   }
+}
+
+if (timeoutScale > 1) {
+  console.log(`Load average ${loadavg()[0].toFixed(0)} on ${cpus().length} cores: every timeout is stretched ${timeoutScale}x.`)
 }
 
 let status = 0

@@ -10,6 +10,7 @@ import { join } from 'node:path'
 import { rmSync } from 'node:fs'
 import { artifactsDir, launchApp } from './harness.mjs'
 import { startFakeProvider } from './fakeProvider.mjs'
+import { scaled } from './timing.mjs'
 
 export const FAKE_MODEL = 'fake-model'
 
@@ -124,7 +125,7 @@ export function scenario(name, options, fn) {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
     .slice(0, 60)
-  test(name, { timeout: options.timeout ?? 120_000, todo: options.todo, skip: options.skip || undefined }, async (t) => {
+  test(name, { timeout: scaled(options.timeout ?? 120_000), todo: options.todo, skip: options.skip || undefined }, async (t) => {
     const s = new Scenario(slug, t)
     let failed = false
     const clockAtStart = clockOffset()

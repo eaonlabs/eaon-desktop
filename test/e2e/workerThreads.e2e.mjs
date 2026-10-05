@@ -90,7 +90,7 @@ scenario('a worker runs a side task beside its main thread; Stop only stops the 
 
   // The main thread finishes on its own.
   mainStream.finish('Main thread: the report is done.')
-  await page.click('.worker-thread-tab__main', { text: /^Main$/ })
+  await page.click('.worker-thread-tab__main', { text: /^Main/ })
   await waitForReply(page, { text: 'the report is done', streaming: false, timeout: 20_000 })
   await page.waitFor(async () => (await window.api.workers.list()).every((w) => w.status !== 'working'), { message: 'no worker left working' })
 })
@@ -143,7 +143,7 @@ scenario('the Activity panel lists each run with its state and the thread it ran
 scenario('the Workers search finds a task by its title and opens its thread', { timeout: 150_000 }, async (s) => {
   const { page, mainStream, sideStream, nova, sideThreadId } = await startTwoThreads(s)
   // Somewhere else first, so opening the result is a real navigation.
-  await page.click('.worker-thread-tab__main', { text: /^Main$/ })
+  await page.click('.worker-thread-tab__main', { text: /^Main/ })
   await page.waitFor(() => document.querySelector('.worker-thread-tab [aria-selected="true"]')?.textContent?.includes('Main'), { message: 'the Main thread to be open' })
 
   await page.click('[aria-label="Search workers"]')

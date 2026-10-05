@@ -24,6 +24,9 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { join, resolve } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { Cdp, callExpression, evaluate } from './cdp.mjs'
+import { scaled, timeoutScale } from './timing.mjs'
+
+export { scaled, timeoutScale }
 
 export const repo = resolve(import.meta.dirname, '../..')
 const require = createRequire(join(repo, 'package.json'))
@@ -69,7 +72,7 @@ export function within(promise, ms, message) {
   /** @type {NodeJS.Timeout | undefined} */
   let timer
   const timeout = new Promise((_, reject) => {
-    timer = setTimeout(() => reject(new Error(message)), ms)
+    timer = setTimeout(() => reject(new Error(message)), scaled(ms))
   })
   return /** @type {Promise<T>} */ (Promise.race([promise, timeout])).finally(() => clearTimeout(timer))
 }
@@ -176,7 +179,7 @@ function seedStore(profileDir, files) {
  * @param {LaunchOptions} options
  */
 export async function launchApp(options) {
-  const { name, profileDir, homeDir, fresh = true, args = [], env = {}, startTimeout = 45_000 } = options
+  const { name, profileDir, homeDir, fresh = true, args = [], env = {}, startTimeout = scaled(45_000) } = options
   if (!existsSync(mainEntry)) throw new Error(`No build at ${mainEntry}. Run \`npx electron-vite build\` (npm run test:e2e does it for you).`)
   if (fresh) {
     rmSync(profileDir, { recursive: true, force: true })
@@ -219,6 +222,9 @@ export async function launchApp(options) {
     ],
     { cwd: repo, env: childEnv, stdio: ['ignore', 'pipe', 'pipe'] }
   )
+  installCleanup()
+  live.add(child)
+  child.once('exit', () => live.delete(child))
   const app = new App({ ...options, offlinePort }, child)
   try {
     await app.connect(startTimeout)
@@ -227,6 +233,32 @@ export async function launchApp(options) {
     throw error
   }
   return app
+}
+
+/** Every app this process started and has not seen exit. */
+const live = new Set()
+let cleanupInstalled = false
+
+/** Kills what is still running when the test process ends, however it ends. */
+function installCleanup() {
+  if (cleanupInstalled) return
+  cleanupInstalled = true
+  const killAll = () => {
+    for (const child of live) {
+      try {
+        child.kill('SIGKILL')
+      } catch {
+        /* already gone */
+      }
+    }
+  }
+  process.on('exit', killAll)
+  for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP']) {
+    process.on(signal, () => {
+      killAll()
+      process.exit(1)
+    })
+  }
 }
 
 export class App {
@@ -319,7 +351,12 @@ export class App {
    */
   main(fn, ...args) {
     if (!this.mainCdp) throw new Error(`${this.name}: not connected to the main process`)
-    return evaluate(this.mainCdp, callExpression(fn, args), { commandLineApi: true })
+    // Only an async function is awaited. Asking the inspector to await the
+    // result of a plain function made it fail now and then, right after the
+    // app started, with "Promise was collected": it wraps the value in a
+    // promise it holds weakly, and a collection in between loses it.
+    const isAsync = typeof fn === 'function' && /^async\b/.test(fn.toString())
+    return evaluate(this.mainCdp, callExpression(fn, args), { commandLineApi: true, awaitPromise: isAsync })
   }
 
   /** Page targets of Eaon's own windows (not webviews, not the agent's browser). */
@@ -331,6 +368,7 @@ export class App {
 
   /** Waits until at least `count` app windows exist and returns their pages, oldest first. */
   async waitForPages(count, timeout = 20_000) {
+    timeout = scaled(timeout)
     const deadline = Date.now() + timeout
     for (;;) {
       if (!this.running) throw new Error(`${this.name}: Eaon exited (${JSON.stringify(this.exit)}).\n${this.tail()}`)
@@ -359,6 +397,7 @@ export class App {
 
   /** Waits until exactly `count` app windows are open (after one closes). */
   async waitForWindowCount(count, timeout = 10_000) {
+    timeout = scaled(timeout)
     const deadline = Date.now() + timeout
     let found = -1
     while (Date.now() < deadline) {
@@ -430,35 +469,51 @@ export class App {
    * Node's `exit`, after the held before-quit and will-quit (see "Quitting:
    * held before-quit, will-quit and app.exit"). `ms` is until the process is
    * gone; Electron's native teardown after `exit` is usually ~100 ms but was
-   * seen taking 2–17 s on a machine with a load average of 150, so it gets
-   * its own, generous timeout.
-   * @returns {Promise<{ code: number | null, signal: string | null, ms: number, appMs: number | null }>}
+   * seen taking 2–43 s on a machine with a load average of 150–340, so it
+   * gets its own, generous timeout.
+   *
+   * If Eaon's own quit finished (the `exit` marker is in its output) but the
+   * process still lingers after the timeout, it is killed and `forced` is
+   * set: everything Eaon had to write was written before `exit`, and what
+   * hangs after it is Electron's native shutdown, which is not what is being
+   * tested. A quit that never reaches `exit` throws: that one is Eaon's.
+   * @returns {Promise<{ code: number | null, signal: string | null, ms: number, appMs: number | null, forced: boolean }>}
    */
   async quit({ timeout = 60_000 } = {}) {
-    if (!this.running) return { ...(this.exit ?? { code: null, signal: null }), ms: 0, appMs: null }
+    if (!this.running) return { ...(this.exit ?? { code: null, signal: null }), ms: 0, appMs: null, forced: false }
     this.sample()
     const started = Date.now()
     // Scheduled, so the evaluation returns before the quit begins. The quit's
     // stages go to the app's output, so a slow or stuck quit says where it was.
     // (`require` only exists while the evaluation runs, so it is taken first.)
+    //
+    // The inspector is closed by the app itself just before it quits: with a
+    // debugger still attached Node waits for it at exit ("Waiting for the
+    // debugger to disconnect..."), and closing the socket from here races
+    // the quit, which finishes in a quarter of a second.
     await this.main(() => {
       const { app, BrowserWindow } = require('electron')
+      const inspector = require('inspector')
       const t0 = Date.now()
       const mark = (stage) => console.log(`[e2e] quit: ${stage} at +${Date.now() - t0} ms (${BrowserWindow.getAllWindows().length} windows)`)
       for (const stage of ['before-quit', 'window-all-closed', 'will-quit', 'quit']) app.on(stage, () => mark(stage))
       process.on('exit', () => mark('exit'))
-      setTimeout(() => app.quit(), 0)
+      setTimeout(() => {
+        inspector.close()
+        app.quit()
+      }, 0)
       return true
     })
     this.closeConnections()
     const result = await within(this.exited, timeout, 'quit timed out').catch(() => null)
+    const appMs = /\[e2e\] quit: exit at \+(\d+) ms/.exec(this.log)?.[1]
     if (!result) {
       this.child.kill('SIGKILL')
-      await this.exited
-      throw new Error(`${this.name}: did not exit within ${timeout} ms of app.quit() (killed).\n${this.tail()}`)
+      const killed = await this.exited
+      if (appMs === undefined) throw new Error(`${this.name}: Eaon's quit did not finish within ${timeout} ms of app.quit() (killed).\n${this.tail()}`)
+      return { ...killed, ms: Date.now() - started, appMs: Number(appMs), forced: true }
     }
-    const appMs = /\[e2e\] quit: exit at \+(\d+) ms/.exec(this.log)?.[1]
-    return { ...result, ms: Date.now() - started, appMs: appMs === undefined ? null : Number(appMs) }
+    return { ...result, ms: Date.now() - started, appMs: appMs === undefined ? null : Number(appMs), forced: false }
   }
 
   /** Kills the app as a crash would: SIGKILL, no cleanup. */
@@ -482,6 +537,7 @@ export class App {
    * command line, so those are caught even if sampling missed them.
    */
   async orphans(timeout = 8000) {
+    timeout = scaled(timeout)
     const deadline = Date.now() + timeout
     let left = []
     do {
@@ -602,6 +658,7 @@ export class Page {
    * @returns {Promise<NonNullable<Awaited<T>>>}
    */
   async waitFor(fn, { args = [], timeout = 15_000, interval = 100, message = '' } = {}) {
+    timeout = scaled(timeout)
     const deadline = Date.now() + timeout
     let last
     let lastError
@@ -680,6 +737,7 @@ export class Page {
    * @param {{ text?: string | RegExp, timeout?: number, enabled?: boolean }} [options]
    */
   async click(selector, { text, timeout = 10_000, enabled = true } = {}) {
+    timeout = scaled(timeout)
     const textSource = text instanceof RegExp ? { source: text.source, flags: text.flags } : text === undefined ? null : { literal: text }
     const what = `${selector}${text ? ` with text ${text}` : ''}`
     const deadline = Date.now() + timeout

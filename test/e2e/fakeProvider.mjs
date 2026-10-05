@@ -9,6 +9,7 @@
  * so no key, keychain or real model is involved.
  */
 import { createServer } from 'node:http'
+import { scaled } from './timing.mjs'
 
 const MODEL_RESPONSE_BASE = { object: 'chat.completion.chunk', created: 0 }
 
@@ -271,6 +272,7 @@ export async function startFakeProvider({ models = ['fake-model'] } = {}) {
      * @param {(stream: HeldStream) => boolean} [match]
      */
     nextHeld(match = () => true, timeout = 20_000) {
+      timeout = scaled(timeout)
       const existing = held.find((s) => s.open && !s.taken && match(s))
       if (existing) {
         existing.taken = true
@@ -295,6 +297,7 @@ export async function startFakeProvider({ models = ['fake-model'] } = {}) {
      * Resolves once `count` chat requests have arrived in total.
      */
     waitForChats(count, timeout = 20_000) {
+      timeout = scaled(timeout)
       if (chats.length >= count) return Promise.resolve(chats[count - 1])
       return new Promise((resolve, reject) => {
         const timer = setTimeout(() => {
