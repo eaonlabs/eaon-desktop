@@ -232,6 +232,8 @@ export function fromModelsDev(provider: unknown, eaonId: string): CatalogModel[]
       ...(model.modalities?.input ? { vision: model.modalities.input.includes('image') } : {}),
       reasoning: model.reasoning === true,
       efforts: model.reasoning === true ? effortsFromReasoningOptions(model.reasoning_options) : [],
+      // models.dev marks models still in testing as alpha or beta.
+      ...(model.status === 'alpha' || model.status === 'beta' ? { stage: 'preview' as const } : {}),
       ...(model.release_date ? { released: model.release_date } : {})
     })
   }

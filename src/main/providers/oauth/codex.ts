@@ -70,7 +70,8 @@ async function tokenRequest(params: Record<string, string>, operation: string, s
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams(params),
-    signal
+    // A token endpoint that never answers must not hold every request (and the refresh lock) forever.
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000)
   })
   if (!response.ok) {
     const text = await response.text().catch(() => '')

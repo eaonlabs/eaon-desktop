@@ -1,6 +1,8 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { ModelInfo, Provider, TokenUsage } from '@shared/types'
-import type { ModelEdit, ModelEditFields, ModelsRefresh } from '@shared/providers'
+import type { ModelSource } from '@shared/engines'
+import { isLastingIssue, type ModelEdit, type ModelEditFields, type ModelsRefresh, type ProviderHealth, type ProviderIssue } from '@shared/providers'
+import { describeModelsRefresh, foldDatedAliases } from '@shared/modelSelection'
 import { secrets } from '../secrets'
 import { store, type ProviderOverride } from '../store'
 import { anthropicAdapter } from './adapters/anthropic'
@@ -8,10 +10,11 @@ import { ollamaAdapter, ollamaHost } from './adapters/ollama'
 import { openaiChatAdapter } from './adapters/openaiChat'
 import { openaiResponsesAdapter } from './adapters/openaiResponses'
 import { routerAdapter } from './adapters/router'
-import { ProviderHttpError, type Adapter } from './adapters/types'
+import { describeErrorBody, ProviderHttpError, retryAfterFrom, type Adapter } from './adapters/types'
 import { BUILT_IN, LEGACY_DEFAULT_URLS, providerMeta } from './catalog'
 import { anthropicCompat, authHeaders, chatCompat, effortReaches, isMixedApiProvider, isOwnServerUrl, normalizeBaseUrl, requestBase, vendorOf } from './compat'
 import { accountFlow, credentialAttempts } from './credentials'
+import { classifyProviderError, noModelsIssue, ProviderIssueError } from './errors'
 import { findLocalModel, isEmbeddingModel, LOCAL_PROVIDER_ID, localModelInfo, localModels, runtimeModel } from '../llama/models'
 import { llamaRuntime } from '../llama/runtime'
 import { parseChatGptPlanListing, parseCopilotListing, parseListing } from './listing'
@@ -161,23 +164,30 @@ const listedOf = (override: ProviderOverride): ModelInfo[] => override.listed ??
  */
 function composeModels(provider: Provider, seed: ModelInfo[], override: ProviderOverride): Pick<Provider, 'models' | 'hiddenModels'> {
   const listed = listedOf(override)
-  const catalog = hasCatalog(provider.id) ? catalogFor(provider.id) : seed
-  const allowed = LISTING_IS_ENTITLEMENT.has(provider.id) && listed.length > 0 ? new Set(listed.map((m) => m.id)) : null
+  const catalog = hasCatalog(provider.id) ? catalogFor(provider.id) : seed.map((m) => ({ ...m, source: SHIPPED }))
+  // A plan listing bounds the catalog once one was fetched, even an empty one: an account whose plan allows nothing has nothing.
+  const allowed = LISTING_IS_ENTITLEMENT.has(provider.id) && (listed.length > 0 || override.listedAt !== undefined) ? new Set(listed.map((m) => m.id)) : null
+  const listedSource = listingSource(override)
   const byId = new Map<string, ModelInfo>()
   for (const model of catalog) if (!allowed || allowed.has(model.id)) byId.set(model.id, model)
   for (const model of listed) {
     const known = byId.get(model.id)
-    // The catalog's limits and effort levels are corrected; the listing only fills gaps.
-    byId.set(model.id, known ? { ...model, ...known } : model)
+    // The catalog's limits and effort levels are corrected; the listing only fills gaps. The
+    // listing is what says the provider serves it now, so its freshness is the model's.
+    byId.set(model.id, known ? { ...model, ...known, source: listedSource } : { ...model, source: listedSource })
   }
-  for (const model of override.custom ?? []) if (!byId.has(model.id)) byId.set(model.id, { ...model, custom: true })
+  for (const model of override.custom ?? []) if (!byId.has(model.id)) byId.set(model.id, { ...model, custom: true, source: { kind: 'custom', retrievedAt: null } })
 
   const hidden = new Set(override.hidden ?? [])
   const labels = override.labels ?? {}
   const edits = override.edits ?? {}
   const models: ModelInfo[] = []
   const hiddenModels: ModelInfo[] = []
-  for (const raw of byId.values()) {
+  const listedIds = new Set(listed.map((m) => m.id))
+  // A listing's dated snapshot next to the catalog's alias is one model, not two,
+  // and the snapshot being listed vouches for the alias.
+  for (const folded of foldDatedAliases([...byId.values()])) {
+    const raw = !listedIds.has(folded.id) && folded.aliases?.some((id) => listedIds.has(id)) ? { ...folded, source: listedSource } : folded
     const model = enrichModel({ ...raw, providerId: provider.id, ...(labels[raw.id] ? { label: labels[raw.id] } : {}) })
     if (edits[raw.id]) applyModelEdit(model, edits[raw.id])
     if (labels[raw.id] || edits[raw.id]) model.edited = true
@@ -185,6 +195,15 @@ function composeModels(provider: Provider, seed: ModelInfo[], override: Provider
     ;(hidden.has(model.id) ? hiddenModels : models).push(model)
   }
   return { models, hiddenModels }
+}
+
+const SHIPPED: ModelSource = { kind: 'shipped', retrievedAt: null }
+
+/** The provider's own listing: live when the last fetch worked, the kept copy when a later one failed. */
+function listingSource(override: ProviderOverride): ModelSource {
+  const at = override.listedAt ?? null
+  const failedSince = override.listFailedAt !== undefined && (at === null || override.listFailedAt > at)
+  return { kind: at === null || failedSince ? 'cache' : 'provider-live', retrievedAt: at }
 }
 
 /** The user's Edit model settings, over what the catalog and the listing said. */
@@ -199,6 +218,10 @@ function applyModelEdit(model: ModelInfo, edit: ModelEditFields): void {
     // thinking gets the common three levels unless it already knows its own.
     if (!edit.reasoning) model.efforts = []
     else if (!model.efforts?.length) model.efforts = ['light', 'medium', 'high']
+    // The user said so: no longer a guess from the id.
+    const inferred = model.inferred?.filter((field) => field !== 'reasoning' && field !== 'efforts')
+    if (inferred?.length) model.inferred = inferred
+    else delete model.inferred
   }
 }
 
@@ -219,7 +242,9 @@ function builtInProvider(seed: (typeof BUILT_IN)[number], override: ProviderOver
     // A key provider signed in with the account (Hugging Face) is usable without a key.
     hasKey: auth === 'oauth' ? Boolean(signedIn) : secrets.has(seed.id) || Boolean(accountFlow(seed.id)),
     signedIn,
-    fallbackCount: auth === 'oauth' ? 0 : secrets.getFallbacks(seed.id).length
+    fallbackCount: auth === 'oauth' ? 0 : secrets.getFallbacks(seed.id).length,
+    ...(override.health ? { health: override.health } : {}),
+    modelsListedAt: override.listedAt ?? null
   }
   if (seed.id === LOCAL_PROVIDER_ID) {
     provider.models = localModels().filter((m) => !isEmbeddingModel(m)).map(localModelInfo)
@@ -242,7 +267,9 @@ function customProvider(id: string, override: ProviderOverride): Provider {
     auth: 'key',
     category: 'custom',
     fallbackCount: secrets.getFallbacks(id).length,
-    models: []
+    models: [],
+    ...(override.health ? { health: override.health } : {}),
+    modelsListedAt: override.listedAt ?? null
   }
   return { ...provider, ...composeModels(provider, [], override) }
 }
@@ -287,9 +314,48 @@ function editOverride(id: string, edit: (override: ProviderOverride) => Provider
   store.saveProviderConfig(config)
 }
 
-/** Stores what the provider's own `/models` returned. */
-function setListed(id: string, models: ModelInfo[]): void {
-  editOverride(id, (override) => ({ ...override, listed: models }))
+/** Stores what the provider's own `/models` returned, as the last list that worked. */
+function setListed(id: string, models: ModelInfo[], at = Date.now()): void {
+  editOverride(id, (override) => {
+    const { listFailedAt: _failed, ...rest } = override
+    return { ...rest, listed: models, listedAt: at }
+  })
+}
+
+/**
+ * Records what a check of a provider found. A success clears a failed check;
+ * a lasting failure (expired sign-in, rejected key, no credit, no models)
+ * makes the provider "Needs attention" until something works again; a
+ * passing one (offline, timeout, outage, rate limit) changes nothing.
+ * Returns true when the stored state changed.
+ */
+export function noteProviderHealth(id: string, issue: ProviderIssue | null, at = Date.now()): boolean {
+  const current = store.getProviderConfig()[id]?.health
+  if (!issue) {
+    if (!current || current.ok) return false
+    editOverride(id, (override) => ({ ...override, health: { ok: true, issue: null, checkedAt: at } }))
+    return true
+  }
+  if (!isLastingIssue(issue.kind)) return false
+  if (current && !current.ok && current.issue?.kind === issue.kind && current.issue.message === issue.message) return false
+  const health: ProviderHealth = { ok: false, issue, checkedAt: at }
+  editOverride(id, (override) => ({ ...override, health }))
+  return true
+}
+
+/** Forgets a failed check: after a new key, a sign-in or a sign-out, the old verdict no longer applies. */
+export function clearProviderHealth(id: string): void {
+  if (!store.getProviderConfig()[id]?.health) return
+  editOverride(id, (override) => {
+    const { health: _health, ...rest } = override
+    return rest
+  })
+}
+
+/** A listing that failed: the kept list becomes "the last one that worked", and a lasting failure marks the provider. */
+function listingFailed(id: string, issue: ProviderIssue, at = Date.now()): void {
+  editOverride(id, (override) => ({ ...override, listFailedAt: at }))
+  noteProviderHealth(id, issue, at)
 }
 
 /**
@@ -380,10 +446,11 @@ async function listOllamaModels(provider: Provider): Promise<ModelInfo[]> {
   let tags: Response
   try {
     tags = await fetch(`${host}/api/tags`, { signal: AbortSignal.timeout(5000) })
-  } catch {
-    throw new Error(`Could not reach Ollama at ${host} — make sure it is installed and running.`)
+  } catch (error) {
+    // The cause (connection refused, timed out) is what tells "not running" from "slow".
+    throw new Error(`Could not reach Ollama at ${host} — make sure it is installed and running.`, { cause: error })
   }
-  if (!tags.ok) throw new Error(`${tags.status} ${(await tags.text()).slice(0, 200)}`)
+  if (!tags.ok) throw new ProviderHttpError(tags.status, describeErrorBody(tags.status, await tags.text()))
   const names = (((await tags.json()) as { models?: { name?: string }[] }).models ?? []).map((row) => row.name).filter((name): name is string => Boolean(name))
 
   const models = await Promise.all(
@@ -412,18 +479,24 @@ async function listOllamaModels(provider: Provider): Promise<ModelInfo[]> {
         label: name,
         providerId: provider.id,
         contextWindow,
-        tools: capabilities ? capabilities.includes('tools') : true,
-        ...(capabilities?.includes('vision') ? { vision: true } : {}),
+        // `/api/show` lists what the model can do; an Ollama too old to say leaves it unknown.
+        ...(capabilities ? { tools: capabilities.includes('tools'), vision: capabilities.includes('vision') } : {}),
         reasoning: thinks,
         // Ollama's `think` takes levels only for gpt-oss; elsewhere it is on or off.
-        efforts: thinks && /gpt-oss/.test(name) ? OPENAI_EFFORTS : []
+        efforts: thinks && /gpt-oss/.test(name) ? OPENAI_EFFORTS : [],
+        // Without capabilities, "doesn't think" only keeps `think` out of the request; it isn't known.
+        ...(capabilities ? {} : { inferred: ['reasoning', 'efforts'] as ModelInfo['inferred'] })
       }
     })
   )
   return models.filter((model): model is ModelInfo => model !== null)
 }
 
-/** Ask the provider what it can actually serve. Falls back to the seed list. */
+/**
+ * Ask the provider what it can actually serve, and keep it as the last list
+ * that worked. A failure keeps the previous list, marks it as the kept copy,
+ * and throws a `ProviderIssueError` saying what went wrong in plain words.
+ */
 export async function refreshModels(providerId: string): Promise<ModelInfo[]> {
   const provider = getProvider(providerId)
   if (!provider) throw new Error(`Unknown provider ${providerId}`)
@@ -435,10 +508,28 @@ export async function refreshModels(providerId: string): Promise<ModelInfo[]> {
   // Codex, Perplexity and Cloudflare have no listing endpoint; their list is the catalog's.
   if (!meta.listsModels) return provider.models
 
-  if (provider.kind === 'ollama') {
-    setListed(providerId, await listOllamaModels(provider))
-    return getProvider(providerId)?.models ?? []
+  let models: ModelInfo[]
+  try {
+    models = await fetchListing(provider)
+  } catch (error) {
+    const issue = classifyProviderError(error, provider, 'listing')
+    listingFailed(providerId, issue)
+    throw new ProviderIssueError(issue)
   }
+  setListed(providerId, models)
+  noteProviderHealth(providerId, null)
+  const after = getProvider(providerId)
+  // An empty answer only means "nothing to use" where the listing is the whole list: a plan, or a custom endpoint.
+  if (models.length === 0 && after?.models.length === 0 && !provider.local && (LISTING_IS_ENTITLEMENT.has(providerId) || !provider.builtIn)) {
+    noteProviderHealth(providerId, noModelsIssue(provider))
+  }
+  return after?.models ?? []
+}
+
+/** The provider's own model list, as its API returns it. Throws whatever the request threw. */
+async function fetchListing(provider: Provider): Promise<ModelInfo[]> {
+  const providerId = provider.id
+  if (provider.kind === 'ollama') return listOllamaModels(provider)
 
   const [credentials] = await credentialAttempts(provider)
   const vendor = vendorOf(provider, credentials.baseUrl ?? provider.baseUrl)
@@ -448,23 +539,26 @@ export async function refreshModels(providerId: string): Promise<ModelInfo[]> {
       apiKey: credentials.apiKey ?? null,
       baseURL: requestBase(provider, credentials.baseUrl),
       defaultHeaders: { ...provider.headers, ...credentials.headers },
-      maxRetries: 0
+      maxRetries: 0,
+      // Listing is a quick GET; a hung host must not hold the Refresh button forever.
+      timeout: 20_000
     })
     const models: ModelInfo[] = []
     for await (const model of client.models.list()) {
-      const info = model as typeof model & { max_input_tokens?: number; max_tokens?: number }
+      type Supported = { supported?: boolean } | undefined
+      const info = model as typeof model & { max_input_tokens?: number; max_tokens?: number; capabilities?: { image_input?: Supported } }
+      const images = info.capabilities?.image_input?.supported
       models.push({
         id: model.id,
         label: model.display_name ?? prettyLabel(model.id),
         providerId,
-        tools: true,
-        ...(model.id.includes('claude') ? { vision: true } : {}),
+        // Only what the listing says; the catalog knows the rest of each Claude model.
+        ...(typeof images === 'boolean' ? { vision: images } : {}),
         ...(info.max_input_tokens ? { contextWindow: info.max_input_tokens } : {}),
         ...(info.max_tokens ? { maxOutput: Math.min(info.max_tokens, 64_000) } : {})
       })
     }
-    setListed(providerId, models)
-    return getProvider(providerId)?.models ?? []
+    return models
   }
 
   const base = requestBase(provider, credentials.baseUrl)
@@ -477,16 +571,13 @@ export async function refreshModels(providerId: string): Promise<ModelInfo[]> {
     ...(vendor === 'copilot' ? { 'X-GitHub-Api-Version': COPILOT_API_VERSION } : {})
   }
   const response = await fetch(`${base}/models`, { headers, signal: AbortSignal.timeout(20_000) })
-  if (!response.ok) throw new Error(`${response.status} ${(await response.text()).slice(0, 300)}`)
+  if (!response.ok) throw new ProviderHttpError(response.status, describeErrorBody(response.status, await response.text()), retryAfterFrom(response.headers))
   const body = (await response.json()) as unknown
-  const models =
-    vendor === 'copilot'
-      ? parseCopilotListing(body)
-      : vendor === 'chatgpt-plan'
-        ? parseChatGptPlanListing(body, providerId)
-        : parseListing(body, providerId, vendor)
-  setListed(providerId, models)
-  return getProvider(providerId)?.models ?? []
+  return vendor === 'copilot'
+    ? parseCopilotListing(body)
+    : vendor === 'chatgpt-plan'
+      ? parseChatGptPlanListing(body, providerId)
+      : parseListing(body, providerId, vendor)
 }
 
 /** Local discovery: a runtime that is gone, or Eaon's own server on its port, lists nothing. */
@@ -494,56 +585,78 @@ export function clearListed(providerId: string): void {
   setListed(providerId, [])
 }
 
-const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error))
-
 /**
  * The Refresh button: re-read models.dev (no key needed, so it works before
  * a provider is set up) and, when the provider is usable, its own `/models`.
- * Says what changed, so pressing it never looks like nothing happened.
+ * The answer says what actually happened — new models, models gone, no
+ * change, or that the provider couldn't be reached and which list is shown
+ * instead — so pressing it never reads as "done" when nothing was checked.
  */
-export async function refreshProviderModels(providerId: string): Promise<ModelsRefresh> {
+export async function refreshProviderModels(providerId: string, now = (): number => Date.now()): Promise<ModelsRefresh> {
   const provider = getProvider(providerId)
   if (!provider) throw new Error(`Unknown provider ${providerId}`)
-  const before = new Set([...provider.models, ...(provider.hiddenModels ?? [])].map((m) => m.id))
+  const shownBefore = provider.models
+  const known = new Set([...provider.models, ...(provider.hiddenModels ?? [])].map((m) => m.id))
 
-  let catalogError: string | null = null
+  let catalogFailed = false
   if (hasCatalog(providerId)) {
     try {
       await refreshCatalog()
-    } catch (error) {
-      catalogError = errorText(error)
+    } catch {
+      catalogFailed = true
     }
   }
   const usable = provider.local || provider.hasKey
   const lists = providerMeta(providerId).listsModels && provider.id !== LOCAL_PROVIDER_ID
-  let listingError: string | null = null
+  let issue: ProviderIssue | null = null
   if (usable && lists) {
     try {
       await refreshModels(providerId)
     } catch (error) {
-      listingError = errorText(error)
+      issue = classifyProviderError(error, provider, 'listing')
     }
   }
 
   const after = getProvider(providerId) ?? provider
-  const added = after.models.filter((m) => !before.has(m.id)).map((m) => m.label)
-  const count = `${after.models.length} model${after.models.length === 1 ? '' : 's'}`
-  const news = added.length
-    ? `${added.length} new: ${added.slice(0, 3).join(', ')}${added.length > 3 ? ` and ${added.length - 3} more` : ''}`
-    : 'nothing new'
-  if (listingError) {
-    return { ok: false, added, message: `${provider.name} didn’t answer (${listingError.slice(0, 160)}). Showing the catalog’s ${count}.` }
-  }
-  if (catalogError && !(usable && lists)) {
-    const stamp = catalogFetchedAt()
+  const shownAfter = new Set(after.models.map((m) => m.id))
+  const hiddenAfter = new Set((after.hiddenModels ?? []).map((m) => m.id))
+  const added = after.models.filter((m) => !known.has(m.id)).map((m) => m.label)
+  // Gone from the provider, not just hidden by the user since.
+  const removed = shownBefore.filter((m) => !shownAfter.has(m.id) && !hiddenAfter.has(m.id)).map((m) => m.label)
+  const checkedAt = now()
+
+  if (issue) {
     return {
       ok: false,
       added,
-      message: `Couldn’t reach models.dev to check for new models${stamp ? ` — the list is from ${new Date(stamp).toLocaleDateString()}` : ''}.`
+      removed,
+      checkedAt,
+      issue,
+      message: describeModelsRefresh({ providerName: provider.name, ok: false, added, removed, failure: issue.message, lastGoodAt: after.modelsListedAt ?? null, now: checkedAt })
     }
   }
-  const source = usable && lists ? `${provider.name} and models.dev` : provider.local ? provider.name : 'models.dev'
-  return { ok: true, added, message: `Checked ${source} — ${count}, ${news}.` }
+  if (catalogFailed && !(usable && lists)) {
+    return {
+      ok: false,
+      added,
+      removed,
+      checkedAt,
+      message: describeModelsRefresh({
+        providerName: provider.name,
+        ok: false,
+        added,
+        removed,
+        checkedProvider: false,
+        failure: 'Check your internet connection.',
+        lastGoodAt: catalogFetchedAt(),
+        now: checkedAt
+      })
+    }
+  }
+  let message = describeModelsRefresh({ providerName: provider.name, ok: true, added, removed, lastGoodAt: checkedAt, now: checkedAt })
+  // Only the catalog could be checked: say what would check the provider itself.
+  if (lists && !usable) message += ` ${provider.auth === 'oauth' ? 'Sign in' : 'Add an API key'} to check ${provider.name}’s own list.`
+  return { ok: true, added, removed, checkedAt, message }
 }
 
 export async function testProvider(providerId: string): Promise<{ ok: boolean; message: string }> {
@@ -561,8 +674,10 @@ export async function testProvider(providerId: string): Promise<{ ok: boolean; m
   }
   try {
     const models = await refreshModels(providerId)
+    const health = getProvider(providerId)?.health
+    if (health && !health.ok && health.issue) return { ok: false, message: health.issue.message }
     return { ok: true, message: `Connected — ${models.length} model${models.length === 1 ? '' : 's'} available` }
   } catch (error) {
-    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+    return { ok: false, message: provider ? classifyProviderError(error, provider, 'listing').message : error instanceof Error ? error.message : String(error) }
   }
 }

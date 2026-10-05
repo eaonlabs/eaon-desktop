@@ -5,6 +5,9 @@ import { catalogFor } from '../src/main/providers/modelCatalog'
 import { editModels, getProvider } from '../src/main/providers'
 import { store } from '../src/main/store'
 import { clampEffort } from '@shared/effort'
+import { modelCapabilities } from '@shared/modelSelection'
+import { parseChatGptPlanListing } from '../src/main/providers/listing'
+import { enrichModel } from '../src/main/providers/models'
 
 test('efforts: Pi level maps become the levels that reach the wire as themselves', () => {
   // GPT-5.5 on the API: off is "none", no minimal, xhigh but no max.
@@ -208,4 +211,61 @@ test('Edit model: a catalog model can be adjusted and reset, but keeps its id', 
     editModels('openai', { add: 'b-model' })
     editModels('openai', { update: 'a-model', id: 'b-model' })
   }, /already a model "b-model"/)
+})
+
+/* ------------------------------------------------- capability honesty, sources */
+
+test('capabilities: the catalog’s known ones stay; a listing-only model is unknown, and a guess from its id is marked', () => {
+  const config = store.getProviderConfig()
+  const before = config.anthropic
+  try {
+    // A listing that names a model the catalog doesn't know, and a dated snapshot of one it does.
+    config.anthropic = {
+      listed: [
+        { id: 'claude-sonnet-5-5-20260928', label: 'Claude Sonnet 5.5', providerId: 'anthropic' },
+        { id: 'claude-mystery-9', label: 'Claude Mystery 9', providerId: 'anthropic' }
+      ],
+      listedAt: Date.now()
+    }
+    store.saveProviderConfig(config)
+    const models = getProvider('anthropic')!.models
+    const sonnet = models.find((m) => m.id === 'claude-sonnet-5-5')!
+    // Known from the catalog: kept, and the live listing now vouches for it.
+    assert.equal(sonnet.vision, true)
+    assert.equal(sonnet.source?.kind, 'provider-live')
+    // The dated snapshot is folded into its alias rather than listed twice.
+    assert.ok(!models.some((m) => m.id === 'claude-sonnet-5-5-20260928'))
+    assert.deepEqual(sonnet.aliases, ['claude-sonnet-5-5-20260928'])
+    const mystery = models.find((m) => m.id === 'claude-mystery-9')!
+    assert.equal(mystery.vision, undefined, 'no Images badge on the strength of the name')
+    assert.deepEqual(modelCapabilities(mystery), { tools: null, vision: null, reasoning: null })
+    // Untouched catalog models say where they came from.
+    assert.equal(models.find((m) => m.id === 'claude-opus-5-5')?.source?.kind, 'shipped')
+  } finally {
+    if (before) config.anthropic = before
+    else delete config.anthropic
+    store.saveProviderConfig(config)
+  }
+})
+
+test('capabilities: the ChatGPT plan listing reports only what its rows say', () => {
+  const [bare, rich] = parseChatGptPlanListing(
+    {
+      models: [
+        { slug: 'gpt-6-next', display_name: 'GPT Next', visibility: 'list' },
+        { slug: 'gpt-next-codex', display_name: 'GPT Next Codex', visibility: 'list', input_modalities: ['text', 'image'], supported_reasoning_levels: [{ effort: 'low' }, { effort: 'medium' }, { effort: 'high' }, { effort: 'xhigh' }], shell_type: 'unified_exec' },
+        { slug: 'hidden', visibility: 'hide' }
+      ]
+    },
+    'chatgpt'
+  )
+  assert.deepEqual(bare, { id: 'gpt-6-next', label: 'GPT Next', providerId: 'chatgpt' })
+  assert.equal(rich.vision, true)
+  assert.equal(rich.tools, true)
+  assert.deepEqual(rich.efforts, ['light', 'medium', 'high', 'extra-high'])
+  // Filled in from the id for the request's sake, and marked as a guess.
+  const enriched = enrichModel(bare)
+  assert.equal(enriched.reasoning, true)
+  assert.deepEqual(enriched.inferred?.sort(), ['efforts', 'reasoning'])
+  assert.equal(modelCapabilities(enriched).reasoning, null)
 })

@@ -157,7 +157,10 @@ const api = {
     clear: (id: string): Promise<Provider[]> => ipcRenderer.invoke('keys:clear', id),
     hint: (id: string): Promise<string | null> => ipcRenderer.invoke('keys:hint', id),
     reveal: (id: string): Promise<string | null> => ipcRenderer.invoke('keys:reveal', id),
+    /** A masked hint per fallback key ("sk-p…a1b2"); the keys themselves stay in main. */
     getFallbacks: (id: string): Promise<string[]> => ipcRenderer.invoke('keys:get-fallbacks', id),
+    addFallback: (id: string, key: string): Promise<Provider[]> => ipcRenderer.invoke('keys:add-fallback', id, key),
+    removeFallback: (id: string, index: number): Promise<Provider[]> => ipcRenderer.invoke('keys:remove-fallback', id, index),
     setFallbacks: (id: string, keys: string[]): Promise<Provider[]> =>
       ipcRenderer.invoke('keys:set-fallbacks', id, keys)
   },

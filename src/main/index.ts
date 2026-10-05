@@ -7,9 +7,10 @@ import type { Chat, McpServer, Project, Provider, Settings, StreamEvent, StreamR
 import { store } from './store'
 import { secrets } from './secrets'
 import type { ModelEdit } from '@shared/providers'
-import { editModels, listProviders, refreshModels, refreshProviderModels, removeProvider, testProvider, updateProvider } from './providers'
+import { clearProviderHealth, editModels, getProvider, listProviders, refreshModels, refreshProviderModels, removeProvider, testProvider, updateProvider } from './providers'
 import { refreshLocalProviders } from './providers/localDiscovery'
 import { refreshCatalogInBackground } from './providers/modelCatalog'
+import { startModelFreshness } from './providers/freshness'
 import { resolveApproval } from './agent/approvals'
 import { activeRunIds, cancelRun, pauseGoal, runAgent } from './agent/loop'
 import './agent/sources'
@@ -472,12 +473,15 @@ function registerIpc(): void {
   ipcMain.handle('providers:edit-models', (_e, id: string, edit: ModelEdit) => editModels(id, edit))
   ipcMain.handle('providers:test', (_e, id: string) => testProvider(id))
 
+  // A new or removed key makes the last check's verdict ("key rejected") stale.
   ipcMain.handle('keys:set', (_e, id: string, key: string) => {
     secrets.set(id, key)
+    clearProviderHealth(id)
     return listProviders()
   })
   ipcMain.handle('keys:clear', (_e, id: string) => {
     secrets.clear(id)
+    clearProviderHealth(id)
     return listProviders()
   })
   ipcMain.handle('keys:hint', (_e, id: string) => secrets.hint(id))
@@ -489,7 +493,23 @@ function registerIpc(): void {
   ipcMain.handle('keys:reveal', (_e, id: string) =>
     listProviders().some((p) => p.id === id && p.auth !== 'oauth') ? (secrets.get(id) ?? null) : null
   )
-  ipcMain.handle('keys:get-fallbacks', (_e, id: string) => secrets.getFallbacks(id))
+  // Fallback keys never cross into the renderer: it gets a masked hint per
+  // key (enough to tell them apart) and adds or removes one at a time.
+  ipcMain.handle('keys:get-fallbacks', (_e, id: string) =>
+    secrets.getFallbacks(id).map((key) => (key.length > 12 ? `${key.slice(0, 4)}…${key.slice(-4)}` : '••••'))
+  )
+  ipcMain.handle('keys:add-fallback', (_e, id: string, key: string) => {
+    if (typeof key === 'string' && key.trim()) secrets.setFallbacks(id, [...secrets.getFallbacks(id), key.trim()])
+    clearProviderHealth(id)
+    return listProviders()
+  })
+  ipcMain.handle('keys:remove-fallback', (_e, id: string, index: number) => {
+    secrets.setFallbacks(
+      id,
+      secrets.getFallbacks(id).filter((_, i) => i !== index)
+    )
+    return listProviders()
+  })
   ipcMain.handle('keys:set-fallbacks', (_e, id: string, keys: string[]) => {
     secrets.setFallbacks(id, keys)
     return listProviders()
@@ -697,6 +717,8 @@ app.whenReady().then(async () => {
   void refreshCatalogInBackground().then((changed) => {
     if (changed) broadcast('providers:changed')
   })
+  // Connected providers' own model lists, soon after launch and every few hours.
+  startModelFreshness({ list: listProviders, get: getProvider, refresh: refreshModels }, () => broadcast('providers:changed'))
 
   app.on('activate', () => {
     // Only Eaon's own windows count. The computer-use pill is a window too, and

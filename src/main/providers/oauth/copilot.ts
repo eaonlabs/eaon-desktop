@@ -56,7 +56,8 @@ export function copilotBaseUrl(token: string | undefined): string {
 async function exchangeCopilotToken(github: string, signal?: AbortSignal): Promise<{ copilot: string; expires: number }> {
   const response = await fetch(COPILOT_TOKEN_URL, {
     headers: { Accept: 'application/json', Authorization: `Bearer ${github}`, ...COPILOT_HEADERS },
-    signal
+    // A hung exchange would hold every request behind the refresh lock.
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000)
   })
   if (!response.ok) {
     const text = await response.text().catch(() => '')

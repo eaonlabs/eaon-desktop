@@ -192,13 +192,22 @@ export function prettyLabel(id: string): string {
 /**
  * Fills in capabilities the provider's `/models` listing did not report, so a
  * freshly refreshed list still knows which models reason and take effort.
+ * What is filled in from the id is marked `inferred`: it still decides the
+ * request's shape, but it is a guess, and pickers show no badge for it.
  */
 export function enrichModel(model: ModelInfo): ModelInfo {
-  return {
-    ...model,
-    efforts: model.efforts ?? inferEfforts(model.id),
-    reasoning: model.reasoning ?? inferReasoning(model.id)
+  const inferred = new Set(model.inferred ?? [])
+  let efforts = model.efforts
+  if (efforts === undefined) {
+    efforts = inferEfforts(model.id)
+    if (efforts !== undefined) inferred.add('efforts')
   }
+  let reasoning = model.reasoning
+  if (reasoning === undefined) {
+    reasoning = inferReasoning(model.id)
+    inferred.add('reasoning')
+  }
+  return { ...model, efforts, reasoning, ...(inferred.size ? { inferred: [...inferred] } : {}) }
 }
 
 /**
