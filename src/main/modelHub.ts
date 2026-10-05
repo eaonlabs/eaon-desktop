@@ -9,6 +9,7 @@ import { app } from 'electron'
 import { diskShortfall } from '@shared/modelLibrary'
 import type { DownloadedModel, ModelDetail, ModelSearchResult, ModelVariant } from '@shared/types'
 import { store } from './store'
+import { checkHfFile } from './ipcGuards'
 
 /**
  * Browse Hugging Face for GGUF models and download them into Eaon's models
@@ -204,9 +205,14 @@ export async function freeBytes(dir: string): Promise<number | null> {
   }
 }
 
-/** Where a repo's file lands: `<models>/<owner>__<repo>/<file>` (subfolders kept). */
+/**
+ * Where a repo's file lands: `<models>/<owner>__<repo>/<file>` (subfolders
+ * kept). Both come from the renderer, so they are checked first: a `..` in
+ * the file name or a `?` in the repo id must never place a download (or a
+ * later delete) outside that folder.
+ */
 export function localPathFor(repoId: string, filename: string): string {
-  return join(modelsDir(), repoId.replace('/', '__'), filename)
+  return checkHfFile(repoId, filename, modelsDir()).dest
 }
 
 /**
@@ -223,6 +229,7 @@ export async function fetchHfFile(
   signal: AbortSignal,
   onBytes: (received: number, total: number) => void
 ): Promise<number> {
+  checkHfFile(repoId, filename, modelsDir())
   const part = `${dest}.part`
   const url = `${HF_API}/${repoId}/resolve/main/${filename.split('/').map(encodeURIComponent).join('/')}`
   let received = 0
@@ -298,7 +305,7 @@ async function fetchModelFile(
   onProgress: (progress: DownloadProgress) => void
 ): Promise<DownloadedModel> {
   // A file that fills the disk fails late and leaves the system short of space.
-  const head = await fetch(`${HF_API}/${repoId}/resolve/main/${filename}`, { method: 'HEAD', redirect: 'follow', signal }).catch(() => null)
+  const head = await fetch(`${HF_API}/${repoId}/resolve/main/${filename.split('/').map(encodeURIComponent).join('/')}`, { method: 'HEAD', redirect: 'follow', signal }).catch(() => null)
   const expected = Number(head?.headers.get('content-length') ?? 0)
   const shortfall = expected > 0 ? diskShortfall(expected, await freeBytes(modelsDir())) : null
   if (shortfall) throw new Error(shortfall)

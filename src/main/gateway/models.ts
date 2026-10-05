@@ -1,4 +1,4 @@
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
 import type { Provider } from '@shared/types'
 import type { GatewayModel } from '@shared/gateway'
 import { listProviders } from '../providers'
@@ -100,14 +100,30 @@ export function gatewayToken(): string {
   return token
 }
 
-/**
- * Whether a request may use the server. No key at all is let through, as
- * before there was a key; a key that isn't this install's is refused.
- */
-export function tokenAllowed(headers: { authorization?: string; 'x-api-key'?: string | string[] }): boolean {
+/** The key a request sent, as a Bearer token or `x-api-key`; empty when none. */
+export function sentToken(headers: { authorization?: string; 'x-api-key'?: string | string[] }): string {
   const bearer = /^Bearer\s+(.+)$/i.exec(headers.authorization ?? '')?.[1]?.trim()
   const apiKey = Array.isArray(headers['x-api-key']) ? headers['x-api-key'][0] : headers['x-api-key']
-  const sent = bearer || apiKey?.trim()
-  if (!sent) return true
-  return sent === gatewayToken()
+  return bearer || apiKey?.trim() || ''
+}
+
+/** Compared in constant time, so the key can't be guessed a character at a time from response timings. */
+function sameToken(sent: string, token: string): boolean {
+  const a = createHash('sha256').update(sent).digest()
+  const b = createHash('sha256').update(token).digest()
+  return timingSafeEqual(a, b)
+}
+
+/**
+ * Whether a request may use the server. A key that isn't this install's is
+ * refused. No key at all is let through for programs (CLIs and SDKs, which
+ * send no Origin), as before there was a key; a browser page or extension
+ * (anything with an Origin) must send it. Origin rules alone let every
+ * extension the user installed, and any page served from localhost (a dev
+ * server running someone else's code), spend the user's API keys.
+ */
+export function tokenAllowed(headers: { authorization?: string; 'x-api-key'?: string | string[]; origin?: string }): 'ok' | 'missing' | 'wrong' {
+  const sent = sentToken(headers)
+  if (!sent) return headers.origin === undefined ? 'ok' : 'missing'
+  return sameToken(sent, gatewayToken()) ? 'ok' : 'wrong'
 }

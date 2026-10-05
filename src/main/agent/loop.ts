@@ -14,7 +14,10 @@ import { cancelApprovals, requestApproval, type Approver } from './approvals'
 import { buildHistory, estimateMessages, estimateTokens, pruneImages, pruneInFlight, stripImages, transcriptText } from './context'
 import { chatSystemPrompt, COMPACTION_PROMPT, workSystemPrompt } from './prompts'
 import { CallGuard } from './guards'
-import { capOutput, guidanceFor, isMutating, toolsFor, toolSourceOf, toSpec, WORKFLOW_TOOLS, type AgentTool, type ToolContext, type ToolQuery, type TurnState } from './tools'
+import { callFacts, decide, USER_DENIED, type RunPolicy, type ToolGate, type TurnOrigin, type UnattendedPolicy } from './policy'
+import { capOutput, guidanceFor, isMutating, toolsFor, toSpec, WORKFLOW_TOOLS, type AgentTool, type ToolContext, type ToolQuery, type TurnState } from './tools'
+
+export type { ToolGate, TurnOrigin, UnattendedPolicy } from './policy'
 
 /**
  * The agent loop — one implementation for every provider and both modes.
@@ -218,6 +221,8 @@ export interface LoopParams {
   onToolRun?: (name: string, mutating: boolean) => void
   /** See `RunOptions.toolGate`. */
   toolGate?: ToolGate
+  /** See `RunOptions.origin`. */
+  origin?: TurnOrigin
   maxRounds: number
   /** Goal mode: the loop sends the agent back to work until it resolves the goal. */
   goal: GoalState | null
@@ -348,11 +353,13 @@ async function runTool(
   if ('__invalid_json' in call.input) {
     return finish(`Your arguments were not valid JSON: ${String(call.input.__invalid_json).slice(0, 500)}. Re-issue the call with valid JSON.`, 'error')
   }
-  // Checked before anything else about the call: a worker answering a guest
-  // in a chat app may not use this tool at all, mutating or not.
-  const gated = params.toolGate?.(tool, call.input)
-  if (gated) return finish(gated, 'denied')
-
+  const policy: RunPolicy = {
+    readOnly: params.readOnly,
+    unattended: params.unattended,
+    allowOnce: params.allowOnce,
+    toolGate: params.toolGate,
+    origin: params.origin
+  }
   const ctx: ToolContext = {
     request,
     turn,
@@ -364,50 +371,21 @@ async function runTool(
     readOnly: params.readOnly,
     settings: params.settings,
     progress: (output) => emit({ type: 'tool-progress', messageId: request.messageId, toolId: call.id, output }),
-    confirm: (title, detail, summary) => params.approver(title, detail, summary)
+    confirm: (title, detail, summary) => params.approver(title, detail, summary),
+    policy
   }
 
-  if (isMutating(tool, call.input, ctx)) {
-    if (params.readOnly) {
-      return finish('Plan mode is on, so this tool is disabled. Finish researching and call present_plan.', 'denied')
-    }
-    const risky = tool.risky?.(call.input, ctx) ?? false
-    // Settings → MCP → Allow All MCP Tool Permissions: the user has approved
-    // every plugin call in advance. Plan mode above and scheduled runs below
-    // still refuse exactly as before.
-    const preApproved = params.settings.mcp.allowAllToolPermissions && toolSourceOf(tool) === 'plugins'
-    // What can't be undone (a real-money order, a destructive plugin call) is
-    // never covered by that blanket pre-approval, in any mode.
-    const catastrophic = tool.catastrophic?.(call.input, ctx) ?? false
-    // Scheduled tasks (features/scheduler): nobody is there to ask, so the
-    // task's own policy stands in for the user's approval setting.
-    if (params.unattended) {
-      if (params.unattended === 'read-only') return finish(UNATTENDED_READ_ONLY, 'denied')
-      if (params.unattended === 'autonomous') {
-        // Trusted to act alone: everything runs except what can't be undone —
-        // unless the user approved this very call (ask_user).
-        if (catastrophic && !params.allowOnce?.(call.name, call.input)) return finish(UNATTENDED_CATASTROPHIC, 'denied')
-      } else if ((catastrophic || (risky && !preApproved)) && !params.allowOnce?.(call.name, call.input)) {
-        // "Allow All MCP Tool Permissions" approves plugin calls in advance,
-        // for a worker as for a chat.
-        return finish(UNATTENDED_RISKY, 'denied')
-      }
-    } else if (params.settings.approvalMode === 'full') {
-      // Full autonomy: the user is here but has trusted the agent to act.
-      // Everything runs, risky or not — except what can't be undone, which
-      // still waits for them like any approval (plugin pre-approval or not).
-      if (catastrophic && !(await params.approver(call.name, call.input, tool.describe?.(call.input)))) {
-        return finish('The user denied this action. Do not retry it; continue another way or ask how they would like to proceed.', 'denied')
-      }
-    } else if (
-      (catastrophic || (!preApproved && (params.settings.approvalMode === 'ask' || risky))) &&
-      !(await params.approver(call.name, call.input, tool.describe?.(call.input)))
-    ) {
-      return finish('The user denied this action. Do not retry it; continue another way or ask how they would like to proceed.', 'denied')
-    }
+  // Every rule about whether this call may run — plan mode, a guest's cap,
+  // who the work came from, the unattended policy or the approval mode, and
+  // the tool's own risk — is in agent/policy.ts, shared with sub-agents and
+  // the CLI.
+  const decision = decide(tool, call.input, callFacts(tool, call.input, ctx, params.settings), policy, params.settings.approvalMode)
+  if (decision.kind === 'deny') return finish(decision.reason, 'denied')
+  if (decision.kind === 'ask' && !(await params.approver(call.name, call.input, tool.describe?.(call.input)))) {
+    return finish(USER_DENIED, 'denied')
   }
 
-  const mutating = isMutating(tool, call.input, ctx)
+  const mutating = decision.mutating
   params.onToolRun?.(call.name, mutating)
   let output: string
   let status: 'done' | 'error'
@@ -666,22 +644,6 @@ async function compact(
 
 /* ------------------------------------------------------------- entry point */
 
-/**
- * How a run with nobody watching treats changes, in place of the approval
- * prompt: 'read-only' refuses every mutating call, 'safe' runs ordinary ones
- * and refuses the risky ones "Approve for me" would still stop to ask about,
- * 'autonomous' (a worker the user trusts to act alone) runs everything but
- * the calls a tool marks catastrophic.
- */
-export type UnattendedPolicy = 'read-only' | 'safe' | 'autonomous'
-
-const UNATTENDED_READ_ONLY =
-  'This run is read-only — the user did not allow it to make changes — so this action was not run. Do not retry it or look for another way to make the change; finish with what you can find out, and say in your report what you would have changed.'
-const UNATTENDED_CATASTROPHIC =
-  'This action could do lasting damage (spending money, entering a card number or password, sudo, erasing a disk, force-pushing, a plugin action marked destructive), so it never runs without the user\'s approval. Do not work around it. If it is needed, ask with ask_user, passing approve_tool and approve_input with this exact call; once approved you may make it once. Carry on with the rest meanwhile.'
-const UNATTENDED_RISKY =
-  'This action needs the user\'s approval, and this run has nobody to ask, so it was not run. Do not retry it; continue without it and mention it in your report.'
-
 export interface RunOptions {
   /** Headless runs (scheduled tasks) answer approvals themselves. */
   approver?: Approver
@@ -707,14 +669,18 @@ export interface RunOptions {
    */
   toolGate?: ToolGate
   /**
+   * Who the turn's work came from. A worker's turn that carries a guest's
+   * message, or work a colleague handed over, sets it so nothing in the turn
+   * can spend the user's money. Unset means the user.
+   */
+  origin?: TurnOrigin
+  /**
    * Which tools to offer at all. A run that may only use a few (a trading
    * session) leaves the rest out of the request: the gate still refuses them,
    * but their schemas would cost tokens on every call and tempt the model.
    */
   offer?: (name: string) => boolean
 }
-
-export type ToolGate = (tool: AgentTool, input: Record<string, unknown>) => string | null
 
 export interface RunOutcome {
   text: string
@@ -798,6 +764,7 @@ export async function runAgent(request: StreamRequest, emit: (event: StreamEvent
       allowOnce: options.allowOnce,
       onToolRun: options.onToolRun,
       toolGate: options.toolGate,
+      origin: options.origin,
       onText: (delta: string) => {
         text += delta
         emit({ type: 'delta', messageId: request.messageId, text: delta })

@@ -43,6 +43,9 @@ function readContent(content: unknown): { text: string; images: NeutralImage[] }
 }
 
 export function parseChatRequest(body: Record<string, unknown>): Parsed | { error: string } {
+  // One reply per request is all the providers behind the gateway give; an
+  // app asking for several would otherwise get one and think it got them all.
+  if (body.n !== undefined && body.n !== null && Number(body.n) !== 1) return { error: '`n` other than 1 is not supported: the gateway returns one choice.' }
   const raw = body.messages
   if (!Array.isArray(raw) || raw.length === 0 || !raw.every((m) => m && typeof m === 'object')) return { error: '`messages` is required' }
 

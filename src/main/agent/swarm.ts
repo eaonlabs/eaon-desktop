@@ -122,6 +122,15 @@ async function runSubagent(
         }
       },
       approver: (tool, input, summary) => ctx.confirm(tool, input, summary),
+      // The run's own limits, unchanged: a sub-agent of a scheduled task, a
+      // worker or a guest's turn is held to exactly what its lead is. Without
+      // them its calls went through the interactive approval path, where an
+      // approver that says yes (an autonomous worker's) let even
+      // catastrophic calls through.
+      unattended: ctx.policy?.unattended,
+      allowOnce: ctx.policy?.allowOnce,
+      toolGate: ctx.policy?.toolGate,
+      origin: ctx.policy?.origin,
       maxRounds: SUBAGENT_ROUNDS,
       goal: null,
       // Filled round by round, so a sub-agent that fails part-way still

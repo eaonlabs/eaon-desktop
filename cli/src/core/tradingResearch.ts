@@ -1,5 +1,6 @@
 import { tradingEngine } from '@main/features/trading'
 import { tradingToolSource } from '@main/features/trading/tools'
+import { isMutating } from '@main/agent/tools'
 import { store } from '@main/store'
 import { ipc } from '../runtime/ipc'
 
@@ -22,7 +23,13 @@ export function serveTradingResearch(): void {
       .tools({ mode: 'work', cwd: null, depth: 0, readOnly: true, settings: store.getSettings(), request: {} as never })
       .find((t) => t.name === name)
     if (!tool) throw new Error(`${String(name)} isn’t available.`)
-    const result = await tool.run((input ?? {}) as Record<string, unknown>, { request: { chatId: 'claude-code' } } as never)
+    const args = (input && typeof input === 'object' && !Array.isArray(input) ? input : {}) as Record<string, unknown>
+    const ctx = { request: { chatId: 'claude-code' }, settings: store.getSettings(), readOnly: true } as never
+    // This runs a tool without the loop's approval (see "Calling a tool's
+    // run() directly skips approval"), so it may only ever look: a tool on
+    // the list that some input makes mutating is refused, not run.
+    if (isMutating(tool, args, ctx)) throw new Error(`${String(name)} with those arguments would change something; research tools only look.`)
+    const result = await tool.run(args, ctx)
     return typeof result === 'string' ? result : result.text
   })
 }

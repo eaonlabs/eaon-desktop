@@ -418,3 +418,18 @@ test('health checks answer: Claude Code sends HEAD /api/hello first', async () =
   assert.equal((await fetch(`${base}/api/hello`, { method: 'HEAD' })).status, 200)
   assert.equal((await fetch(`${base}/`)).status, 200)
 })
+
+test('what the gateway can’t do is refused, not quietly done without: stored responses, background, several choices', async () => {
+  reply = () => [chunk({ content: 'ok' }, 'stop')]
+  const before = upstream.requests.length
+  const stored = await post('/v1/responses', { model: 'big-model', input: 'and then?', previous_response_id: 'resp_123' })
+  assert.equal(stored.status, 400)
+  assert.match(stored.text, /previous_response_id is not supported/)
+  const background = await post('/v1/responses', { model: 'big-model', input: 'hi', background: true })
+  assert.equal(background.status, 400)
+  const several = await post('/v1/chat/completions', { model: 'big-model', n: 3, messages: [{ role: 'user', content: 'hi' }] })
+  assert.equal(several.status, 400)
+  assert.match(several.text, /`n` other than 1/)
+  assert.equal(upstream.requests.length, before, 'nothing went upstream')
+  assert.equal((await post('/v1/chat/completions', { model: 'big-model', n: 1, messages: [{ role: 'user', content: 'hi' }] })).status, 200)
+})

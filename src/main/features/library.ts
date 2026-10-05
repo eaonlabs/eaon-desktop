@@ -18,8 +18,29 @@ import type { LibraryFileStat } from '@shared/library'
  */
 const RUNNABLE = new Set([
   '.app', '.command', '.sh', '.zsh', '.bash', '.tool', '.exe', '.bat', '.cmd', '.com', '.msi', '.ps1',
-  '.pkg', '.mpkg', '.scpt', '.applescript', '.workflow', '.jar', '.terminal', '.url', '.webloc', '.lnk'
+  '.pkg', '.mpkg', '.scpt', '.applescript', '.workflow', '.jar', '.terminal', '.url', '.webloc', '.lnk',
+  // macOS: settings panes, links and bundles that load code.
+  '.prefpane', '.fileloc', '.inetloc', '.action', '.kext', '.plugin', '.service', '.saver', '.qlgenerator', '.osax', '.scptd',
+  // Windows: script hosts and their kin, which run on a double-click.
+  '.js', '.jse', '.vbs', '.vbe', '.wsf', '.wsh', '.hta', '.scr', '.pif', '.reg', '.cpl', '.msc', '.msp', '.appref-ms', '.vb',
+  // Linux.
+  '.desktop', '.appimage', '.run', '.deb', '.rpm'
 ])
+
+/**
+ * Whether opening `path` with its default app could run it: a runnable
+ * extension, or a file with no extension that is marked executable (Finder
+ * runs those in Terminal).
+ */
+export async function couldRun(path: string): Promise<boolean> {
+  if (RUNNABLE.has(extname(path).toLowerCase())) return true
+  try {
+    const info = await stat(path)
+    return info.isFile() && (info.mode & 0o111) !== 0
+  } catch {
+    return false
+  }
+}
 
 export const libraryFeature: Feature = {
   id: 'library',
@@ -39,7 +60,7 @@ export const libraryFeature: Feature = {
     })
     ipcMain.handle('library:open', async (_e, path: string) => {
       if (typeof path !== 'string' || !path) return
-      if (RUNNABLE.has(extname(path).toLowerCase())) {
+      if (await couldRun(path)) {
         shell.showItemInFolder(path)
         return
       }

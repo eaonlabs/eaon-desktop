@@ -42,9 +42,24 @@ function json(res: ServerResponse, code: number, body: unknown): void {
   res.end(payload)
 }
 
+/**
+ * The most a request body may be. Anthropic's own limit is 32 MB, and a
+ * request with screenshots in it is the largest an app sends; a body past
+ * this is a mistake or an attempt to make Eaon hold gigabytes in memory.
+ */
+export const MAX_BODY_BYTES = 48 * 1024 * 1024
+
+class BodyTooLarge extends Error {}
+
 async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+  if (Number(req.headers['content-length'] ?? 0) > MAX_BODY_BYTES) throw new BodyTooLarge()
   const chunks: Buffer[] = []
-  for await (const chunk of req) chunks.push(chunk as Buffer)
+  let size = 0
+  for await (const chunk of req) {
+    size += (chunk as Buffer).byteLength
+    if (size > MAX_BODY_BYTES) throw new BodyTooLarge()
+    chunks.push(chunk as Buffer)
+  }
   const raw = Buffer.concat(chunks).toString('utf8')
   const body = raw ? (JSON.parse(raw) as unknown) : {}
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('not an object')
@@ -96,6 +111,9 @@ const OPENAPI_SPEC = {
     description:
       'The models set up in Eaon, over the OpenAI (chat completions, Responses) and Anthropic (Messages) APIs, tools included. Send the key from Eaon → Settings → Local API Server as a Bearer token or x-api-key.'
   },
+  // Pages (this one included) must send the key; the Authorize button sets it.
+  components: { securitySchemes: { key: { type: 'http', scheme: 'bearer' } } },
+  security: [{ key: [] }],
   paths: {
     '/v1/models': { get: { summary: 'List the models Eaon can reach (Anthropic shape when anthropic-version is sent)' } },
     '/v1/chat/completions': { post: { summary: 'OpenAI chat completions, streaming or not, with tools' } },
@@ -165,8 +183,12 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     : url.pathname.replace(/\/+$/, '')
   const anthropicStyle = path.startsWith('/v1/messages') || typeof req.headers['anthropic-version'] === 'string'
 
-  if (!tokenAllowed(req.headers)) {
-    const message = 'That key is not this Eaon’s. The key is in Eaon → Settings → Local API Server.'
+  const auth = tokenAllowed(req.headers)
+  if (auth !== 'ok') {
+    const message =
+      auth === 'missing'
+        ? 'Pages and browser extensions must send this Eaon’s key (as a Bearer token or x-api-key). The key is in Eaon → Settings → Local API Server.'
+        : 'That key is not this Eaon’s. The key is in Eaon → Settings → Local API Server.'
     json(res, 401, anthropicStyle ? anthropicError(message, 'authentication_error') : { error: { message, type: 'invalid_api_key', code: 'invalid_api_key' } })
     return
   }
@@ -192,7 +214,14 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     let body: Record<string, unknown>
     try {
       body = await readBody(req)
-    } catch {
+    } catch (error) {
+      if (error instanceof BodyTooLarge) {
+        const message = `The request is larger than ${MAX_BODY_BYTES / 1024 / 1024} MB. Send fewer or smaller images.`
+        json(res, 413, anthropicStyle ? anthropicError(message, 'request_too_large') : { error: { message, type: 'invalid_request_error', code: 'request_too_large' } })
+        // The rest of the body is not read; close rather than let it pile up.
+        res.once('finish', () => req.destroy())
+        return
+      }
       json(res, 400, anthropicStyle ? anthropicError('Invalid JSON body', 'invalid_request_error') : { error: { message: 'Invalid JSON body', type: 'invalid_request_error' } })
       return
     }

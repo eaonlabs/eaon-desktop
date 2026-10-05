@@ -307,7 +307,9 @@ export function isOwnServerUrl(baseUrl: string): boolean {
   try {
     const url = new URL(baseUrl)
     const port = Number(url.port || (url.protocol === 'https:' ? 443 : 80))
-    return port === ownServerPort && isLoopbackHost(url.hostname)
+    // `localhost.` resolves too, and 127.0.0.0/8 is all this machine.
+    const host = url.hostname.toLowerCase().replace(/\.$/, '')
+    return port === ownServerPort && (isLoopbackHost(host) || /^127\.\d+\.\d+\.\d+$/.test(host) || host === '[::ffff:7f00:1]')
   } catch {
     return false
   }

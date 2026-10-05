@@ -11,6 +11,8 @@ import { editModels, listProviders, refreshModels, refreshProviderModels, remove
 import { refreshLocalProviders } from './providers/localDiscovery'
 import { refreshCatalogInBackground } from './providers/modelCatalog'
 import { resolveApproval } from './agent/approvals'
+import { hardenAppWindow, openExternalSafely } from './externalLinks'
+import { catalogRowsPinned, providerKeyId } from './ipcGuards'
 import { activeRunIds, cancelRun, pauseGoal, runAgent } from './agent/loop'
 import './agent/sources'
 import { killBackgroundProcesses } from './localTools'
@@ -264,10 +266,10 @@ function createWindow(): BrowserWindow {
     }
   })
 
-  window.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
-    return { action: 'deny' }
-  })
+  // New windows open in the user's browser (web and email links only), the
+  // window never navigates away from the app, and the browser panel's
+  // <webview> gets no Node and no popups (externalLinks.ts).
+  hardenAppWindow(window)
 
   const devServer = process.env['ELECTRON_RENDERER_URL']
   if (devServer) window.loadURL(devServer)
@@ -414,7 +416,9 @@ function registerIpc(): void {
   ipcMain.handle('chat:active-runs', (): string[] => activeRunIds())
   ipcMain.handle('window:new', () => void createWindow())
   ipcMain.handle('mcp:get', (): McpServer[] => store.getMcpServers())
-  ipcMain.handle('mcp:save', (_e, value: McpServer[]) => {
+  ipcMain.handle('mcp:save', (_e, raw: McpServer[]) => {
+    // Catalog plugins connect only to their vendor's server (ipcGuards.ts).
+    const value = catalogRowsPinned(raw)
     // A hand-added server deleted here takes its sign-in with it; left in the
     // vault, its tokens outlived it and a new server that reused the id
     // inherited them. Catalog plugins sign out through plugins:disconnect.
@@ -472,15 +476,20 @@ function registerIpc(): void {
   ipcMain.handle('providers:edit-models', (_e, id: string, edit: ModelEdit) => editModels(id, edit))
   ipcMain.handle('providers:test', (_e, id: string) => testProvider(id))
 
+  // Model-provider keys only: the vault's namespaced entries (plugin and
+  // chat-app tokens, the payment card, OAuth) are not the renderer's to
+  // read back, replace or clear (ipcGuards.ts).
+  const providerKey = (id: unknown): string => providerKeyId(id, listProviders().map((p) => p.id))
   ipcMain.handle('keys:set', (_e, id: string, key: string) => {
-    secrets.set(id, key)
+    if (typeof key !== 'string') throw new Error('A key is text.')
+    secrets.set(providerKey(id), key)
     return listProviders()
   })
   ipcMain.handle('keys:clear', (_e, id: string) => {
-    secrets.clear(id)
+    secrets.clear(providerKey(id))
     return listProviders()
   })
-  ipcMain.handle('keys:hint', (_e, id: string) => secrets.hint(id))
+  ipcMain.handle('keys:hint', (_e, id: string) => secrets.hint(providerKey(id)))
   // Decrypts on demand for the user's own reveal/copy click — never held in
   // renderer state; `keys:hint` above stays the default, ambient-safe signal.
   // Only model-provider keys the user typed in. The vault also holds plugin
@@ -489,9 +498,10 @@ function registerIpc(): void {
   ipcMain.handle('keys:reveal', (_e, id: string) =>
     listProviders().some((p) => p.id === id && p.auth !== 'oauth') ? (secrets.get(id) ?? null) : null
   )
-  ipcMain.handle('keys:get-fallbacks', (_e, id: string) => secrets.getFallbacks(id))
+  ipcMain.handle('keys:get-fallbacks', (_e, id: string) => secrets.getFallbacks(providerKey(id)))
   ipcMain.handle('keys:set-fallbacks', (_e, id: string, keys: string[]) => {
-    secrets.setFallbacks(id, keys)
+    if (!Array.isArray(keys) || !keys.every((key) => typeof key === 'string')) throw new Error('Fallback keys are a list of text.')
+    secrets.setFallbacks(providerKey(id), keys)
     return listProviders()
   })
 
@@ -528,7 +538,7 @@ function registerIpc(): void {
   ipcMain.handle('chat:pause-goal', (_e, messageId: string) => pauseGoal(messageId))
   ipcMain.handle('chat:approve', (_e, requestId: string, approved: boolean) => resolveApproval(requestId, approved))
 
-  ipcMain.handle('app:open-external', (_e, url: string) => shell.openExternal(url))
+  ipcMain.handle('app:open-external', (_e, url: string) => openExternalSafely(url))
   // `~` arrives from the renderer, which has no idea where home is; Work's
   // default folder is displayed as ~/Eaon until the first task creates it.
   ipcMain.handle('app:show-item', (_e, path: string) => shell.showItemInFolder(path.replace(/^~(?=\/|$)/, homedir())))

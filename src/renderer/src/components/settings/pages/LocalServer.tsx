@@ -89,7 +89,7 @@ export function LocalServerPage(): JSX.Element {
               ]}
             />
           </Row>
-          <Row title="Key" description="Apps connected to Eaon send this. Requests with no key still work; a wrong key is refused.">
+          <Row title="Key" description="Apps connected to Eaon send this. Programs on this computer may leave it out; web pages and browser extensions must send it. A wrong key is refused.">
             <code className="code-settings__path" style={{ fontSize: 12 }}>
               {gateway ? `${gateway.token.slice(0, 10)}…` : '…'}
             </code>

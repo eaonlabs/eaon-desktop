@@ -232,7 +232,9 @@ function PurchaseRow({ purchase }: { purchase: PurchaseRecord }): JSX.Element {
         </div>
         <div className="row__desc">
           {when} · {purchase.how === 'approved' ? 'You approved it' : 'Automatic'}
+          {purchase.recurring ? ' · Subscription' : ''}
           {purchase.site ? ` · ${purchase.site}` : ''}
+          {purchase.overAuthorized ? ` · Charged more than the ${formatMoney(purchase.amount, purchase.currency)} approved` : ''}
           {purchase.note ? ` · ${purchase.note}` : ''}
         </div>
       </div>
