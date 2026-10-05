@@ -366,10 +366,11 @@
 .browser__tab {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   height: 26px;
   max-width: 200px;
-  padding: 0 6px 0 10px;
+  min-width: 0;
+  padding: 0 4px 0 0;
   border-radius: var(--r-sm);
   background: var(--surface-2);
   font-size: var(--fs-sm);
@@ -378,6 +379,15 @@
 .browser__tab[data-active='false'] {
   background: transparent;
   color: var(--text-3);
+}
+.browser__tab-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 100%;
+  padding-left: 10px;
+  border-radius: inherit;
 }
 .browser__tab-label {
   overflow: hidden;
@@ -417,6 +427,9 @@
   border: 1px solid var(--border-soft);
   margin: 0 6px;
 }
+.browser__url:focus-within {
+  border-color: color-mix(in srgb, var(--toggle-on), transparent 30%);
+}
 .browser__url input {
   flex: 1;
   min-width: 0;
@@ -430,27 +443,6 @@
   color: var(--text-3);
 }
 
-.browser__banner {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
-  margin: 0 12px 8px;
-  border-radius: var(--r-md);
-  background: var(--surface-1);
-}
-.browser__banner-body {
-  flex: 1;
-  min-width: 0;
-}
-.browser__banner-title {
-  font-size: var(--fs-base);
-}
-.browser__banner-desc {
-  font-size: var(--fs-sm);
-  color: var(--text-3);
-}
-
 .browser__view {
   flex: 1;
   min-height: 0;
@@ -460,6 +452,17 @@
 .browser__view webview {
   flex: 1;
   border: 0;
+}
+.browser__view .empty-state {
+  flex: 1;
+  padding: 24px;
+  text-align: center;
+}
+.browser__error-code {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  margin-bottom: 8px;
 }
 
 /* ---- Pull requests — real data from the gh CLI ----
