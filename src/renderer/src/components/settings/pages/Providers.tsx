@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import {
+  Brain,
   Copy,
   ExternalLink,
   Eye,
@@ -21,7 +22,7 @@ import { useApp } from '../../../state/store'
 import { BrandIcon } from '../../../icons/brand'
 import { Modal, SearchField, Switch } from '../../ui'
 import type { ModelInfo, Provider } from '@shared/types'
-import { customProviderId, type ModelEdit, type ModelsRefresh, type ProviderAuthStatus, type ProviderMeta } from '@shared/providers'
+import { customProviderId, type ModelEdit, type ModelEditFields, type ModelsRefresh, type ProviderAuthStatus, type ProviderMeta } from '@shared/providers'
 import '../../../styles/providers.css'
 import { openInAde } from '../../code/terminal/terminalStore'
 import { LinkAccounts } from '../../LinkAccounts'
@@ -261,6 +262,7 @@ function ProviderDetail({
       {meta.fields && meta.baseUrlTemplate && <UrlFieldsSection provider={provider} meta={meta} />}
       {meta.baseUrlLabel && <EndpointSection provider={provider} meta={meta} />}
       {provider.local && <LocalUrlSection provider={provider} />}
+      {!provider.builtIn && <CustomConnectionSection provider={provider} />}
       {provider.auth !== 'oauth' && !provider.local && (
         <KeySection provider={provider} meta={meta} auth={auth} onStatus={setStatus} status={status} />
       )}
@@ -748,8 +750,8 @@ function KeySection({
 
       {showAdvanced && (
         <div className="provider-detail__advanced">
-          {/* Providers with their own endpoint section already show this field up top. */}
-          {!meta.baseUrlLabel && (
+          {/* Providers with their own endpoint section (and custom ones, under Connection) already show this field up top. */}
+          {!meta.baseUrlLabel && provider.builtIn && (
             <div>
               <div className="field-label">Base URL</div>
               <input className="input" value={baseUrl} spellCheck={false} onChange={(e) => setBaseUrl(e.target.value)} onBlur={() => void saveBaseUrl()} />
@@ -837,7 +839,7 @@ function ModelsSection({ provider }: { provider: Provider }): JSX.Element {
   )
   const [addingModel, setAddingModel] = useState(false)
   const [newModelId, setNewModelId] = useState('')
-  const [renaming, setRenaming] = useState<string | null>(null)
+  const [editing, setEditing] = useState<string | null>(null)
   const [showHidden, setShowHidden] = useState(false)
   const [query, setQuery] = useState('')
   const [busy, setBusy] = useState(false)
@@ -846,9 +848,16 @@ function ModelsSection({ provider }: { provider: Provider }): JSX.Element {
   const hidden = provider.hiddenModels ?? []
   const starred = new Set(favorites ?? [])
 
-  const edit = async (change: ModelEdit): Promise<void> => {
-    await window.api.providers.editModels(provider.id, change)
-    await refreshProviders()
+  const edit = async (change: ModelEdit): Promise<boolean> => {
+    try {
+      await window.api.providers.editModels(provider.id, change)
+      return true
+    } catch (error) {
+      setStatus({ ok: false, added: [], message: error instanceof Error ? error.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(error) })
+      return false
+    } finally {
+      await refreshProviders()
+    }
   }
 
   const refresh = async (): Promise<void> => {
@@ -865,10 +874,13 @@ function ModelsSection({ provider }: { provider: Provider }): JSX.Element {
   }
 
   const addModel = async (): Promise<void> => {
-    if (!newModelId.trim()) return
-    await edit({ add: newModelId.trim() })
+    const id = newModelId.trim()
+    if (!id) return
+    await edit({ add: id })
     setNewModelId('')
     setAddingModel(false)
+    // A model added by id starts with nothing known about it: say what it can do.
+    setEditing(id)
   }
 
   const needle = query.trim().toLowerCase()
@@ -938,13 +950,16 @@ function ModelsSection({ provider }: { provider: Provider }): JSX.Element {
           const key = `${model.providerId}:${model.id}`
           const on = starred.has(key)
           return (
-            <div className="model-row" key={model.id}>
-              {renaming === model.id ? (
-                <RenameField
+            <div className="model-row" key={model.id} data-editing={editing === model.id || undefined}>
+              {editing === model.id ? (
+                <ModelEditor
                   model={model}
-                  onDone={(label) => {
-                    setRenaming(null)
-                    if (label !== undefined) void edit({ rename: model.id, label })
+                  onCancel={() => setEditing(null)}
+                  onSave={async (change) => {
+                    if (await edit(change)) setEditing(null)
+                  }}
+                  onReset={async () => {
+                    if (await edit({ reset: model.id })) setEditing(null)
                   }}
                 />
               ) : (
@@ -955,11 +970,14 @@ function ModelsSection({ provider }: { provider: Provider }): JSX.Element {
                   <span className="model-row__badges">
                     {model.tools !== false && <Wrench size={13} strokeWidth={1.8} aria-label="Tools" />}
                     {model.vision && <Eye size={14} strokeWidth={1.8} aria-label="Images" />}
+                    {(model.reasoning || (model.efforts?.length ?? 0) > 0) && <Brain size={13} strokeWidth={1.8} aria-label="Thinking" />}
+                    {model.custom && <span className="model-row__tag">Added</span>}
+                    {model.edited && !model.custom && <span className="model-row__tag">Edited</span>}
                   </span>
                   <span className="model-row__spacer" />
                   {model.contextWindow && <span className="model-row__meta">{formatTokens(model.contextWindow)}</span>}
                   <span className="model-row__actions">
-                    <button className="icon-btn" aria-label={`Rename ${model.label}`} title="Rename" onClick={() => setRenaming(model.id)}>
+                    <button className="icon-btn" aria-label={`Edit ${model.label}`} title="Edit name, limits and capabilities" onClick={() => setEditing(model.id)}>
                       <Pencil size={14} strokeWidth={1.8} />
                     </button>
                     <button
@@ -1020,37 +1038,208 @@ function ModelsSection({ provider }: { provider: Provider }): JSX.Element {
   )
 }
 
-/** Inline rename: Enter saves, Escape cancels, an empty name goes back to the catalog's. */
-function RenameField({ model, onDone }: { model: ModelInfo; onDone: (label?: string | null) => void }): JSX.Element {
-  const [value, setValue] = useState(model.label)
-  const done = useRef(false)
-  const finish = (label?: string | null): void => {
-    if (done.current) return
-    done.current = true
-    onDone(label)
-  }
+/** "128k", "1M", "200,000" as tokens; empty is null (the catalog's value); anything else undefined. */
+function parseTokens(text: string): number | null | undefined {
+  const value = text.trim().toLowerCase().replace(/[,_\s]/g, '')
+  if (!value) return null
+  const match = /^(\d+(?:\.\d+)?)([km])?$/.exec(value)
+  if (!match) return undefined
+  const tokens = Math.round(parseFloat(match[1]) * (match[2] === 'm' ? 1_000_000 : match[2] === 'k' ? 1000 : 1))
+  return tokens > 0 ? tokens : undefined
+}
+
+const thinks = (model: ModelInfo): boolean => Boolean(model.reasoning || (model.efforts?.length ?? 0) > 0)
+
+/**
+ * Edit model, in place of its row: the name, and for a model added by hand
+ * its id; its context window and output limit; and what it can do. Only what
+ * changed is saved, so the catalog's later corrections still come through
+ * for the rest. Enter saves, Escape cancels.
+ */
+function ModelEditor({
+  model,
+  onSave,
+  onReset,
+  onCancel
+}: {
+  model: ModelInfo
+  onSave: (change: ModelEdit) => void | Promise<void>
+  onReset: () => void | Promise<void>
+  onCancel: () => void
+}): JSX.Element {
+  const [label, setLabel] = useState(model.label)
+  const [modelId, setModelId] = useState(model.id)
+  const [context, setContext] = useState(model.contextWindow ? String(model.contextWindow) : '')
+  const [output, setOutput] = useState(model.maxOutput ? String(model.maxOutput) : '')
+  const [tools, setTools] = useState(model.tools !== false)
+  const [vision, setVision] = useState(Boolean(model.vision))
+  const [thinking, setThinking] = useState(thinks(model))
+  const [error, setError] = useState<string | null>(null)
+
   const save = (): void => {
-    const next = value.trim()
-    if (next === model.label) finish(undefined)
-    else finish(next || null)
+    const contextWindow = parseTokens(context)
+    const maxOutput = parseTokens(output)
+    if (contextWindow === undefined || maxOutput === undefined) {
+      setError('Write sizes in tokens, like 128000, 128k or 1M.')
+      return
+    }
+    const fields: ModelEditFields = {}
+    if (contextWindow !== (model.contextWindow ?? null)) fields.contextWindow = contextWindow
+    if (maxOutput !== (model.maxOutput ?? null)) fields.maxOutput = maxOutput
+    if (tools !== (model.tools !== false)) fields.tools = tools
+    if (vision !== Boolean(model.vision)) fields.vision = vision
+    if (thinking !== thinks(model)) fields.reasoning = thinking
+    const name = label.trim()
+    const id = modelId.trim()
+    void onSave({
+      update: model.id,
+      ...(name !== model.label ? { label: name || null } : {}),
+      ...(model.custom && id && id !== model.id ? { id } : {}),
+      ...(Object.keys(fields).length > 0 ? { fields } : {})
+    })
   }
+  const keys = (event: React.KeyboardEvent): void => {
+    if (event.key === 'Enter') save()
+    if (event.key === 'Escape') onCancel()
+  }
+
   return (
-    <div className="model-row__rename">
+    <div className="model-editor" role="group" aria-label={`Edit ${model.label}`}>
+      <div className="model-editor__grid">
+        <label className="model-editor__field">
+          <span className="field-label">Name</span>
+          <input autoFocus className="input" value={label} spellCheck={false} onChange={(e) => setLabel(e.target.value)} onKeyDown={keys} />
+        </label>
+        <label className="model-editor__field">
+          <span className="field-label">Model id{model.custom ? '' : ' (from the catalog)'}</span>
+          <input
+            className="input model-editor__mono"
+            value={modelId}
+            spellCheck={false}
+            readOnly={!model.custom}
+            onChange={(e) => setModelId(e.target.value)}
+            onKeyDown={keys}
+          />
+        </label>
+        <label className="model-editor__field">
+          <span className="field-label">Context window</span>
+          <input className="input" value={context} placeholder="e.g. 128k" spellCheck={false} onChange={(e) => setContext(e.target.value)} onKeyDown={keys} />
+        </label>
+        <label className="model-editor__field">
+          <span className="field-label">Max output</span>
+          <input className="input" value={output} placeholder="e.g. 32k" spellCheck={false} onChange={(e) => setOutput(e.target.value)} onKeyDown={keys} />
+        </label>
+      </div>
+      <div className="model-editor__toggles">
+        <div className="model-editor__toggle">
+          <Switch label="Tools" checked={tools} onChange={setTools} />
+          <span>
+            <b>Tools</b> Files, commands, the browser and plugins
+          </span>
+        </div>
+        <div className="model-editor__toggle">
+          <Switch label="Images" checked={vision} onChange={setVision} />
+          <span>
+            <b>Images</b> Reads screenshots and pictures
+          </span>
+        </div>
+        <div className="model-editor__toggle">
+          <Switch label="Thinking" checked={thinking} onChange={setThinking} />
+          <span>
+            <b>Thinking</b> Thinks before answering; shows the effort control
+          </span>
+        </div>
+      </div>
+      {error && (
+        <div className="provider-status" data-tone="error" role="alert">
+          <TriangleAlert size={14} strokeWidth={1.9} />
+          {error}
+        </div>
+      )}
+      <div className="model-editor__actions">
+        {model.edited && (
+          <button className="btn btn--sm" onClick={() => void onReset()} title="Back to the catalog’s name and details">
+            <RotateCcw size={13} strokeWidth={1.9} />
+            Reset to defaults
+          </button>
+        )}
+        <span className="model-row__spacer" />
+        <button className="btn btn--sm" onClick={onCancel}>
+          Cancel
+        </button>
+        <button className="btn btn--sm btn--provider" onClick={save}>
+          Save
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * A custom provider's connection, editable after it was added: its name, API
+ * format and base URL, and Delete (a second click confirms, so a stray click
+ * can't remove it).
+ */
+function CustomConnectionSection({ provider }: { provider: Provider }): JSX.Element {
+  const refreshProviders = useApp((s) => s.refreshProviders)
+  const [name, setName] = useState(provider.name)
+  const [format, setFormat] = useState(provider.kind)
+  const [baseUrl, setBaseUrl] = useState(provider.baseUrl)
+  const [confirming, setConfirming] = useState(false)
+  const [saved, setSaved] = useState(false)
+  const dirty = name.trim() !== provider.name || format !== provider.kind || baseUrl.trim() !== provider.baseUrl
+
+  useEffect(() => {
+    if (!confirming) return
+    const timer = setTimeout(() => setConfirming(false), 4000)
+    return () => clearTimeout(timer)
+  }, [confirming])
+
+  const save = async (): Promise<void> => {
+    await window.api.providers.update(provider.id, { name: name.trim() || provider.name, kind: format, baseUrl: baseUrl.trim() })
+    await refreshProviders()
+    setSaved(true)
+    setTimeout(() => setSaved(false), 1800)
+  }
+  const remove = async (): Promise<void> => {
+    if (!confirming) {
+      setConfirming(true)
+      return
+    }
+    await window.api.providers.remove(provider.id)
+    await refreshProviders()
+  }
+
+  return (
+    <div className="provider-detail__section">
+      <div className="provider-detail__section-title">Connection</div>
+      <div className="field-label">Name</div>
+      <input className="input" style={{ marginBottom: 14 }} value={name} spellCheck={false} onChange={(e) => setName(e.target.value)} />
+      <div className="field-label">API format</div>
+      <div className="radio-row" style={{ marginBottom: 14 }}>
+        <RadioOption label="OpenAI chat" checked={format === 'openai-compatible'} onSelect={() => setFormat('openai-compatible')} />
+        <RadioOption label="OpenAI Responses" checked={format === 'openai-responses'} onSelect={() => setFormat('openai-responses')} />
+        <RadioOption label="Anthropic" checked={format === 'anthropic'} onSelect={() => setFormat('anthropic')} />
+      </div>
+      <div className="field-label">Base URL</div>
       <input
-        autoFocus
         className="input"
-        value={value}
-        aria-label={`New name for ${model.id}`}
+        style={{ marginBottom: 14 }}
+        value={baseUrl}
+        placeholder="https://your-endpoint/v1"
         spellCheck={false}
-        onFocus={(e) => e.currentTarget.select()}
-        onChange={(e) => setValue(e.target.value)}
-        onBlur={save}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') save()
-          if (e.key === 'Escape') finish(undefined)
-        }}
+        onChange={(e) => setBaseUrl(e.target.value)}
       />
-      <span className="provider-detail__hint">Enter to save · Esc to cancel · empty resets</span>
+      <div className="provider-connection__actions">
+        <button className="btn btn--provider" disabled={!dirty || !baseUrl.trim()} onClick={() => void save()}>
+          {saved ? 'Saved' : 'Save'}
+        </button>
+        <span className="model-row__spacer" />
+        <button className="btn btn--danger" onClick={() => void remove()}>
+          <Trash2 size={14} strokeWidth={1.9} />
+          {confirming ? 'Click again to delete' : 'Delete provider'}
+        </button>
+      </div>
     </div>
   )
 }

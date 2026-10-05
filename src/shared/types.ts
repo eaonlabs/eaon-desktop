@@ -29,6 +29,8 @@ export interface ModelInfo {
   reasoning?: boolean
   /** Added by hand in Settings → Model providers, rather than from the catalog or the provider's listing. */
   custom?: boolean
+  /** The user changed its details (Edit model): its limits or capabilities, or its name. */
+  edited?: boolean
 }
 
 /**

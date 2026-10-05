@@ -695,12 +695,71 @@
 .model-row__star[data-on='true'] {
   color: var(--provider-accent);
 }
-.model-row__rename {
+/* "Added" (by hand) and "Edited" next to a model's name. */
+.model-row__tag {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 7px;
+  line-height: 18px;
+}
+
+/* Edit model, in place of its row. */
+.model-row[data-editing] {
+  align-items: stretch;
+}
+.model-editor {
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 4px;
+  gap: 14px;
   min-width: 0;
+  padding: 8px 0 6px;
+}
+.model-editor__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 14px;
+}
+.model-editor__field {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.model-editor__mono {
+  font-family: var(--font-mono);
+}
+.model-editor__mono[readonly] {
+  color: var(--text-3);
+}
+.model-editor__toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.model-editor__toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+.model-editor__toggle b {
+  color: var(--text);
+  font-weight: 500;
+  margin-right: 6px;
+}
+.model-editor__actions,
+.provider-connection__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+@media (max-width: 720px) {
+  .model-editor__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 .model-row--hidden .model-row__name {
   color: var(--text-2);

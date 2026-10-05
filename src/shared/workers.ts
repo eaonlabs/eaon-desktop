@@ -1,5 +1,5 @@
 import type { ChannelKind, GuestAccess } from './channels'
-import type { ChatMessage, StreamEvent } from './types'
+import type { ChatMessage, GoalState, StreamEvent } from './types'
 
 /**
  * Eaon Workers: independent agents that live on the user's computer and keep
@@ -251,6 +251,24 @@ export const WORKER_TEMPLATES: WorkerTemplate[] = [
 ]
 
 /** What the composer sends with a message, besides its text and files. */
+/**
+ * A worker's goal run. `iterations` counts the times it was sent back to
+ * work within turns, `turns` the turns spent on it. `pausedByUser` tells a
+ * pause the user asked for (which waits for them) from a turn's own limit
+ * (after which the worker simply carries on in its next turn).
+ */
+export interface WorkerGoalRun extends GoalState {
+  startedAt: number
+  turns: number
+  pausedByUser?: boolean
+  /**
+   * When it next continues on its own, after a turn that left it unfinished.
+   * Null while a turn is on it, and when the worker chose its own wake-up
+   * (sleep or a heartbeat): that turn runs in goal mode too.
+   */
+  nextAt?: number | null
+}
+
 export interface WorkerSendOptions {
   /** Make this message the worker's goal, replacing the one it had. */
   goal?: boolean
@@ -380,6 +398,13 @@ export interface Worker {
    */
   goal: string
   notes: string
+  /**
+   * A goal the user set from the composer (Goal), which the worker works on
+   * until it is done: its turns run in goal mode, and a turn that ends with
+   * the goal unfinished is followed by another on its own. Null when there is
+   * none; `goal` above is the worker's memory of it either way.
+   */
+  goalRun: WorkerGoalRun | null
   /** Questions waiting on the user, oldest first. */
   asks: WorkerAsk[]
   status: WorkerStatus
@@ -452,6 +477,15 @@ export const MAX_ROOM_POSTS = 500
 export const MAX_ROUTINES = 20
 /** Goal and notes are part of every prompt, so they stay short. */
 export const MAX_GOAL_CHARS = 600
+/**
+ * A goal run continues on its own this soon after a turn that left it
+ * unfinished (unless the worker chose to sleep longer), and pauses to check
+ * in with the user after this many turns.
+ */
+export const GOAL_CONTINUE_MS = 60_000
+export const GOAL_MAX_TURNS = 30
+/** The longest a worker may sleep in one go (sleep tool). */
+export const MAX_SLEEP_MINUTES = 24 * 60
 export const MAX_NOTES_CHARS = 4000
 /** A heartbeat can not come round faster than this. */
 export const MIN_HEARTBEAT_MS = 60_000

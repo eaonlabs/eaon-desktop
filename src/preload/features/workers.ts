@@ -40,6 +40,8 @@ export const workersApi = {
   /** Empties the thread and its summary; mail, heartbeat and settings stay. */
   clear: (id: string): Promise<void> => ipcRenderer.invoke('workers:clear', id),
   setPaused: (id: string, paused: boolean): Promise<Worker> => ipcRenderer.invoke('workers:set-paused', id, paused),
+  /** Pause, resume or clear the goal set from the composer's Goal. */
+  setGoal: (id: string, status: 'active' | 'paused' | null): Promise<void> => ipcRenderer.invoke('workers:set-goal', id, status),
   /** Runs a check-in turn as soon as the worker is free. */
   wake: (id: string): Promise<void> => ipcRenderer.invoke('workers:wake', id),
   /** Aborts the running turn only. */

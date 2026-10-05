@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from '
 import { rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Chat, DownloadedModel, McpServer, ModelInfo, Project, Settings, Workspace } from '@shared/types'
+import type { ModelEditFields } from '@shared/providers'
 
 /**
  * What `providers.json` keeps per provider: the user's changes, layered over
@@ -22,6 +23,8 @@ export interface ProviderOverride {
   hidden?: string[]
   /** Display names the user chose, by model id. */
   labels?: Record<string, string>
+  /** Limits and capabilities the user set (Edit model), by model id. */
+  edits?: Record<string, ModelEditFields>
   /** Before overlays: the whole list, replaced on every refresh. Read once as `listed`. */
   models?: ModelInfo[]
 }

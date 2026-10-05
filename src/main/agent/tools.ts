@@ -28,6 +28,12 @@ export interface TurnState {
   plan?: PlanProposal
   /** Set by goal_complete / goal_blocked. */
   goalResolution?: { status: Extract<GoalState['status'], 'achieved' | 'blocked'>; summary: string }
+  /**
+   * Set by a worker's sleep: it stops until a wake-up it scheduled. The loop
+   * ends the turn once the round's tools finish, and a goal is not sent back
+   * to work meanwhile; it resumes when the worker wakes.
+   */
+  yielded?: { until: number }
   /** Anything a tool wants to hand back to the loop that the loop does not interpret. */
   notes: string[]
   /** Tokens spent inside a tool (sub-agents), folded into the turn's usage by the loop. */
@@ -41,7 +47,7 @@ export interface TurnState {
 }
 
 /** Tools that steer the turn itself; calling them neither changes nor checks anything. */
-export const WORKFLOW_TOOLS = new Set(['update_plan', 'present_plan', 'goal_complete', 'goal_blocked', 'wait'])
+export const WORKFLOW_TOOLS = new Set(['update_plan', 'present_plan', 'goal_complete', 'goal_blocked', 'wait', 'sleep'])
 
 export interface ToolContext {
   request: StreamRequest

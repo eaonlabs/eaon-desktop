@@ -1,4 +1,4 @@
-import { describeWorker } from '@shared/workers'
+import { describeWorker, MAX_SLEEP_MINUTES } from '@shared/workers'
 import type { AgentTool, ToolContext, ToolSource } from '../../agent/tools'
 import { HINT_MOODS, type WorkersEngine } from './engine'
 
@@ -205,6 +205,31 @@ export function workersToolSource(engine: WorkersEngine): ToolSource {
     }
   }
 
+  /**
+   * Sleeping is how a worker waits: for a build, a reply, a price, the next
+   * market open, or to pace long work. The turn ends (TurnState.yielded) and
+   * frees its slot, rather than holding one while nothing happens.
+   */
+  const sleep: AgentTool = {
+    name: 'sleep',
+    description: `Stop working now and wake up again later: when you are waiting for something (a build, a reply, a page to change, the market to open) or pacing long work. minutes = how long (1–${MAX_SLEEP_MINUTES}); note = what to check or do when you wake. This turn ends straight away and you continue when you wake; a goal you are working on carries on then.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        minutes: { type: 'number', description: `1–${MAX_SLEEP_MINUTES}` },
+        note: { type: 'string', description: 'What to check or do when you wake' }
+      },
+      required: ['minutes']
+    },
+    mutating: false,
+    describe: (input) => `Sleep ${Math.max(1, Math.round(num(input.minutes) ?? 1))} min${str(input.note) ? ` · ${str(input.note)}` : ''}`,
+    run: async (input, ctx) => {
+      const { until, text } = engine.sleep(self(ctx), num(input.minutes) ?? 1, str(input.note))
+      ctx.turn.yielded = { until }
+      return text
+    }
+  }
+
   const setStatus: AgentTool = {
     name: 'set_status',
     description:
@@ -370,6 +395,7 @@ export function workersToolSource(engine: WorkersEngine): ToolSource {
     handOff,
     finishHandoff,
     checkWorker,
+    sleep,
     setHeartbeat,
     addRoutine,
     removeRoutine,

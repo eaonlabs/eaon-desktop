@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { AppWindow, Check, ChevronDown, CircleHelp, MonitorPlay, PanelRight, Repeat, ShieldAlert, Target, X } from 'lucide-react'
+import { AppWindow, Check, ChevronDown, CircleHelp, MonitorPlay, PanelRight, Pause, Play, Repeat, ShieldAlert, Target, TriangleAlert, X } from 'lucide-react'
 import { relativeTime, type Worker, type WorkerAsk } from '@shared/workers'
 import { workerBrowserTarget } from '@shared/agentBrowser'
 import { useWorkers } from './workersStore'
@@ -99,6 +99,65 @@ function AskCard({ worker, ask }: { worker: Worker; ask: WorkerAsk }): JSX.Eleme
           }}
         />
       </div>
+    </div>
+  )
+}
+
+const GOAL_LABEL = {
+  active: 'Working toward goal',
+  achieved: 'Goal achieved',
+  blocked: 'Blocked — needs you',
+  paused: 'Goal paused'
+} as const
+
+/**
+ * The goal set from the composer's Goal, above the composer like Chat's:
+ * what it is, how it's going, and Pause / Resume / Clear. A blocked goal
+ * also picks up again when the user answers.
+ */
+export function WorkerGoalBanner({ worker, now }: { worker: Worker; now: number }): JSX.Element | null {
+  const goal = worker.goalRun
+  if (!goal) return null
+  const set = (status: 'active' | 'paused' | null): void => void window.api.workers.setGoal(worker.id, status)
+  const progress =
+    goal.status === 'active'
+      ? worker.status === 'working'
+        ? ' · on it now'
+        : typeof goal.nextAt === 'number'
+          ? ` · continues ${relativeTime(goal.nextAt, now)}`
+          : worker.heartbeat.nextAt !== null
+            ? ` · picks up ${relativeTime(worker.heartbeat.nextAt, now)}`
+            : ''
+      : goal.summary
+        ? ` · ${goal.summary}`
+        : ''
+  return (
+    <div className="goal-banner" data-status={goal.status}>
+      <span className="goal-banner__icon">
+        {goal.status === 'blocked' ? <TriangleAlert size={14} strokeWidth={2} /> : goal.status === 'achieved' ? <Check size={14} strokeWidth={2.4} /> : <Target size={14} strokeWidth={2} />}
+      </span>
+      <span className="goal-banner__body">
+        <span className="goal-banner__label">
+          {GOAL_LABEL[goal.status]}
+          {progress}
+        </span>
+        <span className="goal-banner__text" title={goal.text}>
+          {goal.text}
+        </span>
+      </span>
+      {goal.status === 'active' && (
+        <button className="icon-btn" aria-label="Pause goal" title="Pause goal" onClick={() => set('paused')}>
+          <Pause size={14} strokeWidth={2} />
+        </button>
+      )}
+      {(goal.status === 'paused' || goal.status === 'blocked') && (
+        <button className="icon-btn" aria-label="Resume goal" title="Resume goal now" onClick={() => set('active')}>
+          <Play size={14} strokeWidth={2} />
+        </button>
+      )}
+      <button className="icon-btn" aria-label="Clear goal" title="Clear goal" onClick={() => set(null)}>
+        <X size={14} strokeWidth={2} />
+      </button>
     </div>
   )
 }

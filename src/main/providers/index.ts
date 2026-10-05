@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { ModelInfo, Provider, TokenUsage } from '@shared/types'
-import type { ModelEdit, ModelsRefresh } from '@shared/providers'
+import type { ModelEdit, ModelEditFields, ModelsRefresh } from '@shared/providers'
 import { secrets } from '../secrets'
 import { store, type ProviderOverride } from '../store'
 import { anthropicAdapter } from './adapters/anthropic'
@@ -174,14 +174,32 @@ function composeModels(provider: Provider, seed: ModelInfo[], override: Provider
 
   const hidden = new Set(override.hidden ?? [])
   const labels = override.labels ?? {}
+  const edits = override.edits ?? {}
   const models: ModelInfo[] = []
   const hiddenModels: ModelInfo[] = []
   for (const raw of byId.values()) {
     const model = enrichModel({ ...raw, providerId: provider.id, ...(labels[raw.id] ? { label: labels[raw.id] } : {}) })
+    if (edits[raw.id]) applyModelEdit(model, edits[raw.id])
+    if (labels[raw.id] || edits[raw.id]) model.edited = true
     if (model.efforts?.length && !effortReaches(provider, model.id, model)) model.efforts = []
     ;(hidden.has(model.id) ? hiddenModels : models).push(model)
   }
   return { models, hiddenModels }
+}
+
+/** The user's Edit model settings, over what the catalog and the listing said. */
+function applyModelEdit(model: ModelInfo, edit: ModelEditFields): void {
+  if (typeof edit.contextWindow === 'number' && edit.contextWindow > 0) model.contextWindow = edit.contextWindow
+  if (typeof edit.maxOutput === 'number' && edit.maxOutput > 0) model.maxOutput = edit.maxOutput
+  if (typeof edit.tools === 'boolean') model.tools = edit.tools
+  if (typeof edit.vision === 'boolean') model.vision = edit.vision
+  if (typeof edit.reasoning === 'boolean') {
+    model.reasoning = edit.reasoning
+    // Thinking is what the effort control is for; a model newly marked as
+    // thinking gets the common three levels unless it already knows its own.
+    if (!edit.reasoning) model.efforts = []
+    else if (!model.efforts?.length) model.efforts = ['light', 'medium', 'high']
+  }
 }
 
 function builtInProvider(seed: (typeof BUILT_IN)[number], override: ProviderOverride): Provider {
@@ -280,10 +298,13 @@ function setListed(id: string, models: ModelInfo[]): void {
  * label that survives every refresh.
  */
 export function editModels(id: string, edit: ModelEdit): Provider[] {
+  // Set inside the edit callback when a hand-added model's id changes.
+  const moved: { from: string; to: string }[] = []
   editOverride(id, (override) => {
     const hidden = new Set(override.hidden ?? [])
     let custom = override.custom ?? []
     const labels = { ...override.labels }
+    const edits = { ...override.edits }
     if ('remove' in edit) {
       if (custom.some((m) => m.id === edit.remove)) custom = custom.filter((m) => m.id !== edit.remove)
       else hidden.add(edit.remove)
@@ -299,9 +320,49 @@ export function editModels(id: string, edit: ModelEdit): Provider[] {
       const label = edit.label?.trim()
       if (label) labels[edit.rename] = label
       else delete labels[edit.rename]
+    } else if ('update' in edit) {
+      let modelId = edit.update
+      // A model added by hand can have its id corrected; one from the catalog can't.
+      const to = edit.id?.trim()
+      if (to && to !== modelId && custom.some((m) => m.id === modelId)) {
+        if (custom.some((m) => m.id === to)) throw new Error(`There is already a model "${to}".`)
+        custom = custom.map((m) => (m.id === modelId ? { ...m, id: to, label: m.label === modelId ? to : m.label } : m))
+        if (labels[modelId]) labels[to] = labels[modelId]
+        delete labels[modelId]
+        if (edits[modelId]) edits[to] = edits[modelId]
+        delete edits[modelId]
+        moved.push({ from: modelId, to })
+        modelId = to
+      }
+      if (edit.label !== undefined) {
+        const label = edit.label?.trim()
+        if (label) labels[modelId] = label
+        else delete labels[modelId]
+      }
+      if (edit.fields) {
+        const next: ModelEditFields = { ...edits[modelId] }
+        for (const [key, value] of Object.entries(edit.fields)) {
+          if (value === null || value === undefined) delete (next as Record<string, unknown>)[key]
+          else (next as Record<string, unknown>)[key] = value
+        }
+        if (Object.keys(next).length > 0) edits[modelId] = next
+        else delete edits[modelId]
+      }
+    } else if ('reset' in edit) {
+      delete labels[edit.reset]
+      delete edits[edit.reset]
     }
-    return { ...override, hidden: [...hidden], custom, labels }
+    return { ...override, hidden: [...hidden], custom, labels, edits }
   })
+  // A corrected id: the model picker and stars follow it.
+  for (const { from, to } of moved) {
+    const settings = store.getSettings()
+    const key = (model: string): string => `${id}:${model}`
+    store.patchSettings({
+      ...(settings.selectedProviderId === id && settings.selectedModelId === from ? { selectedModelId: to } : {}),
+      ...(settings.favoriteModels?.includes(key(from)) ? { favoriteModels: settings.favoriteModels.map((f) => (f === key(from) ? key(to) : f)) } : {})
+    })
+  }
   return listProviders()
 }
 

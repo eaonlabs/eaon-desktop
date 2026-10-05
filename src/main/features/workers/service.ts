@@ -3,7 +3,7 @@ import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { ChatMessage, StreamEvent } from '@shared/types'
 import type { RoomPostEvent, Worker, WorkerDraft, WorkerMessageEvent, WorkerSendOptions, WorkerStreamEvent, WorkerThread } from '@shared/workers'
-import { runAgent } from '../../agent/loop'
+import { pauseGoal, runAgent } from '../../agent/loop'
 import { registerToolSource, safeToolName } from '../../agent/tools'
 import { BROKERS } from '@shared/trading'
 import { mcpCatalogEntry } from '@shared/mcpCatalog'
@@ -208,6 +208,7 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
     },
     notify,
     reachOut,
+    pauseGoal,
     tradingVenue,
     loadRooms: () => store.getJson<unknown>(ROOMS_FILE, null),
     saveRooms: (data) => store.setJsonAsync(ROOMS_FILE, data),
@@ -240,6 +241,7 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
     })
     ipcMain.handle('workers:send', (_e, id: string, text: string, files: string[], options?: WorkerSendOptions) => engine.send(id, text, files, options))
     ipcMain.handle('workers:clear', (_e, id: string) => engine.clear(id))
+    ipcMain.handle('workers:set-goal', (_e, id: string, status: 'active' | 'paused' | null) => engine.setGoal(id, status === 'active' || status === 'paused' ? status : null))
     ipcMain.handle('workers:set-paused', (_e, id: string, paused: boolean) => engine.setPaused(id, paused))
     ipcMain.handle('workers:wake', (_e, id: string) => engine.wake(id))
     ipcMain.handle('workers:stop', (_e, id: string) => engine.stopTurn(id))

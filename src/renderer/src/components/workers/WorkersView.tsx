@@ -27,7 +27,7 @@ import { ContextMenu } from '../Sidebar'
 import { Modal } from '../ui'
 import { WorkerFace } from './WorkerFace'
 import { WorkerEditor } from './WorkerEditor'
-import { WorkerAsks, WorkerBrowserFact, WorkerMemory } from './WorkerAutonomy'
+import { WorkerAsks, WorkerBrowserFact, WorkerGoalBanner, WorkerMemory } from './WorkerAutonomy'
 import { WorkerComposer } from './WorkerComposer'
 import { RoomEditor, RoomPage, TeamDialog } from './WorkerRooms'
 import { useWorkers } from './workersStore'
@@ -330,6 +330,7 @@ function WorkerPage({ worker }: { worker: Worker }): JSX.Element {
       </div>
 
       <div className="composer-dock">
+        <WorkerGoalBanner worker={worker} now={now} />
         <WorkerAsks worker={worker} />
         <WorkerComposer worker={worker} />
       </div>

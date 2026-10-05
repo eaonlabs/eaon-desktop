@@ -3,9 +3,12 @@ import { existsSync, mkdirSync } from 'node:fs'
 import { cp, lstat, mkdir, readdir } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, extname, isAbsolute, join, resolve } from 'node:path'
-import type { ChatMessage, Settings, StreamEvent } from '@shared/types'
+import type { ChatMessage, GoalState, Settings, StreamEvent } from '@shared/types'
 import {
+  GOAL_CONTINUE_MS,
+  GOAL_MAX_TURNS,
   MAX_GOAL_CHARS,
+  MAX_SLEEP_MINUTES,
   MAX_NOTES_CHARS,
   MAX_ROOM_MEMBERS,
   MAX_ROOM_POSTS,
@@ -29,6 +32,7 @@ import {
   type WorkerAsk,
   type WorkerMail,
   type WorkerMood,
+  type WorkerGoalRun,
   type WorkerSendOptions,
   type WorkerThread,
   type RoomPost,
@@ -82,6 +86,8 @@ export interface WorkersDeps {
   notify?: (worker: Worker, outcome: { ok: boolean; text: string }) => void
   /** A worker reached out on its own (notify_user) or asked the user something (ask_user). */
   reachOut?: (worker: Worker, message: { title: string; body: string }) => void
+  /** Stops a running turn's goal loop at its next step (agent/loop `pauseGoal`); the user paused the goal. */
+  pauseGoal?: (messageId: string) => void
   /** Describes a trading worker's account for its prompt (features/trading/access). */
   tradingVenue?: (via: string) => TradingVenue | null
   /** Group chats: where they are kept, and who is told when they change. */
@@ -132,6 +138,8 @@ export interface TeamDraft {
 interface Running {
   controller: AbortController
   messageId: string
+  /** The turn ran in goal mode, for the worker's goal run. */
+  goalTurn: boolean
   /** What woke this turn, for observers. */
   mail: WorkerMail[]
   /** A guest's message is in this turn: the most it may do (see guests.ts). */
@@ -224,6 +232,33 @@ export function routineNextAt(routine: Pick<WorkerRoutine, 'everyMs' | 'daily' |
   return nextOpen(next) + 60_000
 }
 
+/** A saved goal run, or null for anything that isn't one. */
+function normalizeGoalRun(raw: unknown): WorkerGoalRun | null {
+  if (!raw || typeof raw !== 'object') return null
+  const g = raw as Partial<WorkerGoalRun>
+  if (typeof g.text !== 'string' || !g.text.trim()) return null
+  const status = g.status === 'achieved' || g.status === 'blocked' || g.status === 'paused' ? g.status : 'active'
+  return {
+    text: g.text,
+    status,
+    iterations: typeof g.iterations === 'number' ? g.iterations : 0,
+    startedAt: typeof g.startedAt === 'number' ? g.startedAt : 0,
+    turns: typeof g.turns === 'number' ? g.turns : 0,
+    nextAt: typeof g.nextAt === 'number' ? g.nextAt : null,
+    ...(typeof g.summary === 'string' ? { summary: g.summary } : {}),
+    ...(g.pausedByUser === true ? { pausedByUser: true } : {})
+  }
+}
+
+/**
+ * An active goal run with nothing scheduled to pick it up (Eaon quit
+ * mid-turn, say) continues shortly after Eaon starts.
+ */
+function resumeGoalRun(run: WorkerGoalRun | null, heartbeatAt: unknown, now: number): WorkerGoalRun | null {
+  if (!run || run.status !== 'active' || typeof run.nextAt === 'number' || typeof heartbeatAt === 'number') return run
+  return { ...run, nextAt: now + GOAL_CONTINUE_MS }
+}
+
 /** Fills in anything an older or hand-edited file lacks. */
 function normalize(raw: Partial<Worker> & { id: string; name: string }, now: number): Worker {
   const heartbeat = raw.heartbeat ?? { nextAt: null, everyMs: null, note: '' }
@@ -250,6 +285,7 @@ function normalize(raw: Partial<Worker> & { id: string; name: string }, now: num
       : [],
     goal: typeof raw.goal === 'string' ? raw.goal : '',
     notes: typeof raw.notes === 'string' ? raw.notes : '',
+    goalRun: resumeGoalRun(normalizeGoalRun(raw.goalRun), heartbeat.nextAt, now),
     asks: Array.isArray(raw.asks) ? raw.asks.filter((a) => a && typeof a.id === 'string' && typeof a.question === 'string') : [],
     status: raw.status ?? 'asleep',
     activity: typeof raw.activity === 'string' ? raw.activity : '',
@@ -537,6 +573,7 @@ export class WorkersEngine {
       routines: [],
       goal: '',
       notes: '',
+      goalRun: null,
       asks: [],
       // Awake and ready for its first job; `workerMood` lets it doze off after
       // DOZE_AFTER_MS with nothing to do, so a new worker does not greet the
@@ -598,7 +635,14 @@ export class WorkersEngine {
     if (!body && paths.length === 0) throw new Error('Write a message first.')
     const at = this.now()
     const goal = options?.goal === true && body.length > 0
-    if (goal) worker.goal = body.slice(0, MAX_GOAL_CHARS)
+    if (goal) {
+      worker.goal = body.slice(0, MAX_GOAL_CHARS)
+      worker.goalRun = { text: worker.goal, status: 'active', iterations: 0, startedAt: at, turns: 0, nextAt: null }
+    } else if (worker.goalRun?.status === 'blocked') {
+      // The user answering is what a blocked goal was waiting for.
+      const { summary: _summary, ...run } = worker.goalRun
+      worker.goalRun = { ...run, status: 'active', nextAt: null }
+    }
     const mentioned = mentionedWorkers(body, this.workers, worker.id)
     this.deliverMail(worker, {
       id: randomUUID(),
@@ -1168,6 +1212,52 @@ export class WorkersEngine {
     return `Heartbeat set: next wake-up ${relativeTime(now + first, now)}${every ? `, then every ${Math.round(every / 60_000)} min` : ''}.${adjusted ? ' (Adjusted to stay between 1 minute and 7 days.)' : ''}`
   }
 
+  /**
+   * The user pauses, resumes or clears a worker's goal run (the goal banner).
+   * Pausing stops a running turn's goal loop at its next step and cancels the
+   * continuation it would get; resuming starts it again with a fresh turn
+   * budget, straight away.
+   */
+  setGoal(id: string, status: 'active' | 'paused' | null): void {
+    const worker = this.require(id)
+    const goal = worker.goalRun
+    if (!goal) throw new Error(`${worker.name} has no goal.`)
+    const run = this.running.get(id)
+    if (status === 'active') {
+      const { summary: _summary, pausedByUser: _paused, ...rest } = goal
+      worker.goalRun = { ...rest, status: 'active', turns: 0, nextAt: run ? null : this.now() }
+    } else {
+      if (run) this.deps.pauseGoal?.(run.messageId)
+      worker.goalRun = status === 'paused' ? { ...goal, status: 'paused', pausedByUser: true, nextAt: null } : null
+    }
+    this.commit()
+    this.tick()
+  }
+
+  /**
+   * A worker goes to sleep until a time it picks: waiting for something, or
+   * pacing long work. The turn ends once this round's tools finish (the
+   * loop sees `TurnState.yielded`), and it wakes with its note as a one-off
+   * heartbeat. A goal run resumes then, in goal mode.
+   */
+  sleep(id: string, minutes: number, note: string): { until: number; text: string } {
+    const worker = this.require(id)
+    const now = this.now()
+    const ms = Math.min(Math.max((Number.isFinite(minutes) ? minutes : 1) * 60_000, MIN_HEARTBEAT_MS), MAX_SLEEP_MINUTES * 60_000)
+    const until = now + ms
+    const why = str(note).replace(/\s+/g, ' ').slice(0, 280)
+    const run = this.running.get(id)
+    if (run) {
+      run.heartbeatSet = true
+      run.activitySet = true
+    }
+    worker.heartbeat = { nextAt: until, everyMs: null, note: why || 'Wake up from your sleep and carry on' }
+    const time = new Date(until).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+    worker.activity = `Sleeping until ${time}${why ? ` — ${why}` : ''}`.slice(0, 140)
+    this.commit()
+    return { until, text: `Sleeping until ${time} (${relativeTime(until, now)}). This turn ends now; you wake then and see your note.` }
+  }
+
   /** The one-line status on the worker's card, and optionally a mood for the next half hour. */
   setStatus(id: string, activity: string, mood?: string): void {
     const worker = this.require(id)
@@ -1406,6 +1496,32 @@ export class WorkersEngine {
     }
   }
 
+  /**
+   * The loop reports on the goal as the turn goes: each time it sends the
+   * worker back to work, when the worker resolves it (goal_complete or
+   * goal_blocked), and when it pauses at the turn's limit. A pause the user
+   * asked for stays theirs. Reaching or blocking on a goal is worth telling
+   * the user about.
+   */
+  private goalProgress(id: string, goal: GoalState): void {
+    const worker = this.find(id)
+    const current = worker?.goalRun
+    if (!worker || !current) return
+    const userPaused = current.pausedByUser === true && current.status === 'paused'
+    worker.goalRun = {
+      ...current,
+      iterations: Math.max(current.iterations, goal.iterations),
+      status: userPaused ? 'paused' : goal.status,
+      ...(goal.summary ? { summary: goal.summary } : {})
+    }
+    this.commit()
+    if (goal.status === 'achieved') {
+      this.deps.reachOut?.(clone(worker), { title: `${worker.name} reached its goal`, body: goal.summary || current.text })
+    } else if (goal.status === 'blocked') {
+      this.deps.reachOut?.(clone(worker), { title: `${worker.name} needs you for its goal`, body: goal.summary || current.text })
+    }
+  }
+
   /** One worker's trading set-up, for the tools that gate orders (features/trading/access). */
   tradingOf(id: string): Worker['trading'] {
     return this.find(id)?.trading ?? null
@@ -1468,10 +1584,11 @@ export class WorkersEngine {
     this.timer.unref?.()
   }
 
-  /** The soonest timed wake-up — the heartbeat or any routine — or null. */
+  /** The soonest timed wake-up — the heartbeat, any routine or a goal run carrying on — or null. */
   private nextWake(worker: Worker): number | null {
     let next = worker.heartbeat.nextAt ?? Infinity
     for (const routine of worker.routines) next = Math.min(next, routine.nextAt)
+    if (worker.goalRun?.status === 'active' && typeof worker.goalRun.nextAt === 'number') next = Math.min(next, worker.goalRun.nextAt)
     return next === Infinity ? null : next
   }
 
@@ -1534,14 +1651,20 @@ export class WorkersEngine {
     const routines = worker.routines.filter((r) => r.nextAt <= now)
     if (!priority) this.turnLog.set(worker.id, [...(this.turnLog.get(worker.id) ?? []), now])
     const cap = guestCap(mail, worker.access)
+    // An active goal run: this turn works on it in goal mode, and a
+    // continuation it was due for is used up.
+    const goalRun = worker.goalRun?.status === 'active' ? worker.goalRun : null
+    if (goalRun) worker.goalRun = { ...goalRun, turns: goalRun.turns + 1, nextAt: null }
+    const setsGoal = mail.some((m) => m.goal)
 
-    const user = buildTurnMessage(mail, note, now, routines, cap)
+    const user = buildTurnMessage(mail, note, now, routines, cap, goalRun && !setsGoal ? goalRun.text : null)
     const assistant: ChatMessage = { id: randomUUID(), role: 'assistant', parts: [], createdAt: now + 1 }
     thread.messages.push(user, assistant)
 
     const run: Running = {
       controller: new AbortController(),
       messageId: assistant.id,
+      goalTurn: goalRun !== null,
       mail,
       guestCap: cap,
       fired,
@@ -1586,7 +1709,11 @@ export class WorkersEngine {
       allowOnce: (tool, input) => this.allowOnce(snapshot.id, tool, input),
       guestCap: cap,
       stallMs: this.deps.stallMs,
-      onEvent: (event) => this.deps.onEvent?.(snapshot.id, event)
+      goal: goalRun ? { text: goalRun.text, status: 'active', iterations: goalRun.iterations } : null,
+      onEvent: (event) => {
+        if (event.type === 'goal') this.goalProgress(snapshot.id, event.goal)
+        this.deps.onEvent?.(snapshot.id, event)
+      }
     })
       .catch((error): TurnOutcome => ({ text: '', error: errorText(error), cancelled: false }))
       .then((outcome) => this.finish(snapshot.id, run, assistant, outcome))
@@ -1625,6 +1752,34 @@ export class WorkersEngine {
       if (!routine) continue
       routine.runs = [...routine.runs, { at: now, ok: !outcome.error }].slice(-20)
       routine.nextAt = routineNextAt(routine, now)
+    }
+
+    // The goal run after this turn. Unfinished, it carries on by itself in a
+    // fresh turn shortly, unless the worker chose its own wake-up (a sleep or
+    // a heartbeat), and checks in with the user after GOAL_MAX_TURNS. A
+    // failed turn, or the user stopping it, pauses it.
+    const goal = worker.goalRun
+    if (goal && run.goalTurn) {
+      if (outcome.error) {
+        worker.goalRun = { ...goal, status: 'paused', summary: 'The last turn failed', nextAt: null }
+      } else if (outcome.cancelled && run.stoppedByUser) {
+        worker.goalRun = { ...goal, status: 'paused', pausedByUser: true, summary: 'Stopped', nextAt: null }
+      } else if (outcome.cancelled) {
+        // Cut short some other way (the worker paused, Eaon quitting): pick it up again later.
+        if (goal.status === 'active') worker.goalRun = { ...goal, nextAt: now + GOAL_CONTINUE_MS }
+      } else if (goal.status === 'active' || (goal.status === 'paused' && !goal.pausedByUser)) {
+        const { summary: _summary, ...rest } = goal
+        if (goal.turns >= GOAL_MAX_TURNS) {
+          worker.goalRun = { ...goal, status: 'paused', summary: `Paused after ${GOAL_MAX_TURNS} turns on it; resume to keep going`, nextAt: null }
+          this.deps.reachOut?.(clone(worker), {
+            title: `${worker.name} paused its goal`,
+            body: `It worked on "${goal.text}" for ${GOAL_MAX_TURNS} turns. Resume the goal to keep going.`
+          })
+        } else {
+          const ownWake = run.heartbeatSet && worker.heartbeat.nextAt !== null
+          worker.goalRun = { ...rest, status: 'active', nextAt: ownWake ? null : now + GOAL_CONTINUE_MS }
+        }
+      }
     }
 
     if (outcome.error) {

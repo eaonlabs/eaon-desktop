@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { ChatMessage, Settings, StreamEvent, StreamRequest, TokenUsage } from '@shared/types'
+import type { ChatMessage, GoalState, Settings, StreamEvent, StreamRequest, TokenUsage } from '@shared/types'
 import { clampEffort } from '@shared/effort'
 import type { Worker, WorkerMail, WorkerRoutine, WorkerThread } from '@shared/workers'
 import { CHANNEL_LABEL, type GuestAccess } from '@shared/channels'
@@ -54,7 +54,9 @@ export function buildTurnMessage(
   now: number,
   routines: Pick<WorkerRoutine, 'name' | 'task'>[] = [],
   /** Set when a guest's message is in this turn: what the turn may do. */
-  guest: GuestAccess | null = null
+  guest: GuestAccess | null = null,
+  /** The goal this turn works on, when it isn't the message that set it. */
+  goal: string | null = null
 ): ChatMessage {
   // The system prompt only carries the date (it stays cached all day); a
   // worker checking on something needs the time too. Per turn, so it costs
@@ -70,6 +72,11 @@ export function buildTurnMessage(
     )
   }
   for (const routine of routines) lines.push(`[Routine "${routine.name}"] ${routine.task}`)
+  if (goal) {
+    lines.push(
+      `[Goal] Keep working toward your goal: "${goal}". Take the next concrete step. Call goal_complete once it is achieved and verified, goal_blocked if you need the user, or sleep if you are waiting for something.`
+    )
+  }
   for (const item of mail) {
     const files = item.from !== 'user' && item.files.length > 0 ? `\nFiles (copied into your folder): ${item.files.join(', ')}` : ''
     // The mentioned colleagues were sent their own copy (engine.send).
@@ -101,7 +108,9 @@ export function buildTurnMessage(
       ? { heartbeat: heartbeatNote }
       : routines.length > 0
         ? { heartbeat: routines.map((r) => r.name).join(', ') }
-        : {}),
+        : goal && mail.length === 0
+          ? { heartbeat: 'Continuing toward its goal' }
+          : {}),
     ...(userFiles.length > 0 ? { attachments: userFiles } : {})
   }
 }
@@ -135,6 +144,11 @@ export interface TurnInput {
   /** A guest's message is in this turn: hold it to this level (see guests.ts). */
   guestCap?: GuestAccess | null
   stallMs?: number
+  /**
+   * The goal this turn works toward (the composer's Goal): the loop keeps it
+   * going until goal_complete, goal_blocked, a sleep or its limits.
+   */
+  goal?: GoalState | null
 }
 
 export interface TurnOutcome {
@@ -171,7 +185,7 @@ export async function runWorkerTurn(input: TurnInput): Promise<TurnOutcome> {
     // the unattended policy, and plan mode would stop at a plan nobody can
     // approve — the same reasons scheduled runs use neither.
     work: { swarm: false, plan: false },
-    goal: null,
+    goal: input.goal ?? null,
     workerId: worker.id,
     persona: input.persona
   }

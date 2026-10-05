@@ -492,7 +492,7 @@ export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
     })
     return { text, usage, turn, stopped: 'goal-limit' }
   }
-  const goalActive = (): boolean => params.depth === 0 && goal?.status === 'active' && !turn.goalResolution && !signal.aborted
+  const goalActive = (): boolean => params.depth === 0 && goal?.status === 'active' && !turn.goalResolution && !turn.yielded && !signal.aborted
 
   for (let round = 0; round < params.maxRounds; round++) {
     if (round > 0 && goalActive()) {
@@ -512,7 +512,9 @@ export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
     if (params.depth === 0) emit({ type: 'usage', messageId: request.messageId, usage: { ...usage } })
 
     if (result.stop === 'refusal') throw new Error(result.refusal ?? 'The model declined this request.')
-    text += result.text
+    // Each call's reply is its own paragraph, so a turn that spoke, used a
+    // tool and spoke again does not read as one run-on sentence.
+    text = text && result.text ? `${text}\n\n${result.text}` : text + result.text
 
     if (result.stop === 'max_tokens') {
       // A call cut off mid-way may have truncated arguments; never run it.
@@ -576,7 +578,10 @@ export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
             role: 'user',
             text: left
               ? `Keep going toward the goal; you have ${left} left. Take the next concrete step, or call wait if you are waiting for something to happen. If it is achieved and verified, call goal_complete; if you are blocked, call goal_blocked.`
-              : 'Keep going toward the goal. Take the next concrete step. If it is achieved and verified, call goal_complete; if you are blocked, call goal_blocked.'
+              : request.workerId
+                ? // A worker waits by sleeping: the turn ends and it wakes when it said.
+                  'Keep going toward the goal. Take the next concrete step, or call sleep if you are waiting for something to happen. If it is achieved and verified, call goal_complete; if you are blocked, call goal_blocked.'
+                : 'Keep going toward the goal. Take the next concrete step. If it is achieved and verified, call goal_complete; if you are blocked, call goal_blocked.'
           })
           continue
         }
@@ -612,6 +617,8 @@ export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
     }
     // A presented plan ends the turn: the user decides what happens next.
     if (turn.plan) return { text, usage, turn, stopped: 'plan' }
+    // So does a worker going to sleep: it wakes when it scheduled.
+    if (turn.yielded) return { text, usage, turn, stopped: 'done' }
   }
 
   if (params.depth === 0) {

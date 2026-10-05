@@ -108,12 +108,30 @@ export interface ProviderMeta {
  * A change to a provider's model list. Removing hides the model (one added by
  * hand is deleted), so it can always be restored; renames survive refreshes.
  */
+/**
+ * A model's details the user can set in Settings → Model providers → Edit,
+ * over what the catalog and the provider's listing say. null puts the
+ * catalog's value back.
+ */
+export interface ModelEditFields {
+  contextWindow?: number | null
+  maxOutput?: number | null
+  tools?: boolean | null
+  vision?: boolean | null
+  /** Thinks before answering: shows the effort control (low, medium, high unless the catalog knows better). */
+  reasoning?: boolean | null
+}
+
 export type ModelEdit =
   | { remove: string }
   | { restore: string }
   | { restoreAll: true }
   | { add: string }
   | { rename: string; label: string | null }
+  /** Edit model: the name, the details, and for a model added by hand its id. */
+  | { update: string; label?: string | null; id?: string; fields?: ModelEditFields }
+  /** Back to the catalog's name and details. */
+  | { reset: string }
 
 /** What the Refresh button found. */
 export interface ModelsRefresh {
