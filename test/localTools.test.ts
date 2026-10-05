@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import '../src/main/localTools'
@@ -170,4 +171,32 @@ test('in auto-approve, run_command asks before writing outside the work folder',
   assert.equal(risky('echo x > $HOME/.profile'), true)
   assert.equal(risky('mv ~/Documents ./docs'), true, 'moves the user\'s folder away')
   assert.equal(risky('echo x > /tmp/scratch.txt'), false, 'scratch space')
+})
+
+test('a link inside the Work folder is no way around the credential folders or the outside-the-folder rule', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'eaon-link-'))
+  const { get, ctx } = tools(cwd)
+  // A link to ~/.ssh, whatever it is called. (The folder needn't exist: the link's destination is what counts.)
+  symlinkSync(join(homedir(), '.ssh'), join(cwd, 'harmless'))
+  await assert.rejects(get('read_file').run({ path: 'harmless/id_rsa' }, ctx), /credentials/)
+  await assert.rejects(get('list_dir').run({ path: 'harmless' }, ctx), /credentials/)
+  // A write that would create a file through a dangling link into a credential folder is refused too.
+  symlinkSync(join(homedir(), '.aws', 'credentials'), join(cwd, 'creds.txt'))
+  await assert.rejects(get('write_file').run({ path: 'creds.txt', content: 'x' }, ctx), /credentials/)
+  assert.equal(existsSync(join(homedir(), '.aws', 'credentials')) && readFileSync(join(homedir(), '.aws', 'credentials'), 'utf8') === 'x', false)
+  // A link out of the Work folder makes what is behind it outside it, so changing it asks first.
+  const elsewhere = mkdtempSync(join(homedir(), 'eaon-outside-'))
+  try {
+    writeFileSync(join(elsewhere, 'note.txt'), 'hi')
+    symlinkSync(elsewhere, join(cwd, 'portal'))
+    const write = get('write_file')
+    const mutating = typeof write.mutating === 'function' ? write.mutating : () => true
+    assert.equal(write.risky?.({ path: 'portal/note.txt', content: 'x' }, ctx), true, 'a change through a link out of the folder is risky, so it asks')
+    assert.equal(mutating({ path: 'portal/note.txt', content: 'x' }, ctx), true)
+    assert.equal(write.risky?.({ path: 'inside.txt', content: 'x' }, ctx), false)
+    // Reading through it still works: it is the user's own folder.
+    assert.match(String(await get('read_file').run({ path: 'portal/note.txt' }, ctx)), /hi/)
+  } finally {
+    rmSync(elsewhere, { recursive: true, force: true })
+  }
 })

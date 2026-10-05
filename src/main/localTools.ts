@@ -1,8 +1,8 @@
 import { spawn } from 'node:child_process'
-import { createWriteStream, existsSync } from 'node:fs'
+import { createWriteStream, existsSync, lstatSync, readlinkSync, realpathSync } from 'node:fs'
 import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
-import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 import { shell } from 'electron'
 import type { Settings } from '@shared/types'
 import { findSymbol, indexedPaths, listProjectFiles, searchIndex } from './codeIndex'
@@ -54,15 +54,51 @@ interface ResolvedPath {
   inside: boolean
 }
 
+/**
+ * Where a path really leads: links followed as far as the path exists, and a
+ * link whose target doesn't exist yet (where a write would create it)
+ * followed too. A path inside the Work folder that is a link to ~/.ssh is
+ * ~/.ssh, whatever its name says.
+ */
+function realish(path: string, depth = 0): string {
+  if (depth > 32) return path
+  const rest: string[] = []
+  let current = path
+  for (;;) {
+    const tail = [...rest].reverse()
+    try {
+      return join(realpathSync(current), ...tail)
+    } catch {
+      let link: string | null = null
+      try {
+        link = lstatSync(current).isSymbolicLink() ? readlinkSync(current) : null
+      } catch {
+        link = null
+      }
+      if (link !== null) return realish(join(isAbsolute(link) ? link : resolve(dirname(current), link), ...tail), depth + 1)
+      const parent = dirname(current)
+      if (parent === current) return path
+      rest.push(basename(current))
+      current = parent
+    }
+  }
+}
+
 export function resolveWorkPath(cwd: string, target: string): ResolvedPath {
   const root = resolve(cwd)
   const expanded = target === '~' ? HOME : target.startsWith('~/') ? join(HOME, target.slice(2)) : target
   const path = isAbsolute(expanded) ? resolve(expanded) : resolve(root, expanded || '.')
-  if (FORBIDDEN.some((f) => within(path, f))) {
+  // Judged by where the path really leads, so a link inside the Work folder
+  // can't be a way around the credential folders or the "outside the Work
+  // folder asks first" rule.
+  const real = realish(path)
+  if (FORBIDDEN.some((f) => within(path, f) || within(real, f) || within(real, realish(f)))) {
     throw new Error(`"${target}" holds credentials, which the agent is not allowed to touch.`)
   }
-  const inside = within(path, root)
-  if (!inside && !allowedRoots().some((r) => within(path, r))) {
+  const inside = within(path, root) && within(real, realish(root))
+  // Both where it says it is and where it really is must be somewhere the agent may go.
+  const allowed = (p: string): boolean => allowedRoots().some((r) => within(p, r) || within(p, realish(r)))
+  if (!inside && !(allowed(path) && allowed(real))) {
     throw new Error(`"${target}" is outside your home folder, which the agent is not allowed to access.`)
   }
   return { path, inside }
