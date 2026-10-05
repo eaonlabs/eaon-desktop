@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from '
 import { rename, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { Chat, DownloadedModel, McpServer, ModelInfo, Project, Settings, Workspace } from '@shared/types'
-import type { ModelEditFields } from '@shared/providers'
+import type { ModelEditFields, ProviderHealth } from '@shared/providers'
 
 /**
  * What `providers.json` keeps per provider: the user's changes, layered over
@@ -27,6 +27,12 @@ export interface ProviderOverride {
   edits?: Record<string, ModelEditFields>
   /** Before overlays: the whole list, replaced on every refresh. Read once as `listed`. */
   models?: ModelInfo[]
+  /** When `listed` was fetched: the last listing that worked, kept when a later one fails. */
+  listedAt?: number
+  /** When the latest listing failed, if it did after `listedAt`. */
+  listFailedAt?: number
+  /** What the last check of the credentials found (see Provider.health). */
+  health?: ProviderHealth
 }
 
 const dataDir = () => join(app.getPath('userData'), 'store')
@@ -230,6 +236,7 @@ export const defaultSettings: Settings = {
   selectedModelId: null,
   selectedProviderId: null,
   favoriteModels: [],
+  recentModels: [],
   effort: 'light',
   approvalMode: 'ask',
   planMode: false,
