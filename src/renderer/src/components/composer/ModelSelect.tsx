@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState, type JSX, type KeyboardEvent } from 'react'
+import { Fragment, useEffect, useId, useMemo, useRef, useState, type JSX, type KeyboardEvent } from 'react'
 import { Check, ChevronDown, CircleAlert, Search } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import type { EngineId, EngineModels, EngineStatus } from '@shared/engines'
@@ -58,6 +58,7 @@ export function ModelSelect({
   const listRef = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
+  const listId = useId()
   const [active, setActive] = useState(0)
   const { providers, favorites, recents } = useApp(
     useShallow((s) => ({ providers: s.providers, favorites: s.settings?.favoriteModels, recents: s.settings?.recentModels }))
@@ -162,6 +163,11 @@ export function ModelSelect({
           <Search size={12.5} strokeWidth={2} />
           <input
             autoFocus
+            role="combobox"
+            aria-expanded="true"
+            aria-autocomplete="list"
+            aria-controls={listId}
+            aria-activedescendant={rows.length > 0 ? `${listId}-${active}` : undefined}
             value={query}
             placeholder={options.length ? `Search ${options.length} models` : 'Search models'}
             aria-label="Search models"
@@ -181,7 +187,7 @@ export function ModelSelect({
             </span>
           </div>
         )}
-        <div className="ms__list" ref={listRef} role="listbox" aria-label={label}>
+        <div className="ms__list" id={listId} ref={listRef} role="listbox" aria-label={label}>
           {rows.length === 0 ? (
             <div className="ms__empty">{q ? `No models match “${q}”.` : empty}</div>
           ) : (
@@ -196,6 +202,7 @@ export function ModelSelect({
                     </div>
                   )}
                   <div
+                    id={`${listId}-${i}`}
                     className="ms__row"
                     role="option"
                     aria-selected={chosen}
@@ -210,7 +217,7 @@ export function ModelSelect({
                     <span className="ms__name">{option ? option.label : defaultLabel}</span>
                     {option?.isDefault && <span className="ms__tag">Default</span>}
                     {option?.stage && <span className="ms__tag">{STAGE_LABEL[option.stage]}</span>}
-                    {option && option.availability !== 'ready' && <CircleAlert size={12} strokeWidth={2} className="ms__warn" aria-label="Needs attention" />}
+                    {option && option.availability !== 'ready' && <CircleAlert size={12} strokeWidth={2} className="ms__warn" role="img" aria-label="Needs attention" />}
                     {q && option && <span className="ms__via">{option.groupLabel}</span>}
                     <span className="ms__check">{chosen && <Check size={13} strokeWidth={2.2} />}</span>
                   </div>

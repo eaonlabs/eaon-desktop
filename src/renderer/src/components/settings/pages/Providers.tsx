@@ -355,7 +355,7 @@ function AccountSection({
       <div className="provider-detail__section-title">Account</div>
       {signedIn && !pending ? (
         <div className="provider-account">
-          <span className="provider-account__dot" />
+          <span className="provider-account__dot" aria-hidden="true" />
           <span className="provider-account__text">
             <span className="provider-account__label">Signed in</span>
             {auth?.account && <span className="provider-account__sub">{auth.account}</span>}
