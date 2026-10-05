@@ -70,12 +70,16 @@ test('16 workers with 60 threads each: a scheduler tick and a change stay cheap'
     for (let i = 0; i < runs; i++) fn()
     return (performance.now() - start) / runs
   }
+  // Judged against how long it takes this machine, right now, to serialise
+  // the same team once: a loaded CI box slows both alike, while work that
+  // grows with history (a clone per change, a scan per thread) shows up as a
+  // multiple of it.
+  const team = engine.list()
+  const baseline = Math.max(time(() => void JSON.stringify(team), 20), 0.05)
   const tick = time(() => engine.tick())
-  const change = time(() => engine.markRead(ids[0]), 1) // a no-op read is free; a real change below
-  const wake = time(() => {
-    engine.setStatus(ids[0], 'checking things')
-  })
-  assert.ok(tick < 25, `a scheduler tick took ${tick.toFixed(1)} ms with 960 threads`)
-  assert.ok(wake < 60, `a change (save and send the whole team) took ${wake.toFixed(1)} ms with 960 threads`)
-  assert.ok(change < 5)
+  const change = time(() => engine.setStatus(ids[0], 'checking things'))
+  assert.ok(tick < baseline * 40 + 5, `a scheduler tick took ${tick.toFixed(1)} ms (serialising the team takes ${baseline.toFixed(1)} ms) with 960 threads`)
+  assert.ok(change < baseline * 120 + 20, `a change (save, and send the team) took ${change.toFixed(1)} ms (serialising the team takes ${baseline.toFixed(1)} ms) with 960 threads`)
+  // And nothing is catastrophic however loaded the machine is.
+  assert.ok(tick < 500 && change < 1000)
 })
