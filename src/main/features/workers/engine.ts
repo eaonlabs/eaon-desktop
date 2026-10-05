@@ -59,6 +59,7 @@ import { workerPersona } from './prompt'
 import { buildTurnMessage, CHECK_IN_NOTE, RESUME_NOTE, RETRY_NOTE, runWorkerTurn, type RunAgent, type RunEngineTurn, type TurnOutcome } from './runner'
 import { ExecutionLog, isEnded } from './executions'
 import { delegationRefusal, isOpenDelegation, normalizeDelegations, pruneDelegations } from './delegations'
+import { watchFor, type WakeCondition } from './watch'
 
 /**
  * When worker turns run, and everything that changes a worker.
@@ -529,6 +530,8 @@ export class WorkersEngine {
   private readonly turnLog = new Map<string, number[]>()
   /** When each worker sent mail, for the per-hour cap. */
   private readonly sentLog = new Map<string, number[]>()
+  /** Per slotKey, what a sleeping thread is waiting on besides the clock (a process, a file); stopped when it wakes. */
+  private readonly watches = new Map<string, () => void>()
   /** Per slotKey, self-set wake-ups since the user last wrote in that thread (STALE_WAKEUPS). */
   private readonly unattendedWakes = new Map<string, number>()
   /** When workers created workers, for the per-day cap. */
@@ -684,6 +687,8 @@ export class WorkersEngine {
       }
     }
     this.running.clear()
+    for (const stop of this.watches.values()) stop()
+    this.watches.clear()
     for (const execution of this.waiting.values()) this.runs.update(execution, { state: 'cancelled', reason: 'Eaon quit before it started.' })
     this.waiting.clear()
     for (const worker of this.workers) worker.queued = null
@@ -851,6 +856,8 @@ export class WorkersEngine {
     const keys = this.slotsOf(worker, true).map(({ threadId }) => threadId)
     for (const threadId of keys) {
       const key = slotKey(id, threadId)
+      this.watches.get(key)?.()
+      this.watches.delete(key)
       this.waiting.delete(key)
       this.resumes.delete(key)
       this.retries.delete(key)
@@ -1769,26 +1776,49 @@ export class WorkersEngine {
    * loop sees `TurnState.yielded`), and it wakes with its note as a one-off
    * heartbeat. A goal run resumes then, in goal mode.
    */
-  sleep(id: string, minutes: number, note: string, threadId: string = MAIN_THREAD): { until: number; text: string } {
+  sleep(id: string, minutes: number, note: string, threadId: string = MAIN_THREAD, until: WakeCondition = {}): { until: number; text: string } {
     const worker = this.require(id)
     const slot = this.slot(worker, threadId) ?? worker
     const now = this.now()
     const ms = Math.min(Math.max((Number.isFinite(minutes) ? minutes : 1) * 60_000, MIN_HEARTBEAT_MS), MAX_SLEEP_MINUTES * 60_000)
-    const until = now + ms
+    const wakeAt = now + ms
     const why = str(note).replace(/\s+/g, ' ').slice(0, 280)
     const run = this.running.get(slotKey(id, threadId))
     if (run) {
       run.heartbeatSet = true
       run.activitySet = true
     }
-    slot.heartbeat = { nextAt: until, everyMs: null, note: why || 'Wake up from your sleep and carry on' }
-    const time = new Date(until).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-    const line = `Sleeping until ${time}${why ? ` — ${why}` : ''}`.slice(0, 140)
+    slot.heartbeat = { nextAt: wakeAt, everyMs: null, note: why || 'Wake up from your sleep and carry on' }
+    const time = new Date(wakeAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+    // Woken by the event itself when there is one: the minutes are only the
+    // longest it waits. A restart forgets the watch, and the clock wakes it.
+    const key = slotKey(id, threadId)
+    this.watches.get(key)?.()
+    this.watches.delete(key)
+    const waitingOn = until.processExits ? `process ${until.processExits} to exit` : until.fileChanges ? `${until.fileChanges} to change` : null
+    if (waitingOn) {
+      const stop = watchFor(until, (what) => {
+        this.watches.delete(key)
+        const live = this.find(id)
+        const liveSlot = live ? this.slot(live, threadId) : undefined
+        if (!liveSlot || liveSlot.heartbeat.nextAt !== wakeAt) return
+        liveSlot.heartbeat = { nextAt: this.now(), everyMs: null, note: `${liveSlot.heartbeat.note} — woken because ${what}` }
+        this.commit()
+        this.tick()
+      })
+      this.watches.set(key, stop)
+    }
+    const line = `${waitingOn ? `Waiting for ${waitingOn}, at most until ${time}` : `Sleeping until ${time}`}${why ? ` — ${why}` : ''}`.slice(0, 140)
     const info = this.info(worker, threadId)
     if (info) info.activity = line
     worker.activity = line
     this.commit()
-    return { until, text: `Sleeping until ${time} (${relativeTime(until, now)}). This turn ends now; you wake then and see your note.` }
+    return {
+      until: wakeAt,
+      text: waitingOn
+        ? `Waiting for ${waitingOn}; you wake as soon as it happens, or at ${time} (${relativeTime(wakeAt, now)}) at the latest. This turn ends now; you'll see your note and what happened.`
+        : `Sleeping until ${time} (${relativeTime(wakeAt, now)}). This turn ends now; you wake then and see your note.`
+    }
   }
 
   /** The one-line status on the worker's card, and optionally a mood for the next half hour. */
@@ -2422,6 +2452,8 @@ export class WorkersEngine {
 
     const thread = this.thread(worker.id, threadId)
     const mail = slot.inbox.splice(0)
+    this.watches.get(key)?.()
+    this.watches.delete(key)
     if (woke) this.wakes.delete(worker.id)
     this.resumes.delete(key)
     this.retries.delete(key)

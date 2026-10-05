@@ -75,7 +75,43 @@ const display = (cwd: string, path: string): string => {
 
 /* ------------------------------------------------------------------ shell */
 
-const background = new Map<number, { command: string; log: string }>()
+const background = new Map<number, { command: string; log: string; exit: Promise<number | null> }>()
+
+/**
+ * Calls `onExit` once the process `pid` has exited — straight from the exit
+ * event for one started here with background: true (with its exit code),
+ * otherwise by checking every couple of seconds whether it is still alive.
+ * Returns the way to stop watching.
+ */
+export function watchProcessExit(pid: number, onExit: (code: number | null) => void, pollMs = 2000): () => void {
+  let done = false
+  const fire = (code: number | null): void => {
+    if (done) return
+    done = true
+    clearInterval(timer)
+    onExit(code)
+  }
+  const alive = (): boolean => {
+    try {
+      process.kill(pid, 0)
+      return true
+    } catch (error) {
+      // EPERM: it exists but belongs to someone else.
+      return (error as NodeJS.ErrnoException).code === 'EPERM'
+    }
+  }
+  const own = background.get(pid)
+  const timer = setInterval(() => {
+    if (!alive()) fire(null)
+  }, pollMs)
+  timer.unref?.()
+  if (own) void own.exit.then(fire)
+  else if (!alive()) setImmediate(() => fire(null))
+  return () => {
+    done = true
+    clearInterval(timer)
+  }
+}
 
 /** A failed spawn names the shell ("spawn /bin/zsh ENOENT") when what is missing is usually the folder. */
 function spawnError(error: Error, cwd: string): Error {
@@ -229,7 +265,7 @@ async function runBackground(command: string, cwd: string): Promise<string> {
   child.unref()
   const pid = child.pid
   if (pid) {
-    background.set(pid, { command, log })
+    background.set(pid, { command, log, exit: new Promise((resolveExit) => child.once('exit', (code) => resolveExit(code))) })
     // Forgotten once it exits, so quitting never signals a pid the system has since reused.
     child.on('exit', () => background.delete(pid))
   }

@@ -1,3 +1,4 @@
+import { isAbsolute, resolve } from 'node:path'
 import { describeWorker, MAIN_THREAD, MAX_SLEEP_MINUTES } from '@shared/workers'
 import type { AgentTool, ToolContext, ToolSource } from '../../agent/tools'
 import { HINT_MOODS, type WorkersEngine } from './engine'
@@ -228,19 +229,25 @@ export function workersToolSource(engine: WorkersEngine): ToolSource {
    */
   const sleep: AgentTool = {
     name: 'sleep',
-    description: `Stop working now and wake up again later: when you are waiting for something (a build, a reply, a page to change, the market to open) or pacing long work. minutes = how long (1–${MAX_SLEEP_MINUTES}); note = what to check or do when you wake. This turn ends straight away and you continue when you wake; a goal you are working on carries on then.`,
+    description: `Stop working now and wake up again later: when you are waiting for something (a build, a reply, a page to change, the market to open) or pacing long work. minutes = how long (1–${MAX_SLEEP_MINUTES}); note = what to check or do when you wake. To wake the moment something happens instead of guessing a time, add until_process_exits (the pid of a background command) or until_file_changes (a path); minutes is then the longest you wait. This turn ends straight away; a goal you are working on carries on when you wake.`,
     inputSchema: {
       type: 'object',
       properties: {
         minutes: { type: 'number', description: `1–${MAX_SLEEP_MINUTES}` },
-        note: { type: 'string', description: 'What to check or do when you wake' }
+        note: { type: 'string', description: 'What to check or do when you wake' },
+        until_process_exits: { type: 'number', description: 'Wake when this process exits (pid from run_command background: true)' },
+        until_file_changes: { type: 'string', description: 'Wake when this file or folder changes or appears' }
       },
       required: ['minutes']
     },
     mutating: false,
     describe: (input) => `Sleep ${Math.max(1, Math.round(num(input.minutes) ?? 1))} min${str(input.note) ? ` · ${str(input.note)}` : ''}`,
     run: async (input, ctx) => {
-      const { until, text } = engine.sleep(self(ctx), num(input.minutes) ?? 1, str(input.note), threadOf(ctx))
+      const file = str(input.until_file_changes)
+      const { until, text } = engine.sleep(self(ctx), num(input.minutes) ?? 1, str(input.note), threadOf(ctx), {
+        ...(num(input.until_process_exits) ? { processExits: num(input.until_process_exits) } : {}),
+        ...(file ? { fileChanges: isAbsolute(file) ? file : resolve(ctx.cwd, file) } : {})
+      })
       ctx.turn.yielded = { until }
       return text
     }
