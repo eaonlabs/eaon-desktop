@@ -94,10 +94,15 @@ for (let run = 1; run <= repeat; run++) {
   // One app at a time: windows compete for focus and the machine's cores,
   // and timing-sensitive checks (a stream held open in two windows) are only
   // meaningful without other apps starting beside them.
+  // Repeated runs keep their own screenshots and logs, so a failure in the
+  // second is not overwritten by the third.
+  const base = process.env.EAON_E2E_ARTIFACTS ?? join(root, 'out', 'e2e')
+  const env = repeat > 1 ? { ...process.env, EAON_E2E_ARTIFACTS: join(base, `run-${run}`), EAON_E2E_SCREENS: '' } : process.env
+  if (repeat > 1) delete env.EAON_E2E_SCREENS
   const result = spawnSync(process.execPath, ['--test', '--test-concurrency=1', '--test-reporter=spec', ...files], {
     cwd: root,
     stdio: 'inherit',
-    env: process.env
+    env
   })
   if (result.status !== 0) status = result.status ?? 1
 }

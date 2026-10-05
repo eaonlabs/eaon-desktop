@@ -8,7 +8,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { rmSync } from 'node:fs'
-import { artifactsDir, launchApp } from './harness.mjs'
+import { artifactsDir, launchApp, note, trail } from './harness.mjs'
 import { startFakeProvider } from './fakeProvider.mjs'
 import { scaled } from './timing.mjs'
 
@@ -125,12 +125,26 @@ export function scenario(name, options, fn) {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
     .slice(0, 60)
-  test(name, { timeout: scaled(options.timeout ?? 120_000), todo: options.todo, skip: options.skip || undefined }, async (t) => {
+  const limit = scaled(options.timeout ?? 120_000)
+  test(name, { timeout: limit, todo: options.todo, skip: options.skip || undefined }, async (t) => {
     const s = new Scenario(slug, t)
     let failed = false
     const clockAtStart = clockOffset()
+    note(`scenario: ${name}`)
+    // The scenario gets its own deadline a little before the runner's, so a
+    // hang says which step it was in instead of just "timed out".
+    /** @type {NodeJS.Timeout | undefined} */
+    let deadline
     try {
-      await fn(s)
+      const running = fn(s)
+      // If the deadline wins, teardown kills the apps and this settles later.
+      running.catch(() => undefined)
+      await Promise.race([
+        running,
+        new Promise((_, reject) => {
+          deadline = setTimeout(() => reject(new Error(`the scenario was still running after ${limit - 5000} ms. The last steps:\n${trail.join('\n')}`)), Math.max(1000, limit - 5000))
+        })
+      ])
     } catch (error) {
       failed = true
       await s.captureFailure().catch(() => undefined)
@@ -142,6 +156,7 @@ export function scenario(name, options, fn) {
       }
       throw error
     } finally {
+      clearTimeout(deadline)
       const orphans = await s.dispose()
       // A failure already explains itself; orphans after a pass are the failure.
       if (orphans.length && !failed) assert.fail(`processes outlived the app:\n${orphans.join('\n')}`)

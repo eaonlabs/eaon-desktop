@@ -12,7 +12,6 @@ import { scaled } from './timing.mjs'
 export class Cdp {
   /** @param {WebSocket} socket @param {string} label */
   constructor(socket, label) {
-    this.socket = socket
     this.label = label
     this.nextId = 1
     /** @type {Map<number, {resolve: (v: any) => void, reject: (e: Error) => void, method: string, timer: NodeJS.Timeout}>} */
@@ -20,6 +19,27 @@ export class Cdp {
     /** @type {Map<string, Set<(params: any) => void>>} */
     this.listeners = new Map()
     this.closed = false
+    /** Why the connection ended, for the error of whatever is sent next. */
+    this.closedBecause = ''
+    /**
+     * Set for a page, whose connection is opened again when it dropped while
+     * the window is still there. Returns the new socket or throws, saying why
+     * the target is gone. The inspector of the main process has none: its
+     * closing is the app's doing.
+     * @type {(() => Promise<WebSocket>) | null}
+     */
+    this.reattach = null
+    /** Called after a reattach, to enable the domains the page needs again. @type {(() => Promise<void>) | null} */
+    this.afterReattach = null
+    /** @type {Promise<void> | null} */
+    this.reattaching = null
+    this.reattached = 0
+    this.bind(socket)
+  }
+
+  /** @param {WebSocket} socket */
+  bind(socket) {
+    this.socket = socket
     socket.on('message', (data) => {
       let message
       try {
@@ -38,12 +58,25 @@ export class Cdp {
       }
       for (const handler of this.listeners.get(message.method) ?? []) handler(message.params)
     })
-    socket.on('close', () => this.dispose('connection closed'))
-    socket.on('error', () => this.dispose('connection failed'))
+    let lastError = ''
+    socket.on('error', (error) => {
+      lastError = error.message
+    })
+    socket.on('close', (code, reason) => {
+      if (socket !== this.socket) return
+      this.dispose(`connection closed (code ${code}${reason?.length ? `, ${reason}` : ''}${lastError ? `, ${lastError}` : ''})`)
+    })
   }
 
   /** @param {string} url @param {string} label */
   static connect(url, label, timeout = 10_000) {
+    return new Promise((resolve, reject) => {
+      Cdp.open(url, label, timeout).then((socket) => resolve(new Cdp(socket, label)), reject)
+    })
+  }
+
+  /** @param {string} url @param {string} label @returns {Promise<WebSocket>} */
+  static open(url, label, timeout = 10_000) {
     timeout = scaled(timeout)
     return new Promise((resolve, reject) => {
       const socket = new WebSocket(url, { perMessageDeflate: false, maxPayload: 512 * 1024 * 1024 })
@@ -53,7 +86,7 @@ export class Cdp {
       }, timeout)
       socket.once('open', () => {
         clearTimeout(timer)
-        resolve(new Cdp(socket, label))
+        resolve(socket)
       })
       socket.once('error', (error) => {
         clearTimeout(timer)
@@ -63,14 +96,38 @@ export class Cdp {
   }
 
   /**
+   * Opens the connection again if it dropped before this call was made (so
+   * nothing was in flight) and the owner can say the window is still there.
+   * Seen twice in sixty scenarios with the machine at a load average of 200:
+   * the page's DevTools socket closed between two calls while the window
+   * kept working.
+   */
+  async ensureOpen() {
+    if (!this.closed || !this.reattach) return
+    this.reattaching ??= (async () => {
+      const reason = this.closedBecause
+      const socket = await /** @type {() => Promise<WebSocket>} */ (this.reattach)()
+      this.closed = false
+      this.bind(socket)
+      this.reattached += 1
+      await this.afterReattach?.()
+      this.lastReattach = reason
+    })().finally(() => {
+      this.reattaching = null
+    })
+    await this.reattaching
+  }
+
+  /**
    * @param {string} method
    * @param {Record<string, unknown>} [params]
    * @param {{ timeout?: number }} [options]
    * @returns {Promise<any>}
    */
-  send(method, params = {}, { timeout = 15_000 } = {}) {
+  async send(method, params = {}, { timeout = 15_000 } = {}) {
     timeout = scaled(timeout)
-    if (this.closed) return Promise.reject(new Error(`${this.label}: ${method} after the connection closed`))
+    if (this.closed) await this.ensureOpen()
+    if (this.closed) throw new Error(`${this.label}: ${method} after the ${this.closedBecause || 'connection closed'}`)
     const id = this.nextId++
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
@@ -93,6 +150,7 @@ export class Cdp {
   dispose(reason) {
     if (this.closed) return
     this.closed = true
+    this.closedBecause = reason
     for (const call of this.pending.values()) {
       clearTimeout(call.timer)
       call.reject(new Error(`${this.label}: ${call.method} interrupted, ${reason}`))
@@ -100,8 +158,10 @@ export class Cdp {
     this.pending.clear()
   }
 
+  /** Ends the connection for good (the test is done with it). */
   close() {
-    this.dispose('closed by the test')
+    this.reattach = null
+    this.dispose('connection closed by the test')
     try {
       this.socket.terminate()
     } catch {

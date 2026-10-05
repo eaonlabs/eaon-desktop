@@ -179,6 +179,7 @@ function seedStore(profileDir, files) {
  * @param {LaunchOptions} options
  */
 export async function launchApp(options) {
+  note(`launching ${options.name}`)
   const { name, profileDir, homeDir, fresh = true, args = [], env = {}, startTimeout = scaled(45_000) } = options
   if (!existsSync(mainEntry)) throw new Error(`No build at ${mainEntry}. Run \`npx electron-vite build\` (npm run test:e2e does it for you).`)
   if (fresh) {
@@ -233,6 +234,20 @@ export async function launchApp(options) {
     throw error
   }
   return app
+}
+
+/**
+ * The last things the harness did, newest last. A scenario that hangs or
+ * runs out of time says where it was, which the test runner's own
+ * "timed out" does not.
+ * @type {string[]}
+ */
+export const trail = []
+
+/** @param {string} what */
+export function note(what) {
+  trail.push(`${new Date().toISOString().slice(11, 23)} ${what}`)
+  if (trail.length > 14) trail.shift()
 }
 
 /** Every app this process started and has not seen exit. */
@@ -384,6 +399,7 @@ export class App {
             const cdp = await Cdp.connect(target.webSocketDebuggerUrl, `${this.name}/page${this.pagesById.size + 1}`)
             const page = new Page(this, target.id, cdp)
             await page.init()
+            page.keepConnected()
             this.pagesById.set(target.id, page)
           }
         }
@@ -480,6 +496,7 @@ export class App {
    * @returns {Promise<{ code: number | null, signal: string | null, ms: number, appMs: number | null, forced: boolean }>}
    */
   async quit({ timeout = 60_000 } = {}) {
+    note(`${this.name}: quitting`)
     if (!this.running) return { ...(this.exit ?? { code: null, signal: null }), ms: 0, appMs: null, forced: false }
     this.sample()
     const started = Date.now()
@@ -518,6 +535,7 @@ export class App {
 
   /** Kills the app as a crash would: SIGKILL, no cleanup. */
   async kill() {
+    note(`${this.name}: killing it (SIGKILL)`)
     if (!this.running) return
     this.sample()
     this.closeConnections()
@@ -624,6 +642,27 @@ export class Page {
     this.errors = []
   }
 
+  /**
+   * If the DevTools connection to this window drops between two calls, opens
+   * it again, provided the window's page target still exists. A target that
+   * is gone (the window closed, the renderer replaced) is reported as that.
+   */
+  keepConnected() {
+    this.cdp.reattach = async () => {
+      /** @type {{ id: string, webSocketDebuggerUrl: string }[]} */
+      const targets = await this.app.targets()
+      const target = targets.find((t) => t.id === this.targetId)
+      if (!target) throw new Error(`${this.cdp.label}: the window's page is gone (${this.cdp.closedBecause}) and its target no longer exists`)
+      note(`${this.cdp.label}: DevTools connection dropped (${this.cdp.closedBecause}); opened again`)
+      return Cdp.open(target.webSocketDebuggerUrl, this.cdp.label)
+    }
+    this.cdp.afterReattach = async () => {
+      await this.cdp.send('Runtime.enable')
+      await this.cdp.send('Page.enable')
+      await this.cdp.send('Emulation.setFocusEmulationEnabled', { enabled: true }).catch(() => undefined)
+    }
+  }
+
   async init() {
     this.cdp.on('Runtime.exceptionThrown', (p) => this.errors.push(`exception: ${p.exceptionDetails?.exception?.description ?? p.exceptionDetails?.text}`))
     this.cdp.on('Runtime.consoleAPICalled', (p) => {
@@ -659,6 +698,7 @@ export class Page {
    */
   async waitFor(fn, { args = [], timeout = 15_000, interval = 100, message = '' } = {}) {
     timeout = scaled(timeout)
+    note(`${this.cdp.label}: waiting for ${message || fn.toString().slice(0, 80).replace(/\s+/g, ' ')}`)
     const deadline = Date.now() + timeout
     let last
     let lastError
@@ -740,6 +780,7 @@ export class Page {
     timeout = scaled(timeout)
     const textSource = text instanceof RegExp ? { source: text.source, flags: text.flags } : text === undefined ? null : { literal: text }
     const what = `${selector}${text ? ` with text ${text}` : ''}`
+    note(`${this.cdp.label}: clicking ${what}`)
     const deadline = Date.now() + timeout
     for (;;) {
       const probe = await this.eval(
