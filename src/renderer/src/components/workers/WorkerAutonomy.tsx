@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { AppWindow, Check, ChevronDown, CircleHelp, MonitorPlay, PanelRight, Pause, Play, Repeat, ShieldAlert, Target, TriangleAlert, X } from 'lucide-react'
-import { relativeTime, type Worker, type WorkerAsk } from '@shared/workers'
+import { MAX_GOAL_CHARS, MAX_NOTES_CHARS, relativeTime, type Worker, type WorkerAsk } from '@shared/workers'
+import { Modal } from '../ui'
 import { workerBrowserTarget } from '@shared/agentBrowser'
 import { useWorkers } from './workersStore'
 import { Markdown } from '../agent/Markdown'
@@ -173,8 +174,23 @@ export function WorkerGoalBanner({ worker, now }: { worker: Worker; now: number 
 /** Goal, routines and notes: the worker's own memory, under its profile. */
 export function WorkerMemory({ worker, now }: { worker: Worker; now: number }): JSX.Element | null {
   const [notesOpen, setNotesOpen] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const routines = worker.routines ?? []
-  if (!worker.goal && !worker.notes && routines.length === 0) return null
+  const stopRoutine = (name: string): void => {
+    setError(null)
+    window.api.workers.removeRoutine(worker.id, name).catch((e: Error) => setError(e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')))
+  }
+  if (!worker.goal && !worker.notes && routines.length === 0) {
+    return (
+      <div className="worker-memory">
+        <button className="worker-memory__toggle" onClick={() => setEditing(true)} title={`Write ${worker.name} a goal or notes it keeps in mind on every task`}>
+          Add a goal or notes
+        </button>
+        {editing && <MemoryEditor worker={worker} onClose={() => setEditing(false)} />}
+      </div>
+    )
+  }
   return (
     <div className="worker-memory">
       {worker.goal && (
@@ -196,6 +212,9 @@ export function WorkerMemory({ worker, now }: { worker: Worker; now: number }): 
               {relativeTime(routine.nextAt, now)}
               {last && !last.ok && <span className="worker-memory__failed"> · last run failed</span>}
             </span>
+            <button className="icon-btn worker-memory__stop" aria-label={`Stop the routine “${routine.name}”`} title="Stop this routine" onClick={() => stopRoutine(routine.name)}>
+              <X size={12} strokeWidth={2.2} />
+            </button>
           </div>
         )
       })}
@@ -208,7 +227,63 @@ export function WorkerMemory({ worker, now }: { worker: Worker; now: number }): 
           {notesOpen && <pre className="worker-memory__text">{worker.notes}</pre>}
         </div>
       )}
+      <button className="worker-memory__toggle" onClick={() => setEditing(true)} title={`Change what ${worker.name} keeps in mind`}>
+        Edit goal and notes
+      </button>
+      {error && <div className="msg__error">{error}</div>}
+      {editing && <MemoryEditor worker={worker} onClose={() => setEditing(false)} />}
     </div>
+  )
+}
+
+/** The user's way into what a worker remembers: its goal and its notes, as plain text. */
+function MemoryEditor({ worker, onClose }: { worker: Worker; onClose: () => void }): JSX.Element {
+  const [goal, setGoal] = useState(worker.goal)
+  const [notes, setNotes] = useState(worker.notes)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const save = async (): Promise<void> => {
+    if (saving) return
+    setSaving(true)
+    setError(null)
+    try {
+      await window.api.workers.setMemory(worker.id, { goal, notes })
+      onClose()
+    } catch (failure) {
+      setError(failure instanceof Error ? failure.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(failure))
+      setSaving(false)
+    }
+  }
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title={`What ${worker.name} remembers`}
+      width={560}
+      actions={
+        <>
+          <button className="btn btn--ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn btn--primary" disabled={saving} onClick={() => void save()}>
+            Save
+          </button>
+        </>
+      }
+    >
+      <div className="worker-editor">
+        <label className="field">
+          <span className="field-label">Goal ({goal.length}/{MAX_GOAL_CHARS})</span>
+          <textarea className="input" rows={2} maxLength={MAX_GOAL_CHARS} value={goal} autoFocus placeholder="What it is working towards and how it will know it is done" onChange={(e) => setGoal(e.target.value)} />
+        </label>
+        <label className="field">
+          <span className="field-label">Notes ({notes.length}/{MAX_NOTES_CHARS})</span>
+          <textarea className="input" rows={8} maxLength={MAX_NOTES_CHARS} value={notes} placeholder="Decisions, your preferences, where things are — one per line. It reads these on every task and adds its own." onChange={(e) => setNotes(e.target.value)} />
+        </label>
+        <p className="worker-editor__hint">Both are part of every message {worker.name} reads, across all its threads. Clear a box to forget it.</p>
+        {error && <div className="msg__error">{error}</div>}
+      </div>
+    </Modal>
   )
 }
 

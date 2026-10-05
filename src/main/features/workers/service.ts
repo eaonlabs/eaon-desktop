@@ -296,6 +296,12 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
     ipcMain.handle('workers:thread-close', (_e, id: unknown, threadId: unknown, closed: unknown) => engine.closeThread(idOf(id), str(threadId), closed !== false))
     ipcMain.handle('workers:thread-remove', (_e, id: unknown, threadId: unknown) => engine.removeThread(idOf(id), str(threadId)))
     ipcMain.handle('workers:set-goal', (_e, id: string, status: 'active' | 'paused' | null) => engine.setGoal(id, status === 'active' || status === 'paused' ? status : null))
+    // What the worker remembers — its goal and notes — edited by the user, and a routine stopped by the user.
+    ipcMain.handle('workers:set-memory', (_e, id: unknown, memory: unknown) => {
+      const m = (memory && typeof memory === 'object' ? memory : {}) as { goal?: unknown; notes?: unknown }
+      return engine.setMemory(idOf(id), { ...(typeof m.goal === 'string' ? { goal: m.goal } : {}), ...(typeof m.notes === 'string' ? { notes: m.notes } : {}) })
+    })
+    ipcMain.handle('workers:remove-routine', (_e, id: unknown, name: unknown) => engine.removeRoutine(idOf(id), str(name)))
     ipcMain.handle('workers:set-paused', (_e, id: string, paused: boolean) => engine.setPaused(id, paused))
     ipcMain.handle('workers:wake', (_e, id: string) => engine.wake(id))
     ipcMain.handle('workers:stop', (_e, id: unknown, threadId?: unknown) => engine.stopTurn(idOf(id), optionalThread(threadId)))

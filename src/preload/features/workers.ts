@@ -55,6 +55,10 @@ export const workersApi = {
   onExecution: (handler: (event: WorkerExecutionEvent) => void): (() => void) => subscribe('workers:execution', handler),
   onDelegations: (handler: (delegations: WorkerDelegation[]) => void): (() => void) => subscribe('workers:delegations', handler),
   setPaused: (id: string, paused: boolean): Promise<Worker> => ipcRenderer.invoke('workers:set-paused', id, paused),
+  /** Edits what the worker remembers: its goal and its notes. Each is optional; an empty string clears it. */
+  setMemory: (id: string, memory: { goal?: string; notes?: string }): Promise<string> => ipcRenderer.invoke('workers:set-memory', id, memory),
+  /** Stops one of the worker's routines, by name. */
+  removeRoutine: (id: string, name: string): Promise<string> => ipcRenderer.invoke('workers:remove-routine', id, name),
   /** Pause, resume or clear the goal set from the composer's Goal. */
   setGoal: (id: string, status: 'active' | 'paused' | null): Promise<void> => ipcRenderer.invoke('workers:set-goal', id, status),
   /** Runs a check-in turn as soon as the worker is free. */
