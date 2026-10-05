@@ -22,7 +22,9 @@ import { useApp } from '../../../state/store'
 import { BrandIcon } from '../../../icons/brand'
 import { Modal, SearchField, Switch } from '../../ui'
 import type { ModelInfo, Provider } from '@shared/types'
-import { customProviderId, type ModelEdit, type ModelEditFields, type ModelsRefresh, type ProviderAuthStatus, type ProviderMeta } from '@shared/providers'
+import { checkKeyShape, customProviderId, type ModelEdit, type ModelEditFields, type ModelsRefresh, type ProviderAuthStatus, type ProviderMeta } from '@shared/providers'
+import { ago, describeSource, modelCapabilities, providerReadiness, STAGE_LABEL, modelStage } from '@shared/modelSelection'
+import { CodexEngineDetail, CodexEngineRow, CODEX_ROW_ID, useCodexEngine } from './ProviderCodexEntry'
 import '../../../styles/providers.css'
 import { openInAde } from '../../code/terminal/terminalStore'
 import { LinkAccounts } from '../../LinkAccounts'
@@ -123,8 +125,11 @@ function useAuthStatuses(): Record<string, ProviderAuthStatus> {
 export function ProvidersPage(): JSX.Element {
   const providers = useApp((s) => s.providers)
   const refreshProviders = useApp((s) => s.refreshProviders)
+  const providerFocus = useApp((s) => s.providerFocus)
+  const setProviderFocus = useApp((s) => s.setProviderFocus)
   const meta = useProviderMeta()
   const auth = useAuthStatuses()
+  const codex = useCodexEngine()
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [addingCustom, setAddingCustom] = useState(false)
   const [linking, setLinking] = useState(false)
@@ -133,6 +138,14 @@ export function ProvidersPage(): JSX.Element {
   useEffect(() => {
     void refreshProviders()
   }, [refreshProviders])
+
+  // Sent here to fix one provider (a reply's "Fix key", the composer's "Sign in again"): open on it.
+  useEffect(() => {
+    if (!providerFocus) return
+    setSelectedId(providerFocus)
+    setQuery('')
+    setProviderFocus(null)
+  }, [providerFocus, setProviderFocus])
 
   const groups = useMemo(() => {
     const needle = query.trim().toLowerCase()
@@ -147,6 +160,9 @@ export function ProvidersPage(): JSX.Element {
   }, [providers, query])
 
   const selected = providers.find((p) => p.id === selectedId) ?? providers.find((p) => p.id === 'openai') ?? providers[0] ?? null
+  // Codex runs as its own engine, not a provider: listed with the subscriptions once Eaon has checked for it.
+  const codexMatches = Boolean(codex.status) && (!query.trim() || 'codex openai chatgpt'.includes(query.trim().toLowerCase()))
+  const showingCodex = selectedId === CODEX_ROW_ID && Boolean(codex.status)
 
   return (
     <div className="providers-shell">
@@ -168,12 +184,15 @@ export function ProvidersPage(): JSX.Element {
           {groups.map((group) => (
             <div key={group.id}>
               <div className="providers-list__group">{group.label}</div>
+              {group.id === 'subscription' && codexMatches && (
+                <CodexEngineRow status={codex.status!} active={showingCodex} onClick={() => setSelectedId(CODEX_ROW_ID)} />
+              )}
               {group.providers.map((provider) => (
                 <ProviderRow
                   key={provider.id}
                   provider={provider}
                   pending={auth[provider.id]?.state === 'pending'}
-                  active={provider.id === selected?.id}
+                  active={!showingCodex && provider.id === selected?.id}
                   onClick={() => setSelectedId(provider.id)}
                 />
               ))}
@@ -184,7 +203,9 @@ export function ProvidersPage(): JSX.Element {
       </nav>
 
       <div className="providers-detail scroll">
-        {selected && (
+        {showingCodex ? (
+          <CodexEngineDetail engine={codex} onOpenProvider={(id) => setSelectedId(id)} />
+        ) : selected && (
           <ProviderDetail
             key={selected.id}
             provider={selected}
@@ -218,13 +239,16 @@ function ProviderRow({
   active: boolean
   onClick: () => void
 }): JSX.Element {
-  // A local runtime counts as set up once it has served a model list, not merely by existing.
-  const ready = (provider.local ? provider.models.length > 0 : provider.hasKey) && provider.enabled
+  // Ready means usable now, by the same rules as the model picker: stored
+  // credentials that a check found expired or rejected need attention instead,
+  // and a local runtime counts once it has served a model list.
+  const readiness = providerReadiness(provider)
+  const state = pending ? 'pending' : readiness.state === 'ready' ? 'ready' : readiness.state === 'attention' ? 'attention' : null
   return (
-    <button className="provider-row" data-active={active || undefined} onClick={onClick}>
+    <button className="provider-row" data-active={active || undefined} onClick={onClick} title={readiness.state === 'attention' ? `Needs attention — ${readiness.reason}` : undefined}>
       <BrandIcon id={provider.id} name={provider.name} size={24} />
       <span className="provider-row__label">{provider.name}</span>
-      {(ready || pending) && <span className="provider-row__badge" data-state={pending ? 'pending' : 'ready'} />}
+      {state && <span className="provider-row__badge" data-state={state} aria-label={state === 'attention' ? 'Needs attention' : state === 'ready' ? 'Ready' : 'Signing in'} />}
     </button>
   )
 }
@@ -258,6 +282,7 @@ function ProviderDetail({
         />
       </div>
 
+      <AttentionBanner provider={provider} />
       {(provider.auth === 'oauth' || meta.accountSignIn) && <AccountSection provider={provider} meta={meta} auth={auth} />}
       {meta.fields && meta.baseUrlTemplate && <UrlFieldsSection provider={provider} meta={meta} />}
       {meta.baseUrlLabel && <EndpointSection provider={provider} meta={meta} />}
@@ -269,6 +294,45 @@ function ProviderDetail({
 
       <ModelsSection provider={provider} />
     </>
+  )
+}
+
+/**
+ * What the last check found wrong, at the top of the provider: an expired
+ * sign-in, a rejected key, no credit, no models. Stored credentials alone
+ * don't make a provider look connected after a check failed.
+ */
+function AttentionBanner({ provider }: { provider: Provider }): JSX.Element | null {
+  const refreshProviders = useApp((s) => s.refreshProviders)
+  const readiness = providerReadiness(provider)
+  if (readiness.state !== 'attention') return null
+  const checked = provider.health && !provider.health.ok ? provider.health.checkedAt : null
+  const reconnect = readiness.action === 'reconnect' && (provider.auth === 'oauth' || Boolean(provider.oauthFlow))
+  return (
+    <div className="provider-attention" role="status">
+      <TriangleAlert size={15} strokeWidth={1.9} />
+      <div className="provider-attention__body">
+        <span className="provider-attention__title">Needs attention</span>
+        <span>
+          {readiness.reason}
+          {checked ? ` Checked ${ago(checked)}.` : ''}
+        </span>
+      </div>
+      {reconnect && (
+        <button className="btn btn--provider" onClick={() => void window.api.providerAuth.signIn(provider.id).finally(() => void refreshProviders())}>
+          Sign in again
+        </button>
+      )}
+      {!reconnect && provider.hasKey && (
+        <button
+          className="btn btn--provider-ghost"
+          onClick={() => void window.api.providers.test(provider.id).finally(() => void refreshProviders())}
+          title="Check the key again"
+        >
+          Check again
+        </button>
+      )}
+    </div>
   )
 }
 
@@ -626,10 +690,17 @@ function KeySection({
 
   const saveKey = async (): Promise<void> => {
     if (!key.trim()) return
+    // A key with a line break in it, half a key or another provider's key
+    // would only come back as a 401; say so before saving it.
+    const shape = checkKeyShape(provider.id, provider.name, key)
+    if (shape.problem) {
+      onStatus({ ok: false, message: shape.problem })
+      return
+    }
     setBusy(true)
     onStatus(null)
     try {
-      await window.api.keys.set(provider.id, key.trim())
+      await window.api.keys.set(provider.id, shape.key)
       setKey('')
       setRevealedSaved(null)
       setReveal(false)
@@ -659,19 +730,23 @@ function KeySection({
     await refreshProviders()
   }
 
+  // The fallback keys themselves stay in main; this page holds a masked hint per key.
   const addFallback = async (): Promise<void> => {
     if (!newFallback.trim()) return
-    const next = [...fallbacks, newFallback.trim()]
-    setFallbacksList(next)
+    const shape = checkKeyShape(provider.id, provider.name, newFallback)
+    if (shape.problem) {
+      onStatus({ ok: false, message: shape.problem })
+      return
+    }
     setNewFallback('')
-    await window.api.keys.setFallbacks(provider.id, next)
+    await window.api.keys.addFallback(provider.id, shape.key)
+    setFallbacksList(await window.api.keys.getFallbacks(provider.id))
     await refreshProviders()
   }
 
   const removeFallback = async (index: number): Promise<void> => {
-    const next = fallbacks.filter((_, i) => i !== index)
-    setFallbacksList(next)
-    await window.api.keys.setFallbacks(provider.id, next)
+    await window.api.keys.removeFallback(provider.id, index)
+    setFallbacksList(await window.api.keys.getFallbacks(provider.id))
     await refreshProviders()
   }
 
@@ -759,9 +834,9 @@ function KeySection({
           )}
           <div>
             <div className="field-label">Fallback keys — tried in order if the key above fails</div>
-            {fallbacks.map((_, index) => (
+            {fallbacks.map((hint, index) => (
               <div className="fallback-row" key={index} style={{ marginBottom: 8 }}>
-                <input className="input" style={{ fontFamily: 'var(--font-mono)' }} value={'•'.repeat(24)} readOnly />
+                <input className="input" style={{ fontFamily: 'var(--font-mono)' }} value={hint} readOnly aria-label={`Fallback key ${index + 1}`} />
                 <button className="icon-btn" aria-label="Remove fallback key" onClick={() => void removeFallback(index)}>
                   <Trash2 size={15} strokeWidth={1.9} />
                 </button>
@@ -885,6 +960,15 @@ function ModelsSection({ provider }: { provider: Provider }): JSX.Element {
 
   const needle = query.trim().toLowerCase()
   const shown = needle ? provider.models.filter((m) => `${m.label} ${m.id}`.toLowerCase().includes(needle)) : provider.models
+  // Where the list shown came from and how old it is.
+  const listed = provider.models.find((m) => m.source?.kind === 'provider-live' || m.source?.kind === 'cache')
+  const freshness = listed?.source
+    ? listed.source.kind === 'cache'
+      ? `Showing ${provider.name}’s list from ${listed.source.retrievedAt ? ago(listed.source.retrievedAt) : 'before'}; the last refresh didn’t work.`
+      : describeSource(listed.source, provider.name)
+    : provider.models.length > 0 && !provider.local
+      ? (describeSource(provider.models[0].source, provider.name) ?? null)
+      : null
 
   return (
     <div className="provider-detail__section">
@@ -925,9 +1009,10 @@ function ModelsSection({ provider }: { provider: Provider }): JSX.Element {
       {(busy || status) && (
         <div className="provider-status" data-tone={status && !status.ok ? 'error' : undefined} role="status" style={{ marginTop: 0, marginBottom: 8 }}>
           {status && !status.ok && <TriangleAlert size={14} strokeWidth={1.9} />}
-          {busy ? 'Checking for new models…' : status?.message}
+          {busy ? `Checking ${provider.name} for new models…` : status?.message}
         </div>
       )}
+      {!busy && !status && freshness && <div className="provider-models__freshness">{freshness}</div>}
 
       {provider.models.length > 12 && (
         <div className="provider-models__search">
@@ -949,6 +1034,8 @@ function ModelsSection({ provider }: { provider: Provider }): JSX.Element {
         shown.map((model) => {
           const key = `${model.providerId}:${model.id}`
           const on = starred.has(key)
+          const caps = modelCapabilities(model)
+          const stage = modelStage(model)
           return (
             <div className="model-row" key={model.id} data-editing={editing === model.id || undefined}>
               {editing === model.id ? (
@@ -964,13 +1051,15 @@ function ModelsSection({ provider }: { provider: Provider }): JSX.Element {
                 />
               ) : (
                 <>
-                  <span className="model-row__name" title={model.id}>
+                  <span className="model-row__name" title={[model.id, describeSource(model.source, provider.name)].filter(Boolean).join(' · ')}>
                     {model.label}
                   </span>
                   <span className="model-row__badges">
-                    {model.tools !== false && <Wrench size={13} strokeWidth={1.8} aria-label="Tools" />}
-                    {model.vision && <Eye size={14} strokeWidth={1.8} aria-label="Images" />}
-                    {(model.reasoning || (model.efforts?.length ?? 0) > 0) && <Brain size={13} strokeWidth={1.8} aria-label="Thinking" />}
+                    {/* Only what a source says: an unknown capability gets no badge. */}
+                    {caps.tools === true && <Wrench size={13} strokeWidth={1.8} aria-label="Tools" />}
+                    {caps.vision === true && <Eye size={14} strokeWidth={1.8} aria-label="Images" />}
+                    {caps.reasoning === true && <Brain size={13} strokeWidth={1.8} aria-label="Thinking" />}
+                    {stage && <span className="model-row__tag">{STAGE_LABEL[stage]}</span>}
                     {model.custom && <span className="model-row__tag">Added</span>}
                     {model.edited && !model.custom && <span className="model-row__tag">Edited</span>}
                   </span>
@@ -1071,6 +1160,9 @@ function ModelEditor({
   const [modelId, setModelId] = useState(model.id)
   const [context, setContext] = useState(model.contextWindow ? String(model.contextWindow) : '')
   const [output, setOutput] = useState(model.maxOutput ? String(model.maxOutput) : '')
+  // The switches show what Eaon does with the model now; where no source
+  // confirmed it (`caps` is null) the switch says so, and setting it makes it known.
+  const caps = modelCapabilities(model)
   const [tools, setTools] = useState(model.tools !== false)
   const [vision, setVision] = useState(Boolean(model.vision))
   const [thinking, setThinking] = useState(thinks(model))
@@ -1134,19 +1226,20 @@ function ModelEditor({
         <div className="model-editor__toggle">
           <Switch label="Tools" checked={tools} onChange={setTools} />
           <span>
-            <b>Tools</b> Files, commands, the browser and plugins
+            <b>Tools</b> Files, commands, the browser and plugins{caps.tools === null && <i className="model-editor__unknown"> · not confirmed by its provider</i>}
           </span>
         </div>
         <div className="model-editor__toggle">
           <Switch label="Images" checked={vision} onChange={setVision} />
           <span>
-            <b>Images</b> Reads screenshots and pictures
+            <b>Images</b> Reads screenshots and pictures{caps.vision === null && <i className="model-editor__unknown"> · unknown; images are sent and left out if refused</i>}
           </span>
         </div>
         <div className="model-editor__toggle">
           <Switch label="Thinking" checked={thinking} onChange={setThinking} />
           <span>
             <b>Thinking</b> Thinks before answering; shows the effort control
+            {caps.reasoning === null && thinking && <i className="model-editor__unknown"> · guessed from its id</i>}
           </span>
         </div>
       </div>

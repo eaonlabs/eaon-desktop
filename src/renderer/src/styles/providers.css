@@ -330,3 +330,63 @@
 .provider-models__restore-all {
   margin-top: 8px;
 }
+
+/* ---- Needs attention: stored credentials that a check found broken ---- */
+
+.providers-shell .provider-row__badge[data-state='attention'] {
+  background: #d69a3a;
+}
+.provider-row__sub {
+  margin-left: 6px;
+  color: var(--text-3);
+  font-size: var(--fs-xs, 11.5px);
+}
+.provider-account__dot[data-state='attention'],
+.provider-account__dot[data-state='setup'] {
+  background: #d69a3a;
+}
+.provider-account__dot[data-state='unavailable'] {
+  background: var(--text-3);
+}
+.provider-attention {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0 0 22px;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  box-shadow: 0 0 0 1px color-mix(in srgb, #d69a3a 40%, transparent);
+  background: color-mix(in srgb, #d69a3a 7%, transparent);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--text-2);
+}
+.provider-attention > svg {
+  flex: none;
+  margin-top: 2px;
+  color: #d69a3a;
+}
+.provider-attention__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.provider-attention__title {
+  color: var(--text);
+  font-weight: 600;
+}
+.provider-attention .btn {
+  flex: none;
+  align-self: center;
+}
+/* Where the model list came from and how old it is, under the Models title. */
+.provider-models__freshness {
+  margin: -4px 0 8px;
+  color: var(--text-3);
+  font-size: var(--fs-xs, 11.5px);
+}
+.model-editor__unknown {
+  color: var(--text-3);
+  font-style: normal;
+}

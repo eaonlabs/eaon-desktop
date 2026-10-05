@@ -1,6 +1,7 @@
 import { randomBytes } from 'node:crypto'
 import type { Provider } from '@shared/types'
 import type { GatewayModel } from '@shared/gateway'
+import { isProviderUsable } from '@shared/modelSelection'
 import { listProviders } from '../providers'
 import { isOwnServerUrl } from '../providers/compat'
 import { store } from '../store'
@@ -12,7 +13,7 @@ import { store } from '../store'
 
 /** Providers the gateway can route to: usable, and never one that points back at this server. */
 export function gatewayProviders(): Provider[] {
-  return listProviders().filter((p) => p.enabled && (p.hasKey || p.local) && !isOwnServerUrl(p.baseUrl))
+  return listProviders().filter((p) => isProviderUsable(p) && !isOwnServerUrl(p.baseUrl))
 }
 
 export function gatewayModels(): GatewayModel[] {
