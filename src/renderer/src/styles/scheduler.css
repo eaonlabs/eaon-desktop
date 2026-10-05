@@ -183,6 +183,11 @@
 [data-status='failed'].sched-run__status {
   color: var(--danger);
 }
+.sched-status__dot[data-status='missed'],
+.sched-status__dot[data-status='skipped'] {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--text-4);
+}
 
 /* ---- Run history ---- */
 
@@ -265,6 +270,59 @@
 .sched-run__chevron {
   flex: none;
   color: var(--text-4);
+}
+.sched-history__policy {
+  margin: 0 0 4px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+
+/* A run's record, opened from its line. */
+.sched-run__record {
+  margin: 2px 0 10px 17px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  font-size: var(--fs-sm);
+  animation: sched-in var(--dur-spring) var(--spring-moderate);
+}
+.sched-run__facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 14px;
+  margin: 0;
+}
+.sched-run__facts dt {
+  color: var(--text-3);
+}
+.sched-run__facts dd {
+  margin: 0;
+  min-width: 0;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.sched-run__error {
+  margin: 10px 0 0;
+  padding: 8px 10px;
+  max-height: 160px;
+  overflow: auto;
+  border-radius: var(--r-sm);
+  background: var(--surface-3);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.sched-run__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.sched-run__actions:empty {
+  display: none;
 }
 
 /* ---- Editor ---- */

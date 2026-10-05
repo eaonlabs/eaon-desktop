@@ -17,6 +17,40 @@ export interface UsageCounts {
   output: number
   cacheRead: number
   cacheWrite: number
+  /**
+   * Requests whose provider reported no token counts at all (some
+   * OpenAI-compatible servers don't). Counted as requests, but their cost
+   * can't be known, so it is never shown as $0.
+   */
+  unreported?: number
+}
+
+/**
+ * How a provider's requests are paid for, which decides what a dollar figure
+ * next to them means. `api`: pay per token, so Tokn's rates are an estimate
+ * of the bill. `plan`: a subscription (ChatGPT, Copilot, a coding plan) — the
+ * same rates are only what it would have cost by the token, never a charge.
+ * `local`: runs on this computer, free.
+ */
+export type Billing = 'api' | 'plan' | 'local'
+
+/**
+ * What a request was made for: a chat (and anything else in a window), a
+ * scheduled task, a worker, the trading desk, or another app using Eaon's
+ * models through the Local API Server or Connect apps. That last kind is
+ * shown beside the rest but never added to the totals or uploaded: Tokn's own
+ * CLI counts those requests from the other app's logs, so uploading them as
+ * Eaon's would count them twice on the Tokn profile.
+ */
+export type UsageSource = 'chat' | 'schedule' | 'worker' | 'trading' | 'gateway'
+
+/** One source's share of the range, priced like the totals. */
+export interface UsageSourceRow {
+  source: UsageSource
+  requests: number
+  tokens: number
+  costUsd: number
+  planUsd: number
 }
 
 export interface ToknAccount {
@@ -30,7 +64,10 @@ export type UsageRange = 7 | 30 | 90
 
 export interface UsageDay {
   day: string
+  /** Estimated pay-per-token spend. */
   costUsd: number
+  /** Use covered by subscription plans, at API rates: what it would have cost, not a charge. */
+  planUsd?: number
   tokens: number
   requests: number
 }
@@ -40,10 +77,11 @@ export interface UsageModelRow extends UsageCounts {
   modelId: string
   /** The model's name in Tokn's price table, or null when Tokn has no price for it (local models, brand-new ones). */
   toknModel: string | null
-  /** At Tokn's published rates; null when unpriced. */
+  /** At Tokn's published rates; null when unpriced. For a plan, the API-rate equivalent, not a charge. */
   costUsd: number | null
   /** Runs on this computer: free, and never uploaded. */
   local: boolean
+  billing: Billing
 }
 
 export interface UsageSync {
@@ -95,8 +133,15 @@ export interface UsageSummary {
   days: UsageDay[]
   /** The range's models, most expensive first; unpriced ones last by requests. */
   models: UsageModelRow[]
-  totals: UsageTotals & { unpricedRequests: number }
-  today: UsageTotals
+  /**
+   * `costUsd` is the estimated pay-per-token spend only. `planUsd` is the
+   * subscription use at API rates. Unpriced requests are to models Tokn has
+   * no price for; unreported ones had no token counts from the provider.
+   */
+  totals: UsageTotals & { unpricedRequests: number; unreportedRequests: number; planUsd: number }
+  today: UsageTotals & { planUsd: number }
+  /** The range by what the requests were for, busiest first; only sources with any use. */
+  sources: UsageSourceRow[]
   /** False until Tokn's price table has loaded once; costs read as unpriced until then. */
   priced: boolean
   /** A year of days for the activity calendar: whole weeks, Sunday first, ending today. */

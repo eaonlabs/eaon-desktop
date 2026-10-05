@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import type { Provider } from '@shared/types'
-import type { UsageSummary } from '@shared/usage'
+import type { Billing, UsageSummary } from '@shared/usage'
 import { adapterFor, onModelUsage, registerAdapter } from '../src/main/providers'
 import { emptyUsage, type Adapter, type TurnRequest } from '../src/main/providers/adapters/types'
 import { usageFeature } from '../src/main/features/usage'
@@ -24,7 +24,8 @@ const PRICING: ToknPricing = {
   'claude-opus-5': { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
   'gpt-6.1-sol': { input: 2, output: 16 }
 }
-const remote = (id: string): boolean => id === 'lm-studio'
+/** lm-studio runs locally; everything else here bills per token. */
+const remote = (id: string): Billing => (id === 'lm-studio' ? 'local' : 'api')
 
 test('model names follow Tokn’s table: no vendor prefix, version, date or routing variant', () => {
   assert.equal(toknModelName('anthropic/claude-opus-5'), 'claude-opus-5')
@@ -107,7 +108,7 @@ test('the activity calendar is whole weeks from a Sunday to today, with every da
   assert.equal(days.length, 53 * 7, 'today is a Saturday, so the last week is full')
   assert.equal(new Date(`${days[0].day}T12:00:00`).getDay(), 0, 'starts on a Sunday')
   assert.equal(days.at(-1)!.day, '2026-10-03')
-  assert.deepEqual(days.find((d) => d.day === '2026-10-01'), { day: '2026-10-01', costUsd: 5, tokens: 1_000_000, requests: 2 })
+  assert.deepEqual(days.find((d) => d.day === '2026-10-01'), { day: '2026-10-01', costUsd: 5, planUsd: 0, tokens: 1_000_000, requests: 2 })
   assert.equal(days.filter((d) => d.requests > 0).length, 1)
   // Midweek, the last column stops at today.
   const wednesday = calendar(byDay, new Date(2026, 9, 7, 9), 53)
@@ -122,7 +123,7 @@ test('active days and streaks count the way Tokn’s profile does', () => {
     '2026-09-20': day(1), '2026-09-21': day(1), '2026-09-22': day(1), '2026-09-23': day(1), // four in a row
     '2026-09-30': day(3, 50_000), '2026-10-01': day(1), '2026-10-02': day(1) // up to yesterday
   }
-  const stats = activity(dailyTotals(ledger, {}, () => false), 7, now)
+  const stats = activity(dailyTotals(ledger, {}, () => 'api'), 7, now)
   assert.equal(stats.activeDays, 7)
   assert.equal(stats.activeInRange, 3, 'Sep 27 to Oct 3')
   assert.equal(stats.currentStreak, 3, 'still standing at yesterday: today is not over')
@@ -131,7 +132,7 @@ test('active days and streaks count the way Tokn’s profile does', () => {
   assert.equal(stats.busiest?.day, '2026-09-30', 'no prices here, so the busiest day is the one with the most tokens')
   assert.equal(stats.allTime.requests, 9)
   // A whole day with nothing ends it: on Oct 4, yesterday (Oct 3) was empty.
-  assert.equal(activity(dailyTotals(ledger, {}, () => false), 7, new Date(2026, 9, 4, 9)).currentStreak, 0)
+  assert.equal(activity(dailyTotals(ledger, {}, () => 'api'), 7, new Date(2026, 9, 4, 9)).currentStreak, 0)
 })
 
 test('Eaon’s own requests are counted; requests other apps make through the gateway are not', async () => {
@@ -166,7 +167,8 @@ test('the ledger buckets by local day, adds up, and survives a restart', () => {
   resetLedgerForTests()
   const days = ledgerDays()
   assert.deepEqual(days['2026-10-03'].anthropic['claude-opus-5'], { requests: 2, input: 11, output: 6, cacheRead: 4, cacheWrite: 2 })
-  assert.deepEqual(days['2026-10-04'].anthropic['claude-opus-5'], { requests: 1, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 })
+  // No counts at all from the provider: a request, flagged as unreported rather than free.
+  assert.deepEqual(days['2026-10-04'].anthropic['claude-opus-5'], { requests: 1, input: 0, output: 0, cacheRead: 0, cacheWrite: 0, unreported: 1 })
 })
 
 /* ------------------------------------------------------------ Tokn */

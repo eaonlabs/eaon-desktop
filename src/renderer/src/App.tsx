@@ -11,6 +11,7 @@ import { PullRequestsPage } from './components/PullRequestsPage'
 import { ModelsPage } from './components/ModelsPage'
 import { SettingsShell } from './components/settings/SettingsShell'
 import { UpdateToast } from './components/UpdateToast'
+import { StoreNotice } from './components/StoreNotice'
 import { CodeView } from './components/code/CodeView'
 import { LibraryPage } from './components/LibraryPage'
 import { WorkersView } from './components/workers/WorkersView'
@@ -97,6 +98,7 @@ export default function App(): JSX.Element {
         </div>
       )}
       <UpdateToast />
+      <StoreNotice />
       <DiscordPresence />
       <BrowserAsk />
     </>

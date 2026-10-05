@@ -195,6 +195,11 @@ export function TaskEditor({
         <div className="sched-field">
           <span className="field-label">Schedule</span>
           <SchedulePicker form={schedule} onChange={setSchedule} previous={task?.schedule} />
+          <span className="sched-field__hint">
+            Runs while Eaon is open, or in the background if you turn that on. A time missed while Eaon was closed or your
+            computer slept runs once when it’s back, if it’s less than a day late. If a run is still going when the next one is
+            due, that one is skipped.
+          </span>
         </div>
 
         <div className="sched-field">

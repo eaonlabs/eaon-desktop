@@ -20,7 +20,7 @@ import type {
 } from '@shared/types'
 import { mergeRunChat } from '@shared/scheduler'
 import { lastTurnFailed } from './chatStatus'
-import { chatChanges } from './chatSync'
+import { chatChanges, Checkpoint } from './chatSync'
 import { forkedChat, retryPlan, withFeedback } from './chatEdits'
 import { migrateLegacySchedules } from '../components/scheduled/legacy'
 
@@ -198,14 +198,21 @@ function persistChats(): void {
   if (saveTimer) clearTimeout(saveTimer)
   saveTimer = setTimeout(saveChatsNow, 250)
 }
-function saveChatsNow(): void {
+function saveChatsNow(checkpoint = false): void {
   if (saveTimer) clearTimeout(saveTimer)
   saveTimer = null
+  // A regular save covers what a pending checkpoint would have saved.
+  if (!checkpoint) checkpoints.cancel()
   const chats = useApp.getState().chats
   const { upserts, removed } = chatChanges(synced, chats)
   synced = new Map(chats.map((chat) => [chat.id, chat]))
-  if (upserts.length > 0 || removed.length > 0) void window.api.chats.apply(upserts, removed)
+  // A checkpoint is not broadcast: other windows watching the reply have it
+  // live from the stream, and a copy a few tokens old would put theirs back.
+  if (upserts.length > 0 || removed.length > 0) void window.api.chats.apply(upserts, removed, checkpoint)
 }
+
+/** Saves the reply this window is streaming every few seconds, so a crash keeps most of it; see Checkpoint. */
+const checkpoints = new Checkpoint(() => saveChatsNow(true))
 
 /**
  * Takes in chats another window changed. The chat this window is writing a
@@ -405,6 +412,7 @@ function applyStreamEvent(event: StreamEvent): void {
   // saved by whoever is writing it; here it only becomes the synced copy.
   if (!ownsStream) synced.set(target.id, chats[chatIndex])
   else if (finished || nextChat) persistChats()
+  else checkpoints.touch()
 }
 
 /**

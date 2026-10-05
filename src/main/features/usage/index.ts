@@ -1,11 +1,11 @@
 import { app, shell } from 'electron'
-import type { UsageRange, UsageSignIn, UsageSummary, UsageSync } from '@shared/usage'
+import type { Billing, UsageRange, UsageSignIn, UsageSummary, UsageSync } from '@shared/usage'
 import { getProvider, onModelUsage } from '../../providers'
 import { LOCAL_PROVIDER_ID } from '../../llama/models'
 import { store } from '../../store'
 import type { Feature, FeatureContext } from '../types'
-import { flushLedger, ledgerDays, onLedgerChange, recordUsage } from './ledger'
-import { activity, calendar, dailyTotals, summarize, syncRows, type ToknPricing } from './rows'
+import { flushLedger, ledgerDays, ledgerSources, onLedgerChange, recordUsage } from './ledger'
+import { activity, calendar, dailyTotals, summarize, summarizeSources, syncRows, type BillingOf, type ToknPricing } from './rows'
 import { fetchPricing, refreshAccount, signIn, signOut, submitCode, toknAccount, toknHost, upload } from './tokn'
 
 /**
@@ -27,16 +27,53 @@ const SYNC_AFTER_USAGE_MS = 5 * 60_000
 const SYNC_ON_LAUNCH_AFTER_MS = 60 * 60_000
 
 let ctx: FeatureContext | null = null
-let pricing: { fetchedAt: number; models: ToknPricing } = store.getJson(PRICING_FILE, { fetchedAt: 0, models: {} })
+let pricing: { fetchedAt: number; models: ToknPricing } = savedPricing()
 let pricingLoad: Promise<void> | null = null
 let signInState: UsageSignIn = { state: 'idle' }
 let signInAbort: AbortController | null = null
-let sync: UsageSync = { state: 'idle', at: null, ...store.getJson<Partial<UsageSync>>(SYNC_FILE, {}) }
+let sync: UsageSync = savedSync()
 let syncTimer: ReturnType<typeof setTimeout> | null = null
 let syncing: Promise<void> | null = null
 let changedTimer: ReturnType<typeof setTimeout> | null = null
 
-const isLocal = (providerId: string): boolean => providerId === LOCAL_PROVIDER_ID || Boolean(getProvider(providerId)?.local)
+/** Tokn's prices as last fetched; anything that isn't a price table counts as never fetched. */
+function savedPricing(): { fetchedAt: number; models: ToknPricing } {
+  const saved = store.getJson<Record<string, unknown>>(PRICING_FILE, {})
+  const models = saved.models
+  const fetchedAt = typeof saved.fetchedAt === 'number' && Number.isFinite(saved.fetchedAt) ? saved.fetchedAt : 0
+  if (!models || typeof models !== 'object' || Array.isArray(models)) return { fetchedAt: 0, models: {} }
+  return { fetchedAt, models: models as ToknPricing }
+}
+
+function savedSync(): UsageSync {
+  const saved = store.getJson<Record<string, unknown>>(SYNC_FILE, {})
+  const finite = (value: unknown): number | undefined => (typeof value === 'number' && Number.isFinite(value) ? value : undefined)
+  return {
+    state: 'idle',
+    at: typeof saved.at === 'string' && !Number.isNaN(Date.parse(saved.at)) ? saved.at : null,
+    accepted: finite(saved.accepted),
+    rejected: finite(saved.rejected),
+    rank: finite(saved.rank) ?? null
+  }
+}
+
+/**
+ * How a provider's requests are paid for. Subscriptions (ChatGPT, Copilot,
+ * the coding plans) are `plan`: Tokn's rates on them are an equivalent, not a
+ * bill. Looked up once per summary: getProvider reads providers.json.
+ */
+function billingLookup(): BillingOf {
+  const known = new Map<string, Billing>()
+  return (providerId) => {
+    let billing = known.get(providerId)
+    if (!billing) {
+      const provider = providerId === LOCAL_PROVIDER_ID ? null : getProvider(providerId)
+      billing = providerId === LOCAL_PROVIDER_ID || provider?.local ? 'local' : provider?.category === 'subscription' ? 'plan' : 'api'
+      known.set(providerId, billing)
+    }
+    return billing
+  }
+}
 
 /** Tells every window to read the summary again; coalesced, since a busy agent records many requests a second. */
 function changed(): void {
@@ -67,8 +104,9 @@ function loadPricing(force = false): Promise<void> {
 function summary(range: UsageRange): UsageSummary {
   void loadPricing()
   const days = ledgerDays()
-  const shaped = summarize(days, range, pricing.models, isLocal)
-  const byDay = dailyTotals(days, pricing.models, isLocal)
+  const billingOf = billingLookup()
+  const shaped = summarize(days, range, pricing.models, billingOf)
+  const byDay = dailyTotals(days, pricing.models, billingOf)
   return {
     account: toknAccount(),
     signIn: signInState,
@@ -76,6 +114,7 @@ function summary(range: UsageRange): UsageSummary {
     range,
     priced: pricing.fetchedAt > 0,
     ...shaped,
+    sources: summarizeSources(ledgerSources(), range, pricing.models, billingOf),
     calendar: calendar(byDay),
     activity: activity(byDay, range)
   }
@@ -99,7 +138,7 @@ function syncNow(): Promise<void> {
     setSync({ ...sync, state: 'syncing', error: undefined })
     try {
       await loadPricing(Object.keys(pricing.models).length === 0)
-      const rows = syncRows(ledgerDays(), pricing.models, isLocal)
+      const rows = syncRows(ledgerDays(), pricing.models, billingLookup())
       const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
       const result = rows.length > 0 ? await upload(rows, timezone) : { accepted: 0, rejected: 0, rank: null }
       setSync({ state: 'idle', at: new Date().toISOString(), accepted: result.accepted, rejected: result.rejected, rank: result.rank })
@@ -162,9 +201,10 @@ export const usageFeature: Feature = {
     ctx = context
     const { ipcMain } = context
     onModelUsage((providerId, modelId, usage) => recordUsage(providerId, modelId, usage))
-    onLedgerChange(() => {
+    onLedgerChange((source) => {
       changed()
-      scheduleSync(SYNC_AFTER_USAGE_MS)
+      // Other apps' requests are never uploaded, so they are no reason to sync.
+      if (source !== 'gateway') scheduleSync(SYNC_AFTER_USAGE_MS)
     })
 
     ipcMain.handle('usage:summary', (_e, range: UsageRange) => summary(range === 7 || range === 90 ? range : 30))

@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { Chat } from '@shared/types'
-import { chatChanges } from '../src/renderer/src/state/chatSync'
+import { chatChanges, Checkpoint } from '../src/renderer/src/state/chatSync'
 
 /**
  * With several windows, each saves only the chats it changed. A window that
@@ -38,4 +38,36 @@ test("a chat taken in from another window is not sent back", () => {
     ['b', theirs]
   ])
   assert.deepEqual(chatChanges(synced, [mine, theirs]).upserts, [])
+})
+
+/* A reply that is still streaming is saved every few seconds, not only when it ends. */
+
+test('a checkpoint is a throttle: steady events never push it back, and one save follows each burst', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  let saves = 0
+  const checkpoint = new Checkpoint(() => saves++, 5_000)
+  // Tokens arrive every 20 ms for 12 seconds. A debounce would never fire.
+  for (let elapsed = 0; elapsed < 12_000; elapsed += 20) {
+    checkpoint.touch()
+    t.mock.timers.tick(20)
+  }
+  assert.equal(saves, 2, 'at 5 s and at 10 s')
+  // The touch at 10 s started the next one, due at 15 s; after that, with nothing touched, nothing is left to save.
+  t.mock.timers.tick(5_000)
+  assert.equal(saves, 3)
+  t.mock.timers.tick(30_000)
+  assert.equal(saves, 3)
+  checkpoint.touch()
+  t.mock.timers.tick(5_000)
+  assert.equal(saves, 4)
+})
+
+test('a regular save cancels the pending checkpoint', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  let saves = 0
+  const checkpoint = new Checkpoint(() => saves++, 5_000)
+  checkpoint.touch()
+  checkpoint.cancel()
+  t.mock.timers.tick(10_000)
+  assert.equal(saves, 0)
 })

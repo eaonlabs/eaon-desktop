@@ -1,10 +1,8 @@
-import { app } from 'electron'
 import os from 'node:os'
-import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
-import { rename, writeFile } from 'node:fs/promises'
-import { join } from 'node:path'
 import type { Chat, DownloadedModel, McpServer, ModelInfo, Project, Settings, Workspace } from '@shared/types'
 import type { ModelEditFields } from '@shared/providers'
+import { backupDocs, flushDocWrites, readDoc, setAside, shapeOf, writeDocAsync, writeDocSync, type DocSpec } from './storeFiles'
+import { repairChats, repairMcpServers, repairProjects, repairProviderConfig, repairSettings, repairWorkspaces } from './storeRepair'
 
 /**
  * What `providers.json` keeps per provider: the user's changes, layered over
@@ -29,8 +27,6 @@ export interface ProviderOverride {
   models?: ModelInfo[]
 }
 
-const dataDir = () => join(app.getPath('userData'), 'store')
-
 /**
  * chats.json as last saved. Every window, the scheduler and the migrations go
  * through this copy: the file itself lags behind an async write, and with
@@ -39,66 +35,40 @@ const dataDir = () => join(app.getPath('userData'), 'store')
  */
 let chatsCache: Chat[] | null = null
 
-function ensureDir(): string {
-  const dir = dataDir()
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-  return dir
-}
-
-/** Write via a temp file + rename so a crash mid-write cannot corrupt the store. */
-function writeJson(name: string, value: unknown): void {
-  const dir = ensureDir()
-  const target = join(dir, name)
-  const tmp = `${target}.tmp`
-  writeFileSync(tmp, JSON.stringify(value, null, 2), 'utf8')
-  renameSync(tmp, target)
-}
-
-const writeQueues = new Map<string, Promise<void>>()
-/** The newest value waiting for a file's queued write, which has not started yet. */
-const pendingValues = new Map<string, unknown>()
-
-/**
- * Atomic write that does not block the main process.
- *
- * Chat history grows without bound, and a synchronous multi-megabyte write
- * freezes everything the main process drives — IPC, input, painting — for its
- * whole duration. Writes to the same file are chained so a slow one cannot be
- * overtaken by the next, and the output is compact rather than pretty-printed:
- * nothing reads this file by hand, and the indentation roughly doubled both the
- * bytes and the stringify cost.
- *
- * Saves that arrive while a write is still running collapse into one: only the
- * newest is written, and it is only stringified when its turn comes. Each save
- * is the whole file, so the ones in between would be overwritten unread — and
- * every one held its own multi-megabyte string until then.
+/*
+ * Reading and writing go through storeFiles.ts: atomic, flushed writes with
+ * the previous save kept, and reads that repair or recover a damaged file
+ * rather than handing the app a default it would then save over the user's
+ * data. Each of the store's own documents has a repair pass (storeRepair.ts);
+ * the `getJson` documents of features are checked for shape only.
  */
+/** Tests: drop the in-memory chat list, so the next read comes from disk. */
+export function forgetChatsForTests(): void {
+  chatsCache = null
+}
+
+function writeJson(name: string, value: unknown): void {
+  writeDocSync(name, value)
+}
+
 function writeJsonAsync(name: string, value: unknown): void {
-  const alreadyQueued = pendingValues.has(name)
-  pendingValues.set(name, value)
-  if (alreadyQueued) return
-  const dir = ensureDir()
-  const target = join(dir, name)
-  const tmp = `${target}.tmp`
-  const queued = (writeQueues.get(name) ?? Promise.resolve())
-    .then(() => {
-      const latest = pendingValues.get(name)
-      pendingValues.delete(name)
-      return writeFile(tmp, JSON.stringify(latest), 'utf8')
-    })
-    .then(() => rename(tmp, target))
-    .catch((error) => console.error(`[store] failed to write ${name}:`, error))
-  writeQueues.set(name, queued)
+  writeDocAsync(name, value)
 }
 
 function readJson<T>(name: string, fallback: T): T {
-  try {
-    const file = join(dataDir(), name)
-    if (!existsSync(file)) return fallback
-    return JSON.parse(readFileSync(file, 'utf8')) as T
-  } catch {
-    return fallback
-  }
+  return readDoc(name, shapeOf(fallback))
+}
+
+const SETTINGS_DOC: DocSpec<Record<string, unknown>> = {
+  fallback: () => ({}),
+  repair: (value) => repairSettings(value, defaultSettings as unknown as Record<string, unknown>)
+}
+const CHATS_DOC: DocSpec<Chat[]> = { fallback: () => [], repair: (value) => repairChats(value), pretty: false }
+const PROJECTS_DOC: DocSpec<Project[]> = { fallback: () => [], repair: (value) => repairProjects(value) }
+const WORKSPACES_DOC: DocSpec<Workspace[]> = { fallback: () => [], repair: repairWorkspaces }
+const PROVIDERS_DOC: DocSpec<Record<string, ProviderOverride>> = {
+  fallback: () => ({}),
+  repair: (value) => repairProviderConfig(value) as ReturnType<DocSpec<Record<string, ProviderOverride>>['repair']>
 }
 
 /**
@@ -305,24 +275,40 @@ function merge<T>(base: T, patch: unknown): T {
  */
 const REMOVED_SETTINGS = ['pets']
 
+/** Settings with anything of the wrong type or out of range put back to its default; see repairSettings. */
+function checkedSettings(settings: Settings): Settings {
+  const repaired = repairSettings(structuredClone(settings), defaultSettings as unknown as Record<string, unknown>)
+  return repaired && repaired.fixed > 0 ? merge(defaultSettings, repaired.value) : settings
+}
+
+/** mcp.json, with the servers a fresh install starts with when there is no file. */
+function mcpDoc(defaults: McpServer[]): DocSpec<McpServer[]> {
+  return { fallback: () => defaults, repair: repairMcpServers }
+}
+
 export const store = {
   getSettings(): Settings {
-    const saved = readJson<Record<string, unknown>>('settings.json', {})
-    if (saved && typeof saved === 'object') for (const key of REMOVED_SETTINGS) delete saved[key]
+    const saved = readDoc('settings.json', SETTINGS_DOC)
+    for (const key of REMOVED_SETTINGS) delete saved[key]
     return merge(defaultSettings, saved)
   },
   saveSettings(settings: Settings): Settings {
-    writeJson('settings.json', settings)
-    return settings
+    const checked = checkedSettings(settings)
+    writeJson('settings.json', checked)
+    return checked
   },
   patchSettings(patch: Partial<Settings>): Settings {
-    const next = merge(this.getSettings(), patch)
+    // Checked before it is saved or sent to every window: a patch that sets a
+    // whole section to null, or an unknown option, would otherwise reach the
+    // renderers as is.
+    const next = checkedSettings(merge(this.getSettings(), patch))
     writeJson('settings.json', next)
     return next
   },
 
   getWorkspaces(): Workspace[] {
-    return readJson<Workspace[]>('workspaces.json', DEFAULT_WORKSPACES)
+    const saved = readDoc('workspaces.json', WORKSPACES_DOC)
+    return saved.length > 0 ? saved : DEFAULT_WORKSPACES.map((w) => ({ ...w }))
   },
   saveWorkspaces(workspaces: Workspace[]): Workspace[] {
     writeJson('workspaces.json', workspaces)
@@ -344,8 +330,8 @@ export const store = {
    * to an empty list with no way out.
    */
   migrateWorkspaces(): void {
-    const existing = readJson<Workspace[]>('workspaces.json', [])
-    const settings = readJson<Partial<Settings>>('settings.json', {})
+    const existing = readDoc('workspaces.json', WORKSPACES_DOC)
+    const settings = readDoc('settings.json', SETTINGS_DOC) as Partial<Settings>
 
     const chat = existing.find((w) => w.kind === 'chat' || (w.kind as string) === undefined)
     const work = existing.find((w) => w.kind === 'work')
@@ -366,24 +352,45 @@ export const store = {
       existing.length === workspaces.length &&
       existing.every((w, i) => w.id === workspaces[i].id && w.kind === workspaces[i].kind && w.name === workspaces[i].name) &&
       settings.activeWorkspaceId === active
-    if (canonical) return
 
-    const chats = readJson<Chat[]>('chats.json', [])
-    if (chats.some((c) => !known.has(c.workspaceId))) {
-      writeJson(
-        'chats.json',
-        chats.map((c) => (known.has(c.workspaceId) ? c : { ...c, workspaceId: chatId }))
-      )
-      chatsCache = null
+    // Checked on every launch, not only when the tabs change: a chat can
+    // point at a workspace or a project that is gone (a project deleted in
+    // another window while this chat's save was lost, or a projects.json
+    // that had to be started over), and such a chat is in no list at all —
+    // not under any project, and not in Recents either, which leaves out
+    // every chat that has a project.
+    const projects = readDoc('projects.json', PROJECTS_DOC)
+    const projectIds = new Set(projects.map((p) => p.id))
+    const chats = readDoc('chats.json', CHATS_DOC)
+    const strayChat = (c: Chat): boolean => !known.has(c.workspaceId) || (c.projectId !== null && !projectIds.has(c.projectId))
+    const strayProjects = projects.some((p) => !known.has(p.workspaceId))
+    const strayChats = chats.some(strayChat)
+    if (canonical && !strayProjects && !strayChats) return
+
+    // Rewrites the user's chats and projects, so a copy of them as they were
+    // goes into store/backups first.
+    if (strayChats || strayProjects || existing.length > 0) {
+      backupDocs('before-workspaces', ['workspaces.json', 'settings.json', 'chats.json', 'projects.json'])
     }
-    const projects = readJson<Project[]>('projects.json', [])
-    if (projects.some((p) => !known.has(p.workspaceId))) {
+    if (strayChats) {
+      chatsCache = chats.map((c) =>
+        strayChat(c)
+          ? {
+              ...c,
+              workspaceId: known.has(c.workspaceId) ? c.workspaceId : chatId,
+              projectId: c.projectId !== null && projectIds.has(c.projectId) ? c.projectId : null
+            }
+          : c
+      )
+      writeJsonAsync('chats.json', chatsCache)
+    }
+    if (strayProjects) {
       writeJson(
         'projects.json',
         projects.map((p) => (known.has(p.workspaceId) ? p : { ...p, workspaceId: chatId }))
       )
     }
-    writeJson('workspaces.json', workspaces)
+    if (!canonical) writeJson('workspaces.json', workspaces)
     if (settings.activeWorkspaceId !== active) writeJson('settings.json', { ...settings, activeWorkspaceId: active })
   },
 
@@ -402,7 +409,7 @@ export const store = {
   },
 
   getProjects(): Project[] {
-    return readJson<Project[]>('projects.json', [])
+    return readDoc('projects.json', PROJECTS_DOC)
   },
   saveProjects(projects: Project[]): Project[] {
     writeJson('projects.json', projects)
@@ -411,7 +418,7 @@ export const store = {
 
   /** A copy of the list, safe for the caller to reorder or extend before saving it back. */
   getChats(): Chat[] {
-    chatsCache ??= readJson<Chat[]>('chats.json', [])
+    chatsCache ??= readDoc('chats.json', CHATS_DOC)
     return chatsCache.slice()
   },
   /** Replaces the whole list. Returns nothing: nobody needs the array echoed back. */
@@ -435,13 +442,13 @@ export const store = {
     this.saveChats([...added, ...next])
   },
 
-  /** Awaits any in-flight async write so quitting cannot drop the last save. */
+  /** Awaits any in-flight async write so quitting cannot drop the last save; also retries a save that failed. */
   flushWrites(): Promise<unknown> {
-    return Promise.all([...writeQueues.values()])
+    return flushDocWrites()
   },
 
   getMcpServers(): McpServer[] {
-    return readJson<McpServer[]>('mcp.json', [
+    return readDoc('mcp.json', mcpDoc([
       {
         id: 'filesystem',
         name: 'Filesystem',
@@ -464,7 +471,7 @@ export const store = {
         enabled: false,
         official: true
       }
-    ])
+    ]))
   },
   saveMcpServers(servers: McpServer[]): McpServer[] {
     writeJson('mcp.json', servers)
@@ -472,7 +479,7 @@ export const store = {
   },
 
   getProviderConfig(): Record<string, ProviderOverride> {
-    return readJson('providers.json', {})
+    return readDoc('providers.json', PROVIDERS_DOC)
   },
   saveProviderConfig(config: Record<string, unknown>): void {
     writeJson('providers.json', config)
@@ -492,6 +499,14 @@ export const store = {
   /** `setJson` for documents that grow without bound (worker threads): off the main thread, newest write wins. */
   setJsonAsync(name: string, value: unknown): void {
     writeJsonAsync(name, value)
+  },
+  /**
+   * For a feature that found records in its file it can't use: keeps a copy
+   * of the file as it is, before the feature saves it without them, and
+   * tells the user (see storeFiles.ts).
+   */
+  setAside(name: string, detail: string): void {
+    setAside(name, detail)
   },
 
   getDownloadedModels(): DownloadedModel[] {

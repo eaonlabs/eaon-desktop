@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { CalendarClock, Plus, X } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
-import type { ScheduledTask } from '@shared/scheduler'
+import type { ScheduledTask, TaskRun } from '@shared/scheduler'
 import { Card, Modal, Row, Section, Switch } from './ui'
 import { TopBar } from './TopBar'
 import { revealChat, useApp } from '../state/store'
@@ -69,6 +69,7 @@ export function ScheduledPage(): JSX.Element {
     [attempt]
   )
   const onRunNow = useCallback((task: ScheduledTask) => attempt(() => window.api.scheduler.runNow(task.id)), [attempt])
+  const onRetry = useCallback((task: ScheduledTask, run: TaskRun) => attempt(() => window.api.scheduler.retry(task.id, run.id)), [attempt])
   const onStop = useCallback((task: ScheduledTask) => attempt(() => window.api.scheduler.cancel(task.id)), [attempt])
   const onOpenChat = useCallback((chatId: string) => revealChat(chatId), [])
 
@@ -134,6 +135,7 @@ export function ScheduledPage(): JSX.Element {
                   onDelete={setDeleting}
                   onToggle={onToggle}
                   onRunNow={onRunNow}
+                  onRetry={onRetry}
                   onStop={onStop}
                   onOpenChat={onOpenChat}
                 />

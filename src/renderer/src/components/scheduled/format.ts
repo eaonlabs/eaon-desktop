@@ -57,7 +57,8 @@ export const STATUS_LABEL: Record<RunStatus, string> = {
   succeeded: 'Succeeded',
   failed: 'Failed',
   cancelled: 'Stopped',
-  missed: 'Missed'
+  missed: 'Missed',
+  skipped: 'Skipped'
 }
 
 /** `<input type="datetime-local">` speaks "YYYY-MM-DDTHH:MM" in local time. */

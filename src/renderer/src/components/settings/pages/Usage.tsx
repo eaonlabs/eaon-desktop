@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type JSX } from 'react'
 import { ExternalLink, Loader2, RefreshCw } from 'lucide-react'
-import type { UsageDay, UsageModelRow, UsageRange, UsageSummary } from '@shared/usage'
+import type { UsageDay, UsageModelRow, UsageRange, UsageSource, UsageSourceRow, UsageSummary } from '@shared/usage'
 import { useApp } from '../../../state/store'
 import { Card, Row, Section, Segmented } from '../../ui'
 import { ProviderMark } from '../../composer/ProviderMark'
@@ -281,8 +281,16 @@ function SignedIn({ summary, range, onRange }: { summary: UsageSummary; range: U
       </div>
 
       <div className="usage-tiles">
-        <Tile label={`Spent · ${range} days`} value={money(summary.totals.costUsd)} />
-        <Tile label="Today" value={money(summary.today.costUsd)} />
+        <Tile
+          label={`Est. spend · ${range} days`}
+          value={money(summary.totals.costUsd)}
+          sub={summary.totals.planUsd > 0 ? `Plus ≈ ${money(summary.totals.planUsd)} covered by plans` : 'Pay-per-token, at API rates'}
+        />
+        <Tile
+          label="Today"
+          value={money(summary.today.costUsd)}
+          sub={summary.today.planUsd > 0 ? `Plus ≈ ${money(summary.today.planUsd)} covered by plans` : undefined}
+        />
         <Tile label="Tokens" value={tokens(summary.totals.tokens)} />
         <Tile label="Requests" value={summary.totals.requests.toLocaleString()} />
       </div>
@@ -295,58 +303,89 @@ function SignedIn({ summary, range, onRange }: { summary: UsageSummary; range: U
         <ModelTable models={summary.models} />
       </Section>
 
+      {summary.sources.some((row) => row.source !== 'chat') && (
+        <Section label="By what it was for">
+          <SourceTable sources={summary.sources} />
+        </Section>
+      )}
+
       <p className="usage-footnote">
-        Estimated at Tokn’s published API rates{summary.priced ? '' : ' (loading)'}: plans, credits and free tiers aren’t reflected,
-        so a real bill can differ.
+        Spend is estimated at Tokn’s published API rates{summary.priced ? '' : ' (loading)'} for providers that bill per token;
+        credits and free tiers aren’t reflected, so a real bill can differ. Use through a subscription (ChatGPT, Copilot, coding
+        plans) isn’t charged per token, so it shows as ≈ what it would cost at those rates, never as spend.
         {summary.totals.unpricedRequests > 0 &&
           ` ${summary.totals.unpricedRequests.toLocaleString()} ${summary.totals.unpricedRequests === 1 ? 'request was' : 'requests were'} to models Tokn has no price for yet.`}
+        {summary.totals.unreportedRequests > 0 &&
+          ` ${summary.totals.unreportedRequests.toLocaleString()} ${summary.totals.unreportedRequests === 1 ? 'request' : 'requests'} came back without token counts from the provider, so ${summary.totals.unreportedRequests === 1 ? 'its' : 'their'} cost isn’t included.`}
       </p>
     </>
   )
 }
 
-function Tile({ label, value }: { label: string; value: string }): JSX.Element {
+function Tile({ label, value, sub }: { label: string; value: string; sub?: string }): JSX.Element {
   return (
     <div className="usage-tile">
       <div className="usage-tile__label">{label}</div>
       <div className="usage-tile__value">{value}</div>
+      {sub && (
+        <div className="usage-tile__sub" title={sub}>
+          {sub}
+        </div>
+      )}
     </div>
   )
 }
 
-/** One bar a day: spend, with the day's tokens and requests on hover. */
+const dayTotal = (day: UsageDay): number => day.costUsd + (day.planUsd ?? 0)
+
+/**
+ * One bar a day: spend, with plan use at API rates stacked on top in a
+ * lighter shade (what it would have cost, not a charge), and the day's
+ * tokens and requests on hover.
+ */
 function DailyChart({ days }: { days: UsageDay[] }): JSX.Element {
   const [hover, setHover] = useState<number | null>(null)
-  const max = Math.max(...days.map((d) => d.costUsd), 0)
+  const max = Math.max(...days.map(dayTotal), 0)
   const shown = hover !== null ? days[hover] : null
+  const busiest = days.reduce<UsageDay | null>((best, d) => (!best || dayTotal(d) > dayTotal(best) ? d : best), null)
+  const anyPlan = days.some((d) => (d.planUsd ?? 0) > 0)
   const ticks = useMemo(() => {
     if (days.length === 0) return []
     const at = [0, Math.floor((days.length - 1) / 2), days.length - 1]
     return [...new Set(at)].map((i) => ({ i, label: dayLabel(days[i].day) }))
   }, [days])
 
-  if (max === 0) return <div className="usage-chart usage-chart--empty">No spend in this range yet.</div>
+  if (max === 0) return <div className="usage-chart usage-chart--empty">No spend or plan use in this range yet.</div>
 
   return (
     <div className="usage-chart" onPointerLeave={() => setHover(null)}>
       <div className="usage-chart__readout" aria-live="polite">
         {shown ? (
           <>
-            <strong>{money(shown.costUsd)}</strong> {dayLabel(shown.day, true)} · {tokens(shown.tokens)} tokens · {shown.requests.toLocaleString()}{' '}
-            {shown.requests === 1 ? 'request' : 'requests'}
+            <strong>{money(shown.costUsd)}</strong>
+            {(shown.planUsd ?? 0) > 0 && <>+ ≈ {money(shown.planUsd!)} on plans </>}
+            {dayLabel(shown.day, true)} · {tokens(shown.tokens)} tokens · {shown.requests.toLocaleString()} {shown.requests === 1 ? 'request' : 'requests'}
           </>
         ) : (
           <>
-            <strong>{money(max)}</strong> busiest day
+            <strong>{money(busiest?.costUsd ?? 0)}</strong>
+            {(busiest?.planUsd ?? 0) > 0 && <>+ ≈ {money(busiest!.planUsd!)} on plans </>}
+            busiest day{anyPlan ? ' · lighter: plan use at API rates' : ''}
           </>
         )}
       </div>
       <div className="usage-chart__plot" role="img" aria-label={`Daily spend over ${days.length} days, up to ${money(max)} a day`}>
-        {days.map((day, i) => (
-          <div key={day.day} className="usage-chart__slot" data-hover={hover === i || undefined} onPointerEnter={() => setHover(i)}>
-            <div className="usage-chart__bar" style={{ height: `${day.costUsd > 0 ? Math.max(2, (day.costUsd / max) * 100) : 0}%` }} />
-          </div>
-        ))}
+        {days.map((day, i) => {
+          const total = dayTotal(day)
+          const height = total > 0 ? Math.max(2, (total / max) * 100) : 0
+          return (
+            <div key={day.day} className="usage-chart__slot" data-hover={hover === i || undefined} onPointerEnter={() => setHover(i)}>
+              <div className="usage-chart__bar" style={{ height: `${height}%` }}>
+                {(day.planUsd ?? 0) > 0 && <div className="usage-chart__plan" style={{ height: `${((day.planUsd ?? 0) / total) * 100}%` }} />}
+              </div>
+            </div>
+          )
+        })}
       </div>
       <div className="usage-chart__axis">
         {ticks.map((tick) => (
@@ -357,6 +396,82 @@ function DailyChart({ days }: { days: UsageDay[] }): JSX.Element {
       </div>
     </div>
   )
+}
+
+const SOURCE_LABEL: Record<UsageSource, string> = {
+  chat: 'Chats',
+  schedule: 'Scheduled tasks',
+  worker: 'Workers',
+  trading: 'Trading',
+  gateway: 'Other apps through Eaon'
+}
+
+/** The range split by what the requests were for: chats, scheduled tasks, workers, trading. */
+function SourceTable({ sources }: { sources: UsageSourceRow[] }): JSX.Element {
+  const [own, other] = [sources.filter((row) => row.source !== 'gateway'), sources.filter((row) => row.source === 'gateway')]
+  return (
+    <>
+      <SourceRows rows={own} />
+      {other.length > 0 && (
+        <>
+          <SourceRows rows={other} muted />
+          <p className="usage-footnote">
+            Requests the Local API Server and Connect apps make on other apps’ behalf use your keys, so they are shown here, but
+            they aren’t in the totals above and aren’t uploaded to Tokn: Tokn counts them as those apps’ own use.
+          </p>
+        </>
+      )}
+    </>
+  )
+}
+
+function SourceRows({ rows: sources, muted = false }: { rows: UsageSourceRow[]; muted?: boolean }): JSX.Element | null {
+  if (sources.length === 0) return null
+  return (
+    <div className="usage-table" role="table" aria-label={muted ? 'Usage by other apps' : 'Usage by what it was for'} style={muted ? { marginTop: 10 } : undefined}>
+      {!muted && (
+        <div className="usage-table__row usage-table__row--head" role="row">
+          <span role="columnheader">Used by</span>
+          <span role="columnheader">Requests</span>
+          <span role="columnheader">Tokens</span>
+          <span role="columnheader">Cost</span>
+        </div>
+      )}
+      {sources.map((row) => (
+        <div key={row.source} className="usage-table__row" role="row">
+          <span role="cell" className="usage-table__name">
+            {SOURCE_LABEL[row.source] ?? row.source}
+          </span>
+          <span role="cell">{row.requests.toLocaleString()}</span>
+          <span role="cell">{tokens(row.tokens)}</span>
+          <span
+            role="cell"
+            className="usage-table__cost"
+            title={row.planUsd > 0 ? `Plus ≈ ${money(row.planUsd)} covered by plans, at API rates` : undefined}
+          >
+            {money(row.costUsd)}
+            {row.planUsd > 0 && <span className="usage-table__via"> + ≈ {money(row.planUsd)}</span>}
+          </span>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/** A model's cost cell: what was billed, what a plan covered, or why there is no figure. */
+function costText(model: UsageModelRow): string {
+  if (model.billing === 'local') return 'Free · local'
+  if (model.unreported && model.unreported >= model.requests) return 'Not reported'
+  if (model.costUsd === null) return 'No price'
+  return model.billing === 'plan' ? `≈ ${money(model.costUsd)} · plan` : money(model.costUsd)
+}
+
+function costTitle(model: UsageModelRow): string | undefined {
+  const unreported = model.unreported ? ` ${model.unreported} of its requests came back without token counts and aren’t priced.` : ''
+  if (model.billing === 'plan') return `Covered by your plan. This is what it would cost at API rates, not a charge.${unreported}`
+  if (model.billing === 'local') return 'Runs on this computer: free, and never uploaded.'
+  if (model.costUsd === null) return 'Tokn has no price for this model yet.'
+  return unreported ? `Estimated at API rates.${unreported}` : 'Estimated at Tokn’s API rates.'
 }
 
 function ModelTable({ models }: { models: UsageModelRow[] }): JSX.Element {
@@ -382,8 +497,13 @@ function ModelTable({ models }: { models: UsageModelRow[] }): JSX.Element {
           </span>
           <span role="cell">{model.requests.toLocaleString()}</span>
           <span role="cell">{tokens(model.input + model.output + model.cacheRead + model.cacheWrite)}</span>
-          <span role="cell" className="usage-table__cost" data-muted={model.costUsd === null || model.local || undefined}>
-            {model.local ? 'Free · local' : model.costUsd === null ? 'No price' : money(model.costUsd)}
+          <span
+            role="cell"
+            className="usage-table__cost"
+            data-muted={model.costUsd === null || model.billing !== 'api' || undefined}
+            title={costTitle(model)}
+          >
+            {costText(model)}
           </span>
         </div>
       ))}

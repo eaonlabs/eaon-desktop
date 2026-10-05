@@ -344,7 +344,16 @@ test('one run at a time: a second start is refused and a slot that comes due mid
   release()
   await service.engine.whenIdle()
   assert.equal(calls, 1)
-  assert.equal(service.engine.list()[0].history.length, 1)
+  // The skipped slot is a record of its own, saying why it didn't run; the
+  // run itself is the one that counts as the last run.
+  const history = service.engine.list()[0].history
+  assert.deepEqual(
+    history.map((r) => r.status),
+    ['skipped', 'succeeded']
+  )
+  assert.equal(history[0].cause, 'overlap')
+  assert.equal(history[0].blockedBy, history[1].id)
+  assert.match(history[0].error!, /previous run was still going/)
   assert.equal(service.engine.list()[0].lastStatus, 'succeeded')
 })
 

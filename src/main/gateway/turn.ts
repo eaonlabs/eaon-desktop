@@ -3,6 +3,7 @@ import { adapterFor, getProvider } from '../providers'
 import { credentialAttempts, isAuthError } from '../providers/credentials'
 import { ProviderHttpError, type NeutralMessage, type ToolSpec, type TurnResult } from '../providers/adapters/types'
 import { store } from '../store'
+import { recordGatewayUsage } from '../features/usage/ledger'
 
 /**
  * One model request on behalf of an app using the gateway. The app runs its
@@ -49,6 +50,15 @@ function wait(ms: number, signal: AbortSignal): Promise<void> {
 }
 
 export async function runGatewayTurn(turn: GatewayTurn): Promise<TurnResult> {
+  const result = await attemptGatewayTurn(turn)
+  // Counted once, for the request the provider answered: not per attempt, and
+  // not by the adapter's own tracking (`track: false` below), which would add
+  // it to Eaon's totals and its Tokn upload. Settings → Usage lists it apart.
+  recordGatewayUsage(turn.providerId, turn.modelId, result.usage)
+  return result
+}
+
+async function attemptGatewayTurn(turn: GatewayTurn): Promise<TurnResult> {
   const provider = getProvider(turn.providerId)
   if (!provider) throw new Error(`Eaon has no provider "${turn.providerId}".`)
   const adapter = adapterFor(provider, { track: false })
