@@ -345,6 +345,17 @@ a:hover {
   min-width: 0;
   flex: 0 1 auto;
 }
+/* A narrow content area (a split screen, a zoomed-in window): equal side
+   columns left a long chat's title one letter wide beside the collapsed
+   sidebar's buttons. Here the switch gives up dead-centre and the left side
+   takes whatever is left, so the title keeps its room (and its tooltip). */
+@container main (max-width: 640px) {
+  .chat-header.topbar,
+  .page__bar.topbar {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    column-gap: 8px;
+  }
+}
 .topbar .collapsed-nav {
   margin-right: 2px;
 }

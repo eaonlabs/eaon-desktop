@@ -309,7 +309,9 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
       <TopBar
         left={
           <>
-            <span className="chat-header__title">{chat.title}</span>
+            <span className="chat-header__title" title={chat.title}>
+              {chat.title}
+            </span>
             <button
               ref={moreButton}
               className="icon-btn"
