@@ -161,7 +161,7 @@ export function SettingsShell(): JSX.Element {
       <nav className="settings__nav">
         <div className="settings__nav-panel">
         <div className="settings__nav-top" />
-        <button className="settings__back" onClick={() => setView('chat')}>
+        <button className="settings__back" onClick={() => setView('chat')} aria-label="Back to app" title="Back to app">
           <ArrowLeft size={16} strokeWidth={1.9} />
           <span>Back to app</span>
         </button>
@@ -177,6 +177,9 @@ export function SettingsShell(): JSX.Element {
                   key={entry.id}
                   className="nav-item"
                   data-active={entry.id === settingsPage || undefined}
+                  aria-current={entry.id === settingsPage ? 'page' : undefined}
+                  aria-label={entry.label}
+                  title={entry.label}
                   onClick={() => setSettingsPage(entry.id)}
                 >
                   <span className="nav-item__icon">{entry.icon}</span>

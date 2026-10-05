@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react'
 import { Pencil, Plus, Trash2 } from 'lucide-react'
 import { useApp } from '../../../state/store'
 import { Card, Modal, Row, Section, Select, Switch } from '../../ui'
-import { ModelSelect } from '../../composer/ModelSelect'
 import type { McpServer, McpServerStatus } from '@shared/types'
 import { joinArgs, splitArgs } from '@shared/plugins'
 
@@ -88,51 +87,24 @@ export function McpServersPage(): JSX.Element {
             title="Tool call timeout (seconds)"
             description="Maximum time to wait for an MCP tool response before timing out."
           >
-            <input
-              className="input"
-              style={{ width: 110 }}
-              type="number"
-              min={1}
+            <TimeoutField
               value={mcp.toolCallTimeoutSeconds}
-              onChange={(e) =>
-                void patchSettings({ mcp: { toolCallTimeoutSeconds: Number(e.target.value) || 30 } })
-              }
+              onChange={(toolCallTimeoutSeconds) => void patchSettings({ mcp: { toolCallTimeoutSeconds } })}
             />
           </Row>
 
+          {/* What the switch really does (pluginTools.ts): past 12 tools, defer
+              their schemas behind a lookup. No model picks servers, so the old
+              "dedicated routing model" switch and picker, which nothing read,
+              are gone. */}
           <Row
-            title="Smart MCP tool routing"
-            description="When enabled, Eaon selects relevant MCP servers before loading tools. Disable to always load the full MCP tool list."
+            title="Load MCP tools on demand"
+            description="With more than 12 MCP tools, send the model their names and load a tool's full description only when it uses one. Saves tokens on every message. Turn off to always send every tool in full."
           >
             <Switch
-              label="Smart MCP tool routing"
+              label="Load MCP tools on demand"
               checked={mcp.smartRouting}
               onChange={(on) => void patchSettings({ mcp: { smartRouting: on } })}
-            />
-          </Row>
-
-          <Row
-            title="Use a dedicated model for routing"
-            description="When smart routing is on, run the routing step with a separate (often smaller) model instead of the chat model. Turn off to always use the active chat model for routing."
-          >
-            <Switch
-              label="Use a dedicated model for routing"
-              checked={mcp.useDedicatedRoutingModel}
-              dimmed={!mcp.smartRouting}
-              onChange={(on) => void patchSettings({ mcp: { useDedicatedRoutingModel: on } })}
-            />
-          </Row>
-
-          <Row
-            title="Routing model"
-            description="The model that picks which plugin tools a turn needs. A small, fast one keeps routing quick and cheap."
-          >
-            <ModelSelect
-              width={220}
-              label="Routing model"
-              value={mcp.routingModelId ? { providerId: null, modelId: mcp.routingModelId } : null}
-              onChange={(ref) => void patchSettings({ mcp: { routingModelId: ref?.modelId ?? null } })}
-              defaultLabel="The chat’s model"
             />
           </Row>
         </Card>
@@ -405,5 +377,37 @@ function ServerDialog({
         </>
       )}
     </Modal>
+  )
+}
+
+/**
+ * Seconds, saved when the field is left or Enter is pressed. Saving on every
+ * keystroke snapped an emptied field straight back to 30, so the number
+ * could not be retyped.
+ */
+function TimeoutField({ value, onChange }: { value: number; onChange: (seconds: number) => void }): JSX.Element {
+  const [draft, setDraft] = useState(String(value))
+  useEffect(() => setDraft(String(value)), [value])
+  const commit = (): void => {
+    const seconds = Math.round(Number(draft))
+    if (Number.isFinite(seconds) && seconds >= 1) {
+      const clamped = Math.min(seconds, 3600)
+      if (clamped !== value) onChange(clamped)
+      setDraft(String(clamped))
+    } else setDraft(String(value))
+  }
+  return (
+    <input
+      className="input"
+      style={{ width: 110 }}
+      type="number"
+      min={1}
+      max={3600}
+      aria-label="Tool call timeout in seconds"
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => e.key === 'Enter' && commit()}
+    />
   )
 }

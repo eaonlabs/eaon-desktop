@@ -11,6 +11,8 @@ import { terminals } from './registry'
  */
 interface TerminalsState {
   loaded: boolean
+  /** Why the saved layout could not be read; the workspace shows it with a retry. */
+  loadError: string | null
   layout: TerminalLayout
   agents: TerminalAgent[]
   /** The pane filling the whole grid, if one is maximised. */
@@ -29,6 +31,7 @@ interface TerminalsState {
 const uid = (): string => `pane-${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`
 let saveTimer: ReturnType<typeof setTimeout> | null = null
 let loading = false
+let agentListener = false
 
 function persist(layout: TerminalLayout): void {
   if (saveTimer) clearTimeout(saveTimer)
@@ -37,6 +40,7 @@ function persist(layout: TerminalLayout): void {
 
 export const useTerminals = create<TerminalsState>((set, get) => ({
   loaded: false,
+  loadError: null,
   layout: {},
   agents: [],
   maximized: null,
@@ -46,14 +50,25 @@ export const useTerminals = create<TerminalsState>((set, get) => ({
     loading = true
     // Main reads what each pane is running off the process table: quit Codex
     // and type `opencode`, and the pane stops calling itself Codex.
-    window.api.terminals.onAgent(({ paneId, agent }) => get().setAgent(paneId, agent))
-    const [layout, agents, running] = await Promise.all([
-      window.api.terminals.layout(),
-      window.api.terminals.agents(),
-      window.api.terminals.running().catch(() => ({}) as Record<string, TerminalAgentId>)
-    ])
-    set({ layout: layout ?? {}, agents, loaded: true })
-    for (const [paneId, agent] of Object.entries(running)) get().setAgent(paneId, agent)
+    if (!agentListener) {
+      agentListener = true
+      window.api.terminals.onAgent(({ paneId, agent }) => get().setAgent(paneId, agent))
+    }
+    try {
+      const [layout, agents, running] = await Promise.all([
+        window.api.terminals.layout(),
+        window.api.terminals.agents(),
+        window.api.terminals.running().catch(() => ({}) as Record<string, TerminalAgentId>)
+      ])
+      set({ layout: layout ?? {}, agents, loaded: true, loadError: null })
+      for (const [paneId, agent] of Object.entries(running)) get().setAgent(paneId, agent)
+    } catch (error) {
+      // `loading` stayed true here before, so nothing retried and the ADE
+      // showed an empty workspace for good.
+      set({ loadError: (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '') })
+    } finally {
+      loading = false
+    }
   },
 
   async refreshAgents() {

@@ -47,8 +47,21 @@ interface HfTreeEntry {
   size?: number
 }
 
+/**
+ * Searches and file listings are short requests: a stalled connection used to
+ * leave "Searching Hugging Face…" spinning for undici's five-minute default.
+ */
 async function hfJson<T>(url: string): Promise<T> {
-  const response = await fetch(url, { headers: { Accept: 'application/json' } })
+  let response: Response
+  try {
+    response = await fetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(20_000) })
+  } catch (error) {
+    if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
+      throw new Error("Hugging Face didn't answer in 20 seconds. Check your connection and try again.")
+    }
+    throw new Error(`Couldn't reach Hugging Face. Check your connection and try again.`)
+  }
+  if (response.status === 429) throw new Error('Hugging Face is limiting requests from this network right now. Try again in a minute.')
   if (!response.ok) throw new Error(`Hugging Face returned ${response.status}`)
   return (await response.json()) as T
 }
@@ -85,7 +98,7 @@ async function treeSizes(repoId: string): Promise<Map<string, number>> {
  */
 async function fetchDescription(repoId: string): Promise<string> {
   try {
-    const response = await fetch(`${HF_API}/${repoId}/raw/main/README.md`)
+    const response = await fetch(`${HF_API}/${repoId}/raw/main/README.md`, { signal: AbortSignal.timeout(15_000) })
     if (!response.ok) return ''
     const text = await response.text()
     const body = text.replace(/^---[\s\S]*?---\s*/, '')

@@ -100,6 +100,9 @@ export async function checkForUpdates(options?: { interactive?: boolean }): Prom
         type: 'info',
         message: 'Updates are unavailable in development builds.'
       })
+    } else {
+      // The Settings button: without this it did nothing at all in a dev build.
+      broadcast({ state: 'error', message: 'Updates are unavailable in development builds.' })
     }
     return
   }

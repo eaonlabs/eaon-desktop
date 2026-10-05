@@ -1,109 +1,65 @@
-import { useCallback, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useApp } from '../../../state/store'
-import { Card, Row, Section, Select, Switch } from '../../ui'
-
-/** Renderer-local preferences for the secondary settings pages. */
-function useLocal<T>(key: string, initial: T): [T, (value: T) => void] {
-  const [value, setValue] = useState<T>(() => {
-    try {
-      const raw = localStorage.getItem(`pref:${key}`)
-      return raw === null ? initial : (JSON.parse(raw) as T)
-    } catch {
-      return initial
-    }
-  })
-  const update = useCallback(
-    (next: T) => {
-      setValue(next)
-      try {
-        localStorage.setItem(`pref:${key}`, JSON.stringify(next))
-      } catch {
-        /* storage can be unavailable; the in-memory value still applies */
-      }
-    },
-    [key]
-  )
-  return [value, update]
-}
-
-/* ---------------------------------------------------------------- Appshots */
-
-export function AppshotsPage(): JSX.Element {
-  const [capture, setCapture] = useLocal('appshots.capture', true)
-  const [retain, setRetain] = useLocal('appshots.retain', '30 days')
-
-  return (
-    <>
-      <h1 className="settings__h1">Appshots</h1>
-      <p className="settings__lede">Snapshots of app windows the assistant captured while working.</p>
-      <Section>
-        <Card>
-          <Row title="Capture app windows" description="Save a snapshot whenever a window is attached to a chat">
-            <Switch label="Capture app windows" checked={capture} onChange={setCapture} />
-          </Row>
-          <Row title="Keep snapshots for" description="Older snapshots are deleted automatically">
-            <Select
-              value={retain}
-              onChange={setRetain}
-              options={[
-                { value: '7 days', label: '7 days' },
-                { value: '30 days', label: '30 days' },
-                { value: 'Forever', label: 'Forever' }
-              ]}
-            />
-          </Row>
-          <Row title="Delete all snapshots" description="Remove every stored appshot from this computer">
-            <button className="btn btn--danger">Delete</button>
-          </Row>
-        </Card>
-      </Section>
-    </>
-  )
-}
+import { Card, Row, Section, Select } from '../../ui'
+import { formatShortcut, isMacPlatform } from '../../../lib/keys'
+import { SEARCH_ENGINES, isSearchEngine, toBrowserUrl, type SearchEngine } from '../../../lib/browserUrl'
 
 /* -------------------------------------------------------- Browser settings */
 
+/**
+ * The built-in browser panel (BrowserPanel.tsx). Both settings here are read
+ * by it. "Block trackers" and "Show Chrome import banner" were removed in
+ * 2026.6.2: nothing blocked trackers, and the banner's Import button only hid
+ * the banner. An unlinked "Appshots" page went with them.
+ */
 export function BrowserSettingsPage(): JSX.Element {
   const { settings, patchSettings } = useApp(useShallow((s) => ({ settings: s.settings, patchSettings: s.patchSettings })))
-  const [engine, setEngine] = useLocal('browser.engine', 'DuckDuckGo')
-  const [blockTrackers, setBlockTrackers] = useLocal('browser.blockTrackers', true)
+  const saved = settings?.browser.homepage ?? ''
+  // Saved when the field is left or Enter is pressed, not on every keystroke,
+  // so a half-typed address is never what a new tab opens.
+  const [homepage, setHomepage] = useState(saved)
+  useEffect(() => setHomepage(saved), [saved])
+
+  const engine: SearchEngine = isSearchEngine(settings?.browser.searchEngine) ? settings.browser.searchEngine : 'DuckDuckGo'
+  const typed = homepage.trim()
+  const opens = typed ? toBrowserUrl(typed, engine) : null
+  const save = (): void => {
+    if (typed !== saved) void patchSettings({ browser: { homepage: typed } })
+  }
 
   return (
     <>
       <h1 className="settings__h1">Browser</h1>
-      <p className="settings__lede">The built-in browser the assistant uses to read and act on the web.</p>
+      <p className="settings__lede">
+        The browser panel beside a chat. Open it from the message box's + menu, or with{' '}
+        {formatShortcut({ modifiers: ['shift', 'mod'], key: 'B' }, isMacPlatform())}.
+      </p>
       <Section>
         <Card>
-          <Row title="Search engine" description="Used when you type something that isn't a URL">
+          <Row title="Search engine" description="Used when you type something that isn't a web address">
             <Select
               value={engine}
-              onChange={setEngine}
-              options={[
-                { value: 'DuckDuckGo', label: 'DuckDuckGo' },
-                { value: 'Google', label: 'Google' },
-                { value: 'Bing', label: 'Bing' }
-              ]}
+              onChange={(searchEngine) => void patchSettings({ browser: { searchEngine } })}
+              options={(Object.keys(SEARCH_ENGINES) as SearchEngine[]).map((name) => ({ value: name, label: name }))}
             />
           </Row>
-          <Row title="Homepage" description="Opened when a new tab starts">
+          <Row
+            title="Homepage"
+            description={
+              opens && opens !== typed ? `New tabs open ${opens}` : 'Opened in each new tab. Leave empty for a blank tab.'
+            }
+          >
             <input
               className="input"
-              style={{ width: 260 }}
-              value={settings?.browser.homepage ?? ''}
-              placeholder="https://"
+              style={{ width: 260, maxWidth: '40vw' }}
+              value={homepage}
+              placeholder="example.com"
+              aria-label="Homepage"
               spellCheck={false}
-              onChange={(e) => void patchSettings({ browser: { homepage: e.target.value } })}
-            />
-          </Row>
-          <Row title="Block trackers" description="Strip known tracking requests in the built-in browser">
-            <Switch label="Block trackers" checked={blockTrackers} onChange={setBlockTrackers} />
-          </Row>
-          <Row title="Show Chrome import banner" description="Offer to bring over passwords and cookies">
-            <Switch
-              label="Show Chrome import banner"
-              checked={!settings?.browser.dismissedImportBanner}
-              onChange={(on) => void patchSettings({ browser: { dismissedImportBanner: !on } })}
+              onChange={(e) => setHomepage(e.target.value)}
+              onBlur={save}
+              onKeyDown={(e) => e.key === 'Enter' && save()}
             />
           </Row>
         </Card>

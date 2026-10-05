@@ -89,6 +89,44 @@
   display: flex;
   flex-direction: column;
 }
+
+/* Narrow windows (a split screen, or zoomed in): 252px of navigation left the
+   page 268px at 520. The nav becomes an icon rail; each item keeps its name
+   as a tooltip and an accessible label (SettingsShell). */
+@media (max-width: 639px) {
+  .settings__nav {
+    width: 68px;
+    flex-basis: 68px;
+  }
+  .settings__search,
+  .settings__back span,
+  .settings__nav .nav-item__label {
+    display: none;
+  }
+  .settings__back {
+    justify-content: center;
+    padding: 0;
+  }
+  .settings__nav .nav-item {
+    justify-content: center;
+    padding: 0;
+  }
+  /* The group names are hidden; a hairline keeps the groups apart. */
+  .settings__group {
+    height: 1px;
+    margin: 8px 12px;
+    padding: 0;
+    overflow: hidden;
+    font-size: 0;
+    background: var(--border-soft);
+  }
+  .settings__group:first-child {
+    display: none;
+  }
+  .settings__scroll {
+    padding: 0 16px 90px;
+  }
+}
 .settings__titlebar {
   /* Matches the nav panel's inset row so both columns start together. */
   height: calc(var(--titlebar-h) + var(--sidebar-gap));

@@ -5,6 +5,7 @@ import { TopBar } from '../TopBar'
 import { MenuItem, MenuSeparator, Popover, useDisclosure } from '../ui'
 import { useCode } from './codeStore'
 import { NewTerminalButton } from './terminal/TerminalWorkspace'
+import { revealLabel } from '../../lib/files'
 
 export const folderName = (path: string): string => path.split(/[\\/]/).filter(Boolean).pop() ?? path
 
@@ -43,7 +44,8 @@ function FolderChip(): JSX.Element {
         {cwd && (
           <>
             <div className="menu__label">Project folder</div>
-            <MenuItem icon={<FolderOpen size={16} strokeWidth={1.8} />} title={folderName(cwd)} description={cwd} checked />
+            {/* The folder already open: picking it again just closes the menu. */}
+            <MenuItem icon={<FolderOpen size={16} strokeWidth={1.8} />} title={folderName(cwd)} description={cwd} checked onClick={menu.close} />
           </>
         )}
         {others.length > 0 && (
@@ -71,7 +73,15 @@ function FolderChip(): JSX.Element {
             void chooseFolder()
           }}
         />
-        {cwd && <MenuItem title="Reveal in Finder" onClick={() => void window.api.app.showItem(cwd)} />}
+        {cwd && (
+          <MenuItem
+            title={revealLabel()}
+            onClick={() => {
+              menu.close()
+              void window.api.app.showItem(cwd)
+            }}
+          />
+        )}
       </Popover>
     </>
   )

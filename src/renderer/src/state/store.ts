@@ -25,6 +25,7 @@ import { lastTurnFailed } from './chatStatus'
 import { chatChanges, Checkpoint } from './chatSync'
 import { forkedChat, retryPlan, withFeedback } from './chatEdits'
 import { migrateLegacySchedules } from '../components/scheduled/legacy'
+import { notify } from '../components/Notice'
 
 export type View = 'chat' | 'plugins' | 'integrations' | 'scheduled' | 'settings' | 'pull-requests' | 'models' | 'library' | 'trading'
 
@@ -37,6 +38,8 @@ const uid = (): string => Math.random().toString(36).slice(2, 11) + Date.now().t
 
 interface AppState {
   ready: boolean
+  /** Why loading the saved data at startup failed; the window shows it with a retry. */
+  initError: string | null
   settings: Settings | null
   workspaces: Workspace[]
   projects: Project[]
@@ -223,11 +226,40 @@ function saveChatsNow(checkpoint = false): void {
   if (!checkpoint) checkpoints.cancel()
   const chats = useApp.getState().chats
   const { upserts, removed } = chatChanges(synced, chats)
+  const previous = synced
   synced = new Map(chats.map((chat) => [chat.id, chat]))
+  if (upserts.length === 0 && removed.length === 0) return
   // A checkpoint is not broadcast: other windows watching the reply have it
   // live from the stream, and a copy a few tokens old would put theirs back.
-  if (upserts.length > 0 || removed.length > 0) void window.api.chats.apply(upserts, removed, checkpoint)
+  window.api.chats.apply(upserts, removed, checkpoint).then(
+    () => {
+      saveFailing = false
+    },
+    (error: unknown) => {
+      // A failed save used to be forgotten: `synced` already counted these as
+      // written, so nothing sent them again and the changes were lost at quit
+      // with no word. Put back what was believed saved so the next save
+      // carries them, say so once, and try again shortly.
+      for (const chat of upserts) {
+        const before = previous.get(chat.id)
+        if (before) synced.set(chat.id, before)
+        else synced.delete(chat.id)
+      }
+      for (const id of removed) {
+        const before = previous.get(id)
+        if (before) synced.set(id, before)
+      }
+      if (!saveFailing) {
+        saveFailing = true
+        const reason = (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '')
+        notify(`Couldn't save your chats (${reason}). Eaon keeps trying; leave this window open until it works.`, 'error')
+      }
+      setTimeout(persistChats, 5000)
+    }
+  )
 }
+/** A save has failed and none has succeeded since; the notice is shown once per streak. */
+let saveFailing = false
 
 /** Saves the reply this window is streaming every few seconds, so a crash keeps most of it; see Checkpoint. */
 const checkpoints = new Checkpoint(() => saveChatsNow(true))
@@ -460,6 +492,7 @@ export const useWorkspaceKind = (): WorkspaceKind =>
 
 export const useApp = create<AppState>((set, get) => ({
   ready: false,
+  initError: null,
   settings: null,
   workspaces: [],
   projects: [],
@@ -489,18 +522,30 @@ export const useApp = create<AppState>((set, get) => ({
   updateStatus: { state: 'idle' },
 
   async init() {
-    const [settings, workspaces, projects, chats, providers, mcpServers] = await Promise.all([
-      window.api.settings.get(),
-      window.api.workspaces.get(),
-      window.api.projects.get(),
-      window.api.chats.get(),
-      window.api.providers.list(),
-      window.api.mcp.get()
-    ])
+    // A failure here used to leave the window blank for good: nothing caught
+    // it and `ready` never came. Now the window says what failed and offers
+    // to try again (App.tsx).
+    set({ initError: null })
+    let loaded: [Settings, Workspace[], Project[], Chat[], Provider[], McpServer[], string[]]
+    try {
+      loaded = await Promise.all([
+        window.api.settings.get(),
+        window.api.workspaces.get(),
+        window.api.projects.get(),
+        window.api.chats.get(),
+        window.api.providers.list(),
+        window.api.mcp.get(),
+        window.api.chats.activeRuns()
+      ])
+    } catch (error) {
+      set({ initError: (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '') })
+      return
+    }
+    const [settings, workspaces, projects, chats, providers, mcpServers, activeRuns] = loaded
     // Nothing is running for this renderer yet, so a call still marked
     // running was cut off by a crash or a quit (see sealInterrupted) unless
     // another window is writing that reply right now.
-    const live = new Set(await window.api.chats.activeRuns())
+    const live = new Set(activeRuns)
     const sealed = chats.map((chat) => (chat.messages.some((m) => live.has(m.id)) ? chat : sealInterrupted([chat])[0]))
     synced = new Map(chats.map((chat) => [chat.id, chat]))
     set({ settings, workspaces, projects, chats: sealed, providers, mcpServers, ready: true })

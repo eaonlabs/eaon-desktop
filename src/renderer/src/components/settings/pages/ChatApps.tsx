@@ -18,6 +18,8 @@ import { useWorkers } from '../../workers/workersStore'
 import { WorkerFace } from '../../workers/WorkerFace'
 import { useShallow } from 'zustand/react/shallow'
 import { useApp } from '../../../state/store'
+import { CLIPBOARD_FAILED, copyText } from '../../../lib/clipboard'
+import { notify } from '../../Notice'
 
 /**
  * Settings → Chat apps: connect a worker to a Discord bot, a Telegram bot or
@@ -371,10 +373,12 @@ function Pairing({ link, run }: { link: ChannelLink; run: (work: () => Promise<C
   }
   const username = link.kind === 'telegram' && link.account?.startsWith('@') ? link.account.slice(1) : null
   const copy = (): void => {
-    void navigator.clipboard.writeText(`/pair ${link.pairCode}`)
-    setCopied(true)
-    window.clearTimeout(timer.current)
-    timer.current = window.setTimeout(() => setCopied(false), 1600)
+    void copyText(`/pair ${link.pairCode}`).then((ok) => {
+      if (!ok) return notify(CLIPBOARD_FAILED, 'error')
+      setCopied(true)
+      window.clearTimeout(timer.current)
+      timer.current = window.setTimeout(() => setCopied(false), 1600)
+    })
   }
   return (
     <div className="row bx-pair">
@@ -524,8 +528,15 @@ function AddWhatsAppGroup({ link, onAdded }: { link: ChannelLink; onAdded: (link
                 icon={<UsersRound size={15} strokeWidth={1.9} />}
                 title={group.name}
                 onClick={() => {
-                  setOpen(false)
-                  void window.api.channels.addChat(link.id, group.id, group.name).then(onAdded)
+                  // Stays open on failure, with the reason, instead of closing as if it worked.
+                  setError(null)
+                  window.api.channels.addChat(link.id, group.id, group.name).then(
+                    (updated) => {
+                      setOpen(false)
+                      onAdded(updated)
+                    },
+                    (e) => setError(`Couldn't add ${group.name}: ${errorText(e)}`)
+                  )
                 }}
               />
             ))}

@@ -84,7 +84,10 @@ function resolveKey(e: KeyboardEvent, hasSelection: boolean): Verdict {
       if (e.shiftKey && key === 'v') return { do: 'paste' }
       if (!e.shiftKey && key === 'c' && hasSelection) return { do: 'copy' }
       if (!e.shiftKey && key === 'v') return { do: 'paste' }
-      if (/^[0-9,b]$/.test(key)) return { do: 'app' }
+      // Ctrl+1-3 and Ctrl+, switch tabs and open Settings, as ⌘ does on a Mac.
+      // Ctrl+B stays with the shell: it is readline's back-a-character and
+      // tmux's prefix, which a terminal must not take away.
+      if (/^[0-9,]$/.test(key)) return { do: 'app' }
     }
     return { do: 'terminal' }
   }

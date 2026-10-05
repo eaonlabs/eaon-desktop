@@ -34,6 +34,7 @@ import { cancelAllDownloads, deleteDownloadedModel, downloadModel, getDownloaded
 import { applyRunAtLogin, backgroundSupported, launchedInBackground, syncTray } from './background'
 import { crashLogPath, installCrashGuard } from './crashGuard'
 import { applyAppIcon, currentAppIconFile } from './appIcon'
+import { DOCS_URL, ISSUES_URL, releaseNotesUrl } from '@shared/links'
 
 const here = join(fileURLToPath(import.meta.url), '..')
 app.setName('Eaon')
@@ -159,9 +160,15 @@ function applyWindowAppearance(settings: Settings): void {
     if (isMac) {
       window.setVibrancy(wantsVibrancy(settings) ? 'sidebar' : null)
       pinTrafficLights(window)
-    } else if (process.platform === 'win32') {
-      // Windows: repaint the caption-button strip to match the new theme.
-      window.setTitleBarOverlay(titleBarOverlayFor(settings))
+    } else {
+      // Windows and Linux: repaint the caption-button strip to match the new
+      // theme. Linux got the overlay at creation but never this, so its
+      // buttons kept the old theme's colours after a switch.
+      try {
+        window.setTitleBarOverlay(titleBarOverlayFor(settings))
+      } catch (error) {
+        console.error('[window] could not repaint the caption buttons:', error)
+      }
     }
   }
 }
@@ -280,9 +287,34 @@ function createWindow(): BrowserWindow {
   return window
 }
 
+/**
+ * Opens the running version's release notes: its GitHub release when there is
+ * one, else the list of releases (shared/links.ts). A HEAD request decides;
+ * it is capped so a slow network still opens something within a few seconds.
+ */
+async function openReleaseNotes(): Promise<void> {
+  const url = await releaseNotesUrl(app.getVersion(), async (tag) => {
+    const response = await fetch(tag, { method: 'HEAD', signal: AbortSignal.timeout(4000) })
+    return response.ok
+  })
+  await shell.openExternal(url)
+}
+
 function buildMenu(): void {
-  const send = (channel: string, ...args: unknown[]): void => {
-    BrowserWindow.getFocusedWindow()?.webContents.send(channel, ...args)
+  // To the Eaon window in front, not whatever window has focus: with the
+  // computer-use pill focused that was the pill, and the command was lost.
+  const send = (channel: string): void => {
+    currentWindow()?.webContents.send(channel)
+  }
+  // New Chat and Settings… also work with every window closed (macOS keeps
+  // running): they open one and pass the command on once its page has
+  // loaded. The preload holds it until the app is listening.
+  const sendOrOpen = (channel: string): void => {
+    if (currentWindow()) return send(channel)
+    const window = createWindow()
+    window.webContents.once('did-finish-load', () => {
+      if (!window.isDestroyed()) window.webContents.send(channel)
+    })
   }
   const template: Electron.MenuItemConstructorOptions[] = [
     {
@@ -291,7 +323,7 @@ function buildMenu(): void {
         { role: 'about' },
         { label: 'Check for Updates…', click: () => void checkForUpdates({ interactive: true }) },
         { type: 'separator' },
-        { label: 'Settings…', accelerator: 'Cmd+,', click: () => send('menu:settings') },
+        { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: () => sendOrOpen('menu:settings') },
         { type: 'separator' },
         { role: 'hide' },
         { role: 'hideOthers' },
@@ -302,20 +334,19 @@ function buildMenu(): void {
     {
       label: 'File',
       submenu: [
-        { label: 'New Chat', accelerator: 'Cmd+N', click: () => send('menu:new-chat') },
-        { label: 'New Temporary Chat', accelerator: 'Shift+Cmd+N', click: () => send('menu:new-temp-chat') },
+        { label: 'New Chat', accelerator: 'CmdOrCtrl+N', click: () => sendOrOpen('menu:new-chat') },
         // ⌥⌘N, as in Mail's New Viewer Window: ⌘N is already New Chat.
         { label: 'New Window', accelerator: 'Alt+CmdOrCtrl+N', click: () => void createWindow() },
         { type: 'separator' },
-        { label: 'Archive Chat', accelerator: 'Shift+Cmd+A', click: () => send('menu:archive-chat') }
+        { label: 'Archive Chat', accelerator: 'Shift+CmdOrCtrl+A', click: () => send('menu:archive-chat') }
       ]
     },
     { role: 'editMenu' },
     {
       label: 'View',
       submenu: [
-        { label: 'Toggle Sidebar', accelerator: 'Cmd+B', click: () => send('menu:toggle-sidebar') },
-        { label: 'Toggle Browser Panel', accelerator: 'Shift+Cmd+B', click: () => send('menu:toggle-panel') },
+        { label: 'Toggle Sidebar', accelerator: 'CmdOrCtrl+B', click: () => send('menu:toggle-sidebar') },
+        { label: 'Toggle Browser Panel', accelerator: 'Shift+CmdOrCtrl+B', click: () => send('menu:toggle-panel') },
         { type: 'separator' },
         { role: 'reload' },
         { role: 'toggleDevTools' },
@@ -331,6 +362,10 @@ function buildMenu(): void {
     {
       role: 'help',
       submenu: [
+        { label: 'Eaon Documentation', click: () => void shell.openExternal(DOCS_URL) },
+        { label: 'Release Notes', click: () => void openReleaseNotes() },
+        { label: 'Report an Issue…', click: () => void shell.openExternal(ISSUES_URL) },
+        { type: 'separator' },
         {
           label: 'Show Crash Log',
           click: () => {
@@ -577,8 +612,16 @@ function registerIpc(): void {
   ipcMain.handle('app:open-external', (_e, url: string) => openExternalSafely(url))
   // `~` arrives from the renderer, which has no idea where home is; Work's
   // default folder is displayed as ~/Eaon until the first task creates it.
-  ipcMain.handle('app:show-item', (_e, path: string) => shell.showItemInFolder(path.replace(/^~(?=\/|$)/, homedir())))
+  // False when there's nothing there: showItemInFolder does nothing at all
+  // for a missing path, so the renderer says so instead.
+  ipcMain.handle('app:show-item', (_e, path: string) => {
+    const resolved = String(path).replace(/^~(?=\/|$)/, homedir())
+    if (!existsSync(resolved)) return false
+    shell.showItemInFolder(resolved)
+    return true
+  })
   ipcMain.handle('app:version', () => app.getVersion())
+  ipcMain.handle('app:open-release-notes', () => openReleaseNotes())
   ipcMain.handle('background:get', () => ({ supported: backgroundSupported(), enabled: runsInBackground() }))
   ipcMain.handle('background:set', async (_e, enabled: boolean) => {
     if (!backgroundSupported()) throw new Error('Running in the background is not available on this system.')

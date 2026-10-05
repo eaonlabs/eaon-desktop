@@ -22,9 +22,10 @@ import { gridColumns, type TerminalAgent, type TerminalAgentId, type TerminalPan
  */
 export function TerminalWorkspace(): JSX.Element {
   const cwd = useCode((s) => s.cwd)
-  const { loaded, panes, agents, maximized, load, add } = useTerminals(
+  const { loaded, loadError, panes, agents, maximized, load, add } = useTerminals(
     useShallow((s) => ({
       loaded: s.loaded,
+      loadError: s.loadError,
       panes: cwd ? (s.layout[cwd] ?? EMPTY) : EMPTY,
       agents: s.agents,
       maximized: s.maximized,
@@ -44,6 +45,19 @@ export function TerminalWorkspace(): JSX.Element {
     return () => cancelAnimationFrame(id)
   }, [appearance])
 
+  if (cwd && !loaded && loadError) {
+    // Loading the saved layout failed; an empty workspace here gave no way to retry.
+    return (
+      <div className="term-workspace term-empty" role="alert">
+        <SquareTerminal size={44} strokeWidth={1.3} className="home__icon" />
+        <h1 className="home__title">Couldn't open your terminals</h1>
+        <p className="term-empty__text">Eaon couldn't read the terminal layout for this folder. {loadError}</p>
+        <button type="button" className="btn btn--primary" onClick={() => void load()}>
+          Try again
+        </button>
+      </div>
+    )
+  }
   if (!cwd || !loaded) return <div className="term-workspace" />
 
   if (panes.length === 0) {
@@ -144,7 +158,7 @@ const TerminalPane = memo(function TerminalPane({
   return (
     <section className="term-pane" data-status={status} style={span > 1 ? { gridColumn: `span ${span}` } : undefined} onMouseDown={() => terminals.focus(pane.id)}>
       <header className="term-pane__head" onDoubleClick={() => toggleMaximized(pane.id)}>
-        <span className="term-pane__dot" title={STATUS_LABEL[status]} />
+        <span className="term-pane__dot" role="img" aria-label={STATUS_LABEL[status]} title={STATUS_LABEL[status]} />
         <AgentMark agent={pane.agent} size={14} />
         {renaming ? (
           <input

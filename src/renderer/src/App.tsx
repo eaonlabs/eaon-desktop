@@ -1,8 +1,8 @@
 import { useEffect } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { useApp, useIsWork, useWorkspaceKind } from './state/store'
+import { isAgentKind, useApp, useIsWork, useWorkspaceKind } from './state/store'
 import { Sidebar } from './components/Sidebar'
-import { ChatView } from './components/ChatView'
+import { ARCHIVE_REQUEST, ChatView } from './components/ChatView'
 import { BrowserPanel } from './components/BrowserPanel'
 import { PluginsPage } from './components/plugins/PluginsPage'
 import { IntegrationsPage } from './components/plugins/IntegrationsPage'
@@ -13,6 +13,7 @@ import { SettingsShell } from './components/settings/SettingsShell'
 import { UpdateToast } from './components/UpdateToast'
 import { StoreNotice } from './components/StoreNotice'
 import { ComputerLeaseIndicator } from './components/computer/ComputerLeaseIndicator'
+import { Notice } from './components/Notice'
 import { CodeView } from './components/code/CodeView'
 import { LibraryPage } from './components/LibraryPage'
 import { WorkersView } from './components/workers/WorkersView'
@@ -25,6 +26,9 @@ import { AgentBrowserPanel } from './components/agentBrowser/AgentBrowserPanel'
 import { TradingDesk } from './components/trading/TradingDesk'
 import { useAgentBrowser } from './components/agentBrowser/agentBrowserStore'
 import { THEMES } from './lib/themes'
+import { useRoomForSidePanel } from './state/sidePanel'
+import { hasCommandModifier, isMacPlatform } from './lib/keys'
+import { Starting } from './components/Starting'
 
 export default function App(): JSX.Element {
   const { ready, view, sidebarOpen, browserOpen, init, setView, setSettingsPage } = useApp(useShallow((s) => ({ ready: s.ready, view: s.view, sidebarOpen: s.sidebarOpen, browserOpen: s.browserOpen, init: s.init, setView: s.setView, setSettingsPage: s.setSettingsPage })))
@@ -43,12 +47,22 @@ export default function App(): JSX.Element {
   const browserWorker = useWorkers((s) => (s.browserFor && s.selectedId === s.browserFor && !s.selectedRoomId ? s.workers.find((w) => w.id === s.browserFor) ?? null : null))
   // A worker's run history beside its page.
   const activityWorker = useWorkers((s) => (s.activityOpen && s.selectedId && !s.selectedRoomId ? s.workers.find((w) => w.id === s.selectedId) ?? null : null))
+  // The same conditions that render the side panels below.
+  useRoomForSidePanel(
+    (isWork && browserOpen) ||
+      (isWork && view === 'chat' && kind === 'chat' && agentBrowserOpen) ||
+      (view === 'chat' && kind === 'workers' && (Boolean(browserWorker) || Boolean(activityWorker)))
+  )
 
   useTheme()
 
 
 
+  // Once the saved data is in: a command that arrives sooner (New Chat with
+  // every window closed opens this one) is held by the preload until then,
+  // where loading the data would have undone it.
   useEffect(() => {
+    if (!ready) return
     return window.api.app.onMenu((command) => {
       const app = useApp.getState()
       switch (command) {
@@ -56,23 +70,26 @@ export default function App(): JSX.Element {
           app.setSettingsPage('general')
           break
         case 'new-chat':
-        case 'new-temp-chat':
           app.newChat()
           break
         case 'archive-chat':
-          if (app.activeChatId) app.archiveChat(app.activeChatId)
+          // The open conversation archives itself, so a chat that is still
+          // replying asks first, as its own menu does (ChatView).
+          window.dispatchEvent(new Event(ARCHIVE_REQUEST))
           break
         case 'toggle-sidebar':
           app.toggleSidebar()
           break
         case 'toggle-panel':
-          app.toggleBrowser()
+          // The browser panel exists beside Chat only; elsewhere this flipped
+          // a hidden switch and the panel popped up later, unasked.
+          if (isAgentKind(app.workspaces.find((w) => w.id === app.settings?.activeWorkspaceId)?.kind)) app.toggleBrowser()
           break
       }
     })
-  }, [])
+  }, [ready])
 
-  if (!ready) return <div className="app" />
+  if (!ready) return <Starting />
 
   return (
     <>
@@ -95,12 +112,14 @@ export default function App(): JSX.Element {
           {isWork && view === 'chat' && kind === 'chat' && agentBrowserOpen && !browserOpen && <AgentBrowserPanel />}
           {view === 'chat' && kind === 'workers' && browserWorker && <WorkerBrowserPanel key={browserWorker.id} worker={browserWorker} />}
           {view === 'chat' && kind === 'workers' && activityWorker && <WorkerActivityPanel key={activityWorker.id} worker={activityWorker} />}
-          <GlobalKeys onSettings={() => setSettingsPage('general')} onPlugins={() => setView('plugins')} />
         </div>
       )}
+      {/* Outside the view switch, so ⌘1–3 and ⇧⌘P work from Settings too. */}
+      <GlobalKeys onSettings={() => setSettingsPage('general')} onPlugins={() => setView('plugins')} />
       <UpdateToast />
       <StoreNotice />
       <ComputerLeaseIndicator />
+      <Notice />
       <DiscordPresence />
       <BrowserAsk />
     </>
@@ -109,8 +128,13 @@ export default function App(): JSX.Element {
 
 function GlobalKeys({ onSettings, onPlugins }: { onSettings: () => void; onPlugins: () => void }): null {
   useEffect(() => {
+    const mac = isMacPlatform()
     const onKey = (event: KeyboardEvent): void => {
-      if (!event.metaKey) return
+      // ⌘ on a Mac, Ctrl on Windows and Linux. This checked metaKey only, so
+      // none of these worked off a Mac (the terminal even hands Ctrl+1-3 and ,
+      // to the app for this; see terminal/registry.ts). A held key repeats;
+      // toggling the sidebar ten times a second helps nobody.
+      if (!hasCommandModifier(event, mac) || event.repeat) return
       if (event.key === ',') {
         event.preventDefault()
         onSettings()
@@ -191,7 +215,13 @@ function useTheme(): void {
     }
 
     apply()
+    // The system's light/dark and reduce-motion settings can change while Eaon is open.
+    const motion = window.matchMedia('(prefers-reduced-motion: reduce)')
     media.addEventListener('change', apply)
-    return () => media.removeEventListener('change', apply)
+    motion.addEventListener('change', apply)
+    return () => {
+      media.removeEventListener('change', apply)
+      motion.removeEventListener('change', apply)
+    }
   }, [settings])
 }

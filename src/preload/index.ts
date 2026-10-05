@@ -52,6 +52,17 @@ function on<T>(channel: string, handler: (payload: T) => void): () => void {
   return () => ipcRenderer.removeListener(channel, listener)
 }
 
+const MENU_CHANNELS = ['menu:settings', 'menu:new-chat', 'menu:archive-chat', 'menu:toggle-sidebar', 'menu:toggle-panel']
+let menuHandler: ((command: string) => void) | null = null
+const menuQueue: string[] = []
+for (const channel of MENU_CHANNELS) {
+  ipcRenderer.on(channel, () => {
+    const command = channel.replace('menu:', '')
+    if (menuHandler) menuHandler(command)
+    else menuQueue.push(command)
+  })
+}
+
 const api = {
   /**
    * Exposed as a value rather than an IPC call because the renderer needs it
@@ -187,8 +198,11 @@ const api = {
   },
   app: {
     openExternal: (url: string): Promise<void> => ipcRenderer.invoke('app:open-external', url),
-    showItem: (path: string): Promise<void> => ipcRenderer.invoke('app:show-item', path),
+    /** Shows the file or folder in Finder/Explorer; false when it doesn't exist. */
+    showItem: (path: string): Promise<boolean> => ipcRenderer.invoke('app:show-item', path),
     version: (): Promise<string> => ipcRenderer.invoke('app:version'),
+    /** This version's GitHub release page when it has one, else the list of releases. */
+    openReleaseNotes: (): Promise<void> => ipcRenderer.invoke('app:open-release-notes'),
     /** Records a renderer error in crashes.log (main/crashGuard.ts). */
     reportError: (report: { message: string; stack?: string; source?: string }): void => ipcRenderer.send('app:report-error', report),
     /** Background mode for scheduled tasks; see main/background.ts. */
@@ -199,21 +213,17 @@ const api = {
       ipcRenderer.invoke('dialog:open-files', options),
     /** Absolute path of a file dropped onto the window (File.path was removed in Electron 32). */
     pathForFile: (file: File): string => webUtils.getPathForFile(file),
+    /**
+     * App-menu commands. Listened for from the start and held until the app
+     * subscribes, so a command that opened this window (New Chat with every
+     * window closed) isn't sent before anything is listening.
+     */
     onMenu: (handler: (command: string) => void): (() => void) => {
-      const channels = [
-        'menu:settings',
-        'menu:new-chat',
-        'menu:new-temp-chat',
-        'menu:archive-chat',
-        'menu:toggle-sidebar',
-        'menu:toggle-panel'
-      ]
-      const listeners = channels.map((channel) => {
-        const listener = (): void => handler(channel.replace('menu:', ''))
-        ipcRenderer.on(channel, listener)
-        return () => ipcRenderer.removeListener(channel, listener)
-      })
-      return () => listeners.forEach((off) => off())
+      menuHandler = handler
+      for (const command of menuQueue.splice(0)) handler(command)
+      return () => {
+        if (menuHandler === handler) menuHandler = null
+      }
     }
   },
   updater: {

@@ -24,13 +24,14 @@ import {
   PencilLine,
   ScrollText
 } from 'lucide-react'
+import { DOCS_URL } from '@shared/links'
 import { useApp, useWorkspaceKind, type ChatListItem } from '../state/store'
 import { DownloadsButton } from './DownloadsPanel'
 import { CodeSidebar } from './code/CodeSidebar'
 import { openNewTerminal } from './code/terminal/terminalStore'
 import { WorkersNav } from './workers/WorkersSidebar'
 import { WorkersSearchButton } from './workers/WorkerThreads'
-import { MenuItem, MenuSearch, Modal, Popover, useDisclosure } from './ui'
+import { ConfirmDialog, MenuItem, MenuSearch, Modal, Popover, useDisclosure } from './ui'
 import type { Project } from '@shared/types'
 
 export function Sidebar(): JSX.Element {
@@ -43,9 +44,15 @@ export function Sidebar(): JSX.Element {
   const searchMenu = useDisclosure()
 
   const kind = useWorkspaceKind()
+  // Inert, not only aria-hidden: a hidden sidebar's buttons were still reached
+  // by Tab, invisibly. (React 18 has no `inert` prop, so it is set directly.)
+  const content = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (content.current) content.current.inert = !sidebarOpen
+  }, [sidebarOpen])
   return (
     <aside className="sidebar" data-open={sidebarOpen}>
-      <div className="sidebar__content" aria-hidden={!sidebarOpen}>
+      <div ref={content} className="sidebar__content" aria-hidden={!sidebarOpen}>
       <div className="sidebar__panel">
       <div className="titlebar">
         <DownloadsButton />
@@ -79,7 +86,7 @@ export function Sidebar(): JSX.Element {
           className="icon-btn"
           aria-label="Help"
           title="Help"
-          onClick={() => window.api.app.openExternal('https://github.com/eaonlabs/eaon-desktop#readme')}
+          onClick={() => void window.api.app.openExternal(DOCS_URL)}
         >
           <HelpCircle size={16} strokeWidth={1.9} />
         </button>
@@ -255,6 +262,7 @@ function ProjectRow({ project, onEdit }: { project: Project; onEdit: () => void 
   const containsActive = inProject.some((c) => c.id === activeChatId)
   const [open, setOpen] = useState(containsActive)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState(false)
   // A chat opened (or just started) in this project must be visible, so the
   // row opens itself; closing it again is the user's call.
   useEffect(() => {
@@ -269,7 +277,16 @@ function ProjectRow({ project, onEdit }: { project: Project; onEdit: () => void 
         tabIndex={0}
         aria-expanded={open}
         onClick={() => setOpen(!open)}
-        onKeyDown={(e) => e.key === 'Enter' && setOpen(!open)}
+        onKeyDown={(e) => {
+          if (e.target !== e.currentTarget) return
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            setOpen(!open)
+          } else if (isMenuKey(e)) {
+            e.preventDefault()
+            setMenu(menuAt(e.currentTarget))
+          }
+        }}
         onContextMenu={(e) => {
           e.preventDefault()
           setMenu({ x: e.clientX, y: e.clientY })
@@ -319,10 +336,19 @@ function ProjectRow({ project, onEdit }: { project: Project; onEdit: () => void 
           items={[
             { icon: <SquarePen size={15} strokeWidth={1.9} />, label: 'New chat', action: () => newChat(project.id) },
             { icon: <ScrollText size={15} strokeWidth={1.9} />, label: 'Edit project', action: onEdit },
-            { icon: <Trash2 size={15} strokeWidth={1.9} />, label: 'Delete project', danger: true, action: () => deleteProject(project.id) }
+            { icon: <Trash2 size={15} strokeWidth={1.9} />, label: 'Delete project', danger: true, action: () => setConfirmDelete(true) }
           ]}
         />
       )}
+      <ConfirmDialog
+        open={confirmDelete}
+        onClose={() => setConfirmDelete(false)}
+        title="Delete this project?"
+        confirmLabel="Delete project"
+        onConfirm={() => deleteProject(project.id)}
+      >
+        “{project.name}” and its instructions are deleted. Its chats are kept and move to Recents.
+      </ConfirmDialog>
     </>
   )
 }
@@ -415,6 +441,7 @@ const ChatRow = memo(function ChatRow({
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [renaming, setRenaming] = useState(false)
   const [draft, setDraft] = useState(chat.title)
+  const [confirm, setConfirm] = useState<'delete' | 'archive' | null>(null)
 
   const { failed, pinned } = chat
 
@@ -435,8 +462,19 @@ const ChatRow = memo(function ChatRow({
         style={{ ['--i' as string]: Math.min(index, 12) }}
         role="button"
         tabIndex={0}
+        aria-current={active ? 'page' : undefined}
         onClick={() => openChat(chat.id)}
-        onKeyDown={(e) => e.key === 'Enter' && openChat(chat.id)}
+        onKeyDown={(e) => {
+          if (e.target !== e.currentTarget) return
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            openChat(chat.id)
+          } else if (isMenuKey(e)) {
+            // The keyboard's way to the right-click menu (Shift+F10, or the Menu key).
+            e.preventDefault()
+            setMenu(menuAt(e.currentTarget))
+          }
+        }}
         onContextMenu={(e) => {
           e.preventDefault()
           setMenu({ x: e.clientX, y: e.clientY })
@@ -464,11 +502,13 @@ const ChatRow = memo(function ChatRow({
         )}
         <span className="nav-item__trail" data-always={streaming || failed || pinned ? 'true' : undefined}>
           {streaming ? (
-            <Loader2 size={14} strokeWidth={2} className="spinner" />
+            <Loader2 size={14} strokeWidth={2} className="spinner" role="img" aria-label="Replying" />
           ) : failed ? (
-            <CircleAlert size={14} strokeWidth={2} color="var(--danger)" />
+            <CircleAlert size={14} strokeWidth={2} color="var(--danger)" role="img" aria-label="The last reply failed">
+              <title>The last reply failed</title>
+            </CircleAlert>
           ) : pinned ? (
-            <Pin size={13} strokeWidth={2} />
+            <Pin size={13} strokeWidth={2} role="img" aria-label="Pinned" />
           ) : null}
         </span>
       </div>
@@ -495,20 +535,48 @@ const ChatRow = memo(function ChatRow({
             {
               icon: <Archive size={15} strokeWidth={1.9} />,
               label: 'Archive',
-              action: () => archiveChat(chat.id)
+              // A chat still replying asks first, as the chat's own menu does.
+              action: () => (streaming ? setConfirm('archive') : archiveChat(chat.id))
             },
             {
               icon: <Trash2 size={15} strokeWidth={1.9} />,
               label: 'Delete',
               danger: true,
-              action: () => deleteChat(chat.id)
+              action: () => setConfirm('delete')
             }
           ]}
         />
       )}
+      <ConfirmDialog
+        open={confirm === 'delete'}
+        onClose={() => setConfirm(null)}
+        title="Delete this chat?"
+        confirmLabel="Delete"
+        onConfirm={() => deleteChat(chat.id)}
+      >
+        “{chat.title}” and its messages are removed from this computer. This can’t be undone. To put a chat away and keep it, archive it instead.
+      </ConfirmDialog>
+      <ConfirmDialog
+        open={confirm === 'archive'}
+        onClose={() => setConfirm(null)}
+        title="Stop and archive this chat?"
+        confirmLabel="Stop and archive"
+        onConfirm={() => archiveChat(chat.id)}
+      >
+        Archiving will stop any ongoing work. You can restore the chat later in settings.
+      </ConfirmDialog>
     </>
   )
 })
+
+/** Shift+F10 or the Menu key: the keyboard's right click. */
+const isMenuKey = (e: { key: string; shiftKey: boolean }): boolean => e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')
+
+/** Where a menu opened from the keyboard goes: under the row's start. */
+const menuAt = (element: HTMLElement): { x: number; y: number } => {
+  const rect = element.getBoundingClientRect()
+  return { x: rect.left + 12, y: rect.bottom }
+}
 
 /** A menu anchored to a point rather than an element (right-click menus). */
 export function ContextMenu({

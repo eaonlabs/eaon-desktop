@@ -264,8 +264,14 @@
    the top RIGHT, so the reservation flips sides: nothing is needed on the left
    (the sidebar panel starts at the window edge), and the main header has to
    keep its own buttons clear of the caption strip. 138px is the three 46px
-   buttons Windows draws at 100% scale. */
-body[data-platform='win32'] {
+   buttons Windows draws at 100% scale. Linux draws the same overlay (main/
+   index.ts gives every non-Mac window one), but its rules were the Mac's: 89px
+   reserved on the left for traffic lights that aren't there, and nothing on
+   the right, so header buttons sat under the caption buttons. The overlay
+   reports its real width through env(); a wider strip wins over 138px, and
+   the clamp keeps a not-yet-measured one (0 wide) from reserving the window. */
+body[data-platform='win32'],
+body[data-platform='linux'] {
   --window-controls-left: 0px;
-  --window-controls-right: 138px;
+  --window-controls-right: min(200px, max(138px, calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, 100vw))));
 }

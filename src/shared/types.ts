@@ -336,8 +336,13 @@ export interface Settings {
     workspaceDependencies: boolean
   }
   browser: {
+    /** Opened in each new tab of the built-in browser; empty for a blank tab. */
     homepage: string
+    /** What the address bar searches with: 'DuckDuckGo' (default), 'Google' or 'Bing'. */
+    searchEngine?: string
+    /** Unused: the "Import from Chrome" banner imported nothing and was removed in 2026.6.2. */
     importedFromChrome: boolean
+    /** Unused since 2026.6.2, with the banner. */
     dismissedImportBanner: boolean
   }
   mcp: {

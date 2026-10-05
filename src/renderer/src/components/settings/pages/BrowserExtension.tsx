@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, type JSX } from 'react'
 import { Check, Copy, ExternalLink, FolderOpen, RefreshCw, TriangleAlert } from 'lucide-react'
 import { CHROME_WEB_STORE_URL, isNewerVersion, type BrowserBridgeStatus } from '@shared/browserBridge'
 import { useApp } from '../../../state/store'
+import { CLIPBOARD_FAILED, copyText } from '../../../lib/clipboard'
+import { notify } from '../../Notice'
 import { Card, Row, Section, Switch } from '../../ui'
 
 type CopyTarget = 'code' | 'path' | 'url'
@@ -92,10 +94,12 @@ export function BrowserExtensionPage(): JSX.Element {
   const line = statusLine(status)
 
   const copy = (target: CopyTarget, text: string): void => {
-    void navigator.clipboard.writeText(text)
-    setCopied(target)
-    window.clearTimeout(copyTimer.current)
-    copyTimer.current = window.setTimeout(() => setCopied(null), 1600)
+    void copyText(text).then((ok) => {
+      if (!ok) return notify(CLIPBOARD_FAILED, 'error')
+      setCopied(target)
+      window.clearTimeout(copyTimer.current)
+      copyTimer.current = window.setTimeout(() => setCopied(null), 1600)
+    })
   }
 
   const setEnabled = async (enabled: boolean): Promise<void> => {
@@ -278,21 +282,16 @@ export function BrowserExtensionPage(): JSX.Element {
 
       <Section label="Get the extension">
         <Card>
-          <Row
-            title="Chrome Web Store"
-            description={
-              CHROME_WEB_STORE_URL
-                ? 'Install Eaon Browser Control from the Chrome Web Store. It updates itself from there.'
-                : 'Not on the Chrome Web Store yet. Load it unpacked for now, as below.'
-            }
-          >
-            {CHROME_WEB_STORE_URL && (
+          {/* Only once there is a listing: a row about a store page that
+              doesn't exist yet is a dead end. */}
+          {CHROME_WEB_STORE_URL && (
+            <Row title="Chrome Web Store" description="Install Eaon Browser Control from the Chrome Web Store. It updates itself from there.">
               <button className="btn" onClick={() => void window.api.app.openExternal(CHROME_WEB_STORE_URL)}>
                 <ExternalLink size={14} strokeWidth={1.9} />
                 Open
               </button>
-            )}
-          </Row>
+            </Row>
+          )}
           <div className="row row--stack">
             <div className="row__body">
               <div className="row__title">Load unpacked</div>

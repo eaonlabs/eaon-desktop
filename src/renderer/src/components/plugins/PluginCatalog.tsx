@@ -54,8 +54,8 @@ export function PluginCatalog(): JSX.Element {
     <>
       <h1 className="settings__h1">Plugins</h1>
       <p className="settings__lede">
-        Connect outside services so models can read and act on your behalf, with your consent. Plugins are available in
-        Work.
+        Connect outside services so models can read and act on your behalf, with your consent. Chat and Workers can use
+        them.
       </p>
 
       <div className="plugin-catalog__search">
@@ -220,8 +220,15 @@ function useAction(): {
     } catch (err) {
       setError(err instanceof Error ? err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(err))
     } finally {
-      await refreshServers()
-      setBusy(false)
+      // Busy ends even when the refresh itself fails; it used to stay on
+      // "Connecting…" until the page was reloaded.
+      try {
+        await refreshServers()
+      } catch {
+        /* the rows keep what they had; the action's own error, if any, is shown */
+      } finally {
+        setBusy(false)
+      }
     }
   }
   return { busy, error, setError, run }

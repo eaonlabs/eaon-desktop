@@ -176,24 +176,31 @@ export function AppearancePage(): JSX.Element {
               ]}
             />
           </Row>
-          <Row title="Translucent sidebar" description="Blur the desktop through the sidebar">
-            <Switch
-              label="Translucent sidebar"
-              checked={a[tone].translucentSidebar}
-              onChange={(on) =>
-                void patchSettings({
-                  appearance: { light: { translucentSidebar: on }, dark: { translucentSidebar: on } }
-                })
-              }
-            />
-          </Row>
-          <Row title="Font smoothing" description="Use native macOS font anti-aliasing">
-            <Switch
-              label="Font smoothing"
-              checked={a.fontSmoothing}
-              onChange={(on) => void patchSettings({ appearance: { fontSmoothing: on } })}
-            />
-          </Row>
+          {/* Both are macOS features: the blur is the window's vibrancy
+              (main/index.ts, isMac only) and -webkit-font-smoothing only
+              exists there. Elsewhere the switches did nothing, so they are not shown. */}
+          {window.api.platform === 'darwin' && (
+            <>
+              <Row title="Translucent sidebar" description="Blur the desktop through the sidebar">
+                <Switch
+                  label="Translucent sidebar"
+                  checked={a[tone].translucentSidebar}
+                  onChange={(on) =>
+                    void patchSettings({
+                      appearance: { light: { translucentSidebar: on }, dark: { translucentSidebar: on } }
+                    })
+                  }
+                />
+              </Row>
+              <Row title="Font smoothing" description="Use native macOS font anti-aliasing">
+                <Switch
+                  label="Font smoothing"
+                  checked={a.fontSmoothing}
+                  onChange={(on) => void patchSettings({ appearance: { fontSmoothing: on } })}
+                />
+              </Row>
+            </>
+          )}
         </Card>
       </Section>
     </>

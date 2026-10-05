@@ -91,8 +91,17 @@
 }
 .menu__item:hover:not(:disabled),
 .menu__item[data-open='true'],
-.menu__item[data-highlight='true'] {
+.menu__item[data-highlight='true'],
+.menu__item:focus-visible {
   background: var(--hover-strong);
+}
+/* Arrow keys move focus row to row (Popover in ui.tsx); the ring sits inside the row. */
+.menu__item:focus-visible {
+  outline-offset: -2px;
+}
+/* The surface takes focus only to hold it when a menu has no items; no ring for that. */
+.menu:focus-visible {
+  outline: none;
 }
 .menu__item:disabled {
   color: var(--text-4);
@@ -452,8 +461,9 @@ textarea.input {
 .search-field input::placeholder {
   color: var(--text-3);
 }
+/* The same accent edge as .input: --border-strong alone was barely visible. */
 .search-field input:focus {
-  border-color: var(--border-strong);
+  border-color: color-mix(in srgb, var(--toggle-on), transparent 30%);
 }
 .search-field--sm input {
   height: 34px;
@@ -535,6 +545,8 @@ textarea.input {
 
 .keycap {
   display: inline-flex;
+  /* Also on <kbd>, whose default is the monospace face. */
+  font-family: inherit;
   align-items: center;
   justify-content: center;
   min-width: 34px;
@@ -761,4 +773,61 @@ textarea.input {
 .store-notice[data-kind='unsaved'] .store-notice__icon {
   background: color-mix(in srgb, var(--danger), transparent 84%);
   color: var(--danger);
+}
+
+/* ---------------- Error details ---------------- */
+
+/* The raw error under a plain one (ErrorDetails in ui.tsx). */
+.error-details {
+  margin-top: 6px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.error-details summary {
+  width: fit-content;
+  cursor: default;
+  border-radius: var(--r-xs);
+}
+.error-details summary:hover {
+  color: var(--text-2);
+}
+.error-details__text {
+  margin: 6px 0;
+  padding: 8px 10px;
+  max-height: 140px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  color: var(--text-2);
+  background: var(--code-bg);
+  border-radius: var(--r-sm);
+  user-select: text;
+}
+
+/* ---------------- Notice (Notice.tsx) ---------------- */
+
+.notice-toast {
+  align-items: center;
+  padding: 10px 10px 10px 12px;
+}
+.notice-toast .update-toast__icon {
+  width: 26px;
+  height: 26px;
+  margin-top: 0;
+}
+.notice-toast .update-toast__icon[data-tone='error'] {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.notice-toast__text {
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: 1.4;
+  color: var(--text);
+}
+.notice-toast .update-toast__close {
+  margin: 0;
 }
