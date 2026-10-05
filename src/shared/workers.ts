@@ -1,6 +1,7 @@
 import type { ChannelKind, GuestAccess } from './channels'
 import type { ChatMessage, EffortLevel, GoalState, StreamEvent, TokenUsage } from './types'
 import type { EngineId } from './engines'
+import { nextRunAfter, WEEKDAYS } from './scheduler'
 
 /**
  * Eaon Workers: independent agents that live on the user's computer and keep
@@ -83,6 +84,8 @@ export interface WorkerRoutine {
   runs: { at: number; ok: boolean }[]
   /** The thread its runs go in, made on its first run. */
   threadId?: string
+  /** The time zone `nextAt` was worked out in, for a daily routine: "9:00" means 9:00 where the user is now. */
+  zone?: string
 }
 
 /**
@@ -806,11 +809,11 @@ export function nextRoutine(worker: Pick<Worker, 'routines'>): WorkerRoutine | n
 /** When a routine next comes round after `after`: every N ms from then, or the next daily HH:MM. */
 export function nextRoutineAt(routine: Pick<WorkerRoutine, 'everyMs' | 'daily'>, after: number): number {
   if (routine.daily) {
-    const [hours, minutes] = routine.daily.split(':').map(Number)
-    const at = new Date(after)
-    at.setHours(hours, minutes, 0, 0)
-    if (at.getTime() <= after) at.setDate(at.getDate() + 1)
-    return at.getTime()
+    // The shared scheduling math builds the day with the local clock, so a
+    // time in the hour a clock skips forward runs an hour later that day,
+    // and one in the hour repeated falling back runs once.
+    const next = nextRunAfter({ kind: 'daily', time: routine.daily, days: WEEKDAYS }, after)
+    if (next !== null) return next
   }
   return after + Math.max(routine.everyMs ?? 0, MIN_HEARTBEAT_MS)
 }

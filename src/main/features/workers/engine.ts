@@ -65,6 +65,7 @@ import { watchFor, type WakeCondition } from './watch'
 import { copyTree, sizeOf, transferRefusal, type TransferProgress } from './transfer'
 import { approvalKey } from '../../agent/approvalKey'
 import { weakerAccess } from '@shared/channels'
+import { currentZone } from '../../timezone'
 
 /** How a tool follows a file transfer: its stop button, and a line of progress. */
 export interface TransferWatch {
@@ -140,6 +141,8 @@ export interface WorkersDeps {
   stallMs?: number
   maxTurnsPerHour?: number
   concurrency?: number
+  /** The current IANA time zone (default: the machine's, kept current across a change of zone). */
+  zone?: () => string
 }
 
 /**
@@ -2075,7 +2078,8 @@ export class WorkersEngine {
   tick(): void {
     if (!this.started) return
     const now = this.now()
-    let changed = this.expireDelegations(now)
+    let changed = this.rezoneRoutines(now)
+    changed = this.expireDelegations(now) || changed
     changed = this.skipOverlappingRoutines(now) || changed
     const concurrency = this.deps.concurrency ?? WORKER_CONCURRENCY
     const due = this.workers.filter((w) => !w.paused).flatMap((w) => this.dueSlots(w, now))
@@ -2384,6 +2388,27 @@ export class WorkersEngine {
           reason: 'Skipped: the previous run was still going.'
         })
         routine.nextAt = routineNextAt(routine, now)
+        changed = true
+      }
+    }
+    return changed
+  }
+
+  /**
+   * A daily routine is "at 9:00" where the user is: after the time zone
+   * changes (travel, or by hand) its next run is worked out again in the new
+   * zone, instead of firing at 6:00 local because it was computed in the old one.
+   */
+  private rezoneRoutines(now: number): boolean {
+    const zone = this.deps.zone ? this.deps.zone() : currentZone()
+    let changed = false
+    for (const worker of this.workers) {
+      for (const routine of worker.routines) {
+        if (!routine.daily) continue
+        if (routine.zone === zone) continue
+        // Stamped on first sight; recomputed only when it really was another zone and hasn't run yet.
+        if (routine.zone !== undefined && routine.nextAt > now) routine.nextAt = routineNextAt(routine, now)
+        routine.zone = zone
         changed = true
       }
     }
