@@ -209,14 +209,11 @@ test('without Accessibility, input is refused with the switch to flip and the se
   store.patchSettings({ computerUse: { ...defaultSettings.computerUse, enabled: true } })
   const controller = new AbortController()
   try {
-    await assert.rejects(
-      computerTool.run({ action: 'click', x: 10, y: 10 }, { request: { chatId: 'ax', messageId: 'ax-m' }, signal: controller.signal } as ToolContext),
-      (error: Error) => {
-        assert.match(error.message, /System Settings → Privacy & Security → Accessibility/)
-        assert.match(error.message, /Settings → Computer use/)
-        return true
-      }
-    )
+    // A refusal is a result the model can read (isError), not a thrown error.
+    const result = (await computerTool.run({ action: 'click', x: 10, y: 10 }, { request: { chatId: 'ax', messageId: 'ax-m' }, signal: controller.signal } as ToolContext)) as { text: string; isError?: boolean }
+    assert.equal(result.isError, true)
+    assert.match(result.text, /System Settings → Privacy & Security → Accessibility/)
+    assert.match(result.text, /Settings → Computer use/)
     assert.deepEqual(sent, [], 'nothing was sent')
   } finally {
     controller.abort()

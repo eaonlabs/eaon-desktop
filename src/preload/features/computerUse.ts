@@ -1,5 +1,5 @@
 import { ipcRenderer } from 'electron'
-import type { ComputerTestResult, ComputerUseStatus, PermissionKind } from '@shared/computerUse'
+import type { ComputerLeaseState, ComputerTestResult, ComputerUseStatus, PermissionKind } from '@shared/computerUse'
 
 /**
  * Renderer bridge for the computerUse feature. Exposed as `window.api.computerUse`.
@@ -17,5 +17,15 @@ export const computerUseApi = {
   /** Clears Eaon's Accessibility entry (a stale one from an older copy) and asks again. */
   resetAccessibility: (): Promise<{ ok: boolean; error?: string }> => ipcRenderer.invoke('computer-use:reset-accessibility'),
   /** Same as the emergency-stop shortcut. */
-  stop: (): Promise<void> => ipcRenderer.invoke('computer-use:stop')
+  stop: (): Promise<void> => ipcRenderer.invoke('computer-use:stop'),
+  /** Which run holds the computer's one pointer and keyboard now, and which are waiting for it. */
+  lease: (): Promise<ComputerLeaseState> => ipcRenderer.invoke('computer:lease'),
+  /** The user takes the computer back: the holder and everyone waiting are off it for the rest of their run. */
+  takeBack: (): Promise<ComputerLeaseState> => ipcRenderer.invoke('computer:take-back'),
+  /** The holder or the queue changed. */
+  onLeaseChanged: (handler: (state: ComputerLeaseState) => void): (() => void) => {
+    const listener = (_e: unknown, state: ComputerLeaseState): void => handler(state)
+    ipcRenderer.on('computer:lease-changed', listener)
+    return () => ipcRenderer.removeListener('computer:lease-changed', listener)
+  }
 }

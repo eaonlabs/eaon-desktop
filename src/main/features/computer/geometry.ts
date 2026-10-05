@@ -135,3 +135,26 @@ export function sameFrame(a: Frame, b: Frame): boolean {
 export function displayUnchanged(frame: Frame, display: { id: number; bounds: Rect }): boolean {
   return frame.displayId === display.id && sameRect(frame.display ?? frame.bounds, display.bounds)
 }
+
+/**
+ * Which display holds the centre of `rect` (a window, or a point as a rect of
+ * size 0): its index in `displays`, or -1 when the centre is on none (the
+ * window is off every screen). A window spanning two displays belongs to the
+ * one its centre is on; the screenshot is then clipped to that display.
+ */
+export function displayIndexOf(rect: Rect, displays: { bounds: Rect }[]): number {
+  const cx = rect.x + rect.width / 2
+  const cy = rect.y + rect.height / 2
+  return displays.findIndex((d) => cx >= d.bounds.x && cy >= d.bounds.y && cx < d.bounds.x + d.bounds.width && cy < d.bounds.y + d.bounds.height)
+}
+
+/**
+ * Displays in the order the model numbers them: the primary is 0, then the
+ * rest left to right and, at the same x, top to bottom. Stable for a given
+ * arrangement, so "display 1" means the same monitor until it is rearranged.
+ */
+export function orderDisplays<T extends { id: number; bounds: Rect }>(primaryId: number, all: T[]): T[] {
+  const primary = all.find((d) => d.id === primaryId) ?? all[0]
+  const rest = all.filter((d) => d !== primary).sort((a, b) => a.bounds.x - b.bounds.x || a.bounds.y - b.bounds.y)
+  return primary ? [primary, ...rest] : []
+}
