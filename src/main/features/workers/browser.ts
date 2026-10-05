@@ -6,6 +6,7 @@ import type { BrowserInput } from '@shared/agentBrowser'
 import { isRunning } from '../../agent/loop'
 import type { AgentTool, ToolSource } from '../../agent/tools'
 import type { NeutralImage } from '../../providers/adapters/types'
+import { opensPrivateNetwork } from '../browser/privateTarget'
 import { purchaseCovers, redactPaymentSecrets } from '../payments/access'
 
 /**
@@ -833,7 +834,7 @@ export class WorkerBrowsers {
         // Some pages (XHTML ones, like iana.org) can't be snapshotted: give their text instead.
         if (/does not match any element/i.test(String(error))) {
           const page = await this.run(workerId, `return (await page.title()) + '\\n' + page.url() + '\\n\\n' + (await page.evaluate(() => document.body?.innerText ?? document.documentElement?.innerText ?? '')).slice(0, 8000)`)
-          return `${clip(page, 8000)}\n\n(This page can't be snapshotted; above is its text. Use find {text} to get refs for links or buttons.)`
+          return `${clip(redactPaymentSecrets(page), 8000)}\n\n(This page can't be snapshotted; above is its text. Use find {text} to get refs for links or buttons.)`
         }
         throw error
       }
@@ -1640,7 +1641,16 @@ export function browserTool(browsers: WorkerBrowsers, options: BrowserToolOption
       return !['snapshot', 'read', 'wait', 'find', 'scroll'].includes(str(input.action)) && !(str(input.action) === 'screenshot' && !str(input.save_to))
     },
     // Clicks, typing and uploads reach other people's services; a Careful worker is asked (and refused).
-    risky: (raw) => ['click', 'type', 'select', 'press', 'upload'].includes(str(normalizeBrowserInput(raw).action)),
+    // A page on this computer or the local network is asked about too: a dev
+    // server's admin route, the router, a service that trusts anything that reaches it.
+    risky: (raw, ctx) => {
+      const input = normalizeBrowserInput(raw)
+      const action = str(input.action)
+      if (['click', 'type', 'select', 'press', 'upload'].includes(action)) return true
+      if (action === 'open' || action === 'capture_site') return opensPrivateNetwork(str(input.url))
+      if (action === 'reload') return opensPrivateNetwork(browsers.url(options.idOf(ctx) ?? ''))
+      return false
+    },
     // Never alone: typing a password, card number or code, pressing a button
     // that spends money, or sending a key or credentials file to a website.
     catastrophic: (raw, ctx) => {
@@ -2029,8 +2039,11 @@ export function browserTool(browsers: WorkerBrowsers, options: BrowserToolOption
         if (!(await browsers.back(id))) return { text: 'There is no page to go back to.', isError: true }
         return browsers.snapshot(id)
       case 'read':
+        // A checkout page's fields hold the card number the agent typed; its text must not carry it back.
         return clip(
-          await browsers.run(id, `return (await page.title()) + '\\n' + page.url() + '\\n\\n' + (await page.evaluate(() => document.body?.innerText ?? '')).slice(0, 20000)`),
+          redactPaymentSecrets(
+            await browsers.run(id, `return (await page.title()) + '\\n' + page.url() + '\\n\\n' + (await page.evaluate(() => document.body?.innerText ?? '')).slice(0, 20000)`)
+          ),
           20_000
         )
       case 'screenshot': {

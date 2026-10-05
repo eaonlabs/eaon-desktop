@@ -336,3 +336,56 @@ test('a browser shared by several chats is used by one run at a time, and the ne
   // The same run again needs no wait and gets no note.
   assert.deepEqual(await browsers.claim('agent', { id: 'run-B', label: 'Groceries' }, (id) => live.has(id), signal, 0), { ok: true, note: null })
 })
+
+test('a page on this computer or the local network is asked about; a public one is not', async () => {
+  const { opensPrivateNetwork } = await import('../src/main/features/browser/privateTarget')
+  for (const url of ['http://localhost:3000/admin', 'http://127.0.0.1:8080', 'http://192.168.1.1/', 'http://10.0.0.5', 'http://172.20.1.1', 'http://169.254.169.254/latest/meta-data', 'http://[::1]:9000/', 'http://printer.local/', 'http://nas/', 'http://router.lan', 'localhost:5173', '192.168.0.1/admin']) {
+    assert.equal(opensPrivateNetwork(url), true, url)
+  }
+  for (const url of ['https://example.com', 'https://172.32.0.1/', 'https://8.8.8.8', 'https://sub.shop.test/cart', 'not a url at all', '']) {
+    assert.equal(opensPrivateNetwork(url), false, url)
+  }
+  const { browsers, state } = fakeBrowser()
+  const web = browserTool(browsers, { idOf: () => 'w1', signInHint: '' })
+  assert.equal(web.risky?.({ action: 'open', url: 'http://localhost:3000/admin' }, ctx()), true)
+  assert.equal(web.risky?.({ action: 'navigate', url: 'http://192.168.1.1' }, ctx()), true, 'under a guessed name too')
+  assert.equal(web.risky?.({ action: 'capture_site', url: 'http://router.lan' }, ctx()), true)
+  assert.equal(web.risky?.({ action: 'open', url: 'https://example.com' }, ctx()), false)
+  state.url = 'http://localhost:8080/'
+  assert.equal(web.risky?.({ action: 'reload' }, ctx()), true)
+  state.url = 'https://shop.test/cart'
+  assert.equal(web.risky?.({ action: 'reload' }, ctx()), false)
+  // The user's own Chrome, with their logins, the same.
+  const { createBrowserTool } = await import('../src/main/features/browser/tool')
+  const { tool } = createBrowserTool({ supports: () => true } as never)
+  assert.equal(tool.risky?.({ action: 'navigate', url: 'http://localhost:3000' }, ctx()), true)
+  assert.equal(tool.risky?.({ action: 'new_tab', url: 'http://10.1.1.1' }, ctx()), true)
+  assert.equal(tool.risky?.({ action: 'navigate', url: 'https://example.com' }, ctx()), false)
+})
+
+test('the page text the agent reads, and the text fallback of an unsnapshottable page, never carry the card number', async () => {
+  const { setPaymentAccess } = await import('../src/main/features/payments/access')
+  setPaymentAccess({ covers: () => false, secret: () => ({ number: '4242424242424242', cvc: '737' }) })
+  try {
+    const page = 'Payment\nhttps://shop.test/pay\n\nCard number 4242 4242 4242 4242\nCVC 737'
+    const { browsers } = fakeBrowser({ run: () => page })
+    const read = textOf(await browserTool(browsers, { idOf: () => 'w1', signInHint: '' }).run({ action: 'read' }, ctx()))
+    // (The card number only: the CVC is blanked in snapshot field lines, where a bare "737" can be told from a price.)
+    assert.doesNotMatch(read, /4242 4242 4242 4242/)
+    assert.match(read, /•••• 4242/)
+    // The real browser's own fallback, for pages that can't be snapshotted.
+    const { WorkerBrowsers } = await import('../src/main/features/workers/browser')
+    const real = new WorkerBrowsers()
+    ;(real as unknown as { run: (id: string, code: string) => Promise<string> }).run = async (_id, code) => {
+      if (code.includes('ariaSnapshot') || code.includes('snapshot(')) throw new Error('locator.ariaSnapshot: does not match any element')
+      return page
+    }
+    ;(real as unknown as { reattach: () => Promise<void> }).reattach = async () => undefined
+    ;(real as unknown as { sessions: Map<string, unknown> }).sessions.set('w1', { window: { isDestroyed: () => false }, refs: new Map() })
+    const fallback = await real.snapshot('w1')
+    assert.doesNotMatch(fallback, /4242 4242 4242 4242/)
+    assert.match(fallback, /can't be snapshotted/)
+  } finally {
+    setPaymentAccess(null)
+  }
+})

@@ -1,5 +1,6 @@
 import { BROWSER_ACTIONS, type BrowserAction, type SnapshotElement } from '@shared/browserBridge'
 import { capOutput, type AgentTool, type ToolResult, type ToolSource } from '../../agent/tools'
+import { opensPrivateNetwork } from './privateTarget'
 import { NotConnectedError, type BrowserBridge } from './server'
 
 /**
@@ -146,6 +147,11 @@ export function createBrowserTool(bridge: BrowserBridge): { tool: AgentTool; sou
     const ref = asInt(input.ref)
     const el = elementFor(ref)
     switch (action) {
+      // This computer or the local network, from the user's own Chrome (with
+      // their logins): a dev server's admin route, the router. Asked about.
+      case 'navigate':
+      case 'new_tab':
+        return opensPrivateNetwork(asString(input.url))
       case 'fill':
         // Any field that cannot be judged, or that holds a card number or code, is asked about.
         return fieldsOf(input).some((field) => {
