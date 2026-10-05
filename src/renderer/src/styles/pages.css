@@ -349,6 +349,25 @@
   background: var(--canvas);
   border-left: 1px solid var(--border-soft);
 }
+/* Narrow windows: opening a panel hides the sidebar (state/sidePanel.ts), so
+   at the 720px minimum the conversation keeps 400px and the panel 320px. If
+   the sidebar is brought back, the panel floats over the right side instead
+   of squeezing the conversation to a sliver. Keep 979px in step with
+   SIDE_PANEL_NARROW. */
+@media (max-width: 979px) {
+  .app:has(> .sidebar[data-open='true']) > .browser {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 60;
+    width: min(380px, calc(100vw - 48px));
+    min-width: 0;
+    max-width: none;
+    border-left: 1px solid var(--border);
+    box-shadow: var(--shadow-modal);
+  }
+}
 
 .browser__tabs {
   height: var(--titlebar-h);
@@ -356,7 +375,9 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 0 12px 0 14px;
+  /* The panel is the window's right edge, where Windows draws its caption
+     buttons; its close button sat under them. */
+  padding: 0 calc(12px + var(--window-controls-right)) 0 14px;
   -webkit-app-region: drag;
 }
 .browser__tabs .icon-btn,
@@ -417,6 +438,10 @@
 }
 .browser__url {
   flex: 1;
+  /* A flex item won't shrink below its content's minimum, and an <input>'s is
+     its default width (about 170px): at the panel's 320px the menu button was
+     pushed 8px past the window's edge. */
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 8px;

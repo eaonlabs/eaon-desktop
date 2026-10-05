@@ -23,6 +23,7 @@ import { AgentBrowserPanel } from './components/agentBrowser/AgentBrowserPanel'
 import { TradingDesk } from './components/trading/TradingDesk'
 import { useAgentBrowser } from './components/agentBrowser/agentBrowserStore'
 import { THEMES } from './lib/themes'
+import { useRoomForSidePanel } from './state/sidePanel'
 import { hasCommandModifier, isMacPlatform } from './lib/keys'
 import { Starting } from './components/Starting'
 
@@ -41,6 +42,8 @@ export default function App(): JSX.Element {
   const agentBrowserOpen = useAgentBrowser((s) => s.open)
   // A worker's browser beside its page, while that page is the one open.
   const browserWorker = useWorkers((s) => (s.browserFor && s.selectedId === s.browserFor && !s.selectedRoomId ? s.workers.find((w) => w.id === s.browserFor) ?? null : null))
+  // The same conditions that render the side panels below.
+  useRoomForSidePanel((isWork && browserOpen) || (isWork && view === 'chat' && kind === 'chat' && agentBrowserOpen) || (view === 'chat' && kind === 'workers' && Boolean(browserWorker)))
 
   useTheme()
 
