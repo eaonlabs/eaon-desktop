@@ -1,6 +1,7 @@
 import { app } from 'electron'
 import { store } from './store'
 import { backupDocs, readDoc, shapeOf, sweepTempFiles, writeDocSync } from './storeFiles'
+import { migrateScheduledRuns } from './features/scheduler/migrate'
 
 /**
  * Versioned changes to the shape of saved data, run once each, in order, at
@@ -40,6 +41,12 @@ export const MIGRATIONS: Migration[] = [
     name: 'workspaces',
     files: ['workspaces.json', 'settings.json', 'chats.json', 'projects.json'],
     run: () => store.migrateWorkspaces()
+  },
+  {
+    version: 2,
+    name: 'scheduled-runs',
+    files: ['scheduled-tasks.json', 'scheduled-runs.json'],
+    run: () => migrateScheduledRuns()
   }
 ]
 

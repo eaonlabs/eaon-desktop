@@ -20,6 +20,8 @@ export const schedulerApi = {
   remove: (id: string): Promise<void> => ipcRenderer.invoke('scheduler:remove', id),
   setEnabled: (id: string, enabled: boolean): Promise<ScheduledTask> => ipcRenderer.invoke('scheduler:set-enabled', id, enabled),
   runNow: (id: string): Promise<TaskRun> => ipcRenderer.invoke('scheduler:run-now', id),
+  /** Runs the task again for a run that failed, was stopped, missed or skipped. */
+  retry: (id: string, runId: string): Promise<TaskRun> => ipcRenderer.invoke('scheduler:retry', id, runId),
   cancel: (id: string): Promise<void> => ipcRenderer.invoke('scheduler:cancel', id),
   /** One-time import of tasks the old page kept in localStorage. Resolves to how many were imported. */
   importLegacy: (drafts: TaskDraft[]): Promise<number> => ipcRenderer.invoke('scheduler:import', drafts),

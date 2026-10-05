@@ -230,9 +230,11 @@ export async function runScheduledTask(task: ScheduledTask, handle: RunHandle, d
     chat.updatedAt = Date.now()
     await deps.sink.put(chat, true)
     const summary = summariseReply(outcome.text)
+    const used = outcome.usage
     result = {
       status: error ? 'failed' : cancelled ? 'cancelled' : 'succeeded',
       chatId: chat.id,
+      ...(used && used.input + used.output + used.cacheRead + used.cacheWrite > 0 ? { tokens: { ...used } } : {}),
       ...(error ? { error } : {}),
       ...(summary ? { summary } : !error && !cancelled ? { summary: 'Finished without a written reply.' } : {})
     }

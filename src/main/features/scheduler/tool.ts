@@ -85,7 +85,9 @@ function when(at: number | null): string {
 function line(task: ScheduledTask): string {
   const mode = task.mode === 'work' ? `Work, ${task.allowChanges ? 'may make changes' : 'read-only'}${task.cwd ? `, in ${task.cwd}` : ''}` : 'Chat'
   const state = task.enabled ? `next run ${when(task.nextRunAt)}` : 'paused'
-  const last = task.history[0] ? `; last run ${task.history[0].status}` : ''
+  // A skipped slot is newer than the run that blocked it; the run is what "last run" means.
+  const latest = task.history.find((run) => run.status !== 'skipped')
+  const last = latest ? `; last run ${latest.status}` : ''
   return `- ${task.name} [id ${task.id}] — ${describeSchedule(task.schedule)}; ${mode}; ${state}${last}`
 }
 

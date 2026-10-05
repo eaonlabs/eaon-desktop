@@ -1,4 +1,4 @@
-import type { AgentMode, Chat } from './types'
+import type { AgentMode, Chat, TokenUsage } from './types'
 
 /**
  * Scheduled tasks: the data model and the schedule arithmetic.
@@ -28,20 +28,64 @@ export type Schedule =
   | { kind: 'weekly'; time: string; day: number }
   | { kind: 'once'; at: number }
 
-export type RunStatus = 'running' | 'succeeded' | 'failed' | 'cancelled' | 'missed'
+/**
+ * `missed`: a slot that came due while Eaon was closed or the computer
+ * asleep, too long ago to be worth running. `skipped`: a slot that came due
+ * while the task's previous run was still going (see TASK_OVERLAP).
+ */
+export type RunStatus = 'running' | 'succeeded' | 'failed' | 'cancelled' | 'missed' | 'skipped'
 
+/**
+ * 'catch-up' is a slot that came due while Eaon was closed or the Mac was
+ * asleep, run late; 'retry' is the user re-running a run that didn't succeed.
+ */
+export type RunTrigger = 'schedule' | 'manual' | 'catch-up' | 'retry'
+
+/**
+ * Why a slot ran late, was missed or was skipped. `closed`: Eaon wasn't
+ * running when it came due. `asleep`: the computer was. `late`: Eaon was
+ * running but got to it late (a busy or stalled process). `overlap`: the
+ * previous run was still going.
+ */
+export type RunCause = 'closed' | 'asleep' | 'late' | 'overlap'
+
+/**
+ * One execution of a task: its own record, apart from the task's
+ * definition, kept in `scheduled-runs.json`. Editing a task never touches
+ * its runs; deleting it removes them (the chats they wrote stay).
+ */
 export interface TaskRun {
   id: string
+  /** The task it belongs to. Missing on runs saved inside the task by 2026.6.1 and earlier. */
+  taskId?: string
   startedAt: number
   finishedAt: number | null
   status: RunStatus
-  /** The chat this run wrote into; null for a missed slot. */
+  /** The chat this run wrote into; null for a missed or skipped slot. */
   chatId: string | null
-  /** 'catch-up' is a slot that came due while Eaon was closed or the Mac was asleep. */
-  trigger: 'schedule' | 'manual' | 'catch-up'
+  trigger: RunTrigger
   error?: string
   /** First line of the reply, for the run history. */
   summary?: string
+  /** Why it ran late, or didn't run. */
+  cause?: RunCause
+  /**
+   * The slot it was for, when that differs from `startedAt` (a catch-up runs
+   * after its slot). For a skipped record, the first slot skipped.
+   */
+  slotAt?: number
+  /**
+   * Slots folded into this record: a catch-up that stands for several missed
+   * slots runs once, and a skipped record counts every slot skipped while
+   * the same run went on. 1 when absent.
+   */
+  slots?: number
+  /** Tokens the run used, as the provider reported them. */
+  tokens?: TokenUsage
+  /** The run this one retried. */
+  retryOf?: string
+  /** For a skipped record: the run that was still going. */
+  blockedBy?: string
 }
 
 export interface TaskModel {
@@ -71,8 +115,17 @@ export interface ScheduledTask {
   nextRunAt: number | null
   lastRunAt: number | null
   lastStatus: RunStatus | null
-  /** Newest first, capped at HISTORY_LIMIT. */
+  /**
+   * Newest first, at most HISTORY_LIMIT. Joined in from the runs file for
+   * the page and the tool; never saved with the task.
+   */
   history: TaskRun[]
+  /**
+   * The time zone `nextRunAt` was worked out in. A daily or weekly task
+   * means the wall clock where the user is, so when the zone changes
+   * (travel, or a manual change) its next run is worked out again.
+   */
+  zone?: string
 }
 
 /** What the editor (or the `schedule` tool) sends to create or update a task. */
@@ -88,7 +141,8 @@ export interface TaskDraft {
   enabled: boolean
 }
 
-export const HISTORY_LIMIT = 20
+/** Runs kept per task, newest first. */
+export const HISTORY_LIMIT = 50
 
 /**
  * A slot missed while the app was closed or the machine asleep runs once when
@@ -194,6 +248,110 @@ export function latestDue(schedule: Schedule, from: number, now: number): number
     slot = next
   }
   return slot
+}
+
+/**
+ * How many slots fall in [from, to], counting `from` itself when it is a
+ * slot. Capped: past the cap the exact number stops mattering to anyone
+ * reading "caught up once for N missed runs".
+ */
+export function countSlots(schedule: Schedule, from: number, to: number, cap = 10_000): number {
+  if (from > to) return 0
+  if (schedule.kind === 'once') return schedule.at >= from && schedule.at <= to ? 1 : 0
+  if (schedule.kind === 'interval') {
+    const period = periodMs(schedule)
+    const first = nextRunAfter(schedule, from - 1)
+    if (first === null || first > to) return 0
+    return Math.min(cap, Math.floor((to - first) / period) + 1)
+  }
+  let count = 0
+  for (let at = nextRunAfter(schedule, from - 1); at !== null && at <= to && count < cap; at = nextRunAfter(schedule, at)) count++
+  return count
+}
+
+/**
+ * What happens when a slot comes due while the task's previous run is still
+ * going.
+ *
+ * - `skip`: the slot doesn't run, and that is recorded ("Skipped: the
+ *   previous run was still going"). Scheduled tasks use this: a digest that
+ *   took longer than its interval should not pile up copies of itself.
+ * - `queue`: it runs once the previous run ends, at most one waiting.
+ * - `replace`: the previous run is stopped and the new one starts.
+ * - `parallel`: it starts alongside.
+ *
+ * Shared so Workers' routines can make the same decision the same way.
+ */
+export type OverlapPolicy = 'skip' | 'queue' | 'replace' | 'parallel'
+
+export const TASK_OVERLAP: OverlapPolicy = 'skip'
+
+export type OverlapAction = 'start' | 'skip' | 'queue' | 'replace'
+
+export function overlapAction(policy: OverlapPolicy, running: boolean, queued = false): OverlapAction {
+  if (!running || policy === 'parallel') return 'start'
+  if (policy === 'replace') return 'replace'
+  // A slot already waiting covers this one: never more than one queued.
+  if (policy === 'queue') return queued ? 'skip' : 'queue'
+  return 'skip'
+}
+
+/** What to do about a task whose stored next slot is `nextRunAt`, at `now`. */
+export type DuePlan =
+  | { action: 'wait' }
+  /** Run once, for `slot` (the latest one due). `slots` counts every due slot folded into this run, `slot` included. */
+  | { action: 'run'; slot: number; slots: number; late: boolean }
+  /** Too late to be worth running: record it as missed, once, standing for `slots` slots. */
+  | { action: 'miss'; slot: number; slots: number }
+
+/** A slot run more than this after it came due counts as late (a catch-up) rather than on time. */
+export const LATE_MS = 2 * 60_000
+
+/**
+ * The catch-up rule, in one place: however many slots came due while Eaon
+ * was closed or the computer asleep, the task runs at most once, for the
+ * latest of them — and only if that one is less than a day old. Waking
+ * after twelve missed quarter-hours runs one, never twelve.
+ */
+export function planDue(schedule: Schedule, nextRunAt: number, now: number, catchUpWindowMs = CATCH_UP_WINDOW_MS): DuePlan {
+  if (nextRunAt > now) return { action: 'wait' }
+  const slot = latestDue(schedule, nextRunAt, now) ?? nextRunAt
+  const slots = Math.max(1, countSlots(schedule, nextRunAt, now))
+  if (now - slot > catchUpWindowMs) return { action: 'miss', slot, slots }
+  return { action: 'run', slot, slots, late: now - slot > LATE_MS }
+}
+
+/** Formats a time of day for a reason line; injectable so main and the page agree. */
+type Clock = (at: number) => string
+const defaultClock: Clock = (at) => new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+
+/**
+ * The line under a run that says why it ran late, or didn't run.
+ * `machine` is what to call the computer: "Mac" on macOS.
+ */
+export function runReason(run: TaskRun, machine = 'computer', clock: Clock = defaultClock): string | null {
+  const slot = run.slotAt ?? run.startedAt
+  const slots = run.slots ?? 1
+  if (run.status === 'skipped') {
+    const times = slots > 1 ? ` (${slots} times)` : ''
+    return `Skipped${times}: the previous run was still going.`
+  }
+  if (run.status === 'missed') {
+    const why =
+      run.cause === 'asleep'
+        ? `Missed while your ${machine} was asleep`
+        : run.cause === 'late'
+          ? 'Missed: Eaon got to it too late'
+          : 'Missed while Eaon wasn’t running'
+    const more = slots > 1 ? ` (${slots} times)` : ''
+    return `${why}${more}. It was more than a day late, so it didn’t run.`
+  }
+  if (run.trigger === 'catch-up') {
+    const why = run.cause === 'asleep' ? `your ${machine} was asleep` : run.cause === 'closed' ? 'Eaon wasn’t running' : 'Eaon was busy'
+    if (slots > 1) return `Ran once for ${slots} runs missed while ${why}, not ${slots} times.`
+    return `Ran late: ${why} at ${clock(slot)}.`
+  }
+  return null
 }
 
 /** Null when the schedule is usable; otherwise what is wrong with it, for the user. */

@@ -1,18 +1,24 @@
 import { randomUUID } from 'node:crypto'
 import {
-  CATCH_UP_WINDOW_MS,
+  countSlots,
   draftError,
-  HISTORY_LIMIT,
   latestDue,
   nextRunAfter,
+  overlapAction,
   parseTime,
   periodMs,
+  planDue,
+  runReason,
+  TASK_OVERLAP,
+  type RunCause,
   type RunStatus,
   type Schedule,
   type ScheduledTask,
   type TaskDraft,
   type TaskRun
 } from '@shared/scheduler'
+import type { TokenUsage } from '@shared/types'
+import { mergeRuns, repairRuns, repairTasks, settleInterrupted, trimRuns } from './records'
 
 /**
  * When scheduled tasks run.
@@ -23,7 +29,13 @@ import {
  * heartbeat (and a resume hook in the feature) re-checks everything. A task
  * that came due while Eaon was closed or asleep runs once on return if it is
  * less than a day late, then carries on from the next slot — never a burst of
- * every slot it missed. One task never runs twice at once.
+ * every slot it missed (`planDue`). One task never runs twice at once: a slot
+ * that comes due mid-run is skipped and recorded as such (`TASK_OVERLAP`).
+ *
+ * A task's definition and its runs are kept apart: the tasks in
+ * `scheduled-tasks.json`, every run (and every slot that didn't run, with
+ * why) as its own record in `scheduled-runs.json`. Editing a task leaves its
+ * runs alone.
  *
  * What a run *does* is injected (`execute`), so the engine can be driven in
  * tests without a model, a window or Electron.
@@ -42,49 +54,88 @@ export interface RunResult {
   chatId: string | null
   error?: string
   summary?: string
+  tokens?: TokenUsage
 }
 
 export interface EngineDeps {
   load: () => unknown
-  save: (tasks: ScheduledTask[]) => void
+  save: (tasks: unknown[]) => void
+  /** The runs file; absent in tests that only look at tasks. */
+  loadRuns?: () => unknown
+  saveRuns?: (runs: TaskRun[]) => void
   execute: (task: ScheduledTask, handle: RunHandle) => Promise<RunResult>
   onChange?: (tasks: ScheduledTask[]) => void
+  /** Records in the tasks file that weren't tasks at all and were left out; the service keeps a copy of the file. */
+  onDamaged?: (count: number) => void
   now?: () => number
+  /** A clock that stops while the computer sleeps (`performance.now`), to tell sleep from a clock change. */
+  monotonic?: () => number
+  /** The current IANA time zone. */
+  zone?: () => string
+  /** What to call the computer in a reason line: "Mac" on macOS. */
+  machine?: string
 }
 
 const HEARTBEAT_MS = 60_000
 /** setTimeout's ceiling; a longer delay overflows and fires at once. */
 const MAX_DELAY = 2 ** 31 - 1
-/** A slot started later than this is labelled a catch-up rather than on time. */
-const LATE_MS = 2 * 60_000
+/**
+ * Between two checks, the wall clock moving this much further than the
+ * monotonic one means the process was suspended: the computer slept.
+ */
+const SLEEP_GAP_MS = 90_000
 
 const clone = <T>(value: T): T => structuredClone(value)
 const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error))
+const systemZone = (): string => Intl.DateTimeFormat().resolvedOptions().timeZone
+const wallClock = (schedule: Schedule): boolean => schedule.kind === 'daily' || schedule.kind === 'weekly'
 
 export class SchedulerEngine {
   private tasks: ScheduledTask[] = []
-  private readonly running = new Map<string, AbortController>()
+  /** Every task's runs, newest first. */
+  private runs: TaskRun[] = []
+  /** Task records from a newer Eaon, written back untouched. */
+  private foreign: unknown[] = []
+  private readonly running = new Map<string, { controller: AbortController; runId: string }>()
   private readonly inflight = new Set<Promise<void>>()
   private timer: ReturnType<typeof setTimeout> | null = null
   private heartbeat: ReturnType<typeof setInterval> | null = null
   private started = false
   private readonly now: () => number
+  private readonly monotonic: () => number
+  private readonly zone: () => string
+  /** When the tasks were loaded: a slot before this came due while Eaon wasn't running. */
+  private loadedAt = 0
+  /** When the computer last woke; a slot before this (and after loading) came due while it slept. */
+  private wokeAt = 0
+  private lastWall = 0
+  private lastMono = 0
 
   constructor(private readonly deps: EngineDeps) {
     this.now = deps.now ?? Date.now
+    this.monotonic = deps.monotonic ?? (() => performance.now())
+    this.zone = deps.zone ?? systemZone
   }
 
-  /** Reads the saved tasks. Nothing fires until `start()`. */
+  /** Reads the saved tasks and runs. Nothing fires until `start()`. */
   load(): void {
     const now = this.now()
-    const raw = this.deps.load()
-    this.tasks = (Array.isArray(raw) ? raw : []).filter(isTask).map((task) => recover(task, now))
-    this.deps.save(this.tasks)
+    this.loadedAt = now
+    const loaded = repairTasks(this.deps.load(), now, this.zone())
+    this.tasks = loaded.tasks
+    this.foreign = loaded.foreign
+    this.runs = mergeRuns(repairRuns(this.deps.loadRuns?.() ?? []).runs, repairRuns(loaded.embedded).runs)
+    settleInterrupted(this.runs)
+    for (const task of this.tasks) task.lastStatus = this.latestStatus(task.id) ?? task.lastStatus
+    if (loaded.dropped > 0) this.deps.onDamaged?.(loaded.dropped)
+    this.persist()
   }
 
   start(): void {
     if (this.started) return
     this.started = true
+    this.lastWall = this.now()
+    this.lastMono = this.monotonic()
     this.heartbeat = setInterval(() => this.tick(), HEARTBEAT_MS)
     // Electron keeps the main process alive on its own; unref only matters to
     // tests, which would otherwise never exit.
@@ -101,22 +152,28 @@ export class SchedulerEngine {
     this.heartbeat = null
     const now = this.now()
     let changed = false
-    for (const [taskId, controller] of this.running) {
+    for (const [taskId, { controller, runId }] of this.running) {
       controller.abort()
       // Recorded here because quitting may not leave time for the run to report back.
+      const run = this.runs.find((r) => r.id === runId)
       const task = this.find(taskId)
-      const run = task?.history.find((r) => r.status === 'running')
-      if (task && run) {
+      if (run && run.status === 'running') {
         Object.assign(run, { status: 'cancelled', finishedAt: now, error: 'Eaon quit during this run.' })
-        task.lastStatus = task.history[0]?.status ?? null
+        if (task) task.lastStatus = this.latestStatus(taskId)
         changed = true
       }
     }
-    if (changed) this.deps.save(this.tasks)
+    if (changed) this.persist()
+  }
+
+  /** The computer woke: anything that came due while it slept is labelled so. */
+  wake(): void {
+    this.wokeAt = this.now()
+    this.tick()
   }
 
   list(): ScheduledTask[] {
-    return clone(this.tasks)
+    return this.tasks.map((task) => this.withHistory(task))
   }
 
   isRunning(taskId: string): boolean {
@@ -146,6 +203,8 @@ export class SchedulerEngine {
     }
     const reschedule = scheduleChanged || !existing?.enabled || existing.nextRunAt === null
     const mode = draft.mode === 'work' ? 'work' : 'chat'
+    // Edited mid-run: the run in progress carries on with what it started
+    // with; the change applies from the next one. Its record is untouched.
     const task: ScheduledTask = {
       id: existing?.id ?? randomUUID(),
       name: draft.name.trim().slice(0, 120),
@@ -161,17 +220,20 @@ export class SchedulerEngine {
       nextRunAt: !draft.enabled ? null : reschedule ? nextRunAfter(schedule, now) : existing!.nextRunAt,
       lastRunAt: existing?.lastRunAt ?? null,
       lastStatus: existing?.lastStatus ?? null,
-      history: existing?.history ?? []
+      history: [],
+      zone: reschedule || !existing?.zone ? this.zone() : existing.zone
     }
     if (existing) this.tasks[this.tasks.indexOf(existing)] = task
     else this.tasks.push(task)
     this.commit()
-    return clone(task)
+    return this.withHistory(task)
   }
 
+  /** Deletes a task and its run records; a run in progress is stopped. The chats runs wrote stay in Recents. */
   remove(taskId: string): void {
-    this.running.get(taskId)?.abort()
+    this.running.get(taskId)?.controller.abort()
     this.tasks = this.tasks.filter((t) => t.id !== taskId)
+    this.runs = this.runs.filter((r) => r.taskId !== taskId)
     this.commit()
   }
 
@@ -183,9 +245,10 @@ export class SchedulerEngine {
     }
     task.enabled = enabled
     task.nextRunAt = enabled ? nextRunAfter(task.schedule, now) : null
+    task.zone = this.zone()
     task.updatedAt = now
     this.commit()
-    return clone(task)
+    return this.withHistory(task)
   }
 
   /** Runs a task immediately, outside its schedule. Works on paused tasks too. */
@@ -195,29 +258,55 @@ export class SchedulerEngine {
     return clone(this.begin(task, 'manual'))
   }
 
+  /** Runs a task again for a run that failed, was stopped, missed or skipped. */
+  retry(taskId: string, runId: string): TaskRun {
+    const task = this.require(taskId)
+    const run = this.runs.find((r) => r.id === runId && r.taskId === taskId)
+    if (!run) throw new Error('That run is no longer in the history.')
+    if (run.status === 'running') throw new Error('That run is still going.')
+    if (this.running.has(taskId)) throw new Error(`“${task.name}” is already running.`)
+    return clone(this.begin(task, 'retry', { retryOf: run.id }))
+  }
+
   cancel(taskId: string): void {
-    this.running.get(taskId)?.abort()
+    this.running.get(taskId)?.controller.abort()
   }
 
   /** Starts every task that is due. Safe to call at any time and as often as you like. */
   tick(): void {
     if (!this.started) return
     const now = this.now()
+    this.noticeSleep(now)
+    const zone = this.zone()
     let changed = false
     for (const task of this.tasks) {
       if (!task.enabled || task.nextRunAt === null) continue
-      const expected = nextRunAfter(task.schedule, now)
 
-      if (this.running.has(task.id)) {
-        // Never two at once: a slot that comes due mid-run is skipped. A
+      // The time zone changed (travel, or by hand): "every day at 9" means 9
+      // where the user is now, so a slot still ahead is worked out again. A
+      // slot already due is handled below, and its next one comes from the
+      // new zone.
+      if (task.zone !== zone && wallClock(task.schedule) && task.nextRunAt > now) {
+        task.nextRunAt = nextRunAfter(task.schedule, now)
+        task.zone = zone
+        changed = true
+        continue
+      }
+
+      const active = this.running.get(task.id)
+      if (active) {
+        // Never two at once (TASK_OVERLAP): a slot that comes due mid-run is
+        // skipped and recorded, so the history says why it didn't run. A
         // one-off's only slot is then used up, so it is switched off.
-        if (task.nextRunAt <= now) {
+        if (task.nextRunAt <= now && overlapAction(TASK_OVERLAP, true) === 'skip') {
+          this.recordSkipped(task, active.runId, now)
           this.advance(task, now)
           changed = true
         }
         continue
       }
 
+      const expected = nextRunAfter(task.schedule, now)
       if (task.nextRunAt > now) {
         // The stored slot is always the first one after some moment already
         // past, so a sooner slot from *now* means the clock went backwards.
@@ -229,13 +318,19 @@ export class SchedulerEngine {
         continue
       }
 
-      const due = latestDue(task.schedule, task.nextRunAt, now) ?? task.nextRunAt
-      if (now - due > CATCH_UP_WINDOW_MS) {
-        this.recordMissed(task, due, now)
+      const plan = planDue(task.schedule, task.nextRunAt, now)
+      // Why it's late is decided by the first slot it missed: the one it
+      // was waiting for when Eaon closed or the computer went to sleep.
+      const cause = this.causeOf(task.nextRunAt)
+      if (plan.action === 'miss') {
+        this.recordMissed(task, plan.slot, plan.slots, cause, now)
         changed = true
-        continue
+      } else if (plan.action === 'run') {
+        // A run that stands in for slots it missed is a catch-up even when
+        // the latest of them is only just due.
+        const catchUp = plan.late || plan.slots > 1
+        this.begin(task, catchUp ? 'catch-up' : 'schedule', catchUp ? { cause, slotAt: plan.slot, ...(plan.slots > 1 ? { slots: plan.slots } : {}) } : {})
       }
-      this.begin(task, now - due > LATE_MS ? 'catch-up' : 'schedule')
     }
     if (changed) this.commit()
     else this.arm()
@@ -253,9 +348,56 @@ export class SchedulerEngine {
     return task
   }
 
+  private runsOf(taskId: string): TaskRun[] {
+    return this.runs.filter((r) => r.taskId === taskId)
+  }
+
+  private withHistory(task: ScheduledTask): ScheduledTask {
+    return clone({ ...task, history: this.runsOf(task.id) })
+  }
+
+  /** The newest run's status, leaving out skipped slots: "last run" means one that ran (or was missed). */
+  private latestStatus(taskId: string): RunStatus | null {
+    return this.runs.find((r) => r.taskId === taskId && r.status !== 'skipped')?.status ?? null
+  }
+
+  private addRun(run: TaskRun): void {
+    this.runs.unshift(run)
+    // Newest first by when it was for; a missed slot can be older than a run already here.
+    this.runs.sort((a, b) => b.startedAt - a.startedAt)
+  }
+
+  /** Why a slot was late or missed: before Eaon started, during a sleep, or neither. */
+  private causeOf(slot: number): RunCause {
+    if (slot < this.loadedAt) return 'closed'
+    if (slot < this.wokeAt) return 'asleep'
+    return 'late'
+  }
+
+  /**
+   * The monotonic clock stops while the computer sleeps and the wall clock
+   * doesn't, so a gap between them since the last check is a sleep, even
+   * when the resume event hasn't arrived (or never does).
+   */
+  private noticeSleep(now: number): void {
+    const mono = this.monotonic()
+    if (this.lastWall && now - this.lastWall - (mono - this.lastMono) > SLEEP_GAP_MS) this.wokeAt = now
+    this.lastWall = now
+    this.lastMono = mono
+  }
+
+  private persist(): void {
+    const ids = new Set([...this.tasks.map((t) => t.id), ...this.foreign.map((t) => (t as { id: string }).id)])
+    this.runs = trimRuns(this.runs, ids)
+    // Runs first: if anything stops between the two writes, the next load
+    // sees each run once (the runs file wins; see mergeRuns).
+    this.deps.saveRuns?.(this.runs)
+    this.deps.save([...this.tasks.map(({ history: _history, ...task }) => task), ...this.foreign])
+  }
+
   private commit(): void {
-    this.deps.save(this.tasks)
-    this.deps.onChange?.(clone(this.tasks))
+    this.persist()
+    this.deps.onChange?.(this.list())
     this.arm()
   }
 
@@ -276,41 +418,78 @@ export class SchedulerEngine {
     this.timer.unref?.()
   }
 
-  private recordMissed(task: ScheduledTask, due: number, now: number): void {
+  private recordMissed(task: ScheduledTask, slot: number, slots: number, cause: RunCause, now: number): void {
     const run: TaskRun = {
       id: randomUUID(),
-      startedAt: due,
-      finishedAt: due,
+      taskId: task.id,
+      startedAt: slot,
+      finishedAt: slot,
       status: 'missed',
       chatId: null,
       trigger: 'schedule',
-      error: 'Eaon was closed or the computer was asleep, and it was more than a day late — skipped.'
+      cause,
+      ...(slots > 1 ? { slots } : {})
     }
-    task.history = [run, ...task.history].slice(0, HISTORY_LIMIT)
+    // Kept as text too, for the schedule tool and anything else that reads runs without the page's wording.
+    run.error = runReason(run, this.deps.machine) ?? undefined
+    this.addRun(run)
     task.lastStatus = 'missed'
     this.advance(task, now)
   }
 
-  /** Moves a task past a slot it has just used up (run or missed). */
+  /**
+   * One record per run that blocked slots: a run that goes on through
+   * several slots adds to the same record ("Skipped (3 times)") rather than
+   * filling the history with one line per slot.
+   */
+  private recordSkipped(task: ScheduledTask, blockedBy: string, now: number): void {
+    const from = task.nextRunAt ?? now
+    const slots = Math.max(1, countSlots(task.schedule, from, now))
+    const last = latestDue(task.schedule, from, now) ?? from
+    const existing = this.runs.find((r) => r.taskId === task.id && r.status === 'skipped' && r.blockedBy === blockedBy)
+    if (existing) {
+      existing.slots = (existing.slots ?? 1) + slots
+      existing.finishedAt = last
+      existing.error = runReason(existing, this.deps.machine) ?? undefined
+      return
+    }
+    const run: TaskRun = {
+      id: randomUUID(),
+      taskId: task.id,
+      startedAt: from,
+      finishedAt: last,
+      status: 'skipped',
+      chatId: null,
+      trigger: 'schedule',
+      cause: 'overlap',
+      blockedBy,
+      ...(slots > 1 ? { slots } : {})
+    }
+    run.error = runReason(run, this.deps.machine) ?? undefined
+    this.addRun(run)
+  }
+
+  /** Moves a task past a slot it has just used up (run, missed or skipped). */
   private advance(task: ScheduledTask, now: number): void {
     if (task.schedule.kind === 'once') {
       task.enabled = false
       task.nextRunAt = null
     } else {
       task.nextRunAt = nextRunAfter(task.schedule, now)
+      task.zone = this.zone()
     }
   }
 
-  private begin(task: ScheduledTask, trigger: TaskRun['trigger']): TaskRun {
+  private begin(task: ScheduledTask, trigger: TaskRun['trigger'], extra: Partial<TaskRun> = {}): TaskRun {
     const now = this.now()
     const controller = new AbortController()
-    this.running.set(task.id, controller)
-    const run: TaskRun = { id: randomUUID(), startedAt: now, finishedAt: null, status: 'running', chatId: null, trigger }
-    task.history = [run, ...task.history].slice(0, HISTORY_LIMIT)
+    const run: TaskRun = { id: randomUUID(), taskId: task.id, startedAt: now, finishedAt: null, status: 'running', chatId: null, trigger, ...extra }
+    this.running.set(task.id, { controller, runId: run.id })
+    this.addRun(run)
     task.lastRunAt = now
     task.lastStatus = 'running'
-    // A manual run is extra; it does not use up the next scheduled slot.
-    if (trigger !== 'manual') this.advance(task, now)
+    // A manual run or a retry is extra; it does not use up the next scheduled slot.
+    if (trigger === 'schedule' || trigger === 'catch-up') this.advance(task, now)
     this.commit()
 
     const taskId = task.id
@@ -318,10 +497,10 @@ export class SchedulerEngine {
       runId: run.id,
       trigger,
       signal: controller.signal,
-      setChatId: (chatId) => this.patchRun(taskId, run.id, { chatId })
+      setChatId: (chatId) => this.patchRun(run.id, { chatId })
     }
     const work: Promise<void> = this.deps
-      .execute(clone(task), handle)
+      .execute(this.withHistory(task), handle)
       .catch((error): RunResult => ({ status: 'failed', chatId: null, error: errorText(error) }))
       .then((result) => {
         this.running.delete(taskId)
@@ -337,22 +516,30 @@ export class SchedulerEngine {
   }
 
   private finish(taskId: string, runId: string, result: RunResult): void {
-    const task = this.find(taskId)
-    // Deleted mid-run: the chat it wrote stays; there is no task left to update.
-    const run = task?.history.find((r) => r.id === runId)
-    if (!task || !run) return
+    // Deleted mid-run: the chat it wrote stays; there is no record left to update.
+    const run = this.runs.find((r) => r.id === runId)
+    if (!run) return
+    if (result.tokens) run.tokens = result.tokens
+    if (result.chatId && !run.chatId) run.chatId = result.chatId
+    // Already settled: Eaon quit during it (stop() recorded that, with the
+    // reason). The run's own late report must not overwrite it.
+    if (run.status !== 'running') {
+      this.persist()
+      return
+    }
     run.status = result.status
     run.finishedAt = this.now()
     if (result.chatId) run.chatId = result.chatId
     if (result.error) run.error = result.error.slice(0, 500)
     else delete run.error
     if (result.summary) run.summary = result.summary
-    task.lastStatus = task.history[0]?.status ?? result.status
+    const task = this.find(taskId)
+    if (task) task.lastStatus = this.latestStatus(taskId) ?? result.status
     this.commit()
   }
 
-  private patchRun(taskId: string, runId: string, patch: Partial<TaskRun>): void {
-    const run = this.find(taskId)?.history.find((r) => r.id === runId)
+  private patchRun(runId: string, patch: Partial<TaskRun>): void {
+    const run = this.runs.find((r) => r.id === runId)
     if (!run) return
     Object.assign(run, patch)
     this.commit()
@@ -360,29 +547,6 @@ export class SchedulerEngine {
 }
 
 /* ---------------------------------------------------------------- helpers */
-
-function isTask(value: unknown): value is ScheduledTask {
-  const task = value as ScheduledTask
-  return Boolean(task && typeof task.id === 'string' && task.schedule && typeof task.schedule.kind === 'string')
-}
-
-/**
- * A run still marked running when the tasks are loaded was cut off by a quit
- * or a crash. It is reported as failed rather than left spinning forever.
- */
-function recover(task: ScheduledTask, now: number): ScheduledTask {
-  const history = (Array.isArray(task.history) ? task.history : []).map((run) =>
-    run.status === 'running'
-      ? { ...run, status: 'failed' as const, finishedAt: run.finishedAt ?? run.startedAt, error: 'Eaon quit before this run finished.' }
-      : run
-  )
-  const next = { ...task, history, lastStatus: history[0]?.status ?? task.lastStatus ?? null }
-  if (next.enabled && next.nextRunAt == null) {
-    next.nextRunAt = nextRunAfter(next.schedule, now)
-    if (next.nextRunAt === null) next.enabled = false
-  }
-  return next
-}
 
 function pad(n: number): string {
   return String(n).padStart(2, '0')
