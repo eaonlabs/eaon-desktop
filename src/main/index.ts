@@ -417,9 +417,11 @@ function registerIpc(): void {
   })
   ipcMain.handle('chats:get', (): Chat[] => store.getChats())
   // Returns nothing: echoing chats back cloned them across IPC again for a reply nobody read.
-  ipcMain.handle('chats:apply', (e, upserts: Chat[], removed: string[]): void => {
+  ipcMain.handle('chats:apply', (e, upserts: Chat[], removed: string[], checkpoint?: boolean): void => {
     store.applyChats(upserts, removed)
-    broadcast('chats:changed', { upserts, removed }, e.sender)
+    // A save made while a reply is still streaming is only for the disk: the
+    // other windows have the reply live, and this copy lags it by a few tokens.
+    if (checkpoint !== true) broadcast('chats:changed', { upserts, removed }, e.sender)
   })
   ipcMain.handle('chat:active-runs', (): string[] => activeRunIds())
   ipcMain.handle('window:new', () => void createWindow())

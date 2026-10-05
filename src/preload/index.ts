@@ -82,7 +82,8 @@ const api = {
      * Saves the chats this window changed and the ones it deleted; main merges
      * them into the one list every window shares and tells the other windows.
      */
-    apply: (upserts: Chat[], removed: string[]): Promise<void> => ipcRenderer.invoke('chats:apply', upserts, removed),
+    /** `checkpoint`: a save made while a reply is still streaming; main writes it but doesn't send it to the other windows. */
+    apply: (upserts: Chat[], removed: string[], checkpoint = false): Promise<void> => ipcRenderer.invoke('chats:apply', upserts, removed, checkpoint),
     /** Another window (or a scheduled run) changed these chats. */
     onChanged: (handler: (change: { upserts: Chat[]; removed: string[] }) => void): (() => void) => on('chats:changed', handler),
     /** Replies being written right now, in any window: not to be marked interrupted on load. */
