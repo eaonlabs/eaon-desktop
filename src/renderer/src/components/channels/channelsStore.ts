@@ -18,7 +18,9 @@ interface ChannelsState {
   focusWorker: (workerId: string | null) => void
 }
 
+/** The change listeners are attached once; the list itself can be loaded again after a failure. */
 let bound = false
+let loading = false
 
 const byId = (statuses: ChannelStatus[]): Record<string, ChannelStatus> => Object.fromEntries(statuses.map((s) => [s.linkId, s]))
 
@@ -29,13 +31,23 @@ export const useChannels = create<ChannelsState>((set) => ({
   focusWorkerId: null,
 
   async init() {
-    if (bound) return
-    bound = true
     const api = window.api.channels
-    api.onChanged((links) => set({ links }))
-    api.onStatus((statuses) => set({ statuses: byId(statuses) }))
-    const { links, statuses } = await api.list()
-    set({ links, statuses: byId(statuses), ready: true })
+    if (!bound) {
+      bound = true
+      api.onChanged((links) => set({ links }))
+      api.onStatus((statuses) => set({ statuses: byId(statuses) }))
+    }
+    if (loading || useChannels.getState().ready) return
+    loading = true
+    try {
+      const { links, statuses } = await api.list()
+      set({ links, statuses: byId(statuses), ready: true })
+    } catch {
+      // Stays not-ready, so the next visit to a page that needs it tries again
+      // (it used to be marked bound first and never retried).
+    } finally {
+      loading = false
+    }
   },
 
   put(link) {

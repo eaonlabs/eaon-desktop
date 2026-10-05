@@ -23,6 +23,7 @@ import { lastTurnFailed } from './chatStatus'
 import { chatChanges } from './chatSync'
 import { forkedChat, retryPlan, withFeedback } from './chatEdits'
 import { migrateLegacySchedules } from '../components/scheduled/legacy'
+import { notify } from '../components/Notice'
 
 export type View = 'chat' | 'plugins' | 'integrations' | 'scheduled' | 'settings' | 'pull-requests' | 'models' | 'library' | 'trading'
 
@@ -205,9 +206,38 @@ function saveChatsNow(): void {
   saveTimer = null
   const chats = useApp.getState().chats
   const { upserts, removed } = chatChanges(synced, chats)
+  const previous = synced
   synced = new Map(chats.map((chat) => [chat.id, chat]))
-  if (upserts.length > 0 || removed.length > 0) void window.api.chats.apply(upserts, removed)
+  if (upserts.length === 0 && removed.length === 0) return
+  window.api.chats.apply(upserts, removed).then(
+    () => {
+      saveFailing = false
+    },
+    (error: unknown) => {
+      // A failed save used to be forgotten: `synced` already counted these as
+      // written, so nothing sent them again and the changes were lost at quit
+      // with no word. Put back what was believed saved so the next save
+      // carries them, say so once, and try again shortly.
+      for (const chat of upserts) {
+        const before = previous.get(chat.id)
+        if (before) synced.set(chat.id, before)
+        else synced.delete(chat.id)
+      }
+      for (const id of removed) {
+        const before = previous.get(id)
+        if (before) synced.set(id, before)
+      }
+      if (!saveFailing) {
+        saveFailing = true
+        const reason = (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '')
+        notify(`Couldn't save your chats (${reason}). Eaon keeps trying; leave this window open until it works.`, 'error')
+      }
+      setTimeout(persistChats, 5000)
+    }
+  )
 }
+/** A save has failed and none has succeeded since; the notice is shown once per streak. */
+let saveFailing = false
 
 /**
  * Takes in chats another window changed. The chat this window is writing a

@@ -22,9 +22,10 @@ import { gridColumns, type TerminalAgent, type TerminalAgentId, type TerminalPan
  */
 export function TerminalWorkspace(): JSX.Element {
   const cwd = useCode((s) => s.cwd)
-  const { loaded, panes, agents, maximized, load, add } = useTerminals(
+  const { loaded, loadError, panes, agents, maximized, load, add } = useTerminals(
     useShallow((s) => ({
       loaded: s.loaded,
+      loadError: s.loadError,
       panes: cwd ? (s.layout[cwd] ?? EMPTY) : EMPTY,
       agents: s.agents,
       maximized: s.maximized,
@@ -44,6 +45,19 @@ export function TerminalWorkspace(): JSX.Element {
     return () => cancelAnimationFrame(id)
   }, [appearance])
 
+  if (cwd && !loaded && loadError) {
+    // Loading the saved layout failed; an empty workspace here gave no way to retry.
+    return (
+      <div className="term-workspace term-empty" role="alert">
+        <SquareTerminal size={44} strokeWidth={1.3} className="home__icon" />
+        <h1 className="home__title">Couldn't open your terminals</h1>
+        <p className="term-empty__text">Eaon couldn't read the terminal layout for this folder. {loadError}</p>
+        <button type="button" className="btn btn--primary" onClick={() => void load()}>
+          Try again
+        </button>
+      </div>
+    )
+  }
   if (!cwd || !loaded) return <div className="term-workspace" />
 
   if (panes.length === 0) {
