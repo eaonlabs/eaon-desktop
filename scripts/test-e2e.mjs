@@ -46,8 +46,12 @@ const built = Math.min(newest(join(root, 'out', 'main', 'index.js')), newest(joi
 const sources = Math.max(newest(join(root, 'src')), newest(join(root, 'electron.vite.config.ts')), newest(join(root, 'package.json')))
 if (!noBuild && (built === 0 || built < sources)) {
   console.log(built === 0 ? 'No build in out/; building…' : 'out/ is older than src/; rebuilding…')
-  const result = spawnSync('npx', ['electron-vite', 'build'], { cwd: root, stdio: 'inherit', shell: process.platform === 'win32' })
-  if (result.status !== 0) process.exit(result.status ?? 1)
+  const result = spawnSync('npx', ['electron-vite', 'build'], { cwd: root, encoding: 'utf8', maxBuffer: 64 * 1024 * 1024, shell: process.platform === 'win32' })
+  if (result.status !== 0) {
+    console.error(`${result.stdout ?? ''}${result.stderr ?? ''}`.slice(-8000))
+    process.exit(result.status ?? 1)
+  }
+  console.log('Built.')
 } else if (built === 0) {
   console.error('No build in out/ and --no-build was given. Run `npx electron-vite build` first.')
   process.exit(1)

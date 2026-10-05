@@ -298,6 +298,18 @@ export class App {
     }
   }
 
+  /** Waits until exactly `count` app windows are open (after one closes). */
+  async waitForWindowCount(count, timeout = 10_000) {
+    const deadline = Date.now() + timeout
+    let found = -1
+    while (Date.now() < deadline) {
+      found = (await this.targets()).length
+      if (found === count) return
+      await sleep(100)
+    }
+    throw new Error(`${this.name}: expected ${count} window(s), still ${found} after ${timeout} ms`)
+  }
+
   /** The first window's page. */
   get page() {
     const first = this.pagesById.values().next().value

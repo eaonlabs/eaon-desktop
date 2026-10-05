@@ -234,18 +234,14 @@ export async function waitForReply(page, { text, streaming, error, timeout = 20_
   })
 }
 
-/** Opens Settings on a page of its nav (by its label). @param {Page} page */
+/**
+ * Opens Settings from the sidebar, then one of its pages by its nav label.
+ * (⌘, is a menu accelerator; DevTools key events don't go through the menu.)
+ * @param {Page} page
+ */
 export async function openSettings(page, label) {
-  await page.eval(() => window.dispatchEvent(new Event('focus')))
-  await page.press('Meta+Comma')
-  try {
-    await page.find('.settings__nav', { timeout: 3000 })
-  } catch {
-    // ⌘, comes from the app menu, which DevTools key events don't reach on
-    // every platform; the sidebar's Settings entry is the other way in.
-    await page.click('.nav-item', { text: /^Settings$/ })
-    await page.find('.settings__nav')
-  }
+  await page.click('.sidebar .nav-item', { text: /^Settings$/ })
+  await page.find('.settings__nav')
   if (label) {
     await page.click('.settings__nav .nav-item', { text: new RegExp(`^${label}$`) })
     await page.waitFor((label) => document.querySelector('.settings__h1')?.textContent?.trim() === label, { args: [label], message: `Settings → ${label}` })
