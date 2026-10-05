@@ -12,7 +12,7 @@ import { refreshLocalProviders } from './providers/localDiscovery'
 import { refreshCatalogInBackground } from './providers/modelCatalog'
 import { resolveApproval } from './agent/approvals'
 import { hardenAppWindow, openExternalSafely } from './externalLinks'
-import { providerKeyId } from './ipcGuards'
+import { catalogRowsPinned, providerKeyId } from './ipcGuards'
 import { activeRunIds, cancelRun, pauseGoal, runAgent } from './agent/loop'
 import './agent/sources'
 import { killBackgroundProcesses } from './localTools'
@@ -416,7 +416,9 @@ function registerIpc(): void {
   ipcMain.handle('chat:active-runs', (): string[] => activeRunIds())
   ipcMain.handle('window:new', () => void createWindow())
   ipcMain.handle('mcp:get', (): McpServer[] => store.getMcpServers())
-  ipcMain.handle('mcp:save', (_e, value: McpServer[]) => {
+  ipcMain.handle('mcp:save', (_e, raw: McpServer[]) => {
+    // Catalog plugins connect only to their vendor's server (ipcGuards.ts).
+    const value = catalogRowsPinned(raw)
     // A hand-added server deleted here takes its sign-in with it; left in the
     // vault, its tokens outlived it and a new server that reused the id
     // inherited them. Catalog plugins sign out through plugins:disconnect.

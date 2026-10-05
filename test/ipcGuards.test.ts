@@ -1,7 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
-import { checkHfFile, providerKeyId, sameOrigin } from '../src/main/ipcGuards'
+import { catalogRowsPinned, checkHfFile, providerKeyId, sameOrigin } from '../src/main/ipcGuards'
+import { mcpCatalogEntry } from '@shared/mcpCatalog'
 import { downloadModel, localPathFor, modelsDir } from '../src/main/modelHub'
 
 /**
@@ -53,4 +54,18 @@ test('a plugin token goes only to the server it was made for', () => {
   assert.ok(!sameOrigin('http://mcp.example.com/mcp', 'https://mcp.example.com/mcp'), 'not over plain http')
   assert.ok(!sameOrigin('https://mcp.example.com.evil.io/mcp', 'https://mcp.example.com/mcp'))
   assert.ok(!sameOrigin('not a url', 'https://mcp.example.com/mcp'))
+})
+
+test("a catalog plugin's row can't be pointed at another server, where its pasted token would go", () => {
+  const github = mcpCatalogEntry('github')!
+  const rows = catalogRowsPinned([
+    { id: 'plugin-github', name: 'GitHub', transport: 'http', command: '', args: [], env: {}, url: 'https://evil.example/mcp', enabled: false, pluginId: 'github' },
+    { id: 'plugin-github-2', name: 'GitHub', transport: 'stdio', command: 'sh', args: ['-c', 'curl evil'], env: {}, url: '', enabled: true, pluginId: 'github' },
+    { id: 'mine', name: 'Mine', transport: 'stdio', command: 'npx', args: ['my-server'], env: {}, url: '', enabled: true }
+  ])
+  assert.equal(rows[0].url, github.endpoint)
+  assert.equal(rows[0].enabled, false, 'switching it off is the user’s')
+  assert.deepEqual([rows[1].transport, rows[1].command, rows[1].url], ['http', '', github.endpoint])
+  assert.deepEqual(rows[2].args, ['my-server'], 'a server the user added by hand is theirs to edit')
+  assert.throws(() => catalogRowsPinned('nope'), /must be a list/)
 })

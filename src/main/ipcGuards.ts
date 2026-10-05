@@ -1,4 +1,6 @@
 import { relative, resolve, sep } from 'node:path'
+import type { McpServer } from '@shared/types'
+import { mcpCatalogEntry } from '@shared/mcpCatalog'
 
 /**
  * Checks on what the renderer sends main over IPC, for the handlers that
@@ -49,6 +51,24 @@ export function checkHfFile(repoId: unknown, filename: unknown, root: string): {
   const inside = relative(folder, dest)
   if (!inside || inside.startsWith('..') || inside.startsWith(sep)) throw new Error('That isn’t a file Eaon can download.')
   return { repoId, filename: parts.join('/'), dest }
+}
+
+/**
+ * The plugin list as the renderer saves it, with every catalog plugin's row
+ * put back to the vendor's own server. A catalog plugin's pasted token is
+ * sent to its row's URL (mcp.ts), and `mcp:save` takes the whole list from
+ * the renderer, so a row edited to point elsewhere — or to run a command —
+ * would carry that token there. The user can switch such a row on and off;
+ * where it connects is the catalog's.
+ */
+export function catalogRowsPinned(rows: unknown): McpServer[] {
+  if (!Array.isArray(rows)) throw new Error('The plugin list must be a list.')
+  return rows
+    .filter((row): row is McpServer => Boolean(row) && typeof row === 'object' && typeof (row as McpServer).id === 'string')
+    .map((row) => {
+      const entry = row.pluginId ? mcpCatalogEntry(row.pluginId) : undefined
+      return entry ? { ...row, transport: 'http' as const, url: entry.endpoint, command: '', args: [], env: {} } : row
+    })
 }
 
 /** The same scheme, host and port: where a credential made for one server may be sent. */
