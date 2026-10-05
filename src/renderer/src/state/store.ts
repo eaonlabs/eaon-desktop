@@ -686,9 +686,17 @@ export const useApp = create<AppState>((set, get) => ({
 
     const selection = state.modelSelection()
     const model = selection.model
-    // A default the user never picked becomes their choice once they use it,
-    // so connecting another provider later doesn't move the chat to its model.
-    if (selection.status === 'default' && model) void get().patchSettings({ selectedModelId: model.id, selectedProviderId: model.providerId })
+    if (model) {
+      // A default the user never picked becomes their choice once they use it,
+      // so connecting another provider later doesn't move the chat to its model.
+      // Whatever runs counts as a recent pick, newest first.
+      const key = modelKey(model.providerId, model.id)
+      const patch: DeepPartial<Settings> = {
+        ...(selection.status === 'default' ? { selectedModelId: model.id, selectedProviderId: model.providerId } : {}),
+        ...(settings.recentModels?.[0] !== key ? { recentModels: withRecent(settings.recentModels, key) } : {})
+      }
+      if (Object.keys(patch).length > 0) void get().patchSettings(patch)
+    }
     const now = Date.now()
     const userMessage: ChatMessage = {
       id: uid(),

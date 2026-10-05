@@ -2,6 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { ModelInfo, Provider } from '@shared/types'
 import type { EngineModels, EngineStatus } from '@shared/engines'
+import { engineEntry } from '@shared/engineSetup'
 import {
   ago,
   datedAliasOf,
@@ -322,4 +323,38 @@ test('refresh wording: what changed, "No changes", or which list is shown when i
   assert.equal(ago(now - 30_000, now), 'just now')
   assert.equal(ago(now - 5 * 60_000, now), '5 min ago')
   assert.equal(ago(now - 3 * 86_400_000, now), '3 days ago')
+})
+
+/* ------------------------------------------------ Codex in provider setup */
+
+test('provider setup: Codex signed in reads "Codex · Signed in"; signed out offers sign-in; not installed is never ready', () => {
+  const ready = engineEntry(codexStatus('signed-in'))
+  assert.equal(ready.state, 'ready')
+  assert.equal(ready.headline, 'Codex · Signed in')
+  assert.equal(ready.label, 'Signed in · Plus')
+  assert.equal(ready.facts, 'ChatGPT · Plus · version 0.155.0 · PATH')
+  assert.equal(ready.action, null)
+  assert.equal(ready.note, null)
+
+  const signedOut = engineEntry(codexStatus('signed-out'))
+  assert.equal(signedOut.state, 'setup')
+  assert.deepEqual(signedOut.action, { kind: 'sign-in', label: 'Sign in to Codex' })
+  assert.match(signedOut.note!, /Sign in to Codex to use its models/)
+
+  const expired = engineEntry(codexStatus('expired'))
+  assert.equal(expired.state, 'attention')
+  assert.deepEqual(expired.action, { kind: 'reconnect', label: 'Sign in again' })
+
+  const missing = engineEntry(codexStatus('signed-out', false))
+  assert.equal(missing.installed, false)
+  assert.equal(missing.state, 'unavailable')
+  assert.equal(missing.label, 'Not installed')
+  assert.equal(missing.action, null, 'nothing to sign in to')
+  assert.equal(missing.installHint, 'npm i -g @openai/codex')
+  assert.match(missing.note!, /isn’t installed on this computer/)
+
+  const old = engineEntry({ ...codexStatus('signed-in'), outdated: true })
+  assert.equal(old.state, 'unavailable')
+  assert.equal(old.label, 'Update needed')
+  assert.notEqual(old.state, 'ready')
 })

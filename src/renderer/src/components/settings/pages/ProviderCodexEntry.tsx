@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState, type JSX } from 'react'
 import { Loader2, RefreshCw, TriangleAlert } from 'lucide-react'
 import type { EngineModels, EngineStatus } from '@shared/engines'
-import { ago, describeSource, engineReadiness } from '@shared/modelSelection'
+import { ago, describeSource } from '@shared/modelSelection'
+import { engineEntry } from '@shared/engineSetup'
 import { BrandIcon } from '../../../icons/brand'
 
 /**
@@ -70,23 +71,23 @@ export function useCodexEngine(): CodexEngineState {
 const clean = (error: unknown): string => (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 
 export function CodexEngineRow({ status, active, onClick }: { status: EngineStatus; active: boolean; onClick: () => void }): JSX.Element {
-  const readiness = engineReadiness('codex', status)
-  const state = readiness.state === 'ready' ? 'ready' : readiness.state === 'attention' ? 'attention' : null
+  const entry = engineEntry(status)
+  const state = entry.state === 'ready' ? 'ready' : entry.state === 'attention' ? 'attention' : null
   return (
-    <button className="provider-row" data-active={active || undefined} onClick={onClick} title={`Codex · ${readiness.label}`}>
+    <button className="provider-row" data-active={active || undefined} onClick={onClick} title={`Codex · ${entry.label}`}>
       <BrandIcon id="codex" name="Codex" size={24} />
       <span className="provider-row__label">
         Codex
-        <span className="provider-row__sub">{readiness.label}</span>
+        <span className="provider-row__sub">{entry.label}</span>
       </span>
-      {state && <span className="provider-row__badge" data-state={state} aria-label={readiness.label} />}
+      {state && <span className="provider-row__badge" data-state={state} aria-label={entry.label} />}
     </button>
   )
 }
 
 export function CodexEngineDetail({ engine, onOpenProvider }: { engine: CodexEngineState; onOpenProvider: (providerId: string) => void }): JSX.Element {
   const { status, models } = engine
-  const readiness = engineReadiness('codex', status)
+  const entry = status ? engineEntry(status) : null
   const auth = status?.auth
   return (
     <>
@@ -106,38 +107,34 @@ export function CodexEngineDetail({ engine, onOpenProvider }: { engine: CodexEng
             Check again
           </button>
         </div>
-        {!status?.installed ? (
+        {!entry?.installed ? (
           <p className="provider-detail__section-desc">
-            Codex isn’t installed on this computer, so Eaon can’t run on it.
-            {status?.updateHint ? (
+            {entry?.note ?? 'Codex isn’t installed on this computer, so Eaon can’t run on it.'}
+            {entry?.installHint ? (
               <>
                 {' '}
-                Install it with <code>{status.updateHint}</code>, then check again.
+                Install it with <code>{entry.installHint}</code>, then check again.
               </>
             ) : null}
           </p>
         ) : (
           <>
             <div className="provider-account">
-              <span className="provider-account__dot" data-state={readiness.state} />
+              <span className="provider-account__dot" data-state={entry.state} />
               <span className="provider-account__text">
-                <span className="provider-account__label">
-                  Codex · {readiness.state === 'ready' ? 'Signed in' : readiness.label}
-                </span>
-                <span className="provider-account__sub">
-                  {[auth?.method, auth?.plan, status.version ? `version ${status.version}` : null, status.foundIn].filter(Boolean).join(' · ')}
-                </span>
+                <span className="provider-account__label">{entry.headline}</span>
+                <span className="provider-account__sub">{entry.facts}</span>
               </span>
-              {(auth?.state === 'signed-out' || auth?.state === 'expired') && (
+              {entry.action && (
                 <button className="btn btn--provider" disabled={engine.signingIn} onClick={engine.signIn}>
-                  {engine.signingIn ? 'Waiting for your browser…' : auth.state === 'expired' ? 'Sign in again' : 'Sign in to Codex'}
+                  {engine.signingIn ? 'Waiting for your browser…' : entry.action.label}
                 </button>
               )}
             </div>
-            {readiness.reason && readiness.state !== 'ready' && (
+            {entry.note && (
               <div className="provider-status" data-tone="error">
                 <TriangleAlert size={14} strokeWidth={1.9} />
-                {readiness.reason}
+                {entry.note}
               </div>
             )}
           </>
