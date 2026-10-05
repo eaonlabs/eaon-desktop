@@ -140,6 +140,9 @@ export function useDictation(onText: (text: string) => void): Dictation {
           }
         })()
       }
+      // A microphone unplugged mid-recording ends its track: keep what was
+      // said up to then rather than recording silence until the ten-minute cap.
+      for (const track of stream.getAudioTracks()) track.addEventListener('ended', () => finish(), { once: true })
       session.current = current
       recorder.start(250)
       setAnalyser(node)
