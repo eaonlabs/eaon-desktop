@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { approvalRisk, enterApproves } from '../src/renderer/src/components/agent/ApprovalCard'
+import { approvalRisk, enterApproves, startsOnDeny } from '../src/renderer/src/components/agent/ApprovalCard'
 
 /**
  * ⏎ on the approval card: the composer sits right behind it, and ⏎ there
@@ -27,4 +27,9 @@ test('a call that could delete or change the system is never approved with ⏎',
   assert.equal(enterApproves(nothing, approvalRisk('run_command', { command: 'rm -rf build' })), false)
   assert.equal(enterApproves({ ...nothing, nothingFocused: false, inCard: true }, 'high'), false)
   assert.equal(enterApproves(nothing, approvalRisk('run_command', { command: 'ls' })), true)
+})
+
+test('a dialog for a call that could delete or change the system starts on Deny, so a stray ⏎ or Space cannot approve it', () => {
+  assert.equal(startsOnDeny(approvalRisk('run_command', { command: 'rm -rf ~/Projects' })), true)
+  assert.equal(startsOnDeny(approvalRisk('write_file', { path: '/tmp/a.txt', content: 'x' })), false)
 })
