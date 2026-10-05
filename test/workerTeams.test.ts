@@ -220,33 +220,48 @@ test('workers waking each other in a room stops after MAX_ROOM_CHAIN, until the 
   assert.equal(engine.list().find((w) => w.id === b.id)!.inbox.length, MAX_ROOM_CHAIN)
   engine.postAsUser(room.id, 'carry on')
   await engine.postAsWorker(a.id, 'Loop', '@Bo one more')
-  assert.equal(engine.roomPosts(room.id).at(-1)!.mentions?.length, 1, 'the user posting resets the chain')
+  assert.equal(engine.roomPosts(room.id).find((p) => p.text === '@Bo one more')!.mentions?.length, 1, 'the user posting resets the chain')
   await assert.rejects(engine.postAsWorker(a.id, 'Elsewhere', 'hi'), /not in a group chat called "Elsewhere"/)
 })
 
 test('a handoff carries the sender\'s thread and files, and finish_handoff sends the result straight back', async () => {
-  const agent = fakeAgent('On it.')
+  // Bo's turn stays open until it has reported, as a real turn calling finish_handoff would.
+  let releaseBo = (): void => {}
+  const agent = fakeAgent((request, emit) => {
+    const text = /You are Bo,/.test(request.persona ?? '') ? 'Reported.' : 'On it.'
+    const reply = (): RunOutcome => {
+      emit({ type: 'delta', messageId: request.messageId, text })
+      return { text, usage }
+    }
+    return /You are Bo,/.test(request.persona ?? '') ? new Promise<RunOutcome>((resolve) => (releaseBo = () => resolve(reply()))) : reply()
+  })
   const { engine } = start(agent.runAgent)
   const a = engine.save(draft('Ada'))
   const b = engine.save(draft('Bo'))
   engine.send(a.id, 'We are fixing the login crash on Safari.')
   await engine.whenIdle()
   writeFileSync(join(a.folder, 'trace.txt'), 'stack')
-  const { handoff, delivered } = await engine.handOff(a.id, 'Bo', 'Reproduce the crash and send me exact steps.', ['trace.txt'])
+  // Delegations share only what the parent writes (context), plus its recent
+  // thread when it asks for that (share_context), and run in a thread of their own.
+  const { delegation: handoff, delivered } = await engine.handOff(a.id, 'Bo', 'Reproduce the crash and send me exact steps.', ['trace.txt'], {
+    shareContext: true,
+    context: 'Only Safari 27 is affected.'
+  })
   assert.equal(delivered.length, 1)
   assert.ok(existsSync(delivered[0]))
-  assert.equal(engine.list().find((w) => w.id === b.id)!.handoffs.length, 1)
+  assert.equal(engine.delegations().filter((d) => d.recipient.workerId === b.id && d.state !== 'completed').length, 1)
   await until(() => agent.requests.length === 2)
-  await engine.whenIdle()
   const bo = textOf(agent.requests[1])
+  assert.ok(agent.requests[1].workerThreadId, 'Bo works on it in its own thread')
   assert.match(bo, new RegExp(`\\[Task ${handoff.id}, handed to you by Ada\\] Reproduce the crash`))
+  assert.match(bo, /Background from Ada:\nOnly Safari 27 is affected\./)
   assert.match(bo, /Ada's recent thread, shared with you so you have the background:[\s\S]*login crash on Safari/)
   assert.match(bo, new RegExp(`finish_handoff \\{task_id: "${handoff.id}"`))
-  assert.match(describeWorker(engine.list().find((w) => w.id === b.id)!), /On a task from Ada/)
 
   const said = await engine.finishHandoff(b.id, handoff.id, 'Steps: open Safari 27, click Log in.')
   assert.match(said, /Sent the result to Ada/)
-  assert.equal(engine.list().find((w) => w.id === b.id)!.handoffs.length, 0)
+  assert.equal(engine.delegations().find((d) => d.id === handoff.id)!.state, 'completed')
+  releaseBo()
   await until(() => agent.requests.length === 3)
   await engine.whenIdle()
   assert.match(textOf(agent.requests[2]), new RegExp(`\\[Bo finished task ${handoff.id} you handed over \\("Reproduce the crash`))

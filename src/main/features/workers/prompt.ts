@@ -1,4 +1,4 @@
-import { TRADING_ROUTINE_NAME, type Worker } from '@shared/workers'
+import { TRADING_ROUTINE_NAME, type Worker, type WorkerDelegation, type WorkerThreadInfo } from '@shared/workers'
 import type { TradingVenue } from '../trading/access'
 
 /**
@@ -22,7 +22,9 @@ export function workerPersona(
   worker: Worker,
   creatorName: string | null,
   venue: TradingVenue | null = null,
-  rooms: { name: string; members: string[] }[] = []
+  rooms: { name: string; members: string[] }[] = [],
+  /** The thread this turn runs in, when it isn't the main one. */
+  thread: { title: string; kind: WorkerThreadInfo['kind']; delegation?: WorkerDelegation } | null = null
 ): string {
   const autonomous = worker.access === 'autonomous'
   const lines = [
@@ -35,7 +37,7 @@ export function workerPersona(
     '',
     'How you work:',
     '- Own your purpose. Work towards it without waiting to be told: decide the next useful step, do it, and schedule when to check back. Keep set_goal current with what you are working towards and how you will know it is done.',
-    '- You have one continuous thread, never a new session; older parts get summarised. Anything that must last — decisions, the user\'s preferences, open loops, where things are — goes in update_notes. Your goal and notes are shown to you on every turn.',
+    '- Your main thread is your ongoing conversation with the user; older parts get summarised. Routines, side tasks the user starts and jobs colleagues delegate to you each run in a thread of their own, at the same time, and see only their own transcript. Anything that must last or that another thread needs — decisions, the user\'s preferences, open loops, where things are — goes in update_notes. Your goal and notes are shared by all your threads and shown to you on every turn.',
     '- You wake when the user writes, when a colleague mails you, when a heartbeat you set comes due (set_heartbeat: one-off), or for a routine (add_routine: every N minutes, or daily at a time). With nothing scheduled you sleep until someone writes; stop schedules that have nothing left to watch.',
     '- When you are waiting for something (a build, a reply, a page to change, a time), call sleep with how long and a note: the turn ends and you pick up where you left off when you wake. Never poll in a loop, and don\'t stop with work unfinished and nothing scheduled.',
     '- When the user gives you a goal, you work on it in goal mode until it is done: keep taking the next concrete step, call goal_complete once it is achieved and you have checked it, or goal_blocked if only the user can unblock it. Between turns you carry on by yourself.',
@@ -55,6 +57,7 @@ export function workerPersona(
     lines.push('', 'Your group chats:')
     for (const room of rooms) lines.push(`- "${room.name}": the user${room.members.length ? `, ${room.members.join(', ')}` : ''} and you`)
   }
+  if (thread) lines.push('', ...threadBrief(thread))
   if (worker.trading) lines.push('', ...tradingBrief(worker, venue))
   if (worker.goal.trim()) lines.push('', `Your goal: ${worker.goal.trim()}`)
   if (worker.notes.trim()) lines.push('', 'Your notes:', worker.notes.trim())
@@ -66,6 +69,21 @@ export function workerPersona(
     }
   }
   return lines.join('\n')
+}
+
+/** What a turn in a thread other than the main one is for. */
+function threadBrief(thread: { title: string; kind: WorkerThreadInfo['kind']; delegation?: WorkerDelegation }): string[] {
+  if (thread.kind === 'delegation' && thread.delegation) {
+    const d = thread.delegation
+    return [
+      `This thread is a job ${d.parent.name} delegated to you (task ${d.id}): "${d.objective}".`,
+      d.requiredOutput ? `What to send back: ${d.requiredOutput}` : '',
+      d.deadlineAt ? `Deadline: ${new Date(d.deadlineAt).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit' })}.` : '',
+      `Do the job, then report with finish_handoff (task_id "${d.id}"): the result goes straight to ${d.parent.name}. If you can't do it, report that with ok: false and why. Ask ${d.parent.name} with message_worker if something essential is missing.`
+    ].filter(Boolean)
+  }
+  if (thread.kind === 'routine') return [`This thread is your routine "${thread.title}": each run is one round of it. Do this round's work, keep notes on anything the next round needs, and end with a short summary.`]
+  return [`This thread is a separate task the user gave you: "${thread.title}". Work on it here; your main conversation goes on elsewhere.`]
 }
 
 /**

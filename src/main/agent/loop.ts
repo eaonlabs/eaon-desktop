@@ -214,6 +214,8 @@ export interface LoopParams {
   unattended?: UnattendedPolicy
   /** See `RunOptions.allowOnce`. */
   allowOnce?: (tool: string, input: Record<string, unknown>) => boolean
+  /** See `RunOptions.onToolRun`. */
+  onToolRun?: (name: string, mutating: boolean) => void
   /** See `RunOptions.toolGate`. */
   toolGate?: ToolGate
   maxRounds: number
@@ -406,6 +408,7 @@ async function runTool(
   }
 
   const mutating = isMutating(tool, call.input, ctx)
+  params.onToolRun?.(call.name, mutating)
   let output: string
   let status: 'done' | 'error'
   let images: NeutralImage[] | undefined
@@ -692,6 +695,12 @@ export interface RunOptions {
    */
   allowOnce?: (tool: string, input: Record<string, unknown>) => boolean
   /**
+   * Told as each tool is about to run (after any approval), and whether the
+   * call changes things outside the conversation. A worker's run records it,
+   * so a run cut off by a crash is never replayed if it may already have acted.
+   */
+  onToolRun?: (name: string, mutating: boolean) => void
+  /**
    * Refuses a tool call outright, whatever it is: a reason for the model, or
    * null to let the usual rules decide. A worker answering a guest in a chat
    * app uses it to hold the turn to what that guest may do.
@@ -787,6 +796,7 @@ export async function runAgent(request: StreamRequest, emit: (event: StreamEvent
           controller.signal.aborted ? Promise.resolve(false) : requestApproval(request.messageId, tool, input, emit, summary)),
       unattended: options.unattended,
       allowOnce: options.allowOnce,
+      onToolRun: options.onToolRun,
       toolGate: options.toolGate,
       onText: (delta: string) => {
         text += delta

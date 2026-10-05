@@ -2,7 +2,19 @@ import { app, Notification, powerMonitor } from 'electron'
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { ChatMessage, StreamEvent } from '@shared/types'
-import type { RoomPostEvent, Worker, WorkerDraft, WorkerMessageEvent, WorkerSendOptions, WorkerStreamEvent, WorkerThread } from '@shared/workers'
+import {
+  threadKey,
+  type RoomPostEvent,
+  type Worker,
+  type WorkerDraft,
+  type WorkerExecutionEvent,
+  type WorkerMessageEvent,
+  type WorkerSendOptions,
+  type WorkerStreamEvent,
+  type WorkerThread
+} from '@shared/workers'
+import { engine as engineAdapter } from '../../engines'
+import { EngineError } from '../../engines/types'
 import { pauseGoal, runAgent } from '../../agent/loop'
 import { registerToolSource, safeToolName } from '../../agent/tools'
 import { BROKERS } from '@shared/trading'
@@ -15,7 +27,7 @@ import { store } from '../../store'
 import type { FeatureContext } from '../types'
 import { WorkersEngine, type TeamDraft } from './engine'
 import { teamToolSource } from './team'
-import type { RunAgent } from './runner'
+import type { RunAgent, RunEngineTurn } from './runner'
 import { workersToolSource } from './tools'
 import { WorkerBrowsers, workerBrowserToolSource } from './browser'
 import { reportBrowserStep, setWorkerBrowsers } from '../agentBrowser'
@@ -34,12 +46,23 @@ import { workerBrowserTarget } from '@shared/agentBrowser'
 
 const WORKERS_FILE = 'workers.json'
 const ROOMS_FILE = 'worker-rooms.json'
-const threadFile = (id: string): string => `worker-${id}.json`
+const DELEGATIONS_FILE = 'worker-delegations.json'
+/** A thread's file, by threadKey: `worker-<id>.json` for the main thread, `worker-<id>.t-<thread>.json` for the others. */
+const threadFile = (key: string): string => `worker-${key.replace('#', '.t-')}.json`
+const runsFile = (id: string): string => `worker-${id}-runs.json`
+const str = (value: unknown): string => (typeof value === 'string' ? value : '')
+/** An id from the renderer: a non-empty string, or a clear refusal rather than a lookup of `undefined`. */
+const idOf = (value: unknown): string => {
+  if (typeof value !== 'string' || !value) throw new Error('That worker no longer exists.')
+  return value
+}
+const optionalThread = (value: unknown): string | undefined => (typeof value === 'string' && value ? value : undefined)
 /** Lets the login shell's PATH settle before the first turn spawns anything. */
 const START_DELAY_MS = 4000
 
 export interface WorkersOverrides {
   runAgent?: RunAgent
+  runEngineTurn?: RunEngineTurn
   now?: () => number
   stallMs?: number
   maxTurnsPerHour?: number
@@ -77,10 +100,10 @@ function eventBatcher(send: (payload: WorkerStreamEvent) => void): { emit: (payl
       const event = payload.event
       if (event.type === 'delta' || event.type === 'reasoning') {
         const last = queue[queue.length - 1]
-        if (last && last.workerId === payload.workerId && last.event.type === event.type && last.event.messageId === event.messageId) {
+        if (last && last.workerId === payload.workerId && last.threadId === payload.threadId && last.event.type === event.type && last.event.messageId === event.messageId) {
           ;(last.event as Extract<StreamEvent, { type: 'delta' }>).text += event.text
         } else {
-          queue.push({ workerId: payload.workerId, event: { ...event } })
+          queue.push({ workerId: payload.workerId, ...(payload.threadId ? { threadId: payload.threadId } : {}), event: { ...event } })
         }
         if (!timer) timer = setTimeout(flush, 16)
         return
@@ -188,23 +211,38 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
     notification.show()
   }
 
+  const removeStoreFile = async (name: string): Promise<void> => {
+    // A save may still be queued for it; let it land, then remove the file.
+    await store.flushWrites()
+    await rm(join(app.getPath('userData'), 'store', name), { force: true })
+  }
   const engine = new WorkersEngine({
     runAgent: overrides.runAgent ?? runAgent,
+    runEngineTurn:
+      overrides.runEngineTurn ??
+      (async (id, input) => {
+        const adapter = engineAdapter(id)
+        if (!adapter) throw new EngineError('not-installed', `The ${id} engine isn't available in this version of Eaon.`)
+        return adapter.runTurn(input)
+      }),
     getSettings: () => store.getSettings(),
     loadWorkers: () => store.getJson<unknown>(WORKERS_FILE, []),
     saveWorkers: (workers) => store.setJson(WORKERS_FILE, workers),
-    loadThread: (id) => store.getJson<unknown>(threadFile(id), null),
-    saveThread: (thread: WorkerThread) => store.setJsonAsync(threadFile(thread.workerId), thread),
-    deleteThread: async (id) => {
-      // A save may still be queued for it; let it land, then remove the file.
-      await store.flushWrites()
-      await rm(join(app.getPath('userData'), 'store', threadFile(id)), { force: true })
-    },
+    loadThread: (key) => store.getJson<unknown>(threadFile(key), null),
+    saveThread: (thread: WorkerThread) => store.setJsonAsync(threadFile(threadKey(thread.workerId, thread.threadId)), thread),
+    deleteThread: (key) => removeStoreFile(threadFile(key)),
+    loadRuns: (id) => store.getJson<unknown>(runsFile(id), []),
+    saveRuns: (id, runs) => store.setJsonAsync(runsFile(id), runs),
+    deleteRuns: (id) => removeStoreFile(runsFile(id)),
+    onExecution: (execution) => ctx.send('workers:execution', { workerId: execution.workerId, execution } satisfies WorkerExecutionEvent),
+    loadDelegations: () => store.getJson<unknown>(DELEGATIONS_FILE, []),
+    saveDelegations: (delegations) => store.setJsonAsync(DELEGATIONS_FILE, delegations),
+    onDelegations: (delegations) => ctx.send('workers:delegations', delegations),
     onChange: (workers) => ctx.send('workers:changed', workers),
-    onEvent: (workerId, event) => batch.emit({ workerId, event }),
-    onMessage: (workerId, message: ChatMessage) => {
+    onEvent: (workerId, event, threadId) => batch.emit({ workerId, ...(threadId !== 'main' ? { threadId } : {}), event }),
+    onMessage: (workerId, message: ChatMessage, threadId) => {
       batch.flush()
-      ctx.send('workers:message', { workerId, message } satisfies WorkerMessageEvent)
+      ctx.send('workers:message', { workerId, ...(threadId !== 'main' ? { threadId } : {}), message } satisfies WorkerMessageEvent)
     },
     notify,
     reachOut,
@@ -233,21 +271,37 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
     ipcMain.handle('workers:show-browser', (_e, id: string) => browsers.show(id))
     ipcMain.handle('workers:has-browser', (_e, id: string) => browsers.has(id))
     ipcMain.handle('workers:list', () => engine.list())
-    ipcMain.handle('workers:thread', (_e, id: string) => engine.getThread(id))
-    ipcMain.handle('workers:save', (_e, draft: WorkerDraft) => engine.save(draft))
-    ipcMain.handle('workers:remove', async (_e, id: string) => {
-      await engine.remove(id)
-      await browsers.close(id)
+    ipcMain.handle('workers:thread', (_e, id: unknown, threadId?: unknown) => engine.getThread(idOf(id), optionalThread(threadId)))
+    ipcMain.handle('workers:save', (_e, draft: WorkerDraft) => {
+      if (!draft || typeof draft !== 'object') throw new Error('Give the worker a name.')
+      return engine.save(draft)
     })
-    ipcMain.handle('workers:send', (_e, id: string, text: string, files: string[], options?: WorkerSendOptions) => engine.send(id, text, files, options))
-    ipcMain.handle('workers:clear', (_e, id: string) => engine.clear(id))
+    ipcMain.handle('workers:remove', async (_e, id: unknown) => {
+      await engine.remove(idOf(id))
+      await browsers.close(idOf(id))
+    })
+    ipcMain.handle('workers:send', (_e, id: unknown, text: unknown, files: unknown, options?: WorkerSendOptions) =>
+      engine.send(
+        idOf(id),
+        str(text),
+        Array.isArray(files) ? files.filter((f): f is string => typeof f === 'string') : [],
+        options && typeof options === 'object' ? { goal: options.goal === true, ...(optionalThread(options.threadId) ? { threadId: options.threadId } : {}) } : {}
+      )
+    )
+    ipcMain.handle('workers:clear', (_e, id: unknown, threadId?: unknown) => engine.clear(idOf(id), optionalThread(threadId)))
+    // Threads, run receipts and delegations.
+    ipcMain.handle('workers:executions', (_e, id: unknown) => engine.executions(idOf(id)))
+    ipcMain.handle('workers:retry', (_e, id: unknown, executionId: unknown) => engine.retry(idOf(id), str(executionId)))
+    ipcMain.handle('workers:delegations', () => engine.delegations())
+    ipcMain.handle('workers:thread-close', (_e, id: unknown, threadId: unknown, closed: unknown) => engine.closeThread(idOf(id), str(threadId), closed !== false))
+    ipcMain.handle('workers:thread-remove', (_e, id: unknown, threadId: unknown) => engine.removeThread(idOf(id), str(threadId)))
     ipcMain.handle('workers:set-goal', (_e, id: string, status: 'active' | 'paused' | null) => engine.setGoal(id, status === 'active' || status === 'paused' ? status : null))
     ipcMain.handle('workers:set-paused', (_e, id: string, paused: boolean) => engine.setPaused(id, paused))
     ipcMain.handle('workers:wake', (_e, id: string) => engine.wake(id))
-    ipcMain.handle('workers:stop', (_e, id: string) => engine.stopTurn(id))
-    ipcMain.handle('workers:mark-read', (_e, id: string) => {
-      openWorkerId = id
-      return engine.markRead(id)
+    ipcMain.handle('workers:stop', (_e, id: unknown, threadId?: unknown) => engine.stopTurn(idOf(id), optionalThread(threadId)))
+    ipcMain.handle('workers:mark-read', (_e, id: unknown, threadId?: unknown) => {
+      openWorkerId = idOf(id)
+      return engine.markRead(idOf(id), optionalThread(threadId))
     })
     // The user answering a worker's question: a reply, or approving the one action it asked about.
     ipcMain.handle('workers:answer', (_e, id: string, askId: string, answer: { text?: string; approved?: boolean }) =>

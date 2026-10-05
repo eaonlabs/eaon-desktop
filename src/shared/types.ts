@@ -521,6 +521,8 @@ export interface StreamRequest {
   rawSystem?: string
   /** Set on a worker's turn: which worker is running, for the worker tools. */
   workerId?: string
+  /** Set on a worker's turn in a thread other than its main one, so its tools act on that thread. */
+  workerThreadId?: string
   /** Replaces the agent's opening identity line in the system prompt (a worker's persona). */
   persona?: string
 }

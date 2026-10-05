@@ -1,5 +1,6 @@
 import type { ChannelKind, GuestAccess } from './channels'
-import type { ChatMessage, GoalState, StreamEvent } from './types'
+import type { ChatMessage, EffortLevel, GoalState, StreamEvent, TokenUsage } from './types'
+import type { EngineId } from './engines'
 
 /**
  * Eaon Workers: independent agents that live on the user's computer and keep
@@ -75,8 +76,10 @@ export interface WorkerRoutine {
   /** Only while the US stock market is open (9:30–4:00 ET on trading days): skips nights, weekends and holidays. */
   marketHours?: boolean
   nextAt: number
-  /** The latest runs, newest last (at most 20). */
+  /** The latest runs, newest last (at most 20). Each run's full receipt is in the worker's executions. */
   runs: { at: number; ok: boolean }[]
+  /** The thread its runs go in, made on its first run. */
+  threadId?: string
 }
 
 /**
@@ -119,15 +122,20 @@ export interface WorkerMail {
   room?: { id: string; name: string }
   /** What was said in the room since this worker last saw it, oldest first. */
   roomContext?: string
-  /** The sender's recent thread, shared so the recipient needn't ask (message_worker share_context, hand_off). */
+  /** The sender's recent thread, shared so the recipient needn't ask (message_worker / hand_off share_context). */
   context?: string
-  /** A task handed to this worker; it reports back with finish_handoff. */
-  handoff?: { id: string; task: string }
-  /** A colleague finished a task this worker handed it. */
-  handoffResult?: { id: string; task: string; ok: boolean }
+  /** Background the sender wrote for the recipient (hand_off context): only what it chose to share. */
+  brief?: string
+  /** A task delegated to this worker; it reports back with finish_handoff. */
+  handoff?: { id: string; task: string; requiredOutput?: string; deadlineAt?: number | null }
+  /** A colleague finished (or failed, or dropped) a task this worker delegated. */
+  handoffResult?: { id: string; task: string; ok: boolean; state?: DelegationState }
 }
 
-/** A task one worker handed another, open until the recipient reports back. */
+/**
+ * A task one worker handed another before delegations existed (2026.6.1 and
+ * earlier). Only read when migrating `workers.json`; see WorkerDelegation.
+ */
 export interface WorkerHandoff {
   id: string
   fromId: string
@@ -135,6 +143,169 @@ export interface WorkerHandoff {
   task: string
   at: number
 }
+
+/* ------------------------------------------------------------------ threads */
+
+/** The thread every worker has: its ongoing conversation with the user. */
+export const MAIN_THREAD = 'main'
+
+/**
+ * A conversation a worker has besides its main one. Each thread has its own
+ * transcript, inbox, wake-up and running turn, so a routine, a task the user
+ * started on the side, or a job a colleague delegated runs, fails and stops
+ * on its own without touching the others. What the worker knows for good
+ * (goal, notes, purpose) is shared by all of its threads; transcripts are not.
+ *
+ * The main thread's own fields (inbox, heartbeat, the running message) live
+ * on the Worker itself, as they always have.
+ */
+export interface WorkerThreadInfo {
+  id: string
+  title: string
+  /** `task`: the user started it. `routine`: one routine's runs. `delegation`: a colleague's job. */
+  kind: 'task' | 'routine' | 'delegation'
+  routineId?: string
+  delegationId?: string
+  createdAt: number
+  updatedAt: number
+  /** Finished: kept to read, takes no more wake-ups until someone writes to it. */
+  closedAt: number | null
+  /** Overrides the worker's model for this thread only. */
+  model: { providerId: string; modelId: string } | null
+  inbox: WorkerMail[]
+  heartbeat: WorkerHeartbeat
+  /** The assistant message streaming right now; null when not running. */
+  runningMessageId: string | null
+  /** The engine session this thread continues, for workers on an agent engine (Codex). */
+  engineSession: { engine: EngineId; sessionId: string } | null
+  unread: number
+  activity: string
+  lastOutcome: { at: number; ok: boolean } | null
+  lastError: string | null
+}
+
+/** The key a thread is stored and streamed under: the worker id for its main thread. */
+export function threadKey(workerId: string, threadId: string = MAIN_THREAD): string {
+  return threadId === MAIN_THREAD ? workerId : `${workerId}#${threadId}`
+}
+
+/* --------------------------------------------------------------- executions */
+
+/**
+ * Where one run of a worker stands. A run is queued when it is due but can't
+ * start yet (every slot busy), running while its turn is going, and ends in
+ * one of the rest. `interrupted` is a run Eaon quitting or crashing cut off;
+ * `missed` an occurrence of a routine that didn't run (the previous run was
+ * still going, or Eaon was closed through it).
+ */
+export type ExecutionState = 'queued' | 'running' | 'completed' | 'failed' | 'cancelled' | 'interrupted' | 'missed'
+
+export type ExecutionTriggerKind = 'message' | 'mail' | 'heartbeat' | 'routine' | 'check-in' | 'goal' | 'delegation' | 'resume' | 'retry'
+
+export interface ExecutionTrigger {
+  kind: ExecutionTriggerKind
+  /** "Your message", "Routine: Daily research", "Task from Nova". */
+  label: string
+  routineId?: string
+  delegationId?: string
+}
+
+/**
+ * A receipt for one run of a worker: what woke it, which thread it ran in,
+ * how it went, how long it took and what it cost. Kept per worker (the most
+ * recent MAX_EXECUTIONS) apart from the transcript, so a routine's history
+ * reads "Daily research · Oct 4 · Completed · 3 min · 24k tokens" and opens
+ * the message it wrote.
+ */
+export interface WorkerExecution {
+  id: string
+  workerId: string
+  threadId: string
+  trigger: ExecutionTrigger
+  state: ExecutionState
+  /** Why it is queued, or why it ended the way it did, in plain words. */
+  reason: string | null
+  queuedAt: number
+  startedAt: number | null
+  endedAt: number | null
+  /** The reply it wrote in its thread. */
+  messageId: string | null
+  engine: EngineId
+  providerId: string | null
+  modelId: string | null
+  usage: TokenUsage | null
+  /**
+   * Something that changes things outside the transcript ran (a command, a
+   * file write, a click, a message sent). A run like that is never replayed
+   * by itself after a crash: it may already have acted.
+   */
+  sideEffects: boolean
+  /** The reply's last lines, short. */
+  result: string | null
+  error: string | null
+  /** The run this one retries. */
+  retryOf: string | null
+}
+
+/** Receipts kept per worker; older ones are dropped. */
+export const MAX_EXECUTIONS = 200
+
+/** `workers:execution` — a run was queued, started or ended. */
+export interface WorkerExecutionEvent {
+  workerId: string
+  execution: WorkerExecution
+}
+
+/* -------------------------------------------------------------- delegations */
+
+export type DelegationState = 'assigned' | 'running' | 'waiting' | 'completed' | 'failed' | 'cancelled'
+
+/**
+ * A job one worker delegated to another (hand_off), tracked as an object of
+ * its own rather than as messages: the colleague works on it in a thread of
+ * its own, the parent hears back with a structured result, and the user can
+ * see "Nova delegated 'reproduce the login bug' to Vega · Vega completed it".
+ * Only the context the parent wrote is shared, never its whole transcript.
+ */
+export interface WorkerDelegation {
+  id: string
+  parent: { workerId: string; name: string; threadId: string; executionId: string | null }
+  recipient: { workerId: string; name: string; threadId: string | null }
+  objective: string
+  /** What the parent chose to tell the recipient: background, constraints. */
+  context: string
+  files: string[]
+  /** What the parent wants back. */
+  requiredOutput: string
+  deadlineAt: number | null
+  state: DelegationState
+  result: string | null
+  resultFiles: string[]
+  failureReason: string | null
+  createdAt: number
+  updatedAt: number
+  completedAt: number | null
+  /** When the parent's thread took the result into a run. */
+  deliveredAt: number | null
+  /** Workers from the first delegation down to this one's parent, to refuse cycles. */
+  chain: string[]
+}
+
+/** How deep delegations may nest (A → B → C → D), and how many may be open at once. */
+export const MAX_DELEGATION_DEPTH = 3
+export const MAX_OPEN_DELEGATIONS = 32
+
+export const DELEGATION_LABEL: Record<DelegationState, string> = {
+  assigned: 'Assigned',
+  running: 'Working on it',
+  waiting: 'Waiting',
+  completed: 'Done',
+  failed: 'Failed',
+  cancelled: 'Cancelled'
+}
+
+/** `workers:delegations` — the open and recent delegations, whole. */
+export type WorkerDelegationsEvent = WorkerDelegation[]
 
 /**
  * A group chat: the user and several workers in one shared conversation.
@@ -272,6 +443,8 @@ export interface WorkerGoalRun extends GoalState {
 export interface WorkerSendOptions {
   /** Make this message the worker's goal, replacing the one it had. */
   goal?: boolean
+  /** Which thread it is for; the main thread when absent. `'new'` starts a task thread. */
+  threadId?: string
 }
 
 /**
@@ -376,8 +549,15 @@ export interface Worker {
   createdAt: number
   /** Null when the user created it; otherwise the id of the worker that did. */
   createdBy: string | null
-  /** Pinned model; null follows the app's selected model. */
+  /** Pinned model; null follows the app's selected model. On an agent engine, the engine's model id (providerId is the engine). */
   model: { providerId: string; modelId: string } | null
+  /**
+   * What runs its turns: Eaon's own agent loop on any provider (`native`), or
+   * an installed agent engine such as Codex, with that engine's own models.
+   */
+  engine: EngineId
+  /** Reasoning effort for its turns; null follows the app's setting. */
+  effort: EffortLevel | null
   /** The worker's own folder. It works here and colleagues' files land here. */
   folder: string
   paused: boolean
@@ -416,20 +596,29 @@ export interface Worker {
   /** When the last turn ended, and whether it went well — drives the happy face. */
   lastOutcome: { at: number; ok: boolean } | null
   lastError: string | null
-  /** Mail waiting for the next turn, oldest first. */
+  /** Mail waiting for the main thread's next turn, oldest first. */
   inbox: WorkerMail[]
-  /** Tasks colleagues handed this worker that it hasn't reported back on yet. */
-  handoffs: WorkerHandoff[]
-  /** Thread messages that arrived since the user last looked at this worker. */
+  /** Thread messages that arrived since the user last looked at this worker, across all its threads. */
   unread: number
-  /** The assistant message streaming right now; null when not running. */
+  /** The main thread's assistant message streaming right now; null when not running. */
   runningMessageId: string | null
-  /** Group chats the running turn was woken by, so a room can show who is answering it. */
+  /** Group chats the running turns were woken by, so a room can show who is answering it. */
   runningRooms?: string[]
+  /** The main thread's engine session, for a worker on an agent engine. */
+  engineSession: { engine: EngineId; sessionId: string } | null
+  /** Its other threads: tasks, routines, delegated jobs. */
+  threads: WorkerThreadInfo[]
+  /**
+   * Set while a run is due but can't start yet, saying why ("4 workers are
+   * already working"), so a waiting worker never just looks idle.
+   */
+  queued: string | null
 }
 
 export interface WorkerThread {
   workerId: string
+  /** MAIN_THREAD, or a WorkerThreadInfo id. */
+  threadId?: string
   messages: ChatMessage[]
   /** Compaction summary standing in for every message up to `throughMessageId`. */
   summary: { text: string; throughMessageId: string } | null
@@ -443,6 +632,9 @@ export interface WorkerDraft {
   personality: string
   purpose: string
   model?: { providerId: string; modelId: string } | null
+  engine?: EngineId
+  /** Undefined keeps what is set; null follows the app. */
+  effort?: EffortLevel | null
   access?: WorkerAccess
   /** Undefined keeps what is set; null stops the worker trading. */
   trading?: WorkerTrading | null
@@ -451,23 +643,38 @@ export interface WorkerDraft {
 /** `workers:event` — a stream event from one worker's running turn. */
 export interface WorkerStreamEvent {
   workerId: string
+  /** Absent for the main thread. */
+  threadId?: string
   event: StreamEvent
 }
 
 /** `workers:message` — a message was added to (or replaced in) a thread, whole. */
 export interface WorkerMessageEvent {
   workerId: string
+  /** Absent for the main thread. */
+  threadId?: string
   message: ChatMessage
 }
 
 /** Hard ceiling on how many workers can exist at once. */
 export const MAX_WORKERS = 16
 /**
- * How many worker turns may run at the same time, across all workers — a
- * team of specialists works side by side. Computer use still acts one step
- * at a time across all of them (it has one pointer).
+ * How many worker runs may go at the same time, across all workers and their
+ * threads — a team of specialists works side by side. A run that is due when
+ * every slot is busy is queued, and says so. Computer use still acts for one
+ * run at a time (it has one pointer; see features/computer).
  */
 export const WORKER_CONCURRENCY = 4
+/** How many of those one worker may hold at once, so its routines can't starve its colleagues. */
+export const MAX_RUNNING_PER_WORKER = 2
+/** Threads a worker keeps besides its main one; the oldest finished ones are cleared past this. */
+export const MAX_THREADS = 60
+/**
+ * A repeating wake-up the worker set for itself stops after firing this many
+ * times with no word from the user in that thread — it was watching something
+ * nobody is following any more — and the user is told once.
+ */
+export const STALE_WAKEUPS = 48
 /** Group chats, and how many members one can have. */
 export const MAX_ROOMS = 20
 export const MAX_ROOM_MEMBERS = 8
@@ -576,16 +783,28 @@ export function nextRoutineAt(routine: Pick<WorkerRoutine, 'everyMs' | 'daily'>,
   return after + Math.max(routine.everyMs ?? 0, MIN_HEARTBEAT_MS)
 }
 
+/** How many of a worker's threads (main included) are running a turn right now. */
+export function runningThreads(worker: Pick<Worker, 'runningMessageId' | 'threads'>): number {
+  return (worker.runningMessageId ? 1 : 0) + (worker.threads ?? []).filter((t) => t.runningMessageId).length
+}
+
 export function describeWorker(worker: Worker, now = Date.now()): string {
   if (worker.paused) return 'Paused'
-  if (worker.status === 'working') return worker.activity || 'Working…'
+  const running = runningThreads(worker)
+  if (worker.status === 'working' || running > 0) {
+    const line = worker.activity || 'Working…'
+    return running > 1 ? `${line} · ${running} tasks running` : line
+  }
+  if (worker.queued) return `Queued — ${worker.queued}`
   if (worker.status === 'failed') return worker.lastError ? `Stopped: ${worker.lastError}` : 'Last task failed'
   if (worker.asks?.length) return worker.asks.length === 1 ? 'Has a question for you' : `Has ${worker.asks.length} questions for you`
-  if (worker.inbox.length > 0) return `${worker.inbox.length} message${worker.inbox.length === 1 ? '' : 's'} waiting`
-  if (worker.handoffs?.length) return worker.handoffs.length === 1 ? `On a task from ${worker.handoffs[0].fromName}` : `On ${worker.handoffs.length} handed-off tasks`
-  if (worker.heartbeat.nextAt !== null) {
-    const every = worker.heartbeat.everyMs ? ` · every ${Math.round(worker.heartbeat.everyMs / 60_000)} min` : ''
-    return `Next heartbeat ${relativeTime(worker.heartbeat.nextAt, now)}${every}`
+  const waiting = worker.inbox.length + (worker.threads ?? []).reduce((n, t) => n + t.inbox.length, 0)
+  if (waiting > 0) return `${waiting} message${waiting === 1 ? '' : 's'} waiting`
+  const beats = [worker.heartbeat, ...(worker.threads ?? []).filter((t) => !t.closedAt).map((t) => t.heartbeat)].filter((h) => h.nextAt !== null)
+  const beat = beats.sort((a, b) => a.nextAt! - b.nextAt!)[0]
+  if (beat) {
+    const every = beat.everyMs ? ` · every ${Math.round(beat.everyMs / 60_000)} min` : ''
+    return `Next heartbeat ${relativeTime(beat.nextAt!, now)}${every}`
   }
   const routine = nextRoutine(worker)
   if (routine) return `${routine.name} ${relativeTime(routine.nextAt, now)}`

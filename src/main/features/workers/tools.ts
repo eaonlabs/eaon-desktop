@@ -1,4 +1,4 @@
-import { describeWorker, MAX_SLEEP_MINUTES } from '@shared/workers'
+import { describeWorker, MAIN_THREAD, MAX_SLEEP_MINUTES } from '@shared/workers'
 import type { AgentTool, ToolContext, ToolSource } from '../../agent/tools'
 import { HINT_MOODS, type WorkersEngine } from './engine'
 
@@ -50,6 +50,9 @@ function self(ctx: ToolContext): string {
   if (!id) throw new Error('Only a worker can use this tool.')
   return id
 }
+
+/** The thread the calling turn runs in: its wake-ups, status and delegations belong to that thread. */
+const threadOf = (ctx: ToolContext): string => ctx.request.workerThreadId ?? MAIN_THREAD
 
 export function workersToolSource(engine: WorkersEngine): ToolSource {
   const listWorkers: AgentTool = {
@@ -107,22 +110,31 @@ export function workersToolSource(engine: WorkersEngine): ToolSource {
   const handOff: AgentTool = {
     name: 'hand_off',
     description:
-      'Hand a colleague a task to do in parallel. They get the task, your recent thread as background (share_context, default true) and any files; their result comes back to you as mail when they finish_handoff.',
+      'Delegate a well-defined job to a colleague; they work on it in a thread of their own, in parallel. Give the objective (task), the background they need (context — they see nothing else of yours), what to send back (required_output) and any files. Their result comes back to you as mail when they finish_handoff.',
     inputSchema: {
       type: 'object',
       properties: {
         to: { type: 'string', description: 'Colleague name' },
-        task: { type: 'string', description: 'What to do and what to send back' },
+        task: { type: 'string', description: 'The objective' },
+        context: { type: 'string', description: 'Background, constraints and file paths they need' },
+        required_output: { type: 'string', description: 'What to send back' },
+        deadline_minutes: { type: 'number', description: 'Optional: fail it if not done in this many minutes' },
         files: { type: 'array', items: { type: 'string' } },
-        share_context: { type: 'boolean' }
+        share_context: { type: 'boolean', description: 'Also attach your recent messages (only if they truly need them)' }
       },
       required: ['to', 'task']
     },
     mutating: false,
     describe: (input) => `Hand off to ${str(input.to)}`,
     run: async (input, ctx) => {
-      const { recipient, handoff, delivered } = await engine.handOff(self(ctx), str(input.to), str(input.task), fileList(input.files), input.share_context !== false)
-      return `Handed ${handoff.id} to ${recipient.name}${recipient.paused ? ' (paused: it starts when resumed)' : ''}. Its result will arrive as mail; carry on meanwhile.${
+      const { recipient, delegation, delivered } = await engine.handOff(self(ctx), str(input.to), str(input.task), fileList(input.files), {
+        shareContext: input.share_context === true,
+        context: str(input.context),
+        requiredOutput: str(input.required_output),
+        deadlineMinutes: num(input.deadline_minutes),
+        fromThreadId: threadOf(ctx)
+      })
+      return `Delegated ${delegation.id} to ${recipient.name}${recipient.paused ? ' (paused: it starts when resumed)' : ''}. Its result will arrive as mail; carry on meanwhile.${
         delivered.length ? ` Files delivered:\n${delivered.map((p) => `- ${p}`).join('\n')}` : ''
       }`
     }
@@ -143,7 +155,7 @@ export function workersToolSource(engine: WorkersEngine): ToolSource {
     },
     mutating: false,
     describe: (input) => `Report on ${str(input.task_id)}`,
-    run: async (input, ctx) => engine.finishHandoff(self(ctx), str(input.task_id), str(input.result), fileList(input.files), input.ok !== false)
+    run: async (input, ctx) => engine.finishHandoff(self(ctx), str(input.task_id), str(input.result), fileList(input.files), input.ok !== false, threadOf(ctx))
   }
 
   const postToRoom: AgentTool = {
@@ -157,7 +169,7 @@ export function workersToolSource(engine: WorkersEngine): ToolSource {
     mutating: false,
     describe: (input) => `Post in ${str(input.room)}`,
     run: async (input, ctx) => {
-      const { room, woke } = await engine.postAsWorker(self(ctx), str(input.room), str(input.message), fileList(input.files))
+      const { room, woke } = await engine.postAsWorker(self(ctx), str(input.room), str(input.message), fileList(input.files), threadOf(ctx))
       return `Posted in "${room.name}".${woke.length ? ` Woke ${woke.join(', ')}.` : ''}`
     }
   }
@@ -195,13 +207,17 @@ export function workersToolSource(engine: WorkersEngine): ToolSource {
       if (str(input.at) && at === null) {
         return { text: `Could not read at: "${str(input.at)}". Use a clock time like "09:30" or "9:30 PM", or an ISO date-time.`, isError: true }
       }
-      return engine.setHeartbeat(self(ctx), {
-        inMinutes: num(input.in_minutes),
-        everyMinutes: num(input.every_minutes),
-        ...(at ? { at } : {}),
-        note: str(input.note),
-        stop: input.stop === true
-      })
+      return engine.setHeartbeat(
+        self(ctx),
+        {
+          inMinutes: num(input.in_minutes),
+          everyMinutes: num(input.every_minutes),
+          ...(at ? { at } : {}),
+          note: str(input.note),
+          stop: input.stop === true
+        },
+        threadOf(ctx)
+      )
     }
   }
 
@@ -224,7 +240,7 @@ export function workersToolSource(engine: WorkersEngine): ToolSource {
     mutating: false,
     describe: (input) => `Sleep ${Math.max(1, Math.round(num(input.minutes) ?? 1))} min${str(input.note) ? ` · ${str(input.note)}` : ''}`,
     run: async (input, ctx) => {
-      const { until, text } = engine.sleep(self(ctx), num(input.minutes) ?? 1, str(input.note))
+      const { until, text } = engine.sleep(self(ctx), num(input.minutes) ?? 1, str(input.note), threadOf(ctx))
       ctx.turn.yielded = { until }
       return text
     }
@@ -245,7 +261,7 @@ export function workersToolSource(engine: WorkersEngine): ToolSource {
     mutating: false,
     describe: (input) => str(input.activity) || 'Update status',
     run: async (input, ctx) => {
-      engine.setStatus(self(ctx), str(input.activity), str(input.mood) || undefined)
+      engine.setStatus(self(ctx), str(input.activity), str(input.mood) || undefined, threadOf(ctx))
       return 'Status updated.'
     }
   }
