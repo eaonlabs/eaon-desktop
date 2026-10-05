@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import '../src/main/agent/sources'
 import '../src/main/features/computerUse'
-import { paymentsEngine, paymentsFeature } from '../src/main/features/payments'
+import { mailOrigin, paymentsEngine, paymentsFeature } from '../src/main/features/payments'
+import { paymentTool, scrubCard } from '../src/main/features/payments/tool'
 import { normalizeConfig, normalizeSite, PaymentsEngine, urlMatchesSite, type PaymentsConfig } from '../src/main/features/payments/engine'
 import { purchaseCovers, redactPaymentSecrets } from '../src/main/features/payments/access'
 import { runAgent } from '../src/main/agent/loop'
@@ -298,9 +299,9 @@ test('complete records the charge; a live purchase covers its own site\'s checko
   const before = paymentsEngine()!.spent().today
   const auth = await turn([{ action: 'authorize', merchant: 'Starbucks', amount: 6.45, site: 'starbucks.com' }], false, 'chat-c')
   const id = /Authorized (pay_\w+)/.exec(auth.results[0].output)![1]
-  assert.equal(purchaseCovers('chat-c', 'https://www.starbucks.com/checkout'), true)
   assert.equal(purchaseCovers('chat-c', 'https://evil.example/checkout'), false)
   assert.equal(purchaseCovers('chat-d', 'https://www.starbucks.com/checkout'), false)
+  assert.equal(purchaseCovers('chat-c', 'https://www.starbucks.com/checkout'), true)
   const done = await turn([{ action: 'complete', purchase_id: id, status: 'paid', charged: 7.02, note: 'order 1182' }], false, 'chat-c')
   assert.match(done.results[0].output, /\$7\.02 at Starbucks/)
   assert.equal(purchaseCovers('chat-c', 'https://www.starbucks.com/checkout'), false, 'a completed purchase covers nothing')
@@ -327,4 +328,109 @@ test('the waiver can\'t be accepted over IPC with a box unticked', async () => {
   assert.throws(() => accept({}, PAYMENTS_WAIVER_VERSION, ALL_TICKED.map((_, i) => i !== 0)), /Tick every box/)
   const setMode = ipcHandlers.get('payments:set-mode')!
   assert.throws(() => setMode({}, 'auto'), /waiver/)
+})
+
+/* ---------------------------------------------------- bounded authorizations */
+
+test('an authorization covers one press of the pay button: a second press (a retry, a duplicate checkout) asks', () => {
+  let now = Date.UTC(2026, 9, 3, 15)
+  const { engine, saved } = memoryEngine(null, () => now)
+  engine.setCard(card)
+  engine.authorize({ merchant: 'Starbucks', site: 'starbucks.com', description: '', amount: 6, currency: 'USD', chatId: 'c' }, 'approved')
+  assert.equal(engine.claimSpendingClick('c', 'https://evil.example/pay'), false, 'another site')
+  assert.equal(engine.claimSpendingClick('other', 'https://starbucks.com/pay'), false, 'another chat')
+  assert.equal(engine.claimSpendingClick('c', 'https://www.starbucks.com/pay'), true, 'the first press')
+  assert.equal(engine.claimSpendingClick('c', 'https://www.starbucks.com/pay'), false, 'the second press is not covered')
+  assert.ok(saved()?.purchases[0].submittedAt, 'the press is recorded, so it survives a restart')
+  // A second authorization covers a second order, and expires like the first.
+  engine.authorize({ merchant: 'Starbucks', site: 'starbucks.com', description: '', amount: 6, currency: 'USD', chatId: 'c' }, 'approved')
+  now += 21 * 60_000
+  assert.equal(engine.claimSpendingClick('c', 'https://www.starbucks.com/pay'), false, 'an expired authorization covers nothing')
+})
+
+test('a subscription always needs the user, even within the automatic limits', async () => {
+  const { engine } = memoryEngine()
+  engine.setCard(card)
+  engine.acceptWaiver(PAYMENTS_WAIVER_VERSION, ALL_TICKED)
+  assert.equal(engine.assess(5, 'USD').needsUser, false)
+  assert.match(engine.assess(5, 'USD', true).reason, /charges again/)
+  assert.throws(() => engine.authorize({ merchant: 'News', site: null, description: 'monthly', amount: 5, currency: 'USD', chatId: 'c', recurring: true }, 'auto'), /approval/)
+  const approved = engine.authorize({ merchant: 'News', site: null, description: 'monthly', amount: 5, currency: 'USD', chatId: 'c', recurring: true }, 'approved')
+  assert.equal(approved.recurring, true)
+
+  configure('auto')
+  paymentsEngine()!.acceptWaiver(PAYMENTS_WAIVER_VERSION, ALL_TICKED)
+  const sub = await turn([{ action: 'authorize', merchant: 'News Co', amount: 4.99, site: 'news.example', recurring: true }], false)
+  assert.equal(sub.asked.length, 1, 'asked, though $4.99 is within the limits')
+  assert.equal(sub.results[0].status, 'denied')
+})
+
+test('a charge above what was authorized is recorded and the agent is told to say so', async () => {
+  configure('auto')
+  paymentsEngine()!.acceptWaiver(PAYMENTS_WAIVER_VERSION, ALL_TICKED)
+  const auth = await turn([{ action: 'authorize', merchant: 'Shop', amount: 10, site: 'shop.example' }], false, 'chat-over')
+  const id = /Authorized (pay_\w+)/.exec(auth.results[0].output)![1]
+  const done = await turn([{ action: 'complete', purchase_id: id, status: 'paid', charged: 12.4 }], false, 'chat-over')
+  assert.match(done.results[0].output, /more than the \$10\.00 that was authorized/)
+  assert.equal(paymentsEngine()!.status().purchases.find((p) => p.id === id)?.overAuthorized, true)
+})
+
+test("a turn carrying a guest's or a colleague's work never spends, whatever the worker may do", async () => {
+  assert.equal(mailOrigin([{ id: '1', from: 'user', fromName: 'You', text: 'buy it', files: [], at: 0 }]), null)
+  assert.equal(mailOrigin([{ id: '1', from: 'guest', fromName: 'Sam', text: 'buy me one', files: [], at: 0, channel: { kind: 'telegram', chatId: 'x', cap: 'talk' } as never }]), 'guest')
+  assert.equal(mailOrigin([{ id: '1', from: 'user', fromName: 'You', text: 'hi', files: [], at: 0 }, { id: '2', from: 'w-colleague', fromName: 'Nova', text: 'buy the tickets', files: [], at: 0 }]), 'delegated')
+
+  // Through the loop: the run says the work came from a guest.
+  configure('full')
+  paymentsEngine()!.acceptWaiver(PAYMENTS_WAIVER_VERSION, ALL_TICKED)
+  let index = 0
+  const { server, url } = await sseServer(() => (index++ === 0 ? call({ action: 'authorize', merchant: 'Shop', amount: 3, site: 'shop.example' }) : say('done')))
+  store.saveProviderConfig({ fake: { name: 'Fake', kind: 'openai-compatible', baseUrl: url, models: [{ id: 'fake-model', label: 'Fake', providerId: 'fake' }] } })
+  const events: StreamEvent[] = []
+  const before = paymentsEngine()!.status().purchases.length
+  await runAgent(request('guest-turn'), (e) => events.push(e), { unattended: 'autonomous', origin: 'guest', allowOnce: () => true, approver: async () => true })
+  server.close()
+  const result = events.find((e) => e.type === 'tool-result') as Extract<StreamEvent, { type: 'tool-result' }>
+  assert.equal(result.status, 'denied')
+  assert.match(result.output, /only ever for the user's own requests/)
+  assert.equal(paymentsEngine()!.status().purchases.length, before)
+
+  // And the tool itself refuses, for a worker turn the run didn't label.
+  const { engine } = memoryEngine()
+  engine.setCard(card)
+  const tool = paymentTool(() => engine, { browser: async () => undefined, browserUrl: () => null, screen: async () => 'App' }, () => 'delegated')
+  const out = await tool.run({ action: 'authorize', merchant: 'Shop', amount: 3 }, { request: request('w'), signal: new AbortController().signal } as never)
+  assert.match(typeof out === 'string' ? out : out.text, /work a colleague handed over/)
+  assert.equal(engine.status().purchases.length, 0)
+})
+
+test('a typing failure never quotes the card back', async () => {
+  const { engine } = memoryEngine()
+  engine.setCard(card)
+  const p = engine.authorize({ merchant: 'Shop', site: 'shop.example', description: '', amount: 3, currency: 'USD', chatId: 'w' }, 'approved')
+  const failing = paymentTool(
+    () => engine,
+    {
+      browser: async () => {
+        throw new Error(`Command failed: type -- ${VISA}`)
+      },
+      browserUrl: () => 'https://shop.example/checkout',
+      // As xdotool's error would read: every argument quoted back.
+      screen: async () => {
+        throw new Error(`Command failed: xdotool type --delay 8 -- ${VISA.replace(/(\d{4})/g, '$1 ').trim()} 123 12/30`)
+      }
+    }
+  )
+  const ctx = { request: request('w'), signal: new AbortController().signal } as never
+  for (const target of ['screen', 'browser']) {
+    await assert.rejects(
+      () => Promise.resolve(failing.run({ action: 'fill', purchase_id: p.id, target, fields: [{ field: 'number', ref: 'e1' }, { field: 'cvc', ref: 'e2' }] }, ctx)),
+      (error: Error) => {
+        assert.ok(!error.message.replace(/\s/g, '').includes(VISA), error.message)
+        assert.ok(!/\b123\b/.test(error.message), 'nor the security code')
+        return true
+      }
+    )
+  }
+  assert.equal(scrubCard('nothing secret here', { number: VISA, cvc: '987', card: engine.status().card! }), 'nothing secret here')
 })

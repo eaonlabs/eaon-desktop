@@ -57,11 +57,21 @@ export interface PurchaseRecord {
   status: PurchaseStatus
   /** Whether the user approved it, or it ran automatically within the limits. */
   how: 'approved' | 'auto'
+  /** A subscription or anything else that charges again later. Never automatic. */
+  recurring?: boolean
   chatId: string
   createdAt: number
   /** The card can be typed for this purchase until then. */
   expiresAt: number
+  /**
+   * When the agent pressed the site's pay button under this authorization.
+   * It covers that one press: pressing again (a retry after a slow page)
+   * asks first, so one approval can't become two orders.
+   */
+  submittedAt?: number
   completedAt?: number
+  /** The merchant charged more than was authorized (tax or shipping added at checkout). */
+  overAuthorized?: boolean
   note?: string
 }
 
