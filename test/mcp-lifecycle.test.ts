@@ -276,3 +276,14 @@ test('a ~ in a stdio argument means the home folder', async () => {
     process.env.HOME = original
   }
 })
+
+test('a result with hundreds of images or a huge text keeps a bounded amount', async () => {
+  const { toToolResult } = await import('../src/main/mcp')
+  const png = Buffer.from('fake png').toString('base64')
+  const many = toToolResult({ content: Array.from({ length: 300 }, () => ({ type: 'image' as const, data: png, mimeType: 'image/png' })) })
+  assert.equal(many.images?.length, 8)
+  assert.match(many.text, /only the first 8 images are kept/)
+  const huge = toToolResult({ content: [{ type: 'text' as const, text: 'x'.repeat(5_000_000) }] })
+  assert.ok(huge.text.length < 2_100_000)
+  assert.match(huge.text, /5,000,000-character result was dropped/)
+})

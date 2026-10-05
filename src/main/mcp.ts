@@ -529,6 +529,14 @@ export interface McpCallResult {
 /** Image types every provider takes, and a size they all accept (base64 characters). */
 const IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
 const IMAGE_LIMIT = 6_500_000
+/**
+ * Images kept from one result. Each is saved to disk and sent with every
+ * later request of the turn; a server returning hundreds (or a hostile one)
+ * would fill the disk and the context window.
+ */
+const MAX_IMAGES = 8
+/** Text kept from one result before the loop's own cap: a runaway server can send hundreds of megabytes. */
+const MAX_TEXT_CHARS = 2_000_000
 
 /**
  * A tool result as the agent loop takes it. Text blocks are the answer.
@@ -537,14 +545,15 @@ const IMAGE_LIMIT = 6_500_000
  * model knows they exist; `isError` stays an error rather than reading as a
  * successful answer that happens to describe a failure.
  */
-function toToolResult(result: CallToolResult): McpCallResult {
+export function toToolResult(result: CallToolResult): McpCallResult {
   const parts: string[] = []
   const images: { mime: string; data: string }[] = []
   for (const block of result.content ?? []) {
     if (block.type === 'text') {
       if (block.text) parts.push(block.text)
     } else if (block.type === 'image') {
-      if (IMAGE_TYPES.has(block.mimeType) && block.data.length <= IMAGE_LIMIT) images.push({ mime: block.mimeType, data: block.data })
+      if (images.length >= MAX_IMAGES) parts.push(`[image: ${block.mimeType}, not shown: only the first ${MAX_IMAGES} images are kept]`)
+      else if (IMAGE_TYPES.has(block.mimeType) && block.data.length <= IMAGE_LIMIT) images.push({ mime: block.mimeType, data: block.data })
       else parts.push(`[image: ${block.mimeType}, not shown]`)
     } else if (block.type === 'audio') {
       parts.push(`[audio: ${block.mimeType}, not shown]`)
@@ -560,7 +569,8 @@ function toToolResult(result: CallToolResult): McpCallResult {
     }
   }
   let text = parts.join('\n')
-  if (!text && result.structuredContent) text = JSON.stringify(result.structuredContent)
+  if (text.length > MAX_TEXT_CHARS) text = `${text.slice(0, MAX_TEXT_CHARS)}\n…[the rest of a ${text.length.toLocaleString('en-US')}-character result was dropped]`
+  if (!text && result.structuredContent) text = JSON.stringify(result.structuredContent).slice(0, MAX_TEXT_CHARS)
   if (!text && images.length === 0) text = result.isError ? 'The tool failed without saying why.' : '(no output)'
   return { text, ...(images.length > 0 ? { images } : {}), ...(result.isError ? { isError: true } : {}) }
 }

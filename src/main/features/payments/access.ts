@@ -37,7 +37,7 @@ export function purchaseCovers(chatId: string, url: string): boolean {
   }
 }
 
-const SHORT_FIELD = /\b(textbox|spinbutton|input)\b[^\n]*(cvc|cvv|csc|security code|card code)/i
+const SHORT_FIELD = /\b(textbox|spinbutton|input)\b[^\n]*(cvc|cvv|cvn|csc|cid|security (code|number)|card code|verification (code|number|value))/i
 
 /**
  * Blanks the saved card's number wherever it appears (spaced, dashed or
