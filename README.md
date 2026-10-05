@@ -55,9 +55,13 @@ Three tabs, centred at the top of every screen (⌘1 / ⌘2 / ⌘3):
   changes things asks first unless you choose "Auto-approve", and risky
   actions always ask.
 - **Workers**: always-on agents, each with a name, colour, personality and
-  purpose, one never-ending thread, and heartbeats it schedules for itself.
+  purpose, its own conversation with you, a thread of its own for every
+  routine, side task and job a colleague delegates, and wake-ups it schedules
+  for itself (or sets on a process or file). Threads run side by side and
+  stop on their own; every run has a receipt with how it went, and Retry.
   Workers message each other, hand over files and share out big jobs. They
-  run with risky actions refused, since nobody is there to approve them.
+  can run on Eaon's own agent or on an installed Codex. Nobody is there to
+  approve risky actions, so they are refused or asked about.
 - **ADE**: the agentic development environment — a graphical front end for
   an [Eaon Code](https://github.com/eaonlabs/eaon-code) session in a project
   folder.

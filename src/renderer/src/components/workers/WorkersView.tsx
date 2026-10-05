@@ -42,7 +42,7 @@ import { useChannels } from '../channels/channelsStore'
 
 /**
  * The Workers tab: the team at a glance, or one worker's page — its face, its
- * one long thread and a box to write to it. Workers run in the main process;
+ * conversation and threads, and a box to write to them. Workers run in the main process;
  * everything here is a view onto them.
  */
 export function WorkersView(): JSX.Element {
@@ -143,8 +143,8 @@ function TeamEmpty({ onCreate, onTeam }: { onCreate: () => void; onTeam: () => v
       <h1 className="team-empty__title">Meet Eaon Workers</h1>
       <p className="team-empty__text">
         Workers are agents that live on your computer and keep going around the clock. Give one a job — watching a training
-        run, tidying your inbox, researching every morning — and it schedules its own check-ins, remembers everything in
-        one long thread, and asks its teammates for help when a job is bigger than one worker.
+        run, tidying your inbox, researching every morning — and it schedules its own check-ins, keeps its notes, works on
+        several things at once, each in a thread of its own, and asks its teammates for help when a job is bigger than one worker.
       </p>
       <div className="team-empty__actions">
         <button className="btn btn--primary btn--lg" onClick={onCreate}>

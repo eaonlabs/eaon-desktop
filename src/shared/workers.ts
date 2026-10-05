@@ -6,12 +6,15 @@ import type { EngineId } from './engines'
  * Eaon Workers: independent agents that live on the user's computer and keep
  * running in the background.
  *
- * A worker has no sessions. It owns one thread that lasts forever — the agent
- * loop compacts it when it grows too big — and it wakes up for three reasons
- * only: the user wrote to it, another worker sent it mail, or a heartbeat it
- * scheduled for itself came due. Everything a worker is told arrives as mail
- * in its inbox and is folded into the next turn, so a message sent while it is
- * busy is never lost or interleaved into the turn in flight.
+ * A worker has no sessions. Its main thread — its conversation with the user —
+ * lasts forever (the agent loop compacts it when it grows too big), and it has
+ * a thread of its own for each routine, side task and job a colleague
+ * delegates, which run, wait, fail and stop independently of one another. It
+ * wakes up when the user wrote to it, another worker sent it mail, a wake-up it
+ * scheduled for itself came due, or something it was waiting on happened.
+ * Everything a thread is told arrives as mail in its inbox and is folded into
+ * its next run, so a message sent while it is busy is never lost or
+ * interleaved into the run in flight. Each run leaves a receipt.
  *
  * The main process owns workers (`features/workers/`); the renderer only
  * displays them and sends commands, so they keep working with no window open.
