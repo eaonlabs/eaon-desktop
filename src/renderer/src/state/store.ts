@@ -35,6 +35,8 @@ const uid = (): string => Math.random().toString(36).slice(2, 11) + Date.now().t
 
 interface AppState {
   ready: boolean
+  /** Why loading the saved data at startup failed; the window shows it with a retry. */
+  initError: string | null
   settings: Settings | null
   workspaces: Workspace[]
   projects: Project[]
@@ -430,6 +432,7 @@ export const useWorkspaceKind = (): WorkspaceKind =>
 
 export const useApp = create<AppState>((set, get) => ({
   ready: false,
+  initError: null,
   settings: null,
   workspaces: [],
   projects: [],
@@ -457,18 +460,30 @@ export const useApp = create<AppState>((set, get) => ({
   updateStatus: { state: 'idle' },
 
   async init() {
-    const [settings, workspaces, projects, chats, providers, mcpServers] = await Promise.all([
-      window.api.settings.get(),
-      window.api.workspaces.get(),
-      window.api.projects.get(),
-      window.api.chats.get(),
-      window.api.providers.list(),
-      window.api.mcp.get()
-    ])
+    // A failure here used to leave the window blank for good: nothing caught
+    // it and `ready` never came. Now the window says what failed and offers
+    // to try again (App.tsx).
+    set({ initError: null })
+    let loaded: [Settings, Workspace[], Project[], Chat[], Provider[], McpServer[], string[]]
+    try {
+      loaded = await Promise.all([
+        window.api.settings.get(),
+        window.api.workspaces.get(),
+        window.api.projects.get(),
+        window.api.chats.get(),
+        window.api.providers.list(),
+        window.api.mcp.get(),
+        window.api.chats.activeRuns()
+      ])
+    } catch (error) {
+      set({ initError: (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '') })
+      return
+    }
+    const [settings, workspaces, projects, chats, providers, mcpServers, activeRuns] = loaded
     // Nothing is running for this renderer yet, so a call still marked
     // running was cut off by a crash or a quit (see sealInterrupted) unless
     // another window is writing that reply right now.
-    const live = new Set(await window.api.chats.activeRuns())
+    const live = new Set(activeRuns)
     const sealed = chats.map((chat) => (chat.messages.some((m) => live.has(m.id)) ? chat : sealInterrupted([chat])[0]))
     synced = new Map(chats.map((chat) => [chat.id, chat]))
     set({ settings, workspaces, projects, chats: sealed, providers, mcpServers, ready: true })

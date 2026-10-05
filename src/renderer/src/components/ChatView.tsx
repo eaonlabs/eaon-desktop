@@ -40,6 +40,9 @@ import { CHANNEL_LABEL } from '@shared/channels'
 import { fileUrl, isImagePath, isVideoPath } from '../lib/files'
 import type { Chat, ChatMessage, ChatToolPart } from '@shared/types'
 
+/** Window event: the app menu's Archive Chat, for the conversation on screen to handle like its own Archive. */
+export const ARCHIVE_REQUEST = 'eaon:archive-chat'
+
 export function ChatView(): JSX.Element {
   const chat = useApp((s) => s.activeChat())
   return (
@@ -285,6 +288,15 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
     if (streaming) setConfirmArchive(true)
     else archiveChat(chat.id)
   }
+  // ⇧⌘A and File → Archive Chat. They archived straight from the store, so a
+  // chat in the middle of a reply was stopped without the question below.
+  const archiveRequest = useRef(requestArchive)
+  archiveRequest.current = requestArchive
+  useEffect(() => {
+    const onRequest = (): void => archiveRequest.current()
+    window.addEventListener(ARCHIVE_REQUEST, onRequest)
+    return () => window.removeEventListener(ARCHIVE_REQUEST, onRequest)
+  }, [])
 
   const workFolder = useApp((s) => agentWorkspace(s.workspaces)?.cwd ?? s.settings?.work.defaultFolder ?? '~/Eaon')
 

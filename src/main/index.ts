@@ -290,8 +290,20 @@ async function openReleaseNotes(): Promise<void> {
 }
 
 function buildMenu(): void {
-  const send = (channel: string, ...args: unknown[]): void => {
-    BrowserWindow.getFocusedWindow()?.webContents.send(channel, ...args)
+  // To the Eaon window in front, not whatever window has focus: with the
+  // computer-use pill focused that was the pill, and the command was lost.
+  const send = (channel: string): void => {
+    currentWindow()?.webContents.send(channel)
+  }
+  // New Chat and Settings… also work with every window closed (macOS keeps
+  // running): they open one and pass the command on once its page has
+  // loaded. The preload holds it until the app is listening.
+  const sendOrOpen = (channel: string): void => {
+    if (currentWindow()) return send(channel)
+    const window = createWindow()
+    window.webContents.once('did-finish-load', () => {
+      if (!window.isDestroyed()) window.webContents.send(channel)
+    })
   }
   const template: Electron.MenuItemConstructorOptions[] = [
     {
@@ -300,7 +312,7 @@ function buildMenu(): void {
         { role: 'about' },
         { label: 'Check for Updates…', click: () => void checkForUpdates({ interactive: true }) },
         { type: 'separator' },
-        { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: () => send('menu:settings') },
+        { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: () => sendOrOpen('menu:settings') },
         { type: 'separator' },
         { role: 'hide' },
         { role: 'hideOthers' },
@@ -311,7 +323,7 @@ function buildMenu(): void {
     {
       label: 'File',
       submenu: [
-        { label: 'New Chat', accelerator: 'CmdOrCtrl+N', click: () => send('menu:new-chat') },
+        { label: 'New Chat', accelerator: 'CmdOrCtrl+N', click: () => sendOrOpen('menu:new-chat') },
         // ⌥⌘N, as in Mail's New Viewer Window: ⌘N is already New Chat.
         { label: 'New Window', accelerator: 'Alt+CmdOrCtrl+N', click: () => void createWindow() },
         { type: 'separator' },

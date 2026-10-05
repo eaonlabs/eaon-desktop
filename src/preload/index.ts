@@ -51,6 +51,17 @@ function on<T>(channel: string, handler: (payload: T) => void): () => void {
   return () => ipcRenderer.removeListener(channel, listener)
 }
 
+const MENU_CHANNELS = ['menu:settings', 'menu:new-chat', 'menu:archive-chat', 'menu:toggle-sidebar', 'menu:toggle-panel']
+let menuHandler: ((command: string) => void) | null = null
+const menuQueue: string[] = []
+for (const channel of MENU_CHANNELS) {
+  ipcRenderer.on(channel, () => {
+    const command = channel.replace('menu:', '')
+    if (menuHandler) menuHandler(command)
+    else menuQueue.push(command)
+  })
+}
+
 const api = {
   /**
    * Exposed as a value rather than an IPC call because the renderer needs it
@@ -196,20 +207,17 @@ const api = {
       ipcRenderer.invoke('dialog:open-files', options),
     /** Absolute path of a file dropped onto the window (File.path was removed in Electron 32). */
     pathForFile: (file: File): string => webUtils.getPathForFile(file),
+    /**
+     * App-menu commands. Listened for from the start and held until the app
+     * subscribes, so a command that opened this window (New Chat with every
+     * window closed) isn't sent before anything is listening.
+     */
     onMenu: (handler: (command: string) => void): (() => void) => {
-      const channels = [
-        'menu:settings',
-        'menu:new-chat',
-        'menu:archive-chat',
-        'menu:toggle-sidebar',
-        'menu:toggle-panel'
-      ]
-      const listeners = channels.map((channel) => {
-        const listener = (): void => handler(channel.replace('menu:', ''))
-        ipcRenderer.on(channel, listener)
-        return () => ipcRenderer.removeListener(channel, listener)
-      })
-      return () => listeners.forEach((off) => off())
+      menuHandler = handler
+      for (const command of menuQueue.splice(0)) handler(command)
+      return () => {
+        if (menuHandler === handler) menuHandler = null
+      }
     }
   },
   updater: {

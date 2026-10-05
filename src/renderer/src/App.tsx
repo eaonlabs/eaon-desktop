@@ -1,8 +1,8 @@
 import { useEffect } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { useApp, useIsWork, useWorkspaceKind } from './state/store'
+import { isAgentKind, useApp, useIsWork, useWorkspaceKind } from './state/store'
 import { Sidebar } from './components/Sidebar'
-import { ChatView } from './components/ChatView'
+import { ARCHIVE_REQUEST, ChatView } from './components/ChatView'
 import { BrowserPanel } from './components/BrowserPanel'
 import { PluginsPage } from './components/plugins/PluginsPage'
 import { IntegrationsPage } from './components/plugins/IntegrationsPage'
@@ -23,6 +23,7 @@ import { TradingDesk } from './components/trading/TradingDesk'
 import { useAgentBrowser } from './components/agentBrowser/agentBrowserStore'
 import { THEMES } from './lib/themes'
 import { hasCommandModifier, isMacPlatform } from './lib/keys'
+import { Starting } from './components/Starting'
 
 export default function App(): JSX.Element {
   const { ready, view, sidebarOpen, browserOpen, init, setView, setSettingsPage } = useApp(useShallow((s) => ({ ready: s.ready, view: s.view, sidebarOpen: s.sidebarOpen, browserOpen: s.browserOpen, init: s.init, setView: s.setView, setSettingsPage: s.setSettingsPage })))
@@ -44,7 +45,11 @@ export default function App(): JSX.Element {
 
 
 
+  // Once the saved data is in: a command that arrives sooner (New Chat with
+  // every window closed opens this one) is held by the preload until then,
+  // where loading the data would have undone it.
   useEffect(() => {
+    if (!ready) return
     return window.api.app.onMenu((command) => {
       const app = useApp.getState()
       switch (command) {
@@ -55,19 +60,23 @@ export default function App(): JSX.Element {
           app.newChat()
           break
         case 'archive-chat':
-          if (app.activeChatId) app.archiveChat(app.activeChatId)
+          // The open conversation archives itself, so a chat that is still
+          // replying asks first, as its own menu does (ChatView).
+          window.dispatchEvent(new Event(ARCHIVE_REQUEST))
           break
         case 'toggle-sidebar':
           app.toggleSidebar()
           break
         case 'toggle-panel':
-          app.toggleBrowser()
+          // The browser panel exists beside Chat only; elsewhere this flipped
+          // a hidden switch and the panel popped up later, unasked.
+          if (isAgentKind(app.workspaces.find((w) => w.id === app.settings?.activeWorkspaceId)?.kind)) app.toggleBrowser()
           break
       }
     })
-  }, [])
+  }, [ready])
 
-  if (!ready) return <div className="app" />
+  if (!ready) return <Starting />
 
   return (
     <>
