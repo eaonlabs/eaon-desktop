@@ -18,7 +18,7 @@
  *
  * On Linux it needs a display; CI runs it under `xvfb-run`.
  */
-import { spawnSync } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { existsSync, readdirSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 
@@ -65,6 +65,18 @@ const files = readdirSync(dir)
 if (files.length === 0) {
   console.log('No scenarios matched.')
   process.exit(0)
+}
+
+// A Mac that goes to sleep mid-run (idle, on battery) stalls every timer and
+// leaves scenarios "timing out" after an hour of wall clock. Held awake for as
+// long as this process lives; the lid being closed still sleeps it, which the
+// scenarios report when it happens.
+if (process.platform === 'darwin') {
+  try {
+    spawn('caffeinate', ['-dim', '-w', String(process.pid)], { stdio: 'ignore', detached: true }).unref()
+  } catch {
+    /* no caffeinate: the run still works */
+  }
 }
 
 let status = 0

@@ -22,6 +22,13 @@ export const isMac = process.platform === 'darwin'
  * @typedef {import('./fakeProvider.mjs').FakeProvider} FakeProvider
  */
 
+/**
+ * Wall-clock time minus monotonic time. The monotonic clock stops while the
+ * machine sleeps and the wall clock does not, so this grows by the length of
+ * every sleep.
+ */
+const clockOffset = () => Date.now() - performance.now()
+
 export class Scenario {
   /** @param {string} slug @param {import('node:test').TestContext} t */
   constructor(slug, t) {
@@ -120,11 +127,18 @@ export function scenario(name, options, fn) {
   test(name, { timeout: options.timeout ?? 120_000, todo: options.todo, skip: options.skip || undefined }, async (t) => {
     const s = new Scenario(slug, t)
     let failed = false
+    const clockAtStart = clockOffset()
     try {
       await fn(s)
     } catch (error) {
       failed = true
       await s.captureFailure().catch(() => undefined)
+      // Timers and the wall clock keep going while a laptop sleeps, so a
+      // scenario that was asleep "times out" with nothing wrong in the app.
+      const slept = clockOffset() - clockAtStart
+      if (slept > 5000 && error instanceof Error) {
+        error.message = `The computer slept for about ${Math.round(slept / 1000)} s during this scenario, so this failure is not trustworthy. Run it again. ${error.message}`
+      }
       throw error
     } finally {
       const orphans = await s.dispose()
