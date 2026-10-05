@@ -17,7 +17,11 @@ const run = promisify(execFile)
 export class LinuxInput implements InputBackend {
   readonly name = 'xdotool'
 
-  constructor(private readonly scale: () => number) {}
+  constructor(
+    private readonly scale: () => number,
+    /** For tests: how a child process is started. */
+    private readonly start: typeof spawn = spawn
+  ) {}
 
   private native(point: Point): Point {
     const s = this.scale()
@@ -77,8 +81,29 @@ export class LinuxInput implements InputBackend {
     await this.xdo(args)
   }
 
+  /**
+   * Typed text goes to xdotool on stdin (`--file -`), never on its command
+   * line: arguments are visible to every user in `ps`, and the text can be a
+   * card number (payment_card types through here).
+   */
   async type(text: string): Promise<void> {
-    await this.xdo(['type', '--delay', '8', '--', text])
+    await new Promise<void>((resolve, reject) => {
+      const child = this.start('xdotool', ['type', '--delay', '8', '--file', '-'], { stdio: ['pipe', 'ignore', 'pipe'] })
+      let stderr = ''
+      const timer = setTimeout(() => child.kill(), 30_000 + text.length * 20)
+      child.stderr?.on('data', (chunk: Buffer) => (stderr = (stderr + chunk.toString()).slice(-2000)))
+      child.once('error', (error: NodeJS.ErrnoException) => {
+        clearTimeout(timer)
+        reject(error.code === 'ENOENT' ? new Error('xdotool is not installed. Install it (e.g. sudo apt install xdotool) to let Eaon use the pointer and keyboard.') : error)
+      })
+      child.once('exit', (code) => {
+        clearTimeout(timer)
+        if (code === 0) resolve()
+        else reject(new Error(stderr.trim() || `xdotool type exited with ${code}.`))
+      })
+      child.stdin?.on('error', () => {})
+      child.stdin?.end(text)
+    })
   }
 
   async key(combo: Combo): Promise<void> {

@@ -12,6 +12,7 @@ import { ModelsPage } from './components/ModelsPage'
 import { SettingsShell } from './components/settings/SettingsShell'
 import { UpdateToast } from './components/UpdateToast'
 import { StoreNotice } from './components/StoreNotice'
+import { ComputerLeaseIndicator } from './components/computer/ComputerLeaseIndicator'
 import { CodeView } from './components/code/CodeView'
 import { LibraryPage } from './components/LibraryPage'
 import { WorkersView } from './components/workers/WorkersView'
@@ -99,6 +100,7 @@ export default function App(): JSX.Element {
       )}
       <UpdateToast />
       <StoreNotice />
+      <ComputerLeaseIndicator />
       <DiscordPresence />
       <BrowserAsk />
     </>

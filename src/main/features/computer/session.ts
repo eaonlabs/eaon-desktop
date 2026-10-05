@@ -26,15 +26,32 @@ let getAppWindows: () => BrowserWindow[] = () => {
   return main ? [main] : []
 }
 let onStopped: (() => void) | null = null
+let onTakeBack: (() => void) | null = null
+/** Who holds the computer, for the pill; null while runs only look at the screen. */
+let controlling: { name: string; waiting: number } | null = null
 
 export function configureSession(options: {
   getWindow: () => BrowserWindow | null
   getWindows?: () => BrowserWindow[]
   onStopped?: () => void
+  /** The pill's "Take back control": the user wants the computer for themselves. */
+  onTakeBack?: () => void
 }): void {
   getMain = options.getWindow
   if (options.getWindows) getAppWindows = options.getWindows
   onStopped = options.onStopped ?? null
+  onTakeBack = options.onTakeBack ?? null
+}
+
+/**
+ * Names who is controlling the computer on the always-on-top pill — seeing
+ * the screen and controlling it are different things, and the pill says
+ * which. Null means nobody holds the pointer (a run is only looking).
+ */
+export function setIndicatorOwner(next: { name: string; waiting: number } | null): void {
+  if (controlling?.name === next?.name && controlling?.waiting === next?.waiting) return
+  controlling = next
+  if (indicator && !indicator.isDestroyed()) void indicator.loadURL(indicatorUrl())
 }
 
 export function isDriving(): boolean {
@@ -81,10 +98,16 @@ export function disposeSession(): void {
 
 /* -------------------------------------------------------------- indicator */
 
-const INDICATOR_W = 440
+const INDICATOR_W = 600
 const INDICATOR_H = 46
 
+const escapeHtml = (text: string): string => text.replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]!)
+
 function indicatorHtml(): string {
+  const text = controlling
+    ? `${escapeHtml(controlling.name)} is using your computer${controlling.waiting > 0 ? ` <span class="hint">· ${controlling.waiting} waiting</span>` : ''}`
+    : 'Eaon is looking at your screen'
+  const takeBack = controlling ? '<a class="quiet" href="https://eaon.invalid/take-back">Take back control</a>' : ''
   return `<!doctype html><html><head><meta charset="utf-8"><title>Eaon</title><style>
 :root { color-scheme: dark; --pill: rgba(28, 28, 30, 0.94); --text: #f5f5f7; --muted: rgba(245, 245, 247, 0.6);
   --danger: #ff453a; --danger-soft: rgba(255, 69, 58, 0.2); --danger-hover: rgba(255, 69, 58, 0.32); --border: rgba(255, 255, 255, 0.14); }
@@ -101,9 +124,13 @@ body { display: flex; align-items: center; justify-content: center; }
 a { display: inline-flex; align-items: center; height: 24px; padding: 0 11px; border-radius: 999px; background: var(--danger-soft);
   color: #ff6961; font-weight: 600; text-decoration: none; }
 a:hover { background: var(--danger-hover); }
-</style></head><body><div class="pill" role="status"><span class="dot"></span><span>Eaon is using your computer</span>
-<span class="hint">${STOP_LABEL} to stop</span><a href="https://eaon.invalid/stop">Stop</a></div></body></html>`
+a.quiet { background: rgba(255, 255, 255, 0.12); color: var(--text); }
+a.quiet:hover { background: rgba(255, 255, 255, 0.2); }
+</style></head><body><div class="pill" role="status"><span class="dot"></span><span>${text}</span>
+<span class="hint">${STOP_LABEL} to stop</span>${takeBack}<a href="https://eaon.invalid/stop">Stop</a></div></body></html>`
 }
+
+const indicatorUrl = (): string => `data:text/html;charset=utf-8,${encodeURIComponent(indicatorHtml())}`
 
 function showIndicator(): void {
   if (indicator && !indicator.isDestroyed()) return
@@ -137,12 +164,13 @@ function showIndicator(): void {
   win.webContents.on('will-navigate', (event, url) => {
     event.preventDefault()
     if (url.endsWith('/stop')) stopAll()
+    else if (url.endsWith('/take-back')) onTakeBack?.()
   })
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
   win.once('ready-to-show', () => {
     if (!win.isDestroyed()) win.showInactive()
   })
-  void win.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(indicatorHtml())}`)
+  void win.loadURL(indicatorUrl())
   indicator = win
 }
 

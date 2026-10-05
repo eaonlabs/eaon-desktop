@@ -1,12 +1,12 @@
 import { app, shell, systemPreferences } from 'electron'
-import type { ComputerTestResult, ComputerUseStatus, PermissionKind, PermissionState } from '@shared/computerUse'
+import { leaseOwnerName, type ComputerLeaseState, type ComputerTestResult, type ComputerUseStatus, type PermissionKind, type PermissionState } from '@shared/computerUse'
 import { registerToolSource } from '../agent/tools'
 import { store } from '../store'
 import { disposeInput, inputBackend, interruptInput } from './computer/backend'
 import { captureDisplay, orderedDisplays, requestScreenAccess, ScreenCaptureDenied } from './computer/capture'
 import { differentlySignedCopies, permissionOwner, resetAccessibility } from './computer/mac'
-import { configureSession, disposeSession, isDriving, STOP_LABEL, stopAll, withEaonHidden } from './computer/session'
-import { COMPUTER_GUIDANCE, computerTool } from './computer/tool'
+import { configureSession, disposeSession, endDriving, isDriving, setIndicatorOwner, STOP_LABEL, stopAll, withEaonHidden } from './computer/session'
+import { computerGuidance, computerLease, computerTool } from './computer/tool'
 // The iOS Simulator tool is offered alongside computer use.
 import './simulator'
 import type { Feature } from './types'
@@ -105,13 +105,34 @@ async function test(): Promise<ComputerTestResult> {
 registerToolSource({
   id: 'computer',
   tools: (query) => (query.mode === 'work' && query.depth === 0 && query.settings.computerUse.enabled ? [computerTool] : []),
-  guidance: () => COMPUTER_GUIDANCE
+  guidance: () => computerGuidance()
 })
+
+/**
+ * The user takes the computer back, from the pill or from the app: whoever
+ * holds the pointer (and everyone waiting for it) is off it for the rest of
+ * their run, and any typing in flight is cut short. The runs themselves keep
+ * going — they are told, and carry on with whatever doesn't need the screen.
+ * The emergency stop (⌃⌥⌘.) is the way to end them.
+ */
+function takeBack(): ComputerLeaseState {
+  const refused = computerLease.revoke()
+  if (refused.length > 0) interruptInput()
+  for (const owner of refused) endDriving(owner.runId)
+  return computerLease.state()
+}
 
 export const computerUseFeature: Feature = {
   id: 'computer-use',
-  register: ({ ipcMain, getWindow, getWindows }) => {
-    configureSession({ getWindow, getWindows, onStopped: interruptInput })
+  register: ({ ipcMain, getWindow, getWindows, send }) => {
+    configureSession({ getWindow, getWindows, onStopped: interruptInput, onTakeBack: takeBack })
+    // Who holds the one pointer: the app's indicator, the worker pages and the pill all follow this.
+    computerLease.onChange((state) => {
+      send('computer:lease-changed', state)
+      setIndicatorOwner(state.holder ? { name: leaseOwnerName(state.holder), waiting: state.waiting.length } : null)
+    })
+    ipcMain.handle('computer:lease', () => computerLease.state())
+    ipcMain.handle('computer:take-back', () => takeBack())
     ipcMain.handle('computer-use:status', () => status())
     ipcMain.handle('computer-use:test', () => test())
     ipcMain.handle('computer-use:stop', () => stopAll())
@@ -150,6 +171,7 @@ export const computerUseFeature: Feature = {
     })
   },
   dispose: () => {
+    computerLease.dispose()
     disposeSession()
     disposeInput()
   }

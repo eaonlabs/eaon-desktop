@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { desktopCapturer, nativeImage, screen, systemPreferences, type Display, type NativeImage } from 'electron'
-import { targetSize, type Frame, type Quality, type Rect } from './geometry'
+import { orderDisplays, targetSize, type Frame, type Quality, type Rect } from './geometry'
 import { permissionOwnerLabel } from './mac'
 
 const run = promisify(execFile)
@@ -41,12 +41,7 @@ export interface CaptureOptions {
 
 /** Displays in a stable order: the primary first, then left to right, top to bottom. */
 export function orderedDisplays(): Display[] {
-  const primary = screen.getPrimaryDisplay()
-  const rest = screen
-    .getAllDisplays()
-    .filter((d) => d.id !== primary.id)
-    .sort((a, b) => a.bounds.x - b.bounds.x || a.bounds.y - b.bounds.y)
-  return [primary, ...rest]
+  return orderDisplays(screen.getPrimaryDisplay().id, screen.getAllDisplays())
 }
 
 export class ScreenCaptureDenied extends Error {}

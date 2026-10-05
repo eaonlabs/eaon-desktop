@@ -188,9 +188,13 @@ function locked() {
   return !value.isNil() && ObjC.unwrap(value) === true
 }
 
+function asleep() {
+  try { return Boolean($.CGDisplayIsAsleep($.CGMainDisplayID())) } catch (e) { return false }
+}
+
 function handle(req) {
   switch (req.cmd) {
-    case 'check': return { trusted: $.AXIsProcessTrusted(), locked: locked() }
+    case 'check': return { trusted: $.AXIsProcessTrusted(), locked: locked(), asleep: asleep() }
     case 'cursor': return cursor()
     case 'move': move(req.x, req.y); return null
     case 'click': click(req.x, req.y, req.button, req.clicks); return null
@@ -349,10 +353,10 @@ export class MacInput implements InputBackend {
 
   async check(): Promise<BackendCheck> {
     try {
-      const result = await this.helper.request<{ trusted: boolean; locked: boolean }>('check', {}, 8000)
+      const result = await this.helper.request<{ trusted: boolean; locked: boolean; asleep?: boolean }>('check', {}, 8000)
       // An untrusted helper is still available: the setup steps in Settings
       // and the tool's own error say what to switch on.
-      return { available: true, trusted: result.trusted, locked: result.locked }
+      return { available: true, trusted: result.trusted, locked: result.locked, asleep: result.asleep === true }
     } catch (error) {
       return { available: false, detail: (error as Error).message }
     }
