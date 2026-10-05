@@ -61,15 +61,25 @@ scenario('Settings → General: every control does something', { timeout: 150_00
       })
       window.__e2eObserver.observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true })
     })
+    // Found again by its row title and label rather than by position: a click
+    // earlier in the loop can add controls (a failed update check adds an
+    // "Update didn't finish" row), and every index after that would point at
+    // the wrong element.
     const clicked = await page
-      .eval((index) => {
+      .eval((label) => {
         const root = document.querySelector('.settings__inner') ?? document.querySelector('.settings__body')
-        const el = root?.querySelectorAll('button, [role="switch"], select, input, a[href]')[index]
+        const all = [...(root?.querySelectorAll('button, [role="switch"], select, input, a[href]') ?? [])]
+        const el = all.find((candidate) => {
+          const row = candidate.closest('.row')
+          const title = row?.querySelector('.row__title')?.textContent?.trim() ?? ''
+          const text = (candidate.getAttribute('aria-label') || candidate.textContent || candidate.getAttribute('title') || '').trim()
+          return `${title ? `${title} › ` : ''}${text}`.slice(0, 80) === label
+        })
         if (!el) return 'gone'
         el.scrollIntoView({ block: 'center' })
         const rect = el.getBoundingClientRect()
         return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }
-      }, control.index)
+      }, control.label)
     if (clicked === 'gone') continue
     await page.mouse(clicked.x, clicked.y)
     // Up to 1.5 s for anything to happen: an IPC call, a link, a DOM change.
@@ -106,9 +116,7 @@ scenario('Settings → General: every control does something', { timeout: 150_00
   }
   assert.deepEqual(app.pageErrors().filter((e) => /exception/.test(e)), [], 'clicking through General threw in the page')
 
-  await s.t.test('no control on General is dead', {
-    todo: 'Bug (Settings → General, ui stream): "Import work from other AI apps › Import" has no click handler, so it does nothing.'
-  }, () => {
+  await s.t.test('no control on General is dead', () => {
     assert.deepEqual(dead, [])
   })
 })
@@ -143,17 +151,15 @@ scenario('software update: checking while offline shows a failure, not a crash o
   await page.click('.settings__inner button', { text: /Check for updates/ })
   const failed = await page.waitFor(
     () => {
-      const row = [...document.querySelectorAll('.settings__inner .row')].find((r) => r.querySelector('.row__title')?.textContent === 'Update check failed')
+      const row = [...document.querySelectorAll('.settings__inner .row')].find((r) => /^Update (check failed|didn.t finish)$/.test(r.querySelector('.row__title')?.textContent ?? ''))
       return row ? (row.querySelector('.row__desc')?.textContent ?? '').trim() || '(no description)' : null
     },
-    { timeout: 30_000, message: '"Update check failed" in Settings → General' }
+    { timeout: 30_000, message: 'the update failure row in Settings → General' }
   )
   s.t.diagnostic(`offline update check failed after ${Date.now() - started} ms with: ${JSON.stringify(failed)}`)
   await s.shot(page, 'update-offline')
   assert.ok(failed.length > 0, 'the failure says nothing')
-  await s.t.test('the offline update failure is short and readable', {
-    todo: "Product gap (updater): the raw electron-updater error is shown as it is; it should say Eaon couldn't reach the update server and keep the detail behind a details/copy affordance."
-  }, () => {
+  await s.t.test('the offline update failure is short and readable', () => {
     assert.doesNotMatch(failed, /net::ERR_|ECONN|ENOTFOUND|HttpError|status code/i, 'a raw error code instead of words')
     assert.match(failed, /couldn.t|can.t|offline|internet|update server/i)
     assert.ok(failed.length < 160, `${failed.length} characters`)
