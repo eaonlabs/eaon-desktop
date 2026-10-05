@@ -7,6 +7,7 @@ import { useCode } from './codeStore'
 import { AgentMark } from './terminal/TerminalWorkspace'
 import { terminals } from './terminal/registry'
 import { useTerminals } from './terminal/terminalStore'
+import { revealLabel } from '../../lib/files'
 import type { TerminalPaneSpec } from '@shared/terminals'
 
 /** The ADE's sidebar section: this folder's terminals, then the folders opened recently. */
@@ -63,7 +64,7 @@ export function CodeSidebar(): JSX.Element | null {
           y={menu.y}
           onClose={() => setMenu(null)}
           items={[
-            { icon: <Folder size={15} strokeWidth={1.9} />, label: 'Reveal in Finder', action: () => void window.api.app.showItem(menu.path) },
+            { icon: <Folder size={15} strokeWidth={1.9} />, label: revealLabel(), action: () => void window.api.app.showItem(menu.path) },
             { icon: <Trash2 size={15} strokeWidth={1.9} />, label: 'Remove from recents', action: () => void forgetFolder(menu.path) }
           ]}
         />

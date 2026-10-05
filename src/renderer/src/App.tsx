@@ -11,6 +11,7 @@ import { PullRequestsPage } from './components/PullRequestsPage'
 import { ModelsPage } from './components/ModelsPage'
 import { SettingsShell } from './components/settings/SettingsShell'
 import { UpdateToast } from './components/UpdateToast'
+import { Notice } from './components/Notice'
 import { CodeView } from './components/code/CodeView'
 import { LibraryPage } from './components/LibraryPage'
 import { WorkersView } from './components/workers/WorkersView'
@@ -103,6 +104,7 @@ export default function App(): JSX.Element {
       {/* Outside the view switch, so ⌘1–3 and ⇧⌘P work from Settings too. */}
       <GlobalKeys onSettings={() => setSettingsPage('general')} onPlugins={() => setView('plugins')} />
       <UpdateToast />
+      <Notice />
       <DiscordPresence />
       <BrowserAsk />
     </>

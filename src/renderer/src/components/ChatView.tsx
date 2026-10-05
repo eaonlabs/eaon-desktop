@@ -21,7 +21,9 @@ import {
 import { agentWorkspace, messageText, useApp, useIsWork, type PendingApproval } from '../state/store'
 import { Composer } from './Composer'
 import { ContextMenu } from './Sidebar'
-import { Modal } from './ui'
+import { ConfirmDialog, Modal } from './ui'
+import { notify } from './Notice'
+import { errorText } from '../lib/errors'
 import { Markdown } from './agent/Markdown'
 import { FilesChanged } from './agent/FilesChanged'
 import { LoadingState } from './agent/Loaders'
@@ -254,6 +256,8 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
   const thread = useRef<HTMLDivElement>(null)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [confirmArchive, setConfirmArchive] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [renaming, setRenaming] = useState(false)
   const moreButton = useRef<HTMLButtonElement>(null)
 
   const streaming = streamingChatId === chat.id
@@ -371,18 +375,28 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
           y={menu.y}
           onClose={() => setMenu(null)}
           items={[
+            // window.prompt does nothing in Electron, so Rename here did nothing.
+            { icon: <PencilLine size={15} strokeWidth={1.9} />, label: 'Rename', action: () => setRenaming(true) },
             {
-              icon: <PencilLine size={15} strokeWidth={1.9} />,
-              label: 'Rename',
-              action: () => {
-                const next = window.prompt('Rename chat', chat.title)
-                if (next?.trim()) renameChat(chat.id, next.trim())
-              }
+              icon: <Copy size={15} strokeWidth={1.9} />,
+              label: 'Copy transcript',
+              action: () =>
+                void copyTranscript(chat).then(
+                  () => notify('Transcript copied'),
+                  () => notify("Couldn't copy the transcript. Click in the window and try again.", 'error')
+                )
             },
-            { icon: <Copy size={15} strokeWidth={1.9} />, label: 'Copy transcript', action: () => void copyTranscript(chat) },
-            { icon: <FolderOpen size={15} strokeWidth={1.9} />, label: 'Open work folder', action: () => void window.api.app.showItem(workFolder) },
+            {
+              icon: <FolderOpen size={15} strokeWidth={1.9} />,
+              label: 'Open work folder',
+              action: () =>
+                void window.api.app.showItem(workFolder).then((shown) => {
+                  if (!shown) notify(`${workFolder} doesn't exist yet. Eaon makes it the first time it works with files.`, 'error')
+                })
+            },
             { icon: <Archive size={15} strokeWidth={1.9} />, label: 'Archive', action: requestArchive },
-            { icon: <Trash2 size={15} strokeWidth={1.9} />, label: 'Delete', danger: true, action: () => deleteChat(chat.id) }
+            // Deleting can't be undone, so it asks; Archive is the way to put a chat away.
+            { icon: <Trash2 size={15} strokeWidth={1.9} />, label: 'Delete', danger: true, action: () => setConfirmDelete(true) }
           ]}
         />
       )}
@@ -412,7 +426,55 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
       >
         Archiving will stop any ongoing work. You can restore the chat later in settings.
       </Modal>
+
+      <ConfirmDialog
+        open={confirmDelete}
+        onClose={() => setConfirmDelete(false)}
+        title="Delete this chat?"
+        confirmLabel="Delete"
+        onConfirm={() => deleteChat(chat.id)}
+      >
+        “{chat.title}” and its messages are removed from this computer. This can’t be undone. To put a chat away and keep it, archive it instead.
+      </ConfirmDialog>
+
+      {renaming && <RenameChat title={chat.title} onClose={() => setRenaming(false)} onRename={(title) => renameChat(chat.id, title)} />}
     </>
+  )
+}
+
+/** The header menu's Rename, as a small dialog with the title selected. */
+function RenameChat({ title, onRename, onClose }: { title: string; onRename: (title: string) => void; onClose: () => void }): JSX.Element {
+  const [draft, setDraft] = useState(title)
+  const save = (): void => {
+    if (draft.trim() && draft.trim() !== title) onRename(draft.trim())
+    onClose()
+  }
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="Rename chat"
+      actions={
+        <>
+          <button type="button" className="btn btn--ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="button" className="btn btn--primary" disabled={!draft.trim()} onClick={save}>
+            Rename
+          </button>
+        </>
+      }
+    >
+      <input
+        className="input"
+        aria-label="Chat name"
+        value={draft}
+        autoFocus
+        onFocus={(e) => e.currentTarget.select()}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => e.key === 'Enter' && save()}
+      />
+    </Modal>
   )
 }
 
@@ -633,26 +695,29 @@ function ReplyActions({
  */
 function Attachments({ paths, align = 'end' }: { paths?: string[]; align?: 'start' | 'end' }): JSX.Element | null {
   if (!paths || paths.length === 0) return null
+  // A file moved or deleted since, or with no app to open it, said nothing.
+  const open = (path: string): void =>
+    void window.api.library.open(path).catch((error: unknown) => notify(`Couldn't open it: ${errorText(error)}`, 'error'))
   return (
     <div className="msg-attachments" data-align={align}>
       {paths.map((path) => {
         const name = path.split(/[\\/]/).pop() ?? path
         if (isImagePath(path)) {
           return (
-            <button key={path} className="msg-attachment msg-attachment--media" title={name} onClick={() => void window.api.library.open(path)}>
+            <button key={path} className="msg-attachment msg-attachment--media" title={name} onClick={() => open(path)}>
               <img src={fileUrl(path)} alt={name} loading="lazy" />
             </button>
           )
         }
         if (isVideoPath(path)) {
           return (
-            <button key={path} className="msg-attachment msg-attachment--media" title={name} onClick={() => void window.api.library.open(path)}>
+            <button key={path} className="msg-attachment msg-attachment--media" title={name} onClick={() => open(path)}>
               <video src={fileUrl(path)} preload="metadata" muted />
             </button>
           )
         }
         return (
-          <button key={path} className="msg-attachment msg-attachment--file" title={path} onClick={() => void window.api.library.open(path)}>
+          <button key={path} className="msg-attachment msg-attachment--file" title={path} onClick={() => open(path)}>
             <FileText size={15} strokeWidth={1.8} />
             <span>{name}</span>
           </button>

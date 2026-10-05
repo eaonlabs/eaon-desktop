@@ -1,6 +1,7 @@
 import { shell } from 'electron'
+import { existsSync } from 'node:fs'
 import { stat } from 'node:fs/promises'
-import { extname } from 'node:path'
+import { basename, extname } from 'node:path'
 import type { Feature } from './types'
 import type { LibraryFileStat } from '@shared/library'
 
@@ -39,6 +40,7 @@ export const libraryFeature: Feature = {
     })
     ipcMain.handle('library:open', async (_e, path: string) => {
       if (typeof path !== 'string' || !path) return
+      if (!existsSync(path)) throw new Error(`${basename(path)} isn't there any more. It may have been moved or deleted.`)
       if (RUNNABLE.has(extname(path).toLowerCase())) {
         shell.showItemInFolder(path)
         return

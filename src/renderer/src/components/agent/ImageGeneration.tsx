@@ -2,7 +2,7 @@ import { memo, useEffect, useRef, useState, type JSX } from 'react'
 import { Ban, Check, Copy, FolderOpen, ImagePlus, TriangleAlert } from 'lucide-react'
 import type { ChatToolPart } from '@shared/types'
 import { aspectRatio } from '@shared/images'
-import { fileName, fileUrl } from '../../lib/files'
+import { fileName, fileUrl, revealLabel } from '../../lib/files'
 import { generatedPaths, madeWith } from './imageResults'
 import { ThinkingOrb } from '../ThinkingOrb'
 import { Modal } from '../ui'
@@ -74,7 +74,7 @@ function Tile({
             >
               {copied ? <Check size={13} strokeWidth={2.2} /> : <Copy size={13} strokeWidth={2} />}
             </button>
-            <button className="imggen__action" title="Show in Finder" aria-label="Show in Finder" onClick={() => void window.api.app.showItem(path)}>
+            <button className="imggen__action" title={revealLabel()} aria-label={revealLabel()} onClick={() => void window.api.app.showItem(path)}>
               <FolderOpen size={13} strokeWidth={2} />
             </button>
           </span>
@@ -154,7 +154,7 @@ export const ImageGeneration = memo(function ImageGeneration({ part }: { part: C
               </button>
               <button className="btn" onClick={() => void window.api.app.showItem(viewing)}>
                 <FolderOpen size={14} strokeWidth={1.9} />
-                Show in Finder
+                {revealLabel()}
               </button>
             </>
           )

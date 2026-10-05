@@ -798,3 +798,27 @@ textarea.input {
   user-select: text;
 }
 
+/* ---------------- Notice (Notice.tsx) ---------------- */
+
+.notice-toast {
+  align-items: center;
+  padding: 10px 10px 10px 12px;
+}
+.notice-toast .update-toast__icon {
+  width: 26px;
+  height: 26px;
+  margin-top: 0;
+}
+.notice-toast .update-toast__icon[data-tone='error'] {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.notice-toast__text {
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: 1.4;
+  color: var(--text);
+}
+.notice-toast .update-toast__close {
+  margin: 0;
+}

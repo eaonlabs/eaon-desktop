@@ -560,7 +560,14 @@ function registerIpc(): void {
   ipcMain.handle('app:open-external', (_e, url: string) => shell.openExternal(url))
   // `~` arrives from the renderer, which has no idea where home is; Work's
   // default folder is displayed as ~/Eaon until the first task creates it.
-  ipcMain.handle('app:show-item', (_e, path: string) => shell.showItemInFolder(path.replace(/^~(?=\/|$)/, homedir())))
+  // False when there's nothing there: showItemInFolder does nothing at all
+  // for a missing path, so the renderer says so instead.
+  ipcMain.handle('app:show-item', (_e, path: string) => {
+    const resolved = String(path).replace(/^~(?=\/|$)/, homedir())
+    if (!existsSync(resolved)) return false
+    shell.showItemInFolder(resolved)
+    return true
+  })
   ipcMain.handle('app:version', () => app.getVersion())
   ipcMain.handle('app:open-release-notes', () => openReleaseNotes())
   ipcMain.handle('background:get', () => ({ supported: backgroundSupported(), enabled: runsInBackground() }))

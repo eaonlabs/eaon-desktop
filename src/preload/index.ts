@@ -193,7 +193,8 @@ const api = {
   },
   app: {
     openExternal: (url: string): Promise<void> => ipcRenderer.invoke('app:open-external', url),
-    showItem: (path: string): Promise<void> => ipcRenderer.invoke('app:show-item', path),
+    /** Shows the file or folder in Finder/Explorer; false when it doesn't exist. */
+    showItem: (path: string): Promise<boolean> => ipcRenderer.invoke('app:show-item', path),
     version: (): Promise<string> => ipcRenderer.invoke('app:version'),
     /** This version's GitHub release page when it has one, else the list of releases. */
     openReleaseNotes: (): Promise<void> => ipcRenderer.invoke('app:open-release-notes'),
