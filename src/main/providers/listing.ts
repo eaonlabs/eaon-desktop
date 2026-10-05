@@ -1,4 +1,5 @@
 import type { ModelInfo } from '@shared/types'
+import { EFFORT_FROM_WIRE, orderEfforts } from '@shared/effort'
 import type { Vendor } from './compat'
 import { isChatModelId, OPENAI_EFFORTS, prettyLabel } from './models'
 
@@ -43,6 +44,8 @@ interface Row {
   capabilities?: { function_calling?: boolean; vision?: boolean; completion_chat?: boolean }
   metadata?: { context_length?: number | null; max_tokens?: number | null; tags?: string[] } | null
   providers?: { context_length?: number; supports_tools?: boolean }[]
+  /** Mistral: the date a model is retired, or null. */
+  deprecation?: string | null
 }
 
 const CHAT_TYPES = /^(language|chat|llm|text|code|text-generation|model)$/i
@@ -112,7 +115,8 @@ export function parseListing(body: unknown, providerId: string, vendor: Vendor):
       ...(inputs?.includes('image') || tags?.includes('vision') || row.capabilities?.vision ? { vision: true } : inputs ? { vision: false } : {}),
       ...(tools !== undefined ? { tools } : {}),
       ...(reasoning ? { reasoning } : {}),
-      ...(efforts ? { efforts } : {})
+      ...(efforts ? { efforts } : {}),
+      ...(row.deprecation ? { stage: 'deprecated' as const } : {})
     })
   }
   return out
@@ -122,22 +126,37 @@ export function parseListing(body: unknown, providerId: string, vendor: Vendor):
  * `/v1/models` under "Sign in with ChatGPT": `{ models: [{ slug, display_name,
  * visibility }] }`. Only `visibility: "list"` models are meant to be offered;
  * `slug` is what requests name.
+ *
+ * Capabilities come from the row when it states them (Codex's model rows
+ * carry `input_modalities`, `supported_reasoning_levels`, `shell_type`), and
+ * are otherwise left unknown: the catalog knows the established models, and a
+ * new one shouldn't get an Images badge on the strength of its name.
  */
 export function parseChatGptPlanListing(body: unknown, providerId: string): ModelInfo[] {
-  type Row = { slug?: string; id?: string; display_name?: string; visibility?: string; context_window?: number }
+  type Row = {
+    slug?: string
+    id?: string
+    display_name?: string
+    visibility?: string
+    context_window?: number
+    input_modalities?: string[]
+    supported_reasoning_levels?: (string | { effort?: string })[]
+    shell_type?: string
+  }
   const rows = ((body as { models?: Row[]; data?: Row[] }).models ?? (body as { data?: Row[] }).data ?? []) as Row[]
   const out: ModelInfo[] = []
   for (const row of rows) {
     const id = row.slug ?? row.id
     if (!id || (row.visibility && row.visibility !== 'list') || out.some((m) => m.id === id)) continue
+    const levels = (row.supported_reasoning_levels ?? []).map((level) => (typeof level === 'string' ? level : level?.effort)).filter((level): level is string => Boolean(level))
+    const efforts = orderEfforts(levels.flatMap((level) => (EFFORT_FROM_WIRE[level] ? [EFFORT_FROM_WIRE[level]] : [])))
     out.push({
       id,
       label: row.display_name ?? prettyLabel(id),
       providerId,
-      tools: true,
-      vision: true,
-      reasoning: true,
-      efforts: OPENAI_EFFORTS,
+      ...(row.shell_type ? { tools: true } : {}),
+      ...(row.input_modalities ? { vision: row.input_modalities.includes('image') } : {}),
+      ...(row.supported_reasoning_levels ? { reasoning: efforts.length > 0, efforts } : {}),
       ...(row.context_window ? { contextWindow: row.context_window } : {})
     })
   }
@@ -171,14 +190,16 @@ export function parseCopilotListing(body: unknown): ModelInfo[] {
     const limits = row.capabilities?.limits
     const contextWindow = num(limits?.max_context_window_tokens, limits?.max_prompt_tokens)
     const maxOutput = num(limits?.max_output_tokens)
+    const supports = row.capabilities?.supports
     out.push({
       id: row.id!,
       label: row.name ?? prettyLabel(row.id!),
       providerId: 'github-copilot',
-      tools: true,
+      // Rows that say nothing about tool calls are kept (some plans omit the flags) but not badged.
+      ...(supports?.tool_calls === true ? { tools: true } : {}),
       ...(contextWindow ? { contextWindow } : {}),
       ...(maxOutput ? { maxOutput } : {}),
-      ...(row.capabilities?.supports?.vision ? { vision: true } : {})
+      ...(typeof supports?.vision === 'boolean' ? { vision: supports.vision } : {})
     })
   }
   return out

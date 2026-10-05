@@ -4,6 +4,7 @@ import { secrets } from '../../secrets'
 import type { Credentials } from '../adapters/types'
 import type { OAuthFlow } from './index'
 import { jwtClaims, parseAuthorizationInput, pkce, randomState, singleFlight, startLoopback, tokenStore } from './shared'
+import { providerFetch } from '../safeFetch'
 
 /**
  * Sign-ins for providers that officially let third-party apps use a person's
@@ -89,7 +90,7 @@ async function authorize(options: {
 }
 
 async function postForm(url: string, body: Record<string, string>, signal?: AbortSignal): Promise<Record<string, unknown> & { status: number }> {
-  const response = await fetch(url, {
+  const response = await providerFetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded', Accept: 'application/json' },
     body: new URLSearchParams(body).toString(),

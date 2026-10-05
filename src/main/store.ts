@@ -1,6 +1,6 @@
 import os from 'node:os'
 import type { Chat, DownloadedModel, McpServer, ModelInfo, Project, Settings, Workspace } from '@shared/types'
-import type { ModelEditFields } from '@shared/providers'
+import type { ModelEditFields, ProviderHealth } from '@shared/providers'
 import { backupDocs, flushDocWrites, readDoc, setAside, shapeOf, writeDocAsync, writeDocSync, type DocSpec } from './storeFiles'
 import { repairChats, repairMcpServers, repairProjects, repairProviderConfig, repairSettings, repairWorkspaces } from './storeRepair'
 
@@ -25,6 +25,12 @@ export interface ProviderOverride {
   edits?: Record<string, ModelEditFields>
   /** Before overlays: the whole list, replaced on every refresh. Read once as `listed`. */
   models?: ModelInfo[]
+  /** When `listed` was fetched: the last listing that worked, kept when a later one fails. */
+  listedAt?: number
+  /** When the latest listing failed, if it did after `listedAt`. */
+  listFailedAt?: number
+  /** What the last check of the credentials found (see Provider.health). */
+  health?: ProviderHealth
 }
 
 /**
@@ -200,6 +206,7 @@ export const defaultSettings: Settings = {
   selectedModelId: null,
   selectedProviderId: null,
   favoriteModels: [],
+  recentModels: [],
   effort: 'light',
   approvalMode: 'ask',
   planMode: false,

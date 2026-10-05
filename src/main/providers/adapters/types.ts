@@ -1,4 +1,5 @@
 import type { EffortLevel, ModelInfo, Provider, TokenUsage } from '@shared/types'
+import { redactSecrets } from '../redact'
 
 /**
  * The provider-neutral transcript the agent loop works in.
@@ -238,6 +239,11 @@ export function parseRetryAfter(value: string | null): number | undefined {
 
 /** Pulls a readable message out of a provider's JSON error body, whatever its shape. */
 export function describeErrorBody(status: number, text: string): string {
+  // Providers echo the key they were sent ("Incorrect API key provided: sk-…").
+  return redactSecrets(describeBody(status, text))
+}
+
+function describeBody(status: number, text: string): string {
   try {
     const body = JSON.parse(text) as {
       error?: { message?: string; metadata?: { raw?: string } } | string

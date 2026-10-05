@@ -32,6 +32,7 @@ import { TopBar } from './TopBar'
 import { GoalBanner, PlanCard, TodoPanel, UsageLine } from './agent/WorkBits'
 import { FileDiff } from './agent/FileDiff'
 import { MessageActions } from './agent/MessageActions'
+import { ProviderErrorActions } from './composer/ProviderErrorActions'
 import { ApprovalCard, CallPreview, CommandPreview } from './agent/ApprovalCard'
 import { WorkerFace } from './workers/WorkerFace'
 import { ChannelLogo } from './channels/ChannelLogo'
@@ -548,6 +549,7 @@ export const MessageRow = memo(function MessageRow({
         <div className="msg__error">
           <TriangleAlert size={15} strokeWidth={1.9} style={{ flex: 'none', marginTop: 1 }} />
           <span>{message.error}</span>
+          <ProviderErrorActions issue={message.errorIssue} retryId={canRetry ? message.id : null} />
         </div>
       )}
 

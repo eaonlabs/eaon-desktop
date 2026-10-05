@@ -1,6 +1,6 @@
 import { shell } from 'electron'
 import type { ProviderAuthPrompt, ProviderAuthStatus, ProviderMeta } from '@shared/providers'
-import { getProvider, listProviders, refreshModels, updateProvider } from '../providers'
+import { clearProviderHealth, getProvider, listProviders, refreshModels, updateProvider } from '../providers'
 import { PROVIDER_META, providerMeta } from '../providers/catalog'
 import { oauthFlow, type OAuthFlow } from '../providers/oauth'
 import type { Feature, FeatureContext } from './types'
@@ -92,6 +92,8 @@ async function signIn(providerId: string): Promise<ProviderAuthStatus> {
     // Model providers earlier comes back on; otherwise the sign-in works but
     // its models stay hidden and it looks as if it failed.
     if (getProvider(providerId)?.enabled === false) updateProvider(providerId, { enabled: true })
+    // A fresh sign-in answers whatever an earlier check found ("session expired").
+    clearProviderHealth(providerId)
     // The account's real model list (Copilot differs per plan); best effort.
     await refreshModels(providerId).catch(() => {})
     const done = statusOf(providerId)!
@@ -127,6 +129,8 @@ export const providerAuthFeature: Feature = {
     ipcMain.handle('provider-auth:sign-out', async (_e, providerId: string) => {
       running.get(providerId)?.controller.abort()
       await flowFor(providerId)?.signOut()
+      // Signed out on purpose: "not signed in", not "needs attention".
+      clearProviderHealth(providerId)
       const status = statusOf(providerId)
       // The settings page refreshes `signedIn` and the model list on status events.
       if (status) publish(status)

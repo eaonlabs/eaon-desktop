@@ -1,6 +1,8 @@
 /** Types shared between the main and renderer processes. */
 
 import type { WorkerMail } from './workers'
+import type { ModelSource } from './engines'
+import type { ProviderHealth, ProviderIssue } from './providers'
 
 /**
  * Wire format a provider speaks. `openai-responses` is OpenAI's Responses API
@@ -31,6 +33,22 @@ export interface ModelInfo {
   custom?: boolean
   /** The user changed its details (Edit model): its limits or capabilities, or its name. */
   edited?: boolean
+  /**
+   * Where this entry came from and when: the shipped catalog, the remote
+   * catalog, the provider's own listing (live, or the last one that worked),
+   * or the user. Unset for models from before sources were tracked.
+   */
+  source?: ModelSource
+  /** Release stage, when a source says so (models.dev's status, the id itself saying "preview"). */
+  stage?: 'preview' | 'deprecated'
+  /** Other ids the same model is served under (a dated snapshot of an alias), folded into this entry. */
+  aliases?: string[]
+  /**
+   * Fields Eaon filled in from the model's id alone, because no source said.
+   * They still shape requests (whether to ask for reasoning), but they are
+   * guesses: pickers show no badge for them.
+   */
+  inferred?: ('reasoning' | 'efforts')[]
 }
 
 /**
@@ -71,6 +89,14 @@ export interface Provider {
   headers?: Record<string, string>
   /** Models the user removed from this provider's list; kept so they can be restored. */
   hiddenModels?: ModelInfo[]
+  /**
+   * What the last check of this provider's credentials found. A failed check
+   * (an expired sign-in, a rejected key) makes it "Needs attention" even
+   * though credentials are stored; a later success clears it.
+   */
+  health?: ProviderHealth
+  /** When the provider's own model listing last worked, or null if it never has. */
+  modelsListedAt?: number | null
 }
 
 export interface ChatTextPart {
@@ -177,6 +203,8 @@ export interface ChatMessage {
   createdAt: number
   /** Set when a request failed so the UI can show an inline error. */
   error?: string
+  /** What kind of provider failure `error` is, with the fix to offer (Reconnect, Add a key…). */
+  errorIssue?: ProviderIssue
   model?: string
   /** Tokens this turn spent, including cache reads and writes. */
   usage?: TokenUsage
@@ -362,6 +390,8 @@ export interface Settings {
   selectedProviderId: string | null
   /** Starred models, as `providerId:modelId`; they head the model menu. */
   favoriteModels: string[]
+  /** Models picked lately, newest first, as `providerId:modelId`. */
+  recentModels?: string[]
   effort: EffortLevel
   approvalMode: ApprovalMode
   /** Plan mode (Work): read-only research, then a plan the user approves before anything changes. */
@@ -531,7 +561,7 @@ export type StreamEvent =
   | { type: 'delta'; messageId: string; text: string }
   | { type: 'reasoning'; messageId: string; text: string }
   | { type: 'done'; messageId: string }
-  | { type: 'error'; messageId: string; error: string }
+  | { type: 'error'; messageId: string; error: string; issue?: ProviderIssue }
   | {
       type: 'approval-request'
       messageId: string

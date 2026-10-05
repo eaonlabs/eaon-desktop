@@ -2,6 +2,8 @@ import type { Provider } from '@shared/types'
 import type { Credentials } from '../adapters/types'
 import type { OAuthFlow } from './index'
 import { jwtClaims, parseAuthorizationInput, pkce, randomState, singleFlight, startLoopback, tokenStore } from './shared'
+import { providerFetch } from '../safeFetch'
+import { redactSecrets } from '../redact'
 
 /**
  * ChatGPT Plus/Pro sign-in, for the Codex backend.
@@ -66,15 +68,16 @@ function tokensFrom(body: TokenResponse, previous?: CodexTokens): CodexTokens {
 }
 
 async function tokenRequest(params: Record<string, string>, operation: string, signal?: AbortSignal): Promise<TokenResponse> {
-  const response = await fetch(TOKEN_URL, {
+  const response = await providerFetch(TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: new URLSearchParams(params),
-    signal
+    // A token endpoint that never answers must not hold every request (and the refresh lock) forever.
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000)
   })
   if (!response.ok) {
     const text = await response.text().catch(() => '')
-    const error = new Error(`ChatGPT token ${operation} failed (${response.status}): ${text.slice(0, 300) || response.statusText}`)
+    const error = new Error(redactSecrets(`ChatGPT token ${operation} failed (${response.status}): ${text.slice(0, 300) || response.statusText}`))
     ;(error as Error & { status?: number }).status = response.status
     throw error
   }

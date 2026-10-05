@@ -1,5 +1,6 @@
 import type { EffortLevel, ModelInfo, Provider, Settings } from '@shared/types'
 import { clampEffort, EFFORT_LABEL, EFFORT_ORDER } from '@shared/effort'
+import { isProviderUsable, resolveSelection, type ResolvedSelection } from '@shared/modelSelection'
 import { listProviders } from '@main/providers'
 import { store } from '@main/store'
 
@@ -25,7 +26,7 @@ export function invalidateModels(): void {
 
 export function usableProviders(): Provider[] {
   const now = Date.now()
-  if (!cached || now - cached.at > CACHE_MS) cached = { at: now, providers: listProviders().filter((p) => p.enabled && (p.hasKey || p.local || p.signedIn)) }
+  if (!cached || now - cached.at > CACHE_MS) cached = { at: now, providers: listProviders().filter(isProviderUsable) }
   return cached.providers
 }
 
@@ -46,14 +47,30 @@ export function viewSettings(): Settings {
   return shown.settings
 }
 
-/** The chat's model: the saved choice when it is still there, else the first usable one (as the desktop does). */
-export function chatModel(settings: Settings = viewSettings(), models = availableModels()): ModelInfo | null {
-  if (models.length === 0) return null
-  return (
-    models.find((m) => m.id === settings.selectedModelId && m.providerId === settings.selectedProviderId) ??
-    models.find((m) => m.id === settings.selectedModelId) ??
-    models[0]
-  )
+/**
+ * What the chat's model choice resolves to, by the desktop's rules
+ * (shared/modelSelection): the saved choice, a default when there is none,
+ * or why the saved one can't be used. Never another model in its place.
+ */
+export function chatSelection(settings: Settings = viewSettings()): ResolvedSelection {
+  return resolveSelection({ providerId: settings.selectedProviderId, modelId: settings.selectedModelId }, listProviders(), {
+    favorites: settings.favoriteModels,
+    recents: settings.recentModels
+  })
+}
+
+/** The chat's model, or null when nothing usable is chosen (see `chatSelection` for why). */
+export function chatModel(settings: Settings = viewSettings(), _models?: ModelInfo[]): ModelInfo | null {
+  return chatSelection(settings).model
+}
+
+/** Why there is no chat model, as one line for the terminal. */
+export function noModelReason(settings: Settings = viewSettings()): string {
+  const selection = chatSelection(settings)
+  if (selection.status === 'unavailable') {
+    return `${selection.wanted?.label ?? 'The chosen model'} is unavailable: ${selection.reason ?? 'its provider can’t be used now.'} Pick another with /model, or fix it with /keys or /login.`
+  }
+  return 'No usable model is connected. Run /import to bring your keys over from Eaon Desktop, /key to paste an API key, or /login to sign in.'
 }
 
 export function providerName(providerId: string): string {

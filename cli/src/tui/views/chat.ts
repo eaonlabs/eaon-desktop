@@ -2,7 +2,7 @@ import { app as electronApp } from 'electron'
 import type { Chat, ChatMessage, PlanProposal, TodoItem } from '@shared/types'
 import { store } from '@main/store'
 import type { ChatController, CliMessage, CliToolPart, ShellRun, TurnChanges } from '../../core/chat'
-import { chatModel, effectiveEffort, effortLabel, modelLabel, viewSettings } from '../../core/models'
+import { chatModel, chatSelection, effectiveEffort, effortLabel, modelLabel, viewSettings } from '../../core/models'
 import { fuzzyFiles, projectFiles } from '../../coding/files'
 import { loadInstructions } from '../../coding/instructions'
 import { lspStatus } from '../../coding/lsp'
@@ -561,7 +561,14 @@ export class ChatView implements View {
     const tipW = Math.min(c.w - 4, 86)
     const x = Math.floor((c.w - tipW) / 2)
     if (!model) {
-      c.text(x, y, 'No model is set up yet.', { fg: C.yellow, bold: true })
+      const selection = chatSelection()
+      c.text(
+        x,
+        y,
+        selection.status === 'unavailable' ? `${selection.wanted?.label ?? 'The chosen model'} is unavailable — ${selection.reason ?? ''}` : 'No model is set up yet.',
+        { fg: C.yellow, bold: true },
+        tipW
+      )
       y += 2
     }
     tips.forEach(([k, text], i) => {

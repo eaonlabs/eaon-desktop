@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { describeSchedule, type ScheduledTask } from '@shared/scheduler'
 import type { Chat, ChatMessage, ModelInfo, Provider, Settings, StreamEvent, StreamRequest } from '@shared/types'
 import { clampEffort } from '@shared/effort'
+import { findModel, isProviderUsable, resolveSelection } from '@shared/modelSelection'
 import type { RunOptions, RunOutcome } from '../../agent/loop'
 import { listProviders } from '../../providers'
 import { store } from '../../store'
@@ -57,9 +58,8 @@ export function resolveModel(
   /** What the messages call the thing that pinned the model — a task, or a worker. */
   noun = 'task'
 ): Resolved {
-  const usable = providers.filter((p) => p.enabled && (p.hasKey || p.local))
   if (task.model) {
-    const provider = usable.find((p) => p.id === task.model!.providerId)
+    const provider = providers.find((p) => p.id === task.model!.providerId && isProviderUsable(p))
     if (!provider) {
       const known = providers.find((p) => p.id === task.model!.providerId)
       return {
@@ -69,15 +69,26 @@ export function resolveModel(
           : `This ${noun}'s model provider (${task.model.providerId}) no longer exists. Edit the ${noun} to pick another model.`
       }
     }
-    return { ok: true, providerId: provider.id, modelId: task.model.modelId, model: provider.models.find((m) => m.id === task.model!.modelId) }
+    // A pinned id the list doesn't show still runs: the list may just be stale
+    // (a local runtime not refreshed yet), and the provider is the authority.
+    const model = findModel(provider.models, task.model.modelId)
+    return { ok: true, providerId: provider.id, modelId: model?.id ?? task.model.modelId, model }
   }
-  const models = usable.flatMap((p) => p.models)
-  const chosen =
-    models.find((m) => m.id === settings.selectedModelId && m.providerId === settings.selectedProviderId) ??
-    models.find((m) => m.id === settings.selectedModelId) ??
-    models[0]
-  if (!chosen) return { ok: false, error: `No model is available. Add an API key in Settings → Model providers, or pick a model for this ${noun}.` }
-  return { ok: true, providerId: chosen.providerId, modelId: chosen.id, model: chosen }
+  // Following the app's choice: resolved by the composer's rules
+  // (shared/modelSelection). A choice that can't be used fails the run with
+  // why; it used to run on whichever model happened to be first instead.
+  const selection = resolveSelection({ providerId: settings.selectedProviderId, modelId: settings.selectedModelId }, providers, {
+    favorites: settings.favoriteModels,
+    recents: settings.recentModels
+  })
+  if (selection.model) return { ok: true, providerId: selection.model.providerId, modelId: selection.model.id, model: selection.model }
+  if (selection.status === 'unavailable') {
+    return {
+      ok: false,
+      error: `Your chosen model (${selection.wanted?.label ?? settings.selectedModelId}) is unavailable: ${selection.reason ?? 'its provider can’t be used now.'} Choose another model in Chat, or pick one for this ${noun}.`
+    }
+  }
+  return { ok: false, error: `No model is available. Add an API key in Settings → Model providers, or pick a model for this ${noun}.` }
 }
 
 /**

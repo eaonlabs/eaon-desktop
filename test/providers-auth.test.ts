@@ -4,6 +4,8 @@ import type { ProviderAuthStatus } from '@shared/providers'
 import { providerAuthFeature } from '../src/main/features/providerAuth'
 import type { FeatureContext } from '../src/main/features/types'
 import { __test as codex } from '../src/main/providers/oauth/codex'
+import { getProvider, noteProviderHealth } from '../src/main/providers'
+import { providerReadiness } from '@shared/modelSelection'
 
 /** Registers the feature against a recording ipcMain and window. */
 function register(): { handlers: Map<string, (...args: unknown[]) => unknown>; sent: [string, unknown][] } {
@@ -29,5 +31,16 @@ test('signing out tells the settings page, so it stops showing "Signed in"', asy
   assert.equal(status.providerId, 'openai-codex')
   assert.equal(status.signedIn, false)
   assert.equal(status.state, 'idle')
+  providerAuthFeature.dispose?.()
+})
+
+test('signing out on purpose forgets an "expired" verdict: the provider is not signed in, not broken', async () => {
+  codex.store.set({ access: 'a', refresh: 'r', expires: Date.now() + 3_600_000, accountId: 'acct' })
+  noteProviderHealth('openai-codex', { kind: 'auth-expired', message: 'Your ChatGPT (Codex) session expired. Sign in again.', action: 'reconnect' })
+  assert.equal(getProvider('openai-codex')?.health?.ok, false)
+  const { handlers } = register()
+  await handlers.get('provider-auth:sign-out')!(null, 'openai-codex')
+  assert.equal(getProvider('openai-codex')?.health, undefined)
+  assert.equal(providerReadiness(getProvider('openai-codex')!).state, 'setup')
   providerAuthFeature.dispose?.()
 })

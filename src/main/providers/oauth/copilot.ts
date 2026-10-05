@@ -2,6 +2,8 @@ import type { Provider } from '@shared/types'
 import type { Credentials } from '../adapters/types'
 import type { OAuthFlow } from './index'
 import { abortableSleep, singleFlight, tokenStore } from './shared'
+import { providerFetch } from '../safeFetch'
+import { redactSecrets } from '../redact'
 
 /**
  * GitHub Copilot sign-in, following Eaon Code's `github-copilot` flow.
@@ -54,16 +56,17 @@ export function copilotBaseUrl(token: string | undefined): string {
 }
 
 async function exchangeCopilotToken(github: string, signal?: AbortSignal): Promise<{ copilot: string; expires: number }> {
-  const response = await fetch(COPILOT_TOKEN_URL, {
+  const response = await providerFetch(COPILOT_TOKEN_URL, {
     headers: { Accept: 'application/json', Authorization: `Bearer ${github}`, ...COPILOT_HEADERS },
-    signal
+    // A hung exchange would hold every request behind the refresh lock.
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000)
   })
   if (!response.ok) {
     const text = await response.text().catch(() => '')
     const error = new Error(
       response.status === 401 || response.status === 403 || response.status === 404
         ? 'This GitHub account does not have access to Copilot.'
-        : `Copilot token exchange failed (${response.status}): ${text.slice(0, 200)}`
+        : redactSecrets(`Copilot token exchange failed (${response.status}): ${text.slice(0, 200)}`)
     )
     ;(error as Error & { status?: number }).status = response.status
     throw error
@@ -82,12 +85,12 @@ async function exchangeCopilotToken(github: string, signal?: AbortSignal): Promi
 async function enableUnconfiguredModels(copilot: string, signal: AbortSignal): Promise<void> {
   const base = copilotBaseUrl(copilot)
   const headers = { Accept: 'application/json', Authorization: `Bearer ${copilot}`, ...COPILOT_HEADERS, 'X-GitHub-Api-Version': COPILOT_API_VERSION }
-  const response = await fetch(`${base}/models`, { headers, signal: AbortSignal.any([signal, AbortSignal.timeout(8000)]) })
+  const response = await providerFetch(`${base}/models`, { headers, signal: AbortSignal.any([signal, AbortSignal.timeout(8000)]) })
   if (!response.ok) return
   const body = (await response.json()) as { data?: { id?: string; model_picker_enabled?: boolean; policy?: { state?: string } }[] }
   for (const model of body.data ?? []) {
     if (!model.id || model.policy?.state !== 'unconfigured' || !model.model_picker_enabled) continue
-    const policy = await fetch(`${base}/models/${encodeURIComponent(model.id)}/policy`, {
+    const policy = await providerFetch(`${base}/models/${encodeURIComponent(model.id)}/policy`, {
       method: 'POST',
       headers: { ...headers, 'Content-Type': 'application/json', 'openai-intent': 'chat-policy', 'x-interaction-type': 'chat-policy' },
       body: JSON.stringify({ state: 'enabled' }),
@@ -116,7 +119,7 @@ export const copilotFlow: OAuthFlow = {
   id: 'github-copilot',
 
   async signIn(onPrompt, signal) {
-    const deviceResponse = await fetch(DEVICE_CODE_URL, {
+    const deviceResponse = await providerFetch(DEVICE_CODE_URL, {
       method: 'POST',
       headers: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': COPILOT_HEADERS['User-Agent'] },
       body: new URLSearchParams({ client_id: CLIENT_ID, scope: 'read:user' }),
@@ -144,7 +147,7 @@ export const copilotFlow: OAuthFlow = {
     while (!github) {
       if (Date.now() > deadline) throw new Error('The GitHub code expired before it was entered. Try again.')
       await abortableSleep(interval, signal)
-      const response = await fetch(ACCESS_TOKEN_URL, {
+      const response = await providerFetch(ACCESS_TOKEN_URL, {
         method: 'POST',
         headers: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': COPILOT_HEADERS['User-Agent'] },
         body: new URLSearchParams({
@@ -166,7 +169,7 @@ export const copilotFlow: OAuthFlow = {
     const copilot = await exchangeCopilotToken(github, signal)
     let login: string | undefined
     try {
-      const user = await fetch(USER_URL, {
+      const user = await providerFetch(USER_URL, {
         headers: { Accept: 'application/json', Authorization: `Bearer ${github}`, 'User-Agent': COPILOT_HEADERS['User-Agent'] },
         signal: AbortSignal.any([signal, AbortSignal.timeout(5000)])
       })

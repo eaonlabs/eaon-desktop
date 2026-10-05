@@ -9,9 +9,10 @@ import { prepareStore } from './migrations'
 import { dismissProblem, onStoreHealth, problemFile, storeHealth } from './storeFiles'
 import { secrets } from './secrets'
 import type { ModelEdit } from '@shared/providers'
-import { editModels, listProviders, refreshModels, refreshProviderModels, removeProvider, testProvider, updateProvider } from './providers'
+import { clearProviderHealth, editModels, getProvider, listProviders, refreshModels, refreshProviderModels, removeProvider, testProvider, updateProvider } from './providers'
 import { refreshLocalProviders } from './providers/localDiscovery'
 import { refreshCatalogInBackground } from './providers/modelCatalog'
+import { startModelFreshness } from './providers/freshness'
 import { resolveApproval } from './agent/approvals'
 import { hardenAppWindow, openExternalSafely } from './externalLinks'
 import { catalogRowsPinned, providerKeyId } from './ipcGuards'
@@ -492,13 +493,18 @@ function registerIpc(): void {
   // chat-app tokens, the payment card, OAuth) are not the renderer's to
   // read back, replace or clear (ipcGuards.ts).
   const providerKey = (id: unknown): string => providerKeyId(id, listProviders().map((p) => p.id))
+  // A new or removed key makes the last check's verdict ("key rejected") stale.
   ipcMain.handle('keys:set', (_e, id: string, key: string) => {
     if (typeof key !== 'string') throw new Error('A key is text.')
-    secrets.set(providerKey(id), key)
+    const keyId = providerKey(id)
+    secrets.set(keyId, key)
+    clearProviderHealth(keyId)
     return listProviders()
   })
   ipcMain.handle('keys:clear', (_e, id: string) => {
-    secrets.clear(providerKey(id))
+    const keyId = providerKey(id)
+    secrets.clear(keyId)
+    clearProviderHealth(keyId)
     return listProviders()
   })
   ipcMain.handle('keys:hint', (_e, id: string) => secrets.hint(providerKey(id)))
@@ -510,7 +516,25 @@ function registerIpc(): void {
   ipcMain.handle('keys:reveal', (_e, id: string) =>
     listProviders().some((p) => p.id === id && p.auth !== 'oauth') ? (secrets.get(id) ?? null) : null
   )
-  ipcMain.handle('keys:get-fallbacks', (_e, id: string) => secrets.getFallbacks(providerKey(id)))
+  // Fallback keys never cross into the renderer: it gets a masked hint per
+  // key (enough to tell them apart) and adds or removes one at a time.
+  ipcMain.handle('keys:get-fallbacks', (_e, id: string) =>
+    secrets.getFallbacks(providerKey(id)).map((key) => (key.length > 12 ? `${key.slice(0, 4)}…${key.slice(-4)}` : '••••'))
+  )
+  ipcMain.handle('keys:add-fallback', (_e, id: string, key: string) => {
+    const keyId = providerKey(id)
+    if (typeof key === 'string' && key.trim()) secrets.setFallbacks(keyId, [...secrets.getFallbacks(keyId), key.trim()])
+    clearProviderHealth(keyId)
+    return listProviders()
+  })
+  ipcMain.handle('keys:remove-fallback', (_e, id: string, index: number) => {
+    const keyId = providerKey(id)
+    secrets.setFallbacks(
+      keyId,
+      secrets.getFallbacks(keyId).filter((_, i) => i !== index)
+    )
+    return listProviders()
+  })
   ipcMain.handle('keys:set-fallbacks', (_e, id: string, keys: string[]) => {
     if (!Array.isArray(keys) || !keys.every((key) => typeof key === 'string')) throw new Error('Fallback keys are a list of text.')
     secrets.setFallbacks(providerKey(id), keys)
@@ -720,6 +744,8 @@ app.whenReady().then(async () => {
   void refreshCatalogInBackground().then((changed) => {
     if (changed) broadcast('providers:changed')
   })
+  // Connected providers' own model lists, soon after launch and every few hours.
+  startModelFreshness({ list: listProviders, get: getProvider, refresh: refreshModels }, () => broadcast('providers:changed'))
 
   app.on('activate', () => {
     // Only Eaon's own windows count. The computer-use pill is a window too, and

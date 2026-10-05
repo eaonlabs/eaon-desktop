@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto'
 import { authHeaders, chatCompat, clampEffort, effortsFor, requestBase, wireEffort, type ChatCompat } from '../compat'
 import { contextWindowFor, maxOutputFor } from '../models'
 import { ThinkTagSplitter } from './thinkTags'
+import { guardedAdapter, type StreamGuard } from '../streamGuard'
+import { providerFetch } from '../safeFetch'
 import {
   capOutput,
   clampOutputToWindow,
@@ -17,6 +19,7 @@ import {
   type TurnRequest,
   type TurnResult
 } from './types'
+import { redactSecrets } from '../redact'
 
 /**
  * OpenAI chat-completions, the lingua franca: OpenAI itself, every gateway
@@ -281,11 +284,11 @@ interface Usage {
   cached_tokens?: number
 }
 
-export const openaiChatAdapter: Adapter = {
+export const openaiChatAdapter: Adapter = guardedAdapter({
   id: 'openai-chat',
   managesContext: false,
 
-  async turn(request: TurnRequest): Promise<TurnResult> {
+  async turn(request: TurnRequest, guard: StreamGuard): Promise<TurnResult> {
     const { provider, credentials, model } = request
     const base = requestBase(provider, credentials.baseUrl)
     const url = /\/chat\/completions$/.test(base) ? base : `${base}/chat/completions`
@@ -360,7 +363,7 @@ export const openaiChatAdapter: Adapter = {
     // the turn: drop the offending field and ask again, at most once per field.
     let response: Response | null = null
     for (let attempt = 0; attempt < 6; attempt++) {
-      response = await fetch(url, { method: 'POST', headers, body: JSON.stringify(body()), signal: request.signal })
+      response = await providerFetch(url, { method: 'POST', headers, body: JSON.stringify(body()), signal: request.signal })
       if (response.ok) break
       const text = await response.text()
       const lower = text.toLowerCase()
@@ -394,6 +397,7 @@ export const openaiChatAdapter: Adapter = {
     }
     if (!response?.ok) throw new Error('The provider rejected the request.')
     if (!response.body) throw new Error('The provider returned an empty response body.')
+    guard.touch()
 
     const reader = response.body.getReader()
     const decoder = new TextDecoder()
@@ -439,7 +443,7 @@ export const openaiChatAdapter: Adapter = {
         // own words in metadata.raw.
         const raw = chunk.error.metadata?.raw
         const message = chunk.error.message ?? `Provider error ${chunk.error.code ?? ''}`.trim()
-        throw new Error(raw && !message.includes(raw) ? `${message} — ${raw.slice(0, 300)}` : message)
+        throw new Error(redactSecrets(raw && !message.includes(raw) ? `${message} — ${raw.slice(0, 300)}` : message))
       }
       if (chunk.usage) readUsage(chunk.usage)
       const choice = chunk.choices?.[0]
@@ -516,6 +520,7 @@ export const openaiChatAdapter: Adapter = {
 
     while (true) {
       const { done, value } = await reader.read()
+      guard.touch()
       if (done) {
         // A last event without a trailing newline is still an event.
         buffer += decoder.decode()
@@ -575,7 +580,7 @@ export const openaiChatAdapter: Adapter = {
       ...(replay ? { replay: { adapter: 'openai-chat', modelId: request.modelId, data: replay } } : {})
     }
   }
-}
+})
 
 /** Exposed for the adapter tests. */
 export const __test = { toWire, sanitizeForGemini, mistralId }

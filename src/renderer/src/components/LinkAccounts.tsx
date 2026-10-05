@@ -4,6 +4,7 @@ import { useShallow } from 'zustand/react/shallow'
 import type { ModelInfo, Provider } from '@shared/types'
 import type { ProviderAuthStatus } from '@shared/providers'
 import { LINK_TARGETS, type DetectedApp, type LinkTarget } from '@shared/linkAccounts'
+import { providerReadiness } from '@shared/modelSelection'
 import { useApp } from '../state/store'
 import { BrandIcon } from '../icons/brand'
 import { Modal } from './ui'
@@ -26,8 +27,8 @@ import './link-accounts.css'
 const errorText = (error: unknown): string =>
   (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 
-/** Linked: the provider has models Eaon can use right now. */
-const isLinked = (p: Provider | undefined): boolean => Boolean(p && p.enabled && (p.hasKey || p.local) && p.models.length > 0)
+/** Linked: the provider has models Eaon can use right now (not merely a stored key a check found broken). */
+const isLinked = (p: Provider | undefined): boolean => Boolean(p && providerReadiness(p).state === 'ready')
 
 export function LinkAccounts({ open, onClose }: { open: boolean; onClose: () => void }): JSX.Element | null {
   const { providers, refreshProviders } = useApp(useShallow((s) => ({ providers: s.providers, refreshProviders: s.refreshProviders })))

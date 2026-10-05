@@ -5,7 +5,9 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { app, powerSaveBlocker } from 'electron'
 import type { GoalState, ModelInfo, Provider, Settings, StreamEvent, StreamRequest, TokenUsage } from '@shared/types'
-import { adapterFor, getProvider } from '../providers'
+import { adapterFor, getProvider, noteProviderHealth } from '../providers'
+import { classifyProviderError } from '../providers/errors'
+import { findModel } from '@shared/modelSelection'
 import { addUsage, emptyUsage, HEADERS_TIMEOUT_MESSAGE, isHeadersTimeout, ProviderHttpError, type Adapter, type Credentials, type NeutralImage, type NeutralMessage, type NeutralToolResult, type TurnRequest, type TurnResult } from '../providers/adapters/types'
 import { credentialAttempts, isAuthError } from '../providers/credentials'
 import { contextWindowFor } from '../providers/models'
@@ -18,6 +20,7 @@ import { callFacts, decide, USER_DENIED, type RunPolicy, type ToolGate, type Tur
 import { capOutput, guidanceFor, isMutating, toolsFor, toSpec, WORKFLOW_TOOLS, type AgentTool, type ToolContext, type ToolQuery, type TurnState } from './tools'
 
 export type { ToolGate, TurnOrigin, UnattendedPolicy } from './policy'
+import { redactSecrets } from '../providers/redact'
 
 /**
  * The agent loop — one implementation for every provider and both modes.
@@ -737,7 +740,8 @@ export async function runAgent(request: StreamRequest, emit: (event: StreamEvent
             ...(request.persona ? { roleBrief: request.persona } : {})
           })
 
-    const model = provider.models.find((m) => m.id === request.modelId)
+    // By id or by an alias folded into it (a dated snapshot chosen before it was folded).
+    const model = findModel(provider.models, request.modelId)
     const window = contextWindowFor(provider, request.modelId, model)
     const built = buildHistory(request.history, request.summary, settings.context.keepFullToolTurns)
     let messages = built.messages
@@ -799,6 +803,8 @@ export async function runAgent(request: StreamRequest, emit: (event: StreamEvent
     const maxRounds = raw ? 1 : mode === 'chat' ? 8 : runsUntil ? 10_000 : Math.min(Math.max(settings.codeIndex.maxToolRounds || 40, 1), 200)
     // The loop adds into `usage` as it goes, so a stopped or failed run still reports what it spent.
     const outcome = await runLoop({ ...base, system, tools, messages, maxRounds, goal: request.goal, usage })
+    // The provider answered: a failed check from before (a key since fixed) no longer applies.
+    if (provider.health && !provider.health.ok) noteProviderHealth(provider.id, null)
     emit({ type: 'done', messageId: request.messageId })
     return { text: outcome.text || text, usage, ...(controller.signal.aborted ? { cancelled: true } : {}) }
   } catch (error) {
@@ -806,8 +812,13 @@ export async function runAgent(request: StreamRequest, emit: (event: StreamEvent
       emit({ type: 'done', messageId: request.messageId })
       return { text, usage, cancelled: true }
     }
-    const message = error instanceof Error ? error.message : String(error)
-    emit({ type: 'error', messageId: request.messageId, error: message })
+    // A provider failure becomes what to do about it ("Your ChatGPT session
+    // expired. Sign in again."), with the raw words kept for Copy details;
+    // anything else keeps its own message.
+    const issue = classifyProviderError(error, provider)
+    const message = issue.kind === 'other' ? redactSecrets(error instanceof Error ? error.message : String(error)) : issue.message
+    noteProviderHealth(provider.id, issue)
+    emit({ type: 'error', messageId: request.messageId, error: message, ...(issue.kind === 'other' ? {} : { issue }) })
     return { text, error: message, usage }
   } finally {
     options.signal?.removeEventListener('abort', forwardAbort)

@@ -12,7 +12,7 @@ import { toolsFor, type ToolContext } from '@main/agent/tools'
 import { store } from '@main/store'
 import type { BusNode, PeerMessage } from '../bus/bus'
 import { chatStore, type ChatSummary } from './chats'
-import { availableModels, chatModel } from './models'
+import { availableModels, chatModel, noModelReason } from './models'
 import { fileDiff, type FileDiff } from '../coding/diff'
 import { loadInstructions } from '../coding/instructions'
 import { readText, snapshotsFor } from '../coding/snapshot'
@@ -388,7 +388,7 @@ export class ChatController extends EventEmitter {
     options.onChat?.(chat.id)
 
     if (!model) {
-      this.put(applyEvent(chat, { type: 'error', messageId: assistant.id, error: 'No model yet. Run /import to bring your keys over from Eaon Desktop, /key to paste an API key, or /login to sign in.' }), true)
+      this.put(applyEvent(chat, { type: 'error', messageId: assistant.id, error: noModelReason(settings) }), true)
       return
     }
 
