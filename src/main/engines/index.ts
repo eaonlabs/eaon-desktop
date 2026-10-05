@@ -1,6 +1,7 @@
 import type { EngineId, EngineModels, EngineStatus } from '@shared/engines'
 import type { EngineAdapter } from './types'
 import { nativeEngine } from './native'
+import { codexEngine } from './codex'
 
 /**
  * The engines Eaon can run agents on, and what it last learned about each.
@@ -11,14 +12,25 @@ import { nativeEngine } from './native'
  * and listeners hear about every change.
  */
 
-const adapters = new Map<EngineId, EngineAdapter>([['native', nativeEngine]])
+const adapters = new Map<EngineId, EngineAdapter>()
 const statuses = new Map<EngineId, EngineStatus>()
 const modelLists = new Map<EngineId, EngineModels>()
 const listeners = new Set<() => void>()
+const unsubscribers = new Map<EngineId, () => void>()
 
 export function registerEngine(adapter: EngineAdapter): void {
+  unsubscribers.get(adapter.id)?.()
   adapters.set(adapter.id, adapter)
+  // A turn that finds the sign-in expired says so here, so Settings doesn't keep showing "Signed in".
+  const stop = adapter.subscribe?.((status) => {
+    statuses.set(adapter.id, status)
+    changed()
+  })
+  if (stop) unsubscribers.set(adapter.id, stop)
 }
+
+registerEngine(nativeEngine)
+registerEngine(codexEngine)
 
 export function engine(id: EngineId): EngineAdapter | undefined {
   return adapters.get(id)

@@ -30,6 +30,11 @@ export type EngineErrorKind =
   | 'network'
   /** The engine's process exited or stopped answering. */
   | 'engine-crashed'
+  /**
+   * The engine's own settings stop Eaon from using it: Codex set up to use
+   * Eaon's gateway, which would loop every request back into Eaon.
+   */
+  | 'misconfigured'
   | 'other'
 
 export class EngineError extends Error {
@@ -91,9 +96,30 @@ export interface EngineTurnResult {
   cancelled: boolean
   error?: string
   errorKind?: EngineErrorKind
+  /** The engine's own words for the failure, for "Copy diagnostics"; never the headline. */
+  errorDetail?: string
   /** Whether anything outside the transcript may have changed (a command ran, a file was written). */
   sideEffects: boolean
+  /**
+   * True when `sessionId` was given but the engine no longer had that session
+   * (deleted, or another computer's), so this turn started a fresh one without
+   * the earlier history. `notice` says so in plain words.
+   */
+  sessionReplaced?: boolean
+  /** Something the user should know about this turn that isn't an error. */
+  notice?: string | null
+  /** Who pays for the tokens in `usage`; see EngineBilling. */
+  billing?: EngineBilling
 }
+
+/**
+ * Who pays for an engine turn's tokens, for usage and cost tracking.
+ * `plan`: the user's subscription (ChatGPT) — counts against its limits, no
+ * per-token cost to show. `api-key`: billed per token to the user's own key.
+ * `provider`: a provider the engine itself is set up with (a local model, a
+ * custom endpoint) — Eaon can't price it. `unknown`: couldn't tell.
+ */
+export type EngineBilling = 'plan' | 'api-key' | 'provider' | 'unknown'
 
 export interface EngineAdapter {
   readonly id: EngineId
@@ -103,10 +129,23 @@ export interface EngineAdapter {
   listModels(options?: { force?: boolean }): Promise<EngineModels>
   /** Starts the engine's own sign-in. Resolves when it completed. */
   login?(): Promise<void>
-  /** Runs one turn: resumes `sessionId` (or starts a session) and sends the message. */
+  /** Gives up on a sign-in `login` is waiting for; `login` then rejects. */
+  cancelLogin?(): Promise<void>
+  /**
+   * Runs one turn: resumes `sessionId` (or starts a session) and sends the
+   * message. Streams content events (delta, reasoning, tool-call/progress/
+   * result, todos, usage) through `input.emit`; the caller ends the message
+   * (`done`, or `error` from the result's `error`). Never throws: every
+   * failure comes back as `error` + `errorKind`.
+   */
   runTurn(input: EngineTurnInput): Promise<EngineTurnResult>
   /** Adds text to a running turn, when the engine supports steering. */
   steer?(sessionId: string, text: string): Promise<boolean>
+  /**
+   * Hears about status changes the engine learns of between checks (a turn
+   * found the sign-in expired), so the registry's cached status stays true.
+   */
+  subscribe?(listener: (status: EngineStatus) => void): () => void
   /** Releases processes and sessions, for quitting. */
   dispose(): Promise<void>
 }

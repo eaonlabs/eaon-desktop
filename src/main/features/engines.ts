@@ -34,6 +34,9 @@ export const enginesFeature: Feature = {
       await adapter.login()
       return refreshEngines({ id, force: true })
     })
+    ipcMain.handle('engines:cancel-login', async (_e, id: unknown) => {
+      if (isEngineId(id)) await engine(id)?.cancelLogin?.()
+    })
     first = setTimeout(() => void refreshEngines(), FIRST_CHECK_MS)
     first.unref?.()
     timer = setInterval(() => void refreshEngines(), REFRESH_EVERY_MS)
