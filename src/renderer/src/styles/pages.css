@@ -368,19 +368,26 @@
   }
 }
 /* Under 640px (a split screen, or zoomed in) even a bare panel leaves the
-   conversation under 300px, so it floats over the right edge as a sheet. */
+   conversation under 300px, and a sheet over it would cover Send (or Stop
+   while the agent works in its own browser). The panel goes below the
+   conversation instead, which keeps its composer at the bottom of the
+   upper half. */
 @media (max-width: 639px) {
-  .browser {
-    position: fixed;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 60;
-    width: min(380px, calc(100vw - 48px));
+  .app:has(> .browser) {
+    flex-direction: column;
+  }
+  .app:has(> .browser) > .browser {
+    width: 100%;
     min-width: 0;
     max-width: none;
-    border-left: 1px solid var(--border);
-    box-shadow: var(--shadow-modal);
+    height: 45%;
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+  /* Mid-window now, not the window's top right edge: no caption buttons to clear, nothing to drag. */
+  .app:has(> .browser) .browser__tabs {
+    padding-right: 12px;
+    -webkit-app-region: no-drag;
   }
 }
 
