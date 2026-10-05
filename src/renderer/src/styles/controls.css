@@ -535,6 +535,8 @@ textarea.input {
 
 .keycap {
   display: inline-flex;
+  /* Also on <kbd>, whose default is the monospace face. */
+  font-family: inherit;
   align-items: center;
   justify-content: center;
   min-width: 34px;

@@ -300,7 +300,7 @@ function buildMenu(): void {
         { role: 'about' },
         { label: 'Check for Updates…', click: () => void checkForUpdates({ interactive: true }) },
         { type: 'separator' },
-        { label: 'Settings…', accelerator: 'Cmd+,', click: () => send('menu:settings') },
+        { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: () => send('menu:settings') },
         { type: 'separator' },
         { role: 'hide' },
         { role: 'hideOthers' },
@@ -311,20 +311,19 @@ function buildMenu(): void {
     {
       label: 'File',
       submenu: [
-        { label: 'New Chat', accelerator: 'Cmd+N', click: () => send('menu:new-chat') },
-        { label: 'New Temporary Chat', accelerator: 'Shift+Cmd+N', click: () => send('menu:new-temp-chat') },
+        { label: 'New Chat', accelerator: 'CmdOrCtrl+N', click: () => send('menu:new-chat') },
         // ⌥⌘N, as in Mail's New Viewer Window: ⌘N is already New Chat.
         { label: 'New Window', accelerator: 'Alt+CmdOrCtrl+N', click: () => void createWindow() },
         { type: 'separator' },
-        { label: 'Archive Chat', accelerator: 'Shift+Cmd+A', click: () => send('menu:archive-chat') }
+        { label: 'Archive Chat', accelerator: 'Shift+CmdOrCtrl+A', click: () => send('menu:archive-chat') }
       ]
     },
     { role: 'editMenu' },
     {
       label: 'View',
       submenu: [
-        { label: 'Toggle Sidebar', accelerator: 'Cmd+B', click: () => send('menu:toggle-sidebar') },
-        { label: 'Toggle Browser Panel', accelerator: 'Shift+Cmd+B', click: () => send('menu:toggle-panel') },
+        { label: 'Toggle Sidebar', accelerator: 'CmdOrCtrl+B', click: () => send('menu:toggle-sidebar') },
+        { label: 'Toggle Browser Panel', accelerator: 'Shift+CmdOrCtrl+B', click: () => send('menu:toggle-panel') },
         { type: 'separator' },
         { role: 'reload' },
         { role: 'toggleDevTools' },

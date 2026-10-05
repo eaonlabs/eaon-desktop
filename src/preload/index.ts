@@ -200,7 +200,6 @@ const api = {
       const channels = [
         'menu:settings',
         'menu:new-chat',
-        'menu:new-temp-chat',
         'menu:archive-chat',
         'menu:toggle-sidebar',
         'menu:toggle-panel'

@@ -4,6 +4,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { useApp } from '../state/store'
 import { useWorkers } from './workers/workersStore'
 import type { Workspace } from '@shared/types'
+import { formatShortcut, isMacPlatform } from '../lib/keys'
 
 /**
  * Chat ⇄ Workers ⇄ ADE, centred in the top bar of every screen.
@@ -18,10 +19,12 @@ import type { Workspace } from '@shared/types'
  * - ADE is the agentic development environment — an Eaon Code session in a
  *   project folder.
  */
+// ⌘1–⌘3 on a Mac, Ctrl+1–3 elsewhere (lib/keys.ts).
+const key = (n: string): string => formatShortcut({ modifiers: ['mod'], key: n }, isMacPlatform())
 const TABS: { kind: Workspace['kind']; label: string; icon: JSX.Element; hint: string }[] = [
-  { kind: 'chat', label: 'Chat', icon: <MessagesSquare size={15} strokeWidth={2} />, hint: 'Chat — ask anything, or hand Eaon a task (⌘1)' },
-  { kind: 'workers', label: 'Workers', icon: <WorkersGlyph size={15} strokeWidth={2} />, hint: 'Workers — agents that keep working in the background (⌘2)' },
-  { kind: 'code', label: 'ADE', icon: <SquareTerminal size={15} strokeWidth={2} />, hint: 'ADE — agentic development environment (⌘3)' }
+  { kind: 'chat', label: 'Chat', icon: <MessagesSquare size={15} strokeWidth={2} />, hint: `Chat — ask anything, or hand Eaon a task (${key('1')})` },
+  { kind: 'workers', label: 'Workers', icon: <WorkersGlyph size={15} strokeWidth={2} />, hint: `Workers — agents that keep working in the background (${key('2')})` },
+  { kind: 'code', label: 'ADE', icon: <SquareTerminal size={15} strokeWidth={2} />, hint: `ADE — agentic development environment (${key('3')})` }
 ]
 
 export function ModeSwitch(): JSX.Element | null {
@@ -65,7 +68,7 @@ export function ModeSwitch(): JSX.Element | null {
           >
             {icon}
             <span className="mode-switch__label">{label}</span>
-            {kind === 'workers' && workersAttention && !active && <span className="mode-switch__dot" aria-label="Needs attention" />}
+            {kind === 'workers' && workersAttention && !active && <span className="mode-switch__dot" role="img" aria-label="Needs attention" />}
           </button>
         )
       })}

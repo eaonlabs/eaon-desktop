@@ -22,6 +22,7 @@ import { AgentBrowserPanel } from './components/agentBrowser/AgentBrowserPanel'
 import { TradingDesk } from './components/trading/TradingDesk'
 import { useAgentBrowser } from './components/agentBrowser/agentBrowserStore'
 import { THEMES } from './lib/themes'
+import { hasCommandModifier, isMacPlatform } from './lib/keys'
 
 export default function App(): JSX.Element {
   const { ready, view, sidebarOpen, browserOpen, init, setView, setSettingsPage } = useApp(useShallow((s) => ({ ready: s.ready, view: s.view, sidebarOpen: s.sidebarOpen, browserOpen: s.browserOpen, init: s.init, setView: s.setView, setSettingsPage: s.setSettingsPage })))
@@ -51,7 +52,6 @@ export default function App(): JSX.Element {
           app.setSettingsPage('general')
           break
         case 'new-chat':
-        case 'new-temp-chat':
           app.newChat()
           break
         case 'archive-chat':
@@ -89,9 +89,10 @@ export default function App(): JSX.Element {
           {isWork && browserOpen && <BrowserPanel />}
           {isWork && view === 'chat' && kind === 'chat' && agentBrowserOpen && !browserOpen && <AgentBrowserPanel />}
           {view === 'chat' && kind === 'workers' && browserWorker && <WorkerBrowserPanel key={browserWorker.id} worker={browserWorker} />}
-          <GlobalKeys onSettings={() => setSettingsPage('general')} onPlugins={() => setView('plugins')} />
         </div>
       )}
+      {/* Outside the view switch, so ⌘1–3 and ⇧⌘P work from Settings too. */}
+      <GlobalKeys onSettings={() => setSettingsPage('general')} onPlugins={() => setView('plugins')} />
       <UpdateToast />
       <DiscordPresence />
       <BrowserAsk />
@@ -101,8 +102,13 @@ export default function App(): JSX.Element {
 
 function GlobalKeys({ onSettings, onPlugins }: { onSettings: () => void; onPlugins: () => void }): null {
   useEffect(() => {
+    const mac = isMacPlatform()
     const onKey = (event: KeyboardEvent): void => {
-      if (!event.metaKey) return
+      // ⌘ on a Mac, Ctrl on Windows and Linux. This checked metaKey only, so
+      // none of these worked off a Mac (the terminal even hands Ctrl+1-3 and ,
+      // to the app for this; see terminal/registry.ts). A held key repeats;
+      // toggling the sidebar ten times a second helps nobody.
+      if (!hasCommandModifier(event, mac) || event.repeat) return
       if (event.key === ',') {
         event.preventDefault()
         onSettings()

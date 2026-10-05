@@ -291,6 +291,16 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
             if (suggest.onKeyDown(e)) return
             if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault()
+              // While a reply streams, ⏎ in the message box does nothing. It
+              // used to press Stop, so a follow-up typed during a reply ended
+              // the run, and so did the ⏎ meant for an approval card. Kept
+              // from the card's own ⏎ handler too (ChatView, on document): a
+              // message typed here must not approve a command nobody read.
+              // Stop is the button; the card has its own focused buttons.
+              if (streaming) {
+                e.stopPropagation()
+                return
+              }
               submit()
             }
           }}
