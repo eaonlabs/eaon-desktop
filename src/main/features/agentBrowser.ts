@@ -7,6 +7,7 @@ import {
   type BrowserInput,
   type BrowserTarget
 } from '@shared/agentBrowser'
+import { isRunning } from '../agent/loop'
 import { registerToolSource, type ToolContext } from '../agent/tools'
 import type { Feature, FeatureContext } from './types'
 import { browserTool, WorkerBrowsers } from './workers/browser'
@@ -190,6 +191,8 @@ export const agentBrowserFeature: Feature = {
       idOf: (toolCtx) => (toolCtx.request.workerId ? null : AGENT),
       signInHint:
         'If a site needs the user to sign in, tell them: they can take control in the live view beside the chat, sign in, and hand it back.',
+      // Every chat (and scheduled task) shares this one browser, one at a time.
+      shared: { alive: isRunning },
       onStep: (toolCtx, step) => reportBrowserStep(AGENT_BROWSER, toolCtx, step)
     })
     registerToolSource({
