@@ -93,8 +93,9 @@ export function workSystemPrompt(options: WorkPromptOptions): string {
 }
 
 export const COMPACTION_PROMPT = `Summarise the conversation so far so that work can continue from the summary alone. Keep:
-- the user's goals, requirements and preferences, in their words where it matters
+- the user's goals, requirements, constraints and preferences, in their words where it matters, and how the work will be judged done
 - decisions made and why, including approaches that were rejected
-- the current state: files created or changed (with paths), commands that work, what is verified and what is not
+- the current state: files created or changed (with full paths), commands that work, what is verified and what is not
+- anything still open: tasks not finished, questions waiting for an answer, actions waiting for the user's approval (and whether it was given or refused), work handed to someone else and not yet back
 - open problems, errors still unresolved, and the next steps
 Drop pleasantries, superseded attempts and raw tool output. Write it as compact notes, not prose.`
