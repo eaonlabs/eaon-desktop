@@ -4,6 +4,7 @@ import { clampEffort } from '@shared/effort'
 import { MAIN_THREAD, threadKey, type Worker, type WorkerMail, type WorkerRoutine, type WorkerThread } from '@shared/workers'
 import { CHANNEL_LABEL, type GuestAccess } from '@shared/channels'
 import type { RunOptions, RunOutcome } from '../../agent/loop'
+import type { TurnOrigin } from '../../agent/policy'
 import type { EngineApprovalRequest, EngineTurnInput, EngineTurnResult } from '../../engines/types'
 import { ENGINE_LABEL } from '@shared/engines'
 import { isCatastrophicCommand, isRiskyCommand } from '@shared/commandRisk'
@@ -188,6 +189,8 @@ export interface TurnInput {
   allowOnce?: (tool: string, input: Record<string, unknown>) => boolean
   /** A guest's message is in this turn: hold it to this level (see guests.ts). */
   guestCap?: GuestAccess | null
+  /** Who the work in this turn came from; a guest's or a colleague's can't spend money (agent/policy). */
+  origin?: TurnOrigin
   stallMs?: number
   /**
    * The goal this turn works toward (the composer's Goal): the loop keeps it
@@ -325,6 +328,7 @@ export async function runWorkerTurn(input: TurnInput): Promise<TurnOutcome> {
             ...(input.allowOnce ? { allowOnce: input.allowOnce } : {}),
             ...(gate ? { toolGate: gate } : {}),
             ...(input.onToolRun ? { onToolRun: input.onToolRun } : {}),
+            ...(input.origin ? { origin: input.origin } : {}),
             // Only a tool's own extra confirmation (computer use before each
             // click) reaches this. An autonomous worker was trusted to act;
             // anyone else has nobody to ask, so the answer is no.

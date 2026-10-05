@@ -126,6 +126,13 @@ export interface WorkerMail {
   context?: string
   /** Background the sender wrote for the recipient (hand_off context): only what it chose to share. */
   brief?: string
+  /**
+   * The most the sender itself was allowed to do when it wrote this (its
+   * access, lowered by whoever handed it the job). The turn this lands in
+   * runs at the weaker of that and the recipient's own access, so a look-only
+   * worker can't get an autonomous colleague to make changes for it.
+   */
+  senderAccess?: WorkerAccess
   /** A task delegated to this worker; it reports back with finish_handoff. */
   handoff?: { id: string; task: string; requiredOutput?: string; deadlineAt?: number | null }
   /** A colleague finished (or failed, or dropped) a task this worker delegated. */
@@ -172,6 +179,12 @@ export interface WorkerThreadInfo {
   closedAt: number | null
   /** Overrides the worker's model for this thread only. */
   model: { providerId: string; modelId: string } | null
+  /**
+   * The most this thread may do: a delegated job runs no more freely than the
+   * worker that delegated it. Null for threads the user or the worker
+   * started, which have the worker's own access.
+   */
+  accessCap: WorkerAccess | null
   inbox: WorkerMail[]
   heartbeat: WorkerHeartbeat
   /** The assistant message streaming right now; null when not running. */

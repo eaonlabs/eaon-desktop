@@ -34,22 +34,6 @@ export function mailOrigin(mail: WorkerMail[]): 'guest' | 'delegated' | null {
   if (mail.some((m) => m.from !== 'user')) return 'delegated'
   return null
 }
-const turnOrigins = new Map<string, 'guest' | 'delegated'>()
-let unwatch: (() => void) | null = null
-
-function watchWorkerTurns(): void {
-  const workers = workersService()?.engine
-  if (!workers) return
-  unwatch?.()
-  unwatch = workers.observe({
-    turnStarted: (worker, mail) => {
-      const origin = mailOrigin(mail)
-      if (origin) turnOrigins.set(worker.id, origin)
-      else turnOrigins.delete(worker.id)
-    },
-    turnEnded: (worker) => turnOrigins.delete(worker.id)
-  })
-}
 
 /** The running engine, for tests and other features; null before registration. */
 export function paymentsEngine(): PaymentsEngine | null {
@@ -91,10 +75,10 @@ const tool = paymentTool(
   },
   // A worker's turn that carries a guest's or a colleague's work, or a guest's cap.
   (ctx) => {
-    const id = ctx.request.workerId
-    if (!id) return null
-    if (workersService()?.engine.turnCap(id)) return 'guest'
-    return turnOrigins.get(id) ?? null
+    if (!ctx.request.workerId) return null
+    // By the run, not the worker: a worker's threads run side by side, and a
+    // user's message in one must not clear a guest's or colleague's in another.
+    return workersService()?.engine.turnOrigin(ctx.request.messageId) ?? null
   }
 )
 
@@ -111,8 +95,6 @@ export const paymentsFeature: Feature = {
   register: (ctx) => {
     send = ctx.send
     engine = createEngine()
-    // Registered after workers (features/index.ts), so their engine is there to follow.
-    watchWorkerTurns()
     const live = (): PaymentsEngine => engine!
     const { ipcMain } = ctx
     ipcMain.handle('payments:status', (): PaymentsStatus => live().status())
@@ -126,8 +108,5 @@ export const paymentsFeature: Feature = {
   },
   dispose: () => {
     setPaymentAccess(null)
-    unwatch?.()
-    unwatch = null
-    turnOrigins.clear()
   }
 }

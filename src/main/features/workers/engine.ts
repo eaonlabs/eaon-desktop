@@ -33,6 +33,7 @@ import {
   type Worker,
   type WorkerDraft,
   type WorkerRoutine,
+  type WorkerAccess,
   type WorkerTrading,
   type WorkerHeartbeat,
   type WorkerAsk,
@@ -51,6 +52,7 @@ import {
   type WorkerDelegation
 } from '@shared/workers'
 import type { GuestAccess } from '@shared/channels'
+import type { TurnOrigin } from '../../agent/policy'
 import { summariseReply } from '../scheduler/transcript'
 import type { TradingVenue } from '../trading/access'
 import { isOpen, nextOpen } from '../trading/marketHours'
@@ -61,6 +63,8 @@ import { ExecutionLog, isEnded } from './executions'
 import { delegationRefusal, isOpenDelegation, normalizeDelegations, pruneDelegations } from './delegations'
 import { watchFor, type WakeCondition } from './watch'
 import { copyTree, sizeOf, transferRefusal, type TransferProgress } from './transfer'
+import { approvalKey } from '../../agent/approvalKey'
+import { weakerAccess } from '@shared/channels'
 
 /** How a tool follows a file transfer: its stop button, and a line of progress. */
 export interface TransferWatch {
@@ -192,6 +196,10 @@ interface Running {
   stoppedByUser: boolean
   /** Rooms the worker posted to itself this turn (post_to_room); its reply isn't posted there again. */
   postedRooms: Set<string>
+  /** What the run may do: the worker's access, lowered by a delegating colleague's or a thread's cap. */
+  access: WorkerAccess
+  /** Who the work in this run came from, for spending (agent/policy TurnOrigin). */
+  origin: TurnOrigin
   /** A routine this run is for (its own thread). */
   routineId: string | null
   /** A delegated job this run works on (its own thread). */
@@ -350,6 +358,7 @@ function normalizeThreadInfo(raw: unknown, now: number): WorkerThreadInfo | null
     updatedAt: finite(v.updatedAt) ?? now,
     closedAt: finite(v.closedAt),
     model: pinned(v.model),
+    accessCap: v.accessCap === 'read-only' || v.accessCap === 'safe' || v.accessCap === 'autonomous' ? v.accessCap : null,
     inbox: normalizeInbox(v.inbox),
     heartbeat: normalizeHeartbeat(v.heartbeat),
     runningMessageId: typeof v.runningMessageId === 'string' ? v.runningMessageId : null,
@@ -444,15 +453,6 @@ function freePath(dir: string, name: string): string {
   return candidate
 }
 
-/** Key order made irrelevant, so an approved call matches the retry exactly. */
-function stableJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(stableJson).join(',')}]`
-  if (value && typeof value === 'object') {
-    return `{${Object.keys(value as Record<string, unknown>).sort().map((k) => `${JSON.stringify(k)}:${stableJson((value as Record<string, unknown>)[k])}`).join(',')}}`
-  }
-  return JSON.stringify(value)
-}
-
 /** The text of a message, tool calls named but not shown — for sharing a thread with a colleague. */
 function messageText(message: ChatMessage): string {
   const out: string[] = []
@@ -502,7 +502,7 @@ function normalizeRooms(raw: unknown, workerIds: Set<string>): RoomsFile {
 
 export class WorkersEngine {
   /** One-time approvals from answered `approve` questions, per worker. */
-  private grants = new Map<string, { tool: string; input: string; expires: number }[]>()
+  private grants = new Map<string, { key: string; expires: number }[]>()
   private workers: Worker[] = []
   private roomsFile: RoomsFile = { rooms: [], posts: {}, seen: {} }
   /** Per room, how many times workers have woken each other since the user last posted there. */
@@ -977,7 +977,10 @@ export class WorkersEngine {
    * done on the side, a routine's runs, a colleague's delegated job. Past
    * MAX_THREADS, the oldest finished threads are cleared to make room.
    */
-  createThread(id: string, input: { title: string; kind: WorkerThreadInfo['kind']; routineId?: string; delegationId?: string; model?: WorkerThreadInfo['model'] }): WorkerThreadInfo {
+  createThread(
+    id: string,
+    input: { title: string; kind: WorkerThreadInfo['kind']; routineId?: string; delegationId?: string; model?: WorkerThreadInfo['model']; accessCap?: WorkerAccess | null }
+  ): WorkerThreadInfo {
     const worker = this.require(id)
     const now = this.now()
     const info: WorkerThreadInfo = {
@@ -990,6 +993,7 @@ export class WorkersEngine {
       updatedAt: now,
       closedAt: null,
       model: input.model ?? null,
+      accessCap: input.accessCap ?? null,
       inbox: [],
       heartbeat: { nextAt: null, everyMs: null, note: '' },
       runningMessageId: null,
@@ -1144,7 +1148,7 @@ export class WorkersEngine {
       brief?: string
       extra?: Partial<WorkerMail>
       /** The recipient's thread to deliver to; the main one by default. Returns false when it no longer exists. */
-      toThreadId?: () => string
+      toThreadId?: (senderAccess: WorkerAccess) => string
       transfer?: TransferWatch
     } = {}
   ): Promise<{ recipient: Worker; delivered: string[]; threadId: string }> {
@@ -1165,7 +1169,8 @@ export class WorkersEngine {
     this.sentLog.set(sender.id, [...sent, now])
     const context = options.shareContext ? this.threadExcerpt(sender.id, 10, CONTEXT_CHARS, options.fromThreadId ?? MAIN_THREAD) : ''
     const brief = str(options.brief).slice(0, CONTEXT_CHARS)
-    let threadId = options.toThreadId?.() ?? MAIN_THREAD
+    const senderAccess = this.accessOf(sender, options.fromThreadId ?? MAIN_THREAD)
+    let threadId = options.toThreadId?.(senderAccess) ?? MAIN_THREAD
     if (threadId !== MAIN_THREAD && !this.info(recipient, threadId)) threadId = MAIN_THREAD
     this.deliverMail(
       recipient,
@@ -1179,6 +1184,7 @@ export class WorkersEngine {
         at: now,
         ...(context ? { context } : {}),
         ...(brief ? { brief } : {}),
+        senderAccess,
         ...options.extra
       },
       threadId
@@ -1324,10 +1330,11 @@ export class WorkersEngine {
         extra: { handoff: { id: delegation.id, task: delegation.objective, requiredOutput: delegation.requiredOutput, deadlineAt: delegation.deadlineAt } },
         // Created only once the message is sure to go (the send budget and the
         // file copy can still refuse it), so a refused hand-off leaves no thread.
-        toThreadId: () => {
+        toThreadId: (senderAccess) => {
           const live = this.find(target.id)
           if (!live) return MAIN_THREAD
-          const threadId = this.createThread(live.id, { title: delegation.objective, kind: 'delegation', delegationId: delegation.id }).id
+          // The job runs no more freely than the worker that delegated it.
+          const threadId = this.createThread(live.id, { title: delegation.objective, kind: 'delegation', delegationId: delegation.id, accessCap: senderAccess }).id
           delegation.recipient.threadId = threadId
           return threadId
         }
@@ -1973,7 +1980,7 @@ export class WorkersEngine {
     if (ask.approve) {
       if (answer.approved) {
         const grants = (this.grants.get(id) ?? []).filter((g) => g.expires > this.now())
-        grants.push({ tool: toolName(ask.approve.tool), input: stableJson(ask.approve.input), expires: this.now() + DAY })
+        grants.push({ key: approvalKey(ask.approve.tool, ask.approve.input), expires: this.now() + DAY })
         this.grants.set(id, grants)
       }
       text = `${answer.approved ? 'Approved' : 'Declined'}: ${ask.approve.summary}${answer.text ? ` — ${answer.text}` : ''}${
@@ -1994,9 +2001,9 @@ export class WorkersEngine {
   allowOnce(id: string, tool: string, input: Record<string, unknown>): boolean {
     const grants = this.grants.get(id)
     if (!grants) return false
-    const key = stableJson(input)
-    const name = toolName(tool)
-    const index = grants.findIndex((g) => toolName(g.tool) === name && g.input === key && g.expires > this.now())
+    // One approval is one call: same tool (namespace aside), same arguments (key order aside).
+    const key = approvalKey(tool, input)
+    const index = grants.findIndex((g) => g.key === key && g.expires > this.now())
     if (index === -1) return false
     grants.splice(index, 1)
     return true
@@ -2207,6 +2214,25 @@ export class WorkersEngine {
       this.threads.delete(threadKey(worker.id, oldest.id))
       void Promise.resolve(this.deps.deleteThread(threadKey(worker.id, oldest.id))).catch((error) => console.error('[workers] could not clear an old thread:', error))
     }
+  }
+
+  /**
+   * What a worker may do right now in a thread: its own access, lowered by
+   * the cap of the thread it is in (a delegated job) and by the run going
+   * there (a colleague's or a guest's message in it). What its own messages
+   * to colleagues carry as `senderAccess`.
+   */
+  private accessOf(worker: Worker, threadId: string): WorkerAccess {
+    const running = this.running.get(slotKey(worker.id, threadId))
+    if (running) return running.access
+    const cap = this.info(worker, threadId)?.accessCap
+    return cap ? (weakerAccess(worker.access, cap) as WorkerAccess) : worker.access
+  }
+
+  /** Who a run's work came from: a guest, a colleague (a delegated job, mail from another worker), or the user. */
+  turnOrigin(messageId: string): 'guest' | 'delegated' | null {
+    for (const run of this.running.values()) if (run.messageId === messageId) return run.origin === 'user' ? null : run.origin
+    return null
   }
 
   private thread(id: string, threadId: string = MAIN_THREAD): WorkerThread {
@@ -2485,6 +2511,14 @@ export class WorkersEngine {
             : null
     if (!priority) this.turnLog.set(worker.id, [...(this.turnLog.get(worker.id) ?? []), now])
     const cap = guestCap(mail, worker.access)
+    // What this run may do: the worker's access, lowered by its thread's cap
+    // and by the access of any colleague whose message is in it (a guest's
+    // cap is handled by `cap`, which also gates tools).
+    let access: WorkerAccess = worker.access
+    const threadCap = info?.accessCap
+    if (threadCap) access = weakerAccess(access, threadCap) as WorkerAccess
+    for (const m of mail) if (m.senderAccess) access = weakerAccess(access, m.senderAccess) as WorkerAccess
+    const origin: TurnOrigin = cap || mail.some((m) => m.from === 'guest' || m.channel?.cap) ? 'guest' : info?.kind === 'delegation' || mail.some((m) => m.from !== 'user') ? 'delegated' : 'user'
     // An active goal run (the main thread's): this turn works on it in goal
     // mode, and a continuation it was due for is used up.
     const goalRun = isMain && worker.goalRun?.status === 'active' ? worker.goalRun : null
@@ -2551,6 +2585,8 @@ export class WorkersEngine {
       userTriggered: woke || !!retry || mail.some((m) => m.from === 'user' && !m.channel),
       stoppedByUser: false,
       postedRooms: new Set(),
+      access,
+      origin,
       routineId: routine?.id ?? null,
       delegationId: delegation?.id ?? null,
       reported: false,
@@ -2583,6 +2619,8 @@ export class WorkersEngine {
     this.tell((o) => o.turnStarted?.(clone(worker), clone(mail)))
 
     const snapshot = clone(worker)
+    // The persona and the turn's policy both read the access it really runs at.
+    snapshot.access = access
     const creator = snapshot.createdBy ? (this.find(snapshot.createdBy)?.name ?? null) : null
     const work: Promise<void> = runWorkerTurn({
       worker: snapshot,
@@ -2606,6 +2644,7 @@ export class WorkersEngine {
       runEngineTurn: this.deps.runEngineTurn,
       allowOnce: (tool, input) => this.allowOnce(snapshot.id, tool, input),
       guestCap: cap,
+      origin,
       stallMs: this.deps.stallMs,
       goal: goalRun ? { text: goalRun.text, status: 'active', iterations: goalRun.iterations } : null,
       onToolRun: (_name, mutating) => {
@@ -2846,15 +2885,5 @@ export class WorkersEngine {
   }
 }
 
-/**
- * A tool's own name, without the namespace some models put in front of it
- * when they name a tool as data: GPT-style models write "functions.email_send"
- * in ask_user's approve_tool, Gemini "default_api.email_send". Compared
- * literally, an approval for "functions.email_send" never matched the real
- * call to email_send, and an approved email was refused (Oct 1 2026).
- */
-export function toolName(name: string): string {
-  return String(name ?? '')
-    .trim()
-    .replace(/^(functions|default_api|tools?|api)[.:/]/i, '')
-}
+/** A tool's own name without a namespace a model put in front of it; see agent/approvalKey. */
+export { bareToolName as toolName } from '../../agent/approvalKey'

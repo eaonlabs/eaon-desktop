@@ -690,3 +690,68 @@ test('a sleeping worker wakes when the process it waits on exits', async () => {
   assert.match(lastUserText(agent.pending[0].request), new RegExp(`woken because process ${child.pid} exited`))
   agent.pending[0].release()
 })
+
+/* ------------------------------------------------------- access and origin */
+
+test('a look-only worker can’t get an autonomous colleague to make changes for it, in that job or any later turn of it', async () => {
+  const agent = heldAgent()
+  let clock = Date.parse('2026-10-04T09:00:00Z')
+  const { engine } = start(agent.runAgent, { now: () => clock })
+  const nova = engine.save(draft('Nova', { access: 'read-only' }))
+  engine.save(draft('Vega', { access: 'autonomous' }))
+  // Vega alone, asked by the user: its own access.
+  engine.send(engine.list().find((w) => w.name === 'Vega')!.id, 'Hello')
+  await until(() => !!agent.of('Vega'))
+  assert.equal(agent.of('Vega')!.options.unattended, 'autonomous')
+  agent.of('Vega')!.release()
+  await until(() => !engine.isRunning(engine.list().find((w) => w.name === 'Vega')!.id))
+
+  const { delegation } = await engine.handOff(nova.id, 'Vega', 'Clean up the build folder')
+  await until(() => !!agent.of('Vega'))
+  const job = agent.of('Vega')!
+  assert.equal(job.options.unattended, 'read-only', 'the job runs at the delegator’s access')
+  assert.equal(job.request.workerId, engine.list().find((w) => w.name === 'Vega')!.id)
+  assert.match(job.request.persona ?? '', /Usually nobody is watching and nobody can approve anything/, 'and the persona says so')
+  // It goes to sleep and wakes later with no mail: still capped.
+  engine.sleep(job.request.workerId!, 5, 'check back', job.request.workerThreadId)
+  job.release()
+  clock += 6 * 60_000
+  engine.tick()
+  await until(() => !!agent.of('Vega'))
+  assert.equal(agent.of('Vega')!.options.unattended, 'read-only', 'a later wake-up of the same job is capped too')
+  assert.equal(engine.delegations().find((d) => d.id === delegation.id)!.state, 'running')
+  agent.of('Vega')!.release()
+})
+
+test('each turn carries who its work came from, per thread: a user’s message in one never clears a colleague’s in another', async () => {
+  const agent = heldAgent()
+  const { engine } = start(agent.runAgent)
+  const nova = engine.save(draft('Nova'))
+  const vega = engine.save(draft('Vega'))
+  await engine.handOff(nova.id, 'Vega', 'Buy the tickets')
+  await until(() => !!agent.of('Vega'))
+  const delegated = agent.of('Vega')!
+  assert.equal(delegated.options.origin, 'delegated')
+  assert.equal(engine.turnOrigin(delegated.request.messageId), 'delegated')
+  // The user writes to Vega's main conversation while that job is running.
+  engine.send(vega.id, 'What’s the weather?')
+  await until(() => agent.pending.length === 2)
+  const mine = agent.pending.find((p) => p !== delegated)!
+  assert.equal(mine.options.origin, 'user')
+  assert.equal(engine.turnOrigin(mine.request.messageId), null)
+  assert.equal(engine.turnOrigin(delegated.request.messageId), 'delegated', 'the user’s turn did not clear the colleague’s')
+  for (const p of [...agent.pending]) p.release()
+})
+
+test('an approval the user gave covers that call only: key order and a namespace don’t matter, anything else does', () => {
+  const agent = heldAgent()
+  const { engine } = start(agent.runAgent)
+  const nova = engine.save(draft('Nova', { access: 'safe' }))
+  const ask = engine.ask(nova.id, { question: 'Send it?', approve: { tool: 'functions.email_send', input: { to: 'a@b.c', subject: 'Hi', body: 'x' }, summary: 'send' } })
+  engine.answer(nova.id, ask.id, { approved: true })
+  assert.equal(engine.allowOnce(nova.id, 'email_send', { to: 'a@b.c', subject: 'Hi', body: 'x ' }), false, 'a different body is a different call')
+  assert.equal(engine.allowOnce(nova.id, 'email_send', { to: 'a@b.c', subject: 'Hi' }), false)
+  assert.equal(engine.allowOnce(nova.id, 'email_draft', { to: 'a@b.c', subject: 'Hi', body: 'x' }), false)
+  assert.equal(engine.allowOnce(nova.id, 'email_send', { body: 'x', subject: 'Hi', to: 'a@b.c' }), true)
+  assert.equal(engine.allowOnce(nova.id, 'email_send', { to: 'a@b.c', subject: 'Hi', body: 'x' }), false, 'spent: once means once')
+})

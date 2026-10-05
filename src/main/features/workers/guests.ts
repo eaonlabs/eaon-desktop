@@ -20,7 +20,7 @@ import { isWebSearchTool } from '../../webSearch'
  */
 
 /** Tools whose effects reach later turns. */
-const LASTING = new Set(['set_heartbeat', 'add_routine', 'remove_routine', 'set_goal', 'update_notes', 'message_worker', 'create_worker'])
+const LASTING = new Set(['set_heartbeat', 'add_routine', 'remove_routine', 'set_goal', 'update_notes', 'message_worker', 'hand_off', 'post_to_room', 'create_worker', 'sleep'])
 
 /** Everything a "Talk only" turn may use. */
 const TALK = new Set(['web_fetch', 'set_status', 'ask_user', 'notify_user', 'send_chat_message', 'update_plan'])
