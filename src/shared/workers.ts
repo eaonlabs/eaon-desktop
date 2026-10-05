@@ -97,6 +97,13 @@ export interface WorkerAsk {
   at: number
 }
 
+/**
+ * A short name for one waiting approval — the start of its id — so a chat
+ * app can approve exactly the call it was shown ("/approve k7f2") rather than
+ * whichever is first by the time the reply arrives.
+ */
+export const approvalCode = (ask: Pick<WorkerAsk, 'id'>): string => ask.id.replace(/-/g, '').slice(0, 4).toLowerCase()
+
 export interface WorkerMail {
   id: string
   /**

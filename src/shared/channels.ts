@@ -178,8 +178,8 @@ export const CHANNEL_COMMANDS: { name: string; args?: string; description: strin
   { name: 'use', args: 'name', description: 'Point this bot at another worker', who: 'owner' },
   { name: 'asks', description: 'Questions the worker is waiting on', who: 'owner' },
   { name: 'answer', args: 'text', description: 'Answer its oldest question', who: 'owner' },
-  { name: 'approve', description: 'Approve the action it asked about', who: 'owner' },
-  { name: 'decline', description: 'Decline the action it asked about', who: 'owner' },
+  { name: 'approve', args: 'code', description: 'Approve the action it asked about (the code is in its message)', who: 'owner' },
+  { name: 'decline', args: 'code', description: 'Decline the action it asked about', who: 'owner' },
   { name: 'allow', args: 'code', description: 'Let someone (or a group) talk to it', who: 'owner' },
   { name: 'pair', args: 'code', description: 'Claim this bot as yours', who: 'anyone' }
 ]

@@ -21,7 +21,8 @@ import {
   type WhatsAppGroup
 } from '@shared/channels'
 import type { ChatMessage } from '@shared/types'
-import { describeWorker, type Worker, type WorkerMail } from '@shared/workers'
+import { approvalCode, describeWorker, type Worker, type WorkerAsk, type WorkerMail } from '@shared/workers'
+import { redactSecrets } from '../../redact'
 import type { WorkersEngine } from '../workers/engine'
 import { calledByName, parseCommand, replyText } from './format'
 import type { Connector, ConnectorEvents, IncomingMessage } from './types'
@@ -85,6 +86,24 @@ const TYPING_LIMIT_MS = 15 * 60_000
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
 const KINDS: ChannelKind[] = ['discord', 'telegram', 'whatsapp']
 const COMMANDS = new Set(CHANNEL_COMMANDS.map((c) => c.name))
+
+/**
+ * The call an approval is for, as lines to show in a chat: the tool and its
+ * arguments, secrets blanked and long values cut. The model's own summary of
+ * what it wants is shown too, but the owner agrees to this.
+ */
+function describeCall(ask: WorkerAsk): string[] {
+  const call = ask.approve
+  if (!call) return []
+  let args = ''
+  try {
+    args = JSON.stringify(call.input)
+  } catch {
+    args = ''
+  }
+  const shown = redactSecrets(args)
+  return [`Tool: ${call.tool}`, ...(shown && shown !== '{}' ? [`With: ${shown.length > 600 ? `${shown.slice(0, 599)}…` : shown}`] : [])]
+}
 
 const clone = <T>(value: T): T => structuredClone(value)
 const str = (value: unknown): string => (typeof value === 'string' ? value.trim() : '')
@@ -170,8 +189,10 @@ export class ChannelsService {
       turnEnded: (worker, turn) => void this.turnEnded(worker, turn).catch((error) => console.error('[channels] could not post a reply:', error)),
       asked: (worker, ask) => {
         const lines = [`${worker.name} has a question: ${ask.question}`]
-        if (ask.approve) lines.push(`It wants to: ${ask.approve.summary}`, 'Reply /approve or /decline.')
-        else {
+        if (ask.approve) {
+          // The exact call, not just the model's description of it: this is what the owner is agreeing to.
+          lines.push(`It wants to: ${ask.approve.summary}`, ...describeCall(ask), `Reply /approve ${approvalCode(ask)} or /decline ${approvalCode(ask)}.`)
+        } else {
           ask.options.forEach((option, i) => lines.push(`${i + 1}. ${option}`))
           lines.push(ask.options.length ? 'Reply /answer with a number or your own words.' : 'Reply /answer and your answer.')
         }
@@ -758,7 +779,10 @@ export class ChannelsService {
           }
           await reply(
             worker.asks
-              .map((ask, i) => `${i + 1}. ${ask.question}${ask.approve ? ` (wants to: ${ask.approve.summary})` : ask.options.length ? ` [${ask.options.join(' / ')}]` : ''}`)
+              .map(
+                (ask, i) =>
+                  `${i + 1}. ${ask.question}${ask.approve ? ` (wants to: ${ask.approve.summary}; /approve ${approvalCode(ask)} or /decline ${approvalCode(ask)})` : ask.options.length ? ` [${ask.options.join(' / ')}]` : ''}`
+              )
               .join('\n')
           )
           return
@@ -781,12 +805,22 @@ export class ChannelsService {
         }
         case 'approve':
         case 'decline': {
-          const ask = worker.asks.find((a) => a.approve)
-          if (!ask) {
+          const pending = worker.asks.filter((a) => a.approve)
+          if (pending.length === 0) {
             await reply(`${worker.name} isn’t waiting for an approval.`)
             return
           }
-          engine.answer(worker.id, ask.id, { approved: command.name === 'approve', ...(command.args ? { text: command.args } : {}) })
+          // Always by code: an approval is for the one call that was shown, and
+          // a second may have arrived since (or the first was answered in the app).
+          const [first = '', ...rest] = command.args.trim().split(/\s+/)
+          const ask = pending.find((a) => approvalCode(a) === first.toLowerCase())
+          if (!ask) {
+            const list = pending.map((a) => `/${command.name} ${approvalCode(a)} — ${a.approve!.summary}`).join('\n')
+            await reply(`${first ? `No waiting approval is called ${first} (it may have been answered already). ` : ''}${worker.name} is waiting for:\n${list}`)
+            return
+          }
+          const note = rest.join(' ')
+          engine.answer(worker.id, ask.id, { approved: command.name === 'approve', ...(note ? { text: note } : {}) })
           await reply(command.name === 'approve' ? `Approved: ${ask.approve!.summary}` : 'Declined.')
           return
         }

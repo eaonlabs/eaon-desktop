@@ -29,11 +29,17 @@ export function WorkerAsks({ worker }: { worker: Worker }): JSX.Element | null {
 function AskCard({ worker, ask }: { worker: Worker; ask: WorkerAsk }): JSX.Element {
   const [reply, setReply] = useState('')
   const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
   const answer = async (value: { text?: string; approved?: boolean }): Promise<void> => {
     if (busy) return
     setBusy(true)
+    setError(null)
     try {
       await window.api.workers.answer(worker.id, ask.id, value)
+    } catch (failure) {
+      // Answered somewhere else first (another window, a chat app): the card goes away on its own; say why meanwhile.
+      const message = failure instanceof Error ? failure.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(failure)
+      setError(/already answered/i.test(message) ? 'This was already answered somewhere else.' : message)
     } finally {
       setBusy(false)
     }
@@ -69,6 +75,7 @@ function AskCard({ worker, ask }: { worker: Worker; ask: WorkerAsk }): JSX.Eleme
         ) : (
           <CallPreview summary={summary} args={input} />
         )}
+        {error && <div className="msg__error">{error}</div>}
       </ApprovalCard>
     )
   }
@@ -99,6 +106,7 @@ function AskCard({ worker, ask }: { worker: Worker; ask: WorkerAsk }): JSX.Eleme
           }}
         />
       </div>
+      {error && <div className="msg__error">{error}</div>}
     </div>
   )
 }
