@@ -2469,6 +2469,11 @@ export class WorkersEngine {
     const info = this.info(worker, threadId)
     const slot = this.slot(worker, threadId)
     if (!slot) return false
+    // The run takes the slot it was due for. Until it ends the routine's next
+    // occurrence is the one after; if that arrives while this run is still
+    // going, it is skipped (the overlap policy), not this run's own slot.
+    const dueAt = routine ? routine.nextAt : null
+    if (routine) routine.nextAt = routineNextAt(routine, now)
     const heartbeatDue = slot.heartbeat.nextAt !== null && slot.heartbeat.nextAt <= now
     const woke = isMain && this.wakes.has(worker.id)
     const resume = this.resumes.get(key)
@@ -2562,11 +2567,11 @@ export class WorkersEngine {
                     ? { kind: 'goal', label: 'Working toward its goal' }
                     : { kind: 'heartbeat', label: 'Heartbeat' }
     let reason: string | null = null
-    if (routine && now - routine.nextAt > 5 * 60_000) {
+    if (routine && dueAt !== null && now - dueAt > 5 * 60_000) {
       // Missed occurrences run once, late, never as a burst.
       const every = routine.everyMs ?? DAY
-      const skipped = Math.floor((now - routine.nextAt) / every)
-      reason = `Ran ${relativeTime(routine.nextAt, now).replace(' ago', '')} late — Eaon was closed or the computer was asleep${skipped > 0 ? `; ${skipped} earlier run${skipped === 1 ? ' was' : 's were'} skipped` : ''}.`
+      const skipped = Math.floor((now - dueAt) / every)
+      reason = `Ran ${relativeTime(dueAt, now).replace(' ago', '')} late — Eaon was closed or the computer was asleep${skipped > 0 ? `; ${skipped} earlier run${skipped === 1 ? ' was' : 's were'} skipped` : ''}.`
     }
     let execution = this.waiting.get(key)
     this.waiting.delete(key)

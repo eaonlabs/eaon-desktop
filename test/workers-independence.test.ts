@@ -772,3 +772,28 @@ test('a Codex turn that lost its session says so, is marked as on the user’s p
   await until(() => receipts(engine, nova.id).at(-1)?.state === 'failed')
   assert.match(worker(engine, nova.id).lastError ?? '', /set up to send its requests through Eaon, so Eaon can't run it/)
 })
+
+test('a routine that is running doesn’t make the user wait (the 2026.6.1 behaviour: one worker, one queue)', async () => {
+  const agent = heldAgent()
+  let clock = Date.parse('2026-10-04T09:00:00Z')
+  const { engine } = start(agent.runAgent, { now: () => clock })
+  const nova = engine.save(draft('Nova'))
+  engine.addRoutine(nova.id, { name: 'Sweep', task: 'Sweep the inbox', everyMinutes: 10 })
+  clock += 10 * 60_000
+  engine.tick()
+  await until(() => agent.pending.length === 1)
+  assert.match(lastUserText(agent.pending[0].request), /Routine "Sweep"/)
+  engine.send(nova.id, 'Quick question: what time is it?')
+  // Started at once, in the main conversation, beside the routine.
+  await until(() => agent.pending.length === 2, 1500)
+  assert.equal(worker(engine, nova.id).inbox.length, 0, 'nothing waits in the inbox')
+  const answering = agent.pending.find((p) => /Quick question/.test(lastUserText(p.request)))!
+  assert.equal(answering.request.workerThreadId, undefined, 'it is the main conversation')
+  answering.release('Nearly ten past nine.')
+  await until(() => receipts(engine, nova.id).some((e) => e.trigger.kind === 'message' && e.state === 'completed'))
+  assert.equal(engine.isRunning(nova.id), true, 'the routine is still going')
+  agent.pending[0].release('Swept.')
+  await until(() => !engine.isRunning(nova.id))
+  const history = receipts(engine, nova.id).map((e) => `${e.trigger.label}: ${e.state}`).sort()
+  assert.deepEqual(history, ['Routine: Sweep: completed', 'Your message: completed'], 'each run has its own receipt')
+})
