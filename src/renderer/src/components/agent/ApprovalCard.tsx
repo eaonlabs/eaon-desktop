@@ -50,6 +50,30 @@ export function approvalRisk(tool: string, input?: Record<string, unknown>): App
   return RISK[tool] ?? 'medium'
 }
 
+/** Where a keypress came from, as far as ⏎ approving is concerned. */
+export interface KeyTarget {
+  /** A button: it answers ⏎ itself. */
+  button: boolean
+  /** A text box or anything editable: ⏎ there means "send" or "new line". */
+  field: boolean
+  /** Inside the approval card itself. */
+  inCard: boolean
+  /** Nothing has focus (the document body). */
+  nothingFocused: boolean
+}
+
+/**
+ * Whether ⏎ should approve. Only from the card itself or with nothing
+ * focused — never from a text box (the composer sits right behind the card),
+ * never from a button (it answers for itself), and never for a call that
+ * could delete or change the system: that one needs a click.
+ */
+export function enterApproves(target: KeyTarget, risk: ApprovalRisk): boolean {
+  if (target.button || target.field) return false
+  if (risk === 'high') return false
+  return target.inCard || target.nothingFocused
+}
+
 /** What the action does, in a few words, under the title. */
 const DOES: Record<string, string> = {
   run_command: 'Runs on your computer',

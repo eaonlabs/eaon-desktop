@@ -35,7 +35,7 @@ import { GoalBanner, PlanCard, TodoPanel, UsageLine } from './agent/WorkBits'
 import { FileDiff } from './agent/FileDiff'
 import { MessageActions } from './agent/MessageActions'
 import { ProviderErrorActions } from './composer/ProviderErrorActions'
-import { ApprovalCard, CallPreview, CommandPreview } from './agent/ApprovalCard'
+import { ApprovalCard, approvalRisk, CallPreview, CommandPreview, enterApproves } from './agent/ApprovalCard'
 import { WorkerFace } from './workers/WorkerFace'
 import { ChannelLogo } from './channels/ChannelLogo'
 import { AgentBrowserToggle } from './agentBrowser/AgentBrowserPanel'
@@ -191,17 +191,33 @@ function ApprovalPrompt(): JSX.Element | null {
     respondApproval(approved)
   }
 
-  // ⏎ approves and esc denies, unless a button has focus: it answers ⏎ itself.
+  // esc denies. ⏎ approves only from the card itself, or with nothing focused:
+  // never from a text box (the composer sits right behind the card, and ⏎
+  // there means "send"), never when a button has focus (it answers ⏎ itself),
+  // and never for a call that could delete or change the system, which needs
+  // a click.
   useEffect(() => {
     if (!pending) return
     const onKey = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {
         event.preventDefault()
         respond(false)
-      } else if (event.key === 'Enter' && !event.isComposing && !(event.target instanceof HTMLButtonElement)) {
-        event.preventDefault()
-        respond(true)
+        return
       }
+      if (event.key !== 'Enter' || event.isComposing) return
+      const el = event.target instanceof HTMLElement ? event.target : null
+      const allowed = enterApproves(
+        {
+          button: el instanceof HTMLButtonElement,
+          field: el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || Boolean(el?.isContentEditable),
+          inCard: Boolean(el?.closest('.approval')),
+          nothingFocused: !el || el === document.body
+        },
+        approvalRisk(pending.tool, pending.input)
+      )
+      if (!allowed) return
+      event.preventDefault()
+      respond(true)
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
