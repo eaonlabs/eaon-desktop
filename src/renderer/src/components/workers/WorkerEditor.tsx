@@ -8,6 +8,8 @@ import { WorkerTradingFields } from './WorkerTradingFields'
 import { useWorkers } from './workersStore'
 import { WORKER_ACCESS, WORKER_COLORS, WORKER_PERSONALITIES, type WorkerAccess, type WorkerMood, type WorkerTrading } from '@shared/workers'
 import { ENGINE_LABEL, type EngineId, type EngineModels, type EngineStatus } from '@shared/engines'
+import { EFFORT_LABEL, orderEfforts } from '@shared/effort'
+import type { EffortLevel } from '@shared/types'
 
 /**
  * The agent engines this computer has besides Eaon's own loop, with their
@@ -67,6 +69,8 @@ export function WorkerEditor({ workerId }: { workerId: string | null }): JSX.Ele
   const [purpose, setPurpose] = useState(existing?.purpose ?? '')
   const [model, setModel] = useState(existing?.model ? `${existing.model.providerId}::${existing.model.modelId}` : '')
   const [engine, setEngine] = useState<EngineId>(existing?.engine ?? 'native')
+  // How hard it thinks; empty follows the app's setting (Chat's).
+  const [effort, setEffort] = useState<EffortLevel | ''>(existing?.effort ?? '')
   const engines = useEngines()
   const otherEngines = engines.statuses.filter((e) => e.id !== 'native' && (e.installed || e.id === engine))
   // New workers are trusted to act on their own; the catastrophic floor still applies.
@@ -99,6 +103,14 @@ export function WorkerEditor({ workerId }: { workerId: string | null }): JSX.Ele
     if (model && !options.some((o) => o.value === model)) options.push({ value: model, label: `${model.split('::')[1]} (unavailable)` })
     return options
   }, [models, providers, engine, engines.models, model])
+  // The levels the chosen model takes, when known; otherwise none are offered
+  // (an unknown model may not think in levels at all).
+  const effortLevels = useMemo((): EffortLevel[] => {
+    if (!model) return []
+    const [providerId, modelId] = model.split('::')
+    if (engine !== 'native') return orderEfforts(engines.models[engine]?.models.find((m) => m.id === modelId)?.efforts ?? [])
+    return orderEfforts(models.find((m) => m.providerId === providerId && m.id === modelId)?.efforts ?? [])
+  }, [model, engine, engines.models, models])
   const note = engine === 'native' ? null : engineNote(engines.statuses.find((e) => e.id === engine), ENGINE_LABEL[engine])
 
   // A trading worker's strategy can stand in for its purpose.
@@ -118,6 +130,7 @@ export function WorkerEditor({ workerId }: { workerId: string | null }): JSX.Ele
         purpose: purpose.trim() || (trading ? 'Trade for the user, following the strategy in the trading settings.' : ''),
         model: providerId && modelId ? { providerId, modelId } : null,
         engine,
+        effort: effort || null,
         access,
         trading
       })
@@ -245,6 +258,17 @@ export function WorkerEditor({ workerId }: { workerId: string | null }): JSX.Ele
             <span className="field-label">Model</span>
             <Select width={240} value={model} onChange={setModel} options={modelOptions} />
           </div>
+          {effortLevels.length > 0 && (
+            <div className="field field--inline">
+              <span className="field-label">Thinking</span>
+              <Select
+                width={160}
+                value={effort}
+                onChange={(next: EffortLevel | '') => setEffort(next)}
+                options={[{ value: '', label: 'Follow Chat' }, ...effortLevels.map((level) => ({ value: level, label: EFFORT_LABEL[level] }))]}
+              />
+            </div>
+          )}
           <div className="field field--inline">
             <span className="field-label">Freedom</span>
             <Select
