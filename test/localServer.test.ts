@@ -5,6 +5,7 @@ import { startLocalServer, stopLocalServer } from '../src/main/localServer'
 import { getProvider, testProvider } from '../src/main/providers'
 import { refreshLocalProviders } from '../src/main/providers/localDiscovery'
 import { isOwnServerUrl } from '../src/main/providers/compat'
+import { gatewayToken } from '../src/main/gateway/models'
 import { store } from '../src/main/store'
 import { secrets } from '../src/main/secrets'
 import { chunk, sseServer } from './helpers'
@@ -192,10 +193,19 @@ test('web pages from other origins, and DNS-rebound hosts, cannot use the server
     assert.equal(rebound.status, 403)
     assert.equal(upstream.requests.length, 0, 'nothing reached the provider')
 
-    const local = await post(`${status.url}/v1/chat/completions`, body, { Origin: 'http://localhost:5173' })
+    // A page or extension must send the key: any extension, or any page a
+    // dev server on localhost serves, could otherwise spend the user's keys.
+    const keyless = await post(`${status.url}/v1/chat/completions`, body, { Origin: 'http://localhost:5173' })
+    assert.equal(keyless.status, 401)
+    assert.match(keyless.text, /Pages and browser extensions must send/)
+    const extension = await post(`${status.url}/v1/chat/completions`, body, { Origin: 'chrome-extension://abcdefghijklmnop' })
+    assert.equal(extension.status, 401)
+    assert.equal(upstream.requests.length, 0, 'nothing reached the provider')
+    const key = { Authorization: `Bearer ${gatewayToken()}` }
+    const local = await post(`${status.url}/v1/chat/completions`, body, { Origin: 'http://localhost:5173', ...key })
     assert.equal(local.status, 200)
     assert.equal(local.headers['access-control-allow-origin'], 'http://localhost:5173')
-    const desktopApp = await post(`${status.url}/v1/chat/completions`, body, { Origin: 'app://obsidian.md' })
+    const desktopApp = await post(`${status.url}/v1/chat/completions`, body, { Origin: 'app://obsidian.md', ...key })
     assert.equal(desktopApp.status, 200)
     const cli = await post(`${status.url}/v1/chat/completions`, body)
     assert.equal(cli.status, 200)
@@ -266,4 +276,59 @@ test('a port out of range is reported as a failed start, not thrown', async () =
   assert.equal(status.running, false)
   assert.match(status.error ?? '', /port/i)
   assert.equal(isOwnServerUrl('http://127.0.0.1:70000/v1'), false)
+})
+
+test('a provider pointed back at the server is recognised however its address is spelled', async () => {
+  store.patchSettings({ localServer: { port: 47309 } })
+  const status = await startLocalServer()
+  try {
+    for (const url of ['http://127.0.0.1:47309/v1', 'http://localhost:47309/v1', 'http://localhost.:47309/v1', 'http://127.0.0.2:47309', 'http://[::1]:47309/v1', 'http://0.0.0.0:47309', 'http://127.1:47309/v1']) {
+      assert.ok(isOwnServerUrl(url), url)
+    }
+    assert.ok(!isOwnServerUrl('http://127.0.0.1:47310/v1'), 'another port')
+    assert.ok(!isOwnServerUrl('https://api.example.com:47309/v1'), 'another machine')
+  } finally {
+    await stopLocalServer()
+  }
+  assert.equal(status.running, true)
+})
+
+test('a request body past the cap is refused with 413, not read into memory', { timeout: 20_000 }, async () => {
+  const { MAX_BODY_BYTES } = await import('../src/main/localServer')
+  store.patchSettings({ localServer: { port: 47308 } })
+  const status = await startLocalServer()
+  try {
+    const declared = await new Promise<number>((resolve, reject) => {
+      const req = httpRequest(`${status.url}/v1/chat/completions`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Content-Length': String(MAX_BODY_BYTES + 1) } }, (res) => {
+        res.resume()
+        resolve(res.statusCode ?? 0)
+      })
+      req.on('error', reject)
+      // Only a little is sent: the declared length alone is enough to refuse it.
+      req.write('{"messages":')
+    })
+    assert.equal(declared, 413)
+    // A body sent without a length (chunked) is cut off once it passes the cap.
+    const chunked = await new Promise<number>((resolve, reject) => {
+      const req = httpRequest(`${status.url}/v1/messages`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'anthropic-version': '2023-06-01' } }, (res) => {
+        res.resume()
+        resolve(res.statusCode ?? 0)
+      })
+      req.on('error', () => resolve(-1))
+      const piece = Buffer.alloc(1024 * 1024, 0x20)
+      let sent = 0
+      const pump = (): void => {
+        while (sent <= MAX_BODY_BYTES) {
+          sent += piece.length
+          if (!req.write(piece)) return void req.once('drain', pump)
+        }
+        req.end()
+      }
+      pump()
+      void reject
+    })
+    assert.ok(chunked === 413 || chunked === -1, `refused (${chunked})`)
+  } finally {
+    await stopLocalServer()
+  }
 })

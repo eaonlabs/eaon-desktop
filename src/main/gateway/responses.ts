@@ -66,6 +66,13 @@ function outputContent(output: unknown): { text: string; images: NeutralImage[] 
 }
 
 export function parseResponsesRequest(body: Record<string, unknown>): Parsed | { error: string } {
+  // The gateway keeps no conversations: a reply built on a stored one would
+  // be made without any of it, so it is refused rather than quietly answered
+  // with no context.
+  if (typeof body.previous_response_id === 'string' && body.previous_response_id) {
+    return { error: 'previous_response_id is not supported: Eaon keeps no stored responses. Send the whole conversation in input (store: false).' }
+  }
+  if (body.background === true) return { error: 'background responses are not supported. Send the request without background.' }
   const kinds = new Map<string, ToolKind>()
   const tools: ToolSpec[] = []
   for (const tool of Array.isArray(body.tools) ? (body.tools as Item[]) : []) {
