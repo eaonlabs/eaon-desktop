@@ -1519,23 +1519,6 @@ body[data-reduce-motion='on'] .worker-run .spinner {
   animation: none;
 }
 
-/* On a narrow window the run history would squeeze the worker's page to a
-   sliver (the panel has a minimum width); it floats over the page instead,
-   and the page keeps its full width underneath. */
-@media (max-width: 900px) {
-  .worker-activity {
-    position: fixed;
-    top: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 30;
-    width: min(360px, calc(100vw - 48px));
-    min-width: 0;
-    max-width: none;
-    box-shadow: -12px 0 32px rgba(0, 0, 0, 0.28);
-  }
-}
-
 /* Stopping a routine from the memory list, and the Edit link under it. */
 .worker-memory__stop {
   margin-left: auto;
