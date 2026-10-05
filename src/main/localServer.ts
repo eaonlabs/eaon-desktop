@@ -139,7 +139,15 @@ const DOCS_HTML = `<!doctype html>
   </body>
 </html>`
 
+/**
+ * Marks every answer as Eaon's gateway, so another Eaon (or this one, under
+ * another name) that is pointed at this port can tell, and doesn't send its
+ * own requests back into Eaon (providers/safeFetch.ts).
+ */
+export const GATEWAY_HEADER = 'x-eaon-gateway'
+
 async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  res.setHeader(GATEWAY_HEADER, '1')
   const origin = req.headers.origin
   if (!allowedOrigin(origin) || !allowedHost(req.headers.host)) {
     json(res, 403, { error: { message: 'The Local API Server only answers this machine’s apps and loopback pages.' } })

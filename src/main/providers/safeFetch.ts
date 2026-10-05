@@ -22,6 +22,26 @@ export class RedirectRefusedError extends Error {
   }
 }
 
+/** Thrown when a provider's address turns out to be an Eaon gateway on this computer, which would send every request back into Eaon. */
+export class GatewayLoopError extends Error {
+  constructor(readonly url: string) {
+    super(`${hostOf(url)} is an Eaon gateway (Settings → Local API Server), so sending a request there would loop straight back into Eaon. Point this provider at the model server itself.`)
+    this.name = 'GatewayLoopError'
+  }
+}
+
+const LOOPBACK = /^(localhost\.?|127(\.\d{1,3}){3}|\[?::1\]?|\[?::ffff:127\.[\d.]+\]?)$/i
+
+/** An answer from an Eaon gateway on this computer. Another computer's is a chain, not a loop, and is left alone. */
+function fromLocalGateway(target: string, response: Response): boolean {
+  if (!response.headers.has('x-eaon-gateway')) return false
+  try {
+    return LOOPBACK.test(new URL(target).hostname)
+  } catch {
+    return false
+  }
+}
+
 const hostOf = (url: string): string => {
   try {
     return new URL(url).host
@@ -38,6 +58,10 @@ export async function providerFetch(url: string | URL, init: RequestInit = {}): 
   let body = init.body
   for (let hops = 0; ; hops++) {
     const response = await fetch(target, { ...init, method, body, redirect: 'manual' })
+    if (fromLocalGateway(target, response)) {
+      await response.body?.cancel().catch(() => {})
+      throw new GatewayLoopError(target)
+    }
     // A manual redirect comes back as the 3xx response itself, with its Location.
     if (response.status < 300 || response.status >= 400 || response.status === 304) return response
     const location = response.headers.get('location')

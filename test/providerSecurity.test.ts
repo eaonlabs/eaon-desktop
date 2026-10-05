@@ -299,3 +299,25 @@ test('stream limits: a reply that is still arriving is left alone', { timeout: 1
     fake.close()
   }
 })
+
+test('an address that turns out to be an Eaon gateway on this computer is refused, not looped through', async () => {
+  const { createServer } = await import('node:http')
+  const { providerFetch, GatewayLoopError } = await import('../src/main/providers/safeFetch')
+  const gateway = createServer((_req, res) => {
+    res.setHeader('x-eaon-gateway', '1')
+    res.setHeader('content-type', 'application/json')
+    res.end('{"data":[]}')
+  })
+  const plain = createServer((_req, res) => res.end('{"data":[]}'))
+  await Promise.all([new Promise<void>((r) => gateway.listen(0, '127.0.0.1', r)), new Promise<void>((r) => plain.listen(0, '127.0.0.1', r))])
+  try {
+    const port = (server: typeof gateway): number => (server.address() as { port: number }).port
+    await assert.rejects(providerFetch(`http://127.0.0.1:${port(gateway)}/v1/models`), (e: Error) => e instanceof GatewayLoopError && /loop straight back into Eaon/.test(e.message))
+    assert.equal((await providerFetch(`http://127.0.0.1:${port(plain)}/v1/models`)).status, 200, 'an ordinary local server is fine')
+  } finally {
+    gateway.closeAllConnections()
+    plain.closeAllConnections()
+    gateway.close()
+    plain.close()
+  }
+})
