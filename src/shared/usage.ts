@@ -34,8 +34,15 @@ export interface UsageCounts {
  */
 export type Billing = 'api' | 'plan' | 'local'
 
-/** What a request was made for: a chat (and anything else in a window), a scheduled task, a worker, the trading desk. */
-export type UsageSource = 'chat' | 'schedule' | 'worker' | 'trading'
+/**
+ * What a request was made for: a chat (and anything else in a window), a
+ * scheduled task, a worker, the trading desk, or another app using Eaon's
+ * models through the Local API Server or Connect apps. That last kind is
+ * shown beside the rest but never added to the totals or uploaded: Tokn's own
+ * CLI counts those requests from the other app's logs, so uploading them as
+ * Eaon's would count them twice on the Tokn profile.
+ */
+export type UsageSource = 'chat' | 'schedule' | 'worker' | 'trading' | 'gateway'
 
 /** One source's share of the range, priced like the totals. */
 export interface UsageSourceRow {

@@ -237,3 +237,48 @@ test('a tool-only turn and the answer after it are two requests, each counted on
     fake.server.close()
   }
 })
+
+/* ------------------------------------------------ the gateway, counted once */
+
+test('another app’s requests through the gateway are counted once, listed apart, and never in the totals or the upload', { timeout: 30_000 }, async () => {
+  fresh()
+  const answered = stream(chunk({ content: 'Hi.' }), chunk({}, 'stop'), usageChunk(300, 20), '[DONE]')
+  const fake = await fakeProvider((_body, n) =>
+    n === 1 ? { status: 503, type: 'application/json', headers: { 'retry-after': '0' }, body: '{"error":{"message":"busy"}}' } : { body: answered }
+  )
+  const eaonOwn: number[] = []
+  const stop = onModelUsage((providerId, _model, usage) => providerId === 'fake' && eaonOwn.push(usage.input))
+  try {
+    const { runGatewayTurn } = await import('../src/main/gateway/turn')
+    const result = await runGatewayTurn({
+      providerId: 'fake',
+      modelId: 'fake-1',
+      system: '',
+      messages: [{ role: 'user', parts: [{ type: 'text', text: 'hello' }] }] as never,
+      tools: [],
+      signal: new AbortController().signal,
+      onText: () => {},
+      onReasoning: () => {}
+    })
+    assert.equal(result.text, 'Hi.')
+    assert.equal(fake.calls(), 2, 'the busy answer was retried')
+  } finally {
+    stop()
+    fake.server.close()
+  }
+  assert.deepEqual(eaonOwn, [], 'not counted as Eaon’s own request (that would put it in the totals and the upload)')
+  const day = localDay(new Date())
+  assert.deepEqual(ledgerDays()[day] ?? {}, {}, 'not in the ledger’s own days')
+  assert.deepEqual(ledgerSources()[day].gateway!.fake['fake-1'], { requests: 1, input: 300, output: 20, cacheRead: 0, cacheWrite: 0 })
+
+  const pricing: ToknPricing = { 'fake-1': { input: 2, output: 16 } }
+  const rows = summarizeSources(ledgerSources(), 7, pricing, billingOf)
+  assert.deepEqual(rows.map((r) => [r.source, r.requests, r.tokens]), [['gateway', 1, 320]])
+  const summary = summarize(ledgerDays(), 7, pricing, billingOf)
+  assert.equal(summary.totals.requests, 0)
+  assert.equal(summary.totals.costUsd, 0)
+  assert.deepEqual(syncRows(ledgerDays(), pricing, billingOf), [])
+  flushLedger()
+  resetLedgerForTests()
+  assert.equal(ledgerSources()[day].gateway!.fake['fake-1'].requests, 1, 'survives a restart')
+})

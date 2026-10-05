@@ -30,11 +30,11 @@ interface Ledger {
   sources: LedgerSources
 }
 
-const SOURCES = new Set<UsageSource>(['chat', 'schedule', 'worker', 'trading'])
+const SOURCES = new Set<UsageSource>(['chat', 'schedule', 'worker', 'trading', 'gateway'])
 
 let ledger: Ledger | null = null
 let saveTimer: ReturnType<typeof setTimeout> | null = null
-const listeners = new Set<() => void>()
+const listeners = new Set<(source: UsageSource) => void>()
 
 function load(): Ledger {
   if (!ledger) {
@@ -102,10 +102,17 @@ export function recordUsage(providerId: string, modelId: string, usage: TokenUsa
   if (!providerId || !modelId) return
   const { days, sources } = load()
   const day = localDay(at)
-  addRequest((((days[day] ??= {})[providerId] ??= {})[modelId] ??= emptyCounts()), usage)
+  // Another app's requests are kept in the split only: the totals, the
+  // calendar and the Tokn upload stay Eaon's own (see UsageSource).
+  if (source !== 'gateway') addRequest((((days[day] ??= {})[providerId] ??= {})[modelId] ??= emptyCounts()), usage)
   addRequest(((((sources[day] ??= {})[source] ??= {})[providerId] ??= {})[modelId] ??= emptyCounts()), usage)
   scheduleSave(at)
-  for (const listener of listeners) listener()
+  for (const listener of listeners) listener(source)
+}
+
+/** One request another app made through Eaon's gateway, counted once when the provider has answered it. */
+export function recordGatewayUsage(providerId: string, modelId: string, usage: TokenUsage): void {
+  recordUsage(providerId, modelId, usage, new Date(), 'gateway')
 }
 
 function addRequest(counts: UsageCounts, usage: TokenUsage): void {
@@ -129,7 +136,7 @@ export function ledgerSources(): LedgerSources {
 }
 
 /** Called after every recorded request. */
-export function onLedgerChange(listener: () => void): () => void {
+export function onLedgerChange(listener: (source: UsageSource) => void): () => void {
   listeners.add(listener)
   return () => listeners.delete(listener)
 }

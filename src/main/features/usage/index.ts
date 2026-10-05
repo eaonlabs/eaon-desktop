@@ -201,9 +201,10 @@ export const usageFeature: Feature = {
     ctx = context
     const { ipcMain } = context
     onModelUsage((providerId, modelId, usage) => recordUsage(providerId, modelId, usage))
-    onLedgerChange(() => {
+    onLedgerChange((source) => {
       changed()
-      scheduleSync(SYNC_AFTER_USAGE_MS)
+      // Other apps' requests are never uploaded, so they are no reason to sync.
+      if (source !== 'gateway') scheduleSync(SYNC_AFTER_USAGE_MS)
     })
 
     ipcMain.handle('usage:summary', (_e, range: UsageRange) => summary(range === 7 || range === 90 ? range : 30))

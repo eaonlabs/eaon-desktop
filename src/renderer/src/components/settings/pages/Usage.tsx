@@ -402,19 +402,41 @@ const SOURCE_LABEL: Record<UsageSource, string> = {
   chat: 'Chats',
   schedule: 'Scheduled tasks',
   worker: 'Workers',
-  trading: 'Trading'
+  trading: 'Trading',
+  gateway: 'Other apps through Eaon'
 }
 
 /** The range split by what the requests were for: chats, scheduled tasks, workers, trading. */
 function SourceTable({ sources }: { sources: UsageSourceRow[] }): JSX.Element {
+  const [own, other] = [sources.filter((row) => row.source !== 'gateway'), sources.filter((row) => row.source === 'gateway')]
   return (
-    <div className="usage-table" role="table" aria-label="Usage by what it was for">
-      <div className="usage-table__row usage-table__row--head" role="row">
-        <span role="columnheader">Used by</span>
-        <span role="columnheader">Requests</span>
-        <span role="columnheader">Tokens</span>
-        <span role="columnheader">Cost</span>
-      </div>
+    <>
+      <SourceRows rows={own} />
+      {other.length > 0 && (
+        <>
+          <SourceRows rows={other} muted />
+          <p className="usage-footnote">
+            Requests the Local API Server and Connect apps make on other apps’ behalf use your keys, so they are shown here, but
+            they aren’t in the totals above and aren’t uploaded to Tokn: Tokn counts them as those apps’ own use.
+          </p>
+        </>
+      )}
+    </>
+  )
+}
+
+function SourceRows({ rows: sources, muted = false }: { rows: UsageSourceRow[]; muted?: boolean }): JSX.Element | null {
+  if (sources.length === 0) return null
+  return (
+    <div className="usage-table" role="table" aria-label={muted ? 'Usage by other apps' : 'Usage by what it was for'} style={muted ? { marginTop: 10 } : undefined}>
+      {!muted && (
+        <div className="usage-table__row usage-table__row--head" role="row">
+          <span role="columnheader">Used by</span>
+          <span role="columnheader">Requests</span>
+          <span role="columnheader">Tokens</span>
+          <span role="columnheader">Cost</span>
+        </div>
+      )}
       {sources.map((row) => (
         <div key={row.source} className="usage-table__row" role="row">
           <span role="cell" className="usage-table__name">
