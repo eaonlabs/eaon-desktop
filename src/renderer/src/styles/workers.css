@@ -1258,3 +1258,280 @@ button.msg-attachment:hover {
   color: var(--text-2);
 }
 
+
+/* ---------------------------------------------------------------- threads */
+
+/* The thread switcher above a worker's transcript: Main, its side threads,
+   New task, and the finished ones. Scrolls sideways on its own row rather
+   than wrapping, so the transcript never jumps when a thread appears. */
+.worker-threads {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: var(--composer-chat-w);
+  max-width: calc(100% - 32px);
+  margin: 0 auto 4px;
+  padding: 2px 2px 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+.worker-threads::-webkit-scrollbar {
+  display: none;
+}
+.worker-thread-tab {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  max-width: 220px;
+  border-radius: var(--r-pill);
+  background: var(--surface-1);
+  box-shadow: 0 0 0 1px var(--border-soft);
+  color: var(--text-2);
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.worker-thread-tab[data-selected] {
+  background: var(--surface-3);
+  color: var(--text);
+  box-shadow: 0 0 0 1px var(--border-strong);
+}
+.worker-thread-tab[data-state='failed'] svg {
+  color: var(--danger);
+}
+.worker-thread-tab[data-state='closed'] {
+  color: var(--text-3);
+}
+.worker-thread-tab__main {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 4px 10px;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+  border-radius: var(--r-pill);
+}
+.worker-thread-tab__main:focus-visible,
+.worker-thread-tab__close:focus-visible,
+.worker-threads__new:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.worker-thread-tab__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.worker-thread-tab__close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin-right: 4px;
+  border: 0;
+  border-radius: 50%;
+  background: none;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.worker-thread-tab__close:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.worker-threads__new {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: none;
+  color: var(--text-3);
+  font: inherit;
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+.worker-threads__new:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.worker-threads__finished {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.worker-threads__finished > :first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+/* The top of a side thread, where the main one shows the worker's profile. */
+.worker-thread-head {
+  width: 100%;
+  padding: 8px 0 18px;
+  text-align: center;
+}
+.worker-thread-head__title {
+  margin: 0;
+  font-size: var(--fs-h2);
+  font-weight: 600;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.worker-thread-head__text {
+  margin: 6px auto 0;
+  max-width: 520px;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+
+/* ---------------------------------------------------------------- activity */
+
+.worker-activity {
+  width: 360px;
+  min-width: 300px;
+  max-width: 42%;
+}
+.worker-activity__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 8px 14px 24px;
+}
+.worker-activity__section + .worker-activity__section {
+  margin-top: 18px;
+}
+.worker-activity__heading {
+  margin: 6px 0 8px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.worker-activity__empty {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+.worker-run {
+  display: flex;
+  gap: 10px;
+  padding: 10px 0;
+  border-top: 1px solid var(--border-soft);
+}
+.worker-run__icon {
+  flex: none;
+  padding-top: 2px;
+  color: var(--text-3);
+}
+.worker-run[data-state='completed'] .worker-run__icon {
+  color: #34c759;
+}
+.worker-run[data-state='failed'] .worker-run__icon,
+.worker-run[data-state='interrupted'] .worker-run__icon {
+  color: var(--danger);
+}
+.worker-run[data-state='running'] .worker-run__icon,
+.worker-run[data-state='queued'] .worker-run__icon {
+  color: var(--accent);
+}
+.worker-run__main {
+  flex: 1;
+  min-width: 0;
+}
+.worker-run__line {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.worker-run__label {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-sm);
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+.worker-run__state {
+  flex: none;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+.worker-run__meta {
+  margin-top: 2px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.worker-run__detail {
+  margin-top: 4px;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.worker-run__detail[data-error] {
+  color: var(--danger);
+}
+.worker-run__actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+.worker-run__actions:empty {
+  display: none;
+}
+
+/* ---------------------------------------------------------------- search */
+
+.worker-search__results {
+  max-height: min(420px, 60vh);
+  overflow-y: auto;
+}
+.worker-search__results > [data-active] > .menu__item {
+  background: var(--hover);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .worker-thread-tab,
+  .worker-thread-tab .spinner,
+  .worker-run .spinner {
+    transition: none;
+    animation: none;
+  }
+}
+body[data-reduce-motion='on'] .worker-thread-tab .spinner,
+body[data-reduce-motion='on'] .worker-run .spinner {
+  animation: none;
+}
+
+/* On a narrow window the run history would squeeze the worker's page to a
+   sliver (the panel has a minimum width); it floats over the page instead,
+   and the page keeps its full width underneath. */
+@media (max-width: 900px) {
+  .worker-activity {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 30;
+    width: min(360px, calc(100vw - 48px));
+    min-width: 0;
+    max-width: none;
+    box-shadow: -12px 0 32px rgba(0, 0, 0, 0.28);
+  }
+}

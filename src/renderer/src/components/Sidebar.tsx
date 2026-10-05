@@ -29,6 +29,7 @@ import { DownloadsButton } from './DownloadsPanel'
 import { CodeSidebar } from './code/CodeSidebar'
 import { openNewTerminal } from './code/terminal/terminalStore'
 import { WorkersNav } from './workers/WorkersSidebar'
+import { WorkersSearchButton } from './workers/WorkerThreads'
 import { MenuItem, MenuSearch, Modal, Popover, useDisclosure } from './ui'
 import type { Project } from '@shared/types'
 
@@ -48,7 +49,9 @@ export function Sidebar(): JSX.Element {
       <div className="sidebar__panel">
       <div className="titlebar">
         <DownloadsButton />
-        {kind !== 'workers' && (
+        {kind === 'workers' ? (
+          <WorkersSearchButton />
+        ) : (
           <button ref={searchAnchor} className="icon-btn" onClick={searchMenu.toggle} aria-label="Search chats" title="Search chats">
             <Search size={16} strokeWidth={1.9} />
           </button>

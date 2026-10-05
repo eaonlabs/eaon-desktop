@@ -15,6 +15,7 @@ import { CodeView } from './components/code/CodeView'
 import { LibraryPage } from './components/LibraryPage'
 import { WorkersView } from './components/workers/WorkersView'
 import { WorkerBrowserPanel } from './components/workers/WorkerAutonomy'
+import { WorkerActivityPanel } from './components/workers/WorkerThreads'
 import { useWorkers } from './components/workers/workersStore'
 import { DiscordPresence } from './components/discord/DiscordPresence'
 import { BrowserAsk } from './components/browser/BrowserAsk'
@@ -38,6 +39,8 @@ export default function App(): JSX.Element {
   const agentBrowserOpen = useAgentBrowser((s) => s.open)
   // A worker's browser beside its page, while that page is the one open.
   const browserWorker = useWorkers((s) => (s.browserFor && s.selectedId === s.browserFor && !s.selectedRoomId ? s.workers.find((w) => w.id === s.browserFor) ?? null : null))
+  // A worker's run history beside its page.
+  const activityWorker = useWorkers((s) => (s.activityOpen && s.selectedId && !s.selectedRoomId ? s.workers.find((w) => w.id === s.selectedId) ?? null : null))
 
   useTheme()
 
@@ -89,6 +92,7 @@ export default function App(): JSX.Element {
           {isWork && browserOpen && <BrowserPanel />}
           {isWork && view === 'chat' && kind === 'chat' && agentBrowserOpen && !browserOpen && <AgentBrowserPanel />}
           {view === 'chat' && kind === 'workers' && browserWorker && <WorkerBrowserPanel key={browserWorker.id} worker={browserWorker} />}
+          {view === 'chat' && kind === 'workers' && activityWorker && <WorkerActivityPanel key={activityWorker.id} worker={activityWorker} />}
           <GlobalKeys onSettings={() => setSettingsPage('general')} onPlugins={() => setView('plugins')} />
         </div>
       )}

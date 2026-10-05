@@ -9,6 +9,7 @@ import {
   FileText,
   FolderOpen,
   HeartPulse,
+  History,
   MessagesSquare,
   MonitorPlay,
   MoreHorizontal,
@@ -30,9 +31,10 @@ import { WorkerEditor } from './WorkerEditor'
 import { WorkerAsks, WorkerBrowserFact, WorkerGoalBanner, WorkerMemory } from './WorkerAutonomy'
 import { WorkerComposer } from './WorkerComposer'
 import { RoomEditor, RoomPage, TeamDialog } from './WorkerRooms'
+import { ThreadTabs } from './WorkerThreads'
 import { useWorkers } from './workersStore'
 import { fileName, fileUrl, isImagePath } from '../../lib/files'
-import { MAX_WORKERS, TRADING_DESK, describeWorker, relativeTime, workerMood, type Worker } from '@shared/workers'
+import { MAIN_THREAD, MAX_WORKERS, TRADING_DESK, describeWorker, relativeTime, threadKey, workerMood, type Worker, type WorkerThreadInfo } from '@shared/workers'
 import type { McpServer } from '@shared/types'
 import { CHANNEL_LABEL } from '@shared/channels'
 import { ChannelLogo } from '../channels/ChannelLogo'
@@ -105,7 +107,7 @@ function Team(): JSX.Element {
                 {working > 0
                   ? `${working} of ${workers.length} working right now.`
                   : `${workers.length} worker${workers.length === 1 ? '' : 's'}, standing by.`}{' '}
-                Each keeps its own thread, wakes itself up when something needs checking, and hands work to the others. Up to 4 work at the same time.
+                Each keeps its own conversation with you plus a thread per routine and task, wakes itself up when something needs checking, and hands work to the others. Up to 4 tasks run at the same time; the rest wait their turn and say so.
               </p>
               <BackgroundHint />
               <div className="team__grid">
@@ -232,29 +234,36 @@ function WorkerCard({ worker, now, index, onOpen }: { worker: Worker; now: numbe
 /* ------------------------------------------------------------------ Worker page */
 
 function WorkerPage({ worker }: { worker: Worker }): JSX.Element {
-  const { threads, select, now, markRead } = useWorkers(
-    useShallow((s) => ({ threads: s.threads, select: s.select, now: s.now, markRead: s.markRead }))
+  const { threads, select, now, markRead, openThread } = useWorkers(
+    useShallow((s) => ({ threads: s.threads, select: s.select, now: s.now, markRead: s.markRead, openThread: s.openThread[worker.id] }))
   )
-  const thread = threads[worker.id]
+  // The thread on screen: the main one, a side thread, or a new task being written.
+  const info = openThread && openThread !== MAIN_THREAD && openThread !== 'new' ? worker.threads.find((t) => t.id === openThread) : undefined
+  const active = openThread === 'new' ? 'new' : info ? info.id : MAIN_THREAD
+  const isMain = active === MAIN_THREAD
+  const thread = active === 'new' ? { workerId: worker.id, messages: [], summary: null } : threads[threadKey(worker.id, active)]
+  const runningId = isMain ? worker.runningMessageId : (info?.runningMessageId ?? null)
+  const inbox = isMain ? worker.inbox : (info?.inbox ?? [])
+  const unread = isMain ? worker.unread - worker.threads.reduce((n, t) => n + t.unread, 0) : (info?.unread ?? 0)
   const mood = workerMood(worker, now)
   const scroller = useRef<HTMLDivElement>(null)
   const following = useRef(true)
 
   useEffect(() => {
-    if (!thread) void useWorkers.getState().loadThread(worker.id)
-  }, [thread, worker.id])
+    if (!thread && active !== 'new') void useWorkers.getState().loadThread(worker.id, active)
+  }, [thread, worker.id, active])
 
-  // Reading the page is reading the thread.
+  // Reading the page is reading the thread on it.
   useEffect(() => {
-    if (worker.unread > 0) markRead(worker.id)
-  }, [worker.unread, worker.id, markRead])
+    if (unread > 0 && active !== 'new') markRead(worker.id, active)
+  }, [unread, worker.id, active, markRead])
 
   useLayoutEffect(() => {
     const node = scroller.current
     if (node && following.current) node.scrollTop = node.scrollHeight
-  }, [thread?.messages, worker.inbox.length])
+  }, [thread?.messages, inbox.length])
 
-  const queued = worker.inbox.filter((mail) => mail.from === 'user')
+  const queued = inbox.filter((mail) => mail.from === 'user')
 
   return (
     <>
@@ -273,6 +282,7 @@ function WorkerPage({ worker }: { worker: Worker }): JSX.Element {
         }
         right={<WorkerActions worker={worker} />}
       />
+      <ThreadTabs worker={worker} active={active} />
 
       <div
         ref={scroller}
@@ -286,20 +296,20 @@ function WorkerPage({ worker }: { worker: Worker }): JSX.Element {
         }}
       >
         <div className="thread__inner">
-          <WorkerProfile worker={worker} now={now} mood={mood} />
+          {isMain ? <WorkerProfile worker={worker} now={now} mood={mood} /> : <ThreadHeader worker={worker} info={info} />}
           {thread?.summary && (
             <div className="worker-compacted">
               <span>Earlier messages were summarised to keep {worker.name}’s thread light.</span>
             </div>
           )}
-          {thread && thread.messages.length === 0 && worker.inbox.length === 0 && (
+          {isMain && thread && thread.messages.length === 0 && worker.inbox.length === 0 && (
             <p className="worker-first-job">
               Send {worker.name} its first job below. It takes it from there — scheduling its own check-ins and asking the team
               for help when it needs to.
             </p>
           )}
           {thread?.messages.map((message) => (
-            <MessageRow key={message.id} message={message} streaming={message.id === worker.runningMessageId} quietWhenEmpty />
+            <MessageRow key={message.id} message={message} streaming={message.id === runningId} quietWhenEmpty />
           ))}
           {queued.map((mail) => (
             <div key={mail.id} className="msg-row msg-user-block msg-row--queued">
@@ -322,7 +332,13 @@ function WorkerPage({ worker }: { worker: Worker }): JSX.Element {
               {mail.text && <div className="msg--user">{mail.text}</div>}
               <span className="msg__queued">
                 <Clock size={11} strokeWidth={2.2} />
-                {worker.status === 'working' ? `Queued — ${worker.name} reads this when it finishes what it’s doing` : 'Delivering…'}
+                {runningId
+                  ? `Queued — ${worker.name} reads this when it finishes what it’s doing here`
+                  : worker.queued
+                    ? `Queued — ${worker.queued}`
+                    : worker.paused
+                      ? `Waiting — ${worker.name} is paused`
+                      : 'Delivering…'}
               </span>
             </div>
           ))}
@@ -330,11 +346,42 @@ function WorkerPage({ worker }: { worker: Worker }): JSX.Element {
       </div>
 
       <div className="composer-dock">
-        <WorkerGoalBanner worker={worker} now={now} />
+        {isMain && <WorkerGoalBanner worker={worker} now={now} />}
         <WorkerAsks worker={worker} />
-        <WorkerComposer worker={worker} />
+        <WorkerComposer key={active} worker={worker} threadId={active} />
       </div>
     </>
+  )
+}
+
+const THREAD_KIND: Record<WorkerThreadInfo['kind'], string> = {
+  task: 'A task beside the main conversation',
+  routine: 'Each run of this routine lands here',
+  delegation: 'A job a colleague delegated'
+}
+
+/** At the top of a side thread, where the main one has the worker's profile. */
+function ThreadHeader({ worker, info }: { worker: Worker; info: WorkerThreadInfo | undefined }): JSX.Element {
+  if (!info) {
+    return (
+      <div className="worker-thread-head">
+        <h1 className="worker-thread-head__title">New task</h1>
+        <p className="worker-thread-head__text">
+          Describe a task below. {worker.name} works on it in a thread of its own, at the same time as everything else it does,
+          and you can stop it without stopping the rest.
+        </p>
+      </div>
+    )
+  }
+  return (
+    <div className="worker-thread-head">
+      <h1 className="worker-thread-head__title">{info.title}</h1>
+      <p className="worker-thread-head__text">
+        {THREAD_KIND[info.kind]}
+        {info.closedAt ? ' · finished' : ''}
+        {info.lastError ? ` · last run failed: ${info.lastError}` : info.activity ? ` · ${info.activity}` : ''}
+      </p>
+    </div>
   )
 }
 
@@ -455,7 +502,7 @@ function statusLine(worker: Worker): string {
 }
 
 function WorkerActions({ worker }: { worker: Worker }): JSX.Element {
-  const { setPaused, wake, clear, remove, openEditor, browserOpen, setBrowser } = useWorkers(
+  const { setPaused, wake, clear, remove, openEditor, browserOpen, setBrowser, activityOpen, setActivityOpen, openThread } = useWorkers(
     useShallow((s) => ({
       setPaused: s.setPaused,
       wake: s.wake,
@@ -463,15 +510,29 @@ function WorkerActions({ worker }: { worker: Worker }): JSX.Element {
       remove: s.remove,
       openEditor: s.openEditor,
       browserOpen: s.browserFor === worker.id,
-      setBrowser: s.setBrowser
+      setBrowser: s.setBrowser,
+      activityOpen: s.activityOpen,
+      setActivityOpen: s.setActivityOpen,
+      openThread: s.openThread[worker.id]
     }))
   )
+  const viewing = openThread && openThread !== 'new' && worker.threads.some((t) => t.id === openThread) ? openThread : MAIN_THREAD
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [confirm, setConfirm] = useState<'clear' | 'delete' | null>(null)
   const working = worker.status === 'working'
 
   return (
     <div className="chat-header__actions">
+      <button
+        className="header-btn"
+        data-active={activityOpen || undefined}
+        aria-pressed={activityOpen}
+        onClick={() => setActivityOpen(!activityOpen)}
+        title={`Every run ${worker.name} made: what woke it, how it went, and Retry`}
+      >
+        <History size={14} strokeWidth={1.9} />
+        <span>Activity</span>
+      </button>
       <button
         className="header-btn"
         data-active={browserOpen || undefined}
@@ -515,7 +576,7 @@ function WorkerActions({ worker }: { worker: Worker }): JSX.Element {
             { icon: <PencilLine size={15} strokeWidth={1.9} />, label: 'Edit worker', action: () => openEditor(worker.id) },
             { icon: <FolderOpen size={15} strokeWidth={1.9} />, label: 'Open its folder', action: () => void window.api.app.showItem(worker.folder) },
             { icon: <MessagesSquare size={15} strokeWidth={1.9} />, label: 'Connect a chat app', action: () => connectApp(worker.id) },
-            { icon: <Eraser size={15} strokeWidth={1.9} />, label: 'Clear messages', action: () => setConfirm('clear') },
+            { icon: <Eraser size={15} strokeWidth={1.9} />, label: viewing === MAIN_THREAD ? 'Clear messages' : 'Clear this thread', action: () => setConfirm('clear') },
             { icon: <Trash2 size={15} strokeWidth={1.9} />, label: 'Delete worker', danger: true, action: () => setConfirm('delete') }
           ]}
         />
@@ -533,7 +594,7 @@ function WorkerActions({ worker }: { worker: Worker }): JSX.Element {
               className="btn btn--danger"
               autoFocus
               onClick={() => {
-                void clear(worker.id)
+                void clear(worker.id, viewing)
                 setConfirm(null)
               }}
             >
@@ -542,8 +603,9 @@ function WorkerActions({ worker }: { worker: Worker }): JSX.Element {
           </>
         }
       >
-        {worker.name} starts a fresh thread and forgets the conversation so far. Its job, personality, heartbeat and the files in
-        its folder stay as they are.
+        {viewing === MAIN_THREAD
+          ? `${worker.name} starts a fresh conversation and forgets this one. Its other threads, job, personality, notes, heartbeat and the files in its folder stay as they are.`
+          : `This thread’s messages are deleted. ${worker.name}’s other threads, notes and files stay as they are.`}
       </Modal>
       <Modal
         open={confirm === 'delete'}
@@ -567,7 +629,7 @@ function WorkerActions({ worker }: { worker: Worker }): JSX.Element {
           </>
         }
       >
-        {working ? `${worker.name} stops what it is doing, and its` : `${worker.name}’s`} thread is deleted. Its folder stays on disk at{' '}
+        {working ? `${worker.name} stops what it is doing, and its` : `${worker.name}’s`} threads and run history are deleted, and any jobs it delegated or was given are cancelled. Its folder stays on disk at{' '}
         <code>{worker.folder}</code>.
       </Modal>
     </div>

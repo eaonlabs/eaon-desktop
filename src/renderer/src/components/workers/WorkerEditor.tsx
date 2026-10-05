@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { Check, Pipette } from 'lucide-react'
 import { useApp } from '../../state/store'
@@ -7,6 +7,45 @@ import { WorkerFace } from './WorkerFace'
 import { WorkerTradingFields } from './WorkerTradingFields'
 import { useWorkers } from './workersStore'
 import { WORKER_ACCESS, WORKER_COLORS, WORKER_PERSONALITIES, type WorkerAccess, type WorkerMood, type WorkerTrading } from '@shared/workers'
+import { ENGINE_LABEL, type EngineId, type EngineModels, type EngineStatus } from '@shared/engines'
+
+/**
+ * The agent engines this computer has besides Eaon's own loop, with their
+ * models — for the editor's Engine and Model fields. Empty until the first
+ * check after launch; follows every later one.
+ */
+function useEngines(): { statuses: EngineStatus[]; models: Partial<Record<EngineId, EngineModels | null>> } {
+  const [statuses, setStatuses] = useState<EngineStatus[]>([])
+  const [models, setModels] = useState<Partial<Record<EngineId, EngineModels | null>>>({})
+  useEffect(() => {
+    let live = true
+    const load = async (): Promise<void> => {
+      const list = await window.api.engines.status()
+      const lists = await Promise.all(list.filter((e) => e.id !== 'native' && e.installed).map(async (e) => [e.id, await window.api.engines.models(e.id)] as const))
+      if (!live) return
+      setStatuses(list)
+      setModels(Object.fromEntries(lists))
+    }
+    void load().catch(() => {})
+    const off = window.api.engines.onChanged(() => void load().catch(() => {}))
+    return () => {
+      live = false
+      off()
+    }
+  }, [])
+  return { statuses, models }
+}
+
+/** One line on whether an engine can run turns right now, and what to do if it can't. */
+function engineNote(status: EngineStatus | undefined, name: string): { text: string; ok: boolean } {
+  if (!status) return { text: `Checking ${name}…`, ok: true }
+  if (!status.installed) return { text: `${name} isn't installed on this computer, so this worker can't run until it is.`, ok: false }
+  if (status.outdated) return { text: `${name} ${status.version ?? ''} is too old for Eaon. ${status.updateHint ?? 'Update it'} first.`, ok: false }
+  if (status.auth.state === 'expired') return { text: `${name}'s sign-in expired. Reconnect it in Settings → Model providers.`, ok: false }
+  if (status.auth.state === 'signed-out') return { text: `${name} isn't signed in. Sign in under Settings → Model providers.`, ok: false }
+  const plan = status.auth.plan ? ` (${status.auth.plan})` : ''
+  return { text: `${name} ${status.version ?? ''}${status.foundIn ? ` from ${status.foundIn}` : ''} · signed in${plan}. It runs this worker with its own tools and models; Eaon still decides what it may do.`, ok: true }
+}
 
 /**
  * Creating (or editing) a worker: its colour, name, personality and purpose,
@@ -27,6 +66,9 @@ export function WorkerEditor({ workerId }: { workerId: string | null }): JSX.Ele
   const [personality, setPersonality] = useState(existing?.personality ?? WORKER_PERSONALITIES[0].text)
   const [purpose, setPurpose] = useState(existing?.purpose ?? '')
   const [model, setModel] = useState(existing?.model ? `${existing.model.providerId}::${existing.model.modelId}` : '')
+  const [engine, setEngine] = useState<EngineId>(existing?.engine ?? 'native')
+  const engines = useEngines()
+  const otherEngines = engines.statuses.filter((e) => e.id !== 'native' && (e.installed || e.id === engine))
   // New workers are trusted to act on their own; the catastrophic floor still applies.
   const [access, setAccess] = useState<WorkerAccess>(existing?.access ?? 'autonomous')
   const [trading, setTrading] = useState<WorkerTrading | null>(existing?.trading ?? null)
@@ -36,15 +78,28 @@ export function WorkerEditor({ workerId }: { workerId: string | null }): JSX.Ele
 
   const mood: WorkerMood = focus === 'purpose' ? 'curious' : name.trim() ? 'happy' : 'neutral'
   const modelOptions = useMemo(() => {
+    if (engine !== 'native') {
+      const list = engines.models[engine]?.models ?? []
+      const options = [
+        { value: '', label: `${ENGINE_LABEL[engine]}’s default` },
+        ...list.map((m) => ({ value: `${engine}::${m.id}`, label: m.isDefault ? `${m.label} (default)` : m.label }))
+      ]
+      // A pinned model the engine no longer lists stays visible, marked, rather than silently changing.
+      if (model && !options.some((o) => o.value === model)) options.push({ value: model, label: `${model.split('::')[1]} (not offered now)` })
+      return options
+    }
     const duplicated = new Set(models.filter((m, i) => models.findIndex((o) => o.id === m.id) !== i).map((m) => m.id))
-    return [
-      { value: '', label: 'Your selected model' },
+    const options = [
+      { value: '', label: 'Follow Chat’s model' },
       ...models.map((m) => ({
         value: `${m.providerId}::${m.id}`,
         label: duplicated.has(m.id) ? `${m.label} · ${providers.find((p) => p.id === m.providerId)?.name ?? m.providerId}` : m.label
       }))
     ]
-  }, [models, providers])
+    if (model && !options.some((o) => o.value === model)) options.push({ value: model, label: `${model.split('::')[1]} (unavailable)` })
+    return options
+  }, [models, providers, engine, engines.models, model])
+  const note = engine === 'native' ? null : engineNote(engines.statuses.find((e) => e.id === engine), ENGINE_LABEL[engine])
 
   // A trading worker's strategy can stand in for its purpose.
   const valid = name.trim().length > 0 && (purpose.trim().length > 0 || Boolean(trading?.strategy.trim()))
@@ -62,6 +117,7 @@ export function WorkerEditor({ workerId }: { workerId: string | null }): JSX.Ele
         personality: personality.trim(),
         purpose: purpose.trim() || (trading ? 'Trade for the user, following the strategy in the trading settings.' : ''),
         model: providerId && modelId ? { providerId, modelId } : null,
+        engine,
         access,
         trading
       })
@@ -165,6 +221,25 @@ export function WorkerEditor({ workerId }: { workerId: string | null }): JSX.Ele
           />
         </label>
 
+        {(otherEngines.length > 0 || engine !== 'native') && (
+          <div className="field field--inline">
+            <span className="field-label">Engine</span>
+            <Select
+              width={240}
+              value={engine}
+              onChange={(next: EngineId) => {
+                setEngine(next)
+                // A model belongs to its engine.
+                setModel('')
+              }}
+              options={[
+                { value: 'native', label: 'Eaon (any provider)' },
+                ...otherEngines.map((e) => ({ value: e.id, label: e.installed ? ENGINE_LABEL[e.id] : `${ENGINE_LABEL[e.id]} (not installed)` }))
+              ]}
+            />
+          </div>
+        )}
+        {note && <p className="worker-editor__hint" data-warning={!note.ok || undefined}>{note.text}</p>}
         <div className="worker-editor__row">
           <div className="field field--inline">
             <span className="field-label">Model</span>
