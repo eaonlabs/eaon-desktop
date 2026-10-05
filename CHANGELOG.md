@@ -3,7 +3,7 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
-## [2026.6.2] — unreleased
+## [2026.6.2-beta.1] — 2026-10-05
 
 *macOS, Windows and Linux. A repair release: Workers, models and providers,
 and a long list of dead ends removed.*
