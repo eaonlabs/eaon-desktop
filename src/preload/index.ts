@@ -184,6 +184,8 @@ const api = {
     openExternal: (url: string): Promise<void> => ipcRenderer.invoke('app:open-external', url),
     showItem: (path: string): Promise<void> => ipcRenderer.invoke('app:show-item', path),
     version: (): Promise<string> => ipcRenderer.invoke('app:version'),
+    /** This version's GitHub release page when it has one, else the list of releases. */
+    openReleaseNotes: (): Promise<void> => ipcRenderer.invoke('app:open-release-notes'),
     /** Records a renderer error in crashes.log (main/crashGuard.ts). */
     reportError: (report: { message: string; stack?: string; source?: string }): void => ipcRenderer.send('app:report-error', report),
     /** Background mode for scheduled tasks; see main/background.ts. */

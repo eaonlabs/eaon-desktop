@@ -29,6 +29,7 @@ import { cancelAllDownloads, deleteDownloadedModel, downloadModel, getDownloaded
 import { applyRunAtLogin, backgroundSupported, launchedInBackground, syncTray } from './background'
 import { crashLogPath, installCrashGuard } from './crashGuard'
 import { applyAppIcon, currentAppIconFile } from './appIcon'
+import { DOCS_URL, ISSUES_URL, releaseNotesUrl } from '@shared/links'
 
 const here = join(fileURLToPath(import.meta.url), '..')
 app.setName('Eaon')
@@ -275,6 +276,19 @@ function createWindow(): BrowserWindow {
   return window
 }
 
+/**
+ * Opens the running version's release notes: its GitHub release when there is
+ * one, else the list of releases (shared/links.ts). A HEAD request decides;
+ * it is capped so a slow network still opens something within a few seconds.
+ */
+async function openReleaseNotes(): Promise<void> {
+  const url = await releaseNotesUrl(app.getVersion(), async (tag) => {
+    const response = await fetch(tag, { method: 'HEAD', signal: AbortSignal.timeout(4000) })
+    return response.ok
+  })
+  await shell.openExternal(url)
+}
+
 function buildMenu(): void {
   const send = (channel: string, ...args: unknown[]): void => {
     BrowserWindow.getFocusedWindow()?.webContents.send(channel, ...args)
@@ -326,6 +340,10 @@ function buildMenu(): void {
     {
       role: 'help',
       submenu: [
+        { label: 'Eaon Documentation', click: () => void shell.openExternal(DOCS_URL) },
+        { label: 'Release Notes', click: () => void openReleaseNotes() },
+        { label: 'Report an Issue…', click: () => void shell.openExternal(ISSUES_URL) },
+        { type: 'separator' },
         {
           label: 'Show Crash Log',
           click: () => {
@@ -533,6 +551,7 @@ function registerIpc(): void {
   // default folder is displayed as ~/Eaon until the first task creates it.
   ipcMain.handle('app:show-item', (_e, path: string) => shell.showItemInFolder(path.replace(/^~(?=\/|$)/, homedir())))
   ipcMain.handle('app:version', () => app.getVersion())
+  ipcMain.handle('app:open-release-notes', () => openReleaseNotes())
   ipcMain.handle('background:get', () => ({ supported: backgroundSupported(), enabled: runsInBackground() }))
   ipcMain.handle('background:set', async (_e, enabled: boolean) => {
     if (!backgroundSupported()) throw new Error('Running in the background is not available on this system.')

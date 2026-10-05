@@ -1,4 +1,4 @@
-import { BROWSER_ACTIONS, type BrowserAction, type SnapshotElement } from '@shared/browserBridge'
+import { BROWSER_ACTIONS, CHROME_WEB_STORE_URL, type BrowserAction, type SnapshotElement } from '@shared/browserBridge'
 import { capOutput, type AgentTool, type ToolResult, type ToolSource } from '../../agent/tools'
 import { NotConnectedError, type BrowserBridge } from './server'
 
@@ -217,7 +217,9 @@ export function createBrowserTool(bridge: BrowserBridge): { tool: AgentTool; sou
     }
     return [
       'The Eaon browser extension is not connected, so the browser tool cannot run yet. Tell the user how to set it up:',
-      '1. Install the Eaon extension in Chrome — Eaon → Settings → Browser extension shows where to get it (Chrome Web Store, or "Load unpacked").',
+      CHROME_WEB_STORE_URL
+        ? '1. Install the Eaon extension in Chrome — Eaon → Settings → Browser extension shows where to get it (Chrome Web Store, or "Load unpacked").'
+        : '1. Install the Eaon extension in Chrome — Eaon → Settings → Browser extension walks through loading it with "Load unpacked" (it is not on the Chrome Web Store yet).',
       '2. In that same settings page, copy the pairing code.',
       '3. Click the Eaon icon in Chrome\'s toolbar, enter the code and press Pair.',
       'Do not retry until they say it is connected.'

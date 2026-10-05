@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useApp, useIsWork } from '../../../state/store'
-import { Card, Row, Section, Select, Switch } from '../../ui'
+import { Card, ErrorDetails, Row, Section, Select, Switch } from '../../ui'
+import { LinkAccounts } from '../../LinkAccounts'
 import { ExternalLink, Github } from 'lucide-react'
 import type { LaunchMode } from '@shared/types'
+import { DOCS_URL, ISSUES_URL, RELEASES_URL, REPO_URL } from '@shared/links'
+import { errorText, explainUpdateError } from '../../../lib/errors'
 
 export function GeneralPage(): JSX.Element {
   const { settings, patchSettings } = useApp(useShallow((s) => ({ settings: s.settings, patchSettings: s.patchSettings })))
@@ -12,11 +15,20 @@ export function GeneralPage(): JSX.Element {
   const [version, setVersion] = useState('')
   // The same switch as Scheduled → Keep running in the background: one setting, two places.
   const [background, setBackground] = useState<{ supported: boolean; enabled: boolean } | null>(null)
+  const [backgroundError, setBackgroundError] = useState<string | null>(null)
+  const [linking, setLinking] = useState(false)
 
   useEffect(() => {
     void window.api.app.version().then(setVersion)
     void window.api.app.background().then(setBackground)
   }, [])
+
+  const setLaunchAtLogin = (on: boolean): void => {
+    setBackgroundError(null)
+    window.api.app.setBackground(on).then(setBackground, (error: unknown) =>
+      setBackgroundError(`Couldn't ${on ? 'turn on' : 'turn off'} launch at login: ${errorText(error)}`)
+    )
+  }
 
   if (!settings) return <></>
   const g = settings.general
@@ -30,21 +42,13 @@ export function GeneralPage(): JSX.Element {
       {isWork && (
       <Section label="Permissions">
         <Card>
-          <Row
-            title="Default permissions"
-            description="By default, the assistant can read and edit files in its workspace. It can ask for additional access when needed"
-          >
-            <Switch
-              label="Default permissions"
-              checked={!g.fullAccess}
-              dimmed
-              disabled
-              onChange={() => undefined}
-            />
-          </Row>
+          {/* What fullAccess really gates (localTools.ts riskyPath): the
+              "outside the work folder" check. It used to promise commands with
+              network and no approvals at all, which it never did. A disabled
+              "Default permissions" switch beside it only mirrored this one. */}
           <Row
             title="Full access"
-            description="When the assistant runs with full access, it can edit any file on your computer and run commands with network, without your approval. This significantly increases the risk of data loss, leaks, or unexpected behavior."
+            description="Off: changing anything outside the assistant's work folder always asks you first. On: it can change files anywhere on your computer, following your usual approval setting. Risky commands always ask."
           >
             <Switch
               label="Full access"
@@ -70,48 +74,6 @@ export function GeneralPage(): JSX.Element {
               ]}
             />
           </Row>
-          <Row title="Default file open destination" description="Where files and folders open by default">
-            <Select
-              value={g.fileOpenDestination}
-              onChange={(value) => void patchSettings({ general: { fileOpenDestination: value } })}
-              options={[
-                { value: 'VS Code', label: 'VS Code' },
-                { value: 'Cursor', label: 'Cursor' },
-                { value: 'Zed', label: 'Zed' },
-                { value: 'Xcode', label: 'Xcode' },
-                { value: 'Finder', label: 'Finder' },
-                { value: 'Terminal', label: 'Terminal' }
-              ]}
-            />
-          </Row>
-          <Row title="Language" description="Language for the app UI">
-            <Select
-              value={g.language}
-              onChange={(value) => void patchSettings({ general: { language: value } })}
-              options={[
-                { value: 'Auto detect', label: 'Auto detect' },
-                { value: 'English', label: 'English' },
-                { value: 'Deutsch', label: 'Deutsch' },
-                { value: 'Español', label: 'Español' },
-                { value: 'Français', label: 'Français' },
-                { value: '日本語', label: '日本語' }
-              ]}
-            />
-          </Row>
-          <Row title="Show in menu bar" description="Keep the app in the macOS menu bar when the main window is closed">
-            <Switch
-              label="Show in menu bar"
-              checked={g.showInMenuBar}
-              onChange={(on) => void patchSettings({ general: { showInMenuBar: on } })}
-            />
-          </Row>
-          <Row title="Bottom panel" description="Show the bottom panel control in the app header">
-            <Switch
-              label="Bottom panel"
-              checked={g.bottomPanel}
-              onChange={(on) => void patchSettings({ general: { bottomPanel: on } })}
-            />
-          </Row>
           <Row title="Prevent sleep while running" description="Keep your computer awake while the assistant is running a task">
             <Switch
               label="Prevent sleep while running"
@@ -119,21 +81,26 @@ export function GeneralPage(): JSX.Element {
               onChange={(on) => void patchSettings({ general: { preventSleep: on } })}
             />
           </Row>
-          <Row title="Suggested prompts" description="Suggest what to do next by searching project files and connected apps">
+          <Row title="Suggested prompts" description="Show starter prompts under the message box on the home screen">
             <Switch
               label="Suggested prompts"
               checked={g.suggestedPrompts}
               onChange={(on) => void patchSettings({ general: { suggestedPrompts: on } })}
             />
           </Row>
-          <Row title="Import work from other AI apps" description="Bring over your setup, projects, and recent chats">
-            <button className="btn">Import</button>
+          {/* Accounts only: chats and projects stay in the other apps. Reading
+              another app's stored sign-in to "import" it can get the account
+              banned, so Link accounts uses each provider's own sign-in. */}
+          <Row
+            title="Use your accounts from other AI apps"
+            description="Finds the AI apps on this computer and signs in to their providers the official way. Chats and projects stay in those apps."
+          >
+            <button type="button" className="btn" onClick={() => setLinking(true)}>
+              Link accounts
+            </button>
           </Row>
-          <Row title="Open source licenses" description="Third-party notices for bundled dependencies">
-            <button
-              className="btn"
-              onClick={() => void window.api.app.openExternal('https://opensource.org/licenses/MIT')}
-            >
+          <Row title="License" description="Eaon's license and copyright notice, in its GitHub repository">
+            <button type="button" className="btn" onClick={() => void window.api.app.openExternal(`${REPO_URL}/blob/main/NOTICE`)}>
               View
             </button>
           </Row>
@@ -142,15 +109,15 @@ export function GeneralPage(): JSX.Element {
               title="Launch at login"
               description="Start Eaon in the background when you log in, without opening a window, so scheduled tasks run"
             >
-              <Switch
-                label="Launch at login"
-                checked={background.enabled}
-                onChange={(on) => void window.api.app.setBackground(on).then(setBackground)}
-              />
+              <Switch label="Launch at login" checked={background.enabled} onChange={setLaunchAtLogin} />
             </Row>
+          )}
+          {backgroundError && (
+            <Row title={<span className="ch-error">{backgroundError}</span>} />
           )}
         </Card>
       </Section>
+      <LinkAccounts open={linking} onClose={() => setLinking(false)} />
 
       <Section label="Software update">
         <Card>
@@ -180,22 +147,22 @@ export function GeneralPage(): JSX.Element {
               </button>
             </Row>
           )}
-          {update.state === 'error' && <Row title="Update check failed" description={update.message} />}
+          {update.state === 'error' && <UpdateError message={update.message} />}
         </Card>
       </Section>
 
       <Section label="Resources">
         <Card>
-          <Row title="Documentation" description="Learn how to use Eaon and explore its features.">
-            <button className="btn btn--ghost btn--sm" onClick={() => void window.api.app.openExternal('https://github.com/sanscreates/eaon-desktop#readme')}>
-              View Docs
-              <ExternalLink size={13} strokeWidth={1.9} />
+          <Row title="Documentation" description="How to install Eaon, pick models, and use Chat, Workers and the ADE">
+            <button type="button" className="btn btn--ghost btn--sm" onClick={() => void window.api.app.openExternal(DOCS_URL)}>
+              View docs
+              <ExternalLink size={13} strokeWidth={1.9} aria-hidden />
             </button>
           </Row>
-          <Row title="Release Notes" description="See what's new in the latest version of Eaon.">
-            <button className="btn btn--ghost btn--sm" onClick={() => void window.api.app.openExternal('https://github.com/sanscreates/eaon-desktop/releases')}>
-              View Releases
-              <ExternalLink size={13} strokeWidth={1.9} />
+          <Row title="Release notes" description={version ? `What changed in Eaon ${version}` : "What's new in Eaon"}>
+            <button type="button" className="btn btn--ghost btn--sm" onClick={() => void window.api.app.openReleaseNotes()}>
+              View release notes
+              <ExternalLink size={13} strokeWidth={1.9} aria-hidden />
             </button>
           </Row>
         </Card>
@@ -203,11 +170,13 @@ export function GeneralPage(): JSX.Element {
 
       <Section label="Community">
         <Card>
-          <Row title="GitHub" description="Contribute to Eaon's development.">
+          <Row title="GitHub" description="Eaon's source code. Contributions are welcome.">
             <button
+              type="button"
               className="icon-btn"
-              aria-label="Open GitHub repository"
-              onClick={() => void window.api.app.openExternal('https://github.com/sanscreates/eaon-desktop')}
+              aria-label="Open Eaon on GitHub"
+              title="Open Eaon on GitHub"
+              onClick={() => void window.api.app.openExternal(REPO_URL)}
             >
               <Github size={16} strokeWidth={1.9} />
             </button>
@@ -217,10 +186,10 @@ export function GeneralPage(): JSX.Element {
 
       <Section label="Support">
         <Card>
-          <Row title="Report an Issue" description="Found a bug? Help us out by filing an issue on GitHub.">
-            <button className="btn btn--ghost btn--sm" onClick={() => void window.api.app.openExternal('https://github.com/sanscreates/eaon-desktop/issues')}>
-              Report Issue
-              <ExternalLink size={13} strokeWidth={1.9} />
+          <Row title="Report an issue" description="Found a bug? File an issue on GitHub. Include your Eaon version and what you were doing.">
+            <button type="button" className="btn btn--ghost btn--sm" onClick={() => void window.api.app.openExternal(ISSUES_URL)}>
+              Report issue
+              <ExternalLink size={13} strokeWidth={1.9} aria-hidden />
             </button>
           </Row>
         </Card>
@@ -230,5 +199,25 @@ export function GeneralPage(): JSX.Element {
         <p className="settings__lede">Built with Electron and React, connected to whichever AI provider you bring your own key for.</p>
       </Section>
     </>
+  )
+}
+
+/** A failed update check or download, in plain words, with the raw error kept for bug reports. */
+function UpdateError({ message }: { message: string }): JSX.Element {
+  const explained = explainUpdateError(message)
+  return (
+    <div className="row row--stack">
+      <div className="row__body">
+        <div className="row__title">Update didn't finish</div>
+        <div className="row__desc">{explained.message}</div>
+        <ErrorDetails detail={message} />
+      </div>
+      {explained.offerDownload && (
+        <button type="button" className="btn btn--sm" onClick={() => void window.api.app.openExternal(RELEASES_URL)}>
+          Open releases page
+          <ExternalLink size={13} strokeWidth={1.9} aria-hidden />
+        </button>
+      )}
+    </div>
   )
 }

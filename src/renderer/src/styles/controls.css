@@ -753,3 +753,36 @@ textarea.input {
   flex: none;
   margin: -4px -4px 0 0;
 }
+
+/* ---------------- Error details ---------------- */
+
+/* The raw error under a plain one (ErrorDetails in ui.tsx). */
+.error-details {
+  margin-top: 6px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.error-details summary {
+  width: fit-content;
+  cursor: default;
+  border-radius: var(--r-xs);
+}
+.error-details summary:hover {
+  color: var(--text-2);
+}
+.error-details__text {
+  margin: 6px 0;
+  padding: 8px 10px;
+  max-height: 140px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  color: var(--text-2);
+  background: var(--code-bg);
+  border-radius: var(--r-sm);
+  user-select: text;
+}
+

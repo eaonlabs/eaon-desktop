@@ -511,6 +511,34 @@ export function Section({
   )
 }
 
+/* ------------------------------------------------------------ Error details */
+
+/**
+ * The original error behind a plain-language one, folded away until someone
+ * needs it for a bug report, with a copy button.
+ */
+export function ErrorDetails({ detail }: { detail: string }): JSX.Element {
+  const [copied, setCopied] = useState(false)
+  return (
+    <details className="error-details">
+      <summary>Details</summary>
+      <pre className="error-details__text">{detail}</pre>
+      <button
+        type="button"
+        className="btn btn--ghost btn--sm"
+        onClick={() =>
+          void navigator.clipboard.writeText(detail).then(
+            () => setCopied(true),
+            () => setCopied(false)
+          )
+        }
+      >
+        {copied ? 'Copied' : 'Copy details'}
+      </button>
+    </details>
+  )
+}
+
 /* -------------------------------------------------------------- Focus utils */
 
 const MenuCloseContext = createContext<() => void>(() => {})

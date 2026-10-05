@@ -24,6 +24,7 @@ import {
   PencilLine,
   ScrollText
 } from 'lucide-react'
+import { DOCS_URL } from '@shared/links'
 import { useApp, useWorkspaceKind, type ChatListItem } from '../state/store'
 import { DownloadsButton } from './DownloadsPanel'
 import { CodeSidebar } from './code/CodeSidebar'
@@ -76,7 +77,7 @@ export function Sidebar(): JSX.Element {
           className="icon-btn"
           aria-label="Help"
           title="Help"
-          onClick={() => window.api.app.openExternal('https://github.com/eaonlabs/eaon-desktop#readme')}
+          onClick={() => void window.api.app.openExternal(DOCS_URL)}
         >
           <HelpCircle size={16} strokeWidth={1.9} />
         </button>
