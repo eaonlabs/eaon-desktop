@@ -66,7 +66,14 @@ export function buildTurnMessage(
   /** Set when a guest's message is in this turn: what the turn may do. */
   guest: GuestAccess | null = null,
   /** The goal this turn works on, when it isn't the message that set it. */
-  goal: string | null = null
+  goal: string | null = null,
+  /**
+   * Work still open that the thread's older messages may have been summarised
+   * away from: jobs this thread delegated and is waiting on, and questions
+   * put to the user with no answer yet. Restated every turn so compaction
+   * can't make the worker forget it is waiting.
+   */
+  open: { delegations: { id: string; to: string; objective: string; state: string }[]; asks: string[] } | null = null
 ): ChatMessage {
   // The system prompt only carries the date (it stays cached all day); a
   // worker checking on something needs the time too. Per turn, so it costs
@@ -86,6 +93,13 @@ export function buildTurnMessage(
     )
   }
   for (const routine of routines) lines.push(`[Routine "${routine.name}"] ${routine.task}`)
+  if (open && (open.delegations.length > 0 || open.asks.length > 0)) {
+    const parts = [
+      ...open.delegations.map((d) => `waiting on ${d.to} for ${d.id} ("${d.objective.length > 100 ? `${d.objective.slice(0, 99)}…` : d.objective}", ${d.state})`),
+      ...open.asks.map((q) => `your question to the user, not answered yet: "${q.length > 100 ? `${q.slice(0, 99)}…` : q}"`)
+    ]
+    lines.push(`[Still open] ${parts.join('; ')}. Don't redo these; their answers arrive as mail.`)
+  }
   if (goal) {
     lines.push(
       `[Goal] Keep working toward your goal: "${goal}". Take the next concrete step. Call goal_complete once it is achieved and verified, goal_blocked if you need the user, or sleep if you are waiting for something.`

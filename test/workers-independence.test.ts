@@ -647,3 +647,19 @@ test('engine approvals follow the worker’s access level', () => {
   assert.equal(engineApproval('autonomous', risky), true)
   assert.equal(engineApproval('autonomous', catastrophic), false)
 })
+
+test('open delegations and unanswered questions are restated every turn, so a summarised thread can’t forget them', async () => {
+  const agent = heldAgent()
+  const { engine } = start(agent.runAgent)
+  const nova = engine.save(draft('Nova'))
+  // Vega is paused, so the job stays open while Nova runs.
+  engine.setPaused(engine.save(draft('Vega')).id, true)
+  await engine.handOff(nova.id, 'Vega', 'Collect the survey results')
+  engine.ask(nova.id, { question: 'Which region first?' })
+  engine.send(nova.id, 'Anything new?')
+  await until(() => !!agent.of('Nova'))
+  const text = lastUserText(agent.of('Nova')!.request)
+  assert.match(text, /\[Still open\] waiting on Vega for task_\w+ \("Collect the survey results", assigned\)/)
+  assert.match(text, /your question to the user, not answered yet: "Which region first\?"/)
+  agent.of('Nova')!.release()
+})

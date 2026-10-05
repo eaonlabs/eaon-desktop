@@ -2444,7 +2444,13 @@ export class WorkersEngine {
     const setsGoal = mail.some((m) => m.goal)
     const delegation = info?.delegationId ? this.delegationList.find((d) => d.id === info.delegationId) : undefined
 
-    const user = buildTurnMessage(mail, note, now, routine ? [routine] : [], cap, goalRun && !setsGoal ? goalRun.text : null)
+    const waitingOn = this.delegationList
+      .filter((d) => isOpenDelegation(d) && d.parent.workerId === worker.id && d.parent.threadId === threadId)
+      .map((d) => ({ id: d.id, to: d.recipient.name, objective: d.objective, state: d.state }))
+    const user = buildTurnMessage(mail, note, now, routine ? [routine] : [], cap, goalRun && !setsGoal ? goalRun.text : null, {
+      delegations: waitingOn,
+      asks: worker.asks.map((a) => a.question)
+    })
     const assistant: ChatMessage = { id: randomUUID(), role: 'assistant', parts: [], createdAt: now + 1 }
     thread.messages.push(user, assistant)
 
