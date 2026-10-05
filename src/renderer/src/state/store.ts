@@ -63,6 +63,12 @@ interface AppState {
   streamingMessageId: string | null
   /** The chat `streamingMessageId` belongs to. */
   streamingChatId: string | null
+  /**
+   * Replies being written right now by something else — another window, a
+   * scheduled task — so this window shows them as unfinished too. An id drops
+   * when its run ends, or after a minute of silence (a window that missed the end).
+   */
+  remoteStreaming: string[]
   /** The approval being asked now; `approvalQueue` holds any that arrived while it was open. */
   pendingApproval: PendingApproval | null
   approvalQueue: PendingApproval[]
@@ -231,7 +237,7 @@ function saveChatsNow(checkpoint = false): void {
   if (upserts.length === 0 && removed.length === 0) return
   // A checkpoint is not broadcast: other windows watching the reply have it
   // live from the stream, and a copy a few tokens old would put theirs back.
-  window.api.chats.apply(upserts, removed, checkpoint).then(
+  window.api.chats.apply(checkpoint ? upserts.map(markUnfinished) : upserts, removed, checkpoint).then(
     () => {
       saveFailing = false
     },
@@ -359,6 +365,40 @@ function sealInterrupted(chats: Chat[], only?: string): Chat[] {
   )
 }
 
+/**
+ * Replies this window started and hasn't seen end. Stop clears the window's
+ * streaming marker at once, but the last words of the stopped reply and its
+ * end still arrive — and this window is the one that saves them, not "another
+ * window's" run that someone else will write.
+ */
+const ownedRuns = new Set<string>()
+const remoteTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const REMOTE_SILENCE_MS = 60_000
+
+/** Notes that something else is (still) writing this reply, or that it finished. */
+function noteRemoteRun(messageId: string, finished: boolean): void {
+  const timer = remoteTimers.get(messageId)
+  if (timer) clearTimeout(timer)
+  remoteTimers.delete(messageId)
+  const { getState: get, setState: set } = useApp
+  const listed = get().remoteStreaming.includes(messageId)
+  if (finished) {
+    if (listed) set((s) => ({ remoteStreaming: s.remoteStreaming.filter((id) => id !== messageId) }))
+    return
+  }
+  if (!listed) set((s) => ({ remoteStreaming: [...s.remoteStreaming, messageId] }))
+  remoteTimers.set(
+    messageId,
+    setTimeout(() => noteRemoteRun(messageId, true), REMOTE_SILENCE_MS)
+  )
+}
+
+/** A checkpoint of a reply that is still being written says so, so one found after a crash is known to be cut off. */
+function markUnfinished(chat: Chat): Chat {
+  if (!chat.messages.some((m) => ownedRuns.has(m.id))) return chat
+  return { ...chat, messages: chat.messages.map((m) => (ownedRuns.has(m.id) ? { ...m, interrupted: true } : m)) }
+}
+
 /** Applies one event from a running turn — the renderer's own, or a scheduled task's — to its message. */
 function applyStreamEvent(event: StreamEvent): void {
   const { getState: get, setState: set } = useApp
@@ -379,8 +419,14 @@ function applyStreamEvent(event: StreamEvent): void {
   // A headless run (a scheduled task) streams into a chat the renderer did
   // not start, so only clear the streaming marker for the run it owns.
   const ownsStream = state.streamingMessageId === event.messageId
+  // Still this window's to save after Stop, until the run reports its end.
+  const mine = ownsStream || ownedRuns.has(event.messageId)
   const found = locateMessage(state.chats, event.messageId)
-  if (finished) streamTargets.delete(event.messageId)
+  if (finished) {
+    streamTargets.delete(event.messageId)
+    ownedRuns.delete(event.messageId)
+  }
+  if (!mine) noteRemoteRun(event.messageId, finished)
   if (!found) {
     // The chat is gone (deleted mid-run), but the run still has to release
     // the stop button and any prompt it left open.
@@ -464,7 +510,7 @@ function applyStreamEvent(event: StreamEvent): void {
   set({ chats, ...(finished ? { ...(ownsStream ? IDLE : {}), ...withoutApprovals(state, event.messageId) } : {}) })
   // Another window's reply (or a scheduled run's) is shown as it comes, but
   // saved by whoever is writing it; here it only becomes the synced copy.
-  if (!ownsStream) synced.set(target.id, chats[chatIndex])
+  if (!mine) synced.set(target.id, chats[chatIndex])
   else if (finished || nextChat) persistChats()
   else checkpoints.touch()
 }
@@ -512,6 +558,7 @@ export const useApp = create<AppState>((set, get) => ({
   browserOpen: false,
   streamingMessageId: null,
   streamingChatId: null,
+  remoteStreaming: [],
   pendingApproval: null,
   approvalQueue: [],
   composerDraft: null,
@@ -549,6 +596,8 @@ export const useApp = create<AppState>((set, get) => ({
     const sealed = chats.map((chat) => (chat.messages.some((m) => live.has(m.id)) ? chat : sealInterrupted([chat])[0]))
     synced = new Map(chats.map((chat) => [chat.id, chat]))
     set({ settings, workspaces, projects, chats: sealed, providers, mcpServers, ready: true })
+    // A window opened while another is writing a reply shows that reply as unfinished too.
+    for (const id of activeRuns) noteRemoteRun(id, false)
 
     if (listenersBound) return
     listenersBound = true
@@ -573,7 +622,8 @@ export const useApp = create<AppState>((set, get) => ({
       const streaming = get().streamingMessageId
       if (streaming) {
         void window.api.chat.cancel(streaming)
-        set((s) => ({ chats: sealInterrupted(s.chats, streaming), ...IDLE, ...withoutApprovals(s, streaming) }))
+        // Cut off by this window closing: what was said stays, marked as unfinished.
+        set((s) => ({ chats: sealInterrupted(s.chats, streaming).map(markUnfinished), ...IDLE, ...withoutApprovals(s, streaming) }))
       }
       if (saveTimer || streaming) saveChatsNow()
     })
@@ -797,6 +847,7 @@ export const useApp = create<AppState>((set, get) => ({
       )
     }
 
+    ownedRuns.add(assistantMessage.id)
     set({ chats, activeChatId: chat.id, streamingMessageId: assistantMessage.id, streamingChatId: chat.id, view: 'chat' })
     // Saved straight away rather than debounced: other windows need the new
     // messages before the reply's first words reach them.
@@ -880,6 +931,8 @@ export const useApp = create<AppState>((set, get) => ({
     if (!id) return
     void window.api.chat.cancel(id)
     set((s) => ({ ...IDLE, ...withoutApprovals(s, id) }))
+    // What was said so far is saved now, not only when the run reports back.
+    persistChats()
   },
 
   setMessageFeedback(messageId, feedback) {

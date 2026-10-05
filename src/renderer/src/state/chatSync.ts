@@ -14,6 +14,8 @@ export function chatChanges(synced: ReadonlyMap<string, Chat>, chats: readonly C
 
 /** How often a reply that is still streaming is saved, so a crash loses seconds of it and not all of it. */
 export const CHECKPOINT_MS = 5_000
+/** The first save of a reply comes sooner, so a crash in its opening seconds still keeps what was said. */
+export const CHECKPOINT_FIRST_MS = 1_500
 
 /**
  * Saves the chats while a reply streams. A reply used to be saved only when
@@ -27,23 +29,29 @@ export const CHECKPOINT_MS = 5_000
  */
 export class Checkpoint {
   private timer: ReturnType<typeof setTimeout> | null = null
+  /** Nothing of this reply has been saved yet: its first checkpoint is the early one. */
+  private first = true
 
   constructor(
     private readonly save: () => void,
-    private readonly everyMs = CHECKPOINT_MS
+    private readonly everyMs = CHECKPOINT_MS,
+    private readonly firstMs = CHECKPOINT_FIRST_MS
   ) {}
 
   touch(): void {
     if (this.timer) return
+    const wait = this.first ? Math.min(this.firstMs, this.everyMs) : this.everyMs
     this.timer = setTimeout(() => {
       this.timer = null
+      this.first = false
       this.save()
-    }, this.everyMs)
+    }, wait)
   }
 
-  /** A regular save is happening (or the reply ended): it covers what the checkpoint would have saved. */
+  /** A regular save is happening (or the reply ended): it covers what the checkpoint would have saved, and the next reply starts early again. */
   cancel(): void {
     if (this.timer) clearTimeout(this.timer)
     this.timer = null
+    this.first = true
   }
 }

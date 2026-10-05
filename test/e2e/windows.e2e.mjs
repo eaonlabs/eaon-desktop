@@ -48,9 +48,7 @@ scenario('two windows on one chat: the reply streams in both, settings and appro
   s.t.diagnostic(`window B while A streams: ${JSON.stringify(inB)}`)
   await s.shot(a, 'window-a-streaming')
   await s.shot(b, 'window-b-streaming')
-  await s.t.test('window B shows the reply as still being written', {
-    todo: 'Bug (multi-window chat, renderer state/store.ts): a window watching another window\'s reply gets the text but not the streaming state (streamingMessageId is per window), so the reply looks finished while it is still being written.'
-  }, async () => {
+  await s.t.test('window B shows the reply as still being written', async () => {
     const shown = await waitForReply(b, { text: 'beta', timeout: 2000 })
     assert.equal(shown.streaming, true)
   })

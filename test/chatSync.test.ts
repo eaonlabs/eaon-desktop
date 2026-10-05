@@ -45,7 +45,7 @@ test("a chat taken in from another window is not sent back", () => {
 test('a checkpoint is a throttle: steady events never push it back, and one save follows each burst', (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
   let saves = 0
-  const checkpoint = new Checkpoint(() => saves++, 5_000)
+  const checkpoint = new Checkpoint(() => saves++, 5_000, 5_000)
   // Tokens arrive every 20 ms for 12 seconds. A debounce would never fire.
   for (let elapsed = 0; elapsed < 12_000; elapsed += 20) {
     checkpoint.touch()
@@ -65,9 +65,29 @@ test('a checkpoint is a throttle: steady events never push it back, and one save
 test('a regular save cancels the pending checkpoint', (t) => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
   let saves = 0
-  const checkpoint = new Checkpoint(() => saves++, 5_000)
+  const checkpoint = new Checkpoint(() => saves++, 5_000, 5_000)
   checkpoint.touch()
   checkpoint.cancel()
   t.mock.timers.tick(10_000)
   assert.equal(saves, 0)
+})
+
+test('the first checkpoint of a reply comes early, the rest at the usual pace, and the next reply starts early again', (t) => {
+  t.mock.timers.enable({ apis: ['setTimeout'] })
+  let saves = 0
+  const checkpoint = new Checkpoint(() => saves++, 5_000, 1_500)
+  checkpoint.touch()
+  t.mock.timers.tick(1_499)
+  assert.equal(saves, 0)
+  t.mock.timers.tick(1)
+  assert.equal(saves, 1, 'a crash in the first seconds keeps what was said')
+  checkpoint.touch()
+  t.mock.timers.tick(4_999)
+  assert.equal(saves, 1)
+  t.mock.timers.tick(1)
+  assert.equal(saves, 2, 'then every five seconds')
+  checkpoint.cancel() // the reply ended and was saved in full
+  checkpoint.touch()
+  t.mock.timers.tick(1_500)
+  assert.equal(saves, 3, 'the next reply is early too')
 })

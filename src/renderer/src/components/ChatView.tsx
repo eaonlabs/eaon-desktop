@@ -268,7 +268,7 @@ function ApprovalPrompt(): JSX.Element | null {
 }
 
 function Conversation({ chat }: { chat: Chat }): JSX.Element {
-  const { streamingMessageId, streamingChatId, browserOpen, toggleBrowser, archiveChat, deleteChat, renameChat, stop } = useApp(useShallow((s) => ({ streamingMessageId: s.streamingMessageId, streamingChatId: s.streamingChatId, browserOpen: s.browserOpen, toggleBrowser: s.toggleBrowser, archiveChat: s.archiveChat, deleteChat: s.deleteChat, renameChat: s.renameChat, stop: s.stop })))
+  const { streamingMessageId, remoteStreaming, streamingChatId, browserOpen, toggleBrowser, archiveChat, deleteChat, renameChat, stop } = useApp(useShallow((s) => ({ streamingMessageId: s.streamingMessageId, remoteStreaming: s.remoteStreaming, streamingChatId: s.streamingChatId, browserOpen: s.browserOpen, toggleBrowser: s.toggleBrowser, archiveChat: s.archiveChat, deleteChat: s.deleteChat, renameChat: s.renameChat, stop: s.stop })))
   const isWork = useIsWork()
   const thread = useRef<HTMLDivElement>(null)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
@@ -369,7 +369,7 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
             <MessageRow
               key={message.id}
               message={message}
-              streaming={message.id === streamingMessageId}
+              streaming={message.id === streamingMessageId || remoteStreaming.includes(message.id)}
               chatActions
               last={message.id === lastReplyId}
               canRetry={message.id === lastReplyId && !streamingChatId}
@@ -631,9 +631,16 @@ export const MessageRow = memo(function MessageRow({
         </div>
       ) : streaming ? (
         <LoadingState label="Thinking" />
-      ) : message.error ? null : (
+      ) : message.error ? null : message.interrupted ? null : (
         <div className="msg__status" style={{ color: 'var(--text-3)' }}>
           No response
+        </div>
+      )}
+
+      {message.interrupted && !streaming && (
+        <div className="msg__status" style={{ color: 'var(--text-3)' }} role="status">
+          Eaon was closed before this reply finished{hasContent ? '; this is what it had so far' : ''}.
+          {canRetry && ' Use Retry to ask again.'}
         </div>
       )}
 

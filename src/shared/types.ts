@@ -201,6 +201,12 @@ export interface ChatMessage {
   role: 'user' | 'assistant' | 'system'
   parts: ChatMessagePart[]
   createdAt: number
+  /**
+   * Set on a reply while it is only a checkpoint of one still being written.
+   * The final save removes it; if it is still there when the chat loads, Eaon
+   * quit or crashed before the reply finished.
+   */
+  interrupted?: boolean
   /** Set when a request failed so the UI can show an inline error. */
   error?: string
   /** What kind of provider failure `error` is, with the fix to offer (Reconnect, Add a key…). */

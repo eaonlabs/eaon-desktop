@@ -64,9 +64,7 @@ scenario('chat streams a reply, Stop ends one mid-stream, and both survive quit 
   assert.equal(await page2.eval(() => document.querySelectorAll('[data-streaming], .loading-state').length), 0)
   await s.shot(page2, 'after-relaunch')
 
-  await s.t.test('a stopped reply keeps the words it had after quit and relaunch', {
-    todo: 'Bug (chat persistence, renderer state/store.ts): stop() clears streamingMessageId before the run reports back, so the stopped reply is treated as another window\'s and never saved; quit then loses it and it comes back as "No response".'
-  }, async () => {
+  await s.t.test('a stopped reply keeps the words it had after quit and relaunch', async () => {
     assert.match(saved, /two, three/, 'chats.json has the stopped reply\'s text')
     const restored = await waitForReply(page2, { text: 'two, three', streaming: false, timeout: 3000 })
     assert.equal(restored.error, '')
@@ -83,6 +81,15 @@ scenario('a crash mid-stream leaves nothing stuck streaming after relaunch', { t
   const held = await fake.nextHeld()
   await waitForReply(page, { text: 'on screen when Eaon died', streaming: true })
   await s.shot(page, 'streaming-before-crash')
+  // A reply is saved a moment after it starts (and again every few seconds),
+  // so a crash costs the last seconds of it, not all of it. Wait for that
+  // first save, as a real crash would come some seconds into a long reply.
+  const checkpointed = Date.now()
+  while (!/on screen when Eaon died/.test(JSON.stringify(app.readStore('chats.json')))) {
+    if (Date.now() - checkpointed > 8000) throw new Error('the streaming reply was not saved within 8 s')
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  s.t.diagnostic(`the first save of the streaming reply landed ${Date.now() - checkpointed} ms after the words appeared`)
 
   await app.kill()
   // The helpers (renderer, GPU, network) go with it.
@@ -106,9 +113,7 @@ scenario('a crash mid-stream leaves nothing stuck streaming after relaunch', { t
   assert.equal(await page2.eval(() => document.querySelectorAll('[data-streaming], .loading-state, [aria-label="Stop"]').length), 0, 'a reply is still shown as streaming after the crash')
   await s.shot(page2, 'after-crash-relaunch')
 
-  await s.t.test('the reply says it was interrupted rather than "No response"', {
-    todo: 'Product gap (chat persistence): a reply cut off by a crash comes back as "No response" and the words that had streamed are lost, because deltas are only saved when the turn ends. Expected: the partial text, marked as interrupted.'
-  }, async () => {
+  await s.t.test('the reply says it was interrupted rather than "No response"', async () => {
     const shown = await lastReply(page2)
     assert.doesNotMatch(shown?.all ?? '', /^No response$/)
     assert.match(shown?.all ?? '', /on screen when Eaon died|interrupt|stopped|closed/i)
