@@ -113,7 +113,12 @@ export interface WorkersDeps {
   loadDelegations?: () => unknown
   saveDelegations?: (delegations: WorkerDelegation[]) => void
   onDelegations?: (delegations: WorkerDelegation[]) => void
-  /** The whole list, on every metadata change (never per token). */
+  /**
+   * The whole list, on every metadata change (never per token). It is the
+   * live list, not a copy — copying a big team on every change cost more than
+   * saving it — so a listener must serialise or copy what it keeps before it
+   * returns (sending it to a window does).
+   */
   onChange?: (workers: Worker[]) => void
   onEvent?: (workerId: string, event: StreamEvent, threadId: string) => void
   /** A message was added to, or replaced whole in, a thread. */
@@ -2253,7 +2258,7 @@ export class WorkersEngine {
 
   private commit(): void {
     this.deps.saveWorkers(this.workers)
-    this.deps.onChange?.(clone(this.workers))
+    this.deps.onChange?.(this.workers)
     this.arm()
   }
 
