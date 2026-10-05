@@ -3,6 +3,97 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [2026.6.2] — unreleased
+
+*macOS, Windows and Linux. A repair release: Workers, models and providers,
+and a long list of dead ends removed.*
+
+### Added
+- **Workers run on their own.** A worker has its conversation with you plus a
+  thread of its own for every routine, side task (New task) and job a
+  colleague delegates. They run side by side and stop on their own; a running
+  routine no longer makes your message wait. Up to four runs go at once, two
+  per worker, and one that has to wait says so ("Queued") instead of looking
+  idle.
+- **Run history.** Every run leaves a receipt — what woke it, how it ended
+  and why, how long it took, tokens — under Activity on the worker's page,
+  with Retry. A run Eaon quit in the middle of is picked up again if it
+  hadn't changed anything; one that may have is left for you to retry.
+- **Delegation you can follow.** "Nova delegated … to Vega" is a job with a
+  state (assigned, working, waiting, done, failed), the background Nova chose
+  to share, what to send back and an optional deadline. Loops and chains more
+  than three deep are refused.
+- **Workers wake on events.** A worker can wait for a command to finish or a
+  file to change instead of guessing a time; repeating wake-ups nobody
+  follows stop by themselves.
+- **Codex as a real engine.** Settings → Agent engines finds the Codex you
+  have installed (including the one in the ChatGPT app), shows its version and
+  whether it is signed in or the session expired, offers sign-in or update,
+  and lists the models your account really has, from Codex itself. A worker
+  can run on Codex with its own session. Eaon still decides what it may do.
+- **Search in Workers**: workers, their tasks, questions waiting for you and
+  group chats, with arrow keys.
+- **Edit what a worker remembers**, stop a routine, and choose how hard a
+  worker thinks, from its page.
+- **One model picker everywhere**, with search, stars, recents and grouping;
+  a model that goes away stays visible as unavailable with why, never silently
+  replaced. Lists refresh in the background and say what changed ("Updated
+  just now · 3 new models", "Couldn't refresh X — showing the list from 2 h
+  ago").
+- **The computer's one pointer is leased** to one run at a time, with an
+  indicator saying who has it and Take back control.
+- **Your 2026.6.0 and 2026.6.1 data upgrades safely**: a damaged file is set
+  aside and repaired instead of stopping Eaon or replacing your chats.
+
+### Changed
+- **Provider errors say what to do** ("Your ChatGPT session expired. Sign in
+  again.") with a button, instead of a status code; a provider whose saved
+  sign-in stopped working shows "Needs attention".
+- **With no usable model, the composer says so before you type**, and keeps
+  your draft.
+- Settings → General's links point to the Eaon Labs repository and the
+  version you are running; "Import work from other AI apps" is now "Use your
+  accounts from other AI apps" and opens Link accounts.
+- A chat reply still being written is saved every few seconds, so a crash
+  keeps most of it. Scheduled tasks keep every run as a record, run once
+  after sleep instead of once per missed time, and follow the time zone.
+- Settings → Usage never shows a subscription's use as money spent, and says
+  so when a provider reported no token counts.
+- Subscriptions and recurring payments always ask; a payment authorization
+  covers one press of the pay button.
+
+### Fixed
+- **Security.** One permission policy now decides every tool call, including a
+  swarm's sub-agents (they ran with none of their lead's limits). A worker
+  can't get a more trusted colleague to act for it. Approvals sent to
+  Discord, Telegram or WhatsApp show the exact call and are answered by code.
+  ⏎ in the composer no longer approves a command. Links from a symlink can't
+  reach ~/.ssh. Pages and extensions need the gateway's key. Only web and
+  email links leave the app, and the window never navigates away. Keys stay
+  on their origin when a provider redirects. Logs blank keys, tokens and card
+  numbers. Local-network pages need approval in the agent's browsers and
+  `web_fetch`.
+- **The agent's browser**: new tabs, file pickers, downloads and a crashed
+  page no longer hang or open windows on your screen; failures say what to
+  try.
+- **Windows and Linux**: keyboard shortcuts work; the header reserves the
+  right space.
+- **Narrow windows**: a side panel no longer squeezes the conversation to a
+  sliver; Send is always visible.
+- Dead controls removed or made to work (settings that nothing read, buttons
+  with no action, shortcuts that applied nothing); failures that were
+  swallowed now reach you.
+- Dialogs and menus work from the keyboard and give focus back.
+- Voice dictation falls back to your other key when the first fails and
+  stops when the microphone is unplugged; image generation refuses oversized
+  or unreadable images before billing or saving.
+
+### Known limits
+- Windows and Linux were checked by unit tests, not on real machines, for
+  computer use, Codex discovery and some layout rules.
+- Real ChatGPT sign-in, a real expired session and the iOS Simulator were not
+  exercised end to end.
+
 ## [2026.6.1] — 2026-10-04
 
 *macOS, Windows and Linux.*
