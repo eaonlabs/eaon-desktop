@@ -753,3 +753,12 @@ textarea.input {
   flex: none;
   margin: -4px -4px 0 0;
 }
+
+/* Notices about saved data (StoreNotice.tsx): the update toast's look, above it when both show. */
+.update-toast + .store-notice {
+  bottom: 148px;
+}
+.store-notice[data-kind='unsaved'] .store-notice__icon {
+  background: color-mix(in srgb, var(--danger), transparent 84%);
+  color: var(--danger);
+}

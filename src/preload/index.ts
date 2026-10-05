@@ -43,6 +43,7 @@ import { linkAccountsApi } from './features/linkAccounts'
 import { usageApi } from './features/usage'
 import { paymentsApi } from './features/payments'
 import { enginesApi } from './features/engines'
+import { storageApi } from './features/storage'
 
 /** Subscribes to a main-process event; returns the unsubscribe. */
 function on<T>(channel: string, handler: (payload: T) => void): () => void {
@@ -264,7 +265,8 @@ const fullApi = {
   linkAccounts: linkAccountsApi,
   usage: usageApi,
   payments: paymentsApi,
-  engines: enginesApi
+  engines: enginesApi,
+  storage: storageApi
 }
 
 contextBridge.exposeInMainWorld('api', fullApi)

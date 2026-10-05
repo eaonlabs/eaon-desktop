@@ -5,6 +5,8 @@ import { extname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import type { Chat, McpServer, Project, Provider, Settings, StreamEvent, StreamRequest, ThemePalette, UpdateStatus, Workspace } from '@shared/types'
 import { store } from './store'
+import { prepareStore } from './migrations'
+import { dismissProblem, onStoreHealth, problemFile, storeHealth } from './storeFiles'
 import { secrets } from './secrets'
 import type { ModelEdit } from '@shared/providers'
 import { editModels, listProviders, refreshModels, refreshProviderModels, removeProvider, testProvider, updateProvider } from './providers'
@@ -382,6 +384,14 @@ function frameBatched(send: (event: StreamEvent) => void): {
 }
 
 function registerIpc(): void {
+  // Saved data repaired at startup, or a save that is failing: every window shows it (storeFiles.ts).
+  ipcMain.handle('store:health', () => storeHealth())
+  ipcMain.handle('store:dismiss', (_e, id: string) => dismissProblem(String(id)))
+  ipcMain.handle('store:reveal', (_e, id: string) => {
+    const path = problemFile(String(id))
+    if (path) shell.showItemInFolder(path)
+  })
+  onStoreHealth((health) => broadcast('store:health', health))
   ipcMain.handle('settings:get', (): Settings => store.getSettings())
   // Each window keeps its own copy of these, so a change made in one is sent
   // to the others; see the matching listeners in the renderer's store.
@@ -652,7 +662,8 @@ app.whenReady().then(async () => {
   // default is the bundle's own icon; a dev run would otherwise show the
   // generic Electron icon, so it always sets one (appIcon.ts).
   applyAppIcon(store.getSettings().appearance.appIcon, appWindows)
-  store.migrateWorkspaces()
+  // Migrations due, plus the repairs that run every launch; see migrations.ts.
+  prepareStore()
   store.applyLaunchMode()
   if (process.env['EAON_CAPTURE']) {
     // Start every capture run from the same baseline.
