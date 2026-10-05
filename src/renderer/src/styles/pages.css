@@ -351,11 +351,26 @@
 }
 /* Narrow windows: opening a panel hides the sidebar (state/sidePanel.ts), so
    at the 720px minimum the conversation keeps 400px and the panel 320px. If
-   the sidebar is brought back, the panel floats over the right side instead
-   of squeezing the conversation to a sliver. Keep 979px in step with
-   SIDE_PANEL_NARROW. */
+   the sidebar is opened again on top of a panel, it is the sidebar that
+   floats, over the conversation's left edge, instead of squeezing the
+   conversation to a sliver; the composer's Send, at the right, stays
+   uncovered. Keep 979px in step with SIDE_PANEL_NARROW. */
 @media (max-width: 979px) {
-  .app:has(> .sidebar[data-open='true']) > .browser {
+  .app:has(> .browser) > .sidebar[data-open='true'] {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 60;
+    flex: none;
+    background: var(--canvas);
+    box-shadow: var(--shadow-modal);
+  }
+}
+/* Under 640px (a split screen, or zoomed in) even a bare panel leaves the
+   conversation under 300px, so it floats over the right edge as a sheet. */
+@media (max-width: 639px) {
+  .browser {
     position: fixed;
     top: 0;
     right: 0;
