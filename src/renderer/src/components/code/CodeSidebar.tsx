@@ -97,6 +97,18 @@ function TerminalList({ cwd }: { cwd: string | null }): JSX.Element {
               tabIndex={0}
               onClick={() => terminals.focus(pane.id)}
               onDoubleClick={() => toggleMaximized(pane.id)}
+              // It had a tab stop and a role but no key handler: Enter did nothing.
+              onKeyDown={(e) => {
+                if (e.target !== e.currentTarget) return
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  terminals.focus(pane.id)
+                } else if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
+                  e.preventDefault()
+                  const rect = e.currentTarget.getBoundingClientRect()
+                  setMenu({ x: rect.left + 12, y: rect.bottom, pane })
+                }
+              }}
               onContextMenu={(e) => {
                 e.preventDefault()
                 setMenu({ x: e.clientX, y: e.clientY, pane })
