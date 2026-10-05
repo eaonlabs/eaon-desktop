@@ -1,4 +1,4 @@
-import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, relative, sep } from 'node:path'
 
 /**
@@ -34,12 +34,41 @@ export function writeText(path: string, text: string): void {
   writeOwnFile(path, text)
 }
 
-/** A file that is Eaon's own, written whole (a model catalog, a profile): no backup of Eaon's last copy. */
+/**
+ * Where a write to `path` should land: the file a symlink points to, so a
+ * settings file kept in a dotfiles repo (`~/.claude/settings.json` →
+ * `~/dotfiles/claude.json`) is changed in place rather than replaced by a
+ * plain file that cuts the link.
+ */
+function writeTarget(path: string): string {
+  try {
+    return lstatSync(path).isSymbolicLink() ? realpathSync(path) : path
+  } catch {
+    return path
+  }
+}
+
+/**
+ * A file that is Eaon's own, written whole (a model catalog, a profile): no
+ * backup of Eaon's last copy. Written beside the file and renamed into
+ * place, keeping the file's permissions: these files hold the gateway's
+ * key, and a settings file the user had made private must stay private. A
+ * new one is made readable by the user only.
+ */
 export function writeOwnFile(path: string, text: string): void {
-  mkdirSync(dirname(path), { recursive: true })
-  const tmp = `${path}.eaon-tmp`
-  writeFileSync(tmp, text, 'utf8')
-  renameSync(tmp, path)
+  const target = writeTarget(path)
+  mkdirSync(dirname(target), { recursive: true })
+  let mode = 0o600
+  try {
+    mode = statSync(target).mode & 0o777
+  } catch {
+    /* a new file */
+  }
+  const tmp = `${target}.eaon-tmp`
+  writeFileSync(tmp, text, { encoding: 'utf8', mode })
+  // The umask can loosen what writeFileSync was asked for; set it exactly.
+  chmodSync(tmp, mode)
+  renameSync(tmp, target)
 }
 
 export function removeFile(path: string): void {
