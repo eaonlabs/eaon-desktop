@@ -261,7 +261,7 @@ test('the interactive modes ask before anything they should, and Full autonomy s
   }
 })
 
-test('the tools that reach past the computer say so: email, delegation, payments', () => {
+test('the tools that reach past the computer say so: email, delegation, payments, private-network fetches', () => {
   const find = (name: string, input: Record<string, unknown>): Judged => {
     const hit = judged.find((j) => j.tool.name === name && JSON.stringify(j.input) === JSON.stringify(input))
     assert.ok(hit, `${name} ${JSON.stringify(input)} judged`)
@@ -272,6 +272,9 @@ test('the tools that reach past the computer say so: email, delegation, payments
   assert.ok(find('team', { action: 'create_team', name: 'Ops', roles: ['researcher'], kickoff: 'go' }).facts.risky, 'creating autonomous workers')
   assert.ok(find('payment_card', { action: 'authorize', merchant: 'Shop', amount: 12, site: 'shop.example' }).facts.spends, 'paying')
   assert.ok(find('run_command', { command: 'sudo rm -rf /' }).facts.catastrophic, 'sudo')
+  const local = find('web_fetch', { url: 'http://127.0.0.1:8080/admin' })
+  assert.ok(local.facts.mutating && local.facts.risky, 'a page on this computer or the local network')
+  assert.ok(!find('web_fetch', {}).facts.mutating, 'a public page is only looked at')
 })
 
 test('work from a guest or a colleague can never spend money, whatever the access or approvals', () => {

@@ -1,6 +1,7 @@
 import type { McpTool } from '@shared/types'
 import { store } from './store'
 import { capOutput, registerToolSource, type AgentTool } from './agent/tools'
+import { isPrivateHostname, privateAddressOf, resolveAll, targetsPrivateNetwork, type Resolver } from './netGuard'
 
 /**
  * Web search, backed by the MIKLIUM search API (https://miklium.vercel.app/api/search).
@@ -186,27 +187,87 @@ export function htmlToText(html: string): string {
     .trim()
 }
 
-async function fetchPage(args: Record<string, unknown>, signal?: AbortSignal): Promise<string> {
-  const url = String(args.url ?? '').trim()
-  if (!/^https?:\/\//i.test(url)) return 'Pass a full http(s) URL.'
-  const response = await fetch(url, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36 Eaon',
-      Accept: 'text/html,application/json,text/plain;q=0.9,*/*;q=0.5'
-    },
-    redirect: 'follow',
-    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(TIMEOUT_MS)]) : AbortSignal.timeout(TIMEOUT_MS)
-  })
+/** Redirects followed at most, as browsers do (they allow 20; pages that need more are broken). */
+const MAX_REDIRECTS = 10
+
+export interface FetchPageOptions {
+  /** DNS, replaceable in tests. */
+  resolve?: Resolver
+  /** Which addresses count as private, replaceable in tests (whose servers are all on loopback). */
+  isPrivateHost?: (hostname: string) => boolean
+}
+
+/**
+ * Why web_fetch won't go to `url`, or null when it may. The one private host
+ * a call may reach is the one its own URL names — that call was approved as
+ * a local fetch (see the tool's `mutating`). Anywhere else on this computer
+ * or the local network, reached by a redirect or through a public-looking
+ * name that resolves there, is refused: that is how a page the agent reads
+ * would make it fetch the router, a dev server's admin route, or a service
+ * on localhost that trusts whatever reaches it.
+ */
+async function refusal(url: URL, approvedHost: string | null, options: FetchPageOptions): Promise<string | null> {
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') return `web_fetch reads only http(s) pages, and ${url.href.slice(0, 200)} is not one.`
+  if (url.username || url.password) return 'web_fetch does not send credentials written into a URL.'
+  if (approvedHost !== null && url.host === approvedHost) return null
+  const isPrivate = options.isPrivateHost ?? isPrivateHostname
+  if (isPrivate(url.hostname)) {
+    return `${url.host} is on this computer or the local network, and this call was for ${approvedHost ?? 'a public page'}, so it was not fetched. To read a page there, call web_fetch with that address itself, so the user can approve it.`
+  }
+  const address = options.isPrivateHost ? null : await privateAddressOf(url.hostname, options.resolve ?? resolveAll)
+  if (address) {
+    return `${url.hostname} points to ${address}, which is on this computer or the local network, so it was not fetched. To read a page there, call web_fetch with the local address itself, so the user can approve it.`
+  }
+  return null
+}
+
+export async function fetchPage(args: Record<string, unknown>, signal?: AbortSignal, options: FetchPageOptions = {}): Promise<string> {
+  const requested = String(args.url ?? '').trim()
+  if (!/^https?:\/\//i.test(requested)) return 'Pass a full http(s) URL.'
+  let url: URL
+  try {
+    url = new URL(requested)
+  } catch {
+    return `${requested.slice(0, 200)} is not a valid URL.`
+  }
+  // A URL that itself names a local address was approved as such (it is
+  // mutating and risky, below); that host, and only that host, may be read.
+  const approvedHost = (options.isPrivateHost ?? isPrivateHostname)(url.hostname) ? url.host : null
+  const deadline = signal ? AbortSignal.any([signal, AbortSignal.timeout(TIMEOUT_MS)]) : AbortSignal.timeout(TIMEOUT_MS)
+  let response: Response | null = null
+  // Redirects are followed by hand so that every hop is checked, not only the first.
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    const refused = await refusal(url, approvedHost, options)
+    if (refused) return refused
+    response = await fetch(url, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_0) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130 Safari/537.36 Eaon',
+        Accept: 'text/html,application/json,text/plain;q=0.9,*/*;q=0.5'
+      },
+      redirect: 'manual',
+      signal: deadline
+    })
+    const location = response.headers.get('location')
+    if (response.status < 300 || response.status > 399 || !location) break
+    await response.body?.cancel().catch(() => {})
+    try {
+      url = new URL(location, url)
+    } catch {
+      return `${url.href} redirected to an address that isn't valid.`
+    }
+    if (hop === MAX_REDIRECTS) return `${requested} redirected more than ${MAX_REDIRECTS} times, so it was not followed further.`
+  }
+  if (!response) return `Fetching ${requested} failed.`
   const type = response.headers.get('content-type') ?? ''
-  if (!response.ok) return `Fetching ${url} failed: HTTP ${response.status}.`
-  if (!/text|json|xml|javascript/.test(type)) return `${url} is ${type || 'binary'} content, which cannot be read as text.`
+  if (!response.ok) return `Fetching ${url.href} failed: HTTP ${response.status}.`
+  if (!/text|json|xml|javascript/.test(type)) return `${url.href} is ${type || 'binary'} content, which cannot be read as text.`
   const { text: raw, cut } = await readCapped(response)
   const text = /html/.test(type) ? htmlToText(raw) : raw
   const offset = Math.max(0, Number(args.offset) || 0)
   const slice = text.slice(offset, offset + FETCH_LIMIT)
   const more = text.length > offset + FETCH_LIMIT ? `\n\n…[${(text.length - offset - FETCH_LIMIT).toLocaleString()} more characters — call again with offset ${offset + FETCH_LIMIT}]` : ''
   const cutNote = cut ? `\n\n(Only the first ${FETCH_MAX_BYTES / 1024 / 1024} MB of this URL were read.)` : ''
-  return `${response.url}\n\n${slice}${more}${cutNote}`
+  return `${url.href}\n\n${slice}${more}${cutNote}`
 }
 
 const webSearchTool = (): AgentTool => {
@@ -221,7 +282,8 @@ const webSearchTool = (): AgentTool => {
 
 const webFetchTool: AgentTool = {
   name: 'web_fetch',
-  description: 'Read a web page (or JSON/text URL) as plain text. Use after web_search to read a result in full, or for any URL the user gives.',
+  description:
+    'Read a web page (or JSON/text URL) as plain text. Use after web_search to read a result in full, or for any URL the user gives. A page on this computer or the local network (localhost, 192.168.x.x) needs the user\'s approval.',
   inputSchema: {
     type: 'object',
     properties: {
@@ -230,7 +292,12 @@ const webFetchTool: AgentTool = {
     },
     required: ['url']
   },
-  mutating: false,
+  // Reading a public page changes nothing. A page on this computer or the
+  // local network is another matter (an admin route, a service that trusts
+  // whatever reaches it), so a URL naming one goes through approval like a
+  // change: asked about, refused in plan mode and read-only runs.
+  mutating: (input) => targetsPrivateNetwork(input.url),
+  risky: (input) => targetsPrivateNetwork(input.url),
   describe: (input) => String(input.url ?? ''),
   run: (input, ctx) => fetchPage(input, ctx.signal)
 }
