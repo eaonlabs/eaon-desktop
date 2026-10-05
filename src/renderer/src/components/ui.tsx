@@ -284,6 +284,7 @@ export function MenuSearch({
         autoFocus
         value={value}
         placeholder={placeholder}
+        aria-label={placeholder}
         onChange={(e) => onChange(e.target.value)}
         spellCheck={false}
       />
@@ -619,6 +620,7 @@ export function SearchField({
       <input
         value={value}
         placeholder={placeholder}
+        aria-label={placeholder}
         onChange={(e) => onChange(e.target.value)}
         spellCheck={false}
         autoFocus={autoFocus}

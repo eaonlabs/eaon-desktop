@@ -158,7 +158,7 @@ const TerminalPane = memo(function TerminalPane({
   return (
     <section className="term-pane" data-status={status} style={span > 1 ? { gridColumn: `span ${span}` } : undefined} onMouseDown={() => terminals.focus(pane.id)}>
       <header className="term-pane__head" onDoubleClick={() => toggleMaximized(pane.id)}>
-        <span className="term-pane__dot" title={STATUS_LABEL[status]} />
+        <span className="term-pane__dot" role="img" aria-label={STATUS_LABEL[status]} title={STATUS_LABEL[status]} />
         <AgentMark agent={pane.agent} size={14} />
         {renaming ? (
           <input

@@ -54,8 +54,8 @@ export function PluginCatalog(): JSX.Element {
     <>
       <h1 className="settings__h1">Plugins</h1>
       <p className="settings__lede">
-        Connect outside services so models can read and act on your behalf, with your consent. Plugins are available in
-        Work.
+        Connect outside services so models can read and act on your behalf, with your consent. Chat and Workers can use
+        them.
       </p>
 
       <div className="plugin-catalog__search">
