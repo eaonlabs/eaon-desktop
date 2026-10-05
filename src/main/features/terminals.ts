@@ -11,7 +11,7 @@ import { secrets } from '../secrets'
 import { store } from '../store'
 import { buildChildEnv } from './eaonCode/env'
 import { findInstallerCopy } from './eaonCode/locate'
-import { knownAgent, type TerminalAgent, type TerminalAgentId, type TerminalLayout, type TerminalSpawnRequest } from '@shared/terminals'
+import { currentPane, type TerminalAgent, type TerminalAgentId, type TerminalLayout, type TerminalSpawnRequest } from '@shared/terminals'
 
 /**
  * The ADE's terminal view: real shells in the project folder, each optionally
@@ -99,7 +99,7 @@ function agentEnv(agent: TerminalAgentId | undefined): Record<string, string> {
 /** A saved grid with each pane's agent made current (a Gemini CLI pane from before comes back as a shell). */
 function currentLayout(layout: TerminalLayout): TerminalLayout {
   return Object.fromEntries(
-    Object.entries(layout ?? {}).map(([cwd, panes]) => [cwd, (panes ?? []).map((pane) => ({ ...pane, agent: knownAgent(pane.agent) }))])
+    Object.entries(layout ?? {}).map(([cwd, panes]) => [cwd, (panes ?? []).map(currentPane)])
   )
 }
 
@@ -164,8 +164,13 @@ export function createTerminals(options: TerminalsOptions = {}): Feature & { tic
       const cwd = isDir(rec.cwd) ? rec.cwd : req.cwd
       if (rec.agent === 'shell') return { agent: 'shell', plan: { cwd, command: rec.program ?? null, screen } }
       const command = commandOf(rec.agent)
-      // The agent was uninstalled since: the pane comes back as its shell.
-      if (!command) return { agent: 'shell', plan: { cwd, command: null, screen } }
+      // The agent was uninstalled (or can't be found) since: the pane comes
+      // back as its shell, and says why rather than leaving the user to wonder.
+      if (!command) {
+        const missing = installed.find((a) => a.id === rec.agent)
+        const note = `\x1b[2m── ${missing?.label ?? rec.agent} isn't on this computer any more, so this pane opened as a plain shell.${missing?.installHint ? ` To get it back: ${missing.installHint}` : ''} ──\x1b[0m\r\n`
+        return { agent: 'shell', plan: { cwd, command: null, screen: `${screen ?? ''}${note}` } }
+      }
       const kind = AGENT_KINDS[rec.agent]
       if (rec.sessionId && (await kind.resumable(cwd, rec.sessionId).catch(() => false))) {
         // The agent draws its own conversation again; the old screen would only repeat it.

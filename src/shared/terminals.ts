@@ -17,6 +17,21 @@ export function knownAgent(agent: unknown): TerminalAgentId {
   return (TERMINAL_AGENT_IDS as readonly unknown[]).includes(agent) ? (agent as TerminalAgentId) : 'shell'
 }
 
+/** CLIs older versions ran in panes and this one no longer does. */
+const RETIRED_AGENTS: Record<string, string> = { gemini: 'Gemini CLI' }
+
+/**
+ * A saved pane made current. One whose agent this version no longer runs
+ * comes back as a shell — and says so in its name, rather than still being
+ * called "Gemini CLI" while a plain shell runs in it.
+ */
+export function currentPane(pane: TerminalPaneSpec): TerminalPaneSpec {
+  const agent = knownAgent(pane.agent)
+  if (agent === pane.agent) return pane
+  const was = RETIRED_AGENTS[String(pane.agent)] ?? (typeof pane.agent === 'string' && pane.agent ? pane.agent : null)
+  return { ...pane, agent, name: was ? `Shell (was ${was})` : pane.name || 'Shell' }
+}
+
 export interface TerminalAgent {
   id: TerminalAgentId
   label: string

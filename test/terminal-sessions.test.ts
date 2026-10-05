@@ -15,7 +15,7 @@ import {
 import { PaneRecords, restoredScreen, SCROLLBACK_BYTES } from '../src/main/features/terminals/paneRecords'
 import { agentUnder, byParent, programLine, SessionWatch, type Proc, type WatchDeps } from '../src/main/features/terminals/sessionWatch'
 import { createTerminals } from '../src/main/features/terminals'
-import { knownAgent, type TerminalAgent, type TerminalAgentId, type TerminalSpawnResult } from '@shared/terminals'
+import { currentPane, knownAgent, type TerminalAgent, type TerminalAgentId, type TerminalSpawnResult } from '@shared/terminals'
 
 /**
  * Bringing ADE panes back after a quit, and following which CLI runs in each:
@@ -170,10 +170,13 @@ test("Antigravity: the folder's latest conversation comes from its cache and mus
   assert.deepEqual([...(await kind.conversations(project)).keys()], [ID_A])
 })
 
-test('a Gemini CLI pane saved by an older version comes back as a shell', () => {
+test('a Gemini CLI pane saved by an older version comes back as a shell, and its name says so', () => {
   assert.equal(knownAgent('gemini'), 'shell')
   assert.equal(knownAgent('antigravity'), 'antigravity')
   assert.equal(knownAgent(undefined), 'shell')
+  assert.deepEqual(currentPane({ id: 'p1', name: 'Gemini', agent: 'gemini' as never }), { id: 'p1', name: 'Shell (was Gemini CLI)', agent: 'shell' })
+  const kept = { id: 'p2', name: 'Codex', agent: 'codex' as const }
+  assert.equal(currentPane(kept), kept)
 })
 
 /* ------------------------------------------------------------------ opencode */
