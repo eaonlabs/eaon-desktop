@@ -5,6 +5,7 @@
  */
 import assert from 'node:assert/strict'
 import { reply } from './fakeProvider.mjs'
+import { within } from './harness.mjs'
 import { checkIsolated, lastReply, scenario, sendMessage, useFakeModel, waitForReply } from './fixtures.mjs'
 
 /** Words that only ever appear in a reply that says nothing useful. */
@@ -35,7 +36,7 @@ scenario('chat streams a reply, Stop ends one mid-stream, and both survive quit 
   await s.shot(page, 'streaming-with-stop')
   await page.click('[aria-label="Stop"]')
   // Stop must reach the provider: the request is aborted, not left running.
-  await Promise.race([held.closed, new Promise((_, reject) => setTimeout(() => reject(new Error('Stop did not close the provider request within 5 s')), 5000))])
+  await within(held.closed, 5000, 'Stop did not close the provider request within 5 s')
   assert.equal(held.aborted, true, 'the held request should have been aborted by Stop')
   const stopped = await waitForReply(page, { text: 'two, three', streaming: false })
   assert.equal(stopped.error, '', 'stopping is not an error')

@@ -17,6 +17,7 @@
  * debugger to disconnect"), which looks exactly like a quit hang.
  */
 import { spawn, execFileSync } from 'node:child_process'
+import { get } from 'node:http'
 import { createServer } from 'node:net'
 import { createRequire } from 'node:module'
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -52,6 +53,50 @@ export async function closedPort() {
   const { port } = /** @type {import('node:net').AddressInfo} */ (server.address())
   await new Promise((done) => server.close(() => done(undefined)))
   return port
+}
+
+/**
+ * Resolves with `promise`, or rejects with `message` after `ms`. The timer is
+ * cleared either way: a pending one would keep the test file's process alive
+ * (and node --test waiting) long after the test ended.
+ * @template T
+ * @param {Promise<T>} promise
+ * @param {number} ms
+ * @param {string} message
+ * @returns {Promise<T>}
+ */
+export function within(promise, ms, message) {
+  /** @type {NodeJS.Timeout | undefined} */
+  let timer
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms)
+  })
+  return /** @type {Promise<T>} */ (Promise.race([promise, timeout])).finally(() => clearTimeout(timer))
+}
+
+/**
+ * GETs JSON without keep-alive. fetch() keeps its connection open for a few
+ * seconds, which holds the test file's process open after the last test.
+ * @param {string} url
+ * @returns {Promise<any>}
+ */
+function getJson(url) {
+  return new Promise((resolve, reject) => {
+    const request = get(url, { agent: false, timeout: 5000 }, (response) => {
+      let body = ''
+      response.setEncoding('utf8')
+      response.on('data', (chunk) => (body += chunk))
+      response.on('end', () => {
+        try {
+          resolve(JSON.parse(body))
+        } catch (error) {
+          reject(error)
+        }
+      })
+    })
+    request.on('timeout', () => request.destroy(new Error(`GET ${url} timed out`)))
+    request.on('error', reject)
+  })
 }
 
 /** @returns {{ pid: number, ppid: number, command: string }[]} */
@@ -241,6 +286,16 @@ export class App {
     }
     this.devtoolsPort = Number(new URL(this.devtoolsUrl).port)
     this.mainCdp = await Cdp.connect(this.inspectorUrl, `${this.name}/main`)
+    // Links and "View docs" buttons would open the developer's real browser;
+    // they are recorded instead (`openedUrls()`).
+    await this.main(() => {
+      const { shell } = require('electron')
+      globalThis.__e2eOpened = []
+      shell.openExternal = async (url) => {
+        globalThis.__e2eOpened.push(String(url))
+      }
+      return true
+    })
     await this.waitForPages(1, deadline - Date.now())
     this.sample()
   }
@@ -264,9 +319,8 @@ export class App {
 
   /** Page targets of Eaon's own windows (not webviews, not the agent's browser). */
   async targets() {
-    const response = await fetch(`http://127.0.0.1:${this.devtoolsPort}/json/list`)
     /** @type {{ id: string, type: string, url: string, webSocketDebuggerUrl: string }[]} */
-    const list = await response.json()
+    const list = await getJson(`http://127.0.0.1:${this.devtoolsPort}/json/list`)
     return list.filter((t) => t.type === 'page' && /\/renderer\/index\.html/.test(t.url))
   }
 
@@ -328,6 +382,37 @@ export class App {
     return page
   }
 
+  /** URLs the app asked the OS to open (recorded, never opened). */
+  openedUrls() {
+    return this.main(() => globalThis.__e2eOpened ?? [])
+  }
+
+  /**
+   * Starts recording which IPC handlers the renderer invokes (channel names,
+   * in order). Handlers registered later are wrapped on the next call.
+   */
+  recordIpc() {
+    return this.main(() => {
+      const { ipcMain } = require('electron')
+      globalThis.__e2eIpc ??= []
+      for (const [channel, handler] of ipcMain._invokeHandlers) {
+        if (handler.__e2e) continue
+        const wrapped = function (...args) {
+          globalThis.__e2eIpc.push(channel)
+          return handler.apply(this, args)
+        }
+        wrapped.__e2e = true
+        ipcMain._invokeHandlers.set(channel, wrapped)
+      }
+      return ipcMain._invokeHandlers.size
+    })
+  }
+
+  /** IPC channels invoked since `recordIpc()`, emptied by reading. */
+  takeIpc() {
+    return this.main(() => (globalThis.__e2eIpc ?? []).splice(0))
+  }
+
   /** Errors and uncaught exceptions any window reported. */
   pageErrors() {
     return [...this.pagesById.values()].flatMap((p) => p.errors)
@@ -361,7 +446,7 @@ export class App {
       return true
     })
     this.closeConnections()
-    const result = await Promise.race([this.exited, sleep(timeout).then(() => null)])
+    const result = await within(this.exited, timeout, 'quit timed out').catch(() => null)
     if (!result) {
       this.child.kill('SIGKILL')
       await this.exited
@@ -419,7 +504,7 @@ export class App {
       this.sample()
       this.closeConnections()
       this.child.kill('SIGKILL')
-      await Promise.race([this.exited, sleep(5000)])
+      await within(this.exited, 5000, 'still running after SIGKILL').catch(() => undefined)
     }
     try {
       mkdirSync(join(artifactsDir, 'logs'), { recursive: true })
@@ -540,9 +625,13 @@ export class Page {
   }
 
   async reload() {
+    // The old document can still answer for a moment after the reload is
+    // sent; a mark on it tells the two apart.
+    await this.eval(() => {
+      window.__e2eBeforeReload = true
+    })
     await this.cdp.send('Page.reload', { ignoreCache: false })
-    // The old document can still answer for a moment after the reload is sent.
-    await sleep(150)
+    await this.waitFor(() => !window.__e2eBeforeReload, { message: 'the page to reload' })
     await this.waitForApp()
   }
 

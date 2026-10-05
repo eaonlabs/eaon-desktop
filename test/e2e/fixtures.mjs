@@ -159,7 +159,13 @@ export async function useFakeModel(page, fake, modelId = FAKE_MODEL) {
     { args: [modelId], message: 'LM Studio to list the fake model' }
   )
   await page.reload()
-  await page.waitFor(() => /fake/i.test(document.querySelector('.chip__model')?.textContent ?? ''), { message: 'the composer to show the fake model' })
+  await page.waitFor(
+    async (modelId) => {
+      const model = (await window.api.providers.list()).find((p) => p.id === 'lm-studio')?.models.find((m) => m.id === modelId)
+      return Boolean(model) && document.querySelector('.chip__model')?.textContent === model.label
+    },
+    { args: [modelId], message: 'the composer to show the fake model' }
+  )
 }
 
 /**
