@@ -155,9 +155,15 @@ function applyWindowAppearance(settings: Settings): void {
     if (isMac) {
       window.setVibrancy(wantsVibrancy(settings) ? 'sidebar' : null)
       pinTrafficLights(window)
-    } else if (process.platform === 'win32') {
-      // Windows: repaint the caption-button strip to match the new theme.
-      window.setTitleBarOverlay(titleBarOverlayFor(settings))
+    } else {
+      // Windows and Linux: repaint the caption-button strip to match the new
+      // theme. Linux got the overlay at creation but never this, so its
+      // buttons kept the old theme's colours after a switch.
+      try {
+        window.setTitleBarOverlay(titleBarOverlayFor(settings))
+      } catch (error) {
+        console.error('[window] could not repaint the caption buttons:', error)
+      }
     }
   }
 }
