@@ -7,6 +7,7 @@ import { listProviders } from '../../providers'
 import { store } from '../../store'
 import type { RunHandle, RunResult } from './engine'
 import { applyStreamEvent, summariseReply } from './transcript'
+import { withUsageSource } from '../usage/attribution'
 
 /**
  * One scheduled run: build the chat, run the agent headlessly, report back.
@@ -199,20 +200,23 @@ export async function runScheduledTask(task: ScheduledTask, handle: RunHandle, d
       // happened would never reach runAgent's listener.
       outcome = handle.signal.aborted
         ? { text: '', usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }, cancelled: true }
-        : await deps.runAgent(
-            request,
-            (event) => {
-              lastSign = performance.now()
-              applyStreamEvent(chat, event)
-              deps.sink.stream(event)
-            },
-            {
-              signal: controller.signal,
-              unattended: task.mode === 'work' && task.allowChanges ? 'safe' : 'read-only',
-              // Only reached by a tool's own extra confirmation (computer use asking
-              // before each click); with nobody to ask, the answer is no.
-              approver: async () => false
-            }
+        : // Counted under Scheduled tasks in Settings → Usage.
+          await withUsageSource('schedule', () =>
+            deps.runAgent(
+              request,
+              (event) => {
+                lastSign = performance.now()
+                applyStreamEvent(chat, event)
+                deps.sink.stream(event)
+              },
+              {
+                signal: controller.signal,
+                unattended: task.mode === 'work' && task.allowChanges ? 'safe' : 'read-only',
+                // Only reached by a tool's own extra confirmation (computer use asking
+                // before each click); with nobody to ask, the answer is no.
+                approver: async () => false
+              }
+            )
           )
     } finally {
       clearTimeout(watchdog)

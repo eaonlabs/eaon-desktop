@@ -1,6 +1,7 @@
 import type { BarRange, ExitRequest, OrderRequest, StartSessionRequest, TradingScheduleDraft } from '@shared/trading'
 import type { StreamEvent } from '@shared/types'
 import { runAgent } from '../agent/loop'
+import { withUsageSource } from './usage/attribution'
 import { registerToolSource } from '../agent/tools'
 import { secrets } from '../secrets'
 import { store } from '../store'
@@ -91,7 +92,8 @@ export const tradingFeature: Feature = {
 
     const trading = new TradingEngine({
       prices: new YahooMarketData(),
-      runAgent,
+      // Counted under Trading in Settings → Usage.
+      runAgent: (request, emit, options) => withUsageSource('trading', () => runAgent(request, emit, options)),
       getSettings: () => store.getSettings(),
       getKeys: (kind) => {
         const keyId = secrets.get(vaultName(kind, 'key'))

@@ -1,6 +1,7 @@
 import type { TokenUsage } from '@shared/types'
-import type { UsageCounts } from '@shared/usage'
+import type { UsageCounts, UsageSource } from '@shared/usage'
 import { store } from '../../store'
+import { usageSource } from './attribution'
 
 /**
  * Eaon's own usage, counted on this computer: requests and tokens per local
@@ -19,11 +20,17 @@ const SAVE_DELAY_MS = 1500
 
 /** day → provider → model → counts. */
 export type LedgerDays = Record<string, Record<string, Record<string, UsageCounts>>>
+/** day → source → provider → model → counts: the same requests again, split by what they were for. */
+export type LedgerSources = Record<string, Partial<Record<UsageSource, Record<string, Record<string, UsageCounts>>>>>
 
 interface Ledger {
   version: 1
   days: LedgerDays
+  /** Added in 2026.6.2; older versions leave it out when they save, which only loses the split. */
+  sources: LedgerSources
 }
+
+const SOURCES = new Set<UsageSource>(['chat', 'schedule', 'worker', 'trading'])
 
 let ledger: Ledger | null = null
 let saveTimer: ReturnType<typeof setTimeout> | null = null
@@ -32,9 +39,54 @@ const listeners = new Set<() => void>()
 function load(): Ledger {
   if (!ledger) {
     const saved = store.getJson<Partial<Ledger>>(FILE, {})
-    ledger = { version: 1, days: saved.days && typeof saved.days === 'object' ? saved.days : {} }
+    const sources: LedgerSources = {}
+    if (isObject(saved.sources)) {
+      for (const [day, bySource] of Object.entries(saved.sources)) {
+        if (!isObject(bySource)) continue
+        for (const [source, providers] of Object.entries(bySource)) {
+          if (!SOURCES.has(source as UsageSource)) continue
+          const clean = cleanDays({ [day]: providers })[day]
+          if (clean) (sources[day] ??= {})[source as UsageSource] = clean
+        }
+      }
+    }
+    ledger = { version: 1, days: cleanDays(saved.days), sources }
   }
   return ledger
+}
+
+const isObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value)
+const count = (value: unknown): number => (typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.round(value) : 0)
+
+/**
+ * The ledger as saved, with anything that isn't a day of counts left out and
+ * every count a whole non-negative number. A count saved as a string would
+ * otherwise be added to as text ("5" + 1 is "51").
+ */
+export function cleanDays(raw: unknown): LedgerDays {
+  const days: LedgerDays = {}
+  if (!isObject(raw)) return days
+  for (const [day, providers] of Object.entries(raw)) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(day) || !isObject(providers)) continue
+    for (const [providerId, models] of Object.entries(providers)) {
+      if (!isObject(models)) continue
+      for (const [modelId, counts] of Object.entries(models)) {
+        if (!isObject(counts)) continue
+        const clean: UsageCounts = {
+          requests: count(counts.requests),
+          input: count(counts.input),
+          output: count(counts.output),
+          cacheRead: count(counts.cacheRead),
+          cacheWrite: count(counts.cacheWrite)
+        }
+        const unreported = Math.min(count(counts.unreported), clean.requests)
+        if (unreported > 0) clean.unreported = unreported
+        ;((days[day] ??= {})[providerId] ??= {})[modelId] = clean
+      }
+    }
+  }
+  return days
 }
 
 /** The local calendar day, `YYYY-MM-DD`: Tokn buckets by the user's own days. */
@@ -45,24 +97,35 @@ export function localDay(at: Date): string {
 
 export const emptyCounts = (): UsageCounts => ({ requests: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 })
 
-/** Counts one model request. */
-export function recordUsage(providerId: string, modelId: string, usage: TokenUsage, at: Date = new Date()): void {
+/** Counts one model request, under the source of the run it was made in (see attribution.ts). */
+export function recordUsage(providerId: string, modelId: string, usage: TokenUsage, at: Date = new Date(), source: UsageSource = usageSource()): void {
   if (!providerId || !modelId) return
-  const days = load().days
+  const { days, sources } = load()
   const day = localDay(at)
-  const counts = (((days[day] ??= {})[providerId] ??= {})[modelId] ??= emptyCounts())
-  const n = (value: number): number => (Number.isFinite(value) && value > 0 ? Math.round(value) : 0)
-  counts.requests += 1
-  counts.input += n(usage.input)
-  counts.output += n(usage.output)
-  counts.cacheRead += n(usage.cacheRead)
-  counts.cacheWrite += n(usage.cacheWrite)
+  addRequest((((days[day] ??= {})[providerId] ??= {})[modelId] ??= emptyCounts()), usage)
+  addRequest(((((sources[day] ??= {})[source] ??= {})[providerId] ??= {})[modelId] ??= emptyCounts()), usage)
   scheduleSave(at)
   for (const listener of listeners) listener()
 }
 
+function addRequest(counts: UsageCounts, usage: TokenUsage): void {
+  const tokens = { input: count(usage.input), output: count(usage.output), cacheRead: count(usage.cacheRead), cacheWrite: count(usage.cacheWrite) }
+  counts.requests += 1
+  counts.input += tokens.input
+  counts.output += tokens.output
+  counts.cacheRead += tokens.cacheRead
+  counts.cacheWrite += tokens.cacheWrite
+  // Every real request reads at least a prompt, so all zeros means the
+  // provider sent no counts, not that the request was free.
+  if (tokens.input + tokens.output + tokens.cacheRead + tokens.cacheWrite === 0) counts.unreported = (counts.unreported ?? 0) + 1
+}
+
 export function ledgerDays(): LedgerDays {
   return load().days
+}
+
+export function ledgerSources(): LedgerSources {
+  return load().sources
 }
 
 /** Called after every recorded request. */
@@ -82,8 +145,9 @@ function scheduleSave(now: Date): void {
 
 function prune(now: Date): void {
   const oldest = localDay(new Date(now.getTime() - KEEP_DAYS * 86_400_000))
-  const days = load().days
+  const { days, sources } = load()
   for (const day of Object.keys(days)) if (day < oldest) delete days[day]
+  for (const day of Object.keys(sources)) if (day < oldest) delete sources[day]
 }
 
 /** Writes anything still waiting, at quit. */
