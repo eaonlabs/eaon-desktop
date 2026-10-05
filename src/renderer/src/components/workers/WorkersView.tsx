@@ -34,7 +34,7 @@ import { RoomEditor, RoomPage, TeamDialog } from './WorkerRooms'
 import { ThreadTabs } from './WorkerThreads'
 import { useWorkers } from './workersStore'
 import { fileName, fileUrl, isImagePath } from '../../lib/files'
-import { MAIN_THREAD, MAX_WORKERS, TRADING_DESK, describeWorker, relativeTime, threadKey, workerMood, type Worker, type WorkerThreadInfo } from '@shared/workers'
+import { MAIN_THREAD, MAX_WORKERS, TRADING_DESK, describeWorker, relativeTime, runningThreads, threadKey, workerMood, type Worker, type WorkerThreadInfo } from '@shared/workers'
 import type { McpServer } from '@shared/types'
 import { CHANNEL_LABEL } from '@shared/channels'
 import { ChannelLogo } from '../channels/ChannelLogo'
@@ -494,7 +494,8 @@ function ConnectedApps({ worker }: { worker: Worker }): JSX.Element | null {
  */
 function statusLine(worker: Worker): string {
   if (worker.paused) return 'Paused'
-  if (worker.status === 'working') return worker.activity || 'Working…'
+  if (worker.status === 'working') return runningThreads(worker) > 1 ? `${worker.activity || 'Working…'} · ${runningThreads(worker)} tasks running` : worker.activity || 'Working…'
+  if (worker.queued) return `Queued — ${worker.queued}`
   if (worker.status === 'failed') return worker.lastError ? `Stopped: ${worker.lastError}` : 'Last task failed'
   if (worker.inbox.length > 0) return `${worker.inbox.length} message${worker.inbox.length === 1 ? '' : 's'} waiting`
   if (worker.lastRunAt === null) return 'Ready for its first job'
@@ -542,7 +543,7 @@ function WorkerActions({ worker }: { worker: Worker }): JSX.Element {
         <MonitorPlay size={14} strokeWidth={1.9} />
         <span>Browser</span>
       </button>
-      {!worker.paused && !working && (
+      {!worker.paused && !worker.runningMessageId && (
         <button className="header-btn" onClick={() => void wake(worker.id)} title={`Wake ${worker.name} now and have it check in`}>
           <AlarmClock size={14} strokeWidth={1.9} />
           <span>Check in</span>
