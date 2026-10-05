@@ -105,7 +105,22 @@ export interface EngineStatus {
   auth: EngineAuth
   /** What went wrong while checking, in plain words; null when the check worked. */
   error: string | null
+  /**
+   * Set when the engine is installed and answers, but Eaon won't run turns on
+   * it, with the reason in plain words — Codex set up (by Connect apps) to use
+   * Eaon's own gateway, which would send every request back into Eaon.
+   */
+  blockedReason?: string | null
+  /** Other copies found besides the one Eaon runs, newest first, so Settings can say which one is used. */
+  others?: EngineInstallCopy[]
   checkedAt: number
+}
+
+/** A copy of an engine found on this computer. */
+export interface EngineInstallCopy {
+  path: string
+  foundIn: string
+  version: string | null
 }
 
 /** The engine's model list with where it came from and how fresh it is. */

@@ -11,6 +11,8 @@ export const enginesApi = {
   models: (id: EngineId): Promise<EngineModels | null> => ipcRenderer.invoke('engines:models', id),
   /** Starts the engine's own sign-in; resolves with every status once it finished. */
   login: (id: EngineId): Promise<EngineStatus[]> => ipcRenderer.invoke('engines:login', id),
+  /** Gives up on a sign-in that is waiting in the browser; `login` then rejects with "Sign-in cancelled." */
+  cancelLogin: (id: EngineId): Promise<void> => ipcRenderer.invoke('engines:cancel-login', id),
   onChanged: (callback: () => void): (() => void) => {
     const listener = (): void => callback()
     ipcRenderer.on('engines:changed', listener)
