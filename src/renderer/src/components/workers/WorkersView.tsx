@@ -20,6 +20,7 @@ import {
   Users,
   X
 } from 'lucide-react'
+import { resolveSelection } from '@shared/modelSelection'
 import { useApp } from '../../state/store'
 import { TopBar } from '../TopBar'
 import { MessageRow } from '../ChatView'
@@ -346,8 +347,9 @@ function tradingAccountName(via: string, servers: McpServer[]): string {
 
 /** The face, the job and the pulse — at the top of the thread, where a chat has nothing. */
 function WorkerProfile({ worker, now, mood }: { worker: Worker; now: number; mood: ReturnType<typeof workerMood> }): JSX.Element {
-  const models = useApp((s) => s.availableModels())
-  const model = worker.model ? models.find((m) => m.id === worker.model!.modelId && m.providerId === worker.model!.providerId) : null
+  const providers = useApp((s) => s.providers)
+  // A pinned model that's gone says so; it used to read "Uses your selected model", which it doesn't.
+  const pinned = worker.model ? resolveSelection(worker.model, providers) : null
   const creator = useWorkers((s) => (worker.createdBy ? s.workers.find((w) => w.id === worker.createdBy) : null))
   const servers = useApp((s) => s.mcpServers)
   return (
@@ -379,8 +381,10 @@ function WorkerProfile({ worker, now, mood }: { worker: Worker; now: number; moo
             </span>
           </span>
         )}
-        <span className="worker-fact">
-          <span className="worker-fact__text">{model ? model.label : 'Uses your selected model'}</span>
+        <span className="worker-fact" title={pinned?.reason ?? undefined}>
+          <span className="worker-fact__text">
+            {!pinned ? 'Uses your selected model' : pinned.model ? pinned.model.label : `${pinned.wanted?.label ?? worker.model!.modelId} · unavailable`}
+          </span>
         </span>
         {worker.trading && (
           <span className="worker-fact" title={worker.trading.strategy || undefined}>

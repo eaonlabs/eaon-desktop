@@ -4,7 +4,8 @@ import { useShallow } from 'zustand/react/shallow'
 import { draftError, type ScheduledTask, type TaskDraft } from '@shared/scheduler'
 import type { AgentMode } from '@shared/types'
 import { agentWorkspace, useApp } from '../../state/store'
-import { Modal, Segmented, Select, Switch } from '../ui'
+import { Modal, Segmented, Switch } from '../ui'
+import { ModelSelect } from '../composer/ModelSelect'
 import { formFromSchedule, scheduleFromForm, SchedulePicker, type ScheduleForm } from './SchedulePicker'
 
 /** New / Edit schedule. `task` is null for a new one. */
@@ -27,11 +28,9 @@ export function TaskEditor({
   task: ScheduledTask | null
   onClose: () => void
 }): JSX.Element | null {
-  const { models, current, providers, workCwd } = useApp(
+  const { current, workCwd } = useApp(
     useShallow((s) => ({
-      models: s.availableModels(),
       current: s.currentModel(),
-      providers: s.providers,
       workCwd: agentWorkspace(s.workspaces)?.cwd ?? null
     }))
   )
@@ -59,19 +58,6 @@ export function TaskEditor({
     setError(null)
   }, [open, task])
 
-  const providerName = (id: string): string => providers.find((p) => p.id === id)?.name ?? id
-  const modelOptions = [
-    { value: DEFAULT_MODEL, label: current ? `App default (${current.label})` : 'App default' },
-    ...models.map((m) => ({ value: modelKey(m.providerId, m.id), label: `${m.label} · ${providerName(m.providerId)}` }))
-  ]
-  // A pinned model missing from the list still shows, so saving does not
-  // silently change it — it may be off, or just not refreshed yet.
-  if (model && !modelOptions.some((o) => o.value === model)) {
-    const [providerId, modelId] = model.split('::')
-    const provider = providers.find((p) => p.id === providerId)
-    const usable = provider && provider.enabled && (provider.hasKey || provider.local)
-    modelOptions.push({ value: model, label: `${modelId} · ${providerName(providerId)}${usable ? '' : ' (unavailable)'}` })
-  }
 
   const buildDraft = (): TaskDraft => {
     const next = scheduleFromForm(schedule, task?.schedule)
@@ -199,7 +185,13 @@ export function TaskEditor({
 
         <div className="sched-field">
           <span className="field-label">Model</span>
-          <Select width={300} value={model} onChange={setModel} options={modelOptions} />
+          {/* The shared model field: a pinned model that's gone stays shown, with why, so saving never changes it silently. */}
+          <ModelSelect
+            width={300}
+            value={model ? { providerId: model.slice(0, model.indexOf('::')), modelId: model.slice(model.indexOf('::') + 2) } : null}
+            onChange={(ref) => setModel(ref?.providerId ? modelKey(ref.providerId, ref.modelId) : DEFAULT_MODEL)}
+            defaultLabel={current ? `App default (${current.label})` : 'App default'}
+          />
         </div>
 
         {mode === 'work' && (

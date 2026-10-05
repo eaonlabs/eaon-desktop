@@ -290,6 +290,69 @@
 .mp__fav:active {
   transform: scale(0.86);
 }
+/* A provider that needs attention: an amber dot where a repeated mark gets grey. */
+.mp__tab-badge[data-tone='warn'] {
+  background: #d69a3a;
+}
+/* The chosen model can't be used, or the open provider needs attention: why, and the fix. */
+.mp__notice {
+  flex: none;
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--mp-line);
+  color: var(--mp-text-2);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+.mp__notice > svg {
+  flex: none;
+  margin-top: 1.5px;
+  color: #d69a3a;
+}
+.mp__notice b {
+  color: var(--mp-text);
+  font-weight: 500;
+}
+.mp__notice span {
+  flex: 1;
+  min-width: 0;
+}
+.mp__notice-action {
+  flex: none;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--mp-blue-text);
+  font: inherit;
+  font-weight: 500;
+  cursor: default;
+}
+.mp__notice-action:hover {
+  text-decoration: underline;
+}
+.mp__section {
+  padding: 7px 8px 3px;
+  color: var(--mp-text-3);
+  font-size: 11px;
+}
+.mp__row[data-attention] .mp__row-name {
+  color: var(--mp-text-2);
+}
+.mp__row-warn {
+  flex: none;
+  color: #d69a3a;
+}
+.mp__tag {
+  flex: none;
+  padding: 1px 5px;
+  border-radius: 4.5px;
+  border: 1px solid var(--mp-line);
+  color: var(--mp-text-2);
+  font-size: 10px;
+  line-height: 1.3;
+}
 .mp__empty {
   padding: 22px 12px;
   text-align: center;
@@ -469,4 +532,244 @@
   .mp__tab[data-active]::after {
     animation: none;
   }
+}
+
+/* ---------------- The composer's "no usable model" notice ---------------- */
+
+/* Sits above the composer, in its width, before anything is typed
+   (ModelNotice.tsx). Amber for a chosen model that can't be used; neutral for
+   first run, where nothing is wrong yet, only missing. */
+.model-notice {
+  --warn: #d69a3a;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0 0 8px;
+  padding: 11px 12px 11px 13px;
+  border-radius: 14px;
+  background: var(--surface-1);
+  box-shadow: 0 0 0 1px var(--border-soft);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+  animation: model-notice-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+.model-notice[data-tone='warn'] {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--warn) 38%, transparent);
+}
+.model-notice__icon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--text-3);
+}
+.model-notice[data-tone='warn'] .model-notice__icon {
+  color: var(--warn);
+}
+.model-notice__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.model-notice__title {
+  color: var(--text);
+  font-weight: 500;
+}
+.model-notice__hint {
+  margin-top: 4px;
+  color: var(--text-2);
+}
+.model-notice__link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--link);
+  font: inherit;
+  cursor: default;
+}
+.model-notice__link:hover {
+  text-decoration: underline;
+}
+.model-notice__actions {
+  flex: none;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.model-notice__actions--row {
+  justify-content: flex-start;
+  margin-top: 9px;
+}
+.model-notice__actions .btn svg {
+  margin-right: 2px;
+}
+@keyframes model-notice-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .model-notice {
+    animation: none;
+  }
+}
+
+/* The composer's model chip, when the chosen model can't be used. */
+.chip--model[data-unavailable] .chip__model {
+  color: #d69a3a;
+}
+
+/* A failed reply's fix and "Copy details", at the end of its error line (ProviderErrorActions.tsx). */
+.msg__error-actions {
+  margin-left: auto;
+  flex: none;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: -3px;
+  margin-bottom: -3px;
+}
+.msg__error-actions .btn {
+  color: var(--text);
+}
+
+/* ---------------- ModelSelect: the model field in forms ---------------- */
+
+.ms__trigger {
+  min-width: 0;
+  max-width: 100%;
+}
+.ms__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+.ms__via {
+  flex: none;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-3);
+  font-size: var(--fs-xs, 11.5px);
+}
+.ms__warn {
+  flex: none;
+  color: #d69a3a;
+}
+.ms__trigger[data-unavailable] .ms__label {
+  color: #d69a3a;
+}
+.menu.ms {
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  max-height: min(420px, calc(100vh - 32px));
+}
+.ms__search {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 12px;
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--text-3);
+}
+.ms__search input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-size: var(--fs-sm);
+}
+.ms__notice {
+  flex: none;
+  display: flex;
+  gap: 7px;
+  align-items: flex-start;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--text-2);
+  font-size: var(--fs-xs, 11.5px);
+  line-height: 1.4;
+}
+.ms__notice svg {
+  flex: none;
+  margin-top: 1px;
+  color: #d69a3a;
+}
+.ms__notice b {
+  color: var(--text);
+  font-weight: 500;
+}
+.ms__list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px;
+}
+.ms__group {
+  padding: 8px 8px 3px;
+  color: var(--text-3);
+  font-size: var(--fs-xs, 11.5px);
+}
+.ms__row {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 30px;
+  padding: 0 8px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
+  cursor: default;
+}
+.ms__row[data-active] {
+  background: var(--hover);
+}
+.ms__row[data-attention] .ms__name {
+  color: var(--text-2);
+}
+.ms__mark-gap {
+  width: 13px;
+  flex: none;
+}
+.ms__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.ms__tag {
+  flex: none;
+  padding: 1px 5px;
+  border-radius: 4.5px;
+  box-shadow: 0 0 0 1px var(--border-soft);
+  color: var(--text-3);
+  font-size: 10.5px;
+  line-height: 1.3;
+}
+.ms__check {
+  flex: none;
+  width: 14px;
+  display: grid;
+  place-items: center;
+  color: var(--text);
+}
+.ms__empty {
+  padding: 18px 12px;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  text-align: center;
 }

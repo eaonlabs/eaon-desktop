@@ -19,6 +19,8 @@ import type {
   Workspace
 } from '@shared/types'
 import { mergeRunChat } from '@shared/scheduler'
+import { isLastingIssue, type ProviderIssue } from '@shared/providers'
+import { isProviderUsable, modelKey, resolveSelection, toggleFavorite, withRecent, type ResolvedSelection } from '@shared/modelSelection'
 import { lastTurnFailed } from './chatStatus'
 import { chatChanges } from './chatSync'
 import { forkedChat, retryPlan, withFeedback } from './chatEdits'
@@ -63,6 +65,10 @@ interface AppState {
   approvalQueue: PendingApproval[]
   /** A suggestion-card prompt waiting to be dropped into the composer, consumed once. */
   composerDraft: string | null
+  /** The provider Settings → Model providers should open on, consumed once (see `openProviderSettings`). */
+  providerFocus: string | null
+  /** Bumped to ask the composer to open its model picker (a failed reply's "Choose a model"). */
+  modelMenuRequest: number
   /** Code-index progress for the chat agent's project folder. */
   indexStatus: IndexStatus | null
   /** In-flight Hugging Face model downloads, keyed by `repoId::filename`. Lives
@@ -76,6 +82,10 @@ interface AppState {
   patchSettings: (patch: DeepPartial<Settings>) => Promise<void>
   setView: (view: View) => void
   setSettingsPage: (page: string) => void
+  /** Opens Settings → Model providers on one provider (to sign in again, fix its key, turn it on). */
+  openProviderSettings: (providerId: string | null) => void
+  setProviderFocus: (providerId: string | null) => void
+  openModelMenu: () => void
   setPluginsTab: (tab: 'plugins' | 'skills') => void
   setModelsRepo: (repoId: string | null) => void
   goBack: () => void
@@ -125,6 +135,13 @@ interface AppState {
   saveMcpServers: (servers: McpServer[]) => Promise<void>
 
   availableModels: () => ModelInfo[]
+  /**
+   * What the composer's model choice resolves to: the chosen model, a
+   * default when nothing was chosen, or why the choice can't be used (see
+   * shared/modelSelection). Never another model in place of the chosen one.
+   */
+  modelSelection: () => ResolvedSelection
+  /** The model the next turn runs on; null when the choice is unavailable or nothing is connected. */
   currentModel: () => ModelInfo | null
   activeChat: () => Chat | null
   visibleChats: () => Chat[]
@@ -174,6 +191,7 @@ let listenersBound = false
 
 /** Identity caches for the derived selectors below — see `availableModels`. */
 let modelsCache: { providers: Provider[]; models: ModelInfo[] } | null = null
+let selectionCache: { providers: Provider[]; settings: Settings | null; selection: ResolvedSelection } | null = null
 let chatsCache: { chats: Chat[]; workspaceId: string | undefined; visible: Chat[] } | null = null
 
 let listCache: { visible: Chat[]; items: ChatListItem[] } | null = null
@@ -338,7 +356,11 @@ function applyStreamEvent(event: StreamEvent): void {
   let nextChat: Partial<Chat> | null = null
   if (event.type === 'delta') nextMessage = appendPart(message, 'text', event.text)
   else if (event.type === 'reasoning') nextMessage = appendPart(message, 'reasoning', event.text)
-  else if (event.type === 'error') nextMessage = { ...message, error: event.error }
+  else if (event.type === 'error') {
+    nextMessage = { ...message, error: event.error, ...(event.issue ? { errorIssue: event.issue } : {}) }
+    // An expired sign-in or a rejected key marks the provider in main; show it in the picker too.
+    if (event.issue && isLastingIssue(event.issue.kind)) void state.refreshProviders()
+  }
   else if (event.type === 'usage') nextMessage = { ...message, usage: event.usage }
   else if (event.type === 'plan') nextMessage = { ...message, plan: event.plan }
   else if (event.type === 'todos') nextMessage = { ...message, todos: event.todos }
@@ -452,6 +474,8 @@ export const useApp = create<AppState>((set, get) => ({
   pendingApproval: null,
   approvalQueue: [],
   composerDraft: null,
+  providerFocus: null,
+  modelMenuRequest: 0,
   indexStatus: null,
   modelDownloads: {},
   updateStatus: { state: 'idle' },
@@ -557,6 +581,12 @@ export const useApp = create<AppState>((set, get) => ({
       view: 'settings'
     }))
   },
+  openProviderSettings: (providerId) => {
+    set({ providerFocus: providerId })
+    get().setSettingsPage('providers')
+  },
+  setProviderFocus: (providerFocus) => set({ providerFocus }),
+  openModelMenu: () => set((s) => ({ modelMenuRequest: s.modelMenuRequest + 1 })),
   setPluginsTab: (pluginsTab) => set({ pluginsTab }),
   setModelsRepo: (modelsRepo) => set({ modelsRepo }),
 
@@ -654,7 +684,11 @@ export const useApp = create<AppState>((set, get) => ({
     // orphan the first — still running, with nothing left to stop it.
     if (state.streamingMessageId) return
 
-    const model = state.currentModel()
+    const selection = state.modelSelection()
+    const model = selection.model
+    // A default the user never picked becomes their choice once they use it,
+    // so connecting another provider later doesn't move the chat to its model.
+    if (selection.status === 'default' && model) void get().patchSettings({ selectedModelId: model.id, selectedProviderId: model.providerId })
     const now = Date.now()
     const userMessage: ChatMessage = {
       id: uid(),
@@ -708,15 +742,23 @@ export const useApp = create<AppState>((set, get) => ({
     saveChatsNow()
 
     if (!model) {
+      // The composer says this before anything is typed; a retry or an
+      // approved plan can still get here, and gets the same explanation.
+      const reason =
+        selection.status === 'unavailable' && selection.wanted
+          ? `${selection.wanted.label} is unavailable. ${selection.reason ?? ''} Choose another model, or fix it in Settings → Model providers.`
+          : (selection.reason ?? 'No usable model is connected. Sign in to a supported account, add an API key, or choose a local model.')
+      const issue: ProviderIssue = {
+        kind: selection.status === 'unavailable' ? 'model-unavailable' : 'no-models',
+        message: reason,
+        action: selection.status === 'unavailable' ? 'choose-model' : 'open-settings',
+        ...(selection.provider ? { providerId: selection.provider.id } : {})
+      }
       const failed = chats.map((c) =>
         c.id === chat!.id
           ? {
               ...c,
-              messages: c.messages.map((m) =>
-                m.id === assistantMessage.id
-                  ? { ...m, error: 'No model selected. Add an API key in Settings → Model providers to get started.' }
-                  : m
-              )
+              messages: c.messages.map((m) => (m.id === assistantMessage.id ? { ...m, error: reason.replace(/\s+/g, ' ').trim(), errorIssue: issue } : m))
             }
           : c
       )
@@ -908,16 +950,19 @@ export const useApp = create<AppState>((set, get) => ({
     const model = get()
       .availableModels()
       .find((m) => m.id === modelId && (!providerId || m.providerId === providerId))
+    const chosenProvider = model?.providerId ?? providerId ?? null
     // The effort stays as chosen: each request clamps it to what the model
     // takes (shared/effort.ts), so switching to a model without Max and back
     // does not quietly lose the Max the user picked.
-    void get().patchSettings({ selectedModelId: modelId, selectedProviderId: model?.providerId ?? providerId ?? null })
+    void get().patchSettings({
+      selectedModelId: modelId,
+      selectedProviderId: chosenProvider,
+      ...(chosenProvider ? { recentModels: withRecent(get().settings?.recentModels, modelKey(chosenProvider, modelId)) } : {})
+    })
   },
 
   toggleFavorite(modelId, providerId) {
-    const key = `${providerId}:${modelId}`
-    const current = get().settings?.favoriteModels ?? []
-    void get().patchSettings({ favoriteModels: current.includes(key) ? current.filter((k) => k !== key) : [...current, key] })
+    void get().patchSettings({ favoriteModels: toggleFavorite(get().settings?.favoriteModels, modelKey(providerId, modelId)) })
   },
 
   setEffort(effort) {
@@ -957,22 +1002,26 @@ export const useApp = create<AppState>((set, get) => ({
     // returning a stable array also lets subscribers bail out on reference
     // equality instead of walking the list.
     if (modelsCache && modelsCache.providers === providers) return modelsCache.models
-    const models = providers.filter((p) => p.enabled && (p.hasKey || p.local)).flatMap((p) => p.models)
+    const models = providers.filter(isProviderUsable).flatMap((p) => p.models)
     modelsCache = { providers, models }
     return models
   },
 
-  currentModel() {
-    const state = get()
-    const models = state.availableModels()
-    if (models.length === 0) return null
-    const selected = state.settings?.selectedModelId
-    const provider = state.settings?.selectedProviderId
-    return (
-      models.find((m) => m.id === selected && m.providerId === provider) ??
-      models.find((m) => m.id === selected) ??
-      models[0]
+  modelSelection() {
+    const { providers, settings } = get()
+    // Cached like `availableModels`: settings change identity on every patch, providers on every refresh.
+    if (selectionCache && selectionCache.providers === providers && selectionCache.settings === settings) return selectionCache.selection
+    const selection = resolveSelection(
+      { providerId: settings?.selectedProviderId ?? null, modelId: settings?.selectedModelId ?? null },
+      providers,
+      { favorites: settings?.favoriteModels, recents: settings?.recentModels }
     )
+    selectionCache = { providers, settings, selection }
+    return selection
+  },
+
+  currentModel() {
+    return get().modelSelection().model
   },
 
   activeChat() {

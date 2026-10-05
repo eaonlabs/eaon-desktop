@@ -1,13 +1,24 @@
-import { useEffect, useMemo, useRef, useState, type JSX, type KeyboardEvent, type RefObject } from 'react'
-import { Plus, Search, Star } from 'lucide-react'
+import { Fragment, useEffect, useMemo, useRef, useState, type JSX, type KeyboardEvent, type RefObject } from 'react'
+import { CircleAlert, Plus, Search, Star } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
-import type { ModelInfo, Provider } from '@shared/types'
-import { clampEffort, orderEfforts } from '@shared/effort'
+import type { Provider } from '@shared/types'
+import { clampEffort } from '@shared/effort'
+import {
+  groupOptions,
+  modelKey,
+  moveActive,
+  nativeOptions,
+  providerReadiness,
+  searchOptions,
+  STAGE_LABEL,
+  type ModelOption
+} from '@shared/modelSelection'
 import { useApp } from '../../state/store'
 import { Popover } from '../ui'
 import { LinkAccounts } from '../LinkAccounts'
 import { EffortControl } from './EffortControl'
 import { markKey, ProviderMark } from './ProviderMark'
+import { useSetupAction } from './setupActions'
 import './model-picker.css'
 
 /**
@@ -16,10 +27,14 @@ import './model-picker.css'
  * underline, and + to link more), a search box, the tab's models with ⌘1–⌘9
  * and a star each, and the model's effort slider at the foot. Linking an
  * account or adding a key puts its tab here straight away.
+ *
+ * What is listed, how search ranks and what the saved choice resolves to all
+ * come from shared/modelSelection, the same rules every other picker uses. A
+ * chosen model that can't be used now stays named at the top with why,
+ * rather than the picker quietly highlighting some other model.
  */
 
 const STARRED = '__starred'
-const key = (m: ModelInfo): string => `${m.providerId}:${m.id}`
 
 export function ModelPicker({ anchor, open, onClose }: { anchor: RefObject<HTMLElement>; open: boolean; onClose: () => void }): JSX.Element {
   const { settings, selectModel, setEffort, toggleFavorite, providers } = useApp(
@@ -31,40 +46,51 @@ export function ModelPicker({ anchor, open, onClose }: { anchor: RefObject<HTMLE
       providers: s.providers
     }))
   )
-  const models = useApp(useShallow((s) => s.availableModels()))
-  const current = useApp((s) => s.currentModel())
+  const selection = useApp((s) => s.modelSelection())
+  const current = selection.model
   const [linking, setLinking] = useState(false)
   const [query, setQuery] = useState('')
   const [tab, setTab] = useState<string>(STARRED)
   const [active, setActive] = useState(0)
   const list = useRef<HTMLDivElement>(null)
   const tabs = useRef<HTMLDivElement>(null)
+  const runAction = useSetupAction()
 
-  const favorites = useMemo(() => new Set(settings?.favoriteModels ?? []), [settings?.favoriteModels])
+  const prefs = useMemo(() => ({ favorites: settings?.favoriteModels, recents: settings?.recentModels }), [settings?.favoriteModels, settings?.recentModels])
+  const options = useMemo(() => nativeOptions(providers), [providers])
+  const groups = useMemo(() => groupOptions(options, prefs), [options, prefs])
+  const favorites = useMemo(() => new Set(prefs.favorites ?? []), [prefs.favorites])
+  const currentKey = current ? modelKey(current.providerId, current.id) : null
+
   /** Providers with models to offer, in the providers list's order. */
   const linked = useMemo(() => {
-    const ids = new Set(models.map((m) => m.providerId))
+    const ids = new Set(options.map((o) => o.providerId))
     return providers.filter((p) => ids.has(p.id))
-  }, [models, providers])
-  const starred = models.filter((m) => favorites.has(key(m)))
+  }, [options, providers])
+  const starred = groups.find((g) => g.kind === 'starred')?.options ?? []
+  const recent = groups.find((g) => g.kind === 'recent')?.options ?? []
 
-  const q = query.trim().toLowerCase()
-  const nameOf = (id: string): string => providers.find((p) => p.id === id)?.name ?? id
-  const shown = q
-    ? models.filter((m) => `${m.label} ${m.id} ${nameOf(m.providerId)}`.toLowerCase().includes(q))
+  const q = query.trim()
+  const shown: ModelOption[] = q
+    ? searchOptions(options, q, prefs)
     : tab === STARRED
-      ? starred
-      : models.filter((m) => m.providerId === tab)
+      ? [...starred, ...recent]
+      : (groups.find((g) => g.kind === 'provider' && g.id === tab)?.options ?? [])
   const mixed = Boolean(q) || tab === STARRED
+  // In the Starred tab, recent models follow the starred ones under their own label.
+  const recentFrom = !q && tab === STARRED && recent.length > 0 ? starred.length : -1
+  const tabProvider = !q && tab !== STARRED ? providers.find((p) => p.id === tab) : undefined
+  const tabReadiness = tabProvider ? providerReadiness(tabProvider) : null
 
   // Each time it opens: the current model's tab, highlighted, no leftover search.
   useEffect(() => {
     if (!open) return
     setQuery('')
-    const start = current?.providerId ?? linked[0]?.id ?? STARRED
-    setTab(start)
-    const inTab = models.filter((m) => m.providerId === start)
-    setActive(Math.max(0, current ? inTab.findIndex((m) => key(m) === key(current)) : 0))
+    const start = current?.providerId ?? selection.wanted?.providerId ?? linked[0]?.id ?? STARRED
+    const startTab = linked.some((p) => p.id === start) ? start : STARRED
+    setTab(startTab)
+    const inTab = startTab === STARRED ? [...starred, ...recent] : options.filter((o) => o.providerId === startTab)
+    setActive(Math.max(0, currentKey ? inTab.findIndex((o) => o.key === currentKey) : 0))
   }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Keep the open tab and the highlighted row in view. Set by hand rather than
@@ -86,29 +112,28 @@ export function ModelPicker({ anchor, open, onClose }: { anchor: RefObject<HTMLE
     else if (row.offsetTop + row.offsetHeight > box.scrollTop + box.clientHeight) box.scrollTop = row.offsetTop + row.offsetHeight - box.clientHeight + 7
   }, [active, open, tab])
 
-  const efforts = orderEfforts(current?.efforts ?? [])
+  const efforts = current?.efforts ?? []
   const effort = clampEffort(settings?.effort, efforts)
 
-  const pick = (model: ModelInfo): void => {
-    selectModel(model.id, model.providerId)
+  const pick = (option: ModelOption): void => {
+    if (!option.providerId) return
+    selectModel(option.modelId, option.providerId)
     onClose()
   }
 
   const onKeyDown = (event: KeyboardEvent): void => {
     if (event.metaKey && /^[1-9]$/.test(event.key)) {
-      const model = shown[Number(event.key) - 1]
-      if (model) {
+      const option = shown[Number(event.key) - 1]
+      if (option) {
         event.preventDefault()
-        pick(model)
+        pick(option)
       }
       return
     }
-    if (event.key === 'ArrowDown') {
+    const next = moveActive(active, event.key, shown.length)
+    if (next !== null) {
       event.preventDefault()
-      setActive((i) => Math.min(shown.length - 1, i + 1))
-    } else if (event.key === 'ArrowUp') {
-      event.preventDefault()
-      setActive((i) => Math.max(0, i - 1))
+      setActive(next)
     } else if (event.key === 'Enter' && shown[active]) {
       event.preventDefault()
       pick(shown[active])
@@ -121,8 +146,19 @@ export function ModelPicker({ anchor, open, onClose }: { anchor: RefObject<HTMLE
     const mark = markKey(p.id)
     const repeat = seen.has(mark)
     seen.add(mark)
-    return { provider: p, repeat }
+    return { provider: p, repeat, attention: providerReadiness(p).state === 'attention' }
   })
+
+  const act = (action: Parameters<typeof runAction>[0], providerId: string | null | undefined): void => {
+    if (action === 'connect') {
+      onClose()
+      setLinking(true)
+      return
+    }
+    if (action === 'choose-model') return
+    onClose()
+    runAction(action, providerId ?? null)
+  }
 
   return (
     <>
@@ -134,8 +170,8 @@ export function ModelPicker({ anchor, open, onClose }: { anchor: RefObject<HTMLE
               className="mp__tab"
               data-active={(!q && tab === STARRED) || undefined}
               aria-selected={!q && tab === STARRED}
-              aria-label="Starred"
-              title="Starred"
+              aria-label="Starred and recent"
+              title="Starred and recent"
               onClick={() => {
                 setQuery('')
                 setTab(STARRED)
@@ -145,7 +181,7 @@ export function ModelPicker({ anchor, open, onClose }: { anchor: RefObject<HTMLE
               <Star className="mp__tab-star" size={15} strokeWidth={0} fill="currentColor" />
               {!q && tab === STARRED && <span className="mp__tab-name">Starred</span>}
             </button>
-            {tabList.map(({ provider, repeat }) => {
+            {tabList.map(({ provider, repeat, attention }) => {
               const on = !q && tab === provider.id
               return (
                 <button
@@ -154,18 +190,18 @@ export function ModelPicker({ anchor, open, onClose }: { anchor: RefObject<HTMLE
                   className="mp__tab"
                   data-active={on || undefined}
                   aria-selected={on}
-                  aria-label={provider.name}
-                  title={provider.name}
+                  aria-label={attention ? `${provider.name}, needs attention` : provider.name}
+                  title={attention ? `${provider.name} needs attention` : provider.name}
                   onClick={() => {
                     setQuery('')
                     setTab(provider.id)
-                    const inTab = models.filter((m) => m.providerId === provider.id)
-                    setActive(Math.max(0, current ? inTab.findIndex((m) => key(m) === key(current)) : 0))
+                    const inTab = options.filter((o) => o.providerId === provider.id)
+                    setActive(Math.max(0, currentKey ? inTab.findIndex((o) => o.key === currentKey) : 0))
                   }}
                 >
                   <span className="mp__tab-mark">
                     <ProviderMark providerId={provider.id} name={provider.name} size={16} />
-                    {repeat && <span className="mp__tab-badge" aria-hidden="true" />}
+                    {(repeat || attention) && <span className="mp__tab-badge" data-tone={attention ? 'warn' : undefined} aria-hidden="true" />}
                   </span>
                   {on && <span className="mp__tab-name">{provider.name}</span>}
                 </button>
@@ -195,15 +231,41 @@ export function ModelPicker({ anchor, open, onClose }: { anchor: RefObject<HTMLE
               setActive(0)
             }}
             onKeyDown={onKeyDown}
-            placeholder="Search models..."
+            placeholder={options.length ? `Search ${options.length} models...` : 'Search models...'}
+            aria-label="Search models"
             spellCheck={false}
           />
         </label>
 
+        {selection.status === 'unavailable' && selection.wanted && (
+          <div className="mp__notice" role="status">
+            <CircleAlert size={13} strokeWidth={2} />
+            <span>
+              <b>{selection.wanted.label}</b> is unavailable. {selection.reason}
+            </span>
+            {selection.action && selection.action !== 'choose-model' && (
+              <button className="mp__notice-action" onClick={() => act(selection.action!, selection.wanted?.providerId)}>
+                {actionLabel(selection.action)}
+              </button>
+            )}
+          </div>
+        )}
+        {tabReadiness?.state === 'attention' && tabProvider && (
+          <div className="mp__notice" role="status">
+            <CircleAlert size={13} strokeWidth={2} />
+            <span>{tabReadiness.reason}</span>
+            {tabReadiness.action && (
+              <button className="mp__notice-action" onClick={() => act(tabReadiness.action!, tabProvider.id)}>
+                {actionLabel(tabReadiness.action)}
+              </button>
+            )}
+          </div>
+        )}
+
         <div className="mp__list" ref={list} role="listbox" aria-label="Models">
-          {models.length === 0 ? (
+          {options.length === 0 ? (
             <div className="mp__empty">
-              <p>No models yet. Link an account or add an API key and its models show up here.</p>
+              <p>No usable model is connected. Sign in to a supported account, add an API key, or choose a local model.</p>
               <button
                 className="btn btn--primary btn--sm"
                 onClick={() => {
@@ -216,38 +278,50 @@ export function ModelPicker({ anchor, open, onClose }: { anchor: RefObject<HTMLE
             </div>
           ) : shown.length === 0 ? (
             <div className="mp__empty">
-              <p>{q ? `No models match “${query.trim()}”.` : 'Star a model to keep it here.'}</p>
+              <p>{q ? `No models match “${q}”.` : 'Star a model to keep it here. Models you pick show up here too.'}</p>
             </div>
           ) : (
-            shown.map((model, i) => {
-              const fav = favorites.has(key(model))
-              const isCurrent = current ? key(current) === key(model) : false
+            shown.map((option, i) => {
+              const fav = favorites.has(option.key)
+              const isCurrent = option.key === currentKey
+              const stage = option.stage ? STAGE_LABEL[option.stage] : null
               return (
-                <div
-                  key={key(model)}
-                  className="mp__row"
-                  data-index={i}
-                  data-active={i === active || undefined}
-                  role="option"
-                  aria-selected={isCurrent}
-                  onMouseMove={() => i !== active && setActive(i)}
-                  onClick={() => pick(model)}
-                >
-                  {mixed && <ProviderMark providerId={model.providerId} name={nameOf(model.providerId)} size={13} />}
-                  <span className="mp__row-name">{model.label}</span>
-                  {i < 9 && <kbd className="mp__kbd">⌘{i + 1}</kbd>}
-                  <button
-                    className="mp__fav"
-                    data-on={fav || undefined}
-                    aria-label={fav ? `Unstar ${model.label}` : `Star ${model.label}`}
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      toggleFavorite(model.id, model.providerId)
-                    }}
+                <Fragment key={`${i < recentFrom || recentFrom === -1 ? 's' : 'r'}:${option.key}`}>
+                  {i === recentFrom && (
+                    <div className="mp__section" role="presentation">
+                      Recent
+                    </div>
+                  )}
+                  <div
+                    className="mp__row"
+                    data-index={i}
+                    data-active={i === active || undefined}
+                    data-current={isCurrent || undefined}
+                    data-attention={option.availability !== 'ready' || undefined}
+                    role="option"
+                    aria-selected={isCurrent}
+                    title={option.reason ?? (option.label !== option.modelId ? option.modelId : undefined)}
+                    onMouseMove={() => i !== active && setActive(i)}
+                    onClick={() => pick(option)}
                   >
-                    <Star size={14.5} strokeWidth={1.4} fill={fav ? 'currentColor' : 'none'} />
-                  </button>
-                </div>
+                    {mixed && <ProviderMark providerId={option.groupId} name={option.groupLabel} size={13} />}
+                    <span className="mp__row-name">{option.label}</span>
+                    {option.availability !== 'ready' && <CircleAlert className="mp__row-warn" size={12} strokeWidth={2} aria-label="Needs attention" />}
+                    {stage && <span className="mp__tag">{stage}</span>}
+                    {i < 9 && <kbd className="mp__kbd">⌘{i + 1}</kbd>}
+                    <button
+                      className="mp__fav"
+                      data-on={fav || undefined}
+                      aria-label={fav ? `Unstar ${option.label}` : `Star ${option.label}`}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        if (option.providerId) toggleFavorite(option.modelId, option.providerId)
+                      }}
+                    >
+                      <Star size={14.5} strokeWidth={1.4} fill={fav ? 'currentColor' : 'none'} />
+                    </button>
+                  </div>
+                </Fragment>
               )
             })
           )}
@@ -267,4 +341,33 @@ export function ModelPicker({ anchor, open, onClose }: { anchor: RefObject<HTMLE
       <LinkAccounts open={linking} onClose={() => setLinking(false)} />
     </>
   )
+}
+
+/** The button text for a fix. */
+export function actionLabel(action: string): string {
+  switch (action) {
+    case 'reconnect':
+      return 'Sign in again'
+    case 'sign-in':
+      return 'Sign in'
+    case 'fix-key':
+      return 'Fix key'
+    case 'add-key':
+      return 'Add key'
+    case 'turn-on':
+      return 'Turn on'
+    case 'start-local':
+    case 'open-settings':
+      return 'Open settings'
+    case 'get-local-model':
+      return 'Get a model'
+    case 'connect':
+      return 'Link accounts'
+    case 'choose-model':
+      return 'Choose a model'
+    case 'retry':
+      return 'Try again'
+    default:
+      return 'Fix'
+  }
 }

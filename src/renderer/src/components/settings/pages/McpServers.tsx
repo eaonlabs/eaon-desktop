@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
-import { useShallow } from 'zustand/react/shallow'
 import { Pencil, Plus, Trash2 } from 'lucide-react'
 import { useApp } from '../../../state/store'
 import { Card, Modal, Row, Section, Select, Switch } from '../../ui'
+import { ModelSelect } from '../../composer/ModelSelect'
 import type { McpServer, McpServerStatus } from '@shared/types'
 import { joinArgs, splitArgs } from '@shared/plugins'
 
@@ -20,7 +20,6 @@ const blank = (): McpServer => ({
 
 export function McpServersPage(): JSX.Element {
   const { settings, patchSettings, mcpServers, saveMcpServers } = useApp()
-  const models = useApp(useShallow((s) => s.availableModels()))
   const [statuses, setStatuses] = useState<McpServerStatus[]>([])
   const [editing, setEditing] = useState<McpServer | null>(null)
   const [adding, setAdding] = useState(false)
@@ -126,17 +125,14 @@ export function McpServersPage(): JSX.Element {
 
           <Row
             title="Routing model"
-            description="Choose provider and model in one place. Only lightweight models are listed so routing stays fast and cheap."
+            description="The model that picks which plugin tools a turn needs. A small, fast one keeps routing quick and cheap."
           >
-            <Select
-              width={200}
-              value={mcp.routingModelId ?? ''}
-              onChange={(value) => void patchSettings({ mcp: { routingModelId: value || null } })}
-              options={
-                models.length > 0
-                  ? models.map((m) => ({ value: m.id, label: m.label }))
-                  : [{ value: '', label: 'Select routing model...' }]
-              }
+            <ModelSelect
+              width={220}
+              label="Routing model"
+              value={mcp.routingModelId ? { providerId: null, modelId: mcp.routingModelId } : null}
+              onChange={(ref) => void patchSettings({ mcp: { routingModelId: ref?.modelId ?? null } })}
+              defaultLabel="The chat’s model"
             />
           </Row>
         </Card>
