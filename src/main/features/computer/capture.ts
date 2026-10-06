@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { desktopCapturer, nativeImage, screen, systemPreferences, type Display, type NativeImage } from 'electron'
-import { targetSize, type Frame, type Quality } from './geometry'
+import { targetSize, type Frame, type Quality, type Rect } from './geometry'
 import { permissionOwnerLabel } from './mac'
 
 const run = promisify(execFile)
@@ -26,8 +26,17 @@ export const JPEG_QUALITY = 70
 export interface Shot {
   frame: Frame
   jpeg: Buffer
+  /** The capture at native resolution, when asked for (saving it to a file). */
+  full?: NativeImage
   /** Set when the capture worked but probably shows less than the real screen. */
   warning?: string
+}
+
+export interface CaptureOptions {
+  /** Only this part of the display, in screen points (an app's window, a zoomed region). */
+  region?: Rect
+  /** Keep the native-resolution image on the shot. */
+  keepFull?: boolean
 }
 
 /** Displays in a stable order: the primary first, then left to right, top to bottom. */
@@ -42,15 +51,17 @@ export function orderedDisplays(): Display[] {
 
 export class ScreenCaptureDenied extends Error {}
 
-async function captureMac(display: Display, primary: boolean): Promise<NativeImage> {
-  const file = join(tmpdir(), `eaon-shot-${randomUUID()}.jpg`)
-  const { x, y, width, height } = display.bounds
+async function captureMac(display: Display, primary: boolean, region?: Rect): Promise<NativeImage> {
+  // PNG for a region: it is small, and saved files and zoomed-in text stay crisp.
+  const type = region ? 'png' : 'jpg'
+  const file = join(tmpdir(), `eaon-shot-${randomUUID()}.${type}`)
+  const { x, y, width, height } = region ?? display.bounds
   // -m is the documented way to get the main display; other displays are
   // captured by their rect in global points, which avoids guessing how
   // screencapture numbers displays for -D.
-  const target = primary ? ['-m'] : ['-R', `${x},${y},${width},${height}`]
+  const target = primary && !region ? ['-m'] : ['-R', `${x},${y},${width},${height}`]
   try {
-    await run('/usr/sbin/screencapture', ['-x', '-t', 'jpg', ...target, file], { timeout: 20_000 })
+    await run('/usr/sbin/screencapture', ['-x', '-t', type, ...target, file], { timeout: 20_000 })
     const image = nativeImage.createFromBuffer(await readFile(file))
     if (image.isEmpty()) throw new Error('screencapture produced an empty image.')
     return image
@@ -96,20 +107,45 @@ async function captureDesktop(display: Display): Promise<NativeImage> {
   return source.thumbnail
 }
 
-/** Captures `display`, downscales it for the model, and describes the geometry it was sent at. */
-export async function captureDisplay(display: Display, quality: Quality): Promise<Shot> {
+/** Cuts `region` (screen points) out of a whole-display capture. */
+function cropTo(image: NativeImage, display: Display, region: Rect): NativeImage {
+  const size = image.getSize()
+  const sx = size.width / display.bounds.width
+  const sy = size.height / display.bounds.height
+  return image.crop({
+    x: Math.round((region.x - display.bounds.x) * sx),
+    y: Math.round((region.y - display.bounds.y) * sy),
+    width: Math.max(1, Math.round(region.width * sx)),
+    height: Math.max(1, Math.round(region.height * sy))
+  })
+}
+
+/** Captures `display` (or part of it), downscales it for the model, and describes the geometry it was sent at. */
+export async function captureDisplay(display: Display, quality: Quality, options: CaptureOptions = {}): Promise<Shot> {
   const primary = display.id === screen.getPrimaryDisplay().id
-  const image = process.platform === 'darwin' ? await captureMac(display, primary) : await captureDesktop(display)
+  const { region } = options
+  const image =
+    process.platform === 'darwin'
+      ? await captureMac(display, primary, region)
+      : region
+        ? cropTo(await captureDesktop(display), display, region)
+        : await captureDesktop(display)
   const size = image.getSize()
   const target = targetSize(size.width, size.height, quality)
   const scaled = target.width === size.width && target.height === size.height ? image : image.resize({ ...target, quality: 'best' })
   const jpeg = scaled.toJPEG(JPEG_QUALITY)
-  const frame: Frame = { displayId: display.id, bounds: { ...display.bounds }, width: target.width, height: target.height }
+  const frame: Frame = {
+    displayId: display.id,
+    bounds: { ...(region ?? display.bounds) },
+    display: { ...display.bounds },
+    width: target.width,
+    height: target.height
+  }
   // Older macOS versions return the desktop without other apps' windows
   // instead of failing when Screen Recording is off.
   const warning =
     process.platform === 'darwin' && systemPreferences.getMediaAccessStatus('screen') !== 'granted'
       ? 'macOS reports Screen Recording as not granted for Eaon, so this image may show only the desktop and Eaon itself.'
       : undefined
-  return { frame, jpeg, ...(warning ? { warning } : {}) }
+  return { frame, jpeg, ...(options.keepFull ? { full: image } : {}), ...(warning ? { warning } : {}) }
 }

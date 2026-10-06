@@ -84,6 +84,17 @@ export interface TurnRequest {
   agentic: boolean
   onText: (delta: string) => void
   onReasoning: (delta: string) => void
+  /**
+   * The most output tokens the caller wants, as an app using Eaon's local
+   * server asks (`max_tokens`). Lowers the adapter's own cap; never raises it.
+   */
+  outputCap?: number
+}
+
+/** An adapter's output cap, lowered to the caller's `outputCap` when there is one. */
+export function capOutput(cap: number | undefined, computed: number | undefined): number | undefined {
+  if (!cap || cap <= 0) return computed
+  return computed ? Math.min(computed, cap) : cap
 }
 
 export interface TurnResult {

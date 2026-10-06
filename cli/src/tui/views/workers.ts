@@ -42,8 +42,13 @@ import { panel, scanner, spinner, Table, TextField } from '../widgets'
 const FACES: Record<WorkerMood, string> = {
   neutral: '(•‿•)',
   happy: '(^‿^)',
+  excited: '(^▽^)',
   serious: '(•_•)',
+  curious: '(•ᴗ-)',
+  surprised: '(°o°)',
+  sad: '(•︵•)',
   angry: '(ò_ó)',
+  sleepy: '(˘_˘)',
   asleep: '(-_-)',
   dead: '(x_x)'
 }

@@ -13,7 +13,7 @@ import { createWorkersService, type WorkersOverrides, type WorkersService } from
 import { workersToolSource } from '../src/main/features/workers/tools'
 import type { RunAgent } from '../src/main/features/workers/runner'
 import type { FeatureContext } from '../src/main/features/types'
-import { MAX_WORKERS, TRADING_DESK, TRADING_ROUTINE_NAME, describeWorker, mentionedWorkers, workerMood, type Worker, type WorkerDraft } from '@shared/workers'
+import { GOAL_CONTINUE_MS, GOAL_MAX_TURNS, MAX_SLEEP_MINUTES, MAX_WORKERS, TRADING_DESK, TRADING_ROUTINE_NAME, describeWorker, mentionedWorkers, workerMood, type Worker, type WorkerDraft } from '@shared/workers'
 import { routineNextAt } from '../src/main/features/workers/engine'
 import { brokerOf, brokerWriteNeedsUser, setTradingHalted, tradingHalted, writesToBroker } from '../src/main/features/trading/access'
 import { isOpen } from '../src/main/features/trading/marketHours'
@@ -244,7 +244,7 @@ test('mail that arrives mid-turn waits for the next turn, and is read in one go'
 
 test(`at most two turns run at once, oldest waiting first`, async () => {
   const agent = heldAgent()
-  const { engine } = start(agent.runAgent)
+  const { engine } = start(agent.runAgent, { concurrency: 2 })
   const a = engine.save(draft('Ada'))
   const b = engine.save(draft('Bea'))
   const c = engine.save(draft('Cy'))
@@ -268,7 +268,7 @@ test(`at most two turns run at once, oldest waiting first`, async () => {
 
 test('a due heartbeat that cannot start yet waits quietly instead of spinning the timer', async () => {
   const agent = heldAgent()
-  const { engine } = start(agent.runAgent)
+  const { engine } = start(agent.runAgent, { concurrency: 2 })
   const a = engine.save(draft('Ada'))
   const b = engine.save(draft('Bea'))
   const c = engine.save(draft('Cy'))
@@ -1038,4 +1038,183 @@ test('Goal from the composer sets the worker’s goal and says so in the turn', 
   assert.equal(engine.list()[0].goal, 'Get the docs site to a 100 Lighthouse score')
   assert.equal(text(agent.requests[0].history.at(-1)!), '[From the user, set as your goal] Get the docs site to a 100 Lighthouse score')
   assert.match(agent.requests[0].persona!, /100 Lighthouse score/, 'the goal is part of every later prompt')
+})
+
+/* ---------------------------------------------------------------- goals */
+
+test('a goal from the composer runs in goal mode, carries on by itself while unfinished, and stops once achieved', async () => {
+  let clock = Date.parse('2026-10-04T10:00:00Z')
+  let achieve = false
+  const agent = fakeAgent(async (request, emit) => {
+    if (achieve && request.goal) {
+      emit({ type: 'goal', messageId: request.messageId, chatId: request.chatId, goal: { ...request.goal, status: 'achieved', summary: 'Lighthouse says 100' } })
+    }
+    emit({ type: 'delta', messageId: request.messageId, text: 'Worked on it.' })
+    return { text: 'Worked on it.', usage }
+  })
+  const { engine } = start(agent.runAgent, { now: () => clock })
+  const nova = engine.save(draft('Nova'))
+  engine.send(nova.id, 'Get the docs site to a 100 Lighthouse score', [], { goal: true })
+  await until(() => agent.requests.length === 1)
+  await engine.whenIdle()
+  assert.deepEqual(agent.requests[0].goal, { text: 'Get the docs site to a 100 Lighthouse score', status: 'active', iterations: 0 }, 'the turn runs in goal mode')
+  let now = engine.list()[0]
+  assert.equal(now.goalRun?.status, 'active')
+  assert.equal(now.goalRun?.turns, 1)
+  assert.equal(now.goalRun?.nextAt, clock + GOAL_CONTINUE_MS, 'unfinished: it picks the goal up again by itself')
+  assert.equal(now.status, 'idle', 'something scheduled: awake')
+
+  achieve = true
+  clock += GOAL_CONTINUE_MS
+  engine.tick()
+  await until(() => agent.requests.length === 2)
+  await engine.whenIdle()
+  assert.equal(agent.requests[1].goal?.status, 'active')
+  assert.match(text(agent.requests[1].history.at(-1)!), /^\[Goal\] Keep working toward your goal: "Get the docs site to a 100 Lighthouse score"/)
+  assert.equal(engine.getThread(nova.id).messages[2].heartbeat, 'Continuing toward its goal')
+  now = engine.list()[0]
+  assert.equal(now.goalRun?.status, 'achieved')
+  assert.equal(now.goalRun?.summary, 'Lighthouse says 100')
+  assert.equal(now.goalRun?.nextAt ?? null, null)
+
+  clock += GOAL_CONTINUE_MS * 10
+  engine.tick()
+  await engine.whenIdle()
+  assert.equal(agent.requests.length, 2, 'nothing more once it is achieved')
+})
+
+test('a worker that sleeps during its goal wakes when it said, with its note, and carries on in goal mode', async () => {
+  let clock = Date.parse('2026-10-04T10:00:00Z')
+  let slept = false
+  const agent = fakeAgent(async (request, emit) => {
+    if (!slept) {
+      slept = true
+      service!.engine.sleep(request.workerId!, 30, 'wait for the CI run')
+    }
+    emit({ type: 'delta', messageId: request.messageId, text: 'Waiting on CI.' })
+    return { text: 'Waiting on CI.', usage }
+  })
+  const { engine } = start(agent.runAgent, { now: () => clock })
+  const nova = engine.save(draft('Nova'))
+  engine.send(nova.id, 'Get the release green', [], { goal: true })
+  await until(() => agent.requests.length === 1)
+  await engine.whenIdle()
+  let now = engine.list()[0]
+  assert.equal(now.heartbeat.nextAt, clock + 30 * 60_000)
+  assert.equal(now.goalRun?.nextAt ?? null, null, 'its own wake-up picks the goal up, not a second one')
+  assert.match(now.activity, /^Sleeping until .+ — wait for the CI run$/)
+
+  clock += GOAL_CONTINUE_MS
+  engine.tick()
+  await engine.whenIdle()
+  assert.equal(agent.requests.length, 1, 'still asleep a minute later')
+
+  clock += 30 * 60_000
+  engine.tick()
+  await until(() => agent.requests.length === 2)
+  await engine.whenIdle()
+  assert.equal(agent.requests[1].goal?.status, 'active', 'it wakes in goal mode')
+  const woke = text(agent.requests[1].history.at(-1)!)
+  assert.match(woke, /\[Heartbeat\] You scheduled this wake-up: "wait for the CI run"\./)
+  assert.match(woke, /\[Goal\] Keep working toward your goal: "Get the release green"/)
+  now = engine.list()[0]
+  assert.equal(now.goalRun?.nextAt, clock + GOAL_CONTINUE_MS, 'still unfinished after waking: it carries on')
+})
+
+test('the user can pause, resume and clear a goal, and Stop pauses it', async () => {
+  let clock = Date.parse('2026-10-04T10:00:00Z')
+  const agent = heldAgent()
+  const { engine } = start(agent.runAgent, { now: () => clock })
+  const nova = engine.save(draft('Nova'))
+  engine.send(nova.id, 'Tidy the docs', [], { goal: true })
+  await until(() => agent.requests.length === 1)
+  engine.stopTurn(nova.id)
+  await engine.whenIdle()
+  let now = engine.list()[0]
+  assert.equal(now.goalRun?.status, 'paused', 'Stop pauses the goal')
+  assert.equal(now.goalRun?.pausedByUser, true)
+
+  clock += GOAL_CONTINUE_MS * 3
+  engine.tick()
+  await engine.whenIdle()
+  assert.equal(agent.requests.length, 1, 'a paused goal waits for the user')
+
+  engine.setGoal(nova.id, 'active')
+  await until(() => agent.requests.length === 2)
+  assert.equal(agent.requests[1].goal?.status, 'active', 'resuming starts it again straight away')
+  now = engine.list()[0]
+  assert.equal(now.goalRun?.pausedByUser, undefined)
+  assert.equal(now.goalRun?.turns, 1, 'with a fresh turn budget')
+  engine.setGoal(nova.id, 'paused')
+  agent.release()
+  await engine.whenIdle()
+  now = engine.list()[0]
+  assert.equal(now.goalRun?.status, 'paused')
+  assert.equal(now.goalRun?.nextAt ?? null, null, 'paused while running: no continuation afterwards')
+
+  engine.setGoal(nova.id, null)
+  assert.equal(engine.list()[0].goalRun, null)
+  assert.throws(() => engine.setGoal(nova.id, 'active'), /has no goal/)
+})
+
+test('a goal pauses to check in after its turn budget, and a blocked goal resumes when the user answers', async () => {
+  let clock = Date.parse('2026-10-04T10:00:00Z')
+  let block = false
+  const agent = fakeAgent(async (request, emit) => {
+    if (block && request.goal) emit({ type: 'goal', messageId: request.messageId, chatId: request.chatId, goal: { ...request.goal, status: 'blocked', summary: 'Need the staging password' } })
+    emit({ type: 'delta', messageId: request.messageId, text: 'Kept going.' })
+    return { text: 'Kept going.', usage }
+  })
+  const { engine, sent } = start(agent.runAgent, { now: () => clock })
+  const nova = engine.save(draft('Nova'))
+  engine.send(nova.id, 'Migrate the database', [], { goal: true })
+  await until(() => agent.requests.length === 1)
+  await engine.whenIdle()
+  // Reach into the engine to skip ahead to the last turn of the budget.
+  ;(engine as unknown as { workers: { goalRun: { turns: number } }[] }).workers[0].goalRun.turns = GOAL_MAX_TURNS - 1
+  clock += GOAL_CONTINUE_MS
+  engine.tick()
+  await until(() => agent.requests.length === 2)
+  await engine.whenIdle()
+  let now = engine.list()[0]
+  assert.equal(now.goalRun?.status, 'paused')
+  assert.match(now.goalRun?.summary ?? '', new RegExp(`after ${GOAL_MAX_TURNS} turns`))
+  assert.equal(now.goalRun?.pausedByUser, undefined, 'the budget paused it, not the user')
+  assert.ok(sent.length >= 0)
+
+  block = true
+  engine.setGoal(nova.id, 'active')
+  await until(() => agent.requests.length === 3)
+  await engine.whenIdle()
+  now = engine.list()[0]
+  assert.equal(now.goalRun?.status, 'blocked')
+  assert.equal(now.goalRun?.summary, 'Need the staging password')
+  clock += GOAL_CONTINUE_MS * 3
+  engine.tick()
+  await engine.whenIdle()
+  assert.equal(agent.requests.length, 3, 'blocked: it waits for the user')
+
+  block = false
+  engine.send(nova.id, 'The password is in 1Password under Staging')
+  await until(() => agent.requests.length === 4)
+  await engine.whenIdle()
+  assert.equal(agent.requests[3].goal?.status, 'active', 'the answer puts the goal back to work')
+})
+
+test('sleep ends the turn, clamps how long, and goes into the worker’s schedule', async () => {
+  const clock = Date.parse('2026-10-04T10:00:00Z')
+  const { engine } = start(fakeAgent().runAgent, { now: () => clock })
+  const ada = engine.save(draft('Ada'))
+  const sleep = workersToolSource(engine)
+    .tools({ mode: 'work', cwd: ada.folder, depth: 0, readOnly: false, settings: store.getSettings(), request: { workerId: ada.id } as StreamRequest })
+    .find((t) => t.name === 'sleep')!
+  assert.ok(sleep, 'workers have a sleep tool')
+  const turn: ToolContext['turn'] = { notes: [] }
+  const result = await sleep.run({ minutes: 999_999, note: 'the market opens' }, { request: { workerId: ada.id }, turn } as unknown as ToolContext)
+  assert.match(String(result), /^Sleeping until/)
+  assert.equal(turn.yielded?.until, clock + MAX_SLEEP_MINUTES * 60_000, 'at most a day')
+  assert.equal(engine.list()[0].heartbeat.nextAt, clock + MAX_SLEEP_MINUTES * 60_000)
+  assert.equal(engine.list()[0].heartbeat.note, 'the market opens')
+  await sleep.run({ minutes: 0 }, { request: { workerId: ada.id }, turn } as unknown as ToolContext)
+  assert.equal(engine.list()[0].heartbeat.nextAt, clock + 60_000, 'and at least a minute')
 })

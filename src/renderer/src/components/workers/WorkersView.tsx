@@ -10,12 +10,14 @@ import {
   FolderOpen,
   HeartPulse,
   MessagesSquare,
+  MonitorPlay,
   MoreHorizontal,
   Pause,
   PencilLine,
   Play,
   Plus,
   Trash2,
+  Users,
   X
 } from 'lucide-react'
 import { useApp } from '../../state/store'
@@ -25,8 +27,9 @@ import { ContextMenu } from '../Sidebar'
 import { Modal } from '../ui'
 import { WorkerFace } from './WorkerFace'
 import { WorkerEditor } from './WorkerEditor'
-import { WorkerAsks, WorkerBrowserFact, WorkerMemory } from './WorkerAutonomy'
+import { WorkerAsks, WorkerBrowserFact, WorkerGoalBanner, WorkerMemory } from './WorkerAutonomy'
 import { WorkerComposer } from './WorkerComposer'
+import { RoomEditor, RoomPage, TeamDialog } from './WorkerRooms'
 import { useWorkers } from './workersStore'
 import { fileName, fileUrl, isImagePath } from '../../lib/files'
 import { MAX_WORKERS, TRADING_DESK, describeWorker, relativeTime, workerMood, type Worker } from '@shared/workers'
@@ -41,14 +44,25 @@ import { useChannels } from '../channels/channelsStore'
  * everything here is a view onto them.
  */
 export function WorkersView(): JSX.Element {
-  const { selectedId, editing, workers } = useWorkers(
-    useShallow((s) => ({ selectedId: s.selectedId, editing: s.editing, workers: s.workers }))
+  const { selectedId, selectedRoomId, editing, roomEditor, teamDialog, workers, rooms } = useWorkers(
+    useShallow((s) => ({
+      selectedId: s.selectedId,
+      selectedRoomId: s.selectedRoomId,
+      editing: s.editing,
+      roomEditor: s.roomEditor,
+      teamDialog: s.teamDialog,
+      workers: s.workers,
+      rooms: s.rooms
+    }))
   )
   const worker = workers.find((w) => w.id === selectedId) ?? null
+  const room = rooms.find((r) => r.id === selectedRoomId) ?? null
   return (
     <>
-      {worker ? <WorkerPage key={worker.id} worker={worker} /> : <Team />}
+      {room ? <RoomPage key={room.id} room={room} /> : worker ? <WorkerPage key={worker.id} worker={worker} /> : <Team />}
       {editing && <WorkerEditor workerId={editing.workerId} />}
+      {roomEditor && <RoomEditor roomId={roomEditor.roomId} />}
+      {teamDialog && <TeamDialog />}
     </>
   )
 }
@@ -56,8 +70,8 @@ export function WorkersView(): JSX.Element {
 /* ------------------------------------------------------------------ Team */
 
 function Team(): JSX.Element {
-  const { workers, ready, openEditor, select, now } = useWorkers(
-    useShallow((s) => ({ workers: s.workers, ready: s.ready, openEditor: s.openEditor, select: s.select, now: s.now }))
+  const { workers, ready, openEditor, select, now, openTeamDialog } = useWorkers(
+    useShallow((s) => ({ workers: s.workers, ready: s.ready, openEditor: s.openEditor, select: s.select, now: s.now, openTeamDialog: s.openTeamDialog }))
   )
   const working = workers.filter((w) => w.status === 'working').length
 
@@ -67,17 +81,23 @@ function Team(): JSX.Element {
         variant="page__bar"
         right={
           workers.length > 0 && workers.length < MAX_WORKERS ? (
-            <button className="header-btn" onClick={() => openEditor(null)}>
-              <Plus size={14} strokeWidth={2} />
-              <span>New worker</span>
-            </button>
+            <div className="chat-header__actions">
+              <button className="header-btn" onClick={() => openTeamDialog(true)} title="Several specialists and a group chat, in one go">
+                <Users size={14} strokeWidth={2} />
+                <span>New team</span>
+              </button>
+              <button className="header-btn" onClick={() => openEditor(null)}>
+                <Plus size={14} strokeWidth={2} />
+                <span>New worker</span>
+              </button>
+            </div>
           ) : null
         }
       />
       <div className="page__scroll scroll">
         <div className="page__inner page__inner--wide team">
           {!ready ? null : workers.length === 0 ? (
-            <TeamEmpty onCreate={() => openEditor(null)} />
+            <TeamEmpty onCreate={() => openEditor(null)} onTeam={() => openTeamDialog(true)} />
           ) : (
             <>
               <h1 className="page__title">Your team</h1>
@@ -85,7 +105,7 @@ function Team(): JSX.Element {
                 {working > 0
                   ? `${working} of ${workers.length} working right now.`
                   : `${workers.length} worker${workers.length === 1 ? '' : 's'}, standing by.`}{' '}
-                Each keeps its own thread, wakes itself up when something needs checking, and can hand work to the others.
+                Each keeps its own thread, wakes itself up when something needs checking, and hands work to the others. Up to 4 work at the same time.
               </p>
               <BackgroundHint />
               <div className="team__grid">
@@ -110,7 +130,7 @@ function Team(): JSX.Element {
   )
 }
 
-function TeamEmpty({ onCreate }: { onCreate: () => void }): JSX.Element {
+function TeamEmpty({ onCreate, onTeam }: { onCreate: () => void; onTeam: () => void }): JSX.Element {
   return (
     <div className="team-empty">
       <div className="team-empty__faces" aria-hidden="true">
@@ -124,10 +144,16 @@ function TeamEmpty({ onCreate }: { onCreate: () => void }): JSX.Element {
         run, tidying your inbox, researching every morning — and it schedules its own check-ins, remembers everything in
         one long thread, and asks its teammates for help when a job is bigger than one worker.
       </p>
-      <button className="btn btn--primary btn--lg" onClick={onCreate}>
-        <Plus size={16} strokeWidth={2} />
-        Create your first worker
-      </button>
+      <div className="team-empty__actions">
+        <button className="btn btn--primary btn--lg" onClick={onCreate}>
+          <Plus size={16} strokeWidth={2} />
+          Create your first worker
+        </button>
+        <button className="btn btn--lg" onClick={onTeam}>
+          <Users size={16} strokeWidth={2} />
+          Start a team
+        </button>
+      </div>
     </div>
   )
 }
@@ -180,7 +206,17 @@ function WorkerCard({ worker, now, index, onOpen }: { worker: Worker; now: numbe
   return (
     <button className="worker-card" data-status={worker.status} onClick={onOpen} style={{ ['--i' as string]: index }}>
       <span className="worker-card__face">
-        <WorkerFace color={worker.color} mood={mood} size={72} follow title={`${worker.name} looks ${mood}`} />
+        <WorkerFace
+          color={worker.color}
+          mood={mood}
+          size={72}
+          follow
+          enter
+          busy={worker.status === 'working'}
+          attention={worker.asks.length > 0}
+          nudge={worker.inbox.length}
+          title={`${worker.name} looks ${mood}`}
+        />
         {worker.unread > 0 && <span className="unread-badge worker-card__badge">{worker.unread > 9 ? '9+' : worker.unread}</span>}
       </span>
       <span className="worker-card__name">{worker.name}</span>
@@ -294,6 +330,7 @@ function WorkerPage({ worker }: { worker: Worker }): JSX.Element {
       </div>
 
       <div className="composer-dock">
+        <WorkerGoalBanner worker={worker} now={now} />
         <WorkerAsks worker={worker} />
         <WorkerComposer worker={worker} />
       </div>
@@ -315,7 +352,15 @@ function WorkerProfile({ worker, now, mood }: { worker: Worker; now: number; moo
   const servers = useApp((s) => s.mcpServers)
   return (
     <div className="worker-profile">
-      <WorkerFace color={worker.color} mood={mood} size={96} follow busy={worker.status === 'working'} />
+      <WorkerFace
+        color={worker.color}
+        mood={mood}
+        size={96}
+        follow
+        busy={worker.status === 'working'}
+        attention={worker.asks.length > 0}
+        nudge={worker.inbox.length}
+      />
       <h1 className="worker-profile__name">{worker.name}</h1>
       <p className="worker-profile__purpose">{worker.purpose}</p>
       <div className="worker-profile__facts">
@@ -410,8 +455,16 @@ function statusLine(worker: Worker): string {
 }
 
 function WorkerActions({ worker }: { worker: Worker }): JSX.Element {
-  const { setPaused, wake, clear, remove, openEditor } = useWorkers(
-    useShallow((s) => ({ setPaused: s.setPaused, wake: s.wake, clear: s.clear, remove: s.remove, openEditor: s.openEditor }))
+  const { setPaused, wake, clear, remove, openEditor, browserOpen, setBrowser } = useWorkers(
+    useShallow((s) => ({
+      setPaused: s.setPaused,
+      wake: s.wake,
+      clear: s.clear,
+      remove: s.remove,
+      openEditor: s.openEditor,
+      browserOpen: s.browserFor === worker.id,
+      setBrowser: s.setBrowser
+    }))
   )
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [confirm, setConfirm] = useState<'clear' | 'delete' | null>(null)
@@ -419,6 +472,15 @@ function WorkerActions({ worker }: { worker: Worker }): JSX.Element {
 
   return (
     <div className="chat-header__actions">
+      <button
+        className="header-btn"
+        data-active={browserOpen || undefined}
+        onClick={() => (browserOpen ? setBrowser(null, worker.id) : setBrowser(worker.id))}
+        title={browserOpen ? `Close ${worker.name}’s browser` : `Watch ${worker.name}’s own browser live, or take control to help it`}
+      >
+        <MonitorPlay size={14} strokeWidth={1.9} />
+        <span>Browser</span>
+      </button>
       {!worker.paused && !working && (
         <button className="header-btn" onClick={() => void wake(worker.id)} title={`Wake ${worker.name} now and have it check in`}>
           <AlarmClock size={14} strokeWidth={1.9} />

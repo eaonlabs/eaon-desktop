@@ -109,7 +109,7 @@ export function parseListing(body: unknown, providerId: string, vendor: Vendor):
       providerId,
       ...(contextWindow ? { contextWindow } : {}),
       ...(maxOutput && (!contextWindow || maxOutput <= contextWindow) ? { maxOutput } : {}),
-      ...(inputs?.includes('image') || tags?.includes('vision') || row.capabilities?.vision ? { vision: true } : {}),
+      ...(inputs?.includes('image') || tags?.includes('vision') || row.capabilities?.vision ? { vision: true } : inputs ? { vision: false } : {}),
       ...(tools !== undefined ? { tools } : {}),
       ...(reasoning ? { reasoning } : {}),
       ...(efforts ? { efforts } : {})

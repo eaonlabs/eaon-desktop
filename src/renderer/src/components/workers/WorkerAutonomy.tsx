@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
-import { AppWindow, Check, ChevronDown, CircleHelp, Repeat, ShieldAlert, Target, X } from 'lucide-react'
+import { AppWindow, Check, ChevronDown, CircleHelp, MonitorPlay, PanelRight, Pause, Play, Repeat, ShieldAlert, Target, TriangleAlert, X } from 'lucide-react'
 import { relativeTime, type Worker, type WorkerAsk } from '@shared/workers'
 import { workerBrowserTarget } from '@shared/agentBrowser'
-import { Modal } from '../ui'
+import { useWorkers } from './workersStore'
 import { Markdown } from '../agent/Markdown'
 import { ApprovalCard, CallPreview, CommandPreview } from '../agent/ApprovalCard'
 import { LiveBrowserAddress, LiveBrowserControls, LiveBrowserStage, LiveBrowserSteps, useLiveBrowser } from '../agentBrowser/LiveBrowser'
@@ -103,6 +103,65 @@ function AskCard({ worker, ask }: { worker: Worker; ask: WorkerAsk }): JSX.Eleme
   )
 }
 
+const GOAL_LABEL = {
+  active: 'Working toward goal',
+  achieved: 'Goal achieved',
+  blocked: 'Blocked — needs you',
+  paused: 'Goal paused'
+} as const
+
+/**
+ * The goal set from the composer's Goal, above the composer like Chat's:
+ * what it is, how it's going, and Pause / Resume / Clear. A blocked goal
+ * also picks up again when the user answers.
+ */
+export function WorkerGoalBanner({ worker, now }: { worker: Worker; now: number }): JSX.Element | null {
+  const goal = worker.goalRun
+  if (!goal) return null
+  const set = (status: 'active' | 'paused' | null): void => void window.api.workers.setGoal(worker.id, status)
+  const progress =
+    goal.status === 'active'
+      ? worker.status === 'working'
+        ? ' · on it now'
+        : typeof goal.nextAt === 'number'
+          ? ` · continues ${relativeTime(goal.nextAt, now)}`
+          : worker.heartbeat.nextAt !== null
+            ? ` · picks up ${relativeTime(worker.heartbeat.nextAt, now)}`
+            : ''
+      : goal.summary
+        ? ` · ${goal.summary}`
+        : ''
+  return (
+    <div className="goal-banner" data-status={goal.status}>
+      <span className="goal-banner__icon">
+        {goal.status === 'blocked' ? <TriangleAlert size={14} strokeWidth={2} /> : goal.status === 'achieved' ? <Check size={14} strokeWidth={2.4} /> : <Target size={14} strokeWidth={2} />}
+      </span>
+      <span className="goal-banner__body">
+        <span className="goal-banner__label">
+          {GOAL_LABEL[goal.status]}
+          {progress}
+        </span>
+        <span className="goal-banner__text" title={goal.text}>
+          {goal.text}
+        </span>
+      </span>
+      {goal.status === 'active' && (
+        <button className="icon-btn" aria-label="Pause goal" title="Pause goal" onClick={() => set('paused')}>
+          <Pause size={14} strokeWidth={2} />
+        </button>
+      )}
+      {(goal.status === 'paused' || goal.status === 'blocked') && (
+        <button className="icon-btn" aria-label="Resume goal" title="Resume goal now" onClick={() => set('active')}>
+          <Play size={14} strokeWidth={2} />
+        </button>
+      )}
+      <button className="icon-btn" aria-label="Clear goal" title="Clear goal" onClick={() => set(null)}>
+        <X size={14} strokeWidth={2} />
+      </button>
+    </div>
+  )
+}
+
 /** Goal, routines and notes: the worker's own memory, under its profile. */
 export function WorkerMemory({ worker, now }: { worker: Worker; now: number }): JSX.Element | null {
   const [notesOpen, setNotesOpen] = useState(false)
@@ -151,7 +210,7 @@ export function WorkerMemory({ worker, now }: { worker: Worker; now: number }): 
  */
 export function WorkerBrowserFact({ worker }: { worker: Worker }): JSX.Element | null {
   const [has, setHas] = useState(false)
-  const [open, setOpen] = useState(false)
+  const setBrowser = useWorkers((s) => s.setBrowser)
   useEffect(() => {
     let live = true
     void window.api.workers.hasBrowser(worker.id).then((value) => live && setHas(value))
@@ -161,30 +220,47 @@ export function WorkerBrowserFact({ worker }: { worker: Worker }): JSX.Element |
   }, [worker.id, worker.status])
   if (!has) return null
   return (
-    <>
-      <button className="worker-fact worker-fact--app" title={`Watch ${worker.name}’s browser live, or take control to help it`} onClick={() => setOpen(true)}>
-        <AppWindow size={13} strokeWidth={2} />
-        Browser
-      </button>
-      {open && <WorkerBrowserDialog worker={worker} onClose={() => setOpen(false)} />}
-    </>
+    <button className="worker-fact worker-fact--app" title={`Watch ${worker.name}’s browser live, or take control to help it`} onClick={() => setBrowser(worker.id)}>
+      <AppWindow size={13} strokeWidth={2} />
+      Browser
+    </button>
   )
 }
 
-/** A worker's browser, live: its cursor and pages as it works, and taking over to help. Closing hands it back. */
-function WorkerBrowserDialog({ worker, onClose }: { worker: Worker; onClose: () => void }): JSX.Element {
+/**
+ * Beside a worker's thread: its own browser, live — the page as it changes,
+ * its cursor gliding to what it clicks, and the step in hand. Opens by itself
+ * when the worker starts using its browser; "Take control" lets the user sign
+ * it in or get it past a captcha, and the worker waits until handed back.
+ */
+export function WorkerBrowserPanel({ worker }: { worker: Worker }): JSX.Element {
+  const setBrowser = useWorkers((s) => s.setBrowser)
   const target = workerBrowserTarget(worker.id)
   const { frame, steps, working, controlled, exists } = useLiveBrowser(target, true)
   return (
-    <Modal open onClose={onClose} title={`${worker.name}’s browser`} width={940} actions={<button className="btn" onClick={onClose}>Close</button>}>
-      <div className="agent-browser agent-browser--dialog">
-        <div className="agent-browser__bar">
-          <LiveBrowserAddress target={target} frame={frame} controlled={controlled} />
-          <LiveBrowserControls target={target} controlled={controlled} exists={exists || Boolean(frame)} agentName={worker.name} />
-        </div>
-        <LiveBrowserStage target={target} frame={frame} latest={steps[steps.length - 1]} working={working} controlled={controlled} agentName={worker.name} />
-        <LiveBrowserSteps steps={steps} />
+    <aside className="browser agent-browser" aria-label={`${worker.name}’s browser`}>
+      <div className="browser__tabs">
+        <span className="agent-browser__title">
+          <MonitorPlay size={14} strokeWidth={1.9} />
+          {worker.name}’s browser
+          {working && !controlled && (
+            <span className="agent-browser__live" aria-label="Working">
+              <span className="agent-browser__live-dot" aria-hidden="true" />
+              Live
+            </span>
+          )}
+        </span>
+        <div style={{ flex: 1 }} />
+        <LiveBrowserControls target={target} controlled={controlled} exists={exists || Boolean(frame)} agentName={worker.name} />
+        <button className="icon-btn" data-active onClick={() => setBrowser(null, worker.id)} aria-label={`Close ${worker.name}’s browser`} title="Close">
+          <PanelRight size={16} strokeWidth={1.9} />
+        </button>
       </div>
-    </Modal>
+      <div className="browser__toolbar">
+        <LiveBrowserAddress target={target} frame={frame} controlled={controlled} />
+      </div>
+      <LiveBrowserStage target={target} frame={frame} latest={steps[steps.length - 1]} working={working} controlled={controlled} agentName={worker.name} />
+      <LiveBrowserSteps steps={steps} />
+    </aside>
   )
 }

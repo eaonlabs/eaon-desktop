@@ -1,6 +1,6 @@
-import { describeWorker } from '@shared/workers'
+import { describeWorker, MAX_SLEEP_MINUTES } from '@shared/workers'
 import type { AgentTool, ToolContext, ToolSource } from '../../agent/tools'
-import type { WorkersEngine } from './engine'
+import { HINT_MOODS, type WorkersEngine } from './engine'
 
 /**
  * The tools a worker gets on top of the Work agent's: see its colleagues,
@@ -43,6 +43,8 @@ export function parseWakeTime(text: string, now: number): number | null {
   return Number.isFinite(parsed) ? parsed : null
 }
 
+const fileList = (value: unknown): string[] => (Array.isArray(value) ? value.filter((f): f is string => typeof f === 'string' && f.trim().length > 0) : [])
+
 function self(ctx: ToolContext): string {
   const id = ctx.request.workerId
   if (!id) throw new Error('Only a worker can use this tool.')
@@ -73,15 +75,16 @@ export function workersToolSource(engine: WorkersEngine): ToolSource {
       properties: {
         to: { type: 'string', description: 'Colleague name' },
         message: { type: 'string' },
-        files: { type: 'array', items: { type: 'string' }, description: 'Files or folders to send' }
+        files: { type: 'array', items: { type: 'string' }, description: 'Files or folders to send' },
+        share_context: { type: 'boolean', description: 'Attach your recent thread, so they have the background' }
       },
       required: ['to', 'message']
     },
     mutating: false,
     describe: (input) => `Message ${str(input.to)}`,
     run: async (input, ctx) => {
-      const files = Array.isArray(input.files) ? input.files.filter((f): f is string => typeof f === 'string' && f.trim().length > 0) : []
-      const { recipient, delivered } = await engine.message(self(ctx), str(input.to), str(input.message), files)
+      const files = fileList(input.files)
+      const { recipient, delivered } = await engine.message(self(ctx), str(input.to), str(input.message), files, { shareContext: input.share_context === true })
       const where = delivered.length > 0 ? ` Files delivered to:\n${delivered.map((p) => `- ${p}`).join('\n')}` : ''
       const paused = recipient.paused ? ` ${recipient.name} is paused and will read it when resumed.` : ''
       return `Sent to ${recipient.name}.${paused}${where}`
@@ -90,11 +93,82 @@ export function workersToolSource(engine: WorkersEngine): ToolSource {
 
   const checkWorker: AgentTool = {
     name: 'check_worker',
-    description: "Check on a colleague: status, schedule, unread mail, last error, and the latest thing it said.",
-    inputSchema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] },
+    description: "Check on a colleague: status, schedule, unread mail, open tasks, last error, and the latest thing it said. messages: N also reads its last N thread messages.",
+    inputSchema: {
+      type: 'object',
+      properties: { name: { type: 'string' }, messages: { type: 'integer', description: 'Read this many recent messages of its thread (up to 40)' } },
+      required: ['name']
+    },
     mutating: false,
     describe: (input) => `Check on ${str(input.name)}`,
-    run: async (input) => engine.inspect(str(input.name))
+    run: async (input) => engine.inspect(str(input.name), Math.max(0, Math.min(40, num(input.messages) ?? 0)))
+  }
+
+  const handOff: AgentTool = {
+    name: 'hand_off',
+    description:
+      'Hand a colleague a task to do in parallel. They get the task, your recent thread as background (share_context, default true) and any files; their result comes back to you as mail when they finish_handoff.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        to: { type: 'string', description: 'Colleague name' },
+        task: { type: 'string', description: 'What to do and what to send back' },
+        files: { type: 'array', items: { type: 'string' } },
+        share_context: { type: 'boolean' }
+      },
+      required: ['to', 'task']
+    },
+    mutating: false,
+    describe: (input) => `Hand off to ${str(input.to)}`,
+    run: async (input, ctx) => {
+      const { recipient, handoff, delivered } = await engine.handOff(self(ctx), str(input.to), str(input.task), fileList(input.files), input.share_context !== false)
+      return `Handed ${handoff.id} to ${recipient.name}${recipient.paused ? ' (paused: it starts when resumed)' : ''}. Its result will arrive as mail; carry on meanwhile.${
+        delivered.length ? ` Files delivered:\n${delivered.map((p) => `- ${p}`).join('\n')}` : ''
+      }`
+    }
+  }
+
+  const finishHandoff: AgentTool = {
+    name: 'finish_handoff',
+    description: 'Report back on a task a colleague handed you: the result (and any files) goes straight to them. ok: false when you could not do it, saying why.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        task_id: { type: 'string' },
+        result: { type: 'string' },
+        files: { type: 'array', items: { type: 'string' } },
+        ok: { type: 'boolean' }
+      },
+      required: ['task_id', 'result']
+    },
+    mutating: false,
+    describe: (input) => `Report on ${str(input.task_id)}`,
+    run: async (input, ctx) => engine.finishHandoff(self(ctx), str(input.task_id), str(input.result), fileList(input.files), input.ok !== false)
+  }
+
+  const postToRoom: AgentTool = {
+    name: 'post_to_room',
+    description: 'Post in a group chat you are in. @Name a colleague there to wake them for their part; everyone else reads it when next spoken to there. Your reply to a group-chat message is posted for you, so use this for extra posts.',
+    inputSchema: {
+      type: 'object',
+      properties: { room: { type: 'string', description: 'Group chat name' }, message: { type: 'string' }, files: { type: 'array', items: { type: 'string' } } },
+      required: ['room', 'message']
+    },
+    mutating: false,
+    describe: (input) => `Post in ${str(input.room)}`,
+    run: async (input, ctx) => {
+      const { room, woke } = await engine.postAsWorker(self(ctx), str(input.room), str(input.message), fileList(input.files))
+      return `Posted in "${room.name}".${woke.length ? ` Woke ${woke.join(', ')}.` : ''}`
+    }
+  }
+
+  const readRoom: AgentTool = {
+    name: 'read_room',
+    description: 'Read the recent posts of a group chat you are in.',
+    inputSchema: { type: 'object', properties: { room: { type: 'string' }, count: { type: 'integer', description: 'How many posts (default 20)' } }, required: ['room'] },
+    mutating: false,
+    describe: (input) => `Read ${str(input.room)}`,
+    run: async (input, ctx) => engine.readRoom(self(ctx), str(input.room), num(input.count) ?? 20)
   }
 
   const setHeartbeat: AgentTool = {
@@ -131,14 +205,40 @@ export function workersToolSource(engine: WorkersEngine): ToolSource {
     }
   }
 
+  /**
+   * Sleeping is how a worker waits: for a build, a reply, a price, the next
+   * market open, or to pace long work. The turn ends (TurnState.yielded) and
+   * frees its slot, rather than holding one while nothing happens.
+   */
+  const sleep: AgentTool = {
+    name: 'sleep',
+    description: `Stop working now and wake up again later: when you are waiting for something (a build, a reply, a page to change, the market to open) or pacing long work. minutes = how long (1–${MAX_SLEEP_MINUTES}); note = what to check or do when you wake. This turn ends straight away and you continue when you wake; a goal you are working on carries on then.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        minutes: { type: 'number', description: `1–${MAX_SLEEP_MINUTES}` },
+        note: { type: 'string', description: 'What to check or do when you wake' }
+      },
+      required: ['minutes']
+    },
+    mutating: false,
+    describe: (input) => `Sleep ${Math.max(1, Math.round(num(input.minutes) ?? 1))} min${str(input.note) ? ` · ${str(input.note)}` : ''}`,
+    run: async (input, ctx) => {
+      const { until, text } = engine.sleep(self(ctx), num(input.minutes) ?? 1, str(input.note))
+      ctx.turn.yielded = { until }
+      return text
+    }
+  }
+
   const setStatus: AgentTool = {
     name: 'set_status',
-    description: 'Set the one-line status the user sees on your card, and optionally your mood (neutral, happy, serious, angry).',
+    description:
+      'Set the one-line status the user sees on your card, and optionally the expression on your face for the next half hour: neutral, happy, excited, serious, curious, surprised, sad or angry. Pick one that fits how the work is going.',
     inputSchema: {
       type: 'object',
       properties: {
         activity: { type: 'string' },
-        mood: { type: 'string', enum: ['neutral', 'happy', 'serious', 'angry'] }
+        mood: { type: 'string', enum: HINT_MOODS }
       },
       required: ['activity']
     },
@@ -292,7 +392,10 @@ export function workersToolSource(engine: WorkersEngine): ToolSource {
   const tools = [
     listWorkers,
     messageWorker,
+    handOff,
+    finishHandoff,
     checkWorker,
+    sleep,
     setHeartbeat,
     addRoutine,
     removeRoutine,
@@ -305,7 +408,11 @@ export function workersToolSource(engine: WorkersEngine): ToolSource {
   ]
   return {
     id: 'workers',
-    tools: (query) =>
-      query.mode === 'work' && query.depth === 0 && query.request.workerId && engine.has(query.request.workerId) ? tools : []
+    tools: (query) => {
+      const id = query.request.workerId
+      if (query.mode !== 'work' || query.depth !== 0 || !id || !engine.has(id)) return []
+      // Group-chat tools only for a worker in one: fewer tools, less to read on every request.
+      return engine.roomsOf(id).length > 0 ? [...tools, postToRoom, readRoom] : tools
+    }
   }
 }

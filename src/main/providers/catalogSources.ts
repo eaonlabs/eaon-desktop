@@ -184,7 +184,8 @@ export function fromPiData(data: unknown): CatalogModel[] {
         tools: true,
         ...(model.contextWindow ? { contextWindow: model.contextWindow } : {}),
         ...(model.maxTokens && (!model.contextWindow || model.maxTokens <= model.contextWindow) ? { maxOutput: model.maxTokens } : {}),
-        ...(model.input?.includes('image') ? { vision: true } : {}),
+        // A known input list without images means the model can't see them; no list means nobody said.
+        ...(model.input ? { vision: model.input.includes('image') } : {}),
         reasoning: model.reasoning === true,
         efforts: effortsFromLevelMap(model.reasoning === true, model.thinkingLevelMap)
       })
@@ -228,7 +229,7 @@ export function fromModelsDev(provider: unknown, eaonId: string): CatalogModel[]
       tools: model.tool_call === true,
       ...(context ? { contextWindow: context } : {}),
       ...(output && (!context || output <= context) ? { maxOutput: output } : {}),
-      ...(model.modalities?.input?.includes('image') ? { vision: true } : {}),
+      ...(model.modalities?.input ? { vision: model.modalities.input.includes('image') } : {}),
       reasoning: model.reasoning === true,
       efforts: model.reasoning === true ? effortsFromReasoningOptions(model.reasoning_options) : [],
       ...(model.release_date ? { released: model.release_date } : {})

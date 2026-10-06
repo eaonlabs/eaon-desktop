@@ -29,6 +29,8 @@ export interface ModelInfo {
   reasoning?: boolean
   /** Added by hand in Settings → Model providers, rather than from the catalog or the provider's listing. */
   custom?: boolean
+  /** The user changed its details (Edit model): its limits or capabilities, or its name. */
+  edited?: boolean
 }
 
 /**
@@ -246,6 +248,12 @@ export interface Workspace {
 }
 
 export type ThemeMode = 'system' | 'light' | 'dark'
+/**
+ * The icon Eaon shows in the Dock (macOS) or on its windows and taskbar button
+ * (Windows, Linux): the Disc E, or the agent face on the same tile. The Finder
+ * and the installer always show the Disc E; see main/appIcon.ts.
+ */
+export type AppIcon = 'default' | 'agent'
 export type LaunchMode = 'chat' | 'workers' | 'ade' | 'last'
 /**
  * How the chat agent asks before acting. `ask`: before every change. `auto`:
@@ -288,6 +296,7 @@ export interface Settings {
     reduceMotion: 'system' | 'on' | 'off'
     fontSize: number
     fontSmoothing: boolean
+    appIcon: AppIcon
   }
   configuration: {
     configScope: string
@@ -313,7 +322,15 @@ export interface Settings {
   localServer: {
     autoStart: boolean
     port: number
+    /**
+     * The model a request gets when it names one Eaon doesn't have (Claude
+     * Code's and Codex's own model names, say). `provider/model` or a bare id.
+     */
     defaultModelId: string | null
+    /** The same, for the fast slot: a requested model that looks small (haiku, mini). Falls back to the default. */
+    smallModelId: string | null
+    /** This install's key for the server, made on first use; apps connected to Eaon send it. */
+    token: string | null
   }
   claudeCode: {
     largeModelId: string | null

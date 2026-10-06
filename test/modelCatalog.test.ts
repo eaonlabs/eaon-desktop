@@ -152,3 +152,60 @@ test('a model whose endpoint drops the effort field offers no effort picker', ()
   assert.deepEqual(gemini.efforts, [])
   assert.ok((gpt.efforts?.length ?? 0) > 0)
 })
+
+test('Edit model: a hand-added model gets real limits and capabilities, and its id can be corrected', () => {
+  const id = 'openai'
+  editModels(id, { add: 'my-finetune-v1' })
+  let model = getProvider(id)!.models.find((m) => m.id === 'my-finetune-v1')!
+  assert.equal(model.custom, true)
+  assert.equal(model.vision, undefined, 'a model added by id starts with nothing known')
+
+  editModels(id, { update: 'my-finetune-v1', label: 'My fine-tune', fields: { contextWindow: 200_000, maxOutput: 32_000, vision: true, tools: true, reasoning: true } })
+  model = getProvider(id)!.models.find((m) => m.id === 'my-finetune-v1')!
+  assert.equal(model.label, 'My fine-tune')
+  assert.equal(model.contextWindow, 200_000)
+  assert.equal(model.maxOutput, 32_000)
+  assert.equal(model.vision, true)
+  assert.equal(model.reasoning, true)
+  assert.ok((model.efforts ?? []).length >= 3, 'marked as thinking: it gets the effort control')
+  assert.equal(model.edited, true)
+
+  // The selection and the star follow a corrected id.
+  store.patchSettings({ selectedProviderId: id, selectedModelId: 'my-finetune-v1', favoriteModels: [`${id}:my-finetune-v1`] })
+  editModels(id, { update: 'my-finetune-v1', id: 'my-finetune-v2' })
+  const ids = getProvider(id)!.models.map((m) => m.id)
+  assert.ok(ids.includes('my-finetune-v2') && !ids.includes('my-finetune-v1'))
+  model = getProvider(id)!.models.find((m) => m.id === 'my-finetune-v2')!
+  assert.equal(model.contextWindow, 200_000, 'its details moved with it')
+  assert.equal(store.getSettings().selectedModelId, 'my-finetune-v2')
+  assert.deepEqual(store.getSettings().favoriteModels, [`${id}:my-finetune-v2`])
+
+  // Thinking off takes the effort control away; null puts one field back.
+  editModels(id, { update: 'my-finetune-v2', fields: { reasoning: false, contextWindow: null } })
+  model = getProvider(id)!.models.find((m) => m.id === 'my-finetune-v2')!
+  assert.equal(model.reasoning, false)
+  assert.deepEqual(model.efforts, [])
+  assert.equal(model.contextWindow, undefined)
+  editModels(id, { remove: 'my-finetune-v2' })
+})
+
+test('Edit model: a catalog model can be adjusted and reset, but keeps its id', () => {
+  const id = 'anthropic'
+  const before = getProvider(id)!.models.find((m) => m.id === 'claude-haiku-4-5')!
+  editModels(id, { update: 'claude-haiku-4-5', id: 'renamed-id', fields: { contextWindow: 50_000, vision: false } })
+  let model = getProvider(id)!.models.find((m) => m.id === 'claude-haiku-4-5')!
+  assert.ok(model, 'a catalog model keeps its id')
+  assert.equal(model.contextWindow, 50_000)
+  assert.equal(model.vision, false)
+  assert.equal(model.edited, true)
+  editModels(id, { reset: 'claude-haiku-4-5' })
+  model = getProvider(id)!.models.find((m) => m.id === 'claude-haiku-4-5')!
+  assert.equal(model.contextWindow, before.contextWindow)
+  assert.equal(model.vision, before.vision)
+  assert.equal(model.edited, undefined)
+  assert.throws(() => {
+    editModels('openai', { add: 'a-model' })
+    editModels('openai', { add: 'b-model' })
+    editModels('openai', { update: 'a-model', id: 'b-model' })
+  }, /already a model "b-model"/)
+})

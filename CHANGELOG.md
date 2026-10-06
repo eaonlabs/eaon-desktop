@@ -3,6 +3,53 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [2026.6.1] — 2026-10-04
+
+*macOS, Windows and Linux.*
+
+### Added
+- **The agent can use your computer.** With Computer use on, Chat and
+  workers can see the screen, move the pointer, type and click, zoom into one
+  app or a region, and save screenshots to a folder (for example, a
+  screenshot of every page of an app or a website).
+- **Your iPhone, through the Mac.** The agent can boot and drive the iOS
+  Simulator, and it opens on screen so you can watch (Device Hub on Xcode
+  27). With iPhone Mirroring it can use your real phone.
+- **Payments.** Settings → Payments holds a card the agent can pay with.
+  Choose to approve every purchase, or let it pay on its own after you read
+  and accept a waiver; automatic payments can't be turned on without it.
+- **Teams of workers.** Up to four workers run at the same time. They talk
+  in group chats, share context from their threads and hand work to each
+  other. Start a team from Workers, or ask Chat for one.
+- **Watch a worker's browser** in a panel beside its thread.
+- **Connect apps.** Other AI apps on your computer can use Eaon's models
+  through Eaon's gateway, set up from Settings → Connect apps.
+- **Link accounts and a new model picker.** Link the AI accounts you already
+  have through each provider's own sign-in or key; the picker shows them with
+  their models, stars and thinking levels.
+- **Usage** in Settings: requests, tokens and the estimated cost for each
+  model, day by day.
+- **A new app icon,** the Disc E on a black, grained tile, made in Apple's
+  Icon Composer. On macOS 26 and later it's a Liquid Glass icon with dark,
+  clear and tinted looks. Settings → Appearance → App icon switches the Dock
+  (or, on Windows and Linux, the window icon) to the Agent icon.
+- **Livelier worker faces.** Their eyes glance around and blink on their own,
+  they have new expressions (excited, curious, surprised, sad, sleepy), and
+  they react to clicks and new messages. Workers can pick an expression too.
+
+### Changed
+- **The working animation** is now a calm ring around the face, with the
+  eyes narrowing into focus. Finishing well completes the ring and the face
+  pops once.
+
+### Fixed
+- **Websites load much faster** in the agent's browser, and far more of them
+  load at all.
+- **"No endpoints found that support image input":** with a model that can't
+  read images, Eaon now takes the images out and asks again.
+- The agent's browser and computer tools accept the action names models
+  commonly use, so fewer steps fail.
+
 ## [2026.6.0] — 2026-10-02
 
 *macOS, Windows and Linux. The release of everything in 2026.6: the

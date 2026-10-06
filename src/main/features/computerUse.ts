@@ -7,6 +7,8 @@ import { captureDisplay, orderedDisplays, requestScreenAccess, ScreenCaptureDeni
 import { differentlySignedCopies, permissionOwner, resetAccessibility } from './computer/mac'
 import { configureSession, disposeSession, isDriving, STOP_LABEL, stopAll, withEaonHidden } from './computer/session'
 import { COMPUTER_GUIDANCE, computerTool } from './computer/tool'
+// The iOS Simulator tool is offered alongside computer use.
+import './simulator'
 import type { Feature } from './types'
 
 /**

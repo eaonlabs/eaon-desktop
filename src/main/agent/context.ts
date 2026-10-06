@@ -266,6 +266,30 @@ export function pruneInFlight(messages: NeutralMessage[], budgetTokens: number):
  * but the newest `keep` are dropped in one batch — batching keeps the prompt
  * prefix stable between clearings, so caching still pays off in between.
  */
+/**
+ * Takes every image out of the transcript, for a model that can't see them:
+ * screenshots and attachments become a line saying one was there. Messages
+ * are replaced, not edited, so nothing outside this request changes. True
+ * when there was anything to take out.
+ */
+export function stripImages(messages: NeutralMessage[]): boolean {
+  let stripped = false
+  const note = (count: number): string => `[${count === 1 ? 'an image was' : `${count} images were`} here; this model can't see images]`
+  messages.forEach((m, i) => {
+    if (m.role === 'user' && m.images && m.images.length > 0) {
+      messages[i] = { role: 'user', text: `${m.text}${m.text ? '\n' : ''}${note(m.images.length)}` }
+      stripped = true
+    } else if (m.role === 'tool' && m.results.some((r) => r.images && r.images.length > 0)) {
+      messages[i] = {
+        role: 'tool',
+        results: m.results.map((r) => (r.images && r.images.length > 0 ? { ...r, images: undefined, output: `${r.output}\n${note(r.images.length)}` } : r))
+      }
+      stripped = true
+    }
+  })
+  return stripped
+}
+
 export function pruneImages(messages: NeutralMessage[], keep = 1, trigger = 4): boolean {
   const withImages: number[] = []
   messages.forEach((m, i) => {

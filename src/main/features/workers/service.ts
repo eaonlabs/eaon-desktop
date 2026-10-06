@@ -2,8 +2,8 @@ import { app, Notification, powerMonitor } from 'electron'
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { ChatMessage, StreamEvent } from '@shared/types'
-import type { Worker, WorkerDraft, WorkerMessageEvent, WorkerSendOptions, WorkerStreamEvent, WorkerThread } from '@shared/workers'
-import { runAgent } from '../../agent/loop'
+import type { RoomPostEvent, Worker, WorkerDraft, WorkerMessageEvent, WorkerSendOptions, WorkerStreamEvent, WorkerThread } from '@shared/workers'
+import { pauseGoal, runAgent } from '../../agent/loop'
 import { registerToolSource, safeToolName } from '../../agent/tools'
 import { BROKERS } from '@shared/trading'
 import { mcpCatalogEntry } from '@shared/mcpCatalog'
@@ -13,7 +13,8 @@ import { tradingEngine } from '../trading'
 import { setWorkerTradingLookup, type TradingVenue } from '../trading/access'
 import { store } from '../../store'
 import type { FeatureContext } from '../types'
-import { WorkersEngine } from './engine'
+import { WorkersEngine, type TeamDraft } from './engine'
+import { teamToolSource } from './team'
 import type { RunAgent } from './runner'
 import { workersToolSource } from './tools'
 import { WorkerBrowsers, workerBrowserToolSource } from './browser'
@@ -32,6 +33,7 @@ import { workerBrowserTarget } from '@shared/agentBrowser'
  */
 
 const WORKERS_FILE = 'workers.json'
+const ROOMS_FILE = 'worker-rooms.json'
 const threadFile = (id: string): string => `worker-${id}.json`
 /** Lets the login shell's PATH settle before the first turn spawns anything. */
 const START_DELAY_MS = 4000
@@ -206,7 +208,15 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
     },
     notify,
     reachOut,
+    pauseGoal,
     tradingVenue,
+    loadRooms: () => store.getJson<unknown>(ROOMS_FILE, null),
+    saveRooms: (data) => store.setJsonAsync(ROOMS_FILE, data),
+    onRoomsChange: (rooms) => ctx.send('workers:rooms-changed', rooms),
+    onRoomPost: (roomId, post) => {
+      batch.flush()
+      ctx.send('workers:room-post', { roomId, post } satisfies RoomPostEvent)
+    },
     now: overrides.now,
     stallMs: overrides.stallMs,
     maxTurnsPerHour: overrides.maxTurnsPerHour,
@@ -231,6 +241,7 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
     })
     ipcMain.handle('workers:send', (_e, id: string, text: string, files: string[], options?: WorkerSendOptions) => engine.send(id, text, files, options))
     ipcMain.handle('workers:clear', (_e, id: string) => engine.clear(id))
+    ipcMain.handle('workers:set-goal', (_e, id: string, status: 'active' | 'paused' | null) => engine.setGoal(id, status === 'active' || status === 'paused' ? status : null))
     ipcMain.handle('workers:set-paused', (_e, id: string, paused: boolean) => engine.setPaused(id, paused))
     ipcMain.handle('workers:wake', (_e, id: string) => engine.wake(id))
     ipcMain.handle('workers:stop', (_e, id: string) => engine.stopTurn(id))
@@ -242,6 +253,14 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
     ipcMain.handle('workers:answer', (_e, id: string, askId: string, answer: { text?: string; approved?: boolean }) =>
       engine.answer(id, askId, { text: typeof answer?.text === 'string' ? answer.text : undefined, approved: answer?.approved === true })
     )
+    // Group chats.
+    ipcMain.handle('workers:rooms', () => engine.rooms())
+    ipcMain.handle('workers:room-posts', (_e, roomId: string) => engine.roomPosts(roomId))
+    ipcMain.handle('workers:room-save', (_e, draft: { id?: string; name: string; members: string[] }) => engine.saveRoom(draft))
+    ipcMain.handle('workers:room-remove', (_e, roomId: string) => engine.removeRoom(roomId))
+    ipcMain.handle('workers:room-post', (_e, roomId: string, text: string, files: string[]) => engine.postAsUser(roomId, text, files))
+    ipcMain.handle('workers:room-read', (_e, roomId: string) => engine.markRoomRead(roomId))
+    ipcMain.handle('workers:create-team', (_e, draft: TeamDraft) => engine.createTeam(draft))
   }
 
   return {
@@ -250,6 +269,8 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
     start: () => {
       engine.load()
       registerToolSource(workersToolSource(engine))
+      // The chat agent's way to start a team and talk to it.
+      registerToolSource(teamToolSource(engine, (roomId) => ctx.send('workers:open-room', roomId)))
       // Live view and take-over for each worker's browser (features/agentBrowser.ts).
       setWorkerBrowsers(browsers)
       registerToolSource(workerBrowserToolSource(browsers, (toolCtx, step) => toolCtx.request.workerId && reportBrowserStep(workerBrowserTarget(toolCtx.request.workerId), toolCtx, step)))

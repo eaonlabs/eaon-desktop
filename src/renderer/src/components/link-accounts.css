@@ -1,0 +1,169 @@
+/* Link accounts (components/LinkAccounts.tsx). */
+
+.la {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.la__lede {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  line-height: 1.45;
+}
+.la__all {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.la__all > .btn {
+  flex: none;
+}
+.la__fine {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  line-height: 1.4;
+}
+.la__note {
+  margin: 0;
+  padding: 8px 11px;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+.la__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  /* The modal body scrolls; this keeps a long list from pushing Done off-screen. */
+  max-height: min(520px, calc(100vh - 300px));
+  overflow-y: auto;
+  margin: 0 -4px;
+  padding: 0 4px;
+}
+
+.la-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--r-lg);
+  background: var(--surface-2);
+  border: 1px solid transparent;
+}
+.la-row[data-linked] {
+  border-color: color-mix(in srgb, var(--diff-add-fg), transparent 70%);
+}
+.la-row__head {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+}
+.la-row__head > svg,
+.la-row__head > span:first-child {
+  flex: none;
+}
+.la-row__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.la-row__name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-base);
+  font-weight: 600;
+  color: var(--text);
+}
+.la-row__found {
+  font-size: 11px;
+  font-weight: 500;
+  padding: 1px 7px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--accent), transparent 82%);
+  color: var(--text);
+  white-space: nowrap;
+}
+.la-row__blurb {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  line-height: 1.35;
+}
+.la-row__head > .btn {
+  flex: none;
+}
+.la__linked {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--diff-add-fg);
+}
+.la-row__key {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-left: 45px;
+}
+.la-row__key .input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+}
+.la-row__why {
+  margin: 0;
+  padding-left: 45px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  line-height: 1.45;
+}
+.la-row__inline {
+  color: var(--accent);
+  font-size: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.la-row__error {
+  margin: 0;
+  padding-left: 45px;
+  font-size: var(--fs-xs);
+  color: var(--danger);
+}
+
+/* A linked provider's models, right under it: pick one to use it now. */
+.la-models {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding-left: 45px;
+}
+.la-models__chip,
+.la-models__more {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: var(--r-pill);
+  background: var(--surface-3);
+  font-size: var(--fs-xs);
+  color: var(--text);
+  transition: background var(--dur) var(--ease);
+}
+.la-models__chip:hover,
+.la-models__more:hover {
+  background: var(--surface-4);
+}
+.la-models__more {
+  color: var(--text-3);
+}
+.la-models__badge {
+  font-size: 10px;
+  color: var(--text-3);
+}

@@ -37,6 +37,11 @@ import { agentBrowserApi } from './features/agentBrowser'
 import { emailApi } from './features/email'
 import { tradingApi } from './features/trading'
 import { voiceApi } from './features/voice'
+import { gatewayApi } from './features/gateway'
+import { connectAppsApi } from './features/connectApps'
+import { linkAccountsApi } from './features/linkAccounts'
+import { usageApi } from './features/usage'
+import { paymentsApi } from './features/payments'
 
 /** Subscribes to a main-process event; returns the unsubscribe. */
 function on<T>(channel: string, handler: (payload: T) => void): () => void {
@@ -106,12 +111,6 @@ const api = {
       ipcRenderer.on('local-server:status', listener)
       return () => ipcRenderer.removeListener('local-server:status', listener)
     }
-  },
-  claudeCode: {
-    preview: (): Promise<{ path: string; env: Record<string, string> }> =>
-      ipcRenderer.invoke('claude-code:preview'),
-    apply: (): Promise<{ path: string; env: Record<string, string> }> => ipcRenderer.invoke('claude-code:apply'),
-    reset: (): Promise<{ path: string }> => ipcRenderer.invoke('claude-code:reset')
   },
   system: {
     info: (): Promise<SystemInfo> => ipcRenderer.invoke('system:info')
@@ -258,7 +257,12 @@ const fullApi = {
   agentBrowser: agentBrowserApi,
   email: emailApi,
   trading: tradingApi,
-  voice: voiceApi
+  voice: voiceApi,
+  gateway: gatewayApi,
+  connectApps: connectAppsApi,
+  linkAccounts: linkAccountsApi,
+  usage: usageApi,
+  payments: paymentsApi
 }
 
 contextBridge.exposeInMainWorld('api', fullApi)

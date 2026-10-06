@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { ChatMessage, ChatToolPart, StreamEvent } from '@shared/types'
-import type { Worker, WorkerDraft, WorkerSendOptions, WorkerThread } from '@shared/workers'
+import type { RoomPost, TeamDraftInput, Worker, WorkerDraft, WorkerRoom, WorkerSendOptions, WorkerThread } from '@shared/workers'
 
 /**
  * The Workers tab's state. Workers live in the main process, which runs them
@@ -20,6 +20,18 @@ interface WorkersState {
   editing: { workerId: string | null } | null
   /** Ticks every 20 s so relative times and moods that expire stay current. */
   now: number
+  /** Group chats, and the posts of the ones opened so far. */
+  rooms: WorkerRoom[]
+  roomPosts: Record<string, RoomPost[]>
+  /** The group chat open in the Workers tab; a worker page and a room are never open at once. */
+  selectedRoomId: string | null
+  /** The group chat dialog: closed, creating (`null`), or editing a room. */
+  roomEditor: { roomId: string | null } | null
+  teamDialog: boolean
+  /** The worker whose browser is open beside its page; null when none. */
+  browserFor: string | null
+  /** Workers whose browser panel the user closed: it won't pop open for them again this session. */
+  browserDismissed: Set<string>
 
   init: () => Promise<void>
   select: (id: string | null) => void
@@ -34,6 +46,16 @@ interface WorkersState {
   stop: (id: string) => Promise<void>
   loadThread: (id: string) => Promise<void>
   markRead: (id: string) => void
+  selectRoom: (id: string | null) => void
+  openRoomEditor: (roomId?: string | null) => void
+  closeRoomEditor: () => void
+  saveRoom: (draft: { id?: string; name: string; members: string[] }) => Promise<WorkerRoom>
+  removeRoom: (id: string) => Promise<void>
+  postToRoom: (id: string, text: string, files?: string[]) => Promise<void>
+  openTeamDialog: (open: boolean) => void
+  /** Opens a worker's browser beside its page, or closes it (`null`; `dismiss` keeps it from popping open again). */
+  setBrowser: (workerId: string | null, dismiss?: string) => void
+  createTeam: (draft: TeamDraftInput) => Promise<WorkerRoom>
 }
 
 let bound = false
@@ -45,12 +67,23 @@ export const useWorkers = create<WorkersState>((set, get) => ({
   threads: {},
   editing: null,
   now: Date.now(),
+  rooms: [],
+  roomPosts: {},
+  selectedRoomId: null,
+  roomEditor: null,
+  teamDialog: false,
+  browserFor: null,
+  browserDismissed: new Set(),
 
   async init() {
     if (bound) return
     bound = true
     const api = window.api.workers
+    // A change pushed while the first list is still on its way is newer than that list.
+    let pushedWorkers = false
+    let pushedRooms = false
     api.onChanged((workers) => {
+      pushedWorkers = true
       set((s) => ({
         workers,
         // A worker removed elsewhere (or by a colleague's hand) closes its page.
@@ -93,14 +126,85 @@ export const useWorkers = create<WorkersState>((set, get) => ({
         if (app.view !== 'chat') app.setView('chat')
       })
     })
+    api.onRoomsChanged((rooms) => {
+      pushedRooms = true
+      set((s) => ({ rooms, ...(s.selectedRoomId && !rooms.some((r) => r.id === s.selectedRoomId) ? { selectedRoomId: null } : {}) }))
+    })
+    api.onRoomPost(({ roomId, post }) => {
+      set((s) => {
+        const posts = s.roomPosts[roomId]
+        if (!posts || posts.some((p) => p.id === post.id)) return {}
+        return { roomPosts: { ...s.roomPosts, [roomId]: [...posts, post] } }
+      })
+    })
+    api.onOpenRoom((roomId) => {
+      get().selectRoom(roomId)
+      void import('../../state/store').then(({ useApp }) => {
+        const app = useApp.getState()
+        const tab = app.workspaces.find((w) => w.kind === 'workers')
+        if (tab && app.settings?.activeWorkspaceId !== tab.id) app.setWorkspace(tab.id)
+        if (app.view !== 'chat') app.setView('chat')
+      })
+    })
+    // The browser panel opens by itself when the worker on screen starts using
+    // its browser, as Chat's does — unless the user closed it for that worker.
+    window.api.agentBrowser.onStep((step) => {
+      const match = /^worker:(.+)$/.exec(step.target)
+      if (!match || step.done) return
+      const state = get()
+      if (state.selectedId === match[1] && state.browserFor !== match[1] && !state.browserDismissed.has(match[1])) set({ browserFor: match[1] })
+    })
     setInterval(() => set({ now: Date.now() }), 20_000)
-    const workers = await api.list()
-    set({ workers, ready: true })
+    const [workers, rooms] = await Promise.all([api.list(), api.rooms()])
+    set({ ...(pushedWorkers ? {} : { workers }), ...(pushedRooms ? {} : { rooms }), ready: true })
   },
 
   select(id) {
-    set({ selectedId: id })
+    set({ selectedId: id, ...(id ? { selectedRoomId: null } : {}) })
     if (id) void get().loadThread(id)
+  },
+  selectRoom(id) {
+    set({ selectedRoomId: id, ...(id ? { selectedId: null } : {}) })
+    if (!id) return
+    void window.api.workers.roomPosts(id).then((posts) => set((s) => ({ roomPosts: { ...s.roomPosts, [id]: posts } })))
+    void window.api.workers.markRoomRead(id)
+  },
+  openRoomEditor(roomId = null) {
+    set({ roomEditor: { roomId } })
+  },
+  closeRoomEditor() {
+    set({ roomEditor: null })
+  },
+  async saveRoom(draft) {
+    const room = await window.api.workers.saveRoom(draft)
+    set((s) => ({ rooms: s.rooms.some((r) => r.id === room.id) ? s.rooms.map((r) => (r.id === room.id ? room : r)) : [...s.rooms, room] }))
+    return room
+  },
+  async removeRoom(id) {
+    await window.api.workers.removeRoom(id)
+    set((s) => ({ rooms: s.rooms.filter((r) => r.id !== id), selectedRoomId: s.selectedRoomId === id ? null : s.selectedRoomId }))
+  },
+  async postToRoom(id, text, files = []) {
+    await window.api.workers.postToRoom(id, text, files)
+  },
+  openTeamDialog(open) {
+    set({ teamDialog: open })
+  },
+  setBrowser(workerId, dismiss) {
+    set((s) => ({
+      browserFor: workerId,
+      ...(dismiss ? { browserDismissed: new Set([...s.browserDismissed, dismiss]) } : {}),
+      // Opening it on purpose lets it pop open again later.
+      ...(workerId && s.browserDismissed.has(workerId) ? { browserDismissed: new Set([...s.browserDismissed].filter((id) => id !== workerId)) } : {})
+    }))
+  },
+  async createTeam(draft) {
+    const { room, workers } = await window.api.workers.createTeam(draft)
+    set((s) => ({
+      workers: [...s.workers, ...workers.filter((w) => !s.workers.some((x) => x.id === w.id))],
+      rooms: s.rooms.some((r) => r.id === room.id) ? s.rooms : [...s.rooms, room]
+    }))
+    return room
   },
   openEditor(workerId = null) {
     set({ editing: { workerId } })

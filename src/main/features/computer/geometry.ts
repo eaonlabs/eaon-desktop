@@ -37,11 +37,42 @@ export const LONG_EDGE: Record<Quality, number> = { balanced: 1280, sharp: 1600 
 /** What one screenshot covered: the display it showed and the size it was sent at. */
 export interface Frame {
   displayId: number
-  /** The captured display's bounds in screen points. */
+  /**
+   * What the screenshot shows, in screen points: the whole display, or part
+   * of it (one app's window, a zoomed-in region).
+   */
   bounds: Rect
+  /** The whole display's bounds when it was captured; absent means `bounds` is the whole display. */
+  display?: Rect
   /** Screenshot size in pixels. */
   width: number
   height: number
+}
+
+export function sameRect(a: Rect, b: Rect): boolean {
+  return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height
+}
+
+/** The part of `rect` inside `within`, or null when they don't overlap. Rounded to whole points, as screencapture wants. */
+export function clipRect(rect: Rect, within: Rect): Rect | null {
+  const x = Math.max(rect.x, within.x)
+  const y = Math.max(rect.y, within.y)
+  const right = Math.min(rect.x + rect.width, within.x + within.width)
+  const bottom = Math.min(rect.y + rect.height, within.y + within.height)
+  if (right - x < 1 || bottom - y < 1) return null
+  return { x: Math.round(x), y: Math.round(y), width: Math.round(right - x), height: Math.round(bottom - y) }
+}
+
+/**
+ * Screenshot pixels [x, y, width, height] of `frame` → the screen-point rect
+ * they cover, for zooming into part of the latest screenshot.
+ */
+export function regionToScreen(frame: Frame, region: [number, number, number, number]): Rect {
+  const [x, y, w, h] = region
+  if (![x, y, w, h].every(Number.isFinite) || w < 1 || h < 1) throw new Error('"region" is [x, y, width, height] in screenshot pixels, width and height at least 1.')
+  const topLeft = toScreen(frame, x, y)
+  const bottomRight = toScreen(frame, Math.min(frame.width - 1, x + w), Math.min(frame.height - 1, y + h))
+  return { x: topLeft.x, y: topLeft.y, width: bottomRight.x - topLeft.x, height: bottomRight.y - topLeft.y }
 }
 
 /** Downscaled size for a capture of `width`×`height` pixels. Never upscales. */
@@ -60,7 +91,7 @@ export function frameFor(display: { id: number; bounds: Rect; scaleFactor: numbe
     width: Math.round(display.bounds.width * display.scaleFactor),
     height: Math.round(display.bounds.height * display.scaleFactor)
   }
-  return { displayId: display.id, bounds: { ...display.bounds }, ...targetSize(physical.width, physical.height, quality) }
+  return { displayId: display.id, bounds: { ...display.bounds }, display: { ...display.bounds }, ...targetSize(physical.width, physical.height, quality) }
 }
 
 /**
@@ -97,13 +128,10 @@ export function toShot(frame: Frame, point: Point): Point | null {
 
 /** True when two frames describe the same capture geometry. */
 export function sameFrame(a: Frame, b: Frame): boolean {
-  return (
-    a.displayId === b.displayId &&
-    a.width === b.width &&
-    a.height === b.height &&
-    a.bounds.x === b.bounds.x &&
-    a.bounds.y === b.bounds.y &&
-    a.bounds.width === b.bounds.width &&
-    a.bounds.height === b.bounds.height
-  )
+  return a.displayId === b.displayId && a.width === b.width && a.height === b.height && sameRect(a.bounds, b.bounds)
+}
+
+/** True while the display a frame was taken on still has the same bounds. */
+export function displayUnchanged(frame: Frame, display: { id: number; bounds: Rect }): boolean {
+  return frame.displayId === display.id && sameRect(frame.display ?? frame.bounds, display.bounds)
 }

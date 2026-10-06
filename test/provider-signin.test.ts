@@ -4,7 +4,7 @@ import { generateKeyPairSync, sign } from 'node:crypto'
 import type { ProviderAuthStatus } from '@shared/providers'
 import { providerAuthFeature } from '../src/main/features/providerAuth'
 import type { FeatureContext } from '../src/main/features/types'
-import { getProvider, listProviders } from '../src/main/providers'
+import { getProvider, listProviders, updateProvider } from '../src/main/providers'
 import { credentialAttempts } from '../src/main/providers/credentials'
 import { huggingFaceFlow, poeFlow } from '../src/main/providers/oauth/appClients'
 import { siwcFlow, verifyIdToken, __test as siwc } from '../src/main/providers/oauth/siwc'
@@ -271,5 +271,38 @@ test('Poe sign-in mints an ordinary API key', async () => {
     restore()
     secrets.set('poe', '')
     poeFlow.setClientId?.(null)
+  }
+})
+
+test('signing in turns a provider back on that was switched off, so its models show up', async () => {
+  // OpenRouter switched off in Model providers earlier: the sign-in minted a
+  // key and listed the models, but the provider stayed off, so the picker and
+  // Link accounts showed nothing and it looked as if the sign-in had failed.
+  updateProvider('openrouter', { enabled: false })
+  secrets.set('openrouter', '')
+  const handlers = register()
+  const restore = withFetch((url) => {
+    if (url === 'https://openrouter.ai/api/v1/auth/keys') return json({ key: 'sk-or-v1-minted' })
+    if (url.startsWith('https://openrouter.ai/api/v1/models')) return json({ data: [{ id: 'openai/gpt-6.1-sol', name: 'OpenAI: GPT-6.1 Sol', context_length: 1_050_000 }] })
+    return undefined
+  })
+  const hooks = globalThis as { __eaonOpenExternal?: (url: string) => void }
+  hooks.__eaonOpenExternal = (url) => {
+    const callback = new URL(new URL(url).searchParams.get('callback_url')!)
+    callback.searchParams.set('code', 'or-code')
+    setTimeout(() => void realFetch(callback), 10)
+  }
+  try {
+    const status = (await handlers.get('provider-auth:sign-in')!(null, 'openrouter')) as ProviderAuthStatus
+    assert.equal(status.state, 'idle', status.error)
+    assert.equal(status.signedIn, true)
+    const provider = getProvider('openrouter')!
+    assert.equal(provider.enabled, true)
+    assert.ok(provider.models.some((m) => m.id === 'openai/gpt-6.1-sol'))
+  } finally {
+    restore()
+    delete hooks.__eaonOpenExternal
+    secrets.set('openrouter', '')
+    providerAuthFeature.dispose?.()
   }
 })

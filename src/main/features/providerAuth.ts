@@ -1,6 +1,6 @@
 import { shell } from 'electron'
 import type { ProviderAuthPrompt, ProviderAuthStatus, ProviderMeta } from '@shared/providers'
-import { getProvider, listProviders, refreshModels } from '../providers'
+import { getProvider, listProviders, refreshModels, updateProvider } from '../providers'
 import { PROVIDER_META, providerMeta } from '../providers/catalog'
 import { oauthFlow, type OAuthFlow } from '../providers/oauth'
 import type { Feature, FeatureContext } from './types'
@@ -88,6 +88,10 @@ async function signIn(providerId: string): Promise<ProviderAuthStatus> {
   try {
     await flow.signIn(onPrompt, entry.controller.signal)
     running.delete(providerId)
+    // Signing in is asking to use the account. A provider switched off in
+    // Model providers earlier comes back on; otherwise the sign-in works but
+    // its models stay hidden and it looks as if it failed.
+    if (getProvider(providerId)?.enabled === false) updateProvider(providerId, { enabled: true })
     // The account's real model list (Copilot differs per plan); best effort.
     await refreshModels(providerId).catch(() => {})
     const done = statusOf(providerId)!

@@ -1,0 +1,142 @@
+/* Settings → Payments */
+
+.pay-form {
+  gap: 12px;
+}
+.pay-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.pay-field--wide {
+  width: 100%;
+}
+.pay-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+  width: 100%;
+}
+.pay-grid--two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+.pay-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.pay-hint {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  line-height: 1.5;
+}
+.pay-actions {
+  display: flex;
+  gap: 8px;
+}
+.pay-error {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--danger);
+}
+.pay-error--page {
+  margin-top: 8px;
+}
+
+.pay-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.pay-limit {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.pay-limit__unit {
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+.pay-limit .input {
+  width: 96px;
+  text-align: right;
+}
+
+.pay-purchase__what {
+  color: var(--text-3);
+  font-weight: 400;
+}
+.pay-purchase__amount {
+  font-size: var(--fs-sm);
+  color: var(--fg);
+}
+
+/* The waiver */
+
+.pay-waiver {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.pay-waiver__lead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--danger-soft);
+  color: var(--danger);
+  font-size: var(--fs-sm);
+}
+.pay-waiver__lead svg {
+  flex: none;
+}
+.pay-waiver__terms {
+  max-height: 240px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 2px 12px 2px 0;
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+  color: var(--text-2);
+}
+.pay-waiver__terms p {
+  margin: 0 0 10px;
+}
+.pay-waiver__terms p:last-child {
+  margin-bottom: 0;
+}
+.pay-waiver__terms:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.pay-waiver__checks {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.pay-check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+  color: var(--fg);
+  cursor: pointer;
+}
+.pay-check input {
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 1px 0 0;
+  accent-color: var(--accent);
+  cursor: pointer;
+}

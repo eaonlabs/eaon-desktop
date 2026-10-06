@@ -10,8 +10,9 @@ import { secrets } from '../src/main/secrets'
 import { chunk, sseServer } from './helpers'
 
 /**
- * The Local API Server proxies other apps' OpenAI-style requests through the
- * agent loop with `rawSystem` — their system prompt verbatim and no tools.
+ * The Local API Server proxies other apps' requests to the provider adapters:
+ * their system prompt verbatim, and only the tools they send (see
+ * gateway.test.ts for tools and the other wire formats).
  */
 test('local API server proxies chat completions, streaming and not', async () => {
   const upstream = await sseServer(() => [chunk({ content: 'Hello' }), chunk({ content: ' there' }, 'stop')])
@@ -207,7 +208,7 @@ test('web pages from other origins, and DNS-rebound hosts, cannot use the server
   }
 })
 
-test('content parts and the developer role are read as text, not JSON', async () => {
+test('content parts and the developer role are read as text and images, not JSON', async () => {
   const upstream = await sseServer(() => [chunk({ content: 'ok' }, 'stop')])
   store.saveProviderConfig({ ...quietLocals, fake: { name: 'Fake', kind: 'openai-compatible', baseUrl: upstream.url, models: [{ id: 'fake-model', label: 'Fake', providerId: 'fake' }] } })
   secrets.set('fake', 'key')
@@ -222,10 +223,12 @@ test('content parts and the developer role are read as text, not JSON', async ()
       ]
     })
     assert.equal(reply.status, 200)
-    const sent = upstream.requests[0] as { messages: { role: string; content: string }[] }
+    const sent = upstream.requests[0] as { messages: { role: string; content: unknown }[] }
     assert.deepEqual(sent.messages[0], { role: 'system', content: 'Be brief.' })
     assert.equal(sent.messages[1].role, 'user')
-    assert.equal(sent.messages[1].content, 'What is this?')
+    const parts = sent.messages[1].content as { type: string; text?: string; image_url?: { url: string } }[]
+    assert.equal(parts.find((p) => p.type === 'text')?.text, 'What is this?')
+    assert.equal(parts.find((p) => p.type === 'image_url')?.image_url?.url, 'data:image/png;base64,AAAA', 'the image is passed on')
   } finally {
     await stopLocalServer()
     upstream.server.close()

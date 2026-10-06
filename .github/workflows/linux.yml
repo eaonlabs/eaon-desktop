@@ -2,15 +2,16 @@
 # Linux machine of that arch (node-pty has no Linux prebuild, and llama-server
 # is compiled here too). The app is started headless once to make sure it
 # runs, then the files are attached to the GitHub release for package.json's
-# version, if there is one, and kept on the run either way.
+# version if that release doesn't have them yet, and kept on the run either way.
 #
-# Runs on a push to a release branch or a version tag, or by hand.
+# Runs on a push to a release branch, or by hand. Not on version tags:
+# publishing a release creates its tag, and a build started by that would
+# only redo the checked files the release was just published with.
 name: Linux installers
 
 on:
   push:
     branches: ['release/**']
-    tags: ['v*']
   workflow_dispatch:
 
 permissions:
@@ -95,13 +96,20 @@ jobs:
             dist/latest-linux*.yml
           if-no-files-found: error
 
+      # A published release keeps the files it went out with: a later push to
+      # the release branch (docs, CI) must not swap in a rebuild that updaters
+      # and the old feed's checksums never saw. Only a release without this
+      # arch's files yet (its latest-linux*.yml) gets them.
       - name: Attach to the release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           VERSION="$(node -p "require('./package.json').version")"
-          if gh release view "v$VERSION" > /dev/null 2>&1; then
-            gh release upload "v$VERSION" dist/*.AppImage dist/*.deb dist/latest-linux*.yml --clobber
-          else
+          if [ "${{ matrix.arch }}" = "arm64" ]; then FEED="latest-linux-arm64.yml"; else FEED="latest-linux.yml"; fi
+          if ! gh release view "v$VERSION" > /dev/null 2>&1; then
             echo "No release v$VERSION yet; the files are on this run."
+          elif gh release view "v$VERSION" --json assets -q '.assets[].name' | grep -qx "$FEED"; then
+            echo "v$VERSION already has its ${{ matrix.arch }} files; they stay as published. This build is on the run."
+          else
+            gh release upload "v$VERSION" dist/*.AppImage dist/*.deb "dist/$FEED" --clobber
           fi

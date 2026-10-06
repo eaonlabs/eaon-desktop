@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { ChatMessage, Settings, StreamEvent, StreamRequest, TokenUsage } from '@shared/types'
+import type { ChatMessage, GoalState, Settings, StreamEvent, StreamRequest, TokenUsage } from '@shared/types'
 import { clampEffort } from '@shared/effort'
 import type { Worker, WorkerMail, WorkerRoutine, WorkerThread } from '@shared/workers'
 import { CHANNEL_LABEL, type GuestAccess } from '@shared/channels'
@@ -26,6 +26,16 @@ function mailHeader(mail: WorkerMail): string {
     const where = `${channel.isGroup ? `in ${channel.chatName}` : 'in a direct message'} on ${CHANNEL_LABEL[channel.kind]}`
     return mail.from === 'user' ? `[From the user, ${where}]` : `[From ${mail.fromName}, ${where} — a guest, not the user]`
   }
+  if (mail.room) {
+    return mail.from === 'user'
+      ? `[In the group chat "${mail.room.name}", from the user]`
+      : `[In the group chat "${mail.room.name}", from ${mail.fromName}, who @mentioned you]`
+  }
+  if (mail.handoff) return `[Task ${mail.handoff.id}, handed to you by ${mail.fromName}]`
+  if (mail.handoffResult) {
+    const task = mail.handoffResult.task.length > 120 ? `${mail.handoffResult.task.slice(0, 119)}…` : mail.handoffResult.task
+    return `[${mail.fromName} ${mail.handoffResult.ok ? 'finished' : 'could not finish'} task ${mail.handoffResult.id} you handed over ("${task}")]`
+  }
   if (mail.from !== 'user') return `[From ${mail.fromName}, a fellow worker]`
   if (mail.via) return `[From the user, in a message to ${mail.via.name} that @mentioned you]`
   return mail.goal ? '[From the user, set as your goal]' : '[From the user]'
@@ -44,7 +54,9 @@ export function buildTurnMessage(
   now: number,
   routines: Pick<WorkerRoutine, 'name' | 'task'>[] = [],
   /** Set when a guest's message is in this turn: what the turn may do. */
-  guest: GuestAccess | null = null
+  guest: GuestAccess | null = null,
+  /** The goal this turn works on, when it isn't the message that set it. */
+  goal: string | null = null
 ): ChatMessage {
   // The system prompt only carries the date (it stays cached all day); a
   // worker checking on something needs the time too. Per turn, so it costs
@@ -60,12 +72,25 @@ export function buildTurnMessage(
     )
   }
   for (const routine of routines) lines.push(`[Routine "${routine.name}"] ${routine.task}`)
+  if (goal) {
+    lines.push(
+      `[Goal] Keep working toward your goal: "${goal}". Take the next concrete step. Call goal_complete once it is achieved and verified, goal_blocked if you need the user, or sleep if you are waiting for something.`
+    )
+  }
   for (const item of mail) {
     const files = item.from !== 'user' && item.files.length > 0 ? `\nFiles (copied into your folder): ${item.files.join(', ')}` : ''
     // The mentioned colleagues were sent their own copy (engine.send).
     const names = (item.mentions ?? []).map((m) => m.name)
     const mentions = names.length > 0 ? `\n(${names.join(', ')} ${names.length === 1 ? 'was' : 'were'} @mentioned and got this message too, so there's no need to forward it.)` : ''
-    lines.push(`${mailHeader(item)} ${item.text.trim()}${files}${mentions}`)
+    const extra = [
+      item.context ? `\n${item.fromName}'s recent thread, shared with you so you have the background:\n${item.context}` : '',
+      item.roomContext ? `\nSaid in "${item.room?.name}" since you last looked:\n${item.roomContext}` : '',
+      item.handoff ? `\nWhen it's done (or you can't do it), report back with finish_handoff {task_id: "${item.handoff.id}", result}; the result goes straight to ${item.fromName}.` : ''
+    ].join('')
+    lines.push(`${mailHeader(item)} ${item.text.trim()}${files}${mentions}${extra}`)
+  }
+  if (mail.some((m) => m.room)) {
+    lines.push('[Group chat] Your final reply is posted to the group chat. Write it for everyone there; @Name a colleague in the room to wake them for their part.')
   }
   // Per turn rather than in the persona, so the cached prompt prefix stays put.
   if (mail.some((m) => m.channel)) {
@@ -83,7 +108,9 @@ export function buildTurnMessage(
       ? { heartbeat: heartbeatNote }
       : routines.length > 0
         ? { heartbeat: routines.map((r) => r.name).join(', ') }
-        : {}),
+        : goal && mail.length === 0
+          ? { heartbeat: 'Continuing toward its goal' }
+          : {}),
     ...(userFiles.length > 0 ? { attachments: userFiles } : {})
   }
 }
@@ -117,6 +144,11 @@ export interface TurnInput {
   /** A guest's message is in this turn: hold it to this level (see guests.ts). */
   guestCap?: GuestAccess | null
   stallMs?: number
+  /**
+   * The goal this turn works toward (the composer's Goal): the loop keeps it
+   * going until goal_complete, goal_blocked, a sleep or its limits.
+   */
+  goal?: GoalState | null
 }
 
 export interface TurnOutcome {
@@ -153,7 +185,7 @@ export async function runWorkerTurn(input: TurnInput): Promise<TurnOutcome> {
     // the unattended policy, and plan mode would stop at a plan nobody can
     // approve — the same reasons scheduled runs use neither.
     work: { swarm: false, plan: false },
-    goal: null,
+    goal: input.goal ?? null,
     workerId: worker.id,
     persona: input.persona
   }

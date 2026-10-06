@@ -13,6 +13,7 @@ process.env.EAON_TEST_USERDATA = userData
 export const app = {
   getPath: (name: string) => (name === 'userData' ? userData : join(userData, name)),
   getVersion: () => '0.0.0-test',
+  focus: () => {},
   isPackaged: false,
   setName: () => {},
   on: () => {},

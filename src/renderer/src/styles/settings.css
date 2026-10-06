@@ -165,6 +165,48 @@
   gap: 10px;
 }
 
+/* App icon picker (Appearance). The images keep the macOS icon grid's margin,
+   so the selection ring sits a few pixels clear of the tile, concentric with
+   its corners, as in macOS's own icon pickers. */
+
+.app-icon-picker {
+  display: flex;
+  gap: 14px;
+}
+.app-icon-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.app-icon-choice__image {
+  display: block;
+  width: 56px;
+  height: 56px;
+  border-radius: 15px;
+  box-shadow: 0 0 0 2px transparent;
+  transition: box-shadow 0.12s ease;
+}
+.app-icon-choice:hover .app-icon-choice__image {
+  box-shadow: 0 0 0 2px var(--border);
+}
+.app-icon-choice[data-active='true'] .app-icon-choice__image {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.app-icon-choice:focus-visible {
+  outline: none;
+}
+.app-icon-choice:focus-visible .app-icon-choice__image {
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+.app-icon-choice__label {
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+.app-icon-choice[data-active='true'] .app-icon-choice__label {
+  color: var(--text);
+}
+
 /* Theme picker */
 
 .theme-grid {
@@ -653,12 +695,71 @@
 .model-row__star[data-on='true'] {
   color: var(--provider-accent);
 }
-.model-row__rename {
+/* "Added" (by hand) and "Edited" next to a model's name. */
+.model-row__tag {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 0 7px;
+  line-height: 18px;
+}
+
+/* Edit model, in place of its row. */
+.model-row[data-editing] {
+  align-items: stretch;
+}
+.model-editor {
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 4px;
+  gap: 14px;
   min-width: 0;
+  padding: 8px 0 6px;
+}
+.model-editor__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px 14px;
+}
+.model-editor__field {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.model-editor__mono {
+  font-family: var(--font-mono);
+}
+.model-editor__mono[readonly] {
+  color: var(--text-3);
+}
+.model-editor__toggles {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.model-editor__toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+.model-editor__toggle b {
+  color: var(--text);
+  font-weight: 500;
+  margin-right: 6px;
+}
+.model-editor__actions,
+.provider-connection__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+@media (max-width: 720px) {
+  .model-editor__grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 .model-row--hidden .model-row__name {
   color: var(--text-2);

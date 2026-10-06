@@ -11,7 +11,7 @@ import { credentialAttempts, isAuthError } from '../providers/credentials'
 import { contextWindowFor } from '../providers/models'
 import { store } from '../store'
 import { cancelApprovals, requestApproval, type Approver } from './approvals'
-import { buildHistory, estimateMessages, estimateTokens, pruneImages, pruneInFlight, transcriptText } from './context'
+import { buildHistory, estimateMessages, estimateTokens, pruneImages, pruneInFlight, stripImages, transcriptText } from './context'
 import { chatSystemPrompt, COMPACTION_PROMPT, workSystemPrompt } from './prompts'
 import { CallGuard } from './guards'
 import { capOutput, guidanceFor, isMutating, toolsFor, toolSourceOf, toSpec, WORKFLOW_TOOLS, type AgentTool, type ToolContext, type ToolQuery, type TurnState } from './tools'
@@ -144,6 +144,39 @@ function unlessAborted<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
   })
 }
 
+/**
+ * Models found to refuse images, by `provider::model`, for the rest of the
+ * session: once one rejects a screenshot, every later request (a worker's
+ * thread keeps the image forever) leaves images out from the start.
+ */
+const textOnlyModels = new Set<string>()
+
+/**
+ * A provider refusing the request because it carries an image the model
+ * can't take: OpenRouter's "No endpoints found that support image input",
+ * OpenAI's "image_url is only supported by certain models", and the like.
+ */
+export function isImageUnsupported(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return (
+    /no endpoints? found that supports? image/i.test(message) ||
+    /(does not|doesn'?t|do not|cannot|can'?t) (support|accept|handle|process) (image|vision|multimodal)/i.test(message) ||
+    /image[\w\s_-]{0,40}(is |are )?(not supported|unsupported|only supported|not enabled|not allowed)/i.test(message) ||
+    /(vision|multimodal|image input)[\w\s-]{0,20}(is )?not (supported|available|enabled)/i.test(message) ||
+    /unsupported (content|input) type[^.]{0,20}image/i.test(message)
+  )
+}
+
+/** Whether this turn's model is known not to see images: the catalog says so, or it already refused one. */
+function textOnly(params: Pick<LoopParams, 'provider' | 'modelId' | 'model'>): boolean {
+  return params.model?.vision === false || textOnlyModels.has(`${params.provider.id}::${params.modelId}`)
+}
+
+/** Forgets what the session learned about models refusing images; for tests. */
+export function resetTextOnlyModels(): void {
+  textOnlyModels.clear()
+}
+
 function isRetryable(error: unknown): boolean {
   if (error instanceof ProviderHttpError) return [408, 409, 425, 429, 500, 502, 503, 504, 520, 522, 524, 529].includes(error.status)
   const message = error instanceof Error ? `${error.name} ${error.message} ${String((error as { cause?: unknown }).cause ?? '')}` : String(error)
@@ -254,6 +287,14 @@ async function callModel(
         if (isAuthError(error) && k < attempts.length - 1) {
           note('That key was rejected — trying the next saved key.')
           break
+        }
+        // The model can't take images: leave them out, for this request and
+        // every later one this session, and ask again at once.
+        if (!streamed && isImageUnsupported(error) && stripImages(messages)) {
+          textOnlyModels.add(`${params.provider.id}::${params.modelId}`)
+          note(`${params.model?.label ?? params.modelId} can't see images, so they were left out. Pick a model that can see images to work from screenshots.`)
+          retry--
+          continue
         }
         if (!streamed && retry < 3 && isRetryable(error)) {
           const wait = Math.min(
@@ -451,7 +492,7 @@ export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
     })
     return { text, usage, turn, stopped: 'goal-limit' }
   }
-  const goalActive = (): boolean => params.depth === 0 && goal?.status === 'active' && !turn.goalResolution && !signal.aborted
+  const goalActive = (): boolean => params.depth === 0 && goal?.status === 'active' && !turn.goalResolution && !turn.yielded && !signal.aborted
 
   for (let round = 0; round < params.maxRounds; round++) {
     if (round > 0 && goalActive()) {
@@ -465,12 +506,15 @@ export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
       pruneImages(messages)
     }
 
+    if (textOnly(params)) stripImages(messages)
     const result = await callModel(params, attempts, messages, note)
     addUsage(usage, result.usage)
     if (params.depth === 0) emit({ type: 'usage', messageId: request.messageId, usage: { ...usage } })
 
     if (result.stop === 'refusal') throw new Error(result.refusal ?? 'The model declined this request.')
-    text += result.text
+    // Each call's reply is its own paragraph, so a turn that spoke, used a
+    // tool and spoke again does not read as one run-on sentence.
+    text = text && result.text ? `${text}\n\n${result.text}` : text + result.text
 
     if (result.stop === 'max_tokens') {
       // A call cut off mid-way may have truncated arguments; never run it.
@@ -534,7 +578,10 @@ export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
             role: 'user',
             text: left
               ? `Keep going toward the goal; you have ${left} left. Take the next concrete step, or call wait if you are waiting for something to happen. If it is achieved and verified, call goal_complete; if you are blocked, call goal_blocked.`
-              : 'Keep going toward the goal. Take the next concrete step. If it is achieved and verified, call goal_complete; if you are blocked, call goal_blocked.'
+              : request.workerId
+                ? // A worker waits by sleeping: the turn ends and it wakes when it said.
+                  'Keep going toward the goal. Take the next concrete step, or call sleep if you are waiting for something to happen. If it is achieved and verified, call goal_complete; if you are blocked, call goal_blocked.'
+                : 'Keep going toward the goal. Take the next concrete step. If it is achieved and verified, call goal_complete; if you are blocked, call goal_blocked.'
           })
           continue
         }
@@ -570,6 +617,8 @@ export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
     }
     // A presented plan ends the turn: the user decides what happens next.
     if (turn.plan) return { text, usage, turn, stopped: 'plan' }
+    // So does a worker going to sleep: it wakes when it scheduled.
+    if (turn.yielded) return { text, usage, turn, stopped: 'done' }
   }
 
   if (params.depth === 0) {

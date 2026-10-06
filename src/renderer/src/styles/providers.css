@@ -33,6 +33,11 @@
   position: static;
   background: none;
   padding-bottom: 12px;
+  gap: 2px;
+}
+/* Title first, then Link accounts and Add side by side at the end. */
+.providers-shell .providers-list__title {
+  flex: 1;
 }
 .providers-shell .providers-list__scroll {
   flex: 1;

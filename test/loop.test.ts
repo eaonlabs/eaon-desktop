@@ -673,3 +673,33 @@ test('"Allow all MCP tool permissions" does not pre-approve tools that are not p
     store.patchSettings({ mcp: { allowAllToolPermissions: false } })
   }
 })
+
+test('a tool that yields (a worker sleeping) ends the turn, and the goal is not sent back meanwhile', async () => {
+  const nap: AgentTool = {
+    name: 'nap',
+    description: 'test: stop until later',
+    inputSchema: { type: 'object', properties: {} },
+    mutating: false,
+    run: async (_input, ctx) => {
+      ctx.turn.yielded = { until: Date.now() + 60_000 }
+      return 'Sleeping.'
+    }
+  }
+  registerToolSource({ id: 'test-yield', tools: (query) => (query.request.chatId === 'yield-test' ? [nap] : []) })
+  const { server, requests } = await setup((_body, i) => (i === 0 ? toolCall('nap', {}) : say('should not be asked')))
+  const events: StreamEvent[] = []
+  const outcome = await runAgent(request({ chatId: 'yield-test', goal: { text: 'watch CI', status: 'active', iterations: 0 } }), (e) => events.push(e))
+  server.close()
+  assert.equal(outcome.error, undefined)
+  assert.equal(requests.length, 1, 'no model call after the sleep')
+  assert.ok(!events.some((e) => e.type === 'goal' && (e as Extract<StreamEvent, { type: 'goal' }>).goal.iterations > 0), 'no goal continuation')
+})
+
+test("a worker's goal continuation tells it to sleep while it waits", async () => {
+  store.patchSettings({ work: { goalMaxIterations: 5 } })
+  const { server, requests } = await setup((_body, i) => (i === 0 ? say('Started.') : toolCall('goal_complete', { summary: 'Done and checked.' })))
+  await runAgent(request({ workerId: 'w1', goal: { text: 'ship it', status: 'active', iterations: 0 } }), () => {})
+  server.close()
+  const nudge = (requests[1] as unknown as Body).messages.at(-1)
+  assert.match(String(nudge?.content), /call sleep if you are waiting/)
+})

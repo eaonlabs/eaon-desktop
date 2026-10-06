@@ -23,6 +23,8 @@ import './styles/discord.css'
 import './styles/channels.css'
 import './styles/trading.css'
 import './styles/email.css'
+import './styles/connectApps.css'
+import './styles/usage.css'
 
 reportRendererErrors()
 

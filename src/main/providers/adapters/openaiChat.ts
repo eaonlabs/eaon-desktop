@@ -3,6 +3,7 @@ import { authHeaders, chatCompat, clampEffort, effortsFor, requestBase, wireEffo
 import { contextWindowFor, maxOutputFor } from '../models'
 import { ThinkTagSplitter } from './thinkTags'
 import {
+  capOutput,
   clampOutputToWindow,
   describeErrorBody,
   emptyUsage,
@@ -296,7 +297,7 @@ export const openaiChatAdapter: Adapter = {
     const effort = compat.sendsEffort && level ? wireEffort(level, compat.vendor, request.modelId) : undefined
     const messages = toWire(request, compat)
     const window = contextWindowFor(provider, request.modelId, model)
-    const maxOutput = clampOutputToWindow(maxOutputFor(provider, request.modelId, model), window, estimateRequestTokens(messages))
+    const maxOutput = capOutput(request.outputCap, clampOutputToWindow(maxOutputFor(provider, request.modelId, model), window, estimateRequestTokens(messages)))
 
     // Models the catalog marks as tool-less (Perplexity's Sonar) are not offered tools at all.
     let tools =

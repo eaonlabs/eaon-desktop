@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import {
   ArrowUp,
@@ -31,32 +31,14 @@ import { PluginLogo } from './plugins/PluginLogo'
 import { useMcpStatuses } from './plugins/usePlugins'
 import { useSkills } from './plugins/usePlugins'
 import { fileName, fileUrl, isImagePath } from '../lib/files'
-import type { EffortLevel, McpServer, ModelInfo } from '@shared/types'
+import type { McpServer } from '@shared/types'
 import { useSuggest, type SuggestItem, type SuggestSources } from './composer/SuggestMenu'
 import { liveMentions, permissionItems, pluginItems, skillItems, toolMentionItems, type Mention } from './composer/sources'
 import { removeMention } from './composer/suggest'
 import { clampEffort, EFFORT_LABEL } from '@shared/effort'
-import { ReasoningEffort } from './composer/ReasoningEffort'
+import { ModelPicker } from './composer/ModelPicker'
 import { joinTranscript, useDictation } from './composer/useDictation'
 import { VoiceBar } from './composer/VoiceBar'
-import './composer/effort.css'
-
-/**
- * The model as the effort slider names it while you drag: short enough to sit
- * beside the level in the slider's label ("Opus 4.7", not "Claude Opus 4.7").
- */
-function shortModelName(label: string | undefined): string {
-  if (!label) return ''
-  const words = label.trim().split(/\s+/)
-  const short = words.length >= 3 ? words.slice(1).join(' ') : label.trim()
-  return short.length > 16 ? `${short.slice(0, 15)}…` : short
-}
-
-/** A line under the levels that need one. */
-const EFFORT_NOTE: Partial<Record<EffortLevel, string>> = {
-  none: 'Answers without thinking first',
-  ultra: 'Most thinking, most tokens'
-}
 
 /**
  * The chat box. Deliberately plain — a + button, the text, the model and
@@ -418,7 +400,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
           textarea.current?.focus()
         }}
       />
-      <ModelMenu anchor={modelAnchor} open={modelMenu.open} onClose={modelMenu.close} />
+      <ModelPicker anchor={modelAnchor} open={modelMenu.open} onClose={modelMenu.close} />
     </div>
   )
 })
@@ -756,177 +738,6 @@ function ApprovalMenu({
           onDone()
         }}
       />
-    </Popover>
-  )
-}
-
-/* --------------------------------------------------------------- Model menu */
-
-function ModelMenu({
-  anchor,
-  open,
-  onClose
-}: {
-  anchor: React.RefObject<HTMLElement>
-  open: boolean
-  onClose: () => void
-}): JSX.Element {
-  const { settings, selectModel, setEffort, setSettingsPage } = useApp(useShallow((s) => ({ settings: s.settings, selectModel: s.selectModel, setEffort: s.setEffort, setSettingsPage: s.setSettingsPage })))
-  const models = useApp(useShallow((s) => s.availableModels()))
-  const current = useApp((s) => s.currentModel())
-
-  const modelRow = useRef<HTMLDivElement>(null)
-  const effortRow = useRef<HTMLDivElement>(null)
-  const [sub, setSub] = useState<'model' | 'effort' | null>(null)
-
-  // Exactly the levels this model takes (from the catalog), so the menu never
-  // offers a setting the request would ignore. A model without effort control
-  // (Haiku 4.5, most local models) gets the row disabled instead.
-  const efforts = current?.efforts ?? []
-  const effort = clampEffort(settings?.effort, efforts)
-
-  return (
-    <Popover anchor={anchor} open={open} onClose={onClose} placement="bottom-end" width={212}>
-      <div ref={modelRow} onMouseEnter={() => setSub('model')}>
-        <MenuItem
-          title="Model"
-          hint={current?.label ?? 'None'}
-          submenu
-          open={sub === 'model'}
-          onClick={() => setSub(sub === 'model' ? null : 'model')}
-        />
-      </div>
-      <div ref={effortRow} onMouseEnter={() => setSub(effort ? 'effort' : null)}>
-        <MenuItem
-          title="Effort"
-          hint={effort ? EFFORT_LABEL[effort] : 'Not supported'}
-          submenu={Boolean(effort)}
-          disabled={!effort}
-          open={sub === 'effort'}
-          onClick={() => effort && setSub(sub === 'effort' ? null : 'effort')}
-        />
-      </div>
-
-      <ModelSubmenu
-        anchor={modelRow}
-        open={sub === 'model'}
-        models={models}
-        favorites={settings?.favoriteModels ?? []}
-        currentKey={current ? `${current.providerId}:${current.id}` : undefined}
-        onPick={(modelId, providerId) => {
-          selectModel(modelId, providerId)
-          setSub(null)
-          onClose()
-        }}
-        onManage={() => {
-          setSettingsPage('providers')
-          onClose()
-        }}
-        onClose={() => setSub(null)}
-      />
-
-      <Popover anchor={effortRow} open={sub === 'effort'} onClose={() => setSub(null)} placement="right-start" width={252}>
-        {effort && efforts.length >= 2 ? (
-          <div className="effort-slider">
-            <div className="effort-slider__head">
-              <span>Effort</span>
-              <span className="effort-slider__level">{EFFORT_LABEL[effort]}</span>
-            </div>
-            <ReasoningEffort
-              labels={efforts.map((level) => EFFORT_LABEL[level])}
-              value={efforts.indexOf(effort)}
-              model={shortModelName(current?.label)}
-              onChange={(index) => setEffort(efforts[index])}
-            />
-            {EFFORT_NOTE[effort] && <p className="effort-slider__note">{EFFORT_NOTE[effort]}</p>}
-          </div>
-        ) : (
-          effort && <MenuItem title={EFFORT_LABEL[effort]} description="The only level this model takes" checked />
-        )}
-      </Popover>
-    </Popover>
-  )
-}
-
-/**
- * The model list, in its own component so it can hold search state.
- *
- * A provider that has been refreshed can expose well over a hundred models.
- * Capping the menu height stops that running off-screen, but scrolling a
- * capped list of a hundred entries is its own problem — so the filter appears
- * once the list is long enough to actually need one, and starred models
- * (Settings → Model providers) sit at the top.
- */
-function ModelSubmenu({
-  anchor,
-  open,
-  models,
-  favorites,
-  currentKey,
-  onPick,
-  onManage,
-  onClose
-}: {
-  anchor: React.RefObject<HTMLElement>
-  open: boolean
-  models: ModelInfo[]
-  favorites: string[]
-  currentKey?: string
-  onPick: (modelId: string, providerId: string) => void
-  onManage: () => void
-  onClose: () => void
-}): JSX.Element {
-  const [query, setQuery] = useState('')
-  const searchable = models.length > 8
-  const providers = useApp((s) => s.providers)
-  // The same model can come from several places (an OpenAI key, a ChatGPT
-  // sign-in, Copilot); those rows say which one they are.
-  const duplicated = useMemo(() => {
-    const seen = new Map<string, number>()
-    for (const m of models) seen.set(m.id, (seen.get(m.id) ?? 0) + 1)
-    return new Set([...seen].filter(([, n]) => n > 1).map(([id]) => id))
-  }, [models])
-
-  const key = (m: ModelInfo): string => `${m.providerId}:${m.id}`
-  const q = query.trim().toLowerCase()
-  const results = q ? models.filter((m) => `${m.label} ${m.id}`.toLowerCase().includes(q)) : models
-  const starred = new Set(favorites)
-  const top = q ? [] : results.filter((m) => starred.has(key(m)))
-  const rest = q ? results : results.filter((m) => !starred.has(key(m)))
-
-  const row = (model: ModelInfo): JSX.Element => (
-    <MenuItem
-      key={key(model)}
-      title={model.label}
-      hint={duplicated.has(model.id) ? providers.find((p) => p.id === model.providerId)?.name : undefined}
-      checked={key(model) === currentKey}
-      onClick={() => onPick(model.id, model.providerId)}
-    />
-  )
-
-  return (
-    <Popover anchor={anchor} open={open} onClose={onClose} placement="right-start" width={250}>
-      {models.length === 0 ? (
-        <>
-          <div className="menu__empty">No models available</div>
-          <MenuSeparator />
-          <MenuItem title="Add an API key…" onClick={onManage} />
-        </>
-      ) : (
-        <>
-          {searchable && <MenuSearch value={query} onChange={setQuery} placeholder="Search models" />}
-          {top.length > 0 && (
-            <>
-              <div className="menu__label">Starred</div>
-              {top.map(row)}
-              <MenuSeparator />
-            </>
-          )}
-          {results.length === 0 ? <div className="menu__empty">No models match “{query.trim()}”</div> : rest.map(row)}
-          <MenuSeparator />
-          <MenuItem title="Manage models…" onClick={onManage} />
-        </>
-      )}
     </Popover>
   )
 }

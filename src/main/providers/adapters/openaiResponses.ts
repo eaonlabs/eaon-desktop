@@ -2,6 +2,7 @@ import { arch, platform, release } from 'node:os'
 import { clampEffort, effortsFor, requestBase, vendorOf, wireEffort } from '../compat'
 import { contextWindowFor, maxOutputFor } from '../models'
 import {
+  capOutput,
   clampOutputToWindow,
   describeErrorBody,
   emptyUsage,
@@ -145,7 +146,7 @@ export const openaiResponsesAdapter: Adapter = {
     const { instructions, input } = toInput(request, codex || plan)
     const window = contextWindowFor(provider, request.modelId, model)
     // Codex rejects an output cap; everyone else gets one that fits the window.
-    const maxOutput = codex || plan ? undefined : clampOutputToWindow(maxOutputFor(provider, request.modelId, model), window, estimateRequestTokens(input))
+    const maxOutput = codex || plan ? undefined : capOutput(request.outputCap, clampOutputToWindow(maxOutputFor(provider, request.modelId, model), window, estimateRequestTokens(input)))
     const cacheKey = request.cacheKey.slice(0, 64)
 
     const tools = request.tools.map((tool) => ({
