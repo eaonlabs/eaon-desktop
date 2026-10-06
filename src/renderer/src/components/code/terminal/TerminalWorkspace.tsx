@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef, useState, useSyncExternalStore, type JSX } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { Eraser, Maximize2, Minimize2, MoreHorizontal, PencilLine, Plus, RotateCcw, SquareTerminal, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Eraser, Maximize2, Minimize2, MoreHorizontal, PencilLine, Plus, RotateCcw, SquareTerminal, X } from 'lucide-react'
 import claudeCodeLogo from '../../../assets/providers/claude.webp'
 import codexLogo from '../../../assets/providers/codex.svg'
 import antigravityLogo from '../../../assets/providers/antigravity.png'
@@ -15,7 +15,23 @@ import { useAdeSessions } from '../sessionsStore'
 import { sessionTitle } from '@shared/adeSessions'
 import { terminals, type PaneStatus } from './registry'
 import { useTerminals } from './terminalStore'
-import { gridColumns, type TerminalAgent, type TerminalAgentId, type TerminalPaneSpec } from '@shared/terminals'
+import type { TerminalAgent, TerminalAgentId, TerminalPaneSpec } from '@shared/terminals'
+import {
+  DIVIDER_PX,
+  MIN_COLUMN_PX,
+  MIN_ROW_PX,
+  columnDividers,
+  dividerValue,
+  equalSizes,
+  loadSizes,
+  placement,
+  resizeTracks,
+  rowDividers,
+  saveSizes,
+  shapeFor,
+  template,
+  type Sizes
+} from './gridLayout'
 
 /**
  * The ADE's terminal view: a grid of real terminals in the project folder,
@@ -93,29 +109,161 @@ export function TerminalWorkspace(): JSX.Element {
   }
 
   const shown = maximized && panes.some((p) => p.id === maximized) ? panes.filter((p) => p.id === maximized) : panes
-  const cols = gridColumns(shown.length)
-  const rows = Math.ceil(shown.length / cols)
 
   return (
     <div className="term-workspace">
-      <div className="term-grid" style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${rows}, minmax(0, 1fr))` }}>
-        {shown.map((pane, index) => (
+      <TerminalGrid cwd={cwd} panes={shown} agents={agents} maximized={maximized} />
+    </div>
+  )
+}
+
+const EMPTY: TerminalPaneSpec[] = []
+
+type Axis = 'cols' | 'rows'
+
+/**
+ * The terminals on a grid whose columns and rows the user can resize, by
+ * dragging the dividers between them (or with the arrow keys on a focused
+ * divider; a double-click evens them out). Sizes are remembered per folder
+ * and grid shape. A terminal is moved by dragging its title bar onto another,
+ * which trades their places.
+ */
+function TerminalGrid({
+  cwd,
+  panes,
+  agents,
+  maximized
+}: {
+  cwd: string
+  panes: TerminalPaneSpec[]
+  agents: TerminalAgent[]
+  maximized: string | null
+}): JSX.Element {
+  const grid = useRef<HTMLDivElement>(null)
+  const shape = shapeFor(panes.length)
+  const key = `${cwd}|${shape.cols}x${shape.rows}`
+  const [state, setState] = useState<{ key: string; sizes: Sizes }>(() => ({ key, sizes: loadSizes(cwd, shape) }))
+  // A different folder or grid shape has sizes of its own.
+  const sizes = state.key === key ? state.sizes : loadSizes(cwd, shape)
+
+  const set = (next: Sizes, save: boolean): void => {
+    setState({ key, sizes: next })
+    if (save) saveSizes(cwd, shape, next)
+  }
+
+  const resize = (axis: Axis, k: number, deltaPx: number, base: Sizes, save: boolean): void => {
+    const el = grid.current
+    if (!el) return
+    const n = base[axis].length
+    const room = (axis === 'cols' ? el.clientWidth : el.clientHeight) - (n - 1) * DIVIDER_PX
+    set({ ...base, [axis]: resizeTracks(base[axis], k, deltaPx, room, axis === 'cols' ? MIN_COLUMN_PX : MIN_ROW_PX) }, save)
+  }
+
+  return (
+    <div ref={grid} className="term-grid" style={{ gridTemplateColumns: template(sizes.cols), gridTemplateRows: template(sizes.rows) }}>
+      {panes.map((pane, index) => {
+        const place = placement(index, panes.length, shape)
+        return (
           <TerminalPane
             key={pane.id}
             pane={pane}
             cwd={cwd}
             agent={agents.find((a) => a.id === pane.agent)}
             maximized={maximized === pane.id}
-            // A short last row stretches its final pane across what is left.
-            span={index === shown.length - 1 ? cols * rows - shown.length + 1 : 1}
+            gridColumn={place.gridColumn}
+            gridRow={place.gridRow}
+            prev={panes[index - 1]?.id ?? null}
+            next={panes[index + 1]?.id ?? null}
+            movable={panes.length > 1}
           />
-        ))}
-      </div>
+        )
+      })}
+      {columnDividers(panes.length, shape).map((d) => (
+        <Divider key={`c${d.index}`} axis="cols" index={d.index} gridColumn={d.gridColumn} gridRow={d.gridRow} sizes={sizes} onResize={resize} onReset={() => set(equalSizes(shape), true)} />
+      ))}
+      {rowDividers(shape).map((d) => (
+        <Divider key={`r${d.index}`} axis="rows" index={d.index} gridColumn={d.gridColumn} gridRow={d.gridRow} sizes={sizes} onResize={resize} onReset={() => set(equalSizes(shape), true)} />
+      ))}
     </div>
   )
 }
 
-const EMPTY: TerminalPaneSpec[] = []
+/** The grab line between two columns or two rows of terminals. */
+function Divider({
+  axis,
+  index,
+  gridColumn,
+  gridRow,
+  sizes,
+  onResize,
+  onReset
+}: {
+  axis: Axis
+  index: number
+  gridColumn: string
+  gridRow: string
+  sizes: Sizes
+  onResize: (axis: Axis, k: number, deltaPx: number, base: Sizes, save: boolean) => void
+  onReset: () => void
+}): JSX.Element {
+  const start = useRef<{ at: number; base: Sizes } | null>(null)
+  const [active, setActive] = useState(false)
+  const pos = (e: React.PointerEvent): number => (axis === 'cols' ? e.clientX : e.clientY)
+  const end = (): void => {
+    start.current = null
+    setActive(false)
+    delete document.body.dataset.termResizing
+  }
+  const label = axis === 'cols' ? `Resize columns ${index + 1} and ${index + 2}` : `Resize rows ${index + 1} and ${index + 2}`
+  return (
+    <div
+      role="separator"
+      tabIndex={0}
+      aria-orientation={axis === 'cols' ? 'vertical' : 'horizontal'}
+      aria-label={label}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      aria-valuenow={dividerValue(sizes[axis], index)}
+      className="term-divider"
+      data-axis={axis}
+      data-active={active || undefined}
+      title="Drag to resize · double-click to make them even"
+      style={{ gridColumn, gridRow }}
+      onPointerDown={(e) => {
+        if (e.button !== 0) return
+        e.preventDefault()
+        e.currentTarget.setPointerCapture(e.pointerId)
+        start.current = { at: pos(e), base: sizes }
+        setActive(true)
+        // The terminals under the pointer would otherwise take the drag as a text selection.
+        document.body.dataset.termResizing = axis
+      }}
+      onPointerMove={(e) => {
+        const s = start.current
+        if (s) onResize(axis, index, pos(e) - s.at, s.base, false)
+      }}
+      onPointerUp={(e) => {
+        const s = start.current
+        if (s) onResize(axis, index, pos(e) - s.at, s.base, true)
+        end()
+      }}
+      onPointerCancel={end}
+      onDoubleClick={onReset}
+      onKeyDown={(e) => {
+        const step = e.shiftKey ? 96 : 24
+        const keys: Record<string, number> = axis === 'cols' ? { ArrowLeft: -step, ArrowRight: step } : { ArrowUp: -step, ArrowDown: step }
+        if (e.key in keys) {
+          e.preventDefault()
+          onResize(axis, index, keys[e.key], sizes, true)
+        } else if (e.key === 'Home' || e.key === 'End' || e.key === 'Enter') {
+          // Even them out again, as a double-click does.
+          e.preventDefault()
+          onReset()
+        }
+      }}
+    />
+  )
+}
 
 /** Watches one pane's status in the registry; re-renders only when some pane's status changes. */
 function usePaneStatus(paneId: string): PaneStatus {
@@ -128,18 +276,37 @@ const TerminalPane = memo(function TerminalPane({
   cwd,
   agent,
   maximized,
-  span
+  gridColumn,
+  gridRow,
+  prev,
+  next,
+  movable
 }: {
   pane: TerminalPaneSpec
   cwd: string
   agent: TerminalAgent | undefined
   maximized: boolean
-  span: number
+  gridColumn: string
+  gridRow: string
+  /** The panes before and after it in the grid's order, for Move left/right. */
+  prev: string | null
+  next: string | null
+  movable: boolean
 }): JSX.Element {
   const screen = useRef<HTMLDivElement>(null)
-  const { close, rename, toggleMaximized, add } = useTerminals(
-    useShallow((s) => ({ close: s.close, rename: s.rename, toggleMaximized: s.toggleMaximized, add: s.add }))
+  const { close, rename, toggleMaximized, add, swap, dragging, setDragging } = useTerminals(
+    useShallow((s) => ({
+      close: s.close,
+      rename: s.rename,
+      toggleMaximized: s.toggleMaximized,
+      add: s.add,
+      swap: s.swap,
+      dragging: s.dragging,
+      setDragging: s.setDragging
+    }))
   )
+  const [over, setOver] = useState(false)
+  const target = dragging !== null && dragging !== pane.id
   const status = usePaneStatus(pane.id)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [renaming, setRenaming] = useState(false)
@@ -163,8 +330,25 @@ const TerminalPane = memo(function TerminalPane({
   }
 
   return (
-    <section className="term-pane" data-status={status} style={span > 1 ? { gridColumn: `span ${span}` } : undefined} onMouseDown={() => terminals.focus(pane.id)}>
-      <header className="term-pane__head" onDoubleClick={() => toggleMaximized(pane.id)}>
+    <section
+      className="term-pane"
+      data-status={status}
+      data-dragging={dragging === pane.id || undefined}
+      style={{ gridColumn, gridRow }}
+      onMouseDown={() => terminals.focus(pane.id)}
+    >
+      <header
+        className="term-pane__head"
+        draggable={movable && !renaming && !maximized}
+        title={movable && !maximized ? 'Drag onto another terminal to swap places' : undefined}
+        onDoubleClick={() => toggleMaximized(pane.id)}
+        onDragStart={(e) => {
+          e.dataTransfer.setData(PANE_MIME, pane.id)
+          e.dataTransfer.effectAllowed = 'move'
+          setDragging(pane.id)
+        }}
+        onDragEnd={() => setDragging(null)}
+      >
         <span className="term-pane__dot" role="img" aria-label={STATUS_LABEL[status]} title={STATUS_LABEL[status]} />
         <AgentMark agent={pane.agent} size={14} />
         {renaming ? (
@@ -213,6 +397,29 @@ const TerminalPane = memo(function TerminalPane({
         </button>
       </header>
       <div ref={screen} className="term-pane__screen" />
+      {target && (
+        // Over the terminal while another is dragged, so the drop lands here and not in the terminal.
+        <div
+          className="term-pane__drop"
+          data-over={over || undefined}
+          onDragOver={(e) => {
+            if (!e.dataTransfer.types.includes(PANE_MIME)) return
+            e.preventDefault()
+            e.dataTransfer.dropEffect = 'move'
+            if (!over) setOver(true)
+          }}
+          onDragLeave={() => setOver(false)}
+          onDrop={(e) => {
+            e.preventDefault()
+            const from = e.dataTransfer.getData(PANE_MIME) || dragging
+            setOver(false)
+            setDragging(null)
+            if (from) swap(cwd, from, pane.id)
+          }}
+        >
+          <span className="term-pane__drop-label">Swap with {pane.name}</span>
+        </div>
+      )}
       {status === 'exited' && (
         <button className="term-pane__restart" onClick={() => terminals.restart(pane.id, launch)}>
           <RotateCcw size={13} strokeWidth={2} />
@@ -233,6 +440,8 @@ const TerminalPane = memo(function TerminalPane({
                 setRenaming(true)
               }
             },
+            ...(prev && !maximized ? [{ icon: <ArrowLeft size={15} strokeWidth={1.9} />, label: 'Move left', action: () => swap(cwd, pane.id, prev) }] : []),
+            ...(next && !maximized ? [{ icon: <ArrowRight size={15} strokeWidth={1.9} />, label: 'Move right', action: () => swap(cwd, pane.id, next) }] : []),
             { icon: <RotateCcw size={15} strokeWidth={1.9} />, label: 'Restart', action: () => terminals.restart(pane.id, launch) },
             { icon: <Eraser size={15} strokeWidth={1.9} />, label: 'Clear', action: () => terminals.clear(pane.id) },
             { icon: <X size={15} strokeWidth={1.9} />, label: 'Close', danger: true, action: () => close(cwd, pane.id) }
@@ -242,6 +451,9 @@ const TerminalPane = memo(function TerminalPane({
     </section>
   )
 })
+
+/** What a dragged terminal carries, so other drags (files, text) are told apart. */
+const PANE_MIME = 'application/x-eaon-pane'
 
 const STATUS_LABEL: Record<PaneStatus, string> = {
   starting: 'Starting',

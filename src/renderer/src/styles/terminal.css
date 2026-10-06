@@ -23,7 +23,63 @@
   flex: 1;
   min-height: 0;
   display: grid;
-  gap: 8px;
+  /* The 8px between terminals is the dividers' own track (gridLayout.ts), so they can be dragged. */
+  gap: 0;
+}
+
+/* A divider between two columns or rows: a grab area the width of the gap, with a line that shows on hover or drag. */
+.term-divider {
+  position: relative;
+  z-index: 2;
+  touch-action: none;
+  outline: none;
+}
+.term-divider[data-axis='cols'] {
+  cursor: col-resize;
+}
+.term-divider[data-axis='rows'] {
+  cursor: row-resize;
+}
+.term-divider::after {
+  content: '';
+  position: absolute;
+  border-radius: var(--r-pill);
+  background: transparent;
+  transition: background var(--dur) var(--ease);
+}
+.term-divider[data-axis='cols']::after {
+  top: 6px;
+  bottom: 6px;
+  left: 3px;
+  width: 2px;
+}
+.term-divider[data-axis='rows']::after {
+  left: 6px;
+  right: 6px;
+  top: 3px;
+  height: 2px;
+}
+.term-divider:hover::after {
+  background: var(--border-strong);
+}
+.term-divider[data-active='true']::after,
+.term-divider:focus-visible::after {
+  background: var(--accent);
+}
+/* While a divider is dragged the pointer keeps its cursor, and no terminal takes the drag as a selection. */
+body[data-term-resizing='cols'],
+body[data-term-resizing='cols'] * {
+  cursor: col-resize !important;
+}
+body[data-term-resizing='rows'],
+body[data-term-resizing='rows'] * {
+  cursor: row-resize !important;
+}
+body[data-term-resizing] {
+  user-select: none;
+}
+body[data-term-resizing] .term-pane {
+  pointer-events: none;
 }
 
 .term-pane {
@@ -47,6 +103,48 @@
     opacity: 0;
     transform: scale(0.985);
   }
+}
+
+.term-pane__head[draggable='true'] {
+  cursor: grab;
+}
+.term-pane__head[draggable='true']:active {
+  cursor: grabbing;
+}
+.term-pane__head[draggable='true'] button {
+  cursor: default;
+}
+.term-pane[data-dragging='true'] {
+  opacity: 0.5;
+}
+/* Another terminal is being dragged: this one is a place to drop it. */
+.term-pane__drop {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  border: 2px dashed transparent;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+.term-pane__drop[data-over='true'] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+.term-pane__drop-label {
+  padding: 5px 12px;
+  border-radius: var(--r-pill);
+  background: var(--surface-3);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+  pointer-events: none;
+}
+.term-pane__drop[data-over='true'] .term-pane__drop-label {
+  opacity: 1;
 }
 
 .term-pane__head {

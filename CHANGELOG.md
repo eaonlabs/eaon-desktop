@@ -20,6 +20,15 @@ All notable changes to Eaon are documented here. Format loosely follows
 - **Settings → ADE → Import sessions** finds the conversations Claude Code and
   Codex have on this computer and adds a session for each folder they ran in.
   Nothing in either CLI changes.
+- **Resize and rearrange the ADE's terminals.** Drag the line between two
+  terminals to give one more room (or focus it and use the arrow keys;
+  double-click evens them out); the sizes are remembered for the folder. Drag
+  a terminal by its title bar onto another to swap them, or use Move left /
+  Move right in its menu.
+
+### Changed
+- Claude Code is shown with Claude's own symbol in the ADE, Connect apps and
+  Link accounts.
 
 ## [2026.6.2-beta.1] — 2026-10-05
 

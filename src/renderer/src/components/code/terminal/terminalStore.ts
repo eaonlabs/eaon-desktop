@@ -3,6 +3,7 @@ import { useApp } from '../../../state/store'
 import { useCode } from '../codeStore'
 import { PANE_NAMES, type TerminalAgent, type TerminalAgentId, type TerminalLayout, type TerminalPaneSpec } from '@shared/terminals'
 import { terminals } from './registry'
+import { swapped } from './gridLayout'
 
 /**
  * Which panes each folder has in the ADE's terminal view, saved so the grid
@@ -17,6 +18,8 @@ interface TerminalsState {
   agents: TerminalAgent[]
   /** The pane filling the whole grid, if one is maximised. */
   maximized: string | null
+  /** The pane being dragged to a new place in the grid. */
+  dragging: string | null
 
   load: () => Promise<void>
   refreshAgents: () => Promise<void>
@@ -27,6 +30,9 @@ interface TerminalsState {
   /** What runs in a pane changed under it — its logo and label follow. */
   setAgent: (paneId: string, agent: TerminalAgentId) => void
   toggleMaximized: (paneId: string) => void
+  /** Two panes trade places in a folder's grid. */
+  swap: (cwd: string, a: string, b: string) => void
+  setDragging: (paneId: string | null) => void
 }
 
 const uid = (): string => `pane-${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`
@@ -45,6 +51,7 @@ export const useTerminals = create<TerminalsState>((set, get) => ({
   layout: {},
   agents: [],
   maximized: null,
+  dragging: null,
 
   async load() {
     if (get().loaded || loading) return
@@ -116,6 +123,19 @@ export const useTerminals = create<TerminalsState>((set, get) => ({
 
   toggleMaximized(paneId) {
     set((s) => ({ maximized: s.maximized === paneId ? null : paneId }))
+  },
+
+  swap(cwd, a, b) {
+    const panes = get().layout[cwd] ?? []
+    const next = swapped(panes, a, b)
+    if (next === panes) return
+    const layout = { ...get().layout, [cwd]: next }
+    set({ layout })
+    persist(layout)
+  },
+
+  setDragging(paneId) {
+    set({ dragging: paneId })
   }
 }))
 

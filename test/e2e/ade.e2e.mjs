@@ -13,6 +13,7 @@ import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, realpathSync, utimesSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { within } from './harness.mjs'
 import { openSettings, scenario } from './fixtures.mjs'
 
 const CLAUDE_A = '11111111-1111-4111-8111-111111111111'
@@ -54,6 +55,45 @@ function codexRollout(home, cwd, id, asked, ageHours) {
   )
   const at = (Date.now() - ageHours * HOURS) / 1000
   utimesSync(file, at, at)
+}
+
+/**
+ * The terminals as laid out, in reading order. Layout boxes, not what is
+ * drawn: a terminal that has just opened is still scaling in.
+ */
+async function grid(page) {
+  await page.waitFor(() => [...document.querySelectorAll('.term-pane')].every((p) => p.getAnimations().length === 0), {
+    message: 'the terminals to finish opening'
+  })
+  return page.eval(() =>
+    [...document.querySelectorAll('.term-pane')]
+      .map((p) => ({ name: p.querySelector('.term-pane__name')?.textContent ?? '', x: p.offsetLeft, y: p.offsetTop, w: p.offsetWidth, h: p.offsetHeight }))
+      .sort((a, b) => a.y - b.y || a.x - b.x)
+  )
+}
+
+/** The middle of the first element matching `selector` (inside the pane named `pane`, if given). */
+function centre(page, selector, pane) {
+  return page.eval(
+    (selector, pane) => {
+      const root = pane ? [...document.querySelectorAll('.term-pane')].find((p) => p.querySelector('.term-pane__name')?.textContent === pane) : document
+      const r = root?.querySelector(selector)?.getBoundingClientRect()
+      return r ? { x: r.x + r.width / 2, y: r.y + r.height / 2 } : null
+    },
+    selector,
+    pane ?? null
+  )
+}
+
+/** A real mouse drag: press, move in steps with the button held, release. */
+async function mouseDrag(page, from, to, { release = true } = {}) {
+  const send = (params) => page.cdp.send('Input.dispatchMouseEvent', params)
+  await send({ type: 'mouseMoved', x: from.x, y: from.y })
+  await send({ type: 'mousePressed', x: from.x, y: from.y, button: 'left', buttons: 1, clickCount: 1 })
+  for (let i = 1; i <= 10; i++) {
+    await send({ type: 'mouseMoved', x: from.x + ((to.x - from.x) * i) / 10, y: from.y + ((to.y - from.y) * i) / 10, button: 'left', buttons: 1 })
+  }
+  if (release) await send({ type: 'mouseReleased', x: to.x, y: to.y, button: 'left', buttons: 0, clickCount: 1 })
 }
 
 /** The sidebar as shown: projects with their count, sessions with title, branch line and state, the agents under the open one. */
@@ -200,6 +240,106 @@ scenario('ADE sessions: import from Claude Code and Codex, a new session on its 
     timeout: 30_000
   })
   await s.shot(page, 'sidebar-live')
+
+  // Three terminals in the session: two above, one stretched below.
+  for (let n = 0; n < 2; n++) {
+    await page.click('.code-header .header-btn', { text: /New terminal/ })
+    await page.click('[role="menuitem"]', { text: /^Shell$/ })
+  }
+  await page.waitFor(() => document.querySelectorAll('.term-pane').length === 3, { message: 'three terminals' })
+  let shown = await grid(page)
+  await s.shot(page, 'grid-three')
+  s.t.diagnostic(`grid of three: ${JSON.stringify(shown)}`)
+  assert.deepEqual(
+    shown.map((p) => p.name),
+    ['Cynthia', 'Andy', 'Sarah']
+  )
+  const [left, right, below] = shown
+  assert.ok(Math.abs(left.w - right.w) <= 2, 'the two above start even')
+  assert.ok(below.w > left.w + right.w, 'the one below spans both columns')
+
+  // Drag the column divider 200px right: the left terminal grows by what the right one loses.
+  const col = await centre(page, '.term-divider[data-axis="cols"]')
+  assert.ok(col, 'a column divider between the two above')
+  await mouseDrag(page, col, { x: col.x + 200, y: col.y })
+  shown = await grid(page)
+  s.t.diagnostic(`after dragging the column divider: ${JSON.stringify(shown)}`)
+  assert.ok(Math.abs(shown[0].w - (left.w + 200)) <= 3, `left ${left.w} → ${shown[0].w}`)
+  assert.ok(Math.abs(shown[1].w - (right.w - 200)) <= 3, `right ${right.w} → ${shown[1].w}`)
+  assert.equal(shown[2].w, below.w, 'the one below still spans the whole width')
+  // And the row divider 80px up: the top row gives the bottom one its height.
+  const row = await centre(page, '.term-divider[data-axis="rows"]')
+  await mouseDrag(page, row, { x: row.x, y: row.y - 80 })
+  const rows = await grid(page)
+  assert.ok(Math.abs(rows[0].h - (left.h - 80)) <= 3, `top ${left.h} → ${rows[0].h}`)
+  assert.ok(Math.abs(rows[2].h - (below.h + 80)) <= 3, `bottom ${below.h} → ${rows[2].h}`)
+  // Remembered for this folder.
+  const remembered = await page.eval(() => localStorage.getItem('eaon.ade.gridSizes'))
+  assert.match(remembered ?? '', /ci-checks-detail-link\|2x2/)
+  await s.shot(page, 'grid-resized')
+
+  // From the keyboard: a focused divider moves with the arrow keys; Enter evens it out again, as a double-click does.
+  await page.eval(() => document.querySelector('.term-divider[data-axis="cols"]').focus())
+  const beforeKey = (await grid(page))[0].w
+  await page.press('ArrowRight')
+  assert.ok(Math.abs((await grid(page))[0].w - (beforeKey + 24)) <= 3, 'ArrowRight moves the divider 24px')
+  const send = (params) => page.cdp.send('Input.dispatchMouseEvent', params)
+  for (const clickCount of [1, 2]) {
+    await send({ type: 'mousePressed', x: col.x + 224, y: col.y, button: 'left', buttons: 1, clickCount })
+    await send({ type: 'mouseReleased', x: col.x + 224, y: col.y, button: 'left', buttons: 0, clickCount })
+  }
+  await page.waitFor(
+    () => {
+      const [a, b] = [...document.querySelectorAll('.term-pane')].map((p) => p.getBoundingClientRect().width)
+      return Math.abs(a - b) <= 2
+    },
+    { message: 'a double-click to even the columns out' }
+  )
+
+  // Drag Cynthia's title bar onto Andy with the mouse: they trade places.
+  await page.cdp.send('Input.setInterceptDrags', { enabled: true })
+  const dragged = new Promise((resolve) => {
+    const off = page.cdp.on('Input.dragIntercepted', (params) => {
+      off()
+      resolve(params.data)
+    })
+  })
+  const handle = await centre(page, '.term-pane__name', 'Cynthia')
+  const onto = await centre(page, '.term-pane__screen', 'Andy')
+  await mouseDrag(page, handle, { x: handle.x + 40, y: handle.y + 20 }, { release: false })
+  const data = await within(dragged, 10_000, 'the title bar drag to start')
+  await page.cdp.send('Input.dispatchDragEvent', { type: 'dragEnter', x: onto.x, y: onto.y, data })
+  await page.cdp.send('Input.dispatchDragEvent', { type: 'dragOver', x: onto.x, y: onto.y, data })
+  await page.find('.term-pane__drop[data-over="true"]', { text: /Swap with Andy/ })
+  await s.shot(page, 'grid-dragging')
+  await page.cdp.send('Input.dispatchDragEvent', { type: 'drop', x: onto.x, y: onto.y, data })
+  await send({ type: 'mouseReleased', x: onto.x, y: onto.y, button: 'left', buttons: 0, clickCount: 1 })
+  await page.cdp.send('Input.setInterceptDrags', { enabled: false })
+  await page.waitFor(() => !document.querySelector('.term-pane__drop'), { message: 'the drop targets to go once dropped' })
+  assert.deepEqual(
+    (await grid(page)).map((p) => p.name),
+    ['Andy', 'Cynthia', 'Sarah']
+  )
+  // The new order is saved with the folder's terminals.
+  await page.waitFor(
+    async (cwd) => {
+      const layout = await window.api.terminals.layout()
+      return (layout[cwd] ?? []).map((p) => p.name).join(',') === 'Andy,Cynthia,Sarah'
+    },
+    { args: [worktree], message: 'the swapped order to be saved' }
+  )
+  // The same from a terminal's menu: Andy moves right, back where he was.
+  const options = await centre(page, '.term-pane__btn[aria-label="Pane options"]', 'Andy')
+  await page.mouse(options.x, options.y)
+  await page.click('[role="menuitem"]', { text: /^Move right$/ })
+  await page.waitFor(
+    () =>
+      [...document.querySelectorAll('.term-pane')]
+        .sort((a, b) => a.offsetTop - b.offsetTop || a.offsetLeft - b.offsetLeft)
+        .map((p) => p.querySelector('.term-pane__name')?.textContent)
+        .join(',') === 'Cynthia,Andy,Sarah',
+    { message: 'Move right to swap Andy with the one after him' }
+  )
 
   // Remove it, worktree too: the folder goes, the branch stays.
   await page.eval(() => {

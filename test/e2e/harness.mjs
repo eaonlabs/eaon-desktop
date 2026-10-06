@@ -627,6 +627,8 @@ const KEYS = {
   Backspace: { key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8 },
   ArrowDown: { key: 'ArrowDown', code: 'ArrowDown', windowsVirtualKeyCode: 40 },
   ArrowUp: { key: 'ArrowUp', code: 'ArrowUp', windowsVirtualKeyCode: 38 },
+  ArrowLeft: { key: 'ArrowLeft', code: 'ArrowLeft', windowsVirtualKeyCode: 37 },
+  ArrowRight: { key: 'ArrowRight', code: 'ArrowRight', windowsVirtualKeyCode: 39 },
   Comma: { key: ',', code: 'Comma', windowsVirtualKeyCode: 188 },
   a: { key: 'a', code: 'KeyA', windowsVirtualKeyCode: 65 }
 }
