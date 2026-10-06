@@ -3,6 +3,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { WebglAddon } from '@xterm/addon-webgl'
 import type { TerminalAgentId } from '@shared/terminals'
+import { taskFromTerminalTitle } from '@shared/adeSessions'
 
 /**
  * Every xterm behind the ADE's terminal view. Ported from Eaon ADE's
@@ -27,6 +28,8 @@ export interface Launch {
   command: string | null
   /** What the pane runs, so main can give an agent what it needs (Eaon Code gets Eaon's keys when shared). */
   agent?: TerminalAgentId
+  /** A past conversation of `agent` to reopen on this start. */
+  resume?: string
 }
 
 interface Runtime {
@@ -55,6 +58,18 @@ interface Runtime {
   status: PaneStatus
   exitCode: number | null
   error: string | null
+  /** What the agent says it is doing, from the title it gives its terminal; null when it says nothing useful. */
+  task: string | null
+}
+
+/** What the ADE's sidebar shows for a pane. */
+export interface PaneInfo {
+  status: PaneStatus
+  task: string | null
+  /** When it last printed anything; 0 before it has. */
+  lastData: number
+  /** Whether this window has the pane's terminal (it has been shown since launch). */
+  known: boolean
 }
 
 const IS_MAC = navigator.platform.toLowerCase().includes('mac')
@@ -224,6 +239,10 @@ class TerminalRegistry {
 
   private setStatus(rt: Runtime, status: PaneStatus): void {
     rt.status = status
+    this.bump()
+  }
+
+  private bump(): void {
     this.version++
     for (const listener of this.listeners) listener()
   }
@@ -234,6 +253,11 @@ class TerminalRegistry {
   }
 
   getVersion = (): number => this.version
+
+  infoOf(paneId: string): PaneInfo {
+    const rt = this.panes.get(paneId)
+    return { status: rt?.status ?? 'starting', task: rt?.task ?? null, lastData: rt?.lastData ?? 0, known: Boolean(rt) }
+  }
 
   statusOf(paneId: string): { status: PaneStatus; error: string | null; exitCode: number | null } {
     const rt = this.panes.get(paneId)
@@ -291,8 +315,18 @@ class TerminalRegistry {
       replaying: false,
       status: 'starting',
       exitCode: null,
-      error: null
+      error: null,
+      task: null
     }
+
+    // Claude Code titles its terminal with the task at hand (behind a spinner
+    // that turns several times a second); only a change of task is news.
+    term.onTitleChange((title) => {
+      const task = taskFromTerminalTitle(title)
+      if (task === rt.task) return
+      rt.task = task
+      this.bump()
+    })
 
     term.onData((data) => {
       if (!rt.replaying) window.api.terminals.write(paneId, data)
@@ -415,7 +449,8 @@ class TerminalRegistry {
       cols: rt.term.cols,
       rows: rt.term.rows,
       command: launch.command,
-      ...(launch.agent ? { agent: launch.agent } : {})
+      ...(launch.agent ? { agent: launch.agent } : {}),
+      ...(launch.resume ? { resume: launch.resume } : {})
     })
     if (!result.ok) {
       rt.spawned = false

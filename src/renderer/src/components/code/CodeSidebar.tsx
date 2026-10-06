@@ -1,141 +1,355 @@
-import { useEffect, useState, useSyncExternalStore, type JSX } from 'react'
+import { useEffect, useMemo, useState, useSyncExternalStore, type JSX } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { Folder, FolderPlus, Loader2, Maximize2, Trash2, X } from 'lucide-react'
+import { ChevronDown, CircleCheck, CircleDashed, Copy, Folder, FolderOpen, FolderPlus, PencilLine, Plus, Trash2 } from 'lucide-react'
 import { ContextMenu } from '../Sidebar'
-import { folderName } from './CodeHeader'
 import { useCode } from './codeStore'
+import { useAdeSessions } from './sessionsStore'
 import { AgentMark } from './terminal/TerminalWorkspace'
 import { terminals } from './terminal/registry'
 import { useTerminals } from './terminal/terminalStore'
+import { NewSessionDialog, RemoveProjectDialog, RemoveSessionDialog, RenameSessionDialog } from './SessionDialogs'
 import { revealLabel } from '../../lib/files'
+import { CLIPBOARD_FAILED, copyText } from '../../lib/clipboard'
+import { notify } from '../Notice'
+import {
+  ageLabel,
+  folderName,
+  groupSessions,
+  sessionSubtitle,
+  sessionTitle,
+  type AdeConversation,
+  type AdeSession,
+  type ProjectGroup
+} from '@shared/adeSessions'
 import type { TerminalPaneSpec } from '@shared/terminals'
 
-/** The ADE's sidebar section: this folder's terminals, then the folders opened recently. */
+/**
+ * The ADE's sidebar: its projects, each with its sessions, and the open
+ * session's agents — the terminals running in it and the past Claude Code and
+ * Codex conversations filed for its folder, which a click reopens.
+ */
 export function CodeSidebar(): JSX.Element | null {
-  const { cwd, recents, openFolder, chooseFolder, forgetFolder } = useCode(
-    useShallow((s) => ({
-      cwd: s.cwd,
-      recents: s.recents,
-      openFolder: s.openFolder,
-      chooseFolder: s.chooseFolder,
-      forgetFolder: s.forgetFolder
-    }))
-  )
-  const [menu, setMenu] = useState<{ x: number; y: number; path: string } | null>(null)
+  const { cwd, recents, chooseFolder } = useCode(useShallow((s) => ({ cwd: s.cwd, recents: s.recents, chooseFolder: s.chooseFolder })))
+  const { sessions, loaded, error } = useAdeSessions(useShallow((s) => ({ sessions: s.sessions, loaded: s.loaded, error: s.error })))
+  const loadPanes = useTerminals((s) => s.load)
 
   // The sidebar mounts before the view on first open; either may start things off.
   useEffect(() => {
-    void useCode.getState().init()
-  }, [])
+    void useCode
+      .getState()
+      .init()
+      .then(() => useAdeSessions.getState().load())
+    void loadPanes()
+  }, [loadPanes])
+
+  // The folder the ADE reopened is a session even if it was never made one.
+  useEffect(() => {
+    if (loaded && cwd && !sessions.some((s) => s.cwd === cwd)) void useAdeSessions.getState().openFolder(cwd).catch(() => undefined)
+  }, [loaded, cwd, sessions])
+
+  const groups = useMemo(() => groupSessions(sessions, recents), [sessions, recents])
 
   return (
     <>
-      <TerminalList cwd={cwd} />
+      <div className="sidebar__section sidebar__section--action">
+        <span>Sessions</span>
+        <button type="button" className="sidebar__section-btn" aria-label="Open a project folder" title="Open a project folder" onClick={() => void chooseFolder()}>
+          <FolderPlus size={14} strokeWidth={1.9} />
+        </button>
+      </div>
+      {error && <div className="sidebar__empty">{error}</div>}
+      {loaded && groups.length === 0 ? (
+        <button type="button" className="nav-item" onClick={() => void chooseFolder()}>
+          <span className="nav-item__icon">
+            <FolderPlus size={15} strokeWidth={1.9} />
+          </span>
+          <span className="nav-item__label code-sidebar__muted">Open a project folder…</span>
+        </button>
+      ) : (
+        <div className="ade-tree">
+          {groups.map((group) => (
+            <ProjectRow key={group.project} group={group} activeCwd={cwd} />
+          ))}
+        </div>
+      )}
+      <NewSessionDialog />
+    </>
+  )
+}
 
-      <div className="sidebar__section">Folders</div>
-      {recents.map((path) => (
+function ProjectRow({ group, activeCwd }: { group: ProjectGroup; activeCwd: string | null }): JSX.Element {
+  const collapsed = useAdeSessions((s) => Boolean(s.collapsed[group.project]))
+  const { toggleProject, newSession, openFolder } = useAdeSessions(
+    useShallow((s) => ({ toggleProject: s.toggleProject, newSession: s.newSession, openFolder: s.openFolder }))
+  )
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  const [removing, setRemoving] = useState(false)
+  const name = folderName(group.project)
+  return (
+    <div className="ade-project">
+      <div className="ade-project__head">
         <button
-          key={path}
-          className="nav-item code-sidebar__folder"
-          data-active={path === cwd || undefined}
-          title={path}
-          onClick={() => path !== cwd && void openFolder(path)}
+          type="button"
+          className="ade-project__row"
+          aria-expanded={!collapsed}
+          title={group.project}
+          onClick={() => toggleProject(group.project)}
           onContextMenu={(e) => {
             e.preventDefault()
-            setMenu({ x: e.clientX, y: e.clientY, path })
+            setMenu({ x: e.clientX, y: e.clientY })
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
+              e.preventDefault()
+              const rect = e.currentTarget.getBoundingClientRect()
+              setMenu({ x: rect.left + 12, y: rect.bottom })
+            }
           }}
         >
-          <span className="nav-item__icon">
-            <Folder size={15} strokeWidth={1.9} />
+          {collapsed ? <Folder className="ade-project__icon" size={16} strokeWidth={1.8} /> : <FolderOpen className="ade-project__icon" size={16} strokeWidth={1.8} />}
+          <span className="ade-project__name">{name}</span>
+          <span className="ade-project__count" aria-label={`${group.sessions.length} ${group.sessions.length === 1 ? 'session' : 'sessions'}`}>
+            {group.sessions.length}
           </span>
-          <span className="nav-item__label">{folderName(path)}</span>
         </button>
-      ))}
-      <button className="nav-item" onClick={() => void chooseFolder()}>
-        <span className="nav-item__icon">
-          <FolderPlus size={15} strokeWidth={1.9} />
-        </span>
-        <span className="nav-item__label code-sidebar__muted">Open folder…</span>
-      </button>
-
+        <button type="button" className="ade-project__add" aria-label={`New session in ${name}`} title={`New session in ${name}`} onClick={() => newSession(group.project)}>
+          <Plus size={14} strokeWidth={2} />
+        </button>
+      </div>
+      {!collapsed && group.sessions.map((session) => <SessionRow key={session.id} session={session} active={session.cwd === activeCwd} />)}
       {menu && (
         <ContextMenu
           x={menu.x}
           y={menu.y}
           onClose={() => setMenu(null)}
           items={[
-            { icon: <Folder size={15} strokeWidth={1.9} />, label: revealLabel(), action: () => void window.api.app.showItem(menu.path) },
-            { icon: <Trash2 size={15} strokeWidth={1.9} />, label: 'Remove from recents', action: () => void forgetFolder(menu.path) }
+            { icon: <Plus size={15} strokeWidth={1.9} />, label: 'New session…', action: () => newSession(group.project) },
+            { icon: <FolderOpen size={15} strokeWidth={1.9} />, label: 'Open the project folder', action: () => void openFolder(group.project) },
+            { icon: <Folder size={15} strokeWidth={1.9} />, label: revealLabel(), action: () => void window.api.app.showItem(group.project) },
+            { icon: <Trash2 size={15} strokeWidth={1.9} />, label: 'Remove from the ADE…', danger: true, action: () => setRemoving(true) }
           ]}
         />
       )}
-    </>
+      {removing && <RemoveProjectDialog group={group} onClose={() => setRemoving(false)} />}
+    </div>
   )
 }
 
-/** In the terminal view: this folder's terminals, with what each is doing. */
-function TerminalList({ cwd }: { cwd: string | null }): JSX.Element {
-  const panes = useTerminals((s) => (cwd ? s.layout[cwd] : undefined))
-  const { toggleMaximized, close } = useTerminals(useShallow((s) => ({ toggleMaximized: s.toggleMaximized, close: s.close })))
+const EMPTY_PANES: TerminalPaneSpec[] = []
+const EMPTY_CONVERSATIONS: AdeConversation[] = []
+
+/** Where a session stands, from its terminals: something is printing, something is open, or nothing runs. */
+type SessionState = 'working' | 'live' | 'idle' | 'missing'
+
+function useSessionPanes(session: AdeSession): { panes: TerminalPaneSpec[]; state: SessionState } {
+  const panes = useTerminals((s) => s.layout[session.cwd] ?? EMPTY_PANES)
   useSyncExternalStore(terminals.subscribe, terminals.getVersion)
-  const [menu, setMenu] = useState<{ x: number; y: number; pane: TerminalPaneSpec } | null>(null)
+  if (session.missing) return { panes, state: 'missing' }
+  const infos = panes.map((p) => terminals.infoOf(p.id))
+  if (infos.some((i) => i.status === 'working')) return { panes, state: 'working' }
+  // A pane this window hasn't shown since launch has no shell yet: it starts when shown.
+  if (infos.some((i) => i.known && i.status !== 'exited')) return { panes, state: 'live' }
+  return { panes, state: 'idle' }
+}
+
+const STATE_LABEL: Record<SessionState, string> = {
+  working: 'An agent is working',
+  live: 'Open, waiting for you',
+  idle: 'Nothing running',
+  missing: 'Its folder is gone'
+}
+
+function StateMark({ state }: { state: SessionState }): JSX.Element {
+  return <span className="ade-state" data-state={state} role="img" aria-label={STATE_LABEL[state]} title={STATE_LABEL[state]} />
+}
+
+function SessionRow({ session, active }: { session: AdeSession; active: boolean }): JSX.Element {
+  const open = useAdeSessions((s) => s.open)
+  const { state } = useSessionPanes(session)
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
+  const [dialog, setDialog] = useState<'rename' | 'remove' | null>(null)
+  const title = sessionTitle(session)
+  const sub = sessionSubtitle(session)
+
   return (
-    <>
-      <div className="sidebar__section">{cwd ? `Terminals · ${folderName(cwd)}` : 'Terminals'}</div>
-      {!cwd || !panes || panes.length === 0 ? (
-        <div className="sidebar__empty">{cwd ? 'No terminals yet' : 'Open a folder to start one'}</div>
-      ) : (
-        panes.map((pane, index) => {
-          const status = terminals.statusOf(pane.id).status
-          return (
-            <div
-              key={pane.id}
-              className="nav-item nav-item--staggered code-term-row"
-              data-status={status}
-              style={{ ['--i' as string]: Math.min(index, 12) }}
-              role="button"
-              tabIndex={0}
-              onClick={() => terminals.focus(pane.id)}
-              onDoubleClick={() => toggleMaximized(pane.id)}
-              // It had a tab stop and a role but no key handler: Enter did nothing.
-              onKeyDown={(e) => {
-                if (e.target !== e.currentTarget) return
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault()
-                  terminals.focus(pane.id)
-                } else if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
-                  e.preventDefault()
-                  const rect = e.currentTarget.getBoundingClientRect()
-                  setMenu({ x: rect.left + 12, y: rect.bottom, pane })
-                }
-              }}
-              onContextMenu={(e) => {
-                e.preventDefault()
-                setMenu({ x: e.clientX, y: e.clientY, pane })
-              }}
-            >
-              <span className="nav-item__icon">
-                <AgentMark agent={pane.agent} size={14} />
-              </span>
-              <span className="nav-item__label">{pane.name}</span>
-              <span className="nav-item__trail" data-always={status === 'working' ? 'true' : undefined}>
-                {status === 'working' ? <Loader2 size={13} strokeWidth={2} className="spinner" /> : null}
-              </span>
-            </div>
-          )
-        })
-      )}
-      {menu && cwd && (
+    <div className="ade-session" data-active={active || undefined} data-state={state}>
+      <button
+        type="button"
+        className="ade-session__row"
+        aria-current={active ? 'true' : undefined}
+        title={session.cwd}
+        onClick={() => {
+          if (session.missing) {
+            notify(`${session.cwd} isn’t there any more. Bring the folder back, or remove the session from its menu.`, 'error')
+            return
+          }
+          if (!active) void open(session)
+        }}
+        onContextMenu={(e) => {
+          e.preventDefault()
+          setMenu({ x: e.clientX, y: e.clientY })
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
+            e.preventDefault()
+            const rect = e.currentTarget.getBoundingClientRect()
+            setMenu({ x: rect.left + 12, y: rect.bottom })
+          }
+        }}
+      >
+        <StateMark state={state} />
+        <span className="ade-session__text">
+          <span className="ade-session__title">{title}</span>
+          <span className="ade-session__branch">{sub}</span>
+        </span>
+      </button>
+      {active && !session.missing && <AgentList session={session} />}
+      {menu && (
         <ContextMenu
           x={menu.x}
           y={menu.y}
           onClose={() => setMenu(null)}
           items={[
-            { icon: <Maximize2 size={15} strokeWidth={1.9} />, label: 'Fill the view', action: () => toggleMaximized(menu.pane.id) },
-            { icon: <X size={15} strokeWidth={1.9} />, label: 'Close', danger: true, action: () => close(cwd, menu.pane.id) }
+            { icon: <PencilLine size={15} strokeWidth={1.9} />, label: 'Rename', action: () => setDialog('rename') },
+            ...(session.branch
+              ? [
+                  {
+                    icon: <Copy size={15} strokeWidth={1.9} />,
+                    label: 'Copy branch name',
+                    action: () => void copyText(session.branch ?? '').then((ok) => notify(ok ? 'Branch name copied.' : CLIPBOARD_FAILED, ok ? 'done' : 'error'))
+                  }
+                ]
+              : []),
+            { icon: <Folder size={15} strokeWidth={1.9} />, label: revealLabel(), action: () => void window.api.app.showItem(session.cwd) },
+            { icon: <Trash2 size={15} strokeWidth={1.9} />, label: 'Remove session…', danger: true, action: () => setDialog('remove') }
           ]}
         />
       )}
-    </>
+      {dialog === 'rename' && <RenameSessionDialog session={session} onClose={() => setDialog(null)} />}
+      {dialog === 'remove' && <RemoveSessionDialog session={session} onClose={() => setDialog(null)} />}
+    </div>
   )
 }
+
+/** How many past conversations show before "Show more". */
+const PAST_SHOWN = 5
+
+interface AgentItem {
+  key: string
+  agent: TerminalPaneSpec['agent']
+  task: string
+  /** working, open and waiting, ended, or a past conversation. */
+  kind: 'working' | 'live' | 'exited' | 'past'
+  at: number
+  onOpen: () => void
+}
+
+function AgentList({ session }: { session: AdeSession }): JSX.Element | null {
+  const { panes } = useSessionPanes(session)
+  const agents = useTerminals((s) => s.agents)
+  const { conversations, held, loadConversations, resume } = useAdeSessions(
+    useShallow((s) => ({
+      conversations: s.conversations[session.cwd] ?? EMPTY_CONVERSATIONS,
+      held: s.paneConversations,
+      loadConversations: s.loadConversations,
+      resume: s.resume
+    }))
+  )
+  const [folded, setFolded] = useState(false)
+  const [all, setAll] = useState(false)
+  const [now, setNow] = useState(() => Date.now())
+
+  // The list of past conversations, and the ages beside them, kept current while it is on screen.
+  useEffect(() => {
+    void loadConversations(session.cwd)
+    const tick = window.setInterval(() => {
+      setNow(Date.now())
+      void loadConversations(session.cwd)
+    }, 30_000)
+    return () => window.clearInterval(tick)
+  }, [session.cwd, panes.length, loadConversations])
+
+  const byId = new Map(conversations.map((c) => [c.id, c]))
+  const openIds = new Set(panes.map((p) => held[p.id] ?? p.resume).filter(Boolean) as string[])
+  const label = (id: string): string => agents.find((a) => a.id === id)?.label ?? id
+  // Reopening needs the CLI: typed into a shell without it, `claude --resume …` only says "command not found".
+  const reopen = (c: AdeConversation): void => {
+    const cli = agents.find((a) => a.id === c.agent)
+    if (cli && !cli.installed) {
+      notify(`${cli.label} isn’t installed on this computer, so this conversation can’t be reopened here.${cli.installHint ? ` To install it: ${cli.installHint}` : ''}`, 'error')
+      return
+    }
+    void resume(session, c)
+  }
+
+  const live: AgentItem[] = panes.map((pane) => {
+    const info = terminals.infoOf(pane.id)
+    const conversation = byId.get(held[pane.id] ?? pane.resume ?? '')
+    const kind: AgentItem['kind'] = info.status === 'working' ? 'working' : info.status === 'exited' ? 'exited' : info.known ? 'live' : 'past'
+    return {
+      key: pane.id,
+      agent: pane.agent,
+      task: info.task ?? conversation?.title ?? `${pane.name} · ${label(pane.agent)}`,
+      kind,
+      at: info.lastData || conversation?.touched || 0,
+      onOpen: () => terminals.focus(pane.id)
+    }
+  })
+  const past = conversations.filter((c) => !openIds.has(c.id))
+  const shownPast = all ? past : past.slice(0, PAST_SHOWN)
+  const items: AgentItem[] = [
+    ...live,
+    ...shownPast.map((c) => ({
+      key: `${c.agent}:${c.id}`,
+      agent: c.agent,
+      task: c.title,
+      kind: 'past' as const,
+      at: c.touched,
+      onOpen: () => reopen(c)
+    }))
+  ]
+  const total = live.length + past.length
+  if (total === 0) return null
+
+  return (
+    <div className="ade-agents">
+      <button type="button" className="ade-agents__head" aria-expanded={!folded} onClick={() => setFolded(!folded)}>
+        <span>
+          {total} {total === 1 ? 'agent' : 'agents'}
+        </span>
+        <ChevronDown size={14} strokeWidth={2} className="ade-agents__chevron" />
+      </button>
+      {!folded && (
+        <div className="ade-agents__list">
+          {items.map((item) => (
+            <button key={item.key} type="button" className="ade-agent" data-kind={item.kind} title={item.task} onClick={item.onOpen}>
+              <AgentStatus kind={item.kind} />
+              <AgentMark agent={item.agent} size={15} />
+              <span className="ade-agent__task">{item.task}</span>
+              <span className="ade-agent__age">{item.kind === 'working' ? 'now' : item.at ? ageLabel(item.at, now) : ''}</span>
+            </button>
+          ))}
+          {past.length > PAST_SHOWN && (
+            <button type="button" className="ade-agents__more" onClick={() => setAll(!all)}>
+              {all ? 'Show fewer' : `Show ${past.length - PAST_SHOWN} more`}
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+const KIND_LABEL: Record<AgentItem['kind'], string> = {
+  working: 'Working',
+  live: 'Waiting for you',
+  exited: 'Ended',
+  past: 'Finished — click to reopen'
+}
+
+function AgentStatus({ kind }: { kind: AgentItem['kind'] }): JSX.Element {
+  if (kind === 'working') return <span className="ade-agent__status ade-spinner" role="img" aria-label={KIND_LABEL[kind]} />
+  if (kind === 'exited') return <CircleDashed className="ade-agent__status" size={14} strokeWidth={2} role="img" aria-label={KIND_LABEL[kind]} />
+  return <CircleCheck className="ade-agent__status" size={14} strokeWidth={2} role="img" aria-label={KIND_LABEL[kind]} />
+}
+

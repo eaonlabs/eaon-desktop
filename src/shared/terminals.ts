@@ -48,6 +48,12 @@ export interface TerminalPaneSpec {
   id: string
   name: string
   agent: TerminalAgentId
+  /**
+   * A conversation of `agent` to reopen when the pane first starts (a past
+   * Claude Code or Codex conversation picked in the ADE's sidebar). After
+   * that the pane's record of what it runs takes over, as for any pane.
+   */
+  resume?: string
 }
 
 /** Every folder's panes, keyed by folder path. */
@@ -62,6 +68,8 @@ export interface TerminalSpawnRequest {
   command: string | null
   /** What runs in the pane; Eaon Code panes get Eaon's API keys when Settings → Eaon Code shares them. */
   agent?: TerminalAgentId
+  /** A conversation of `agent` to reopen instead of starting a new one. */
+  resume?: string
 }
 
 export interface TerminalSpawnResult {

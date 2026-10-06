@@ -11,6 +11,8 @@ import { ContextMenu } from '../../Sidebar'
 import { MenuItem, MenuSeparator, Popover, useDisclosure } from '../../ui'
 import { folderName } from '../CodeHeader'
 import { useCode } from '../codeStore'
+import { useAdeSessions } from '../sessionsStore'
+import { sessionTitle } from '@shared/adeSessions'
 import { terminals, type PaneStatus } from './registry'
 import { useTerminals } from './terminalStore'
 import { gridColumns, type TerminalAgent, type TerminalAgentId, type TerminalPaneSpec } from '@shared/terminals'
@@ -34,6 +36,7 @@ export function TerminalWorkspace(): JSX.Element {
     }))
   )
   const appearance = useApp((s) => s.settings?.appearance)
+  const session = useAdeSessions((s) => (cwd ? (s.sessions.find((x) => x.cwd === cwd) ?? null) : null))
 
   useEffect(() => {
     void load()
@@ -64,8 +67,12 @@ export function TerminalWorkspace(): JSX.Element {
     return (
       <div className="term-workspace term-empty">
         <SquareTerminal size={44} strokeWidth={1.3} className="home__icon" />
-        <h1 className="home__title">Terminals in {folderName(cwd)}</h1>
-        <p className="term-empty__text">Run coding agents side by side, each in its own terminal in this folder. They keep running when you switch back to the agent view.</p>
+        <h1 className="home__title">{session ? sessionTitle(session) : `Terminals in ${folderName(cwd)}`}</h1>
+        <p className="term-empty__text">
+          {session?.worktree && session.branch
+            ? `On ${session.branch}, in a folder of its own. Start agents here side by side; they keep running when you switch to another session.`
+            : 'Run coding agents side by side, each in its own terminal in this folder. They keep running when you switch to another session.'}
+        </p>
         <div className="term-empty__agents">
           {agents.map((agent) => (
             <button
@@ -137,12 +144,12 @@ const TerminalPane = memo(function TerminalPane({
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [renaming, setRenaming] = useState(false)
   const [draft, setDraft] = useState(pane.name)
-  const launch = { cwd, command: agent?.command ?? null, agent: pane.agent }
+  const launch = { cwd, command: agent?.command ?? null, agent: pane.agent, ...(pane.resume ? { resume: pane.resume } : {}) }
 
   useEffect(() => {
     const host = screen.current
     if (!host) return
-    terminals.attach(pane.id, host, { cwd, command: agent?.command ?? null, agent: pane.agent })
+    terminals.attach(pane.id, host, launch)
     return () => terminals.detach(pane.id, host)
     // The command is read once, when the shell starts; re-attaching for a new
     // one would not change what is already running.

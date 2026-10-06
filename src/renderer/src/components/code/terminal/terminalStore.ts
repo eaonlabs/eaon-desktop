@@ -20,7 +20,8 @@ interface TerminalsState {
 
   load: () => Promise<void>
   refreshAgents: () => Promise<void>
-  add: (cwd: string, agent: TerminalAgentId) => TerminalPaneSpec
+  /** A new pane in `cwd` running `agent`, on a past conversation of it when `resume` names one. */
+  add: (cwd: string, agent: TerminalAgentId, resume?: string) => TerminalPaneSpec
   close: (cwd: string, paneId: string) => void
   rename: (cwd: string, paneId: string, name: string) => void
   /** What runs in a pane changed under it — its logo and label follow. */
@@ -75,12 +76,12 @@ export const useTerminals = create<TerminalsState>((set, get) => ({
     set({ agents: await window.api.terminals.agents() })
   },
 
-  add(cwd, agent) {
+  add(cwd, agent, resume) {
     const panes = get().layout[cwd] ?? []
     // The first name no pane in this folder is using, so "Sarah" means one pane.
     const taken = new Set(panes.map((p) => p.name))
     const name = PANE_NAMES.find((n) => !taken.has(n)) ?? `Terminal ${panes.length + 1}`
-    const pane: TerminalPaneSpec = { id: uid(), name, agent }
+    const pane: TerminalPaneSpec = { id: uid(), name, agent, ...(resume ? { resume } : {}) }
     const layout = { ...get().layout, [cwd]: [...panes, pane] }
     set({ layout, maximized: null })
     persist(layout)

@@ -3,6 +3,24 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [Unreleased]
+
+### Added
+- **ADE sessions.** The ADE's sidebar lists your projects, each with its
+  sessions: what the session is called, its branch, and whether an agent is
+  working (orange), waiting for you (green) or nothing runs (grey). The open
+  session shows its agents — the terminals running in it, with the task each
+  agent says it is on, and the past Claude Code and Codex conversations from
+  its folder, which a click reopens.
+- **New session** makes a branch for the work (from its name: "Fix CI checks
+  detail link" → `fix/ci-checks-detail-link`) in a worktree of its own under
+  `~/Eaon/worktrees`, and starts the agent you pick in it. Your project folder
+  isn't touched. Removing a session can remove its worktree too; the branch
+  always stays, and git's refusal to delete uncommitted work is respected.
+- **Settings → ADE → Import sessions** finds the conversations Claude Code and
+  Codex have on this computer and adds a session for each folder they ran in.
+  Nothing in either CLI changes.
+
 ## [2026.6.2-beta.1] — 2026-10-05
 
 *macOS, Windows and Linux. A repair release: Workers, models and providers,

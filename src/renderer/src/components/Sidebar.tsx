@@ -28,7 +28,7 @@ import { DOCS_URL } from '@shared/links'
 import { useApp, useWorkspaceKind, type ChatListItem } from '../state/store'
 import { DownloadsButton } from './DownloadsPanel'
 import { CodeSidebar } from './code/CodeSidebar'
-import { openNewTerminal } from './code/terminal/terminalStore'
+import { openNewSession } from './code/sessionsStore'
 import { WorkersNav } from './workers/WorkersSidebar'
 import { WorkersSearchButton } from './workers/WorkerThreads'
 import { ConfirmDialog, MenuItem, MenuSearch, Modal, Popover, useDisclosure } from './ui'
@@ -196,7 +196,7 @@ function AdeNav(): JSX.Element {
   )
   return (
     <>
-      <NavItem icon={<SquarePen {...ICON} />} label="New terminal" onClick={() => void openNewTerminal()} />
+      <NavItem icon={<SquarePen {...ICON} />} label="New session" onClick={() => void openNewSession()} />
       <NavItem
         icon={<GitPullRequest {...ICON} />}
         label="Pull requests"

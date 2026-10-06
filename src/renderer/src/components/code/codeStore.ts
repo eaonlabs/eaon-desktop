@@ -1,11 +1,12 @@
 import { create } from 'zustand'
 import type { EaonCodeStatus } from '@shared/eaonCode'
 import { useApp } from '../../state/store'
+import { useAdeSessions } from './sessionsStore'
 
 /**
- * The ADE's state: which project folder its terminals run in, the folders
- * opened before, and Eaon Code's install status (for its Settings page and
- * the "Eaon Code" terminal agent).
+ * The ADE's state: which folder its terminals run in (the open session's —
+ * see sessionsStore), the project folders opened before, and Eaon Code's
+ * install status (for its Settings page and the "Eaon Code" terminal agent).
  *
  * The ADE is terminals only. It used to also drive an Eaon Code agent over
  * RPC — opening a folder started that process — and none of that runs now:
@@ -63,9 +64,13 @@ export const useCode = create<CodeState>((set, get) => ({
     if (picked) await get().openFolder(picked)
   },
 
+  // A folder opened is its own session in the ADE (made the first time).
   async openFolder(cwd) {
-    set({ cwd })
-    set({ recents: await api().useFolder(cwd) })
+    try {
+      await useAdeSessions.getState().openFolder(cwd)
+    } catch (error) {
+      set({ toast: (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '') })
+    }
   },
 
   async forgetFolder(cwd) {

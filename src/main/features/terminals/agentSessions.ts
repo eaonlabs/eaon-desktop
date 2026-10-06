@@ -77,7 +77,7 @@ const home = (): string => homeOverride ?? os.homedir()
 const env = (): NodeJS.ProcessEnv => envOverride ?? process.env
 
 export const claudeDir = (): string => env().CLAUDE_CONFIG_DIR || path.join(home(), '.claude')
-const codexDir = (): string => env().CODEX_HOME || path.join(home(), '.codex')
+export const codexDir = (): string => env().CODEX_HOME || path.join(home(), '.codex')
 const antigravityDir = (): string => path.join(home(), '.gemini', 'antigravity-cli')
 const opencodeDb = (): string => path.join(env().XDG_DATA_HOME || path.join(home(), '.local', 'share'), 'opencode', 'opencode.db')
 

@@ -261,10 +261,3 @@ body[data-reduce-motion='on'] .term-pane__dot {
   }
 }
 
-/* The sidebar's terminal list in the ADE. */
-.code-term-row .nav-item__icon {
-  width: 16px;
-}
-.code-term-row[data-status='working'] .nav-item__trail {
-  color: #34c759;
-}

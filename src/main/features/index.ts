@@ -7,6 +7,7 @@ import { skillsFeature } from './skills'
 import { modelLibraryFeature } from './modelLibrary'
 import { libraryFeature } from './library'
 import { terminalsFeature } from './terminals'
+import { adeFeature } from './ade'
 import { workersFeature } from './workers'
 import { channelsFeature } from './channels'
 import { agentBrowserFeature } from './agentBrowser'
@@ -37,6 +38,7 @@ export const FEATURES: Feature[] = [
   eaonCodeFeature,
   libraryFeature,
   terminalsFeature,
+  adeFeature,
   workersFeature,
   // Built on the workers engine, so after it.
   channelsFeature,

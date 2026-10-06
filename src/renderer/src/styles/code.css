@@ -31,7 +31,8 @@
 }
 .code-folder {
   gap: 6px;
-  max-width: 240px;
+  /* Room for project / session. */
+  max-width: 420px;
   color: var(--text);
 }
 .code-folder[data-open='true'] {
@@ -874,4 +875,439 @@
   width: 220px;
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
+}
+
+/* ------------------------------------------------------------------ ADE sessions (sidebar) */
+
+/* Projects, each with its sessions; the open session is a card with its agents. */
+.ade-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  --ade-working: #f0a33a;
+  --ade-live: #34c759;
+}
+.ade-project + .ade-project {
+  margin-top: 8px;
+}
+.ade-project__head {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.ade-project__row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 34px;
+  padding: 0 34px 0 8px;
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font-size: var(--fs-base);
+  text-align: left;
+  transition: background var(--dur) var(--ease);
+}
+.ade-project__row:hover {
+  background: var(--hover);
+}
+.ade-project__icon {
+  flex: none;
+  color: var(--ade-working);
+}
+.ade-project__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ade-project__count {
+  flex: none;
+  min-width: 22px;
+  padding: 1px 7px;
+  border-radius: var(--r-pill);
+  background: var(--surface-3);
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.ade-project__add {
+  position: absolute;
+  right: 6px;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--r-xs);
+  color: var(--text-3);
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+.ade-project__head:hover .ade-project__add,
+.ade-project__add:focus-visible {
+  opacity: 1;
+}
+.ade-project__add:hover {
+  background: var(--hover-strong);
+  color: var(--text);
+}
+
+.ade-session {
+  border: 1px solid transparent;
+  border-radius: var(--r-lg);
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+.ade-session[data-active='true'] {
+  background: var(--surface-2);
+  border-color: var(--border);
+  margin: 2px 0;
+}
+.ade-session__row {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  width: 100%;
+  padding: 7px 10px 7px 10px;
+  border-radius: var(--r-lg);
+  text-align: left;
+  color: var(--text);
+}
+.ade-session:not([data-active='true']) .ade-session__row:hover {
+  background: var(--hover);
+}
+.ade-session[data-active='true'] .ade-session__row {
+  cursor: default;
+}
+.ade-session__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.ade-session__title,
+.ade-session__branch {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ade-session__title {
+  font-size: var(--fs-base);
+  line-height: 1.3;
+}
+.ade-session__branch {
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+.ade-session[data-state='missing'] .ade-session__title {
+  color: var(--text-3);
+}
+
+/* A session's state: grey when nothing runs, green when its agents wait, an orange ring while one works. */
+.ade-state {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--text-4);
+}
+.ade-state[data-state='live'] {
+  background: var(--ade-live);
+}
+.ade-state[data-state='missing'] {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--text-4);
+}
+.ade-state[data-state='working'],
+.ade-spinner {
+  background: transparent;
+  border: 2px solid color-mix(in srgb, var(--ade-working) 22%, transparent);
+  border-top-color: var(--ade-working);
+  border-right-color: var(--ade-working);
+  animation: spin 900ms linear infinite;
+}
+.ade-state[data-state='working'] {
+  width: 11px;
+  height: 11px;
+  margin-top: 4px;
+  margin-left: -1px;
+  margin-right: -1px;
+}
+body[data-reduce-motion='on'] .ade-state,
+body[data-reduce-motion='on'] .ade-spinner {
+  animation: none !important;
+}
+
+.ade-agents {
+  padding: 0 6px 6px;
+}
+.ade-agents__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 5px 6px 5px 26px;
+  border-radius: var(--r-sm);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+.ade-agents__head:hover {
+  background: var(--hover);
+}
+.ade-agents__chevron {
+  color: var(--text-3);
+  transition: rotate var(--dur) var(--ease);
+}
+.ade-agents__head[aria-expanded='false'] .ade-agents__chevron {
+  rotate: -90deg;
+}
+.ade-agent {
+  display: grid;
+  grid-template-columns: 14px 15px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 5px 6px 5px 6px;
+  border-radius: var(--r-sm);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  text-align: left;
+}
+.ade-agent:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.ade-agent__status {
+  color: var(--ade-live);
+}
+.ade-agent[data-kind='exited'] .ade-agent__status {
+  color: var(--text-4);
+}
+.ade-agent .ade-spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  margin: 1px;
+}
+.ade-agent__task {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ade-agent__age {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+.ade-agents__more {
+  width: 100%;
+  padding: 4px 6px 4px 29px;
+  border-radius: var(--r-sm);
+  text-align: left;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.ade-agents__more:hover {
+  background: var(--hover);
+  color: var(--text-2);
+}
+
+/* The header: project / session (the branch is in the sidebar). */
+.code-folder__sep {
+  flex: none;
+  color: var(--text-4);
+}
+
+/* ------------------------------------------------------------------ ADE session dialogs */
+
+.ade-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+/* The flex gap spaces the fields; the modal's own field margin would double it. */
+.modal__body .ade-dialog .field + .field {
+  margin-top: 0;
+}
+.ade-dialog__lede {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--fs-base);
+  line-height: 1.45;
+}
+.ade-dialog__hint {
+  margin: -6px 0 0;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.ade-dialog__error {
+  margin: 0;
+  color: var(--danger);
+  font-size: var(--fs-sm);
+  line-height: 1.4;
+}
+.ade-dialog__branch {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.ade-dialog__branch svg {
+  position: absolute;
+  left: 10px;
+  color: var(--text-3);
+  pointer-events: none;
+}
+.ade-dialog__branch .input {
+  width: 100%;
+  padding-left: 30px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+}
+.ade-dialog__branch .input[aria-invalid='true'] {
+  border-color: var(--danger);
+}
+.ade-dialog__agents {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.ade-dialog__agent {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 11px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+.ade-dialog__agent:hover {
+  background: var(--hover);
+}
+.ade-dialog__agent[data-on='true'] {
+  border-color: var(--accent);
+  background: var(--surface-2);
+  color: var(--text);
+}
+.ade-dialog__check {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+}
+.ade-dialog__check input {
+  margin-top: 3px;
+}
+
+/* ------------------------------------------------------------------ Settings → ADE: import */
+
+.ade-import {
+  border-top: 1px solid var(--border-soft);
+}
+.ade-import__bar,
+.ade-import__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+.ade-import__foot {
+  justify-content: flex-end;
+  border-top: 1px solid var(--border-soft);
+}
+.ade-import__toggle {
+  color: var(--link);
+  font-size: var(--fs-sm);
+}
+.ade-import__toggle:hover {
+  text-decoration: underline;
+}
+.ade-import__list {
+  max-height: 380px;
+  overflow: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.ade-import__item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border-soft);
+  cursor: pointer;
+}
+.ade-import__item:hover {
+  background: var(--hover);
+}
+.ade-import__item[data-already='true'] {
+  cursor: default;
+  opacity: 0.6;
+}
+.ade-import__item input {
+  margin-top: 3px;
+}
+.ade-import__text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.ade-import__name {
+  color: var(--text);
+  font-size: var(--fs-base);
+}
+.ade-import__in {
+  color: var(--text-3);
+}
+.ade-import__meta,
+.ade-import__latest {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ade-import__meta {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.ade-import__latest {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+.ade-import__counts {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+.ade-import__counts > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.ade-import__age {
+  min-width: 28px;
+  justify-content: flex-end;
+}
+.ade-import__done {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-right: auto;
+  color: var(--text-2);
+}
+.ade-import__error {
+  color: var(--danger);
 }

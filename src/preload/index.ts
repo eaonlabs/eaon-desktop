@@ -31,6 +31,7 @@ import { discordApi } from './features/discordPresence'
 import { modelLibraryApi } from './features/modelLibrary'
 import { libraryApi } from './features/library'
 import { terminalsApi } from './features/terminals'
+import { adeApi } from './features/ade'
 import { workersApi } from './features/workers'
 import { channelsApi } from './features/channels'
 import { agentBrowserApi } from './features/agentBrowser'
@@ -268,6 +269,7 @@ const fullApi = {
   modelLibrary: modelLibraryApi,
   library: libraryApi,
   terminals: terminalsApi,
+  ade: adeApi,
   workers: workersApi,
   channels: channelsApi,
   agentBrowser: agentBrowserApi,

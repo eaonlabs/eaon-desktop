@@ -116,6 +116,18 @@ function isDir(dir: string | undefined): dir is string {
   }
 }
 
+/**
+ * A pane opened on a past conversation starts its agent on that
+ * conversation (`claude --resume <id>`, `codex resume <id>`). The id goes into
+ * a shell command line, so only an id shaped like the agent's own is used.
+ */
+export function resumeLine(req: TerminalSpawnRequest): TerminalSpawnRequest {
+  const agent = req.agent
+  if (!req.resume || !req.command || !agent || agent === 'shell') return req
+  if (!/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(req.resume) && !/^ses_[A-Za-z0-9]+$/.test(req.resume)) return req
+  return { ...req, command: AGENT_KINDS[agent].resume(req.command, req.resume) }
+}
+
 export interface TerminalsOptions {
   /** Where pane records and saved screens live (default: userData/terminals). */
   dir?: string
@@ -246,9 +258,19 @@ export function createTerminals(options: TerminalsOptions = {}): Feature & { tic
           }
         }
         restored.add(req.paneId)
-        return manager.spawn(req, agentEnv(req.agent))
+        return manager.spawn(resumeLine(req), agentEnv(req.agent))
       })
       ipcMain.handle('terminal:running', () => watch?.snapshot() ?? {})
+      // The conversation each pane is in, as far as the watch has seen: the ADE's
+      // sidebar lists a folder's past conversations without the ones open in a pane.
+      ipcMain.handle('terminal:conversations', (_e, paneIds: unknown) =>
+        Object.fromEntries(
+          (Array.isArray(paneIds) ? paneIds : [])
+            .filter((id): id is string => typeof id === 'string')
+            .slice(0, 200)
+            .map((id) => [id, paneRecords().get(id)?.sessionId ?? null])
+        )
+      )
       ipcMain.handle('terminal:layout', () => currentLayout(store.getJson<TerminalLayout>(LAYOUT_FILE, {})))
       ipcMain.handle('terminal:save-layout', (_e, layout: TerminalLayout) => {
         store.setJson(LAYOUT_FILE, layout)

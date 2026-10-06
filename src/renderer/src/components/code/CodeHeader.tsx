@@ -4,6 +4,8 @@ import { ChevronDown, Folder, FolderOpen } from 'lucide-react'
 import { TopBar } from '../TopBar'
 import { MenuItem, MenuSeparator, Popover, useDisclosure } from '../ui'
 import { useCode } from './codeStore'
+import { useAdeSessions } from './sessionsStore'
+import { sessionTitle } from '@shared/adeSessions'
 import { NewTerminalButton } from './terminal/TerminalWorkspace'
 import { revealLabel } from '../../lib/files'
 
@@ -32,12 +34,24 @@ function FolderChip(): JSX.Element {
   const anchor = useRef<HTMLButtonElement>(null)
   const menu = useDisclosure()
   const others = recents.filter((path) => path !== cwd)
+  const session = useAdeSessions((s) => s.sessions.find((x) => x.cwd === cwd) ?? null)
+  // The project, then the session when it isn't the project folder itself.
+  const project = session?.project ?? cwd
+  const inner = session && session.cwd !== session.project ? sessionTitle(session) : null
 
   return (
     <>
       <button ref={anchor} className="header-btn code-folder" data-open={menu.open || undefined} onClick={menu.toggle} title={cwd ?? ''}>
         <Folder size={14} strokeWidth={1.9} />
-        <span className="code-folder__name">{cwd ? folderName(cwd) : 'Choose folder'}</span>
+        <span className="code-folder__name">{project ? folderName(project) : 'Choose folder'}</span>
+        {inner && (
+          <>
+            <span className="code-folder__sep" aria-hidden>
+              /
+            </span>
+            <span className="code-folder__name">{inner}</span>
+          </>
+        )}
         <ChevronDown size={13} strokeWidth={2} className="code-folder__chevron" />
       </button>
       <Popover anchor={anchor} open={menu.open} onClose={menu.close} placement="bottom-start" width={300}>
