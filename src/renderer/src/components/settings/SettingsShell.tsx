@@ -4,6 +4,7 @@ import {
   Archive,
   Chrome,
   Code2,
+  SquareTerminal,
   Gamepad2,
   ArrowLeft,
   Binary,
@@ -43,6 +44,7 @@ import { ConnectAppsPage } from './pages/ConnectApps'
 import { CodeIndexPage } from './pages/CodeIndex'
 import { BrowserExtensionPage } from './pages/BrowserExtension'
 import { EaonCodePage } from './pages/EaonCode'
+import { AdePage } from './pages/Ade'
 import { DiscordPage } from './pages/Discord'
 import { ChatAppsPage } from './pages/ChatApps'
 import { EmailPage } from './pages/Email'
@@ -74,6 +76,7 @@ const NAV: NavEntry[] = [
   { id: 'browser-extension', label: 'Browser extension', icon: <Chrome size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'plugins', label: 'Plugins', icon: <AtSign size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'eaon-code', label: 'Eaon Code', icon: <Code2 size={size} strokeWidth={stroke} />, group: 'Integrations' },
+  { id: 'ade', label: 'ADE', icon: <SquareTerminal size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'chat-apps', label: 'Chat apps', icon: <MessagesSquare size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'email', label: 'Email', icon: <Mail size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'discord', label: 'Discord', icon: <Gamepad2 size={size} strokeWidth={stroke} />, group: 'Integrations' },
@@ -105,6 +108,7 @@ const PAGES: Record<string, () => JSX.Element> = {
   payments: PaymentsPage,
   'browser-extension': BrowserExtensionPage,
   'eaon-code': EaonCodePage,
+  ade: AdePage,
   discord: DiscordPage,
   'chat-apps': ChatAppsPage,
   email: EmailPage,
