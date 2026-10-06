@@ -29,3 +29,7 @@ The licence covers the drawings. The marks themselves belong to their
 companies and are shown only to identify each provider. Some companies
 (Anthropic among them) ask for written permission before their logos are used
 beyond that, so check before using them anywhere else, such as marketing.
+
+`claude.webp` is Claude's own symbol (the starburst), supplied by the Eaon
+team, and identifies Claude Code wherever Eaon shows it (the ADE, Connect apps,
+Link accounts). It replaced the Lobe Icons tile `claudecode.svg`.

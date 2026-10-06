@@ -1,7 +1,7 @@
 import { memo, useEffect, useRef, useState, useSyncExternalStore, type JSX } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { Eraser, Maximize2, Minimize2, MoreHorizontal, PencilLine, Plus, RotateCcw, SquareTerminal, X } from 'lucide-react'
-import claudeCodeLogo from '../../../assets/providers/claudecode.svg'
+import claudeCodeLogo from '../../../assets/providers/claude.webp'
 import codexLogo from '../../../assets/providers/codex.svg'
 import antigravityLogo from '../../../assets/providers/antigravity.png'
 import openCodeLogo from '../../../assets/providers/opencode.svg'
