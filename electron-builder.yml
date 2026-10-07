@@ -79,8 +79,9 @@ mac:
   # and arm64 builds and rejects one that is identical but single-arch.
   # node-pty's prebuilds are both: the same per-arch folders ship in both
   # builds, and each loads only on its own arch, so they are kept as they are.
-  # Same for Eaon's llama-server (llama/darwin-arm64, llama/darwin-x64).
-  x64ArchFiles: '{**/node_modules/node-pty/prebuilds/**,**/llama/darwin-*/**}'
+  # Same for Eaon's llama-server (llama/darwin-arm64, llama/darwin-x64) and
+  # the Eaon CLI (eaon-cli/darwin-<arch>; only the arch that was built ships).
+  x64ArchFiles: '{**/node_modules/node-pty/prebuilds/**,**/llama/darwin-*/**,**/eaon-cli/darwin-*/**}'
   # Eaon's own llama.cpp runtime (scripts/build-llama.sh), both Mac arches:
   # main/llama/runtime.ts picks the one matching the running process.
   extraResources:
