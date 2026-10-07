@@ -2,6 +2,8 @@ import { app, BrowserWindow, dialog } from 'electron'
 import electronUpdater from 'electron-updater'
 import type { UpdateStatus } from '@shared/types'
 import { updateChannelFor } from './updateChannel'
+import { betaDialogText, isOfferable, isPrerelease } from './betaOffer'
+import { store } from './store'
 
 // electron-updater exposes `autoUpdater` via a lazy getter on its CJS exports,
 // which Node's ESM/CJS interop can't statically detect as a named export —
@@ -13,6 +15,12 @@ const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000
 let getWindows: () => BrowserWindow[] = () => []
 let status: UpdateStatus = { state: 'idle' }
 let interactive = false
+/** A look at the newest prerelease is under way: its checking and result are not the user's business. */
+let probing = false
+/** The beta this stable build found and would offer; null when there is none (or this isn't a stable build). */
+let beta: { version: string } | null = null
+let asking = false
+const DECLINED_FILE = 'beta-offer.json'
 
 function broadcast(next: UpdateStatus): void {
   status = next
@@ -31,7 +39,77 @@ function broadcast(next: UpdateStatus): void {
  */
 function poll(): void {
   if (status.state === 'checking' || status.state === 'downloading' || status.state === 'downloaded') return
-  void checkForUpdates()
+  void checkForUpdates().then(() => lookForBeta())
+}
+
+/**
+ * On a stable build: finds out whether a beta exists, without downloading
+ * anything, and asks once per beta whether to try it. The updater itself does
+ * the looking (so a release without this platform's update file finds
+ * nothing), with prereleases allowed for the length of this one check only —
+ * left on, the next background check would install a beta unasked.
+ */
+async function lookForBeta(): Promise<void> {
+  const current = app.getVersion()
+  if (probing || isPrerelease(current) || !app.isPackaged) return
+  // Only when nothing else is going on: a stable update in hand comes first.
+  if (status.state !== 'idle' && status.state !== 'not-available' && status.state !== 'error') return
+  probing = true
+  try {
+    autoUpdater.allowPrerelease = true
+    autoUpdater.autoDownload = false
+    const result = await autoUpdater.checkForUpdates()
+    const found = result?.updateInfo?.version
+    beta = result?.isUpdateAvailable && isOfferable(current, found) ? { version: found } : null
+  } catch {
+    // Offline, or no beta with this platform's files: nothing to offer.
+    beta = null
+  } finally {
+    autoUpdater.allowPrerelease = false
+    autoUpdater.autoDownload = true
+    probing = false
+  }
+  for (const window of getWindows()) {
+    if (!window.isDestroyed() && !window.webContents.isDestroyed()) window.webContents.send('updater:beta', beta)
+  }
+  if (beta && store.getJson<{ declined?: string }>(DECLINED_FILE, {}).declined !== beta.version) await askAboutBeta(true)
+}
+
+/** The beta on offer, for Settings; null when none. */
+export function betaOffer(): { version: string } | null {
+  return beta
+}
+
+/**
+ * The warning, then — only on a yes — the download of the beta, which installs
+ * when Eaon restarts like any update. `remember`: the automatic prompt, which
+ * does not ask again for a beta that was turned down (Settings still offers it).
+ */
+export async function askAboutBeta(remember: boolean): Promise<void> {
+  if (!beta || asking) return
+  asking = true
+  try {
+    const text = betaDialogText(beta.version)
+    const window = getWindows().find((w) => !w.isDestroyed())
+    const options = { type: 'warning' as const, ...text, buttons: ['Not now', 'Update to beta'], defaultId: 0, cancelId: 0, noLink: true }
+    const answer = window ? await dialog.showMessageBox(window, options) : await dialog.showMessageBox(options)
+    if (answer.response !== 1) {
+      if (remember) store.setJson(DECLINED_FILE, { declined: beta.version })
+      return
+    }
+    interactive = false
+    try {
+      autoUpdater.allowPrerelease = true
+      await autoUpdater.checkForUpdates()
+    } catch (err) {
+      broadcast({ state: 'error', message: err instanceof Error ? err.message : String(err) })
+    } finally {
+      // The download carries on from what was just found; background checks go back to stable only.
+      autoUpdater.allowPrerelease = false
+    }
+  } finally {
+    asking = false
+  }
 }
 
 export function getUpdateStatus(): UpdateStatus {
@@ -50,8 +128,11 @@ export function initUpdater(windows: () => BrowserWindow[]): void {
     autoUpdater.allowDowngrade = false
   }
 
-  autoUpdater.on('checking-for-update', () => broadcast({ state: 'checking' }))
+  autoUpdater.on('checking-for-update', () => {
+    if (!probing) broadcast({ state: 'checking' })
+  })
   autoUpdater.on('update-available', (info) => {
+    if (probing) return
     broadcast({ state: 'available', version: info.version })
     // The check the user asked about is answered; left set, the next
     // background failure hours later would pop a dialog nobody asked for.
@@ -63,6 +144,7 @@ export function initUpdater(windows: () => BrowserWindow[]): void {
   autoUpdater.on('update-downloaded', (info) => broadcast({ state: 'downloaded', version: info.version }))
 
   autoUpdater.on('update-not-available', () => {
+    if (probing) return
     broadcast({ state: 'not-available' })
     if (interactive) {
       void dialog.showMessageBox({
@@ -75,6 +157,7 @@ export function initUpdater(windows: () => BrowserWindow[]): void {
   })
 
   autoUpdater.on('error', (err) => {
+    if (probing) return
     broadcast({ state: 'error', message: err.message })
     if (interactive) {
       void dialog.showMessageBox({ type: 'error', message: 'Update check failed', detail: err.message })

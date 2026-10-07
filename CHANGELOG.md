@@ -3,11 +3,16 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
-## [2026.6.1] — 2026-10-04
+## [2026.6.1] — 2026-10-06
 
 *macOS, Windows and Linux.*
 
 ### Added
+- **Betas are opt-in.** When a beta exists, Eaon asks once whether to try it,
+  with the warning "UPDATE IF YOU WANT YOUR APP TO BE UNSTABLE, BETA UPDATE
+  ONLY", and installs nothing unless you choose Update to beta. Settings →
+  General → Software update keeps the offer if you said Not now. A stable
+  build never moves to a beta by itself.
 - **The agent can use your computer.** With Computer use on, Chat and
   workers can see the screen, move the pointer, type and click, zoom into one
   app or a region, and save screenshots to a folder (for example, a
