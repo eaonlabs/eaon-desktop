@@ -3,6 +3,13 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [2026.6.2-beta.5] — 2026-10-07
+
+### Added
+- **An installer for the beta on Mac.** "Install Eaon Beta" finds the Eaon
+  already on the Mac, quits it, puts the beta in its place and opens it. Chats,
+  settings and keys stay; nothing has to be uninstalled first.
+
 ## [2026.6.2-beta.4] — 2026-10-07
 
 ### Added
