@@ -5,6 +5,7 @@ import { useApp } from '../../state/store'
 import { useCode } from './codeStore'
 import { terminals } from './terminal/registry'
 import { useTerminals } from './terminal/terminalStore'
+import { notify } from '../Notice'
 
 /**
  * The ADE's sessions in the window (see `shared/adeSessions.ts`). The session
@@ -38,6 +39,8 @@ interface SessionsState {
   loadConversations: (cwd: string) => Promise<void>
   /** Reopens a past conversation in a new pane of its session. */
   resume: (session: AdeSession, conversation: AdeConversation) => Promise<void>
+  /** `resume`, after checking its CLI is installed (saying how to get it when it isn't). */
+  reopen: (session: AdeSession, conversation: AdeConversation) => void
   toggleProject: (project: string) => void
   newSession: (project?: string | null) => void
   closeNewSession: () => void
@@ -180,6 +183,16 @@ export const useAdeSessions = create<SessionsState>((set, get) => ({
     }
     const pane = useTerminals.getState().add(session.cwd, conversation.agent, conversation.id)
     set((s) => ({ paneConversations: { ...s.paneConversations, [pane.id]: conversation.id } }))
+  },
+
+  reopen(session, conversation) {
+    // Typed into a shell without the CLI, `claude --resume …` only says "command not found".
+    const cli = useTerminals.getState().agents.find((a) => a.id === conversation.agent)
+    if (cli && !cli.installed) {
+      notify(`${cli.label} isn’t installed on this computer, so this conversation can’t be reopened here.${cli.installHint ? ` To install it: ${cli.installHint}` : ''}`, 'error')
+      return
+    }
+    void get().resume(session, conversation)
   },
 
   toggleProject(project) {

@@ -12,7 +12,7 @@ import { MenuItem, MenuSeparator, Popover, useDisclosure } from '../../ui'
 import { folderName } from '../CodeHeader'
 import { useCode } from '../codeStore'
 import { useAdeSessions } from '../sessionsStore'
-import { sessionTitle } from '@shared/adeSessions'
+import { ageLabel, sessionTitle, type AdeConversation, type AdeSession } from '@shared/adeSessions'
 import { terminals, type PaneStatus } from './registry'
 import { useTerminals } from './terminalStore'
 import type { TerminalAgent, TerminalAgentId, TerminalPaneSpec } from '@shared/terminals'
@@ -102,6 +102,7 @@ export function TerminalWorkspace(): JSX.Element {
             ? `On ${session.branch}, in a folder of its own. Start agents here side by side; they keep running when you switch to another session.`
             : 'Run coding agents side by side, each in its own terminal in this folder. They keep running when you switch to another session.'}
         </p>
+        {session && <PastConversations session={session} />}
         <div className="term-empty__agents">
           {agents.map((agent) => (
             <button
@@ -132,6 +133,43 @@ export function TerminalWorkspace(): JSX.Element {
 }
 
 const EMPTY: TerminalPaneSpec[] = []
+const NO_CONVERSATIONS: AdeConversation[] = []
+/** How many past conversations an empty session lists; the sidebar has them all. */
+const PAST_LISTED = 5
+
+/**
+ * A session with no terminals open: its past Claude Code and Codex
+ * conversations, to carry on with one click. They were only in the sidebar,
+ * under the open session, so a session opened onto a page that looked like
+ * it had none.
+ */
+function PastConversations({ session }: { session: AdeSession }): JSX.Element | null {
+  const { conversations, loadConversations, reopen } = useAdeSessions(
+    useShallow((s) => ({ conversations: s.conversations[session.cwd] ?? NO_CONVERSATIONS, loadConversations: s.loadConversations, reopen: s.reopen }))
+  )
+  const [now] = useState(() => Date.now())
+  useEffect(() => {
+    void loadConversations(session.cwd)
+  }, [session.cwd, loadConversations])
+  if (conversations.length === 0) return null
+  const listed = conversations.slice(0, PAST_LISTED)
+  return (
+    <section className="term-past" aria-label="Past conversations in this folder">
+      <h2 className="term-past__heading">Pick up where you left off</h2>
+      <div className="term-past__list">
+        {listed.map((c) => (
+          <button key={`${c.agent}:${c.id}`} type="button" className="term-past__item" title={c.title} onClick={() => reopen(session, c)}>
+            <AgentMark agent={c.agent} size={16} />
+            <span className="term-past__title">{c.title}</span>
+            <span className="term-past__age">{ageLabel(c.touched, now)}</span>
+          </button>
+        ))}
+      </div>
+      {conversations.length > PAST_LISTED && <p className="term-past__more">{conversations.length - PAST_LISTED} more in the sidebar</p>}
+      <h2 className="term-past__heading term-past__heading--start">Or start an agent</h2>
+    </section>
+  )
+}
 
 type Axis = 'cols' | 'rows'
 

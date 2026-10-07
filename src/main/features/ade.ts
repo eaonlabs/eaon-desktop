@@ -7,7 +7,7 @@ import { store } from '../store'
 import { RecentFolders } from './eaonCode/recents'
 import { SessionBook, type SavedSessions } from './ade/sessions'
 import { allConversations, conversationsIn } from './ade/conversations'
-import { repoInfo } from './ade/git'
+import { projectRepo } from './ade/git'
 import type { AdeConversation, AdeImportCandidate, AdeSession, NewSessionRequest } from '@shared/adeSessions'
 import type { TerminalLayout } from '@shared/terminals'
 
@@ -72,7 +72,7 @@ async function importCandidates(): Promise<AdeImportCandidate[]> {
   for (const [cwd, conversations] of byFolder) {
     // A folder deleted since (a temporary checkout, an old worktree) has nothing to open.
     if (!isDir(cwd)) continue
-    const repo = await repoInfo(cwd)
+    const repo = await projectRepo(cwd, os.homedir())
     out.push({ cwd, project: repo ? repo.root : cwd, branch: repo?.branch ?? null, conversations, already: Boolean(sessions().byCwd(cwd)) })
   }
   return out.sort((a, b) => (b.conversations[0]?.touched ?? 0) - (a.conversations[0]?.touched ?? 0))

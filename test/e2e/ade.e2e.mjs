@@ -193,6 +193,18 @@ scenario('ADE sessions: import from Claude Code and Codex, a new session on its 
   assert.equal(baseline?.sub, 'feature/checkout-baseline')
   await s.shot(page, 'sidebar-imported')
 
+  // With no terminals open, the session's page offers the same conversations to carry on with
+  // (they were only in the sidebar, so a session looked empty).
+  const past = await page.waitFor(
+    () => {
+      const items = [...document.querySelectorAll('.term-past__item .term-past__title')].map((t) => t.textContent)
+      return items.length ? items : null
+    },
+    { message: 'the past conversations on the session’s page', timeout: 20_000 }
+  )
+  assert.deepEqual(past, ['fixed checks detail link', 'verifying CI panel deep link', 'adding regression coverage'])
+  await s.shot(page, 'session-past-conversations')
+
   // New session: a branch from the title, in a worktree of its own, with a shell started in it.
   await page.click('.sidebar .nav-item', { text: /^New session$/ })
   await page.find('.modal', { text: /New session/ })

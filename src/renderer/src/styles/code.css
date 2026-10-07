@@ -954,6 +954,7 @@
 }
 
 .ade-session {
+  position: relative;
   border: 1px solid transparent;
   border-radius: var(--r-lg);
   transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
@@ -998,6 +999,16 @@
 .ade-session__branch {
   font-size: var(--fs-sm);
   color: var(--text-3);
+}
+/* A project that is just its own folder: its New session button sits on its row. */
+.ade-session__add {
+  top: 7px;
+}
+.ade-session[data-solo='true'] .ade-session__row {
+  padding-right: 34px;
+}
+.ade-session:hover > .ade-session__add {
+  opacity: 1;
 }
 .ade-session[data-state='missing'] .ade-session__title {
   color: var(--text-3);

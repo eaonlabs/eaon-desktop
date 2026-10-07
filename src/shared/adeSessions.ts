@@ -245,3 +245,20 @@ export function groupSessions(sessions: AdeSession[], recentProjects: string[]):
     })
     .map(([project, list]) => ({ project, sessions: list }))
 }
+
+/**
+ * The sidebar's projects in an order that stays put while it is on screen:
+ * the ones already shown keep their places, and a project that wasn't shown
+ * yet goes first. Opening a session makes its project a recent one, and
+ * re-sorting by that moved the list under the pointer, so the next click
+ * landed on a different project.
+ */
+export function keepOrder(groups: ProjectGroup[], shown: readonly string[]): ProjectGroup[] {
+  const place = new Map(shown.map((project, i) => [project, i]))
+  const fresh = groups.filter((g) => !place.has(g.project))
+  const known = groups.filter((g) => place.has(g.project)).sort((a, b) => place.get(a.project)! - place.get(b.project)!)
+  return [...fresh, ...known]
+}
+
+/** A project that is just its own folder: shown as one row, not a heading over a row repeating it. */
+export const isSoloProject = (group: ProjectGroup): boolean => group.sessions.length === 1 && group.sessions[0].cwd === group.project

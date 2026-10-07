@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, useSyncExternalStore, type JSX } from 'react'
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type JSX } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { ChevronDown, CircleCheck, CircleDashed, Copy, Folder, FolderOpen, FolderPlus, PencilLine, Plus, Trash2 } from 'lucide-react'
 import { ContextMenu } from '../Sidebar'
@@ -15,6 +15,8 @@ import {
   ageLabel,
   folderName,
   groupSessions,
+  isSoloProject,
+  keepOrder,
   sessionSubtitle,
   sessionTitle,
   type AdeConversation,
@@ -47,7 +49,13 @@ export function CodeSidebar(): JSX.Element | null {
     if (loaded && cwd && !sessions.some((s) => s.cwd === cwd)) void useAdeSessions.getState().openFolder(cwd).catch(() => undefined)
   }, [loaded, cwd, sessions])
 
-  const groups = useMemo(() => groupSessions(sessions, recents), [sessions, recents])
+  // Sorted once by how recently each project was opened, then kept in place (see keepOrder).
+  const shown = useRef<string[]>([])
+  const groups = useMemo(() => {
+    const next = keepOrder(groupSessions(sessions, recents), shown.current)
+    shown.current = next.map((g) => g.project)
+    return next
+  }, [sessions, recents])
 
   return (
     <>
@@ -85,6 +93,15 @@ function ProjectRow({ group, activeCwd }: { group: ProjectGroup; activeCwd: stri
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [removing, setRemoving] = useState(false)
   const name = folderName(group.project)
+  // Just its own folder: one row, not a heading over a row that repeats it.
+  if (isSoloProject(group)) {
+    const session = group.sessions[0]
+    return (
+      <div className="ade-project ade-project--solo">
+        <SessionRow session={session} active={session.cwd === activeCwd} solo onNewSession={session.repo ? () => newSession(group.project) : undefined} />
+      </div>
+    )
+  }
   return (
     <div className="ade-project">
       <div className="ade-project__head">
@@ -163,16 +180,21 @@ function StateMark({ state }: { state: SessionState }): JSX.Element {
   return <span className="ade-state" data-state={state} role="img" aria-label={STATE_LABEL[state]} title={STATE_LABEL[state]} />
 }
 
-function SessionRow({ session, active }: { session: AdeSession; active: boolean }): JSX.Element {
+/**
+ * A session. `solo`: it stands for its whole project (a project that is just
+ * its own folder), so the line under it is only its branch, and it offers New
+ * session itself when the project is a repository.
+ */
+function SessionRow({ session, active, solo = false, onNewSession }: { session: AdeSession; active: boolean; solo?: boolean; onNewSession?: () => void }): JSX.Element {
   const open = useAdeSessions((s) => s.open)
   const { state } = useSessionPanes(session)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [dialog, setDialog] = useState<'rename' | 'remove' | null>(null)
   const title = sessionTitle(session)
-  const sub = sessionSubtitle(session)
+  const sub = solo && !session.missing ? session.branch : sessionSubtitle(session)
 
   return (
-    <div className="ade-session" data-active={active || undefined} data-state={state}>
+    <div className="ade-session" data-active={active || undefined} data-state={state} data-solo={solo || undefined}>
       <button
         type="button"
         className="ade-session__row"
@@ -200,9 +222,14 @@ function SessionRow({ session, active }: { session: AdeSession; active: boolean 
         <StateMark state={state} />
         <span className="ade-session__text">
           <span className="ade-session__title">{title}</span>
-          <span className="ade-session__branch">{sub}</span>
+          {sub && <span className="ade-session__branch">{sub}</span>}
         </span>
       </button>
+      {onNewSession && (
+        <button type="button" className="ade-project__add ade-session__add" aria-label={`New session in ${title}`} title={`New session in ${title}`} onClick={onNewSession}>
+          <Plus size={14} strokeWidth={2} />
+        </button>
+      )}
       {active && !session.missing && <AgentList session={session} />}
       {menu && (
         <ContextMenu
@@ -210,6 +237,7 @@ function SessionRow({ session, active }: { session: AdeSession; active: boolean 
           y={menu.y}
           onClose={() => setMenu(null)}
           items={[
+            ...(onNewSession ? [{ icon: <Plus size={15} strokeWidth={1.9} />, label: 'New session…', action: onNewSession }] : []),
             { icon: <PencilLine size={15} strokeWidth={1.9} />, label: 'Rename', action: () => setDialog('rename') },
             ...(session.branch
               ? [
@@ -247,12 +275,12 @@ interface AgentItem {
 function AgentList({ session }: { session: AdeSession }): JSX.Element | null {
   const { panes } = useSessionPanes(session)
   const agents = useTerminals((s) => s.agents)
-  const { conversations, held, loadConversations, resume } = useAdeSessions(
+  const { conversations, held, loadConversations, reopen } = useAdeSessions(
     useShallow((s) => ({
       conversations: s.conversations[session.cwd] ?? EMPTY_CONVERSATIONS,
       held: s.paneConversations,
       loadConversations: s.loadConversations,
-      resume: s.resume
+      reopen: s.reopen
     }))
   )
   const [folded, setFolded] = useState(false)
@@ -272,15 +300,6 @@ function AgentList({ session }: { session: AdeSession }): JSX.Element | null {
   const byId = new Map(conversations.map((c) => [c.id, c]))
   const openIds = new Set(panes.map((p) => held[p.id] ?? p.resume).filter(Boolean) as string[])
   const label = (id: string): string => agents.find((a) => a.id === id)?.label ?? id
-  // Reopening needs the CLI: typed into a shell without it, `claude --resume …` only says "command not found".
-  const reopen = (c: AdeConversation): void => {
-    const cli = agents.find((a) => a.id === c.agent)
-    if (cli && !cli.installed) {
-      notify(`${cli.label} isn’t installed on this computer, so this conversation can’t be reopened here.${cli.installHint ? ` To install it: ${cli.installHint}` : ''}`, 'error')
-      return
-    }
-    void resume(session, c)
-  }
 
   const live: AgentItem[] = panes.map((pane) => {
     const info = terminals.infoOf(pane.id)
@@ -305,7 +324,7 @@ function AgentList({ session }: { session: AdeSession }): JSX.Element | null {
       task: c.title,
       kind: 'past' as const,
       at: c.touched,
-      onOpen: () => reopen(c)
+      onOpen: () => reopen(session, c)
     }))
   ]
   const total = live.length + past.length

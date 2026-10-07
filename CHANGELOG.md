@@ -3,6 +3,22 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [Unreleased]
+
+### Fixed
+- **The ADE's sessions.** A session with no terminals open now shows its past
+  Claude Code and Codex conversations on its page ("Pick up where you left
+  off"), one click to carry on; they were only in a small list in the
+  sidebar, so a session looked like it had none.
+- A home folder that is itself a git repository (an empty `git init` in ~ is
+  enough) no longer makes every folder in it one project named after the home
+  folder, with sessions called "main". Each folder is its own project again,
+  and sessions saved that way are filed again when the list loads.
+- A project that is just its own folder is one row in the sidebar, not a
+  heading over a row repeating its name.
+- The sidebar no longer reorders itself when a session is opened, which moved
+  the next session out from under the pointer.
+
 ## [2026.6.2-beta.6] — 2026-10-07
 
 ### Added

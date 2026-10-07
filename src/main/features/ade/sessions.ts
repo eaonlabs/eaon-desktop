@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import fs from 'node:fs'
+import os from 'node:os'
 import path from 'node:path'
 import {
   branchForTitle,
@@ -30,6 +31,8 @@ export interface SessionBookDeps {
   now: () => number
   /** Where new sessions' worktrees go, as `<root>/<project>/<branch>`. */
   worktreesRoot: () => string
+  /** The home folder, whose own repository (if it is one) never makes a project of the folders in it. */
+  home?: () => string
 }
 
 const isDir = (dir: string): boolean => {
@@ -82,6 +85,10 @@ export class SessionBook {
     this.adoptedOnce = raw?.adopted === true
   }
 
+  private repo(dir: string): Promise<git.RepoInfo | null> {
+    return git.projectRepo(dir, (this.deps.home ?? os.homedir)())
+  }
+
   get adopted(): boolean {
     return this.adoptedOnce
   }
@@ -116,11 +123,15 @@ export class SessionBook {
           else delete session.missing
         }
         if (missing) return
-        const info = await git.repoInfo(session.cwd)
+        const info = await this.repo(session.cwd)
         const branch = info?.branch ?? null
-        if (branch !== session.branch || Boolean(info) !== session.repo) {
+        // A session in the project folder itself follows the repository it's in now (filed
+        // under a home-folder repository before, or a folder that has since become a repository).
+        const project = session.worktree ? session.project : (info?.root ?? session.cwd)
+        if (branch !== session.branch || Boolean(info) !== session.repo || project !== session.project) {
           session.branch = branch
           session.repo = Boolean(info)
+          session.project = project
           changed = true
         }
       })
@@ -138,7 +149,7 @@ export class SessionBook {
     const cwd = path.resolve(folder)
     const have = this.byCwd(cwd)
     if (have) return have
-    const repo = await git.repoInfo(cwd)
+    const repo = await this.repo(cwd)
     const session: AdeSession = {
       id: `ses-${randomUUID()}`,
       title: null,
@@ -173,7 +184,7 @@ export class SessionBook {
     if (!title) return { ok: false, error: 'Give the session a name.' }
     const project = path.resolve(req.project)
     if (!isDir(project)) return { ok: false, error: `${folderName(project)} isn’t there any more.` }
-    const repo = await git.repoInfo(project)
+    const repo = await this.repo(project)
     if (!repo) {
       return {
         ok: false,

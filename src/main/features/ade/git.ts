@@ -87,3 +87,23 @@ export async function addWorktree(root: string, dir: string, branch: string): Pr
 export async function removeWorktree(root: string, dir: string): Promise<void> {
   await git(root, ['worktree', 'remove', dir], 60_000)
 }
+
+/**
+ * Whether a working tree whose top is `top` should be ignored for `dir`: it
+ * holds the home folder (the home folder itself put under git, for dotfiles
+ * or by an accidental `git init`) and `dir` is a folder inside it. Taken at
+ * its word, every project in the home folder that isn't a repository of its
+ * own became one project, named after the home folder, on its branch.
+ */
+export function homeRepoFor(top: string, dir: string, home: string): boolean {
+  const t = path.resolve(top)
+  const h = path.resolve(home)
+  const holdsHome = t === h || h.startsWith(t.endsWith(path.sep) ? t : t + path.sep)
+  return holdsHome && path.resolve(dir) !== t
+}
+
+/** The repository `dir` belongs to as a project: `repoInfo`, except that a home-folder repository doesn't count for the folders in it. */
+export async function projectRepo(dir: string, home: string): Promise<RepoInfo | null> {
+  const info = await repoInfo(dir)
+  return info && homeRepoFor(info.top, dir, home) ? null : info
+}

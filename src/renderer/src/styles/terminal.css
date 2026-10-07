@@ -307,6 +307,63 @@ body[data-reduce-motion='on'] .term-pane__dot {
   color: var(--text-2);
   line-height: 1.55;
 }
+/* An empty session's past conversations, above the agent cards. */
+.term-past {
+  width: min(470px, 100%);
+  margin: -8px 0 4px;
+  text-align: left;
+}
+.term-past__heading {
+  margin: 0 0 8px 4px;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--text-3);
+}
+.term-past__heading--start {
+  margin: 20px 0 10px;
+  text-align: center;
+}
+.term-past__list {
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+  box-shadow: 0 0 0 1px var(--border-soft);
+}
+.term-past__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  padding: 0 10px;
+  border-radius: var(--r-md);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  text-align: left;
+  transition: background var(--dur) var(--ease);
+}
+.term-past__item:hover {
+  background: var(--hover);
+}
+.term-past__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.term-past__age {
+  flex: none;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+.term-past__more {
+  margin: 6px 0 0 4px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
 .term-empty__agents {
   display: grid;
   grid-template-columns: repeat(3, 150px);
