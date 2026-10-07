@@ -1,7 +1,7 @@
 import { app, BrowserWindow, dialog } from 'electron'
 import electronUpdater from 'electron-updater'
 import type { UpdateStatus } from '@shared/types'
-import { updateChannelFor } from './updateChannel'
+import { isPrerelease, updateChannelFor } from './updateChannel'
 
 // electron-updater exposes `autoUpdater` via a lazy getter on its CJS exports,
 // which Node's ESM/CJS interop can't statically detect as a named export —
@@ -113,6 +113,23 @@ export async function checkForUpdates(options?: { interactive?: boolean }): Prom
     broadcast({ state: 'error', message: err instanceof Error ? err.message : String(err) })
     interactive = false
   }
+}
+
+/**
+ * Back to the stable release: for someone on a beta who wants out. Points the
+ * updater at the latest stable release (not prereleases) and allows the move
+ * to an older version, which an update never does otherwise; the download
+ * installs when Eaon restarts, like any update. Refused on a stable build,
+ * which has nowhere older to go and must never be moved backwards.
+ */
+export async function switchToStable(): Promise<void> {
+  if (!isPrerelease(app.getVersion())) throw new Error('This isn’t a beta build, so there is no stable version to go back to.')
+  if (!app.isPackaged) throw new Error('Updates are unavailable in development builds.')
+  autoUpdater.allowPrerelease = false
+  autoUpdater.channel = 'latest'
+  autoUpdater.allowDowngrade = true
+  interactive = false
+  await autoUpdater.checkForUpdates()
 }
 
 export function quitAndInstall(): void {

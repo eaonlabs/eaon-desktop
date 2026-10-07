@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useApp, useIsWork } from '../../../state/store'
-import { Card, ErrorDetails, Row, Section, Select, Switch } from '../../ui'
+import { Card, ErrorDetails, Modal, Row, Section, Select, Switch } from '../../ui'
 import { LinkAccounts } from '../../LinkAccounts'
 import { ExternalLink, Github } from 'lucide-react'
 import type { LaunchMode } from '@shared/types'
@@ -13,6 +13,9 @@ export function GeneralPage(): JSX.Element {
   const isWork = useIsWork()
   const update = useApp((s) => s.updateStatus)
   const [version, setVersion] = useState('')
+  const [confirmStable, setConfirmStable] = useState(false)
+  // A beta, release candidate or other prerelease: `2026.6.2-beta.3`.
+  const isBeta = /^\d+\.\d+\.\d+-[0-9A-Za-z]/.test(version)
   // The same switch as Scheduled → Keep running in the background: one setting, two places.
   const [background, setBackground] = useState<{ supported: boolean; enabled: boolean } | null>(null)
   const [backgroundError, setBackgroundError] = useState<string | null>(null)
@@ -148,8 +151,45 @@ export function GeneralPage(): JSX.Element {
             </Row>
           )}
           {update.state === 'error' && <UpdateError message={update.message} />}
+          {isBeta && (
+            <Row
+              title="Go back to the stable version"
+              description="You’re on a beta, which can be unstable. This downloads the latest stable release and installs it when Eaon restarts."
+            >
+              <button className="btn" onClick={() => setConfirmStable(true)}>
+                Switch to stable
+              </button>
+            </Row>
+          )}
         </Card>
       </Section>
+      <Modal
+        open={confirmStable}
+        onClose={() => setConfirmStable(false)}
+        title="Go back to the stable version?"
+        width={460}
+        actions={
+          <>
+            <button className="btn btn--ghost" onClick={() => setConfirmStable(false)}>
+              Stay on the beta
+            </button>
+            <button
+              className="btn btn--primary"
+              onClick={() => {
+                setConfirmStable(false)
+                window.api.updater.switchToStable().catch(() => undefined)
+              }}
+            >
+              Download the stable version
+            </button>
+          </>
+        }
+      >
+        <p style={{ margin: 0, lineHeight: 1.45 }}>
+          Eaon downloads the latest stable release and installs it when you restart. Your chats stay, but things the beta added (such as new worker threads and
+          ADE sessions) may not show in the older version, so copy <code>~/Library/Application Support/Eaon</code> first if it holds anything you care about.
+        </p>
+      </Modal>
 
       <Section label="Resources">
         <Card>

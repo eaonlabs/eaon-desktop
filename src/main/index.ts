@@ -26,7 +26,7 @@ import { getStatuses, getTools, setMcpStatusListener, shutdownMcp, syncMcpServer
 import { forgetServer } from './mcpOAuth'
 import { getLocalServerStatus, setLocalServerListener, startLocalServer, stopLocalServer } from './localServer'
 import { getSystemInfo } from './system'
-import { checkForUpdates, getUpdateStatus, initUpdater, quitAndInstall } from './updater'
+import { checkForUpdates, getUpdateStatus, initUpdater, quitAndInstall, switchToStable } from './updater'
 import { listPullRequests } from './github'
 import { buildIndex, cancelIndexing, clearIndex, getIndexStatus, setIndexStatusListener } from './codeIndex'
 import { describeEmbeddingState, embeddingModels } from './embeddings'
@@ -633,6 +633,7 @@ function registerIpc(): void {
 
   ipcMain.handle('updater:status', (): UpdateStatus => getUpdateStatus())
   ipcMain.handle('updater:check', () => checkForUpdates())
+  ipcMain.handle('updater:switch-to-stable', () => switchToStable())
   ipcMain.handle('updater:install', async () => {
     // Flushed here rather than by holding the quit in before-quit/will-quit,
     // which the updater's own quit-and-relaunch must not wait on.

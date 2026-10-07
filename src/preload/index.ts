@@ -230,6 +230,8 @@ const api = {
   updater: {
     status: (): Promise<UpdateStatus> => ipcRenderer.invoke('updater:status'),
     check: (): Promise<void> => ipcRenderer.invoke('updater:check'),
+    /** A beta build only: download the latest stable release and install it on restart. */
+    switchToStable: (): Promise<void> => ipcRenderer.invoke('updater:switch-to-stable'),
     install: (): Promise<void> => ipcRenderer.invoke('updater:install'),
     onStatus: (handler: (status: UpdateStatus) => void): (() => void) => {
       const listener = (_e: unknown, payload: UpdateStatus): void => handler(payload)

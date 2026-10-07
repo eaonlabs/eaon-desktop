@@ -3,6 +3,14 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [Unreleased]
+
+### Added
+- **Go back to the stable version.** On a beta build, Settings → General →
+  Software update has "Switch to stable": after asking, it downloads the
+  latest stable release and installs it when Eaon restarts. It isn't offered
+  on a stable build.
+
 ## [2026.6.2-beta.3] — 2026-10-06
 
 ### Added

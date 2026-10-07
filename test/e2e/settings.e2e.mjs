@@ -173,3 +173,38 @@ scenario('software update: checking while offline shows a failure, not a crash o
     return app.isPackaged
   })
 })
+
+scenario('a beta build can go back to the stable version, after asking; a stable build isn’t offered it', { timeout: 120_000 }, async (s) => {
+  const app = await s.launch()
+  const page = app.page
+  await openSettings(page, 'General')
+  assert.equal(await page.eval(() => [...document.querySelectorAll('.settings__inner .row__title')].some((t) => t.textContent === 'Go back to the stable version')), false, 'not offered on a stable build')
+
+  // Pretend to be a beta: the version is read from main each time Settings opens.
+  await app.main(async () => {
+    const { app } = require('electron')
+    app.getVersion = () => '2026.6.2-beta.3'
+    return true
+  })
+  await page.reload()
+  await openSettings(page, 'General')
+  await page.click('.settings__inner button', { text: /^Switch to stable$/ })
+  await page.find('.modal__title', { text: 'Go back to the stable version?' })
+  await s.shot(page, 'switch-to-stable-confirm')
+  // Declining changes nothing.
+  await app.recordIpc()
+  await page.click('.modal button', { text: /^Stay on the beta$/ })
+  await page.waitFor(() => !document.querySelector('.modal'), { message: 'the dialog to close' })
+  assert.deepEqual((await app.takeIpc()).filter((c) => /updater:/.test(c)), [], 'nothing was downloaded')
+  // Accepting asks the updater (a dev build can't update, so main refuses; the page stays alive).
+  await page.click('.settings__inner button', { text: /^Switch to stable$/ })
+  await page.click('.modal button', { text: /^Download the stable version$/ })
+  const seen = []
+  const deadline = Date.now() + 10_000
+  while (!seen.includes('updater:switch-to-stable') && Date.now() < deadline) {
+    seen.push(...(await app.takeIpc()))
+    await new Promise((resolve) => setTimeout(resolve, 200))
+  }
+  assert.ok(seen.includes('updater:switch-to-stable'), `accepting asks the updater (saw ${JSON.stringify(seen)})`)
+  assert.deepEqual(app.pageErrors().filter((e) => /exception/i.test(e)), [])
+})
