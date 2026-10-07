@@ -3,7 +3,7 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
-## [Unreleased]
+## [2026.6.2-beta.3] — 2026-10-06
 
 ### Added
 - **Chat on Codex.** Chat's model picker has a Codex tab with the models your
