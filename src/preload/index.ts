@@ -213,6 +213,15 @@ const api = {
   updater: {
     status: (): Promise<UpdateStatus> => ipcRenderer.invoke('updater:status'),
     check: (): Promise<void> => ipcRenderer.invoke('updater:check'),
+    /** On a stable build: the beta Eaon found, if any. Nothing is downloaded until it is accepted. */
+    beta: (): Promise<{ version: string } | null> => ipcRenderer.invoke('updater:beta'),
+    /** Shows the beta warning; on a yes the beta downloads and installs on restart. */
+    tryBeta: (): Promise<void> => ipcRenderer.invoke('updater:try-beta'),
+    onBeta: (handler: (beta: { version: string } | null) => void): (() => void) => {
+      const listener = (_e: unknown, payload: { version: string } | null): void => handler(payload)
+      ipcRenderer.on('updater:beta', listener)
+      return () => ipcRenderer.removeListener('updater:beta', listener)
+    },
     install: (): Promise<void> => ipcRenderer.invoke('updater:install'),
     onStatus: (handler: (status: UpdateStatus) => void): (() => void) => {
       const listener = (_e: unknown, payload: UpdateStatus): void => handler(payload)

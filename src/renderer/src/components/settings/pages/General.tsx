@@ -10,12 +10,16 @@ export function GeneralPage(): JSX.Element {
   const isWork = useIsWork()
   const update = useApp((s) => s.updateStatus)
   const [version, setVersion] = useState('')
+  // A beta Eaon found for this stable build. Nothing is downloaded unless it is accepted.
+  const [beta, setBeta] = useState<{ version: string } | null>(null)
   // The same switch as Scheduled → Keep running in the background: one setting, two places.
   const [background, setBackground] = useState<{ supported: boolean; enabled: boolean } | null>(null)
 
   useEffect(() => {
     void window.api.app.version().then(setVersion)
     void window.api.app.background().then(setBackground)
+    void window.api.updater.beta().then(setBeta, () => undefined)
+    return window.api.updater.onBeta(setBeta)
   }, [])
 
   if (!settings) return <></>
@@ -181,6 +185,13 @@ export function GeneralPage(): JSX.Element {
             </Row>
           )}
           {update.state === 'error' && <Row title="Update check failed" description={update.message} />}
+          {beta && (
+            <Row title={`A beta is available: ${beta.version}`} description="UPDATE IF YOU WANT YOUR APP TO BE UNSTABLE, BETA UPDATE ONLY. Nothing is installed unless you choose it.">
+              <button className="btn" onClick={() => void window.api.updater.tryBeta()}>
+                Try the beta…
+              </button>
+            </Row>
+          )}
         </Card>
       </Section>
 
