@@ -13,6 +13,8 @@ import { liveMentions, permissionItems, pluginItems, skillItems, toolMentionItem
 import { removeMention } from '../composer/suggest'
 import { joinTranscript, useDictation } from '../composer/useDictation'
 import { VoiceBar } from '../composer/VoiceBar'
+import { ModelSelect } from '../composer/ModelSelect'
+import { ENGINE_LABEL } from '@shared/engines'
 import { fileName, fileUrl, isImagePath } from '../../lib/files'
 import { mcpCatalogEntry } from '@shared/mcpCatalog'
 import { MAIN_THREAD, mentionedWorkers, WORKER_ACCESS, type Worker, type WorkerAccess } from '@shared/workers'
@@ -293,6 +295,24 @@ export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Wor
             </div>
           )}
           <div className="composer__spacer" />
+          {/* The model this worker thinks with, chosen here as in Chat (it was only in Edit worker). */}
+          <ModelSelect
+            variant="chip"
+            engine={worker.engine ?? 'native'}
+            label={`${worker.name}’s model`}
+            value={worker.model}
+            defaultLabel={worker.engine && worker.engine !== 'native' ? `${ENGINE_LABEL[worker.engine]}’s default` : 'Chat’s model'}
+            onChange={(ref) =>
+              void save({
+                id: worker.id,
+                name: worker.name,
+                color: worker.color,
+                personality: worker.personality,
+                purpose: worker.purpose,
+                model: ref && ref.modelId ? { providerId: ref.providerId ?? worker.engine ?? 'native', modelId: ref.modelId } : null
+              })
+            }
+          />
           {working && (
             <button
               className="chip worker-stop"

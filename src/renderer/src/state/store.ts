@@ -788,7 +788,10 @@ export const useApp = create<AppState>((set, get) => ({
     if (state.streamingMessageId) return
 
     const selection = state.modelSelection()
-    const model = selection.model
+    // Chat on an agent engine (a Codex model): the engine's own model, not a provider's.
+    const engine = settings.selectedEngine ?? null
+    const engineModel = settings.selectedEngineModel ?? ''
+    const model = engine ? null : selection.model
     if (model) {
       // A default the user never picked becomes their choice once they use it,
       // so connecting another provider later doesn't move the chat to its model.
@@ -813,7 +816,7 @@ export const useApp = create<AppState>((set, get) => ({
       role: 'assistant',
       parts: [],
       createdAt: now + 1,
-      model: model?.id
+      model: engine ? engineModel || engine : model?.id
     }
     const goal = options.goal
       ? { text: text.trim(), status: 'active' as const, iterations: 0, ...(options.until && options.until > now ? { until: options.until } : {}) }
@@ -833,7 +836,7 @@ export const useApp = create<AppState>((set, get) => ({
         archived: false,
         pinned: false,
         unread: false,
-        modelId: model?.id ?? null,
+        modelId: engine ? engineModel || engine : (model?.id ?? null),
         effort: settings.effort,
         ...(goal ? { goal } : {})
       }
@@ -853,7 +856,7 @@ export const useApp = create<AppState>((set, get) => ({
     // messages before the reply's first words reach them.
     saveChatsNow()
 
-    if (!model) {
+    if (!model && !engine) {
       // The composer says this before anything is typed; a retry or an
       // approved plan can still get here, and gets the same explanation.
       const reason =
@@ -901,8 +904,9 @@ export const useApp = create<AppState>((set, get) => ({
       chatId: current.id,
       chatTitle: current.title,
       messageId: assistantMessage.id,
-      providerId: model.providerId,
-      modelId: model.id,
+      providerId: engine ?? model!.providerId,
+      modelId: engine ? engineModel : model!.id,
+      ...(engine ? { engine } : {}),
       effort: settings.effort,
       mode,
       history,
@@ -1071,6 +1075,8 @@ export const useApp = create<AppState>((set, get) => ({
     void get().patchSettings({
       selectedModelId: modelId,
       selectedProviderId: chosenProvider,
+      // A provider's model: Chat no longer runs on an engine.
+      selectedEngine: null,
       ...(chosenProvider ? { recentModels: withRecent(get().settings?.recentModels, modelKey(chosenProvider, modelId)) } : {})
     })
   },

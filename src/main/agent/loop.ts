@@ -21,6 +21,10 @@ import { capOutput, guidanceFor, isMutating, toolsFor, toSpec, WORKFLOW_TOOLS, t
 
 export type { ToolGate, TurnOrigin, UnattendedPolicy } from './policy'
 import { redactSecrets } from '../providers/redact'
+import { engine as engineAdapter } from '../engines'
+import { recordUsage } from '../features/usage/ledger'
+import { runEngineChat } from './engineChat'
+import type { EngineId } from '@shared/engines'
 
 /**
  * The agent loop — one implementation for every provider and both modes.
@@ -693,7 +697,53 @@ export interface RunOutcome {
   cancelled?: boolean
 }
 
+/** Each chat's own conversation on an agent engine (a Codex thread), so the next message continues it. */
+const ENGINE_SESSIONS = 'chat-engine-sessions.json'
+type EngineSessions = Record<string, Partial<Record<EngineId, string>>>
+
+/**
+ * A Chat turn on an agent engine (Codex) rather than Eaon's own loop. It is
+ * registered as a run like any other, so Stop, "which reply is being
+ * written" and the approval dialog behave the same; see agent/engineChat.ts.
+ */
+async function runOnEngine(request: StreamRequest, engineId: EngineId, emit: (event: StreamEvent) => void, options: RunOptions): Promise<RunOutcome> {
+  const controller = new AbortController()
+  const forwardAbort = (): void => controller.abort()
+  if (options.signal?.aborted) controller.abort()
+  else options.signal?.addEventListener('abort', forwardAbort, { once: true })
+  controller.signal.addEventListener('abort', () => cancelApprovals(request.messageId), { once: true })
+  activeRuns.set(request.messageId, controller)
+  holdAwake()
+  try {
+    const settings = store.getSettings()
+    const cwd = await ensureWorkFolder(request.cwd, settings)
+    const outcome = await runEngineChat(
+      { request, engine: engineId, cwd, settings, signal: controller.signal, emit },
+      {
+        adapter: (id) => engineAdapter(id),
+        session: (chatId, id) => store.getJson<EngineSessions>(ENGINE_SESSIONS, {})[chatId]?.[id] ?? null,
+        saveSession: (chatId, id, sessionId) => {
+          const all = store.getJson<EngineSessions>(ENGINE_SESSIONS, {})
+          const mine = { ...all[chatId] }
+          if (sessionId) mine[id] = sessionId
+          else delete mine[id]
+          all[chatId] = mine
+          store.setJson(ENGINE_SESSIONS, all)
+        },
+        ask: (tool, input, summary) => (controller.signal.aborted ? Promise.resolve(false) : requestApproval(request.messageId, tool, input, emit, summary)),
+        record: (account, model, used) => recordUsage(account, model, used, new Date(), 'chat')
+      }
+    )
+    return { text: outcome.text, usage: outcome.usage, ...(outcome.error ? { error: outcome.error } : {}), ...(controller.signal.aborted ? { cancelled: true } : {}) }
+  } finally {
+    options.signal?.removeEventListener('abort', forwardAbort)
+    activeRuns.delete(request.messageId)
+    holdAwake()
+  }
+}
+
 export async function runAgent(request: StreamRequest, emit: (event: StreamEvent) => void, options: RunOptions = {}): Promise<RunOutcome> {
+  if (request.engine && request.engine !== 'native') return runOnEngine(request, request.engine, emit, options)
   const usage = emptyUsage()
   const provider = getProvider(request.providerId)
   if (!provider) {

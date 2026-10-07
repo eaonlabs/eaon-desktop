@@ -101,8 +101,13 @@ const saveThread = (thread) => writeFileSync(threadFile(thread.id), JSON.stringi
 const loaded = new Map()
 const active = new Map() // threadId -> { turnId, interrupt }
 
+/** A sign-in that completed, kept in the state folder as the real Codex keeps it in ~/.codex: it outlasts the process. */
+const signedInFile = () => join(state, 'signed-in.json')
+
 function account() {
-  const spec = process.env.FAKE_CODEX_ACCOUNT || 'chatgpt:plus'
+  // Signed in through account/login/start since: that wins over the starting account.
+  const plan = existsSync(signedInFile()) ? JSON.parse(readFileSync(signedInFile(), 'utf8')).planType : null
+  const spec = plan ? `chatgpt:${plan}` : process.env.FAKE_CODEX_ACCOUNT || 'chatgpt:plus'
   if (spec === 'none') return { account: null, requiresOpenaiAuth: true }
   if (spec === 'not-required') return { account: null, requiresOpenaiAuth: false }
   if (spec === 'apikey') return { account: { type: 'apiKey' }, requiresOpenaiAuth: true }
@@ -158,7 +163,10 @@ async function handle(method, p) {
       if (mode !== 'never') {
         setTimeout(() => {
           notify('account/login/completed', { loginId, success: mode === 'success', error: mode === 'success' ? null : 'access_denied', onboardingEntrypoint: null })
-          if (mode === 'success') notify('account/updated', { authMode: 'chatgpt', planType: 'plus' })
+          if (mode === 'success') {
+            writeFileSync(signedInFile(), JSON.stringify({ planType: 'plus' }))
+            notify('account/updated', { authMode: 'chatgpt', planType: 'plus' })
+          }
         }, Number(process.env.FAKE_CODEX_LOGIN_DELAY ?? 50))
       }
       return { type: 'chatgpt', loginId, authUrl: `https://auth.example.invalid/authorize?login=${loginId}` }

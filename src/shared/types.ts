@@ -1,8 +1,8 @@
 /** Types shared between the main and renderer processes. */
 
 import type { WorkerMail } from './workers'
-import type { ModelSource } from './engines'
 import type { ProviderHealth, ProviderIssue } from './providers'
+import type { EngineId, ModelSource } from './engines'
 
 /**
  * Wire format a provider speaks. `openai-responses` is OpenAI's Responses API
@@ -41,6 +41,12 @@ export interface ModelInfo {
   source?: ModelSource
   /** Release stage, when a source says so (models.dev's status, the id itself saying "preview"). */
   stage?: 'preview' | 'deprecated'
+  /**
+   * The catalog knows it but the provider's own list for this account
+   * doesn't include it (ChatGPT): it may not be on the user's plan. Offered,
+   * marked, rather than hidden — a plan's list lags new models.
+   */
+  outsidePlan?: boolean
   /** Other ids the same model is served under (a dated snapshot of an alias), folded into this entry. */
   aliases?: string[]
   /**
@@ -399,6 +405,13 @@ export interface Settings {
    * ChatGPT sign-in, Copilot and an OpenAI key all offer the same model.
    */
   selectedProviderId: string | null
+  /**
+   * Set when Chat's model is an agent engine's (a Codex model) rather than a
+   * provider's; `selectedEngineModel` is then that engine's model ('' for its
+   * default). Picking a provider model clears it.
+   */
+  selectedEngine?: Exclude<EngineId, 'native'> | null
+  selectedEngineModel?: string | null
   /** Starred models, as `providerId:modelId`; they head the model menu. */
   favoriteModels: string[]
   /** Models picked lately, newest first, as `providerId:modelId`. */
@@ -566,6 +579,12 @@ export interface StreamRequest {
   workerThreadId?: string
   /** Replaces the agent's opening identity line in the system prompt (a worker's persona). */
   persona?: string
+  /**
+   * Run the turn on this agent engine instead of Eaon's own loop: Chat with a
+   * Codex model picked. `modelId` is then the engine's model ('' for its
+   * default) and `providerId` is ignored.
+   */
+  engine?: EngineId
 }
 
 export type StreamEvent =

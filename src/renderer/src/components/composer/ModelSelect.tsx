@@ -43,7 +43,8 @@ export function ModelSelect({
   defaultLabel,
   width = 260,
   filter,
-  label = 'Model'
+  label = 'Model',
+  variant = 'field'
 }: {
   engine?: EngineId
   value: ModelRef | null
@@ -53,6 +54,11 @@ export function ModelSelect({
   filter?: (option: ModelOption) => boolean
   /** For screen readers: what the field picks. */
   label?: string
+  /**
+   * `field` for forms; `chip` for a message box's bottom bar, styled like
+   * Chat's model chip and opening upward.
+   */
+  variant?: 'field' | 'chip'
 }): JSX.Element {
   const anchor = useRef<HTMLButtonElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
@@ -141,10 +147,10 @@ export function ModelSelect({
       <button
         ref={anchor}
         type="button"
-        className="select ms__trigger"
+        className={variant === 'chip' ? 'chip chip--model ms__trigger' : 'select ms__trigger'}
         data-open={open || undefined}
         data-unavailable={resolved.unavailable ? true : undefined}
-        style={{ width }}
+        style={variant === 'chip' ? undefined : { width }}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-label={`${label}: ${buttonLabel}${resolved.unavailable ? ', unavailable' : ''}`}
@@ -152,13 +158,17 @@ export function ModelSelect({
         onClick={() => setOpen((v) => !v)}
       >
         {resolved.unavailable && <CircleAlert size={13} strokeWidth={2} className="ms__warn" />}
-        <span className="ms__label">{buttonLabel}</span>
-        {resolved.option && resolved.option.groupLabel && value && <span className="ms__via">{resolved.option.groupLabel}</span>}
-        <span className="select__chevron">
-          <ChevronDown size={14} strokeWidth={2} />
-        </span>
+        <span className={variant === 'chip' ? 'chip__model ms__label' : 'ms__label'}>{buttonLabel}</span>
+        {variant === 'field' && resolved.option && resolved.option.groupLabel && value && <span className="ms__via">{resolved.option.groupLabel}</span>}
+        {variant === 'chip' ? (
+          <ChevronDown size={13} strokeWidth={2} className="chip__chevron" />
+        ) : (
+          <span className="select__chevron">
+            <ChevronDown size={14} strokeWidth={2} />
+          </span>
+        )}
       </button>
-      <Popover anchor={anchor} open={open} onClose={() => setOpen(false)} placement="bottom-start" width={Math.max(width, 300)} className="ms">
+      <Popover anchor={anchor} open={open} onClose={() => setOpen(false)} placement={variant === 'chip' ? 'top-end' : 'bottom-start'} width={Math.max(width, 300)} className="ms">
         <label className="ms__search">
           <Search size={12.5} strokeWidth={2} />
           <input
@@ -217,6 +227,7 @@ export function ModelSelect({
                     <span className="ms__name">{option ? option.label : defaultLabel}</span>
                     {option?.isDefault && <span className="ms__tag">Default</span>}
                     {option?.stage && <span className="ms__tag">{STAGE_LABEL[option.stage]}</span>}
+                    {option?.planNote && <span className="ms__tag">{option.planNote}</span>}
                     {option && option.availability !== 'ready' && <CircleAlert size={12} strokeWidth={2} className="ms__warn" role="img" aria-label="Needs attention" />}
                     {q && option && <span className="ms__via">{option.groupLabel}</span>}
                     <span className="ms__check">{chosen && <Check size={13} strokeWidth={2.2} />}</span>
@@ -231,19 +242,28 @@ export function ModelSelect({
   )
 }
 
+/** The last status and model list loaded per engine, shared by every picker in the window. */
+const engineCache = new Map<EngineId, { status: EngineStatus | null; models: EngineModels | null }>()
+
 /**
  * An engine's status and model list, kept current by `engines:changed`.
  * Empty for Eaon's own engine, whose models are the providers'. Tolerates a
  * build without engines (the bridge missing) by staying empty.
  */
 export function useEngineModels(engine: EngineId): { status: EngineStatus | null; models: EngineModels | null } {
-  const [state, setState] = useState<{ status: EngineStatus | null; models: EngineModels | null }>({ status: null, models: null })
+  // Starts from what any picker last loaded, so a second one (the composer's
+  // chip after the picker chose) doesn't show model ids until its own load lands.
+  const [state, setState] = useState<{ status: EngineStatus | null; models: EngineModels | null }>(() => engineCache.get(engine) ?? { status: null, models: null })
   useEffect(() => {
     if (engine === 'native' || !window.api.engines) return
     let alive = true
     const load = (): void =>
       void Promise.all([window.api.engines.status(), window.api.engines.models(engine)]).then(
-        ([statuses, models]) => alive && setState({ status: statuses.find((s) => s.id === engine) ?? null, models }),
+        ([statuses, models]) => {
+          const next = { status: statuses.find((s) => s.id === engine) ?? null, models }
+          engineCache.set(engine, next)
+          if (alive) setState(next)
+        },
         () => {}
       )
     load()

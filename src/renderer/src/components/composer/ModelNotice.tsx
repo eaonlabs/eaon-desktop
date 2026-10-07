@@ -15,12 +15,13 @@ import { useSetupAction } from './setupActions'
  * can't send it; the draft stays in the box while they fix it.
  *
  * On first run it also says what Eaon found on this computer: Codex signed
- * in (its ChatGPT plan works in Chat through Sign in with ChatGPT), or Ollama
- * installed but not running.
+ * in (Chat can run on it straight away, with its sign-in and plan), or
+ * Ollama installed but not running.
  */
 export function ModelNotice({ selection, onChooseModel }: { selection: ResolvedSelection; onChooseModel: () => void }): JSX.Element | null {
   const setSettingsPage = useApp((s) => s.setSettingsPage)
   const setView = useApp((s) => s.setView)
+  const patchSettings = useApp((s) => s.patchSettings)
   const providers = useApp((s) => s.providers)
   const runAction = useSetupAction()
   const [linking, setLinking] = useState(false)
@@ -93,7 +94,6 @@ export function ModelNotice({ selection, onChooseModel }: { selection: ResolvedS
     )
   }
 
-  const chatgpt = providers.find((p) => p.id === 'chatgpt')
   const ollama = providers.find((p) => p.id === 'ollama')
   return (
     <div className="model-notice" role="alert">
@@ -101,11 +101,11 @@ export function ModelNotice({ selection, onChooseModel }: { selection: ResolvedS
       <div className="model-notice__body">
         <span className="model-notice__title">No usable model is connected</span>
         <span className="model-notice__text">Sign in to a supported account, add an API key, or choose a local model. What you type stays here.</span>
-        {found.codexSignedIn && chatgpt && (
+        {found.codexSignedIn && (
           <span className="model-notice__hint">
-            Codex is signed in on this computer. Your ChatGPT plan works in Chat too.{' '}
-            <button className="model-notice__link" onClick={() => runAction('sign-in', 'chatgpt')}>
-              Sign in with ChatGPT
+            Codex is signed in on this computer, so Chat can run on it with your ChatGPT plan.{' '}
+            <button className="model-notice__link" onClick={() => void patchSettings({ selectedEngine: 'codex', selectedEngineModel: '' })}>
+              Use Codex in Chat
             </button>
           </span>
         )}

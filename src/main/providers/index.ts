@@ -152,6 +152,15 @@ export function adapterFor(provider: Provider, options: { track?: boolean } = {}
  */
 const LISTING_IS_ENTITLEMENT = new Set(['github-copilot', 'chatgpt'])
 
+/**
+ * Of those, the plans whose list is kept apart from the catalog by marking,
+ * not hiding: the ChatGPT plan's list lags new models (GPT-6.1 Sol was
+ * nowhere on an account that could use it), so catalog models it leaves out
+ * stay offered as `outsidePlan`, after the listed ones. Copilot's list is
+ * its policy, and a model it leaves out is switched off.
+ */
+const MARKS_OUTSIDE_PLAN = new Set(['chatgpt'])
+
 /** Saves from before overlays kept the whole list in `models`; it was the last listing. */
 const listedOf = (override: ProviderOverride): ModelInfo[] => override.listed ?? override.models ?? []
 
@@ -170,7 +179,10 @@ function composeModels(provider: Provider, seed: ModelInfo[], override: Provider
   const allowed = LISTING_IS_ENTITLEMENT.has(provider.id) && (listed.length > 0 || override.listedAt !== undefined) ? new Set(listed.map((m) => m.id)) : null
   const listedSource = listingSource(override)
   const byId = new Map<string, ModelInfo>()
-  for (const model of catalog) if (!allowed || allowed.has(model.id)) byId.set(model.id, model)
+  for (const model of catalog) {
+    if (!allowed || allowed.has(model.id)) byId.set(model.id, model)
+    else if (MARKS_OUTSIDE_PLAN.has(provider.id)) byId.set(model.id, { ...model, outsidePlan: true })
+  }
   for (const model of listed) {
     const known = byId.get(model.id)
     // The catalog's limits and effort levels are corrected; the listing only fills gaps. The
@@ -195,6 +207,8 @@ function composeModels(provider: Provider, seed: ModelInfo[], override: Provider
     if (model.efforts?.length && !effortReaches(provider, model.id, model)) model.efforts = []
     ;(hidden.has(model.id) ? hiddenModels : models).push(model)
   }
+  // The plan's own models first, so its default and the first choice are ones it serves. (Stable sort.)
+  models.sort((a, b) => Number(Boolean(a.outsidePlan)) - Number(Boolean(b.outsidePlan)))
   return { models, hiddenModels }
 }
 

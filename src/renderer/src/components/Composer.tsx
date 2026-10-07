@@ -38,6 +38,8 @@ import { removeMention } from './composer/suggest'
 import { clampEffort, EFFORT_LABEL } from '@shared/effort'
 import { ModelPicker } from './composer/ModelPicker'
 import { ModelNotice } from './composer/ModelNotice'
+import { useChatEngine } from './composer/chatEngine'
+import { EngineNotice } from './composer/EngineNotice'
 import { joinTranscript, useDictation } from './composer/useDictation'
 import { VoiceBar } from './composer/VoiceBar'
 
@@ -107,12 +109,14 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
   const modelMenu = useDisclosure()
 
   const selection = useApp((s) => s.modelSelection())
-  const model = selection.model
+  // A Codex model picked for Chat: its own label, levels and readiness.
+  const engineChoice = useChatEngine()
+  const model = engineChoice ? null : selection.model
   // Nothing connected, or the chosen model can't be used: the notice above
   // says why before anything is typed, and sending waits with the draft kept.
-  const noModel = selection.status === 'none' || selection.status === 'unavailable'
+  const noModel = engineChoice ? !engineChoice.ready : selection.status === 'none' || selection.status === 'unavailable'
   // What the request will actually use: the chosen effort, clamped to the model.
-  const effort = clampEffort(settings?.effort, model?.efforts)
+  const effort = clampEffort(settings?.effort, engineChoice ? engineChoice.efforts : model?.efforts)
   // Stop belongs to the chat whose reply is streaming. Anywhere else — another
   // chat, a new one — it stopped a reply the user could not see, and Enter
   // with a message typed did the same; there, sending waits instead.
@@ -254,7 +258,11 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
         addAttachments([...e.dataTransfer.files].map((file) => window.api.app.pathForFile(file)).filter(Boolean))
       }}
     >
-      <ModelNotice selection={selection} onChooseModel={() => modelMenu.setOpen(true)} />
+      {engineChoice ? (
+        !engineChoice.ready && <EngineNotice choice={engineChoice} onChooseModel={() => modelMenu.setOpen(true)} />
+      ) : (
+        <ModelNotice selection={selection} onChooseModel={() => modelMenu.setOpen(true)} />
+      )}
       <div className="composer" data-goal={goalArmed || undefined}>
         {attachments.length > 0 && (
           <div className="composer__attachments">
@@ -376,11 +384,19 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
             ref={modelAnchor}
             className="chip chip--model"
             data-open={modelMenu.open || undefined}
-            data-unavailable={selection.status === 'unavailable' || undefined}
+            data-unavailable={(engineChoice ? !engineChoice.ready : selection.status === 'unavailable') || undefined}
             onClick={modelMenu.toggle}
-            title={selection.status === 'unavailable' ? `Unavailable — ${selection.reason ?? ''}` : undefined}
+            title={
+              engineChoice
+                ? engineChoice.ready
+                  ? 'Runs on Codex, with your Codex sign-in'
+                  : `Unavailable — ${engineChoice.reason ?? ''}`
+                : selection.status === 'unavailable'
+                  ? `Unavailable — ${selection.reason ?? ''}`
+                  : undefined
+            }
           >
-            <span className="chip__model">{model?.label ?? selection.wanted?.label ?? 'No model'}</span>
+            <span className="chip__model">{engineChoice ? engineChoice.label : (model?.label ?? selection.wanted?.label ?? 'No model')}</span>
             {effort && <span className="chip__effort">{EFFORT_LABEL[effort]}</span>}
             <ChevronDown size={13} strokeWidth={2} className="chip__chevron" />
           </button>

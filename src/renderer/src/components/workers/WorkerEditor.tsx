@@ -23,7 +23,10 @@ function useEngines(): { statuses: EngineStatus[]; models: Partial<Record<Engine
   useEffect(() => {
     let live = true
     const load = async (): Promise<void> => {
-      const list = await window.api.engines.status()
+      // Nothing checked yet this launch (the editor opened early): check now
+      // rather than show no Engine field until the next change.
+      let list = await window.api.engines.status()
+      if (list.length === 0) list = await window.api.engines.refresh()
       const lists = await Promise.all(list.filter((e) => e.id !== 'native' && e.installed).map(async (e) => [e.id, await window.api.engines.models(e.id)] as const))
       if (!live) return
       setStatuses(list)
@@ -39,13 +42,13 @@ function useEngines(): { statuses: EngineStatus[]; models: Partial<Record<Engine
   return { statuses, models }
 }
 
-/** One line on whether an engine can run turns right now, and what to do if it can't. */
-function engineNote(status: EngineStatus | undefined, name: string): { text: string; ok: boolean } {
+/** One line on whether an engine can run turns right now, what to do if it can't, and whether signing in here fixes it. */
+function engineNote(status: EngineStatus | undefined, name: string): { text: string; ok: boolean; signIn?: boolean } {
   if (!status) return { text: `Checking ${name}…`, ok: true }
-  if (!status.installed) return { text: `${name} isn't installed on this computer, so this worker can't run until it is.`, ok: false }
+  if (!status.installed) return { text: `${name} isn't installed on this computer, so this worker can't run until it is. ${status.updateHint ?? ''}`.trim(), ok: false }
   if (status.outdated) return { text: `${name} ${status.version ?? ''} is too old for Eaon. ${status.updateHint ?? 'Update it'} first.`, ok: false }
-  if (status.auth.state === 'expired') return { text: `${name}'s sign-in expired. Reconnect it in Settings → Model providers.`, ok: false }
-  if (status.auth.state === 'signed-out') return { text: `${name} isn't signed in. Sign in under Settings → Model providers.`, ok: false }
+  if (status.auth.state === 'expired') return { text: `${name}'s sign-in expired. Sign in again to use your plan.`, ok: false, signIn: true }
+  if (status.auth.state === 'signed-out') return { text: `${name} isn't signed in. Sign in with your ChatGPT account to use your plan.`, ok: false, signIn: true }
   const plan = status.auth.plan ? ` (${status.auth.plan})` : ''
   return { text: `${name} ${status.version ?? ''}${status.foundIn ? ` from ${status.foundIn}` : ''} · signed in${plan}. It runs this worker with its own tools and models; Eaon still decides what it may do.`, ok: true }
 }
@@ -72,7 +75,9 @@ export function WorkerEditor({ workerId }: { workerId: string | null }): JSX.Ele
   // How hard it thinks; empty follows the app's setting (Chat's).
   const [effort, setEffort] = useState<EffortLevel | ''>(existing?.effort ?? '')
   const engines = useEngines()
-  const otherEngines = engines.statuses.filter((e) => e.id !== 'native' && (e.installed || e.id === engine))
+  // Every engine Eaon knows, installed or not: one that isn't says how to get it, rather than not being offered at all.
+  const otherEngines = engines.statuses.filter((e) => e.id !== 'native')
+  const [signingIn, setSigningIn] = useState(false)
   // New workers are trusted to act on their own; the catastrophic floor still applies.
   const [access, setAccess] = useState<WorkerAccess>(existing?.access ?? 'autonomous')
   const [trading, setTrading] = useState<WorkerTrading | null>(existing?.trading ?? null)
@@ -139,7 +144,7 @@ export function WorkerEditor({ workerId }: { workerId: string | null }): JSX.Ele
     >
       <div className="worker-editor">
         <div className="worker-editor__preview">
-          <WorkerFace color={color} mood={mood} size={104} follow />
+          <WorkerFace color={color} mood={mood} size={104} follow reactOnClick />
           <span className="worker-editor__preview-name">{name.trim() || 'Your new worker'}</span>
         </div>
 
@@ -230,7 +235,28 @@ export function WorkerEditor({ workerId }: { workerId: string | null }): JSX.Ele
             />
           </div>
         )}
-        {note && <p className="worker-editor__hint" data-warning={!note.ok || undefined}>{note.text}</p>}
+        {note && (
+          <div className="worker-editor__hint worker-editor__engine-note" data-warning={!note.ok || undefined}>
+            <span>{note.text}</span>
+            {note.signIn && (
+              <button
+                type="button"
+                className="btn btn--sm"
+                disabled={signingIn}
+                onClick={() => {
+                  setSigningIn(true)
+                  setError(null)
+                  window.api.engines
+                    .login(engine)
+                    .catch((e: unknown) => setError(e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': (?:\w*Error: )?/, '') : String(e)))
+                    .finally(() => setSigningIn(false))
+                }}
+              >
+                {signingIn ? 'Waiting for the browser…' : `Sign in to ${ENGINE_LABEL[engine]}`}
+              </button>
+            )}
+          </div>
+        )}
         <div className="worker-editor__row">
           <div className="field field--inline">
             <span className="field-label">Model</span>

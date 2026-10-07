@@ -525,6 +525,8 @@ export const BRAND_ICONS: Record<string, (props: TileProps) => JSX.Element> = {
   openai: OpenAiIcon,
   // ChatGPT sign-in is OpenAI's own product, and Copilot is GitHub's.
   'openai-codex': OpenAiIcon,
+  // The Codex CLI as an agent engine (Settings → Model providers, Agent engines, the model pickers).
+  codex: LOGOS.codex,
   chatgpt: OpenAiIcon,
   'github-copilot': LOGOS.copilot,
   azure: AzureIcon,

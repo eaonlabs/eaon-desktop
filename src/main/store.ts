@@ -205,6 +205,8 @@ export const defaultSettings: Settings = {
   activeWorkspaceId: 'work',
   selectedModelId: null,
   selectedProviderId: null,
+  selectedEngine: null,
+  selectedEngineModel: null,
   favoriteModels: [],
   recentModels: [],
   effort: 'light',

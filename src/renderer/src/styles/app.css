@@ -424,6 +424,21 @@ a:hover {
   background: var(--accent);
   box-shadow: 0 0 0 2px var(--sunken);
 }
+/*
+ * A worker's page has the most header actions of any (Activity, Browser,
+ * Check in, Pause, Edit, More). With their words they need about 560px a
+ * side, and a side that's narrower clips what doesn't fit — which hid Edit
+ * and the More menu at an ordinary window size. Below that they keep their
+ * icons (each has a title and a label for screen readers).
+ */
+@container main (max-width: 1560px) {
+  .worker-actions .header-btn > span {
+    display: none;
+  }
+  .worker-actions .header-btn {
+    padding: 0 7px;
+  }
+}
 @container main (max-width: 700px) {
   .mode-switch__label {
     display: none;

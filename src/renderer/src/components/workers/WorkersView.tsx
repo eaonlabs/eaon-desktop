@@ -139,7 +139,7 @@ function TeamEmpty({ onCreate, onTeam }: { onCreate: () => void; onTeam: () => v
     <div className="team-empty">
       <div className="team-empty__faces" aria-hidden="true">
         <WorkerFace color="#8E5CE6" mood="happy" size={56} />
-        <WorkerFace color="#3E86C6" mood="neutral" size={84} follow />
+        <WorkerFace color="#3E86C6" mood="neutral" size={84} follow reactOnClick />
         <WorkerFace color="#EE8A36" mood="serious" size={56} />
       </div>
       <h1 className="team-empty__title">Meet Eaon Workers</h1>
@@ -407,6 +407,7 @@ function WorkerProfile({ worker, now, mood }: { worker: Worker; now: number; moo
         mood={mood}
         size={96}
         follow
+        reactOnClick
         busy={worker.status === 'working'}
         attention={worker.asks.length > 0}
         nudge={worker.inbox.length}
@@ -542,9 +543,10 @@ function WorkerActions({ worker }: { worker: Worker }): JSX.Element {
   const working = worker.status === 'working'
 
   return (
-    <div className="chat-header__actions">
+    <div className="chat-header__actions worker-actions">
       <button
         className="header-btn"
+        aria-label="Activity"
         data-active={activityOpen || undefined}
         aria-pressed={activityOpen}
         onClick={() => setActivityOpen(!activityOpen)}
@@ -556,6 +558,7 @@ function WorkerActions({ worker }: { worker: Worker }): JSX.Element {
       <button
         className="header-btn"
         data-active={browserOpen || undefined}
+        aria-label="Browser"
         onClick={() => (browserOpen ? setBrowser(null, worker.id) : setBrowser(worker.id))}
         title={browserOpen ? `Close ${worker.name}’s browser` : `Watch ${worker.name}’s own browser live, or take control to help it`}
       >
@@ -563,18 +566,24 @@ function WorkerActions({ worker }: { worker: Worker }): JSX.Element {
         <span>Browser</span>
       </button>
       {!worker.paused && !worker.runningMessageId && (
-        <button className="header-btn" onClick={() => void wake(worker.id)} title={`Wake ${worker.name} now and have it check in`}>
+        <button className="header-btn" aria-label="Check in" onClick={() => void wake(worker.id)} title={`Wake ${worker.name} now and have it check in`}>
           <AlarmClock size={14} strokeWidth={1.9} />
           <span>Check in</span>
         </button>
       )}
       <button
         className="header-btn"
+        aria-label={worker.paused ? 'Resume' : 'Pause'}
         onClick={() => void setPaused(worker.id, !worker.paused)}
         title={worker.paused ? `Let ${worker.name} work again` : `Pause ${worker.name}: no heartbeats, mail waits`}
       >
         {worker.paused ? <Play size={14} strokeWidth={1.9} /> : <Pause size={14} strokeWidth={1.9} />}
         <span>{worker.paused ? 'Resume' : 'Pause'}</span>
+      </button>
+      {/* Editing was only in the More menu, where people didn't find it: its name, look, purpose, model and freedom. */}
+      <button className="header-btn" aria-label="Edit" onClick={() => openEditor(worker.id)} title={`Change ${worker.name}’s name, look, purpose, model or freedom`}>
+        <PencilLine size={14} strokeWidth={1.9} />
+        <span>Edit</span>
       </button>
       <button
         className="icon-btn"

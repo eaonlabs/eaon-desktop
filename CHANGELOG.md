@@ -3,6 +3,35 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [Unreleased]
+
+### Added
+- **Chat on Codex.** Chat's model picker has a Codex tab with the models your
+  Codex account offers; pick one and Chat runs on Codex, with its sign-in and
+  plan. The next message carries on the same Codex conversation, a Codex that
+  joins a chat part-way is told what was said, and the commands it wants to
+  run are asked in Chat's own approval dialog. Signed out, the sign-in is
+  right above the composer; on first run Eaon offers "Use Codex in Chat" when
+  it finds Codex signed in.
+- **A worker's model on its message box**, as in Chat, and an **Edit** button
+  on its page.
+
+### Changed
+- The ChatGPT provider offers the newer models the catalog knows even when
+  your plan's own list leaves them out (that list lags new models), after the
+  plan's own and marked "May not be on your plan".
+- A worker's engine field always offers Codex: not installed, it says how to
+  get it; signed out, it signs in right there.
+- Clicking a worker's face winks, the same every time (it was a random look);
+  faces on cards no longer react, since the click opens the worker.
+
+### Fixed
+- On a worker's page the header ran out of room at an ordinary window size
+  and hid the More menu, which held Edit worker. Its buttons now keep their
+  icons when the words don't fit.
+- The Codex entry in Settings → Model providers and in the model picker showed
+  the letters "Co" instead of its logo.
+
 ## [2026.6.2-beta.2] — 2026-10-06
 
 ### Added

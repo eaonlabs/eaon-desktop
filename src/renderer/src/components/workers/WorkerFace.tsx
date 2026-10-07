@@ -74,14 +74,26 @@ const GAZE_BIAS: Partial<Record<WorkerMood, [number, number]>> = {
 }
 
 type Reaction = 'wink' | 'excited' | 'surprised'
-const CLICK_REACTIONS: Reaction[] = ['wink', 'excited', 'surprised']
+/**
+ * What a click on a face does, every time: a wink. It used to be a random
+ * pick of three that never repeated, so the same click got a different face
+ * each time; "surprised" is kept for mail arriving (`nudge`), so each look
+ * means one thing.
+ */
+const CLICK_REACTION: Reaction = 'wink'
 
 export interface WorkerFaceProps {
   color: string
   mood?: WorkerMood
   size?: number
-  /** Eyes follow the pointer, and the face reacts to clicks. For the big faces only — one listener per face. */
+  /** Eyes follow the pointer. For the big faces only — one listener per face. */
   follow?: boolean
+  /**
+   * A click winks. Only where the face is what's being clicked (a worker's
+   * page, the editor's preview) — not inside a card or row whose click opens
+   * something, where the reaction would be cut off by the page changing.
+   */
+  reactOnClick?: boolean
   /** A turn is running: focused, reading eyes and the working ring. */
   busy?: boolean
   /** Waiting on the user (a question): a blue dot, which the eyes keep glancing at. */
@@ -103,6 +115,7 @@ export const WorkerFace = memo(function WorkerFace({
   mood = 'neutral',
   size = 40,
   follow = false,
+  reactOnClick = false,
   busy = false,
   attention = false,
   nudge = 0,
@@ -153,7 +166,7 @@ export const WorkerFace = memo(function WorkerFace({
       data-alive={size >= RING_MIN_SIZE && face !== 'dead' ? 'true' : undefined}
       style={{ ['--breath-delay' as string]: breathDelay }}
       onPointerEnter={follow ? () => blink() : undefined}
-      onPointerDown={follow ? () => react(pick(CLICK_REACTIONS)) : undefined}
+      onPointerDown={reactOnClick ? () => react(CLICK_REACTION) : undefined}
       role="img"
       aria-label={title ?? `${mood} face${busy ? ', working' : ''}${attention ? ', needs you' : ''}`}
     >
@@ -197,14 +210,6 @@ export const WorkerFace = memo(function WorkerFace({
   )
 })
 
-let lastPicked: Reaction | null = null
-/** A random reaction, never the one shown last (on any face), so repeated clicks keep changing. */
-function pick(items: Reaction[]): Reaction {
-  const choices = items.filter((item) => item !== lastPicked)
-  lastPicked = choices[Math.floor(Math.random() * choices.length)]
-  return lastPicked
-}
-
 /**
  * A short-lived expression laid over the mood: from a click (react), or a
  * startle when `nudge` rises. Ends by itself after a moment.
@@ -215,7 +220,10 @@ function useReaction(nudge: number): [Reaction | null, (reaction: Reaction) => v
   const react = useRef((next: Reaction): void => {
     if (reducedMotion()) return
     clearTimeout(timer.current)
-    setReaction(next)
+    // Off for a frame, then on: a second click during a wink plays it again
+    // instead of doing nothing (the state would already be "wink").
+    setReaction(null)
+    requestAnimationFrame(() => setReaction(next))
     timer.current = setTimeout(() => setReaction(null), next === 'surprised' ? 900 : 1300)
   }).current
   const lastNudge = useRef(nudge)

@@ -11,7 +11,9 @@ import {
   providerReadiness,
   searchOptions,
   STAGE_LABEL,
-  type ModelOption
+  type ModelOption,
+  engineOptions,
+  engineReadiness
 } from '@shared/modelSelection'
 import { useApp } from '../../state/store'
 import { Popover } from '../ui'
@@ -19,6 +21,9 @@ import { LinkAccounts } from '../LinkAccounts'
 import { EffortControl } from './EffortControl'
 import { markKey, ProviderMark } from './ProviderMark'
 import { useSetupAction } from './setupActions'
+import { useEngineModels } from './ModelSelect'
+import { useChatEngine } from './chatEngine'
+import { ENGINE_LABEL } from '@shared/engines'
 import './model-picker.css'
 
 /**
@@ -35,19 +40,28 @@ import './model-picker.css'
  */
 
 const STARRED = '__starred'
+/** The tab of Codex's own models: picking one runs Chat on Codex, with Codex's sign-in. */
+const CODEX_TAB = '__engine:codex'
 
 export function ModelPicker({ anchor, open, onClose }: { anchor: RefObject<HTMLElement>; open: boolean; onClose: () => void }): JSX.Element {
-  const { settings, selectModel, setEffort, toggleFavorite, providers } = useApp(
+  const { settings, selectModel, setEffort, toggleFavorite, providers, patchSettings } = useApp(
     useShallow((s) => ({
       settings: s.settings,
       selectModel: s.selectModel,
       setEffort: s.setEffort,
       toggleFavorite: s.toggleFavorite,
-      providers: s.providers
+      providers: s.providers,
+      patchSettings: s.patchSettings
     }))
   )
   const selection = useApp((s) => s.modelSelection())
-  const current = selection.model
+  const engineChoice = useChatEngine()
+  const current = engineChoice ? null : selection.model
+  // Codex, when Eaon has checked for it: its own models, or why they can't be used yet.
+  const codex = useEngineModels('codex')
+  const codexOptions = useMemo(() => engineOptions('codex', codex.models, codex.status), [codex.models, codex.status])
+  const codexReadiness = codex.status ? engineReadiness('codex', codex.status) : null
+  const [codexBusy, setCodexBusy] = useState(false)
   const [linking, setLinking] = useState(false)
   const [query, setQuery] = useState('')
   const [tab, setTab] = useState<string>(STARRED)
@@ -60,7 +74,7 @@ export function ModelPicker({ anchor, open, onClose }: { anchor: RefObject<HTMLE
   const options = useMemo(() => nativeOptions(providers), [providers])
   const groups = useMemo(() => groupOptions(options, prefs), [options, prefs])
   const favorites = useMemo(() => new Set(prefs.favorites ?? []), [prefs.favorites])
-  const currentKey = current ? modelKey(current.providerId, current.id) : null
+  const currentKey = engineChoice ? engineChoice.key : current ? modelKey(current.providerId, current.id) : null
 
   /** Providers with models to offer, in the providers list's order. */
   const linked = useMemo(() => {
@@ -72,10 +86,12 @@ export function ModelPicker({ anchor, open, onClose }: { anchor: RefObject<HTMLE
 
   const q = query.trim()
   const shown: ModelOption[] = q
-    ? searchOptions(options, q, prefs)
+    ? [...searchOptions(options, q, prefs), ...searchOptions(codexOptions, q, prefs)]
     : tab === STARRED
       ? [...starred, ...recent]
-      : (groups.find((g) => g.kind === 'provider' && g.id === tab)?.options ?? [])
+      : tab === CODEX_TAB
+        ? codexOptions
+        : (groups.find((g) => g.kind === 'provider' && g.id === tab)?.options ?? [])
   const mixed = Boolean(q) || tab === STARRED
   // In the Starred tab, recent models follow the starred ones under their own label.
   const recentFrom = !q && tab === STARRED && recent.length > 0 ? starred.length : -1
@@ -86,10 +102,10 @@ export function ModelPicker({ anchor, open, onClose }: { anchor: RefObject<HTMLE
   useEffect(() => {
     if (!open) return
     setQuery('')
-    const start = current?.providerId ?? selection.wanted?.providerId ?? linked[0]?.id ?? STARRED
-    const startTab = linked.some((p) => p.id === start) ? start : STARRED
+    const start = engineChoice ? CODEX_TAB : (current?.providerId ?? selection.wanted?.providerId ?? linked[0]?.id ?? STARRED)
+    const startTab = start === CODEX_TAB || linked.some((p) => p.id === start) ? start : STARRED
     setTab(startTab)
-    const inTab = startTab === STARRED ? [...starred, ...recent] : options.filter((o) => o.providerId === startTab)
+    const inTab = startTab === STARRED ? [...starred, ...recent] : startTab === CODEX_TAB ? codexOptions : options.filter((o) => o.providerId === startTab)
     setActive(Math.max(0, currentKey ? inTab.findIndex((o) => o.key === currentKey) : 0))
   }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -112,10 +128,19 @@ export function ModelPicker({ anchor, open, onClose }: { anchor: RefObject<HTMLE
     else if (row.offsetTop + row.offsetHeight > box.scrollTop + box.clientHeight) box.scrollTop = row.offsetTop + row.offsetHeight - box.clientHeight + 7
   }, [active, open, tab])
 
-  const efforts = current?.efforts ?? []
+  const efforts = engineChoice ? engineChoice.efforts : (current?.efforts ?? [])
   const effort = clampEffort(settings?.effort, efforts)
 
   const pick = (option: ModelOption): void => {
+    if (option.engine !== 'native') {
+      // An engine's model: Chat runs on that engine from the next message.
+      void patchSettings({
+        selectedEngine: option.engine,
+        selectedEngineModel: option.modelId
+      })
+      onClose()
+      return
+    }
     if (!option.providerId) return
     selectModel(option.modelId, option.providerId)
     onClose()
@@ -207,6 +232,27 @@ export function ModelPicker({ anchor, open, onClose }: { anchor: RefObject<HTMLE
                 </button>
               )
             })}
+            {codex.status && (
+              <button
+                role="tab"
+                className="mp__tab"
+                data-active={(!q && tab === CODEX_TAB) || undefined}
+                aria-selected={!q && tab === CODEX_TAB}
+                aria-label={codexReadiness?.state === 'ready' ? 'Codex' : `Codex, ${codexReadiness?.label ?? 'not ready'}`}
+                title={codexReadiness?.state === 'ready' ? 'Codex — Chat runs on Codex with your Codex sign-in' : `Codex — ${codexReadiness?.reason ?? ''}`}
+                onClick={() => {
+                  setQuery('')
+                  setTab(CODEX_TAB)
+                  setActive(Math.max(0, currentKey ? codexOptions.findIndex((o) => o.key === currentKey) : 0))
+                }}
+              >
+                <span className="mp__tab-mark">
+                  <ProviderMark providerId="codex" name="Codex" size={16} />
+                  {codexReadiness?.state !== 'ready' && <span className="mp__tab-badge" data-tone="warn" aria-hidden="true" />}
+                </span>
+                {!q && tab === CODEX_TAB && <span className="mp__tab-name">{ENGINE_LABEL.codex}</span>}
+              </button>
+            )}
           </div>
           <button
             className="mp__add"
@@ -250,6 +296,27 @@ export function ModelPicker({ anchor, open, onClose }: { anchor: RefObject<HTMLE
             )}
           </div>
         )}
+        {!q && tab === CODEX_TAB && codexReadiness && codexReadiness.state !== 'ready' && (
+          <div className="mp__notice" role="status">
+            <CircleAlert size={13} strokeWidth={2} />
+            <span>{codexReadiness.reason ?? 'Codex can’t run right now.'} Chat on Codex uses your Codex sign-in and plan.</span>
+            {(codexReadiness.action === 'sign-in' || codexReadiness.action === 'reconnect') && (
+              <button
+                className="mp__notice-action"
+                disabled={codexBusy}
+                onClick={() => {
+                  setCodexBusy(true)
+                  window.api.engines
+                    .login('codex')
+                    .catch(() => undefined)
+                    .finally(() => setCodexBusy(false))
+                }}
+              >
+                {codexBusy ? 'Waiting for the browser…' : 'Sign in to Codex'}
+              </button>
+            )}
+          </div>
+        )}
         {tabReadiness?.state === 'attention' && tabProvider && (
           <div className="mp__notice" role="status">
             <CircleAlert size={13} strokeWidth={2} />
@@ -263,7 +330,7 @@ export function ModelPicker({ anchor, open, onClose }: { anchor: RefObject<HTMLE
         )}
 
         <div className="mp__list" ref={list} role="listbox" aria-label="Models">
-          {options.length === 0 ? (
+          {options.length === 0 && codexOptions.length === 0 ? (
             <div className="mp__empty">
               <p>No usable model is connected. Sign in to a supported account, add an API key, or choose a local model.</p>
               <button
@@ -308,18 +375,29 @@ export function ModelPicker({ anchor, open, onClose }: { anchor: RefObject<HTMLE
                     <span className="mp__row-name">{option.label}</span>
                     {option.availability !== 'ready' && <CircleAlert className="mp__row-warn" size={12} strokeWidth={2} aria-label="Needs attention" />}
                     {stage && <span className="mp__tag">{stage}</span>}
+                    {option.planNote && (
+                      <span
+                        className="mp__tag mp__tag--plan"
+                        title="Your plan’s own model list doesn’t include it. Try it; if the plan doesn’t serve it, the reply says so."
+                      >
+                        {option.planNote}
+                      </span>
+                    )}
                     {i < 9 && <kbd className="mp__kbd">⌘{i + 1}</kbd>}
-                    <button
-                      className="mp__fav"
-                      data-on={fav || undefined}
-                      aria-label={fav ? `Unstar ${option.label}` : `Star ${option.label}`}
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        if (option.providerId) toggleFavorite(option.modelId, option.providerId)
-                      }}
-                    >
-                      <Star size={14.5} strokeWidth={1.4} fill={fav ? 'currentColor' : 'none'} />
-                    </button>
+                    {/* Stars are kept per provider; an engine's models have none. */}
+                    {option.providerId && (
+                      <button
+                        className="mp__fav"
+                        data-on={fav || undefined}
+                        aria-label={fav ? `Unstar ${option.label}` : `Star ${option.label}`}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          if (option.providerId) toggleFavorite(option.modelId, option.providerId)
+                        }}
+                      >
+                        <Star size={14.5} strokeWidth={1.4} fill={fav ? 'currentColor' : 'none'} />
+                      </button>
+                    )}
                   </div>
                 </Fragment>
               )
@@ -327,7 +405,7 @@ export function ModelPicker({ anchor, open, onClose }: { anchor: RefObject<HTMLE
           )}
         </div>
 
-        {current && effort && efforts.length >= 2 && (
+        {(current || engineChoice) && effort && efforts.length >= 2 && (
           <div className="mp__foot">
             <EffortControl
               levels={efforts}

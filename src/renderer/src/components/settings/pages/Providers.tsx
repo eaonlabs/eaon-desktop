@@ -23,7 +23,7 @@ import { BrandIcon } from '../../../icons/brand'
 import { Modal, SearchField, Switch } from '../../ui'
 import type { ModelInfo, Provider } from '@shared/types'
 import { checkKeyShape, customProviderId, type ModelEdit, type ModelEditFields, type ModelsRefresh, type ProviderAuthStatus, type ProviderMeta } from '@shared/providers'
-import { ago, describeSource, modelCapabilities, providerReadiness, STAGE_LABEL, modelStage } from '@shared/modelSelection'
+import { ago, describeSource, modelCapabilities, providerReadiness, STAGE_LABEL, modelStage, OUTSIDE_PLAN_NOTE } from '@shared/modelSelection'
 import { CodexEngineDetail, CodexEngineRow, CODEX_ROW_ID, useCodexEngine } from './ProviderCodexEntry'
 import '../../../styles/providers.css'
 import { openInAde } from '../../code/terminal/terminalStore'
@@ -1060,6 +1060,7 @@ function ModelsSection({ provider }: { provider: Provider }): JSX.Element {
                     {caps.vision === true && <Eye size={14} strokeWidth={1.8} aria-label="Images" />}
                     {caps.reasoning === true && <Brain size={13} strokeWidth={1.8} aria-label="Thinking" />}
                     {stage && <span className="model-row__tag">{STAGE_LABEL[stage]}</span>}
+                    {model.outsidePlan && <span className="model-row__tag" title="Your plan’s own model list doesn’t include it">{OUTSIDE_PLAN_NOTE}</span>}
                     {model.custom && <span className="model-row__tag">Added</span>}
                     {model.edited && !model.custom && <span className="model-row__tag">Edited</span>}
                   </span>

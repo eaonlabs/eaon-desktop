@@ -687,6 +687,15 @@ body[data-reduce-motion='on'] .status-dot {
   font-size: var(--fs-xs);
   color: var(--text-3);
 }
+.worker-editor__engine-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.worker-editor__engine-note .btn {
+  flex: none;
+}
 
 .field {
   display: flex;

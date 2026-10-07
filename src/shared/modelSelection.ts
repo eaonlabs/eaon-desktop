@@ -218,6 +218,8 @@ export interface ModelOption {
   reasoning: Capability
   contextWindow: number | null
   stage: ModelStage | null
+  /** A word about the model on this account ("May not be on your plan"); null for none. */
+  planNote: string | null
   source: ModelSource | null
   /** The engine's own default model. */
   isDefault: boolean
@@ -228,6 +230,9 @@ export interface ModelOption {
   /** The provider model behind the row; null for engine models and for unavailable placeholders. */
   model: ModelInfo | null
 }
+
+/** The tag on a model the provider's list for this account leaves out (see ModelInfo.outsidePlan). */
+export const OUTSIDE_PLAN_NOTE = 'May not be on your plan'
 
 /** A provider model as a picker row. */
 export function providerOption(model: ModelInfo, provider: Provider, readiness: ProviderReadiness = providerReadiness(provider)): ModelOption {
@@ -245,6 +250,7 @@ export function providerOption(model: ModelInfo, provider: Provider, readiness: 
     ...caps,
     contextWindow: model.contextWindow ?? null,
     stage: modelStage(model),
+    planNote: model.outsidePlan ? OUTSIDE_PLAN_NOTE : null,
     source: model.source ?? null,
     isDefault: false,
     availability,
@@ -316,6 +322,7 @@ export function engineOptions(engine: EngineId, list: EngineModels | null, statu
     reasoning: model.efforts.length > 0 ? true : null,
     contextWindow: null,
     stage: modelStage({ id: model.id }),
+    planNote: null,
     source: model.source,
     isDefault: model.isDefault,
     availability,
