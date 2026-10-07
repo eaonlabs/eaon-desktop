@@ -21,6 +21,7 @@ import {
   Server,
   Settings as SettingsIcon,
   ShieldCheck,
+  Smartphone,
   SquarePlus,
   Sun,
   Wand2
@@ -38,6 +39,7 @@ import { BrowserSettingsPage } from './pages/Misc'
 import { ComputerUsePage } from './pages/ComputerUse'
 import { PluginsSettingsPage } from './pages/Plugins'
 import { LocalServerPage } from './pages/LocalServer'
+import { RemoteDevicesPage } from './pages/RemoteDevices'
 import { SystemMonitorPage } from './pages/SystemMonitor'
 import { McpServersPage } from './pages/McpServers'
 import { ConnectAppsPage } from './pages/ConnectApps'
@@ -86,6 +88,7 @@ const NAV: NavEntry[] = [
   { id: 'code-index', label: 'Code index', icon: <Binary size={size} strokeWidth={stroke} />, group: 'Integrations' },
 
   { id: 'local-server', label: 'Local API Server', icon: <Server size={size} strokeWidth={stroke} />, group: 'Advanced' },
+  { id: 'remote-devices', label: 'Remote devices', icon: <Smartphone size={size} strokeWidth={stroke} />, group: 'Advanced' },
   { id: 'system', label: 'System Monitor', icon: <Activity size={size} strokeWidth={stroke} />, group: 'Advanced' },
 
   { id: 'archived', label: 'Archived chats', icon: <Archive size={size} strokeWidth={stroke} />, group: 'Archived' }
@@ -118,6 +121,7 @@ const PAGES: Record<string, () => JSX.Element> = {
   'connect-apps': ConnectAppsPage,
   'code-index': CodeIndexPage,
   'local-server': LocalServerPage,
+  'remote-devices': RemoteDevicesPage,
   system: SystemMonitorPage,
   archived: ArchivedPage
 }

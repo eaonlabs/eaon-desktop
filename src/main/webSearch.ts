@@ -161,21 +161,82 @@ async function readCapped(response: Response): Promise<{ text: string; cut: bool
   return { text: new TextDecoder().decode(Buffer.concat(chunks)), cut: false }
 }
 
+/** Elements dropped along with everything inside them: code, styling, and the page's chrome. */
+const DROPPED_ELEMENTS = new Set(['script', 'style', 'noscript', 'svg', 'nav', 'footer', 'header', 'form', 'iframe'])
+/** Closing tags that end a line. */
+const LINE_ENDS = new Set(['p', 'div', 'tr', 'li', 'section', 'article', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6'])
+
 /**
  * Reduces an HTML page to its readable text: scripts, styles, navigation and
  * markup go, headings and list items keep a marker so the structure survives.
  * Crude next to a real readability pass, and far cheaper in tokens than
  * handing the model raw HTML.
+ *
+ * One pass from tag to tag rather than a chain of regexes. Those rescanned to
+ * the end of the page for every tag that never closed (or `<` that never met a
+ * `>`), and a page of unclosed `<svg>` held the main process for seconds; this
+ * reads each character a bounded number of times, whatever the markup.
  */
 export function htmlToText(html: string): string {
-  return html
-    .replace(/<(script|style|noscript|svg|nav|footer|header|form|iframe)[^>]*>[\s\S]*?<\/\1>/gi, ' ')
-    .replace(/<!--[\s\S]*?-->/g, ' ')
-    .replace(/<h([1-6])[^>]*>/gi, (_m, level: string) => `\n\n${'#'.repeat(Number(level))} `)
-    .replace(/<li[^>]*>/gi, '\n- ')
-    .replace(/<(br|\/p|\/div|\/tr|\/h[1-6]|\/li|\/section|\/article)[^>]*>/gi, '\n')
-    .replace(/<a [^>]*href="(http[^"]+)"[^>]*>([\s\S]*?)<\/a>/gi, (_m, href: string, label: string) => `${label.replace(/<[^>]+>/g, '')} (${href})`)
-    .replace(/<[^>]+>/g, ' ')
+  const out: string[] = []
+  /** The link whose text is being read, to note after it. */
+  let href: string | null = null
+  /** Dropped elements with no closing tag left on the page, so the rest isn't searched again for one. */
+  const unclosed = new Set<string>()
+  let at = 0
+  while (at < html.length) {
+    const open = html.indexOf('<', at)
+    if (open === -1) {
+      out.push(html.slice(at))
+      break
+    }
+    out.push(html.slice(at, open))
+    if (html.startsWith('<!--', open)) {
+      const close = html.indexOf('-->', open + 4)
+      out.push(' ')
+      at = close === -1 ? html.length : close + 3
+      continue
+    }
+    const end = html.indexOf('>', open + 1)
+    if (end === -1) {
+      // No `>` anywhere after this, so no more tags: the rest is text.
+      out.push(html.slice(open))
+      break
+    }
+    const tag = html.slice(open + 1, end)
+    at = end + 1
+    // The name runs to whitespace, `/` or the end, so <nav-bar> is not <nav>.
+    const [, closing, rawName] = /^(\/?)([a-zA-Z][^\s/]*)/.exec(tag) ?? ['', '', '']
+    const name = rawName.toLowerCase()
+    if (!closing && DROPPED_ELEMENTS.has(name) && !tag.endsWith('/') && !unclosed.has(name)) {
+      const closer = new RegExp(`</${name}(?=[\\s/>])`, 'gi')
+      closer.lastIndex = at
+      const found = closer.exec(html)
+      if (found) {
+        const after = html.indexOf('>', found.index)
+        at = after === -1 ? html.length : after + 1
+        out.push(' ')
+        continue
+      }
+      // Never closed: like a browser, keep what follows rather than drop the page.
+      unclosed.add(name)
+    }
+    if (!closing && /^h[1-6]$/.test(name)) out.push(`\n\n${'#'.repeat(Number(name[1]))} `)
+    else if (!closing && name === 'li') out.push('\n- ')
+    else if (!closing && name === 'br') out.push('\n')
+    else if (closing && LINE_ENDS.has(name)) out.push('\n')
+    else if (!closing && name === 'a') {
+      href = /\bhref="(http[^"]+)"/i.exec(tag)?.[1] ?? null
+      out.push(' ')
+    } else if (closing && name === 'a' && href) {
+      out.push(` (${href})`)
+      href = null
+    }
+    // Inside a link's text, and at a <wbr>, a tag is no gap between words.
+    else out.push(href || name === 'wbr' ? '' : ' ')
+  }
+  return out
+    .join('')
     .replace(/&nbsp;/g, ' ')
     .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')

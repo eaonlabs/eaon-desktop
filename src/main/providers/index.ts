@@ -87,14 +87,10 @@ const localRuntimeAdapter: Adapter = {
   async turn(request) {
     const model = findLocalModel(request.modelId)
     if (!model) throw new Error(`${request.modelId} isn’t downloaded on this computer. Get it on the Models page.`)
-    const target = await llamaRuntime.ensure(runtimeModel(model))
-    const keepAlive = setInterval(() => llamaRuntime.touch(), 30_000)
-    try {
-      return await openaiChatAdapter.turn({ ...request, credentials: { ...request.credentials, apiKey: target.apiKey, baseUrl: target.baseUrl } })
-    } finally {
-      clearInterval(keepAlive)
-      llamaRuntime.touch()
-    }
+    // Held for the whole reply, so a long stream is never unloaded as idle under it.
+    return llamaRuntime.use(runtimeModel(model), 'chat', (target) =>
+      openaiChatAdapter.turn({ ...request, credentials: { ...request.credentials, apiKey: target.apiKey, baseUrl: target.baseUrl } })
+    )
   }
 }
 

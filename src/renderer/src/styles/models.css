@@ -91,6 +91,11 @@
   font-weight: 500;
   letter-spacing: -0.01em;
 }
+.mlib-section__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+}
 .mlib-section__count,
 .mlib-machine {
   display: inline-flex;

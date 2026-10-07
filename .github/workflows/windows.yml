@@ -1,0 +1,108 @@
+# Windows installer check: builds the same one-file installer the Mac release
+# script makes (x64 and arm64 in one NSIS .exe), then installs it on a real
+# Windows machine of each arch and starts the installed app, the way someone
+# downloading it would. The installer stays on the run; nothing is attached to
+# a release (release:win on the Mac publishes the Windows files).
+#
+# Runs on a push to a release branch, on pull requests that touch the app, or
+# by hand.
+name: Windows installer
+
+on:
+  push:
+    branches: ['release/**']
+  pull_request:
+    paths: ['src/**', 'package.json', 'package-lock.json', 'electron-builder.yml', 'scripts/**', '.github/workflows/windows.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      # --legacy-peer-deps matches how the lockfile was made (betterwright's
+      # optional peer wants a newer Electron).
+      - name: Install
+        run: npm ci --legacy-peer-deps
+
+      # Upstream llama.cpp's own Windows builds (they can't be compiled on a Mac).
+      - name: llama-server for Windows
+        shell: bash
+        run: ./scripts/fetch-llama-windows.sh
+
+      - name: Build
+        shell: bash
+        run: |
+          npx electron-vite build
+          npx electron-builder --win --publish never
+
+      - name: Keep the installer on the run
+        uses: actions/upload-artifact@v4
+        with:
+          name: eaon-windows
+          path: |
+            dist/*-setup.exe
+            dist/latest.yml
+          if-no-files-found: error
+
+  # The installer is installed silently (per user, no admin prompt, as a
+  # double-click would), and the installed Eaon.exe is started and left for
+  # 30 seconds: still running at the end, with nothing in its crash log, means
+  # it came up. Then it is uninstalled again.
+  smoke:
+    name: Install and start (${{ matrix.arch }})
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: windows-latest
+            arch: x64
+          - runner: windows-11-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: eaon-windows
+          path: installer
+
+      - name: Install, start, uninstall
+        shell: pwsh
+        run: |
+          $setup = Get-ChildItem installer\*-setup.exe | Select-Object -First 1
+          Start-Process -FilePath $setup.FullName -ArgumentList '/S' -Wait
+          $exe = Join-Path $env:LOCALAPPDATA 'Programs\Eaon\Eaon.exe'
+          for ($i = 0; $i -lt 60 -and -not (Test-Path $exe); $i++) { Start-Sleep -Seconds 2 }
+          if (-not (Test-Path $exe)) { throw "The installer did not put Eaon.exe at $exe" }
+          $arch = (Get-Item (Join-Path $env:LOCALAPPDATA 'Programs\Eaon\resources\llama') -ErrorAction SilentlyContinue | Get-ChildItem -Name)
+          Write-Host "Installed $exe (llama-server for: $arch)"
+
+          $app = Start-Process -FilePath $exe -PassThru
+          Start-Sleep -Seconds 30
+          $crashLog = Join-Path $env:APPDATA 'Eaon\logs\crashes.log'
+          if (Test-Path $crashLog) { Write-Host '--- crashes.log'; Get-Content $crashLog -Tail 40 }
+          if ($app.HasExited) { throw "Eaon exited early (code $($app.ExitCode))" }
+          # Main-process exceptions and renderer errors or deaths; a GPU entry on a
+          # runner without a GPU is not Eaon's fault.
+          if ((Test-Path $crashLog) -and (Select-String -Path $crashLog -Pattern '\[(main|renderer)' -Quiet)) { throw 'Eaon logged a crash while starting' }
+          Get-Process -Name Eaon | Format-Table Id, CPU, WorkingSet64 -AutoSize
+          Stop-Process -Name Eaon -Force -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 3
+
+          $uninstaller = Join-Path $env:LOCALAPPDATA 'Programs\Eaon\Uninstall Eaon.exe'
+          Start-Process -FilePath $uninstaller -ArgumentList '/S' -Wait

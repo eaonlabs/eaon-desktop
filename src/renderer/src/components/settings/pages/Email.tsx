@@ -814,7 +814,9 @@ const DOMAIN_STATUS: Record<EmailDomain['status'], { s: string; label: string }>
 
 function DomainCard({ domain, run, busy, cloudflare = false }: { domain: EmailDomain; run: Run; busy: boolean; cloudflare?: boolean }): JSX.Element {
   const [username, setUsername] = useState('assistant')
-  const status = DOMAIN_STATUS[domain.status]
+  // A status this build doesn't know (a provider's new one, a hand-edited
+  // file) is shown as it is rather than taking the page down.
+  const status = DOMAIN_STATUS[domain.status] ?? { s: 'waiting', label: String(domain.status || 'Unknown') }
   return (
     <div className="em-domain">
       <Card>

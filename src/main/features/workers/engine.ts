@@ -253,16 +253,21 @@ const clone = <T>(value: T): T => structuredClone(value)
 const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 const str = (value: unknown): string => (typeof value === 'string' ? value.trim() : '')
 
-/** A file-system-safe folder name from a worker's name: "Data Wrangler" → "Data-Wrangler". */
+/**
+ * A file-system-safe folder name from a worker's name: "Data Wrangler" →
+ * "Data-Wrangler". Safe on Windows too, which refuses a name ending in a dot
+ * and reads CON, NUL, COM1 and the like as devices, not folders.
+ */
 export function workerSlug(name: string): string {
-  return (
+  const slug =
     name
       .replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '')
       .trim()
       .replace(/\s+/g, '-')
       .replace(/^[.-]+/, '')
-      .slice(0, 48) || 'Worker'
-  )
+      .slice(0, 48)
+      .replace(/\.+$/, '') || 'Worker'
+  return /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(\.|$)/i.test(slug) ? `_${slug}` : slug
 }
 
 function isWorkerLike(value: unknown): value is Partial<Worker> & { id: string; name: string } {

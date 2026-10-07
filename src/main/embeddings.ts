@@ -103,16 +103,16 @@ async function embedOllama(texts: string[], modelId: string, signal?: AbortSigna
 async function embedLocal(texts: string[], modelId: string, signal?: AbortSignal): Promise<number[][]> {
   const model = findLocalModel(modelId)
   if (!model) throw new Error(`${modelId} isn’t downloaded. Get an embedding model on the Models page.`)
-  const target = await llamaRuntime.ensure(runtimeModel(model), 'embedding')
-  const response = await fetch(`${target.baseUrl}/embeddings`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${target.apiKey}` },
-    body: JSON.stringify({ model: modelId, input: texts }),
-    signal
+  const body = await llamaRuntime.use(runtimeModel(model), 'embedding', async (target) => {
+    const response = await fetch(`${target.baseUrl}/embeddings`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${target.apiKey}` },
+      body: JSON.stringify({ model: modelId, input: texts }),
+      signal
+    })
+    if (!response.ok) throw new Error(`Local embeddings failed (${response.status}): ${(await response.text()).slice(0, 200)}`)
+    return (await response.json()) as { data?: { embedding: number[]; index: number }[] }
   })
-  llamaRuntime.touch('embedding')
-  if (!response.ok) throw new Error(`Local embeddings failed (${response.status}): ${(await response.text()).slice(0, 200)}`)
-  const body = (await response.json()) as { data?: { embedding: number[]; index: number }[] }
   if (!body.data) throw new Error('The local model returned no embeddings')
   return [...body.data].sort((a, b) => a.index - b.index).map((entry) => entry.embedding)
 }

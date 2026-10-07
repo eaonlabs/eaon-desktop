@@ -10,6 +10,9 @@ dist/
 native/llama.cpp/
 resources/llama/
 
+# Eaon CLI (the OpenCode fork): built by scripts/build-eaon-cli.sh
+resources/eaon-cli/
+
 # Claude Code project instructions, skills and project memory: kept locally, not published.
 CLAUDE.md
 .claude/skills/eaon-brain/

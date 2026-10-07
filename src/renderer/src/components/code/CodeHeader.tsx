@@ -1,17 +1,18 @@
 import { useRef, type JSX } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { ChevronDown, Folder, FolderOpen } from 'lucide-react'
+import { ChevronDown, Folder, FolderOpen, Palette } from 'lucide-react'
 import { TopBar } from '../TopBar'
 import { MenuItem, MenuSeparator, Popover, useDisclosure } from '../ui'
 import { useCode } from './codeStore'
 import { useAdeSessions } from './sessionsStore'
 import { sessionTitle } from '@shared/adeSessions'
 import { NewTerminalButton } from './terminal/TerminalWorkspace'
+import { useTerminals } from './terminal/terminalStore'
 import { revealLabel } from '../../lib/files'
 
 export const folderName = (path: string): string => path.split(/[\\/]/).filter(Boolean).pop() ?? path
 
-/** The ADE's top bar: the project folder, the mode switch, and a new terminal. */
+/** The ADE's top bar: the project folder, the mode switch, the terminals' theme and a new terminal. */
 export function CodeHeader(): JSX.Element {
   const cwd = useCode((s) => s.cwd)
   return (
@@ -20,6 +21,12 @@ export function CodeHeader(): JSX.Element {
       left={cwd ? <FolderChip /> : null}
       right={
         <div className="chat-header__actions">
+          {cwd && (
+            <button className="header-btn" title="Terminal themes (or type /theme in any pane)" onClick={() => useTerminals.getState().openPicker()}>
+              <Palette size={14} strokeWidth={2} />
+              <span>Theme</span>
+            </button>
+          )}
           <NewTerminalButton />
         </div>
       }

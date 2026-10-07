@@ -42,6 +42,43 @@ export interface StoreFs {
   list(dir: string): string[]
 }
 
+/**
+ * What Windows reports while another process (antivirus, the search indexer,
+ * a backup tool) briefly has a file open, and how long to wait it out between
+ * attempts: about a second in all.
+ */
+const LOCKED_CODES = new Set(['EPERM', 'EACCES', 'EBUSY'])
+const LOCKED_WAITS_MS = [20, 50, 100, 200, 300, 330]
+
+function lockedOnWindows(error: unknown): boolean {
+  return process.platform === 'win32' && LOCKED_CODES.has((error as NodeJS.ErrnoException)?.code ?? '')
+}
+
+/** Runs a synchronous file operation, trying again while Windows reports the file locked. */
+function retryLocked<T>(run: () => T): T {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return run()
+    } catch (error) {
+      if (attempt >= LOCKED_WAITS_MS.length || !lockedOnWindows(error)) throw error
+      // Blocks, as the synchronous writer already does; only ever while a file is locked.
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, LOCKED_WAITS_MS[attempt])
+    }
+  }
+}
+
+/** `retryLocked` for the async writer. */
+async function retryLockedAsync(run: () => Promise<void>): Promise<void> {
+  for (let attempt = 0; ; attempt++) {
+    try {
+      return await run()
+    } catch (error) {
+      if (attempt >= LOCKED_WAITS_MS.length || !lockedOnWindows(error)) throw error
+      await new Promise((resolve) => setTimeout(resolve, LOCKED_WAITS_MS[attempt]))
+    }
+  }
+}
+
 const realFs: StoreFs = {
   read: (path) => nodeFs.readFileSync(path, 'utf8'),
   writeDurable(path, data) {
@@ -62,8 +99,8 @@ const realFs: StoreFs = {
       await handle.close()
     }
   },
-  rename: (from, to) => nodeFs.renameSync(from, to),
-  renameAsync: (from, to) => rename(from, to),
+  rename: (from, to) => retryLocked(() => nodeFs.renameSync(from, to)),
+  renameAsync: (from, to) => retryLockedAsync(() => rename(from, to)),
   link: (existing, path) => nodeFs.linkSync(existing, path),
   unlink: (path) => nodeFs.unlinkSync(path),
   copy: (from, to) => nodeFs.copyFileSync(from, to),

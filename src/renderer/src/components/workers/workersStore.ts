@@ -13,6 +13,10 @@ import {
   type WorkerSendOptions,
   type WorkerThread
 } from '@shared/workers'
+import { reportError } from '../ErrorBoundary'
+
+const errorText = (error: unknown): string =>
+  (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 
 /**
  * The Workers tab's state. Workers live in the main process, which runs them
@@ -23,6 +27,8 @@ import {
  */
 interface WorkersState {
   ready: boolean
+  /** Why the team couldn't be loaded; the Workers tab offers to try again. */
+  error: string | null
   workers: Worker[]
   /** The worker open in the Workers tab; null shows the team. */
   selectedId: string | null
@@ -85,9 +91,14 @@ interface WorkersState {
 }
 
 let bound = false
+let loading: Promise<void> | null = null
+// A change pushed while the first list is still on its way is newer than that list.
+let pushedWorkers = false
+let pushedRooms = false
 
 export const useWorkers = create<WorkersState>((set, get) => ({
   ready: false,
+  error: null,
   workers: [],
   selectedId: null,
   threads: {},
@@ -105,100 +116,15 @@ export const useWorkers = create<WorkersState>((set, get) => ({
   browserFor: null,
   browserDismissed: new Set(),
 
-  async init() {
-    if (bound) return
-    bound = true
-    const api = window.api.workers
-    // A change pushed while the first list is still on its way is newer than that list.
-    let pushedWorkers = false
-    let pushedRooms = false
-    api.onChanged((workers) => {
-      pushedWorkers = true
-      set((s) => ({
-        workers,
-        // A worker removed elsewhere (or by a colleague's hand) closes its page.
-        ...(s.selectedId && !workers.some((w) => w.id === s.selectedId) ? { selectedId: null } : {})
-      }))
+  init() {
+    if (get().ready) return Promise.resolve()
+    // Calls made while one is on its way (StrictMode runs effects twice) share
+    // it. A failed one is forgotten, so the next call — the Workers tab's Try
+    // again — starts afresh instead of the tab waiting for good.
+    loading ??= load().finally(() => {
+      loading = null
     })
-    api.onMessage(({ workerId, threadId, message }) => {
-      const key = threadKey(workerId, threadId)
-      set((s) => {
-        const thread = s.threads[key]
-        if (!thread) return {}
-        const index = lastIndexOf(thread.messages, message.id)
-        const messages = thread.messages.slice()
-        if (index === -1) messages.push(message)
-        else messages[index] = message
-        return { threads: { ...s.threads, [key]: { ...thread, messages } } }
-      })
-    })
-    api.onEvent(({ workerId, threadId, event }) => {
-      const key = threadKey(workerId, threadId)
-      set((s) => {
-        const thread = s.threads[key]
-        if (!thread) return {}
-        if (event.type === 'compacted') {
-          return { threads: { ...s.threads, [key]: { ...thread, summary: { text: event.summary, throughMessageId: event.throughMessageId } } } }
-        }
-        const index = lastIndexOf(thread.messages, event.messageId)
-        if (index === -1) return {}
-        const next = applyEvent(thread.messages[index], event)
-        if (next === thread.messages[index]) return {}
-        const messages = thread.messages.slice()
-        messages[index] = next
-        return { threads: { ...s.threads, [key]: { ...thread, messages } } }
-      })
-    })
-    api.onExecution(({ workerId, execution }) => {
-      set((s) => {
-        const list = s.executions[workerId]
-        if (!list) return {}
-        const index = list.findIndex((e) => e.id === execution.id)
-        const next = index === -1 ? [...list, execution] : list.map((e, i) => (i === index ? execution : e))
-        return { executions: { ...s.executions, [workerId]: next.slice(-200) } }
-      })
-    })
-    api.onDelegations((delegations) => set({ delegations }))
-    api.onOpen((workerId) => {
-      set({ selectedId: workerId })
-      void import('../../state/store').then(({ useApp }) => {
-        const app = useApp.getState()
-        const tab = app.workspaces.find((w) => w.kind === 'workers')
-        if (tab && app.settings?.activeWorkspaceId !== tab.id) app.setWorkspace(tab.id)
-        if (app.view !== 'chat') app.setView('chat')
-      })
-    })
-    api.onRoomsChanged((rooms) => {
-      pushedRooms = true
-      set((s) => ({ rooms, ...(s.selectedRoomId && !rooms.some((r) => r.id === s.selectedRoomId) ? { selectedRoomId: null } : {}) }))
-    })
-    api.onRoomPost(({ roomId, post }) => {
-      set((s) => {
-        const posts = s.roomPosts[roomId]
-        if (!posts || posts.some((p) => p.id === post.id)) return {}
-        return { roomPosts: { ...s.roomPosts, [roomId]: [...posts, post] } }
-      })
-    })
-    api.onOpenRoom((roomId) => {
-      get().selectRoom(roomId)
-      void import('../../state/store').then(({ useApp }) => {
-        const app = useApp.getState()
-        const tab = app.workspaces.find((w) => w.kind === 'workers')
-        if (tab && app.settings?.activeWorkspaceId !== tab.id) app.setWorkspace(tab.id)
-        if (app.view !== 'chat') app.setView('chat')
-      })
-    })
-    // The browser panel opens by itself when the worker on screen starts using
-    // its browser, as Chat's does — unless the user closed it for that worker.
-    window.api.agentBrowser.onStep((step) => {
-      const match = /^worker:(.+)$/.exec(step.target)
-      if (!match || step.done) return
-      const state = get()
-      if (state.selectedId === match[1] && state.browserFor !== match[1] && !state.browserDismissed.has(match[1])) set({ browserFor: match[1] })
-    })
-    setInterval(() => set({ now: Date.now() }), 20_000)
-    const [workers, rooms, delegations] = await Promise.all([api.list(), api.rooms(), api.delegations()])
-    set({ ...(pushedWorkers ? {} : { workers }), ...(pushedRooms ? {} : { rooms }), delegations, ready: true })
+    return loading
   },
 
   select(id) {
@@ -335,6 +261,123 @@ export const useWorkers = create<WorkersState>((set, get) => ({
     void window.api.workers.markRead(id, threadId)
   }
 }))
+
+/**
+ * The team and its group chats, the first time; see `init`. The listeners
+ * are bound once per window whatever happens to the list — binding them twice
+ * would apply every streamed token twice.
+ */
+async function load(): Promise<void> {
+  try {
+    if (!bound) {
+      bound = true
+      try {
+        listen()
+      } catch (error) {
+        // A preload without one of these: the team still loads, it just
+        // doesn't hear about that kind of change.
+        reportError({ message: errorText(error), stack: error instanceof Error ? error.stack : undefined, source: 'workers' })
+      }
+    }
+    const [workers, rooms, delegations] = await Promise.all([window.api.workers.list(), window.api.workers.rooms(), window.api.workers.delegations()])
+    useWorkers.setState({ ...(pushedWorkers ? {} : { workers }), ...(pushedRooms ? {} : { rooms }), delegations, ready: true, error: null })
+  } catch (error) {
+    reportError({ message: errorText(error), stack: error instanceof Error ? error.stack : undefined, source: 'workers' })
+    useWorkers.setState({ error: errorText(error) })
+  }
+}
+
+/** The pushes from main that keep this store current. */
+function listen(): void {
+  const set = useWorkers.setState
+  const get = useWorkers.getState
+  const api = window.api.workers
+  setInterval(() => set({ now: Date.now() }), 20_000)
+  api.onChanged((workers) => {
+    pushedWorkers = true
+    set((s) => ({
+      workers,
+      // A worker removed elsewhere (or by a colleague's hand) closes its page.
+      ...(s.selectedId && !workers.some((w) => w.id === s.selectedId) ? { selectedId: null } : {})
+    }))
+  })
+  api.onMessage(({ workerId, threadId, message }) => {
+    const key = threadKey(workerId, threadId)
+    set((s) => {
+      const thread = s.threads[key]
+      if (!thread) return {}
+      const index = lastIndexOf(thread.messages, message.id)
+      const messages = thread.messages.slice()
+      if (index === -1) messages.push(message)
+      else messages[index] = message
+      return { threads: { ...s.threads, [key]: { ...thread, messages } } }
+    })
+  })
+  api.onEvent(({ workerId, threadId, event }) => {
+    const key = threadKey(workerId, threadId)
+    set((s) => {
+      const thread = s.threads[key]
+      if (!thread) return {}
+      if (event.type === 'compacted') {
+        return { threads: { ...s.threads, [key]: { ...thread, summary: { text: event.summary, throughMessageId: event.throughMessageId } } } }
+      }
+      const index = lastIndexOf(thread.messages, event.messageId)
+      if (index === -1) return {}
+      const next = applyEvent(thread.messages[index], event)
+      if (next === thread.messages[index]) return {}
+      const messages = thread.messages.slice()
+      messages[index] = next
+      return { threads: { ...s.threads, [key]: { ...thread, messages } } }
+    })
+  })
+  api.onExecution(({ workerId, execution }) => {
+    set((s) => {
+      const list = s.executions[workerId]
+      if (!list) return {}
+      const index = list.findIndex((e) => e.id === execution.id)
+      const next = index === -1 ? [...list, execution] : list.map((e, i) => (i === index ? execution : e))
+      return { executions: { ...s.executions, [workerId]: next.slice(-200) } }
+    })
+  })
+  api.onDelegations((delegations) => set({ delegations }))
+  api.onOpen((workerId) => {
+    set({ selectedId: workerId })
+    void import('../../state/store').then(({ useApp }) => {
+      const app = useApp.getState()
+      const tab = app.workspaces.find((w) => w.kind === 'workers')
+      if (tab && app.settings?.activeWorkspaceId !== tab.id) app.setWorkspace(tab.id)
+      if (app.view !== 'chat') app.setView('chat')
+    })
+  })
+  api.onRoomsChanged((rooms) => {
+    pushedRooms = true
+    set((s) => ({ rooms, ...(s.selectedRoomId && !rooms.some((r) => r.id === s.selectedRoomId) ? { selectedRoomId: null } : {}) }))
+  })
+  api.onRoomPost(({ roomId, post }) => {
+    set((s) => {
+      const posts = s.roomPosts[roomId]
+      if (!posts || posts.some((p) => p.id === post.id)) return {}
+      return { roomPosts: { ...s.roomPosts, [roomId]: [...posts, post] } }
+    })
+  })
+  api.onOpenRoom((roomId) => {
+    get().selectRoom(roomId)
+    void import('../../state/store').then(({ useApp }) => {
+      const app = useApp.getState()
+      const tab = app.workspaces.find((w) => w.kind === 'workers')
+      if (tab && app.settings?.activeWorkspaceId !== tab.id) app.setWorkspace(tab.id)
+      if (app.view !== 'chat') app.setView('chat')
+    })
+  })
+  // The browser panel opens by itself when the worker on screen starts using
+  // its browser, as Chat's does — unless the user closed it for that worker.
+  window.api.agentBrowser.onStep((step) => {
+    const match = /^worker:(.+)$/.exec(step.target)
+    if (!match || step.done) return
+    const state = get()
+    if (state.selectedId === match[1] && state.browserFor !== match[1] && !state.browserDismissed.has(match[1])) set({ browserFor: match[1] })
+  })
+}
 
 function lastIndexOf(messages: ChatMessage[], id: string): number {
   for (let i = messages.length - 1; i >= 0; i--) if (messages[i].id === id) return i

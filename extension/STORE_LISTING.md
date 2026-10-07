@@ -28,7 +28,7 @@ publisher; `scripts/pack-extension.mjs` leaves it out of the uploaded zip.
 
 ```sh
 node scripts/pack-extension.mjs
-# → dist/eaon-browser-extension-<version>.zip (1.1.0 at the time of writing)
+# → dist/eaon-browser-extension-<version>.zip (1.2.0 at the time of writing)
 ```
 
 The script refuses to pack if the manifest has problems the store would

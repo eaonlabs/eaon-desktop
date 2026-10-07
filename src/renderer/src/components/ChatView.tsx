@@ -31,6 +31,7 @@ import { toolPartChanges } from './agent/ToolCall'
 import { StepRun } from './agent/TurnSteps'
 import { turnItems } from './agent/turnItems'
 import { TopBar } from './TopBar'
+import { RowBoundary } from './ErrorBoundary'
 import { GoalBanner, PlanCard, TodoPanel, UsageLine } from './agent/WorkBits'
 import { FileDiff } from './agent/FileDiff'
 import { MessageActions } from './agent/MessageActions'
@@ -366,14 +367,15 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
       >
         <div className="thread__inner">
           {chat.messages.map((message) => (
-            <MessageRow
-              key={message.id}
-              message={message}
-              streaming={message.id === streamingMessageId || remoteStreaming.includes(message.id)}
-              chatActions
-              last={message.id === lastReplyId}
-              canRetry={message.id === lastReplyId && !streamingChatId}
-            />
+            <RowBoundary key={message.id} item={message}>
+              <MessageRow
+                message={message}
+                streaming={message.id === streamingMessageId || remoteStreaming.includes(message.id)}
+                chatActions
+                last={message.id === lastReplyId}
+                canRetry={message.id === lastReplyId && !streamingChatId}
+              />
+            </RowBoundary>
           ))}
         </div>
       </div>

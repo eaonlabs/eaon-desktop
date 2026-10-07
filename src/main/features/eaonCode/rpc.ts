@@ -60,7 +60,9 @@ export class RpcChild {
       : spawn(options.command, options.args, {
           cwd: options.cwd,
           env: options.env,
-          stdio: ['pipe', 'pipe', 'pipe']
+          stdio: ['pipe', 'pipe', 'pipe'],
+          // On Windows a console would stay open for the whole session, and closing it would end the agent.
+          windowsHide: true
         })
 
     this.detach = attachJsonlReader(this.child.stdout!, (line) => this.handleLine(line))

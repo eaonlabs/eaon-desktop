@@ -22,10 +22,16 @@ const RUNNABLE = new Set([
   '.pkg', '.mpkg', '.scpt', '.applescript', '.workflow', '.jar', '.terminal', '.url', '.webloc', '.lnk',
   // macOS: settings panes, links and bundles that load code.
   '.prefpane', '.fileloc', '.inetloc', '.action', '.kext', '.plugin', '.service', '.saver', '.qlgenerator', '.osax', '.scptd',
-  // Windows: script hosts and their kin, which run on a double-click.
-  '.js', '.jse', '.vbs', '.vbe', '.wsf', '.wsh', '.hta', '.scr', '.pif', '.reg', '.cpl', '.msc', '.msp', '.appref-ms', '.vb',
-  // Linux.
-  '.desktop', '.appimage', '.run', '.deb', '.rpm'
+  // Windows runs these on open: Windows Script Host takes .js and .vbs, and
+  // the rest are scripts, screensavers, control panels, registry imports,
+  // help files that can carry script, and app installers.
+  '.js', '.jse', '.vbs', '.vbe', '.wsf', '.wsh', '.ws', '.hta', '.scr', '.pif', '.cpl', '.msc', '.msp', '.mst',
+  '.reg', '.inf', '.chm', '.psm1', '.psd1', '.msix', '.msixbundle', '.appx', '.appxbundle', '.appinstaller',
+  '.application', '.gadget', '.settingcontent-ms', '.library-ms', '.search-ms', '.scf', '.appref-ms', '.vb',
+  // Python's launchers run a script on open, on Windows and macOS alike.
+  '.py', '.pyw', '.pyz',
+  // Linux launchers and packages.
+  '.desktop', '.appimage', '.run', '.deb', '.rpm', '.snap', '.flatpakref'
 ])
 
 /**

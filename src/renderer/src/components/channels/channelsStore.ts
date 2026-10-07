@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { ChannelLink, ChannelStatus } from '@shared/channels'
+import { reportError } from '../ErrorBoundary'
 
 /**
  * Chat apps as the renderer sees them: the connections main owns and each
@@ -8,6 +9,8 @@ import type { ChannelLink, ChannelStatus } from '@shared/channels'
  */
 interface ChannelsState {
   ready: boolean
+  /** Why the connections couldn't be loaded; the next `init` tries again. */
+  error: string | null
   links: ChannelLink[]
   statuses: Record<string, ChannelStatus>
   /** A worker whose page asked to be connected, so Settings opens with it chosen. */
@@ -20,34 +23,29 @@ interface ChannelsState {
 
 /** The change listeners are attached once; the list itself can be loaded again after a failure. */
 let bound = false
-let loading = false
+let loading: Promise<void> | null = null
 
 const byId = (statuses: ChannelStatus[]): Record<string, ChannelStatus> => Object.fromEntries(statuses.map((s) => [s.linkId, s]))
 
-export const useChannels = create<ChannelsState>((set) => ({
+const errorText = (error: unknown): string =>
+  (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
+
+export const useChannels = create<ChannelsState>((set, get) => ({
   ready: false,
+  error: null,
   links: [],
   statuses: {},
   focusWorkerId: null,
 
-  async init() {
-    const api = window.api.channels
-    if (!bound) {
-      bound = true
-      api.onChanged((links) => set({ links }))
-      api.onStatus((statuses) => set({ statuses: byId(statuses) }))
-    }
-    if (loading || useChannels.getState().ready) return
-    loading = true
-    try {
-      const { links, statuses } = await api.list()
-      set({ links, statuses: byId(statuses), ready: true })
-    } catch {
-      // Stays not-ready, so the next visit to a page that needs it tries again
-      // (it used to be marked bound first and never retried).
-    } finally {
-      loading = false
-    }
+  init() {
+    if (get().ready) return Promise.resolve()
+    // Calls made while one is on its way share it. A failed one is forgotten,
+    // so the next call — Settings → Chat apps or a worker's page opening
+    // again — tries again instead of the list staying empty for good.
+    loading ??= load().finally(() => {
+      loading = null
+    })
+    return loading
   },
 
   put(link) {
@@ -58,3 +56,21 @@ export const useChannels = create<ChannelsState>((set) => ({
     set({ focusWorkerId })
   }
 }))
+
+async function load(): Promise<void> {
+  const set = useChannels.setState
+  try {
+    const api = window.api.channels
+    // Once per window, whatever happens to the list below.
+    if (!bound) {
+      bound = true
+      api.onChanged((links) => set({ links }))
+      api.onStatus((statuses) => set({ statuses: byId(statuses) }))
+    }
+    const { links, statuses } = await api.list()
+    set({ links, statuses: byId(statuses), ready: true, error: null })
+  } catch (error) {
+    reportError({ message: errorText(error), stack: error instanceof Error ? error.stack : undefined, source: 'chat apps' })
+    set({ error: errorText(error) })
+  }
+}

@@ -37,25 +37,74 @@ export function onPath(bin: string): string | null {
   return null
 }
 
-async function readLoginShellPath(): Promise<void> {
-  if (process.platform === 'win32') return
-  const shell = process.env.SHELL || (process.platform === 'darwin' ? '/bin/zsh' : '/bin/bash')
-  const marker = '__EAON_PATH__'
+/** Variables an AppImage's runtime points into its own mount, which nothing Eaon starts should inherit. */
+const APPIMAGE_LISTS = ['PATH', 'LD_LIBRARY_PATH', 'XDG_DATA_DIRS', 'GSETTINGS_SCHEMA_DIR']
 
-  const fromShell = await new Promise<string | null>((resolve) => {
-    execFile(
+/**
+ * Takes the AppImage's own entries back out of the environment. Its runtime
+ * prepends folders inside the mounted image so Electron can find its
+ * libraries, and leaves empty and relative entries (`.`, `./share/`) that
+ * resolve against whatever folder a process starts in. Inherited by a
+ * terminal, `run_command`, an MCP server or llama-server, they load the
+ * image's libraries instead of the system's, or break outright once the image
+ * is unmounted. APPIMAGE and APPDIR themselves stay: the updater needs them.
+ */
+export function leaveAppImageEnv(env: NodeJS.ProcessEnv = process.env): void {
+  const appDir = env.APPIMAGE && env.APPDIR ? env.APPDIR.replace(/\/+$/, '') : null
+  if (!appDir) return
+  for (const name of APPIMAGE_LISTS) {
+    const value = env[name]
+    if (value === undefined) continue
+    const kept = value.split(':').filter((entry) => entry.startsWith('/') && entry !== appDir && !entry.startsWith(`${appDir}/`))
+    if (kept.length > 0) env[name] = kept.join(':')
+    else delete env[name]
+  }
+}
+
+/**
+ * The PATH the user's login shell sets up, or null when it fails, prints
+ * nothing useful or takes too long. `giveUpMs` is for tests.
+ */
+export function loginShellPath(shell: string, giveUpMs = 6000): Promise<string | null> {
+  const marker = '__EAON_PATH__'
+  const parse = (stdout: string): string | null => new RegExp(`${marker}(.*?)${marker}`).exec(stdout)?.[1] ?? null
+  return new Promise<string | null>((resolve) => {
+    let printed = ''
+    const child = execFile(
       shell,
       // -i loads the interactive rc files where nvm, fnm and Homebrew usually
       // add themselves; -l loads the login profile for everyone else.
       ['-ilc', `printf '${marker}%s${marker}' "$PATH"`],
-      { timeout: 5000, env: { ...process.env, DISABLE_AUTO_UPDATE: 'true', ZSH_TMUX_AUTOSTARTED: 'true' } },
+      // SIGKILL because an interactive shell may ignore the default SIGTERM.
+      { timeout: 5000, killSignal: 'SIGKILL', env: { ...process.env, DISABLE_AUTO_UPDATE: 'true', ZSH_TMUX_AUTOSTARTED: 'true' } },
       (error, stdout) => {
-        if (error && !stdout) return resolve(null)
-        const match = new RegExp(`${marker}(.*?)${marker}`).exec(stdout)
-        resolve(match?.[1] ?? null)
+        clearTimeout(giveUp)
+        resolve(error && !stdout ? null : parse(stdout))
       }
     )
+    // An rc file that asks for input (a prompt, `read`) would otherwise wait
+    // on this pipe forever.
+    child.stdin?.end()
+    child.stdout?.on('data', (chunk) => (printed += String(chunk)))
+    // execFile answers only once every pipe has closed, and a process the rc
+    // files started in the background (an agent, a daemon) keeps stdout open
+    // after the shell itself is gone, kill or no kill. Everything that spawns
+    // waits on this lookup, so it gives up instead, with whatever was printed.
+    const giveUp = setTimeout(() => {
+      child.kill('SIGKILL')
+      child.stdout?.destroy()
+      child.stderr?.destroy()
+      resolve(parse(printed))
+    }, giveUpMs)
   })
+}
+
+async function readLoginShellPath(): Promise<void> {
+  // Before the login shell runs, so it starts from a clean environment too.
+  leaveAppImageEnv()
+  if (process.platform === 'win32') return
+  const shell = process.env.SHELL || (process.platform === 'darwin' ? '/bin/zsh' : '/bin/bash')
+  const fromShell = await loginShellPath(shell)
 
   // Common install locations as a floor, for shells whose rc files print
   // nothing useful or time out.

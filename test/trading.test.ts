@@ -28,6 +28,7 @@ import {
   sharpeRatio,
   tickersIn,
   exitTrigger,
+  thinCurve,
   TradingEngine,
   type LimitCheck,
   type TradingDeps
@@ -1590,3 +1591,44 @@ test('a trading check gets guidance only from the tools it is offered', () => {
   }
 })
 
+
+test('thinCurve keeps a curve to its budget, evenly, from the first point to the latest', () => {
+  const points = Array.from({ length: 5000 }, (_, i) => i)
+  const thin = thinCurve(points, 200)
+  assert.equal(thin.length, 200)
+  assert.equal(thin[0], 0)
+  assert.equal(thin.at(-1), 4999)
+  assert.ok(thin.every((p, i) => i === 0 || p > thin[i - 1]))
+  assert.equal(thinCurve(points.slice(0, 50), 200).length, 50)
+})
+
+test('engine: with no desk open, pushes carry a summary; an open desk gets the whole snapshot', () => {
+  const day = 86_400_000
+  const now = Date.now()
+  const log = Array.from({ length: 200 }, (_, i) => ({ at: now - (200 - i) * 1000, kind: 'note' as const, text: `entry ${i}` }))
+  const sessions = Array.from({ length: 50 }, (_, i) => ({ id: `s${i}`, name: `Session ${i}`, strategy: 'x', startedAt: now - (i + 1) * day, endsAt: now - i * day, status: 'done', log }))
+  const points = Array.from({ length: 5000 }, (_, i) => ({ at: now - (5000 - i) * 60_000, equity: 100_000 + Math.sin(i / 50) * 500 }))
+  const orders = Array.from({ length: 300 }, (_, i) => ({ id: `o${i}`, broker: 'simulator', symbol: 'AAPL', side: 'buy', qty: 1, status: 'filled', filledQty: 1, submittedAt: now - i * 1000 }))
+  const { engine } = harness({ files: { sessions, equity: { simulator: { start: 100_000, points } }, orders } })
+
+  const full = engine.snapshot()
+  const brief = engine.summary()
+  assert.equal(full.equity.length, 5000)
+  assert.equal(full.sessions[0].log.length, 200)
+  assert.equal(brief.equity.length, 200)
+  assert.deepEqual(brief.equity.at(-1), full.equity.at(-1), 'the latest point is always there')
+  assert.equal(brief.orders.length, 20)
+  assert.deepEqual(brief.orders[0], full.orders[0])
+  assert.equal(brief.sessions.length, full.sessions.length)
+  assert.ok(brief.sessions.every((s) => s.log.length === 10))
+  assert.deepEqual(brief.sessions[0].log.at(-1), full.sessions[0].log.at(-1), 'the latest entries are the ones kept')
+  // The figures are worked out from the whole history either way.
+  assert.deepEqual(brief.stats, full.stats)
+  assert.ok(JSON.stringify(brief).length * 10 < JSON.stringify(full).length, 'a summary is a small fraction of the whole')
+
+  assert.equal(engine.deskShown, false)
+  engine.setDeskOpen(true)
+  assert.equal(engine.deskShown, true)
+  engine.setDeskOpen(false)
+  assert.equal(engine.deskShown, false)
+})

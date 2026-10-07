@@ -51,6 +51,7 @@ const AGENT_KEY = `__eaonAgent@${chrome.runtime.getManifest().version}`
 export const FEATURES = [
   'navigate', 'new_tab', 'list_tabs', 'switch_tab', 'close_tab', 'snapshot', 'click', 'type', 'press', 'scroll',
   'select', 'hover', 'back', 'forward', 'wait', 'screenshot', 'get_url', 'read', 'find', 'fill', 'reload',
+  'links', 'clear', 'get_text',
   'self-update', 'ask'
 ]
 
@@ -342,6 +343,11 @@ async function pageAction(action, params) {
     await takeOver(opened.id)
     return { tabId: opened.id, message: `${result.message}. Now working in tab ${opened.id}: ${await describeTab(opened.id)}. Take a snapshot to see it.` }
   }
+  if (action === 'get_text') {
+    // Reading changes nothing, so there is no navigation to wait out.
+    watch.stop()
+    return { tabId: tab.id, text: result.text }
+  }
   if (action === 'hover' || action === 'scroll') {
     watch.stop()
     return { tabId: tab.id, message: `${result.message}.` }
@@ -399,12 +405,15 @@ async function read(params) {
   return { tabId: tab.id, text: result.text, nextOffset: result.nextOffset }
 }
 
-/** Like snapshot, the refs it hands out belong to this document; record it so they are honoured. */
-async function findOnPage(params) {
+/**
+ * `find` and `links`. Like snapshot, the refs they hand out belong to this
+ * document; record it so they are honoured.
+ */
+async function findOnPage(params, pageAction = 'search') {
   const tab = await requireTab()
   const before = await getSession()
   const refBase = (before.nextRefs && before.nextRefs[tab.id]) || 1
-  const result = await inPage(tab, 'search', { text: params.text, limit: params.limit, refBase })
+  const result = await inPage(tab, pageAction, { text: params.text, limit: params.limit, refBase })
   const session = await getSession()
   await patchSession({
     docs: { ...session.docs, [tab.id]: result.docId },
@@ -526,11 +535,15 @@ export async function perform(action, params, signal) {
     case 'hover':
     case 'scroll':
     case 'fill':
+    case 'clear':
+    case 'get_text':
       return pageAction(action, params)
     case 'read':
       return read(params)
     case 'find':
       return findOnPage(params)
+    case 'links':
+      return findOnPage(params, 'links')
     case 'reload':
       return reload()
     case 'wait':

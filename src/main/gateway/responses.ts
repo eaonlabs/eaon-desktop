@@ -1,7 +1,8 @@
 import type { ServerResponse } from 'node:http'
 import type { EffortLevel, TokenUsage } from '@shared/types'
 import { toolInput, type NeutralImage, type NeutralMessage, type NeutralToolCall, type ToolSpec, type TurnResult } from '../providers/adapters/types'
-import { resolveGatewayModel } from './models'
+import type { GatewayScope } from '@shared/gateway'
+import { noModelMessage, resolveGatewayModel } from './models'
 import { runGatewayTurn, statusFor } from './turn'
 import { argumentsJson, cap, clientToolId, dataUrlImage, errorMessage, newId, openaiEffort, sendJson, sseEvent, startSse, tidy } from './wire'
 
@@ -201,15 +202,15 @@ function callItem(call: NeutralToolCall, kind: ToolKind | undefined): Item {
   return { type: 'function_call', id: newId('fc_'), call_id: callId, name: call.name, arguments: argumentsJson(call), status: 'completed' }
 }
 
-export async function serveResponses(res: ServerResponse, body: Record<string, unknown>): Promise<void> {
+export async function serveResponses(res: ServerResponse, body: Record<string, unknown>, scope: GatewayScope = 'all'): Promise<void> {
   const parsed = parseResponsesRequest(body)
   if ('error' in parsed) {
     sendJson(res, 400, { error: { message: parsed.error, type: 'invalid_request_error', code: null } })
     return
   }
-  const resolved = resolveGatewayModel(parsed.model)
+  const resolved = resolveGatewayModel(parsed.model, scope)
   if (!resolved) {
-    sendJson(res, 400, { error: { message: 'No model available. Add an API key in Eaon → Settings → Model providers.', type: 'invalid_request_error', code: null } })
+    sendJson(res, 400, { error: { message: noModelMessage(scope, parsed.model), type: 'invalid_request_error', code: null } })
     return
   }
 

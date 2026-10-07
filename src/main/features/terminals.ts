@@ -11,6 +11,7 @@ import { secrets } from '../secrets'
 import { store } from '../store'
 import { buildChildEnv } from './eaonCode/env'
 import { findInstallerCopy } from './eaonCode/locate'
+import { eaonCliBinary, eaonCliEnv } from './eaonCli'
 import { currentPane, type TerminalAgent, type TerminalAgentId, type TerminalLayout, type TerminalSpawnRequest } from '@shared/terminals'
 
 /**
@@ -23,6 +24,8 @@ const LAYOUT_FILE = 'ade-terminals.json'
 
 const AGENTS: { id: TerminalAgentId; label: string; bin: string | null; installHint?: string }[] = [
   { id: 'eaon-code', label: 'Eaon Code', bin: 'eaon-code', installHint: 'Settings → Eaon Code' },
+  // Ships inside the app; a source checkout builds it with scripts/build-eaon-cli.sh.
+  { id: 'eaon-cli', label: 'Eaon CLI', bin: 'eaon-cli', installHint: 'npm run build:eaon-cli' },
   { id: 'claude', label: 'Claude Code', bin: 'claude', installHint: 'npm install -g @anthropic-ai/claude-code' },
   { id: 'codex', label: 'Codex', bin: 'codex', installHint: 'npm install -g @openai/codex' },
   {
@@ -64,11 +67,17 @@ function agents(): TerminalAgent[] {
   // the installer's copy under its script's whole path (`cli` alone could be anything).
   setExtraAgentBin(eaonBinary || null, 'eaon-code')
   setAgentScript(copy?.cli ?? (eaonBinary && /\.[cm]?js$/i.test(eaonBinary) ? eaonBinary : null), 'eaon-code')
+  // Eaon CLI runs from inside the app, wherever the app is — spaces and all.
+  const eaonCli = eaonCliBinary()
+  setAgentScript(eaonCli, 'eaon-cli')
   return AGENTS.map(({ id, label, bin, installHint }) => {
     if (!bin) return { id, label, command: null, installed: true }
     if (id === 'eaon-code') {
       const command = eaonCodeCommand(eaonBinary || null)
       return { id, label, command: command ?? bin, installed: Boolean(command), ...(installHint ? { installHint } : {}) }
+    }
+    if (id === 'eaon-cli') {
+      return { id, label, command: eaonCli ? shellQuote(eaonCli) : bin, installed: Boolean(eaonCli), ...(installHint ? { installHint } : {}) }
     }
     return {
       id,
@@ -83,9 +92,12 @@ function agents(): TerminalAgent[] {
 /**
  * Extra environment for a pane's agent. An Eaon Code pane gets the API keys
  * saved in Eaon (as the provider variables Eaon Code reads) when Settings →
- * Eaon Code shares them; a key already exported in the shell still wins.
+ * Eaon Code shares them; a key already exported in the shell still wins. An
+ * Eaon CLI pane gets where Eaon serves the downloaded models, starting the
+ * server if it is off; without it, Eaon CLI says what is wrong itself.
  */
-function agentEnv(agent: TerminalAgentId | undefined): Record<string, string> {
+async function agentEnv(agent: TerminalAgentId | undefined): Promise<Record<string, string>> {
+  if (agent === 'eaon-cli') return eaonCliEnv().catch(() => ({}))
   if (agent !== 'eaon-code' || !store.getSettings().eaonCode.shareKeys) return {}
   const { env, shared } = buildChildEnv({}, true, (providerId) => secrets.get(providerId))
   const extra: Record<string, string> = {}
@@ -251,14 +263,14 @@ export function createTerminals(options: TerminalsOptions = {}): Feature & { tic
           restored.add(req.paneId)
           const restore = await planRestore(req).catch(() => null)
           if (restore) {
-            const result = manager.spawn(req, agentEnv(restore.agent), restore.plan)
+            const result = manager.spawn(req, await agentEnv(restore.agent), restore.plan)
             if (result.ok && restore.agent !== (req.agent ?? 'shell')) send('terminal:agent', { paneId: req.paneId, agent: restore.agent })
             watch?.expect(req.paneId, restore.agent)
             return result
           }
         }
         restored.add(req.paneId)
-        return manager.spawn(resumeLine(req), agentEnv(req.agent))
+        return manager.spawn(resumeLine(req), await agentEnv(req.agent))
       })
       ipcMain.handle('terminal:running', () => watch?.snapshot() ?? {})
       // The conversation each pane is in, as far as the watch has seen: the ADE's

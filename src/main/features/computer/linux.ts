@@ -7,6 +7,17 @@ import { XDOTOOL_MODIFIERS, xdotoolKey, type Combo } from './keys'
 const run = promisify(execFile)
 
 /**
+ * A Wayland session: one that says so, or that has a Wayland display and no
+ * X11 one. WAYLAND_DISPLAY alone is not enough — a compositor nested in an
+ * X11 session sets it too, and there xdotool works.
+ */
+export function isWaylandSession(env: NodeJS.ProcessEnv): boolean {
+  if (env['XDG_SESSION_TYPE'] === 'wayland') return true
+  if (env['XDG_SESSION_TYPE'] === 'x11') return false
+  return Boolean(env['WAYLAND_DISPLAY']) && !env['DISPLAY']
+}
+
+/**
  * Linux input through `xdotool`, when it is installed. One process per
  * action: xdotool starts in a few milliseconds, so a persistent helper would
  * buy nothing. X11 only — under Wayland it can move the pointer over
@@ -40,15 +51,18 @@ export class LinuxInput implements InputBackend {
   }
 
   async check(): Promise<BackendCheck> {
+    // Under Wayland xdotool reaches only XWayland windows, and every
+    // screenshot would open the desktop's screen-sharing picker, so computer
+    // use is off there rather than half working.
+    if (isWaylandSession(process.env)) {
+      return { available: false, detail: 'Computer use needs an X11 session. Log out and pick an X11 (Xorg) session at the login screen to use it.' }
+    }
     try {
       await this.xdo(['version'])
     } catch (error) {
       return { available: false, detail: (error as Error).message }
     }
-    const wayland = process.env['XDG_SESSION_TYPE'] === 'wayland' || Boolean(process.env['WAYLAND_DISPLAY'])
-    return wayland
-      ? { available: true, detail: 'This is a Wayland session; xdotool can only reach X11 (XWayland) windows.' }
-      : { available: true }
+    return { available: true }
   }
 
   async move(point: Point): Promise<void> {

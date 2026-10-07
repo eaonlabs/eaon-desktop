@@ -1,6 +1,8 @@
 import os from 'node:os'
 import type { Chat, DownloadedModel, McpServer, ModelInfo, Project, Settings, Workspace } from '@shared/types'
 import type { ModelEditFields, ProviderHealth } from '@shared/providers'
+import { REMOTE_DEFAULT_PORT } from '@shared/remote'
+import { logCrash } from './crashGuard'
 import { backupDocs, flushDocWrites, readDoc, setAside, shapeOf, writeDocAsync, writeDocSync, type DocSpec } from './storeFiles'
 import { repairChats, repairMcpServers, repairProjects, repairProviderConfig, repairSettings, repairWorkspaces } from './storeRepair'
 
@@ -61,6 +63,14 @@ function writeJsonAsync(name: string, value: unknown): void {
   writeDocAsync(name, value)
 }
 
+const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error))
+
+/**
+ * A store file, or `fallback` when there is none yet. One that is there but
+ * can't be read or parsed is moved aside first. Returning the fallback alone
+ * meant the next save wrote it over the file: a damaged chats.json read as no
+ * chats, and the next save replaced the whole history with that.
+ */
 function readJson<T>(name: string, fallback: T): T {
   return readDoc(name, shapeOf(fallback))
 }
@@ -165,6 +175,25 @@ export const defaultSettings: Settings = {
     defaultModelId: null,
     smallModelId: null,
     token: null
+  },
+  remote: {
+    enabled: false,
+    port: REMOTE_DEFAULT_PORT,
+    token: null
+  },
+  ade: {
+    theme: 'eaon',
+    scenes: true,
+    appBefore: null
+  },
+  starPrompt: {
+    status: 'pending',
+    launches: 0,
+    asked: 0,
+    lastAskedAt: null
+  },
+  updates: {
+    beta: false
   },
   claudeCode: {
     largeModelId: null,
@@ -503,7 +532,15 @@ export const store = {
     return readJson<T>(name, fallback)
   },
   setJson(name: string, value: unknown): void {
-    writeJson(name, value)
+    // Logged, not thrown. Callers are engines that have already changed their
+    // state in memory and go on after saving (a worker's commit() reschedules,
+    // quitting saves on the way out); a throw skipped that and left them half
+    // updated, while the file is only behind until the next save.
+    try {
+      writeJson(name, value)
+    } catch (error) {
+      logCrash('store: write failed', `${name}: ${errorText(error)}`)
+    }
   },
   /** `setJson` for documents that grow without bound (worker threads): off the main thread, newest write wins. */
   setJsonAsync(name: string, value: unknown): void {

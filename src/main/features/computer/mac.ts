@@ -216,8 +216,11 @@ function main() {
     var newline = buffer.indexOf('\n')
     if (newline === -1) {
       var data = stdin.availableData
-      // Empty read: Eaon closed the pipe (quit or crashed), so stop too.
-      if (!data || data.length === 0) return
+      // Empty read: Eaon closed the pipe (quit or crashed), so stop too. The
+      // bridge hands NSData's length back as a string ("0"), so it is
+      // converted before comparing; '=== 0' never matched, and an orphaned
+      // helper went on reading an empty pipe at 100% of a core.
+      if (!data || data.isNil() || Number(data.length) === 0) return
       buffer += ObjC.unwrap($.NSString.alloc.initWithDataEncoding(data, $.NSUTF8StringEncoding))
       continue
     }

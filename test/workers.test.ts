@@ -14,7 +14,7 @@ import { workersToolSource } from '../src/main/features/workers/tools'
 import type { RunAgent } from '../src/main/features/workers/runner'
 import type { FeatureContext } from '../src/main/features/types'
 import { GOAL_CONTINUE_MS, GOAL_MAX_TURNS, MAX_SLEEP_MINUTES, MAX_WORKERS, TRADING_DESK, TRADING_ROUTINE_NAME, describeWorker, mentionedWorkers, workerMood, type Worker, type WorkerDraft } from '@shared/workers'
-import { routineNextAt } from '../src/main/features/workers/engine'
+import { routineNextAt, workerSlug } from '../src/main/features/workers/engine'
 import { brokerOf, brokerWriteNeedsUser, setTradingHalted, tradingHalted, writesToBroker } from '../src/main/features/trading/access'
 import { isOpen } from '../src/main/features/trading/marketHours'
 import type { ChatToolPart, StreamEvent, StreamRequest } from '@shared/types'
@@ -148,6 +148,16 @@ const text = (message: { parts: { type: string; text?: string }[] }): string =>
     .replace(/^\[[A-Z][a-z]{2}, [A-Z][a-z]{2} \d{1,2}, \d{1,2}:\d{2}\s?[AP]M\]\n/, '')
 
 /* ------------------------------------------------------------ creation */
+
+test('a worker’s folder name is one Windows accepts', () => {
+  assert.equal(workerSlug('Data Wrangler'), 'Data-Wrangler')
+  assert.equal(workerSlug('Con'), '_Con')
+  assert.equal(workerSlug('nul.txt'), '_nul.txt')
+  assert.equal(workerSlug('COM1'), '_COM1')
+  assert.equal(workerSlug('Console'), 'Console')
+  assert.equal(workerSlug('Wait...'), 'Wait')
+  assert.equal(workerSlug('...'), 'Worker')
+})
 
 test('creating a worker validates it, gives it a folder of its own, and caps the team', () => {
   const { engine } = start(fakeAgent().runAgent)

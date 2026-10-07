@@ -573,3 +573,42 @@ setInterval(() => {}, 1000)
   const kept = readFileSync(join(dir, 'scrollback', 'pane-b.log'), 'utf8')
   assert.ok(kept.includes('MARKER-42') && kept.includes(sub))
 })
+
+test('away from Eaon the process table is read every 25 s rather than every 4; back at it, every beat', async () => {
+  const recs = new PaneRecords(recsDir)
+  let reads = 0
+  let attended = false
+  let now = 1_000_000
+  const watch = new SessionWatch(
+    () => new Map([['pane-a', 100]]),
+    () => false,
+    recs,
+    () => {},
+    {
+      table: async () => {
+        reads++
+        return [{ pid: 100, ppid: 1, args: '-zsh' }]
+      },
+      cwdOf: async () => '',
+      now: () => now,
+      attended: () => attended
+    }
+  )
+  await watch.poll()
+  assert.equal(reads, 1, 'the first beat looks')
+  // Six beats, 4 s apart, with no window in front: nothing for 24 s.
+  for (let i = 0; i < 6; i++) {
+    now += 4000
+    await watch.poll()
+  }
+  assert.equal(reads, 1)
+  now += 4000
+  await watch.poll()
+  assert.equal(reads, 2, '28 s on, it looks again')
+  attended = true
+  now += 4000
+  await watch.poll()
+  now += 4000
+  await watch.poll()
+  assert.equal(reads, 4, 'with a window in front, every beat looks')
+})

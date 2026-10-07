@@ -28,8 +28,17 @@ import type { TerminalSpawnRequest, TerminalSpawnResult } from '@shared/terminal
  * thinks it is a child session and quietly degrades itself. The login shell
  * re-sources the user's profile, so anything they set themselves comes back.
  */
-const DROP_PREFIXES = ['npm_', 'ELECTRON_', 'VITE_', 'CLAUDE_CODE_', 'VSCODE_', 'CURSOR_']
+const DROP_PREFIXES = ['npm_', 'ELECTRON_', 'VITE_', 'CLAUDE_CODE_', 'VSCODE_', 'CURSOR_', 'ZELLIJ']
 const DROP_EXACT = new Set([
+  // Eaon started from a terminal inside tmux or screen: a pane is not inside
+  // that multiplexer, and an agent that thinks so wraps its output for it.
+  'TMUX',
+  'TMUX_PANE',
+  'STY',
+  'KITTY_WINDOW_ID',
+  'WEZTERM_PANE',
+  'WT_SESSION',
+  'ALACRITTY_WINDOW_ID',
   'CLAUDECODE',
   'CLAUDE_PID',
   'CLAUDE_EFFORT',
@@ -44,6 +53,17 @@ const DROP_EXACT = new Set([
   'ITERM_PROFILE',
   'COLORFGBG'
 ])
+
+/** The variables a fresh terminal window would inherit from `source`: what launched Eaon left out. */
+export function launcherEnv(source: NodeJS.ProcessEnv): Record<string, string> {
+  const env: Record<string, string> = {}
+  for (const [key, value] of Object.entries(source)) {
+    if (value === undefined || DROP_EXACT.has(key)) continue
+    if (DROP_PREFIXES.some((prefix) => key.startsWith(prefix))) continue
+    env[key] = value
+  }
+  return env
+}
 
 interface Session {
   proc: NodePty.IPty
@@ -175,12 +195,7 @@ export class PtyManager {
 
   /** The environment a freshly opened terminal window would have. */
   private buildEnv(paneId: string, extra: Record<string, string> = {}): Record<string, string> {
-    const env: Record<string, string> = {}
-    for (const [key, value] of Object.entries(process.env)) {
-      if (value === undefined || DROP_EXACT.has(key)) continue
-      if (DROP_PREFIXES.some((prefix) => key.startsWith(prefix))) continue
-      env[key] = value
-    }
+    const env = launcherEnv(process.env)
     env.TERM = 'xterm-256color'
     env.COLORTERM = 'truecolor'
     env.TERM_PROGRAM = 'EaonADE'

@@ -73,7 +73,13 @@ export class ReloadBudget {
 
 let installed = false
 
-export function installCrashGuard(): void {
+/**
+ * `isAppWindow` tells Eaon's own windows from the other windows it opens. A
+ * worker's browser is a hidden window too; its pages crash on heavy sites, and
+ * reloading one behind the agent's back used up the budget meant for the app
+ * and could hang the "keeps crashing" dialog on a window nobody can see.
+ */
+export function installCrashGuard(isAppWindow: (contents: Electron.WebContents) => boolean = () => true): void {
   if (installed) return
   installed = true
   crashReporter.start({ uploadToServer: false })
@@ -91,7 +97,7 @@ export function installCrashGuard(): void {
     logCrash(`renderer gone (${kind})`, `${details.reason}, exit code ${details.exitCode}, ${contents.getURL().slice(0, 200)}`)
     // A page in the agent's browser or a <webview> shows its own error; only Eaon's own windows are reloaded
     // ('offscreen' is the same window under the screenshot harness).
-    if (kind !== 'window' && kind !== 'offscreen') return
+    if ((kind !== 'window' && kind !== 'offscreen') || !isAppWindow(contents)) return
     const window = BrowserWindow.fromWebContents(contents)
     if (!window || window.isDestroyed()) return
     if (budget.take()) {

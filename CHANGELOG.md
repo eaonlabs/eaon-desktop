@@ -3,6 +3,68 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [2026.6.2-beta.6] — 2026-10-07
+
+### Added
+- **Eaon CLI** (Apple silicon for now): a coding agent in the terminal, a fork
+  of OpenCode that uses only the open-source models you've downloaded in
+  Eaon. Start it from the ADE's New terminal menu or Models → Downloaded. The
+  Local API Server answers it under `/local/v1` with the downloaded models
+  alone; a cloud model name there is refused.
+- **Control Eaon from other tools.** A control API (MCP at `/control/mcp`,
+  JSON at `/control/v1/tools`, behind this install's key) can list and manage
+  models, downloads, the ADE, tabs, workers, chats and a few appearance
+  settings. It never hands out keys or tokens. Eaon CLI connects to it and
+  asks before anything that changes much.
+- **Remote devices** (Settings → Remote devices, off by default): the Eaon app
+  on your iPhone can see and control your workers and use this Mac's models,
+  over your own network, with a key for every request.
+- **Terminal themes for the ADE.** Type `/theme` in any terminal, or use the
+  header's Theme button: Eaon, Everforest, Nord, Kanagawa, Tokyo Night,
+  Catppuccin, Gruvbox, Dracula, Solarized, One Dark, Rosé Pine Dawn and more,
+  each previewed on every pane before you keep it, some with a scene drawn
+  behind the text. A theme restyles the app in its colours too; Eaon puts
+  back the app's own look.
+- **Star Eaon on GitHub**, from Settings → General or an occasional prompt
+  (after a few launches, at most three times, two weeks apart). With the
+  GitHub CLI signed in it stars the repository for you; otherwise it opens
+  the page. It never stars anything without the button being pressed.
+- **Beta updates, on their own.** Settings → General → Software update has a
+  separate "Beta updates" section. Turn on "Install beta updates" and, when a
+  newer beta is out, it appears with its own Download beta button. A beta is
+  never downloaded unless you press it, and stable updates work as before.
+- **Credits worth reading.** "Made with ♥ in California and New York", the
+  people who contributed, and what Eaon is built on. The notices for the MIT
+  software Eaon ships (OpenCode, llama.cpp) are in `NOTICE`.
+- **Browser extension 1.2.0**, which installed copies update to themselves.
+  Three new actions for the agent: `links` (a page's links with where each
+  goes, far smaller than a snapshot), `clear` (empty a field) and `get_text`
+  (what a field or element holds; passwords are never shared).
+
+### Fixed
+- **Linux installers start on Ubuntu 24.04.** The AppImage needed `libfuse2`
+  and `libz.so`, which Ubuntu doesn't install, so opening it did nothing; it now
+  uses electron-builder's static runtime. The .deb aborted at launch ("The SUID
+  sandbox helper binary was found, but is not configured correctly") because
+  Ubuntu 23.10 and later block the user namespaces Chromium's sandbox needs; it
+  now installs an AppArmor profile, and the AppImage's launcher adds
+  `--no-sandbox` only where that's the case. The .deb also depends on `libgbm1`
+  and ALSA, and the running window groups under its launcher on GNOME and KDE.
+- **A helper left behind by computer use could use a whole CPU core, for days.**
+  The macOS input helper compared a length to `0` that its scripting bridge
+  returns as a string, so after Eaon quit it read an empty pipe forever.
+
+### Changed
+- A worker's browser that goes unused for ten minutes puts its page away (it
+  comes back where it was at the next step), so a page with a video or a
+  spinner no longer keeps a processor core busy for hours; the live view
+  only captures the page while something is happening on it.
+- The Windows installer no longer includes a 32-bit build, which had no terminal
+  and no local models, and is a third smaller.
+- A Windows build now installs on a clean machine in CI, on x64 and arm64
+  (`.github/workflows/windows.yml`), and the Linux build is installed and opened
+  on Ubuntu 24.04 without `--no-sandbox` before it's attached to a release.
+
 ## [2026.6.2-beta.5] — 2026-10-07
 
 ### Added

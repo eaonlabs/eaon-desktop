@@ -50,7 +50,11 @@ export const BROWSER_ACTIONS = [
   'read',
   'find',
   'fill',
-  'reload'
+  'reload',
+  // Extension 1.2.0 and later.
+  'links',
+  'clear',
+  'get_text'
 ] as const
 
 export type BrowserAction = (typeof BROWSER_ACTIONS)[number]

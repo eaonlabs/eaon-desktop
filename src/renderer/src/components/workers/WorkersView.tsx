@@ -25,6 +25,7 @@ import { resolveSelection } from '@shared/modelSelection'
 import { useApp } from '../../state/store'
 import { TopBar } from '../TopBar'
 import { MessageRow } from '../ChatView'
+import { RowBoundary } from '../ErrorBoundary'
 import { ContextMenu } from '../Sidebar'
 import { Modal } from '../ui'
 import { WorkerFace } from './WorkerFace'
@@ -74,8 +75,17 @@ export function WorkersView(): JSX.Element {
 /* ------------------------------------------------------------------ Team */
 
 function Team(): JSX.Element {
-  const { workers, ready, openEditor, select, now, openTeamDialog } = useWorkers(
-    useShallow((s) => ({ workers: s.workers, ready: s.ready, openEditor: s.openEditor, select: s.select, now: s.now, openTeamDialog: s.openTeamDialog }))
+  const { workers, ready, error, init, openEditor, select, now, openTeamDialog } = useWorkers(
+    useShallow((s) => ({
+      workers: s.workers,
+      ready: s.ready,
+      error: s.error,
+      init: s.init,
+      openEditor: s.openEditor,
+      select: s.select,
+      now: s.now,
+      openTeamDialog: s.openTeamDialog
+    }))
   )
   const working = workers.filter((w) => w.status === 'working').length
 
@@ -100,7 +110,17 @@ function Team(): JSX.Element {
       />
       <div className="page__scroll scroll">
         <div className="page__inner page__inner--wide team">
-          {!ready ? null : workers.length === 0 ? (
+          {!ready ? (
+            error && (
+              <div className="empty-state" role="alert">
+                <div className="empty-state__title">Your team couldn’t be loaded</div>
+                <div className="empty-state__body">{error}</div>
+                <button className="btn" onClick={() => void init()}>
+                  Try again
+                </button>
+              </div>
+            )
+          ) : workers.length === 0 ? (
             <TeamEmpty onCreate={() => openEditor(null)} onTeam={() => openTeamDialog(true)} />
           ) : (
             <>
@@ -311,11 +331,14 @@ function WorkerPage({ worker }: { worker: Worker }): JSX.Element {
             </p>
           )}
           {thread?.messages.map((message) => (
-            <MessageRow key={message.id} message={message} streaming={message.id === runningId} quietWhenEmpty />
+            <RowBoundary key={message.id} item={message}>
+              <MessageRow message={message} streaming={message.id === runningId} quietWhenEmpty />
+            </RowBoundary>
           ))}
           {queued.map((mail) => (
             <div key={mail.id} className="msg-row msg-user-block msg-row--queued">
-              {mail.files.length > 0 && (
+              {/* Mail saved by an older build can be missing its file list. */}
+              {(mail.files ?? []).length > 0 && (
                 <div className="msg-attachments" data-align="end">
                   {mail.files.map((path) =>
                     isImagePath(path) ? (

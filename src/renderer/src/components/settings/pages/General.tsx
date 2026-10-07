@@ -3,10 +3,11 @@ import { useShallow } from 'zustand/react/shallow'
 import { useApp, useIsWork } from '../../../state/store'
 import { Card, ErrorDetails, Modal, Row, Section, Select, Switch } from '../../ui'
 import { LinkAccounts } from '../../LinkAccounts'
-import { ExternalLink, Github } from 'lucide-react'
+import { ExternalLink, Github, Star } from 'lucide-react'
 import type { LaunchMode } from '@shared/types'
 import { DOCS_URL, ISSUES_URL, RELEASES_URL, REPO_URL } from '@shared/links'
 import { errorText, explainUpdateError } from '../../../lib/errors'
+import { CreditsSection } from './Credits'
 
 export function GeneralPage(): JSX.Element {
   const { settings, patchSettings } = useApp(useShallow((s) => ({ settings: s.settings, patchSettings: s.patchSettings })))
@@ -191,6 +192,8 @@ export function GeneralPage(): JSX.Element {
         </p>
       </Modal>
 
+      <BetaUpdates version={version} />
+
       <Section label="Resources">
         <Card>
           <Row title="Documentation" description="How to install Eaon, pick models, and use Chat, Workers and the ADE">
@@ -210,6 +213,12 @@ export function GeneralPage(): JSX.Element {
 
       <Section label="Community">
         <Card>
+          <Row title="Star Eaon" description="Opens the repository, and stars it for you if the GitHub CLI is signed in on this computer.">
+            <button className="btn btn--ghost btn--sm" onClick={() => void window.api.star.answer('star')}>
+              <Star size={13} strokeWidth={1.9} />
+              Star on GitHub
+            </button>
+          </Row>
           <Row title="GitHub" description="Eaon's source code. Contributions are welcome.">
             <button
               type="button"
@@ -235,9 +244,7 @@ export function GeneralPage(): JSX.Element {
         </Card>
       </Section>
 
-      <Section label="Credits">
-        <p className="settings__lede">Built with Electron and React, connected to whichever AI provider you bring your own key for.</p>
-      </Section>
+      <CreditsSection />
     </>
   )
 }
@@ -259,5 +266,79 @@ function UpdateError({ message }: { message: string }): JSX.Element {
         </button>
       )}
     </div>
+  )
+}
+
+/**
+ * Beta updates, apart from the stable ones above: switched on here, and then
+ * a newer beta is offered with its own Download button. Nothing is downloaded
+ * until it is pressed, and what is installed stays what you chose.
+ */
+function BetaUpdates({ version }: { version: string }): JSX.Element {
+  const { settings, patchSettings } = useApp(useShallow((s) => ({ settings: s.settings, patchSettings: s.patchSettings })))
+  const beta = useApp((s) => s.betaStatus)
+  // A beta build already follows betas and stable releases by itself.
+  const onBeta = /^\d+\.\d+\.\d+-/.test(version)
+  const enabled = settings?.updates.beta ?? false
+
+  const turn = (on: boolean): void => {
+    void patchSettings({ updates: { beta: on } }).then(() => window.api.updater.betaChanged())
+  }
+
+  return (
+    <Section label="Beta updates">
+      <Card>
+        {onBeta ? (
+          <Row
+            title="You're on a beta build"
+            description="Its updates follow betas and stable releases, so a newer beta arrives with the usual update above."
+          />
+        ) : (
+          <>
+            <Row
+              title="Install beta updates"
+              description="Be told when a beta is out. It's an early build for testing and can have bugs. It's never downloaded unless you press Download, and your chats and settings carry over."
+            >
+              <Switch label="Install beta updates" checked={enabled} onChange={turn} />
+            </Row>
+            {enabled && beta.state === 'checking' && <Row title="Looking for a beta…" />}
+            {enabled && beta.state === 'available' && (
+              <Row title={`Beta ${beta.version} is out`} description="Download it now, then restart Eaon to switch to it.">
+                <button className="btn btn--accent" onClick={() => void window.api.updater.downloadBeta()}>
+                  Download beta
+                </button>
+              </Row>
+            )}
+            {enabled && beta.state === 'downloading' && (
+              <Row title="Downloading the beta…" description={`${beta.percent}% — keep using Eaon, this runs in the background`} />
+            )}
+            {enabled && beta.state === 'downloaded' && (
+              <Row title="Beta ready" description={`Version ${beta.version} installs when you restart`}>
+                <button className="btn btn--accent" onClick={() => void window.api.updater.install()}>
+                  Restart & install
+                </button>
+              </Row>
+            )}
+            {enabled && (beta.state === 'idle' || beta.state === 'not-available') && (
+              <Row
+                title={beta.state === 'idle' ? 'No beta checked yet' : 'No newer beta'}
+                description={beta.state === 'idle' ? undefined : 'You have the newest build, or there is no newer beta out right now.'}
+              >
+                <button className="btn btn--ghost btn--sm" onClick={() => void window.api.updater.checkBeta()}>
+                  Check for betas
+                </button>
+              </Row>
+            )}
+            {enabled && beta.state === 'error' && (
+              <Row title="Couldn't get the beta" description={beta.message}>
+                <button className="btn btn--ghost btn--sm" onClick={() => void window.api.updater.checkBeta()}>
+                  Try again
+                </button>
+              </Row>
+            )}
+          </>
+        )}
+      </Card>
+    </Section>
   )
 }

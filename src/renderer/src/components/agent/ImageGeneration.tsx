@@ -15,7 +15,8 @@ import '../../styles/imagegen.css'
  * image at the shape that was asked for, each a slowly developing field of
  * light with the current stage on it; when it is done the pictures resolve
  * out of a blur into those same tiles, so nothing jumps. Click one to look at
- * it full size; the corner buttons copy its path or show it in Finder.
+ * it full size; the corner buttons copy its path or show it in the file
+ * manager (Finder on macOS).
  */
 
 const clock = (seconds: number): string => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`

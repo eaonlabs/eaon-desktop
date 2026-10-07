@@ -1,10 +1,12 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { isIP } from 'node:net'
 import { hostname } from 'node:os'
+import type { GatewayScope } from '@shared/gateway'
 import type { LocalServerStatus } from '@shared/types'
 import { isLoopbackHost, setOwnServerPort } from './providers/compat'
+import { handleControl } from './control/server'
 import { anthropicError, anthropicModelList, serveCountTokens, serveMessages } from './gateway/anthropic'
-import { gatewayModels, tokenAllowed } from './gateway/models'
+import { gatewayModels, localGatewayModels, tokenAllowed } from './gateway/models'
 import { serveChatCompletions } from './gateway/openaiChat'
 import { serveResponses } from './gateway/responses'
 import { store } from './store'
@@ -17,6 +19,12 @@ import { store } from './store'
  *
  * Bound to 127.0.0.1 only — this exposes the user's API keys by proxy, so it
  * must never be reachable from the network.
+ *
+ * `/control` is the control API (control/server.ts): MCP and JSON tools that
+ * drive the app itself, for Eaon CLI.
+ *
+ * Every route also answers under `/local` (`/local/v1/chat/completions`…),
+ * kept to the open-source models downloaded in Eaon: Eaon CLI's endpoint.
  */
 
 let server: Server | null = null
@@ -158,6 +166,8 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     res.setHeader('Vary', 'Origin')
   }
   const url = new URL(req.url ?? '/', 'http://127.0.0.1')
+  const scope: GatewayScope = /^\/local(\/|$)/.test(url.pathname) ? 'local' : 'all'
+  const pathname = scope === 'local' ? url.pathname.slice('/local'.length) || '/' : url.pathname
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204, {
@@ -167,6 +177,9 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     res.end()
     return
   }
+
+  // Eaon's control API: its own, stricter key check, and nothing else of the gateway's.
+  if (await handleControl(req, res, url.pathname)) return
 
   if (url.pathname === '/docs') {
     res.writeHead(200, { 'Content-Type': 'text/html' })
@@ -180,15 +193,15 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
   }
 
   // Health checks: Claude Code sends HEAD /api/hello before its first request.
-  if ((req.method === 'GET' || req.method === 'HEAD') && (url.pathname === '/' || url.pathname === '/api/hello')) {
+  if ((req.method === 'GET' || req.method === 'HEAD') && (pathname === '/' || pathname === '/api/hello')) {
     json(res, 200, { status: 'ok', name: 'Eaon Local API' })
     return
   }
 
   // Apps whose base URL leaves out /v1 call /chat/completions and the like.
-  const path = /^\/(models|chat\/completions|responses|messages(\/count_tokens)?)$/.test(url.pathname.replace(/\/+$/, ''))
-    ? `/v1${url.pathname.replace(/\/+$/, '')}`
-    : url.pathname.replace(/\/+$/, '')
+  const path = /^\/(models|chat\/completions|responses|messages(\/count_tokens)?)$/.test(pathname.replace(/\/+$/, ''))
+    ? `/v1${pathname.replace(/\/+$/, '')}`
+    : pathname.replace(/\/+$/, '')
   const anthropicStyle = path.startsWith('/v1/messages') || typeof req.headers['anthropic-version'] === 'string'
 
   const auth = tokenAllowed(req.headers)
@@ -203,7 +216,11 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 
   if (path === '/v1/models' && req.method === 'GET') {
     if (typeof req.headers['anthropic-version'] === 'string') {
-      json(res, 200, anthropicModelList())
+      json(res, 200, anthropicModelList(scope))
+      return
+    }
+    if (scope === 'local') {
+      json(res, 200, { object: 'list', data: localGatewayModels() })
       return
     }
     const created = Math.floor(Date.now() / 1000)
@@ -212,9 +229,9 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
   }
 
   const routes: Record<string, (body: Record<string, unknown>) => Promise<void> | void> = {
-    '/v1/chat/completions': (body) => serveChatCompletions(res, body),
-    '/v1/responses': (body) => serveResponses(res, body),
-    '/v1/messages': (body) => serveMessages(res, body),
+    '/v1/chat/completions': (body) => serveChatCompletions(res, body, scope),
+    '/v1/responses': (body) => serveResponses(res, body, scope),
+    '/v1/messages': (body) => serveMessages(res, body, scope),
     '/v1/messages/count_tokens': (body) => serveCountTokens(res, body)
   }
   const route = routes[path]

@@ -1,8 +1,10 @@
 # Linux installers: an AppImage and a .deb for x64 and arm64, each built on a
 # Linux machine of that arch (node-pty has no Linux prebuild, and llama-server
 # is compiled here too). The app is started headless once to make sure it
-# runs, then the files are attached to the GitHub release for package.json's
-# version if that release doesn't have them yet, and kept on the run either way.
+# runs, then both packages are installed and opened on Ubuntu 24.04 the way a
+# user would, and only then are the files attached to the GitHub release for
+# package.json's version if that release doesn't have them yet. They are kept
+# on the run either way.
 #
 # Runs on a push to a release branch, or by hand. Not on version tags:
 # publishing a release creates its tag, and a build started by that would
@@ -96,10 +98,79 @@ jobs:
             dist/latest-linux*.yml
           if-no-files-found: error
 
-      # A published release keeps the files it went out with: a later push to
-      # the release branch (docs, CI) must not swap in a rebuild that updaters
-      # and the old feed's checksums never saw. Only a release without this
-      # arch's files yet (its latest-linux*.yml) gets them.
+  # The packages as someone downloading them gets them, on the newest Ubuntu:
+  # the .deb installed with apt and started from its launcher, and the AppImage
+  # opened directly (through FUSE, as a double-click does). Neither gets
+  # --no-sandbox. Ubuntu 24.04 restricts unprivileged user namespaces through
+  # AppArmor, which stops Chromium's sandbox, and both packages used to abort
+  # there before Eaon's code ran; the build job's check above never saw it.
+  noble:
+    name: Install and start on Ubuntu 24.04 (${{ matrix.arch }})
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: x64
+          - runner: ubuntu-24.04-arm
+            arch: arm64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: eaon-linux-${{ matrix.arch }}
+          path: pkg
+
+      # A desktop install has a display, FUSE and the namespace restriction on;
+      # a runner may not, so each is made sure of.
+      - name: Prepare
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xvfb fuse3 > /dev/null
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=1
+
+      - name: .deb
+        run: |
+          sudo apt-get install -y -qq ./pkg/*.deb > /dev/null
+          set +e
+          timeout 25 xvfb-run -a eaon --disable-gpu > deb.log 2>&1
+          code=$?
+          set -e
+          tail -n 40 deb.log
+          if [ "$code" != "124" ]; then echo "The installed .deb exited early (code $code)"; exit 1; fi
+
+      - name: AppImage
+        run: |
+          APPIMAGE="$(ls pkg/*.AppImage | head -1)"
+          chmod +x "$APPIMAGE"
+          set +e
+          timeout 25 xvfb-run -a "$APPIMAGE" --disable-gpu > appimage.log 2>&1
+          code=$?
+          set -e
+          tail -n 40 appimage.log
+          if [ "$code" != "124" ]; then echo "The AppImage exited early (code $code)"; exit 1; fi
+
+  # A published release keeps the files it went out with: a later push to
+  # the release branch (docs, CI) must not swap in a rebuild that updaters
+  # and the old feed's checksums never saw. Only a release without this
+  # arch's files yet (its latest-linux*.yml) gets them, and only once both
+  # packages have started on Ubuntu 24.04.
+  release:
+    name: Attach to the release (${{ matrix.arch }})
+    needs: [build, noble]
+    strategy:
+      matrix:
+        arch: [x64, arm64]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: eaon-linux-${{ matrix.arch }}
+          path: dist
+
       - name: Attach to the release
         env:
           GH_TOKEN: ${{ github.token }}

@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
-import { dirname, isAbsolute, join, posix, relative, resolve } from 'node:path'
+import { dirname, isAbsolute, join, posix, relative, resolve, sep } from 'node:path'
 import { shell } from 'electron'
 import type { SkillDraft, SkillInfo, SkillSource } from '@shared/skills'
 import { registerToolSource, type AgentTool } from '../agent/tools'
@@ -354,6 +354,20 @@ const MAX_FILES = 300
 const MAX_BYTES = 20 * 1024 * 1024
 
 /**
+ * Where a downloaded file goes in the skill folder `dir`, or null if its
+ * path from GitHub would put it anywhere else. A git file name may hold `\`
+ * or `:`, which are separators and drives on Windows (`..\..\x`, `C:x`), so
+ * those are refused before resolving; the separator after `dir` keeps
+ * `/skills-evil` from passing for `/skills`.
+ */
+export function skillFileTarget(dir: string, rel: string): string | null {
+  if (!rel || /[\\:]/.test(rel) || rel.split('/').includes('..') || posix.isAbsolute(rel)) return null
+  const root = resolve(dir)
+  const target = resolve(root, rel)
+  return target.startsWith(root + sep) ? target : null
+}
+
+/**
  * Installs a skill from a GitHub folder into ~/.eaon/skills, fetched through
  * the contents API one directory at a time (no git, no archive tools). An
  * existing install of the same skill is moved to the Trash first, so
@@ -388,7 +402,7 @@ export async function installSkillFromGithub(link: string): Promise<SkillInfo> {
     for (const item of items) {
       // GitHub paths are always forward-slashed, whatever the local OS.
       const rel = basePath ? posix.relative(basePath, item.path) : item.path
-      if (!rel || rel.startsWith('..') || isAbsolute(rel)) continue
+      if (!rel || rel.startsWith('..') || isAbsolute(rel) || /[\\:]/.test(rel)) continue
       if (item.type === 'dir') {
         if (depth >= 6) continue
         await walk((await contents(owner, repo, item.path, root!.ref)) ?? [], depth + 1)
@@ -411,9 +425,9 @@ export async function installSkillFromGithub(link: string): Promise<SkillInfo> {
   const dir = join(personalSkillsDir(), slug)
   if (existsSync(dir)) await shell.trashItem(dir)
   for (const file of files) {
-    const target = resolve(dir, file.rel)
     // Belt and braces against a crafted path escaping the skill folder.
-    if (!target.startsWith(resolve(dir))) continue
+    const target = skillFileTarget(dir, file.rel)
+    if (!target) continue
     mkdirSync(dirname(target), { recursive: true })
     writeFileSync(target, file.data)
   }

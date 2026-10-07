@@ -12,7 +12,8 @@ import {
   installSkillFromGithub,
   invalidateSkillCache,
   parseGithubUrl,
-  parseSkillFile
+  parseSkillFile,
+  skillFileTarget
 } from '../src/main/features/skills'
 
 // Every skill folder is resolved from $HOME at call time; point it somewhere
@@ -149,6 +150,16 @@ test('GitHub links: folders, SKILL.md files and repo roots', () => {
   assert.deepEqual(blob.candidates[0], { ref: 'dev', path: 'x' })
   assert.deepEqual(parseGithubUrl('https://github.com/a/b.git').candidates, [{ ref: null, path: '' }])
   assert.throws(() => parseGithubUrl('https://gitlab.com/a/b'), /github\.com/)
+})
+
+test('a downloaded skill file lands only inside its folder', () => {
+  const dir = join(home, 'skills', 'pdf')
+  assert.equal(skillFileTarget(dir, 'SKILL.md'), join(dir, 'SKILL.md'))
+  assert.equal(skillFileTarget(dir, 'scripts/run.py'), join(dir, 'scripts', 'run.py'))
+  // `..\..\x` and `C:x` are a path and a drive on Windows, though plain names to git.
+  for (const rel of ['..\\..\\evil', 'C:evil', 'a\\b', '../pdf-evil/x', 'a/../../x', '/etc/passwd', '']) {
+    assert.equal(skillFileTarget(dir, rel), null, rel)
+  }
 })
 
 test('installs a real skill from GitHub', { timeout: 60_000 }, async (t) => {

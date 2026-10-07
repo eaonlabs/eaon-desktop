@@ -336,6 +336,39 @@
   background: var(--hover);
   border-radius: 8px;
 }
+.crash-screen__actions {
+  display: flex;
+  gap: 8px;
+}
+/* The same screen in place of one tab, under its top bar. */
+.crash-screen--pane {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+}
+/* In place of the sidebar or a browser panel. */
+.crash-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 16px;
+  text-align: center;
+  color: var(--text-3);
+}
+.crash-panel__spacer {
+  flex: 1;
+}
+/* A message that couldn't be drawn, in its place in the thread. */
+.row-error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
 
 /* ---------------- Built-in browser panel ---------------- */
 
@@ -405,6 +438,18 @@
 .browser__tabs .icon-btn,
 .browser__tab {
   -webkit-app-region: no-drag;
+}
+/* Every browser panel (this one, Eaon's and a worker's) is the window's
+   rightmost column, so on Windows and Linux its tab row runs under the
+   caption buttons, a 44px strip (titleBarOverlay in main/index.ts): "Close
+   panel" sat right where the window's own close button is drawn. The row
+   grows to the strip's height, the same way the page bars beside it are
+   offset, and keeps its buttons clear of --window-controls-right. */
+body[data-platform='win32'] .browser__tabs,
+body[data-platform='linux'] .browser__tabs {
+  height: calc(var(--titlebar-h) + var(--sidebar-gap));
+  padding-top: var(--sidebar-gap);
+  padding-right: calc(12px + var(--window-controls-right));
 }
 .browser__tab {
   display: inline-flex;

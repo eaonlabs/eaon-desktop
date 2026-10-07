@@ -1,7 +1,8 @@
 import type { ServerResponse } from 'node:http'
 import type { EffortLevel, TokenUsage } from '@shared/types'
 import { estimateRequestTokens, type NeutralImage, type NeutralMessage, type NeutralToolResult, type ToolSpec, type TurnResult } from '../providers/adapters/types'
-import { gatewayModels, resolveGatewayModel } from './models'
+import type { GatewayScope } from '@shared/gateway'
+import { gatewayModels, noModelMessage, resolveGatewayModel } from './models'
 import { runGatewayTurn, statusFor } from './turn'
 import { anthropicEffort, cap, clientToolId, errorMessage, newId, sendJson, sseEvent, startSse, tidy } from './wire'
 
@@ -162,15 +163,15 @@ function errorType(status: number): string {
   return 'api_error'
 }
 
-export async function serveMessages(res: ServerResponse, body: Record<string, unknown>): Promise<void> {
+export async function serveMessages(res: ServerResponse, body: Record<string, unknown>, scope: GatewayScope = 'all'): Promise<void> {
   const parsed = parseMessagesRequest(body)
   if ('error' in parsed) {
     sendJson(res, 400, anthropicError(parsed.error, 'invalid_request_error'))
     return
   }
-  const resolved = resolveGatewayModel(parsed.model)
+  const resolved = resolveGatewayModel(parsed.model, scope)
   if (!resolved) {
-    sendJson(res, 400, anthropicError('No model available. Add an API key in Eaon → Settings → Model providers.', 'invalid_request_error'))
+    sendJson(res, 400, anthropicError(noModelMessage(scope, parsed.model), 'invalid_request_error'))
     return
   }
 
@@ -292,7 +293,7 @@ export function serveCountTokens(res: ServerResponse, body: Record<string, unkno
 }
 
 /** `/v1/models` in Anthropic's shape, for a client that sends `anthropic-version`. */
-export function anthropicModelList(): Record<string, unknown> {
-  const data = gatewayModels().map((model) => ({ type: 'model', id: model.id, display_name: model.label, created_at: '2026-01-01T00:00:00Z' }))
+export function anthropicModelList(scope: GatewayScope = 'all'): Record<string, unknown> {
+  const data = gatewayModels(scope).map((model) => ({ type: 'model', id: model.id, display_name: model.label, created_at: '2026-01-01T00:00:00Z' }))
   return { data, has_more: false, first_id: data[0]?.id ?? null, last_id: data[data.length - 1]?.id ?? null }
 }

@@ -7,6 +7,7 @@ import { frameFor, sameFrame, targetSize, toScreen, toShot, type Frame } from '.
 import { setInputBackend } from '../src/main/features/computer/backend'
 import { asciiJson } from '../src/main/features/computer/helper'
 import type { InputBackend } from '../src/main/features/computer/input'
+import { isWaylandSession, LinuxInput } from '../src/main/features/computer/linux'
 import { dangerousCombo, formatCombo, MAC_KEYCODES, parseCombo, windowsKey, xdotoolKey } from '../src/main/features/computer/keys'
 import '../src/main/features/computerUse'
 import { computerTool } from '../src/main/features/computer/tool'
@@ -153,6 +154,27 @@ test('dangerous combos and destructive-looking text are risky', () => {
   assert.equal(riskReason({ action: 'click', x: 1, y: 1 }, 'darwin'), null)
   assert.equal(describeAction({ action: 'click', x: 10.4, y: 20 }), 'click 10, 20')
   assert.equal(describeAction({ action: 'key', keys: 'cmd+c' }), 'key cmd+c')
+  // Windows commands typed into a window are judged the same way.
+  assert.ok(riskReason({ action: 'type', text: 'rd /s /q C:\\Users\\me\\Documents\n' }, 'win32'))
+  assert.equal(riskReason({ action: 'type', text: 'Please format the report and delete the draft' }, 'win32'), null)
+})
+
+test('on Linux, a Wayland session is reported as unsupported rather than half working', async () => {
+  assert.equal(isWaylandSession({ XDG_SESSION_TYPE: 'wayland', DISPLAY: ':0' }), true)
+  assert.equal(isWaylandSession({ WAYLAND_DISPLAY: 'wayland-0' }), true)
+  // A Wayland compositor nested in an X11 session, where xdotool works.
+  assert.equal(isWaylandSession({ WAYLAND_DISPLAY: 'wayland-0', DISPLAY: ':0' }), false)
+  assert.equal(isWaylandSession({ XDG_SESSION_TYPE: 'x11', DISPLAY: ':0', WAYLAND_DISPLAY: 'wayland-1' }), false)
+  const saved = process.env.XDG_SESSION_TYPE
+  process.env.XDG_SESSION_TYPE = 'wayland'
+  try {
+    const check = await new LinuxInput(() => 1).check()
+    assert.equal(check.available, false)
+    assert.match(check.detail ?? '', /X11 session/)
+  } finally {
+    if (saved === undefined) delete process.env.XDG_SESSION_TYPE
+    else process.env.XDG_SESSION_TYPE = saved
+  }
 })
 
 test('the helper wire is ASCII only', () => {

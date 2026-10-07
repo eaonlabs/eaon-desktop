@@ -12,6 +12,7 @@
 }
 
 .term-workspace {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
@@ -232,8 +233,25 @@ body[data-reduce-motion='on'] .term-pane__dot {
   padding: 6px 2px 2px 10px;
 }
 .term-wrapper {
+  position: relative;
   width: 100%;
   height: 100%;
+}
+
+/* A theme's scene (code/terminal/scenes.ts): pixel art under the terminal's
+   see-through background, out to the pane's edges past the screen's padding. */
+.term-scene {
+  position: absolute;
+  inset: -6px -2px -2px -10px;
+  width: calc(100% + 12px);
+  height: calc(100% + 8px);
+  image-rendering: pixelated;
+  pointer-events: none;
+  z-index: 0;
+}
+.term-wrapper .xterm {
+  position: relative;
+  z-index: 1;
 }
 .term-pane .xterm {
   height: 100%;
@@ -359,3 +377,269 @@ body[data-reduce-motion='on'] .term-pane__dot {
   }
 }
 
+/* ---- A terminal theme of its own (code/terminal/themes.ts) ----
+   The workspace carries the theme's background and text as --term-bg and
+   --term-fg; the panes' headers take their tones from those, so a light theme
+   in a dark app (or the other way round) still reads. */
+.term-workspace[data-themed] .term-pane {
+  --text: var(--term-fg);
+  --text-2: color-mix(in srgb, var(--term-fg), var(--term-bg) 30%);
+  --text-3: color-mix(in srgb, var(--term-fg), var(--term-bg) 50%);
+  --text-4: color-mix(in srgb, var(--term-fg), var(--term-bg) 66%);
+  --border-soft: color-mix(in srgb, var(--term-fg) 11%, transparent);
+  --border-strong: color-mix(in srgb, var(--term-fg) 24%, transparent);
+  --hover-strong: color-mix(in srgb, var(--term-fg) 10%, transparent);
+  color: var(--term-fg);
+  transition: background var(--dur) var(--ease);
+}
+
+/* ---- Theme picker (code/terminal/ThemePicker.tsx) ---- */
+
+.theme-picker__scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+}
+.theme-picker {
+  position: absolute;
+  top: 2px;
+  right: 10px;
+  bottom: 10px;
+  z-index: 21;
+  width: min(440px, calc(100% - 20px));
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-modal);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--text);
+  outline: none;
+  overflow: hidden;
+  animation: theme-picker-in var(--dur-spring) var(--spring-moderate) backwards;
+}
+@keyframes theme-picker-in {
+  from {
+    opacity: 0;
+    transform: translateX(14px);
+  }
+}
+body[data-reduce-motion='on'] .theme-picker {
+  animation: none;
+}
+
+.theme-picker__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 8px 0 14px;
+}
+.theme-picker__title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-weight: 600;
+}
+.theme-picker__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  align-self: center;
+}
+.theme-picker__count {
+  color: var(--text-3);
+  font-weight: 400;
+}
+.theme-picker__now {
+  color: var(--text-3);
+  font-weight: 400;
+}
+.theme-picker__keys {
+  margin: 4px 14px 10px;
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+.theme-picker__keys kbd {
+  font: inherit;
+  color: var(--text-2);
+}
+
+/* The sample, drawn in the theme under the cursor, scene and all. */
+.theme-sample {
+  position: relative;
+  flex: none;
+  margin: 0 12px 10px;
+  min-height: 148px;
+  border-radius: var(--r-md);
+  background: var(--s-bg);
+  color: var(--s-fg);
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--s-fg) 10%, transparent);
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.theme-sample .term-scene {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.theme-sample__lines {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 3px;
+  padding: 10px 12px;
+  line-height: 1.45;
+  white-space: nowrap;
+}
+.s-muted {
+  color: var(--s-muted);
+}
+.s-red {
+  color: var(--s-red);
+}
+.s-green {
+  color: var(--s-green);
+}
+.s-yellow {
+  color: var(--s-yellow);
+}
+.s-cyan {
+  color: var(--s-cyan);
+}
+.s-magenta {
+  color: var(--s-magenta);
+}
+.s-badge {
+  padding: 0 5px;
+  border-radius: 3px;
+}
+.s-badge--green {
+  background: color-mix(in srgb, var(--s-green) 24%, transparent);
+  color: var(--s-green);
+}
+.s-badge--blue {
+  background: color-mix(in srgb, var(--s-blue) 24%, transparent);
+  color: var(--s-blue);
+}
+.s-bar {
+  display: inline-block;
+  width: 54px;
+  height: 7px;
+  border-radius: 2px;
+  background: var(--s-green);
+  vertical-align: middle;
+}
+.s-meter {
+  display: inline-block;
+  width: 46px;
+  height: 7px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--s-magenta) 25%, transparent);
+  vertical-align: middle;
+  overflow: hidden;
+}
+.s-meter > span {
+  display: block;
+  width: 62%;
+  height: 100%;
+  background: var(--s-magenta);
+}
+.s-block {
+  display: inline-block;
+  width: 26px;
+  height: 11px;
+  background: var(--s-red);
+  vertical-align: middle;
+}
+.s-blurb {
+  margin-top: 2px;
+  color: var(--s-muted);
+  white-space: normal;
+}
+
+.theme-picker__list {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 2px 8px 8px;
+  list-style: none;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.theme-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 30px;
+  padding: 0 6px;
+  border-radius: var(--r-xs);
+  cursor: default;
+}
+.theme-row[data-active] {
+  background: var(--hover-strong);
+}
+.theme-row__swatch {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  padding: 4px 6px 4px 7px;
+  border-radius: 5px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 12%, transparent);
+}
+.theme-row__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.theme-row__aa {
+  margin-left: 5px;
+  font-weight: 600;
+  font-size: 11.5px;
+  line-height: 1;
+}
+.theme-row__name {
+  white-space: nowrap;
+}
+.theme-row[data-active] .theme-row__name {
+  font-weight: 600;
+}
+.theme-row__check {
+  flex: none;
+  color: var(--accent);
+}
+.theme-row__tag {
+  padding: 0 5px;
+  border-radius: 3px;
+  font-size: 11px;
+  color: var(--text-3);
+  box-shadow: inset 0 0 0 1px var(--border-soft);
+}
+.theme-row__scene {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.theme-picker__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border-soft);
+  color: var(--text-2);
+}
+.theme-picker__own {
+  padding: 0 14px 12px;
+  text-align: left;
+  font: inherit;
+  font-size: 11.5px;
+  color: var(--link);
+}
+.theme-picker__own:hover {
+  text-decoration: underline;
+}

@@ -7,6 +7,7 @@ import { Modal } from '../ui'
 import { Markdown } from '../agent/Markdown'
 import { useSuggest, type SuggestItem } from '../composer/SuggestMenu'
 import { WorkerFace } from './WorkerFace'
+import { RowBoundary } from '../ErrorBoundary'
 import { useWorkers } from './workersStore'
 import { fileName, fileUrl, isImagePath } from '../../lib/files'
 import { MAX_ROOM_MEMBERS, MAX_WORKERS, WORKER_TEMPLATES, mentionedWorkers, workerMood, type RoomPost, type Worker, type WorkerRoom } from '@shared/workers'
@@ -99,7 +100,11 @@ export function RoomPage({ room }: { room: WorkerRoom }): JSX.Element {
           {!posts ? null : posts.length === 0 ? (
             <p className="worker-first-job">Give the team its first job below.</p>
           ) : (
-            posts.map((post, i) => <RoomPostRow key={post.id} post={post} worker={workers.find((w) => w.id === post.from)} grouped={i > 0 && posts[i - 1].from === post.from && post.at - posts[i - 1].at < 120_000} />)
+            posts.map((post, i) => (
+              <RowBoundary key={post.id} item={post}>
+                <RoomPostRow post={post} worker={workers.find((w) => w.id === post.from)} grouped={i > 0 && posts[i - 1].from === post.from && post.at - posts[i - 1].at < 120_000} />
+              </RowBoundary>
+            ))
           )}
           {answering.length > 0 && (
             <div className="room-typing" aria-live="polite">
@@ -125,10 +130,12 @@ export function RoomPage({ room }: { room: WorkerRoom }): JSX.Element {
 }
 
 function RoomPostRow({ post, worker, grouped }: { post: RoomPost; worker: Worker | undefined; grouped: boolean }): JSX.Element {
+  // Posts saved by an older build can be missing their file list.
+  const paths = post.files ?? []
   const files =
-    post.files.length > 0 ? (
+    paths.length > 0 ? (
       <div className="msg-attachments" data-align={post.from === 'user' ? 'end' : 'start'}>
-        {post.files.map((path) =>
+        {paths.map((path) =>
           isImagePath(path) ? (
             <span key={path} className="msg-attachment msg-attachment--media">
               <img src={fileUrl(path)} alt={fileName(path)} />

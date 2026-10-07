@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Launch on the landing screen's paper colour, so there's no white flash before the first frame. -->
+	<key>UILaunchScreen</key>
+	<dict>
+		<key>UIColorName</key>
+		<string>Paper</string>
+	</dict>
+	<!-- Lets the glass run at 120 Hz on ProMotion iPhones. -->
+	<key>CADisableMinimumFrameDurationOnPhone</key>
+	<true/>
+	<!-- Talking to Eaon on a Mac over the local network is plain http. -->
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Eaon talks to Eaon on your Mac over your local network, to use its models.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Eaon uses the camera to scan the QR code that Eaon on your Mac shows, to pair with it.</string>
+	<key>NSCalendarsFullAccessUsageDescription</key>
+	<string>Agents you create on this iPhone can read your calendar and add events, if you let them.</string>
+	<key>NSRemindersFullAccessUsageDescription</key>
+	<string>Agents you create on this iPhone can read your reminders and add new ones, if you let them.</string>
+	<!-- Finding Eaon on a Mac with Bonjour. -->
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_eaon._tcp</string>
+	</array>
+	<!-- eaon://pair?…, the pairing link a Mac shows. -->
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>dev.eaon.ios</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>eaon</string>
+			</array>
+		</dict>
+	</array>
+	<!-- The GitHub OAuth App behind "Continue with GitHub". Empty until you set EAON_GITHUB_CLIENT_ID. -->
+	<key>EaonGitHubClientID</key>
+	<string>$(EAON_GITHUB_CLIENT_ID)</string>
+</dict>
+</plist>

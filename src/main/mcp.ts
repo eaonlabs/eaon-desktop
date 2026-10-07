@@ -155,20 +155,17 @@ function httpTransport(server: McpServer, auth: HttpAuth, kind: 'streamable' | '
 const expandHome = (value: string): string => value.replace(/^~(?=$|[\\/])/, homedir())
 
 /**
- * Makes a server's launch command runnable on Windows.
+ * A server's launch command, with `~` expanded as a shell would have.
  *
- * The MCP SDK spawns with `shell: false`, and most servers are published as
- * npm bins — on Windows those are `.cmd` shims, which Node has refused to spawn
- * directly since the CVE-2024-27980 fix (it throws EINVAL). Routing through
- * `cmd.exe /c` runs the shim as intended; anything already ending in `.exe`,
- * and every non-Windows platform, is passed through untouched.
+ * Nothing more on Windows: the SDK's stdio transport spawns through
+ * cross-spawn, which finds `npx` as `npx.cmd` on PATH and runs a `.cmd` shim
+ * through cmd.exe with every argument escaped for it. Wrapping the command
+ * in `cmd.exe /c` here bypassed that escaping, so an argument holding
+ * `& | ^ % "` — a connection string, inline JSON — reached cmd.exe raw and
+ * was cut up or run.
  */
 function resolveLaunch(rawCommand: string, rawArgs: string[]): { command: string; args: string[] } {
-  const command = expandHome(rawCommand)
-  const args = rawArgs.map(expandHome)
-  if (process.platform !== 'win32') return { command, args }
-  if (/\.(exe|com)$/i.test(command)) return { command, args }
-  return { command: process.env.COMSPEC ?? 'cmd.exe', args: ['/c', command, ...args] }
+  return { command: expandHome(rawCommand), args: rawArgs.map(expandHome) }
 }
 
 /**

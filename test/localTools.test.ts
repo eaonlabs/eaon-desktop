@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, 
 import { homedir } from 'node:os'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import '../src/main/localTools'
+import { backgroundHints, commandToolDescription, expandShellPath, pathWithin, shellLine } from '../src/main/localTools'
 import { buildIndex } from '../src/main/codeIndex'
 import { toolsFor, type ToolContext } from '../src/main/agent/tools'
 import { store } from '../src/main/store'
@@ -43,6 +43,44 @@ test('credential folders are off limits and paths outside home are refused', asy
   const { get, ctx } = tools(cwd)
   await assert.rejects(get('read_file').run({ path: '~/.ssh/id_rsa' }, ctx), /credentials/)
   await assert.rejects(get('read_file').run({ path: '/etc/passwd' }, ctx), /outside your home folder/)
+  // macOS's file system ignores case, so `.SSH` is `.ssh` (Windows' does too).
+  if (process.platform === 'darwin' || process.platform === 'win32') {
+    await assert.rejects(get('read_file').run({ path: '~/.SSH/id_rsa' }, ctx), /credentials/)
+  }
+})
+
+test('the sandbox compares paths as each platform does', () => {
+  // Windows: any case, a lower-case drive, trailing dots and stream suffixes all name the same folder.
+  assert.equal(pathWithin('C:\\Users\\me\\.SSH\\id_rsa', 'C:\\Users\\me\\.ssh', 'win32'), true)
+  assert.equal(pathWithin('c:\\users\\me\\proj\\a.ts', 'C:\\Users\\me', 'win32'), true)
+  assert.equal(pathWithin('C:\\Users\\me\\.ssh.\\id_rsa', 'C:\\Users\\me\\.ssh', 'win32'), true)
+  assert.equal(pathWithin('C:\\Users\\me\\.ssh::$INDEX_ALLOCATION\\id_rsa', 'C:\\Users\\me\\.ssh', 'win32'), true)
+  assert.equal(pathWithin('C:\\Users\\me\\.sshkeys\\x', 'C:\\Users\\me\\.ssh', 'win32'), false)
+  assert.equal(pathWithin('C:\\Users\\meet', 'C:\\Users\\me', 'win32'), false)
+  assert.equal(pathWithin('/Users/me/.SSH/id_rsa', '/Users/me/.ssh', 'darwin'), true)
+  // Linux file systems tell case apart.
+  assert.equal(pathWithin('/home/me/.SSH/id_rsa', '/home/me/.ssh', 'linux'), false)
+  assert.equal(pathWithin('/home/me/x', '/home/me', 'linux'), true)
+})
+
+test('a command path spelled with cmd or PowerShell variables resolves where the shell would put it', () => {
+  assert.equal(expandShellPath('$HOME/.profile'), '~/.profile')
+  assert.equal(expandShellPath('%USERPROFILE%\\.bashrc'), '~\\.bashrc')
+  assert.equal(expandShellPath('%userprofile%/x'), '~/x')
+  assert.equal(expandShellPath('$env:USERPROFILE\\x'), '~\\x')
+  assert.equal(expandShellPath('%APPDATA%\\x', { APPDATA: 'C:\\Users\\me\\AppData\\Roaming' }), 'C:\\Users\\me\\AppData\\Roaming\\x')
+  assert.equal(expandShellPath('%HOMEDRIVE%%HOMEPATH%\\x', { HOMEDRIVE: 'C:', HOMEPATH: '\\Users\\me' }), 'C:\\Users\\me\\x')
+  assert.equal(expandShellPath('%NOT_SET%\\x', {}), '%NOT_SET%\\x')
+})
+
+test('on Windows run_command speaks cmd.exe: UTF-8 output, cmd syntax, and Windows hints', () => {
+  assert.equal(shellLine('dir', 'win32'), 'chcp 65001>nul & dir')
+  assert.equal(shellLine('ls', 'darwin'), 'ls')
+  assert.match(commandToolDescription('win32'), /cmd\.exe/)
+  assert.doesNotMatch(commandToolDescription('darwin'), /cmd\.exe/)
+  assert.equal(backgroundHints('C:\\t\\x.log', 42, 'win32').stop, 'taskkill /pid 42 /T /F')
+  assert.doesNotMatch(backgroundHints('C:\\t\\x.log', 42, 'win32').read, /tail -n/)
+  assert.equal(backgroundHints('/tmp/x.log', 42, 'linux').stop, 'kill 42')
 })
 
 test('run_command gives commands no stdin, so one that reads input ends instead of hanging', async () => {
@@ -159,6 +197,37 @@ test('grep include accepts globs as well as path fragments', async () => {
   assert.deepEqual(await grep('src/**/*.tsx'), ['src/ui/view.tsx'])
   assert.deepEqual(await grep('**/*.md'), ['notes.md'])
   assert.deepEqual(await grep('src/'), ['src/main.ts', 'src/ui/view.tsx'])
+  // Written Windows-style.
+  assert.deepEqual(await grep('src\\**\\*.tsx'), ['src/ui/view.tsx'])
+})
+
+test('grep anchors match any line, in LF and CRLF files alike', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'eaon-grep-'))
+  writeFileSync(join(cwd, 'w.cs'), 'int x = 1;\r\nint y = 2;\r\nint z = 3;\r\n')
+  writeFileSync(join(cwd, 'u.txt'), 'foo\nbar\nbaz\n')
+  const { get, ctx } = tools(cwd)
+  assert.equal(String(await get('grep').run({ pattern: '= 2;$' }, ctx)), 'w.cs:2: int y = 2;')
+  assert.equal(String(await get('grep').run({ pattern: '^bar$' }, ctx)), 'u.txt:2: bar')
+})
+
+test('a background command that writes to stderr after closing stdout keeps logging, and throws nothing', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'eaon-bg-'))
+  const { get, ctx } = tools(cwd)
+  let uncaught: unknown = null
+  const onUncaught = (error: unknown): void => {
+    uncaught = error
+  }
+  process.on('uncaughtException', onUncaught)
+  try {
+    const out = String(await get('run_command').run({ command: 'exec 1>&-; sleep 0.3; echo late-stderr >&2', background: true }, ctx))
+    const log = out.match(/written to (\S+) —/)?.[1]
+    assert.ok(log, out)
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    assert.match(readFileSync(log, 'utf8'), /late-stderr/)
+  } finally {
+    process.off('uncaughtException', onUncaught)
+  }
+  assert.equal(uncaught, null)
 })
 
 test('in auto-approve, run_command asks before writing outside the work folder', () => {
@@ -171,6 +240,10 @@ test('in auto-approve, run_command asks before writing outside the work folder',
   assert.equal(risky('echo x > $HOME/.profile'), true)
   assert.equal(risky('mv ~/Documents ./docs'), true, 'moves the user\'s folder away')
   assert.equal(risky('echo x > /tmp/scratch.txt'), false, 'scratch space')
+  // cmd's and PowerShell's spellings of the home folder.
+  assert.equal(risky('echo x >> %USERPROFILE%/.profile'), true)
+  assert.equal(risky('powershell -Command "Set-Content -Path $env:USERPROFILE/.profile -Value x"'), true)
+  assert.equal(risky('copy /y a.txt b.txt'), false, 'inside the folder, switches and all')
 })
 
 test('a link inside the Work folder is no way around the credential folders or the outside-the-folder rule', async () => {

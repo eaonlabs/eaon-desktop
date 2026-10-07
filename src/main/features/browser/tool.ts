@@ -20,10 +20,10 @@ import { NotConnectedError, type BrowserBridge } from './server'
  * and hover are here too — asking the user to approve a scroll in "Ask for
  * approval" mode would make the tool unusable for no safety gain.
  */
-const READ_ONLY = new Set<BrowserAction>(['snapshot', 'screenshot', 'list_tabs', 'get_url', 'wait', 'scroll', 'hover', 'switch_tab', 'read', 'find'])
+const READ_ONLY = new Set<BrowserAction>(['snapshot', 'screenshot', 'list_tabs', 'get_url', 'wait', 'scroll', 'hover', 'switch_tab', 'read', 'find', 'links', 'get_text'])
 
 /** Element actions that must name a ref. */
-const NEEDS_REF = new Set<BrowserAction>(['click', 'type', 'select', 'hover'])
+const NEEDS_REF = new Set<BrowserAction>(['click', 'type', 'select', 'hover', 'clear', 'get_text'])
 
 /**
  * Button and link names that commit money, send something on the user's
@@ -49,7 +49,8 @@ const SCHEMA: Record<string, unknown> = {
     action: { type: 'string', enum: [...BROWSER_ACTIONS] },
     url: { type: 'string', description: 'navigate, new_tab: the address to open' },
     ref: { type: 'integer', description: 'Element number from the latest snapshot' },
-    text: { type: 'string', description: 'type: text to enter (replaces the field). wait: text to wait for' },
+    text: { type: 'string', description: 'type: text to enter (replaces the field). wait: text to wait for. links: only links whose name or address contains this' },
+    limit: { type: 'integer', description: 'links: how many to list (default 30, max 100)' },
     submit: { type: 'boolean', description: 'type: press Enter afterwards' },
     key: { type: 'string', description: 'press: e.g. Enter, Escape, Tab, ArrowDown, Backspace, Control+A' },
     direction: { type: 'string', enum: ['up', 'down', 'left', 'right'], description: 'scroll: default down' },
@@ -79,7 +80,9 @@ Actions:
 - snapshot — the page as numbered interactive elements ([n] role "name" state) plus its text. Call it before acting and again after the page changes
 - read {offset?, all?} — the page's content as Markdown, top to bottom, in pages; for reading articles and docs. No refs
 - find {text} — where text appears on the page, with refs for any controls among the matches
-- click {ref} / hover {ref} / type {ref, text, submit?} / select {ref, option} / press {key, ref?}
+- links {text?, limit?} — the page's links as "name → address" with refs: a cheap map of where to go next
+- click {ref} / hover {ref} / type {ref, text, submit?} / clear {ref} / select {ref, option} / press {key, ref?}
+- get_text {ref} — what an element or field holds right now, to check a field without a new snapshot
 - fill {fields: [{ref, text}]} — several form fields (text or select) in one step
 - scroll {direction?, amount?, ref?} — ref alone scrolls that element into view
 - wait {text? | selector? | timeout?} — for text or an element to appear; with neither, for the page to finish loading
@@ -87,7 +90,7 @@ Actions:
 - get_url — current tab's URL, title and loading state / reload
 - list_tabs / switch_tab {tabId} / close_tab {tabId?} — tabs you may use`
 
-const GUIDANCE = `Browser: read a page with browser {action:"snapshot"}, act on elements by their [n] ref (click, type, select, fill), then snapshot again — refs from before a navigation or a big page change are rejected. To read a long article or docs page use read (and read again with the offset it gives); to locate something on a long page use find. Prefer these to screenshots; they are cheaper. Your tabs live in the "Eaon" tab group; use the user's other tabs only if list_tabs shows them as shared. Confirm with the user before buying, paying, sending or posting anything, or deleting data, unless that is exactly what they asked for, and never enter passwords or card numbers they did not give you for this task. Input is simulated, so a few sites ignore it — if an action has no effect twice, say so instead of looping.`
+const GUIDANCE = `Browser: read a page with browser {action:"snapshot"}, act on elements by their [n] ref (click, type, select, fill), then snapshot again — refs from before a navigation or a big page change are rejected. To read a long article or docs page use read (and read again with the offset it gives); to locate something on a long page use find, and to see where a site leads use links. Check what a field holds with get_text. Prefer these to screenshots; they are cheaper. Your tabs live in the "Eaon" tab group; use the user's other tabs only if list_tabs shows them as shared. Confirm with the user before buying, paying, sending or posting anything, or deleting data, unless that is exactly what they asked for, and never enter passwords or card numbers they did not give you for this task. Input is simulated, so a few sites ignore it — if an action has no effect twice, say so instead of looping.`
 
 interface PageMemory {
   /** Tab the extension last reported acting on. */
@@ -163,6 +166,9 @@ export function createBrowserTool(bridge: BrowserBridge): { tool: AgentTool; sou
         return !el || clickIsRisky(el)
       case 'type':
         return !el || isSensitive(el) || (input.submit === true && submitIsRisky(el))
+      case 'clear':
+        // Emptying a field is typing nothing into it: judged the same, minus Enter.
+        return !el || isSensitive(el)
       case 'select':
         return !el
       case 'press': {
@@ -187,6 +193,10 @@ export function createBrowserTool(bridge: BrowserBridge): { tool: AgentTool; sou
         return `${action} ${asString(input.url) ?? ''}`.trim()
       case 'type':
         return `type into ${target}${input.submit === true ? ' and submit' : ''}`
+      case 'clear':
+        return `clear ${target}`
+      case 'links':
+        return `list links${asString(input.text) ? ` matching "${asString(input.text)}"` : ''}`
       case 'select':
         return `select "${asString(input.option) ?? ''}" in ${target}`
       case 'press':
@@ -307,6 +317,12 @@ export function createBrowserTool(bridge: BrowserBridge): { tool: AgentTool; sou
         params.text = text
         break
       }
+      case 'links': {
+        if (asString(input.text)) params.text = asString(input.text)
+        const limit = asInt(input.limit)
+        if (limit !== undefined && limit > 0) params.limit = Math.min(100, limit)
+        break
+      }
       case 'fill': {
         const fields = fieldsOf(input)
         if (!fields.length) return 'fill needs "fields": a list of {ref, text} from the latest snapshot.'
@@ -333,15 +349,15 @@ export function createBrowserTool(bridge: BrowserBridge): { tool: AgentTool; sou
     const tabId = asInt(result.tabId)
     if ('currentTabId' in result) memory.currentTabId = asInt(result.currentTabId) ?? null
     else if (tabId !== undefined) memory.currentTabId = tabId
-    if ((action === 'snapshot' || action === 'find') && tabId !== undefined && Array.isArray(result.elements)) {
-      // A snapshot describes the whole page; find adds to what is known.
-      const elements = action === 'find' ? (memory.elements.get(tabId) ?? new Map<number, SnapshotElement>()) : new Map<number, SnapshotElement>()
+    if ((action === 'snapshot' || action === 'find' || action === 'links') && tabId !== undefined && Array.isArray(result.elements)) {
+      // A snapshot describes the whole page; find and links add to what is known.
+      const elements = action !== 'snapshot' ? (memory.elements.get(tabId) ?? new Map<number, SnapshotElement>()) : new Map<number, SnapshotElement>()
       for (const raw of result.elements as SnapshotElement[]) {
         if (raw && typeof raw.ref === 'number') elements.set(raw.ref, { ...raw, name: String(raw.name ?? '') })
       }
       memory.elements.set(tabId, elements)
     }
-    if (action === 'type' && tabId !== undefined) {
+    if ((action === 'type' || action === 'clear') && tabId !== undefined) {
       const ref = asInt(input.ref)
       if (ref !== undefined) memory.lastTyped = { tabId, ref }
     }

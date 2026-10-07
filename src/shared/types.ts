@@ -377,6 +377,47 @@ export interface Settings {
     /** This install's key for the server, made on first use; apps connected to Eaon send it. */
     token: string | null
   }
+  /**
+   * Remote devices (docs/remote-api.md): a phone on the user's network
+   * controlling Workers. Off by default; unlike the Local API Server it
+   * listens on every interface, and always wants its own key.
+   */
+  remote: {
+    enabled: boolean
+    port: number
+    /** `eaonr-…`, made the first time it is turned on and replaced by Reset key. */
+    token: string | null
+  }
+  /** The ADE's terminals: their theme (`/theme` in a pane, or the header's Theme button). */
+  ade: {
+    /** A terminal theme id (components/code/terminal/themes.ts); `eaon` follows the app. */
+    theme: string
+    /** Draw the theme's scene behind the terminal text. */
+    scenes: boolean
+    /**
+     * The app's own appearance from before a terminal theme restyled it (the
+     * app follows the terminal theme), put back when `eaon` is picked again.
+     */
+    appBefore: { mode: ThemeMode; light: ThemePalette; dark: ThemePalette } | null
+  }
+  /** The popup that asks whether to star Eaon on GitHub (main/starPrompt.ts). */
+  starPrompt: {
+    /** `pending` until they star it or say no thanks. */
+    status: 'pending' | 'starred' | 'declined'
+    /** How many times Eaon has been opened. It asks from the third. */
+    launches: number
+    /** How many times the popup has been shown, at most three. */
+    asked: number
+    lastAskedAt: number | null
+  }
+  /** Settings → General → Software update. */
+  updates: {
+    /**
+     * Tell me when a beta is out, with its own button to download it. Off by
+     * default: betas are early builds. Stable updates are not affected.
+     */
+    beta: boolean
+  }
   claudeCode: {
     largeModelId: string | null
     mediumModelId: string | null

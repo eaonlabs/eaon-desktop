@@ -23,6 +23,16 @@ import '../../../styles/payments.css'
 
 const errorText = (error: unknown): string => String((error as Error)?.message ?? error).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 
+/**
+ * formatMoney for a purchase record from an older build or a hand-edited
+ * file: an amount that isn't a number shows as a dash, and one without a
+ * currency as the bare amount, instead of throwing and blanking the page.
+ */
+function money(amount: unknown, currency: unknown): string {
+  if (typeof amount !== 'number' || !Number.isFinite(amount)) return '—'
+  return typeof currency === 'string' && currency ? formatMoney(amount, currency) : amount.toFixed(2)
+}
+
 function CardForm({ onSaved, onCancel }: { onSaved: (status: PaymentsStatus) => void; onCancel?: () => void }): JSX.Element {
   const [number, setNumber] = useState('')
   const [expiry, setExpiry] = useState('')
@@ -239,7 +249,7 @@ function PurchaseRow({ purchase }: { purchase: PurchaseRecord }): JSX.Element {
         </div>
       </div>
       <div className="row__trail">
-        <span className="pay-mono pay-purchase__amount">{formatMoney(purchase.charged ?? purchase.amount, purchase.currency)}</span>
+        <span className="pay-mono pay-purchase__amount">{money(purchase.charged ?? purchase.amount, purchase.currency)}</span>
         <span className={`badge${purchase.status === 'paid' ? ' badge--ok' : purchase.status === 'failed' ? ' badge--warn' : ''}`}>{STATUS_LABEL[purchase.status]}</span>
       </div>
     </div>
@@ -360,10 +370,10 @@ export function PaymentsPage(): JSX.Element {
           <Row title="Each purchase" description="Largest single purchase the agent may make without asking">
             <LimitInput label="Each purchase" value={limits.perPurchase} currency={currency} onCommit={(v) => setLimit('perPurchase', v)} />
           </Row>
-          <Row title="Each day" description={`Spent today: ${formatMoney(spent.today, currency)}`}>
+          <Row title="Each day" description={`Spent today: ${money(spent.today, currency)}`}>
             <LimitInput label="Each day" value={limits.perDay} currency={currency} onCommit={(v) => setLimit('perDay', v)} />
           </Row>
-          <Row title="Each month" description={`Spent this month: ${formatMoney(spent.month, currency)}`}>
+          <Row title="Each month" description={`Spent this month: ${money(spent.month, currency)}`}>
             <LimitInput label="Each month" value={limits.perMonth} currency={currency} onCommit={(v) => setLimit('perMonth', v)} />
           </Row>
         </Card>

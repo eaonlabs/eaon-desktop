@@ -9,8 +9,13 @@
 /* The body is a circle that only breathes; the eyes do the living. Their gaze
    and blinks are scheduled per face in JS (useLivingEyes in WorkerFace.tsx)
    with random timing, because a fixed CSS loop repeats visibly and keeps
-   every face on screen in step. CSS supplies the motion itself: the dart of
-   a glance, the shape of a blink. */
+   every face on screen in step. CSS supplies the dart of a glance; a blink is
+   played from JS too (the Web Animations API), as it restarts at will.
+
+   A face is SVG, and an animation inside an SVG can't be handed to the
+   compositor: every frame it moves repaints the face on the main thread. So
+   the loops here are few, and every one pauses while the window rests
+   (body[data-idle], at the end of this section). */
 .wf {
   display: block;
   flex: none;
@@ -36,24 +41,6 @@
 .wf .wf-eye {
   transform-box: fill-box;
   transform-origin: center;
-}
-/* A blink, when useLivingEyes sets data-blink: closes fast, opens a touch
-   slower. The second eye is a frame behind, as real eyes are. */
-.wf .wf-focus[data-blink] .wf-eye {
-  animation: wf-blink 180ms ease-in-out;
-}
-.wf .wf-focus[data-blink] .wf-eyes > g:nth-child(2) .wf-eye {
-  animation-delay: 14ms;
-}
-@keyframes wf-blink {
-  0%,
-  100% {
-    transform: scaleY(1);
-  }
-  38%,
-  52% {
-    transform: scaleY(0.08);
-  }
 }
 /* A wink (a click reaction): the right eye closes and holds while the left
    smiles. */
@@ -102,16 +89,18 @@
     transform: translateY(-1.5px) scaleY(1.05);
   }
 }
-/* Sleepy: heavy lids, and the eyes drift rather than dart. */
+/* Sleepy: heavy lids, and the eyes drift rather than dart (and blink
+   slowly, which useLivingEyes sees to). */
 .wf[data-mood='sleepy'] .wf-gaze {
   transition: transform 900ms ease-in-out;
 }
-.wf[data-mood='sleepy'] .wf-focus[data-blink] .wf-eye {
-  animation-duration: 470ms;
-}
 
 /* Breathing: a scale too small to notice except as "alive", each face at its
-   own phase (--breath-delay, random per face). Big faces only. */
+   own phase (--breath-delay, random per face). Big faces only. It scales the
+   body inside the <svg>: scaling the <svg> itself (so the compositor could run
+   it) measured three to four times as much renderer time with the Workers tab
+   open on a machine without GPU compositing, and a face's own arrival
+   animation then has no breath to combine with. */
 .wf .wf-body {
   transform-box: view-box;
   transform-origin: 50px 50px;
@@ -174,7 +163,6 @@
     transform: translate(0.5px, 0);
   }
 }
-
 /* Asleep: closed eyes drifting with each slow breath. */
 .wf[data-mood='asleep'] .wf-look {
   animation: wf-breathe 4.2s ease-in-out infinite;
@@ -189,8 +177,11 @@
   }
 }
 
-/* Dead: nothing moves (no gaze, no blinks, no breath). */
-.wf[data-mood='dead'] .wf-look {
+/* Dead: nothing moves (no gaze, no blinks, no breath). Small faces don't
+   read or tremble either: at sidebar size the motion is under a pixel, and
+   it would repaint every frame for nothing. */
+.wf[data-mood='dead'] .wf-look,
+.wf[data-small] .wf-look {
   animation: none;
 }
 
@@ -355,6 +346,18 @@ body[data-reduce-motion='on'] .wf {
 /* With nothing moving, the ring shows a fixed arc so it still reads as working. */
 body[data-reduce-motion='on'] .wf .wf-ring__arc {
   stroke-dasharray: 26 150;
+}
+
+/* While the window rests — hidden, or another app in front — the loops hold
+   where they are (body[data-idle], set by WorkerFace.tsx). Only the loops: a
+   one-shot still plays, or a face that changed while you were away would sit
+   with its eyes half open, or not have arrived at all. */
+body[data-idle] .wf[data-alive] .wf-body,
+body[data-idle] .wf .wf-look,
+body[data-idle] .wf .wf-ring__spin,
+body[data-idle] .wf .wf-ring__arc,
+body[data-idle] .wf .wf-attention {
+  animation-play-state: paused;
 }
 
 /* ================================================================ Team */

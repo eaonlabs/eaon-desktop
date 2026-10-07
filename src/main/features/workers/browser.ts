@@ -26,6 +26,12 @@ import { purchaseCovers, redactPaymentSecrets } from '../payments/access'
  * connection lasts for the browser's life: attaching re-points the session's
  * proxy and cuts every open connection, so it must not happen per page (see
  * `landed`).
+ *
+ * A browser nobody has used for a while has its page parked on about:blank
+ * (see `park`). A hidden window renders its page at full rate for as long as
+ * it is open, so a page with a video, a carousel or a spinner left behind
+ * after a worker's turn kept a core busy for hours. The next step, or the
+ * user showing the window or taking over, brings the page back first.
  */
 
 type BetterWrightInstance = { run: (code: string) => Promise<{ result?: unknown; error?: string } | unknown>; close: () => Promise<void> }
@@ -71,9 +77,38 @@ interface Session {
   intercepting: boolean
   /** Undoes the listeners added to the window's session, which outlives the window. */
   unhook: () => void
+  /** Steps queued or running (and opens and backs): a live view is pictured while there are any. */
+  busy: number
+  /** When the user in control last did something to the page; see `live`. */
+  inputAt: number
+  /** Parks the page once the browser has gone unused for PARK_AFTER_MS; see `armPark`. */
+  parkTimer: ReturnType<typeof setTimeout> | null
+  /** Set while the page is parked: where it was, the history entry the park added, and its last picture. */
+  parked: { url: string; title: string; index: number; frame: NativeImage | null } | null
 }
 
 type FrameListener = (image: NativeImage) => void
+
+/** How often a live view is pictured while a step runs or the user has control: enough to follow the cursor. */
+const FRAME_MS = 120
+/** One more picture this long after a step, for what loads or animates in just after it. */
+const SETTLE_MS = 1000
+/** How long after the user in control last touched the page it is still pictured: long enough for what they clicked to load. */
+const CONTROL_LIVE_MS = 10_000
+/**
+ * How long a browser goes unused before its page is parked. Long enough that
+ * an agent thinking between two steps never meets it; a page left open after
+ * a worker's turn stops costing anything ten minutes later.
+ */
+const PARK_AFTER_MS = 10 * 60_000
+/** Waits, through the connection, until a page that has just arrived is usable. */
+const UNTIL_READY = `await page.waitForFunction(() => document.readyState !== 'loading', null, { timeout: 12000 }).catch(() => {}); return 1`
+
+/** `promise`, or undefined once `ms` have passed: a page that never answers must not hold the queue forever. */
+const within = <T>(promise: Promise<T>, ms: number): Promise<T | undefined> => {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  return Promise.race([promise, new Promise<undefined>((resolve) => (timer = setTimeout(() => resolve(undefined), ms)))]).finally(() => clearTimeout(timer))
+}
 
 /**
  * The agent's cursor, drawn into the page itself so it shows in the live view
@@ -432,8 +467,12 @@ function resultText(value: unknown): string {
 
 export class WorkerBrowsers {
   private sessions = new Map<string, Session>()
+  /** A browser being created, so two calls at once (read-only snapshots run in parallel) share one window. */
+  private creating = new Map<string, Promise<Session>>()
   /** Live views watching each browser's frames; see `watchFrames`. */
   private frameWatchers = new Map<string, Set<FrameListener>>()
+  /** Each browser's live-view capture loop, while one runs; see `pump`. */
+  private pumping = new Map<string, ReturnType<typeof setTimeout>>()
 
   /**
    * `partition` names each browser's persistent session; workers get
@@ -452,9 +491,19 @@ export class WorkerBrowsers {
     } = {}
   ) {}
 
-  private async session(workerId: string): Promise<Session> {
+  private session(workerId: string): Promise<Session> {
+    const session = this.sessions.get(workerId)
+    if (session && !session.window.isDestroyed()) return Promise.resolve(session)
+    let creating = this.creating.get(workerId)
+    if (!creating) {
+      creating = this.create(workerId).finally(() => this.creating.delete(workerId))
+      this.creating.set(workerId, creating)
+    }
+    return creating
+  }
+
+  private async create(workerId: string): Promise<Session> {
     let session = this.sessions.get(workerId)
-    if (session && !session.window.isDestroyed()) return session
     const notes: string[] = []
     if (session) {
       // The window went away under us. Its connection still holds the
@@ -509,14 +558,21 @@ export class WorkerBrowsers {
       loadError: null,
       chooser: null,
       intercepting: false,
-      unhook: () => undefined
+      unhook: () => undefined,
+      busy: 0,
+      inputAt: 0,
+      parkTimer: null,
+      parked: null
     }
     // There are no tabs. A link with target=_blank or a window.open() would
     // otherwise become a real, visible window on the user's screen, in this
     // agent's session, which the agent never sees — and which stops
     // BetterWright attaching again, since it needs the session to itself.
     // The address is kept and opened in this window after the step.
+    // The exception is the user in the real window, signing in: a sign-in
+    // pop-up works there as in any browser.
     contents.setWindowOpenHandler(({ url }) => {
+      if (window.isVisible()) return { action: 'allow', overrideBrowserWindowOptions: { parent: window } }
       if (/^https?:/i.test(url)) fresh.popup = url
       return { action: 'deny' }
     })
@@ -552,8 +608,6 @@ export class WorkerBrowsers {
     await contents.loadURL('about:blank')
     session = fresh
     this.sessions.set(workerId, session)
-    // A live view may already be waiting for this browser's first page.
-    if (this.frameWatchers.get(workerId)?.size) this.subscribe(workerId, window)
     return session
   }
 
@@ -628,7 +682,7 @@ export class WorkerBrowsers {
 
   /** Waits, through `browser`, until the page's DOM is usable. Bounded; a slow page is used as it is. */
   private async waitReady(browser: BetterWrightInstance): Promise<void> {
-    await browser.run(`await page.waitForFunction(() => document.readyState !== 'loading', null, { timeout: 12000 }).catch(() => {}); return 1`).catch(() => undefined)
+    await browser.run(UNTIL_READY).catch(() => undefined)
   }
 
   /**
@@ -639,7 +693,13 @@ export class WorkerBrowsers {
    * `timeoutMs` is stopped, leaving the page that was there, and resolves
    * 'timeout'. Aborting stops the load.
    */
-  private navigateContents(session: Session, url: string, timeoutMs: number, signal?: AbortSignal): Promise<'arrived' | 'timeout'> {
+  private navigateContents(
+    session: Session,
+    url: string,
+    timeoutMs: number,
+    signal?: AbortSignal,
+    go: () => void = () => void session.window.webContents.loadURL(url).catch(() => {})
+  ): Promise<'arrived' | 'timeout'> {
     const contents = session.window.webContents
     const signals = ['did-navigate', 'dom-ready', 'did-stop-loading'] as const
     return new Promise<'arrived' | 'timeout'>((resolve, reject) => {
@@ -673,22 +733,141 @@ export class WorkerBrowsers {
       signal?.addEventListener('abort', aborted, { once: true })
       for (const name of signals) contents.on(name as 'dom-ready', done)
       contents.on('did-fail-load', failed)
-      contents.loadURL(url).catch(() => {})
+      go()
     })
   }
 
   /** Runs one step's code in the worker's browser, one step at a time per worker. */
   async run(workerId: string, code: string): Promise<string> {
     const session = await this.session(workerId)
-    const step = session.queue.then(async () => {
-      await this.recover(session)
-      const browser = await this.attach(session)
+    return this.enqueue(workerId, session, async (browser) => {
       const out = resultText(await browser.run(code))
       if (!session.intercepting) await this.intercept(session)
       return out
     })
+  }
+
+  /** `work` in its turn on the browser's queue: a crashed page reopened, connected, and a parked page brought back first. */
+  private enqueue<T>(workerId: string, session: Session, work: (browser: BetterWrightInstance) => Promise<T>): Promise<T> {
+    this.begin(workerId, session)
+    const step = session.queue.then(async () => {
+      await this.recover(session)
+      const browser = await this.attach(session)
+      await this.unpark(session)
+      return work(browser)
+    })
     session.queue = step.catch(() => {})
+    const done = (): void => this.end(workerId, session)
+    void step.then(done, done)
     return step
+  }
+
+  /** Something starts on the page (a step, an open, a back): it must not be parked under it, and a live view follows. */
+  private begin(workerId: string, session: Session): void {
+    session.busy++
+    if (session.parkTimer) clearTimeout(session.parkTimer)
+    session.parkTimer = null
+    this.pump(workerId)
+  }
+
+  private end(workerId: string, session: Session): void {
+    session.busy = Math.max(0, session.busy - 1)
+    if (session.busy > 0 || this.sessions.get(workerId) !== session) return
+    this.armPark(workerId, session)
+    if (this.frameWatchers.get(workerId)?.size) setTimeout(() => void this.deliver(workerId), SETTLE_MS).unref?.()
+  }
+
+  /* ----------------------------------------------------------------- parking */
+
+  /** Parks the page once the browser has gone PARK_AFTER_MS without a step. */
+  private armPark(workerId: string, session: Session): void {
+    if (session.parkTimer) clearTimeout(session.parkTimer)
+    session.parkTimer = setTimeout(() => {
+      session.parkTimer = null
+      if (session.busy > 0 || this.sessions.get(workerId) !== session || session.window.isDestroyed()) return
+      // In use all the same: the user has taken over, or is looking at the real window. Later, then.
+      if (session.control || session.window.isVisible()) return this.armPark(workerId, session)
+      session.queue = session.queue.then(() => this.park(session)).catch(() => {})
+    }, PARK_AFTER_MS)
+    session.parkTimer.unref?.()
+  }
+
+  /**
+   * Puts the page away: about:blank, which costs nothing to keep open, with
+   * where it was and a last picture of it kept for the live view. The
+   * connection, the logins and the window stay, so bringing it back is one
+   * step back through history (`unpark`).
+   */
+  private async park(session: Session): Promise<void> {
+    const { window } = session
+    if (session.parked || session.busy > 0 || session.control || window.isDestroyed() || window.isVisible()) return
+    const contents = window.webContents
+    const url = contents.getURL()
+    if (!url || url === 'about:blank') return
+    const frame = (await within(contents.capturePage().catch(() => null), 5000)) ?? null
+    const title = contents.getTitle()
+    // Waits for about:blank itself to commit. loadURL's own promise can fail
+    // early while the page goes anyway (the old page's loading stopping looks
+    // like a failure to it), and a page that went unrecorded would leave the
+    // agent's next step on a blank page.
+    // Settled once it has finished loading too, so nothing of it is still to
+    // come when the page is brought back.
+    await new Promise<void>((resolve) => {
+      let committed = false
+      const done = (): void => {
+        contents.off('did-navigate', navigated)
+        contents.off('did-stop-loading', stopped)
+        contents.off('did-fail-load', failed)
+        clearTimeout(timer)
+        resolve()
+      }
+      const navigated = (_e: unknown, to: string): void => {
+        if (to === 'about:blank') committed = true
+      }
+      const stopped = (): void => {
+        if (committed) done()
+      }
+      const failed = (_e: unknown, _code: number, _description: string, url: string, isMainFrame: boolean): void => {
+        if (isMainFrame && url === 'about:blank') done()
+      }
+      // A page guarding unsaved work (beforeunload) refuses to go, and nothing more is heard.
+      const timer = setTimeout(done, 10_000)
+      contents.on('did-navigate', navigated)
+      contents.on('did-stop-loading', stopped)
+      contents.on('did-fail-load', failed)
+      contents.loadURL('about:blank').catch(() => {})
+    })
+    // Refused: it stays as it is.
+    if (window.isDestroyed() || contents.getURL() !== 'about:blank') return
+    session.parked = { url, title, index: contents.navigationHistory.getActiveIndex(), frame: frame && !frame.isEmpty() ? frame : null }
+  }
+
+  /**
+   * Brings a parked page back by going back to it, so it is where it was —
+   * often straight from the back-forward cache, with what was typed into it
+   * — and then drops the blank entry the park added, so back still goes
+   * where it went before.
+   */
+  private async unpark(session: Session): Promise<void> {
+    const parked = session.parked
+    if (!parked) return
+    session.parked = null
+    const contents = session.window.webContents
+    if (contents.isDestroyed()) return
+    const history = contents.navigationHistory
+    // Still on the blank page (the user may have gone elsewhere in the real window since).
+    if (history.getActiveIndex() === parked.index && contents.getURL() === 'about:blank') {
+      const go = history.canGoBack() ? () => history.goBack() : () => void contents.loadURL(parked.url).catch(() => {})
+      await within(this.navigateContents(session, parked.url, 30_000, undefined, go).catch(() => undefined), 30_000)
+      await session.browser?.run(UNTIL_READY).catch(() => {})
+    }
+    if (contents.isDestroyed()) return
+    if (history.getActiveIndex() !== parked.index && history.getEntryAtIndex(parked.index)?.url === 'about:blank') history.removeEntryAtIndex(parked.index)
+  }
+
+  /** Brings a parked page back outside a step: for the user, showing the window or taking over. */
+  private wake(workerId: string, session: Session): Promise<void> {
+    return this.enqueue(workerId, session, async () => undefined).catch(() => {})
   }
 
   /** Notes for the agent about what happened since its last step (a crash, a reopened window); cleared once read. */
@@ -868,7 +1047,7 @@ export class WorkerBrowsers {
   async landed(workerId: string): Promise<void> {
     const session = this.sessions.get(workerId)
     if (!session || session.window.isDestroyed()) return
-    await this.run(workerId, `await page.waitForFunction(() => document.readyState !== 'loading', null, { timeout: 12000 }).catch(() => {}); return 1`).catch(() => undefined)
+    await this.run(workerId, UNTIL_READY).catch(() => undefined)
   }
 
   /** Closes BetterWright and attaches afresh to the same window: for a connection that lost track of its page. */
@@ -879,9 +1058,7 @@ export class WorkerBrowsers {
       const browser = session.browser
       session.browser = null
       await closeQuietly(browser)
-      await (await this.attach(session))
-        .run(`await page.waitForFunction(() => document.readyState !== 'loading', null, { timeout: 12000 }).catch(() => {}); return 1`)
-        .catch(() => {})
+      await (await this.attach(session)).run(UNTIL_READY).catch(() => {})
     })
     await session.queue
   }
@@ -898,6 +1075,16 @@ export class WorkerBrowsers {
    */
   async open(workerId: string, url: string, signal?: AbortSignal): Promise<'arrived' | 'timeout'> {
     const session = await this.session(workerId)
+    // Busy throughout, loading included: a live view follows the page in, and it isn't parked meanwhile.
+    this.begin(workerId, session)
+    try {
+      return await this.openIn(workerId, session, url, signal)
+    } finally {
+      this.end(workerId, session)
+    }
+  }
+
+  private async openIn(workerId: string, session: Session, url: string, signal?: AbortSignal): Promise<'arrived' | 'timeout'> {
     // Connected first: without BetterWright's guard proxy up, the load stalls.
     await this.run(workerId, 'return 1')
     session.download = null
@@ -929,19 +1116,34 @@ export class WorkerBrowsers {
     return outcome
   }
 
-  /** The page this worker's browser is on now. */
+  /** The page this worker's browser is on now (a parked one counts as where it was). */
   url(workerId: string): string {
-    const window = this.sessions.get(workerId)?.window
-    return window && !window.isDestroyed() ? window.webContents.getURL() : ''
+    return this.page(workerId).url
+  }
+
+  /** The page's address and title, for the live view; a parked page's as they were. */
+  page(workerId: string): { url: string; title: string } {
+    const session = this.sessions.get(workerId)
+    if (!session || session.window.isDestroyed()) return { url: '', title: '' }
+    if (session.parked) return { url: session.parked.url, title: session.parked.title }
+    return { url: session.window.webContents.getURL(), title: session.window.webContents.getTitle() }
   }
 
   /** The browser's own back button, with the same wait-and-reconnect as a click that navigates. */
   async back(workerId: string): Promise<boolean> {
     const session = this.sessions.get(workerId)
-    const contents = session?.window.webContents
-    if (!contents || !contents.canGoBack()) return false
-    contents.goBack()
-    await this.landed(workerId)
+    if (!session || session.window.isDestroyed()) return false
+    // Back from the page it was on, not from the blank one it was parked on.
+    if (session.parked) await this.wake(workerId, session)
+    const contents = session.window.webContents
+    if (contents.isDestroyed() || !contents.navigationHistory.canGoBack()) return false
+    this.begin(workerId, session)
+    try {
+      contents.navigationHistory.goBack()
+      await this.landed(workerId)
+    } finally {
+      this.end(workerId, session)
+    }
     return true
   }
 
@@ -1176,11 +1378,14 @@ export class WorkerBrowsers {
   }
 
   /** The user's view of a worker's browser: shown to watch or to sign in; hidden again after. */
-  show(workerId: string): boolean {
-    const window = this.sessions.get(workerId)?.window
-    if (!window || window.isDestroyed()) return false
-    window.show()
-    window.focus()
+  async show(workerId: string): Promise<boolean> {
+    const session = this.sessions.get(workerId)
+    if (!session || session.window.isDestroyed()) return false
+    // The page it was on, not the blank one it was parked on.
+    if (session.parked) await this.wake(workerId, session)
+    if (session.window.isDestroyed()) return false
+    session.window.show()
+    session.window.focus()
     return true
   }
 
@@ -1197,36 +1402,64 @@ export class WorkerBrowsers {
   /* --------------------------------------------- live view, cursor and take-over */
 
   /**
-   * Every frame the page paints, for a live view: Electron's own frame
-   * subscription, which keeps delivering while the window is hidden (it has
-   * `backgroundThrottling: false`). One subscription per window, shared by
-   * every view watching it; it stops when the last one leaves.
+   * Pictures of the page for a live view: one as it opens, then one every
+   * FRAME_MS while a step runs or the user has control, one as that stops
+   * and one more a moment later. A page left alone between steps costs
+   * nothing to watch. (This was Electron's frame subscription, which copied
+   * the whole page on every paint for as long as a view was open.)
    */
   watchFrames(workerId: string, listener: FrameListener): () => void {
     let listeners = this.frameWatchers.get(workerId)
     if (!listeners) this.frameWatchers.set(workerId, (listeners = new Set()))
-    listeners.add(listener)
-    const window = this.window(workerId)
-    if (window && listeners.size === 1) this.subscribe(workerId, window)
+    const watching = listeners
+    watching.add(listener)
+    void this.capture(workerId).then(
+      (image) => image && !image.isEmpty() && watching.has(listener) && listener(image),
+      () => undefined
+    )
+    this.pump(workerId)
     return () => {
-      listeners!.delete(listener)
-      if (listeners!.size > 0) return
-      this.frameWatchers.delete(workerId)
-      const current = this.window(workerId)
-      if (current) current.webContents.endFrameSubscription()
+      watching.delete(listener)
+      if (watching.size === 0 && this.frameWatchers.get(workerId) === watching) this.frameWatchers.delete(workerId)
     }
   }
 
-  private subscribe(workerId: string, window: BrowserWindow): void {
-    window.webContents.beginFrameSubscription(false, (image) => {
-      for (const listener of this.frameWatchers.get(workerId) ?? []) listener(image)
-    })
+  /**
+   * Something is happening on the page: a step (bringing a parked page back,
+   * perhaps), or the user in control and using it — not just holding it.
+   */
+  private live(workerId: string): boolean {
+    const session = this.sessions.get(workerId)
+    if (!session || session.window.isDestroyed()) return false
+    return session.busy > 0 || Boolean(session.control && Date.now() - session.inputAt < CONTROL_LIVE_MS)
   }
 
-  /** One picture of the page as it is now, for a view that has just opened on a page that isn't repainting. */
+  /** Starts the capture loop for the live views, if any are watching and something is happening. */
+  private pump(workerId: string): void {
+    if (this.pumping.has(workerId) || !this.live(workerId) || !this.frameWatchers.get(workerId)?.size) return
+    const tick = async (): Promise<void> => {
+      await this.deliver(workerId)
+      // The tick that finds it idle has just taken the picture of how it ended up.
+      if (this.live(workerId) && this.frameWatchers.get(workerId)?.size) this.pumping.set(workerId, setTimeout(() => void tick(), FRAME_MS))
+      else this.pumping.delete(workerId)
+    }
+    this.pumping.set(workerId, setTimeout(() => void tick(), 0))
+  }
+
+  /** One picture to every live view of this browser. */
+  private async deliver(workerId: string): Promise<void> {
+    if (!this.frameWatchers.get(workerId)?.size) return
+    const image = await this.capture(workerId).catch(() => null)
+    if (!image || image.isEmpty()) return
+    for (const listener of this.frameWatchers.get(workerId) ?? []) listener(image)
+  }
+
+  /** One picture of the page as it is now; a parked page's last one. */
   async capture(workerId: string): Promise<NativeImage | null> {
-    const window = this.window(workerId)
-    return window ? window.webContents.capturePage() : null
+    const session = this.sessions.get(workerId)
+    if (!session || session.window.isDestroyed()) return null
+    if (session.parked) return session.parked.frame
+    return session.window.webContents.capturePage()
   }
 
   /** The page's own size in CSS pixels, to map a click on a scaled picture back onto it. */
@@ -1247,13 +1480,20 @@ export class WorkerBrowsers {
       const done = new Promise<void>((resolve) => (release = resolve))
       session.control = { done, release }
     }
+    // The page back where it was, and pictured while they use it.
+    if (session.parked) void this.wake(workerId, session)
+    session.inputAt = Date.now()
+    this.pump(workerId)
     return true
   }
 
   releaseControl(workerId: string): void {
     const session = this.sessions.get(workerId)
     session?.control?.release()
-    if (session) session.control = null
+    if (!session) return
+    session.control = null
+    // Unused from now, not from the agent's last step.
+    if (session.busy === 0 && this.sessions.get(workerId) === session) this.armPark(workerId, session)
   }
 
   controlled(workerId: string): boolean {
@@ -1284,6 +1524,8 @@ export class WorkerBrowsers {
   input(workerId: string, event: BrowserInput): boolean {
     const session = this.sessions.get(workerId)
     if (!session?.control || session.window.isDestroyed()) return false
+    session.inputAt = Date.now()
+    this.pump(workerId)
     const contents = session.window.webContents
     switch (event.type) {
       case 'mouseDown':
@@ -1354,11 +1596,17 @@ export class WorkerBrowsers {
 
   /** Closes a browser (the app quitting, a worker removed); its logins stay in the partition for next time. */
   async close(workerId: string): Promise<void> {
+    // One still being created goes too, once it exists.
+    await this.creating.get(workerId)?.catch(() => undefined)
     const session = this.sessions.get(workerId)
     this.holders.delete(workerId)
     if (!session) return
     this.releaseControl(workerId)
     this.sessions.delete(workerId)
+    if (session.parkTimer) clearTimeout(session.parkTimer)
+    session.parkTimer = null
+    clearTimeout(this.pumping.get(workerId))
+    this.pumping.delete(workerId)
     session.unhook()
     session.takeover.abort()
     await closeQuietly(session.browser)
@@ -1373,14 +1621,21 @@ export class WorkerBrowsers {
   async forget(workerId: string): Promise<void> {
     await this.close(workerId)
     const partition = this.options.partition?.(workerId) ?? `persist:worker-${workerId}`
-    const { session } = await import('electron')
-    const stored = session.fromPartition(partition)
-    await stored.clearStorageData().catch(() => {})
-    await stored.clearCache().catch(() => {})
+    // Best effort: the worker is removed either way, and a failure here
+    // shouldn't turn that into an error.
+    try {
+      const { session } = await import('electron')
+      const stored = session.fromPartition(partition)
+      await stored.clearStorageData().catch(() => {})
+      await stored.clearCache().catch(() => {})
+    } catch (error) {
+      console.error(`[browser] could not clear ${partition}:`, error)
+    }
   }
 
   async closeAll(): Promise<void> {
-    await Promise.all([...this.sessions.keys()].map((id) => this.close(id)))
+    const ids = new Set([...this.sessions.keys(), ...this.creating.keys()])
+    await Promise.all([...ids].map((id) => this.close(id)))
   }
 }
 

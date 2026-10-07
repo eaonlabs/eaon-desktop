@@ -19,6 +19,7 @@ import { useApp } from '../../state/store'
 import { Popover } from '../ui'
 import { LinkAccounts } from '../LinkAccounts'
 import { EffortControl } from './EffortControl'
+import { modKey, modLabel } from '../../lib/platform'
 import { markKey, ProviderMark } from './ProviderMark'
 import { useSetupAction } from './setupActions'
 import { useEngineModels } from './ModelSelect'
@@ -30,8 +31,9 @@ import './model-picker.css'
  * The composer's model picker. A row of provider tabs (Starred first, then
  * every linked provider by its mark, the open one with its name and an
  * underline, and + to link more), a search box, the tab's models with ⌘1–⌘9
- * and a star each, and the model's effort slider at the foot. Linking an
- * account or adding a key puts its tab here straight away.
+ * (Ctrl+1–9 on Windows and Linux) and a star each, and the model's effort
+ * slider at the foot. Linking an account or adding a key puts its tab here
+ * straight away.
  *
  * What is listed, how search ranks and what the saved choice resolves to all
  * come from shared/modelSelection, the same rules every other picker uses. A
@@ -147,7 +149,7 @@ export function ModelPicker({ anchor, open, onClose }: { anchor: RefObject<HTMLE
   }
 
   const onKeyDown = (event: KeyboardEvent): void => {
-    if (event.metaKey && /^[1-9]$/.test(event.key)) {
+    if (modKey(event) && /^[1-9]$/.test(event.key)) {
       const option = shown[Number(event.key) - 1]
       if (option) {
         event.preventDefault()
@@ -383,7 +385,7 @@ export function ModelPicker({ anchor, open, onClose }: { anchor: RefObject<HTMLE
                         {option.planNote}
                       </span>
                     )}
-                    {i < 9 && <kbd className="mp__kbd">⌘{i + 1}</kbd>}
+                    {i < 9 && <kbd className="mp__kbd">{modLabel}{i + 1}</kbd>}
                     {/* Stars are kept per provider; an engine's models have none. */}
                     {option.providerId && (
                       <button

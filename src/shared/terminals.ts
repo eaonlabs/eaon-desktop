@@ -1,11 +1,11 @@
 /**
  * The ADE's terminal view: a grid of real terminals in the project folder,
- * each running a shell or a CLI coding agent (Eaon Code, Claude Code, Codex…).
+ * each running a shell or a CLI coding agent (Eaon Code, Eaon CLI, Claude Code, Codex…).
  * Shells live in the main process (`features/terminals/`) so they outlive the
  * renderer; the renderer only draws them (`components/code/terminal/`).
  */
 
-export const TERMINAL_AGENT_IDS = ['shell', 'eaon-code', 'claude', 'codex', 'antigravity', 'opencode'] as const
+export const TERMINAL_AGENT_IDS = ['shell', 'eaon-code', 'eaon-cli', 'claude', 'codex', 'antigravity', 'opencode'] as const
 export type TerminalAgentId = (typeof TERMINAL_AGENT_IDS)[number]
 
 /**

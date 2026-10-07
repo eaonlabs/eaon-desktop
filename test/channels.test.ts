@@ -13,7 +13,7 @@ import { createWorkersService, type WorkersService } from '../src/main/features/
 import type { RunAgent } from '../src/main/features/workers/runner'
 import { guestCap, guestGate, isPrivateHost } from '../src/main/features/workers/guests'
 import type { FeatureContext } from '../src/main/features/types'
-import { ChannelsService } from '../src/main/features/channels/service'
+import { ChannelsService, safeName } from '../src/main/features/channels/service'
 import { calledByName, chunkText, parseCommand, replyText, toTelegramHtml, toWhatsApp } from '../src/main/features/channels/format'
 import { TelegramConnector } from '../src/main/features/channels/telegram'
 import { DiscordConnector } from '../src/main/features/channels/discord'
@@ -740,4 +740,17 @@ test('Discord: identifies without the content intent it lacks, resumes after a d
   await discord.stop()
   gateway.close()
   http.close()
+})
+
+test('a file sent in a chat is saved under a name every platform accepts', () => {
+  assert.equal(safeName('report.pdf'), 'report.pdf')
+  assert.equal(safeName('../../etc/passwd'), 'passwd')
+  assert.equal(safeName('a:b*c?.txt'), 'a_b_c_.txt')
+  // Windows reads these as devices, and refuses a name ending in a dot or space.
+  assert.equal(safeName('CON'), '_CON')
+  assert.equal(safeName('nul.txt'), '_nul.txt')
+  assert.equal(safeName('lpt1 .log'), '_lpt1 .log')
+  assert.equal(safeName('console.log'), 'console.log')
+  assert.equal(safeName('notes. . '), 'notes')
+  assert.equal(safeName('...'), 'file')
 })

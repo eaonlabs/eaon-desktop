@@ -19,6 +19,25 @@ export interface GatewayModel {
   efforts?: EffortLevel[]
 }
 
+/**
+ * Which models a request may use. `all` is every model set up in Eaon;
+ * `local` — the `/local/v1` routes, which Eaon CLI uses — only the open-source
+ * models downloaded in Eaon, and a name it doesn't know is an error rather
+ * than a cloud model standing in for it.
+ */
+export type GatewayScope = 'all' | 'local'
+
+/** A downloaded model as `/local/v1/models` lists it: OpenAI's shape, plus what a coding agent needs to know. */
+export interface LocalGatewayModel {
+  id: string
+  object: 'model'
+  created: number
+  owned_by: string
+  name: string
+  context_window: number
+  capabilities: { tools: boolean; vision: boolean; reasoning: boolean }
+}
+
 export interface GatewayInfo {
   running: boolean
   port: number

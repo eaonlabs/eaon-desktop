@@ -9,6 +9,9 @@ import { libraryFeature } from './library'
 import { terminalsFeature } from './terminals'
 import { adeFeature } from './ade'
 import { workersFeature } from './workers'
+import { remoteFeature } from './remote'
+import { controlFeature } from './control'
+import { starRepoFeature } from './starRepo'
 import { channelsFeature } from './channels'
 import { agentBrowserFeature } from './agentBrowser'
 import { emailFeature } from './email'
@@ -40,6 +43,10 @@ export const FEATURES: Feature[] = [
   terminalsFeature,
   adeFeature,
   workersFeature,
+  // Follows the workers engine, so right after it.
+  remoteFeature,
+  // Drives the app for Eaon CLI; needs the workers service, so after it.
+  controlFeature,
   // Built on the workers engine, so after it.
   channelsFeature,
   agentBrowserFeature,
@@ -52,5 +59,6 @@ export const FEATURES: Feature[] = [
   connectAppsFeature,
   linkAccountsFeature,
   usageFeature,
+  starRepoFeature,
   discordPresenceFeature
 ]

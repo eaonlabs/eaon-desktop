@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState, useSyncExternalStore, type JSX } from 'react'
+import { memo, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type JSX } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { ArrowLeft, ArrowRight, Eraser, Maximize2, Minimize2, MoreHorizontal, PencilLine, Plus, RotateCcw, SquareTerminal, X } from 'lucide-react'
 import claudeCodeLogo from '../../../assets/providers/claude.webp'
@@ -16,6 +16,8 @@ import { sessionTitle } from '@shared/adeSessions'
 import { terminals, type PaneStatus } from './registry'
 import { useTerminals } from './terminalStore'
 import type { TerminalAgent, TerminalAgentId, TerminalPaneSpec } from '@shared/terminals'
+import { ThemePicker } from './ThemePicker'
+import { findTheme } from './themes'
 import {
   DIVIDER_PX,
   MIN_COLUMN_PX,
@@ -53,16 +55,26 @@ export function TerminalWorkspace(): JSX.Element {
   )
   const appearance = useApp((s) => s.settings?.appearance)
   const session = useAdeSessions((s) => (cwd ? (s.sessions.find((x) => x.cwd === cwd) ?? null) : null))
+  const look = useApp(useShallow((s) => ({ theme: s.settings?.ade?.theme ?? 'eaon', scenes: s.settings?.ade?.scenes ?? true })))
+  const preview = useTerminals((s) => s.preview)
+  // The picker previews a theme on every pane before it is kept.
+  const theme = findTheme(preview ?? look.theme)
 
   useEffect(() => {
     void load()
   }, [load])
 
-  // The terminals are painted in the app's theme; re-tone them when it changes.
+  // The terminals are painted in the ADE's theme, which by default is the
+  // app's own: re-tone them when either changes.
   useEffect(() => {
-    const id = requestAnimationFrame(() => terminals.applyTheme())
+    const id = requestAnimationFrame(() => terminals.setLook({ theme, scenes: look.scenes }))
     return () => cancelAnimationFrame(id)
-  }, [appearance])
+  }, [appearance, theme, look.scenes])
+
+  /** A theme of its own paints the panes too: their background and the text on their headers. */
+  const themed: CSSProperties | undefined = theme.colors
+    ? { ['--term-bg' as string]: theme.colors.background, ['--term-fg' as string]: theme.colors.foreground }
+    : undefined
 
   if (cwd && !loaded && loadError) {
     // Loading the saved layout failed; an empty workspace here gave no way to retry.
@@ -82,6 +94,7 @@ export function TerminalWorkspace(): JSX.Element {
   if (panes.length === 0) {
     return (
       <div className="term-workspace term-empty">
+        <ThemePicker />
         <SquareTerminal size={44} strokeWidth={1.3} className="home__icon" />
         <h1 className="home__title">{session ? sessionTitle(session) : `Terminals in ${folderName(cwd)}`}</h1>
         <p className="term-empty__text">
@@ -111,7 +124,8 @@ export function TerminalWorkspace(): JSX.Element {
   const shown = maximized && panes.some((p) => p.id === maximized) ? panes.filter((p) => p.id === maximized) : panes
 
   return (
-    <div className="term-workspace">
+    <div className="term-workspace" data-themed={theme.colors ? '' : undefined} style={themed}>
+      <ThemePicker />
       <TerminalGrid cwd={cwd} panes={shown} agents={agents} maximized={maximized} />
     </div>
   )
@@ -474,7 +488,8 @@ const AGENT_LOGOS: Partial<Record<TerminalAgentId, string>> = {
   codex: codexLogo,
   antigravity: antigravityLogo,
   opencode: openCodeLogo,
-  'eaon-code': eaonLogo
+  'eaon-code': eaonLogo,
+  'eaon-cli': eaonLogo
 }
 
 /** "New terminal" in the ADE's top bar: pick what runs in it. */

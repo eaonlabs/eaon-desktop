@@ -136,6 +136,8 @@
   font-size: var(--fs-xs);
   color: var(--text-3);
   margin-top: 1px;
+  /* A folder path is one long word to the browser; break it rather than clip it. */
+  overflow-wrap: anywhere;
 }
 .menu__item-hint {
   /* Was `flex: none`, which let a long value (a model id like "nemotron 3

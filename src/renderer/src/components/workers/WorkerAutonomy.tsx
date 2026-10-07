@@ -92,7 +92,8 @@ function AskCard({ worker, ask }: { worker: Worker; ask: WorkerAsk }): JSX.Eleme
         <Markdown text={ask.question} />
       </div>
       <div className="worker-ask__actions">
-        {ask.options.map((option) => (
+        {/* A question saved by an older build, or asked without choices, may have no options list. */}
+        {(ask.options ?? []).map((option) => (
           <button key={option} className="btn btn--sm" disabled={busy} onClick={() => void answer({ text: option })}>
             {option}
           </button>

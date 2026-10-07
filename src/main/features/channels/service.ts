@@ -1,7 +1,7 @@
 import { randomInt, randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { mkdir, realpath, writeFile } from 'node:fs/promises'
-import { basename, extname, join, sep } from 'node:path'
+import { basename, extname, isAbsolute, join, sep } from 'node:path'
 import {
   CHANNEL_COMMANDS,
   CHANNEL_LABEL,
@@ -141,10 +141,19 @@ function normalize(raw: unknown, now: number): ChannelLink | null {
   }
 }
 
-/** A file name safe to write: no folders, no control characters. */
-function safeName(name: string): string {
-  const cleaned = basename(name).replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '_').replace(/^\.+/, '').slice(0, 120)
-  return cleaned || 'file'
+/**
+ * A file name safe to write: no folders, no control characters, and nothing
+ * Windows refuses or reads as a device — a name ending in a dot or space, or
+ * one called CON, NUL, COM1 and so on, with or without an extension.
+ */
+export function safeName(name: string): string {
+  const cleaned = basename(name)
+    .replace(/[\\/:*?"<>|\u0000-\u001f]+/g, '_')
+    .replace(/^\.+/, '')
+    .slice(0, 120)
+    .replace(/[. ]+$/, '')
+  if (!cleaned) return 'file'
+  return /^(con|prn|aux|nul|com[1-9]|lpt[1-9])\s*(\.|$)/i.test(cleaned) ? `_${cleaned}` : cleaned
 }
 
 function freePath(dir: string, name: string): string {
@@ -404,7 +413,8 @@ export class ChannelsService {
     const paths: string[] = []
     const home = await realpath(worker.folder).catch(() => worker.folder)
     for (const file of files) {
-      const full = await realpath(file.startsWith(sep) ? file : join(worker.folder, file)).catch(() => null)
+      // isAbsolute, not a leading separator: on Windows an absolute path starts with a drive (`C:\…`).
+      const full = await realpath(isAbsolute(file) ? file : join(worker.folder, file)).catch(() => null)
       if (!full) throw new Error(`${file} doesn’t exist.`)
       if (full !== home && !full.startsWith(home + sep)) throw new Error(`${file} is outside your folder (${worker.folder}). Only files in your folder can be sent to a chat.`)
       paths.push(full)

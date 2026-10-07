@@ -36,9 +36,20 @@ const MAX_SEARCH_FILES = 20_000
 const HOME = homedir()
 
 /** Folders whose contents are credentials; never read or written by the agent. */
-const FORBIDDEN = ['.ssh', '.aws', '.gnupg', '.config/gh', '.docker/config.json', 'Library/Keychains', 'Library/Cookies', '.netrc'].map(
-  (p) => join(HOME, p)
-)
+const FORBIDDEN = [
+  ...['.ssh', '.aws', '.gnupg', '.config/gh', '.docker/config.json', 'Library/Keychains', 'Library/Cookies', '.netrc'].map((p) => join(HOME, p)),
+  ...(process.platform === 'win32' ? windowsCredentialFolders() : [])
+]
+
+/** gh keeps its token in %APPDATA%\GitHub CLI on Windows, and Credential Manager keeps its files beside it. */
+function windowsCredentialFolders(): string[] {
+  const roaming = [...new Set([process.env.APPDATA, join(HOME, 'AppData', 'Roaming')].filter((dir): dir is string => Boolean(dir)))]
+  const local = [...new Set([process.env.LOCALAPPDATA, join(HOME, 'AppData', 'Local')].filter((dir): dir is string => Boolean(dir)))]
+  return [
+    ...roaming.flatMap((dir) => [join(dir, 'GitHub CLI'), join(dir, 'Microsoft', 'Credentials'), join(dir, 'Microsoft', 'Protect')]),
+    ...local.flatMap((dir) => [join(dir, 'Microsoft', 'Credentials'), join(dir, 'Microsoft', 'Vault')])
+  ]
+}
 
 function allowedRoots(): string[] {
   const roots = [HOME, tmpdir(), '/tmp', '/private/tmp']
@@ -46,7 +57,31 @@ function allowedRoots(): string[] {
   return roots
 }
 
-const within = (path: string, root: string): boolean => path === root || path.startsWith(root.endsWith(sep) ? root : root + sep)
+/**
+ * A path as the file system tells paths apart. NTFS and APFS (as macOS
+ * formats it) ignore case, so `~/.SSH` is `~/.ssh` and `c:\Users` is
+ * `C:\Users`. Windows also drops trailing dots and spaces from a name and
+ * reads `name:stream` as `name`, so `.ssh.` and `.ssh::$INDEX_ALLOCATION`
+ * are `.ssh` there. Compared as typed, each got past FORBIDDEN.
+ */
+function comparable(path: string, platform: NodeJS.Platform): string {
+  if (platform === 'darwin') return path.toLowerCase()
+  if (platform !== 'win32') return path
+  const lower = path.toLowerCase()
+  const drive = /^[a-z]:/.test(lower) ? lower.slice(0, 2) : ''
+  return drive + lower.slice(drive.length).replace(/:[^\\/]*/g, '').replace(/[. ]+(?=[\\/]|$)/g, '')
+}
+
+/** `path` is `root` or inside it, compared as `platform` compares paths. */
+export function pathWithin(path: string, root: string, platform: NodeJS.Platform = process.platform): boolean {
+  const separator = platform === 'win32' ? '\\' : '/'
+  const p = comparable(path, platform)
+  const r = comparable(root, platform)
+  return p === r || p.startsWith(r.endsWith(separator) ? r : r + separator)
+}
+
+const within = (path: string, root: string): boolean => pathWithin(path, root)
+const samePath = (a: string, b: string): boolean => comparable(a, process.platform) === comparable(b, process.platform)
 
 interface ResolvedPath {
   path: string
@@ -86,7 +121,8 @@ function realish(path: string, depth = 0): string {
 
 export function resolveWorkPath(cwd: string, target: string): ResolvedPath {
   const root = resolve(cwd)
-  const expanded = target === '~' ? HOME : target.startsWith('~/') ? join(HOME, target.slice(2)) : target
+  // `~`, `~/x` and, on Windows, `~\x`.
+  const expanded = target.replace(/^~(?=$|[\\/])/, () => HOME)
   const path = isAbsolute(expanded) ? resolve(expanded) : resolve(root, expanded || '.')
   // Judged by where the path really leads, so a link inside the Work folder
   // can't be a way around the credential folders or the "outside the Work
@@ -106,7 +142,7 @@ export function resolveWorkPath(cwd: string, target: string): ResolvedPath {
 
 const display = (cwd: string, path: string): string => {
   const rel = relative(cwd, path)
-  return rel && !rel.startsWith('..') ? rel : path.startsWith(HOME) ? `~${path.slice(HOME.length)}` : path
+  return rel && !rel.startsWith('..') ? rel : within(path, HOME) ? `~${path.slice(HOME.length)}` : path
 }
 
 /* ------------------------------------------------------------------ shell */
@@ -155,6 +191,68 @@ function spawnError(error: Error, cwd: string): Error {
 }
 
 /**
+ * The line the shell is handed. cmd.exe's built-ins (dir, type, echo) write
+ * in the console's OEM code page, which reads as mojibake once decoded as
+ * UTF-8 below; switching the console to UTF-8 first keeps accents and CJK.
+ */
+export function shellLine(command: string, platform: NodeJS.Platform = process.platform): string {
+  return platform === 'win32' ? `chcp 65001>nul & ${command}` : command
+}
+
+/** Python writes to a pipe in the ANSI code page on Windows, and stops at the first character that has none. */
+const shellEnv = (): NodeJS.ProcessEnv =>
+  process.platform === 'win32' ? { PYTHONIOENCODING: process.env.PYTHONIOENCODING || 'utf-8' } : {}
+
+/**
+ * Ends a command and everything it started. With `shell: true` on Windows
+ * the child is cmd.exe: killing it alone leaves `npm run dev` running and
+ * holding its port, and there are no process groups to signal, so taskkill
+ * walks the tree instead. Detached, so quitting the app does not take
+ * taskkill down with it before it is done. Elsewhere the child leads its own
+ * process group.
+ */
+function killTree(pid: number, signal: NodeJS.Signals): void {
+  if (process.platform !== 'win32') {
+    process.kill(-pid, signal)
+    return
+  }
+  const taskkill = join(process.env.SystemRoot || 'C:\\Windows', 'System32', 'taskkill.exe')
+  const killer = spawn(existsSync(taskkill) ? taskkill : 'taskkill', ['/pid', String(pid), '/T', '/F'], {
+    windowsHide: true,
+    detached: true,
+    stdio: 'ignore'
+  })
+  // No taskkill to run: end the shell at least.
+  killer.on('error', () => {
+    try {
+      process.kill(pid)
+    } catch {
+      /* already gone */
+    }
+  })
+  killer.unref()
+}
+
+/** run_command's description. Models write bash by default, and on Windows the shell is cmd.exe. */
+export function commandToolDescription(platform: NodeJS.Platform = process.platform): string {
+  const description =
+    'Run a shell command in the Work folder and return its exit code and output. Use it to build, test, run scripts, use git, and inspect the system. For servers and watchers pass background: true.'
+  return platform === 'win32'
+    ? `${description} Commands run in cmd.exe, not bash or PowerShell: use cmd syntax (dir, type, del, copy, set NAME=value, %NAME%, &&). For PowerShell, run powershell -NoProfile -Command "…".`
+    : description
+}
+
+/** How to read and stop a background process, in the shell run_command uses. */
+export function backgroundHints(log: string, pid: number | undefined, platform: NodeJS.Platform = process.platform): { read: string; stop: string } {
+  return platform === 'win32'
+    ? {
+        read: `read it with read_file or run \`powershell -NoProfile -Command "Get-Content -Tail 50 '${log}'"\``,
+        stop: `taskkill /pid ${pid} /T /F`
+      }
+    : { read: `read it with read_file or run \`tail -n 50 ${log}\``, stop: `kill ${pid}` }
+}
+
+/**
  * A command's output as its first and last `limit` characters, with a count
  * of what lies between. A chatty build can print hundreds of megabytes; the
  * first error and the summary are at the two ends.
@@ -193,19 +291,22 @@ class HeadAndTail {
 /**
  * Runs a command in the Work folder, streaming output into the transcript as
  * it arrives. Killed on timeout and when the turn is stopped — the whole
- * process group, so a `npm run dev` does not outlive the Stop button.
+ * process group (tree, on Windows), so a `npm run dev` does not outlive the
+ * Stop button.
  */
 function runCommand(command: string, ctx: ToolContext, timeoutMs: number): Promise<string> {
   return new Promise((resolvePromise, reject) => {
     if (ctx.signal.aborted) return reject(new Error('aborted'))
-    const child = spawn(command, {
+    const child = spawn(shellLine(command), {
       shell: process.platform === 'win32' ? true : process.env.SHELL || '/bin/bash',
       cwd: ctx.cwd,
       detached: process.platform !== 'win32',
+      // Otherwise every command flashes a console window on Windows.
+      windowsHide: true,
       // No stdin: a command that waits for input (a prompt, `cat` with no
       // file) reads end-of-file at once instead of hanging until the timeout.
       stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, CI: '1', FORCE_COLOR: '0', NO_COLOR: '1', PAGER: 'cat', GIT_PAGER: 'cat' }
+      env: { ...process.env, CI: '1', FORCE_COLOR: '0', NO_COLOR: '1', PAGER: 'cat', GIT_PAGER: 'cat', ...shellEnv() }
     })
     const output = new HeadAndTail(MAX_OUTPUT)
     let lastProgress = 0
@@ -229,7 +330,7 @@ function runCommand(command: string, ctx: ToolContext, timeoutMs: number): Promi
     }
     const kill = (): void => {
       try {
-        if (child.pid && process.platform !== 'win32') process.kill(-child.pid, 'SIGKILL')
+        if (child.pid) killTree(child.pid, 'SIGKILL')
         else child.kill('SIGKILL')
       } catch {
         /* already gone */
@@ -279,12 +380,15 @@ function runCommand(command: string, ctx: ToolContext, timeoutMs: number): Promi
 async function runBackground(command: string, cwd: string): Promise<string> {
   const log = join(tmpdir(), `eaon-bg-${Date.now()}.log`)
   const out = createWriteStream(log)
-  const child = spawn(command, {
+  const child = spawn(shellLine(command), {
     shell: process.platform === 'win32' ? true : process.env.SHELL || '/bin/bash',
     cwd,
-    detached: true,
+    // Its own process group, to kill it by. Not on Windows: there a detached
+    // cmd.exe has no console, so each program it starts opens a window of its own.
+    detached: process.platform !== 'win32',
+    windowsHide: true,
     stdio: ['ignore', 'pipe', 'pipe'],
-    env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1' }
+    env: { ...process.env, FORCE_COLOR: '0', NO_COLOR: '1', ...shellEnv() }
   })
   // Without a listener, a spawn that fails is an uncaught exception in the main process.
   let failed: Error | null = null
@@ -296,8 +400,12 @@ async function runBackground(command: string, cwd: string): Promise<string> {
       resolveStarted()
     })
   })
-  child.stdout?.pipe(out)
-  child.stderr?.pipe(out)
+  // Both streams feed one log, so neither may end it: whichever ended first
+  // would make the other's next write an error. It ends when the process does.
+  out.on('error', () => {})
+  child.stdout?.pipe(out, { end: false })
+  child.stderr?.pipe(out, { end: false })
+  child.on('close', () => out.end())
   child.unref()
   const pid = child.pid
   if (pid) {
@@ -312,10 +420,11 @@ async function runBackground(command: string, cwd: string): Promise<string> {
   }
   const early = existsSync(log) ? await readFile(log, 'utf8').catch(() => '') : ''
   const exited = child.exitCode !== null
+  const hints = backgroundHints(log, child.pid)
   return [
     exited ? `Process exited early with code ${child.exitCode}.` : `Started in the background, pid ${child.pid}.`,
-    `Output is being written to ${log} — read it with read_file or run \`tail -n 50 ${log}\`.`,
-    exited ? '' : `Stop it with \`kill ${child.pid}\` when you are done.`,
+    `Output is being written to ${log} — ${hints.read}.`,
+    exited ? '' : `Stop it with \`${hints.stop}\` when you are done.`,
     early ? `\nFirst output:\n${capOutput(early, 4000)}` : ''
   ]
     .filter(Boolean)
@@ -326,7 +435,7 @@ async function runBackground(command: string, cwd: string): Promise<string> {
 export function killBackgroundProcesses(): void {
   for (const pid of background.keys()) {
     try {
-      process.kill(-pid, 'SIGTERM')
+      killTree(pid, 'SIGTERM')
     } catch {
       /* already exited */
     }
@@ -351,9 +460,10 @@ function renderHits(hits: { path: string; startLine: number; endLine: number; sy
  * with `**` for any depth) or a plain path fragment (`src/`). Treating a glob as a
  * fragment matched nothing and reported "No matches." for code that exists.
  * A glob without a slash matches the file name, as in ripgrep and .gitignore.
+ * Listed paths always use `/`, so a Windows-style `src\**\*.ts` is read as one.
  */
 function includeFilter(include: string): (path: string) => boolean {
-  const pattern = include.trim().replace(/^\.?\//, '')
+  const pattern = include.trim().replace(/\\/g, '/').replace(/^\.?\//, '')
   if (!/[*?{]/.test(pattern)) return (path) => path.includes(pattern)
   let source = ''
   let braces = 0
@@ -395,6 +505,10 @@ async function grepProject(cwd: string, pattern: string, include: string | undef
   } catch (error) {
     throw new Error(`Invalid regular expression: ${error instanceof Error ? error.message : String(error)}`)
   }
+  // The quick whole-file check reads ^ and $ at every line, as the per-line
+  // test does; without `m` they meant only the file's two ends, and a file
+  // whose matching line was not its last was skipped.
+  const anyLine = new RegExp(regex.source, `${regex.flags}m`)
   const listing = await listProjectFiles(cwd, MAX_SEARCH_FILES)
   const wanted = include ? includeFilter(include) : null
   const paths = listing.paths.filter((path) => !BINARY_EXTENSIONS.test(path) && (!wanted || wanted(path)))
@@ -417,8 +531,9 @@ async function grepProject(cwd: string, pattern: string, include: string | undef
     const contents = await Promise.all(batch.map(read))
     for (let f = 0; f < batch.length && lines.length < MAX_GREP_MATCHES; f++) {
       const content = contents[f]
-      if (content === null || !regex.test(content)) continue
-      const fileLines = content.split('\n')
+      if (content === null || !anyLine.test(content)) continue
+      // CRLF too, or `$` never matches a line of a Windows-style file.
+      const fileLines = content.split(/\r?\n/)
       for (let i = 0; i < fileLines.length && lines.length < MAX_GREP_MATCHES; i++) {
         if (regex.test(fileLines[i])) lines.push(`${batch[f]}:${i + 1}: ${fileLines[i].trim().slice(0, 240)}`)
       }
@@ -565,6 +680,19 @@ function lineNumber(value: unknown): number | undefined {
   return Number.isFinite(n) && n >= 1 ? n : undefined
 }
 
+/**
+ * A path from a command, with the shell's spellings of the home folder made
+ * `~` (`$HOME`; cmd's `%USERPROFILE%`; PowerShell's `$env:USERPROFILE`) and
+ * other cmd and PowerShell variables (`%APPDATA%`) filled in from the
+ * environment. Left as typed, they read as a folder inside the Work folder.
+ */
+export function expandShellPath(path: string, env: NodeJS.ProcessEnv = process.env): string {
+  return path
+    .replace(/^\$(HOME\b|\{HOME\})/, '~')
+    .replace(/^(%USERPROFILE%|\$env:USERPROFILE\b)/i, '~')
+    .replace(/%([^%\s]+)%|\$env:(\w+)/gi, (whole, cmdName: string | undefined, psName: string | undefined) => env[cmdName ?? psName ?? ''] ?? whole)
+}
+
 function outsideWorkFolder(input: Record<string, unknown>, ctx: ToolContext): boolean {
   try {
     return !resolveWorkPath(ctx.cwd, str(input.path)).inside
@@ -670,7 +798,8 @@ function fileTools(settings: Settings, indexed: boolean): AgentTool[] {
       ['path'],
       async (input, ctx) => {
         const { path } = resolveWorkPath(ctx.cwd, str(input.path))
-        if (path === resolve(ctx.cwd) || path === HOME) throw new Error('Refusing to delete the Work folder or the home folder itself.')
+        // Compared as the file system does: `C:\users\ME` is the home folder too.
+        if (samePath(path, resolve(ctx.cwd)) || samePath(path, HOME)) throw new Error('Refusing to delete the Work folder or the home folder itself.')
         await shell.trashItem(path)
         return `Moved ${display(ctx.cwd, path)} to the Trash.`
       },
@@ -704,7 +833,7 @@ function fileTools(settings: Settings, indexed: boolean): AgentTool[] {
     ),
     tool(
       'run_command',
-      'Run a shell command in the Work folder and return its exit code and output. Use it to build, test, run scripts, use git, and inspect the system. For servers and watchers pass background: true.',
+      commandToolDescription(),
       {
         command: { type: 'string' },
         timeout_seconds: { type: 'number', description: `Default ${DEFAULT_COMMAND_TIMEOUT_MS / 1000}, max ${MAX_COMMAND_TIMEOUT_MS / 1000}` },
@@ -727,7 +856,7 @@ function fileTools(settings: Settings, indexed: boolean): AgentTool[] {
         risky: (input, ctx) =>
           isRiskyCommand(str(input.command)) ||
           (!settings.general.fullAccess &&
-            writtenPaths(str(input.command)).some((path) => outsideWorkFolder({ path: path.replace(/^\$(HOME\b|\{HOME\})/, '~') }, ctx))),
+            writtenPaths(str(input.command)).some((path) => outsideWorkFolder({ path: expandShellPath(path) }, ctx))),
         catastrophic: (input) => isCatastrophicCommand(str(input.command)),
         describe: (input) => str(input.command)
       }
@@ -769,7 +898,9 @@ registerToolSource({
   guidance: () =>
     [
       'Files and shell: relative paths resolve against the Work folder. Read before you edit; prefer edit_file for small changes. After changing code, run the project\'s own build/test command to verify.',
-      'Python: create a venv (python3 -m venv .venv && .venv/bin/pip install …) rather than installing packages system-wide.'
+      process.platform === 'win32'
+        ? 'Python: create a venv (python -m venv .venv && .venv\\Scripts\\pip install …) rather than installing packages system-wide.'
+        : 'Python: create a venv (python3 -m venv .venv && .venv/bin/pip install …) rather than installing packages system-wide.'
     ].join('\n')
 })
 

@@ -15,6 +15,7 @@ import type {
   Settings,
   StreamEvent,
   StreamRequest,
+  ThemePalette,
   UpdateStatus,
   Workspace
 } from '@shared/types'
@@ -26,6 +27,7 @@ import { chatChanges, Checkpoint } from './chatSync'
 import { forkedChat, retryPlan, withFeedback } from './chatEdits'
 import { migrateLegacySchedules } from '../components/scheduled/legacy'
 import { notify } from '../components/Notice'
+import { reportError } from '../components/ErrorBoundary'
 
 export type View = 'chat' | 'plugins' | 'integrations' | 'scheduled' | 'settings' | 'pull-requests' | 'models' | 'library' | 'trading'
 
@@ -36,9 +38,12 @@ interface NavEntry {
 
 const uid = (): string => Math.random().toString(36).slice(2, 11) + Date.now().toString(36)
 
+const errorText = (error: unknown): string =>
+  (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
+
 interface AppState {
   ready: boolean
-  /** Why loading the saved data at startup failed; the window shows it with a retry. */
+  /** Why the window couldn't start, when `init` failed before it was ready. */
   initError: string | null
   settings: Settings | null
   workspaces: Workspace[]
@@ -86,6 +91,14 @@ interface AppState {
   modelDownloads: Record<string, ModelDownloadProgress>
   /** App auto-updater state — mirrors the main process, see `updater.ts`. */
   updateStatus: UpdateStatus
+  /**
+   * An appearance shown while the ADE's theme picker browses, before anything
+   * is saved (useTheme in App.tsx prefers it). Null shows the saved one.
+   */
+  appearancePreview: AppearancePreview | null
+  setAppearancePreview: (preview: AppearancePreview | null) => void
+  /** Beta updates, a track of their own (Settings → General → Software update). */
+  betaStatus: UpdateStatus
 
   init: () => Promise<void>
   patchSettings: (patch: DeepPartial<Settings>) => Promise<void>
@@ -536,6 +549,13 @@ export const agentWorkspace = (workspaces: Workspace[]): Workspace | undefined =
 export const useWorkspaceKind = (): WorkspaceKind =>
   useApp((s) => s.workspaces.find((w) => w.id === s.settings?.activeWorkspaceId)?.kind ?? 'chat')
 
+/** A palette to show for one mode while previewing, without saving it. */
+export interface AppearancePreview {
+  mode: 'light' | 'dark' | 'system'
+  light: ThemePalette
+  dark: ThemePalette
+}
+
 export const useApp = create<AppState>((set, get) => ({
   ready: false,
   initError: null,
@@ -567,15 +587,14 @@ export const useApp = create<AppState>((set, get) => ({
   indexStatus: null,
   modelDownloads: {},
   updateStatus: { state: 'idle' },
+  appearancePreview: null,
+  setAppearancePreview: (appearancePreview) => set({ appearancePreview }),
+  betaStatus: { state: 'idle' },
 
   async init() {
-    // A failure here used to leave the window blank for good: nothing caught
-    // it and `ready` never came. Now the window says what failed and offers
-    // to try again (App.tsx).
     set({ initError: null })
-    let loaded: [Settings, Workspace[], Project[], Chat[], Provider[], McpServer[], string[]]
     try {
-      loaded = await Promise.all([
+      const [settings, workspaces, projects, chats, providers, mcpServers, activeRuns] = await Promise.all([
         window.api.settings.get(),
         window.api.workspaces.get(),
         window.api.projects.get(),
@@ -584,81 +603,87 @@ export const useApp = create<AppState>((set, get) => ({
         window.api.mcp.get(),
         window.api.chats.activeRuns()
       ])
-    } catch (error) {
-      set({ initError: (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '') })
-      return
-    }
-    const [settings, workspaces, projects, chats, providers, mcpServers, activeRuns] = loaded
-    // Nothing is running for this renderer yet, so a call still marked
-    // running was cut off by a crash or a quit (see sealInterrupted) unless
-    // another window is writing that reply right now.
-    const live = new Set(activeRuns)
-    const sealed = chats.map((chat) => (chat.messages.some((m) => live.has(m.id)) ? chat : sealInterrupted([chat])[0]))
-    synced = new Map(chats.map((chat) => [chat.id, chat]))
-    set({ settings, workspaces, projects, chats: sealed, providers, mcpServers, ready: true })
-    // A window opened while another is writing a reply shows that reply as unfinished too.
-    for (const id of activeRuns) noteRemoteRun(id, false)
+      // Nothing is running for this renderer yet, so a call still marked
+      // running was cut off by a crash or a quit (see sealInterrupted) unless
+      // another window is writing that reply right now.
+      const live = new Set(activeRuns)
+      const sealed = chats.map((chat) => (chat.messages.some((m) => live.has(m.id)) ? chat : sealInterrupted([chat])[0]))
+      synced = new Map(chats.map((chat) => [chat.id, chat]))
+      set({ settings, workspaces, projects, chats: sealed, providers, mcpServers, ready: true })
+      // A window opened while another is writing a reply shows that reply as unfinished too.
+      for (const id of activeRuns) noteRemoteRun(id, false)
 
-    if (listenersBound) return
-    listenersBound = true
+      if (listenersBound) return
+      listenersBound = true
 
-    window.api.chat.onEvent(applyStreamEvent)
+      window.api.chat.onEvent(applyStreamEvent)
 
-    // Other windows: each keeps its own copy of these, and main passes on
-    // what the others change. The open tab stays this window's own.
-    window.api.chats.onChanged(receiveChats)
-    window.api.projects.onChanged((projects) => set({ projects }))
-    window.api.workspaces.onChanged((workspaces) => set({ workspaces }))
-    window.api.settings.onChanged((next) =>
-      set((state) => ({ settings: { ...next, activeWorkspaceId: state.settings?.activeWorkspaceId ?? next.activeWorkspaceId } }))
-    )
+      // Other windows: each keeps its own copy of these, and main passes on
+      // what the others change. The open tab stays this window's own.
+      window.api.chats.onChanged(receiveChats)
+      window.api.projects.onChanged((projects) => set({ projects }))
+      window.api.workspaces.onChanged((workspaces) => set({ workspaces }))
+      window.api.settings.onChanged((next) =>
+        set((state) => ({ settings: { ...next, activeWorkspaceId: state.settings?.activeWorkspaceId ?? next.activeWorkspaceId } }))
+      )
 
-    // Closing the window or reloading ends this renderer, and with it the only
-    // copy of the reply in flight, the pending debounced save and any approval
-    // prompt the run is parked on. Main writes nothing of a chat run itself, so
-    // stop it — nothing could show, approve or save what it does from here —
-    // and save what has arrived so far.
-    window.addEventListener('pagehide', () => {
-      const streaming = get().streamingMessageId
-      if (streaming) {
-        void window.api.chat.cancel(streaming)
-        // Cut off by this window closing: what was said stays, marked as unfinished.
-        set((s) => ({ chats: sealInterrupted(s.chats, streaming).map(markUnfinished), ...IDLE, ...withoutApprovals(s, streaming) }))
+      // Closing the window or reloading ends this renderer, and with it the only
+      // copy of the reply in flight, the pending debounced save and any approval
+      // prompt the run is parked on. Main writes nothing of a chat run itself, so
+      // stop it — nothing could show, approve or save what it does from here —
+      // and save what has arrived so far.
+      window.addEventListener('pagehide', () => {
+        const streaming = get().streamingMessageId
+        if (streaming) {
+          void window.api.chat.cancel(streaming)
+          // Cut off by this window closing: what was said stays, marked as unfinished.
+          set((s) => ({ chats: sealInterrupted(s.chats, streaming).map(markUnfinished), ...IDLE, ...withoutApprovals(s, streaming) }))
+        }
+        if (saveTimer || streaming) saveChatsNow()
+      })
+
+      // Scheduled tasks (features/scheduler): main starts those runs, so their
+      // chats arrive whole — at the start, and again when the run ends — and
+      // are inserted, or merged into the copy already here. Main writes
+      // chats.json itself only while no renderer has said it is ready.
+      window.api.scheduler.onChat((incoming) => {
+        const current = get().chats
+        const index = current.findIndex((c) => c.id === incoming.id)
+        const chats = index === -1 ? [incoming, ...current] : current.map((c, i) => (i === index ? mergeRunChat(c, incoming) : c))
+        set({ chats })
+        persistChats()
+      })
+      window.api.scheduler.onOpenChat((chatId) => revealChat(chatId))
+      void window.api.scheduler.ready().then(() => migrateLegacySchedules())
+
+      window.api.codeIndex.onStatus((indexStatus) => set({ indexStatus }))
+      window.api.providers.onChanged(() => void get().refreshProviders())
+
+      void window.api.updater.status().then((updateStatus) => set({ updateStatus }))
+      window.api.updater.onStatus((updateStatus) => set({ updateStatus }))
+      void window.api.updater.betaStatus().then((betaStatus) => set({ betaStatus }))
+      window.api.updater.onBetaStatus((betaStatus) => set({ betaStatus }))
+
+      window.api.models.onDownloadProgress((progress) => {
+        const key = `${progress.repoId}::${progress.filename}`
+        set((state) => ({ modelDownloads: { ...state.modelDownloads, [key]: progress } }))
+      })
+
+      // Pick up an existing index for the work folder, and refresh it in the
+      // background so the first codebase_search of the session is not stale.
+      const workCwd = agentWorkspace(workspaces)?.cwd ?? null
+      if (workCwd) {
+        set({ indexStatus: await window.api.codeIndex.status(workCwd) })
+        if (settings.codeIndex.autoIndex) void get().reindex()
       }
-      if (saveTimer || streaming) saveChatsNow()
-    })
-
-    // Scheduled tasks (features/scheduler): main starts those runs, so their
-    // chats arrive whole — at the start, and again when the run ends — and
-    // are inserted, or merged into the copy already here. Main writes
-    // chats.json itself only while no renderer has said it is ready.
-    window.api.scheduler.onChat((incoming) => {
-      const current = get().chats
-      const index = current.findIndex((c) => c.id === incoming.id)
-      const chats = index === -1 ? [incoming, ...current] : current.map((c, i) => (i === index ? mergeRunChat(c, incoming) : c))
-      set({ chats })
-      persistChats()
-    })
-    window.api.scheduler.onOpenChat((chatId) => revealChat(chatId))
-    void window.api.scheduler.ready().then(() => migrateLegacySchedules())
-
-    window.api.codeIndex.onStatus((indexStatus) => set({ indexStatus }))
-    window.api.providers.onChanged(() => void get().refreshProviders())
-
-    void window.api.updater.status().then((updateStatus) => set({ updateStatus }))
-    window.api.updater.onStatus((updateStatus) => set({ updateStatus }))
-
-    window.api.models.onDownloadProgress((progress) => {
-      const key = `${progress.repoId}::${progress.filename}`
-      set((state) => ({ modelDownloads: { ...state.modelDownloads, [key]: progress } }))
-    })
-
-    // Pick up an existing index for the work folder, and refresh it in the
-    // background so the first codebase_search of the session is not stale.
-    const workCwd = agentWorkspace(workspaces)?.cwd ?? null
-    if (workCwd) {
-      set({ indexStatus: await window.api.codeIndex.status(workCwd) })
-      if (settings.codeIndex.autoIndex) void get().reindex()
+    } catch (error) {
+      const message = errorText(error)
+      reportError({ message, stack: error instanceof Error ? error.stack : undefined, source: 'startup' })
+      // Without settings and chats there is nothing to draw, and App would
+      // show an empty window for good: it shows this instead, with Reload.
+      // Once the window is up, a listener or the index check failing is
+      // worth logging but not worth taking the window away for.
+      if (!get().ready) set({ initError: message })
     }
   },
 

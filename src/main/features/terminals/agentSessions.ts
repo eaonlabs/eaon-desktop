@@ -25,6 +25,8 @@ const exec = promisify(execFile)
  *              and cache/last_conversations.json, which names the latest
  *              conversation for each folder (the CLI's `agy -c`).
  *   opencode   a SQLite database, table `session`        opencode --session <id>
+ *   eaon-cli   the same, in its own data folder           eaon-cli --session <id>
+ *              (Eaon CLI is a fork of OpenCode; see features/eaonCli.ts)
  *   eaon-code  ~/.eaon/agent/sessions/--<path>--/<ts>_<id>.jsonl
  *                                                        eaon-code --session <id>
  */
@@ -79,7 +81,8 @@ const env = (): NodeJS.ProcessEnv => envOverride ?? process.env
 export const claudeDir = (): string => env().CLAUDE_CONFIG_DIR || path.join(home(), '.claude')
 export const codexDir = (): string => env().CODEX_HOME || path.join(home(), '.codex')
 const antigravityDir = (): string => path.join(home(), '.gemini', 'antigravity-cli')
-const opencodeDb = (): string => path.join(env().XDG_DATA_HOME || path.join(home(), '.local', 'share'), 'opencode', 'opencode.db')
+/** OpenCode's database, or a fork's under its own app name (Eaon CLI's is `eaon-cli`). */
+const opencodeDb = (app = 'opencode'): string => path.join(env().XDG_DATA_HOME || path.join(home(), '.local', 'share'), app, 'opencode.db')
 
 function eaonAgentDir(): string {
   const set = env().EAON_CODE_CODING_AGENT_DIR || env().PI_CODING_AGENT_DIR
@@ -318,39 +321,46 @@ const antigravity: AgentKind = {
 /** A string as a SQL literal. */
 const sqlText = (value: string): string => `'${value.replace(/'/g, "''")}'`
 
-const opencode: AgentKind = {
-  id: 'opencode',
-  bins: ['opencode'],
-  named: named(/(?:^|\s)(?:-s|--session)(?:\s+|=)(ses_[A-Za-z0-9]+)/),
-  /*
-   * OpenCode keeps its sessions in SQLite. Asked through the sqlite3 command
-   * (on every Mac, and most Linux machines) rather than a native module, read
-   * only — the database is OpenCode's, and it is open in OpenCode while this
-   * runs. Sub-agent sessions (with a parent) are not conversations anybody
-   * reopens.
-   */
-  async conversations(cwd) {
-    const out = new Map<string, Conversation>()
-    const db = opencodeDb()
-    if (!cwd || !fs.existsSync(db)) return out
-    const sql =
-      `select id, time_created, time_updated from session where directory = ${sqlText(cwd)} ` +
-      'and parent_id is null and time_archived is null order by time_updated desc limit 200'
-    try {
-      const { stdout } = await exec('sqlite3', ['-readonly', '-separator', '\t', db, sql], { timeout: 4000 })
-      for (const line of stdout.split('\n')) {
-        const [id, born, touched] = line.trim().split('\t')
-        if (id?.startsWith('ses_')) out.set(id, { id, born: Number(born) || 0, touched: Number(touched) || 0 })
+/** An OpenCode-shaped agent: OpenCode itself, or a fork of it that files its sessions under `app`. */
+function openCodeKind(id: 'opencode' | 'eaon-cli', bins: string[], app: string): AgentKind {
+  const kind: AgentKind = {
+    id,
+    bins,
+    named: named(/(?:^|\s)(?:-s|--session)(?:\s+|=)(ses_[A-Za-z0-9]+)/),
+    /*
+     * OpenCode keeps its sessions in SQLite. Asked through the sqlite3 command
+     * (on every Mac, and most Linux machines) rather than a native module, read
+     * only — the database is OpenCode's, and it is open in OpenCode while this
+     * runs. Sub-agent sessions (with a parent) are not conversations anybody
+     * reopens.
+     */
+    async conversations(cwd) {
+      const out = new Map<string, Conversation>()
+      const db = opencodeDb(app)
+      if (!cwd || !fs.existsSync(db)) return out
+      const sql =
+        `select id, time_created, time_updated from session where directory = ${sqlText(cwd)} ` +
+        'and parent_id is null and time_archived is null order by time_updated desc limit 200'
+      try {
+        const { stdout } = await exec('sqlite3', ['-readonly', '-separator', '\t', db, sql], { timeout: 4000 })
+        for (const line of stdout.split('\n')) {
+          const [id, born, touched] = line.trim().split('\t')
+          if (id?.startsWith('ses_')) out.set(id, { id, born: Number(born) || 0, touched: Number(touched) || 0 })
+        }
+      } catch {
+        /* no sqlite3, or the database is mid-migration: nothing learnt this pass */
       }
-    } catch {
-      /* no sqlite3, or the database is mid-migration: nothing learnt this pass */
-    }
-    return out
-  },
-  resumable: async (cwd, id) => /^ses_[A-Za-z0-9]+$/.test(id) && (await opencode.conversations(cwd)).has(id),
-  resume: (command, id) => `${command} --session ${id}`,
-  continueLatest: (command) => `${command} --continue`
+      return out
+    },
+    resumable: async (cwd, sessionId) => /^ses_[A-Za-z0-9]+$/.test(sessionId) && (await kind.conversations(cwd)).has(sessionId),
+    resume: (command, sessionId) => `${command} --session ${sessionId}`,
+    continueLatest: (command) => `${command} --continue`
+  }
+  return kind
 }
+
+const opencode = openCodeKind('opencode', ['opencode'], 'opencode')
+const eaonCli = openCodeKind('eaon-cli', ['eaon-cli'], 'eaon-cli')
 
 /* ------------------------------------------------------------------ eaon code */
 
@@ -379,7 +389,8 @@ export const AGENT_KINDS: Record<AgentId, AgentKind> = {
   codex,
   antigravity,
   opencode,
-  'eaon-code': eaonCode
+  'eaon-code': eaonCode,
+  'eaon-cli': eaonCli
 }
 
 /** Extra names an agent's process can carry — Eaon Code run from a pinned binary, say. */
@@ -391,9 +402,10 @@ export function setExtraAgentBin(bin: string | null, id: AgentId): void {
 }
 
 /**
- * Scripts an agent runs as, matched on their whole path. Eaon Code's
- * installer leaves it at `…/dist/bundle/cli.js`, and `cli` alone is too
- * common a name to go by.
+ * Files an agent runs as — a script, or the program itself — matched on their
+ * whole path. Eaon Code's installer leaves it at `…/dist/bundle/cli.js`, and
+ * `cli` alone is too common a name to go by; Eaon CLI runs from inside the
+ * app, at a path that can have spaces in it (`ps` doesn't quote them).
  */
 const extraScripts = new Map<string, AgentId>()
 
@@ -415,12 +427,25 @@ const BY_BIN = new Map<string, AgentId>(
 /** Runtimes that run an agent as a script, where the agent's name is the script's. */
 const RUNTIMES = new Set(['node', 'bun', 'deno', 'python', 'python3'])
 
+/** Whether a command line runs `file`: as the program, or as a runtime's script (`node --flag <file> …`). */
+function runsFile(line: string, file: string): boolean {
+  const at = line.indexOf(file)
+  if (at < 0) return false
+  const next = line.charAt(at + file.length)
+  if (next && !/\s/.test(next)) return false
+  const before = line.slice(0, at).trim()
+  if (!before) return true
+  const words = before.split(/\s+/)
+  return RUNTIMES.has(binName(words[0])) && words.slice(1).every((word) => word.startsWith('-'))
+}
+
 /**
  * Which agent a command line is, if any. Read off the words rather than
  * searched for anywhere in the line, so a process that merely has "claude" in
  * a path it was given is not mistaken for the agent.
  */
 export function agentOfArgs(args: string): AgentId | null {
+  for (const [file, id] of extraScripts) if (runsFile(args.trim(), file)) return id
   const words = args.trim().split(/\s+/)
   const first = binName(words[0] ?? '')
   const direct = BY_BIN.get(first) ?? extraBins.get(first)
@@ -430,5 +455,5 @@ export function agentOfArgs(args: string): AgentId | null {
   const script = words.slice(1).find((w) => !w.startsWith('-'))
   if (!script) return null
   const name = binName(script)
-  return extraScripts.get(script) ?? BY_BIN.get(name) ?? extraBins.get(name) ?? null
+  return BY_BIN.get(name) ?? extraBins.get(name) ?? null
 }

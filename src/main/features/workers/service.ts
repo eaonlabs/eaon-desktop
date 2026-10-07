@@ -29,6 +29,7 @@ import { setWorkerTradingLookup, type TradingVenue } from '../trading/access'
 import { store } from '../../store'
 import type { FeatureContext } from '../types'
 import { WorkersEngine, type TeamDraft } from './engine'
+import { createWorkersHub, type WorkersHub } from './hub'
 import { teamToolSource } from './team'
 import type { RunAgent, RunEngineTurn } from './runner'
 import { workersToolSource } from './tools'
@@ -75,6 +76,10 @@ export interface WorkersOverrides {
 
 export interface WorkersService {
   engine: WorkersEngine
+  /** What the engine reports, for listeners other than the renderer (the remote server). */
+  hub: WorkersHub
+  /** Forgets a worker and closes its browser, as the Remove button does. */
+  remove: (id: string) => Promise<void>
   registerIpc: () => void
   start: () => void
   stop: () => void
@@ -148,7 +153,14 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
   let openWorkerId: string | null = null
   const notifications = new Set<Notification>()
   let startTimer: ReturnType<typeof setTimeout> | null = null
-  const batch = eventBatcher((payload) => ctx.send('workers:event', payload))
+  const hub = createWorkersHub()
+  // The hub hears what the renderer hears, batching included, so a remote
+  // phone gets the same merged deltas the window does.
+  const batch = eventBatcher((payload) => {
+    ctx.send('workers:event', payload)
+    // A phone follows the main conversation only (no threadId), as with messages.
+    if (!payload.threadId) hub.emitEvent(payload.workerId, payload.event)
+  })
 
   const openWorker = (id: string): void => {
     const window = ctx.getWindow()
@@ -251,11 +263,16 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
     loadDelegations: () => store.getJson<unknown>(DELEGATIONS_FILE, []),
     saveDelegations: (delegations) => store.setJsonAsync(DELEGATIONS_FILE, delegations),
     onDelegations: (delegations) => ctx.send('workers:delegations', delegations),
-    onChange: (workers) => ctx.send('workers:changed', workers),
+    onChange: (workers) => {
+      ctx.send('workers:changed', workers)
+      hub.emitChanged(workers)
+    },
     onEvent: (workerId, event, threadId) => batch.emit({ workerId, ...(threadId !== 'main' ? { threadId } : {}), event }),
     onMessage: (workerId, message: ChatMessage, threadId) => {
       batch.flush()
       ctx.send('workers:message', { workerId, ...(threadId !== 'main' ? { threadId } : {}), message } satisfies WorkerMessageEvent)
+      // A phone follows the main conversation, the one it can show.
+      if (threadId === 'main') hub.emitMessage(workerId, message)
     },
     notify,
     reachOut,
@@ -278,6 +295,12 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
   /** Each worker's own browser (BetterWright), created on its first web_browser call. */
   const browsers = new WorkerBrowsers()
 
+  const remove = async (id: string): Promise<void> => {
+    await engine.remove(id)
+    // Not just closed: its cookies and cache go too, so a later worker never inherits its sign-ins.
+    await browsers.forget(id)
+  }
+
   const registerIpc = (): void => {
     const { ipcMain } = ctx
     // Shows a worker's browser, to watch it or to sign it in somewhere; false when it has none yet.
@@ -289,11 +312,7 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
       if (!draft || typeof draft !== 'object') throw new Error('Give the worker a name.')
       return engine.save(draft)
     })
-    ipcMain.handle('workers:remove', async (_e, id: unknown) => {
-      await engine.remove(idOf(id))
-      // Not just closed: its cookies and cache go too, so a later worker never inherits its sign-ins.
-      await browsers.forget(idOf(id))
-    })
+    ipcMain.handle('workers:remove', (_e, id: unknown) => remove(idOf(id)))
     ipcMain.handle('workers:send', (_e, id: unknown, text: unknown, files: unknown, options?: WorkerSendOptions) =>
       engine.send(
         idOf(id),
@@ -339,6 +358,8 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
 
   return {
     engine,
+    hub,
+    remove,
     registerIpc,
     start: () => {
       engine.load()

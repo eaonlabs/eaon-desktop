@@ -45,6 +45,9 @@ import { usageApi } from './features/usage'
 import { paymentsApi } from './features/payments'
 import { enginesApi } from './features/engines'
 import { storageApi } from './features/storage'
+import { remoteApi } from './features/remote'
+import { controlApi } from './features/control'
+import { starApi } from './features/star'
 
 /** Subscribes to a main-process event; returns the unsubscribe. */
 function on<T>(channel: string, handler: (payload: T) => void): () => void {
@@ -237,6 +240,17 @@ const api = {
       const listener = (_e: unknown, payload: UpdateStatus): void => handler(payload)
       ipcRenderer.on('updater:status', listener)
       return () => ipcRenderer.removeListener('updater:status', listener)
+    },
+    /** Beta updates: a track of their own, separate from the stable one above. */
+    betaStatus: (): Promise<UpdateStatus> => ipcRenderer.invoke('updater:beta-status'),
+    checkBeta: (): Promise<void> => ipcRenderer.invoke('updater:check-beta'),
+    downloadBeta: (): Promise<void> => ipcRenderer.invoke('updater:download-beta'),
+    /** The "beta updates" setting was changed: look now, or forget what was found. */
+    betaChanged: (): Promise<void> => ipcRenderer.invoke('updater:beta-changed'),
+    onBetaStatus: (handler: (status: UpdateStatus) => void): (() => void) => {
+      const listener = (_e: unknown, payload: UpdateStatus): void => handler(payload)
+      ipcRenderer.on('updater:beta-status', listener)
+      return () => ipcRenderer.removeListener('updater:beta-status', listener)
     }
   },
   models: {
@@ -284,7 +298,10 @@ const fullApi = {
   usage: usageApi,
   payments: paymentsApi,
   engines: enginesApi,
-  storage: storageApi
+  storage: storageApi,
+  remote: remoteApi,
+  control: controlApi,
+  star: starApi
 }
 
 contextBridge.exposeInMainWorld('api', fullApi)

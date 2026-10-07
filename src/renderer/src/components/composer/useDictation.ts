@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { isMac, isWindows } from '../../lib/platform'
 
 export type DictationState = 'idle' | 'starting' | 'recording' | 'transcribing'
 
@@ -9,6 +10,15 @@ export function joinTranscript(existing: string, spoken: string): string {
   if (!existing.trim()) return said
   return /\s$/.test(existing) ? existing + said : `${existing} ${said}`
 }
+
+/** Where to give Eaon the microphone back, in the words of each platform's settings. */
+const MIC_DENIED = `Eaon isn’t allowed to use the microphone. Turn it on in ${
+  isMac
+    ? 'System Settings → Privacy & Security → Microphone'
+    : isWindows
+      ? 'Settings → Privacy & security → Microphone'
+      : 'your desktop’s privacy or sound settings'
+}.`
 
 /** Longer recordings stop by themselves: providers cap uploads, and a forgotten mic shouldn't run on. */
 export const MAX_RECORDING_MS = 10 * 60 * 1000
@@ -95,7 +105,7 @@ export function useDictation(onText: (text: string) => void): Dictation {
         return
       }
       if ((await window.api.voice.microphone()) === 'denied') {
-        setError('Eaon isn’t allowed to use the microphone. Turn it on in System Settings → Privacy & Security → Microphone.')
+        setError(MIC_DENIED)
         setState('idle')
         return
       }
@@ -152,7 +162,7 @@ export function useDictation(onText: (text: string) => void): Dictation {
       const name = (failure as DOMException).name
       setError(
         name === 'NotAllowedError'
-          ? 'Eaon isn’t allowed to use the microphone. Turn it on in System Settings → Privacy & Security → Microphone.'
+          ? MIC_DENIED
           : name === 'NotFoundError'
             ? 'No microphone found.'
             : `Couldn’t start recording: ${(failure as Error).message}`

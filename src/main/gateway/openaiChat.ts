@@ -1,7 +1,8 @@
 import type { ServerResponse } from 'node:http'
 import type { EffortLevel, TokenUsage } from '@shared/types'
 import { toolInput, type NeutralImage, type NeutralMessage, type NeutralToolResult, type ToolSpec, type TurnResult } from '../providers/adapters/types'
-import { resolveGatewayModel } from './models'
+import type { GatewayScope } from '@shared/gateway'
+import { noModelMessage, resolveGatewayModel } from './models'
 import { runGatewayTurn, statusFor } from './turn'
 import { argumentsJson, cap, clientToolId, dataUrlImage, errorMessage, newId, openaiEffort, sendJson, sseData, startSse, tidy } from './wire'
 
@@ -131,15 +132,15 @@ export function openaiUsage(usage: TokenUsage): Record<string, unknown> {
   }
 }
 
-export async function serveChatCompletions(res: ServerResponse, body: Record<string, unknown>): Promise<void> {
+export async function serveChatCompletions(res: ServerResponse, body: Record<string, unknown>, scope: GatewayScope = 'all'): Promise<void> {
   const parsed = parseChatRequest(body)
   if ('error' in parsed) {
     sendJson(res, 400, { error: { message: parsed.error, type: 'invalid_request_error' } })
     return
   }
-  const resolved = resolveGatewayModel(parsed.model)
+  const resolved = resolveGatewayModel(parsed.model, scope)
   if (!resolved) {
-    sendJson(res, 400, { error: { message: 'No model available. Add an API key in Eaon → Settings → Model providers.', type: 'invalid_request_error' } })
+    sendJson(res, 400, { error: { message: noModelMessage(scope, parsed.model), type: 'invalid_request_error' } })
     return
   }
 

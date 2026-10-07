@@ -32,7 +32,11 @@ const FILES = {
 }
 /** Lets the window load first; nothing here is needed to paint it. */
 const START_DELAY_MS = 5000
-/** At most two pushes a second: a busy session changes something many times a second. */
+/**
+ * At most two pushes a second: a busy session changes something many times a
+ * second. Each is the whole snapshot only while a desk is open; otherwise a
+ * summary (`TradingEngine.summary`), which is all a banner or a status line reads.
+ */
 const PUSH_EVERY_MS = 500
 
 const vaultName = (kind: KeyKind, part: 'key' | 'secret'): string => `trading:alpaca-${kind}:${part}`
@@ -86,9 +90,15 @@ export const tradingFeature: Feature = {
   id: 'trading',
   register: (ctx) => {
     const push = throttle(() => {
-      if (engine) ctx.send('trading:changed', engine.snapshot())
+      if (engine) ctx.send('trading:changed', engine.deskShown ? engine.snapshot() : engine.summary())
     }, PUSH_EVERY_MS)
     stopPushes = push.cancel
+    /**
+     * The windows with the desk on screen, by webContents id (the CLI's desk
+     * is one more), each with what stops watching for it going away: a window
+     * that closes or reloads with the desk open never says it closed it.
+     */
+    const desks = new Map<number, () => void>()
 
     const trading = new TradingEngine({
       prices: new YahooMarketData(),
@@ -169,8 +179,31 @@ export const tradingFeature: Feature = {
       trading.recordExternalTool(String(name ?? ''), input ?? {}, String(output ?? ''), ok !== false)
     )
     ipcMain.handle('trading:accept-disclaimer', (_e, version: number) => trading.acceptDisclaimer(Number(version)))
-    // Not in the original list: lets the desk say it is on screen, for 30-second refreshes.
-    ipcMain.handle('trading:desk-open', (_e, open: boolean) => trading.setDeskOpen(open === true))
+    // Not in the original list: lets the desk say it is on screen, for 30-second refreshes and whole snapshots.
+    const closeDesk = (id: number): void => {
+      desks.get(id)?.()
+      desks.delete(id)
+      trading.setDeskOpen(desks.size > 0)
+    }
+    ipcMain.handle('trading:desk-open', (event, open: boolean) => {
+      const sender = event.sender
+      if (open !== true) return closeDesk(sender.id)
+      if (!desks.has(sender.id)) {
+        const gone = (): void => closeDesk(sender.id)
+        const navigated = (details: { isMainFrame: boolean; isSameDocument: boolean }): void => {
+          if (details.isMainFrame && !details.isSameDocument) closeDesk(sender.id)
+        }
+        sender.once('destroyed', gone)
+        sender.on('did-start-navigation', navigated)
+        desks.set(sender.id, () => {
+          sender.removeListener('destroyed', gone)
+          sender.removeListener('did-start-navigation', navigated)
+        })
+      }
+      trading.setDeskOpen(true)
+      // What it has may be a summary pushed while it was closed: the whole snapshot, now.
+      ctx.send('trading:changed', trading.snapshot())
+    })
 
     startTimer = setTimeout(() => {
       startTimer = null

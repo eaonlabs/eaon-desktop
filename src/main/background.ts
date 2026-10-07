@@ -15,7 +15,9 @@ import { dirname, join, resolve } from 'node:path'
  *   Closing the window already leaves the app running on macOS.
  * - Windows: a login item with `--background`, and closing the window leaves
  *   Eaon in the notification area instead of quitting.
- * - Linux: not offered; the app does not ship there yet.
+ * - Linux: not offered. Whether a tray icon shows at all depends on the
+ *   desktop (stock GNOME has none), so closing the window could leave an
+ *   Eaon running that nobody can see or quit; it quits with its last window.
  *
  * Quitting (⌘Q, or Quit in the tray menu) still stops everything. The
  * scheduler's catch-up rule covers the gap at the next launch.

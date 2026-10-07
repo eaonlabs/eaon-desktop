@@ -26,18 +26,33 @@ import { getStatuses, getTools, setMcpStatusListener, shutdownMcp, syncMcpServer
 import { forgetServer } from './mcpOAuth'
 import { getLocalServerStatus, setLocalServerListener, startLocalServer, stopLocalServer } from './localServer'
 import { getSystemInfo } from './system'
-import { checkForUpdates, getUpdateStatus, initUpdater, quitAndInstall, switchToStable } from './updater'
+import {
+  betaOptionChanged,
+  checkForBetaUpdates,
+  checkForUpdates,
+  downloadBetaUpdate,
+  getBetaStatus,
+  getUpdateStatus,
+  initUpdater,
+  quitAndInstall,
+  switchToStable
+} from './updater'
 import { listPullRequests } from './github'
 import { buildIndex, cancelIndexing, clearIndex, getIndexStatus, setIndexStatusListener } from './codeIndex'
 import { describeEmbeddingState, embeddingModels } from './embeddings'
 import { cancelAllDownloads, deleteDownloadedModel, downloadModel, getDownloadedModels, getModelDetail, searchModels } from './modelHub'
 import { applyRunAtLogin, backgroundSupported, launchedInBackground, syncTray } from './background'
-import { crashLogPath, installCrashGuard } from './crashGuard'
+import { crashLogPath, installCrashGuard, logCrash } from './crashGuard'
 import { applyAppIcon, currentAppIconFile } from './appIcon'
 import { DOCS_URL, ISSUES_URL, releaseNotesUrl } from '@shared/links'
 
 const here = join(fileURLToPath(import.meta.url), '..')
 app.setName('Eaon')
+// Windows groups taskbar buttons and files notifications by this id. The
+// installer stamps its shortcuts with the appId from electron-builder.yml;
+// left to Electron's default, notifications showed under the wrong name and
+// the running window didn't group with the pinned shortcut.
+if (process.platform === 'win32') app.setAppUserModelId('dev.eaon.desktop')
 
 /**
  * One Eaon per profile. Two would run every scheduled task twice and write
@@ -48,7 +63,7 @@ app.setName('Eaon')
 const primaryInstance = Boolean(process.env['EAON_CAPTURE']) || app.requestSingleInstanceLock()
 if (!primaryInstance) app.quit()
 // Crash logging and recovery, before anything else can throw; see crashGuard.ts.
-if (primaryInstance) installCrashGuard()
+if (primaryInstance) installCrashGuard(isAppWindow)
 
 /**
  * `eaon-file://` serves screenshots and attached images to the renderer. The
@@ -71,6 +86,15 @@ let lastFocused: BrowserWindow | null = null
 
 function openWindows(): BrowserWindow[] {
   return [...appWindows].filter((window) => !window.isDestroyed())
+}
+
+/**
+ * True for the page of an Eaon window. The crash guard reloads only these:
+ * a worker's hidden browser is a window too, and reloading it behind the
+ * agent's back used up the reload budget meant for the app.
+ */
+function isAppWindow(contents: Electron.WebContents): boolean {
+  return openWindows().some((window) => window.webContents.id === contents.id)
 }
 
 /** The window to act on: the focused Eaon window, else the one last in front, else the newest. */
@@ -126,10 +150,10 @@ function wantsVibrancy(settings: Settings): boolean {
 }
 
 /**
- * Windows draws its caption buttons over the page instead of giving us a
- * traffic-light gap, so the overlay has to be told what to paint behind them.
- * There is no vibrancy on Windows, so the theme's own background is the honest
- * answer; the symbols flip with the palette so they stay legible.
+ * Windows and Linux draw the caption buttons over the page instead of giving
+ * us a traffic-light gap, so the overlay has to be told what to paint behind
+ * them. There is no vibrancy there, so the theme's own background is the
+ * honest answer; the symbols flip with the palette so they stay legible.
  */
 function titleBarOverlayFor(settings: Settings): { color: string; symbolColor: string; height: number } {
   const palette = activePalette(settings)
@@ -156,19 +180,28 @@ function titleBarOverlayFor(settings: Settings): { color: string; symbolColor: s
  */
 function applyWindowAppearance(settings: Settings): void {
   nativeTheme.themeSource = settings.appearance.mode
-  for (const window of openWindows()) {
-    if (isMac) {
+  if (isMac) {
+    for (const window of openWindows()) {
       window.setVibrancy(wantsVibrancy(settings) ? 'sidebar' : null)
       pinTrafficLights(window)
-    } else {
-      // Windows and Linux: repaint the caption-button strip to match the new
-      // theme. Linux got the overlay at creation but never this, so its
-      // buttons kept the old theme's colours after a switch.
-      try {
-        window.setTitleBarOverlay(titleBarOverlayFor(settings))
-      } catch (error) {
-        console.error('[window] could not repaint the caption buttons:', error)
-      }
+    }
+  }
+  applyTitleBarOverlays(settings)
+}
+
+/**
+ * Repaints the caption-button strip on Windows and Linux to match the theme.
+ * Kept apart from applyWindowAppearance so an OS light/dark switch can call
+ * it: that one sets themeSource, which fires nativeTheme's 'updated' again.
+ */
+function applyTitleBarOverlays(settings: Settings): void {
+  if (isMac) return
+  for (const window of openWindows()) {
+    try {
+      window.setTitleBarOverlay(titleBarOverlayFor(settings))
+    } catch (error) {
+      // A window manager without overlay support keeps the old colours; the theme still changes.
+      console.error('[window] could not repaint the title bar overlay:', error)
     }
   }
 }
@@ -208,8 +241,8 @@ function createWindow(): BrowserWindow {
     minHeight: 520,
     show: false,
     // macOS hides the title bar but keeps the traffic lights, which we position
-    // inside the sidebar panel. Windows has no equivalent, so it gets the
-    // Window Controls Overlay instead: the caption buttons are drawn over the
+    // inside the sidebar panel. Windows and Linux have no equivalent, so they get
+    // the Window Controls Overlay instead: the caption buttons are drawn over the
     // page at the top *right*, which is why the header padding flips sides in
     // the renderer (see --window-controls-left/right in tokens.css).
     ...(isMac
@@ -634,10 +667,20 @@ function registerIpc(): void {
   ipcMain.handle('updater:status', (): UpdateStatus => getUpdateStatus())
   ipcMain.handle('updater:check', () => checkForUpdates())
   ipcMain.handle('updater:switch-to-stable', () => switchToStable())
+  // Beta updates are their own track (main/updates.ts): looked for when the user
+  // turns them on, offered with a Download button, never downloaded unasked.
+  ipcMain.handle('updater:beta-status', (): UpdateStatus => getBetaStatus())
+  ipcMain.handle('updater:check-beta', () => checkForBetaUpdates())
+  ipcMain.handle('updater:download-beta', () => downloadBetaUpdate())
+  ipcMain.handle('updater:beta-changed', () => betaOptionChanged())
   ipcMain.handle('updater:install', async () => {
-    // Flushed here rather than by holding the quit in before-quit/will-quit,
-    // which the updater's own quit-and-relaunch must not wait on.
-    await flushPendingWrites()
+    // Cleaned up and flushed here rather than by holding the quit in
+    // before-quit/will-quit, which the updater's own quit-and-relaunch must
+    // not wait on. Starting the cleanup without waiting for it exited under
+    // node-pty's reaping (SIGABRT), orphaned MCP servers and lost the
+    // terminal panes' restore state.
+    beginShutdown()
+    await Promise.all([flushPendingWrites(), mcpShutdown, featureShutdown])
     flushedBeforeClose = true
     flushedAfterClose = true
     quitAndInstall()
@@ -735,16 +778,32 @@ app.whenReady().then(async () => {
   protocol.handle('eaon-file', (request) => {
     let path = decodeURIComponent(new URL(request.url).pathname)
     if (process.platform === 'win32') path = path.replace(/^\/([a-zA-Z]:)/, '$1')
+    // A UNC path (//host/share, \\host\share) is fetched over SMB, and Windows
+    // hands the user's NTLM hash to whatever host it names. Only local files.
+    if (/^[\\/]{2}/.test(path)) return new Response('Not found', { status: 404 })
     if (!SERVABLE_IMAGES.has(extname(path).toLowerCase())) return new Response('Not found', { status: 404 })
     return net.fetch(pathToFileURL(path).toString())
   })
+  // Everything up to the window is a step that may fail on its own (a store
+  // file Windows won't let us rewrite, say). Each failure is logged and
+  // startup carries on: a process with no window and no IPC still holds the
+  // single-instance lock, so every later launch handed over to it and Eaon
+  // looked like it would never open again. IPC goes first for the same reason.
+  const step = (name: string, run: () => void): void => {
+    try {
+      run()
+    } catch (error) {
+      logCrash(`startup: ${name}`, error)
+    }
+  }
+  step('ipc', registerIpc)
   // The Dock icon picked in Settings → Appearance. In a packaged app the
   // default is the bundle's own icon; a dev run would otherwise show the
   // generic Electron icon, so it always sets one (appIcon.ts).
-  applyAppIcon(store.getSettings().appearance.appIcon, appWindows)
+  step('app icon', () => applyAppIcon(store.getSettings().appearance.appIcon, appWindows))
   // Migrations due, plus the repairs that run every launch; see migrations.ts.
-  prepareStore()
-  store.applyLaunchMode()
+  step('store', () => prepareStore())
+  step('launch mode', () => store.applyLaunchMode())
   if (process.env['EAON_CAPTURE']) {
     // Start every capture run from the same baseline.
     store.patchSettings({ appearance: { ...store.getSettings().appearance, mode: 'dark' } })
@@ -755,14 +814,20 @@ app.whenReady().then(async () => {
   // Must be set before createWindow: the vibrancy view is built with whatever
   // appearance is active at creation time. applyWindowAppearance() keeps it in
   // sync afterwards.
-  nativeTheme.themeSource = settings.appearance.mode
-  registerIpc()
-  buildMenu()
+  step('theme', () => {
+    nativeTheme.themeSource = settings.appearance.mode
+  })
+  step('menu', buildMenu)
   // Started at login for scheduled tasks: no window until someone asks for one.
   if (!launchedInBackground()) createWindow()
-  initUpdater(openWindows)
-  // macOS switching light/dark by itself (Auto appearance) lays the titlebar out again too.
-  nativeTheme.on('updated', () => openWindows().forEach(pinTrafficLights))
+  step('updater', () => initUpdater(openWindows))
+  nativeTheme.on('updated', () => {
+    // macOS switching light/dark by itself (Auto appearance) lays the titlebar out again too.
+    openWindows().forEach(pinTrafficLights)
+    // Elsewhere the caption buttons were painted for the old appearance, which
+    // in 'system' mode is the one the OS just left.
+    if (!isMac) applyTitleBarOverlays(store.getSettings())
+  })
   for (const feature of FEATURES) {
     try {
       await feature.register(featureContext)
@@ -834,38 +899,45 @@ function flushPendingWrites(): Promise<void> {
   return Promise.race([store.flushWrites(), new Promise((resolve) => setTimeout(resolve, 3000))]).then(() => undefined)
 }
 
-// Child MCP processes are ours to clean up; leaving them running would orphan
-// stdio servers every time the app quits.
+/**
+ * Stops everything Eaon started, once: from before-quit, or from "Restart to
+ * update" before it hands over to the updater. Child MCP processes are ours
+ * to clean up; leaving them running would orphan stdio servers every time the
+ * app quits. Whoever exits next waits on `mcpShutdown` and `featureShutdown`.
+ */
+function beginShutdown(): void {
+  if (shutDown) return
+  shutDown = true
+  cancelAllDownloads()
+  // Held for by the caller: the SDK closes a stdio server by ending its stdin,
+  // then SIGTERM after 2 s and SIGKILL after 4 s. Exiting before then orphaned
+  // any server that ignores EOF. One that exits on EOF costs no wait.
+  mcpShutdown = Promise.race([shutdownMcp(), new Promise((resolve) => setTimeout(resolve, 4500))]).then(
+    () => undefined,
+    () => undefined
+  )
+  void stopLocalServer()
+  killBackgroundProcesses()
+  for (const feature of FEATURES) {
+    try {
+      feature.dispose?.()
+    } catch {
+      /* quitting regardless */
+    }
+  }
+  // Terminal shells must be reaped before exit: node-pty reports each exit
+  // on a thread-safe function, and one landing during teardown aborts the
+  // process (SIGABRT) instead of quitting it.
+  featureShutdown = Promise.race([
+    Promise.all(FEATURES.map((feature) => feature.shutdown?.().catch(() => undefined))),
+    new Promise((resolve) => setTimeout(resolve, 3000))
+  ]).then(() => undefined)
+}
+
 app.on('before-quit', (event) => {
   // A second instance that handed over never started anything to clean up.
   if (!primaryInstance) return
-  if (!shutDown) {
-    shutDown = true
-    cancelAllDownloads()
-    // Held for below: the SDK closes a stdio server by ending its stdin, then
-    // SIGTERM after 2 s and SIGKILL after 4 s. Exiting before then orphaned
-    // any server that ignores EOF. One that exits on EOF costs no wait.
-    mcpShutdown = Promise.race([shutdownMcp(), new Promise((resolve) => setTimeout(resolve, 4500))]).then(
-      () => undefined,
-      () => undefined
-    )
-    void stopLocalServer()
-    killBackgroundProcesses()
-    for (const feature of FEATURES) {
-      try {
-        feature.dispose?.()
-      } catch {
-        /* quitting regardless */
-      }
-    }
-    // Terminal shells must be reaped before exit: node-pty reports each exit
-    // on a thread-safe function, and one landing during teardown aborts the
-    // process (SIGABRT) instead of quitting it.
-    featureShutdown = Promise.race([
-      Promise.all(FEATURES.map((feature) => feature.shutdown?.().catch(() => undefined))),
-      new Promise((resolve) => setTimeout(resolve, 3000))
-    ]).then(() => undefined)
-  }
+  beginShutdown()
   if (flushedBeforeClose) return
   // Chats are saved asynchronously, and Quit right after a reply usually lands
   // while that save is still being written; exiting under it lost the last
