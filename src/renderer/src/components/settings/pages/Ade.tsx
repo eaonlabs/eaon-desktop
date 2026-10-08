@@ -3,7 +3,9 @@ import { FolderSearch, Loader2 } from 'lucide-react'
 import { useApp } from '../../../state/store'
 import { useAdeSessions } from '../../code/sessionsStore'
 import { AgentMark } from '../../code/terminal/TerminalWorkspace'
-import { Card, Row, Section } from '../../ui'
+import { Card, Row, Section, Switch } from '../../ui'
+import { useTerminals } from '../../code/terminal/terminalStore'
+import { DEFAULT_THEME_ID, TERMINAL_THEMES, type TerminalTheme } from '../../code/terminal/themes'
 import { ageLabel, folderName, homeRelative, type AdeImportCandidate } from '@shared/adeSessions'
 
 const clean = (error: unknown): string =>
@@ -201,6 +203,62 @@ export function AdePage(): JSX.Element {
           />
         </Card>
       </Section>
+
+      <TerminalThemeSection />
     </>
+  )
+}
+
+/**
+ * The ADE's terminal theme. It was a Theme button in the ADE's top bar; it
+ * lives here with the rest of the ADE's settings now, and `/theme` typed in
+ * any terminal still opens the picker that previews them in place.
+ */
+function TerminalThemeSection(): JSX.Element {
+  const ade = useApp((s) => s.settings?.ade)
+  const saveLook = useTerminals((s) => s.saveLook)
+  const current = ade?.theme ?? DEFAULT_THEME_ID
+  const scenes = ade?.scenes ?? true
+  return (
+    <Section label="Terminal theme">
+      <Card>
+        <div className="ade-themes" role="radiogroup" aria-label="Terminal theme">
+          {TERMINAL_THEMES.map((theme) => (
+            <button
+              key={theme.id}
+              type="button"
+              role="radio"
+              aria-checked={theme.id === current}
+              className="ade-theme"
+              data-on={theme.id === current || undefined}
+              title={theme.blurb}
+              onClick={() => saveLook({ theme: theme.id })}
+            >
+              <ThemeSwatch theme={theme} />
+              <span className="ade-theme__name">{theme.name}</span>
+            </button>
+          ))}
+        </div>
+        <Row title="Scenes" description="Draw the theme’s picture (a forest, a night sky…) behind the terminal text.">
+          <Switch label="Scenes" checked={scenes} onChange={(on) => saveLook({ scenes: on })} />
+        </Row>
+        <Row title="In a terminal" description="Type /theme in any ADE terminal to try themes on your panes before keeping one." />
+      </Card>
+    </Section>
+  )
+}
+
+/** A theme's background with a few of its colours on it; the app's own colours for Eaon. */
+function ThemeSwatch({ theme }: { theme: TerminalTheme }): JSX.Element {
+  const c = theme.colors
+  return (
+    <span className="ade-theme__swatch" style={c ? { background: c.background } : undefined} data-own={c ? undefined : ''}>
+      {(c ? [c.red, c.green, c.yellow, c.blue, c.magenta] : []).map((color, i) => (
+        <span key={i} className="ade-theme__dot" style={{ background: color }} />
+      ))}
+      <span className="ade-theme__text" style={c ? { color: c.foreground } : undefined}>
+        Aa
+      </span>
+    </span>
   )
 }

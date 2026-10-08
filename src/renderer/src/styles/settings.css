@@ -1328,3 +1328,63 @@ body[data-reduce-motion='on'] .star-card {
 .star-card__btn:disabled {
   opacity: 0.6;
 }
+
+/* ---------------- Settings → ADE: terminal theme ---------------- */
+
+.ade-themes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.ade-theme {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 6px;
+  border-radius: var(--r-md);
+  text-align: left;
+  transition: background var(--dur) var(--ease);
+}
+.ade-theme:hover {
+  background: var(--hover);
+}
+.ade-theme[data-on] {
+  background: var(--surface-3);
+  box-shadow: 0 0 0 1.5px var(--accent, var(--text-2));
+}
+.ade-theme__swatch {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 52px;
+  padding: 8px;
+  border-radius: var(--r-sm);
+  box-shadow: inset 0 0 0 1px var(--border-soft);
+  overflow: hidden;
+}
+.ade-theme__swatch[data-own] {
+  background: var(--surface-1);
+}
+.ade-theme__dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+.ade-theme__text {
+  position: absolute;
+  top: 6px;
+  left: 8px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text);
+}
+.ade-theme__name {
+  overflow: hidden;
+  font-size: var(--fs-sm);
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
