@@ -242,6 +242,30 @@ if (fs.existsSync('.eaon/review-task.md')) {
     await page.click('.pr-row__title', { text: 'Add search to the docs' })
     await page.find('.linear-actions button', { text: /Open session/ })
     await s.shot(page, 'linear-in-ade')
+
+    // From every page in the ADE's sidebar, a session takes you back to it: the
+    // one already active (once a dead click), another one, or one of its agents.
+    const sessionShown = (what) =>
+      page.waitFor(
+        () => {
+          const pane = document.querySelector('.term-pane')
+          return !document.querySelector('.sidebar .nav-item[data-active]') && pane !== null && pane.getBoundingClientRect().width > 0
+        },
+        { message: `the session, after ${what}`, timeout: 10_000 }
+      )
+    for (const pageName of ['Pull requests', 'Linear', 'Models', 'Plugins']) {
+      await page.click('.sidebar .nav-item', { text: new RegExp(`^${pageName}$`) })
+      await page.waitFor((name) => document.querySelector('.sidebar .nav-item[data-active]')?.textContent?.trim() === name, { args: [pageName], message: `${pageName} open` })
+      await page.click('.ade-session[data-active] .ade-session__row')
+      await sessionShown(`clicking the active session from ${pageName}`)
+    }
+    await page.click('.sidebar .nav-item', { text: /^Pull requests$/ })
+    await page.click('.ade-session:not([data-active]) .ade-session__row')
+    await sessionShown('clicking another session from Pull requests')
+    await page.click('.sidebar .nav-item', { text: /^Linear$/ })
+    await page.click('.ade-session[data-active] .ade-agent')
+    await sessionShown('clicking an agent from Linear')
+    await s.shot(page, 'back-to-the-session')
   } finally {
     linear.close()
   }

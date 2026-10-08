@@ -28,6 +28,13 @@ interface SessionsState {
 
   load: () => Promise<void>
   open: (session: AdeSession) => Promise<void>
+  /**
+   * What clicking a session does: opens it (when it isn't already) and shows
+   * it, from wherever the app is — Pull requests, Linear, Models or another
+   * mode. `open` alone only switches the folder, for the openings nobody
+   * clicked (a sync, the Eaon CLI), which mustn't pull the page away.
+   */
+  show: (session: AdeSession) => Promise<void>
   /** A folder's own session (made when it has none), opened. */
   openFolder: (folder: string) => Promise<void>
   create: (req: NewSessionRequest, agent: TerminalAgentId | null) => Promise<string | null>
@@ -99,6 +106,11 @@ export const useAdeSessions = create<SessionsState>((set, get) => ({
       set({ error: clean(error) })
     }
     void get().loadConversations(session.cwd)
+  },
+
+  async show(session) {
+    if (useCode.getState().cwd !== session.cwd) await get().open(session)
+    showAde()
   },
 
   async openFolder(folder) {

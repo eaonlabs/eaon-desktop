@@ -5,7 +5,6 @@ import type { PrReview, ReviewEvent, ReviewState } from '@shared/prReview'
 import { Segmented } from './ui'
 import { notify } from './Notice'
 import { useAdeSessions } from './code/sessionsStore'
-import { useApp } from '../state/store'
 
 const EVENTS: { value: ReviewEvent; label: string }[] = [
   { value: 'COMMENT', label: 'Comment' },
@@ -81,12 +80,7 @@ export function PrReviewPanel({ pr }: { pr: PullRequestSummary }): JSX.Element |
 
   const openSession = async (): Promise<void> => {
     if (!state) return
-    const session = await sessionOf(state)
-    await useAdeSessions.getState().open(session)
-    const app = useApp.getState()
-    const ade = app.workspaces.find((w) => w.kind === 'code')
-    if (ade) app.setWorkspace(ade.id)
-    app.setView('chat')
+    await useAdeSessions.getState().show(await sessionOf(state))
   }
 
   return (

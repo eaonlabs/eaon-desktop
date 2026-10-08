@@ -4,7 +4,6 @@ import { TopBar } from './TopBar'
 import { SearchField, Select } from './ui'
 import { notify } from './Notice'
 import { useAdeSessions } from './code/sessionsStore'
-import { useApp } from '../state/store'
 import { folderName } from '@shared/adeSessions'
 import type { LinearIssue, LinearIssuesResult, LinearStatus } from '@shared/linear'
 
@@ -183,12 +182,7 @@ function IssueDetail({ issue, sessionCwd, onStarted }: { issue: LinearIssue; ses
     if (!sessionCwd) return
     await useAdeSessions.getState().load()
     const session = useAdeSessions.getState().sessions.find((s) => s.cwd === sessionCwd)
-    if (!session) return
-    await useAdeSessions.getState().open(session)
-    const app = useApp.getState()
-    const ade = app.workspaces.find((w) => w.kind === 'code')
-    if (ade) app.setWorkspace(ade.id)
-    app.setView('chat')
+    if (session) await useAdeSessions.getState().show(session)
   }
 
   return (

@@ -187,7 +187,7 @@ function StateMark({ state }: { state: SessionState }): JSX.Element {
  * session itself when the project is a repository.
  */
 function SessionRow({ session, active, solo = false, onNewSession }: { session: AdeSession; active: boolean; solo?: boolean; onNewSession?: () => void }): JSX.Element {
-  const open = useAdeSessions((s) => s.open)
+  const show = useAdeSessions((s) => s.show)
   const { state } = useSessionPanes(session)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [dialog, setDialog] = useState<'rename' | 'remove' | null>(null)
@@ -206,7 +206,8 @@ function SessionRow({ session, active, solo = false, onNewSession }: { session: 
             notify(`${session.cwd} isn’t there any more. Bring the folder back, or remove the session from its menu.`, 'error')
             return
           }
-          if (!active) void open(session)
+          // Shown even when it's the active one: from Pull requests or Linear, that's the way back.
+          void show(session)
         }}
         onContextMenu={(e) => {
           e.preventDefault()
@@ -306,7 +307,7 @@ function AgentList({ session }: { session: AdeSession }): JSX.Element | null {
       task: info.task ?? conversation?.title ?? `${pane.name} · ${label(pane.agent)}`,
       kind,
       at: info.lastData || conversation?.touched || 0,
-      onOpen: () => terminals.focus(pane.id)
+      onOpen: () => void useAdeSessions.getState().show(session).then(() => terminals.focus(pane.id))
     }
   })
   const items = live

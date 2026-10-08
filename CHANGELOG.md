@@ -26,6 +26,12 @@ All notable changes to Eaon are documented here. Format loosely follows
   meadow with butterflies) and Solarized Light (desert mesas). Each restyles
   the app to match, like the others.
 
+### Fixed
+- In the ADE, clicking a session in the sidebar didn't take you back to it
+  from Pull requests, Linear, Models or Plugins when it was the session
+  already open: you had to go through Settings to get back. Clicking a
+  session, or one of its agents, now always shows it.
+
 ## [2026.6.2-beta.9] — 2026-10-08
 
 ### Changed
