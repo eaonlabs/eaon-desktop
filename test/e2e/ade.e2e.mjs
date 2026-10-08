@@ -253,6 +253,26 @@ scenario('ADE sessions: import from Claude Code and Codex, a new session on its 
   })
   await s.shot(page, 'sidebar-live')
 
+  // An ended terminal offers Restart, on top where it can be seen and clicked.
+  // (Under Beta 6's theme layer it was drawn beneath the terminal.)
+  await page.click('.term-pane__screen')
+  await page.type('exit')
+  await page.press('Enter')
+  const restart = await page.waitFor(
+    () => {
+      const b = [...document.querySelectorAll('.term-pane__actions button')].find((x) => /Restart/.test(x.textContent ?? ''))
+      if (!b) return null
+      const r = b.getBoundingClientRect()
+      const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
+      return { onTop: Boolean(top && b.contains(top)), text: b.textContent?.trim() }
+    },
+    { message: 'Restart on the ended terminal', timeout: 15_000 }
+  )
+  assert.deepEqual(restart, { onTop: true, text: 'Restart Shell' })
+  await s.shot(page, 'terminal-ended')
+  await page.click('.term-pane__actions button', { text: /Restart/ })
+  await page.waitFor(() => !document.querySelector('.term-pane__actions'), { message: 'the terminal to start again', timeout: 15_000 })
+
   // Three terminals in the session: two above, one stretched below.
   for (let n = 0; n < 2; n++) {
     await page.click('.code-header .header-btn', { text: /New terminal/ })

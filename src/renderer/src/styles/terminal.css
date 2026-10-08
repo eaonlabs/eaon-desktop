@@ -268,6 +268,9 @@ body[data-reduce-motion='on'] .term-pane__dot {
   left: 50%;
   bottom: 14px;
   transform: translateX(-50%);
+  /* Above the terminal, which sits on its own layer over the theme's scene
+     (z-index 1); without it Restart was drawn underneath, and invisible. */
+  z-index: 6;
   display: flex;
   gap: 8px;
 }

@@ -32,6 +32,9 @@ All notable changes to Eaon are documented here. Format loosely follows
   with "An unknown error occurred (Unexpected)". The terminal now says which
   switch to turn on and has an Open Privacy Settings button, and macOS's own
   prompt explains what Eaon wants the folder for.
+- An ended terminal's Restart button (and a blocked one's Open Privacy
+  Settings) was drawn underneath the terminal since Beta 6's terminal themes,
+  so it couldn't be seen or clicked.
 - Turning on "Run in the background" on a Mac no longer makes macOS announce
   "Software from <the developer's name> can run in the background". The agent
   that starts Eaon at login now ships inside the app and is registered with
