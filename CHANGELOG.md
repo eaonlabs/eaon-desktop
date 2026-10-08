@@ -3,7 +3,7 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
-## [Unreleased]
+## [2026.6.2-beta.10] — 2026-10-08
 
 ### Added
 - **Pull request review by an agent.** On the ADE's Pull requests page, pick
