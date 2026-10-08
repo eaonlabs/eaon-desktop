@@ -34,6 +34,8 @@ export interface Launch {
   agent?: TerminalAgentId
   /** A past conversation of `agent` to reopen on this start. */
   resume?: string
+  /** A task to start the agent on, the first time. */
+  prompt?: string
 }
 
 interface Runtime {
@@ -549,7 +551,8 @@ class TerminalRegistry {
       rows: rt.term.rows,
       command: launch.command,
       ...(launch.agent ? { agent: launch.agent } : {}),
-      ...(launch.resume ? { resume: launch.resume } : {})
+      ...(launch.resume ? { resume: launch.resume } : {}),
+      ...(launch.prompt ? { prompt: launch.prompt } : {})
     })
     if (!result.ok) {
       rt.spawned = false

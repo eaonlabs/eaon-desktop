@@ -1313,3 +1313,163 @@ body[data-platform='linux'] .browser__tabs {
     animation: none;
   }
 }
+
+/* ---------------- Pull requests: an agent's review (PrReviewPanel.tsx) ---------------- */
+
+.pr-review {
+  margin-top: 28px;
+  padding: 16px 18px 18px;
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+  box-shadow: 0 0 0 1px var(--border-soft);
+}
+.pr-review__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+}
+.pr-review__title {
+  flex: 1;
+  font-size: var(--fs-base);
+  font-weight: 600;
+}
+.pr-review__text {
+  margin: 10px 0 14px;
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+  color: var(--text-2);
+}
+.pr-review__waiting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pr-review__draft {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+}
+.pr-review__label {
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--text-3);
+}
+.pr-review__summary {
+  min-height: 140px;
+  resize: vertical;
+}
+.pr-review__comment {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pr-review__comment textarea {
+  min-height: 64px;
+  resize: vertical;
+}
+.pr-review__where {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+.pr-review__fine {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.pr-review__actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+.pr-review__error {
+  margin: 12px 0 0;
+  font-size: var(--fs-sm);
+  color: var(--danger, #e5484d);
+}
+.link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  color: var(--accent, var(--text));
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* ---------------- Linear (LinearPage.tsx) ---------------- */
+
+.linear-state {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  margin: 3px 2px 0;
+  border-radius: 50%;
+}
+.linear-started {
+  font-size: var(--fs-xs);
+  color: var(--accent, var(--text-2));
+}
+.linear-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+.linear-pill .linear-state {
+  margin: 0;
+  width: 8px;
+  height: 8px;
+}
+.linear-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 10px;
+}
+.linear-description {
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-soft);
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.linear-who {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border-soft);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.linear-connect {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  max-width: 520px;
+  margin: 12vh auto 0;
+  padding: 0 24px;
+  text-align: center;
+}
+.linear-connect__row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+.linear-connect__row .input {
+  flex: 1;
+}

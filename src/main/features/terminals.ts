@@ -140,6 +140,19 @@ function isDir(dir: string | undefined): dir is string {
  * conversation (`claude --resume <id>`, `codex resume <id>`). The id goes into
  * a shell command line, so only an id shaped like the agent's own is used.
  */
+/** Agents that take a first task on their command line. */
+const PROMPTABLE = new Set(['claude', 'codex'])
+
+/**
+ * A pane given a task starts its agent on it: `claude '<task>'`. Quoted for
+ * the shell whole, so nothing in it is run; one line, as the ADE makes it.
+ */
+export function promptLine(req: TerminalSpawnRequest): TerminalSpawnRequest {
+  const prompt = req.prompt?.replace(/[\r\n]+/g, ' ').trim()
+  if (!prompt || req.resume || !req.command || !req.agent || !PROMPTABLE.has(req.agent)) return req
+  return { ...req, command: `${req.command} '${prompt.replace(/'/g, `'\\''`)}'` }
+}
+
 export function resumeLine(req: TerminalSpawnRequest): TerminalSpawnRequest {
   const agent = req.agent
   if (!req.resume || !req.command || !agent || agent === 'shell') return req
@@ -187,6 +200,8 @@ export function createTerminals(options: TerminalsOptions = {}): Feature & { tic
   let watch: SessionWatch | null = null
   /** Panes that have had their restore this run; a later Restart starts them as asked. */
   const restored = new Set<string>()
+  /** Panes that were given their task this run. */
+  const prompted = new Set<string>()
 
   const paneRecords = (): PaneRecords => {
     if (!records) {
@@ -307,7 +322,10 @@ export function createTerminals(options: TerminalsOptions = {}): Feature & { tic
           }
         }
         restored.add(req.paneId)
-        return manager.spawn(resumeLine(req), await agentEnv(req.agent))
+        // The task is given once: a Restart later starts the agent plain.
+        const first = !prompted.has(req.paneId)
+        prompted.add(req.paneId)
+        return manager.spawn(first ? promptLine(resumeLine(req)) : resumeLine(req), await agentEnv(req.agent))
       })
       ipcMain.handle('terminal:running', () => watch?.snapshot() ?? {})
       // The conversation each pane is in, as far as the watch has seen: the ADE's

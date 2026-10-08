@@ -6,6 +6,18 @@ All notable changes to Eaon are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Added
+- **Pull request review by an agent.** On the ADE's Pull requests page, pick
+  a pull request and press Review: it's checked out in an ADE session of its
+  own and Claude Code (or Codex) reviews it. Its review shows on the page —
+  a summary, a verdict and line comments — to edit and then post to GitHub
+  as a comment, an approval or a request for changes. Nothing is posted until
+  you choose to. The agent is told to read the change, not run it.
+- **Linear.** A Linear page in the ADE lists the open issues assigned to you
+  (connect with a Linear API key; it's kept in Eaon's encrypted vault).
+  Start makes an ADE session on the branch Linear names for the issue, gives
+  Claude Code (or Codex) the issue as its task, and moves it to In Progress.
+  When that branch's pull request opens, it's linked on the issue and the
+  issue moves to In Review.
 - **Ten more ADE terminal themes, each with its own animated scene:**
   Iceberg (snow on the peaks, a cabin with its light on), Monokai (a
   volcano), Oceanic Next (under the sea), Night Owl (a lighthouse), Palenight

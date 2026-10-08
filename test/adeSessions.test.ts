@@ -42,6 +42,8 @@ test('a session is called by its title, else a worktree by its branch’s last p
   assert.equal(sessionSubtitle({ branch: null, cwd: '/p/notes', project: '/p/notes' }), 'project folder')
   assert.equal(sessionSubtitle({ branch: 'feature/x', cwd: '/w/x', project: '/p' }), 'feature/x')
   assert.equal(sessionSubtitle({ branch: 'feature/x', cwd: '/w/x', project: '/p', missing: true }), 'Folder not found')
+  // A pull request checked out for review is on no branch: its folder, not its whole path.
+  assert.equal(sessionSubtitle({ branch: null, cwd: '/w/acme/review-pr-7', project: '/p' }), 'review-pr-7 · no branch')
   assert.equal(sessionTitle({ title: '  ', branch: null, cwd: '/Users/ada/acme-internal', project: '/Users/ada/acme-internal' }), 'acme-internal')
   assert.equal(worktreeFolderFor('feature/checkout-baseline'), 'checkout-baseline')
   assert.equal(worktreeFolderFor('fix/.weird name'), 'weird-name')

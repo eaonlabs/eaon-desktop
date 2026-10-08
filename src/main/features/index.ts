@@ -8,6 +8,8 @@ import { modelLibraryFeature } from './modelLibrary'
 import { libraryFeature } from './library'
 import { terminalsFeature } from './terminals'
 import { adeFeature } from './ade'
+import { prReviewFeature } from './prReview'
+import { linearFeature } from './linear'
 import { workersFeature } from './workers'
 import { remoteFeature } from './remote'
 import { controlFeature } from './control'
@@ -43,6 +45,9 @@ export const FEATURES: Feature[] = [
   libraryFeature,
   terminalsFeature,
   adeFeature,
+  // Make ADE sessions, so after it.
+  prReviewFeature,
+  linearFeature,
   workersFeature,
   // Follows the workers engine, so right after it.
   remoteFeature,

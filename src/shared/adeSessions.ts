@@ -108,11 +108,15 @@ export function sessionTitle(session: Pick<AdeSession, 'title' | 'branch' | 'cwd
   return folderName(session.cwd)
 }
 
-/** The line under a session's title: its branch, and "project folder" for the project's own. */
+/**
+ * The line under a session's title: its branch, and "project folder" for the
+ * project's own. A checkout on no branch (a pull request being reviewed) says
+ * so, by its folder's name rather than its whole path.
+ */
 export function sessionSubtitle(session: Pick<AdeSession, 'branch' | 'cwd' | 'project' | 'missing'>): string {
   if (session.missing) return 'Folder not found'
   if (session.cwd === session.project) return [session.branch, 'project folder'].filter(Boolean).join(' · ')
-  return session.branch ?? session.cwd
+  return session.branch ?? `${folderName(session.cwd)} · no branch`
 }
 
 /**

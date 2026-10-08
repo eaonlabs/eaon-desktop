@@ -54,6 +54,12 @@ export interface TerminalPaneSpec {
    * that the pane's record of what it runs takes over, as for any pane.
    */
   resume?: string
+  /**
+   * A task the agent starts on, given on its command line (`claude "<task>"`)
+   * the first time the pane starts: a PR to review, a Linear issue to do.
+   * One line; the details are in a file the task points to.
+   */
+  prompt?: string
 }
 
 /** Every folder's panes, keyed by folder path. */
@@ -70,6 +76,8 @@ export interface TerminalSpawnRequest {
   agent?: TerminalAgentId
   /** A conversation of `agent` to reopen instead of starting a new one. */
   resume?: string
+  /** A task to start the agent on (see TerminalPaneSpec.prompt). */
+  prompt?: string
 }
 
 export interface TerminalSpawnResult {

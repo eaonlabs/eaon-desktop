@@ -41,6 +41,12 @@ interface SessionsState {
   resume: (session: AdeSession, conversation: AdeConversation) => Promise<void>
   /** `resume`, after checking its CLI is installed (saying how to get it when it isn't). */
   reopen: (session: AdeSession, conversation: AdeConversation) => void
+  /**
+   * A session Eaon set up for a task (a pull request to review, a Linear
+   * issue): shown, with Claude Code (or Codex) started on `prompt`. An error
+   * to show, or null.
+   */
+  startTask: (session: AdeSession, prompt: string) => Promise<string | null>
   toggleProject: (project: string) => void
   newSession: (project?: string | null) => void
   closeNewSession: () => void
@@ -193,6 +199,18 @@ export const useAdeSessions = create<SessionsState>((set, get) => ({
       return
     }
     void get().resume(session, conversation)
+  },
+
+  async startTask(session, prompt) {
+    set((s) => ({ sessions: s.sessions.some((x) => x.id === session.id) ? s.sessions.map((x) => (x.id === session.id ? session : x)) : [...s.sessions, session] }))
+    await useTerminals.getState().load()
+    const agents = useTerminals.getState().agents
+    const agent = agents.find((a) => a.id === 'claude' && a.installed) ?? agents.find((a) => a.id === 'codex' && a.installed)
+    if (!agent) return 'Install Claude Code or Codex to have an agent work on this. The session is ready in the ADE.'
+    await get().open(session)
+    showAde()
+    useTerminals.getState().add(session.cwd, agent.id, undefined, prompt)
+    return null
   },
 
   toggleProject(project) {

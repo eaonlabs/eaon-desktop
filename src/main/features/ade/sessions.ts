@@ -280,6 +280,22 @@ export class SessionBook {
     return { ok: true }
   }
 
+  /**
+   * A folder Eaon set up for a session itself (a pull request's worktree,
+   * a Linear issue's branch): its session, made or renamed, filed under its
+   * repository. `worktree` lets removing the session remove the folder too.
+   */
+  async track(folder: string, title: string, worktree: boolean): Promise<AdeSession> {
+    const cwd = path.resolve(folder)
+    this.closed.delete(cwd)
+    const made = await this.ensureFolder(cwd)
+    const session = this.sessions.find((s) => s.id === made.id)!
+    session.title = title.trim() || null
+    if (worktree) session.worktree = true
+    this.commit()
+    return { ...session }
+  }
+
   rename(id: string, title: string): AdeSession | null {
     const session = this.sessions.find((s) => s.id === id)
     if (!session) return null

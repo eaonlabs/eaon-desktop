@@ -40,6 +40,17 @@ const isDir = (dir: string): boolean => {
 
 let book: SessionBook | null = null
 
+/** The ADE's sessions, for the features that make them (pull request reviews, Linear issues). */
+export function adeSessions(): SessionBook {
+  return sessions()
+}
+
+/** Folders the ADE knows: every session's project, then the recent ones. */
+export function knownProjects(): string[] {
+  const recents = RecentFolders.at(app.getPath('userData')).list()
+  return [...new Set([...sessions().list().map((s) => s.project), ...recents])]
+}
+
 function sessions(): SessionBook {
   if (!book) {
     book = new SessionBook({

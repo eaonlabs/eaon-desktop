@@ -1,4 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import type { PostReviewResult, PrReview, ReviewState, StartReviewResult } from '@shared/prReview'
+import type { LinearIssuesResult, LinearStatus, StartIssueResult } from '@shared/linear'
 import type {
   Chat,
   DownloadedModel,
@@ -136,6 +138,21 @@ const api = {
   },
   github: {
     pullRequests: (): Promise<PullRequestsResult> => ipcRenderer.invoke('github:pull-requests')
+  },
+  /** A pull request reviewed by an agent in the ADE, posted by the person (shared/prReview.ts). */
+  prReview: {
+    start: (url: string): Promise<StartReviewResult> => ipcRenderer.invoke('pr-review:start', url),
+    list: (): Promise<ReviewState[]> => ipcRenderer.invoke('pr-review:list'),
+    post: (url: string, review: PrReview): Promise<PostReviewResult> => ipcRenderer.invoke('pr-review:post', url, review)
+  },
+  /** Linear issues as ADE sessions (shared/linear.ts). */
+  linear: {
+    status: (): Promise<LinearStatus> => ipcRenderer.invoke('linear:status'),
+    connect: (key: string): Promise<LinearStatus> => ipcRenderer.invoke('linear:connect', key),
+    disconnect: (): Promise<LinearStatus> => ipcRenderer.invoke('linear:disconnect'),
+    issues: (): Promise<LinearIssuesResult> => ipcRenderer.invoke('linear:issues'),
+    start: (issueId: string, project: string): Promise<StartIssueResult> => ipcRenderer.invoke('linear:start', issueId, project),
+    sync: (): Promise<void> => ipcRenderer.invoke('linear:sync')
   },
   codeIndex: {
     status: (cwd: string | null): Promise<IndexStatus> => ipcRenderer.invoke('index:status', cwd),

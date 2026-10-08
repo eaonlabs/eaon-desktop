@@ -8,6 +8,7 @@ import { PluginsPage } from './components/plugins/PluginsPage'
 import { IntegrationsPage } from './components/plugins/IntegrationsPage'
 import { ScheduledPage } from './components/ScheduledPage'
 import { PullRequestsPage } from './components/PullRequestsPage'
+import { LinearPage } from './components/LinearPage'
 import { ModelsPage } from './components/ModelsPage'
 import { SettingsShell } from './components/settings/SettingsShell'
 import { UpdateToast } from './components/UpdateToast'
@@ -158,6 +159,7 @@ export default function App(): JSX.Element {
               {view === 'integrations' && <IntegrationsPage />}
               {view === 'scheduled' && <ScheduledPage />}
               {view === 'pull-requests' && <PullRequestsPage />}
+              {view === 'linear' && <LinearPage />}
               {view === 'trading' && <TradingDesk />}
               {view === 'models' && <ModelsPage />}
             </ErrorBoundary>

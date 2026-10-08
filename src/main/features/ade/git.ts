@@ -107,3 +107,37 @@ export async function projectRepo(dir: string, home: string): Promise<RepoInfo |
   const info = await repoInfo(dir)
   return info && homeRepoFor(info.top, dir, home) ? null : info
 }
+
+/** The `origin` remote's URL, or null when there is none. */
+export async function remoteUrl(dir: string): Promise<string | null> {
+  try {
+    return (await git(dir, ['remote', 'get-url', 'origin'], 5000)) || null
+  } catch {
+    return null
+  }
+}
+
+/** Fetches `refspec` from origin into `root` (a pull request's head, a base branch). */
+export async function fetchOrigin(root: string, refspec: string): Promise<void> {
+  await git(root, ['fetch', '--quiet', 'origin', refspec], 120_000)
+}
+
+/** A worktree at `dir` on `ref`, on no branch: for reading a pull request, not for working on it. */
+export async function addDetachedWorktree(root: string, dir: string, ref: string): Promise<void> {
+  await git(root, ['worktree', 'add', '--detach', dir, ref], 60_000)
+}
+
+/** Moves an existing worktree to `ref`, on no branch. Never forced: changes made there stop it. */
+export async function checkoutDetached(dir: string, ref: string): Promise<void> {
+  await git(dir, ['checkout', '--detach', ref], 60_000)
+}
+
+/** The repository's own .git folder (shared by every worktree), for its info/exclude. */
+export async function commonDir(dir: string): Promise<string> {
+  return path.resolve(dir, await git(dir, ['rev-parse', '--path-format=absolute', '--git-common-dir'], 5000))
+}
+
+/** A worktree at `dir` on a branch that already exists. */
+export async function addWorktreeOn(root: string, dir: string, branch: string): Promise<void> {
+  await git(root, ['worktree', 'add', dir, branch], 60_000)
+}

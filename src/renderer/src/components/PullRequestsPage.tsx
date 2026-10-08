@@ -14,6 +14,7 @@ import {
 } from 'lucide-react'
 import { TopBar } from './TopBar'
 import { SearchField, Segmented } from './ui'
+import { PrReviewPanel } from './PrReviewPanel'
 import type { PullRequestsResult, PullRequestSummary } from '@shared/types'
 
 type Tab = 'all' | 'reviewing' | 'authored'
@@ -194,6 +195,7 @@ function PrDetail({ pr }: { pr: PullRequestSummary }): JSX.Element {
         <ExternalLink size={14} strokeWidth={1.9} />
         Open in GitHub
       </button>
+      <PrReviewPanel pr={pr} />
     </div>
   )
 }

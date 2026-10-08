@@ -10,6 +10,7 @@ import {
   FolderClosed,
   CandlestickChart,
   GitPullRequest,
+  ListTodo,
   HelpCircle,
   LibraryBig,
   Loader2,
@@ -203,6 +204,7 @@ function AdeNav(): JSX.Element {
         active={view === 'pull-requests'}
         onClick={() => setView('pull-requests')}
       />
+      <NavItem icon={<ListTodo {...ICON} />} label="Linear" active={view === 'linear'} onClick={() => setView('linear')} />
       <NavItem icon={<CandlestickChart {...ICON} />} label="Trading" active={view === 'trading'} onClick={() => setView('trading')} />
       <NavItem
         icon={<Boxes {...ICON} />}
