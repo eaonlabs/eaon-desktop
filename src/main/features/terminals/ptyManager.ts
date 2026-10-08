@@ -108,7 +108,7 @@ const SETTLE_MS = 8000
  * goes through createRequire — node-pty is CommonJS.
  */
 let ptyModule: typeof NodePty | null = null
-function loadPty(): typeof NodePty {
+export function loadPty(): typeof NodePty {
   if (!ptyModule) ptyModule = createRequire(import.meta.url)('node-pty') as typeof NodePty
   return ptyModule
 }

@@ -371,7 +371,12 @@ function WorkerPage({ worker }: { worker: Worker }): JSX.Element {
       </div>
 
       <div className="composer-dock">
-        {isMain && <WorkerGoalBanner worker={worker} now={now} />}
+        {/* Pinned like Chat's goal: the composer's width, with a gap above it. */}
+        {isMain && (
+          <div className="composer-dock__pinned">
+            <WorkerGoalBanner worker={worker} now={now} />
+          </div>
+        )}
         <WorkerAsks worker={worker} />
         <WorkerComposer key={active} worker={worker} threadId={active} />
       </div>

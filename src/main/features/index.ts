@@ -12,6 +12,7 @@ import { workersFeature } from './workers'
 import { remoteFeature } from './remote'
 import { controlFeature } from './control'
 import { starRepoFeature } from './starRepo'
+import { cliAccountsFeature } from './cliAccounts'
 import { channelsFeature } from './channels'
 import { agentBrowserFeature } from './agentBrowser'
 import { emailFeature } from './email'
@@ -60,5 +61,6 @@ export const FEATURES: Feature[] = [
   linkAccountsFeature,
   usageFeature,
   starRepoFeature,
+  cliAccountsFeature,
   discordPresenceFeature
 ]

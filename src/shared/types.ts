@@ -388,6 +388,13 @@ export interface Settings {
     /** `eaonr-…`, made the first time it is turned on and replaced by Reset key. */
     token: string | null
   }
+  /** The ADE's usage meter for Claude Code and Codex plans (Settings → Accounts). */
+  cliUsage: {
+    /** Show the meter in the ADE's header. */
+    meter: boolean
+    /** How its panel lays the figures out. */
+    view: 'detailed' | 'compact'
+  }
   /** The ADE's terminals: their theme (`/theme` in a pane, or the header's Theme button). */
   ade: {
     /** A terminal theme id (components/code/terminal/themes.ts); `eaon` follows the app. */

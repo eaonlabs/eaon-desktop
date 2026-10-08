@@ -48,6 +48,7 @@ import { storageApi } from './features/storage'
 import { remoteApi } from './features/remote'
 import { controlApi } from './features/control'
 import { starApi } from './features/star'
+import { cliAccountsApi } from './features/cliAccounts'
 
 /** Subscribes to a main-process event; returns the unsubscribe. */
 function on<T>(channel: string, handler: (payload: T) => void): () => void {
@@ -303,7 +304,8 @@ const fullApi = {
   storage: storageApi,
   remote: remoteApi,
   control: controlApi,
-  star: starApi
+  star: starApi,
+  cliAccounts: cliAccountsApi
 }
 
 contextBridge.exposeInMainWorld('api', fullApi)

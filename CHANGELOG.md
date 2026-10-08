@@ -5,6 +5,21 @@ All notable changes to Eaon are documented here. Format loosely follows
 
 ## [Unreleased]
 
+### Added
+- **Claude Code and Codex accounts.** Settings → Accounts lists the accounts
+  each CLI can run as, adds more (each signs in with the CLI's own login, in a
+  folder of its own), and picks the one the ADE's terminals use. A **Usage**
+  meter in the ADE's top bar shows how much of each plan's limits is used —
+  the session, the week — read the way the CLI's own `/usage` reads it.
+
+### Changed
+- **A worker's goal carries on straight away.** An unfinished goal turn is
+  followed by the next at once, not a minute later (unless the worker chose
+  to sleep), still pausing to check in after 30 turns.
+- **The ADE's terminal theme is in Settings → ADE**, with each theme's
+  colours and the switch for scenes, instead of a button in the ADE's top
+  bar. Typing `/theme` in a terminal still opens the in-place picker.
+
 ### Fixed
 - **An update that sat at "starting download…".** Since Beta 6 the updater
   stopped listening once it had found an update, so its download went on

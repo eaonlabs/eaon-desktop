@@ -12,6 +12,7 @@ import { store } from '../src/main/store'
 import { secrets } from '../src/main/secrets'
 import { createWorkersService, type WorkersOverrides, type WorkersService } from '../src/main/features/workers/service'
 import type { RunAgent } from '../src/main/features/workers/runner'
+import type { WorkersEngine } from '../src/main/features/workers/engine'
 import type { FeatureContext } from '../src/main/features/types'
 import { gatewayToken, tokenAllowed } from '../src/main/gateway/models'
 import { Bonjour, instanceName } from '../src/main/remote/bonjour'
@@ -121,6 +122,25 @@ function fakeAgent(behave: Behaviour | string = 'Done.') {
     return behave(request, emit, opts)
   }
   return { runAgent, requests }
+}
+
+/**
+ * A goal turn that ends the way a real one between steps does: the worker
+ * sleeps until a set time, or (`done`) finishes the goal. A goal turn that
+ * just ended carries on at once (workers/engine.ts), so an agent that only
+ * says "Done." would go through its whole turn budget in a moment.
+ */
+function goalAgent(engine: () => WorkersEngine, done = false) {
+  return fakeAgent((request, emit) => {
+    if (request.goal && done) {
+      emit({ type: 'goal', messageId: request.messageId, chatId: request.chatId, goal: { ...request.goal, status: 'achieved', summary: 'Shipped' } })
+    } else if (request.goal) {
+      engine().sleep(request.workerId!, 30, 'waiting on the build')
+    }
+    emit({ type: 'delta', messageId: request.messageId, text: 'On it.' })
+    emit({ type: 'done', messageId: request.messageId })
+    return Promise.resolve({ text: 'On it.', usage })
+  })
 }
 
 /** Replies only once released, or when its signal aborts — like the real loop. */
@@ -473,15 +493,16 @@ test('a worker is listed and read as the contract has it, with nothing that is t
 })
 
 test('a paused worker has no next wake-up, and a goal run’s continuation counts', async () => {
-  const agent = fakeAgent()
-  const engine = await boot(agent.runAgent)
+  let engine!: WorkersEngine
+  const agent = goalAgent(() => engine)
+  engine = await boot(agent.runAgent)
   const nova = engine.save(draft('Nova'))
   engine.send(nova.id, 'Get this done', [], { goal: true })
   await engine.whenIdle()
-  const run = engine.list()[0].goalRun!
-  assert.equal(typeof run.nextAt, 'number')
+  const wake = engine.list()[0].heartbeat.nextAt
+  assert.equal(typeof wake, 'number')
   let w = (await get(`/remote/v1/workers/${nova.id}`)).json.worker
-  assert.equal(w.nextWakeAt, run.nextAt, 'the goal continues on its own')
+  assert.equal(w.nextWakeAt, wake, 'the goal carries on when it wakes')
   assert.deepEqual(w.goalRun, { text: 'Get this done', status: 'active', turns: 1 })
   assert.equal(w.goal, 'Get this done')
   engine.setPaused(nova.id, true)
@@ -593,8 +614,9 @@ test('removing a worker forgets it and leaves its folder on disk', async () => {
 })
 
 test('sending reaches the worker as mail from the user, and a goal send sets its goal', async () => {
-  const agent = fakeAgent()
-  const engine = await boot(agent.runAgent)
+  let engine!: WorkersEngine
+  const agent = goalAgent(() => engine, true)
+  engine = await boot(agent.runAgent)
   const nova = engine.save(draft('Nova'))
   const sent = await post(`/remote/v1/workers/${nova.id}/send`, { text: '  Find sources on tidal power ' })
   assert.deepEqual([sent.status, sent.json], [200, { ok: true }])
@@ -613,7 +635,7 @@ test('sending reaches the worker as mail from the user, and a goal send sets its
   const state = engine.list()[0]
   assert.equal(state.goal, 'Ship the release')
   assert.equal(state.goalRun?.text, 'Ship the release')
-  assert.equal(state.goalRun?.status, 'active')
+  assert.equal(state.goalRun?.status, 'achieved', 'it ran in goal mode and finished')
 })
 
 test('sending: what is not a message is a 400, a missing worker a 404, and a paused worker still takes mail', async () => {
@@ -686,8 +708,9 @@ test('pause and resume answer with the worker', async () => {
 })
 
 test('the goal can be paused, resumed and cleared, and a worker with none says so', async () => {
-  const agent = fakeAgent()
-  const engine = await boot(agent.runAgent)
+  let engine!: WorkersEngine
+  const agent = goalAgent(() => engine)
+  engine = await boot(agent.runAgent)
   const nova = engine.save(draft('Nova'))
   const url = `/remote/v1/workers/${nova.id}/goal`
   const none = await post(url, { status: 'paused' })

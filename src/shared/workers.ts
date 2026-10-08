@@ -720,11 +720,10 @@ export const MAX_ROUTINES = 20
 /** Goal and notes are part of every prompt, so they stay short. */
 export const MAX_GOAL_CHARS = 600
 /**
- * A goal run continues on its own this soon after a turn that left it
- * unfinished (unless the worker chose to sleep longer), and pauses to check
- * in with the user after this many turns.
+ * A goal run continues the moment a turn leaves it unfinished (unless the
+ * worker chose to sleep), until it is marked done or blocked, and pauses to
+ * check in with the user after this many turns.
  */
-export const GOAL_CONTINUE_MS = 60_000
 export const GOAL_MAX_TURNS = 30
 /** The longest a worker may sleep in one go (sleep tool). */
 export const MAX_SLEEP_MINUTES = 24 * 60

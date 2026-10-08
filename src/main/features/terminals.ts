@@ -12,6 +12,7 @@ import { store } from '../store'
 import { buildChildEnv } from './eaonCode/env'
 import { findInstallerCopy } from './eaonCode/locate'
 import { eaonCliBinary, eaonCliEnv } from './eaonCli'
+import { cliAccountEnv } from './cliAccounts'
 import { currentPane, privacyBlockedMessage, type TerminalAgent, type TerminalAgentId, type TerminalLayout, type TerminalSpawnRequest } from '@shared/terminals'
 
 /**
@@ -97,6 +98,11 @@ function agents(): TerminalAgent[] {
  * server if it is off; without it, Eaon CLI says what is wrong itself.
  */
 async function agentEnv(agent: TerminalAgentId | undefined): Promise<Record<string, string>> {
+  // Every pane runs `claude` and `codex` as the accounts chosen in Settings → Accounts.
+  return { ...cliAccountEnv(), ...(await toolEnv(agent)) }
+}
+
+async function toolEnv(agent: TerminalAgentId | undefined): Promise<Record<string, string>> {
   if (agent === 'eaon-cli') return eaonCliEnv().catch(() => ({}))
   if (agent !== 'eaon-code' || !store.getSettings().eaonCode.shareKeys) return {}
   const { env, shared } = buildChildEnv({}, true, (providerId) => secrets.get(providerId))

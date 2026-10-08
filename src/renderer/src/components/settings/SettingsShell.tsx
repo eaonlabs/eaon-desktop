@@ -12,6 +12,7 @@ import {
   AppWindow,
   AtSign,
   BarChart3,
+  Users,
   CreditCard,
   Cpu,
   KeyRound,
@@ -51,6 +52,7 @@ import { DiscordPage } from './pages/Discord'
 import { ChatAppsPage } from './pages/ChatApps'
 import { EmailPage } from './pages/Email'
 import { UsagePage } from './pages/Usage'
+import { AccountsPage } from './pages/Accounts'
 import { PaymentsPage } from './pages/Payments'
 import { EnginesPage } from './pages/Engines'
 
@@ -70,6 +72,7 @@ const NAV: NavEntry[] = [
   { id: 'configuration', label: 'Configuration', icon: <ShieldCheck size={size} strokeWidth={stroke} />, group: 'Personal' },
   { id: 'shortcuts', label: 'Keyboard shortcuts', icon: <SquarePlus size={size} strokeWidth={stroke} />, group: 'Personal' },
   { id: 'usage', label: 'Usage', icon: <BarChart3 size={size} strokeWidth={stroke} />, group: 'Personal' },
+  { id: 'accounts', label: 'Accounts', icon: <Users size={size} strokeWidth={stroke} />, group: 'Personal' },
 
   { id: 'providers', label: 'Model providers', icon: <KeyRound size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'engines', label: 'Agent engines', icon: <Cpu size={size} strokeWidth={stroke} />, group: 'Integrations' },
@@ -105,6 +108,7 @@ const PAGES: Record<string, () => JSX.Element> = {
   configuration: ConfigurationPage,
   shortcuts: ShortcutsPage,
   usage: UsagePage,
+  accounts: AccountsPage,
   providers: ProvidersPage,
   engines: EnginesPage,
   'computer-use': ComputerUsePage,

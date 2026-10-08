@@ -6,7 +6,6 @@ import { basename, extname, isAbsolute, join, resolve } from 'node:path'
 import type { ChatMessage, GoalState, Settings, StreamEvent, TokenUsage } from '@shared/types'
 import type { EngineId } from '@shared/engines'
 import {
-  GOAL_CONTINUE_MS,
   MAIN_THREAD,
   MAX_RUNNING_PER_WORKER,
   MAX_THREADS,
@@ -327,11 +326,11 @@ function normalizeGoalRun(raw: unknown): WorkerGoalRun | null {
 
 /**
  * An active goal run with nothing scheduled to pick it up (Eaon quit
- * mid-turn, say) continues shortly after Eaon starts.
+ * mid-turn, say) continues as soon as Eaon starts.
  */
 function resumeGoalRun(run: WorkerGoalRun | null, heartbeatAt: unknown, now: number): WorkerGoalRun | null {
   if (!run || run.status !== 'active' || typeof run.nextAt === 'number' || typeof heartbeatAt === 'number') return run
-  return { ...run, nextAt: now + GOAL_CONTINUE_MS }
+  return { ...run, nextAt: now }
 }
 
 const STATUSES: Worker['status'][] = ['idle', 'working', 'asleep', 'paused', 'failed']
@@ -2771,9 +2770,10 @@ export class WorkersEngine {
     }
 
     // The goal run after this turn. Unfinished, it carries on by itself in a
-    // fresh turn shortly, unless the worker chose its own wake-up (a sleep or
-    // a heartbeat), and checks in with the user after GOAL_MAX_TURNS. A
-    // failed turn, or the user stopping it, pauses it.
+    // fresh turn straight away (the tick() at the end of this starts it),
+    // unless the worker chose its own wake-up (a sleep or a heartbeat), and
+    // checks in with the user after GOAL_MAX_TURNS. A failed turn, or the
+    // user stopping it, pauses it.
     const goal = worker.goalRun
     if (goal && run.goalTurn) {
       if (outcome.error) {
@@ -2782,7 +2782,7 @@ export class WorkersEngine {
         worker.goalRun = { ...goal, status: 'paused', pausedByUser: true, summary: 'Stopped', nextAt: null }
       } else if (outcome.cancelled) {
         // Cut short some other way (the worker paused, Eaon quitting): pick it up again later.
-        if (goal.status === 'active') worker.goalRun = { ...goal, nextAt: now + GOAL_CONTINUE_MS }
+        if (goal.status === 'active') worker.goalRun = { ...goal, nextAt: now }
       } else if (goal.status === 'active' || (goal.status === 'paused' && !goal.pausedByUser)) {
         const { summary: _summary, ...rest } = goal
         if (goal.turns >= GOAL_MAX_TURNS) {
@@ -2793,7 +2793,7 @@ export class WorkersEngine {
           })
         } else {
           const ownWake = run.heartbeatSet && worker.heartbeat.nextAt !== null
-          worker.goalRun = { ...rest, status: 'active', nextAt: ownWake ? null : now + GOAL_CONTINUE_MS }
+          worker.goalRun = { ...rest, status: 'active', nextAt: ownWake ? null : now }
         }
       }
     }
