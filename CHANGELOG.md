@@ -3,7 +3,7 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
-## [Unreleased]
+## [2026.6.2-beta.9] — 2026-10-08
 
 ### Changed
 - **The ADE's sidebar lists a session's open terminals, not its history.**
