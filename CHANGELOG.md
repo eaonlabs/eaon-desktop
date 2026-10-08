@@ -3,7 +3,7 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
-## [Unreleased]
+## [2026.6.2-beta.7] — 2026-10-07
 
 ### Changed
 - **"Enjoying Eaon?"** The GitHub star prompt is a small card in the corner
