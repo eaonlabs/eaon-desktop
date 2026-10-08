@@ -38,3 +38,18 @@ test('the LaunchAgent is a property list macOS accepts', { skip: process.platfor
   const parsed = JSON.parse(execFileSync('plutil', ['-convert', 'json', '-o', '-', path]).toString())
   assert.deepEqual(parsed.ProgramArguments, ['/Applications/Eaon.app/Contents/MacOS/Eaon', BACKGROUND_FLAG, '--user-data-dir=/a b/<c>'])
 })
+
+test('the agent bundled for SMAppService starts this app in the background, attributed to Eaon', async () => {
+  const { readFileSync } = await import('node:fs')
+  const { AGENT_SERVICE } = await import('../src/main/background')
+  const { join } = await import('node:path')
+  const plist = readFileSync(join(process.cwd(), 'resources', 'mac', 'LaunchAgents', AGENT_SERVICE), 'utf8')
+  assert.match(plist, new RegExp(`<key>Label</key>\\s*<string>${LAUNCH_AGENT_LABEL}</string>`))
+  // Relative to the app bundle, wherever the app is moved; the flag skips the window.
+  assert.match(plist, /<key>BundleProgram<\/key>\s*<string>Contents\/MacOS\/Eaon<\/string>/)
+  assert.match(plist, new RegExp(`<string>${BACKGROUND_FLAG}</string>`))
+  assert.match(plist, /<key>AssociatedBundleIdentifiers<\/key>\s*<string>dev\.eaon\.desktop<\/string>/)
+  assert.match(plist, /<key>KeepAlive<\/key>\s*<false\/>/)
+  // A development build's file names the app it belongs to too.
+  assert.match(launchAgentPlist(['/x/Electron', BACKGROUND_FLAG]), /<key>AssociatedBundleIdentifiers<\/key>\s*<string>dev\.eaon\.desktop<\/string>/)
+})

@@ -18,6 +18,10 @@ All notable changes to Eaon are documented here. Format loosely follows
   heading over a row repeating its name.
 - The sidebar no longer reorders itself when a session is opened, which moved
   the next session out from under the pointer.
+- Turning on "Run in the background" on a Mac no longer makes macOS announce
+  "Software from <the developer's name> can run in the background". The agent
+  that starts Eaon at login now ships inside the app and is registered with
+  macOS as Eaon's, so the notice (which macOS always shows) names Eaon.
 
 ## [2026.6.2-beta.6] — 2026-10-07
 

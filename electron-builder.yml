@@ -46,6 +46,13 @@ publish:
   repo: eaon-desktop
 mac:
   category: public.app-category.productivity
+  # The launch agent behind "Run in the background" (main/background.ts), in
+  # Contents/Library/LaunchAgents where SMAppService looks for it. Registered
+  # from inside the app, macOS shows it as Eaon's; a loose plist in
+  # ~/Library/LaunchAgents read "Software from <whoever signed it>".
+  extraFiles:
+    - from: resources/mac/LaunchAgents
+      to: Library/LaunchAgents
   # The pre-rendered icon, for macOS before 26. It, the Liquid Glass
   # Assets.car below and the Windows/Linux icons are all built from the Icon
   # Composer documents resources/Eaon.icon and EaonAgent.icon by

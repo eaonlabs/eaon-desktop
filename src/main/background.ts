@@ -10,8 +10,13 @@ import { dirname, join, resolve } from 'node:path'
  * turns it on (Scheduled page):
  *
  * - macOS: a per-user LaunchAgent starts Eaon at login with `--background`,
- *   which skips the window. A login item cannot do this on macOS 13+: there
- *   the Service Management API passes no arguments and ignores "open hidden".
+ *   which skips the window. A plain login item cannot do this on macOS 13+:
+ *   it passes no arguments and ignores "open hidden". The agent ships inside
+ *   the app (Contents/Library/LaunchAgents, from resources/mac) and is
+ *   registered through SMAppService, so macOS attributes it to Eaon: written
+ *   to ~/Library/LaunchAgents, as before, macOS announced it as "Software from
+ *   <the developer's own name> can run in the background". A development
+ *   build has no bundle to ship it in and still writes the file.
  *   Closing the window already leaves the app running on macOS.
  * - Windows: a login item with `--background`, and closing the window leaves
  *   Eaon in the notification area instead of quitting.
@@ -25,6 +30,9 @@ import { dirname, join, resolve } from 'node:path'
 
 export const BACKGROUND_FLAG = '--background'
 export const LAUNCH_AGENT_LABEL = 'dev.eaon.desktop.background'
+/** The bundled agent's file name in Contents/Library/LaunchAgents, which is SMAppService's name for it. */
+export const AGENT_SERVICE = `${LAUNCH_AGENT_LABEL}.plist`
+const BUNDLE_ID = 'dev.eaon.desktop'
 
 export function backgroundSupported(platform: NodeJS.Platform = process.platform): boolean {
   return platform === 'darwin' || platform === 'win32'
@@ -63,6 +71,8 @@ export function launchAgentPlist(command: string[]): string {
   <array>
 ${command.map((arg) => `    <string>${xml(arg)}</string>`).join('\n')}
   </array>
+  <key>AssociatedBundleIdentifiers</key>
+  <string>${BUNDLE_ID}</string>
   <key>RunAtLoad</key>
   <true/>
   <key>KeepAlive</key>
@@ -87,6 +97,16 @@ export function launchAgentPath(home = homedir()): string {
  */
 export function applyRunAtLogin(enabled: boolean): void {
   if (process.platform === 'darwin') {
+    if (bundledAgent()) {
+      // Earlier versions wrote the agent to ~/Library/LaunchAgents; it goes, so Eaon isn't started twice.
+      rmSync(launchAgentPath(), { force: true })
+      const service = { type: 'agentService' as const, serviceName: AGENT_SERVICE }
+      const status = app.getLoginItemSettings(service).status
+      // Registering again re-announces it; only a change is made.
+      const registered = status === 'enabled' || status === 'requires-approval'
+      if (enabled !== registered) app.setLoginItemSettings({ ...service, openAtLogin: enabled })
+      return
+    }
     const path = launchAgentPath()
     if (!enabled) {
       rmSync(path, { force: true })
@@ -103,6 +123,12 @@ export function applyRunAtLogin(enabled: boolean): void {
     const [path, ...args] = backgroundCommand()
     app.setLoginItemSettings({ openAtLogin: enabled, path, args })
   }
+}
+
+/** The packaged app's own copy of the agent (electron-builder.yml's extraFiles), for SMAppService. */
+function bundledAgent(): boolean {
+  if (!app.isPackaged) return false
+  return existsSync(join(dirname(process.execPath), '..', 'Library', 'LaunchAgents', AGENT_SERVICE))
 }
 
 /* ------------------------------------------------------------------ tray */

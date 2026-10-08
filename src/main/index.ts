@@ -757,8 +757,11 @@ function openMainWindow(): void {
 
 const runsInBackground = (): boolean => backgroundSupported() && store.getSettings().background.enabled
 
-app.on('second-instance', () => {
-  if (app.isReady()) openMainWindow()
+app.on('second-instance', (_event, argv) => {
+  // The background agent starts as soon as it is registered (SMAppService
+  // loads it then, not just at the next login); this Eaon is already running,
+  // so that start only hands over. A window would jump forward for nothing.
+  if (app.isReady() && !launchedInBackground(argv)) openMainWindow()
 })
 
 // Workers' own browsers (BetterWright, features/workers/browser.ts) route
