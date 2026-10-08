@@ -18,7 +18,7 @@ class FakeUpdater extends EventEmitter implements UpdaterLike {
   checks: { autoDownload: boolean; allowPrerelease: boolean }[] = []
   downloads = 0
   installed = 0
-  async checkForUpdates(): Promise<void> {
+  async checkForUpdates(): Promise<unknown> {
     this.checks.push({ autoDownload: this.autoDownload, allowPrerelease: this.allowPrerelease })
     this.emit('checking-for-update')
     if (this.feed instanceof Error) {
@@ -27,13 +27,18 @@ class FakeUpdater extends EventEmitter implements UpdaterLike {
     }
     if (this.feed === null) return void this.emit('update-not-available', {})
     this.emit('update-available', { version: this.feed })
-    // electron-updater's own download when it is allowed to.
-    if (this.autoDownload) await this.downloadUpdate()
+    // electron-updater's own download when it is allowed to: started, not
+    // waited for. The check returns at once and the download goes on.
+    if (this.autoDownload) return { downloadPromise: this.downloadUpdate() } as never
   }
   async downloadUpdate(): Promise<void> {
     this.downloads++
+    const version = this.feed
+    // Later than the check's own answer, as with a real download.
+    await new Promise((resolve) => setTimeout(resolve, 5))
     this.emit('download-progress', { percent: 41.6 })
-    this.emit('update-downloaded', { version: this.feed })
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    this.emit('update-downloaded', { version })
   }
   quitAndInstall(): void {
     this.installed++

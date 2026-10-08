@@ -3,6 +3,14 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [Unreleased]
+
+### Fixed
+- **An update that sat at "starting download…".** Since Beta 6 the updater
+  stopped listening once it had found an update, so its download went on
+  unseen: the Downloads panel never moved past "starting download…" and
+  "Restart to update" never appeared. It now follows the download through.
+
 ## [2026.6.2-beta.7] — 2026-10-07
 
 ### Changed

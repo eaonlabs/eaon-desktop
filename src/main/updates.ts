@@ -204,7 +204,12 @@ export class UpdateController {
     this.interactive = Boolean(options.interactive)
     this.forStable()
     try {
-      await this.deps.updater.checkForUpdates()
+      const result = (await this.deps.updater.checkForUpdates()) as { downloadPromise?: Promise<unknown> | null } | null
+      // electron-updater starts the download and returns without waiting for
+      // it; its progress and the finished file arrive as events afterwards.
+      // The job lasts until then, or those events found no job to belong to
+      // and the update sat at "starting download…" for good (Beta 6).
+      if (result?.downloadPromise) await result.downloadPromise.catch(() => undefined)
     } catch (error) {
       this.setStable({ state: 'error', message: error instanceof Error ? error.message : String(error) })
       this.interactive = false
