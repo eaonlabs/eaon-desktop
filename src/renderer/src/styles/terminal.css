@@ -263,12 +263,17 @@ body[data-reduce-motion='on'] .term-pane__dot {
   background-color: transparent !important;
 }
 
-.term-pane__restart {
+.term-pane__actions {
   position: absolute;
   left: 50%;
   bottom: 14px;
   transform: translateX(-50%);
+  display: flex;
+  gap: 8px;
+}
+.term-pane__restart {
   display: inline-flex;
+  white-space: nowrap;
   align-items: center;
   gap: 6px;
   height: 30px;

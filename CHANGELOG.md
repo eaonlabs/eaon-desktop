@@ -18,6 +18,13 @@ All notable changes to Eaon are documented here. Format loosely follows
   heading over a row repeating its name.
 - The sidebar no longer reorders itself when a session is opened, which moved
   the next session out from under the pointer.
+- **A terminal in a folder macOS keeps Eaon out of says so.** When Eaon isn't
+  allowed into Downloads, Documents or the Desktop (Privacy & Security → Files
+  and Folders), nothing it starts there can read the folder: Homebrew said
+  "the current working directory must be readable" and Claude Code failed
+  with "An unknown error occurred (Unexpected)". The terminal now says which
+  switch to turn on and has an Open Privacy Settings button, and macOS's own
+  prompt explains what Eaon wants the folder for.
 - Turning on "Run in the background" on a Mac no longer makes macOS announce
   "Software from <the developer's name> can run in the background". The agent
   that starts Eaon at login now ships inside the app and is registered with

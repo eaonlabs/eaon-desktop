@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type JSX } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { ArrowLeft, ArrowRight, Eraser, Maximize2, Minimize2, MoreHorizontal, PencilLine, Plus, RotateCcw, SquareTerminal, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Eraser, LockOpen, Maximize2, Minimize2, MoreHorizontal, PencilLine, Plus, RotateCcw, SquareTerminal, X } from 'lucide-react'
 import claudeCodeLogo from '../../../assets/providers/claude.webp'
 import codexLogo from '../../../assets/providers/codex.svg'
 import antigravityLogo from '../../../assets/providers/antigravity.png'
@@ -473,10 +473,19 @@ const TerminalPane = memo(function TerminalPane({
         </div>
       )}
       {status === 'exited' && (
-        <button className="term-pane__restart" onClick={() => terminals.restart(pane.id, launch)}>
-          <RotateCcw size={13} strokeWidth={2} />
-          Restart {agent?.label ?? 'terminal'}
-        </button>
+        <div className="term-pane__actions">
+          {/* macOS keeps Eaon out of this folder: the switch that lets it in, then a restart. */}
+          {terminals.statusOf(pane.id).privacy && (
+            <button className="term-pane__restart" onClick={() => void window.api.app.openFolderPrivacy()}>
+              <LockOpen size={13} strokeWidth={2} />
+              Open Privacy Settings
+            </button>
+          )}
+          <button className="term-pane__restart" onClick={() => terminals.restart(pane.id, launch)}>
+            <RotateCcw size={13} strokeWidth={2} />
+            Restart {agent?.label ?? 'terminal'}
+          </button>
+        </div>
       )}
       {menu && (
         <ContextMenu

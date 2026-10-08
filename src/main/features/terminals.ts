@@ -12,7 +12,7 @@ import { store } from '../store'
 import { buildChildEnv } from './eaonCode/env'
 import { findInstallerCopy } from './eaonCode/locate'
 import { eaonCliBinary, eaonCliEnv } from './eaonCli'
-import { currentPane, type TerminalAgent, type TerminalAgentId, type TerminalLayout, type TerminalSpawnRequest } from '@shared/terminals'
+import { currentPane, privacyBlockedMessage, type TerminalAgent, type TerminalAgentId, type TerminalLayout, type TerminalSpawnRequest } from '@shared/terminals'
 
 /**
  * The ADE's terminal view: real shells in the project folder, each optionally
@@ -140,6 +140,22 @@ export function resumeLine(req: TerminalSpawnRequest): TerminalSpawnRequest {
   return { ...req, command: AGENT_KINDS[agent].resume(req.command, req.resume) }
 }
 
+/**
+ * Whether macOS's privacy settings (Files and Folders) keep this app out of
+ * `cwd`. Denied, listing it fails with EPERM — not EACCES, which is ordinary
+ * file permissions — while the folder can still be stat'ed, so it looks fine
+ * until anything inside it is read.
+ */
+async function blockedByPrivacy(cwd: string): Promise<boolean> {
+  if (process.platform !== 'darwin') return false
+  try {
+    await fs.promises.readdir(cwd)
+    return false
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM'
+  }
+}
+
 export interface TerminalsOptions {
   /** Where pane records and saved screens live (default: userData/terminals). */
   dir?: string
@@ -257,6 +273,10 @@ export function createTerminals(options: TerminalsOptions = {}): Feature & { tic
 
       ipcMain.handle('terminal:agents', () => listAgents())
       ipcMain.handle('terminal:spawn', async (_e, req: TerminalSpawnRequest) => {
+        // A folder macOS keeps Eaon out of: say so, instead of a shell whose every command fails.
+        if (!manager.has(req.paneId) && (await blockedByPrivacy(req.cwd))) {
+          return { ok: false, privacy: true, error: privacyBlockedMessage(req.cwd, app.getPath('home')) }
+        }
         // A pane with a live shell reattaches to it; only a pane's first
         // start in a run is its restore.
         if (!manager.has(req.paneId) && !restored.has(req.paneId)) {

@@ -202,6 +202,8 @@ const api = {
   },
   app: {
     openExternal: (url: string): Promise<void> => ipcRenderer.invoke('app:open-external', url),
+    /** macOS: System Settings at Privacy & Security → Files and Folders. */
+    openFolderPrivacy: (): Promise<void> => ipcRenderer.invoke('app:open-folder-privacy'),
     /** Shows the file or folder in Finder/Explorer; false when it doesn't exist. */
     showItem: (path: string): Promise<boolean> => ipcRenderer.invoke('app:show-item', path),
     version: (): Promise<string> => ipcRenderer.invoke('app:version'),

@@ -75,6 +75,8 @@ export interface TerminalSpawnRequest {
 export interface TerminalSpawnResult {
   ok: boolean
   error?: string
+  /** macOS's privacy settings keep Eaon out of the folder; the pane offers to open them. */
+  privacy?: boolean
   /** The pane already had a live shell for this folder; nothing was restarted. */
   reattached?: boolean
   /**
@@ -135,4 +137,19 @@ export function gridColumns(count: number): number {
   if (count <= 4) return 2
   if (count <= 9) return 3
   return 4
+}
+
+/**
+ * What to tell someone whose terminal couldn't start because macOS keeps Eaon
+ * out of its folder (Privacy & Security → Files and Folders). Everything Eaon
+ * starts is held to Eaon's permissions, so a shell there can't even list it:
+ * Homebrew's startup says "the current working directory must be readable"
+ * and Claude Code fails with "An unknown error occurred (Unexpected)".
+ */
+export function privacyBlockedMessage(cwd: string, home: string): string {
+  const h = home.replace(/[\\/]+$/, '')
+  const top = cwd.startsWith(`${h}/`) ? cwd.slice(h.length + 1).split('/')[0] : null
+  const named: Record<string, string> = { Downloads: 'Downloads Folder', Documents: 'Documents Folder', Desktop: 'Desktop Folder' }
+  const where = top && named[top] ? `turn on Eaon → ${named[top]}` : 'give Eaon access to this folder (or Full Disk Access)'
+  return `macOS isn’t letting Eaon open this folder, so nothing started here could read it. In System Settings → Privacy & Security → Files and Folders, ${where}, then restart this terminal.`
 }

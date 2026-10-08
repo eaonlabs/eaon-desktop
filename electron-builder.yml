@@ -73,6 +73,12 @@ mac:
   # Shown when dictation first asks for the microphone; Electron's own line is generic.
   extendInfo:
     NSMicrophoneUsageDescription: Eaon uses the microphone when you dictate a message.
+    # What macOS's Files and Folders prompt says. The ADE's terminals and agents
+    # are Eaon as far as macOS is concerned: refused here, nothing started in a
+    # project in Downloads can read it (main/features/terminals.ts says so).
+    NSDownloadsFolderUsageDescription: Eaon's terminals and coding agents work in the project folders you open, including ones in Downloads.
+    NSDocumentsFolderUsageDescription: Eaon's terminals and coding agents work in the project folders you open, including ones in Documents.
+    NSDesktopFolderUsageDescription: Eaon's terminals and coding agents work in the project folders you open, including ones on the Desktop.
     # macOS 26+ draws the app icon from Assets.car (copied in by extraResources
     # below) under this name, with its dark, clear and tinted looks; older
     # macOS ignores it and uses icon.icns.

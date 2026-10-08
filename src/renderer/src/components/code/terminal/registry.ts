@@ -62,6 +62,8 @@ interface Runtime {
   status: PaneStatus
   exitCode: number | null
   error: string | null
+  /** The last start failed because macOS keeps Eaon out of the folder. */
+  privacy: boolean
   /** What the agent says it is doing, from the title it gives its terminal; null when it says nothing useful. */
   task: string | null
   /** The theme's scene, behind the terminal text. */
@@ -297,9 +299,9 @@ class TerminalRegistry {
     return { status: rt?.status ?? 'starting', task: rt?.task ?? null, lastData: rt?.lastData ?? 0, known: Boolean(rt) }
   }
 
-  statusOf(paneId: string): { status: PaneStatus; error: string | null; exitCode: number | null } {
+  statusOf(paneId: string): { status: PaneStatus; error: string | null; exitCode: number | null; privacy: boolean } {
     const rt = this.panes.get(paneId)
-    return { status: rt?.status ?? 'starting', error: rt?.error ?? null, exitCode: rt?.exitCode ?? null }
+    return { status: rt?.status ?? 'starting', error: rt?.error ?? null, exitCode: rt?.exitCode ?? null, privacy: rt?.privacy ?? false }
   }
 
   private ensure(paneId: string): Runtime {
@@ -365,6 +367,7 @@ class TerminalRegistry {
       status: 'starting',
       exitCode: null,
       error: null,
+      privacy: false,
       task: null,
       scene,
       line: ''
@@ -538,6 +541,7 @@ class TerminalRegistry {
     rt.launch = launch
     rt.exitCode = null
     rt.error = null
+    rt.privacy = false
     const result = await window.api.terminals.spawn({
       paneId,
       cwd: launch.cwd,
@@ -550,6 +554,7 @@ class TerminalRegistry {
     if (!result.ok) {
       rt.spawned = false
       rt.error = result.error ?? 'The terminal could not start.'
+      rt.privacy = result.privacy === true
       rt.term.write(`\x1b[31m${rt.error}\x1b[0m\r\n`)
       this.setStatus(rt, 'exited')
       return

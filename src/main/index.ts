@@ -643,6 +643,10 @@ function registerIpc(): void {
   ipcMain.handle('chat:approve', (_e, requestId: string, approved: boolean) => resolveApproval(requestId, approved))
 
   ipcMain.handle('app:open-external', (_e, url: string) => openExternalSafely(url))
+  // Privacy & Security → Files and Folders, where Eaon is let into Downloads, Documents and Desktop.
+  ipcMain.handle('app:open-folder-privacy', () => {
+    if (isMac) return shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders')
+  })
   // `~` arrives from the renderer, which has no idea where home is; Work's
   // default folder is displayed as ~/Eaon until the first task creates it.
   // False when there's nothing there: showItemInFolder does nothing at all
