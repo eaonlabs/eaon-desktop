@@ -1240,18 +1240,91 @@ body[data-reduce-motion='on'] .credits-heart {
 
 /* ---------------- Star prompt (components/StarPrompt.tsx) ---------------- */
 
-.star-prompt__text {
-  margin: 0;
+/* A card in the bottom corner, over whatever is open, until it is answered. */
+.star-card {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 900;
+  width: min(360px, calc(100vw - 40px));
+  padding: 14px 16px 16px;
+  border-radius: var(--r-lg);
+  background: var(--surface-2);
+  box-shadow: 0 0 0 1px var(--border), var(--shadow-modal);
+  animation: star-card-in var(--dur-slow, 240ms) var(--ease) both;
+}
+@keyframes star-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+body[data-reduce-motion='on'] .star-card {
+  animation: none;
+}
+.star-card__head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.star-card__icon {
+  flex: none;
+  color: #f0b429;
+}
+.star-card__title {
+  flex: 1;
   font-size: var(--fs-base);
-  color: var(--text-2);
-  line-height: 1.5;
+  font-weight: 600;
+  color: var(--text);
 }
-.star-prompt__fine {
-  margin: 12px 0 0;
-  font-size: var(--fs-xs);
+.star-card__close {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin-right: -4px;
+  border-radius: var(--r-xs);
   color: var(--text-3);
-  line-height: 1.5;
 }
-.star-prompt__star {
-  gap: 6px;
+.star-card__close:hover {
+  background: var(--hover-strong);
+  color: var(--text);
+}
+.star-card__text {
+  margin: 10px 0 0;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--text-2);
+}
+.star-card__actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+.star-card__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 16px;
+  border-radius: var(--r-md);
+  background: var(--surface-3);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  transition: background var(--dur) var(--ease);
+}
+.star-card__btn:hover:not(:disabled) {
+  background: var(--surface-4);
+}
+.star-card__btn--github {
+  flex: 1;
+  background: color-mix(in srgb, #f0b429 16%, var(--surface-2));
+  box-shadow: 0 0 0 1px color-mix(in srgb, #f0b429 22%, transparent);
+}
+.star-card__btn--github:hover:not(:disabled) {
+  background: color-mix(in srgb, #f0b429 24%, var(--surface-2));
+}
+.star-card__btn:disabled {
+  opacity: 0.6;
 }

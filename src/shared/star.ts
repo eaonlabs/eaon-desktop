@@ -15,3 +15,10 @@ export interface StarResult {
   /** Why it wasn't, for a sentence under the button. Absent when it was. */
   reason?: 'no-gh' | 'not-signed-in' | 'failed'
 }
+
+/** How much use of the app comes before the popup in a session: somewhere from 10 to 20 minutes. */
+export const ASK_AFTER_MIN_MS = 10 * 60_000
+export const ASK_AFTER_MAX_MS = 20 * 60_000
+
+/** This session's wait, from a random number in [0, 1). */
+export const askAfterMs = (random: number): number => ASK_AFTER_MIN_MS + Math.floor(Math.min(Math.max(random, 0), 0.999999) * (ASK_AFTER_MAX_MS - ASK_AFTER_MIN_MS))

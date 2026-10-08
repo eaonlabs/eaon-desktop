@@ -1,89 +1,97 @@
-import { useEffect, useState } from 'react'
-import { Star } from 'lucide-react'
-import type { StarResult } from '@shared/star'
-import { Modal } from './ui'
+import { useEffect, useRef, useState } from 'react'
+import { ExternalLink, Star, X } from 'lucide-react'
+import { askAfterMs, type StarResult } from '@shared/star'
 
-/** How long into a session before it asks: after they have started something, not on launch. */
-const ASK_AFTER_MS = 45_000
+/** How often time in front of the app is counted. */
+const TICK_MS = 15_000
+/** How long the thank-you stays before the card goes. */
+const THANKS_MS = 5_000
 
 /**
- * "Star Eaon on GitHub". It asks rarely (main/starPrompt.ts decides when) and
- * does nothing until the button is pressed. Star on GitHub opens the
- * repository and, when the GitHub CLI is signed in on this computer, stars it
- * for them.
+ * "Enjoying Eaon?" — a small card in the corner after 10 to 20 minutes of
+ * using the app in a session (only time with the window in front counts).
+ * Main decides whether it may ask at all (main/starPrompt.ts): never once the
+ * person's GitHub account has starred the repository or they went to it from
+ * here, and rarely otherwise. Open GitHub stars it through the GitHub CLI
+ * when that is signed in, and opens the repository either way.
  */
 export function StarPrompt(): JSX.Element | null {
   const [open, setOpen] = useState(false)
-  const [result, setResult] = useState<StarResult | null>(null)
   const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<StarResult | null>(null)
+  const closing = useRef<number | null>(null)
 
   useEffect(() => {
-    const timer = setTimeout(() => {
+    const target = askAfterMs(Math.random())
+    let used = 0
+    let last = Date.now()
+    const timer = window.setInterval(() => {
+      const now = Date.now()
+      const step = now - last
+      last = now
+      // A long gap is the computer asleep, not use.
+      if (document.visibilityState === 'visible' && document.hasFocus() && step < 3 * TICK_MS) used += step
+      if (used < target) return
+      window.clearInterval(timer)
       void window.api.star
         .shouldAsk()
         .then((ask) => setOpen(ask))
         .catch(() => undefined)
-    }, ASK_AFTER_MS)
-    return () => clearTimeout(timer)
+    }, TICK_MS)
+    return () => {
+      window.clearInterval(timer)
+      if (closing.current) window.clearTimeout(closing.current)
+    }
   }, [])
 
-  const close = (): void => {
-    // Closing without choosing is "later".
+  if (!open) return null
+
+  const later = (): void => {
     if (!result) void window.api.star.answer('later')
     setOpen(false)
   }
 
-  const star = (): void => {
+  const openGitHub = (): void => {
     setBusy(true)
     void window.api.star
       .answer('star')
       .then((outcome) => setResult(outcome ?? { starred: false, reason: 'failed' }))
-      .finally(() => setBusy(false))
+      .catch(() => setResult({ starred: false, reason: 'failed' }))
+      .finally(() => {
+        setBusy(false)
+        closing.current = window.setTimeout(() => setOpen(false), THANKS_MS)
+      })
   }
 
   return (
-    <Modal
-      open={open}
-      onClose={close}
-      title={result ? (result.starred ? 'Starred. Thank you!' : 'Thanks for stopping by') : 'Star Eaon on GitHub'}
-      width={430}
-      actions={
-        result ? (
-          <button className="btn btn--primary" onClick={close}>
-            Done
+    <div className="star-card" role="dialog" aria-labelledby="star-card-title">
+      <div className="star-card__head">
+        <Star className="star-card__icon" size={16} strokeWidth={2} fill="currentColor" aria-hidden />
+        <span id="star-card-title" className="star-card__title">
+          {result ? (result.starred ? 'Starred. Thank you!' : 'Thanks for stopping by') : 'Enjoying Eaon?'}
+        </span>
+        <button type="button" className="star-card__close" aria-label="Close" onClick={later}>
+          <X size={14} strokeWidth={2} />
+        </button>
+      </div>
+      <p className="star-card__text">
+        {result
+          ? result.starred
+            ? 'Your star is on the repository. It helps other developers find Eaon.'
+            : 'The repository is open in your browser. Press ★ there to star it.'
+          : 'Eaon is open source. If it helped today, a GitHub star helps other developers find it.'}
+      </p>
+      {!result && (
+        <div className="star-card__actions">
+          <button type="button" className="star-card__btn star-card__btn--github" disabled={busy} onClick={openGitHub}>
+            <ExternalLink size={14} strokeWidth={2} />
+            {busy ? 'Opening…' : 'Open GitHub'}
           </button>
-        ) : (
-          <>
-            <button className="btn btn--ghost" disabled={busy} onClick={() => void window.api.star.answer('never').then(() => setOpen(false))}>
-              No thanks
-            </button>
-            <button className="btn" disabled={busy} onClick={close}>
-              Maybe later
-            </button>
-            <button className="btn btn--accent star-prompt__star" disabled={busy} onClick={star}>
-              <Star size={14} strokeWidth={2} fill="currentColor" />
-              {busy ? 'Opening…' : 'Star on GitHub'}
-            </button>
-          </>
-        )
-      }
-    >
-      {result ? (
-        <p className="star-prompt__text">
-          {result.starred
-            ? 'The repository is open, with its star filled in.'
-            : result.reason === 'not-signed-in'
-              ? 'The repository is open. Press its ★ there. Sign in with “gh auth login” and next time Eaon can do it for you.'
-              : 'The repository is open. Press its ★ there to star it.'}
-        </p>
-      ) : (
-        <>
-          <p className="star-prompt__text">Eaon is free and open source. A star helps other people find it, and it tells us the work is worth doing.</p>
-          <p className="star-prompt__fine">
-            Star on GitHub opens the repository and, if the GitHub CLI is signed in on this computer, stars it for you. Nothing happens until you press it.
-          </p>
-        </>
+          <button type="button" className="star-card__btn" disabled={busy} onClick={later}>
+            Later
+          </button>
+        </div>
       )}
-    </Modal>
+    </div>
   )
 }

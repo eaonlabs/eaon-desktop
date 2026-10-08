@@ -5,6 +5,13 @@ All notable changes to Eaon are documented here. Format loosely follows
 
 ## [Unreleased]
 
+### Changed
+- **"Enjoying Eaon?"** The GitHub star prompt is a small card in the corner
+  after 10 to 20 minutes of using Eaon in a session, not a dialog. Open GitHub
+  stars the repository for you when the GitHub CLI is signed in, and opens it
+  either way; after that, or when your GitHub account has already starred it,
+  it never shows again. Later asks again in a week, three times at most.
+
 ### Fixed
 - **The ADE's sessions.** A session with no terminals open now shows its past
   Claude Code and Codex conversations on its page ("Pick up where you left

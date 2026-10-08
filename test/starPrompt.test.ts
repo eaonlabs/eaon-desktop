@@ -18,7 +18,7 @@ test('it does not ask on the first launches, and asks once there have been enoug
   assert.equal(shouldAsk(base({ launches: MIN_LAUNCHES }), NOW), true)
 })
 
-test('it waits two weeks between asks, and asks three times at most', () => {
+test('it waits a week after a Later, and asks three times at most', () => {
   assert.equal(shouldAsk(base({ asked: 1, lastAskedAt: NOW - ASK_EVERY_MS + 1000 }), NOW), false, 'not yet')
   assert.equal(shouldAsk(base({ asked: 1, lastAskedAt: NOW - ASK_EVERY_MS }), NOW), true)
   assert.equal(shouldAsk(base({ asked: MAX_ASKS, lastAskedAt: NOW - 10 * ASK_EVERY_MS }), NOW), false, 'three asks is enough')
@@ -60,4 +60,15 @@ test('someone who already starred it is recognised, and a 404 means not yet', as
   assert.equal(await alreadyStarred(async (args) => (assert.deepEqual(args, ['api', `/user/starred/${STAR_REPO}`]), { ok: true })), true)
   assert.equal(await alreadyStarred(async () => ({ ok: false, reason: 'failed' })), false)
   assert.equal(await alreadyStarred(async () => ({ ok: false, reason: 'no-gh' })), false)
+})
+
+test('in a session it asks after 10 to 20 minutes of use, from the first launch', async () => {
+  const { askAfterMs, ASK_AFTER_MIN_MS, ASK_AFTER_MAX_MS } = await import('@shared/star')
+  assert.equal(ASK_AFTER_MIN_MS, 10 * 60_000)
+  assert.equal(ASK_AFTER_MAX_MS, 20 * 60_000)
+  for (const r of [0, 0.25, 0.5, 0.999, 1, -1, 2]) {
+    const wait = askAfterMs(r)
+    assert.ok(wait >= ASK_AFTER_MIN_MS && wait < ASK_AFTER_MAX_MS, `${r}: ${wait}`)
+  }
+  assert.equal(shouldAsk(base({ launches: 1 }), NOW), true, 'the first session can be the one')
 })

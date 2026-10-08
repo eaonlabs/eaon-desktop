@@ -17,10 +17,14 @@ import { onPath } from './shellEnv'
 
 type PromptState = Settings['starPrompt']
 
-/** Launches before the first ask, asks in all, and the wait between them. */
-export const MIN_LAUNCHES = 3
+/**
+ * Launches before the first ask, asks in all, and the wait after a "Later".
+ * Within a session it waits for 10 to 20 minutes of use (shared/star.ts), so
+ * the first session can be the one.
+ */
+export const MIN_LAUNCHES = 1
 export const MAX_ASKS = 3
-export const ASK_EVERY_MS = 14 * 24 * 60 * 60 * 1000
+export const ASK_EVERY_MS = 7 * 24 * 60 * 60 * 1000
 
 /** Whether to put the popup up now. */
 export function shouldAsk(state: PromptState, now: number): boolean {
