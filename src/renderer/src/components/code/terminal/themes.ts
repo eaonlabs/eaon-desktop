@@ -23,6 +23,16 @@ export type SceneId =
   | 'embers'
   | 'clouds'
   | 'dunes'
+  | 'snow'
+  | 'volcano'
+  | 'deepsea'
+  | 'lighthouse'
+  | 'orbit'
+  | 'lanterns'
+  | 'jellyfish'
+  | 'meadow'
+  | 'mesa'
+  | 'fireworks'
 
 export interface TerminalColors {
   background: string
@@ -219,6 +229,78 @@ export const TERMINAL_THEMES: TerminalTheme[] = [
     colors: palette('#000000', '#d4d4d4', ['#000000', '#d75f5f', '#87af87', '#d7af87', '#87afd7', '#af87d7', '#87d7d7', '#d4d4d4', '#5a5a5a', '#e07a7a', '#a3c9a3', '#e3c39f', '#a3c4e3', '#c4a3e3', '#a3e3e3', '#ffffff'], { cursor: '#ffffff' })
   },
   {
+    id: 'iceberg',
+    name: 'Iceberg',
+    mode: 'dark',
+    app: 'Glacier',
+    scene: 'snow',
+    blurb: 'Snow falling on the peaks, a cabin with its light on',
+    colors: palette('#161821', '#c6c8d1', ['#1e2132', '#e27878', '#b4be82', '#e2a478', '#84a0c6', '#a093c7', '#89b8c2', '#c6c8d1', '#6b7089', '#e98989', '#c0ca8e', '#e9b189', '#91acd1', '#ada0d3', '#95c4ce', '#d2d4de'], { cursor: '#c6c8d1' })
+  },
+  {
+    id: 'monokai',
+    name: 'Monokai',
+    mode: 'dark',
+    app: 'Ember',
+    scene: 'volcano',
+    blurb: 'A volcano, lava running down its sides',
+    colors: palette('#272822', '#f8f8f2', ['#272822', '#f92672', '#a6e22e', '#f4bf75', '#66d9ef', '#ae81ff', '#a1efe4', '#f8f8f2', '#75715e', '#f92672', '#a6e22e', '#f4bf75', '#66d9ef', '#ae81ff', '#a1efe4', '#f9f8f5'], { cursor: '#f8f8f0' })
+  },
+  {
+    id: 'oceanic-next',
+    name: 'Oceanic Next',
+    mode: 'dark',
+    app: 'Abyss',
+    scene: 'deepsea',
+    blurb: 'Under the sea: kelp, fish and bubbles in the light from above',
+    colors: palette('#1b2b34', '#c0c5ce', ['#343d46', '#ec5f67', '#99c794', '#fac863', '#6699cc', '#c594c5', '#5fb3b3', '#c0c5ce', '#65737e', '#ec5f67', '#99c794', '#fac863', '#6699cc', '#c594c5', '#5fb3b3', '#d8dee9'], { cursor: '#c0c5ce' })
+  },
+  {
+    id: 'night-owl',
+    name: 'Night Owl',
+    mode: 'dark',
+    app: 'Cobalt',
+    scene: 'lighthouse',
+    blurb: 'A lighthouse sweeping the sea at night',
+    colors: palette('#011627', '#d6deeb', ['#011627', '#ef5350', '#22da6e', '#addb67', '#82aaff', '#c792ea', '#21c7a8', '#ffffff', '#575656', '#ef5350', '#22da6e', '#ffeb95', '#82aaff', '#c792ea', '#7fdbca', '#ffffff'], { cursor: '#80a4c2' })
+  },
+  {
+    id: 'palenight',
+    name: 'Palenight',
+    mode: 'dark',
+    app: 'Indigo',
+    scene: 'orbit',
+    blurb: 'A ringed planet, its moons going round',
+    colors: palette('#292d3e', '#a6accd', ['#292d3e', '#f07178', '#c3e88d', '#ffcb6b', '#82aaff', '#c792ea', '#89ddff', '#d0d0d0', '#434758', '#ff8b92', '#ddffa7', '#ffe585', '#9cc4ff', '#e1acff', '#a3f7ff', '#ffffff'], { cursor: '#ffcc00' })
+  },
+  {
+    id: 'rose-pine',
+    name: 'Rosé Pine',
+    mode: 'dark',
+    app: 'Rosé Pine',
+    scene: 'lanterns',
+    blurb: 'Paper lanterns rising over still water',
+    colors: palette('#191724', '#e0def4', ['#26233a', '#eb6f92', '#31748f', '#f6c177', '#9ccfd8', '#c4a7e7', '#ebbcba', '#e0def4', '#6e6a86', '#eb6f92', '#31748f', '#f6c177', '#9ccfd8', '#c4a7e7', '#ebbcba', '#e0def4'], { cursor: '#524f67' })
+  },
+  {
+    id: 'moonlight',
+    name: 'Moonlight',
+    mode: 'dark',
+    app: 'Plum',
+    scene: 'jellyfish',
+    blurb: 'Jellyfish drifting up through the dark',
+    colors: palette('#222436', '#c8d3f5', ['#1b1d2b', '#ff757f', '#c3e88d', '#ffc777', '#82aaff', '#c099ff', '#86e1fc', '#828bb8', '#444a73', '#ff757f', '#c3e88d', '#ffc777', '#82aaff', '#c099ff', '#86e1fc', '#c8d3f5'], { cursor: '#c8d3f5' })
+  },
+  {
+    id: 'horizon',
+    name: 'Horizon',
+    mode: 'dark',
+    app: 'Rose',
+    scene: 'fireworks',
+    blurb: 'Fireworks over the city',
+    colors: palette('#1c1e26', '#d5d8da', ['#16161c', '#e95678', '#29d398', '#fab795', '#26bbd9', '#ee64ac', '#59e1e3', '#d5d8da', '#5b5858', '#ec6a88', '#3fdaa4', '#fbc3a7', '#3fc4de', '#f075b5', '#6be4e6', '#d5d8da'], { cursor: '#e95678' })
+  },
+  {
     id: 'rose-pine-dawn',
     name: 'Rosé Pine Dawn',
     mode: 'light',
@@ -235,6 +317,24 @@ export const TERMINAL_THEMES: TerminalTheme[] = [
     scene: 'clouds',
     blurb: 'Clouds over green hills on a bright day',
     colors: palette('#eff1f5', '#4c4f69', ['#5c5f77', '#d20f39', '#40a02b', '#df8e1d', '#1e66f5', '#ea76cb', '#179299', '#acb0be', '#6c6f85', '#d20f39', '#40a02b', '#df8e1d', '#1e66f5', '#ea76cb', '#179299', '#bcc0cc'], { cursor: '#dc8a78' })
+  },
+  {
+    id: 'gruvbox-light',
+    name: 'Gruvbox Light',
+    mode: 'light',
+    app: 'Sand',
+    scene: 'meadow',
+    blurb: 'A meadow in the breeze, butterflies and all',
+    colors: palette('#fbf1c7', '#3c3836', ['#fbf1c7', '#cc241d', '#98971a', '#d79921', '#458588', '#b16286', '#689d6a', '#7c6f64', '#928374', '#9d0006', '#79740e', '#b57614', '#076678', '#8f3f71', '#427b58', '#3c3836'], { cursor: '#3c3836', selection: '#d5c4a155' })
+  },
+  {
+    id: 'solarized-light',
+    name: 'Solarized Light',
+    mode: 'light',
+    app: 'Solarized',
+    scene: 'mesa',
+    blurb: 'Desert mesas, cacti and a tumbleweed',
+    colors: palette('#fdf6e3', '#586e75', ['#073642', '#dc322f', '#859900', '#b58900', '#268bd2', '#d33682', '#2aa198', '#eee8d5', '#002b36', '#cb4b16', '#586e75', '#657b83', '#839496', '#6c71c4', '#93a1a1', '#fdf6e3'], { cursor: '#586e75', selection: '#eee8d5aa' })
   },
   {
     id: 'flexoki-light',

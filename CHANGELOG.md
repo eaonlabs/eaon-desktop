@@ -3,6 +3,17 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [Unreleased]
+
+### Added
+- **Ten more ADE terminal themes, each with its own animated scene:**
+  Iceberg (snow on the peaks, a cabin with its light on), Monokai (a
+  volcano), Oceanic Next (under the sea), Night Owl (a lighthouse), Palenight
+  (a ringed planet and its moons), Rosé Pine (lanterns over water),
+  Moonlight (jellyfish), Horizon (fireworks over the city), Gruvbox Light (a
+  meadow with butterflies) and Solarized Light (desert mesas). Each restyles
+  the app to match, like the others.
+
 ## [2026.6.2-beta.9] — 2026-10-08
 
 ### Changed
