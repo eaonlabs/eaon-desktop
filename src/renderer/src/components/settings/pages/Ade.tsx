@@ -83,8 +83,8 @@ export function AdePage(): JSX.Element {
       <Section label="Import sessions">
         <Card>
           <Row
-            title="Import sessions from Claude Code and Codex"
-            description="Finds the conversations those CLIs have on this computer and adds a session for each folder they ran in, with its conversations listed under it. Nothing in Claude Code or Codex changes; clicking one reopens it."
+            title="Bring back ADE sessions"
+            description="Finds the Claude Code and Codex conversations that ran in the ADE’s own terminals and adds a session for each folder they ran in. Sessions you removed, and conversations from anywhere else, are left out. Nothing in Claude Code or Codex changes."
           >
             <button type="button" className="btn btn--sm" onClick={() => void look()} disabled={scan === 'looking'}>
               {scan === 'looking' ? <Loader2 size={13} strokeWidth={2} className="spinner" /> : <FolderSearch size={13} strokeWidth={1.9} />}
@@ -103,7 +103,7 @@ export function AdePage(): JSX.Element {
           {scan === 'done' && found.length === 0 && (
             <div className="row">
               <div className="row__body">
-                <div className="row__desc">No Claude Code or Codex conversations were found on this computer (in folders that still exist).</div>
+                <div className="row__desc">Nothing to bring back: every Claude Code or Codex conversation that ran in the ADE is in a session already, or its folder is gone or was removed.</div>
               </div>
             </div>
           )}

@@ -315,7 +315,18 @@ body[data-reduce-motion='on'] .term-pane__dot {
   color: var(--text-2);
   line-height: 1.55;
 }
-/* An empty session's past conversations, above the agent cards. */
+/* An empty session's past conversations, above the agent cards: a link until asked for. */
+.term-past__open {
+  margin: -10px 0 18px;
+  padding: 4px 10px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+.term-past__open:hover {
+  background: var(--hover);
+  color: var(--text);
+}
 .term-past {
   width: min(470px, 100%);
   margin: -8px 0 4px;
@@ -707,4 +718,9 @@ body[data-reduce-motion='on'] .theme-picker {
 }
 .theme-picker__own:hover {
   text-decoration: underline;
+}
+
+/* Files from Finder over a pane: they will be typed in as paths. */
+.term-pane[data-file-over] {
+  box-shadow: 0 0 0 2px var(--accent, var(--text-2));
 }

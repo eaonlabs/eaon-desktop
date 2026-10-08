@@ -27,8 +27,9 @@ import type { TerminalPaneSpec } from '@shared/terminals'
 
 /**
  * The ADE's sidebar: its projects, each with its sessions, and the open
- * session's agents — the terminals running in it and the past Claude Code and
- * Codex conversations filed for its folder, which a click reopens.
+ * session's agents — the terminals open in it. Conversations that ended are
+ * not listed here (they filled every folder with sessions long closed); an
+ * empty session's page offers them to reopen (TerminalWorkspace).
  */
 export function CodeSidebar(): JSX.Element | null {
   const { cwd, recents, chooseFolder } = useCode(useShallow((s) => ({ cwd: s.cwd, recents: s.recents, chooseFolder: s.chooseFolder })))
@@ -259,14 +260,11 @@ function SessionRow({ session, active, solo = false, onNewSession }: { session: 
   )
 }
 
-/** How many past conversations show before "Show more". */
-const PAST_SHOWN = 5
-
 interface AgentItem {
   key: string
   agent: TerminalPaneSpec['agent']
   task: string
-  /** working, open and waiting, ended, or a past conversation. */
+  /** working, open and waiting, ended, or not started yet this run (it starts when shown). */
   kind: 'working' | 'live' | 'exited' | 'past'
   at: number
   onOpen: () => void
@@ -275,19 +273,17 @@ interface AgentItem {
 function AgentList({ session }: { session: AdeSession }): JSX.Element | null {
   const { panes } = useSessionPanes(session)
   const agents = useTerminals((s) => s.agents)
-  const { conversations, held, loadConversations, reopen } = useAdeSessions(
+  const { conversations, held, loadConversations } = useAdeSessions(
     useShallow((s) => ({
       conversations: s.conversations[session.cwd] ?? EMPTY_CONVERSATIONS,
       held: s.paneConversations,
-      loadConversations: s.loadConversations,
-      reopen: s.reopen
+      loadConversations: s.loadConversations
     }))
   )
   const [folded, setFolded] = useState(false)
-  const [all, setAll] = useState(false)
   const [now, setNow] = useState(() => Date.now())
 
-  // The list of past conversations, and the ages beside them, kept current while it is on screen.
+  // The folder's conversations give each pane its title; kept current, with the ages, while on screen.
   useEffect(() => {
     void loadConversations(session.cwd)
     const tick = window.setInterval(() => {
@@ -298,7 +294,6 @@ function AgentList({ session }: { session: AdeSession }): JSX.Element | null {
   }, [session.cwd, panes.length, loadConversations])
 
   const byId = new Map(conversations.map((c) => [c.id, c]))
-  const openIds = new Set(panes.map((p) => held[p.id] ?? p.resume).filter(Boolean) as string[])
   const label = (id: string): string => agents.find((a) => a.id === id)?.label ?? id
 
   const live: AgentItem[] = panes.map((pane) => {
@@ -314,20 +309,8 @@ function AgentList({ session }: { session: AdeSession }): JSX.Element | null {
       onOpen: () => terminals.focus(pane.id)
     }
   })
-  const past = conversations.filter((c) => !openIds.has(c.id))
-  const shownPast = all ? past : past.slice(0, PAST_SHOWN)
-  const items: AgentItem[] = [
-    ...live,
-    ...shownPast.map((c) => ({
-      key: `${c.agent}:${c.id}`,
-      agent: c.agent,
-      task: c.title,
-      kind: 'past' as const,
-      at: c.touched,
-      onOpen: () => reopen(session, c)
-    }))
-  ]
-  const total = live.length + past.length
+  const items = live
+  const total = items.length
   if (total === 0) return null
 
   return (
@@ -348,11 +331,6 @@ function AgentList({ session }: { session: AdeSession }): JSX.Element | null {
               <span className="ade-agent__age">{item.kind === 'working' ? 'now' : item.at ? ageLabel(item.at, now) : ''}</span>
             </button>
           ))}
-          {past.length > PAST_SHOWN && (
-            <button type="button" className="ade-agents__more" onClick={() => setAll(!all)}>
-              {all ? 'Show fewer' : `Show ${past.length - PAST_SHOWN} more`}
-            </button>
-          )}
         </div>
       )}
     </div>
@@ -363,7 +341,7 @@ const KIND_LABEL: Record<AgentItem['kind'], string> = {
   working: 'Working',
   live: 'Waiting for you',
   exited: 'Ended',
-  past: 'Finished — click to reopen'
+  past: 'Starts when you show it'
 }
 
 function AgentStatus({ kind }: { kind: AgentItem['kind'] }): JSX.Element {

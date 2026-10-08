@@ -64,21 +64,26 @@ function sampleStyle(c: TerminalColors): CSSProperties {
 }
 
 export function ThemePicker(): JSX.Element | null {
-  const { open, close, setPreview, saveLook, from, cli } = useTerminals(
+  const { open, close, setPreview, saveLook, from, cliLabel, cliCommand } = useTerminals(
     useShallow((s) => {
       // The CLI in the pane `/theme` came from, which may have a /theme of its own.
       const pane = s.pickerFrom ? Object.values(s.layout).flat().find((p) => p.id === s.pickerFrom) : undefined
       const agent = pane && OWN_THEME_COMMAND[pane.agent] ? s.agents.find((a) => a.id === pane.agent) : undefined
+      // Strings, not an object: useShallow compares one level down, and a new
+      // object on every read re-renders forever (React #185) — the picker
+      // crashed the ADE whenever it was opened from Claude Code.
       return {
         open: s.pickerOpen,
         close: s.closePicker,
         setPreview: s.setPreview,
         saveLook: s.saveLook,
         from: s.pickerFrom,
-        cli: agent ? { label: agent.label, command: OWN_THEME_COMMAND[agent.id] as string } : null
+        cliLabel: agent?.label ?? null,
+        cliCommand: agent ? (OWN_THEME_COMMAND[agent.id] ?? null) : null
       }
     })
   )
+  const cli = cliLabel && cliCommand ? { label: cliLabel, command: cliCommand } : null
   const look = useApp((s) => s.settings?.ade ?? { theme: 'eaon', scenes: true })
   const saved = findTheme(look.theme)
   const [index, setIndex] = useState(0)

@@ -15,7 +15,7 @@ import { useAdeSessions } from '../sessionsStore'
 import { ageLabel, sessionTitle, type AdeConversation, type AdeSession } from '@shared/adeSessions'
 import { terminals, type PaneStatus } from './registry'
 import { useTerminals } from './terminalStore'
-import type { TerminalAgent, TerminalAgentId, TerminalPaneSpec } from '@shared/terminals'
+import { pathsForTerminal, type TerminalAgent, type TerminalAgentId, type TerminalPaneSpec } from '@shared/terminals'
 import { ThemePicker } from './ThemePicker'
 import { findTheme } from './themes'
 import {
@@ -138,24 +138,32 @@ const NO_CONVERSATIONS: AdeConversation[] = []
 const PAST_LISTED = 5
 
 /**
- * A session with no terminals open: its past Claude Code and Codex
- * conversations, to carry on with one click. They were only in the sidebar,
- * under the open session, so a session opened onto a page that looked like
- * it had none.
+ * A session with no terminals open can reopen one of its folder's past Claude
+ * Code and Codex conversations (ones started in a terminal; not headless runs
+ * or other apps'). Folded away until asked for: opening a folder used to
+ * list every conversation ever had there.
  */
 function PastConversations({ session }: { session: AdeSession }): JSX.Element | null {
   const { conversations, loadConversations, reopen } = useAdeSessions(
     useShallow((s) => ({ conversations: s.conversations[session.cwd] ?? NO_CONVERSATIONS, loadConversations: s.loadConversations, reopen: s.reopen }))
   )
   const [now] = useState(() => Date.now())
+  const [shown, setShown] = useState(false)
   useEffect(() => {
     void loadConversations(session.cwd)
   }, [session.cwd, loadConversations])
   if (conversations.length === 0) return null
+  if (!shown) {
+    return (
+      <button type="button" className="term-past__open" onClick={() => setShown(true)}>
+        Reopen a past conversation…
+      </button>
+    )
+  }
   const listed = conversations.slice(0, PAST_LISTED)
   return (
     <section className="term-past" aria-label="Past conversations in this folder">
-      <h2 className="term-past__heading">Pick up where you left off</h2>
+      <h2 className="term-past__heading">Reopen a past conversation</h2>
       <div className="term-past__list">
         {listed.map((c) => (
           <button key={`${c.agent}:${c.id}`} type="button" className="term-past__item" title={c.title} onClick={() => reopen(session, c)}>
@@ -165,7 +173,7 @@ function PastConversations({ session }: { session: AdeSession }): JSX.Element | 
           </button>
         ))}
       </div>
-      {conversations.length > PAST_LISTED && <p className="term-past__more">{conversations.length - PAST_LISTED} more in the sidebar</p>}
+      {conversations.length > PAST_LISTED && <p className="term-past__more">The newest {PAST_LISTED} of {conversations.length}</p>}
       <h2 className="term-past__heading term-past__heading--start">Or start an agent</h2>
     </section>
   )
@@ -358,6 +366,8 @@ const TerminalPane = memo(function TerminalPane({
     }))
   )
   const [over, setOver] = useState(false)
+  /** Files from Finder are over this pane. */
+  const [fileOver, setFileOver] = useState(false)
   const target = dragging !== null && dragging !== pane.id
   const status = usePaneStatus(pane.id)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
@@ -386,8 +396,28 @@ const TerminalPane = memo(function TerminalPane({
       className="term-pane"
       data-status={status}
       data-dragging={dragging === pane.id || undefined}
+      data-file-over={fileOver || undefined}
       style={{ gridColumn, gridRow }}
       onMouseDown={() => terminals.focus(pane.id)}
+      // Files dropped from Finder (an image for Claude Code, say) are typed in
+      // as their paths, as a terminal app does. Another pane being moved is
+      // the drop target's business, below.
+      onDragOver={(e) => {
+        if (!e.dataTransfer.types.includes('Files') || e.dataTransfer.types.includes(PANE_MIME)) return
+        e.preventDefault()
+        e.dataTransfer.dropEffect = 'copy'
+        if (!fileOver) setFileOver(true)
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFileOver(false)
+      }}
+      onDrop={(e) => {
+        if (!e.dataTransfer.files.length || e.dataTransfer.types.includes(PANE_MIME)) return
+        e.preventDefault()
+        setFileOver(false)
+        const paths = [...e.dataTransfer.files].map((file) => window.api.app.pathForFile(file)).filter(Boolean)
+        terminals.paste(pane.id, pathsForTerminal(paths))
+      }}
     >
       <header
         className="term-pane__head"

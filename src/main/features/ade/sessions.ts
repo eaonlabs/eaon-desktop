@@ -23,6 +23,8 @@ export interface SavedSessions {
   sessions: AdeSession[]
   /** The folders that had terminals before sessions existed have been made sessions (once). */
   adopted?: boolean
+  /** Folders whose session the user removed: Import leaves them out until one is opened again on purpose. */
+  closed?: string[]
 }
 
 export interface SessionBookDeps {
@@ -69,6 +71,7 @@ function normalize(raw: unknown): AdeSession | null {
 export class SessionBook {
   private sessions: AdeSession[] = []
   private adoptedOnce = false
+  private closed = new Set<string>()
 
   constructor(private readonly deps: SessionBookDeps) {
     const raw = deps.load() as Partial<SavedSessions> | null
@@ -83,6 +86,7 @@ export class SessionBook {
       this.sessions.push(session)
     }
     this.adoptedOnce = raw?.adopted === true
+    for (const dir of Array.isArray(raw?.closed) ? raw.closed : []) if (str(dir)) this.closed.add(path.resolve(dir))
   }
 
   private repo(dir: string): Promise<git.RepoInfo | null> {
@@ -108,8 +112,17 @@ export class SessionBook {
     return found ? { ...found } : null
   }
 
+  /** Whether the user removed this folder's session, so Import must not bring it back. */
+  isClosed(cwd: string): boolean {
+    return this.closed.has(path.resolve(cwd))
+  }
+
   private commit(): void {
-    this.deps.save({ sessions: this.sessions.map(({ missing: _missing, ...rest }) => rest), adopted: this.adoptedOnce })
+    this.deps.save({
+      sessions: this.sessions.map(({ missing: _missing, ...rest }) => rest),
+      adopted: this.adoptedOnce,
+      ...(this.closed.size > 0 ? { closed: [...this.closed] } : {})
+    })
   }
 
   /** Looks again at each session's folder: whether it is there, whether it is in git now, and on which branch. */
@@ -149,6 +162,8 @@ export class SessionBook {
     const cwd = path.resolve(folder)
     const have = this.byCwd(cwd)
     if (have) return have
+    // Opened again on purpose (the picker, a recent folder): it is no longer closed.
+    if (!imported) this.closed.delete(cwd)
     const repo = await this.repo(cwd)
     const session: AdeSession = {
       id: `ses-${randomUUID()}`,
@@ -259,6 +274,8 @@ export class SessionBook {
       }
     }
     this.sessions = this.sessions.filter((s) => s.id !== id)
+    // Claude Code and Codex keep its conversations, so Import would otherwise bring it straight back.
+    this.closed.add(path.resolve(session.cwd))
     this.commit()
     return { ok: true }
   }
@@ -275,7 +292,7 @@ export class SessionBook {
   async importFolders(folders: { cwd: string; at: number }[]): Promise<AdeSession[]> {
     const made: AdeSession[] = []
     for (const { cwd, at } of folders) {
-      if (!isDir(cwd) || this.byCwd(cwd)) continue
+      if (!isDir(cwd) || this.byCwd(cwd) || this.isClosed(cwd)) continue
       made.push(await this.ensureFolder(cwd, { at }))
     }
     return made

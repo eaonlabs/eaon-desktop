@@ -3,6 +3,28 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [Unreleased]
+
+### Changed
+- **The ADE's sidebar lists a session's open terminals, not its history.**
+  Closed Claude Code and Codex conversations no longer fill every session;
+  an empty session's page can still reopen one ("Reopen a past
+  conversation…"), out of sight until asked for.
+- **Import brings back the sessions that were active in the ADE** — the
+  folders of conversations that ran in its own terminals — not every folder
+  Claude Code or Codex was ever used in. A session you remove stays out of
+  Import, and the ADE no longer reopens it at launch.
+- Conversations that other programs started (headless `claude -p` runs,
+  Codex's desktop app and subagents) aren't listed anywhere.
+
+### Added
+- **Drop images and files on an ADE terminal.** They're typed in as their
+  paths, quoted where needed, as a terminal app does; Claude Code attaches a
+  dropped image.
+
+### Fixed
+- Typing `/theme` in a Claude Code terminal crashed the ADE.
+
 ## [2026.6.2-beta.8] — 2026-10-08
 
 ### Added

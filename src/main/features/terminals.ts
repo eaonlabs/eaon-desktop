@@ -13,6 +13,7 @@ import { buildChildEnv } from './eaonCode/env'
 import { findInstallerCopy } from './eaonCode/locate'
 import { eaonCliBinary, eaonCliEnv } from './eaonCli'
 import { cliAccountEnv } from './cliAccounts'
+import { adeHistory } from './ade/history'
 import { currentPane, privacyBlockedMessage, type TerminalAgent, type TerminalAgentId, type TerminalLayout, type TerminalSpawnRequest } from '@shared/terminals'
 
 /**
@@ -188,7 +189,17 @@ export function createTerminals(options: TerminalsOptions = {}): Feature & { tic
   const restored = new Set<string>()
 
   const paneRecords = (): PaneRecords => {
-    if (!records) records = new PaneRecords(options.dir ?? path.join(app.getPath('userData'), 'terminals'))
+    if (!records) {
+      const made = new PaneRecords(options.dir ?? path.join(app.getPath('userData'), 'terminals'))
+      // The ADE's history of conversations that ran in its panes (ade/history.ts), from what is open now on.
+      if (!options.dir) {
+        void adeHistory().then((history) => {
+          made.onConversation = (agent, sessionId, cwd) => history.note(agent, sessionId, cwd)
+          for (const r of made.all()) if (r.sessionId && r.cwd) history.note(r.agent, r.sessionId, r.cwd)
+        })
+      }
+      records = made
+    }
     return records
   }
 

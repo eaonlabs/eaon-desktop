@@ -86,6 +86,13 @@ interface Parsed {
   title: string
   /** A turn somebody took, so the agent has something to reopen. */
   hasTurn: boolean
+  /**
+   * Started by someone in a terminal. Claude Code run headless (`claude -p`,
+   * which scripts, agents and other apps use) and Codex's desktop app, its
+   * `exec` and its subagents write conversations too; those aren't sessions
+   * anyone opened, and listing them filled a folder with strangers.
+   */
+  interactive: boolean
   id?: string
 }
 
@@ -99,9 +106,11 @@ function parseClaude(file: string, size: number): Parsed | null {
   let hasTurn = false
   let title: string | null = null
   let summary: string | null = null
+  let entrypoint: string | null = null
   for (const row of [...head, ...tail]) {
     const type = row.type
     if (!cwd && typeof row.cwd === 'string') cwd = row.cwd
+    if (!entrypoint && typeof row.entrypoint === 'string') entrypoint = row.entrypoint
     if (type === 'ai-title' && typeof row.aiTitle === 'string' && row.aiTitle.trim()) title = row.aiTitle
     else if (type === 'custom-title' && typeof row.customTitle === 'string' && row.customTitle.trim()) title = row.customTitle
     else if (type === 'summary' && typeof row.summary === 'string' && row.summary.trim()) summary = row.summary
@@ -114,7 +123,8 @@ function parseClaude(file: string, size: number): Parsed | null {
     }
   }
   if (!cwd) return null
-  return { cwd, hasTurn, title: oneLine(title ?? summary ?? asked ?? 'Claude Code conversation') }
+  // 'cli' is someone at a terminal; 'sdk-cli', 'sdk-ts', 'claude-desktop'… are programs. Older versions wrote none.
+  return { cwd, hasTurn, interactive: entrypoint === null || entrypoint === 'cli', title: oneLine(title ?? summary ?? asked ?? 'Claude Code conversation') }
 }
 
 /* ------------------------------------------------------------------ codex */
@@ -124,12 +134,15 @@ function parseCodex(file: string): Parsed | null {
   let id: string | undefined
   let asked: string | null = null
   let hasTurn = false
+  let interactive = true
   for (const row of rows(slice(file, 0, HEAD_BYTES))) {
     const payload = row.payload as Record<string, unknown> | undefined
     if (!payload || typeof payload !== 'object') continue
     if (row.type === 'session_meta') {
       if (typeof payload.cwd === 'string') cwd = payload.cwd
       if (typeof payload.id === 'string') id = payload.id
+      // 'cli' is the terminal; 'exec', 'vscode' (the desktop app), 'mcp' and a subagent's object are not.
+      if (payload.source !== undefined) interactive = payload.source === 'cli'
     } else if (row.type === 'event_msg' && payload.type === 'user_message' && typeof payload.message === 'string') {
       hasTurn = true
       if (!asked && !NOT_ASKED.test(payload.message.trim())) asked = payload.message
@@ -145,7 +158,7 @@ function parseCodex(file: string): Parsed | null {
     }
   }
   if (!cwd) return null
-  return { cwd, id, hasTurn, title: oneLine(asked ?? 'Codex conversation') }
+  return { cwd, id, hasTurn, interactive, title: oneLine(asked ?? 'Codex conversation') }
 }
 
 /* ------------------------------------------------------------------ listing */
@@ -195,7 +208,7 @@ async function claudeIn(slugDirs: string[]): Promise<AdeConversation[]> {
       const st = await stat(file)
       if (!st?.isFile()) continue
       const p = parsed('claude', file, st)
-      if (p?.hasTurn) out.push(conversation('claude', id, p, st))
+      if (p?.hasTurn && p.interactive) out.push(conversation('claude', id, p, st))
     }
   }
   return out
@@ -224,7 +237,7 @@ async function codexAll(): Promise<AdeConversation[]> {
     if (!st?.isFile()) continue
     const p = parsed('codex', file, st)
     const id = p?.id && UUID.test(p.id) ? p.id : UUID.exec(path.basename(file))?.[0]
-    if (p?.hasTurn && id) out.push(conversation('codex', id, p, st))
+    if (p?.hasTurn && p.interactive && id) out.push(conversation('codex', id, p, st))
   }
   return out
 }

@@ -153,3 +153,14 @@ export function privacyBlockedMessage(cwd: string, home: string): string {
   const where = top && named[top] ? `turn on Eaon → ${named[top]}` : 'give Eaon access to this folder (or Full Disk Access)'
   return `macOS isn’t letting Eaon open this folder, so nothing started here could read it. In System Settings → Privacy & Security → Files and Folders, ${where}, then restart this terminal.`
 }
+
+/**
+ * Files dropped on a terminal, as a terminal app types them: each path quoted
+ * for the shell where it needs it, separated by spaces, with a space after.
+ * Claude Code and Codex take a pasted image path as an attached image.
+ */
+export function pathsForTerminal(paths: string[]): string {
+  const quote = (p: string): string => (/^[A-Za-z0-9_@%+=:,./-]+$/.test(p) ? p : `'${p.replace(/'/g, `'\\''`)}'`)
+  const listed = paths.filter(Boolean).map(quote)
+  return listed.length ? `${listed.join(' ')} ` : ''
+}

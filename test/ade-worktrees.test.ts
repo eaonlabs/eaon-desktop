@@ -160,16 +160,37 @@ test('the folders that had terminals before sessions become sessions once; impor
   await newBook(saved).adopt([repo, plain])
   assert.equal(newBook(saved).byCwd(plain), null)
 
+  const fresh = path.join(tmp, 'scratch')
+  fs.mkdirSync(fresh)
   const imported = await book.importFolders([
     { cwd: plain, at: 500 },
     { cwd: repo, at: 600 },
+    { cwd: fresh, at: 650 },
     { cwd: path.join(tmp, 'gone'), at: 700 }
   ])
   assert.deepEqual(
     imported.map((s) => [s.cwd, s.imported, s.createdAt]),
-    [[plain, true, 500]],
-    'only a folder that exists and has no session yet'
+    [[fresh, true, 650]],
+    'only a folder that exists, has no session yet, and was not removed'
   )
+})
+
+test('a removed session stays out of Import, across a restart, until its folder is opened again on purpose', async () => {
+  const saved = { value: null as SavedSessions | null }
+  const book = newBook(saved)
+  const notes = await book.ensureFolder(plain)
+  await book.remove(notes.id, { deleteWorktree: false })
+  assert.equal(book.isClosed(plain), true)
+
+  const relaunched = newBook(saved)
+  assert.equal(relaunched.isClosed(plain), true)
+  assert.deepEqual(await relaunched.importFolders([{ cwd: plain, at: 500 }]), [])
+  assert.equal(relaunched.byCwd(plain), null)
+
+  // Opening the folder from the picker or the recents is the user asking for it back.
+  await relaunched.ensureFolder(plain)
+  assert.equal(relaunched.isClosed(plain), false)
+  assert.equal(newBook(saved).isClosed(plain), false)
 })
 
 test('refresh notices a branch switched in a terminal and a folder that went away', async () => {

@@ -604,6 +604,14 @@ class TerminalRegistry {
     this.panes.get(paneId)?.term.focus()
   }
 
+  /** Text as if pasted (bracketed when the program asked for it, as Claude Code does), then the pane focused. */
+  paste(paneId: string, text: string): void {
+    const rt = this.panes.get(paneId)
+    if (!rt || !text) return
+    rt.term.paste(text)
+    rt.term.focus()
+  }
+
   /** Closes a pane for good: the shell, the terminal and its history. */
   dispose(paneId: string): void {
     const rt = this.panes.get(paneId)

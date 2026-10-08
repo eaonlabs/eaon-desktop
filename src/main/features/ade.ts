@@ -7,6 +7,7 @@ import { store } from '../store'
 import { RecentFolders } from './eaonCode/recents'
 import { SessionBook, type SavedSessions } from './ade/sessions'
 import { allConversations, conversationsIn } from './ade/conversations'
+import { adeHistory } from './ade/history'
 import { projectRepo } from './ade/git'
 import type { AdeConversation, AdeImportCandidate, AdeSession, NewSessionRequest } from '@shared/adeSessions'
 import type { TerminalLayout } from '@shared/terminals'
@@ -59,10 +60,17 @@ function remember(recents: RecentFolders, session: AdeSession): string[] {
   return list
 }
 
-/** What Import found: every folder with conversations, its project and branch, newest first. */
+/**
+ * What Import found: the folders of the conversations that ran in the ADE's
+ * own terminals (ade/history.ts), with their project and branch, newest
+ * first. Not every folder Claude Code or Codex was ever used in: that brought
+ * back sessions long closed, for work that was never in the ADE.
+ */
 async function importCandidates(): Promise<AdeImportCandidate[]> {
+  const history = await adeHistory()
   const byFolder = new Map<string, AdeConversation[]>()
   for (const conversation of await allConversations()) {
+    if (!history.has(conversation.agent, conversation.id)) continue
     const cwd = path.resolve(conversation.cwd)
     const list = byFolder.get(cwd) ?? []
     list.push(conversation)
@@ -72,6 +80,8 @@ async function importCandidates(): Promise<AdeImportCandidate[]> {
   for (const [cwd, conversations] of byFolder) {
     // A folder deleted since (a temporary checkout, an old worktree) has nothing to open.
     if (!isDir(cwd)) continue
+    // A session the user removed stays removed.
+    if (sessions().isClosed(cwd)) continue
     const repo = await projectRepo(cwd, os.homedir())
     out.push({ cwd, project: repo ? repo.root : cwd, branch: repo?.branch ?? null, conversations, already: Boolean(sessions().byCwd(cwd)) })
   }
@@ -104,9 +114,16 @@ export const adeFeature: Feature = {
       })
     )
 
-    ipcMain.handle('ade:remove', (_e, id: unknown, options?: { deleteWorktree?: unknown }) =>
-      sessions().remove(text(id, 'a session'), { deleteWorktree: options?.deleteWorktree === true })
-    )
+    ipcMain.handle('ade:remove', async (_e, id: unknown, options?: { deleteWorktree?: unknown }) => {
+      const removed = sessions().get(text(id, 'a session'))
+      const result = await sessions().remove(text(id, 'a session'), { deleteWorktree: options?.deleteWorktree === true })
+      // The ADE reopens its last folder at launch, which would make the session again.
+      const settings = store.getSettings().eaonCode
+      if (result.ok && removed && settings.lastCwd && path.resolve(settings.lastCwd) === path.resolve(removed.cwd)) {
+        store.patchSettings({ eaonCode: { ...settings, lastCwd: null } })
+      }
+      return result
+    })
 
     ipcMain.handle('ade:rename', (_e, id: unknown, title: unknown) => sessions().rename(text(id, 'a session'), typeof title === 'string' ? title.slice(0, 200) : ''))
 

@@ -41,6 +41,8 @@ const safeId = (paneId: string): string => paneId.replace(/[^\w-]/g, '_')
 
 export class PaneRecords {
   private map = new Map<string, PaneRecord>()
+  /** Told of every conversation a pane is seen in (the ADE's history keeps them after the pane goes). */
+  onConversation: ((agent: TerminalAgentId, sessionId: string, cwd: string) => void) | null = null
   private timer: NodeJS.Timeout | null = null
   readonly file: string
   private readonly scrollbackDir: string
@@ -70,6 +72,11 @@ export class PaneRecords {
     }
   }
 
+  /** Every pane's record, for the ADE's history to start from. */
+  all(): PaneRecord[] {
+    return [...this.map.values()]
+  }
+
   get(paneId: string): PaneRecord | null {
     return this.map.get(paneId) ?? null
   }
@@ -85,6 +92,7 @@ export class PaneRecords {
     if (next.sessionId) clean.sessionId = next.sessionId
     if (next.cwd) clean.cwd = next.cwd
     if (next.program) clean.program = next.program
+    if (clean.sessionId && clean.cwd) this.onConversation?.(clean.agent, clean.sessionId, clean.cwd)
     if (prev && prev.agent === clean.agent && prev.sessionId === clean.sessionId && prev.cwd === clean.cwd && prev.program === clean.program) {
       prev.at = clean.at
       return

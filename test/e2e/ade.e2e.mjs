@@ -11,7 +11,7 @@
  */
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, realpathSync, utimesSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, realpathSync, utimesSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { within } from './harness.mjs'
 import { openSettings, scenario } from './fixtures.mjs'
@@ -20,19 +20,23 @@ const CLAUDE_A = '11111111-1111-4111-8111-111111111111'
 const CLAUDE_B = '22222222-2222-4222-8222-222222222222'
 const CLAUDE_WT = '33333333-3333-4333-8333-333333333333'
 const CODEX_A = '44444444-4444-4444-8444-444444444444'
+/** In a folder that was never in the ADE. */
+const CLAUDE_ELSEWHERE = '55555555-5555-4555-8555-555555555555'
+/** A headless `claude -p` run in the project: a program's, not a session anyone opened. */
+const CLAUDE_HEADLESS = '66666666-6666-4666-8666-666666666666'
 
 const slug = (cwd) => cwd.replace(/[^a-zA-Z0-9]/g, '-')
 const jsonl = (rows) => rows.map((r) => JSON.stringify(r)).join('\n') + '\n'
 const HOURS = 3_600_000
 
 /** A Claude Code transcript that took a turn, with the title Claude Code gave it. */
-function claudeTranscript(home, cwd, id, title, ageHours) {
+function claudeTranscript(home, cwd, id, title, ageHours, entrypoint = 'cli') {
   const file = join(home, '.claude', 'projects', slug(cwd), `${id}.jsonl`)
   mkdirSync(join(file, '..'), { recursive: true })
   writeFileSync(
     file,
     jsonl([
-      { type: 'user', message: { role: 'user', content: 'please look into it' }, cwd, sessionId: id },
+      { type: 'user', message: { role: 'user', content: 'please look into it' }, cwd, sessionId: id, entrypoint },
       { type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: 'On it.' }] }, cwd },
       { type: 'ai-title', aiTitle: title, sessionId: id }
     ])
@@ -120,7 +124,14 @@ function sidebar(page) {
 
 scenario('ADE sessions: import from Claude Code and Codex, a new session on its own branch, removed cleanly', { timeout: 180_000 }, async (s) => {
   const launchEnv = { CLAUDE_CONFIG_DIR: join(s.homeDir, '.claude'), CODEX_HOME: join(s.homeDir, '.codex') }
-  const app = await s.launch({ env: launchEnv })
+  // What ran in the ADE's own terminals before (ade/history.ts): Import brings back these, and only these.
+  const ranInAde = [
+    ['claude', CLAUDE_A],
+    ['codex', CODEX_A],
+    ['claude', CLAUDE_B],
+    ['claude', CLAUDE_WT]
+  ].map(([agent, id]) => ({ agent, id, cwd: '/earlier', at: 1 }))
+  const app = await s.launch({ env: launchEnv, seed: { 'ade-history.json': { conversations: ranInAde } } })
   const page = app.page
   const home = realpathSync(s.homeDir)
 
@@ -140,6 +151,10 @@ scenario('ADE sessions: import from Claude Code and Codex, a new session on its 
   codexRollout(home, repo, CODEX_A, 'verifying CI panel deep link', 7)
   claudeTranscript(home, repo, CLAUDE_B, 'adding regression coverage', 8)
   claudeTranscript(home, other, CLAUDE_WT, 'baseline checkout numbers', 30)
+  const elsewhere = join(home, 'projects', 'side-project')
+  mkdirSync(elsewhere, { recursive: true })
+  claudeTranscript(home, elsewhere, CLAUDE_ELSEWHERE, 'never in the ADE', 2)
+  claudeTranscript(home, repo, CLAUDE_HEADLESS, 'a scripted run', 3, 'sdk-cli')
 
   // Settings → ADE → Find sessions: both folders, with what each has.
   await openSettings(page, 'ADE')
@@ -152,7 +167,8 @@ scenario('ADE sessions: import from Claude Code and Codex, a new session on its 
     { message: 'the import list', timeout: 20_000 }
   )
   s.t.diagnostic(`import found: ${JSON.stringify(found)}`)
-  assert.equal(found.length, 2)
+  assert.equal(found.length, 2, 'only the folders whose conversations ran in the ADE')
+  assert.ok(!found.some((t) => /side-project|never in the ADE|a scripted run/.test(t)), 'nothing from elsewhere, nothing headless')
   assert.ok(found.some((t) => /^acme-internal/.test(t) && /fixed checks detail link/.test(t)))
   assert.ok(found.some((t) => /^checkout-baseline in acme-internal/.test(t)), 'the other tool’s worktree is filed under its repository')
   await s.shot(page, 'settings-import-found')
@@ -164,14 +180,7 @@ scenario('ADE sessions: import from Claude Code and Codex, a new session on its 
   await page.click('.ade-import__toggle', { text: /^Open the ADE$/ })
   await page.find('.ade-project__name', { text: 'acme-internal' })
   await page.click('.ade-session__title', { text: /^acme-internal$/ })
-  const afterImport = await page.waitFor(
-    async () => {
-      const shown = [...document.querySelectorAll('.ade-session[data-active="true"] .ade-agent')]
-      return shown.length === 3 ? true : null
-    },
-    { message: 'the project folder’s three conversations under it', timeout: 20_000 }
-  )
-  assert.ok(afterImport)
+  await page.find('.term-past__open', { timeout: 20_000 })
   let tree = await sidebar(page)
   s.t.diagnostic(`sidebar after import: ${JSON.stringify(tree)}`)
   assert.equal(tree.length, 1)
@@ -180,21 +189,15 @@ scenario('ADE sessions: import from Claude Code and Codex, a new session on its 
   const root = tree[0].sessions.find((x) => x.title === 'acme-internal')
   assert.ok(root?.active)
   assert.equal(root.sub, 'main · project folder')
-  assert.equal(root.agentsHead, '3 agents')
-  assert.deepEqual(
-    root.agents.map((a) => [a.kind, a.task, a.age]),
-    [
-      ['past', 'fixed checks detail link', '6h'],
-      ['past', 'verifying CI panel deep link', '7h'],
-      ['past', 'adding regression coverage', '8h']
-    ]
-  )
+  // Closed conversations aren't agents: the sidebar lists the terminals open in a session, and it has none.
+  assert.equal(root.agentsHead, '')
+  assert.deepEqual(root.agents, [])
   const baseline = tree[0].sessions.find((x) => x.title === 'checkout-baseline')
   assert.equal(baseline?.sub, 'feature/checkout-baseline')
   await s.shot(page, 'sidebar-imported')
 
-  // With no terminals open, the session's page offers the same conversations to carry on with
-  // (they were only in the sidebar, so a session looked empty).
+  // With no terminals open, the session's page can reopen one, when asked: started in a terminal only.
+  await page.click('.term-past__open')
   const past = await page.waitFor(
     () => {
       const items = [...document.querySelectorAll('.term-past__item .term-past__title')].map((t) => t.textContent)
@@ -272,6 +275,30 @@ scenario('ADE sessions: import from Claude Code and Codex, a new session on its 
   await s.shot(page, 'terminal-ended')
   await page.click('.term-pane__actions button', { text: /Restart/ })
   await page.waitFor(() => !document.querySelector('.term-pane__actions'), { message: 'the terminal to start again', timeout: 15_000 })
+
+  // An image dropped from Finder is typed in as its path, quoted, as in a terminal app;
+  // Claude Code takes a pasted image path as an attached image.
+  const shot = join(home, 'Screen Shot 1.png')
+  writeFileSync(shot, 'png')
+  const out = join(home, 'dropped.txt')
+  await page.click('.term-pane__screen')
+  await page.type("printf '%s\\n' ")
+  const at = await page.eval(() => {
+    const r = document.querySelector('.term-pane__screen').getBoundingClientRect()
+    return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }
+  })
+  const dropped = { items: [], files: [shot], dragOperationsMask: 1 }
+  for (const type of ['dragEnter', 'dragOver', 'drop']) await page.cdp.send('Input.dispatchDragEvent', { type, x: at.x, y: at.y, data: dropped })
+  await page.type(`> '${out}'`)
+  await page.press('Enter')
+  await within(
+    (async () => {
+      while (!existsSync(out) || !readFileSync(out, 'utf8').trim()) await new Promise((r) => setTimeout(r, 200))
+    })(),
+    10_000,
+    'the dropped path to reach the shell'
+  )
+  assert.equal(readFileSync(out, 'utf8').trim(), shot)
 
   // Three terminals in the session: two above, one stretched below.
   for (let n = 0; n < 2; n++) {
