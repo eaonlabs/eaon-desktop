@@ -71,6 +71,11 @@ export interface ComputerUseStatus {
   stopShortcut: string
   /** True while an agent turn is using the computer. */
   driving: boolean
+  /**
+   * What drives the computer: Cua Driver (bundled; github.com/trycua/cua),
+   * or Eaon's own when this build lacks it or it failed to start (`error`).
+   */
+  engine: { name: 'cua' | 'eaon'; version: string | null; error: string | null }
 }
 
 export interface ComputerTestResult {

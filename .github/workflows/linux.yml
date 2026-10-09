@@ -64,6 +64,10 @@ jobs:
           sudo gem install --no-document fpm > /dev/null
           echo "USE_SYSTEM_FPM=true" >> "$GITHUB_ENV"
 
+      # Cua Driver, the computer-use engine: the pinned, checksummed release.
+      - name: Cua Driver
+        run: node scripts/fetch-cua-driver.mjs linux-${{ matrix.arch }}
+
       - name: Build
         run: |
           npx electron-vite build

@@ -7,6 +7,8 @@ import { captureDisplay, orderedDisplays, requestScreenAccess, ScreenCaptureDeni
 import { differentlySignedCopies, permissionOwner, resetAccessibility } from './computer/mac'
 import { configureSession, disposeSession, endDriving, isDriving, setIndicatorOwner, STOP_LABEL, stopAll, withEaonHidden } from './computer/session'
 import { computerGuidance, computerLease, computerTool } from './computer/tool'
+import { cuaDriver, cuaDriverVersion } from './computer/cua'
+import { cuaAgentTools, cuaGuidance } from './computer/cuaTools'
 // The iOS Simulator tool is offered alongside computer use.
 import './simulator'
 import type { Feature } from './types'
@@ -73,8 +75,15 @@ async function status(): Promise<ComputerUseStatus> {
       scaleFactor: d.scaleFactor
     })),
     stopShortcut: STOP_LABEL,
-    driving: isDriving()
+    driving: isDriving(),
+    engine: engineStatus()
   }
+}
+
+function engineStatus(): ComputerUseStatus['engine'] {
+  const driver = cuaDriver()
+  if (!driver) return { name: 'eaon', version: null, error: null }
+  return { name: driver.error ? 'eaon' : 'cua', version: cuaDriverVersion(), error: driver.error }
 }
 
 async function test(): Promise<ComputerTestResult> {
@@ -102,10 +111,26 @@ async function test(): Promise<ComputerTestResult> {
   }
 }
 
+/**
+ * Which engine drives the computer this turn: Cua Driver when this build has
+ * it and it hasn't failed to start, else Eaon's own (computer/tool.ts).
+ */
+function useCua(): boolean {
+  const driver = cuaDriver()
+  return Boolean(driver && !driver.error && driver.cachedTools())
+}
+
 registerToolSource({
   id: 'computer',
-  tools: (query) => (query.mode === 'work' && query.depth === 0 && query.settings.computerUse.enabled ? [computerTool] : []),
-  guidance: () => computerGuidance()
+  tools: (query) => {
+    if (!(query.mode === 'work' && query.depth === 0 && query.settings.computerUse.enabled)) return []
+    const driver = cuaDriver()
+    if (driver && useCua()) return cuaAgentTools(driver, driver.cachedTools()!)
+    // Cua's tool list isn't known yet: fetched now, for the next turn; this one uses Eaon's own.
+    if (driver && !driver.error) void driver.listTools().catch(() => undefined)
+    return [computerTool]
+  },
+  guidance: () => (useCua() ? cuaGuidance() : computerGuidance())
 })
 
 /**
@@ -125,7 +150,16 @@ function takeBack(): ComputerLeaseState {
 export const computerUseFeature: Feature = {
   id: 'computer-use',
   register: ({ ipcMain, getWindow, getWindows, send }) => {
-    configureSession({ getWindow, getWindows, onStopped: interruptInput, onTakeBack: takeBack })
+    configureSession({
+      getWindow,
+      getWindows,
+      onStopped: () => {
+        interruptInput()
+        // The emergency stop ends whatever Cua is doing; it starts again on the next action.
+        void cuaDriver()?.stop()
+      },
+      onTakeBack: takeBack
+    })
     // Who holds the one pointer: the app's indicator, the worker pages and the pill all follow this.
     computerLease.onChange((state) => {
       send('computer:lease-changed', state)
@@ -174,5 +208,6 @@ export const computerUseFeature: Feature = {
     computerLease.dispose()
     disposeSession()
     disposeInput()
+    void cuaDriver()?.stop()
   }
 }

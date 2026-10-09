@@ -321,6 +321,20 @@ export function ComputerUsePage(): JSX.Element {
               <span className="badge badge--ok">Ready</span>
             </Row>
           )}
+          {status && (
+            <Row
+              title="Engine"
+              description={
+                status.engine.name === 'cua'
+                  ? `Cua Driver ${status.engine.version ?? ''} — works with apps through their accessibility, so it acts on buttons and fields rather than guessing where to click.`.replace('  ', ' ')
+                  : status.engine.error
+                    ? `Eaon's own, because Cua Driver didn't start: ${status.engine.error}`
+                    : "Eaon's own: screenshots, mouse and keyboard."
+              }
+            >
+              <span className={`badge ${status.engine.name === 'cua' ? 'badge--ok' : status.engine.error ? 'badge--warn' : ''}`}>{status.engine.name === 'cua' ? 'Cua Driver' : 'Built in'}</span>
+            </Row>
+          )}
           <Row title="Input" description={inputDescription}>
             {status && (
               <span className={`badge ${status.input.available ? 'badge--ok' : 'badge--warn'}`}>

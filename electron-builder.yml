@@ -94,7 +94,8 @@ mac:
   # builds, and each loads only on its own arch, so they are kept as they are.
   # Same for Eaon's llama-server (llama/darwin-arm64, llama/darwin-x64) and
   # the Eaon CLI (eaon-cli/darwin-<arch>; only the arch that was built ships).
-  x64ArchFiles: '{**/node_modules/node-pty/prebuilds/**,**/llama/darwin-*/**,**/eaon-cli/darwin-*/**}'
+  # Cua Driver is already universal, the same file in both builds.
+  x64ArchFiles: '{**/node_modules/node-pty/prebuilds/**,**/llama/darwin-*/**,**/eaon-cli/darwin-*/**,**/cua-driver/darwin/**}'
   # Eaon's own llama.cpp runtime (scripts/build-llama.sh), both Mac arches:
   # main/llama/runtime.ts picks the one matching the running process.
   extraResources:
@@ -107,6 +108,10 @@ mac:
       to: eaon-cli
       filter:
         - 'darwin-*/**'
+    # Cua Driver, the computer-use engine (scripts/fetch-cua-driver.mjs; main/features/computer/cua.ts).
+    # Outside the asar with its executable bit, and signed with the app.
+    - from: resources/cua-driver/darwin
+      to: cua-driver/darwin
     # The Liquid Glass icon, compiled by scripts/make-icon.py (CFBundleIconName above).
     - from: resources/Assets.car
       to: Assets.car
@@ -144,6 +149,8 @@ win:
       to: llama/win32-${arch}
     - from: resources/eaon-cli/win32-${arch}
       to: eaon-cli/win32-${arch}
+    - from: resources/cua-driver/win32-${arch}
+      to: cua-driver/win32-${arch}
     # Window and taskbar icons for the Settings app-icon choice (main/appIcon.ts).
     - from: resources/icon.ico
       to: icons/default.ico
@@ -194,6 +201,8 @@ linux:
       to: llama/linux-${arch}
     - from: resources/eaon-cli/linux-${arch}
       to: eaon-cli/linux-${arch}
+    - from: resources/cua-driver/linux-${arch}
+      to: cua-driver/linux-${arch}
     # Window icons for the Settings app-icon choice (main/appIcon.ts).
     - from: resources/icon.png
       to: icons/default.png
