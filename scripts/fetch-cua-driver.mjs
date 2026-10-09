@@ -15,7 +15,7 @@
  */
 import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -72,7 +72,8 @@ async function fetchTarget(target) {
   // Only the driver itself: the SDK library, Node addon and headers in the archive are for other embedders.
   rmSync(dest, { recursive: true, force: true })
   mkdirSync(dest, { recursive: true })
-  renameSync(found, join(dest, exe))
+  // Copied, not renamed: the temp folder can be on another drive (it is on GitHub's Windows machines).
+  copyFileSync(found, join(dest, exe))
   if (!exe.endsWith('.exe')) chmodSync(join(dest, exe), 0o755)
   writeFileSync(stamp, `${VERSION}\n`)
   rmSync(work, { recursive: true, force: true })
