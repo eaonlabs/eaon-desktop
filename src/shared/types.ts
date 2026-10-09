@@ -498,10 +498,11 @@ export interface Settings {
     /** Sharper screenshots cost more tokens per step. */
     quality: 'balanced' | 'sharp'
   }
-  browserExtension: {
+  /** The agent in the user's own browser, through Browser Use (main/features/browserUse.ts). */
+  browserUse: {
     enabled: boolean
-    /** Loopback port the Chrome extension connects to. */
-    port: number
+    /** Which browser (chromium.ts ids); null: whichever allows remote debugging. */
+    browser: string | null
   }
   /** Discord Rich Presence — see main/features/discordPresence.ts. */
   discord: {

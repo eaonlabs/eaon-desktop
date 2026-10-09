@@ -22,7 +22,6 @@ import { WorkerBrowserPanel } from './components/workers/WorkerAutonomy'
 import { WorkerActivityPanel } from './components/workers/WorkerThreads'
 import { useWorkers } from './components/workers/workersStore'
 import { DiscordPresence } from './components/discord/DiscordPresence'
-import { BrowserAsk } from './components/browser/BrowserAsk'
 import { AgentBrowserPanel } from './components/agentBrowser/AgentBrowserPanel'
 import { TradingDesk } from './components/trading/TradingDesk'
 import { useAgentBrowser } from './components/agentBrowser/agentBrowserStore'
@@ -198,7 +197,6 @@ export default function App(): JSX.Element {
       <Notice />
       <StarPrompt />
       <DiscordPresence />
-      <BrowserAsk />
     </>
   )
 }

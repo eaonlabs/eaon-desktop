@@ -254,7 +254,7 @@ function ApprovalPrompt(): JSX.Element | null {
         variant="dialog"
         tool={tool}
         input={shown.input}
-        title={APPROVAL_TITLES[tool] ?? `Allow ${tool.replace(/_/g, ' ')}?`}
+        title={APPROVAL_TITLES[tool] ?? (tool.startsWith('desktop_') ? APPROVAL_TITLES.computer : tool.startsWith('browser_') ? APPROVAL_TITLES.browser : `Allow ${tool.replace(/_/g, ' ')}?`)}
         waiting={pending ? waiting : 0}
         busy={!pending}
         onApprove={() => respond(true)}

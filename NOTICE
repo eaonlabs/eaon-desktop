@@ -15,9 +15,15 @@ of Origin (DCO), included in CONTRIBUTING.md.
 Third-party software that ships inside Eaon
 -------------------------------------------
 
-Eaon CLI is a fork of OpenCode (https://github.com/sst/opencode), and Eaon
-runs local models with llama.cpp (https://github.com/ggml-org/llama.cpp). Both
+Eaon CLI is a fork of OpenCode (https://github.com/sst/opencode), Eaon
+runs local models with llama.cpp (https://github.com/ggml-org/llama.cpp), and
+computer use runs on Cua Driver (https://github.com/trycua/cua). All three
 are MIT-licensed, and their copyright and permission notices follow.
+
+Browser control uses Browser Use (https://github.com/browser-use/browser-use,
+MIT) and uv (https://github.com/astral-sh/uv, Apache-2.0 or MIT). Neither
+ships inside Eaon: Settings → Browser control downloads them from their own
+releases.
 
 OpenCode
   MIT License
@@ -26,6 +32,10 @@ OpenCode
 llama.cpp
   MIT License
   Copyright (c) 2023-2026 The ggml authors
+
+Cua Driver
+  MIT License
+  Copyright (c) 2025 Cua AI, Inc.
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

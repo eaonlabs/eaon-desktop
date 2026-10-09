@@ -45,7 +45,7 @@ import { SystemMonitorPage } from './pages/SystemMonitor'
 import { McpServersPage } from './pages/McpServers'
 import { ConnectAppsPage } from './pages/ConnectApps'
 import { CodeIndexPage } from './pages/CodeIndex'
-import { BrowserExtensionPage } from './pages/BrowserExtension'
+import { BrowserControlPage } from './pages/BrowserControl'
 import { EaonCodePage } from './pages/EaonCode'
 import { AdePage } from './pages/Ade'
 import { DiscordPage } from './pages/Discord'
@@ -78,7 +78,7 @@ const NAV: NavEntry[] = [
   { id: 'engines', label: 'Agent engines', icon: <Cpu size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'computer-use', label: 'Computer use', icon: <Wand2 size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'payments', label: 'Payments', icon: <CreditCard size={size} strokeWidth={stroke} />, group: 'Integrations' },
-  { id: 'browser-extension', label: 'Browser extension', icon: <Chrome size={size} strokeWidth={stroke} />, group: 'Integrations' },
+  { id: 'browser-control', label: 'Browser control', icon: <Chrome size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'plugins', label: 'Plugins', icon: <AtSign size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'eaon-code', label: 'Eaon Code', icon: <Code2 size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'ade', label: 'ADE', icon: <SquareTerminal size={size} strokeWidth={stroke} />, group: 'Integrations' },
@@ -113,7 +113,7 @@ const PAGES: Record<string, () => JSX.Element> = {
   engines: EnginesPage,
   'computer-use': ComputerUsePage,
   payments: PaymentsPage,
-  'browser-extension': BrowserExtensionPage,
+  'browser-control': BrowserControlPage,
   'eaon-code': EaonCodePage,
   ade: AdePage,
   discord: DiscordPage,

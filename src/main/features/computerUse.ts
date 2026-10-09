@@ -115,6 +115,9 @@ async function test(): Promise<ComputerTestResult> {
  * Which engine drives the computer this turn: Cua Driver when this build has
  * it and it hasn't failed to start, else Eaon's own (computer/tool.ts).
  */
+/** Set once the feature is registered in the running app: only then may listing tools start Cua (tests list tools too). */
+let mayStartCua = false
+
 function useCua(): boolean {
   const driver = cuaDriver()
   return Boolean(driver && !driver.error && driver.cachedTools())
@@ -127,7 +130,7 @@ registerToolSource({
     const driver = cuaDriver()
     if (driver && useCua()) return cuaAgentTools(driver, driver.cachedTools()!)
     // Cua's tool list isn't known yet: fetched now, for the next turn; this one uses Eaon's own.
-    if (driver && !driver.error) void driver.listTools().catch(() => undefined)
+    if (mayStartCua && driver && !driver.error) void driver.listTools().catch(() => undefined)
     return [computerTool]
   },
   guidance: () => (useCua() ? cuaGuidance() : computerGuidance())
@@ -150,6 +153,7 @@ function takeBack(): ComputerLeaseState {
 export const computerUseFeature: Feature = {
   id: 'computer-use',
   register: ({ ipcMain, getWindow, getWindows, send }) => {
+    mayStartCua = true
     configureSession({
       getWindow,
       getWindows,

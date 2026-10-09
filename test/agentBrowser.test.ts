@@ -355,12 +355,12 @@ test('a page on this computer or the local network is asked about; a public one 
   assert.equal(web.risky?.({ action: 'reload' }, ctx()), true)
   state.url = 'https://shop.test/cart'
   assert.equal(web.risky?.({ action: 'reload' }, ctx()), false)
-  // The user's own Chrome, with their logins, the same.
-  const { createBrowserTool } = await import('../src/main/features/browser/tool')
-  const { tool } = createBrowserTool({ supports: () => true } as never)
-  assert.equal(tool.risky?.({ action: 'navigate', url: 'http://localhost:3000' }, ctx()), true)
-  assert.equal(tool.risky?.({ action: 'new_tab', url: 'http://10.1.1.1' }, ctx()), true)
-  assert.equal(tool.risky?.({ action: 'navigate', url: 'https://example.com' }, ctx()), false)
+  // The user's own browser (Browser Use), with their logins, the same.
+  const { browserUseAgentTools } = await import('../src/main/features/browserUse/tools')
+  const navigate = browserUseAgentTools({} as never, [{ name: 'browser_navigate', description: '', inputSchema: {} }])[0]
+  assert.equal(navigate.risky?.({ url: 'http://localhost:3000' }, ctx()), true)
+  assert.equal(navigate.risky?.({ url: 'http://10.1.1.1', new_tab: true }, ctx()), true)
+  assert.equal(navigate.risky?.({ url: 'https://example.com' }, ctx()), false)
 })
 
 test('the page text the agent reads, and the text fallback of an unsnapshottable page, never carry the card number', async () => {

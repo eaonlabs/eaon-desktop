@@ -230,7 +230,7 @@ export const agentBrowserFeature: Feature = {
       guidance: (query) =>
         query.mode === 'work' && query.depth === 0 && !query.request.workerId
           ? `web_browser is your own browser, which the user can watch live beside the chat and take over to help. Use web search to find pages and your browser to act on them (sign-ups, forms, dashboards).${
-              query.settings.browserExtension.enabled ? " Use the browser tool (the user's Chrome) only when they ask for it or a site needs their own logins." : ''
+              query.settings.browserUse.enabled ? " Use the browser_* tools (the user's own browser) only when they ask for it or a site needs their own logins." : ''
             }`
           : null
     })

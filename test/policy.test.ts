@@ -12,7 +12,9 @@ import { runAgent } from '../src/main/agent/loop'
 import { callFacts, decide, SPENDING_REFUSAL, UNATTENDED_CATASTROPHIC, type RunPolicy } from '../src/main/agent/policy'
 import { registerToolSource, toolsFor, type AgentTool, type ToolContext, type ToolQuery, type ToolSource } from '../src/main/agent/tools'
 import { guestGate, guestPolicy } from '../src/main/features/workers/guests'
-import { createBrowserTool } from '../src/main/features/browser/tool'
+import { browserUseAgentTools, OFFERED as BROWSER_USE_TOOLS } from '../src/main/features/browserUse/tools'
+import { cuaAgentTools, OFFERED as CUA_TOOLS } from '../src/main/features/computer/cuaTools'
+import type { CuaDriver } from '../src/main/features/computer/cua'
 import { browserTool, WorkerBrowsers } from '../src/main/features/workers/browser'
 import { emailToolSource } from '../src/main/features/email/tools'
 import { tradingToolSource } from '../src/main/features/trading/tools'
@@ -124,7 +126,12 @@ function everyTool(): AgentTool[] {
     }
   }
   const extra: AgentTool[] = [
-    createBrowserTool(anything()).tool,
+    // The user's browser (Browser Use) and the computer (Cua Driver), offered only once set up: listed here directly.
+    ...browserUseAgentTools(
+      { connect: async () => ({ ok: true }), call: async () => ({ content: [], isError: false }), ownsTab: () => true, setOwnsTab: () => undefined },
+      BROWSER_USE_TOOLS.map((name) => ({ name, description: name, inputSchema: { type: 'object' } }))
+    ),
+    ...cuaAgentTools({} as CuaDriver, CUA_TOOLS.map((name) => ({ name, description: name, inputSchema: { type: 'object' } }))),
     browserTool(new WorkerBrowsers(), { idOf: () => 'w1', signInHint: '' }),
     paymentTool(memoryPayments, { browser: async () => undefined, browserUrl: () => null, screen: async () => 'App' })
   ]
@@ -143,7 +150,13 @@ function inputsFor(tool: AgentTool): Record<string, unknown>[] {
     edit_file: [{ path: '/Users/someone/.zshrc', old_string: 'a', new_string: 'b' }],
     payment_card: [{ action: 'authorize', merchant: 'Shop', amount: 12, site: 'shop.example' }],
     team: [{ action: 'message', to: 'Nova', message: 'rm -rf the backups' }, { action: 'create_team', name: 'Ops', roles: ['researcher'], kickoff: 'go' }],
-    web_fetch: [{ url: 'http://127.0.0.1:8080/admin' }]
+    web_fetch: [{ url: 'http://127.0.0.1:8080/admin' }],
+    // Not read yet: a click or typing the agent can't judge asks, and is never done unattended.
+    browser_click: [{ index: 5 }, { coordinate_x: 10, coordinate_y: 10 }],
+    browser_type: [{ index: 3, text: '4111 1111 1111 1111' }],
+    browser_navigate: [{ url: 'http://localhost:8080/admin' }],
+    desktop_hotkey: [{ keys: ['cmd', 'q'] }],
+    desktop_type_text: [{ text: 'rm -rf ~/Documents\n' }]
   }
   return [...inputs, ...(specific[tool.name] ?? [])]
 }
@@ -195,7 +208,7 @@ const label = (j: Judged): string => `${j.tool.name} ${JSON.stringify(j.input)}`
 
 test('the policy sees the whole tool set, not a handful', () => {
   const names = new Set(judged.map((j) => j.tool.name))
-  for (const name of ['write_file', 'run_command', 'web_fetch', 'computer', 'web_browser', 'browser', 'payment_card', 'email_send', 'trading_order', 'team', 'schedule', 'create_worker', 'spawn_agents']) {
+  for (const name of ['write_file', 'run_command', 'web_fetch', 'computer', 'web_browser', 'browser_click', 'desktop_click', 'payment_card', 'email_send', 'trading_order', 'team', 'schedule', 'create_worker', 'spawn_agents']) {
     assert.ok(names.has(name), `${name} is enumerated`)
   }
   assert.ok(changing.length >= 30, `enough changing calls to mean something (${changing.length})`)
@@ -245,7 +258,7 @@ test("a guest's cap holds: talk-only runs nothing on this computer, and read-onl
     assert.equal(decide(j.tool, j.input, j.facts, { readOnly: false, unattended: guestPolicy('read-only'), toolGate: reading }, 'full').kind, 'deny', `read-only: ${label(j)}`)
   }
   // Tools that see the user's logins or screen: refused even when only looking.
-  for (const j of judged.filter((x) => ['computer', 'web_browser', 'browser'].includes(x.tool.name))) {
+  for (const j of judged.filter((x) => ['computer', 'web_browser'].includes(x.tool.name) || /^(browser|desktop)_/.test(x.tool.name))) {
     assert.equal(decide(j.tool, j.input, j.facts, { readOnly: false, unattended: 'safe', toolGate: guestGate('safe') }, 'full').kind, 'deny', `safe guest: ${label(j)}`)
   }
 })

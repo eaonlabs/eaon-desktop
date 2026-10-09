@@ -67,8 +67,8 @@ Three tabs, centred at the top of every screen (⌘1 / ⌘2 / ⌘3):
 - **Chat**: the assistant, and an agent underneath. It answers questions
   plainly, and when you ask for something to be done it does it: files and
   commands in its folder (`~/Eaon` unless you pick one), the web, connected
-  plugins, your browser (through the Eaon Chrome extension) and your
-  computer. The chat box stays simple — Plan, Swarm and Goal modes, the
+  plugins, your own browser (through [Browser Use](https://github.com/browser-use/browser-use)) and your
+  computer (through [Cua Driver](https://github.com/trycua/cua)). The chat box stays simple — Plan, Swarm and Goal modes, the
   folder, plugins and permissions all sit behind its + button. Anything that
   changes things asks first unless you choose "Auto-approve", and risky
   actions always ask.
@@ -100,14 +100,21 @@ sessions, including Claude Code and Codex. Install it with
 is out. From a checkout, build it with `npm run build:cli` and run `eaon`
 after `npm link`. See [cli/README.md](cli/README.md).
 
-## Browser extension
+## Computer and browser control
 
-`extension/` holds the Chrome extension. To try it before it's on the Web
-Store, open `chrome://extensions`, turn on Developer mode, choose **Load
-unpacked** and pick the folder. Then pair it with the code shown in
-**Settings → Browser extension**. `npm run pack:extension` builds the zip to
-upload; `extension/STORE_LISTING.md` has the listing text and publishing
-steps.
+Eaon builds on two open-source engines rather than its own:
+
+- **Computer use** runs on [Cua Driver](https://github.com/trycua/cua) (MIT),
+  which works with apps through their accessibility tree. It ships inside
+  Eaon, pinned and checksummed by `scripts/fetch-cua-driver.mjs` (run by the
+  release scripts and CI), and runs as Eaon's own child so it uses Eaon's
+  macOS permissions. Without it, Eaon falls back to its own engine.
+- **Browser control** runs on [Browser Use](https://github.com/browser-use/browser-use)
+  (MIT), attached to your own Chromium browser through its remote debugging
+  switch — no extension. **Settings → Browser control** installs it, with a
+  Python of its own, into Eaon's data folder using [uv](https://github.com/astral-sh/uv).
+
+Both run with their telemetry off.
 
 ## Tests
 
@@ -115,7 +122,7 @@ steps.
 npm run typecheck
 npm run test:main                              # main-process tests (esbuild + node --test)
 EAON_LIVE=1 npm run test:main -- agent-live    # real agent runs against local Ollama (EAON_LIVE_MODEL)
-EAON_LIVE=1 npm run test:main -- browser-live  # the real extension in Chrome for Testing
+EAON_BROWSER_USE_LIVE=1 npm run test:main -- browser-use  # Browser Use installed for real, driving a throwaway Chrome
 EAON_TEST_OUT=test-quick npm run test:main     # a quick run beside a live one
 npm run verify:plugins                         # checks every catalog plugin live
 npm run verify:models                          # checks every library model resolves

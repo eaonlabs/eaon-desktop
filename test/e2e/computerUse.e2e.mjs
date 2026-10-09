@@ -74,3 +74,23 @@ scenario('computer use runs on Cua Driver: its desktop tools are offered, a call
   await waitForReply(page, { text: /Off now/, streaming: false })
   assert.ok(!fake.chats.at(-1).tools.some((t) => t === 'computer' || t.startsWith('desktop_')), 'no computer tools with it off')
 })
+
+scenario('browser control: Settings offers Browser Use setup, no extension or pairing code, and no browser tools until it is set up', { timeout: 90_000 }, async (s) => {
+  const fake = await s.fake()
+  const app = await s.launch()
+  const page = app.page
+  await useFakeModel(page, fake)
+  await openSettings(page, 'Browser control')
+  const text = await page.waitFor(() => document.querySelector('.settings__inner')?.textContent?.match(/Browser Use/) ? document.querySelector('.settings__inner').textContent : null, { message: 'the Browser control page' })
+  assert.match(text, /There's no extension to install/)
+  assert.ok(!/pairing code|Load unpacked|Chrome Web Store/i.test(text), 'nothing of the extension')
+  await page.find('.settings__inner button', { text: /^Set up$/ })
+  await s.shot(page, 'browser-control-setup')
+  const status = await page.eval(() => window.api.browserControl.status())
+  assert.equal(status.installed, false)
+  await page.click('.settings__back')
+  fake.route(() => reply.text('No browser yet.'))
+  await sendMessage(page, 'Open my browser')
+  await waitForReply(page, { text: /No browser yet/, streaming: false })
+  assert.ok(!fake.chats.at(-1).tools.some((t) => /^browser_/.test(t) || t === 'browser'), 'no tools for the user’s browser before setup')
+})

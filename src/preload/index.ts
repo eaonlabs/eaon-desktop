@@ -27,7 +27,7 @@ import { providerAuthApi } from './features/providerAuth'
 import { pluginsApi } from './features/plugins'
 import { schedulerApi } from './features/scheduler'
 import { computerUseApi } from './features/computerUse'
-import { browserBridgeApi } from './features/browserBridge'
+import { browserControlApi } from './features/browserControl'
 import { eaonCodeApi } from './features/eaonCode'
 import { discordApi } from './features/discordPresence'
 import { modelLibraryApi } from './features/modelLibrary'
@@ -299,7 +299,7 @@ const fullApi = {
   pluginAuth: pluginsApi,
   scheduler: schedulerApi,
   computerUse: computerUseApi,
-  browserBridge: browserBridgeApi,
+  browserControl: browserControlApi,
   eaonCode: eaonCodeApi,
   discord: discordApi,
   modelLibrary: modelLibraryApi,
