@@ -390,3 +390,32 @@
   color: var(--text-3);
   font-style: normal;
 }
+
+/* A plan's own API allowance, and how to reach it with a key (Anthropic's monthly API credits). */
+.provider-credits {
+  margin: 0 0 14px;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  background: var(--surface-1);
+  box-shadow: 0 0 0 1px var(--border-soft);
+  font-size: var(--fs-xs);
+  line-height: 1.55;
+  color: var(--text-2);
+}
+.provider-credits__title {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text);
+}
+.provider-credits__detail {
+  margin: 4px 0 8px;
+}
+.provider-credits__steps {
+  margin: 0 0 8px;
+  padding-left: 18px;
+}
+.provider-credits__links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+}

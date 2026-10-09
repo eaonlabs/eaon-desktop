@@ -8,6 +8,15 @@ All notable changes to Eaon are documented here. Format loosely follows
 The stable release of everything in the 2026.6.2 betas below, plus:
 
 ### Changed
+- **Claude plans, the allowed way.** Claude Max and Team plans now include
+  monthly API credits. Settings → Model providers → Anthropic shows how to
+  use them in Eaon: link a Claude Console organization to your plan (on
+  claude.ai, Settings → Billing → Link organization), make an API key there,
+  and paste it in. Eaon still never signs in with a Claude account or uses
+  your plan's usage limits — Anthropic doesn't allow other apps to, and
+  accounts that do can be suspended — and it now refuses a Claude login token
+  pasted where an API key goes. Your plan's own limits keep working in Claude
+  Code, which you can run in the ADE.
 - **Computer use runs on Cua Driver.** It works with apps through their
   accessibility — the actual buttons, fields and menus — instead of guessing
   where to click on a screenshot, and most actions happen without taking

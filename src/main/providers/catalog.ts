@@ -368,7 +368,31 @@ export const PROVIDER_META: Record<string, ProviderMeta> = {
   huggingface: { id: 'huggingface', listsModels: true, signInLabel: 'Sign in with Hugging Face', keyFlow: 'huggingface', accountSignIn: true },
   poe: { id: 'poe', listsModels: true, signInLabel: 'Sign in with Poe', keyFlow: 'poe' },
   // No sign-in, and why — for the providers people most expect one from (checked Sept 2026).
-  anthropic: { id: 'anthropic', listsModels: true, noSignInReason: 'Anthropic doesn’t allow other apps to sign in with Claude Free, Pro or Max accounts, or to send requests through them, so Claude in Eaon needs an API key. Your plan still works in Claude Code itself, which you can run in the ADE.', planInAde: 'claude' },
+  anthropic: {
+    id: 'anthropic',
+    listsModels: true,
+    // Anthropic's rule for apps (Agent SDK docs, checked Oct 2026): no claude.ai login or plan rate limits
+    // in third-party products without its approval — API keys instead. Max and Team plans now include
+    // monthly API credits (support.claude.com/en/articles/17154008), which reach Eaon through such a key.
+    noSignInReason:
+      'Anthropic doesn’t allow other apps to sign in with a Claude account or to use your plan’s usage limits, so Claude in Eaon uses an API key. Your plan’s limits still work in Claude Code itself, which you can run in the ADE.',
+    planInAde: 'claude',
+    planCredits: {
+      title: 'Use your Claude plan’s monthly API credits',
+      detail:
+        'Claude Max and Team plans include monthly API credits ($100 on Max 5x, $200 on Max 20x, $20 or $100 per Team seat). They pay for API keys from a Claude Console organization linked to your plan, so Claude in Eaon can use them. They reset each month and don’t roll over.',
+      steps: [
+        'On claude.ai, open Settings → Billing and choose Link organization.',
+        'Pick or create a Claude Console organization, and accept the terms.',
+        'In that organization, make an API key and paste it below.'
+      ],
+      links: [
+        { label: 'Claude billing settings', url: 'https://claude.ai/settings/billing' },
+        { label: 'Console API keys', url: 'https://console.anthropic.com/settings/keys' },
+        { label: 'About the credits', url: 'https://support.claude.com/en/articles/17154008' }
+      ]
+    }
+  },
   gemini: { id: 'gemini', listsModels: true, noSignInReason: 'Google forbids other apps from reusing the Gemini CLI or Antigravity sign-in and suspends accounts that do, so Gemini needs an API key from Google AI Studio.' },
   'kimi-coding': { id: 'kimi-coding', listsModels: true, noSignInReason: 'This provider only lets its own tools sign in with a subscription, so other apps need an API key.' },
   'zai-coding': { id: 'zai-coding', listsModels: true, noSignInReason: 'This provider only lets its own tools sign in with a subscription, so other apps need an API key.' },

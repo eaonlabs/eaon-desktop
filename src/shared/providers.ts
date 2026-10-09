@@ -98,6 +98,12 @@ export interface ProviderMeta {
    */
   planInAde?: 'claude' | 'antigravity' | 'codex'
   /**
+   * How a plan's own API allowance reaches Eaon the allowed way — through an
+   * API key from the account the plan funds (Anthropic: Max and Team plans'
+   * monthly API credits, from a Console organization linked to the plan).
+   */
+  planCredits?: { title: string; detail: string; steps: string[]; links: { label: string; url: string }[] }
+  /**
    * The key flow signs in an account whose own token is used (Hugging Face),
    * rather than minting a key: shown as an Account section above the keys.
    */
@@ -274,6 +280,15 @@ const KEY_PREFIXES: { prefix: string; providerId: string; name: string }[] = [
  * otherwise come back from the provider as a bare 401: a key with a line
  * break in it, half a key, another provider's key.
  */
+/** Why a Claude subscription login token is refused, and what to use instead. */
+export const CLAUDE_LOGIN_TOKEN =
+  "That's a Claude subscription login token, not an API key. Anthropic doesn't allow other apps to use Claude logins, and accounts that do can be suspended, so Eaon won't use it. Make an API key in the Claude Console instead — on Max and Team plans, your plan's monthly API credits pay for it."
+
+/** A Claude subscription's login (or refresh) token rather than an API key. */
+export function isClaudeLoginToken(key: string): boolean {
+  return /^(Bearer\s+)?sk-ant-(oat|ort)\d*-/i.test(key.trim())
+}
+
 export function checkKeyShape(providerId: string, providerName: string, raw: string): { key: string; problem: string | null } {
   const key = raw
     .trim()
@@ -281,6 +296,9 @@ export function checkKeyShape(providerId: string, providerName: string, raw: str
     .replace(/^Bearer\s+/i, '')
     .trim()
   if (!key) return { key, problem: 'Paste a key first.' }
+  // A Claude subscription's login token (Claude Code's, from `claude setup-token` or its credentials),
+  // not an API key. Apps other than Anthropic's may not use one: accounts that do risk suspension.
+  if (isClaudeLoginToken(key)) return { key, problem: CLAUDE_LOGIN_TOKEN }
   if (/\s/.test(key)) return { key, problem: 'That key has a space or a line break in it. Copy it again, in one piece.' }
   if (key.length < 8) return { key, problem: 'That key looks cut short. Copy the whole key again.' }
   const other = KEY_PREFIXES.find((entry) => key.startsWith(entry.prefix))
