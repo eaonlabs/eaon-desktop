@@ -223,7 +223,7 @@ export const anthropicAdapter: Adapter = guardedAdapter({
                   // cleared result onward.
                   // Screenshots pile up fast in computer-use turns, so
                   // those clear sooner.
-                  trigger: { type: 'input_tokens' as const, value: request.tools.some((t) => t.name === 'computer') ? 50_000 : 90_000 },
+                  trigger: { type: 'input_tokens' as const, value: request.tools.some((t) => t.name === 'computer' || t.name.startsWith('desktop_')) ? 50_000 : 90_000 },
                   keep: { type: 'tool_uses' as const, value: 6 },
                   clear_at_least: { type: 'input_tokens' as const, value: 25_000 }
                 }

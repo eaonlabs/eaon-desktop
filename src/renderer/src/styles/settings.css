@@ -1388,3 +1388,11 @@ body[data-reduce-motion='on'] .star-card {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* A closing note under a page's cards (Browser control's "had the extension?"). */
+.settings__fine {
+  margin: 18px 2px 0;
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  color: var(--text-3);
+}

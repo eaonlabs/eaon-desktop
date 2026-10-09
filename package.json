@@ -1,6 +1,6 @@
 {
   "name": "eaon-desktop",
-  "version": "2026.6.2-beta.10",
+  "version": "2026.6.2",
   "description": "The Eaon desktop app — a bring-your-own-key AI chat client",
   "main": "./out/main/index.js",
   "desktopName": "eaon.desktop",
@@ -30,7 +30,6 @@
     "test:main": "node scripts/test-main.mjs",
     "test:e2e": "node scripts/test-e2e.mjs",
     "postinstall": "node scripts/fix-node-pty.mjs",
-    "pack:extension": "node scripts/pack-extension.mjs",
     "verify:plugins": "node scripts/verify-plugins.mjs",
     "verify:models": "node scripts/verify-model-library.mjs",
     "generate:models": "node scripts/generate-models.mjs",

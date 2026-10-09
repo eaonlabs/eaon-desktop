@@ -123,8 +123,7 @@ Baseline before this pass: 321 tests, 309 pass, 0 fail, 12 skipped.
 4. **Windows.** Install the Windows build, turn on "Keep running in the
    background", close the window (tray icon stays), sign out and back in, and
    check a scheduled task runs.
-5. **Chrome Web Store.** `npm run pack:extension` builds the zip;
-   `extension/STORE_LISTING.md` has the listing. Publishing needs the
-   one-time $5 developer registration — not done.
+5. **Chrome Web Store.** No longer needed: the extension was retired for
+   Browser Use, which attaches through the browser's own remote debugging.
 6. **Eaon Code plan/swarm over RPC** needs an upstream PR to
    eaonlabs/eaon-code (port of the old `rpc-session-modes.ts` onto 1.0.1).

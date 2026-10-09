@@ -789,6 +789,24 @@ function KeySection({
           </span>
         </div>
       )}
+      {meta.planCredits && (
+        <div className="provider-credits">
+          <div className="provider-credits__title">{meta.planCredits.title}</div>
+          <p className="provider-credits__detail">{meta.planCredits.detail}</p>
+          <ol className="provider-credits__steps">
+            {meta.planCredits.steps.map((step) => (
+              <li key={step}>{step}</li>
+            ))}
+          </ol>
+          <div className="provider-credits__links">
+            {meta.planCredits.links.map((link) => (
+              <button key={link.url} className="provider-link" onClick={() => void window.api.app.openExternal(link.url)}>
+                {link.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       <div className="key-field">
         <input
           type={reveal ? 'text' : 'password'}

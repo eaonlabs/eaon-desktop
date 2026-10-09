@@ -60,6 +60,8 @@ export function isPrivateHost(host: string): boolean {
  * guest's turn can't use them at all.
  */
 const PRIVATE = new Set(['web_browser', 'browser', 'computer'])
+/** The computer (Cua Driver's desktop_*) and the user's own browser (Browser Use's browser_*), by family. */
+const isPrivate = (name: string): boolean => PRIVATE.has(name) || name.startsWith('desktop_') || name.startsWith('browser_')
 const PRIVATE_REFUSAL =
   "You are answering a guest, and that tool can see the user's own accounts or screen, so a guest can't have you use it. Use web search or public pages instead."
 
@@ -75,7 +77,7 @@ export function guestGate(cap: GuestAccess): ToolGate | undefined {
   if (cap === 'autonomous') return undefined
   return (tool, input) => {
     if (LASTING.has(tool.name)) return LASTING_REFUSAL
-    if (PRIVATE.has(tool.name)) return PRIVATE_REFUSAL
+    if (isPrivate(tool.name)) return PRIVATE_REFUSAL
     // The agent's inbox and the user's brokerage account are the user's alone, whatever a guest may otherwise do.
     if (tool.name.startsWith('email_') || tool.name.startsWith('trading_')) return MONEY_AND_MAIL_REFUSAL
     if (cap !== 'talk') return null

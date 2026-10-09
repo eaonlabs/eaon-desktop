@@ -17,3 +17,6 @@ resources/eaon-cli/
 CLAUDE.md
 .claude/skills/eaon-brain/
 .eaonbrain/
+
+# Cua Driver (computer use engine): fetched by scripts/fetch-cua-driver.mjs
+resources/cua-driver/

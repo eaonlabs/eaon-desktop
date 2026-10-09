@@ -3,6 +3,38 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [2026.6.2] — 2026-10-08
+
+The stable release of everything in the 2026.6.2 betas below, plus:
+
+### Changed
+- **Claude plans, the allowed way.** Claude Max and Team plans now include
+  monthly API credits. Settings → Model providers → Anthropic shows how to
+  use them in Eaon: link a Claude Console organization to your plan (on
+  claude.ai, Settings → Billing → Link organization), make an API key there,
+  and paste it in. Eaon still never signs in with a Claude account or uses
+  your plan's usage limits — Anthropic doesn't allow other apps to, and
+  accounts that do can be suspended — and it now refuses a Claude login token
+  pasted where an API key goes. Your plan's own limits keep working in Claude
+  Code, which you can run in the ADE.
+- **Computer use runs on Cua Driver.** It works with apps through their
+  accessibility — the actual buttons, fields and menus — instead of guessing
+  where to click on a screenshot, and most actions happen without taking
+  over your mouse. It ships inside Eaon and uses Eaon's own permissions.
+  If it can't start, Eaon's previous engine takes over; Settings → Computer
+  use says which is in use.
+- **Browser control uses Browser Use, with no extension.** Settings →
+  Browser control sets it up in one click (Browser Use and a Python of its
+  own, in Eaon's folder). Your browser lets Eaon in through its own "Allow
+  remote debugging" switch and asks you to Allow each connection. Works with
+  Chrome, Edge, Brave, Arc, Comet, Vivaldi and Chromium. The agent works in a
+  tab of its own; buying, sending and typing into card or password fields
+  still ask first.
+
+### Removed
+- The Eaon browser extension and its pairing code. If you installed it, you
+  can remove it from your browser's Extensions page.
+
 ## [2026.6.2-beta.10] — 2026-10-08
 
 ### Added

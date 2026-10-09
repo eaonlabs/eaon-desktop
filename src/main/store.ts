@@ -263,9 +263,9 @@ export const defaultSettings: Settings = {
     confirmEachAction: true,
     quality: 'balanced'
   },
-  browserExtension: {
-    enabled: true,
-    port: 47821
+  browserUse: {
+    enabled: false,
+    browser: null
   },
   discord: {
     enabled: false,
@@ -315,7 +315,8 @@ function merge<T>(base: T, patch: unknown): T {
  * Top-level settings that features which no longer exist wrote. merge() keeps
  * keys it doesn't know, so without this they would be written back forever.
  */
-const REMOVED_SETTINGS = ['pets']
+// browserExtension: the Chrome extension, replaced by Browser Use (browserUse).
+const REMOVED_SETTINGS = ['pets', 'browserExtension']
 
 /** Settings with anything of the wrong type or out of range put back to its default; see repairSettings. */
 function checkedSettings(settings: Settings): Settings {

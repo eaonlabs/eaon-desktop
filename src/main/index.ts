@@ -9,6 +9,7 @@ import { prepareStore } from './migrations'
 import { dismissProblem, onStoreHealth, problemFile, storeHealth } from './storeFiles'
 import { secrets } from './secrets'
 import type { ModelEdit } from '@shared/providers'
+import { CLAUDE_LOGIN_TOKEN, isClaudeLoginToken } from '@shared/providers'
 import { clearProviderHealth, editModels, getProvider, listProviders, refreshModels, refreshProviderModels, removeProvider, testProvider, updateProvider } from './providers'
 import { refreshLocalProviders } from './providers/localDiscovery'
 import { refreshCatalogInBackground } from './providers/modelCatalog'
@@ -564,6 +565,8 @@ function registerIpc(): void {
   // A new or removed key makes the last check's verdict ("key rejected") stale.
   ipcMain.handle('keys:set', (_e, id: string, key: string) => {
     if (typeof key !== 'string') throw new Error('A key is text.')
+    // Checked here too, not only in Settings: no way in may store a Claude login as a key.
+    if (isClaudeLoginToken(key)) throw new Error(CLAUDE_LOGIN_TOKEN)
     const keyId = providerKey(id)
     secrets.set(keyId, key)
     clearProviderHealth(keyId)
@@ -591,6 +594,7 @@ function registerIpc(): void {
   )
   ipcMain.handle('keys:add-fallback', (_e, id: string, key: string) => {
     const keyId = providerKey(id)
+    if (typeof key === 'string' && isClaudeLoginToken(key)) throw new Error(CLAUDE_LOGIN_TOKEN)
     if (typeof key === 'string' && key.trim()) secrets.setFallbacks(keyId, [...secrets.getFallbacks(keyId), key.trim()])
     clearProviderHealth(keyId)
     return listProviders()

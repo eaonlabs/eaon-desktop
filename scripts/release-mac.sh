@@ -54,6 +54,9 @@ if [ ! -x resources/llama/darwin-arm64/llama-server ] || [ ! -x resources/llama/
   ./scripts/build-llama.sh all
 fi
 
+# Cua Driver, the computer-use engine: the pinned, checksummed release.
+node scripts/fetch-cua-driver.mjs darwin
+
 echo "Building Eaon for macOS (notarizing as ${APPLE_ID%%@*}@…, publish=$PUBLISH)"
 npx electron-vite build
 npx electron-builder --mac --publish "$PUBLISH"

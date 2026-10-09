@@ -44,6 +44,10 @@ jobs:
         shell: bash
         run: ./scripts/fetch-llama-windows.sh
 
+      # Cua Driver, the computer-use engine: the pinned, checksummed release.
+      - name: Cua Driver
+        run: node scripts/fetch-cua-driver.mjs win32-x64 win32-arm64
+
       - name: Build
         shell: bash
         run: |
