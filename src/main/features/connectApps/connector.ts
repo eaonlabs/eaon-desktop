@@ -3,6 +3,7 @@ import type { ConnectAppId, ConnectChoice, ConnectKind, ConnectWritten } from '@
 import type { GatewayInfo } from '@shared/gateway'
 import { deletePath, getPath, readJson, setPath, writeJson, writeJsonBack, type Json } from './files'
 import { sameValue, type AppRecord, type KeyRecord } from './state'
+import { shellQuote } from '../eaonCode/terminal'
 
 /** Everything a connector needs, so tests can point it at a temporary home folder. */
 export interface ConnectContext {
@@ -121,9 +122,18 @@ export function jsonMatches(ctx: ConnectContext, file: string, values: [string[]
   }
 }
 
-/** Shell `export` lines for the copy-paste fallback. */
+/**
+ * Shell `export` lines for the copy-paste fallback, which the user pastes
+ * into a terminal. Values are single-quoted: a model id comes from a
+ * provider's model list, and in double quotes a `$(…)` or backtick in one
+ * would run when pasted. On Windows, `set "KEY=value"` keeps `&`, `|` and
+ * `>` from being read as commands.
+ */
 export function exportLines(env: Record<string, string>, platform: NodeJS.Platform): string {
   return Object.entries(env)
-    .map(([key, value]) => (platform === 'win32' ? `set ${key}=${value}` : `export ${key}=${JSON.stringify(value)}`))
+    .map(([key, raw]) => {
+      const value = raw.replace(/[\r\n]/g, '')
+      return platform === 'win32' ? `set "${key}=${value.replace(/"/g, '')}"` : `export ${key}=${shellQuote(value)}`
+    })
     .join('\n')
 }

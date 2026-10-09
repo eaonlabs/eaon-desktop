@@ -1,6 +1,7 @@
 import { app, BrowserWindow, crashReporter, dialog, ipcMain, shell } from 'electron'
 import { appendFileSync, mkdirSync, renameSync, statSync } from 'node:fs'
 import { join } from 'node:path'
+import { redactSecrets } from './redact'
 
 /**
  * What happens when something in Eaon crashes: it leaves evidence, and the
@@ -35,7 +36,9 @@ const describe = (detail: unknown): string => {
 
 /** Appends one entry to crashes.log, keeping the previous megabyte in crashes.old.log. Never throws. */
 export function logCrash(kind: string, detail: unknown): void {
-  const text = describe(detail).slice(0, MAX_ENTRY_CHARS)
+  // A rejection can carry a request's headers, a page URL an OAuth code or
+  // key; the log is a plain file that ends up in bug reports.
+  const text = redactSecrets(describe(detail).slice(0, MAX_ENTRY_CHARS))
   console.error(`[crash] ${kind}: ${text}`)
   try {
     const path = crashLogPath()
@@ -70,7 +73,13 @@ export class ReloadBudget {
 
 let installed = false
 
-export function installCrashGuard(): void {
+/**
+ * `isAppWindow` tells Eaon's own windows from the other windows it opens. A
+ * worker's browser is a hidden window too; its pages crash on heavy sites, and
+ * reloading one behind the agent's back used up the budget meant for the app
+ * and could hang the "keeps crashing" dialog on a window nobody can see.
+ */
+export function installCrashGuard(isAppWindow: (contents: Electron.WebContents) => boolean = () => true): void {
   if (installed) return
   installed = true
   crashReporter.start({ uploadToServer: false })
@@ -88,7 +97,7 @@ export function installCrashGuard(): void {
     logCrash(`renderer gone (${kind})`, `${details.reason}, exit code ${details.exitCode}, ${contents.getURL().slice(0, 200)}`)
     // A page in the agent's browser or a <webview> shows its own error; only Eaon's own windows are reloaded
     // ('offscreen' is the same window under the screenshot harness).
-    if (kind !== 'window' && kind !== 'offscreen') return
+    if ((kind !== 'window' && kind !== 'offscreen') || !isAppWindow(contents)) return
     const window = BrowserWindow.fromWebContents(contents)
     if (!window || window.isDestroyed()) return
     if (budget.take()) {

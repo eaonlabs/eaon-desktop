@@ -1,5 +1,8 @@
 import { ipcRenderer } from 'electron'
 import type {
+  WorkerDelegation,
+  WorkerExecution,
+  WorkerExecutionEvent,
   RoomPost,
   RoomPostEvent,
   TeamDraftInput,
@@ -26,7 +29,8 @@ function subscribe<T>(channel: string, handler: (payload: T) => void): () => voi
 
 export const workersApi = {
   list: (): Promise<Worker[]> => ipcRenderer.invoke('workers:list'),
-  thread: (id: string): Promise<WorkerThread> => ipcRenderer.invoke('workers:thread', id),
+  /** A thread's transcript: the main one, or another of the worker's threads. */
+  thread: (id: string, threadId?: string): Promise<WorkerThread> => ipcRenderer.invoke('workers:thread', id, threadId),
   /** Creates (no `id`) or updates. Rejects with a user-facing message when invalid. */
   save: (draft: WorkerDraft): Promise<Worker> => ipcRenderer.invoke('workers:save', draft),
   /** Stops any running turn and forgets the worker; its folder stays on disk. */
@@ -35,18 +39,33 @@ export const workersApi = {
    * Mail from the user. Files are absolute paths, referenced as they are.
    * Colleagues the text @mentions by name get their own copy.
    */
-  send: (id: string, text: string, files: string[] = [], options: WorkerSendOptions = {}): Promise<void> =>
+  send: (id: string, text: string, files: string[] = [], options: WorkerSendOptions = {}): Promise<{ threadId: string }> =>
     ipcRenderer.invoke('workers:send', id, text, files, options),
-  /** Empties the thread and its summary; mail, heartbeat and settings stay. */
-  clear: (id: string): Promise<void> => ipcRenderer.invoke('workers:clear', id),
+  /** Empties a thread (the main one by default) and its summary; mail, wake-ups and settings stay. */
+  clear: (id: string, threadId?: string): Promise<void> => ipcRenderer.invoke('workers:clear', id, threadId),
+  /** The worker's run receipts, newest last. */
+  executions: (id: string): Promise<WorkerExecution[]> => ipcRenderer.invoke('workers:executions', id),
+  /** Runs a finished run's work again in the same thread. */
+  retry: (id: string, executionId: string): Promise<void> => ipcRenderer.invoke('workers:retry', id, executionId),
+  /** Open and recent delegations between workers. */
+  delegations: (): Promise<WorkerDelegation[]> => ipcRenderer.invoke('workers:delegations'),
+  /** Marks a side thread finished (or reopens it with `closed: false`). */
+  closeThread: (id: string, threadId: string, closed = true): Promise<void> => ipcRenderer.invoke('workers:thread-close', id, threadId, closed),
+  removeThread: (id: string, threadId: string): Promise<void> => ipcRenderer.invoke('workers:thread-remove', id, threadId),
+  onExecution: (handler: (event: WorkerExecutionEvent) => void): (() => void) => subscribe('workers:execution', handler),
+  onDelegations: (handler: (delegations: WorkerDelegation[]) => void): (() => void) => subscribe('workers:delegations', handler),
   setPaused: (id: string, paused: boolean): Promise<Worker> => ipcRenderer.invoke('workers:set-paused', id, paused),
+  /** Edits what the worker remembers: its goal and its notes. Each is optional; an empty string clears it. */
+  setMemory: (id: string, memory: { goal?: string; notes?: string }): Promise<string> => ipcRenderer.invoke('workers:set-memory', id, memory),
+  /** Stops one of the worker's routines, by name. */
+  removeRoutine: (id: string, name: string): Promise<string> => ipcRenderer.invoke('workers:remove-routine', id, name),
   /** Pause, resume or clear the goal set from the composer's Goal. */
   setGoal: (id: string, status: 'active' | 'paused' | null): Promise<void> => ipcRenderer.invoke('workers:set-goal', id, status),
   /** Runs a check-in turn as soon as the worker is free. */
   wake: (id: string): Promise<void> => ipcRenderer.invoke('workers:wake', id),
-  /** Aborts the running turn only. */
-  stop: (id: string): Promise<void> => ipcRenderer.invoke('workers:stop', id),
-  markRead: (id: string): Promise<void> => ipcRenderer.invoke('workers:mark-read', id),
+  /** Aborts one thread's running turn (the main one by default); the worker's other threads carry on. */
+  stop: (id: string, threadId?: string): Promise<void> => ipcRenderer.invoke('workers:stop', id, threadId),
+  markRead: (id: string, threadId?: string): Promise<void> => ipcRenderer.invoke('workers:mark-read', id, threadId),
   /** Brings a worker's own browser to the front (to watch, or to sign it in); false if it has not opened one yet. */
   showBrowser: (id: string): Promise<boolean> => ipcRenderer.invoke('workers:show-browser', id),
   hasBrowser: (id: string): Promise<boolean> => ipcRenderer.invoke('workers:has-browser', id),

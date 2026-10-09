@@ -2,7 +2,9 @@ import { memo, useEffect, useRef, useState, type JSX } from 'react'
 import { Ban, Check, Copy, FolderOpen, ImagePlus, TriangleAlert } from 'lucide-react'
 import type { ChatToolPart } from '@shared/types'
 import { aspectRatio } from '@shared/images'
-import { fileName, fileUrl } from '../../lib/files'
+import { fileName, fileUrl, revealLabel } from '../../lib/files'
+import { CLIPBOARD_FAILED, copyText } from '../../lib/clipboard'
+import { notify } from '../Notice'
 import { generatedPaths, madeWith } from './imageResults'
 import { ThinkingOrb } from '../ThinkingOrb'
 import { Modal } from '../ui'
@@ -13,7 +15,8 @@ import '../../styles/imagegen.css'
  * image at the shape that was asked for, each a slowly developing field of
  * light with the current stage on it; when it is done the pictures resolve
  * out of a blur into those same tiles, so nothing jumps. Click one to look at
- * it full size; the corner buttons copy its path or show it in Finder.
+ * it full size; the corner buttons copy its path or show it in the file
+ * manager (Finder on macOS).
  */
 
 const clock = (seconds: number): string => `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`
@@ -66,15 +69,17 @@ function Tile({
               className="imggen__action"
               title={copied ? 'Copied' : 'Copy path'}
               aria-label="Copy path"
-              onClick={() => {
-                void navigator.clipboard.writeText(path)
-                setCopied(true)
-                setTimeout(() => setCopied(false), 1400)
-              }}
+              onClick={() =>
+                void copyText(path).then((ok) => {
+                  if (!ok) return notify(CLIPBOARD_FAILED, 'error')
+                  setCopied(true)
+                  setTimeout(() => setCopied(false), 1400)
+                })
+              }
             >
               {copied ? <Check size={13} strokeWidth={2.2} /> : <Copy size={13} strokeWidth={2} />}
             </button>
-            <button className="imggen__action" title="Show in Finder" aria-label="Show in Finder" onClick={() => void window.api.app.showItem(path)}>
+            <button className="imggen__action" title={revealLabel()} aria-label={revealLabel()} onClick={() => void window.api.app.showItem(path).then((shown) => shown || notify("That file isn't there any more.", 'error'))}>
               <FolderOpen size={13} strokeWidth={2} />
             </button>
           </span>
@@ -154,7 +159,7 @@ export const ImageGeneration = memo(function ImageGeneration({ part }: { part: C
               </button>
               <button className="btn" onClick={() => void window.api.app.showItem(viewing)}>
                 <FolderOpen size={14} strokeWidth={1.9} />
-                Show in Finder
+                {revealLabel()}
               </button>
             </>
           )

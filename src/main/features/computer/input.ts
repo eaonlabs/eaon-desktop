@@ -25,6 +25,8 @@ export interface BackendCheck {
   trusted?: boolean
   /** macOS: whether the session is on the lock screen. */
   locked?: boolean
+  /** macOS: whether the main display is asleep (screenshots come back black, clicks land on nothing anyone sees). */
+  asleep?: boolean
 }
 
 /** An on-screen app window, bounds in screen points. */

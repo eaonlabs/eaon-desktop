@@ -10,7 +10,7 @@ import { EaonCodeBridge } from '../src/main/features/eaonCode/bridge'
 import { buildChildEnv } from '../src/main/features/eaonCode/env'
 import { agentDirFor, detectEaonCode, findInstallerCopy, parseVersion, spawnSpec, versionAtLeast } from '../src/main/features/eaonCode/locate'
 import { defaultSessionDir, listSessions, summariseSession } from '../src/main/features/eaonCode/sessions'
-import { shellQuote } from '../src/main/features/eaonCode/terminal'
+import { cmdKeepOpenArgs, launchDetached, openInTerminal, shellQuote } from '../src/main/features/eaonCode/terminal'
 import { explainInstallFailure, installEaonCode } from '../src/main/features/eaonCode/install'
 import { agentOfArgs, setAgentScript } from '../src/main/features/terminals/agentSessions'
 import {
@@ -116,6 +116,28 @@ test('locate: version parsing and the Node floor', () => {
   assert.equal(versionAtLeast([22, 18, 9], [22, 19, 0]), false)
   assert.equal(versionAtLeast([24, 0, 0], [22, 19, 0]), true)
   assert.equal(agentDirFor({ dir: null, configDir: '.eaon', appName: 'eaon-code' }, { EAON_CODE_CODING_AGENT_DIR: '/x/agent' }), '/x/agent')
+})
+
+test('terminal: on Windows the line cmd /k runs keeps every part quoted', () => {
+  // /s strips exactly the outer pair, so "C:\Program Files\…" stays whole;
+  // without it cmd stripped the first and last quote and ran C:\Program.
+  assert.deepEqual(cmdKeepOpenArgs('Eaon Code', ['C:\\Program Files\\nodejs\\node.exe', 'C:\\x\\cli.js', '--session', 'C:\\s dir\\a.jsonl']), [
+    '/c',
+    'start',
+    '"Eaon Code"',
+    'cmd.exe',
+    '/s',
+    '/k',
+    '""C:\\Program Files\\nodejs\\node.exe" "C:\\x\\cli.js" "--session" "C:\\s dir\\a.jsonl""'
+  ])
+  // The cmd running `start` reads the parts unquoted, so its metacharacters are escaped for it.
+  assert.equal(cmdKeepOpenArgs('A "b" & c', ['C:\\Users\\Tom & Jerry\\x.cmd']).slice(2).join(' '), '"A b  c" cmd.exe /s /k ""C:\\Users\\Tom ^& Jerry\\x.cmd""')
+})
+
+test('terminal: a folder that is gone is reported, not thrown', async () => {
+  const gone = join(mkdtempSync(join(tmpdir(), 'eaon-term-')), 'missing')
+  assert.deepEqual(await openInTerminal(gone, { command: 'eaon-code', args: [] }), { ok: false, error: `The folder ${gone} does not exist.` })
+  assert.match((await launchDetached('/definitely/not/a/terminal', [])) ?? '', /ENOENT/)
 })
 
 test('locate: a Windows .cmd shim runs through cmd.exe with its path quoted', () => {

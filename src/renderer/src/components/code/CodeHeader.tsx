@@ -4,11 +4,15 @@ import { ChevronDown, Folder, FolderOpen } from 'lucide-react'
 import { TopBar } from '../TopBar'
 import { MenuItem, MenuSeparator, Popover, useDisclosure } from '../ui'
 import { useCode } from './codeStore'
+import { useAdeSessions } from './sessionsStore'
+import { sessionTitle } from '@shared/adeSessions'
 import { NewTerminalButton } from './terminal/TerminalWorkspace'
+import { UsageMeter } from './UsageMeter'
+import { revealLabel } from '../../lib/files'
 
 export const folderName = (path: string): string => path.split(/[\\/]/).filter(Boolean).pop() ?? path
 
-/** The ADE's top bar: the project folder, the mode switch, and a new terminal. */
+/** The ADE's top bar: the project folder, the mode switch, plan usage, the terminals' theme and a new terminal. */
 export function CodeHeader(): JSX.Element {
   const cwd = useCode((s) => s.cwd)
   return (
@@ -17,6 +21,7 @@ export function CodeHeader(): JSX.Element {
       left={cwd ? <FolderChip /> : null}
       right={
         <div className="chat-header__actions">
+          <UsageMeter />
           <NewTerminalButton />
         </div>
       }
@@ -31,19 +36,32 @@ function FolderChip(): JSX.Element {
   const anchor = useRef<HTMLButtonElement>(null)
   const menu = useDisclosure()
   const others = recents.filter((path) => path !== cwd)
+  const session = useAdeSessions((s) => s.sessions.find((x) => x.cwd === cwd) ?? null)
+  // The project, then the session when it isn't the project folder itself.
+  const project = session?.project ?? cwd
+  const inner = session && session.cwd !== session.project ? sessionTitle(session) : null
 
   return (
     <>
       <button ref={anchor} className="header-btn code-folder" data-open={menu.open || undefined} onClick={menu.toggle} title={cwd ?? ''}>
         <Folder size={14} strokeWidth={1.9} />
-        <span className="code-folder__name">{cwd ? folderName(cwd) : 'Choose folder'}</span>
+        <span className="code-folder__name">{project ? folderName(project) : 'Choose folder'}</span>
+        {inner && (
+          <>
+            <span className="code-folder__sep" aria-hidden>
+              /
+            </span>
+            <span className="code-folder__name">{inner}</span>
+          </>
+        )}
         <ChevronDown size={13} strokeWidth={2} className="code-folder__chevron" />
       </button>
       <Popover anchor={anchor} open={menu.open} onClose={menu.close} placement="bottom-start" width={300}>
         {cwd && (
           <>
             <div className="menu__label">Project folder</div>
-            <MenuItem icon={<FolderOpen size={16} strokeWidth={1.8} />} title={folderName(cwd)} description={cwd} checked />
+            {/* The folder already open: picking it again just closes the menu. */}
+            <MenuItem icon={<FolderOpen size={16} strokeWidth={1.8} />} title={folderName(cwd)} description={cwd} checked onClick={menu.close} />
           </>
         )}
         {others.length > 0 && (
@@ -71,7 +89,15 @@ function FolderChip(): JSX.Element {
             void chooseFolder()
           }}
         />
-        {cwd && <MenuItem title="Reveal in Finder" onClick={() => void window.api.app.showItem(cwd)} />}
+        {cwd && (
+          <MenuItem
+            title={revealLabel()}
+            onClick={() => {
+              menu.close()
+              void window.api.app.showItem(cwd)
+            }}
+          />
+        )}
       </Popover>
     </>
   )

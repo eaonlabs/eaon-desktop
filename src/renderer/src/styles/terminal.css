@@ -12,6 +12,7 @@
 }
 
 .term-workspace {
+  position: relative;
   flex: 1;
   min-height: 0;
   display: flex;
@@ -23,7 +24,63 @@
   flex: 1;
   min-height: 0;
   display: grid;
-  gap: 8px;
+  /* The 8px between terminals is the dividers' own track (gridLayout.ts), so they can be dragged. */
+  gap: 0;
+}
+
+/* A divider between two columns or rows: a grab area the width of the gap, with a line that shows on hover or drag. */
+.term-divider {
+  position: relative;
+  z-index: 2;
+  touch-action: none;
+  outline: none;
+}
+.term-divider[data-axis='cols'] {
+  cursor: col-resize;
+}
+.term-divider[data-axis='rows'] {
+  cursor: row-resize;
+}
+.term-divider::after {
+  content: '';
+  position: absolute;
+  border-radius: var(--r-pill);
+  background: transparent;
+  transition: background var(--dur) var(--ease);
+}
+.term-divider[data-axis='cols']::after {
+  top: 6px;
+  bottom: 6px;
+  left: 3px;
+  width: 2px;
+}
+.term-divider[data-axis='rows']::after {
+  left: 6px;
+  right: 6px;
+  top: 3px;
+  height: 2px;
+}
+.term-divider:hover::after {
+  background: var(--border-strong);
+}
+.term-divider[data-active='true']::after,
+.term-divider:focus-visible::after {
+  background: var(--accent);
+}
+/* While a divider is dragged the pointer keeps its cursor, and no terminal takes the drag as a selection. */
+body[data-term-resizing='cols'],
+body[data-term-resizing='cols'] * {
+  cursor: col-resize !important;
+}
+body[data-term-resizing='rows'],
+body[data-term-resizing='rows'] * {
+  cursor: row-resize !important;
+}
+body[data-term-resizing] {
+  user-select: none;
+}
+body[data-term-resizing] .term-pane {
+  pointer-events: none;
 }
 
 .term-pane {
@@ -47,6 +104,48 @@
     opacity: 0;
     transform: scale(0.985);
   }
+}
+
+.term-pane__head[draggable='true'] {
+  cursor: grab;
+}
+.term-pane__head[draggable='true']:active {
+  cursor: grabbing;
+}
+.term-pane__head[draggable='true'] button {
+  cursor: default;
+}
+.term-pane[data-dragging='true'] {
+  opacity: 0.5;
+}
+/* Another terminal is being dragged: this one is a place to drop it. */
+.term-pane__drop {
+  position: absolute;
+  inset: 0;
+  z-index: 5;
+  display: grid;
+  place-items: center;
+  border: 2px dashed transparent;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--accent) 6%, transparent);
+  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
+}
+.term-pane__drop[data-over='true'] {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+}
+.term-pane__drop-label {
+  padding: 5px 12px;
+  border-radius: var(--r-pill);
+  background: var(--surface-3);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+  pointer-events: none;
+}
+.term-pane__drop[data-over='true'] .term-pane__drop-label {
+  opacity: 1;
 }
 
 .term-pane__head {
@@ -134,8 +233,25 @@ body[data-reduce-motion='on'] .term-pane__dot {
   padding: 6px 2px 2px 10px;
 }
 .term-wrapper {
+  position: relative;
   width: 100%;
   height: 100%;
+}
+
+/* A theme's scene (code/terminal/scenes.ts): pixel art under the terminal's
+   see-through background, out to the pane's edges past the screen's padding. */
+.term-scene {
+  position: absolute;
+  inset: -6px -2px -2px -10px;
+  width: calc(100% + 12px);
+  height: calc(100% + 8px);
+  image-rendering: pixelated;
+  pointer-events: none;
+  z-index: 0;
+}
+.term-wrapper .xterm {
+  position: relative;
+  z-index: 1;
 }
 .term-pane .xterm {
   height: 100%;
@@ -147,12 +263,20 @@ body[data-reduce-motion='on'] .term-pane__dot {
   background-color: transparent !important;
 }
 
-.term-pane__restart {
+.term-pane__actions {
   position: absolute;
   left: 50%;
   bottom: 14px;
   transform: translateX(-50%);
+  /* Above the terminal, which sits on its own layer over the theme's scene
+     (z-index 1); without it Restart was drawn underneath, and invisible. */
+  z-index: 6;
+  display: flex;
+  gap: 8px;
+}
+.term-pane__restart {
   display: inline-flex;
+  white-space: nowrap;
   align-items: center;
   gap: 6px;
   height: 30px;
@@ -190,6 +314,74 @@ body[data-reduce-motion='on'] .term-pane__dot {
   margin: 0 0 26px;
   color: var(--text-2);
   line-height: 1.55;
+}
+/* An empty session's past conversations, above the agent cards: a link until asked for. */
+.term-past__open {
+  margin: -10px 0 18px;
+  padding: 4px 10px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+.term-past__open:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.term-past {
+  width: min(470px, 100%);
+  margin: -8px 0 4px;
+  text-align: left;
+}
+.term-past__heading {
+  margin: 0 0 8px 4px;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--text-3);
+}
+.term-past__heading--start {
+  margin: 20px 0 10px;
+  text-align: center;
+}
+.term-past__list {
+  display: flex;
+  flex-direction: column;
+  padding: 4px;
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+  box-shadow: 0 0 0 1px var(--border-soft);
+}
+.term-past__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  padding: 0 10px;
+  border-radius: var(--r-md);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  text-align: left;
+  transition: background var(--dur) var(--ease);
+}
+.term-past__item:hover {
+  background: var(--hover);
+}
+.term-past__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.term-past__age {
+  flex: none;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+.term-past__more {
+  margin: 6px 0 0 4px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
 }
 .term-empty__agents {
   display: grid;
@@ -261,10 +453,274 @@ body[data-reduce-motion='on'] .term-pane__dot {
   }
 }
 
-/* The sidebar's terminal list in the ADE. */
-.code-term-row .nav-item__icon {
-  width: 16px;
+/* ---- A terminal theme of its own (code/terminal/themes.ts) ----
+   The workspace carries the theme's background and text as --term-bg and
+   --term-fg; the panes' headers take their tones from those, so a light theme
+   in a dark app (or the other way round) still reads. */
+.term-workspace[data-themed] .term-pane {
+  --text: var(--term-fg);
+  --text-2: color-mix(in srgb, var(--term-fg), var(--term-bg) 30%);
+  --text-3: color-mix(in srgb, var(--term-fg), var(--term-bg) 50%);
+  --text-4: color-mix(in srgb, var(--term-fg), var(--term-bg) 66%);
+  --border-soft: color-mix(in srgb, var(--term-fg) 11%, transparent);
+  --border-strong: color-mix(in srgb, var(--term-fg) 24%, transparent);
+  --hover-strong: color-mix(in srgb, var(--term-fg) 10%, transparent);
+  color: var(--term-fg);
+  transition: background var(--dur) var(--ease);
 }
-.code-term-row[data-status='working'] .nav-item__trail {
-  color: #34c759;
+
+/* ---- Theme picker (code/terminal/ThemePicker.tsx) ---- */
+
+.theme-picker__scrim {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+}
+.theme-picker {
+  position: absolute;
+  top: 2px;
+  right: 10px;
+  bottom: 10px;
+  z-index: 21;
+  width: min(440px, calc(100% - 20px));
+  display: flex;
+  flex-direction: column;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-modal);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  color: var(--text);
+  outline: none;
+  overflow: hidden;
+  animation: theme-picker-in var(--dur-spring) var(--spring-moderate) backwards;
+}
+@keyframes theme-picker-in {
+  from {
+    opacity: 0;
+    transform: translateX(14px);
+  }
+}
+body[data-reduce-motion='on'] .theme-picker {
+  animation: none;
+}
+
+.theme-picker__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 8px 0 14px;
+}
+.theme-picker__title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-weight: 600;
+}
+.theme-picker__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--accent);
+  align-self: center;
+}
+.theme-picker__count {
+  color: var(--text-3);
+  font-weight: 400;
+}
+.theme-picker__now {
+  color: var(--text-3);
+  font-weight: 400;
+}
+.theme-picker__keys {
+  margin: 4px 14px 10px;
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+.theme-picker__keys kbd {
+  font: inherit;
+  color: var(--text-2);
+}
+
+/* The sample, drawn in the theme under the cursor, scene and all. */
+.theme-sample {
+  position: relative;
+  flex: none;
+  margin: 0 12px 10px;
+  min-height: 148px;
+  border-radius: var(--r-md);
+  background: var(--s-bg);
+  color: var(--s-fg);
+  overflow: hidden;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--s-fg) 10%, transparent);
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.theme-sample .term-scene {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+.theme-sample__lines {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 3px;
+  padding: 10px 12px;
+  line-height: 1.45;
+  white-space: nowrap;
+}
+.s-muted {
+  color: var(--s-muted);
+}
+.s-red {
+  color: var(--s-red);
+}
+.s-green {
+  color: var(--s-green);
+}
+.s-yellow {
+  color: var(--s-yellow);
+}
+.s-cyan {
+  color: var(--s-cyan);
+}
+.s-magenta {
+  color: var(--s-magenta);
+}
+.s-badge {
+  padding: 0 5px;
+  border-radius: 3px;
+}
+.s-badge--green {
+  background: color-mix(in srgb, var(--s-green) 24%, transparent);
+  color: var(--s-green);
+}
+.s-badge--blue {
+  background: color-mix(in srgb, var(--s-blue) 24%, transparent);
+  color: var(--s-blue);
+}
+.s-bar {
+  display: inline-block;
+  width: 54px;
+  height: 7px;
+  border-radius: 2px;
+  background: var(--s-green);
+  vertical-align: middle;
+}
+.s-meter {
+  display: inline-block;
+  width: 46px;
+  height: 7px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--s-magenta) 25%, transparent);
+  vertical-align: middle;
+  overflow: hidden;
+}
+.s-meter > span {
+  display: block;
+  width: 62%;
+  height: 100%;
+  background: var(--s-magenta);
+}
+.s-block {
+  display: inline-block;
+  width: 26px;
+  height: 11px;
+  background: var(--s-red);
+  vertical-align: middle;
+}
+.s-blurb {
+  margin-top: 2px;
+  color: var(--s-muted);
+  white-space: normal;
+}
+
+.theme-picker__list {
+  flex: 1;
+  min-height: 0;
+  margin: 0;
+  padding: 2px 8px 8px;
+  list-style: none;
+  overflow-y: auto;
+  scrollbar-width: thin;
+}
+.theme-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 30px;
+  padding: 0 6px;
+  border-radius: var(--r-xs);
+  cursor: default;
+}
+.theme-row[data-active] {
+  background: var(--hover-strong);
+}
+.theme-row__swatch {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  flex: none;
+  padding: 4px 6px 4px 7px;
+  border-radius: 5px;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--text) 12%, transparent);
+}
+.theme-row__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.theme-row__aa {
+  margin-left: 5px;
+  font-weight: 600;
+  font-size: 11.5px;
+  line-height: 1;
+}
+.theme-row__name {
+  white-space: nowrap;
+}
+.theme-row[data-active] .theme-row__name {
+  font-weight: 600;
+}
+.theme-row__check {
+  flex: none;
+  color: var(--accent);
+}
+.theme-row__tag {
+  padding: 0 5px;
+  border-radius: 3px;
+  font-size: 11px;
+  color: var(--text-3);
+  box-shadow: inset 0 0 0 1px var(--border-soft);
+}
+.theme-row__scene {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+.theme-picker__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border-soft);
+  color: var(--text-2);
+}
+.theme-picker__own {
+  padding: 0 14px 12px;
+  text-align: left;
+  font: inherit;
+  font-size: 11.5px;
+  color: var(--link);
+}
+.theme-picker__own:hover {
+  text-decoration: underline;
+}
+
+/* Files from Finder over a pane: they will be typed in as paths. */
+.term-pane[data-file-over] {
+  box-shadow: 0 0 0 2px var(--accent, var(--text-2));
 }

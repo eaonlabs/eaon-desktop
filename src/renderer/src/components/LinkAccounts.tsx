@@ -4,6 +4,7 @@ import { useShallow } from 'zustand/react/shallow'
 import type { ModelInfo, Provider } from '@shared/types'
 import type { ProviderAuthStatus } from '@shared/providers'
 import { LINK_TARGETS, type DetectedApp, type LinkTarget } from '@shared/linkAccounts'
+import { providerReadiness } from '@shared/modelSelection'
 import { useApp } from '../state/store'
 import { BrandIcon } from '../icons/brand'
 import { Modal } from './ui'
@@ -26,8 +27,8 @@ import './link-accounts.css'
 const errorText = (error: unknown): string =>
   (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 
-/** Linked: the provider has models Eaon can use right now. */
-const isLinked = (p: Provider | undefined): boolean => Boolean(p && p.enabled && (p.hasKey || p.local) && p.models.length > 0)
+/** Linked: the provider has models Eaon can use right now (not merely a stored key a check found broken). */
+const isLinked = (p: Provider | undefined): boolean => Boolean(p && providerReadiness(p).state === 'ready')
 
 export function LinkAccounts({ open, onClose }: { open: boolean; onClose: () => void }): JSX.Element | null {
   const { providers, refreshProviders } = useApp(useShallow((s) => ({ providers: s.providers, refreshProviders: s.refreshProviders })))
@@ -62,6 +63,7 @@ export function LinkAccounts({ open, onClose }: { open: boolean; onClose: () => 
     setLinkingAll(true)
     setNote(null)
     const keys: string[] = []
+    const failed: string[] = []
     let linked = 0
     try {
       for (const target of targets) {
@@ -72,9 +74,22 @@ export function LinkAccounts({ open, onClose }: { open: boolean; onClose: () => 
         }
         if (target.method === 'signin') {
           if (auth[target.providerId]?.needsClientId) continue
-          const status = await window.api.providerAuth.signIn(target.providerId).catch(() => null)
-          if (status?.signedIn) linked++
-        } else if (await turnOnLocal(target.providerId).then(() => true, () => false)) linked++
+          const name = byId.get(target.providerId)?.name ?? target.providerId
+          try {
+            const status = await window.api.providerAuth.signIn(target.providerId)
+            if (status?.signedIn) linked++
+            else failed.push(`${name} didn't finish signing in`)
+          } catch (error) {
+            failed.push(`${name}: ${errorText(error)}`)
+          }
+        } else {
+          try {
+            await turnOnLocal(target.providerId)
+            linked++
+          } catch (error) {
+            failed.push(`${byId.get(target.providerId)?.name ?? target.providerId}: ${errorText(error)}`)
+          }
+        }
       }
       await refreshProviders()
     } finally {
@@ -84,7 +99,8 @@ export function LinkAccounts({ open, onClose }: { open: boolean; onClose: () => 
     const names = keys.map((id) => byId.get(id)?.name ?? id)
     setNote(
       [
-        linked ? `Linked ${linked} ${linked === 1 ? 'account' : 'accounts'}.` : 'Nothing new to sign in to.',
+        linked ? `Linked ${linked} ${linked === 1 ? 'account' : 'accounts'}.` : failed.length ? '' : 'Nothing new to sign in to.',
+        failed.length ? `Couldn't link ${failed.join('; ')}.` : '',
         names.length ? `${names.join(', ')} ${names.length === 1 ? 'takes' : 'take'} an API key: paste it below.` : ''
       ]
         .filter(Boolean)

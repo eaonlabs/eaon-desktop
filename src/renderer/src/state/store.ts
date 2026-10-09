@@ -15,16 +15,21 @@ import type {
   Settings,
   StreamEvent,
   StreamRequest,
+  ThemePalette,
   UpdateStatus,
   Workspace
 } from '@shared/types'
 import { mergeRunChat } from '@shared/scheduler'
+import { isLastingIssue, type ProviderIssue } from '@shared/providers'
+import { isProviderUsable, modelKey, resolveSelection, toggleFavorite, withRecent, type ResolvedSelection } from '@shared/modelSelection'
 import { lastTurnFailed } from './chatStatus'
-import { chatChanges } from './chatSync'
+import { chatChanges, Checkpoint } from './chatSync'
 import { forkedChat, retryPlan, withFeedback } from './chatEdits'
 import { migrateLegacySchedules } from '../components/scheduled/legacy'
+import { notify } from '../components/Notice'
+import { reportError } from '../components/ErrorBoundary'
 
-export type View = 'chat' | 'plugins' | 'integrations' | 'scheduled' | 'settings' | 'pull-requests' | 'models' | 'library' | 'trading'
+export type View = 'chat' | 'plugins' | 'integrations' | 'scheduled' | 'settings' | 'pull-requests' | 'linear' | 'models' | 'library' | 'trading'
 
 interface NavEntry {
   view: View
@@ -33,8 +38,13 @@ interface NavEntry {
 
 const uid = (): string => Math.random().toString(36).slice(2, 11) + Date.now().toString(36)
 
+const errorText = (error: unknown): string =>
+  (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
+
 interface AppState {
   ready: boolean
+  /** Why the window couldn't start, when `init` failed before it was ready. */
+  initError: string | null
   settings: Settings | null
   workspaces: Workspace[]
   projects: Project[]
@@ -58,11 +68,21 @@ interface AppState {
   streamingMessageId: string | null
   /** The chat `streamingMessageId` belongs to. */
   streamingChatId: string | null
+  /**
+   * Replies being written right now by something else — another window, a
+   * scheduled task — so this window shows them as unfinished too. An id drops
+   * when its run ends, or after a minute of silence (a window that missed the end).
+   */
+  remoteStreaming: string[]
   /** The approval being asked now; `approvalQueue` holds any that arrived while it was open. */
   pendingApproval: PendingApproval | null
   approvalQueue: PendingApproval[]
   /** A suggestion-card prompt waiting to be dropped into the composer, consumed once. */
   composerDraft: string | null
+  /** The provider Settings → Model providers should open on, consumed once (see `openProviderSettings`). */
+  providerFocus: string | null
+  /** Bumped to ask the composer to open its model picker (a failed reply's "Choose a model"). */
+  modelMenuRequest: number
   /** Code-index progress for the chat agent's project folder. */
   indexStatus: IndexStatus | null
   /** In-flight Hugging Face model downloads, keyed by `repoId::filename`. Lives
@@ -71,11 +91,23 @@ interface AppState {
   modelDownloads: Record<string, ModelDownloadProgress>
   /** App auto-updater state — mirrors the main process, see `updater.ts`. */
   updateStatus: UpdateStatus
+  /**
+   * An appearance shown while the ADE's theme picker browses, before anything
+   * is saved (useTheme in App.tsx prefers it). Null shows the saved one.
+   */
+  appearancePreview: AppearancePreview | null
+  setAppearancePreview: (preview: AppearancePreview | null) => void
+  /** Beta updates, a track of their own (Settings → General → Software update). */
+  betaStatus: UpdateStatus
 
   init: () => Promise<void>
   patchSettings: (patch: DeepPartial<Settings>) => Promise<void>
   setView: (view: View) => void
   setSettingsPage: (page: string) => void
+  /** Opens Settings → Model providers on one provider (to sign in again, fix its key, turn it on). */
+  openProviderSettings: (providerId: string | null) => void
+  setProviderFocus: (providerId: string | null) => void
+  openModelMenu: () => void
   setPluginsTab: (tab: 'plugins' | 'skills') => void
   setModelsRepo: (repoId: string | null) => void
   goBack: () => void
@@ -125,6 +157,13 @@ interface AppState {
   saveMcpServers: (servers: McpServer[]) => Promise<void>
 
   availableModels: () => ModelInfo[]
+  /**
+   * What the composer's model choice resolves to: the chosen model, a
+   * default when nothing was chosen, or why the choice can't be used (see
+   * shared/modelSelection). Never another model in place of the chosen one.
+   */
+  modelSelection: () => ResolvedSelection
+  /** The model the next turn runs on; null when the choice is unavailable or nothing is connected. */
   currentModel: () => ModelInfo | null
   activeChat: () => Chat | null
   visibleChats: () => Chat[]
@@ -174,6 +213,7 @@ let listenersBound = false
 
 /** Identity caches for the derived selectors below — see `availableModels`. */
 let modelsCache: { providers: Provider[]; models: ModelInfo[] } | null = null
+let selectionCache: { providers: Provider[]; settings: Settings | null; selection: ResolvedSelection } | null = null
 let chatsCache: { chats: Chat[]; workspaceId: string | undefined; visible: Chat[] } | null = null
 
 let listCache: { visible: Chat[]; items: ChatListItem[] } | null = null
@@ -198,14 +238,50 @@ function persistChats(): void {
   if (saveTimer) clearTimeout(saveTimer)
   saveTimer = setTimeout(saveChatsNow, 250)
 }
-function saveChatsNow(): void {
+function saveChatsNow(checkpoint = false): void {
   if (saveTimer) clearTimeout(saveTimer)
   saveTimer = null
+  // A regular save covers what a pending checkpoint would have saved.
+  if (!checkpoint) checkpoints.cancel()
   const chats = useApp.getState().chats
   const { upserts, removed } = chatChanges(synced, chats)
+  const previous = synced
   synced = new Map(chats.map((chat) => [chat.id, chat]))
-  if (upserts.length > 0 || removed.length > 0) void window.api.chats.apply(upserts, removed)
+  if (upserts.length === 0 && removed.length === 0) return
+  // A checkpoint is not broadcast: other windows watching the reply have it
+  // live from the stream, and a copy a few tokens old would put theirs back.
+  window.api.chats.apply(checkpoint ? upserts.map(markUnfinished) : upserts, removed, checkpoint).then(
+    () => {
+      saveFailing = false
+    },
+    (error: unknown) => {
+      // A failed save used to be forgotten: `synced` already counted these as
+      // written, so nothing sent them again and the changes were lost at quit
+      // with no word. Put back what was believed saved so the next save
+      // carries them, say so once, and try again shortly.
+      for (const chat of upserts) {
+        const before = previous.get(chat.id)
+        if (before) synced.set(chat.id, before)
+        else synced.delete(chat.id)
+      }
+      for (const id of removed) {
+        const before = previous.get(id)
+        if (before) synced.set(id, before)
+      }
+      if (!saveFailing) {
+        saveFailing = true
+        const reason = (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '')
+        notify(`Couldn't save your chats (${reason}). Eaon keeps trying; leave this window open until it works.`, 'error')
+      }
+      setTimeout(persistChats, 5000)
+    }
+  )
 }
+/** A save has failed and none has succeeded since; the notice is shown once per streak. */
+let saveFailing = false
+
+/** Saves the reply this window is streaming every few seconds, so a crash keeps most of it; see Checkpoint. */
+const checkpoints = new Checkpoint(() => saveChatsNow(true))
 
 /**
  * Takes in chats another window changed. The chat this window is writing a
@@ -302,6 +378,40 @@ function sealInterrupted(chats: Chat[], only?: string): Chat[] {
   )
 }
 
+/**
+ * Replies this window started and hasn't seen end. Stop clears the window's
+ * streaming marker at once, but the last words of the stopped reply and its
+ * end still arrive — and this window is the one that saves them, not "another
+ * window's" run that someone else will write.
+ */
+const ownedRuns = new Set<string>()
+const remoteTimers = new Map<string, ReturnType<typeof setTimeout>>()
+const REMOTE_SILENCE_MS = 60_000
+
+/** Notes that something else is (still) writing this reply, or that it finished. */
+function noteRemoteRun(messageId: string, finished: boolean): void {
+  const timer = remoteTimers.get(messageId)
+  if (timer) clearTimeout(timer)
+  remoteTimers.delete(messageId)
+  const { getState: get, setState: set } = useApp
+  const listed = get().remoteStreaming.includes(messageId)
+  if (finished) {
+    if (listed) set((s) => ({ remoteStreaming: s.remoteStreaming.filter((id) => id !== messageId) }))
+    return
+  }
+  if (!listed) set((s) => ({ remoteStreaming: [...s.remoteStreaming, messageId] }))
+  remoteTimers.set(
+    messageId,
+    setTimeout(() => noteRemoteRun(messageId, true), REMOTE_SILENCE_MS)
+  )
+}
+
+/** A checkpoint of a reply that is still being written says so, so one found after a crash is known to be cut off. */
+function markUnfinished(chat: Chat): Chat {
+  if (!chat.messages.some((m) => ownedRuns.has(m.id))) return chat
+  return { ...chat, messages: chat.messages.map((m) => (ownedRuns.has(m.id) ? { ...m, interrupted: true } : m)) }
+}
+
 /** Applies one event from a running turn — the renderer's own, or a scheduled task's — to its message. */
 function applyStreamEvent(event: StreamEvent): void {
   const { getState: get, setState: set } = useApp
@@ -322,8 +432,14 @@ function applyStreamEvent(event: StreamEvent): void {
   // A headless run (a scheduled task) streams into a chat the renderer did
   // not start, so only clear the streaming marker for the run it owns.
   const ownsStream = state.streamingMessageId === event.messageId
+  // Still this window's to save after Stop, until the run reports its end.
+  const mine = ownsStream || ownedRuns.has(event.messageId)
   const found = locateMessage(state.chats, event.messageId)
-  if (finished) streamTargets.delete(event.messageId)
+  if (finished) {
+    streamTargets.delete(event.messageId)
+    ownedRuns.delete(event.messageId)
+  }
+  if (!mine) noteRemoteRun(event.messageId, finished)
   if (!found) {
     // The chat is gone (deleted mid-run), but the run still has to release
     // the stop button and any prompt it left open.
@@ -338,7 +454,11 @@ function applyStreamEvent(event: StreamEvent): void {
   let nextChat: Partial<Chat> | null = null
   if (event.type === 'delta') nextMessage = appendPart(message, 'text', event.text)
   else if (event.type === 'reasoning') nextMessage = appendPart(message, 'reasoning', event.text)
-  else if (event.type === 'error') nextMessage = { ...message, error: event.error }
+  else if (event.type === 'error') {
+    nextMessage = { ...message, error: event.error, ...(event.issue ? { errorIssue: event.issue } : {}) }
+    // An expired sign-in or a rejected key marks the provider in main; show it in the picker too.
+    if (event.issue && isLastingIssue(event.issue.kind)) void state.refreshProviders()
+  }
   else if (event.type === 'usage') nextMessage = { ...message, usage: event.usage }
   else if (event.type === 'plan') nextMessage = { ...message, plan: event.plan }
   else if (event.type === 'todos') nextMessage = { ...message, todos: event.todos }
@@ -403,8 +523,9 @@ function applyStreamEvent(event: StreamEvent): void {
   set({ chats, ...(finished ? { ...(ownsStream ? IDLE : {}), ...withoutApprovals(state, event.messageId) } : {}) })
   // Another window's reply (or a scheduled run's) is shown as it comes, but
   // saved by whoever is writing it; here it only becomes the synced copy.
-  if (!ownsStream) synced.set(target.id, chats[chatIndex])
+  if (!mine) synced.set(target.id, chats[chatIndex])
   else if (finished || nextChat) persistChats()
+  else checkpoints.touch()
 }
 
 /**
@@ -428,8 +549,16 @@ export const agentWorkspace = (workspaces: Workspace[]): Workspace | undefined =
 export const useWorkspaceKind = (): WorkspaceKind =>
   useApp((s) => s.workspaces.find((w) => w.id === s.settings?.activeWorkspaceId)?.kind ?? 'chat')
 
+/** A palette to show for one mode while previewing, without saving it. */
+export interface AppearancePreview {
+  mode: 'light' | 'dark' | 'system'
+  light: ThemePalette
+  dark: ThemePalette
+}
+
 export const useApp = create<AppState>((set, get) => ({
   ready: false,
+  initError: null,
   settings: null,
   workspaces: [],
   projects: [],
@@ -449,89 +578,112 @@ export const useApp = create<AppState>((set, get) => ({
   browserOpen: false,
   streamingMessageId: null,
   streamingChatId: null,
+  remoteStreaming: [],
   pendingApproval: null,
   approvalQueue: [],
   composerDraft: null,
+  providerFocus: null,
+  modelMenuRequest: 0,
   indexStatus: null,
   modelDownloads: {},
   updateStatus: { state: 'idle' },
+  appearancePreview: null,
+  setAppearancePreview: (appearancePreview) => set({ appearancePreview }),
+  betaStatus: { state: 'idle' },
 
   async init() {
-    const [settings, workspaces, projects, chats, providers, mcpServers] = await Promise.all([
-      window.api.settings.get(),
-      window.api.workspaces.get(),
-      window.api.projects.get(),
-      window.api.chats.get(),
-      window.api.providers.list(),
-      window.api.mcp.get()
-    ])
-    // Nothing is running for this renderer yet, so a call still marked
-    // running was cut off by a crash or a quit (see sealInterrupted) unless
-    // another window is writing that reply right now.
-    const live = new Set(await window.api.chats.activeRuns())
-    const sealed = chats.map((chat) => (chat.messages.some((m) => live.has(m.id)) ? chat : sealInterrupted([chat])[0]))
-    synced = new Map(chats.map((chat) => [chat.id, chat]))
-    set({ settings, workspaces, projects, chats: sealed, providers, mcpServers, ready: true })
+    set({ initError: null })
+    try {
+      const [settings, workspaces, projects, chats, providers, mcpServers, activeRuns] = await Promise.all([
+        window.api.settings.get(),
+        window.api.workspaces.get(),
+        window.api.projects.get(),
+        window.api.chats.get(),
+        window.api.providers.list(),
+        window.api.mcp.get(),
+        window.api.chats.activeRuns()
+      ])
+      // Nothing is running for this renderer yet, so a call still marked
+      // running was cut off by a crash or a quit (see sealInterrupted) unless
+      // another window is writing that reply right now.
+      const live = new Set(activeRuns)
+      const sealed = chats.map((chat) => (chat.messages.some((m) => live.has(m.id)) ? chat : sealInterrupted([chat])[0]))
+      synced = new Map(chats.map((chat) => [chat.id, chat]))
+      set({ settings, workspaces, projects, chats: sealed, providers, mcpServers, ready: true })
+      // A window opened while another is writing a reply shows that reply as unfinished too.
+      for (const id of activeRuns) noteRemoteRun(id, false)
 
-    if (listenersBound) return
-    listenersBound = true
+      if (listenersBound) return
+      listenersBound = true
 
-    window.api.chat.onEvent(applyStreamEvent)
+      window.api.chat.onEvent(applyStreamEvent)
 
-    // Other windows: each keeps its own copy of these, and main passes on
-    // what the others change. The open tab stays this window's own.
-    window.api.chats.onChanged(receiveChats)
-    window.api.projects.onChanged((projects) => set({ projects }))
-    window.api.workspaces.onChanged((workspaces) => set({ workspaces }))
-    window.api.settings.onChanged((next) =>
-      set((state) => ({ settings: { ...next, activeWorkspaceId: state.settings?.activeWorkspaceId ?? next.activeWorkspaceId } }))
-    )
+      // Other windows: each keeps its own copy of these, and main passes on
+      // what the others change. The open tab stays this window's own.
+      window.api.chats.onChanged(receiveChats)
+      window.api.projects.onChanged((projects) => set({ projects }))
+      window.api.workspaces.onChanged((workspaces) => set({ workspaces }))
+      window.api.settings.onChanged((next) =>
+        set((state) => ({ settings: { ...next, activeWorkspaceId: state.settings?.activeWorkspaceId ?? next.activeWorkspaceId } }))
+      )
 
-    // Closing the window or reloading ends this renderer, and with it the only
-    // copy of the reply in flight, the pending debounced save and any approval
-    // prompt the run is parked on. Main writes nothing of a chat run itself, so
-    // stop it — nothing could show, approve or save what it does from here —
-    // and save what has arrived so far.
-    window.addEventListener('pagehide', () => {
-      const streaming = get().streamingMessageId
-      if (streaming) {
-        void window.api.chat.cancel(streaming)
-        set((s) => ({ chats: sealInterrupted(s.chats, streaming), ...IDLE, ...withoutApprovals(s, streaming) }))
+      // Closing the window or reloading ends this renderer, and with it the only
+      // copy of the reply in flight, the pending debounced save and any approval
+      // prompt the run is parked on. Main writes nothing of a chat run itself, so
+      // stop it — nothing could show, approve or save what it does from here —
+      // and save what has arrived so far.
+      window.addEventListener('pagehide', () => {
+        const streaming = get().streamingMessageId
+        if (streaming) {
+          void window.api.chat.cancel(streaming)
+          // Cut off by this window closing: what was said stays, marked as unfinished.
+          set((s) => ({ chats: sealInterrupted(s.chats, streaming).map(markUnfinished), ...IDLE, ...withoutApprovals(s, streaming) }))
+        }
+        if (saveTimer || streaming) saveChatsNow()
+      })
+
+      // Scheduled tasks (features/scheduler): main starts those runs, so their
+      // chats arrive whole — at the start, and again when the run ends — and
+      // are inserted, or merged into the copy already here. Main writes
+      // chats.json itself only while no renderer has said it is ready.
+      window.api.scheduler.onChat((incoming) => {
+        const current = get().chats
+        const index = current.findIndex((c) => c.id === incoming.id)
+        const chats = index === -1 ? [incoming, ...current] : current.map((c, i) => (i === index ? mergeRunChat(c, incoming) : c))
+        set({ chats })
+        persistChats()
+      })
+      window.api.scheduler.onOpenChat((chatId) => revealChat(chatId))
+      void window.api.scheduler.ready().then(() => migrateLegacySchedules())
+
+      window.api.codeIndex.onStatus((indexStatus) => set({ indexStatus }))
+      window.api.providers.onChanged(() => void get().refreshProviders())
+
+      void window.api.updater.status().then((updateStatus) => set({ updateStatus }))
+      window.api.updater.onStatus((updateStatus) => set({ updateStatus }))
+      void window.api.updater.betaStatus().then((betaStatus) => set({ betaStatus }))
+      window.api.updater.onBetaStatus((betaStatus) => set({ betaStatus }))
+
+      window.api.models.onDownloadProgress((progress) => {
+        const key = `${progress.repoId}::${progress.filename}`
+        set((state) => ({ modelDownloads: { ...state.modelDownloads, [key]: progress } }))
+      })
+
+      // Pick up an existing index for the work folder, and refresh it in the
+      // background so the first codebase_search of the session is not stale.
+      const workCwd = agentWorkspace(workspaces)?.cwd ?? null
+      if (workCwd) {
+        set({ indexStatus: await window.api.codeIndex.status(workCwd) })
+        if (settings.codeIndex.autoIndex) void get().reindex()
       }
-      if (saveTimer || streaming) saveChatsNow()
-    })
-
-    // Scheduled tasks (features/scheduler): main starts those runs, so their
-    // chats arrive whole — at the start, and again when the run ends — and
-    // are inserted, or merged into the copy already here. Main writes
-    // chats.json itself only while no renderer has said it is ready.
-    window.api.scheduler.onChat((incoming) => {
-      const current = get().chats
-      const index = current.findIndex((c) => c.id === incoming.id)
-      const chats = index === -1 ? [incoming, ...current] : current.map((c, i) => (i === index ? mergeRunChat(c, incoming) : c))
-      set({ chats })
-      persistChats()
-    })
-    window.api.scheduler.onOpenChat((chatId) => revealChat(chatId))
-    void window.api.scheduler.ready().then(() => migrateLegacySchedules())
-
-    window.api.codeIndex.onStatus((indexStatus) => set({ indexStatus }))
-    window.api.providers.onChanged(() => void get().refreshProviders())
-
-    void window.api.updater.status().then((updateStatus) => set({ updateStatus }))
-    window.api.updater.onStatus((updateStatus) => set({ updateStatus }))
-
-    window.api.models.onDownloadProgress((progress) => {
-      const key = `${progress.repoId}::${progress.filename}`
-      set((state) => ({ modelDownloads: { ...state.modelDownloads, [key]: progress } }))
-    })
-
-    // Pick up an existing index for the work folder, and refresh it in the
-    // background so the first codebase_search of the session is not stale.
-    const workCwd = agentWorkspace(workspaces)?.cwd ?? null
-    if (workCwd) {
-      set({ indexStatus: await window.api.codeIndex.status(workCwd) })
-      if (settings.codeIndex.autoIndex) void get().reindex()
+    } catch (error) {
+      const message = errorText(error)
+      reportError({ message, stack: error instanceof Error ? error.stack : undefined, source: 'startup' })
+      // Without settings and chats there is nothing to draw, and App would
+      // show an empty window for good: it shows this instead, with Reload.
+      // Once the window is up, a listener or the index check failing is
+      // worth logging but not worth taking the window away for.
+      if (!get().ready) set({ initError: message })
     }
   },
 
@@ -557,6 +709,12 @@ export const useApp = create<AppState>((set, get) => ({
       view: 'settings'
     }))
   },
+  openProviderSettings: (providerId) => {
+    set({ providerFocus: providerId })
+    get().setSettingsPage('providers')
+  },
+  setProviderFocus: (providerFocus) => set({ providerFocus }),
+  openModelMenu: () => set((s) => ({ modelMenuRequest: s.modelMenuRequest + 1 })),
   setPluginsTab: (pluginsTab) => set({ pluginsTab }),
   setModelsRepo: (modelsRepo) => set({ modelsRepo }),
 
@@ -654,7 +812,22 @@ export const useApp = create<AppState>((set, get) => ({
     // orphan the first — still running, with nothing left to stop it.
     if (state.streamingMessageId) return
 
-    const model = state.currentModel()
+    const selection = state.modelSelection()
+    // Chat on an agent engine (a Codex model): the engine's own model, not a provider's.
+    const engine = settings.selectedEngine ?? null
+    const engineModel = settings.selectedEngineModel ?? ''
+    const model = engine ? null : selection.model
+    if (model) {
+      // A default the user never picked becomes their choice once they use it,
+      // so connecting another provider later doesn't move the chat to its model.
+      // Whatever runs counts as a recent pick, newest first.
+      const key = modelKey(model.providerId, model.id)
+      const patch: DeepPartial<Settings> = {
+        ...(selection.status === 'default' ? { selectedModelId: model.id, selectedProviderId: model.providerId } : {}),
+        ...(settings.recentModels?.[0] !== key ? { recentModels: withRecent(settings.recentModels, key) } : {})
+      }
+      if (Object.keys(patch).length > 0) void get().patchSettings(patch)
+    }
     const now = Date.now()
     const userMessage: ChatMessage = {
       id: uid(),
@@ -668,7 +841,7 @@ export const useApp = create<AppState>((set, get) => ({
       role: 'assistant',
       parts: [],
       createdAt: now + 1,
-      model: model?.id
+      model: engine ? engineModel || engine : model?.id
     }
     const goal = options.goal
       ? { text: text.trim(), status: 'active' as const, iterations: 0, ...(options.until && options.until > now ? { until: options.until } : {}) }
@@ -688,7 +861,7 @@ export const useApp = create<AppState>((set, get) => ({
         archived: false,
         pinned: false,
         unread: false,
-        modelId: model?.id ?? null,
+        modelId: engine ? engineModel || engine : (model?.id ?? null),
         effort: settings.effort,
         ...(goal ? { goal } : {})
       }
@@ -702,21 +875,30 @@ export const useApp = create<AppState>((set, get) => ({
       )
     }
 
+    ownedRuns.add(assistantMessage.id)
     set({ chats, activeChatId: chat.id, streamingMessageId: assistantMessage.id, streamingChatId: chat.id, view: 'chat' })
     // Saved straight away rather than debounced: other windows need the new
     // messages before the reply's first words reach them.
     saveChatsNow()
 
-    if (!model) {
+    if (!model && !engine) {
+      // The composer says this before anything is typed; a retry or an
+      // approved plan can still get here, and gets the same explanation.
+      const reason =
+        selection.status === 'unavailable' && selection.wanted
+          ? `${selection.wanted.label} is unavailable. ${selection.reason ?? ''} Choose another model, or fix it in Settings → Model providers.`
+          : (selection.reason ?? 'No usable model is connected. Sign in to a supported account, add an API key, or choose a local model.')
+      const issue: ProviderIssue = {
+        kind: selection.status === 'unavailable' ? 'model-unavailable' : 'no-models',
+        message: reason,
+        action: selection.status === 'unavailable' ? 'choose-model' : 'open-settings',
+        ...(selection.provider ? { providerId: selection.provider.id } : {})
+      }
       const failed = chats.map((c) =>
         c.id === chat!.id
           ? {
               ...c,
-              messages: c.messages.map((m) =>
-                m.id === assistantMessage.id
-                  ? { ...m, error: 'No model selected. Add an API key in Settings → Model providers to get started.' }
-                  : m
-              )
+              messages: c.messages.map((m) => (m.id === assistantMessage.id ? { ...m, error: reason.replace(/\s+/g, ' ').trim(), errorIssue: issue } : m))
             }
           : c
       )
@@ -747,8 +929,9 @@ export const useApp = create<AppState>((set, get) => ({
       chatId: current.id,
       chatTitle: current.title,
       messageId: assistantMessage.id,
-      providerId: model.providerId,
-      modelId: model.id,
+      providerId: engine ?? model!.providerId,
+      modelId: engine ? engineModel : model!.id,
+      ...(engine ? { engine } : {}),
       effort: settings.effort,
       mode,
       history,
@@ -777,6 +960,8 @@ export const useApp = create<AppState>((set, get) => ({
     if (!id) return
     void window.api.chat.cancel(id)
     set((s) => ({ ...IDLE, ...withoutApprovals(s, id) }))
+    // What was said so far is saved now, not only when the run reports back.
+    persistChats()
   },
 
   setMessageFeedback(messageId, feedback) {
@@ -908,16 +1093,21 @@ export const useApp = create<AppState>((set, get) => ({
     const model = get()
       .availableModels()
       .find((m) => m.id === modelId && (!providerId || m.providerId === providerId))
+    const chosenProvider = model?.providerId ?? providerId ?? null
     // The effort stays as chosen: each request clamps it to what the model
     // takes (shared/effort.ts), so switching to a model without Max and back
     // does not quietly lose the Max the user picked.
-    void get().patchSettings({ selectedModelId: modelId, selectedProviderId: model?.providerId ?? providerId ?? null })
+    void get().patchSettings({
+      selectedModelId: modelId,
+      selectedProviderId: chosenProvider,
+      // A provider's model: Chat no longer runs on an engine.
+      selectedEngine: null,
+      ...(chosenProvider ? { recentModels: withRecent(get().settings?.recentModels, modelKey(chosenProvider, modelId)) } : {})
+    })
   },
 
   toggleFavorite(modelId, providerId) {
-    const key = `${providerId}:${modelId}`
-    const current = get().settings?.favoriteModels ?? []
-    void get().patchSettings({ favoriteModels: current.includes(key) ? current.filter((k) => k !== key) : [...current, key] })
+    void get().patchSettings({ favoriteModels: toggleFavorite(get().settings?.favoriteModels, modelKey(providerId, modelId)) })
   },
 
   setEffort(effort) {
@@ -957,22 +1147,26 @@ export const useApp = create<AppState>((set, get) => ({
     // returning a stable array also lets subscribers bail out on reference
     // equality instead of walking the list.
     if (modelsCache && modelsCache.providers === providers) return modelsCache.models
-    const models = providers.filter((p) => p.enabled && (p.hasKey || p.local)).flatMap((p) => p.models)
+    const models = providers.filter(isProviderUsable).flatMap((p) => p.models)
     modelsCache = { providers, models }
     return models
   },
 
-  currentModel() {
-    const state = get()
-    const models = state.availableModels()
-    if (models.length === 0) return null
-    const selected = state.settings?.selectedModelId
-    const provider = state.settings?.selectedProviderId
-    return (
-      models.find((m) => m.id === selected && m.providerId === provider) ??
-      models.find((m) => m.id === selected) ??
-      models[0]
+  modelSelection() {
+    const { providers, settings } = get()
+    // Cached like `availableModels`: settings change identity on every patch, providers on every refresh.
+    if (selectionCache && selectionCache.providers === providers && selectionCache.settings === settings) return selectionCache.selection
+    const selection = resolveSelection(
+      { providerId: settings?.selectedProviderId ?? null, modelId: settings?.selectedModelId ?? null },
+      providers,
+      { favorites: settings?.favoriteModels, recents: settings?.recentModels }
     )
+    selectionCache = { providers, settings, selection }
+    return selection
+  },
+
+  currentModel() {
+    return get().modelSelection().model
   },
 
   activeChat() {

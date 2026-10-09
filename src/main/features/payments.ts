@@ -1,13 +1,15 @@
 import type { CardInput, PaymentLimits, PaymentsMode, PaymentsStatus } from '@shared/payments'
+import type { WorkerMail } from '@shared/workers'
 import { registerToolSource } from '../agent/tools'
 import { secrets } from '../secrets'
 import { store } from '../store'
 import { agentBrowserUrl, typeSecretInAgentBrowser } from './agentBrowser'
 import { typeHidden } from './computer/tool'
 import { setPaymentAccess } from './payments/access'
-import { PaymentsEngine, urlMatchesSite } from './payments/engine'
+import { PaymentsEngine } from './payments/engine'
 import { PAYMENT_GUIDANCE, paymentTool } from './payments/tool'
 import type { Feature } from './types'
+import { workersService } from './workers'
 
 /**
  * Agent payments, wired to the app: the config in `payments.json`, the card
@@ -21,6 +23,17 @@ const VAULT_KEY = 'payments:card'
 
 let engine: PaymentsEngine | null = null
 let send: (channel: string, ...args: unknown[]) => void = () => undefined
+
+/**
+ * Whose work a worker's running turn carries, when it isn't only the
+ * user's: a guest's message from a chat app, or mail from a colleague (a
+ * hand-off, a message, a room post). Nothing is bought in such a turn.
+ */
+export function mailOrigin(mail: WorkerMail[]): 'guest' | 'delegated' | null {
+  if (mail.some((m) => m.from === 'guest' || m.channel?.cap)) return 'guest'
+  if (mail.some((m) => m.from !== 'user')) return 'delegated'
+  return null
+}
 
 /** The running engine, for tests and other features; null before registration. */
 export function paymentsEngine(): PaymentsEngine | null {
@@ -39,11 +52,8 @@ function createEngine(): PaymentsEngine {
     setSecret: (value) => (value ? secrets.set(VAULT_KEY, value) : secrets.clear(VAULT_KEY))
   })
   setPaymentAccess({
-    covers: (chatId, url) =>
-      created.effectiveMode() !== 'off' &&
-      created
-        .status()
-        .purchases.some((p) => p.chatId === chatId && p.status === 'authorized' && p.site !== null && Date.now() <= p.expiresAt && urlMatchesSite(url, p.site)),
+    // One press of the pay button per authorization (see claimSpendingClick).
+    covers: (chatId, url) => created.claimSpendingClick(chatId, url),
     secret: () => {
       try {
         const { number, cvc } = created.cardSecret()
@@ -56,11 +66,21 @@ function createEngine(): PaymentsEngine {
   return created
 }
 
-const tool = paymentTool(() => engine, {
-  browser: typeSecretInAgentBrowser,
-  browserUrl: agentBrowserUrl,
-  screen: typeHidden
-})
+const tool = paymentTool(
+  () => engine,
+  {
+    browser: typeSecretInAgentBrowser,
+    browserUrl: agentBrowserUrl,
+    screen: typeHidden
+  },
+  // A worker's turn that carries a guest's or a colleague's work, or a guest's cap.
+  (ctx) => {
+    if (!ctx.request.workerId) return null
+    // By the run, not the worker: a worker's threads run side by side, and a
+    // user's message in one must not clear a guest's or colleague's in another.
+    return workersService()?.engine.turnOrigin(ctx.request.messageId) ?? null
+  }
+)
 
 registerToolSource({
   id: 'payments',

@@ -1,6 +1,7 @@
 import { shell } from 'electron'
+import { existsSync } from 'node:fs'
 import { stat } from 'node:fs/promises'
-import { extname } from 'node:path'
+import { basename, extname } from 'node:path'
 import type { Feature } from './types'
 import type { LibraryFileStat } from '@shared/library'
 
@@ -18,8 +19,35 @@ import type { LibraryFileStat } from '@shared/library'
  */
 const RUNNABLE = new Set([
   '.app', '.command', '.sh', '.zsh', '.bash', '.tool', '.exe', '.bat', '.cmd', '.com', '.msi', '.ps1',
-  '.pkg', '.mpkg', '.scpt', '.applescript', '.workflow', '.jar', '.terminal', '.url', '.webloc', '.lnk'
+  '.pkg', '.mpkg', '.scpt', '.applescript', '.workflow', '.jar', '.terminal', '.url', '.webloc', '.lnk',
+  // macOS: settings panes, links and bundles that load code.
+  '.prefpane', '.fileloc', '.inetloc', '.action', '.kext', '.plugin', '.service', '.saver', '.qlgenerator', '.osax', '.scptd',
+  // Windows runs these on open: Windows Script Host takes .js and .vbs, and
+  // the rest are scripts, screensavers, control panels, registry imports,
+  // help files that can carry script, and app installers.
+  '.js', '.jse', '.vbs', '.vbe', '.wsf', '.wsh', '.ws', '.hta', '.scr', '.pif', '.cpl', '.msc', '.msp', '.mst',
+  '.reg', '.inf', '.chm', '.psm1', '.psd1', '.msix', '.msixbundle', '.appx', '.appxbundle', '.appinstaller',
+  '.application', '.gadget', '.settingcontent-ms', '.library-ms', '.search-ms', '.scf', '.appref-ms', '.vb',
+  // Python's launchers run a script on open, on Windows and macOS alike.
+  '.py', '.pyw', '.pyz',
+  // Linux launchers and packages.
+  '.desktop', '.appimage', '.run', '.deb', '.rpm', '.snap', '.flatpakref'
 ])
+
+/**
+ * Whether opening `path` with its default app could run it: a runnable
+ * extension, or a file with no extension that is marked executable (Finder
+ * runs those in Terminal).
+ */
+export async function couldRun(path: string): Promise<boolean> {
+  if (RUNNABLE.has(extname(path).toLowerCase())) return true
+  try {
+    const info = await stat(path)
+    return info.isFile() && (info.mode & 0o111) !== 0
+  } catch {
+    return false
+  }
+}
 
 export const libraryFeature: Feature = {
   id: 'library',
@@ -39,7 +67,8 @@ export const libraryFeature: Feature = {
     })
     ipcMain.handle('library:open', async (_e, path: string) => {
       if (typeof path !== 'string' || !path) return
-      if (RUNNABLE.has(extname(path).toLowerCase())) {
+      if (!existsSync(path)) throw new Error(`${basename(path)} isn't there any more. It may have been moved or deleted.`)
+      if (await couldRun(path)) {
         shell.showItemInFolder(path)
         return
       }

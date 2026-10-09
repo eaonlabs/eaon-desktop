@@ -85,7 +85,9 @@ function when(at: number | null): string {
 function line(task: ScheduledTask): string {
   const mode = task.mode === 'work' ? `Work, ${task.allowChanges ? 'may make changes' : 'read-only'}${task.cwd ? `, in ${task.cwd}` : ''}` : 'Chat'
   const state = task.enabled ? `next run ${when(task.nextRunAt)}` : 'paused'
-  const last = task.history[0] ? `; last run ${task.history[0].status}` : ''
+  // A skipped slot is newer than the run that blocked it; the run is what "last run" means.
+  const latest = task.history.find((run) => run.status !== 'skipped')
+  const last = latest ? `; last run ${latest.status}` : ''
   return `- ${task.name} [id ${task.id}] — ${describeSchedule(task.schedule)}; ${mode}; ${state}${last}`
 }
 
@@ -114,6 +116,27 @@ function describeCall(input: Record<string, unknown>): string {
   const name = str(input.name) || str(input.id)
   const changes = input.allow_changes === true ? ', may make changes' : ''
   return `${action[0].toUpperCase()}${action.slice(1)}${name ? ` “${name}”` : ''}${schedule}${changes}`
+}
+
+/** The task fields whose change alters what runs, when or where; a name or the on/off switch does not. */
+const BEHAVIOUR_FIELDS = ['prompt', 'schedule', 'mode', 'allow_changes', 'folder'] as const
+
+/** Whether the call leaves a recurring task that may make changes without asking (create, or an update that alters one). */
+export function leavesChangingTask(input: Record<string, unknown>, find: (id: unknown) => ScheduledTask): boolean {
+  const action = str(input.action)
+  // Work is the default mode, as in `run` below; only work runs can make changes.
+  if (action === 'create') return input.mode !== 'chat' && input.allow_changes === true
+  if (action !== 'update') return false
+  let task: ScheduledTask
+  try {
+    task = find(input.id)
+  } catch {
+    return false // nothing to change: the call fails on its own
+  }
+  const mode = input.mode !== undefined ? (input.mode === 'chat' ? 'chat' : 'work') : task.mode
+  const allowChanges = input.allow_changes !== undefined ? input.allow_changes === true : task.allowChanges
+  if (mode !== 'work' || !allowChanges) return false
+  return BEHAVIOUR_FIELDS.some((field) => input[field] !== undefined)
 }
 
 export function scheduleTool(engine: SchedulerEngine): AgentTool {
@@ -158,6 +181,13 @@ export function scheduleTool(engine: SchedulerEngine): AgentTool {
       required: ['action']
     },
     mutating: (input) => str(input.action) !== 'list',
+    // Creating or changing a task that may edit files and run commands on its
+    // own, on a schedule, with nobody there to approve: "Approve for me" asks
+    // about it like a risky command. Otherwise a chat steered by a web page
+    // could plant a recurring task that acts unattended, and nothing would
+    // have asked. A task that only reads, a rename, pausing and deleting stay
+    // as they were.
+    risky: (input) => leavesChangingTask(input, find),
     describe: describeCall,
     run: async (input, ctx) => {
       const action = str(input.action)

@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { extname, join } from 'node:path'
 import { aspectRatio, IMAGE_ASPECTS } from '@shared/images'
 
@@ -231,6 +231,9 @@ export async function saveImages(folder: string, slug: string, images: Generated
     let path = join(dir, `${base}${ext}`)
     for (let n = 2; existsSync(path) || paths.includes(path); n++) path = join(dir, `${base}-${n}${ext}`)
     await writeFile(path, images[i].data)
+    // Said to be saved only once it really is (a full disk can leave nothing).
+    const written = await stat(path).catch(() => null)
+    if (!written || written.size !== images[i].data.length) throw new Error(`Couldn't save the image to ${path}. Check there is space on the disk and that the folder can be written to.`)
     paths.push(path)
   }
   return paths
@@ -238,9 +241,17 @@ export async function saveImages(folder: string, slug: string, images: Generated
 
 const MIME_BY_EXT: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp' }
 
-/** An image to edit, read from disk. Only the formats both providers take. */
+/** The largest image either provider takes to edit (OpenAI: 25 MB per file; Gemini: 20 MB per request). */
+export const MAX_EDIT_BYTES = 20 * 1024 * 1024
+
+/** An image to edit, read from disk. Only the formats both providers take, and small enough for them. */
 export async function readSource(path: string): Promise<SourceImage> {
   const mime = MIME_BY_EXT[extname(path).toLowerCase()]
   if (!mime) throw new Error(`${path} is not a PNG, JPEG or WebP image.`)
+  const info = await stat(path).catch(() => null)
+  if (!info) throw new Error(`${path} doesn't exist.`)
+  if (info.size > MAX_EDIT_BYTES) {
+    throw new Error(`${path} is ${Math.round(info.size / (1024 * 1024))} MB; image providers take up to 20 MB. Make a smaller copy first (for example with sips or ImageMagick).`)
+  }
   return { path, mime, data: await readFile(path) }
 }

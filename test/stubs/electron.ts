@@ -108,8 +108,16 @@ export const screen = {
 }
 export const desktopCapturer = { getSources: async () => [] }
 export const globalShortcut = { register: () => true, unregister: () => {}, isRegistered: () => false }
+/** Decodes like the real one only as far as telling an image from anything else: PNG, JPEG and WebP signatures. */
+const looksLikeImage = (data: Buffer | undefined): boolean =>
+  !!data && data.length > 8 && (data.subarray(0, 4).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47])) || (data[0] === 0xff && data[1] === 0xd8) || data.subarray(8, 12).toString() === 'WEBP')
 export const nativeImage = {
-  createFromBuffer: () => ({ getSize: () => ({ width: 1, height: 1 }), resize: () => ({ toJPEG: () => Buffer.alloc(0) }), toJPEG: () => Buffer.alloc(0) })
+  createFromBuffer: (data?: Buffer) => ({
+    isEmpty: () => !looksLikeImage(data),
+    getSize: () => ({ width: 1, height: 1 }),
+    resize: () => ({ toJPEG: () => Buffer.alloc(0) }),
+    toJPEG: () => Buffer.alloc(0)
+  })
 }
 export default { app, safeStorage, shell, nativeTheme, ipcMain, BrowserWindow, Notification, powerMonitor, systemPreferences, screen, nativeImage, desktopCapturer, globalShortcut }
 

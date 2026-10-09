@@ -46,6 +46,13 @@ publish:
   repo: eaon-desktop
 mac:
   category: public.app-category.productivity
+  # The launch agent behind "Run in the background" (main/background.ts), in
+  # Contents/Library/LaunchAgents where SMAppService looks for it. Registered
+  # from inside the app, macOS shows it as Eaon's; a loose plist in
+  # ~/Library/LaunchAgents read "Software from <whoever signed it>".
+  extraFiles:
+    - from: resources/mac/LaunchAgents
+      to: Library/LaunchAgents
   # The pre-rendered icon, for macOS before 26. It, the Liquid Glass
   # Assets.car below and the Windows/Linux icons are all built from the Icon
   # Composer documents resources/Eaon.icon and EaonAgent.icon by
@@ -66,6 +73,12 @@ mac:
   # Shown when dictation first asks for the microphone; Electron's own line is generic.
   extendInfo:
     NSMicrophoneUsageDescription: Eaon uses the microphone when you dictate a message.
+    # What macOS's Files and Folders prompt says. The ADE's terminals and agents
+    # are Eaon as far as macOS is concerned: refused here, nothing started in a
+    # project in Downloads can read it (main/features/terminals.ts says so).
+    NSDownloadsFolderUsageDescription: Eaon's terminals and coding agents work in the project folders you open, including ones in Downloads.
+    NSDocumentsFolderUsageDescription: Eaon's terminals and coding agents work in the project folders you open, including ones in Documents.
+    NSDesktopFolderUsageDescription: Eaon's terminals and coding agents work in the project folders you open, including ones on the Desktop.
     # macOS 26+ draws the app icon from Assets.car (copied in by extraResources
     # below) under this name, with its dark, clear and tinted looks; older
     # macOS ignores it and uses icon.icns.
@@ -79,13 +92,19 @@ mac:
   # and arm64 builds and rejects one that is identical but single-arch.
   # node-pty's prebuilds are both: the same per-arch folders ship in both
   # builds, and each loads only on its own arch, so they are kept as they are.
-  # Same for Eaon's llama-server (llama/darwin-arm64, llama/darwin-x64).
-  x64ArchFiles: '{**/node_modules/node-pty/prebuilds/**,**/llama/darwin-*/**}'
+  # Same for Eaon's llama-server (llama/darwin-arm64, llama/darwin-x64) and
+  # the Eaon CLI (eaon-cli/darwin-<arch>; only the arch that was built ships).
+  x64ArchFiles: '{**/node_modules/node-pty/prebuilds/**,**/llama/darwin-*/**,**/eaon-cli/darwin-*/**}'
   # Eaon's own llama.cpp runtime (scripts/build-llama.sh), both Mac arches:
   # main/llama/runtime.ts picks the one matching the running process.
   extraResources:
     - from: resources/llama
       to: llama
+      filter:
+        - 'darwin-*/**'
+    # Eaon CLI, the OpenCode fork (scripts/build-eaon-cli.sh; main/features/eaonCli.ts).
+    - from: resources/eaon-cli
+      to: eaon-cli
       filter:
         - 'darwin-*/**'
     # The Liquid Glass icon, compiled by scripts/make-icon.py (CFBundleIconName above).
@@ -123,6 +142,8 @@ win:
   extraResources:
     - from: resources/llama/win32-${arch}
       to: llama/win32-${arch}
+    - from: resources/eaon-cli/win32-${arch}
+      to: eaon-cli/win32-${arch}
     # Window and taskbar icons for the Settings app-icon choice (main/appIcon.ts).
     - from: resources/icon.ico
       to: icons/default.ico
@@ -132,15 +153,16 @@ win:
   # the afterPack hook above makes the same resource edits. Turn this back on
   # (and drop the hook) once these builds are Authenticode-signed on Windows.
   signAndEditExecutable: false
-  # One installer carrying every Windows architecture, so a single .exe works on
-  # any machine: x64 for most PCs, arm64 for Windows-on-ARM, ia32 for the
-  # remaining 32-bit installs. NSIS picks the right payload at install time.
+  # One installer carrying both Windows architectures, so a single .exe works
+  # on any current PC: x64 for most, arm64 for Windows on ARM. NSIS picks the
+  # right payload at install time. No ia32: node-pty has no 32-bit Windows
+  # build and neither does llama-server, so a 32-bit Eaon had no terminal and
+  # no local models — and the third payload made the installer half again as big.
   target:
     - target: nsis
       arch:
         - x64
         - arm64
-        - ia32
   # Unsigned for now. Windows SmartScreen will show "Windows protected your PC"
   # on first run until these builds carry an Authenticode signature — click
   # More info -> Run anyway. Signing needs a code-signing certificate, which is
@@ -150,15 +172,28 @@ win:
 # .deb, each for x64 and arm64. Built on Linux by .github/workflows/linux.yml:
 # node-pty has no Linux prebuild, so it is compiled there, and so is
 # llama-server (scripts/build-llama.sh).
+#
+# Ubuntu 23.10 and later block the unprivileged user namespaces Chromium's
+# sandbox uses unless an AppArmor profile allows them, and a sandbox that can't
+# start aborts Eaon before any of its code runs. electron-builder 26 covers
+# both packages: the .deb installs an AppArmor profile, and the AppImage's
+# launcher adds --no-sandbox only where namespaces are blocked (an AppImage
+# can't carry a setuid sandbox helper).
 linux:
   icon: resources/icon.png
   category: Utility
   executableName: eaon
+  # The .desktop file, its StartupWMClass and Electron's own app id (Wayland)
+  # all come from package.json's desktopName, so GNOME and KDE put the running
+  # window under the installed launcher instead of a second, iconless entry.
+  syncDesktopName: true
   synopsis: Every model, on your machine
   maintainer: Eaon <developer@eaon.dev>
   extraResources:
     - from: resources/llama/linux-${arch}
       to: llama/linux-${arch}
+    - from: resources/eaon-cli/linux-${arch}
+      to: eaon-cli/linux-${arch}
     # Window icons for the Settings app-icon choice (main/appIcon.ts).
     - from: resources/icon.png
       to: icons/default.png
@@ -167,6 +202,31 @@ linux:
   target:
     - AppImage
     - deb
+deb:
+  # electron-builder's default list plus the two libraries Electron loads that
+  # it leaves out (ALSA, and GBM for the GPU process). Desktop installs nearly
+  # always have both; minimal ones (WSL, a bare window manager) don't, and Eaon
+  # then installed cleanly but failed to start. Ubuntu 24.04 renamed ALSA's
+  # package (the 64-bit time_t transition), hence the alternative.
+  depends:
+    - libgtk-3-0
+    - libnotify4
+    - libnss3
+    - libxss1
+    - libxtst6
+    - xdg-utils
+    - libatspi2.0-0
+    - libuuid1
+    - libsecret-1-0
+    - libgbm1
+    - libasound2t64 | libasound2
+# The AppImage runtime. The default (electron-builder's legacy one) loads
+# libfuse.so.2, which Ubuntu 22.04 and later no longer install, so the
+# AppImage did nothing when opened; its arm64 build also linked libz.so, which
+# only exists with zlib's development package. 1.0.3 is the current
+# statically linked runtime: it needs neither.
+toolsets:
+  appimage: '1.0.3'
 nsis:
   # Newer NSIS (3.10+, e.g. Homebrew's native arm64 makensis, used on Apple
   # silicon Macs via ELECTRON_BUILDER_NSIS_DIR) warns about language strings

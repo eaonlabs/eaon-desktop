@@ -1,8 +1,7 @@
-import { spawn } from 'node:child_process'
 import { chmodSync, mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { findOnPath, run } from '../eaonCode/locate'
-import { shellQuote } from '../eaonCode/terminal'
+import { run } from '../eaonCode/locate'
+import { cmdKeepOpenArgs, launchDetached, openLinuxTerminal, shellQuote } from '../eaonCode/terminal'
 
 /**
  * Opening an app in the user's terminal with Eaon's settings in its
@@ -62,28 +61,10 @@ export async function openTerminal(script: string, title: string): Promise<{ ok:
   }
 
   if (process.platform === 'win32') {
-    const child = spawn('cmd.exe', ['/c', 'start', `"${title}"`, 'cmd.exe', '/k', `"${script}"`], {
-      detached: true,
-      stdio: 'ignore',
-      windowsVerbatimArguments: true
-    })
-    child.unref()
-    return { ok: true }
+    // A user folder with a space or a bracket in its name needs the script quoted past cmd /k.
+    const error = await launchDetached('cmd.exe', cmdKeepOpenArgs(title, [script]), { windowsVerbatimArguments: true })
+    return error ? { ok: false, error: `The terminal did not open: ${error}` } : { ok: true }
   }
 
-  // Linux has no standard terminal; try the common ones in turn.
-  const candidates: [string, string[]][] = [
-    ['x-terminal-emulator', ['-e', 'sh', script]],
-    ['gnome-terminal', ['--', 'sh', script]],
-    ['konsole', ['-e', 'sh', script]],
-    ['xterm', ['-e', 'sh', script]]
-  ]
-  for (const [name, args] of candidates) {
-    const path = findOnPath(name)
-    if (!path) continue
-    const child = spawn(path, args, { detached: true, stdio: 'ignore' })
-    child.unref()
-    return { ok: true }
-  }
-  return { ok: false, error: 'No terminal app found (tried x-terminal-emulator, gnome-terminal, konsole, xterm).' }
+  return openLinuxTerminal(['sh', script])
 }

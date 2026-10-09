@@ -105,12 +105,17 @@ async function ask(args: string[]): Promise<number> {
   if (bus.owner()) await (await import('./runtime/engines')).joinEngines(bus)
   const { runAgent } = await import('@main/agent/loop')
   const { store } = await import('@main/store')
-  const { chatModel } = await import('./core/models')
+  const { chatModel, chatSelection } = await import('./core/models')
   const { randomUUID } = await import('node:crypto')
   const settings = store.getSettings()
   const model = chatModel(settings)
   if (!model) {
-    console.error('No model is set up. Add a key with `eaon keys add <provider>` (anthropic, openai, openrouter, groq…), run `eaon import`, or open eaon and use /keys or /login.')
+    const selection = chatSelection(settings)
+    console.error(
+      selection.status === 'unavailable'
+        ? `${selection.wanted?.label ?? 'The chosen model'} is unavailable: ${selection.reason ?? ''} Pick another in eaon with /model, or fix it with /keys or /login.`
+        : 'No model is set up. Add a key with `eaon keys add <provider>` (anthropic, openai, openrouter, groq…), run `eaon import`, or open eaon and use /keys or /login.'
+    )
     await bus.close()
     await shutdown()
     return 1

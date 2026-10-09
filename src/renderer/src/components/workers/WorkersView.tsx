@@ -9,6 +9,7 @@ import {
   FileText,
   FolderOpen,
   HeartPulse,
+  History,
   MessagesSquare,
   MonitorPlay,
   MoreHorizontal,
@@ -20,9 +21,11 @@ import {
   Users,
   X
 } from 'lucide-react'
+import { resolveSelection } from '@shared/modelSelection'
 import { useApp } from '../../state/store'
 import { TopBar } from '../TopBar'
 import { MessageRow } from '../ChatView'
+import { RowBoundary } from '../ErrorBoundary'
 import { ContextMenu } from '../Sidebar'
 import { Modal } from '../ui'
 import { WorkerFace } from './WorkerFace'
@@ -30,9 +33,11 @@ import { WorkerEditor } from './WorkerEditor'
 import { WorkerAsks, WorkerBrowserFact, WorkerGoalBanner, WorkerMemory } from './WorkerAutonomy'
 import { WorkerComposer } from './WorkerComposer'
 import { RoomEditor, RoomPage, TeamDialog } from './WorkerRooms'
+import { ThreadTabs } from './WorkerThreads'
 import { useWorkers } from './workersStore'
+import { useComputerLease, workerComputerStatus } from '../computer/useComputerLease'
 import { fileName, fileUrl, isImagePath } from '../../lib/files'
-import { MAX_WORKERS, TRADING_DESK, describeWorker, relativeTime, workerMood, type Worker } from '@shared/workers'
+import { MAIN_THREAD, MAX_WORKERS, TRADING_DESK, describeWorker, relativeTime, runningThreads, threadKey, workerMood, type Worker, type WorkerThreadInfo } from '@shared/workers'
 import type { McpServer } from '@shared/types'
 import { CHANNEL_LABEL } from '@shared/channels'
 import { ChannelLogo } from '../channels/ChannelLogo'
@@ -40,7 +45,7 @@ import { useChannels } from '../channels/channelsStore'
 
 /**
  * The Workers tab: the team at a glance, or one worker's page — its face, its
- * one long thread and a box to write to it. Workers run in the main process;
+ * conversation and threads, and a box to write to them. Workers run in the main process;
  * everything here is a view onto them.
  */
 export function WorkersView(): JSX.Element {
@@ -70,8 +75,17 @@ export function WorkersView(): JSX.Element {
 /* ------------------------------------------------------------------ Team */
 
 function Team(): JSX.Element {
-  const { workers, ready, openEditor, select, now, openTeamDialog } = useWorkers(
-    useShallow((s) => ({ workers: s.workers, ready: s.ready, openEditor: s.openEditor, select: s.select, now: s.now, openTeamDialog: s.openTeamDialog }))
+  const { workers, ready, error, init, openEditor, select, now, openTeamDialog } = useWorkers(
+    useShallow((s) => ({
+      workers: s.workers,
+      ready: s.ready,
+      error: s.error,
+      init: s.init,
+      openEditor: s.openEditor,
+      select: s.select,
+      now: s.now,
+      openTeamDialog: s.openTeamDialog
+    }))
   )
   const working = workers.filter((w) => w.status === 'working').length
 
@@ -96,7 +110,17 @@ function Team(): JSX.Element {
       />
       <div className="page__scroll scroll">
         <div className="page__inner page__inner--wide team">
-          {!ready ? null : workers.length === 0 ? (
+          {!ready ? (
+            error && (
+              <div className="empty-state" role="alert">
+                <div className="empty-state__title">Your team couldn’t be loaded</div>
+                <div className="empty-state__body">{error}</div>
+                <button className="btn" onClick={() => void init()}>
+                  Try again
+                </button>
+              </div>
+            )
+          ) : workers.length === 0 ? (
             <TeamEmpty onCreate={() => openEditor(null)} onTeam={() => openTeamDialog(true)} />
           ) : (
             <>
@@ -105,7 +129,7 @@ function Team(): JSX.Element {
                 {working > 0
                   ? `${working} of ${workers.length} working right now.`
                   : `${workers.length} worker${workers.length === 1 ? '' : 's'}, standing by.`}{' '}
-                Each keeps its own thread, wakes itself up when something needs checking, and hands work to the others. Up to 4 work at the same time.
+                Each keeps its own conversation with you plus a thread per routine and task, wakes itself up when something needs checking, and hands work to the others. Up to 4 tasks run at the same time; the rest wait their turn and say so.
               </p>
               <BackgroundHint />
               <div className="team__grid">
@@ -135,14 +159,14 @@ function TeamEmpty({ onCreate, onTeam }: { onCreate: () => void; onTeam: () => v
     <div className="team-empty">
       <div className="team-empty__faces" aria-hidden="true">
         <WorkerFace color="#8E5CE6" mood="happy" size={56} />
-        <WorkerFace color="#3E86C6" mood="neutral" size={84} follow />
+        <WorkerFace color="#3E86C6" mood="neutral" size={84} follow reactOnClick />
         <WorkerFace color="#EE8A36" mood="serious" size={56} />
       </div>
       <h1 className="team-empty__title">Meet Eaon Workers</h1>
       <p className="team-empty__text">
         Workers are agents that live on your computer and keep going around the clock. Give one a job — watching a training
-        run, tidying your inbox, researching every morning — and it schedules its own check-ins, remembers everything in
-        one long thread, and asks its teammates for help when a job is bigger than one worker.
+        run, tidying your inbox, researching every morning — and it schedules its own check-ins, keeps its notes, works on
+        several things at once, each in a thread of its own, and asks its teammates for help when a job is bigger than one worker.
       </p>
       <div className="team-empty__actions">
         <button className="btn btn--primary btn--lg" onClick={onCreate}>
@@ -232,29 +256,36 @@ function WorkerCard({ worker, now, index, onOpen }: { worker: Worker; now: numbe
 /* ------------------------------------------------------------------ Worker page */
 
 function WorkerPage({ worker }: { worker: Worker }): JSX.Element {
-  const { threads, select, now, markRead } = useWorkers(
-    useShallow((s) => ({ threads: s.threads, select: s.select, now: s.now, markRead: s.markRead }))
+  const { threads, select, now, markRead, openThread } = useWorkers(
+    useShallow((s) => ({ threads: s.threads, select: s.select, now: s.now, markRead: s.markRead, openThread: s.openThread[worker.id] }))
   )
-  const thread = threads[worker.id]
+  // The thread on screen: the main one, a side thread, or a new task being written.
+  const info = openThread && openThread !== MAIN_THREAD && openThread !== 'new' ? worker.threads.find((t) => t.id === openThread) : undefined
+  const active = openThread === 'new' ? 'new' : info ? info.id : MAIN_THREAD
+  const isMain = active === MAIN_THREAD
+  const thread = active === 'new' ? { workerId: worker.id, messages: [], summary: null } : threads[threadKey(worker.id, active)]
+  const runningId = isMain ? worker.runningMessageId : (info?.runningMessageId ?? null)
+  const inbox = isMain ? worker.inbox : (info?.inbox ?? [])
+  const unread = isMain ? worker.unread - worker.threads.reduce((n, t) => n + t.unread, 0) : (info?.unread ?? 0)
   const mood = workerMood(worker, now)
   const scroller = useRef<HTMLDivElement>(null)
   const following = useRef(true)
 
   useEffect(() => {
-    if (!thread) void useWorkers.getState().loadThread(worker.id)
-  }, [thread, worker.id])
+    if (!thread && active !== 'new') void useWorkers.getState().loadThread(worker.id, active)
+  }, [thread, worker.id, active])
 
-  // Reading the page is reading the thread.
+  // Reading the page is reading the thread on it.
   useEffect(() => {
-    if (worker.unread > 0) markRead(worker.id)
-  }, [worker.unread, worker.id, markRead])
+    if (unread > 0 && active !== 'new') markRead(worker.id, active)
+  }, [unread, worker.id, active, markRead])
 
   useLayoutEffect(() => {
     const node = scroller.current
     if (node && following.current) node.scrollTop = node.scrollHeight
-  }, [thread?.messages, worker.inbox.length])
+  }, [thread?.messages, inbox.length])
 
-  const queued = worker.inbox.filter((mail) => mail.from === 'user')
+  const queued = inbox.filter((mail) => mail.from === 'user')
 
   return (
     <>
@@ -273,6 +304,7 @@ function WorkerPage({ worker }: { worker: Worker }): JSX.Element {
         }
         right={<WorkerActions worker={worker} />}
       />
+      <ThreadTabs worker={worker} active={active} />
 
       <div
         ref={scroller}
@@ -286,24 +318,27 @@ function WorkerPage({ worker }: { worker: Worker }): JSX.Element {
         }}
       >
         <div className="thread__inner">
-          <WorkerProfile worker={worker} now={now} mood={mood} />
+          {isMain ? <WorkerProfile worker={worker} now={now} mood={mood} /> : <ThreadHeader worker={worker} info={info} />}
           {thread?.summary && (
             <div className="worker-compacted">
               <span>Earlier messages were summarised to keep {worker.name}’s thread light.</span>
             </div>
           )}
-          {thread && thread.messages.length === 0 && worker.inbox.length === 0 && (
+          {isMain && thread && thread.messages.length === 0 && worker.inbox.length === 0 && (
             <p className="worker-first-job">
               Send {worker.name} its first job below. It takes it from there — scheduling its own check-ins and asking the team
               for help when it needs to.
             </p>
           )}
           {thread?.messages.map((message) => (
-            <MessageRow key={message.id} message={message} streaming={message.id === worker.runningMessageId} quietWhenEmpty />
+            <RowBoundary key={message.id} item={message}>
+              <MessageRow message={message} streaming={message.id === runningId} quietWhenEmpty />
+            </RowBoundary>
           ))}
           {queued.map((mail) => (
             <div key={mail.id} className="msg-row msg-user-block msg-row--queued">
-              {mail.files.length > 0 && (
+              {/* Mail saved by an older build can be missing its file list. */}
+              {(mail.files ?? []).length > 0 && (
                 <div className="msg-attachments" data-align="end">
                   {mail.files.map((path) =>
                     isImagePath(path) ? (
@@ -322,7 +357,13 @@ function WorkerPage({ worker }: { worker: Worker }): JSX.Element {
               {mail.text && <div className="msg--user">{mail.text}</div>}
               <span className="msg__queued">
                 <Clock size={11} strokeWidth={2.2} />
-                {worker.status === 'working' ? `Queued — ${worker.name} reads this when it finishes what it’s doing` : 'Delivering…'}
+                {runningId
+                  ? `Queued — ${worker.name} reads this when it finishes what it’s doing here`
+                  : worker.queued
+                    ? `Queued — ${worker.queued}`
+                    : worker.paused
+                      ? `Waiting — ${worker.name} is paused`
+                      : 'Delivering…'}
               </span>
             </div>
           ))}
@@ -330,11 +371,47 @@ function WorkerPage({ worker }: { worker: Worker }): JSX.Element {
       </div>
 
       <div className="composer-dock">
-        <WorkerGoalBanner worker={worker} now={now} />
+        {/* Pinned like Chat's goal: the composer's width, with a gap above it. */}
+        {isMain && (
+          <div className="composer-dock__pinned">
+            <WorkerGoalBanner worker={worker} now={now} />
+          </div>
+        )}
         <WorkerAsks worker={worker} />
-        <WorkerComposer worker={worker} />
+        <WorkerComposer key={active} worker={worker} threadId={active} />
       </div>
     </>
+  )
+}
+
+const THREAD_KIND: Record<WorkerThreadInfo['kind'], string> = {
+  task: 'A task beside the main conversation',
+  routine: 'Each run of this routine lands here',
+  delegation: 'A job a colleague delegated'
+}
+
+/** At the top of a side thread, where the main one has the worker's profile. */
+function ThreadHeader({ worker, info }: { worker: Worker; info: WorkerThreadInfo | undefined }): JSX.Element {
+  if (!info) {
+    return (
+      <div className="worker-thread-head">
+        <h1 className="worker-thread-head__title">New task</h1>
+        <p className="worker-thread-head__text">
+          Describe a task below. {worker.name} works on it in a thread of its own, at the same time as everything else it does,
+          and you can stop it without stopping the rest.
+        </p>
+      </div>
+    )
+  }
+  return (
+    <div className="worker-thread-head">
+      <h1 className="worker-thread-head__title">{info.title}</h1>
+      <p className="worker-thread-head__text">
+        {THREAD_KIND[info.kind]}
+        {info.closedAt ? ' · finished' : ''}
+        {info.lastError ? ` · last run failed: ${info.lastError}` : info.activity ? ` · ${info.activity}` : ''}
+      </p>
+    </div>
   )
 }
 
@@ -346,8 +423,9 @@ function tradingAccountName(via: string, servers: McpServer[]): string {
 
 /** The face, the job and the pulse — at the top of the thread, where a chat has nothing. */
 function WorkerProfile({ worker, now, mood }: { worker: Worker; now: number; mood: ReturnType<typeof workerMood> }): JSX.Element {
-  const models = useApp((s) => s.availableModels())
-  const model = worker.model ? models.find((m) => m.id === worker.model!.modelId && m.providerId === worker.model!.providerId) : null
+  const providers = useApp((s) => s.providers)
+  // A pinned model that's gone says so; it used to read "Uses your selected model", which it doesn't.
+  const pinned = worker.model ? resolveSelection(worker.model, providers) : null
   const creator = useWorkers((s) => (worker.createdBy ? s.workers.find((w) => w.id === worker.createdBy) : null))
   const servers = useApp((s) => s.mcpServers)
   return (
@@ -357,6 +435,7 @@ function WorkerProfile({ worker, now, mood }: { worker: Worker; now: number; moo
         mood={mood}
         size={96}
         follow
+        reactOnClick
         busy={worker.status === 'working'}
         attention={worker.asks.length > 0}
         nudge={worker.inbox.length}
@@ -368,6 +447,7 @@ function WorkerProfile({ worker, now, mood }: { worker: Worker; now: number; moo
           <span className="status-dot" />
           <span className="worker-fact__text">{statusLine(worker)}</span>
         </span>
+        <ComputerFact workerId={worker.id} />
         {worker.heartbeat.nextAt !== null && !worker.paused && (
           <span className="worker-fact" title={worker.heartbeat.note || undefined}>
             <HeartPulse size={13} strokeWidth={2} />
@@ -379,8 +459,10 @@ function WorkerProfile({ worker, now, mood }: { worker: Worker; now: number; moo
             </span>
           </span>
         )}
-        <span className="worker-fact">
-          <span className="worker-fact__text">{model ? model.label : 'Uses your selected model'}</span>
+        <span className="worker-fact" title={pinned?.reason ?? undefined}>
+          <span className="worker-fact__text">
+            {!pinned ? 'Uses your selected model' : pinned.model ? pinned.model.label : `${pinned.wanted?.label ?? worker.model!.modelId} · unavailable`}
+          </span>
         </span>
         {worker.trading && (
           <span className="worker-fact" title={worker.trading.strategy || undefined}>
@@ -406,6 +488,19 @@ function WorkerProfile({ worker, now, mood }: { worker: Worker; now: number; moo
       {worker.personality && <p className="worker-profile__personality">“{worker.personality}”</p>}
       <WorkerMemory worker={worker} now={now} />
     </div>
+  )
+}
+
+/** "Using the computer" or "Waiting for the computer — Nova is using it", while that is so: the computer has one pointer, and one run holds it at a time. */
+function ComputerFact({ workerId }: { workerId: string }): JSX.Element | null {
+  const lease = useComputerLease()
+  const status = workerComputerStatus(lease, workerId)
+  if (!status) return null
+  return (
+    <span className="worker-fact" data-status={status.kind === 'using' ? 'working' : 'paused'} title={status.text}>
+      <span className="status-dot" />
+      <span className="worker-fact__text">{status.text}</span>
+    </span>
   )
 }
 
@@ -447,7 +542,8 @@ function ConnectedApps({ worker }: { worker: Worker }): JSX.Element | null {
  */
 function statusLine(worker: Worker): string {
   if (worker.paused) return 'Paused'
-  if (worker.status === 'working') return worker.activity || 'Working…'
+  if (worker.status === 'working') return runningThreads(worker) > 1 ? `${worker.activity || 'Working…'} · ${runningThreads(worker)} tasks running` : worker.activity || 'Working…'
+  if (worker.queued) return `Queued — ${worker.queued}`
   if (worker.status === 'failed') return worker.lastError ? `Stopped: ${worker.lastError}` : 'Last task failed'
   if (worker.inbox.length > 0) return `${worker.inbox.length} message${worker.inbox.length === 1 ? '' : 's'} waiting`
   if (worker.lastRunAt === null) return 'Ready for its first job'
@@ -455,7 +551,7 @@ function statusLine(worker: Worker): string {
 }
 
 function WorkerActions({ worker }: { worker: Worker }): JSX.Element {
-  const { setPaused, wake, clear, remove, openEditor, browserOpen, setBrowser } = useWorkers(
+  const { setPaused, wake, clear, remove, openEditor, browserOpen, setBrowser, activityOpen, setActivityOpen, openThread } = useWorkers(
     useShallow((s) => ({
       setPaused: s.setPaused,
       wake: s.wake,
@@ -463,37 +559,59 @@ function WorkerActions({ worker }: { worker: Worker }): JSX.Element {
       remove: s.remove,
       openEditor: s.openEditor,
       browserOpen: s.browserFor === worker.id,
-      setBrowser: s.setBrowser
+      setBrowser: s.setBrowser,
+      activityOpen: s.activityOpen,
+      setActivityOpen: s.setActivityOpen,
+      openThread: s.openThread[worker.id]
     }))
   )
+  const viewing = openThread && openThread !== 'new' && worker.threads.some((t) => t.id === openThread) ? openThread : MAIN_THREAD
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [confirm, setConfirm] = useState<'clear' | 'delete' | null>(null)
   const working = worker.status === 'working'
 
   return (
-    <div className="chat-header__actions">
+    <div className="chat-header__actions worker-actions">
+      <button
+        className="header-btn"
+        aria-label="Activity"
+        data-active={activityOpen || undefined}
+        aria-pressed={activityOpen}
+        onClick={() => setActivityOpen(!activityOpen)}
+        title={`Every run ${worker.name} made: what woke it, how it went, and Retry`}
+      >
+        <History size={14} strokeWidth={1.9} />
+        <span>Activity</span>
+      </button>
       <button
         className="header-btn"
         data-active={browserOpen || undefined}
+        aria-label="Browser"
         onClick={() => (browserOpen ? setBrowser(null, worker.id) : setBrowser(worker.id))}
         title={browserOpen ? `Close ${worker.name}’s browser` : `Watch ${worker.name}’s own browser live, or take control to help it`}
       >
         <MonitorPlay size={14} strokeWidth={1.9} />
         <span>Browser</span>
       </button>
-      {!worker.paused && !working && (
-        <button className="header-btn" onClick={() => void wake(worker.id)} title={`Wake ${worker.name} now and have it check in`}>
+      {!worker.paused && !worker.runningMessageId && (
+        <button className="header-btn" aria-label="Check in" onClick={() => void wake(worker.id)} title={`Wake ${worker.name} now and have it check in`}>
           <AlarmClock size={14} strokeWidth={1.9} />
           <span>Check in</span>
         </button>
       )}
       <button
         className="header-btn"
+        aria-label={worker.paused ? 'Resume' : 'Pause'}
         onClick={() => void setPaused(worker.id, !worker.paused)}
         title={worker.paused ? `Let ${worker.name} work again` : `Pause ${worker.name}: no heartbeats, mail waits`}
       >
         {worker.paused ? <Play size={14} strokeWidth={1.9} /> : <Pause size={14} strokeWidth={1.9} />}
         <span>{worker.paused ? 'Resume' : 'Pause'}</span>
+      </button>
+      {/* Editing was only in the More menu, where people didn't find it: its name, look, purpose, model and freedom. */}
+      <button className="header-btn" aria-label="Edit" onClick={() => openEditor(worker.id)} title={`Change ${worker.name}’s name, look, purpose, model or freedom`}>
+        <PencilLine size={14} strokeWidth={1.9} />
+        <span>Edit</span>
       </button>
       <button
         className="icon-btn"
@@ -515,7 +633,7 @@ function WorkerActions({ worker }: { worker: Worker }): JSX.Element {
             { icon: <PencilLine size={15} strokeWidth={1.9} />, label: 'Edit worker', action: () => openEditor(worker.id) },
             { icon: <FolderOpen size={15} strokeWidth={1.9} />, label: 'Open its folder', action: () => void window.api.app.showItem(worker.folder) },
             { icon: <MessagesSquare size={15} strokeWidth={1.9} />, label: 'Connect a chat app', action: () => connectApp(worker.id) },
-            { icon: <Eraser size={15} strokeWidth={1.9} />, label: 'Clear messages', action: () => setConfirm('clear') },
+            { icon: <Eraser size={15} strokeWidth={1.9} />, label: viewing === MAIN_THREAD ? 'Clear messages' : 'Clear this thread', action: () => setConfirm('clear') },
             { icon: <Trash2 size={15} strokeWidth={1.9} />, label: 'Delete worker', danger: true, action: () => setConfirm('delete') }
           ]}
         />
@@ -533,7 +651,7 @@ function WorkerActions({ worker }: { worker: Worker }): JSX.Element {
               className="btn btn--danger"
               autoFocus
               onClick={() => {
-                void clear(worker.id)
+                void clear(worker.id, viewing)
                 setConfirm(null)
               }}
             >
@@ -542,8 +660,9 @@ function WorkerActions({ worker }: { worker: Worker }): JSX.Element {
           </>
         }
       >
-        {worker.name} starts a fresh thread and forgets the conversation so far. Its job, personality, heartbeat and the files in
-        its folder stay as they are.
+        {viewing === MAIN_THREAD
+          ? `${worker.name} starts a fresh conversation and forgets this one. Its other threads, job, personality, notes, heartbeat and the files in its folder stay as they are.`
+          : `This thread’s messages are deleted. ${worker.name}’s other threads, notes and files stay as they are.`}
       </Modal>
       <Modal
         open={confirm === 'delete'}
@@ -567,7 +686,7 @@ function WorkerActions({ worker }: { worker: Worker }): JSX.Element {
           </>
         }
       >
-        {working ? `${worker.name} stops what it is doing, and its` : `${worker.name}’s`} thread is deleted. Its folder stays on disk at{' '}
+        {working ? `${worker.name} stops what it is doing, and its` : `${worker.name}’s`} threads and run history are deleted, and any jobs it delegated or was given are cancelled. Its folder stays on disk at{' '}
         <code>{worker.folder}</code>.
       </Modal>
     </div>

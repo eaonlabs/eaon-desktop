@@ -2,6 +2,7 @@ import { execFile } from 'node:child_process'
 import fs from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
+import { BrowserWindow } from 'electron'
 import type { TerminalAgentId } from '@shared/terminals'
 import { AGENT_KINDS, agentOfArgs, type AgentId } from './agentSessions'
 import type { PaneRecords } from './paneRecords'
@@ -34,12 +35,21 @@ const exec = promisify(execFile)
  * their screen, carrying on the folder's latest conversation (see terminals.ts).
  */
 
-/** How often the process table is read — one `ps` for every pane. */
+/** How often the process table is read while an Eaon window has focus — one `ps` for every pane. */
 const TICK_MS = 4000
+/**
+ * How often it is read while none has. Nobody is watching a pane's logo then,
+ * and listing every process on the machine every few seconds, all day, is not
+ * free. The records the next launch restores from still keep up, and the
+ * first check after a window comes forward (within TICK_MS) catches up.
+ */
+const IDLE_TICK_MS = 25_000
 /**
  * How far ahead of an agent a conversation may be filed and still be its own.
  * Covers the poll interval: a conversation can be a few seconds old before
- * the agent that wrote it is first seen.
+ * the agent that wrote it is first seen. (Away from Eaon, an agent can go
+ * longer unseen; a conversation already on disk by then is claimed when it is
+ * next written to, or by the agent's own word.)
  */
 const BIRTH_SLACK_MS = 15_000
 /** How long after an agent is first seen before older conversations being written to count as its own. */
@@ -55,6 +65,8 @@ export interface WatchDeps {
   table: () => Promise<Proc[]>
   cwdOf: (pid: number) => Promise<string>
   now: () => number
+  /** Whether someone is using Eaon (one of its windows has focus). Without it, every beat is a check. */
+  attended?: () => boolean
 }
 
 /** What is running beneath one pane, and what is known about it. */
@@ -224,10 +236,12 @@ export async function cwdsOf(pids: number[], timeout = 5000): Promise<Map<number
 
 /* ------------------------------------------------------------------ watch */
 
-const DEFAULT_DEPS: WatchDeps = { table: processTable, cwdOf, now: () => Date.now() }
+const DEFAULT_DEPS: WatchDeps = { table: processTable, cwdOf, now: () => Date.now(), attended: () => BrowserWindow.getFocusedWindow() !== null }
 
 export class SessionWatch {
   private timer: NodeJS.Timeout | null = null
+  /** When the last pass began, for spacing them out while nobody is at Eaon. */
+  private lastTick = 0
   private watched = new Map<string, Watched>()
   /** What each pane was last reported as running, so only changes are sent. */
   private running = new Map<string, TerminalAgentId>()
@@ -257,9 +271,15 @@ export class SessionWatch {
 
   start(): void {
     if (this.timer || !SessionWatch.supported()) return
-    this.timer = setInterval(() => void this.tick(), TICK_MS)
+    this.timer = setInterval(() => void this.poll(), TICK_MS)
     this.timer.unref?.()
     void this.tick()
+  }
+
+  /** One beat of the timer: a pass, unless nobody is at Eaon and the last one was under IDLE_TICK_MS ago. */
+  async poll(): Promise<void> {
+    if (this.deps.attended?.() === false && this.deps.now() - this.lastTick < IDLE_TICK_MS) return
+    await this.tick()
   }
 
   /**
@@ -285,6 +305,7 @@ export class SessionWatch {
   async tick(): Promise<void> {
     if (this.busy) return
     this.busy = true
+    this.lastTick = this.deps.now()
     try {
       const panes = this.panes()
       for (const map of [this.watched, this.running, this.programs]) {

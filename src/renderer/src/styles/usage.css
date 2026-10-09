@@ -184,6 +184,17 @@
 .usage-chart__slot[data-hover] .usage-chart__bar {
   opacity: 1;
 }
+/* Plan use at API rates: the top of the bar, lighter, since it was never charged. */
+.usage-chart__bar {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.usage-chart__plan {
+  flex: none;
+  width: 100%;
+  background: color-mix(in srgb, var(--accent), var(--surface-1) 58%);
+}
 .usage-chart__plot:hover .usage-chart__slot:not([data-hover]) .usage-chart__bar {
   opacity: 0.45;
 }
@@ -348,7 +359,7 @@
 }
 .usage-table__row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 80px 80px 96px;
+  grid-template-columns: minmax(0, 1fr) 80px 80px 128px;
   gap: 12px;
   align-items: center;
   padding: 9px 14px;

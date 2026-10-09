@@ -32,6 +32,8 @@ export const terminalsApi = {
   onExit: (handler: (event: TerminalExitEvent) => void): (() => void) => subscribe('terminal:exit', handler),
   /** What each live pane is running right now, as last read off the process table. */
   running: (): Promise<Record<string, TerminalAgentId>> => ipcRenderer.invoke('terminal:running'),
+  /** The conversation each pane is in, where its agent has one the watch has seen. */
+  conversations: (paneIds: string[]): Promise<Record<string, string | null>> => ipcRenderer.invoke('terminal:conversations', paneIds),
   /** A pane's agent changed — the user quit one CLI and started another in it. */
   onAgent: (handler: (event: TerminalAgentEvent) => void): (() => void) => subscribe('terminal:agent', handler)
 }

@@ -11,10 +11,10 @@ import { BrowserBridge, type PairingRecord } from '../src/main/features/browser/
 import { createBrowserTool } from '../src/main/features/browser/tool'
 
 /**
- * Extension 1.1 for real, without a model: a copy of extension/ loaded into
+ * Extension 1.2 for real, without a model: a copy of extension/ loaded into
  * an isolated Chrome for Testing profile, paired through its own popup, and
  * driven through the agent's actual `browser` tool — read, find, fill,
- * reload, relative navigation — against a local site. Then the self-update:
+ * reload, relative navigation, links, clear and get_text — against a local site. Then the self-update:
  * the copy's version is bumped on disk, the app asks, and the extension must
  * come back as the new version on the same pairing. Nothing touches the
  * user's own browser.
@@ -68,6 +68,19 @@ async function evaluate(wsUrl: string, expression: string): Promise<unknown> {
   return reply.result?.result?.value
 }
 
+/** A page of links and fields for 1.2's links, clear and get_text. */
+const TOOLS = `<!doctype html><title>Tools</title>
+<nav>
+  <a href="/a">Alpha docs</a> <a href="/b">Beta docs</a> <a href="/a">Alpha docs</a>
+  <a href="#top">Top</a> <a href="javascript:void(0)">Nope</a> <a href="https://example.org/x">Elsewhere</a>
+</nav>
+<main>
+  <label>Query <input id="q" value="shoes"></label>
+  <label>Secret <input type="password" value="hunter2"></label>
+  <label>Size <select><option>S</option><option selected>M</option></select></label>
+  <p id="note">Hello there</p>
+</main>`
+
 const ARTICLE = `<!doctype html><title>Field guide</title>
 <nav><a href="/">Home</a> <a href="/about">About</a></nav>
 <main>
@@ -88,7 +101,7 @@ const ARTICLE = `<!doctype html><title>Field guide</title>
   </form>
 </main>`
 
-test('extension 1.1 reads, finds, fills and updates itself in real Chrome', { skip: !process.env.EAON_LIVE, timeout: 300_000 }, async (t) => {
+test('extension 1.2 reads, finds, fills, lists links, clears and updates itself in real Chrome', { skip: !process.env.EAON_LIVE, timeout: 300_000 }, async (t) => {
   if (!existsSync(CHROME)) return t.skip('Chrome for Testing not found')
 
   const submissions: Record<string, string>[] = []
@@ -98,7 +111,8 @@ test('extension 1.1 reads, finds, fills and updates itself in real Chrome', { sk
     if (url.pathname === '/done') {
       submissions.push(Object.fromEntries(url.searchParams))
       res.end(`<!doctype html><title>Welcome</title><h1>Welcome, ${url.searchParams.get('name')}</h1>`)
-    } else res.end(ARTICLE)
+    } else if (url.pathname === '/tools') res.end(TOOLS)
+    else res.end(ARTICLE)
   })
   await new Promise<void>((r) => site.listen(0, '127.0.0.1', () => r()))
   const siteUrl = `http://127.0.0.1:${(site.address() as { port: number }).port}`
@@ -197,7 +211,7 @@ test('extension 1.1 reads, finds, fills and updates itself in real Chrome', { sk
     console.log('connected:', JSON.stringify(status.client), 'canSelfUpdate', status.canSelfUpdate)
     assert.equal(status.client?.installType, 'development', 'loaded unpacked')
     assert.equal(status.canSelfUpdate, true)
-    for (const action of ['read', 'find', 'fill', 'reload'] as const) assert.equal(bridge.supports(action), true, action)
+    for (const action of ['read', 'find', 'fill', 'reload', 'links', 'clear', 'get_text'] as const) assert.equal(bridge.supports(action), true, action)
 
     // read: the page as Markdown, paged.
     await run({ action: 'navigate', url: `${siteUrl}/article` })
@@ -240,6 +254,32 @@ test('extension 1.1 reads, finds, fills and updates itself in real Chrome', { sk
     // reload, and a path relative to the current page.
     assert.match(await run({ action: 'reload' }), /Reloaded .*Welcome/)
     assert.match(await run({ action: 'navigate', url: '/article' }), new RegExp(`${siteUrl}/article`))
+
+    // links: the page's way out, cheaply — deduplicated, no fragments or javascript:, refs that work.
+    await run({ action: 'navigate', url: `${siteUrl}/tools` })
+    const links = await run({ action: 'links' })
+    console.log('links:\n', links)
+    assert.match(links, /^3 links on /m, 'four hrefs, one repeated, two that go nowhere')
+    assert.equal((links.match(/"Alpha docs"/g) ?? []).length, 1, 'a repeated link is listed once')
+    assert.match(links, /"Elsewhere" → example\.org\/x/, 'another site shows its host')
+    assert.doesNotMatch(links, /Top|Nope/)
+    assert.match(await run({ action: 'links', text: 'docs' }), /^2 links matching "docs"/m)
+    assert.match(await run({ action: 'links', text: 'nothing like this' }), /^No links matching/m)
+    const beta = Number(/\[(\d+)\] "Beta docs"/.exec(links)?.[1])
+    assert.ok(beta, 'links hands out a ref')
+
+    // get_text and clear on the real fields.
+    const fields = await run({ action: 'snapshot' })
+    const field = (name: string): number => Number(new RegExp(`\\[(\\d+)\\] \\w+ "${name}`).exec(fields)?.[1])
+    assert.match(await run({ action: 'get_text', ref: field('Query') }), /holds "shoes"/)
+    assert.match(await run({ action: 'get_text', ref: field('Size') }), /holds "M"/)
+    await assert.rejects(run({ action: 'get_text', ref: field('Secret') }), /password field.*not shared/)
+    assert.match(await run({ action: 'clear', ref: field('Query') }), /^Cleared .*Query/)
+    assert.match(await run({ action: 'get_text', ref: field('Query') }), /is empty/)
+    await assert.rejects(run({ action: 'clear', ref: beta }), /not a text field/)
+
+    // A ref from links is a ref like any other: following it navigates.
+    assert.match(await run({ action: 'click', ref: beta }), new RegExp(`${siteUrl}/b`))
 
     // Self-update: the folder gets a newer version; the app asks; the
     // extension reloads from disk and reconnects on the same pairing.

@@ -1,6 +1,8 @@
 /** Types shared between the main and renderer processes. */
 
 import type { WorkerMail } from './workers'
+import type { ProviderHealth, ProviderIssue } from './providers'
+import type { EngineId, ModelSource } from './engines'
 
 /**
  * Wire format a provider speaks. `openai-responses` is OpenAI's Responses API
@@ -31,6 +33,28 @@ export interface ModelInfo {
   custom?: boolean
   /** The user changed its details (Edit model): its limits or capabilities, or its name. */
   edited?: boolean
+  /**
+   * Where this entry came from and when: the shipped catalog, the remote
+   * catalog, the provider's own listing (live, or the last one that worked),
+   * or the user. Unset for models from before sources were tracked.
+   */
+  source?: ModelSource
+  /** Release stage, when a source says so (models.dev's status, the id itself saying "preview"). */
+  stage?: 'preview' | 'deprecated'
+  /**
+   * The catalog knows it but the provider's own list for this account
+   * doesn't include it (ChatGPT): it may not be on the user's plan. Offered,
+   * marked, rather than hidden — a plan's list lags new models.
+   */
+  outsidePlan?: boolean
+  /** Other ids the same model is served under (a dated snapshot of an alias), folded into this entry. */
+  aliases?: string[]
+  /**
+   * Fields Eaon filled in from the model's id alone, because no source said.
+   * They still shape requests (whether to ask for reasoning), but they are
+   * guesses: pickers show no badge for them.
+   */
+  inferred?: ('reasoning' | 'efforts')[]
 }
 
 /**
@@ -71,6 +95,14 @@ export interface Provider {
   headers?: Record<string, string>
   /** Models the user removed from this provider's list; kept so they can be restored. */
   hiddenModels?: ModelInfo[]
+  /**
+   * What the last check of this provider's credentials found. A failed check
+   * (an expired sign-in, a rejected key) makes it "Needs attention" even
+   * though credentials are stored; a later success clears it.
+   */
+  health?: ProviderHealth
+  /** When the provider's own model listing last worked, or null if it never has. */
+  modelsListedAt?: number | null
 }
 
 export interface ChatTextPart {
@@ -175,8 +207,16 @@ export interface ChatMessage {
   role: 'user' | 'assistant' | 'system'
   parts: ChatMessagePart[]
   createdAt: number
+  /**
+   * Set on a reply while it is only a checkpoint of one still being written.
+   * The final save removes it; if it is still there when the chat loads, Eaon
+   * quit or crashed before the reply finished.
+   */
+  interrupted?: boolean
   /** Set when a request failed so the UI can show an inline error. */
   error?: string
+  /** What kind of provider failure `error` is, with the fix to offer (Reconnect, Add a key…). */
+  errorIssue?: ProviderIssue
   model?: string
   /** Tokens this turn spent, including cache reads and writes. */
   usage?: TokenUsage
@@ -308,8 +348,13 @@ export interface Settings {
     workspaceDependencies: boolean
   }
   browser: {
+    /** Opened in each new tab of the built-in browser; empty for a blank tab. */
     homepage: string
+    /** What the address bar searches with: 'DuckDuckGo' (default), 'Google' or 'Bing'. */
+    searchEngine?: string
+    /** Unused: the "Import from Chrome" banner imported nothing and was removed in 2026.6.2. */
     importedFromChrome: boolean
+    /** Unused since 2026.6.2, with the banner. */
     dismissedImportBanner: boolean
   }
   mcp: {
@@ -331,6 +376,54 @@ export interface Settings {
     smallModelId: string | null
     /** This install's key for the server, made on first use; apps connected to Eaon send it. */
     token: string | null
+  }
+  /**
+   * Remote devices (docs/remote-api.md): a phone on the user's network
+   * controlling Workers. Off by default; unlike the Local API Server it
+   * listens on every interface, and always wants its own key.
+   */
+  remote: {
+    enabled: boolean
+    port: number
+    /** `eaonr-…`, made the first time it is turned on and replaced by Reset key. */
+    token: string | null
+  }
+  /** The ADE's usage meter for Claude Code and Codex plans (Settings → Accounts). */
+  cliUsage: {
+    /** Show the meter in the ADE's header. */
+    meter: boolean
+    /** How its panel lays the figures out. */
+    view: 'detailed' | 'compact'
+  }
+  /** The ADE's terminals: their theme (`/theme` in a pane, or the header's Theme button). */
+  ade: {
+    /** A terminal theme id (components/code/terminal/themes.ts); `eaon` follows the app. */
+    theme: string
+    /** Draw the theme's scene behind the terminal text. */
+    scenes: boolean
+    /**
+     * The app's own appearance from before a terminal theme restyled it (the
+     * app follows the terminal theme), put back when `eaon` is picked again.
+     */
+    appBefore: { mode: ThemeMode; light: ThemePalette; dark: ThemePalette } | null
+  }
+  /** The popup that asks whether to star Eaon on GitHub (main/starPrompt.ts). */
+  starPrompt: {
+    /** `pending` until they star it or say no thanks. */
+    status: 'pending' | 'starred' | 'declined'
+    /** How many times Eaon has been opened. It asks from the third. */
+    launches: number
+    /** How many times the popup has been shown, at most three. */
+    asked: number
+    lastAskedAt: number | null
+  }
+  /** Settings → General → Software update. */
+  updates: {
+    /**
+     * Tell me when a beta is out, with its own button to download it. Off by
+     * default: betas are early builds. Stable updates are not affected.
+     */
+    beta: boolean
   }
   claudeCode: {
     largeModelId: string | null
@@ -360,8 +453,17 @@ export interface Settings {
    * ChatGPT sign-in, Copilot and an OpenAI key all offer the same model.
    */
   selectedProviderId: string | null
+  /**
+   * Set when Chat's model is an agent engine's (a Codex model) rather than a
+   * provider's; `selectedEngineModel` is then that engine's model ('' for its
+   * default). Picking a provider model clears it.
+   */
+  selectedEngine?: Exclude<EngineId, 'native'> | null
+  selectedEngineModel?: string | null
   /** Starred models, as `providerId:modelId`; they head the model menu. */
   favoriteModels: string[]
+  /** Models picked lately, newest first, as `providerId:modelId`. */
+  recentModels?: string[]
   effort: EffortLevel
   approvalMode: ApprovalMode
   /** Plan mode (Work): read-only research, then a plan the user approves before anything changes. */
@@ -521,15 +623,23 @@ export interface StreamRequest {
   rawSystem?: string
   /** Set on a worker's turn: which worker is running, for the worker tools. */
   workerId?: string
+  /** Set on a worker's turn in a thread other than its main one, so its tools act on that thread. */
+  workerThreadId?: string
   /** Replaces the agent's opening identity line in the system prompt (a worker's persona). */
   persona?: string
+  /**
+   * Run the turn on this agent engine instead of Eaon's own loop: Chat with a
+   * Codex model picked. `modelId` is then the engine's model ('' for its
+   * default) and `providerId` is ignored.
+   */
+  engine?: EngineId
 }
 
 export type StreamEvent =
   | { type: 'delta'; messageId: string; text: string }
   | { type: 'reasoning'; messageId: string; text: string }
   | { type: 'done'; messageId: string }
-  | { type: 'error'; messageId: string; error: string }
+  | { type: 'error'; messageId: string; error: string; issue?: ProviderIssue }
   | {
       type: 'approval-request'
       messageId: string

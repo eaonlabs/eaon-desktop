@@ -1,8 +1,9 @@
 {
   "name": "eaon-desktop",
-  "version": "2026.6.1",
+  "version": "2026.6.2-beta.10",
   "description": "The Eaon desktop app — a bring-your-own-key AI chat client",
   "main": "./out/main/index.js",
+  "desktopName": "eaon.desktop",
   "bin": {
     "eaon": "bin/eaon.mjs"
   },
@@ -27,12 +28,14 @@
     "dist:linux": "./scripts/build-llama.sh && electron-vite build && electron-builder --linux --publish never",
     "release:win": "[ -f resources/llama/win32-x64/llama-server.exe ] || ./scripts/fetch-llama-windows.sh; electron-vite build && electron-builder --win --publish always",
     "test:main": "node scripts/test-main.mjs",
+    "test:e2e": "node scripts/test-e2e.mjs",
     "postinstall": "node scripts/fix-node-pty.mjs",
     "pack:extension": "node scripts/pack-extension.mjs",
     "verify:plugins": "node scripts/verify-plugins.mjs",
     "verify:models": "node scripts/verify-model-library.mjs",
     "generate:models": "node scripts/generate-models.mjs",
-    "build:llama": "./scripts/build-llama.sh all"
+    "build:llama": "./scripts/build-llama.sh all",
+    "build:eaon-cli": "./scripts/build-eaon-cli.sh"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.120.0",
@@ -58,7 +61,7 @@
     "@xterm/headless": "^6.0.0",
     "@xterm/xterm": "^6.0.0",
     "electron": "^43.7.7",
-    "electron-builder": "^25.1.8",
+    "electron-builder": "^26.17.0",
     "electron-vite": "^2.3.0",
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",

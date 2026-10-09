@@ -21,7 +21,9 @@ import {
 import { agentWorkspace, messageText, useApp, useIsWork, type PendingApproval } from '../state/store'
 import { Composer } from './Composer'
 import { ContextMenu } from './Sidebar'
-import { Modal } from './ui'
+import { ConfirmDialog, Modal } from './ui'
+import { notify } from './Notice'
+import { errorText } from '../lib/errors'
 import { Markdown } from './agent/Markdown'
 import { FilesChanged } from './agent/FilesChanged'
 import { LoadingState } from './agent/Loaders'
@@ -29,16 +31,21 @@ import { toolPartChanges } from './agent/ToolCall'
 import { StepRun } from './agent/TurnSteps'
 import { turnItems } from './agent/turnItems'
 import { TopBar } from './TopBar'
+import { RowBoundary } from './ErrorBoundary'
 import { GoalBanner, PlanCard, TodoPanel, UsageLine } from './agent/WorkBits'
 import { FileDiff } from './agent/FileDiff'
 import { MessageActions } from './agent/MessageActions'
-import { ApprovalCard, CallPreview, CommandPreview } from './agent/ApprovalCard'
+import { ProviderErrorActions } from './composer/ProviderErrorActions'
+import { ApprovalCard, approvalRisk, CallPreview, CommandPreview, enterApproves } from './agent/ApprovalCard'
 import { WorkerFace } from './workers/WorkerFace'
 import { ChannelLogo } from './channels/ChannelLogo'
 import { AgentBrowserToggle } from './agentBrowser/AgentBrowserPanel'
 import { CHANNEL_LABEL } from '@shared/channels'
 import { fileUrl, isImagePath, isVideoPath } from '../lib/files'
 import type { Chat, ChatMessage, ChatToolPart } from '@shared/types'
+
+/** Window event: the app menu's Archive Chat, for the conversation on screen to handle like its own Archive. */
+export const ARCHIVE_REQUEST = 'eaon:archive-chat'
 
 export function ChatView(): JSX.Element {
   const chat = useApp((s) => s.activeChat())
@@ -82,11 +89,11 @@ function Home(): JSX.Element {
         <h1 className="home__title">What can I help with?</h1>
         <Composer variant="home" />
         {showSuggestions && (
-          <div className="home-chips" role="list" aria-label="Things Eaon can do">
+          <div className="home-chips" role="group" aria-label="Things Eaon can do">
             {SUGGESTIONS.map((s, index) => (
               <button
                 key={s.label}
-                role="listitem"
+                type="button"
                 className="suggestion-chip"
                 style={{ ['--i' as string]: index }}
                 onClick={() => setComposerDraft(s.prompt)}
@@ -185,17 +192,33 @@ function ApprovalPrompt(): JSX.Element | null {
     respondApproval(approved)
   }
 
-  // ⏎ approves and esc denies, unless a button has focus: it answers ⏎ itself.
+  // esc denies. ⏎ approves only from the card itself, or with nothing focused:
+  // never from a text box (the composer sits right behind the card, and ⏎
+  // there means "send"), never when a button has focus (it answers ⏎ itself),
+  // and never for a call that could delete or change the system, which needs
+  // a click.
   useEffect(() => {
     if (!pending) return
     const onKey = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {
         event.preventDefault()
         respond(false)
-      } else if (event.key === 'Enter' && !event.isComposing && !(event.target instanceof HTMLButtonElement)) {
-        event.preventDefault()
-        respond(true)
+        return
       }
+      if (event.key !== 'Enter' || event.isComposing) return
+      const el = event.target instanceof HTMLElement ? event.target : null
+      const allowed = enterApproves(
+        {
+          button: el instanceof HTMLButtonElement,
+          field: el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || Boolean(el?.isContentEditable),
+          inCard: Boolean(el?.closest('.approval')),
+          nothingFocused: !el || el === document.body
+        },
+        approvalRisk(pending.tool, pending.input)
+      )
+      if (!allowed) return
+      event.preventDefault()
+      respond(true)
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
@@ -246,11 +269,13 @@ function ApprovalPrompt(): JSX.Element | null {
 }
 
 function Conversation({ chat }: { chat: Chat }): JSX.Element {
-  const { streamingMessageId, streamingChatId, browserOpen, toggleBrowser, archiveChat, deleteChat, renameChat, stop } = useApp(useShallow((s) => ({ streamingMessageId: s.streamingMessageId, streamingChatId: s.streamingChatId, browserOpen: s.browserOpen, toggleBrowser: s.toggleBrowser, archiveChat: s.archiveChat, deleteChat: s.deleteChat, renameChat: s.renameChat, stop: s.stop })))
+  const { streamingMessageId, remoteStreaming, streamingChatId, browserOpen, toggleBrowser, archiveChat, deleteChat, renameChat, stop } = useApp(useShallow((s) => ({ streamingMessageId: s.streamingMessageId, remoteStreaming: s.remoteStreaming, streamingChatId: s.streamingChatId, browserOpen: s.browserOpen, toggleBrowser: s.toggleBrowser, archiveChat: s.archiveChat, deleteChat: s.deleteChat, renameChat: s.renameChat, stop: s.stop })))
   const isWork = useIsWork()
   const thread = useRef<HTMLDivElement>(null)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [confirmArchive, setConfirmArchive] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [renaming, setRenaming] = useState(false)
   const moreButton = useRef<HTMLButtonElement>(null)
 
   const streaming = streamingChatId === chat.id
@@ -285,6 +310,15 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
     if (streaming) setConfirmArchive(true)
     else archiveChat(chat.id)
   }
+  // ⇧⌘A and File → Archive Chat. They archived straight from the store, so a
+  // chat in the middle of a reply was stopped without the question below.
+  const archiveRequest = useRef(requestArchive)
+  archiveRequest.current = requestArchive
+  useEffect(() => {
+    const onRequest = (): void => archiveRequest.current()
+    window.addEventListener(ARCHIVE_REQUEST, onRequest)
+    return () => window.removeEventListener(ARCHIVE_REQUEST, onRequest)
+  }, [])
 
   const workFolder = useApp((s) => agentWorkspace(s.workspaces)?.cwd ?? s.settings?.work.defaultFolder ?? '~/Eaon')
 
@@ -293,7 +327,9 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
       <TopBar
         left={
           <>
-            <span className="chat-header__title">{chat.title}</span>
+            <span className="chat-header__title" title={chat.title}>
+              {chat.title}
+            </span>
             <button
               ref={moreButton}
               className="icon-btn"
@@ -331,14 +367,15 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
       >
         <div className="thread__inner">
           {chat.messages.map((message) => (
-            <MessageRow
-              key={message.id}
-              message={message}
-              streaming={message.id === streamingMessageId}
-              chatActions
-              last={message.id === lastReplyId}
-              canRetry={message.id === lastReplyId && !streamingChatId}
-            />
+            <RowBoundary key={message.id} item={message}>
+              <MessageRow
+                message={message}
+                streaming={message.id === streamingMessageId || remoteStreaming.includes(message.id)}
+                chatActions
+                last={message.id === lastReplyId}
+                canRetry={message.id === lastReplyId && !streamingChatId}
+              />
+            </RowBoundary>
           ))}
         </div>
       </div>
@@ -359,18 +396,28 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
           y={menu.y}
           onClose={() => setMenu(null)}
           items={[
+            // window.prompt does nothing in Electron, so Rename here did nothing.
+            { icon: <PencilLine size={15} strokeWidth={1.9} />, label: 'Rename', action: () => setRenaming(true) },
             {
-              icon: <PencilLine size={15} strokeWidth={1.9} />,
-              label: 'Rename',
-              action: () => {
-                const next = window.prompt('Rename chat', chat.title)
-                if (next?.trim()) renameChat(chat.id, next.trim())
-              }
+              icon: <Copy size={15} strokeWidth={1.9} />,
+              label: 'Copy transcript',
+              action: () =>
+                void copyTranscript(chat).then(
+                  () => notify('Transcript copied'),
+                  () => notify("Couldn't copy the transcript. Click in the window and try again.", 'error')
+                )
             },
-            { icon: <Copy size={15} strokeWidth={1.9} />, label: 'Copy transcript', action: () => void copyTranscript(chat) },
-            { icon: <FolderOpen size={15} strokeWidth={1.9} />, label: 'Open work folder', action: () => void window.api.app.showItem(workFolder) },
+            {
+              icon: <FolderOpen size={15} strokeWidth={1.9} />,
+              label: 'Open work folder',
+              action: () =>
+                void window.api.app.showItem(workFolder).then((shown) => {
+                  if (!shown) notify(`${workFolder} doesn't exist yet. Eaon makes it the first time it works with files.`, 'error')
+                })
+            },
             { icon: <Archive size={15} strokeWidth={1.9} />, label: 'Archive', action: requestArchive },
-            { icon: <Trash2 size={15} strokeWidth={1.9} />, label: 'Delete', danger: true, action: () => deleteChat(chat.id) }
+            // Deleting can't be undone, so it asks; Archive is the way to put a chat away.
+            { icon: <Trash2 size={15} strokeWidth={1.9} />, label: 'Delete', danger: true, action: () => setConfirmDelete(true) }
           ]}
         />
       )}
@@ -400,7 +447,55 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
       >
         Archiving will stop any ongoing work. You can restore the chat later in settings.
       </Modal>
+
+      <ConfirmDialog
+        open={confirmDelete}
+        onClose={() => setConfirmDelete(false)}
+        title="Delete this chat?"
+        confirmLabel="Delete"
+        onConfirm={() => deleteChat(chat.id)}
+      >
+        “{chat.title}” and its messages are removed from this computer. This can’t be undone. To put a chat away and keep it, archive it instead.
+      </ConfirmDialog>
+
+      {renaming && <RenameChat title={chat.title} onClose={() => setRenaming(false)} onRename={(title) => renameChat(chat.id, title)} />}
     </>
+  )
+}
+
+/** The header menu's Rename, as a small dialog with the title selected. */
+function RenameChat({ title, onRename, onClose }: { title: string; onRename: (title: string) => void; onClose: () => void }): JSX.Element {
+  const [draft, setDraft] = useState(title)
+  const save = (): void => {
+    if (draft.trim() && draft.trim() !== title) onRename(draft.trim())
+    onClose()
+  }
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="Rename chat"
+      actions={
+        <>
+          <button type="button" className="btn btn--ghost" onClick={onClose}>
+            Cancel
+          </button>
+          <button type="button" className="btn btn--primary" disabled={!draft.trim()} onClick={save}>
+            Rename
+          </button>
+        </>
+      }
+    >
+      <input
+        className="input"
+        aria-label="Chat name"
+        value={draft}
+        autoFocus
+        onFocus={(e) => e.currentTarget.select()}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => e.key === 'Enter' && save()}
+      />
+    </Modal>
   )
 }
 
@@ -538,9 +633,16 @@ export const MessageRow = memo(function MessageRow({
         </div>
       ) : streaming ? (
         <LoadingState label="Thinking" />
-      ) : message.error ? null : (
+      ) : message.error ? null : message.interrupted ? null : (
         <div className="msg__status" style={{ color: 'var(--text-3)' }}>
           No response
+        </div>
+      )}
+
+      {message.interrupted && !streaming && (
+        <div className="msg__status" style={{ color: 'var(--text-3)' }} role="status">
+          Eaon was closed before this reply finished{hasContent ? '; this is what it had so far' : ''}.
+          {canRetry && ' Use Retry to ask again.'}
         </div>
       )}
 
@@ -548,6 +650,7 @@ export const MessageRow = memo(function MessageRow({
         <div className="msg__error">
           <TriangleAlert size={15} strokeWidth={1.9} style={{ flex: 'none', marginTop: 1 }} />
           <span>{message.error}</span>
+          <ProviderErrorActions issue={message.errorIssue} retryId={canRetry ? message.id : null} />
         </div>
       )}
 
@@ -621,26 +724,29 @@ function ReplyActions({
  */
 function Attachments({ paths, align = 'end' }: { paths?: string[]; align?: 'start' | 'end' }): JSX.Element | null {
   if (!paths || paths.length === 0) return null
+  // A file moved or deleted since, or with no app to open it, said nothing.
+  const open = (path: string): void =>
+    void window.api.library.open(path).catch((error: unknown) => notify(`Couldn't open it: ${errorText(error)}`, 'error'))
   return (
     <div className="msg-attachments" data-align={align}>
       {paths.map((path) => {
         const name = path.split(/[\\/]/).pop() ?? path
         if (isImagePath(path)) {
           return (
-            <button key={path} className="msg-attachment msg-attachment--media" title={name} onClick={() => void window.api.library.open(path)}>
+            <button key={path} className="msg-attachment msg-attachment--media" title={name} onClick={() => open(path)}>
               <img src={fileUrl(path)} alt={name} loading="lazy" />
             </button>
           )
         }
         if (isVideoPath(path)) {
           return (
-            <button key={path} className="msg-attachment msg-attachment--media" title={name} onClick={() => void window.api.library.open(path)}>
+            <button key={path} className="msg-attachment msg-attachment--media" title={name} onClick={() => open(path)}>
               <video src={fileUrl(path)} preload="metadata" muted />
             </button>
           )
         }
         return (
-          <button key={path} className="msg-attachment msg-attachment--file" title={path} onClick={() => void window.api.library.open(path)}>
+          <button key={path} className="msg-attachment msg-attachment--file" title={path} onClick={() => open(path)}>
             <FileText size={15} strokeWidth={1.8} />
             <span>{name}</span>
           </button>

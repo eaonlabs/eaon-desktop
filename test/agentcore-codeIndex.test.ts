@@ -1,9 +1,11 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { mkdirSync, mkdtempSync, readFileSync, statSync, utimesSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createServer } from 'node:http'
+import { app } from 'electron'
 import { buildIndex, clearIndex, findSymbol, indexedPaths, listProjectFiles, setIndexStatusListener } from '../src/main/codeIndex'
 import { store } from '../src/main/store'
 import { secrets } from '../src/main/secrets'
@@ -32,6 +34,72 @@ test('a rebuild is seen at once by lookups, and unchanged files keep their chunk
 
   clearIndex(cwd)
   assert.deepEqual(indexedPaths(cwd), [])
+})
+
+const manifestOf = (cwd: string): string =>
+  join(app.getPath('userData'), 'code-index', `${createHash('sha256').update(cwd).digest('hex').slice(0, 16)}.json`)
+
+test('a rebuild reads only files whose size or mtime changed; a manifest from before mtimes were kept is read in full once', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'eaon-index-'))
+  const file = join(cwd, 'a.ts')
+  // A whole second, so setting it again below matches exactly (a Date drops the sub-millisecond part).
+  const mtime = new Date('2026-01-01T00:00:00Z')
+  writeFileSync(file, 'export function alphaThing() {\n  return 1\n}\n')
+  utimesSync(file, mtime, mtime)
+  // Binary despite its extension: read every time, never indexed.
+  writeFileSync(join(cwd, 'blob.json'), 'a\u0000b')
+  await buildIndex(cwd)
+  const manifest = manifestOf(cwd)
+  const written = statSync(manifest).mtimeMs
+  await buildIndex(cwd)
+  assert.equal(statSync(manifest).mtimeMs, written, 'nothing changed, so nothing was written')
+
+  // Same size and mtime, different text: a rebuild that trusts the stat never sees it.
+  writeFileSync(file, 'export function gammaThing() {\n  return 1\n}\n')
+  utimesSync(file, mtime, mtime)
+  await buildIndex(cwd)
+  assert.equal(findSymbol(cwd, 'alphaThing').length, 1, 'the unchanged-looking file was not read again')
+
+  // An older manifest has no mtimes, so every file is read once more…
+  const strip = (): void => {
+    const old = JSON.parse(readFileSync(manifest, 'utf8')) as { files: { mtimeMs?: number }[] }
+    for (const entry of old.files) delete entry.mtimeMs
+    writeFileSync(manifest, JSON.stringify(old))
+  }
+  strip()
+  await buildIndex(cwd)
+  assert.equal(findSymbol(cwd, 'gammaThing').length, 1, 'read again, with no mtime to trust')
+  // …and when nothing in them changed, only the mtimes are written: the chunks stay as they were.
+  strip()
+  const before = JSON.parse(readFileSync(manifest, 'utf8')) as { updatedAt: number; chunks: unknown[] }
+  await buildIndex(cwd)
+  const after = JSON.parse(readFileSync(manifest, 'utf8')) as { updatedAt: number; chunks: unknown[]; files: { mtimeMs?: number }[] }
+  assert.ok(after.files.every((entry) => typeof entry.mtimeMs === 'number'), 'mtimes recorded for next time')
+  assert.equal(after.updatedAt, before.updatedAt)
+  assert.deepEqual(after.chunks, before.chunks)
+})
+
+test('a second window asking for the folder being indexed waits for that build instead of restarting it', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'eaon-index-'))
+  writeFileSync(join(cwd, 'a.ts'), 'export const a = 1\n')
+  const first = buildIndex(cwd)
+  const second = buildIndex(cwd)
+  assert.equal(second, first, 'the same build')
+  assert.equal((await first).state, 'ready')
+  assert.deepEqual(indexedPaths(cwd), ['a.ts'])
+})
+
+test('the index and the project listing both skip OS folders a home folder is full of', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'eaon-index-'))
+  mkdirSync(join(cwd, 'src'))
+  mkdirSync(join(cwd, 'Library', 'Caches'), { recursive: true })
+  mkdirSync(join(cwd, 'AppData', 'Local'), { recursive: true })
+  writeFileSync(join(cwd, 'src', 'a.ts'), 'export const a = 1\n')
+  writeFileSync(join(cwd, 'Library', 'Caches', 'x.js'), 'const x = 1\n')
+  writeFileSync(join(cwd, 'AppData', 'Local', 'y.js'), 'const y = 1\n')
+  await buildIndex(cwd)
+  assert.deepEqual(indexedPaths(cwd), ['src/a.ts'])
+  assert.deepEqual((await listProjectFiles(cwd, 100)).paths, ['src/a.ts'])
 })
 
 test('reading the index again costs next to nothing while it is unchanged', async () => {

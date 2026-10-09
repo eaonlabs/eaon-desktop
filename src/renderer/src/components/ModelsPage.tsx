@@ -2,6 +2,8 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { useApp } from '../state/store'
 import { TopBar } from './TopBar'
 import { Segmented } from './ui'
+import { notify } from './Notice'
+import { errorText } from '../lib/errors'
 import { useLibrary } from './models/libraryStore'
 import { DEVICE, RuntimeBanner } from './models/parts'
 import { LibraryView } from './models/LibraryView'
@@ -99,7 +101,10 @@ function RuntimeStatusLine(): JSX.Element | null {
           ? `${runtime.loaded.state === 'loading' ? 'Loading' : 'Running'} ${runtime.loaded.modelId}`
           : `llama.cpp${build ? ` b${build}` : ''}`}
       {runtime.loaded && (
-        <button className="provider-link mlib-unload" onClick={() => void unload()}>
+        <button
+          className="provider-link mlib-unload"
+          onClick={() => void unload().catch((error: unknown) => notify(`Couldn't unload the model: ${errorText(error)}`, 'error'))}
+        >
           Unload
         </button>
       )}

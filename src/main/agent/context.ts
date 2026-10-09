@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs'
+import { readFileSync, statSync } from 'node:fs'
 import { extname } from 'node:path'
 import type { ChatMessage, ChatToolPart } from '@shared/types'
 import type { NeutralImage, NeutralMessage, NeutralToolCall, NeutralToolResult } from '../providers/adapters/types'
@@ -71,9 +71,34 @@ function stubInput(input: Record<string, unknown>): Record<string, unknown> {
 
 const MIME: Record<string, string> = { '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.webp': 'image/webp', '.gif': 'image/gif' }
 
+/**
+ * The largest image sent. No provider takes a bigger one (OpenAI and Gemini
+ * stop at 20 MB, Anthropic sooner), and every turn reads it from disk and
+ * holds it in the main process as base64 again.
+ */
+const IMAGE_MAX_BYTES = 20 * 1024 * 1024
+const TEXT_MAX_BYTES = 60_000
+
+/**
+ * The size of a regular file, or null for anything else. Checked before
+ * reading: attachments are read again on every turn, and reading a
+ * multi-gigabyte file whole (or a pipe, which never ends) froze the main
+ * process before any limit was looked at.
+ */
+function fileSize(path: string): number | null {
+  try {
+    const stats = statSync(path)
+    return stats.isFile() ? stats.size : null
+  } catch {
+    return null
+  }
+}
+
 export function loadImage(path: string): NeutralImage | null {
   const mime = MIME[extname(path).toLowerCase()]
   if (!mime) return null
+  const size = fileSize(path)
+  if (size === null || size > IMAGE_MAX_BYTES) return null
   try {
     return { mime, data: readFileSync(path).toString('base64') }
   } catch {
@@ -81,11 +106,22 @@ export function loadImage(path: string): NeutralImage | null {
   }
 }
 
+/** What the model is told about an attached image too big to send; null for anything else. */
+function oversizedImageNote(path: string): string | null {
+  if (!MIME[extname(path).toLowerCase()]) return null
+  const size = fileSize(path)
+  if (size === null || size <= IMAGE_MAX_BYTES) return null
+  const mb = (bytes: number): string => `${Math.round((bytes / 1024 / 1024) * 10) / 10} MB`
+  return `[Attached image ${path} was not sent: it is ${mb(size)}, and images are limited to ${mb(IMAGE_MAX_BYTES)}. A smaller copy would work.]`
+}
+
 /** Small text files go into the message itself, so a chat without file tools can still read them. */
 function readTextAttachment(path: string): string | null {
+  const size = fileSize(path)
+  if (size === null || size > TEXT_MAX_BYTES) return null
   try {
     const buffer = readFileSync(path)
-    if (buffer.length > 60_000 || buffer.subarray(0, 4000).includes(0)) return null
+    if (buffer.length > TEXT_MAX_BYTES || buffer.subarray(0, 4000).includes(0)) return null
     return buffer.toString('utf8')
   } catch {
     return null
@@ -151,7 +187,8 @@ export function buildHistory(history: ChatMessage[], summary: string | null, kee
           continue
         }
         const inline = recent ? readTextAttachment(path) : null
-        notes.push(inline ? `\n\nAttached file ${path}:\n\`\`\`\n${inline}\n\`\`\`` : `\n\n[Attached: ${path}]`)
+        const oversized = recent && !inline ? oversizedImageNote(path) : null
+        notes.push(inline ? `\n\nAttached file ${path}:\n\`\`\`\n${inline}\n\`\`\`` : `\n\n${oversized ?? `[Attached: ${path}]`}`)
       }
       const body = text + notes.join('')
       if (body || images.length > 0) push({ role: 'user', text: body, ...(images.length ? { images } : {}) }, message.id)

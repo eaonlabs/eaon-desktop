@@ -1,6 +1,6 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { randomBytes } from 'node:crypto'
-import { shell } from 'electron'
+import { openExternalSafely } from './externalLinks'
 import {
   auth,
   extractWWWAuthenticateParams,
@@ -489,7 +489,9 @@ async function authorize(
       // Settled rejections are consumed below; this keeps an early one (a
       // cancel before we await) from surfacing as unhandled.
       browser.code.catch(() => {})
-      await shell.openExternal(url.href)
+      // A server's metadata names this URL: only a web page is opened, never
+      // a file: or another app's scheme.
+      await openExternalSafely(url.href)
     }
   })
 

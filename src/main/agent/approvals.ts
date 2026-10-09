@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import type { StreamEvent } from '@shared/types'
-import { CREDENTIAL_PATHS } from '@shared/commandRisk'
+import { CREDENTIAL_PATHS, programName } from '@shared/commandRisk'
 
 // Command risk lives in shared/ so the approval card can colour a command the same way.
 export { isCatastrophicCommand, isRiskyCommand, writtenPaths } from '@shared/commandRisk'
@@ -68,7 +68,9 @@ const READ_ONLY_PROGRAMS = new Set([
   'which', 'whereis', 'type', 'file', 'stat', 'du', 'df', 'date', 'uname', 'whoami', 'printenv',
   'sort', 'uniq', 'cut', 'tr', 'jq', 'diff', 'cmp', 'basename', 'dirname', 'realpath', 'readlink', 'sw_vers',
   'ps', 'uptime', 'lsof', 'column', 'nl', 'od', 'hexdump', 'strings', 'md5', 'shasum', 'sha256sum', 'md5sum',
-  'mdfind', 'mdls', 'system_profiler'
+  'mdfind', 'mdls', 'system_profiler',
+  // cmd's own, for run_command on Windows.
+  'dir', 'where', 'findstr', 'tasklist', 'systeminfo', 'ver'
 ])
 const READ_ONLY_SUBCOMMANDS: Record<string, RegExp> = {
   // Inspection subcommands take any arguments; branch, tag, remote and config
@@ -89,7 +91,8 @@ const READ_ONLY_SUBCOMMANDS: Record<string, RegExp> = {
 const WRITING_OPTIONS: Record<string, RegExp> = {
   fd: /(^|\s)(-[a-zA-Z]*[xX]\b|--exec(-batch)?\b)/,
   rg: /(^|\s)--pre\b/,
-  sort: /(^|\s)(-[a-zA-Z]*o|--output\b)/,
+  // Windows' sort writes with /o.
+  sort: /(^|\s)(-[a-zA-Z]*o|--output\b|\/[oO](\s|$))/,
   tree: /(^|\s)-o\b/
 }
 
@@ -108,7 +111,8 @@ export function isReadOnlyCommand(command: string): boolean {
     const words = segment.trim().split(/\s+/)
     let i = 0
     while (i < words.length && /^[A-Z_][A-Z0-9_]*=/.test(words[i])) i++ // leading VAR=value
-    const program = words[i]?.replace(/^.*\//, '')
+    // `C:\Windows\System32\where.exe` and `GIT.EXE` are where and git.
+    const program = words[i] ? programName(words[i]) : ''
     if (!program) return false
     const rest = words.slice(i + 1).join(' ')
     const sub = READ_ONLY_SUBCOMMANDS[program]

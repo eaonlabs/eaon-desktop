@@ -18,7 +18,8 @@ const execFileAsync = promisify(execFile)
  */
 const GH_TIMEOUT_MS = 30_000
 const run = (file: string, args: string[]): Promise<{ stdout: string }> =>
-  execFileAsync(file, args, { timeout: GH_TIMEOUT_MS, maxBuffer: 8 * 1024 * 1024 })
+  // windowsHide: every call would otherwise flash a console window on Windows.
+  execFileAsync(file, args, { timeout: GH_TIMEOUT_MS, maxBuffer: 8 * 1024 * 1024, windowsHide: true })
 
 interface SearchRow {
   repository: { nameWithOwner: string }

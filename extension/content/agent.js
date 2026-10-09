@@ -1158,6 +1158,73 @@
     return { docId, nextRef, text: [head, ...lines].join('\n'), elements }
   }
 
+  // ------------------------------------------------------------ Links, text
+
+  /**
+   * The page's links as a short list — name and where each goes — with refs.
+   * A map of where to go next at a fraction of a snapshot's size, which is
+   * what a small model working through a site needs.
+   */
+  function links(p) {
+    continueRefs(Number(p.refBase) || 1)
+    const needle = norm(p.text || '')
+    const limit = Math.min(100, Math.max(1, Number(p.limit) || 30))
+    const cache = { forms: new Map(), dialogs: new Map() }
+    const seen = new Set()
+    const lines = []
+    const elements = []
+    let total = 0
+    for (const a of document.querySelectorAll('a[href]')) {
+      if (a.closest(HOST_TAG) || !isShown(a)) continue
+      const where = shortHref(a)
+      // Fragments and javascript: links go nowhere a navigation could follow.
+      if (!where) continue
+      const name = squash(nameOf(a)) || where
+      if (needle && !norm(name).includes(needle) && !norm(where).includes(needle)) continue
+      // The same link twice (a logo and its text, a repeated menu) is one entry.
+      const key = `${a.href}\n${norm(name)}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      total++
+      if (lines.length >= limit) continue
+      const ref = refFor(a)
+      elements.push({ ref, role: 'link', name, ...riskHints(a, cache) })
+      lines.push(`[${ref}] ${quote(clip(name, 80))} → ${where} (${whereIs(a)})`)
+    }
+    const filter = needle ? ` matching ${quote(p.text)}` : ''
+    const head = total
+      ? `${total} link${total === 1 ? '' : 's'}${filter} on ${location.href}${total > lines.length ? ` (showing ${lines.length}; narrow it with text)` : ''}:`
+      : `No links${filter} on ${location.href}.`
+    return { docId, nextRef, text: [head, ...lines].join('\n'), elements }
+  }
+
+  /** Empties a text field. Typing nothing says the same, but a model does not always see that. */
+  function clear(p) {
+    const el = resolve(p)
+    if (!editableOf(el)) throw new Error(`${describe(el, p.ref)} is not a text field.`)
+    const result = type({ ...p, text: '' })
+    return { message: result.message.replace(/^Typed into/, 'Cleared') }
+  }
+
+  /** What an element or field holds, to check what is there without a whole snapshot. */
+  function getText(p) {
+    const el = resolve(p)
+    const label = describe(el, p.ref)
+    const field = editableOf(el)
+    let value
+    if (field) {
+      // A password is the user's, not the model's.
+      if (field.type === 'password') throw new Error(`${label} is a password field. Its content is not shared.`)
+      value = field.isContentEditable ? field.innerText : field.value
+    } else if (el.localName === 'select') {
+      value = [...el.selectedOptions].map((option) => option.label || option.value).join(', ')
+    } else {
+      value = el.innerText || el.textContent || ''
+    }
+    const text = squash(value)
+    return { text: text ? `${label} holds ${quote(clip(text, 4000))}` : `${label} is empty` }
+  }
+
   // ------------------------------------------------------------------- Fill
 
   /** Several fields in one go — a form is otherwise one round trip per field. */
@@ -1268,7 +1335,7 @@
 
   // ------------------------------------------------------------- Dispatcher
 
-  const ACTIONS = { snapshot, click, hover, type, select, press, scroll, find, read, search, fill }
+  const ACTIONS = { snapshot, click, hover, type, select, press, scroll, find, read, search, fill, links, clear, get_text: getText }
 
   async function run(action, params = {}) {
     try {

@@ -188,9 +188,13 @@ function locked() {
   return !value.isNil() && ObjC.unwrap(value) === true
 }
 
+function asleep() {
+  try { return Boolean($.CGDisplayIsAsleep($.CGMainDisplayID())) } catch (e) { return false }
+}
+
 function handle(req) {
   switch (req.cmd) {
-    case 'check': return { trusted: $.AXIsProcessTrusted(), locked: locked() }
+    case 'check': return { trusted: $.AXIsProcessTrusted(), locked: locked(), asleep: asleep() }
     case 'cursor': return cursor()
     case 'move': move(req.x, req.y); return null
     case 'click': click(req.x, req.y, req.button, req.clicks); return null
@@ -212,8 +216,11 @@ function main() {
     var newline = buffer.indexOf('\n')
     if (newline === -1) {
       var data = stdin.availableData
-      // Empty read: Eaon closed the pipe (quit or crashed), so stop too.
-      if (!data || data.length === 0) return
+      // Empty read: Eaon closed the pipe (quit or crashed), so stop too. The
+      // bridge hands NSData's length back as a string ("0"), so it is
+      // converted before comparing; '=== 0' never matched, and an orphaned
+      // helper went on reading an empty pipe at 100% of a core.
+      if (!data || data.isNil() || Number(data.length) === 0) return
       buffer += ObjC.unwrap($.NSString.alloc.initWithDataEncoding(data, $.NSUTF8StringEncoding))
       continue
     }
@@ -349,10 +356,10 @@ export class MacInput implements InputBackend {
 
   async check(): Promise<BackendCheck> {
     try {
-      const result = await this.helper.request<{ trusted: boolean; locked: boolean }>('check', {}, 8000)
+      const result = await this.helper.request<{ trusted: boolean; locked: boolean; asleep?: boolean }>('check', {}, 8000)
       // An untrusted helper is still available: the setup steps in Settings
       // and the tool's own error say what to switch on.
-      return { available: true, trusted: result.trusted, locked: result.locked }
+      return { available: true, trusted: result.trusted, locked: result.locked, asleep: result.asleep === true }
     } catch (error) {
       return { available: false, detail: (error as Error).message }
     }

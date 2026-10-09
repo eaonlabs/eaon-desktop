@@ -49,3 +49,10 @@ export function formatBytes(bytes: number): string {
   }
   return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`
 }
+
+/** "Show in Finder" says Finder only on a Mac; Windows has File Explorer, Linux a file manager. */
+export function revealLabel(platform: string = typeof window !== 'undefined' ? window.api?.platform ?? '' : ''): string {
+  if (platform === 'darwin') return 'Show in Finder'
+  if (platform === 'win32') return 'Show in File Explorer'
+  return 'Show in folder'
+}

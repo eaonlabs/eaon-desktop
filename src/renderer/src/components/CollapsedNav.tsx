@@ -1,7 +1,7 @@
 import { ArrowRight, PanelLeft, SquarePen } from 'lucide-react'
 import { useApp, useWorkspaceKind } from '../state/store'
 import { DownloadsButton } from './DownloadsPanel'
-import { openNewTerminal } from './code/terminal/terminalStore'
+import { openNewSession } from './code/sessionsStore'
 import { useWorkers } from './workers/workersStore'
 
 /**
@@ -34,10 +34,10 @@ export function CollapsedNav(): JSX.Element {
       <button
         className="icon-btn"
         onClick={() =>
-          kind === 'code' ? void openNewTerminal() : kind === 'workers' ? useWorkers.getState().openEditor(null) : newChat()
+          kind === 'code' ? void openNewSession() : kind === 'workers' ? useWorkers.getState().openEditor(null) : newChat()
         }
-        aria-label={kind === 'code' ? 'New terminal' : kind === 'workers' ? 'New worker' : 'New chat'}
-        title={kind === 'code' ? 'New terminal' : kind === 'workers' ? 'New worker' : 'New chat'}
+        aria-label={kind === 'code' ? 'New session' : kind === 'workers' ? 'New worker' : 'New chat'}
+        title={kind === 'code' ? 'New session' : kind === 'workers' ? 'New worker' : 'New chat'}
       >
         <SquarePen size={16} strokeWidth={1.9} />
       </button>

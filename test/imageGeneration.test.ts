@@ -182,3 +182,21 @@ test('a generated image keeps a row of its own in the turn, outside any folded r
     [['read_file'], ['generate_image'], ['read_file']]
   )
 })
+
+test('an answer that isn’t an image is refused before anything is saved', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'eaon-img-bad-'))
+  const { fetch } = fakeFetch(() => json({ data: [{ b64_json: Buffer.from('<html>error page</html>').toString('base64') }] }))
+  const tool = createGenerateImageTool({ keys: keys({ openai: 'sk' }), fetch })
+  await assert.rejects(tool.run({ prompt: 'a cat' }, context(cwd).ctx), /isn't a readable image\. Nothing was saved/)
+  assert.equal(existsSync(join(cwd, 'images')), false)
+})
+
+test('an image too big for the providers to edit is refused with what to do', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'eaon-img-big-'))
+  writeFileSync(join(cwd, 'huge.png'), Buffer.alloc(21 * 1024 * 1024))
+  const { fetch, seen } = fakeFetch(() => json({ data: [{ b64_json: PIXEL }] }))
+  const tool = createGenerateImageTool({ keys: keys({ openai: 'sk' }), fetch })
+  await assert.rejects(tool.run({ prompt: 'brighter', edit: ['huge.png'] }, context(cwd).ctx), /21 MB; image providers take up to 20 MB/)
+  await assert.rejects(tool.run({ prompt: 'brighter', edit: ['missing.png'] }, context(cwd).ctx), /doesn't exist/)
+  assert.equal(seen.length, 0, 'nothing was sent, so nothing was billed')
+})

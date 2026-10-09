@@ -5,7 +5,9 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { app, powerSaveBlocker } from 'electron'
 import type { GoalState, ModelInfo, Provider, Settings, StreamEvent, StreamRequest, TokenUsage } from '@shared/types'
-import { adapterFor, getProvider } from '../providers'
+import { adapterFor, getProvider, noteProviderHealth } from '../providers'
+import { classifyProviderError } from '../providers/errors'
+import { findModel } from '@shared/modelSelection'
 import { addUsage, emptyUsage, HEADERS_TIMEOUT_MESSAGE, isHeadersTimeout, ProviderHttpError, type Adapter, type Credentials, type NeutralImage, type NeutralMessage, type NeutralToolResult, type TurnRequest, type TurnResult } from '../providers/adapters/types'
 import { credentialAttempts, isAuthError } from '../providers/credentials'
 import { contextWindowFor } from '../providers/models'
@@ -14,7 +16,15 @@ import { cancelApprovals, requestApproval, type Approver } from './approvals'
 import { buildHistory, estimateMessages, estimateTokens, pruneImages, pruneInFlight, stripImages, transcriptText } from './context'
 import { chatSystemPrompt, COMPACTION_PROMPT, workSystemPrompt } from './prompts'
 import { CallGuard } from './guards'
-import { capOutput, guidanceFor, isMutating, toolsFor, toolSourceOf, toSpec, WORKFLOW_TOOLS, type AgentTool, type ToolContext, type ToolQuery, type TurnState } from './tools'
+import { callFacts, decide, USER_DENIED, type RunPolicy, type ToolGate, type TurnOrigin, type UnattendedPolicy } from './policy'
+import { capOutput, guidanceFor, isMutating, toolsFor, toSpec, WORKFLOW_TOOLS, type AgentTool, type ToolContext, type ToolQuery, type TurnState } from './tools'
+
+export type { ToolGate, TurnOrigin, UnattendedPolicy } from './policy'
+import { redactSecrets } from '../providers/redact'
+import { engine as engineAdapter } from '../engines'
+import { recordUsage } from '../features/usage/ledger'
+import { runEngineChat } from './engineChat'
+import type { EngineId } from '@shared/engines'
 
 /**
  * The agent loop — one implementation for every provider and both modes.
@@ -214,8 +224,12 @@ export interface LoopParams {
   unattended?: UnattendedPolicy
   /** See `RunOptions.allowOnce`. */
   allowOnce?: (tool: string, input: Record<string, unknown>) => boolean
+  /** See `RunOptions.onToolRun`. */
+  onToolRun?: (name: string, mutating: boolean) => void
   /** See `RunOptions.toolGate`. */
   toolGate?: ToolGate
+  /** See `RunOptions.origin`. */
+  origin?: TurnOrigin
   maxRounds: number
   /** Goal mode: the loop sends the agent back to work until it resolves the goal. */
   goal: GoalState | null
@@ -346,11 +360,13 @@ async function runTool(
   if ('__invalid_json' in call.input) {
     return finish(`Your arguments were not valid JSON: ${String(call.input.__invalid_json).slice(0, 500)}. Re-issue the call with valid JSON.`, 'error')
   }
-  // Checked before anything else about the call: a worker answering a guest
-  // in a chat app may not use this tool at all, mutating or not.
-  const gated = params.toolGate?.(tool, call.input)
-  if (gated) return finish(gated, 'denied')
-
+  const policy: RunPolicy = {
+    readOnly: params.readOnly,
+    unattended: params.unattended,
+    allowOnce: params.allowOnce,
+    toolGate: params.toolGate,
+    origin: params.origin
+  }
   const ctx: ToolContext = {
     request,
     turn,
@@ -362,50 +378,22 @@ async function runTool(
     readOnly: params.readOnly,
     settings: params.settings,
     progress: (output) => emit({ type: 'tool-progress', messageId: request.messageId, toolId: call.id, output }),
-    confirm: (title, detail, summary) => params.approver(title, detail, summary)
+    confirm: (title, detail, summary) => params.approver(title, detail, summary),
+    policy
   }
 
-  if (isMutating(tool, call.input, ctx)) {
-    if (params.readOnly) {
-      return finish('Plan mode is on, so this tool is disabled. Finish researching and call present_plan.', 'denied')
-    }
-    const risky = tool.risky?.(call.input, ctx) ?? false
-    // Settings → MCP → Allow All MCP Tool Permissions: the user has approved
-    // every plugin call in advance. Plan mode above and scheduled runs below
-    // still refuse exactly as before.
-    const preApproved = params.settings.mcp.allowAllToolPermissions && toolSourceOf(tool) === 'plugins'
-    // What can't be undone (a real-money order, a destructive plugin call) is
-    // never covered by that blanket pre-approval, in any mode.
-    const catastrophic = tool.catastrophic?.(call.input, ctx) ?? false
-    // Scheduled tasks (features/scheduler): nobody is there to ask, so the
-    // task's own policy stands in for the user's approval setting.
-    if (params.unattended) {
-      if (params.unattended === 'read-only') return finish(UNATTENDED_READ_ONLY, 'denied')
-      if (params.unattended === 'autonomous') {
-        // Trusted to act alone: everything runs except what can't be undone —
-        // unless the user approved this very call (ask_user).
-        if (catastrophic && !params.allowOnce?.(call.name, call.input)) return finish(UNATTENDED_CATASTROPHIC, 'denied')
-      } else if ((catastrophic || (risky && !preApproved)) && !params.allowOnce?.(call.name, call.input)) {
-        // "Allow All MCP Tool Permissions" approves plugin calls in advance,
-        // for a worker as for a chat.
-        return finish(UNATTENDED_RISKY, 'denied')
-      }
-    } else if (params.settings.approvalMode === 'full') {
-      // Full autonomy: the user is here but has trusted the agent to act.
-      // Everything runs, risky or not — except what can't be undone, which
-      // still waits for them like any approval (plugin pre-approval or not).
-      if (catastrophic && !(await params.approver(call.name, call.input, tool.describe?.(call.input)))) {
-        return finish('The user denied this action. Do not retry it; continue another way or ask how they would like to proceed.', 'denied')
-      }
-    } else if (
-      (catastrophic || (!preApproved && (params.settings.approvalMode === 'ask' || risky))) &&
-      !(await params.approver(call.name, call.input, tool.describe?.(call.input)))
-    ) {
-      return finish('The user denied this action. Do not retry it; continue another way or ask how they would like to proceed.', 'denied')
-    }
+  // Every rule about whether this call may run — plan mode, a guest's cap,
+  // who the work came from, the unattended policy or the approval mode, and
+  // the tool's own risk — is in agent/policy.ts, shared with sub-agents and
+  // the CLI.
+  const decision = decide(tool, call.input, callFacts(tool, call.input, ctx, params.settings), policy, params.settings.approvalMode)
+  if (decision.kind === 'deny') return finish(decision.reason, 'denied')
+  if (decision.kind === 'ask' && !(await params.approver(call.name, call.input, tool.describe?.(call.input)))) {
+    return finish(USER_DENIED, 'denied')
   }
 
-  const mutating = isMutating(tool, call.input, ctx)
+  const mutating = decision.mutating
+  params.onToolRun?.(call.name, mutating)
   let output: string
   let status: 'done' | 'error'
   let images: NeutralImage[] | undefined
@@ -663,22 +651,6 @@ async function compact(
 
 /* ------------------------------------------------------------- entry point */
 
-/**
- * How a run with nobody watching treats changes, in place of the approval
- * prompt: 'read-only' refuses every mutating call, 'safe' runs ordinary ones
- * and refuses the risky ones "Approve for me" would still stop to ask about,
- * 'autonomous' (a worker the user trusts to act alone) runs everything but
- * the calls a tool marks catastrophic.
- */
-export type UnattendedPolicy = 'read-only' | 'safe' | 'autonomous'
-
-const UNATTENDED_READ_ONLY =
-  'This run is read-only — the user did not allow it to make changes — so this action was not run. Do not retry it or look for another way to make the change; finish with what you can find out, and say in your report what you would have changed.'
-const UNATTENDED_CATASTROPHIC =
-  'This action could do lasting damage (spending money, entering a card number or password, sudo, erasing a disk, force-pushing, a plugin action marked destructive), so it never runs without the user\'s approval. Do not work around it. If it is needed, ask with ask_user, passing approve_tool and approve_input with this exact call; once approved you may make it once. Carry on with the rest meanwhile.'
-const UNATTENDED_RISKY =
-  'This action needs the user\'s approval, and this run has nobody to ask, so it was not run. Do not retry it; continue without it and mention it in your report.'
-
 export interface RunOptions {
   /** Headless runs (scheduled tasks) answer approvals themselves. */
   approver?: Approver
@@ -692,11 +664,23 @@ export interface RunOptions {
    */
   allowOnce?: (tool: string, input: Record<string, unknown>) => boolean
   /**
+   * Told as each tool is about to run (after any approval), and whether the
+   * call changes things outside the conversation. A worker's run records it,
+   * so a run cut off by a crash is never replayed if it may already have acted.
+   */
+  onToolRun?: (name: string, mutating: boolean) => void
+  /**
    * Refuses a tool call outright, whatever it is: a reason for the model, or
    * null to let the usual rules decide. A worker answering a guest in a chat
    * app uses it to hold the turn to what that guest may do.
    */
   toolGate?: ToolGate
+  /**
+   * Who the turn's work came from. A worker's turn that carries a guest's
+   * message, or work a colleague handed over, sets it so nothing in the turn
+   * can spend the user's money. Unset means the user.
+   */
+  origin?: TurnOrigin
   /**
    * Which tools to offer at all. A run that may only use a few (a trading
    * session) leaves the rest out of the request: the gate still refuses them,
@@ -704,8 +688,6 @@ export interface RunOptions {
    */
   offer?: (name: string) => boolean
 }
-
-export type ToolGate = (tool: AgentTool, input: Record<string, unknown>) => string | null
 
 export interface RunOutcome {
   text: string
@@ -715,7 +697,53 @@ export interface RunOutcome {
   cancelled?: boolean
 }
 
+/** Each chat's own conversation on an agent engine (a Codex thread), so the next message continues it. */
+const ENGINE_SESSIONS = 'chat-engine-sessions.json'
+type EngineSessions = Record<string, Partial<Record<EngineId, string>>>
+
+/**
+ * A Chat turn on an agent engine (Codex) rather than Eaon's own loop. It is
+ * registered as a run like any other, so Stop, "which reply is being
+ * written" and the approval dialog behave the same; see agent/engineChat.ts.
+ */
+async function runOnEngine(request: StreamRequest, engineId: EngineId, emit: (event: StreamEvent) => void, options: RunOptions): Promise<RunOutcome> {
+  const controller = new AbortController()
+  const forwardAbort = (): void => controller.abort()
+  if (options.signal?.aborted) controller.abort()
+  else options.signal?.addEventListener('abort', forwardAbort, { once: true })
+  controller.signal.addEventListener('abort', () => cancelApprovals(request.messageId), { once: true })
+  activeRuns.set(request.messageId, controller)
+  holdAwake()
+  try {
+    const settings = store.getSettings()
+    const cwd = await ensureWorkFolder(request.cwd, settings)
+    const outcome = await runEngineChat(
+      { request, engine: engineId, cwd, settings, signal: controller.signal, emit },
+      {
+        adapter: (id) => engineAdapter(id),
+        session: (chatId, id) => store.getJson<EngineSessions>(ENGINE_SESSIONS, {})[chatId]?.[id] ?? null,
+        saveSession: (chatId, id, sessionId) => {
+          const all = store.getJson<EngineSessions>(ENGINE_SESSIONS, {})
+          const mine = { ...all[chatId] }
+          if (sessionId) mine[id] = sessionId
+          else delete mine[id]
+          all[chatId] = mine
+          store.setJson(ENGINE_SESSIONS, all)
+        },
+        ask: (tool, input, summary) => (controller.signal.aborted ? Promise.resolve(false) : requestApproval(request.messageId, tool, input, emit, summary)),
+        record: (account, model, used) => recordUsage(account, model, used, new Date(), 'chat')
+      }
+    )
+    return { text: outcome.text, usage: outcome.usage, ...(outcome.error ? { error: outcome.error } : {}), ...(controller.signal.aborted ? { cancelled: true } : {}) }
+  } finally {
+    options.signal?.removeEventListener('abort', forwardAbort)
+    activeRuns.delete(request.messageId)
+    holdAwake()
+  }
+}
+
 export async function runAgent(request: StreamRequest, emit: (event: StreamEvent) => void, options: RunOptions = {}): Promise<RunOutcome> {
+  if (request.engine && request.engine !== 'native') return runOnEngine(request, request.engine, emit, options)
   const usage = emptyUsage()
   const provider = getProvider(request.providerId)
   if (!provider) {
@@ -762,7 +790,8 @@ export async function runAgent(request: StreamRequest, emit: (event: StreamEvent
             ...(request.persona ? { roleBrief: request.persona } : {})
           })
 
-    const model = provider.models.find((m) => m.id === request.modelId)
+    // By id or by an alias folded into it (a dated snapshot chosen before it was folded).
+    const model = findModel(provider.models, request.modelId)
     const window = contextWindowFor(provider, request.modelId, model)
     const built = buildHistory(request.history, request.summary, settings.context.keepFullToolTurns)
     let messages = built.messages
@@ -787,7 +816,9 @@ export async function runAgent(request: StreamRequest, emit: (event: StreamEvent
           controller.signal.aborted ? Promise.resolve(false) : requestApproval(request.messageId, tool, input, emit, summary)),
       unattended: options.unattended,
       allowOnce: options.allowOnce,
+      onToolRun: options.onToolRun,
       toolGate: options.toolGate,
+      origin: options.origin,
       onText: (delta: string) => {
         text += delta
         emit({ type: 'delta', messageId: request.messageId, text: delta })
@@ -822,6 +853,8 @@ export async function runAgent(request: StreamRequest, emit: (event: StreamEvent
     const maxRounds = raw ? 1 : mode === 'chat' ? 8 : runsUntil ? 10_000 : Math.min(Math.max(settings.codeIndex.maxToolRounds || 40, 1), 200)
     // The loop adds into `usage` as it goes, so a stopped or failed run still reports what it spent.
     const outcome = await runLoop({ ...base, system, tools, messages, maxRounds, goal: request.goal, usage })
+    // The provider answered: a failed check from before (a key since fixed) no longer applies.
+    if (provider.health && !provider.health.ok) noteProviderHealth(provider.id, null)
     emit({ type: 'done', messageId: request.messageId })
     return { text: outcome.text || text, usage, ...(controller.signal.aborted ? { cancelled: true } : {}) }
   } catch (error) {
@@ -829,8 +862,13 @@ export async function runAgent(request: StreamRequest, emit: (event: StreamEvent
       emit({ type: 'done', messageId: request.messageId })
       return { text, usage, cancelled: true }
     }
-    const message = error instanceof Error ? error.message : String(error)
-    emit({ type: 'error', messageId: request.messageId, error: message })
+    // A provider failure becomes what to do about it ("Your ChatGPT session
+    // expired. Sign in again."), with the raw words kept for Copy details;
+    // anything else keeps its own message.
+    const issue = classifyProviderError(error, provider)
+    const message = issue.kind === 'other' ? redactSecrets(error instanceof Error ? error.message : String(error)) : issue.message
+    noteProviderHealth(provider.id, issue)
+    emit({ type: 'error', messageId: request.messageId, error: message, ...(issue.kind === 'other' ? {} : { issue }) })
     return { text, error: message, usage }
   } finally {
     options.signal?.removeEventListener('abort', forwardAbort)

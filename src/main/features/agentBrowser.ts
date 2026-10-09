@@ -1,4 +1,4 @@
-import type { NativeImage } from 'electron'
+import type { NativeImage, WebContents } from 'electron'
 import {
   AGENT_BROWSER,
   type AgentBrowserFrame,
@@ -7,6 +7,7 @@ import {
   type BrowserInput,
   type BrowserTarget
 } from '@shared/agentBrowser'
+import { isRunning } from '../agent/loop'
 import { registerToolSource, type ToolContext } from '../agent/tools'
 import type { Feature, FeatureContext } from './types'
 import { browserTool, WorkerBrowsers } from './workers/browser'
@@ -22,11 +23,14 @@ import { browserTool, WorkerBrowsers } from './workers/browser'
  *
  * The live view works for the chat agent's browser (`'agent'`) and for each
  * worker's (`'worker:<id>'`; the workers service registers its browsers
- * here). While a view is open, every frame the page paints is streamed — the
- * agent's own cursor gliding to what it clicks is drawn into the page, so it
- * shows — at most ~8 a second, scaled and JPEG-encoded. Each step the agent
- * takes is sent too, so the view says what is happening and opens itself the
- * first time the chat agent picks up its browser.
+ * here). While a view is open the page is pictured ~8 times a second as the
+ * agent takes a step or the user has control — the agent's own cursor gliding
+ * to what it clicks is drawn into the page, so it shows — and once after
+ * (workers/browser.ts, `watchFrames`). Each picture is scaled, JPEG-encoded
+ * only if it changed, and sent only to the windows watching that browser.
+ * Each step the agent takes is sent to every window, so the view says what is
+ * happening and opens itself the first time the chat agent picks up its
+ * browser.
  *
  * "Take control" happens in the view: the user's clicks, scrolls and keys go
  * to the page as real input, and the agent's next step waits until they hand
@@ -36,8 +40,6 @@ import { browserTool, WorkerBrowsers } from './workers/browser'
  */
 
 const AGENT = 'agent'
-/** At most this often, in ms: smooth enough to follow the cursor, cheap enough to leave on. */
-const FRAME_MS = 120
 const FRAME_WIDTH = 1100
 
 let agentBrowsers: WorkerBrowsers | null = null
@@ -45,14 +47,21 @@ let workerBrowsers: WorkerBrowsers | null = null
 let send: FeatureContext['send'] = () => undefined
 
 interface Watch {
-  count: number
+  /** The windows with a view open on this browser, by webContents id, and how many views each has. */
+  viewers: Map<number, { contents: WebContents; count: number }>
   stop: () => void
-  latest: NativeImage | null
-  timer: ReturnType<typeof setTimeout> | null
-  sentAt: number
-  lastImage: string
+  /** The latest frame sent, for a view that opens while the page is still. */
+  frame: AgentBrowserFrame | null
+  /** Its pixels, scaled, so an unchanged picture is told apart before it is encoded. */
+  pixels: Buffer | null
 }
 const watches = new Map<BrowserTarget, Watch>()
+/**
+ * Every window with a view open, and what stops listening for it going away:
+ * a window that closes, crashes or reloads never says it closed its views,
+ * and each one left behind kept its browser streaming for the rest of the run.
+ */
+const viewers = new Map<number, () => void>()
 
 /** The workers service hands over its browsers, so a worker's can be watched and taken over too. */
 export function setWorkerBrowsers(browsers: WorkerBrowsers): void {
@@ -65,70 +74,60 @@ function resolve(target: BrowserTarget): { browsers: WorkerBrowsers; id: string 
   return worker && workerBrowsers ? { browsers: workerBrowsers, id: worker[1] } : null
 }
 
-/** One JPEG data URL, scaled to the view's size; `null` for a blank (not yet painted) frame. */
-function encode(image: NativeImage): string | null {
-  if (image.isEmpty()) return null
+/** One picture to the windows watching `target`: scaled to the view's size, and encoded only if it changed. */
+function sendFrame(target: BrowserTarget, image: NativeImage): void {
+  const watch = watches.get(target)
+  const found = resolve(target)
+  if (!watch || !found || image.isEmpty()) return
   const { width } = image.getSize()
   const scaled = width > FRAME_WIDTH ? image.resize({ width: FRAME_WIDTH, quality: 'good' }) : image
-  return `data:image/jpeg;base64,${scaled.toJPEG(70).toString('base64')}`
-}
-
-function sendFrame(target: BrowserTarget, watch: Watch): void {
-  watch.timer = null
-  const image = watch.latest
-  watch.latest = null
-  const found = resolve(target)
-  const window = found?.browsers.window(found.id)
-  if (!image || !found || !window) return
-  const data = encode(image)
-  if (!data || data === watch.lastImage) return
-  watch.lastImage = data
-  watch.sentAt = Date.now()
+  // Most pictures between the agent's moves are the page as it was; comparing pixels costs a fraction of a JPEG.
+  const pixels = scaled.toBitmap()
+  if (watch.pixels?.equals(pixels)) return
+  watch.pixels = pixels
   const frame: AgentBrowserFrame = {
     target,
-    url: window.webContents.getURL(),
-    title: window.webContents.getTitle(),
-    image: data,
+    ...found.browsers.page(found.id),
+    image: `data:image/jpeg;base64,${scaled.toJPEG(70).toString('base64')}`,
     viewport: found.browsers.viewport(found.id),
-    at: watch.sentAt
+    at: Date.now()
   }
-  send('agent-browser:frame', frame)
+  watch.frame = frame
+  for (const viewer of watch.viewers.values()) if (!viewer.contents.isDestroyed()) viewer.contents.send('agent-browser:frame', frame)
 }
 
-/** Keeps only the newest frame and sends it once the rate allows. */
-function onFrame(target: BrowserTarget, image: NativeImage): void {
-  const watch = watches.get(target)
-  if (!watch) return
-  watch.latest = image
-  if (watch.timer) return
-  watch.timer = setTimeout(() => sendFrame(target, watch), Math.max(0, watch.sentAt + FRAME_MS - Date.now()))
-}
-
-function startWatching(target: BrowserTarget): void {
+function startWatching(target: BrowserTarget, sender: WebContents): void {
   const found = resolve(target)
   if (!found) return
   let watch = watches.get(target)
-  if (watch) {
-    watch.count++
-    return
+  if (!watch) {
+    watch = { viewers: new Map(), stop: () => undefined, frame: null, pixels: null }
+    watches.set(target, watch)
+    // It sends what is there now, then pictures as things happen.
+    watch.stop = found.browsers.watchFrames(found.id, (image) => sendFrame(target, image))
+  } else if (watch.frame) {
+    // Another view on a browser already watched: what the others see, now.
+    sender.send('agent-browser:frame', watch.frame)
   }
-  watch = { count: 1, stop: () => undefined, latest: null, timer: null, sentAt: 0, lastImage: '' }
-  watches.set(target, watch)
-  watch.stop = found.browsers.watchFrames(found.id, (image) => onFrame(target, image))
-  // A page that isn't repainting sends no frames: show what is there now.
-  void found.browsers.capture(found.id).then(
-    (image) => image && onFrame(target, image),
-    () => undefined
-  )
+  const viewer = watch.viewers.get(sender.id)
+  if (viewer) viewer.count++
+  else watch.viewers.set(sender.id, { contents: sender, count: 1 })
+  follow(sender)
 }
 
-function stopWatching(target: BrowserTarget): void {
+function stopWatching(target: BrowserTarget, senderId: number): void {
   const watch = watches.get(target)
-  if (!watch) return
-  watch.count = Math.max(0, watch.count - 1)
-  if (watch.count > 0) return
+  const viewer = watch?.viewers.get(senderId)
+  if (!watch || !viewer) return
+  viewer.count--
+  if (viewer.count <= 0) watch.viewers.delete(senderId)
+  if (watch.viewers.size === 0) unwatch(target, watch)
+  if (![...watches.values()].some((w) => w.viewers.has(senderId))) unfollow(senderId)
+}
+
+/** The last view of a browser has gone. */
+function unwatch(target: BrowserTarget, watch: Watch): void {
   watch.stop()
-  if (watch.timer) clearTimeout(watch.timer)
   watches.delete(target)
   // Nobody is looking any more: hand the browser back rather than leave the agent waiting.
   const found = resolve(target)
@@ -138,12 +137,41 @@ function stopWatching(target: BrowserTarget): void {
   }
 }
 
+/** A window that closed, crashed or reloaded: its views go with it. */
+function dropViewer(senderId: number): void {
+  for (const [target, watch] of [...watches]) {
+    if (watch.viewers.delete(senderId) && watch.viewers.size === 0) unwatch(target, watch)
+  }
+  unfollow(senderId)
+}
+
+function follow(sender: WebContents): void {
+  const id = sender.id
+  if (viewers.has(id)) return
+  const gone = (): void => dropViewer(id)
+  // A reload, not a route change inside the app (those stay in the same document).
+  const navigated = (details: { isMainFrame: boolean; isSameDocument: boolean }): void => {
+    if (details.isMainFrame && !details.isSameDocument) dropViewer(id)
+  }
+  sender.once('destroyed', gone)
+  sender.on('render-process-gone', gone)
+  sender.on('did-start-navigation', navigated)
+  viewers.set(id, () => {
+    sender.removeListener('destroyed', gone)
+    sender.removeListener('render-process-gone', gone)
+    sender.removeListener('did-start-navigation', navigated)
+  })
+}
+
+function unfollow(senderId: number): void {
+  viewers.get(senderId)?.()
+  viewers.delete(senderId)
+}
+
 function status(target: BrowserTarget): AgentBrowserStatus {
   const found = resolve(target)
-  const window = found?.browsers.window(found.id)
-  return window
-    ? { target, open: true, url: window.webContents.getURL(), title: window.webContents.getTitle(), controlled: found!.browsers.controlled(found!.id) }
-    : { target, open: false, url: '', title: '', controlled: false }
+  if (!found?.browsers.window(found.id)) return { target, open: false, url: '', title: '', controlled: false }
+  return { target, open: true, ...found.browsers.page(found.id), controlled: found.browsers.controlled(found.id) }
 }
 
 function pushStatus(target: BrowserTarget): void {
@@ -190,6 +218,8 @@ export const agentBrowserFeature: Feature = {
       idOf: (toolCtx) => (toolCtx.request.workerId ? null : AGENT),
       signInHint:
         'If a site needs the user to sign in, tell them: they can take control in the live view beside the chat, sign in, and hand it back.',
+      // Every chat (and scheduled task) shares this one browser, one at a time.
+      shared: { alive: isRunning },
       onStep: (toolCtx, step) => reportBrowserStep(AGENT_BROWSER, toolCtx, step)
     })
     registerToolSource({
@@ -207,11 +237,11 @@ export const agentBrowserFeature: Feature = {
 
     const { ipcMain } = ctx
     const targetOf = (value: unknown): BrowserTarget => (typeof value === 'string' && value ? value : AGENT_BROWSER)
-    // A view opens and closes; frames flow only while one is open.
-    ipcMain.handle('agent-browser:watch', (_e, on: boolean, target?: string) => {
+    // A view opens and closes; frames flow only while one is open, and only to its window.
+    ipcMain.handle('agent-browser:watch', (event, on: boolean, target?: string) => {
       const which = targetOf(target)
-      if (on) startWatching(which)
-      else stopWatching(which)
+      if (on) startWatching(which, event.sender)
+      else stopWatching(which, event.sender.id)
       return status(which)
     })
     ipcMain.handle('agent-browser:status', (_e, target?: string) => status(targetOf(target)))
@@ -244,11 +274,9 @@ export const agentBrowserFeature: Feature = {
     })
   },
   dispose: () => {
-    for (const watch of watches.values()) {
-      watch.stop()
-      if (watch.timer) clearTimeout(watch.timer)
-    }
+    for (const watch of watches.values()) watch.stop()
     watches.clear()
+    for (const id of [...viewers.keys()]) unfollow(id)
     void agentBrowsers?.closeAll()
   }
 }

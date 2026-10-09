@@ -38,7 +38,7 @@ import nebiusLogo from '../assets/providers/nebius.svg'
 import lmstudioLogo from '../assets/providers/lmstudio.svg'
 import janLogo from '../assets/providers/jan.png'
 import githubcopilotLogo from '../assets/providers/githubcopilot.svg'
-import claudecodeLogo from '../assets/providers/claudecode.svg'
+import claudecodeLogo from '../assets/providers/claude.webp'
 import codexLogo from '../assets/providers/codex.svg'
 import geminicliLogo from '../assets/providers/geminicli.svg'
 import eaonLogo from '../assets/providers/eaon.png'
@@ -525,6 +525,8 @@ export const BRAND_ICONS: Record<string, (props: TileProps) => JSX.Element> = {
   openai: OpenAiIcon,
   // ChatGPT sign-in is OpenAI's own product, and Copilot is GitHub's.
   'openai-codex': OpenAiIcon,
+  // The Codex CLI as an agent engine (Settings → Model providers, Agent engines, the model pickers).
+  codex: LOGOS.codex,
   chatgpt: OpenAiIcon,
   'github-copilot': LOGOS.copilot,
   azure: AzureIcon,

@@ -1,0 +1,79 @@
+# Generates Eaon.xcodeproj: run `xcodegen` in this folder after changing it.
+# The Eaon folder is a synchronized folder, so new files under it are picked
+# up by Xcode on their own; regenerating is only needed for settings.
+name: Eaon
+options:
+  bundleIdPrefix: dev.eaon
+  deploymentTarget:
+    iOS: "18.0"
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+targets:
+  Eaon:
+    type: application
+    platform: iOS
+    sources:
+      - path: Eaon
+        type: syncedFolder
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.eaon.ios
+        PRODUCT_NAME: Eaon
+        INFOPLIST_FILE: Info.plist
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_ENTITLEMENTS: Eaon.entitlements
+        # The client id of "Eaon", the GitHub OAuth App under the eaonlabs org, for
+        # "Continue with GitHub" (device flow, no secret; Device Flow is enabled on it).
+        # A client id is public. Override on the command line if needed:
+        #   EAON_GITHUB_CLIENT_ID=... xcodebuild ...
+        EAON_GITHUB_CLIENT_ID: Ov23liGgk4qIW9VPTkR1
+        INFOPLIST_KEY_CFBundleDisplayName: Eaon
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: UIInterfaceOrientationPortrait
+        TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: Eaon
+        CODE_SIGN_STYLE: Automatic
+        ENABLE_PREVIEWS: YES
+  # Unit tests: accounts, the GitHub device flow, streaming parsers, the chat store.
+  EaonTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: EaonTests
+    dependencies:
+      - target: Eaon
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.eaon.ios.tests
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_STYLE: Automatic
+  # Drags the landing screen's glass with real (synthesized) touches.
+  EaonUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: EaonUITests
+    dependencies:
+      - target: Eaon
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: dev.eaon.ios.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGN_STYLE: Automatic
+schemes:
+  Eaon:
+    build:
+      targets:
+        Eaon: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - EaonTests
+        - EaonUITests
+    archive:
+      config: Release

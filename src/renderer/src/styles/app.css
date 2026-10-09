@@ -31,7 +31,11 @@ body {
   text-rendering: optimizeLegibility;
 }
 
-body[data-translucent='on'] {
+/* macOS only: Windows and Linux windows have no vibrancy behind them, just an
+   opaque background colour, so a see-through canvas there only tinted the
+   whole app off its theme. The setting defaults to on and is hidden off
+   macOS, so it has to be ignored here rather than switched off. */
+body[data-platform='darwin'][data-translucent='on'] {
   background: color-mix(in srgb, var(--canvas) 82%, transparent);
 }
 
@@ -47,11 +51,31 @@ body[data-pointer='on'] label {
   cursor: pointer;
 }
 
+/* Reduce motion (Settings → Appearance, or the system setting). One run of
+   each animation, at once: a looping one (every spinner, the streaming caret,
+   status pulses) would otherwise restart every 0.001ms and flicker, and a
+   staggered entrance would still wait out its delay. A spinner stands still;
+   whatever fades or slides in is simply there. */
 body[data-reduce-motion='on'] *,
 body[data-reduce-motion='on'] *::before,
 body[data-reduce-motion='on'] *::after {
   animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  animation-delay: 0s !important;
   transition-duration: 0.001ms !important;
+  transition-delay: 0s !important;
+  scroll-behavior: auto !important;
+}
+/* Before settings load the attribute isn't set yet; follow the system meanwhile. */
+@media (prefers-reduced-motion: reduce) {
+  body:not([data-reduce-motion]) *,
+  body:not([data-reduce-motion]) *::before,
+  body:not([data-reduce-motion]) *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0s !important;
+    transition-duration: 0.001ms !important;
+  }
 }
 
 button {
@@ -325,6 +349,17 @@ a:hover {
   min-width: 0;
   flex: 0 1 auto;
 }
+/* A narrow content area (a split screen, a zoomed-in window): equal side
+   columns left a long chat's title one letter wide beside the collapsed
+   sidebar's buttons. Here the switch gives up dead-centre and the left side
+   takes whatever is left, so the title keeps its room (and its tooltip). */
+@container main (max-width: 640px) {
+  .chat-header.topbar,
+  .page__bar.topbar {
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    column-gap: 8px;
+  }
+}
 .topbar .collapsed-nav {
   margin-right: 2px;
 }
@@ -392,6 +427,21 @@ a:hover {
   border-radius: 50%;
   background: var(--accent);
   box-shadow: 0 0 0 2px var(--sunken);
+}
+/*
+ * A worker's page has the most header actions of any (Activity, Browser,
+ * Check in, Pause, Edit, More). With their words they need about 560px a
+ * side, and a side that's narrower clips what doesn't fit — which hid Edit
+ * and the More menu at an ordinary window size. Below that they keep their
+ * icons (each has a title and a label for screen readers).
+ */
+@container main (max-width: 1560px) {
+  .worker-actions .header-btn > span {
+    display: none;
+  }
+  .worker-actions .header-btn {
+    padding: 0 7px;
+  }
 }
 @container main (max-width: 700px) {
   .mode-switch__label {
@@ -508,10 +558,14 @@ a:hover {
   border-radius: var(--r-xs);
   color: var(--text-3);
 }
-.nav-item--project:hover .nav-item__action {
+/* Shown on hover, and while the row has keyboard focus, so the button can be
+   reached with Tab at all (display: none takes it out of the tab order). */
+.nav-item--project:hover .nav-item__action,
+.nav-item--project:focus-within .nav-item__action {
   display: grid;
 }
-.nav-item--project:hover .nav-item__chevron {
+.nav-item--project:hover .nav-item__chevron,
+.nav-item--project:focus-within .nav-item__chevron {
   display: none;
 }
 .nav-item__action:hover {

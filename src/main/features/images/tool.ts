@@ -76,6 +76,10 @@ export function createGenerateImageTool(deps: Partial<Pick<GenerateDeps, 'keys' 
         { prompt, aspect: str(input.aspect) || undefined, count: count(input), edit, provider },
         { keys, fetch: deps.fetch ?? fetch, signal: ctx.signal, progress: ctx.progress }
       )
+      // What came back must be a picture before anything is saved or reported.
+      const pictures = outcome.images.filter((image) => !nativeImage.createFromBuffer(image.data).isEmpty())
+      if (pictures.length === 0) throw new Error(`${outcome.provider === 'openai' ? 'OpenAI' : 'Gemini'} sent back something that isn't a readable image. Nothing was saved; try again.`)
+      outcome.images = pictures
       ctx.progress(`Saving ${outcome.images.length === 1 ? 'the image' : `${outcome.images.length} images`}…`)
       const paths = await saveImages(ctx.cwd, slugFor(prompt, str(input.name) || undefined), outcome.images)
       const made = paths.length === 1 ? 'an image' : `${paths.length} images`

@@ -474,6 +474,28 @@
   gap: 22px;
 }
 
+/* Long threads: a message well back from the end skips layout and paint
+   while it is off screen, so a chat of hundreds of messages costs about what
+   its visible part does. A skipped row stands in at its last drawn height
+   (200px before it has ever been drawn). The newest dozen rows never skip:
+   opening a chat scrolls to its end before anything has been measured, and
+   real heights down there keep it landing on the last message, with scroll
+   anchoring absorbing the guesses further up.
+
+   Containment clips a row's painting to its own box, so a row being pointed
+   at or used is left whole — its reaction and More menus open upward, past
+   the top of a short reply. The padding, cancelled by the negative margin so
+   nothing moves, gives tables' and cards' outer rings and shadows room inside
+   that box. Rooms lay out their posts with margins of their own. */
+.thread__inner:not(.room) > .msg-row {
+  padding: 6px 8px;
+  margin: -6px -8px;
+}
+.thread__inner:not(.room) > .msg-row:nth-last-child(n + 13):not(:hover, :focus-within) {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 200px;
+}
+
 .msg--user {
   align-self: flex-end;
   max-width: 78%;

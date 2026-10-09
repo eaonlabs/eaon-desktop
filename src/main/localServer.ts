@@ -1,10 +1,12 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { isIP } from 'node:net'
 import { hostname } from 'node:os'
+import type { GatewayScope } from '@shared/gateway'
 import type { LocalServerStatus } from '@shared/types'
 import { isLoopbackHost, setOwnServerPort } from './providers/compat'
+import { handleControl } from './control/server'
 import { anthropicError, anthropicModelList, serveCountTokens, serveMessages } from './gateway/anthropic'
-import { gatewayModels, tokenAllowed } from './gateway/models'
+import { gatewayModels, localGatewayModels, tokenAllowed } from './gateway/models'
 import { serveChatCompletions } from './gateway/openaiChat'
 import { serveResponses } from './gateway/responses'
 import { store } from './store'
@@ -17,6 +19,12 @@ import { store } from './store'
  *
  * Bound to 127.0.0.1 only — this exposes the user's API keys by proxy, so it
  * must never be reachable from the network.
+ *
+ * `/control` is the control API (control/server.ts): MCP and JSON tools that
+ * drive the app itself, for Eaon CLI.
+ *
+ * Every route also answers under `/local` (`/local/v1/chat/completions`…),
+ * kept to the open-source models downloaded in Eaon: Eaon CLI's endpoint.
  */
 
 let server: Server | null = null
@@ -42,9 +50,24 @@ function json(res: ServerResponse, code: number, body: unknown): void {
   res.end(payload)
 }
 
+/**
+ * The most a request body may be. Anthropic's own limit is 32 MB, and a
+ * request with screenshots in it is the largest an app sends; a body past
+ * this is a mistake or an attempt to make Eaon hold gigabytes in memory.
+ */
+export const MAX_BODY_BYTES = 48 * 1024 * 1024
+
+class BodyTooLarge extends Error {}
+
 async function readBody(req: IncomingMessage): Promise<Record<string, unknown>> {
+  if (Number(req.headers['content-length'] ?? 0) > MAX_BODY_BYTES) throw new BodyTooLarge()
   const chunks: Buffer[] = []
-  for await (const chunk of req) chunks.push(chunk as Buffer)
+  let size = 0
+  for await (const chunk of req) {
+    size += (chunk as Buffer).byteLength
+    if (size > MAX_BODY_BYTES) throw new BodyTooLarge()
+    chunks.push(chunk as Buffer)
+  }
   const raw = Buffer.concat(chunks).toString('utf8')
   const body = raw ? (JSON.parse(raw) as unknown) : {}
   if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('not an object')
@@ -96,6 +119,9 @@ const OPENAPI_SPEC = {
     description:
       'The models set up in Eaon, over the OpenAI (chat completions, Responses) and Anthropic (Messages) APIs, tools included. Send the key from Eaon → Settings → Local API Server as a Bearer token or x-api-key.'
   },
+  // Pages (this one included) must send the key; the Authorize button sets it.
+  components: { securitySchemes: { key: { type: 'http', scheme: 'bearer' } } },
+  security: [{ key: [] }],
   paths: {
     '/v1/models': { get: { summary: 'List the models Eaon can reach (Anthropic shape when anthropic-version is sent)' } },
     '/v1/chat/completions': { post: { summary: 'OpenAI chat completions, streaming or not, with tools' } },
@@ -121,7 +147,15 @@ const DOCS_HTML = `<!doctype html>
   </body>
 </html>`
 
+/**
+ * Marks every answer as Eaon's gateway, so another Eaon (or this one, under
+ * another name) that is pointed at this port can tell, and doesn't send its
+ * own requests back into Eaon (providers/safeFetch.ts).
+ */
+export const GATEWAY_HEADER = 'x-eaon-gateway'
+
 async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  res.setHeader(GATEWAY_HEADER, '1')
   const origin = req.headers.origin
   if (!allowedOrigin(origin) || !allowedHost(req.headers.host)) {
     json(res, 403, { error: { message: 'The Local API Server only answers this machine’s apps and loopback pages.' } })
@@ -132,6 +166,8 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     res.setHeader('Vary', 'Origin')
   }
   const url = new URL(req.url ?? '/', 'http://127.0.0.1')
+  const scope: GatewayScope = /^\/local(\/|$)/.test(url.pathname) ? 'local' : 'all'
+  const pathname = scope === 'local' ? url.pathname.slice('/local'.length) || '/' : url.pathname
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204, {
@@ -141,6 +177,9 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     res.end()
     return
   }
+
+  // Eaon's control API: its own, stricter key check, and nothing else of the gateway's.
+  if (await handleControl(req, res, url.pathname)) return
 
   if (url.pathname === '/docs') {
     res.writeHead(200, { 'Content-Type': 'text/html' })
@@ -154,26 +193,34 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
   }
 
   // Health checks: Claude Code sends HEAD /api/hello before its first request.
-  if ((req.method === 'GET' || req.method === 'HEAD') && (url.pathname === '/' || url.pathname === '/api/hello')) {
+  if ((req.method === 'GET' || req.method === 'HEAD') && (pathname === '/' || pathname === '/api/hello')) {
     json(res, 200, { status: 'ok', name: 'Eaon Local API' })
     return
   }
 
   // Apps whose base URL leaves out /v1 call /chat/completions and the like.
-  const path = /^\/(models|chat\/completions|responses|messages(\/count_tokens)?)$/.test(url.pathname.replace(/\/+$/, ''))
-    ? `/v1${url.pathname.replace(/\/+$/, '')}`
-    : url.pathname.replace(/\/+$/, '')
+  const path = /^\/(models|chat\/completions|responses|messages(\/count_tokens)?)$/.test(pathname.replace(/\/+$/, ''))
+    ? `/v1${pathname.replace(/\/+$/, '')}`
+    : pathname.replace(/\/+$/, '')
   const anthropicStyle = path.startsWith('/v1/messages') || typeof req.headers['anthropic-version'] === 'string'
 
-  if (!tokenAllowed(req.headers)) {
-    const message = 'That key is not this Eaon’s. The key is in Eaon → Settings → Local API Server.'
+  const auth = tokenAllowed(req.headers)
+  if (auth !== 'ok') {
+    const message =
+      auth === 'missing'
+        ? 'Pages and browser extensions must send this Eaon’s key (as a Bearer token or x-api-key). The key is in Eaon → Settings → Local API Server.'
+        : 'That key is not this Eaon’s. The key is in Eaon → Settings → Local API Server.'
     json(res, 401, anthropicStyle ? anthropicError(message, 'authentication_error') : { error: { message, type: 'invalid_api_key', code: 'invalid_api_key' } })
     return
   }
 
   if (path === '/v1/models' && req.method === 'GET') {
     if (typeof req.headers['anthropic-version'] === 'string') {
-      json(res, 200, anthropicModelList())
+      json(res, 200, anthropicModelList(scope))
+      return
+    }
+    if (scope === 'local') {
+      json(res, 200, { object: 'list', data: localGatewayModels() })
       return
     }
     const created = Math.floor(Date.now() / 1000)
@@ -182,9 +229,9 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
   }
 
   const routes: Record<string, (body: Record<string, unknown>) => Promise<void> | void> = {
-    '/v1/chat/completions': (body) => serveChatCompletions(res, body),
-    '/v1/responses': (body) => serveResponses(res, body),
-    '/v1/messages': (body) => serveMessages(res, body),
+    '/v1/chat/completions': (body) => serveChatCompletions(res, body, scope),
+    '/v1/responses': (body) => serveResponses(res, body, scope),
+    '/v1/messages': (body) => serveMessages(res, body, scope),
     '/v1/messages/count_tokens': (body) => serveCountTokens(res, body)
   }
   const route = routes[path]
@@ -192,7 +239,14 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     let body: Record<string, unknown>
     try {
       body = await readBody(req)
-    } catch {
+    } catch (error) {
+      if (error instanceof BodyTooLarge) {
+        const message = `The request is larger than ${MAX_BODY_BYTES / 1024 / 1024} MB. Send fewer or smaller images.`
+        json(res, 413, anthropicStyle ? anthropicError(message, 'request_too_large') : { error: { message, type: 'invalid_request_error', code: 'request_too_large' } })
+        // The rest of the body is not read; close rather than let it pile up.
+        res.once('finish', () => req.destroy())
+        return
+      }
       json(res, 400, anthropicStyle ? anthropicError('Invalid JSON body', 'invalid_request_error') : { error: { message: 'Invalid JSON body', type: 'invalid_request_error' } })
       return
     }

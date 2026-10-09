@@ -4,8 +4,10 @@ import type { Chat } from '@shared/types'
 import { runAgent } from '../../agent/loop'
 import { registerToolSource } from '../../agent/tools'
 import { store } from '../../store'
+import { currentZone } from '../../timezone'
 import type { FeatureContext } from '../types'
 import { SchedulerEngine, type RunResult } from './engine'
+import { RUNS_FILE, TASKS_FILE } from './migrate'
 import { runScheduledTask, type ChatSink, type RunAgent } from './runner'
 import { scheduleToolSource } from './tool'
 
@@ -28,13 +30,14 @@ import { scheduleToolSource } from './tool'
  * becomes ready mid-run is sent the runs still going.
  */
 
-const TASKS_FILE = 'scheduled-tasks.json'
 /** How long launch waits for the renderer before catching up missed runs anyway. */
 const STARTUP_GRACE_MS = 10_000
 
 export interface SchedulerOverrides {
   runAgent?: RunAgent
   now?: () => number
+  monotonic?: () => number
+  zone?: () => string
   stallMs?: number
 }
 
@@ -150,8 +153,17 @@ export function createScheduler(ctx: FeatureContext, overrides: SchedulerOverrid
   const engine = new SchedulerEngine({
     load: () => store.getJson<unknown>(TASKS_FILE, []),
     save: (tasks) => store.setJson(TASKS_FILE, tasks),
+    loadRuns: () => store.getJson<unknown>(RUNS_FILE, []),
+    saveRuns: (runs) => store.setJson(RUNS_FILE, runs),
     onChange: (tasks) => ctx.send('scheduler:tasks', tasks),
+    onDamaged: (count) =>
+      store.setAside(TASKS_FILE, `${count} ${count === 1 ? 'entry wasn’t a task and was' : 'entries weren’t tasks and were'} set aside.`),
     now: overrides.now,
+    monotonic: overrides.monotonic,
+    // Checked on every tick, so travelling across zones moves "every day at
+    // 9" to 9 where the user is now (see timezone.ts).
+    zone: overrides.zone ?? (() => currentZone()),
+    machine: process.platform === 'darwin' ? 'Mac' : 'computer',
     execute: (task, handle) =>
       runScheduledTask(task, handle, { runAgent: overrides.runAgent ?? runAgent, sink, notify, stallMs: overrides.stallMs })
   })
@@ -186,6 +198,7 @@ export function createScheduler(ctx: FeatureContext, overrides: SchedulerOverrid
     ipcMain.handle('scheduler:remove', (_e, id: string) => engine.remove(id))
     ipcMain.handle('scheduler:set-enabled', (_e, id: string, enabled: boolean) => engine.setEnabled(id, enabled))
     ipcMain.handle('scheduler:run-now', (_e, id: string) => engine.runNow(id))
+    ipcMain.handle('scheduler:retry', (_e, id: string, runId: string) => engine.retry(String(id), String(runId)))
     ipcMain.handle('scheduler:cancel', (_e, id: string) => engine.cancel(id))
     ipcMain.handle('scheduler:import', (_e, drafts: TaskDraft[]) => {
       let imported = 0
@@ -210,8 +223,9 @@ export function createScheduler(ctx: FeatureContext, overrides: SchedulerOverrid
     start: () => {
       engine.load()
       registerToolSource(scheduleToolSource(engine))
-      // Sleep suspends timers; check the moment the machine wakes.
-      powerMonitor.on('resume', () => engine.tick())
+      // Sleep suspends timers; check the moment the machine wakes, and say
+      // so on anything that came due meanwhile.
+      powerMonitor.on('resume', () => engine.wake())
       startTimer = setTimeout(startEngine, STARTUP_GRACE_MS)
       startTimer.unref?.()
     },

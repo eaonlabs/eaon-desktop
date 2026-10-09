@@ -25,11 +25,15 @@ export const NO_KEY_MESSAGE =
   'Dictation needs an OpenAI or Groq API key. Add one in Settings → Model providers, then try again.'
 
 export function pickTranscriber(getKey: (providerId: string) => string | undefined): { transcriber: Transcriber; key: string } | null {
-  for (const transcriber of TRANSCRIBERS) {
+  return usableTranscribers(getKey)[0] ?? null
+}
+
+/** Every transcriber with a saved key, in order of preference. */
+export function usableTranscribers(getKey: (providerId: string) => string | undefined): { transcriber: Transcriber; key: string }[] {
+  return TRANSCRIBERS.flatMap((transcriber) => {
     const key = getKey(transcriber.provider)?.trim()
-    if (key) return { transcriber, key }
-  }
-  return null
+    return key ? [{ transcriber, key }] : []
+  })
 }
 
 export interface TranscribeDeps {
@@ -83,13 +87,30 @@ async function errorFrom(response: Response, label: string): Promise<ProviderErr
 /**
  * Turns a recording into text. Throws with a message meant for the user: no
  * key, a refused key, an empty or oversized recording, or what the provider said.
+ * When the first provider can't do it — its key refused, its quota used up,
+ * unreachable, or down — the next one with a key is tried, so a user with
+ * both an OpenAI and a Groq key isn't stopped by one of them.
  */
 export async function transcribe(audio: Uint8Array, mimeType: string, deps: TranscribeDeps): Promise<{ text: string; provider: string }> {
   if (audio.byteLength === 0) throw new Error('Nothing was recorded.')
   if (audio.byteLength > MAX_AUDIO_BYTES) throw new Error('That recording is too long to transcribe. Keep it under ten minutes.')
-  const chosen = pickTranscriber(deps.getKey)
-  if (!chosen) throw new Error(NO_KEY_MESSAGE)
-  const { transcriber, key } = chosen
+  const usable = usableTranscribers(deps.getKey)
+  if (usable.length === 0) throw new Error(NO_KEY_MESSAGE)
+  let first: Error | null = null
+  for (const { transcriber, key } of usable) {
+    try {
+      return await transcribeWith(transcriber, key, audio, mimeType, deps)
+    } catch (error) {
+      first ??= error as Error
+      // Only failures another provider could get past move on to it.
+      const status = error instanceof ProviderError ? error.status : 0
+      if (error instanceof ProviderError && status < 500 && ![401, 403, 429].includes(status)) throw error
+    }
+  }
+  throw first!
+}
+
+async function transcribeWith(transcriber: Transcriber, key: string, audio: Uint8Array, mimeType: string, deps: TranscribeDeps): Promise<{ text: string; provider: string }> {
   const send = deps.fetch ?? fetch
 
   let last: Error | null = null

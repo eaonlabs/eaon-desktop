@@ -22,7 +22,13 @@ export function setPaymentAccess(access: { covers: Covers; secret: () => CardSec
   cached = null
 }
 
-/** True while this chat holds a live purchase authorized for the page's site. */
+/**
+ * True while this chat holds a live purchase authorized for the page's site
+ * that hasn't been used yet. Asking spends it: an authorization covers one
+ * press of the pay button, so the browser asks before a second one. The
+ * permission policy asks each call's `catastrophic` once (agent/policy.ts),
+ * which is where this is called from.
+ */
 export function purchaseCovers(chatId: string, url: string): boolean {
   try {
     return covers?.(chatId, url) ?? false
@@ -31,7 +37,7 @@ export function purchaseCovers(chatId: string, url: string): boolean {
   }
 }
 
-const SHORT_FIELD = /\b(textbox|spinbutton|input)\b[^\n]*(cvc|cvv|csc|security code|card code)/i
+const SHORT_FIELD = /\b(textbox|spinbutton|input)\b[^\n]*(cvc|cvv|cvn|csc|cid|security (code|number)|card code|verification (code|number|value))/i
 
 /**
  * Blanks the saved card's number wherever it appears (spaced, dashed or

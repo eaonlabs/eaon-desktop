@@ -1,6 +1,6 @@
-import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync, unlinkSync } from 'node:fs'
-import { readdir, readFile, stat } from 'node:fs/promises'
+import { createHash, randomBytes } from 'node:crypto'
+import { existsSync, mkdirSync, readFileSync, renameSync, statSync, unlinkSync } from 'node:fs'
+import { readdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { extname, join, relative, sep } from 'node:path'
 import { app } from 'electron'
 import type { IndexStatus, SearchHit } from '@shared/types'
@@ -48,6 +48,14 @@ const MIN_CHUNK_LINES = 8
 const CHUNK_OVERLAP_LINES = 6
 /** Safety rail on very large monorepos; the UI reports when this trips. */
 const MAX_CHUNKS = 50_000
+/** Code files the index looks at, nearest the top first; reported as truncated like the chunk ceiling. */
+const MAX_INDEX_FILES = 20_000
+/**
+ * Directory entries a walk reads before it stops. A home folder full of
+ * photos and music has few code files, so the file cap alone would let a walk
+ * read millions of entries before it tripped.
+ */
+const MAX_WALK_ENTRIES = 200_000
 
 const CODE_EXTENSIONS = new Set([
   '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py', '.rb', '.go', '.rs', '.java', '.kt', '.kts',
@@ -69,6 +77,17 @@ const IGNORED_FILENAMES = new Set([
   'composer.lock', 'Gemfile.lock', 'poetry.lock', '.DS_Store'
 ])
 
+/**
+ * Operating-system folders that hold nobody's project and can hold millions
+ * of files, reached when a home folder or a drive is opened as the project.
+ * Only names hardly any project gives a folder of its own: `System` or `dev`
+ * would be skipped inside real projects too.
+ */
+const SYSTEM_FOLDERS = new Set([
+  'Library', 'AppData', 'Program Files', 'Program Files (x86)', 'ProgramData',
+  '$Recycle.Bin', 'System Volume Information'
+])
+
 /* ------------------------------------------------------------------- types */
 
 interface Chunk {
@@ -84,6 +103,12 @@ interface IndexedFile {
   path: string
   hash: string
   size: number
+  /**
+   * With `size`, lets a rebuild skip reading a file whose size and mtime are
+   * unchanged, the check git and make rely on. Absent in manifests from
+   * before it was kept; those files are read and hashed once more.
+   */
+  mtimeMs?: number
   /** Position of this file's chunks inside the flat `chunks` array. */
   chunkStart: number
   chunkCount: number
@@ -283,37 +308,46 @@ async function ignoreRules(cwd: string): Promise<IgnoreRule[]> {
 
 /** Names no walk descends into or lists, whatever .gitignore says. */
 const skippedName = (name: string): boolean =>
-  (name.startsWith('.') && name !== '.github') || ALWAYS_IGNORE.has(name) || IGNORED_FILENAMES.has(name)
+  (name.startsWith('.') && name !== '.github') || ALWAYS_IGNORE.has(name) || IGNORED_FILENAMES.has(name) || SYSTEM_FOLDERS.has(name)
 
-async function walk(cwd: string): Promise<string[]> {
+/**
+ * The files under `cwd` that `accept` takes, by the ignore rules both the
+ * index and search use. Breadth-first and capped, so a huge folder (a home
+ * folder, say) still ends quickly, with the files nearest the top.
+ */
+async function walkFiles(cwd: string, limit: number, accept: (name: string) => boolean): Promise<{ paths: string[]; truncated: boolean }> {
   const rules = await ignoreRules(cwd)
-  const found: string[] = []
+  const paths: string[] = []
   const queue: string[] = [cwd]
-
-  while (queue.length > 0) {
-    const dir = queue.pop()!
+  let seen = 0
+  for (let next = 0; next < queue.length; next++) {
+    if (seen >= MAX_WALK_ENTRIES) return { paths, truncated: true }
     let entries
     try {
-      entries = await readdir(dir, { withFileTypes: true })
+      entries = await readdir(queue[next], { withFileTypes: true })
     } catch {
       continue // unreadable directory (permissions, races) — skip it
     }
-
+    seen += entries.length
     for (const entry of entries) {
       if (skippedName(entry.name)) continue
-
-      const full = join(dir, entry.name)
+      const full = join(queue[next], entry.name)
       const rel = relative(cwd, full).split(sep).join('/')
       if (isIgnored(rel, entry.isDirectory(), rules)) continue
-
-      if (entry.isDirectory()) {
-        queue.push(full)
-      } else if (entry.isFile() && CODE_EXTENSIONS.has(extname(entry.name).toLowerCase())) {
-        found.push(rel)
+      if (entry.isDirectory()) queue.push(full)
+      else if (entry.isFile() && accept(entry.name)) {
+        if (paths.length >= limit) return { paths, truncated: true }
+        paths.push(rel)
       }
     }
   }
-  return found.sort()
+  return { paths, truncated: false }
+}
+
+/** The code files the index covers, sorted, so the root hash does not depend on directory order. */
+async function walk(cwd: string): Promise<{ paths: string[]; truncated: boolean }> {
+  const found = await walkFiles(cwd, MAX_INDEX_FILES, (name) => CODE_EXTENSIONS.has(extname(name).toLowerCase()))
+  return { paths: found.paths.sort(), truncated: found.truncated }
 }
 
 /**
@@ -321,33 +355,10 @@ async function walk(cwd: string): Promise<string[]> {
  * rules, without its extension and size filters, read fresh from disk. The
  * index is rebuilt rarely, so searching only what it lists hid every file
  * created since — including the agent's own — and every Makefile, .xml or
- * .plist. Breadth-first and capped, so a huge folder (a home folder, where
- * Library is skipped too) still answers quickly with the files nearest the top.
+ * .plist.
  */
-export async function listProjectFiles(cwd: string, limit: number): Promise<{ paths: string[]; truncated: boolean }> {
-  const rules = await ignoreRules(cwd)
-  const paths: string[] = []
-  const queue: string[] = [cwd]
-  for (let next = 0; next < queue.length; next++) {
-    let entries
-    try {
-      entries = await readdir(queue[next], { withFileTypes: true })
-    } catch {
-      continue
-    }
-    for (const entry of entries) {
-      if (skippedName(entry.name) || entry.name === 'Library') continue
-      const full = join(queue[next], entry.name)
-      const rel = relative(cwd, full).split(sep).join('/')
-      if (isIgnored(rel, entry.isDirectory(), rules)) continue
-      if (entry.isDirectory()) queue.push(full)
-      else if (entry.isFile()) {
-        if (paths.length >= limit) return { paths, truncated: true }
-        paths.push(rel)
-      }
-    }
-  }
-  return { paths, truncated: false }
+export function listProjectFiles(cwd: string, limit: number): Promise<{ paths: string[]; truncated: boolean }> {
+  return walkFiles(cwd, limit, () => true)
 }
 
 /* --------------------------------------------------------------- persistence */
@@ -407,11 +418,33 @@ function forgetCached(): void {
   vectorCache = null
 }
 
-function saveVectors(cwd: string, vectors: Float32Array[], dimensions: number): void {
-  forgetCached()
-  const flat = new Float32Array(vectors.length * dimensions)
-  vectors.forEach((vector, i) => flat.set(vector, i * dimensions))
-  writeFileSync(vectorPath(cwd), Buffer.from(flat.buffer, flat.byteOffset, flat.byteLength))
+/**
+ * Writes a build's manifest and vectors without blocking the main process —
+ * on a big repo they are tens and hundreds of MB — into temporary files, then
+ * swaps both in within one tick, so a search never reads half a manifest or
+ * pairs a new manifest with the old vectors. `keep` leaves the vectors as
+ * they are; null removes them. A build cancelled while writing swaps nothing.
+ */
+async function saveIndex(cwd: string, manifest: Manifest, vectors: Float32Array[] | null | 'keep', signal: AbortSignal): Promise<void> {
+  const suffix = `.${randomBytes(4).toString('hex')}.tmp`
+  const manifestTemp = manifestPath(cwd) + suffix
+  const vectorTemp = vectorPath(cwd) + suffix
+  try {
+    await writeFile(manifestTemp, JSON.stringify(manifest))
+    if (Array.isArray(vectors)) {
+      const flat = new Float32Array(vectors.length * manifest.dimensions)
+      vectors.forEach((vector, i) => flat.set(vector, i * manifest.dimensions))
+      await writeFile(vectorTemp, Buffer.from(flat.buffer, flat.byteOffset, flat.byteLength))
+    }
+    if (signal.aborted) throw new Error('Indexing cancelled')
+    renameSync(manifestTemp, manifestPath(cwd))
+    if (Array.isArray(vectors)) renameSync(vectorTemp, vectorPath(cwd))
+    else if (vectors === null && existsSync(vectorPath(cwd))) unlinkSync(vectorPath(cwd))
+    forgetCached()
+  } finally {
+    // Only still there when the swap did not happen.
+    await Promise.all([rm(manifestTemp, { force: true }), rm(vectorTemp, { force: true })]).catch(() => {})
+  }
 }
 
 /* -------------------------------------------------------------- public API */
@@ -469,41 +502,86 @@ export function clearIndex(cwd: string): void {
   publish({ state: 'idle', files: 0, chunks: 0, embedded: false })
 }
 
+/** The build under way, which a request for the same folder joins instead of restarting. */
+let currentBuild: { cwd: string; force: boolean; run: AbortController; done: Promise<IndexStatus> } | null = null
+
 /**
  * Build or refresh the index. Unchanged files keep their existing chunks and
  * vectors; only new or modified files are re-chunked and re-embedded — the
  * same incremental idea as Cursor's Merkle diff, done against a flat file-hash
  * map since there is no remote side to negotiate with.
+ *
+ * Every window asks for a build of its folder when it opens. One asking for
+ * the folder already being built waits for that build: cancelling it and
+ * starting over meant a second window threw away the first one's work. A
+ * build of another folder, or a forced rebuild, still replaces it.
  */
-export async function buildIndex(cwd: string, force = false): Promise<IndexStatus> {
+export function buildIndex(cwd: string, force = false): Promise<IndexStatus> {
+  const under = currentBuild
+  if (under && under.run === currentRun && under.cwd === cwd && (under.force || !force)) return under.done
   cancelIndexing()
   const run = new AbortController()
   currentRun = run
+  const done = runBuild(cwd, force, run)
+  currentBuild = { cwd, force, run, done }
+  return done
+}
 
+async function runBuild(cwd: string, force: boolean, run: AbortController): Promise<IndexStatus> {
   try {
     publish({ state: 'indexing', files: 0, chunks: 0, embedded: false, phase: 'Scanning files' })
 
-    const paths = await walk(cwd)
+    const walked = await walk(cwd)
     const previous = force ? null : loadManifest(cwd)
     const embeddingConfig = isEmbeddingConfigured() ? getEmbeddingConfig() : null
     const modelChanged = previous?.embeddingModel !== (embeddingConfig?.modelId ?? null)
 
     // Looked up once per file below; a linear search here made a rebuild quadratic in the file count.
-    const previousHash = new Map(previous && !modelChanged ? previous.files.map((f) => [f.path, f.hash] as const) : [])
+    const previousFile = new Map(previous && !modelChanged ? previous.files.map((f) => [f.path, f] as const) : [])
+    const previousChunks = previous && !modelChanged ? previous.chunks : []
 
-    // Hash everything first so the root check can short-circuit a no-op run.
-    const hashes = new Map<string, { hash: string; size: number; content: string | null }>()
-    for (const path of paths) {
+    publish({ state: 'indexing', files: walked.paths.length, chunks: 0, embedded: false, phase: 'Reading files' })
+
+    // One pass. A file whose size and mtime are unchanged keeps its hash and chunks without being
+    // read; any other is read, hashed, and chunked if its content changed. Only chunks are kept, and
+    // only up to the ceiling: holding the text of every file until the end could run a first build
+    // of a big folder out of memory.
+    const files: IndexedFile[] = []
+    const chunks: Chunk[] = []
+    /** Where each chunk sat in the previous build, so its vector carries over; null for a new one. */
+    const carriedFrom: (number | null)[] = []
+    let truncated = walked.truncated
+    /** A file had to be read: new, changed, or from a manifest that has no mtimes yet. */
+    let reread = false
+
+    for (const path of walked.paths) {
       if (run.signal.aborted) throw new Error('Indexing cancelled')
+      if (chunks.length >= MAX_CHUNKS) {
+        truncated = true
+        break
+      }
       try {
         const info = await stat(join(cwd, path))
         if (info.size > MAX_FILE_BYTES) continue
-        const content = await readFile(join(cwd, path), 'utf8')
-        // A NUL byte means this is really binary despite the extension.
-        if (content.includes('\u0000')) continue
-        const hash = createHash('sha256').update(content).digest('hex')
-        // An unchanged file reuses its chunks; holding its text too only grows the peak.
-        hashes.set(path, { hash, size: info.size, content: previousHash.get(path) === hash ? null : content })
+        const before = previousFile.get(path)
+        let hash: string
+        let fresh: Chunk[] | null = null
+        if (before && before.size === info.size && before.mtimeMs === info.mtimeMs) {
+          hash = before.hash
+        } else {
+          const content = await readFile(join(cwd, path), 'utf8')
+          // A NUL byte means this is really binary despite the extension.
+          if (content.includes('\u0000')) continue
+          // Only a file that is kept counts: a binary one is never recorded, and must not force a rewrite every time.
+          reread = true
+          hash = createHash('sha256').update(content).digest('hex')
+          if (before?.hash !== hash) fresh = chunkFile(path, content)
+        }
+        const reused = !fresh && before ? before : null
+        const fileChunks = reused ? previousChunks.slice(reused.chunkStart, reused.chunkStart + reused.chunkCount) : (fresh ?? [])
+        files.push({ path, hash, size: info.size, mtimeMs: info.mtimeMs, chunkStart: chunks.length, chunkCount: fileChunks.length })
+        chunks.push(...fileChunks)
+        for (let i = 0; i < fileChunks.length; i++) carriedFrom.push(reused ? reused.chunkStart + i : null)
       } catch {
         continue
       }
@@ -511,64 +589,26 @@ export async function buildIndex(cwd: string, force = false): Promise<IndexStatu
 
     if (run.signal.aborted) throw new Error('Indexing cancelled')
     const rootHash = createHash('sha256')
-      .update([...hashes.entries()].map(([path, { hash }]) => `${path}:${hash}`).join('\n'))
+      .update(files.map(({ path, hash }) => `${path}:${hash}`).join('\n'))
       .digest('hex')
 
-    if (previous && previous.rootHash === rootHash && !modelChanged) {
+    if (previous && previous.rootHash === rootHash && previous.truncated === truncated && !modelChanged) {
+      // Nothing changed. Files read only for want of a recorded mtime (an older manifest, or a
+      // checkout that touched them) get it recorded, so the next launch need not read them again;
+      // the chunks and vectors are the previous build's, as they were.
+      if (reread) await saveIndex(cwd, { ...previous, files }, 'keep', run.signal)
       if (currentRun === run) currentRun = null
       const status = statusFromDisk(cwd)
       publish(status)
       return status
     }
 
-    // Reuse chunks (and their vectors) for files whose hash is unchanged.
-    const previousChunkOf = new Map<string, { chunks: Chunk[]; start: number }>()
-    if (previous && !modelChanged) {
-      for (const file of previous.files) {
-        previousChunkOf.set(file.path, {
-          chunks: previous.chunks.slice(file.chunkStart, file.chunkStart + file.chunkCount),
-          start: file.chunkStart
-        })
-      }
-    }
     const previousVectors =
       previous && !modelChanged && previous.embeddingModel
         ? loadVectors(cwd, previous.chunks.length, previous.dimensions)
         : null
-
-    publish({ state: 'indexing', files: hashes.size, chunks: 0, embedded: false, phase: 'Chunking' })
-
-    const files: IndexedFile[] = []
-    const chunks: Chunk[] = []
     /** Vector carried over from the previous build, or null if it must be embedded. */
-    const carried: (Float32Array | null)[] = []
-    let truncated = false
-
-    for (const [path, info] of hashes) {
-      if (run.signal.aborted) throw new Error('Indexing cancelled')
-      if (chunks.length >= MAX_CHUNKS) {
-        truncated = true
-        break
-      }
-
-      let fileChunks: Chunk[]
-      let vectors: (Float32Array | null)[]
-
-      if (info.content === null && previousChunkOf.has(path)) {
-        const cached = previousChunkOf.get(path)!
-        fileChunks = cached.chunks
-        vectors = previousVectors
-          ? cached.chunks.map((_, i) => previousVectors[cached.start + i] ?? null)
-          : cached.chunks.map(() => null)
-      } else {
-        fileChunks = chunkFile(path, info.content!)
-        vectors = fileChunks.map(() => null)
-      }
-
-      files.push({ path, hash: info.hash, size: info.size, chunkStart: chunks.length, chunkCount: fileChunks.length })
-      chunks.push(...fileChunks)
-      carried.push(...vectors)
-    }
+    const carried: (Float32Array | null)[] = carriedFrom.map((from) => (from !== null && previousVectors ? (previousVectors[from] ?? null) : null))
 
     // Embed only what has no carried-over vector.
     let dimensions = previous?.dimensions ?? 0
@@ -634,10 +674,7 @@ export async function buildIndex(cwd: string, force = false): Promise<IndexStatu
       truncated
     }
 
-    forgetCached()
-    writeFileSync(manifestPath(cwd), JSON.stringify(manifest))
-    if (finalVectors) saveVectors(cwd, finalVectors, dimensions)
-    else if (existsSync(vectorPath(cwd))) unlinkSync(vectorPath(cwd))
+    await saveIndex(cwd, manifest, finalVectors, run.signal)
 
     if (currentRun === run) currentRun = null
     const status: IndexStatus = {

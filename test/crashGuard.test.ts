@@ -27,7 +27,9 @@ Object.assign(BrowserWindow, { fromWebContents: () => window })
 
 // The guard's own process listeners, called directly: emitting the events would reach the test runner's too.
 const runnerListeners = new Set<unknown>([...process.listeners('uncaughtException'), ...process.listeners('unhandledRejection')])
-installCrashGuard()
+/** Pages the guard is told belong to Eaon's own windows; any other window is a helper (a worker's browser). */
+const appPages = new Set<unknown>()
+installCrashGuard((page) => appPages.has(page))
 const added = (event: 'uncaughtException' | 'unhandledRejection'): ((...args: unknown[]) => void) =>
   process.listeners(event).find((listener) => !runnerListeners.has(listener)) as (...args: unknown[]) => void
 const onException = added('uncaughtException')
@@ -38,9 +40,11 @@ test.after(() => {
 })
 
 const log = (): string => (existsSync(crashLogPath()) ? readFileSync(crashLogPath(), 'utf8') : '')
-const contents = (type: string) => {
+const contents = (type: string, appWindow = true) => {
   const reloads = { count: 0 }
-  return { reloads, contents: { getType: () => type, getURL: () => 'file:///index.html', reload: () => reloads.count++ } }
+  const page = { getType: () => type, getURL: () => 'file:///index.html', reload: () => reloads.count++ }
+  if (appWindow) appPages.add(page)
+  return { reloads, contents: page }
 }
 
 test('a main-process exception or rejection nobody caught is logged, not fatal', () => {
@@ -55,6 +59,16 @@ test('a renderer error reported by the window lands in the log, with its stack',
   ipcHandlers.get('app:report-error')!({}, { nonsense: true })
   assert.match(log(), /\[renderer: render\] TypeError: x is undefined\n    at ChatView/)
   assert.doesNotMatch(log(), /nonsense/)
+})
+
+test('a worker’s hidden browser window is logged, not reloaded, and leaves the budget alone', () => {
+  const gone = appHandlers.get('render-process-gone')!
+  const worker = contents('window', false)
+  for (let i = 0; i < 5; i++) gone({}, worker.contents, { reason: 'crashed', exitCode: 5 })
+  assert.equal(worker.reloads.count, 0)
+  assert.deepEqual(dialogs, [])
+  assert.match(log(), /\[renderer gone \(window\)\] crashed, exit code 5/)
+  // The next test's three reloads show the budget is still whole.
 })
 
 test('a crashed window is reloaded three times, then the user is asked', () => {

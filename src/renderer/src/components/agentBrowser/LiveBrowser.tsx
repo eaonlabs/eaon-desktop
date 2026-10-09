@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 import { ExternalLink, Globe, Hand, MonitorPlay } from 'lucide-react'
+import { notify } from '../Notice'
 import type { AgentBrowserFrame, AgentBrowserStep, BrowserInput, BrowserTarget } from '@shared/agentBrowser'
 
 /**
@@ -157,8 +158,23 @@ export function LiveBrowserStage({ target, frame, latest, working, controlled, a
     sendInput({ type, ...point, button, clickCount: type === 'mouseMove' ? 0 : Math.max(1, event.detail) })
   }
 
+  const lastEscape = useRef(0)
   const key = (event: React.KeyboardEvent): void => {
     if (!controlled) return
+    // The page takes Tab and Escape, so a keyboard user would be stuck in it.
+    // Escape twice in a row leaves it: the second one isn't sent to the page,
+    // and focus goes back to the toolbar above (Give back control is there).
+    if (event.key === 'Escape') {
+      const now = performance.now()
+      const twice = now - lastEscape.current < 600
+      lastEscape.current = twice ? 0 : now
+      if (twice) {
+        event.preventDefault()
+        event.stopPropagation()
+        stage.current?.closest('.agent-browser')?.querySelector<HTMLElement>('.browser__tabs button, .browser__tabs [tabindex]')?.focus()
+        return
+      }
+    }
     const shortcut = event.metaKey || event.ctrlKey
     const modifiers = [event.shiftKey && 'shift', event.ctrlKey && 'control', event.altKey && 'alt', event.metaKey && 'meta'].filter(Boolean) as ('shift' | 'control' | 'alt' | 'meta')[]
     const edit = shortcut ? EDIT_KEYS[event.key.toLowerCase()] : undefined
@@ -185,7 +201,7 @@ export function LiveBrowserStage({ target, frame, latest, working, controlled, a
       data-control={controlled || undefined}
       tabIndex={controlled ? 0 : -1}
       onKeyDown={key}
-      aria-label={controlled ? 'The page — you are in control. Click, type and scroll here.' : undefined}
+      aria-label={controlled ? 'The page — you are in control. Click, type and scroll here. Press Escape twice to leave it.' : undefined}
     >
       {frame ? (
         <img
@@ -258,7 +274,12 @@ export function LiveBrowserAddress({ target, frame, controlled }: { target: Brow
         className="browser__url agent-browser__url"
         onSubmit={(event) => {
           event.preventDefault()
-          if (draft?.trim()) void window.api.agentBrowser.navigate(draft.trim(), target).then(() => setDraft(null))
+          if (draft?.trim()) {
+            window.api.agentBrowser.navigate(draft.trim(), target).then(
+              () => setDraft(null),
+              (error: unknown) => notify(`Couldn't open that address: ${(error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '')}`, 'error')
+            )
+          }
         }}
       >
         <Globe size={13} strokeWidth={1.9} />

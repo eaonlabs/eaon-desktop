@@ -2,6 +2,8 @@ import Anthropic from '@anthropic-ai/sdk'
 import type { EffortLevel } from '@shared/types'
 import { anthropicCompat, clampEffort, effortsFor, missingUrlFields } from '../compat'
 import { anthropicThinking, budgetThinking, contextWindowFor, maxOutputFor } from '../models'
+import { guardedAdapter, type StreamGuard } from '../streamGuard'
+import { sdkFetch } from '../safeFetch'
 import {
   capOutput,
   clampOutputToWindow,
@@ -131,11 +133,11 @@ function toBlocks(message: NeutralMessage, modelId: string): Anthropic.Beta.Beta
   }
 }
 
-export const anthropicAdapter: Adapter = {
+export const anthropicAdapter: Adapter = guardedAdapter({
   id: 'anthropic',
   managesContext: true,
 
-  async turn(request: TurnRequest): Promise<TurnResult> {
+  async turn(request: TurnRequest, guard: StreamGuard): Promise<TurnResult> {
     const { credentials, provider, modelId } = request
     const baseURL = (credentials.baseUrl ?? provider.baseUrl).replace(/\/+$/, '')
     if (missingUrlFields(baseURL).length > 0) {
@@ -151,7 +153,9 @@ export const anthropicAdapter: Adapter = {
       defaultHeaders: { ...provider.headers, ...credentials.headers },
       // The loop does its own retrying with visible status; SDK retries would
       // stack under it and make a dead provider look like a hang.
-      maxRetries: 0
+      maxRetries: 0,
+      // Never carry the key to another origin on a redirect.
+      fetch: sdkFetch
     })
 
     const messages: Anthropic.Beta.BetaMessageParam[] = []
@@ -235,6 +239,7 @@ export const anthropicAdapter: Adapter = {
     let final: Anthropic.Beta.BetaMessage
     try {
       stream = client.beta.messages.stream(params, { signal: request.signal })
+      stream.on('streamEvent', () => guard.touch())
       stream.on('text', (text: string) => request.onText(text))
       stream.on('thinking', (delta: string) => request.onReasoning(delta))
       final = await stream.finalMessage()
@@ -299,4 +304,4 @@ export const anthropicAdapter: Adapter = {
       replay: { adapter: 'anthropic', modelId, data: final.content }
     }
   }
-}
+})

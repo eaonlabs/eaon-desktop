@@ -21,7 +21,8 @@
      trafficLightPosition.x (19, TRAFFIC_LIGHTS in main/index.ts) and are three
      14pt buttons 23pt apart (macOS 26 and later), ending at 79, plus 10px of
      breathing room. Nothing is reserved on the right.
-     Windows overrides these below — its caption buttons are on the other side. */
+     Windows and Linux override these below — their caption buttons are
+     usually on the other side. */
   --window-controls-left: 89px;
   --window-controls-right: 0px;
   --titlebar-h: 36px;
@@ -258,14 +259,24 @@
   color-scheme: light;
 }
 
-/* ---------- Windows ---------- */
+/* ---------- Windows and Linux ---------- */
 
-/* The Window Controls Overlay draws minimise/maximise/close over the page at
-   the top RIGHT, so the reservation flips sides: nothing is needed on the left
-   (the sidebar panel starts at the window edge), and the main header has to
-   keep its own buttons clear of the caption strip. 138px is the three 46px
-   buttons Windows draws at 100% scale. */
-body[data-platform='win32'] {
-  --window-controls-left: 0px;
-  --window-controls-right: 138px;
+/* Both get the Window Controls Overlay (titleBarOverlay in main/index.ts):
+   minimise/maximise/close drawn over the page, at the top RIGHT on Windows
+   and wherever the desktop's button layout puts them on Linux. Linux used to
+   fall through to the macOS values, which left an empty gap at the left and
+   the header's own buttons under the caption buttons at the right.
+
+   The titlebar-area-* environment variables give the free strip between the
+   buttons, so the reservations are read from them rather than guessed: the
+   left one is where the strip starts (plus macOS's 10px of breathing room,
+   when anything is there at all), the right one is everything past its end.
+   Where the variables aren't set, the fallback is Windows' three 46px
+   buttons at 100% scale on the right and nothing on the left. Both are
+   capped at 200px, so a strip not measured yet (0 wide) can't reserve the
+   whole window. */
+body[data-platform='win32'],
+body[data-platform='linux'] {
+  --window-controls-left: min(200px, calc(env(titlebar-area-x, 0px) + min(env(titlebar-area-x, 0px), 10px)));
+  --window-controls-right: min(200px, calc(100vw - env(titlebar-area-x, 0px) - env(titlebar-area-width, calc(100vw - 138px))));
 }

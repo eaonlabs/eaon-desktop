@@ -1,13 +1,15 @@
 import { useEffect, useState } from 'react'
-import { useShallow } from 'zustand/react/shallow'
 import { useApp } from '../../../state/store'
-import { Card, Row, Section, Select, Switch } from '../../ui'
+import { Card, Row, Section, Switch } from '../../ui'
+import { notify } from '../../Notice'
+import { CLIPBOARD_FAILED, copyText } from '../../../lib/clipboard'
+import { ModelSelect, type ModelRef } from '../../composer/ModelSelect'
+import type { ModelOption } from '@shared/modelSelection'
 import type { LocalServerStatus } from '@shared/types'
 import type { GatewayInfo } from '@shared/gateway'
 
 export function LocalServerPage(): JSX.Element {
   const { settings, patchSettings } = useApp()
-  const models = useApp(useShallow((s) => s.availableModels()))
   const [status, setStatus] = useState<LocalServerStatus>({ running: false, port: 1337, url: null })
   const [busy, setBusy] = useState(false)
   const [gateway, setGateway] = useState<GatewayInfo | null>(null)
@@ -24,6 +26,9 @@ export function LocalServerPage(): JSX.Element {
 
   if (!settings) return <></>
   const local = settings.localServer
+  // Only what the gateway can serve (never a provider that points back at this server).
+  const servedIds = new Set((gateway?.models ?? []).map((m) => m.id))
+  const served = (option: ModelOption): boolean => !gateway || servedIds.has(`${option.providerId}/${option.modelId}`)
 
   const toggle = async (): Promise<void> => {
     setBusy(true)
@@ -67,29 +72,26 @@ export function LocalServerPage(): JSX.Element {
             title="Default model"
             description="Used when an app asks for a model Eaon doesn't have, like Claude Code's or Codex's own model names."
           >
-            <Select
+            <ModelSelect
               width={220}
-              value={gateway?.defaultModel ?? ''}
-              onChange={(value) => void window.api.gateway.setDefaults({ defaultModel: value || null }).then(setGateway)}
-              options={
-                gateway && gateway.models.length > 0
-                  ? gateway.models.map((m) => ({ value: m.id, label: `${m.label} · ${m.providerName}` }))
-                  : [{ value: '', label: models.length ? 'Loading…' : 'No models yet' }]
-              }
+              label="Default model"
+              value={gatewayRef(gateway?.defaultModel)}
+              onChange={(ref) => void window.api.gateway.setDefaults({ defaultModel: ref?.providerId ? `${ref.providerId}/${ref.modelId}` : null }).then(setGateway)}
+              defaultLabel="The first model Eaon has"
+              filter={served}
             />
           </Row>
           <Row title="Fast model" description="Used when an app asks for a small, fast model (a haiku or mini). Defaults to the model above.">
-            <Select
+            <ModelSelect
               width={220}
-              value={gateway?.smallModel ?? ''}
-              onChange={(value) => void window.api.gateway.setDefaults({ smallModel: value || null }).then(setGateway)}
-              options={[
-                { value: '', label: 'Same as default' },
-                ...(gateway?.models ?? []).map((m) => ({ value: m.id, label: `${m.label} · ${m.providerName}` }))
-              ]}
+              label="Fast model"
+              value={gatewayRef(gateway?.smallModel)}
+              onChange={(ref) => void window.api.gateway.setDefaults({ smallModel: ref?.providerId ? `${ref.providerId}/${ref.modelId}` : null }).then(setGateway)}
+              defaultLabel="Same as default"
+              filter={served}
             />
           </Row>
-          <Row title="Key" description="Apps connected to Eaon send this. Requests with no key still work; a wrong key is refused.">
+          <Row title="Key" description="Apps connected to Eaon send this. Programs on this computer may leave it out; web pages and browser extensions must send it. A wrong key is refused.">
             <code className="code-settings__path" style={{ fontSize: 12 }}>
               {gateway ? `${gateway.token.slice(0, 10)}…` : '…'}
             </code>
@@ -98,9 +100,12 @@ export function LocalServerPage(): JSX.Element {
               disabled={!gateway}
               onClick={() => {
                 if (!gateway) return
-                void navigator.clipboard.writeText(gateway.token)
-                setCopied(true)
-                setTimeout(() => setCopied(false), 1500)
+                // "Copied" only once it really is: the clipboard refuses while another app has focus.
+                void copyText(gateway.token).then((ok) => {
+                  setCopied(ok)
+                  if (ok) setTimeout(() => setCopied(false), 1500)
+                  else notify(CLIPBOARD_FAILED, 'error')
+                })
               }}
             >
               {copied ? 'Copied' : 'Copy'}
@@ -141,4 +146,11 @@ export function LocalServerPage(): JSX.Element {
       </Section>
     </>
   )
+}
+
+/** The gateway names models `provider/model`; the model id itself may hold more slashes. */
+function gatewayRef(id: string | null | undefined): ModelRef | null {
+  if (!id) return null
+  const slash = id.indexOf('/')
+  return slash > 0 ? { providerId: id.slice(0, slash), modelId: id.slice(slash + 1) } : { providerId: null, modelId: id }
 }

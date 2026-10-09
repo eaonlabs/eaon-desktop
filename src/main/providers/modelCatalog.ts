@@ -1,4 +1,5 @@
 import type { ModelInfo } from '@shared/types'
+import type { ModelSource } from '@shared/engines'
 import { store } from '../store'
 import generated from './catalog.generated.json'
 import { fromModelsDev, MODELS_DEV_SOURCES, PI_SOURCES, type CatalogModel } from './catalogSources'
@@ -52,20 +53,27 @@ export function hasCatalog(providerId: string): boolean {
 
 const loose = (id: string): string => id.toLowerCase().replace(/\./g, '-')
 
-/** Every model the catalog knows for a provider, newest first. */
+/**
+ * Every model the catalog knows for a provider, newest first, each marked
+ * with where it came from: the list shipped in this build, or models.dev as
+ * last fetched.
+ */
 export function catalogFor(providerId: string): ModelInfo[] {
   const base = shipped.providers[providerId] ?? []
-  const fresh = loadCache()?.providers[providerId]
-  let models: CatalogModel[]
-  if (!fresh) models = base
+  const cached = loadCache()
+  const fresh = cached?.providers[providerId]
+  const remote: ModelSource = { kind: 'remote-catalog', retrievedAt: cached?.fetchedAt ?? null }
+  const builtIn: ModelSource = { kind: 'shipped', retrievedAt: null }
+  let models: (CatalogModel & { source: ModelSource })[]
+  if (!fresh) models = base.map((m) => ({ ...m, source: builtIn }))
   else if (!PI_SOURCES[providerId]) {
     // Same source as the shipped list, only newer: it wins outright.
-    models = fresh
+    models = fresh.map((m) => ({ ...m, source: remote }))
   } else {
     const known = new Set(base.map((m) => loose(m.id)))
     const cutoff = shippedAt - PI_GRACE_MS
     const added = fresh.filter((m) => !known.has(loose(m.id)) && m.released && Date.parse(m.released) >= cutoff)
-    models = added.length ? [...added, ...base] : base
+    models = [...added.map((m) => ({ ...m, source: remote })), ...base.map((m) => ({ ...m, source: builtIn }))]
   }
   return models
     .slice()

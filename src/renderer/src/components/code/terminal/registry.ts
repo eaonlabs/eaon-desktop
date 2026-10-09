@@ -3,6 +3,11 @@ import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { WebglAddon } from '@xterm/addon-webgl'
 import type { TerminalAgentId } from '@shared/terminals'
+import { taskFromTerminalTitle } from '@shared/adeSessions'
+import { feedInput, type LineState } from './input'
+import { scenes, seedOf } from './scenes'
+import { DEFAULT_THEME_ID, findTheme, type TerminalTheme } from './themes'
+import { isMac, isWindows } from '../../../lib/platform'
 
 /**
  * Every xterm behind the ADE's terminal view. Ported from Eaon ADE's
@@ -27,6 +32,10 @@ export interface Launch {
   command: string | null
   /** What the pane runs, so main can give an agent what it needs (Eaon Code gets Eaon's keys when shared). */
   agent?: TerminalAgentId
+  /** A past conversation of `agent` to reopen on this start. */
+  resume?: string
+  /** A task to start the agent on, the first time. */
+  prompt?: string
 }
 
 interface Runtime {
@@ -55,9 +64,32 @@ interface Runtime {
   status: PaneStatus
   exitCode: number | null
   error: string | null
+  /** The last start failed because macOS keeps Eaon out of the folder. */
+  privacy: boolean
+  /** What the agent says it is doing, from the title it gives its terminal; null when it says nothing useful. */
+  task: string | null
+  /** The theme's scene, behind the terminal text. */
+  scene: HTMLCanvasElement
+  /** What has been typed since the last Enter, for spotting `/theme` (input.ts). */
+  line: LineState
 }
 
-const IS_MAC = navigator.platform.toLowerCase().includes('mac')
+/** The ADE's look: a terminal theme, and whether its scene is drawn. */
+export interface TerminalLook {
+  theme: TerminalTheme
+  scenes: boolean
+}
+
+/** What the ADE's sidebar shows for a pane. */
+export interface PaneInfo {
+  status: PaneStatus
+  task: string | null
+  /** When it last printed anything; 0 before it has. */
+  lastData: number
+  /** Whether this window has the pane's terminal (it has been shown since launch). */
+  known: boolean
+}
+
 /** Output within this long means something is running. */
 const WORKING_MS = 1500
 
@@ -75,16 +107,24 @@ function resolveKey(e: KeyboardEvent, hasSelection: boolean): Verdict {
   // for both; ESC CR is what CLI agents read as "newline, don't submit".
   if (e.key === 'Enter' && e.shiftKey && !e.metaKey && !e.ctrlKey && !e.altKey) return { do: 'send', data: '\x1b\r' }
 
-  if (!IS_MAC) {
+  if (!isMac) {
     // One modifier on Windows/Linux, and the shell owns bare Ctrl chords (^C,
     // ^D, ^W…); the clipboard lives on Ctrl+Shift, as in every Windows terminal.
+    // The app's own Ctrl chords (Ctrl+1-3, Ctrl+B, Ctrl+, and Ctrl+Shift+P,
+    // GlobalKeys in App.tsx) pass through to it, as ⌘ chords do on macOS.
     if (e.ctrlKey && !e.altKey && !e.metaKey) {
       const key = e.key.toLowerCase()
       if (e.shiftKey && key === 'c') return { do: 'copy' }
       if (e.shiftKey && key === 'v') return { do: 'paste' }
       if (!e.shiftKey && key === 'c' && hasSelection) return { do: 'copy' }
       if (!e.shiftKey && key === 'v') return { do: 'paste' }
-      if (/^[0-9,b]$/.test(key)) return { do: 'app' }
+      // Ctrl+1-3 and Ctrl+, switch tabs and open Settings, as ⌘ does on a Mac.
+      // Ctrl+B stays with the shell: it is readline's back-a-character and
+      // tmux's prefix, which a terminal must not take away.
+      if (/^[0-9,]$/.test(key)) return { do: 'app' }
+      // ^P either way (a terminal can't tell Ctrl+Shift+P from Ctrl+P), so the
+      // shell loses nothing by giving the shifted one up.
+      if (e.shiftKey && key === 'p') return { do: 'app' }
     }
     return { do: 'terminal' }
   }
@@ -169,7 +209,7 @@ function resolveColor(css: string): string {
 }
 
 /** The terminal palette for the app's current theme — its own background, text and accent. */
-export function currentTheme(): ITheme {
+export function appTheme(): ITheme {
   const dark = document.documentElement.dataset.theme !== 'light'
   return {
     background: resolveColor('var(--term-bg)'),
@@ -183,12 +223,32 @@ export function currentTheme(): ITheme {
 
 /* ------------------------------------------------------------------ registry */
 
+/** An xterm palette for a look: the theme's own colours, or the app's for `eaon`. */
+export function xtermTheme(look: TerminalLook): ITheme {
+  const colors = look.theme.colors
+  if (!colors) return appTheme()
+  const { selection, ...rest } = colors
+  return {
+    ...rest,
+    // With a scene, the terminal is see-through and the pane paints the
+    // background. Almost, not fully: on a background of alpha 0, xterm's GPU
+    // renderer draws dim text (SGR 2) over solid black.
+    background: look.scenes && look.theme.scene ? `${colors.background}01` : colors.background,
+    cursorAccent: colors.background,
+    selectionBackground: selection
+  }
+}
+
 class TerminalRegistry {
   private panes = new Map<string, Runtime>()
   private listeners = new Set<() => void>()
+  private commandListeners = new Set<(command: 'theme', paneId: string) => void>()
   private bound = false
   private ticker: number | null = null
   private theme: ITheme | null = null
+  private look: TerminalLook = { theme: findTheme(DEFAULT_THEME_ID), scenes: true }
+  /** What each pane runs, from the terminal store: a shell's full-screen program is never interrupted. */
+  private agentOf: (paneId: string) => TerminalAgentId | undefined = () => undefined
   /** Bumped whenever any pane's status changes, for useSyncExternalStore. */
   private version = 0
 
@@ -221,6 +281,10 @@ class TerminalRegistry {
 
   private setStatus(rt: Runtime, status: PaneStatus): void {
     rt.status = status
+    this.bump()
+  }
+
+  private bump(): void {
     this.version++
     for (const listener of this.listeners) listener()
   }
@@ -232,22 +296,29 @@ class TerminalRegistry {
 
   getVersion = (): number => this.version
 
-  statusOf(paneId: string): { status: PaneStatus; error: string | null; exitCode: number | null } {
+  infoOf(paneId: string): PaneInfo {
     const rt = this.panes.get(paneId)
-    return { status: rt?.status ?? 'starting', error: rt?.error ?? null, exitCode: rt?.exitCode ?? null }
+    return { status: rt?.status ?? 'starting', task: rt?.task ?? null, lastData: rt?.lastData ?? 0, known: Boolean(rt) }
+  }
+
+  statusOf(paneId: string): { status: PaneStatus; error: string | null; exitCode: number | null; privacy: boolean } {
+    const rt = this.panes.get(paneId)
+    return { status: rt?.status ?? 'starting', error: rt?.error ?? null, exitCode: rt?.exitCode ?? null, privacy: rt?.privacy ?? false }
   }
 
   private ensure(paneId: string): Runtime {
     const existing = this.panes.get(paneId)
     if (existing) return existing
     this.bind()
-    if (!this.theme) this.theme = currentTheme()
+    if (!this.theme) this.theme = xtermTheme(this.look)
 
     const wrapper = document.createElement('div')
     wrapper.className = 'term-wrapper'
     const term = new Terminal({
       allowProposedApi: true,
-      allowTransparency: false,
+      // A scene shows through the terminal's background (scenes.ts); without
+      // one the background is opaque, as before. It can only be set here.
+      allowTransparency: true,
       fontFamily: "ui-monospace, 'SF Mono', Menlo, Monaco, Consolas, monospace",
       fontSize: 12.5,
       lineHeight: 1.15,
@@ -259,6 +330,11 @@ class TerminalRegistry {
       // Block and box-drawing characters as geometry, so solid runs meet
       // exactly (only the GPU renderer honours it).
       customGlyphs: true,
+      // Windows shells run under ConPTY, which redraws the screen itself after
+      // a resize; xterm reflowing the same lines as well duplicated or lost
+      // them. Without a build number xterm assumes an older ConPTY and leaves
+      // reflow to it, which is the safe side.
+      ...(isWindows ? { windowsPty: { backend: 'conpty' as const } } : {}),
       theme: this.theme
     })
     const fit = new FitAddon()
@@ -269,6 +345,10 @@ class TerminalRegistry {
       /* links are a nicety */
     }
     term.open(wrapper)
+    const scene = document.createElement('canvas')
+    scene.className = 'term-scene'
+    scene.setAttribute('aria-hidden', 'true')
+    wrapper.prepend(scene)
 
     const rt: Runtime = {
       term,
@@ -288,11 +368,33 @@ class TerminalRegistry {
       replaying: false,
       status: 'starting',
       exitCode: null,
-      error: null
+      error: null,
+      privacy: false,
+      task: null,
+      scene,
+      line: ''
     }
 
+    // Claude Code titles its terminal with the task at hand (behind a spinner
+    // that turns several times a second); only a change of task is news.
+    term.onTitleChange((title) => {
+      const task = taskFromTerminalTitle(title)
+      if (task === rt.task) return
+      rt.task = task
+      this.bump()
+    })
+
     term.onData((data) => {
-      if (!rt.replaying) window.api.terminals.write(paneId, data)
+      if (rt.replaying) return
+      const fed = feedInput(rt.line, data)
+      rt.line = fed.line
+      if (fed.command === 'theme' && this.takesCommands(paneId, rt)) {
+        // The CLI never sees the Enter; Backspaces take back what it did see.
+        if (fed.erase) window.api.terminals.write(paneId, '\x7f'.repeat(fed.erase))
+        for (const listener of this.commandListeners) listener('theme', paneId)
+        return
+      }
+      window.api.terminals.write(paneId, data)
     })
     term.onBinary((data) => {
       if (!rt.replaying) window.api.terminals.write(paneId, data)
@@ -327,6 +429,39 @@ class TerminalRegistry {
 
     this.panes.set(paneId, rt)
     return rt
+  }
+
+  /**
+   * Whether `/theme` typed here opens the picker. Everywhere except a shell
+   * running a full-screen program (vim, less, htop: the alternate screen),
+   * where it is text the program is waiting for.
+   */
+  private takesCommands(paneId: string, rt: Runtime): boolean {
+    const agent = this.agentOf(paneId)
+    return !((agent === undefined || agent === 'shell') && rt.term.buffer.active.type === 'alternate')
+  }
+
+  /** `/theme` typed in a pane. */
+  onCommand(listener: (command: 'theme', paneId: string) => void): () => void {
+    this.commandListeners.add(listener)
+    return () => this.commandListeners.delete(listener)
+  }
+
+  setAgentLookup(lookup: (paneId: string) => TerminalAgentId | undefined): void {
+    this.agentOf = lookup
+  }
+
+  /** The scene behind a pane on screen, per the current look. */
+  private showScene(paneId: string, rt: Runtime): void {
+    const { theme, scenes: on } = this.look
+    if (on && theme.scene && theme.colors && rt.host) scenes.show(rt.scene, { scene: theme.scene, colors: theme.colors, seed: seedOf(paneId) })
+    else scenes.hide(rt.scene)
+  }
+
+  /** Applies a theme (and its scene, or not) to every terminal. */
+  setLook(look: TerminalLook): void {
+    this.look = look
+    this.applyTheme()
   }
 
   /** GPU renderer, falling back quietly to the DOM one when WebGL is gone or lost. */
@@ -379,6 +514,7 @@ class TerminalRegistry {
       rt.observer = new ResizeObserver(() => this.scheduleFit(paneId))
       rt.observer.observe(host)
     }
+    this.showScene(paneId, rt)
     // Two frames: one for layout, one for the font metrics xterm measures.
     requestAnimationFrame(() =>
       requestAnimationFrame(() => {
@@ -395,6 +531,7 @@ class TerminalRegistry {
     rt.observer?.disconnect()
     rt.observer = null
     this.releaseRenderer(rt)
+    scenes.hide(rt.scene)
     rt.wrapper.remove()
     rt.host = null
   }
@@ -406,17 +543,21 @@ class TerminalRegistry {
     rt.launch = launch
     rt.exitCode = null
     rt.error = null
+    rt.privacy = false
     const result = await window.api.terminals.spawn({
       paneId,
       cwd: launch.cwd,
       cols: rt.term.cols,
       rows: rt.term.rows,
       command: launch.command,
-      ...(launch.agent ? { agent: launch.agent } : {})
+      ...(launch.agent ? { agent: launch.agent } : {}),
+      ...(launch.resume ? { resume: launch.resume } : {}),
+      ...(launch.prompt ? { prompt: launch.prompt } : {})
     })
     if (!result.ok) {
       rt.spawned = false
       rt.error = result.error ?? 'The terminal could not start.'
+      rt.privacy = result.privacy === true
       rt.term.write(`\x1b[31m${rt.error}\x1b[0m\r\n`)
       this.setStatus(rt, 'exited')
       return
@@ -451,12 +592,27 @@ class TerminalRegistry {
     void this.spawn(paneId, launch)
   }
 
+  /** Types `data` into a pane as if from the keyboard, past the `/theme` watch. */
+  send(paneId: string, data: string): void {
+    const rt = this.panes.get(paneId)
+    if (rt) rt.line = ''
+    window.api.terminals.write(paneId, data)
+  }
+
   clear(paneId: string): void {
     this.panes.get(paneId)?.term.clear()
   }
 
   focus(paneId: string): void {
     this.panes.get(paneId)?.term.focus()
+  }
+
+  /** Text as if pasted (bracketed when the program asked for it, as Claude Code does), then the pane focused. */
+  paste(paneId: string, text: string): void {
+    const rt = this.panes.get(paneId)
+    if (!rt || !text) return
+    rt.term.paste(text)
+    rt.term.focus()
   }
 
   /** Closes a pane for good: the shell, the terminal and its history. */
@@ -475,10 +631,13 @@ class TerminalRegistry {
     for (const listener of this.listeners) listener()
   }
 
-  /** Repaints every terminal after the app's theme changed. */
+  /** Repaints every terminal after the app's or the ADE's theme changed. */
   applyTheme(): void {
-    this.theme = currentTheme()
-    for (const rt of this.panes.values()) rt.term.options.theme = this.theme
+    this.theme = xtermTheme(this.look)
+    for (const [paneId, rt] of this.panes) {
+      rt.term.options.theme = this.theme
+      this.showScene(paneId, rt)
+    }
   }
 
   /**

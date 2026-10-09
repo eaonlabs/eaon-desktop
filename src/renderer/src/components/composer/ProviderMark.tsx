@@ -38,6 +38,8 @@ const MARK: Record<string, string> = {
   openai: 'openai',
   'openai-codex': 'openai',
   chatgpt: 'openai',
+  // The Codex CLI as an engine: its tab in Chat's model picker.
+  codex: 'codex',
   'github-copilot': 'githubcopilot',
   azure: 'azure',
   anthropic: 'anthropic',

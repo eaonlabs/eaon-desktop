@@ -18,12 +18,13 @@
 export const BRIDGE_PROTOCOL = 1
 
 /**
- * The extension's Chrome Web Store listing.
- *
- * FILL THIS IN AFTER PUBLISHING (@SansCreates): paste the listing URL, e.g.
- * 'https://chromewebstore.google.com/detail/eaon-browser-control/<extension-id>'.
- * While it is empty, Settings → Browser extension hides the store button and
- * offers only the "Load unpacked" route. See extension/STORE_LISTING.md.
+ * The extension's Chrome Web Store listing, once it is published there (it
+ * isn't yet). Set it to the listing URL, e.g.
+ * 'https://chromewebstore.google.com/detail/eaon-browser-control/<extension-id>';
+ * see extension/STORE_LISTING.md. While it is empty, nothing in Eaon mentions
+ * the store: Settings → Browser extension offers only "Load unpacked", and the
+ * agent's setup help says the same, so no one is sent to a listing that
+ * doesn't exist.
  */
 export const CHROME_WEB_STORE_URL = ''
 
@@ -49,7 +50,11 @@ export const BROWSER_ACTIONS = [
   'read',
   'find',
   'fill',
-  'reload'
+  'reload',
+  // Extension 1.2.0 and later.
+  'links',
+  'clear',
+  'get_text'
 ] as const
 
 export type BrowserAction = (typeof BROWSER_ACTIONS)[number]

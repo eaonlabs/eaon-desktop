@@ -22,12 +22,17 @@ function UsageBar({ percent }: { percent: number }): JSX.Element {
 
 export function SystemMonitorPage(): JSX.Element {
   const [info, setInfo] = useState<SystemInfo | null>(null)
+  const [failed, setFailed] = useState(false)
 
   useEffect(() => {
     let cancelled = false
     const poll = async (): Promise<void> => {
       const next = await window.api.system.info().catch(() => null)
-      if (!cancelled && next) setInfo(next)
+      if (cancelled) return
+      if (next) {
+        setInfo(next)
+        setFailed(false)
+      } else setFailed(true)
     }
     void poll()
     // CPU usage is a delta between samples, so it needs a steady cadence to
@@ -46,7 +51,9 @@ export function SystemMonitorPage(): JSX.Element {
     return (
       <>
         <h1 className="settings__h1">System Monitor</h1>
-        <p className="settings__lede">Reading hardware stats…</p>
+        <p className="settings__lede">
+          {failed ? "Couldn't read this computer's hardware stats. Eaon keeps trying every couple of seconds." : 'Reading hardware stats…'}
+        </p>
       </>
     )
   }

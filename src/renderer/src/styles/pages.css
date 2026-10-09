@@ -336,6 +336,39 @@
   background: var(--hover);
   border-radius: 8px;
 }
+.crash-screen__actions {
+  display: flex;
+  gap: 8px;
+}
+/* The same screen in place of one tab, under its top bar. */
+.crash-screen--pane {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+}
+/* In place of the sidebar or a browser panel. */
+.crash-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 16px;
+  text-align: center;
+  color: var(--text-3);
+}
+.crash-panel__spacer {
+  flex: 1;
+}
+/* A message that couldn't be drawn, in its place in the thread. */
+.row-error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
 
 /* ---------------- Built-in browser panel ---------------- */
 
@@ -349,6 +382,47 @@
   background: var(--canvas);
   border-left: 1px solid var(--border-soft);
 }
+/* Narrow windows: opening a panel hides the sidebar (state/sidePanel.ts), so
+   at the 720px minimum the conversation keeps 400px and the panel 320px. If
+   the sidebar is opened again on top of a panel, it is the sidebar that
+   floats, over the conversation's left edge, instead of squeezing the
+   conversation to a sliver; the composer's Send, at the right, stays
+   uncovered. Keep 979px in step with SIDE_PANEL_NARROW. */
+@media (max-width: 979px) {
+  .app:has(> .browser) > .sidebar[data-open='true'] {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    z-index: 60;
+    flex: none;
+    background: var(--canvas);
+    box-shadow: var(--shadow-modal);
+  }
+}
+/* Under 640px (a split screen, or zoomed in) even a bare panel leaves the
+   conversation under 300px, and a sheet over it would cover Send (or Stop
+   while the agent works in its own browser). The panel goes below the
+   conversation instead, which keeps its composer at the bottom of the
+   upper half. */
+@media (max-width: 639px) {
+  .app:has(> .browser) {
+    flex-direction: column;
+  }
+  .app:has(> .browser) > .browser {
+    width: 100%;
+    min-width: 0;
+    max-width: none;
+    height: 45%;
+    border-left: 0;
+    border-top: 1px solid var(--border);
+  }
+  /* Mid-window now, not the window's top right edge: no caption buttons to clear, nothing to drag. */
+  .app:has(> .browser) .browser__tabs {
+    padding-right: 12px;
+    -webkit-app-region: no-drag;
+  }
+}
 
 .browser__tabs {
   height: var(--titlebar-h);
@@ -356,20 +430,35 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 0 12px 0 14px;
+  /* The panel is the window's right edge, where Windows draws its caption
+     buttons; its close button sat under them. */
+  padding: 0 calc(12px + var(--window-controls-right)) 0 14px;
   -webkit-app-region: drag;
 }
 .browser__tabs .icon-btn,
 .browser__tab {
   -webkit-app-region: no-drag;
 }
+/* Every browser panel (this one, Eaon's and a worker's) is the window's
+   rightmost column, so on Windows and Linux its tab row runs under the
+   caption buttons, a 44px strip (titleBarOverlay in main/index.ts): "Close
+   panel" sat right where the window's own close button is drawn. The row
+   grows to the strip's height, the same way the page bars beside it are
+   offset, and keeps its buttons clear of --window-controls-right. */
+body[data-platform='win32'] .browser__tabs,
+body[data-platform='linux'] .browser__tabs {
+  height: calc(var(--titlebar-h) + var(--sidebar-gap));
+  padding-top: var(--sidebar-gap);
+  padding-right: calc(12px + var(--window-controls-right));
+}
 .browser__tab {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: 4px;
   height: 26px;
   max-width: 200px;
-  padding: 0 6px 0 10px;
+  min-width: 0;
+  padding: 0 4px 0 0;
   border-radius: var(--r-sm);
   background: var(--surface-2);
   font-size: var(--fs-sm);
@@ -378,6 +467,15 @@
 .browser__tab[data-active='false'] {
   background: transparent;
   color: var(--text-3);
+}
+.browser__tab-select {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 100%;
+  padding-left: 10px;
+  border-radius: inherit;
 }
 .browser__tab-label {
   overflow: hidden;
@@ -407,6 +505,10 @@
 }
 .browser__url {
   flex: 1;
+  /* A flex item won't shrink below its content's minimum, and an <input>'s is
+     its default width (about 170px): at the panel's 320px the menu button was
+     pushed 8px past the window's edge. */
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -416,6 +518,9 @@
   background: var(--surface-1);
   border: 1px solid var(--border-soft);
   margin: 0 6px;
+}
+.browser__url:focus-within {
+  border-color: color-mix(in srgb, var(--toggle-on), transparent 30%);
 }
 .browser__url input {
   flex: 1;
@@ -430,27 +535,6 @@
   color: var(--text-3);
 }
 
-.browser__banner {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 12px 14px;
-  margin: 0 12px 8px;
-  border-radius: var(--r-md);
-  background: var(--surface-1);
-}
-.browser__banner-body {
-  flex: 1;
-  min-width: 0;
-}
-.browser__banner-title {
-  font-size: var(--fs-base);
-}
-.browser__banner-desc {
-  font-size: var(--fs-sm);
-  color: var(--text-3);
-}
-
 .browser__view {
   flex: 1;
   min-height: 0;
@@ -460,6 +544,17 @@
 .browser__view webview {
   flex: 1;
   border: 0;
+}
+.browser__view .empty-state {
+  flex: 1;
+  padding: 24px;
+  text-align: center;
+}
+.browser__error-code {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  margin-bottom: 8px;
 }
 
 /* ---- Pull requests — real data from the gh CLI ----
@@ -1217,4 +1312,164 @@
   .agent-browser__live-dot {
     animation: none;
   }
+}
+
+/* ---------------- Pull requests: an agent's review (PrReviewPanel.tsx) ---------------- */
+
+.pr-review {
+  margin-top: 28px;
+  padding: 16px 18px 18px;
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+  box-shadow: 0 0 0 1px var(--border-soft);
+}
+.pr-review__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+}
+.pr-review__title {
+  flex: 1;
+  font-size: var(--fs-base);
+  font-weight: 600;
+}
+.pr-review__text {
+  margin: 10px 0 14px;
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+  color: var(--text-2);
+}
+.pr-review__waiting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.pr-review__draft {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 14px;
+}
+.pr-review__label {
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--text-3);
+}
+.pr-review__summary {
+  min-height: 140px;
+  resize: vertical;
+}
+.pr-review__comment {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.pr-review__comment textarea {
+  min-height: 64px;
+  resize: vertical;
+}
+.pr-review__where {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+.pr-review__fine {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.pr-review__actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+.pr-review__error {
+  margin: 12px 0 0;
+  font-size: var(--fs-sm);
+  color: var(--danger, #e5484d);
+}
+.link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  color: var(--accent, var(--text));
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* ---------------- Linear (LinearPage.tsx) ---------------- */
+
+.linear-state {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  margin: 3px 2px 0;
+  border-radius: 50%;
+}
+.linear-started {
+  font-size: var(--fs-xs);
+  color: var(--accent, var(--text-2));
+}
+.linear-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+.linear-pill .linear-state {
+  margin: 0;
+  width: 8px;
+  height: 8px;
+}
+.linear-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 0 10px;
+}
+.linear-description {
+  margin-top: 22px;
+  padding-top: 16px;
+  border-top: 1px solid var(--border-soft);
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.linear-who {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border-soft);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.linear-connect {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  max-width: 520px;
+  margin: 12vh auto 0;
+  padding: 0 24px;
+  text-align: center;
+}
+.linear-connect__row {
+  display: flex;
+  gap: 8px;
+  width: 100%;
+}
+.linear-connect__row .input {
+  flex: 1;
 }

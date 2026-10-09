@@ -1,5 +1,7 @@
 import { useState, type JSX } from 'react'
 import { Check, Copy } from 'lucide-react'
+import { CLIPBOARD_FAILED, copyText } from '../../lib/clipboard'
+import { notify } from '../Notice'
 
 /**
  * A fenced code block: language on the left, copy on the right.
@@ -28,11 +30,13 @@ export function CodeBlock({
         <button
           className="code-block__copy"
           aria-label="Copy code"
-          onClick={() => {
-            void navigator.clipboard.writeText(code)
-            setCopied(true)
-            setTimeout(() => setCopied(false), 1400)
-          }}
+          onClick={() =>
+            void copyText(code).then((ok) => {
+              if (!ok) return notify(CLIPBOARD_FAILED, 'error')
+              setCopied(true)
+              setTimeout(() => setCopied(false), 1400)
+            })
+          }
         >
           {copied ? <Check size={13} strokeWidth={2} /> : <Copy size={13} strokeWidth={1.9} />}
           {copied ? 'Copied' : 'Copy'}

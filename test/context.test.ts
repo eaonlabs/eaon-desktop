@@ -1,5 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdtempSync, rmSync, truncateSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { buildHistory, pruneImages, pruneInFlight } from '../src/main/agent/context'
 import type { ChatMessage } from '@shared/types'
 
@@ -91,4 +94,27 @@ test('screenshots in flight are dropped in batches, keeping the newest', () => {
   assert.equal(pruneImages(messages), true)
   const withImages = messages.filter((m) => m.role === 'tool' && m.results[0].images)
   assert.equal(withImages.length, 1)
+})
+
+test('attachments are sized up before they are read: big files are named, not loaded', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'eaon-attach-'))
+  const note = join(dir, 'note.txt')
+  writeFileSync(note, 'hello')
+  const log = join(dir, 'huge.log')
+  writeFileSync(log, '')
+  truncateSync(log, 3 * 1024 * 1024 * 1024)
+  const photo = join(dir, 'photo.png')
+  writeFileSync(photo, Buffer.from([0x89, 0x50, 0x4e, 0x47]))
+  const poster = join(dir, 'poster.png')
+  writeFileSync(poster, '')
+  truncateSync(poster, 25 * 1024 * 1024)
+  const history: ChatMessage[] = [{ ...user('u1', 'look'), attachments: [note, log, photo, poster, dir] }]
+  const started = Date.now()
+  const [message] = buildHistory(history, null, 2).messages as Extract<ReturnType<typeof buildHistory>['messages'][number], { role: 'user' }>[]
+  assert.ok(Date.now() - started < 1000, 'a 3 GB attachment is not read')
+  assert.match(message.text, /Attached file .*note\.txt:\n```\nhello\n```/)
+  assert.match(message.text, /\[Attached: .*huge\.log\]/)
+  assert.match(message.text, /poster\.png was not sent: it is 25 MB, and images are limited to 20 MB/)
+  assert.equal(message.images?.length, 1, 'only the small image is sent')
+  rmSync(dir, { recursive: true, force: true })
 })

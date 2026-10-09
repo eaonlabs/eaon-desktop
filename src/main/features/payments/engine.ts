@@ -62,6 +62,8 @@ export interface PurchaseRequest {
   amount: number
   currency: string
   chatId: string
+  /** It signs the user up for charges that repeat (a subscription, auto-renew). */
+  recurring?: boolean
 }
 
 const finite = (value: unknown, fallback: number): number => (typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : fallback)
@@ -323,9 +325,12 @@ export class PaymentsEngine {
    * purchase does. In auto mode one that fits the limits doesn't; one that
    * doesn't fit, or is in another currency, falls back to asking.
    */
-  assess(amount: number, currency: string): { needsUser: boolean; reason: string } {
+  assess(amount: number, currency: string, recurring = false): { needsUser: boolean; reason: string } {
     const mode = this.effectiveMode()
     if (mode !== 'auto') return { needsUser: true, reason: 'You approve every purchase.' }
+    // The limits are about one charge; a subscription keeps charging after
+    // the run ends, so the user always says yes to one themselves.
+    if (recurring) return { needsUser: true, reason: 'It charges again later (a subscription or renewal).' }
     const { limits } = this.config
     const cur = this.config.currency
     if (currency.toUpperCase() !== cur) return { needsUser: true, reason: `It is in ${currency.toUpperCase()}, and your limits are in ${cur}.` }
@@ -350,7 +355,7 @@ export class PaymentsEngine {
     if (!/^[A-Z]{3}$/.test(currency)) throw new Error('"currency" is a three-letter code, like USD.')
     const merchant = text(request.merchant, 100)
     if (!merchant) throw new Error('"merchant" is required: who you are paying.')
-    if (how === 'auto' && this.assess(amount, currency).needsUser) {
+    if (how === 'auto' && this.assess(amount, currency, request.recurring === true).needsUser) {
       throw new Error('This purchase needs the user’s approval.')
     }
     const now = this.now()
@@ -364,6 +369,7 @@ export class PaymentsEngine {
       charged: null,
       status: 'authorized',
       how,
+      ...(request.recurring ? { recurring: true } : {}),
       chatId: request.chatId,
       createdAt: now,
       expiresAt: now + AUTHORIZATION_MS
@@ -384,6 +390,26 @@ export class PaymentsEngine {
     return record
   }
 
+  /**
+   * Whether a live authorization in this chat covers pressing a spending
+   * button on `url`'s site, so the browser doesn't ask again for the
+   * "Place order" of a purchase the user (or the waiver and limits) already
+   * allowed. It covers one press: the first claims it, and a second press
+   * — a retry after a slow page, a duplicate checkout — asks like any
+   * other, so one approval can never become two orders.
+   */
+  claimSpendingClick(chatId: string, url: string): boolean {
+    if (this.effectiveMode() === 'off') return false
+    const now = this.now()
+    const record = this.config.purchases.find(
+      (p) => p.chatId === chatId && p.status === 'authorized' && p.site !== null && !p.submittedAt && now <= p.expiresAt && urlMatchesSite(url, p.site)
+    )
+    if (!record) return false
+    record.submittedAt = now
+    this.persist()
+    return true
+  }
+
   /** The secret parts of the card, for typing only. Never returned to the model. */
   cardSecret(): CardSecret & { card: CardSummary } {
     const secret = this.secret()
@@ -398,6 +424,9 @@ export class PaymentsEngine {
     if (record.status !== 'authorized') throw new Error(`That purchase is already ${record.status}.`)
     record.status = status
     record.charged = status === 'paid' ? round(charged ?? record.amount) : null
+    // Tax, shipping or a currency mark-up added at checkout: recorded and
+    // said, so the user hears about it instead of finding it on a statement.
+    if (record.charged !== null && record.charged > record.amount) record.overAuthorized = true
     record.completedAt = this.now()
     if (note) record.note = text(note, 300)
     this.persist()

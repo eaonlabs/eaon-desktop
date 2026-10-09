@@ -25,7 +25,6 @@ TILES = {
   'bedrock':    ('bedrock-color', '#ffffff', None, 26),
   'codex':      ('codex-color', '#ffffff', None, 26),
   'geminicli':  ('geminicli-color', '#ffffff', None, 26),
-  'claudecode': ('claudecode-color', '#ffffff', None, 26),
   'zai':        ('zai', '#000000', '#ffffff', 24),
   'xiaomimimo': ('xiaomimimo', '#ff6900', '#ffffff', 24),
   'opencode':   ('opencode', '#111111', '#ffffff', 22),

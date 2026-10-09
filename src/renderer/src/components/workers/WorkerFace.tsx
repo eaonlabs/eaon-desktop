@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState, type JSX, type RefObject } from 'react'
+import { memo, useCallback, useEffect, useRef, useState, useSyncExternalStore, type JSX, type RefObject } from 'react'
 import type { WorkerMood } from '@shared/workers'
 
 /**
@@ -23,6 +23,10 @@ import type { WorkerMood } from '@shared/workers'
  * it. When the turn ends the ring doesn't vanish: finishing well completes it
  * into a full circle that ripples out while the face pops once; stopping or
  * failing just fades it. A face can also bounce into place when first shown.
+ *
+ * All of it holds still while the window is hidden or in the background
+ * (useWindowResting): a face is SVG, which the browser repaints on the main
+ * thread for every frame it moves.
  */
 
 const reducedMotion = (): boolean => typeof document !== 'undefined' && document.body.dataset.reduceMotion === 'on'
@@ -36,7 +40,10 @@ const RING_R = 57
 const RING_MIN_SIZE = 40
 /** How long the ring stays after work ends, to finish its exit (matches wf-ring-out / wf-ring-done in workers.css). */
 const RING_EXIT_MS = 560
-/** Below this the gaze would move the eyes by under a pixel, so small faces only blink. */
+/**
+ * Below this the gaze would move the eyes by under a pixel, so small faces
+ * only blink: no glances, and no reading or trembling loop either (data-small).
+ */
 const GAZE_MIN_SIZE = 24
 
 const PILL = 'M -6.75 -5.85 A 6.75 6.75 0 0 1 6.75 -5.85 L 6.75 5.85 A 6.75 6.75 0 0 1 -6.75 5.85 Z'
@@ -74,14 +81,26 @@ const GAZE_BIAS: Partial<Record<WorkerMood, [number, number]>> = {
 }
 
 type Reaction = 'wink' | 'excited' | 'surprised'
-const CLICK_REACTIONS: Reaction[] = ['wink', 'excited', 'surprised']
+/**
+ * What a click on a face does, every time: a wink. It used to be a random
+ * pick of three that never repeated, so the same click got a different face
+ * each time; "surprised" is kept for mail arriving (`nudge`), so each look
+ * means one thing.
+ */
+const CLICK_REACTION: Reaction = 'wink'
 
 export interface WorkerFaceProps {
   color: string
   mood?: WorkerMood
   size?: number
-  /** Eyes follow the pointer, and the face reacts to clicks. For the big faces only — one listener per face. */
+  /** Eyes follow the pointer. For the big faces only — one listener per face. */
   follow?: boolean
+  /**
+   * A click winks. Only where the face is what's being clicked (a worker's
+   * page, the editor's preview) — not inside a card or row whose click opens
+   * something, where the reaction would be cut off by the page changing.
+   */
+  reactOnClick?: boolean
   /** A turn is running: focused, reading eyes and the working ring. */
   busy?: boolean
   /** Waiting on the user (a question): a blue dot, which the eyes keep glancing at. */
@@ -103,6 +122,7 @@ export const WorkerFace = memo(function WorkerFace({
   mood = 'neutral',
   size = 40,
   follow = false,
+  reactOnClick = false,
   busy = false,
   attention = false,
   nudge = 0,
@@ -151,9 +171,10 @@ export const WorkerFace = memo(function WorkerFace({
       data-done={ending === 'done' || undefined}
       data-enter={enter || undefined}
       data-alive={size >= RING_MIN_SIZE && face !== 'dead' ? 'true' : undefined}
+      data-small={size < GAZE_MIN_SIZE || undefined}
       style={{ ['--breath-delay' as string]: breathDelay }}
       onPointerEnter={follow ? () => blink() : undefined}
-      onPointerDown={follow ? () => react(pick(CLICK_REACTIONS)) : undefined}
+      onPointerDown={reactOnClick ? () => react(CLICK_REACTION) : undefined}
       role="img"
       aria-label={title ?? `${mood} face${busy ? ', working' : ''}${attention ? ', needs you' : ''}`}
     >
@@ -197,14 +218,6 @@ export const WorkerFace = memo(function WorkerFace({
   )
 })
 
-let lastPicked: Reaction | null = null
-/** A random reaction, never the one shown last (on any face), so repeated clicks keep changing. */
-function pick(items: Reaction[]): Reaction {
-  const choices = items.filter((item) => item !== lastPicked)
-  lastPicked = choices[Math.floor(Math.random() * choices.length)]
-  return lastPicked
-}
-
 /**
  * A short-lived expression laid over the mood: from a click (react), or a
  * startle when `nudge` rises. Ends by itself after a moment.
@@ -215,7 +228,10 @@ function useReaction(nudge: number): [Reaction | null, (reaction: Reaction) => v
   const react = useRef((next: Reaction): void => {
     if (reducedMotion()) return
     clearTimeout(timer.current)
-    setReaction(next)
+    // Off for a frame, then on: a second click during a wink plays it again
+    // instead of doing nothing (the state would already be "wink").
+    setReaction(null)
+    requestAnimationFrame(() => setReaction(next))
     timer.current = setTimeout(() => setReaction(null), next === 'surprised' ? 900 : 1300)
   }).current
   const lastNudge = useRef(nudge)
@@ -246,54 +262,63 @@ interface LivingOptions {
  *   glances blink on the way. Slower and lazier when sleepy, rarer when
  *   concentrating. Starting work gets a blink, as if noticing.
  *
- * Paused while the window is hidden. Returns blink(), for hover.
+ * Nothing is scheduled while the window rests (useWindowResting), nor for a
+ * face that couldn't use it — no glances for a small or busy face, no blink
+ * timer for one whose eyes are shut — so a sidebar of sleeping workers costs
+ * nothing at all. Returns blink(), for hover.
  */
 function useLivingEyes(gazeRef: RefObject<SVGGElement>, focusRef: RefObject<SVGGElement>, options: LivingOptions): () => void {
   const opts = useRef(options)
   opts.current = options
-  const blinkRef = useRef<() => void>(() => {})
+  const resting = useWindowResting()
+  const { gaze, blinks, busy } = options
+
+  // Played with the Web Animations API, which restarts a blink that has only
+  // just finished without the forced layout replaying a CSS animation needs —
+  // every few seconds on every face, that added up.
+  const blink = useCallback((): void => {
+    const focus = focusRef.current
+    if (!focus || !opts.current.blinks || reducedMotion()) return
+    const duration = opts.current.mood === 'sleepy' ? 470 : 180
+    focus.querySelectorAll<SVGGElement>('.wf-eye').forEach((eye, side) => {
+      // A wink is already holding the second eye shut.
+      if (side === 1 && focus.dataset.wink) return
+      // The second eye a frame behind, as real eyes are.
+      eye.animate(BLINK, { duration, delay: side * 14 })
+    })
+  }, [focusRef])
 
   useEffect(() => {
-    const focus = focusRef.current
-    if (!focus || reducedMotion()) return
-    const timers = new Set<ReturnType<typeof setTimeout>>()
-    const later = (fn: () => void, ms: number): void => {
-      const t = setTimeout(() => {
-        timers.delete(t)
-        fn()
-      }, ms)
-      timers.add(t)
-    }
-    const blink = (): void => {
-      if (!opts.current.blinks || document.hidden) return
-      delete focus.dataset.blink
-      // Restart the blink animation even if one just ended.
-      void focus.getBoundingClientRect()
-      focus.dataset.blink = 'true'
-      later(() => delete focus.dataset.blink, opts.current.mood === 'sleepy' ? 480 : 190)
-    }
-    blinkRef.current = blink
-
-    const nextBlink = (): void => {
-      const { mood, busy } = opts.current
-      const wait = mood === 'sleepy' ? 1400 + Math.random() * 2600 : busy ? 3800 + Math.random() * 5200 : 2200 + Math.random() * 4800
-      later(() => {
+    if (!blinks || resting || reducedMotion()) return
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let again: ReturnType<typeof setTimeout> | undefined
+    const next = (): void => {
+      const { mood } = opts.current
+      const wait = mood === 'sleepy' ? 1400 + Math.random() * 2600 : opts.current.busy ? 3800 + Math.random() * 5200 : 2200 + Math.random() * 4800
+      timer = setTimeout(() => {
         blink()
-        if (Math.random() < 0.16) later(blink, 260)
-        nextBlink()
+        if (Math.random() < 0.16) again = setTimeout(blink, 260)
+        next()
       }, wait)
     }
-    nextBlink()
+    next()
+    return () => {
+      clearTimeout(timer)
+      clearTimeout(again)
+    }
+  }, [blinks, resting, blink])
 
+  useEffect(() => {
+    const node = gazeRef.current
+    if (!node || !gaze || resting || reducedMotion()) return
+    let timer: ReturnType<typeof setTimeout> | undefined
     let away = false
-    const nextGlance = (first = false): void => {
-      const { mood } = opts.current
+    const next = (first = false): void => {
       const hold = first ? 300 + Math.random() * 1800 : away ? 600 + Math.random() * 1700 : 1400 + Math.random() * 3600
-      later(() => {
-        const node = gazeRef.current
-        const { gaze, attention } = opts.current
-        if (node && gaze && !document.hidden) {
-          const [bx, by] = GAZE_BIAS[opts.current.mood] ?? [0, 0]
+      timer = setTimeout(
+        () => {
+          const { mood, attention } = opts.current
+          const [bx, by] = GAZE_BIAS[mood] ?? [0, 0]
           let x = 0
           let y = 0
           if (attention && Math.random() < 0.34) {
@@ -310,39 +335,77 @@ function useLivingEyes(gazeRef: RefObject<SVGGElement>, focusRef: RefObject<SVGG
           node.style.setProperty('--gx', `${(x + bx).toFixed(2)}px`)
           node.style.setProperty('--gy', `${(y + by).toFixed(2)}px`)
           if (Math.hypot(x, y) > 2.6 && Math.random() < 0.33) blink()
-        } else if (node && !gaze) {
-          away = false
-          node.style.setProperty('--gx', '0px')
-          node.style.setProperty('--gy', '0px')
-        }
-        nextGlance()
-      }, mood === 'sleepy' ? hold * 1.7 : hold)
+          next()
+        },
+        opts.current.mood === 'sleepy' ? hold * 1.7 : hold
+      )
     }
-    nextGlance(true)
-
-    return () => {
-      for (const t of timers) clearTimeout(t)
-      blinkRef.current = () => {}
-      delete focus.dataset.blink
-      gazeRef.current?.style.removeProperty('--gx')
-      gazeRef.current?.style.removeProperty('--gy')
-    }
-  }, [gazeRef, focusRef])
+    next(true)
+    return () => clearTimeout(timer)
+  }, [gaze, resting, gazeRef, blink])
 
   // Noticing: work starting gets a blink.
   useEffect(() => {
-    if (options.busy) blinkRef.current()
-  }, [options.busy])
+    if (busy) blink()
+  }, [busy, blink])
 
   // When glances stop (work began, or the face shrank), look ahead at once
   // rather than holding the last glance until the next scheduled one.
   useEffect(() => {
-    if (options.gaze) return
+    if (gaze) return
     gazeRef.current?.style.setProperty('--gx', '0px')
     gazeRef.current?.style.setProperty('--gy', '0px')
-  }, [options.gaze, gazeRef])
+  }, [gaze, gazeRef])
 
-  return () => blinkRef.current()
+  return blink
+}
+
+/** A blink: closes fast, opens a touch slower. */
+const BLINK: Keyframe[] = [
+  { transform: 'scaleY(1)', easing: 'ease-in-out' },
+  { transform: 'scaleY(0.08)', offset: 0.38, easing: 'ease-in-out' },
+  { transform: 'scaleY(0.08)', offset: 0.52, easing: 'ease-in-out' },
+  { transform: 'scaleY(1)' }
+]
+
+/**
+ * Whether the window is out of sight or behind another app — hidden,
+ * minimised, or simply not focused. Faces hold still then: their loops pause
+ * (body[data-idle] in workers.css) and useLivingEyes schedules nothing. A
+ * face is SVG, which the browser repaints on the main thread for every frame
+ * it moves, so a page of them kept the renderer busy all day with nobody
+ * looking. One set of listeners serves every face; the flag is on <body> so
+ * other loops can rest with them.
+ */
+let windowResting = false
+let watchingRest = false
+const restListeners = new Set<() => void>()
+
+function checkRest(): void {
+  const next = document.visibilityState === 'hidden' || !document.hasFocus()
+  if (next === windowResting) return
+  windowResting = next
+  if (next) document.body.dataset.idle = 'true'
+  else delete document.body.dataset.idle
+  for (const listener of restListeners) listener()
+}
+
+function subscribeRest(listener: () => void): () => void {
+  if (!watchingRest) {
+    watchingRest = true
+    document.addEventListener('visibilitychange', checkRest)
+    window.addEventListener('focus', checkRest)
+    // Focus moving into a frame (the in-app browser) blurs the window too,
+    // while the document keeps focus; look again once it has settled.
+    window.addEventListener('blur', () => setTimeout(checkRest))
+    checkRest()
+  }
+  restListeners.add(listener)
+  return () => restListeners.delete(listener)
+}
+
+function useWindowResting(): boolean {
+  return useSyncExternalStore(subscribeRest, () => windowResting)
 }
 
 /**
@@ -413,21 +476,15 @@ function eyeColor(hex: string): string {
  * transform straight onto the group (no React state), so following the mouse
  * costs no renders; the glance animation is paused meanwhile via CSS vars.
  */
-function useFollowPointer(ref: React.RefObject<SVGGElement>, enabled: boolean): void {
+function useFollowPointer(ref: RefObject<SVGGElement>, enabled: boolean): void {
   useEffect(() => {
     const node = ref.current
-    if (!enabled || !node) return
-    if (document.body.dataset.reduceMotion === 'on') return
-    let frame = 0
-    let idle: ReturnType<typeof setTimeout> | undefined
-    const onMove = (event: PointerEvent): void => {
-      cancelAnimationFrame(frame)
-      frame = requestAnimationFrame(() => {
-        const svg = node.ownerSVGElement
-        if (!svg) return
-        const box = svg.getBoundingClientRect()
-        const dx = event.clientX - (box.left + box.width / 2)
-        const dy = event.clientY - (box.top + box.height * 0.4)
+    if (!enabled || !node || reducedMotion()) return
+    return followPointer({
+      measure: () => node.ownerSVGElement?.getBoundingClientRect() ?? null,
+      aim: (box, pointerX, pointerY) => {
+        const dx = pointerX - (box.left + box.width / 2)
+        const dy = pointerY - (box.top + box.height * 0.4)
         const distance = Math.hypot(dx, dy) || 1
         // Full deflection a few face-widths away; tiny when the pointer is on the face.
         const reach = Math.min(1, distance / (box.width * 2.5))
@@ -435,21 +492,62 @@ function useFollowPointer(ref: React.RefObject<SVGGElement>, enabled: boolean): 
         const y = (dy / distance) * 3 * reach
         node.style.transform = `translate(${x.toFixed(2)}px, ${y.toFixed(2)}px)`
         node.dataset.following = 'true'
-        clearTimeout(idle)
-        // Drift back to looking ahead a moment after the pointer stops.
-        idle = setTimeout(() => {
-          node.style.transform = ''
-          delete node.dataset.following
-        }, 2200)
-      })
-    }
-    window.addEventListener('pointermove', onMove)
-    return () => {
-      window.removeEventListener('pointermove', onMove)
-      cancelAnimationFrame(frame)
-      clearTimeout(idle)
-      node.style.transform = ''
-      delete node.dataset.following
-    }
+      },
+      release: () => {
+        node.style.transform = ''
+        delete node.dataset.following
+      }
+    })
   }, [ref, enabled])
+}
+
+interface Follower {
+  measure: () => DOMRect | null
+  aim: (box: DOMRect, x: number, y: number) => void
+  /** Back to looking ahead. */
+  release: () => void
+}
+
+/**
+ * Every face following the pointer, served by one window listener rather
+ * than one each. Once a frame, all of them are measured before any moves, so
+ * a page of faces lays out once instead of once per face.
+ */
+const followers = new Set<Follower>()
+const pointer = { x: 0, y: 0 }
+let pointerFrame = 0
+let pointerStill: ReturnType<typeof setTimeout> | undefined
+
+function onPointerMove(event: PointerEvent): void {
+  pointer.x = event.clientX
+  pointer.y = event.clientY
+  if (pointerFrame) return
+  pointerFrame = requestAnimationFrame(() => {
+    pointerFrame = 0
+    const faces = [...followers]
+    const boxes = faces.map((face) => face.measure())
+    faces.forEach((face, i) => {
+      const box = boxes[i]
+      if (box) face.aim(box, pointer.x, pointer.y)
+    })
+    // Drift back to looking ahead a moment after the pointer stops.
+    clearTimeout(pointerStill)
+    pointerStill = setTimeout(() => {
+      for (const face of followers) face.release()
+    }, 2200)
+  })
+}
+
+function followPointer(face: Follower): () => void {
+  if (followers.size === 0) window.addEventListener('pointermove', onPointerMove, { passive: true })
+  followers.add(face)
+  return () => {
+    followers.delete(face)
+    face.release()
+    if (followers.size > 0) return
+    window.removeEventListener('pointermove', onPointerMove)
+    cancelAnimationFrame(pointerFrame)
+    pointerFrame = 0
+    clearTimeout(pointerStill)
+  }
 }

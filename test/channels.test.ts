@@ -1,3 +1,4 @@
+import { approvalCode } from '@shared/workers'
 import { afterEach, beforeEach, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { existsSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from 'node:fs'
@@ -12,7 +13,7 @@ import { createWorkersService, type WorkersService } from '../src/main/features/
 import type { RunAgent } from '../src/main/features/workers/runner'
 import { guestCap, guestGate, isPrivateHost } from '../src/main/features/workers/guests'
 import type { FeatureContext } from '../src/main/features/types'
-import { ChannelsService } from '../src/main/features/channels/service'
+import { ChannelsService, safeName } from '../src/main/features/channels/service'
 import { calledByName, chunkText, parseCommand, replyText, toTelegramHtml, toWhatsApp } from '../src/main/features/channels/format'
 import { TelegramConnector } from '../src/main/features/channels/telegram'
 import { DiscordConnector } from '../src/main/features/channels/discord'
@@ -422,9 +423,27 @@ test('the owner controls the worker from the chat, and hears its questions and f
   await env.engine.whenIdle()
   assert.match(lastUserText(env.agent.requests[0]), /\[Answer to "Which city\?"\] Porto/)
 
+  // An approval shows the exact call and is answered by its code, never "the first one".
+  const first = env.engine.ask(nova.id, { question: 'Send the report?', approve: { tool: 'email_send', input: { to: 'boss@example.com', token: 'sk-ant-api03-abcdefghijklmnopqrstuvwxyz' }, summary: 'email the report' } })
+  const second = env.engine.ask(nova.id, { question: 'Delete the old report?', approve: { tool: 'run_command', input: { command: 'rm old.pdf' }, summary: 'delete a file' } })
+  await settle()
+  const sentFirst = connector.said('dm-owner').find((t) => t.includes('Send the report?'))!
+  assert.match(sentFirst, /It wants to: email the report\nTool: email_send\nWith: \{"to":"boss@example\.com","token":"sk-a.*redacted/)
+  assert.ok(!sentFirst.includes('abcdefghijklmnopqrstuvwxyz'), 'secrets are blanked')
+  assert.match(sentFirst, new RegExp(`Reply /approve ${approvalCode(first)} or /decline ${approvalCode(first)}`))
+  assert.match(await say('/approve'), new RegExp(`waiting for:\n/approve ${approvalCode(first)} — email the report\n/approve ${approvalCode(second)} — delete a file`))
+  assert.match(await say('/approve zzzz'), /No waiting approval is called zzzz/)
+  assert.equal(env.engine.list()[0].asks.length, 2, 'nothing was approved without a code')
+  assert.match(await say(`/decline ${approvalCode(second)} too risky`), /Declined/)
+  assert.deepEqual(env.engine.list()[0].asks.map((a) => a.id), [first.id], 'only the one named was answered')
+  assert.match(await say(`/approve ${approvalCode(first).toUpperCase()}`), /Approved: email the report/)
+  await until(() => env.agent.requests.length >= 2)
+  await env.engine.whenIdle()
+  const turns = env.agent.requests.length
+
   fail = true
   await say('Try again')
-  await until(() => env.agent.requests.length === 2)
+  await until(() => env.agent.requests.length > turns)
   await env.engine.whenIdle()
   await settle()
   assert.equal(connector.said('owner-chat').at(-1), 'Something went wrong: The model is offline')
@@ -721,4 +740,17 @@ test('Discord: identifies without the content intent it lacks, resumes after a d
   await discord.stop()
   gateway.close()
   http.close()
+})
+
+test('a file sent in a chat is saved under a name every platform accepts', () => {
+  assert.equal(safeName('report.pdf'), 'report.pdf')
+  assert.equal(safeName('../../etc/passwd'), 'passwd')
+  assert.equal(safeName('a:b*c?.txt'), 'a_b_c_.txt')
+  // Windows reads these as devices, and refuses a name ending in a dot or space.
+  assert.equal(safeName('CON'), '_CON')
+  assert.equal(safeName('nul.txt'), '_nul.txt')
+  assert.equal(safeName('lpt1 .log'), '_lpt1 .log')
+  assert.equal(safeName('console.log'), 'console.log')
+  assert.equal(safeName('notes. . '), 'notes')
+  assert.equal(safeName('...'), 'file')
 })

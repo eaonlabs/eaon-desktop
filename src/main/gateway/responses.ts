@@ -1,7 +1,8 @@
 import type { ServerResponse } from 'node:http'
 import type { EffortLevel, TokenUsage } from '@shared/types'
 import { toolInput, type NeutralImage, type NeutralMessage, type NeutralToolCall, type ToolSpec, type TurnResult } from '../providers/adapters/types'
-import { resolveGatewayModel } from './models'
+import type { GatewayScope } from '@shared/gateway'
+import { noModelMessage, resolveGatewayModel } from './models'
 import { runGatewayTurn, statusFor } from './turn'
 import { argumentsJson, cap, clientToolId, dataUrlImage, errorMessage, newId, openaiEffort, sendJson, sseEvent, startSse, tidy } from './wire'
 
@@ -66,6 +67,13 @@ function outputContent(output: unknown): { text: string; images: NeutralImage[] 
 }
 
 export function parseResponsesRequest(body: Record<string, unknown>): Parsed | { error: string } {
+  // The gateway keeps no conversations: a reply built on a stored one would
+  // be made without any of it, so it is refused rather than quietly answered
+  // with no context.
+  if (typeof body.previous_response_id === 'string' && body.previous_response_id) {
+    return { error: 'previous_response_id is not supported: Eaon keeps no stored responses. Send the whole conversation in input (store: false).' }
+  }
+  if (body.background === true) return { error: 'background responses are not supported. Send the request without background.' }
   const kinds = new Map<string, ToolKind>()
   const tools: ToolSpec[] = []
   for (const tool of Array.isArray(body.tools) ? (body.tools as Item[]) : []) {
@@ -194,15 +202,15 @@ function callItem(call: NeutralToolCall, kind: ToolKind | undefined): Item {
   return { type: 'function_call', id: newId('fc_'), call_id: callId, name: call.name, arguments: argumentsJson(call), status: 'completed' }
 }
 
-export async function serveResponses(res: ServerResponse, body: Record<string, unknown>): Promise<void> {
+export async function serveResponses(res: ServerResponse, body: Record<string, unknown>, scope: GatewayScope = 'all'): Promise<void> {
   const parsed = parseResponsesRequest(body)
   if ('error' in parsed) {
     sendJson(res, 400, { error: { message: parsed.error, type: 'invalid_request_error', code: null } })
     return
   }
-  const resolved = resolveGatewayModel(parsed.model)
+  const resolved = resolveGatewayModel(parsed.model, scope)
   if (!resolved) {
-    sendJson(res, 400, { error: { message: 'No model available. Add an API key in Eaon → Settings → Model providers.', type: 'invalid_request_error', code: null } })
+    sendJson(res, 400, { error: { message: noModelMessage(scope, parsed.model), type: 'invalid_request_error', code: null } })
     return
   }
 

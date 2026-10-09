@@ -13,6 +13,8 @@ import {
 } from 'lucide-react'
 import type { Chat, ChatMessage, GoalState, PlanProposal, SubagentRun, TodoItem, TokenUsage } from '@shared/types'
 import { useApp } from '../../state/store'
+import { fileUrl } from '../../lib/files'
+import { revealLabel } from '../../lib/platform'
 import '../../styles/tasklist.css'
 
 /**
@@ -246,8 +248,9 @@ export function ToolImages({ images }: { images: string[] }): JSX.Element {
   return (
     <div className="tool-images">
       {images.map((path) => (
-        <button key={path} className="tool-images__item" onClick={() => void window.api.app.showItem(path)} title="Show in folder">
-          <img src={`eaon-file://${encodeURI(path)}`} alt="Screenshot" loading="lazy" />
+        <button key={path} className="tool-images__item" onClick={() => void window.api.app.showItem(path)} title={revealLabel()}>
+          {/* fileUrl, not the path pasted after the scheme: C:\… is no URL. */}
+          <img src={fileUrl(path)} alt="Screenshot" loading="lazy" />
         </button>
       ))}
     </div>

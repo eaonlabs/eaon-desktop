@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
-import { HardDrive, Trash2 } from 'lucide-react'
+import { HardDrive, SquareTerminal, Trash2 } from 'lucide-react'
 import { useApp } from '../../state/store'
+import { openInAde } from '../code/terminal/terminalStore'
 import { useLibrary } from './libraryStore'
 import { ErrorLine } from './parts'
 import { formatModelSize, type InstalledModel } from '@shared/modelLibrary'
@@ -30,8 +31,15 @@ export function InstalledView(): JSX.Element {
       <div className="mlib-section__head">
         <h2 className="mlib-section__title">On this computer</h2>
         {models.length > 0 && (
-          <span className="mlib-section__count">
-            {models.length} model{models.length === 1 ? '' : 's'} · {formatModelSize(bytes)} on disk
+          <span className="mlib-section__actions">
+            <span className="mlib-section__count">
+              {models.length} model{models.length === 1 ? '' : 's'} · {formatModelSize(bytes)} on disk
+            </span>
+            {/* Eaon CLI, the OpenCode fork, codes with these models and no others. */}
+            <button className="btn btn--sm" title="Open Eaon CLI in the ADE, coding with the models downloaded here" onClick={() => void openInAde('eaon-cli')}>
+              <SquareTerminal size={13} strokeWidth={2} />
+              Code with Eaon CLI
+            </button>
           </span>
         )}
       </div>

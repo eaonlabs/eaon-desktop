@@ -4,6 +4,7 @@ import {
   Archive,
   Chrome,
   Code2,
+  SquareTerminal,
   Gamepad2,
   ArrowLeft,
   Binary,
@@ -11,7 +12,9 @@ import {
   AppWindow,
   AtSign,
   BarChart3,
+  Users,
   CreditCard,
+  Cpu,
   KeyRound,
   Mail,
   MessagesSquare,
@@ -19,6 +22,7 @@ import {
   Server,
   Settings as SettingsIcon,
   ShieldCheck,
+  Smartphone,
   SquarePlus,
   Sun,
   Wand2
@@ -36,17 +40,21 @@ import { BrowserSettingsPage } from './pages/Misc'
 import { ComputerUsePage } from './pages/ComputerUse'
 import { PluginsSettingsPage } from './pages/Plugins'
 import { LocalServerPage } from './pages/LocalServer'
+import { RemoteDevicesPage } from './pages/RemoteDevices'
 import { SystemMonitorPage } from './pages/SystemMonitor'
 import { McpServersPage } from './pages/McpServers'
 import { ConnectAppsPage } from './pages/ConnectApps'
 import { CodeIndexPage } from './pages/CodeIndex'
 import { BrowserExtensionPage } from './pages/BrowserExtension'
 import { EaonCodePage } from './pages/EaonCode'
+import { AdePage } from './pages/Ade'
 import { DiscordPage } from './pages/Discord'
 import { ChatAppsPage } from './pages/ChatApps'
 import { EmailPage } from './pages/Email'
 import { UsagePage } from './pages/Usage'
+import { AccountsPage } from './pages/Accounts'
 import { PaymentsPage } from './pages/Payments'
+import { EnginesPage } from './pages/Engines'
 
 interface NavEntry {
   id: string
@@ -64,13 +72,16 @@ const NAV: NavEntry[] = [
   { id: 'configuration', label: 'Configuration', icon: <ShieldCheck size={size} strokeWidth={stroke} />, group: 'Personal' },
   { id: 'shortcuts', label: 'Keyboard shortcuts', icon: <SquarePlus size={size} strokeWidth={stroke} />, group: 'Personal' },
   { id: 'usage', label: 'Usage', icon: <BarChart3 size={size} strokeWidth={stroke} />, group: 'Personal' },
+  { id: 'accounts', label: 'Accounts', icon: <Users size={size} strokeWidth={stroke} />, group: 'Personal' },
 
   { id: 'providers', label: 'Model providers', icon: <KeyRound size={size} strokeWidth={stroke} />, group: 'Integrations' },
+  { id: 'engines', label: 'Agent engines', icon: <Cpu size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'computer-use', label: 'Computer use', icon: <Wand2 size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'payments', label: 'Payments', icon: <CreditCard size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'browser-extension', label: 'Browser extension', icon: <Chrome size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'plugins', label: 'Plugins', icon: <AtSign size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'eaon-code', label: 'Eaon Code', icon: <Code2 size={size} strokeWidth={stroke} />, group: 'Integrations' },
+  { id: 'ade', label: 'ADE', icon: <SquareTerminal size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'chat-apps', label: 'Chat apps', icon: <MessagesSquare size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'email', label: 'Email', icon: <Mail size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'discord', label: 'Discord', icon: <Gamepad2 size={size} strokeWidth={stroke} />, group: 'Integrations' },
@@ -80,6 +91,7 @@ const NAV: NavEntry[] = [
   { id: 'code-index', label: 'Code index', icon: <Binary size={size} strokeWidth={stroke} />, group: 'Integrations' },
 
   { id: 'local-server', label: 'Local API Server', icon: <Server size={size} strokeWidth={stroke} />, group: 'Advanced' },
+  { id: 'remote-devices', label: 'Remote devices', icon: <Smartphone size={size} strokeWidth={stroke} />, group: 'Advanced' },
   { id: 'system', label: 'System Monitor', icon: <Activity size={size} strokeWidth={stroke} />, group: 'Advanced' },
 
   { id: 'archived', label: 'Archived chats', icon: <Archive size={size} strokeWidth={stroke} />, group: 'Archived' }
@@ -96,11 +108,14 @@ const PAGES: Record<string, () => JSX.Element> = {
   configuration: ConfigurationPage,
   shortcuts: ShortcutsPage,
   usage: UsagePage,
+  accounts: AccountsPage,
   providers: ProvidersPage,
+  engines: EnginesPage,
   'computer-use': ComputerUsePage,
   payments: PaymentsPage,
   'browser-extension': BrowserExtensionPage,
   'eaon-code': EaonCodePage,
+  ade: AdePage,
   discord: DiscordPage,
   'chat-apps': ChatAppsPage,
   email: EmailPage,
@@ -110,6 +125,7 @@ const PAGES: Record<string, () => JSX.Element> = {
   'connect-apps': ConnectAppsPage,
   'code-index': CodeIndexPage,
   'local-server': LocalServerPage,
+  'remote-devices': RemoteDevicesPage,
   system: SystemMonitorPage,
   archived: ArchivedPage
 }
@@ -157,7 +173,7 @@ export function SettingsShell(): JSX.Element {
       <nav className="settings__nav">
         <div className="settings__nav-panel">
         <div className="settings__nav-top" />
-        <button className="settings__back" onClick={() => setView('chat')}>
+        <button className="settings__back" onClick={() => setView('chat')} aria-label="Back to app" title="Back to app">
           <ArrowLeft size={16} strokeWidth={1.9} />
           <span>Back to app</span>
         </button>
@@ -173,6 +189,9 @@ export function SettingsShell(): JSX.Element {
                   key={entry.id}
                   className="nav-item"
                   data-active={entry.id === settingsPage || undefined}
+                  aria-current={entry.id === settingsPage ? 'page' : undefined}
+                  aria-label={entry.label}
+                  title={entry.label}
                   onClick={() => setSettingsPage(entry.id)}
                 >
                   <span className="nav-item__icon">{entry.icon}</span>

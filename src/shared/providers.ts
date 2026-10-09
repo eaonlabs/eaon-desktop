@@ -139,6 +139,98 @@ export interface ModelsRefresh {
   message: string
   /** Labels of models that were not in the list before. */
   added: string[]
+  /** Labels of models that were in the list before and are gone now. */
+  removed?: string[]
+  /** When this check ran. */
+  checkedAt?: number
+  /** Set when the provider's own listing failed: why, and what to do about it. */
+  issue?: ProviderIssue
+}
+
+/**
+ * Why a request to a provider failed, as something the user can act on.
+ * Kept apart from the raw error so "401" never reaches the screen as the
+ * explanation, and an expired sign-in is never reported as a missing model.
+ */
+export type ProviderErrorKind =
+  /** A browser sign-in ran out (the refresh was refused). Reconnect. */
+  | 'auth-expired'
+  /** A browser sign-in was revoked or signed out elsewhere. Reconnect. */
+  | 'auth-revoked'
+  /** The provider rejected the API key. */
+  | 'key-invalid'
+  /** The key can't be right as typed: whitespace, the wrong provider's prefix. */
+  | 'key-malformed'
+  /** The key or account works but may not use this (missing scope, model or project permission). */
+  | 'insufficient-scope'
+  /** The account is out of credit or over its plan's quota. */
+  | 'quota'
+  /** Too many requests right now; waiting helps. */
+  | 'rate-limit'
+  /** The provider is down or overloaded (5xx). */
+  | 'outage'
+  /** No network: DNS failed, the connection was refused or dropped. */
+  | 'network'
+  /** The provider didn't answer in time. */
+  | 'timeout'
+  /** The provider doesn't serve this country or region. */
+  | 'region'
+  /** The model isn't offered (any more) to this account. */
+  | 'model-unavailable'
+  /** The account works but offers no model Eaon can use. */
+  | 'no-models'
+  | 'other'
+
+/** The one thing to do about a provider failure, as a button. */
+export type ProviderAction =
+  /** Run the provider's sign-in again. */
+  | 'reconnect'
+  /** Open the provider in Settings → Model providers to fix or add a key. */
+  | 'fix-key'
+  /** Open the provider's settings (turn it on, check its endpoint, restore a model). */
+  | 'open-settings'
+  /** Open the model picker to choose another model. */
+  | 'choose-model'
+  /** Try the same thing again. */
+  | 'retry'
+
+export interface ProviderIssue {
+  kind: ProviderErrorKind
+  /** One or two plain sentences: what happened and what to do. Never a secret. */
+  message: string
+  action: ProviderAction | null
+  providerId?: string
+  /** The provider's own words, for a "Copy details" button; never the headline. */
+  detail?: string
+  /** For rate limits: how long the provider asked to wait. */
+  retryAfterMs?: number
+}
+
+/**
+ * Failures that stay until the user does something (sign in again, fix the
+ * key, top up), which make a provider "Needs attention". A dropped
+ * connection, a timeout, an outage or a rate limit passes by itself and
+ * never marks a provider.
+ */
+export function isLastingIssue(kind: ProviderErrorKind): boolean {
+  return (
+    kind === 'auth-expired' ||
+    kind === 'auth-revoked' ||
+    kind === 'key-invalid' ||
+    kind === 'key-malformed' ||
+    kind === 'insufficient-scope' ||
+    kind === 'quota' ||
+    kind === 'region' ||
+    kind === 'no-models'
+  )
+}
+
+/** The last time Eaon checked a provider's credentials, and what it found. */
+export interface ProviderHealth {
+  ok: boolean
+  /** Why the check failed; null when it worked. */
+  issue: ProviderIssue | null
+  checkedAt: number
 }
 
 /**
@@ -159,4 +251,43 @@ export function customProviderId(name: string, taken: Iterable<string>): string 
   let n = 2
   while (used.has(`${slug}-${n}`)) n++
   return `${slug}-${n}`
+}
+
+/**
+ * Key prefixes that identify a provider for sure. Used only to catch a key
+ * pasted under the wrong provider (an Anthropic key in OpenAI's field), never
+ * to reject a key whose provider changed its format.
+ */
+const KEY_PREFIXES: { prefix: string; providerId: string; name: string }[] = [
+  { prefix: 'sk-ant-', providerId: 'anthropic', name: 'Anthropic' },
+  { prefix: 'sk-or-', providerId: 'openrouter', name: 'OpenRouter' },
+  { prefix: 'gsk_', providerId: 'groq', name: 'Groq' },
+  { prefix: 'xai-', providerId: 'xai', name: 'xAI' },
+  { prefix: 'AIza', providerId: 'gemini', name: 'Google' },
+  { prefix: 'pplx-', providerId: 'perplexity', name: 'Perplexity' },
+  { prefix: 'nvapi-', providerId: 'nvidia-nim', name: 'NVIDIA' }
+]
+
+/**
+ * A pasted key, tidied (surrounding spaces and quotes, a leading "Bearer "
+ * dropped), or why it can't be right as typed. Catches the mistakes that
+ * otherwise come back from the provider as a bare 401: a key with a line
+ * break in it, half a key, another provider's key.
+ */
+export function checkKeyShape(providerId: string, providerName: string, raw: string): { key: string; problem: string | null } {
+  const key = raw
+    .trim()
+    .replace(/^["'`]+|["'`]+$/g, '')
+    .replace(/^Bearer\s+/i, '')
+    .trim()
+  if (!key) return { key, problem: 'Paste a key first.' }
+  if (/\s/.test(key)) return { key, problem: 'That key has a space or a line break in it. Copy it again, in one piece.' }
+  if (key.length < 8) return { key, problem: 'That key looks cut short. Copy the whole key again.' }
+  const other = KEY_PREFIXES.find((entry) => key.startsWith(entry.prefix))
+  // Gateways and custom endpoints proxy other labs and may take their keys as they are.
+  const strict = KEY_PREFIXES.some((entry) => entry.providerId === providerId) || providerId === 'openai'
+  if (other && other.providerId !== providerId && strict) {
+    return { key, problem: `That looks like a key for ${other.name}, not ${providerName}. Paste it under ${other.name} instead.` }
+  }
+  return { key, problem: null }
 }

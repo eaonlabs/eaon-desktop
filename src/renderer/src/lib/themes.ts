@@ -169,6 +169,37 @@ export const THEMES: Theme[] = [
     dark: { accent: '#7E9CD8', background: '#1F1F28', foreground: '#DCD7BA', contrast: 50, textFade: 0.82 }
   },
 
+  /* For the ADE's terminal themes that have no app theme above (see
+     components/code/terminal/themes.ts): picking one there restyles the app too. */
+  {
+    // Osaka Jade's light and dark palettes.
+    name: 'Osaka Jade',
+    group: 'coloured',
+    light: { accent: '#17866F', background: '#F6F5DD', foreground: '#111C18', contrast: 40, textFade: 0.85 },
+    dark: { accent: '#2DD5B7', background: '#172820', foreground: '#D4D7AE', contrast: 46, textFade: 0.75 }
+  },
+  {
+    // Green phosphor: Matrix-style by night, a pale terminal green by day.
+    name: 'Hackerman',
+    group: 'coloured',
+    light: { accent: '#1A7F37', background: '#EEF3EA', foreground: '#14301A', contrast: 40, textFade: 0.85 },
+    dark: { accent: '#2EFF6A', background: '#0F1A10', foreground: '#B6F5B6', contrast: 50, textFade: 0.9 }
+  },
+  {
+    // Black on white, and white on the blackest black.
+    name: 'Vantablack',
+    group: 'neutral',
+    light: { accent: '#000000', background: '#FFFFFF', foreground: '#000000', contrast: 40, textFade: 1 },
+    dark: { accent: '#E6E6E6', background: '#0A0A0A', foreground: '#EDEDED', contrast: 46, textFade: 1 }
+  },
+  {
+    // Flexoki's paper and its night.
+    name: 'Flexoki',
+    group: 'coloured',
+    light: { accent: '#205EA6', background: '#FFFCF0', foreground: '#100F0F', contrast: 40, textFade: 0.9 },
+    dark: { accent: '#DA702C', background: '#1C1B1A', foreground: '#CECDC3', contrast: 46, textFade: 0.75 }
+  },
+
   /* Originals, built in OKLCH around one hue each so the tones stay put as they
      lighten and darken. */
   {

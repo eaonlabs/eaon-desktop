@@ -1,7 +1,8 @@
 import type { ServerResponse } from 'node:http'
 import type { EffortLevel, TokenUsage } from '@shared/types'
 import { toolInput, type NeutralImage, type NeutralMessage, type NeutralToolResult, type ToolSpec, type TurnResult } from '../providers/adapters/types'
-import { resolveGatewayModel } from './models'
+import type { GatewayScope } from '@shared/gateway'
+import { noModelMessage, resolveGatewayModel } from './models'
 import { runGatewayTurn, statusFor } from './turn'
 import { argumentsJson, cap, clientToolId, dataUrlImage, errorMessage, newId, openaiEffort, sendJson, sseData, startSse, tidy } from './wire'
 
@@ -43,6 +44,9 @@ function readContent(content: unknown): { text: string; images: NeutralImage[] }
 }
 
 export function parseChatRequest(body: Record<string, unknown>): Parsed | { error: string } {
+  // One reply per request is all the providers behind the gateway give; an
+  // app asking for several would otherwise get one and think it got them all.
+  if (body.n !== undefined && body.n !== null && Number(body.n) !== 1) return { error: '`n` other than 1 is not supported: the gateway returns one choice.' }
   const raw = body.messages
   if (!Array.isArray(raw) || raw.length === 0 || !raw.every((m) => m && typeof m === 'object')) return { error: '`messages` is required' }
 
@@ -128,15 +132,15 @@ export function openaiUsage(usage: TokenUsage): Record<string, unknown> {
   }
 }
 
-export async function serveChatCompletions(res: ServerResponse, body: Record<string, unknown>): Promise<void> {
+export async function serveChatCompletions(res: ServerResponse, body: Record<string, unknown>, scope: GatewayScope = 'all'): Promise<void> {
   const parsed = parseChatRequest(body)
   if ('error' in parsed) {
     sendJson(res, 400, { error: { message: parsed.error, type: 'invalid_request_error' } })
     return
   }
-  const resolved = resolveGatewayModel(parsed.model)
+  const resolved = resolveGatewayModel(parsed.model, scope)
   if (!resolved) {
-    sendJson(res, 400, { error: { message: 'No model available. Add an API key in Eaon → Settings → Model providers.', type: 'invalid_request_error' } })
+    sendJson(res, 400, { error: { message: noModelMessage(scope, parsed.model), type: 'invalid_request_error' } })
     return
   }
 

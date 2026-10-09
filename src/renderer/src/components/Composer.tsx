@@ -37,6 +37,9 @@ import { liveMentions, permissionItems, pluginItems, skillItems, toolMentionItem
 import { removeMention } from './composer/suggest'
 import { clampEffort, EFFORT_LABEL } from '@shared/effort'
 import { ModelPicker } from './composer/ModelPicker'
+import { ModelNotice } from './composer/ModelNotice'
+import { useChatEngine } from './composer/chatEngine'
+import { EngineNotice } from './composer/EngineNotice'
 import { joinTranscript, useDictation } from './composer/useDictation'
 import { VoiceBar } from './composer/VoiceBar'
 
@@ -105,9 +108,15 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
   const plusMenu = useDisclosure()
   const modelMenu = useDisclosure()
 
-  const model = useApp((s) => s.currentModel())
+  const selection = useApp((s) => s.modelSelection())
+  // A Codex model picked for Chat: its own label, levels and readiness.
+  const engineChoice = useChatEngine()
+  const model = engineChoice ? null : selection.model
+  // Nothing connected, or the chosen model can't be used: the notice above
+  // says why before anything is typed, and sending waits with the draft kept.
+  const noModel = engineChoice ? !engineChoice.ready : selection.status === 'none' || selection.status === 'unavailable'
   // What the request will actually use: the chosen effort, clamped to the model.
-  const effort = clampEffort(settings?.effort, model?.efforts)
+  const effort = clampEffort(settings?.effort, engineChoice ? engineChoice.efforts : model?.efforts)
   // Stop belongs to the chat whose reply is streaming. Anywhere else — another
   // chat, a new one — it stopped a reply the user could not see, and Enter
   // with a message typed did the same; there, sending waits instead.
@@ -120,6 +129,12 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
     node.style.height = 'auto'
     node.style.height = `${Math.min(node.scrollHeight, 320)}px`
   }, [text])
+
+  // A failed reply's "Choose a model" opens the picker here.
+  const modelMenuRequest = useApp((s) => s.modelMenuRequest)
+  useEffect(() => {
+    if (modelMenuRequest > 0) modelMenu.setOpen(true)
+  }, [modelMenuRequest]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // A suggestion chip on the home screen drops its prompt here.
   useEffect(() => {
@@ -143,7 +158,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       stop()
       return
     }
-    if (busyElsewhere || (!text.trim() && attachments.length === 0)) return
+    if (busyElsewhere || noModel || (!text.trim() && attachments.length === 0)) return
     void send(text, { attachments, goal: isAgent && goalArmed, until: isAgent && goalArmed ? goalEndAt(goalUntil) : null })
     setText('')
     setAttachments([])
@@ -243,6 +258,11 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
         addAttachments([...e.dataTransfer.files].map((file) => window.api.app.pathForFile(file)).filter(Boolean))
       }}
     >
+      {engineChoice ? (
+        !engineChoice.ready && <EngineNotice choice={engineChoice} onChooseModel={() => modelMenu.setOpen(true)} />
+      ) : (
+        <ModelNotice selection={selection} onChooseModel={() => modelMenu.setOpen(true)} />
+      )}
       <div className="composer" data-goal={goalArmed || undefined}>
         {attachments.length > 0 && (
           <div className="composer__attachments">
@@ -291,6 +311,16 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
             if (suggest.onKeyDown(e)) return
             if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault()
+              // While a reply streams, ⏎ in the message box does nothing. It
+              // used to press Stop, so a follow-up typed during a reply ended
+              // the run, and so did the ⏎ meant for an approval card. Kept
+              // from the card's own ⏎ handler too (ChatView, on document): a
+              // message typed here must not approve a command nobody read.
+              // Stop is the button; the card has its own focused buttons.
+              if (streaming) {
+                e.stopPropagation()
+                return
+              }
               submit()
             }
           }}
@@ -354,9 +384,19 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
             ref={modelAnchor}
             className="chip chip--model"
             data-open={modelMenu.open || undefined}
+            data-unavailable={(engineChoice ? !engineChoice.ready : selection.status === 'unavailable') || undefined}
             onClick={modelMenu.toggle}
+            title={
+              engineChoice
+                ? engineChoice.ready
+                  ? 'Runs on Codex, with your Codex sign-in'
+                  : `Unavailable — ${engineChoice.reason ?? ''}`
+                : selection.status === 'unavailable'
+                  ? `Unavailable — ${selection.reason ?? ''}`
+                  : undefined
+            }
           >
-            <span className="chip__model">{model?.label ?? 'No model'}</span>
+            <span className="chip__model">{engineChoice ? engineChoice.label : (model?.label ?? selection.wanted?.label ?? 'No model')}</span>
             {effort && <span className="chip__effort">{EFFORT_LABEL[effort]}</span>}
             <ChevronDown size={13} strokeWidth={2} className="chip__chevron" />
           </button>
@@ -374,10 +414,10 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
 
           <button
             className={`send ${streaming ? 'send--stop' : ''}`}
-            disabled={busyElsewhere || (!streaming && (dictating || (!text.trim() && attachments.length === 0)))}
+            disabled={busyElsewhere || (!streaming && (noModel || dictating || (!text.trim() && attachments.length === 0)))}
             onClick={submit}
             aria-label={streaming ? 'Stop' : 'Send'}
-            title={busyElsewhere ? 'Eaon is still replying in another chat' : undefined}
+            title={busyElsewhere ? 'Eaon is still replying in another chat' : !streaming && noModel ? 'Connect a model first — see above' : undefined}
           >
             {streaming ? (
               <Square size={11} strokeWidth={0} fill="currentColor" />

@@ -50,6 +50,38 @@ export function approvalRisk(tool: string, input?: Record<string, unknown>): App
   return RISK[tool] ?? 'medium'
 }
 
+/** Where a keypress came from, as far as ⏎ approving is concerned. */
+export interface KeyTarget {
+  /** A button: it answers ⏎ itself. */
+  button: boolean
+  /** A text box or anything editable: ⏎ there means "send" or "new line". */
+  field: boolean
+  /** Inside the approval card itself. */
+  inCard: boolean
+  /** Nothing has focus (the document body). */
+  nothingFocused: boolean
+}
+
+/**
+ * Whether ⏎ should approve. Only from the card itself or with nothing
+ * focused — never from a text box (the composer sits right behind the card),
+ * never from a button (it answers for itself), and never for a call that
+ * could delete or change the system: that one needs a click.
+ */
+export function enterApproves(target: KeyTarget, risk: ApprovalRisk): boolean {
+  if (target.button || target.field) return false
+  if (risk === 'high') return false
+  return target.inCard || target.nothingFocused
+}
+
+/**
+ * Which button a dialog starts on. A focused button answers ⏎ and Space
+ * itself, so a keypress meant for the text box behind the dialog would
+ * approve a call that could delete or change the system. Those start on
+ * Deny; everything else starts on Approve, so ⏎ still just works.
+ */
+export const startsOnDeny = (risk: ApprovalRisk): boolean => risk === 'high'
+
 /** What the action does, in a few words, under the title. */
 const DOES: Record<string, string> = {
   run_command: 'Runs on your computer',
@@ -142,13 +174,35 @@ export function ApprovalCard({
   const Icon = ICON[tool] ?? ShieldAlert
   const titleId = useId()
   const approve = useRef<HTMLButtonElement>(null)
+  const deny = useRef<HTMLButtonElement>(null)
+  const card = useRef<HTMLElement>(null)
 
   useEffect(() => {
-    if (variant === 'dialog') approve.current?.focus({ preventScroll: true })
-  }, [variant, title, tool])
+    if (variant === 'dialog') (startsOnDeny(risk) ? deny : approve).current?.focus({ preventScroll: true })
+  }, [variant, title, tool, risk])
+
+  // A modal keeps Tab inside itself: past the last button it goes back to the
+  // first, rather than into the page behind that the dialog is blocking.
+  const keepFocus = (event: React.KeyboardEvent<HTMLElement>): void => {
+    if (variant !== 'dialog' || event.key !== 'Tab') return
+    const items = [...(card.current?.querySelectorAll<HTMLElement>('button:not(:disabled), [href], [tabindex]:not([tabindex="-1"])') ?? [])]
+    if (items.length === 0) return
+    const first = items[0]
+    const last = items[items.length - 1]
+    const active = document.activeElement
+    if (event.shiftKey && (active === first || !card.current?.contains(active))) {
+      event.preventDefault()
+      last.focus()
+    } else if (!event.shiftKey && (active === last || !card.current?.contains(active))) {
+      event.preventDefault()
+      first.focus()
+    }
+  }
 
   return (
     <section
+      ref={card}
+      onKeyDown={keepFocus}
       className="approval"
       data-variant={variant}
       data-risk={risk}
@@ -186,7 +240,7 @@ export function ApprovalCard({
           <span className="approval__dot" aria-hidden="true" />
           {asker} is waiting for you{since ? ` · ${since}` : ''}
         </span>
-        <button type="button" className="btn btn--ghost approval__deny" disabled={busy} onClick={onDeny}>
+        <button ref={deny} type="button" className="btn btn--ghost approval__deny" disabled={busy} onClick={onDeny}>
           {denyLabel}
           {variant === 'dialog' && <kbd className="approval__kbd">esc</kbd>}
         </button>

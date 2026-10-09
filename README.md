@@ -11,7 +11,25 @@ npm run dev        # hot-reloading dev build
 npm run build      # production bundle into out/
 npm start          # run the production bundle
 npm run dist:mac   # package a .dmg / .zip
+npm run dist:win   # package the Windows installer (x64 + arm64)
+npm run dist:linux # package an AppImage and a .deb (on Linux)
 ```
+
+## Install it
+
+- **macOS** (12 or later): open `Eaon-<version>.dmg` and drag Eaon to Applications.
+- **Windows** (10 or later, x64 or arm64): run `Eaon-<version>-setup.exe`. It installs for
+  your user, with no administrator prompt. Windows SmartScreen may say "Windows protected
+  your PC" until the installer is signed; choose More info, then Run anyway. Local models
+  need Microsoft's [Visual C++ Redistributable](https://aka.ms/vs/17/release/vc_redist.x64.exe)
+  (arm64: [this one](https://aka.ms/vs/17/release/vc_redist.arm64.exe)), which most PCs
+  already have.
+- **Linux** (x64 or arm64): either
+  - `sudo apt install ./eaon-desktop_<version>_<arch>.deb`, or
+  - `chmod +x Eaon-<version>-<arch>.AppImage && ./Eaon-<version>-<arch>.AppImage`.
+
+  Both run on Ubuntu 22.04 and later, Debian 12 and Fedora. The .deb also installs an
+  AppArmor profile, which Ubuntu 23.10 and later need before Chromium's sandbox will start.
 
 ## Bring your own key
 
@@ -55,9 +73,13 @@ Three tabs, centred at the top of every screen (⌘1 / ⌘2 / ⌘3):
   changes things asks first unless you choose "Auto-approve", and risky
   actions always ask.
 - **Workers**: always-on agents, each with a name, colour, personality and
-  purpose, one never-ending thread, and heartbeats it schedules for itself.
+  purpose, its own conversation with you, a thread of its own for every
+  routine, side task and job a colleague delegates, and wake-ups it schedules
+  for itself (or sets on a process or file). Threads run side by side and
+  stop on their own; every run has a receipt with how it went, and Retry.
   Workers message each other, hand over files and share out big jobs. They
-  run with risky actions refused, since nobody is there to approve them.
+  can run on Eaon's own agent or on an installed Codex. Nobody is there to
+  approve risky actions, so they are refused or asked about.
 - **ADE**: the agentic development environment — a graphical front end for
   an [Eaon Code](https://github.com/eaonlabs/eaon-code) session in a project
   folder.

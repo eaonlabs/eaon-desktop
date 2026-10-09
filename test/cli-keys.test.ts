@@ -95,7 +95,8 @@ test('saving: a directory provider is created with its endpoint, the key is chec
   assert.equal(getProvider('siliconflow'), undefined)
   const wrong = await dir.saveProviderKey(row, 'bad-key')
   assert.equal(wrong.ok, false)
-  assert.equal(wrong.message, '401 — Incorrect API key provided', 'the provider’s words, not its JSON')
+  // What to do, not the status code; the provider's own words stay in the issue's details.
+  assert.equal(wrong.message, 'SiliconFlow rejected the API key. Check it, or paste a new one.', 'what to do, not its JSON')
   assert.equal(secrets.get('siliconflow'), 'bad-key', 'kept even when the check fails')
   const right = await dir.saveProviderKey({ ...row, extra: false }, 'good-key')
   assert.deepEqual([right.ok, right.models], [true, 2])

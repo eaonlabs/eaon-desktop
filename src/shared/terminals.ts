@@ -1,11 +1,11 @@
 /**
  * The ADE's terminal view: a grid of real terminals in the project folder,
- * each running a shell or a CLI coding agent (Eaon Code, Claude Code, Codex…).
+ * each running a shell or a CLI coding agent (Eaon Code, Eaon CLI, Claude Code, Codex…).
  * Shells live in the main process (`features/terminals/`) so they outlive the
  * renderer; the renderer only draws them (`components/code/terminal/`).
  */
 
-export const TERMINAL_AGENT_IDS = ['shell', 'eaon-code', 'claude', 'codex', 'antigravity', 'opencode'] as const
+export const TERMINAL_AGENT_IDS = ['shell', 'eaon-code', 'eaon-cli', 'claude', 'codex', 'antigravity', 'opencode'] as const
 export type TerminalAgentId = (typeof TERMINAL_AGENT_IDS)[number]
 
 /**
@@ -15,6 +15,21 @@ export type TerminalAgentId = (typeof TERMINAL_AGENT_IDS)[number]
  */
 export function knownAgent(agent: unknown): TerminalAgentId {
   return (TERMINAL_AGENT_IDS as readonly unknown[]).includes(agent) ? (agent as TerminalAgentId) : 'shell'
+}
+
+/** CLIs older versions ran in panes and this one no longer does. */
+const RETIRED_AGENTS: Record<string, string> = { gemini: 'Gemini CLI' }
+
+/**
+ * A saved pane made current. One whose agent this version no longer runs
+ * comes back as a shell — and says so in its name, rather than still being
+ * called "Gemini CLI" while a plain shell runs in it.
+ */
+export function currentPane(pane: TerminalPaneSpec): TerminalPaneSpec {
+  const agent = knownAgent(pane.agent)
+  if (agent === pane.agent) return pane
+  const was = RETIRED_AGENTS[String(pane.agent)] ?? (typeof pane.agent === 'string' && pane.agent ? pane.agent : null)
+  return { ...pane, agent, name: was ? `Shell (was ${was})` : pane.name || 'Shell' }
 }
 
 export interface TerminalAgent {
@@ -33,6 +48,18 @@ export interface TerminalPaneSpec {
   id: string
   name: string
   agent: TerminalAgentId
+  /**
+   * A conversation of `agent` to reopen when the pane first starts (a past
+   * Claude Code or Codex conversation picked in the ADE's sidebar). After
+   * that the pane's record of what it runs takes over, as for any pane.
+   */
+  resume?: string
+  /**
+   * A task the agent starts on, given on its command line (`claude "<task>"`)
+   * the first time the pane starts: a PR to review, a Linear issue to do.
+   * One line; the details are in a file the task points to.
+   */
+  prompt?: string
 }
 
 /** Every folder's panes, keyed by folder path. */
@@ -47,11 +74,17 @@ export interface TerminalSpawnRequest {
   command: string | null
   /** What runs in the pane; Eaon Code panes get Eaon's API keys when Settings → Eaon Code shares them. */
   agent?: TerminalAgentId
+  /** A conversation of `agent` to reopen instead of starting a new one. */
+  resume?: string
+  /** A task to start the agent on (see TerminalPaneSpec.prompt). */
+  prompt?: string
 }
 
 export interface TerminalSpawnResult {
   ok: boolean
   error?: string
+  /** macOS's privacy settings keep Eaon out of the folder; the pane offers to open them. */
+  privacy?: boolean
   /** The pane already had a live shell for this folder; nothing was restarted. */
   reattached?: boolean
   /**
@@ -112,4 +145,30 @@ export function gridColumns(count: number): number {
   if (count <= 4) return 2
   if (count <= 9) return 3
   return 4
+}
+
+/**
+ * What to tell someone whose terminal couldn't start because macOS keeps Eaon
+ * out of its folder (Privacy & Security → Files and Folders). Everything Eaon
+ * starts is held to Eaon's permissions, so a shell there can't even list it:
+ * Homebrew's startup says "the current working directory must be readable"
+ * and Claude Code fails with "An unknown error occurred (Unexpected)".
+ */
+export function privacyBlockedMessage(cwd: string, home: string): string {
+  const h = home.replace(/[\\/]+$/, '')
+  const top = cwd.startsWith(`${h}/`) ? cwd.slice(h.length + 1).split('/')[0] : null
+  const named: Record<string, string> = { Downloads: 'Downloads Folder', Documents: 'Documents Folder', Desktop: 'Desktop Folder' }
+  const where = top && named[top] ? `turn on Eaon → ${named[top]}` : 'give Eaon access to this folder (or Full Disk Access)'
+  return `macOS isn’t letting Eaon open this folder, so nothing started here could read it. In System Settings → Privacy & Security → Files and Folders, ${where}, then restart this terminal.`
+}
+
+/**
+ * Files dropped on a terminal, as a terminal app types them: each path quoted
+ * for the shell where it needs it, separated by spaces, with a space after.
+ * Claude Code and Codex take a pasted image path as an attached image.
+ */
+export function pathsForTerminal(paths: string[]): string {
+  const quote = (p: string): string => (/^[A-Za-z0-9_@%+=:,./-]+$/.test(p) ? p : `'${p.replace(/'/g, `'\\''`)}'`)
+  const listed = paths.filter(Boolean).map(quote)
+  return listed.length ? `${listed.join(' ')} ` : ''
 }

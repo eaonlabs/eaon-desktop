@@ -3,16 +3,346 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
-## [2026.6.1] — 2026-10-06
+## [2026.6.2-beta.10] — 2026-10-08
+
+### Added
+- **Pull request review by an agent.** On the ADE's Pull requests page, pick
+  a pull request and press Review: it's checked out in an ADE session of its
+  own and Claude Code (or Codex) reviews it. Its review shows on the page —
+  a summary, a verdict and line comments — to edit and then post to GitHub
+  as a comment, an approval or a request for changes. Nothing is posted until
+  you choose to. The agent is told to read the change, not run it.
+- **Linear.** A Linear page in the ADE lists the open issues assigned to you
+  (connect with a Linear API key; it's kept in Eaon's encrypted vault).
+  Start makes an ADE session on the branch Linear names for the issue, gives
+  Claude Code (or Codex) the issue as its task, and moves it to In Progress.
+  When that branch's pull request opens, it's linked on the issue and the
+  issue moves to In Review.
+- **Ten more ADE terminal themes, each with its own animated scene:**
+  Iceberg (snow on the peaks, a cabin with its light on), Monokai (a
+  volcano), Oceanic Next (under the sea), Night Owl (a lighthouse), Palenight
+  (a ringed planet and its moons), Rosé Pine (lanterns over water),
+  Moonlight (jellyfish), Horizon (fireworks over the city), Gruvbox Light (a
+  meadow with butterflies) and Solarized Light (desert mesas). Each restyles
+  the app to match, like the others.
+
+### Fixed
+- In the ADE, clicking a session in the sidebar didn't take you back to it
+  from Pull requests, Linear, Models or Plugins when it was the session
+  already open: you had to go through Settings to get back. Clicking a
+  session, or one of its agents, now always shows it.
+
+## [2026.6.2-beta.9] — 2026-10-08
+
+### Changed
+- **The ADE's sidebar lists a session's open terminals, not its history.**
+  Closed Claude Code and Codex conversations no longer fill every session;
+  an empty session's page can still reopen one ("Reopen a past
+  conversation…"), out of sight until asked for.
+- **Import brings back the sessions that were active in the ADE** — the
+  folders of conversations that ran in its own terminals — not every folder
+  Claude Code or Codex was ever used in. A session you remove stays out of
+  Import, and the ADE no longer reopens it at launch.
+- Conversations that other programs started (headless `claude -p` runs,
+  Codex's desktop app and subagents) aren't listed anywhere.
+
+### Added
+- **Drop images and files on an ADE terminal.** They're typed in as their
+  paths, quoted where needed, as a terminal app does; Claude Code attaches a
+  dropped image.
+
+### Fixed
+- Typing `/theme` in a Claude Code terminal crashed the ADE.
+
+## [2026.6.2-beta.8] — 2026-10-08
+
+### Added
+- **Claude Code and Codex accounts.** Settings → Accounts lists the accounts
+  each CLI can run as, adds more (each signs in with the CLI's own login, in a
+  folder of its own), and picks the one the ADE's terminals use. A **Usage**
+  meter in the ADE's top bar shows how much of each plan's limits is used —
+  the session, the week — read the way the CLI's own `/usage` reads it.
+
+### Changed
+- **A worker's goal carries on straight away.** An unfinished goal turn is
+  followed by the next at once, not a minute later (unless the worker chose
+  to sleep), still pausing to check in after 30 turns.
+- **The ADE's terminal theme is in Settings → ADE**, with each theme's
+  colours and the switch for scenes, instead of a button in the ADE's top
+  bar. Typing `/theme` in a terminal still opens the in-place picker.
+
+### Fixed
+- **An update that sat at "starting download…".** Since Beta 6 the updater
+  stopped listening once it had found an update, so its download went on
+  unseen: the Downloads panel never moved past "starting download…" and
+  "Restart to update" never appeared. It now follows the download through.
+
+## [2026.6.2-beta.7] — 2026-10-07
+
+### Changed
+- **"Enjoying Eaon?"** The GitHub star prompt is a small card in the corner
+  after 10 to 20 minutes of using Eaon in a session, not a dialog. Open GitHub
+  stars the repository for you when the GitHub CLI is signed in, and opens it
+  either way; after that, or when your GitHub account has already starred it,
+  it never shows again. Later asks again in a week, three times at most.
+
+### Fixed
+- **The ADE's sessions.** A session with no terminals open now shows its past
+  Claude Code and Codex conversations on its page ("Pick up where you left
+  off"), one click to carry on; they were only in a small list in the
+  sidebar, so a session looked like it had none.
+- A home folder that is itself a git repository (an empty `git init` in ~ is
+  enough) no longer makes every folder in it one project named after the home
+  folder, with sessions called "main". Each folder is its own project again,
+  and sessions saved that way are filed again when the list loads.
+- A project that is just its own folder is one row in the sidebar, not a
+  heading over a row repeating its name.
+- The sidebar no longer reorders itself when a session is opened, which moved
+  the next session out from under the pointer.
+- **A terminal in a folder macOS keeps Eaon out of says so.** When Eaon isn't
+  allowed into Downloads, Documents or the Desktop (Privacy & Security → Files
+  and Folders), nothing it starts there can read the folder: Homebrew said
+  "the current working directory must be readable" and Claude Code failed
+  with "An unknown error occurred (Unexpected)". The terminal now says which
+  switch to turn on and has an Open Privacy Settings button, and macOS's own
+  prompt explains what Eaon wants the folder for.
+- An ended terminal's Restart button (and a blocked one's Open Privacy
+  Settings) was drawn underneath the terminal since Beta 6's terminal themes,
+  so it couldn't be seen or clicked.
+- Turning on "Run in the background" on a Mac no longer makes macOS announce
+  "Software from <the developer's name> can run in the background". The agent
+  that starts Eaon at login now ships inside the app and is registered with
+  macOS as Eaon's, so the notice (which macOS always shows) names Eaon.
+
+## [2026.6.2-beta.6] — 2026-10-07
+
+### Added
+- **Eaon CLI** (Apple silicon for now): a coding agent in the terminal, a fork
+  of OpenCode that uses only the open-source models you've downloaded in
+  Eaon. Start it from the ADE's New terminal menu or Models → Downloaded. The
+  Local API Server answers it under `/local/v1` with the downloaded models
+  alone; a cloud model name there is refused.
+- **Control Eaon from other tools.** A control API (MCP at `/control/mcp`,
+  JSON at `/control/v1/tools`, behind this install's key) can list and manage
+  models, downloads, the ADE, tabs, workers, chats and a few appearance
+  settings. It never hands out keys or tokens. Eaon CLI connects to it and
+  asks before anything that changes much.
+- **Remote devices** (Settings → Remote devices, off by default): the Eaon app
+  on your iPhone can see and control your workers and use this Mac's models,
+  over your own network, with a key for every request.
+- **Terminal themes for the ADE.** Type `/theme` in any terminal, or use the
+  header's Theme button: Eaon, Everforest, Nord, Kanagawa, Tokyo Night,
+  Catppuccin, Gruvbox, Dracula, Solarized, One Dark, Rosé Pine Dawn and more,
+  each previewed on every pane before you keep it, some with a scene drawn
+  behind the text. A theme restyles the app in its colours too; Eaon puts
+  back the app's own look.
+- **Star Eaon on GitHub**, from Settings → General or an occasional prompt
+  (after a few launches, at most three times, two weeks apart). With the
+  GitHub CLI signed in it stars the repository for you; otherwise it opens
+  the page. It never stars anything without the button being pressed.
+- **Beta updates, on their own.** Settings → General → Software update has a
+  separate "Beta updates" section. Turn on "Install beta updates" and, when a
+  newer beta is out, it appears with its own Download beta button. A beta is
+  never downloaded unless you press it, and stable updates work as before.
+- **Credits worth reading.** "Made with ♥ in California and New York", the
+  people who contributed, and what Eaon is built on. The notices for the MIT
+  software Eaon ships (OpenCode, llama.cpp) are in `NOTICE`.
+- **Browser extension 1.2.0**, which installed copies update to themselves.
+  Three new actions for the agent: `links` (a page's links with where each
+  goes, far smaller than a snapshot), `clear` (empty a field) and `get_text`
+  (what a field or element holds; passwords are never shared).
+
+### Fixed
+- **Linux installers start on Ubuntu 24.04.** The AppImage needed `libfuse2`
+  and `libz.so`, which Ubuntu doesn't install, so opening it did nothing; it now
+  uses electron-builder's static runtime. The .deb aborted at launch ("The SUID
+  sandbox helper binary was found, but is not configured correctly") because
+  Ubuntu 23.10 and later block the user namespaces Chromium's sandbox needs; it
+  now installs an AppArmor profile, and the AppImage's launcher adds
+  `--no-sandbox` only where that's the case. The .deb also depends on `libgbm1`
+  and ALSA, and the running window groups under its launcher on GNOME and KDE.
+- **A helper left behind by computer use could use a whole CPU core, for days.**
+  The macOS input helper compared a length to `0` that its scripting bridge
+  returns as a string, so after Eaon quit it read an empty pipe forever.
+
+### Changed
+- A worker's browser that goes unused for ten minutes puts its page away (it
+  comes back where it was at the next step), so a page with a video or a
+  spinner no longer keeps a processor core busy for hours; the live view
+  only captures the page while something is happening on it.
+- The Windows installer no longer includes a 32-bit build, which had no terminal
+  and no local models, and is a third smaller.
+- A Windows build now installs on a clean machine in CI, on x64 and arm64
+  (`.github/workflows/windows.yml`), and the Linux build is installed and opened
+  on Ubuntu 24.04 without `--no-sandbox` before it's attached to a release.
+
+## [2026.6.2-beta.5] — 2026-10-07
+
+### Added
+- **An installer for the beta on Mac.** "Install Eaon Beta" finds the Eaon
+  already on the Mac, quits it, puts the beta in its place and opens it. Chats,
+  settings and keys stay; nothing has to be uninstalled first.
+
+## [2026.6.2-beta.4] — 2026-10-07
+
+### Added
+- **Go back to the stable version.** On a beta build, Settings → General →
+  Software update has "Switch to stable": after asking, it downloads the
+  latest stable release and installs it when Eaon restarts. It isn't offered
+  on a stable build.
+
+## [2026.6.2-beta.3] — 2026-10-06
+
+### Added
+- **Chat on Codex.** Chat's model picker has a Codex tab with the models your
+  Codex account offers; pick one and Chat runs on Codex, with its sign-in and
+  plan. The next message carries on the same Codex conversation, a Codex that
+  joins a chat part-way is told what was said, and the commands it wants to
+  run are asked in Chat's own approval dialog. Signed out, the sign-in is
+  right above the composer; on first run Eaon offers "Use Codex in Chat" when
+  it finds Codex signed in.
+- **A worker's model on its message box**, as in Chat, and an **Edit** button
+  on its page.
+
+### Changed
+- The ChatGPT provider offers the newer models the catalog knows even when
+  your plan's own list leaves them out (that list lags new models), after the
+  plan's own and marked "May not be on your plan".
+- A worker's engine field always offers Codex: not installed, it says how to
+  get it; signed out, it signs in right there.
+- Clicking a worker's face winks, the same every time (it was a random look);
+  faces on cards no longer react, since the click opens the worker.
+
+### Fixed
+- On a worker's page the header ran out of room at an ordinary window size
+  and hid the More menu, which held Edit worker. Its buttons now keep their
+  icons when the words don't fit.
+- The Codex entry in Settings → Model providers and in the model picker showed
+  the letters "Co" instead of its logo.
+
+## [2026.6.2-beta.2] — 2026-10-06
+
+### Added
+- **ADE sessions.** The ADE's sidebar lists your projects, each with its
+  sessions: what the session is called, its branch, and whether an agent is
+  working (orange), waiting for you (green) or nothing runs (grey). The open
+  session shows its agents — the terminals running in it, with the task each
+  agent says it is on, and the past Claude Code and Codex conversations from
+  its folder, which a click reopens.
+- **New session** makes a branch for the work (from its name: "Fix CI checks
+  detail link" → `fix/ci-checks-detail-link`) in a worktree of its own under
+  `~/Eaon/worktrees`, and starts the agent you pick in it. Your project folder
+  isn't touched. Removing a session can remove its worktree too; the branch
+  always stays, and git's refusal to delete uncommitted work is respected.
+- **Settings → ADE → Import sessions** finds the conversations Claude Code and
+  Codex have on this computer and adds a session for each folder they ran in.
+  Nothing in either CLI changes.
+- **Resize and rearrange the ADE's terminals.** Drag the line between two
+  terminals to give one more room (or focus it and use the arrow keys;
+  double-click evens them out); the sizes are remembered for the folder. Drag
+  a terminal by its title bar onto another to swap them, or use Move left /
+  Move right in its menu.
+
+### Changed
+- Claude Code is shown with Claude's own symbol in the ADE, Connect apps and
+  Link accounts.
+
+## [2026.6.2-beta.1] — 2026-10-05
+
+*macOS, Windows and Linux. A repair release: Workers, models and providers,
+and a long list of dead ends removed.*
+
+### Added
+- **Workers run on their own.** A worker has its conversation with you plus a
+  thread of its own for every routine, side task (New task) and job a
+  colleague delegates. They run side by side and stop on their own; a running
+  routine no longer makes your message wait. Up to four runs go at once, two
+  per worker, and one that has to wait says so ("Queued") instead of looking
+  idle.
+- **Run history.** Every run leaves a receipt — what woke it, how it ended
+  and why, how long it took, tokens — under Activity on the worker's page,
+  with Retry. A run Eaon quit in the middle of is picked up again if it
+  hadn't changed anything; one that may have is left for you to retry.
+- **Delegation you can follow.** "Nova delegated … to Vega" is a job with a
+  state (assigned, working, waiting, done, failed), the background Nova chose
+  to share, what to send back and an optional deadline. Loops and chains more
+  than three deep are refused.
+- **Workers wake on events.** A worker can wait for a command to finish or a
+  file to change instead of guessing a time; repeating wake-ups nobody
+  follows stop by themselves.
+- **Codex as a real engine.** Settings → Agent engines finds the Codex you
+  have installed (including the one in the ChatGPT app), shows its version and
+  whether it is signed in or the session expired, offers sign-in or update,
+  and lists the models your account really has, from Codex itself. A worker
+  can run on Codex with its own session. Eaon still decides what it may do.
+- **Search in Workers**: workers, their tasks, questions waiting for you and
+  group chats, with arrow keys.
+- **Edit what a worker remembers**, stop a routine, and choose how hard a
+  worker thinks, from its page.
+- **One model picker everywhere**, with search, stars, recents and grouping;
+  a model that goes away stays visible as unavailable with why, never silently
+  replaced. Lists refresh in the background and say what changed ("Updated
+  just now · 3 new models", "Couldn't refresh X — showing the list from 2 h
+  ago").
+- **The computer's one pointer is leased** to one run at a time, with an
+  indicator saying who has it and Take back control.
+- **Your 2026.6.0 and 2026.6.1 data upgrades safely**: a damaged file is set
+  aside and repaired instead of stopping Eaon or replacing your chats.
+
+### Changed
+- **Provider errors say what to do** ("Your ChatGPT session expired. Sign in
+  again.") with a button, instead of a status code; a provider whose saved
+  sign-in stopped working shows "Needs attention".
+- **With no usable model, the composer says so before you type**, and keeps
+  your draft.
+- Settings → General's links point to the Eaon Labs repository and the
+  version you are running; "Import work from other AI apps" is now "Use your
+  accounts from other AI apps" and opens Link accounts.
+- A chat reply still being written is saved every few seconds, so a crash
+  keeps most of it. Scheduled tasks keep every run as a record, run once
+  after sleep instead of once per missed time, and follow the time zone.
+- Settings → Usage never shows a subscription's use as money spent, and says
+  so when a provider reported no token counts.
+- Subscriptions and recurring payments always ask; a payment authorization
+  covers one press of the pay button.
+
+### Fixed
+- **Security.** One permission policy now decides every tool call, including a
+  swarm's sub-agents (they ran with none of their lead's limits). A worker
+  can't get a more trusted colleague to act for it. Approvals sent to
+  Discord, Telegram or WhatsApp show the exact call and are answered by code.
+  ⏎ in the composer no longer approves a command. Links from a symlink can't
+  reach ~/.ssh. Pages and extensions need the gateway's key. Only web and
+  email links leave the app, and the window never navigates away. Keys stay
+  on their origin when a provider redirects. Logs blank keys, tokens and card
+  numbers. Local-network pages need approval in the agent's browsers and
+  `web_fetch`.
+- **The agent's browser**: new tabs, file pickers, downloads and a crashed
+  page no longer hang or open windows on your screen; failures say what to
+  try.
+- **Windows and Linux**: keyboard shortcuts work; the header reserves the
+  right space.
+- **Narrow windows**: a side panel no longer squeezes the conversation to a
+  sliver; Send is always visible.
+- Dead controls removed or made to work (settings that nothing read, buttons
+  with no action, shortcuts that applied nothing); failures that were
+  swallowed now reach you.
+- Dialogs and menus work from the keyboard and give focus back.
+- Voice dictation falls back to your other key when the first fails and
+  stops when the microphone is unplugged; image generation refuses oversized
+  or unreadable images before billing or saving.
+
+### Known limits
+- Windows and Linux were checked by unit tests, not on real machines, for
+  computer use, Codex discovery and some layout rules.
+- Real ChatGPT sign-in, a real expired session and the iOS Simulator were not
+  exercised end to end.
+
+## [2026.6.1] — 2026-10-04
 
 *macOS, Windows and Linux.*
 
 ### Added
-- **Betas are opt-in.** When a beta exists, Eaon asks once whether to try it,
-  with the warning "UPDATE IF YOU WANT YOUR APP TO BE UNSTABLE, BETA UPDATE
-  ONLY", and installs nothing unless you choose Update to beta. Settings →
-  General → Software update keeps the offer if you said Not now. A stable
-  build never moves to a beta by itself.
 - **The agent can use your computer.** With Computer use on, Chat and
   workers can see the screen, move the pointer, type and click, zoom into one
   app or a region, and save screenshots to a folder (for example, a

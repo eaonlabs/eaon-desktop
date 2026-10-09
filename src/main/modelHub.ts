@@ -9,6 +9,7 @@ import { app } from 'electron'
 import { diskShortfall } from '@shared/modelLibrary'
 import type { DownloadedModel, ModelDetail, ModelSearchResult, ModelVariant } from '@shared/types'
 import { store } from './store'
+import { checkHfFile } from './ipcGuards'
 
 /**
  * Browse Hugging Face for GGUF models and download them into Eaon's models
@@ -46,8 +47,21 @@ interface HfTreeEntry {
   size?: number
 }
 
+/**
+ * Searches and file listings are short requests: a stalled connection used to
+ * leave "Searching Hugging Face…" spinning for undici's five-minute default.
+ */
 async function hfJson<T>(url: string): Promise<T> {
-  const response = await fetch(url, { headers: { Accept: 'application/json' } })
+  let response: Response
+  try {
+    response = await fetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(20_000) })
+  } catch (error) {
+    if (error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError')) {
+      throw new Error("Hugging Face didn't answer in 20 seconds. Check your connection and try again.")
+    }
+    throw new Error(`Couldn't reach Hugging Face. Check your connection and try again.`)
+  }
+  if (response.status === 429) throw new Error('Hugging Face is limiting requests from this network right now. Try again in a minute.')
   if (!response.ok) throw new Error(`Hugging Face returned ${response.status}`)
   return (await response.json()) as T
 }
@@ -84,7 +98,7 @@ async function treeSizes(repoId: string): Promise<Map<string, number>> {
  */
 async function fetchDescription(repoId: string): Promise<string> {
   try {
-    const response = await fetch(`${HF_API}/${repoId}/raw/main/README.md`)
+    const response = await fetch(`${HF_API}/${repoId}/raw/main/README.md`, { signal: AbortSignal.timeout(15_000) })
     if (!response.ok) return ''
     const text = await response.text()
     const body = text.replace(/^---[\s\S]*?---\s*/, '')
@@ -204,9 +218,14 @@ export async function freeBytes(dir: string): Promise<number | null> {
   }
 }
 
-/** Where a repo's file lands: `<models>/<owner>__<repo>/<file>` (subfolders kept). */
+/**
+ * Where a repo's file lands: `<models>/<owner>__<repo>/<file>` (subfolders
+ * kept). Both come from the renderer, so they are checked first: a `..` in
+ * the file name or a `?` in the repo id must never place a download (or a
+ * later delete) outside that folder.
+ */
 export function localPathFor(repoId: string, filename: string): string {
-  return join(modelsDir(), repoId.replace('/', '__'), filename)
+  return checkHfFile(repoId, filename, modelsDir()).dest
 }
 
 /**
@@ -223,6 +242,7 @@ export async function fetchHfFile(
   signal: AbortSignal,
   onBytes: (received: number, total: number) => void
 ): Promise<number> {
+  checkHfFile(repoId, filename, modelsDir())
   const part = `${dest}.part`
   const url = `${HF_API}/${repoId}/resolve/main/${filename.split('/').map(encodeURIComponent).join('/')}`
   let received = 0
@@ -298,7 +318,7 @@ async function fetchModelFile(
   onProgress: (progress: DownloadProgress) => void
 ): Promise<DownloadedModel> {
   // A file that fills the disk fails late and leaves the system short of space.
-  const head = await fetch(`${HF_API}/${repoId}/resolve/main/${filename}`, { method: 'HEAD', redirect: 'follow', signal }).catch(() => null)
+  const head = await fetch(`${HF_API}/${repoId}/resolve/main/${filename.split('/').map(encodeURIComponent).join('/')}`, { method: 'HEAD', redirect: 'follow', signal }).catch(() => null)
   const expected = Number(head?.headers.get('content-length') ?? 0)
   const shortfall = expected > 0 ? diskShortfall(expected, await freeBytes(modelsDir())) : null
   if (shortfall) throw new Error(shortfall)

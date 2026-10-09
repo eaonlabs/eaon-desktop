@@ -1,13 +1,15 @@
 import { mkdir, writeFile } from 'node:fs/promises'
 import { dirname, extname, isAbsolute, join, resolve } from 'node:path'
-import type { Display } from 'electron'
+import { systemPreferences, type Display } from 'electron'
+import type { ComputerLeaseOwner } from '@shared/computerUse'
+import type { StreamRequest } from '@shared/types'
+import { isRunning } from '../../agent/loop'
 import type { AgentTool, ToolContext, ToolResult } from '../../agent/tools'
 import { store } from '../../store'
 import {
   ACTIONS,
   changesNothing,
   describeAction,
-  INPUT_ACTIONS,
   KEYBOARD_ACTIONS,
   needsConfirmation,
   normalizeComputerInput,
@@ -17,8 +19,10 @@ import {
 } from './actions'
 import { inputBackend } from './backend'
 import { captureDisplay, orderedDisplays, type Shot } from './capture'
-import { clipRect, displayUnchanged, frameFor, regionToScreen, toScreen, toShot, type Frame, type Point, type Quality, type Rect } from './geometry'
-import type { AppRef, WindowInfo } from './input'
+import { clipRect, displayIndexOf, displayUnchanged, frameFor, regionToScreen, sameRect, toScreen, toShot, type Frame, type Point, type Quality, type Rect } from './geometry'
+import type { AppRef, BackendCheck, WindowInfo } from './input'
+import { ComputerLease, ownerLabel, REVOKED_TEXT as REVOKED } from './lease'
+import { iphoneMirroringAvailability } from '../simulator'
 import { formatCombo, parseCombo } from './keys'
 import { permissionOwnerLabel } from './mac'
 import { beginDriving, bringEaonForward, eaonHasFocus, STOP_LABEL, withEaonHidden } from './session'
@@ -55,6 +59,98 @@ const TYPE_CHUNK = 120
 /** Per chat: the screenshot geometry the model is looking at, and the app it was working in. */
 const frames = new Map<string, Frame>()
 const targets = new Map<string, AppRef>()
+/** Per chat: when the screenshot the model is looking at was taken, to tell whether someone else has acted since. */
+const shotAt = new Map<string, number>()
+
+/** The one pointer and keyboard, held by one run at a time (see lease.ts). */
+export let computerLease = new ComputerLease({ isRunning })
+
+/** Tests that call the tool directly (outside `runAgent`, so no run is "running") swap in a lease that knows their runs. */
+export function setComputerLease(lease: ComputerLease): void {
+  computerLease.dispose()
+  computerLease = lease
+}
+
+/** Worker names, for "Nova is using the computer"; the workers service can register a better lookup. */
+let workerName: (workerId: string) => string | null = () => null
+export function setLeaseNames(lookup: (workerId: string) => string | null): void {
+  workerName = lookup
+}
+
+/**
+ * Who a run is, for the lease: a worker (named), a scheduled task (its
+ * runs' chats carry its id on the first message), or a chat.
+ */
+export function leaseOwnerOf(request: Pick<StreamRequest, 'chatId' | 'chatTitle' | 'messageId' | 'workerId' | 'persona' | 'history'>): ComputerLeaseOwner {
+  if (request.workerId) {
+    const name = workerName(request.workerId) ?? /^You are ([^,\n]{1,60}), one of the user's Eaon Workers/.exec(request.persona ?? '')?.[1] ?? ''
+    return { kind: 'worker', id: request.workerId, name, runId: request.messageId }
+  }
+  const task = request.history?.find((m) => m.scheduledTaskId)?.scheduledTaskId
+  if (task) return { kind: 'scheduled', id: task, name: request.chatTitle ?? '', runId: request.messageId }
+  return { kind: 'chat', id: request.chatId, name: request.chatTitle ?? '', runId: request.messageId }
+}
+
+/**
+ * The run's hold on the computer before it sends input: granted, waited
+ * for (the wait shows in the transcript and in the app's indicator), or
+ * refused with what to do instead. Then, if anyone else acted on the screen
+ * after this chat's last screenshot, the coordinates the model has are out
+ * of date: it must look again first.
+ */
+async function holdComputer(ctx: ToolContext): Promise<{ ok: true; owner: ComputerLeaseOwner } | { ok: false; text: string }> {
+  const owner = leaseOwnerOf(ctx.request)
+  const result = await computerLease.acquire(owner, {
+    signal: ctx.signal,
+    onWait: (holder) => ctx.progress(`Waiting for the computer — ${ownerLabel(holder)} is using it.`)
+  })
+  if (!result.ok) {
+    if (result.reason === 'aborted') throw new Error('Stopped by the user.')
+    return { ok: false, text: result.text }
+  }
+  const since = shotAt.get(ctx.request.chatId)
+  const other = since === undefined ? null : computerLease.actedSince(since, owner)
+  if (other) {
+    frames.delete(ctx.request.chatId)
+    shotAt.delete(ctx.request.chatId)
+    return { ok: false, text: `${ownerLabel(other)[0].toUpperCase()}${ownerLabel(other).slice(1)} used the computer after your last screenshot, so the screen has probably changed. Take a new screenshot, then act on what it shows.` }
+  }
+  return { ok: true, owner }
+}
+
+/**
+ * Fail closed: no input unless macOS lets Eaon post it and see what it did,
+ * and the session is in front of the user. A missing or revoked permission,
+ * the lock screen or a sleeping display is an error the model passes on,
+ * never an action into the void (posted events reach the lock screen;
+ * without Screen Recording the agent clicks blind).
+ */
+export async function inputBlocker(check: BackendCheck, platform: NodeJS.Platform, screenAccess: () => string, owner: () => Promise<string>): Promise<string | null> {
+  if (!check.available) return `Input is unavailable on this computer: ${check.detail ?? 'no input backend'}.`
+  if (check.trusted === false) {
+    const who = await owner()
+    return `macOS has not let Eaon control the mouse and keyboard: Accessibility is off for ${who}. Tell the user to open Settings → Computer use in Eaon, which walks through it step by step, or to switch on ${who} in System Settings → Privacy & Security → Accessibility. If the switch already looks on, it may belong to an older copy of Eaon; the same Settings page can reset it. It takes effect at once, with no restart; retry only after they have.`
+  }
+  if (check.locked) return 'The screen is locked, so input would go to the lock screen. Nothing was done. Ask the user to unlock the computer.'
+  if (check.asleep) return "The display is asleep, so there is nothing to see or click. Nothing was done. Ask the user to wake the computer (and keep it awake while you work)."
+  if (platform === 'darwin') {
+    const screen = screenAccess()
+    // 'unknown' is the API failing, not macOS saying no: the screenshot itself will report that.
+    if (screen === 'denied' || screen === 'restricted' || screen === 'not-determined') {
+      const who = await owner()
+      return `macOS isn't letting Eaon see the screen (Screen Recording is ${screen === 'not-determined' ? 'not set up' : 'off'} for ${who}), so it would be clicking blind. Nothing was done. Tell the user to open Settings → Computer use in Eaon and finish the Screen Recording step (it needs Eaon to restart), then try again.`
+    }
+  }
+  return null
+}
+
+function screenAccess(): string {
+  try {
+    return systemPreferences.getMediaAccessStatus('screen')
+  } catch {
+    return 'unknown'
+  }
+}
 
 /**
  * Per chat: what the screenshots are zoomed in on, if anything — one app's
@@ -128,10 +224,32 @@ export function sameApp(windowApp: string, wanted: string): boolean {
 /** The display that holds most of `rect`. */
 function displayFor(rect: Rect): { display: Display; index: number } | null {
   const displays = orderedDisplays()
-  const cx = rect.x + rect.width / 2
-  const cy = rect.y + rect.height / 2
-  const index = displays.findIndex((d) => cx >= d.bounds.x && cy >= d.bounds.y && cx < d.bounds.x + d.bounds.width && cy < d.bounds.y + d.bounds.height)
+  const index = displayIndexOf(rect, displays)
   return index >= 0 ? { display: displays[index], index } : null
+}
+
+/**
+ * Before clicking in a screenshot zoomed onto one app's window: is that
+ * window still where the screenshot showed it? If the user (or the app)
+ * moved or resized it, the pixels the model is pointing at map to the old
+ * place, which now holds something else. The frame is dropped so the model
+ * must look again.
+ */
+async function ensureZoomStill(chatId: string, frame: Frame): Promise<void> {
+  const zoom = zooms.get(chatId)
+  if (zoom?.kind !== 'app') return
+  let now: Awaited<ReturnType<typeof resolveZoom>>
+  try {
+    now = await resolveZoom(zoom)
+  } catch (error) {
+    frames.delete(chatId)
+    zooms.delete(chatId)
+    throw new Error(`${(error as Error).message} Nothing was done. Take a new screenshot.`)
+  }
+  if (!sameRect(now.region, frame.bounds)) {
+    frames.delete(chatId)
+    throw new Error(`The ${zoom.app} window moved or changed size since your screenshot, so its coordinates no longer point where they did. Nothing was done. Take a new screenshot first.`)
+  }
 }
 
 /** Where a zoom points now: the display, the part of it, and how to name it. */
@@ -150,7 +268,7 @@ async function resolveZoom(zoom: Zoom): Promise<{ display: Display; index: numbe
   const mine = all.filter((w) => sameApp(w.app, zoom.app) && w.width >= 40 && w.height >= 40).sort((a, b) => b.width * b.height - a.width * a.height)[0]
   if (!mine) {
     const open = [...new Set(all.map((w) => w.app).filter(Boolean))].slice(0, 12)
-    throw new Error(`No window of "${zoom.app}" is on screen. Open it with open_app first${open.length ? `. Apps with windows now: ${open.join(', ')}` : ''}.`)
+    throw new Error(`No window of "${zoom.app}" is on screen. It may be minimized, hidden, or in a full-screen Space of its own; open it with open_app first${open.length ? `. Apps with windows now: ${open.join(', ')}` : ''}.`)
   }
   const rect = { x: mine.x, y: mine.y, width: mine.width, height: mine.height }
   const where = displayFor(rect)
@@ -184,8 +302,10 @@ function pickDisplay(chatId: string, requested: number | undefined): { display: 
 }
 
 async function capture(chatId: string, display: Display, region?: Rect, keepFull = false): Promise<Shot> {
+  const at = Date.now()
   const shot = await captureDisplay(display, quality(), { ...(region ? { region } : {}), keepFull })
   frames.set(chatId, shot.frame)
+  shotAt.set(chatId, at)
   return shot
 }
 
@@ -250,7 +370,7 @@ async function ensureFocusAway(chatId: string, signal: AbortSignal): Promise<voi
   }
 }
 
-async function perform(action: Action, frame: Frame, signal: AbortSignal): Promise<string> {
+async function perform(action: Action, frame: Frame, signal: AbortSignal, between: () => Promise<void> = async () => undefined): Promise<string> {
   const input = inputBackend()
   const at = (x: number, y: number): Point => toScreen(frame, x, y)
   switch (action.action) {
@@ -281,6 +401,9 @@ async function perform(action: Action, frame: Frame, signal: AbortSignal): Promi
       const chars = Array.from(action.text)
       for (let i = 0; i < chars.length; i += TYPE_CHUNK) {
         if (signal.aborted) throw new Error('Stopped by the user.')
+        // A long text takes seconds: a permission revoked, the screen locked
+        // or control taken back meanwhile stops it between slices.
+        if (i > 0) await between()
         await input.type(chars.slice(i, i + TYPE_CHUNK).join(''))
       }
       return `Typed ${chars.length} character${chars.length === 1 ? '' : 's'}.`
@@ -346,9 +469,19 @@ async function run(input: Record<string, unknown>, ctx: ToolContext): Promise<To
   const action = parseAction(input)
   const chatId = ctx.request.chatId
   const signal = ctx.signal
+  // The user took back control of the computer: this run is off it, looking included.
+  if (computerLease.isRevoked(ctx.request.messageId)) return { text: REVOKED, isError: true }
+  if (action.action === 'open_app' && /iphone\s*mirroring/i.test(action.app)) {
+    const mirroring = iphoneMirroringAvailability()
+    if (!mirroring.available) return { text: mirroring.reason ?? "iPhone Mirroring isn't available on this Mac.", isError: true }
+  }
   beginDriving(ctx.request.messageId, signal)
 
   if (action.action === 'screenshot') {
+    // A picture of the lock screen or a black display would be read as the screen.
+    const check = await inputBackend().check().catch(() => null)
+    if (check?.locked) return { text: 'The screen is locked, so a screenshot would only show the lock screen. Ask the user to unlock the computer.', isError: true }
+    if (check?.asleep) return { text: 'The display is asleep, so a screenshot would be black. Ask the user to wake the computer.', isError: true }
     return exclusive(async () => {
       // What to zoom into, decided against the screenshot the model is looking at now.
       if (action.app) zooms.set(chatId, { kind: 'app', app: action.app })
@@ -380,10 +513,7 @@ async function run(input: Record<string, unknown>, ctx: ToolContext): Promise<To
     const { frame, index, display } = currentFrame(chatId)
     const p = toShot(frame, cursor)
     if (p) return `The pointer is at (${p.x}, ${p.y}) in the ${frame.width}×${frame.height} screenshot of ${displayLabel(display, index)}.`
-    const on = orderedDisplays().findIndex((d) => {
-      const b = d.bounds
-      return cursor.x >= b.x && cursor.y >= b.y && cursor.x < b.x + b.width && cursor.y < b.y + b.height
-    })
+    const on = displayIndexOf({ x: cursor.x, y: cursor.y, width: 0, height: 0 }, orderedDisplays())
     return `The pointer is not on ${displayLabel(display, index)}${on >= 0 ? `; it is on display ${on}. Screenshot that display to get coordinates there` : ''}.`
   }
 
@@ -394,23 +524,14 @@ async function run(input: Record<string, unknown>, ctx: ToolContext): Promise<To
 
   // Everything below sends input.
   const backend = inputBackend()
-  if (action.action !== 'open_app') {
-    const check = await backend.check()
-    if (!check.available) throw new Error(`Input is unavailable on this computer: ${check.detail ?? backend.name}`)
-    if (check.trusted === false) {
-      const who = await permissionOwnerLabel()
-      throw new Error(
-        `macOS has not let Eaon control the mouse and keyboard: Accessibility is off for ${who}. Tell the user to open Settings → Computer use in Eaon, which walks through it step by step, or to switch on ${who} in System Settings → Privacy & Security → Accessibility. It takes effect at once, with no restart; retry only after they have.`
-      )
-    }
-    if (check.locked && INPUT_ACTIONS.has(action.action)) {
-      throw new Error('The screen is locked; input would go to the lock screen. Ask the user to unlock the computer.')
-    }
-  }
+  const blocked = await inputBlocker(await backend.check(), process.platform, screenAccess, permissionOwnerLabel)
+  if (blocked) return { text: blocked, isError: true }
   // Map before asking, so a coordinate outside the screenshot fails without a prompt.
-  const { frame } = currentFrame(chatId)
-  if ('x' in action && action.x !== null && action.y !== null) toScreen(frame, action.x, action.y)
-  if (action.action === 'drag') toScreen(frame, action.toX, action.toY)
+  const known = currentFrame(chatId).frame
+  if ('x' in action && action.x !== null && action.y !== null) toScreen(known, action.x, action.y)
+  if (action.action === 'drag') toScreen(known, action.toX, action.toY)
+  // A zoomed screenshot is of one window; if that window has moved since, its pixels no longer point where they did.
+  if (('x' in action && action.x !== null) || action.action === 'drag') await ensureZoomStill(chatId, known)
 
   const loopAsked = settings.approvalMode === 'ask' || riskReason(input, process.platform) !== null
   if (settings.computerUse.confirmEachAction && needsConfirmation(input) && !loopAsked) {
@@ -423,6 +544,13 @@ async function run(input: Record<string, unknown>, ctx: ToolContext): Promise<To
       return { text: 'The user declined this action. Do not retry it; continue another way or ask how they would like to proceed.', isError: true }
     }
   }
+  // The one pointer: this run holds it from its first action to the end of
+  // the run. After the user's approval, which can take a while, and after
+  // any wait for another run to finish with it.
+  const held = await holdComputer(ctx)
+  if (!held.ok) return { text: held.text, isError: true }
+  const owner = held.owner
+  const frame = currentFrame(chatId).frame
   if (signal.aborted) throw new Error('Stopped by the user.')
   // Chained steps (type, then Return) need no picture in between.
   const wantShot = input.screenshot !== false
@@ -430,9 +558,27 @@ async function run(input: Record<string, unknown>, ctx: ToolContext): Promise<To
   return exclusive(async () => {
     // It may have waited behind another chat's action, and been stopped meanwhile.
     if (signal.aborted) throw new Error('Stopped by the user.')
+    // Or the user took control back while it waited for approval or its turn.
+    if (!computerLease.holds(owner.runId)) {
+      return { text: computerLease.isRevoked(owner.runId) ? REVOKED : 'This run no longer holds the computer (it sat idle). Take a new screenshot and try again.', isError: true }
+    }
     if (KEYBOARD_ACTIONS.has(action.action)) await ensureFocusAway(chatId, signal)
+    computerLease.touch(owner)
+    const between = async (): Promise<void> => {
+      if (!computerLease.holds(owner.runId)) throw new Error(computerLease.isRevoked(owner.runId) ? REVOKED : 'This run lost the computer partway through typing.')
+      const stop = await inputBlocker(await backend.check(), process.platform, screenAccess, permissionOwnerLabel)
+      if (stop) throw new Error(`Stopped partway through typing. ${stop}`)
+    }
     const result = await withEaonHidden(async () => {
-      const head = await perform(action, frame, signal)
+      let head: string
+      try {
+        head = await perform(action, frame, signal, between)
+      } catch (error) {
+        // Taking control back kills the helper mid-action; that is not the agent's error.
+        if (computerLease.isRevoked(owner.runId) && !signal.aborted) throw new Error(REVOKED)
+        throw error
+      }
+      computerLease.touch(owner)
       if (wantShot) await sleep(SETTLE_MS[action.action] ?? 300, signal)
       if (!wantShot) return { text: head }
       const cursor = await backend.cursor().catch(() => null)
@@ -456,14 +602,18 @@ export async function typeHidden(ctx: ToolContext, values: string[], tabBetween:
   }
   const chatId = ctx.request.chatId
   const backend = inputBackend()
-  const check = await backend.check()
-  if (!check.available) throw new Error(`Input is unavailable on this computer: ${check.detail ?? backend.name}`)
-  if (check.trusted === false) throw new Error(`macOS has not let Eaon use the keyboard: Accessibility is off for ${await permissionOwnerLabel()}.`)
-  if (check.locked) throw new Error('The screen is locked.')
+  const blocked = await inputBlocker(await backend.check(), process.platform, screenAccess, permissionOwnerLabel)
+  if (blocked) throw new Error(blocked)
   beginDriving(ctx.request.messageId, ctx.signal)
+  const held = await holdComputer(ctx)
+  // A stale screenshot doesn't matter here: the card goes wherever focus is.
+  if (!held.ok && !/after your last screenshot/.test(held.text)) throw new Error(held.text)
+  const owner = leaseOwnerOf(ctx.request)
   const tab = parseCombo('Tab')
   return exclusive(async () => {
     if (ctx.signal.aborted) throw new Error('Stopped by the user.')
+    if (!computerLease.holds(owner.runId)) throw new Error(computerLease.isRevoked(owner.runId) ? REVOKED : 'This run no longer holds the computer.')
+    computerLease.touch(owner)
     await ensureFocusAway(chatId, ctx.signal)
     const app = await rememberTarget(chatId)
     if (!app) throw new Error('Could not tell which app has focus. Click the first card field with the computer tool, then try again.')
@@ -521,17 +671,30 @@ export const computerTool: AgentTool = {
   run: (input, ctx) => run(normalizeComputerInput(input), ctx)
 }
 
-export const COMPUTER_GUIDANCE = [
-  'Computer use: start with a screenshot. Coordinates are pixels in the latest screenshot; each action returns a new one, so check it before the next step.',
-  'Prefer files, shell and web tools when they can do the job; use the screen for apps that have no other way in. Prefer keyboard shortcuts to hunting for buttons.',
-  "The user's iPhone: open_app \"iPhone Mirroring\" shows their real phone in a window, and clicks, scrolls and typing there act on the phone; screenshot with app: \"iPhone Mirroring\" to see it sharp. Swipe with drag; Home is cmd+1, the app switcher cmd+2, Spotlight cmd+3.",
-  'To capture every screen of an app, go through it screen by screen with screenshot save_to into one folder, named in order.',
-  `Eaon hides its own window from screenshots and clicks. The user can stop you with ${STOP_LABEL}. Never type passwords or card numbers yourself (payment_card fills cards when the user has set one up), and ask before sending, purchasing or deleting anything unless payment_card has authorized the purchase.`
-].join('\n')
+/**
+ * What the model is told about the screen. The iPhone line follows what this
+ * Mac can actually do: iPhone Mirroring needs macOS 15 and its app, and when
+ * it is missing the only iPhone available is the Simulator — a simulated
+ * one, never the user's own.
+ */
+export function computerGuidance(): string {
+  const mirroring = iphoneMirroringAvailability()
+  return [
+    'Computer use: start with a screenshot. Coordinates are pixels in the latest screenshot; each action returns a new one, so check it before the next step.',
+    'There is one mouse and keyboard, shared by every agent on this computer. You hold them from your first click or keystroke to the end of your turn; another agent that wants them waits, or is told to do something else meanwhile. If you are told the computer is busy, work on what does not need the screen, and never retry in a loop. If the user takes control back, stop using the computer for this turn. If you are told the screen changed because someone else used it, take a new screenshot before acting.',
+    'Prefer files, shell and web tools when they can do the job, and your own browser (web_browser) for anything on the web: it has its own window and never touches the user\'s mouse. Use the screen for apps that have no other way in. Prefer keyboard shortcuts to hunting for buttons.',
+    mirroring.available
+      ? "The user's iPhone: open_app \"iPhone Mirroring\" shows their real phone in a window, and clicks, scrolls and typing there act on the phone; screenshot with app: \"iPhone Mirroring\" to see it sharp. Swipe with drag; Home is cmd+1, the app switcher cmd+2, Spotlight cmd+3. If it shows a setup or connect screen, the phone isn't paired: tell the user."
+      : `The user's real iPhone can't be controlled from this computer. ${mirroring.reason ?? ''} Never present the Simulator as their phone.`,
+    'To capture every screen of an app, go through it screen by screen with screenshot save_to into one folder, named in order.',
+    `Eaon hides its own window from screenshots and clicks. The user can stop you with ${STOP_LABEL}. Never type passwords or card numbers yourself (payment_card fills cards when the user has set one up), and ask before sending, purchasing or deleting anything unless payment_card has authorized the purchase.`
+  ].join('\n')
+}
 
 /** Forgets per-chat state; used by tests and when computer use is switched off. */
 export function resetComputerState(): void {
   frames.clear()
   targets.clear()
   zooms.clear()
+  shotAt.clear()
 }

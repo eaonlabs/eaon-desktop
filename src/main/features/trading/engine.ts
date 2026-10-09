@@ -147,6 +147,10 @@ const MAX_ORDERS_KEPT = 5000
 const ORDERS_SHOWN = 200
 const MAX_SESSIONS = 50
 const MAX_LOG = 200
+/** What a summary (`TradingEngine.summary`) keeps of the history only the desk draws whole. */
+const BRIEF_EQUITY_POINTS = 200
+const BRIEF_ORDERS = 20
+const BRIEF_LOG = 10
 const MAX_SCHEDULES = 20
 const MAX_EQUITY_POINTS = 5000
 const MAX_SESSION_DAYS = 7
@@ -758,6 +762,14 @@ export function realizeFifo(orders: Fill[]): boolean {
   return changed
 }
 
+/** At most `max` points of a curve, evenly spaced, from the first to the latest. */
+export function thinCurve<T>(points: T[], max: number): T[] {
+  if (points.length <= max) return points
+  if (max < 2) return max === 1 ? points.slice(-1) : []
+  const step = (points.length - 1) / (max - 1)
+  return Array.from({ length: max }, (_, i) => points[Math.round(i * step)])
+}
+
 /** Deepest fall from a running peak, in percent (positive). */
 export function maxDrawdownPct(points: EquityPoint[]): number {
   let peak = 0
@@ -1090,17 +1102,41 @@ export class TradingEngine {
     return this.active ? clone(this.active.session) : null
   }
 
+  /** Whether a desk is on screen (the app's or the CLI's), so the app knows whether to push it whole snapshots. */
+  get deskShown(): boolean {
+    return this.deskOpen
+  }
+
   snapshot(): TradingSnapshot {
+    return this.view(false)
+  }
+
+  /**
+   * The snapshot with its history cut short — the equity curve thinned to a
+   * sketch of itself, the latest orders, the latest few entries of each log —
+   * for the pushes made while no desk is on screen. A running session
+   * changes something many times a second, and a whole snapshot (up to 5,000
+   * equity points and fifty sessions' logs) copied and sent each time, to
+   * windows not showing it, kept the app busy. Everything a banner or a
+   * status line reads is whole, stats included; a desk that opens is sent
+   * the full snapshot.
+   */
+  summary(): TradingSnapshot {
+    return this.view(true)
+  }
+
+  private view(brief: boolean): TradingSnapshot {
     const kind = this.config.broker
     const mine = this.orders.filter((o) => o.broker === kind)
     const equity = this.equity[kind]?.points ?? []
+    const session = (s: TradingSession): TradingSession => clone(brief ? { ...s, log: s.log.slice(-BRIEF_LOG) } : s)
     return {
       config: clone(this.config),
       keys: { ...this.keyState },
       account: this.account && this.account.broker === kind ? { ...this.account } : null,
       positions: this.account?.broker === kind ? this.positions.map((p) => ({ ...p, exit: p.exit ? { ...p.exit } : null })) : [],
-      orders: mine.slice(0, ORDERS_SHOWN).map(toPublic),
-      equity: equity.map((p) => ({ ...p })),
+      orders: mine.slice(0, brief ? BRIEF_ORDERS : ORDERS_SHOWN).map(toPublic),
+      equity: (brief ? thinCurve(equity, BRIEF_EQUITY_POINTS) : equity).map((p) => ({ ...p })),
       stats: computeStats({
         orders: mine,
         equity,
@@ -1109,8 +1145,8 @@ export class TradingEngine {
         ordersToday: this.ordersToday(kind)
       }),
       schedules: clone(this.schedules),
-      sessions: clone(this.sessions.slice(0, MAX_SESSIONS)),
-      activeSession: this.activeSession(),
+      sessions: this.sessions.slice(0, MAX_SESSIONS).map(session),
+      activeSession: this.active ? session(this.active.session) : null,
       agent: this.active ? this.agentState(this.active) : null,
       ...(this.claudeWaiting() ? { claudeWaiting: true } : {}),
       needsDisclaimer: this.needsDisclaimer(),

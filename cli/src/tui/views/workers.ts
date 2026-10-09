@@ -408,8 +408,11 @@ export class WorkersView implements View {
 
   private edit(worker: Worker | null): void {
     if (!hasHandler('workers:save')) return this.app.toast(this.loadError ?? 'Workers aren’t available', 'error')
-    const models = availableModels().slice(0, 40)
+    // Every model, not the first 40: a worker pinned to the 41st lost its model on save.
+    const models = availableModels()
     const modelKey = (m: { providerId: string; modelId: string } | null): string => (m ? `${m.providerId}::${m.modelId}` : 'app')
+    // A pinned model that can't be used now stays a choice, so saving the form keeps it.
+    const pinned = worker?.model && !models.some((m) => m.providerId === worker.model!.providerId && m.id === worker.model!.modelId) ? worker.model : null
     const personalities = WORKER_PERSONALITIES.map((p) => ({ value: p.text, label: p.label }))
     const known = personalities.some((p) => p.value === worker?.personality)
     this.app.push(
@@ -435,7 +438,16 @@ export class WorkersView implements View {
           { key: 'personality', label: 'Personality', kind: 'choice', options: known || !worker ? personalities : [...personalities, { value: worker.personality, label: 'Custom' }] },
           { key: 'color', label: 'Colour', kind: 'choice', options: WORKER_COLORS.map((c) => ({ value: c, label: c })) },
           { key: 'access', label: 'Access', kind: 'choice', options: WORKER_ACCESS.map((a) => ({ value: a.id, label: a.label })), hint: '' },
-          { key: 'model', label: 'Model', kind: 'choice', options: [{ value: 'app', label: 'The app’s model' }, ...models.map((m) => ({ value: modelKey({ providerId: m.providerId, modelId: m.id }), label: modelLabel(m) }))] },
+          {
+            key: 'model',
+            label: 'Model',
+            kind: 'choice',
+            options: [
+              { value: 'app', label: 'The app’s model' },
+              ...(pinned ? [{ value: modelKey(pinned), label: `${pinned.modelId} (unavailable)` }] : []),
+              ...models.map((m) => ({ value: modelKey({ providerId: m.providerId, modelId: m.id }), label: modelLabel(m) }))
+            ]
+          },
           { key: 'trading', label: 'Trading', kind: 'choice', options: [{ value: 'off', label: 'Doesn’t trade' }, { value: 'desk', label: 'Trades on the desk' }] },
           { key: 'strategy', label: 'Strategy', kind: 'multiline', visible: (v) => v.trading === 'desk' },
           { key: 'every', label: 'Look every', kind: 'choice', options: TRADING_INTERVALS.map((m) => ({ value: String(m), label: `${m} min` })), visible: (v) => v.trading === 'desk' },

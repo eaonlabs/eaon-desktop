@@ -28,7 +28,7 @@ publisher; `scripts/pack-extension.mjs` leaves it out of the uploaded zip.
 
 ```sh
 node scripts/pack-extension.mjs
-# → dist/eaon-browser-extension-<version>.zip (1.1.0 at the time of writing)
+# → dist/eaon-browser-extension-<version>.zip (1.2.0 at the time of writing)
 ```
 
 The script refuses to pack if the manifest has problems the store would
@@ -67,7 +67,7 @@ Dashboard → **Items** → **New item** → upload the zip. Then fill in each t
 > • Eaon asks for your approval before actions, and always before anything that looks like a purchase, a payment, sending a message, deleting something, or typing a password or card number.
 > • The extension talks only to the Eaon app on your own computer, over a local connection (127.0.0.1). It has no server, no account and no analytics.
 >
-> Requires the Eaon desktop app for macOS or Windows: https://github.com/eaonlabs/eaon-desktop/releases
+> Requires the Eaon desktop app for macOS, Windows or Linux: https://github.com/eaonlabs/eaon-desktop/releases
 
 **Category**: Productivity → Tools (Workflow & Planning also fits)
 
@@ -150,7 +150,7 @@ a GitHub Pages / website page.
 ### Test instructions (shown only to the reviewer)
 
 > This extension requires the free Eaon desktop app, which provides the AI agent that controls the browser.
-> 1. Install Eaon for macOS or Windows from https://github.com/eaonlabs/eaon-desktop/releases and add any model provider API key in Settings → Providers.
+> 1. Install Eaon for macOS, Windows or Linux from https://github.com/eaonlabs/eaon-desktop/releases and add any model provider API key in Settings → Model providers.
 > 2. In Eaon, open Settings → Browser extension. A 6-character pairing code is shown.
 > 3. Click the extension's toolbar icon, enter the code and press Pair. The popup shows "Connected".
 > 4. In Eaon, switch to Work mode and ask: "Open example.com in the browser and tell me what the page says." The agent opens a tab in an "Eaon" tab group, reads the page and answers. The tab shows a blue outline and an "Eaon is using this tab · Stop" bar.

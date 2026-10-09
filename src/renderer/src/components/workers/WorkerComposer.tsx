@@ -13,9 +13,11 @@ import { liveMentions, permissionItems, pluginItems, skillItems, toolMentionItem
 import { removeMention } from '../composer/suggest'
 import { joinTranscript, useDictation } from '../composer/useDictation'
 import { VoiceBar } from '../composer/VoiceBar'
+import { ModelSelect } from '../composer/ModelSelect'
+import { ENGINE_LABEL } from '@shared/engines'
 import { fileName, fileUrl, isImagePath } from '../../lib/files'
 import { mcpCatalogEntry } from '@shared/mcpCatalog'
-import { mentionedWorkers, WORKER_ACCESS, type Worker, type WorkerAccess } from '@shared/workers'
+import { MAIN_THREAD, mentionedWorkers, WORKER_ACCESS, type Worker, type WorkerAccess } from '@shared/workers'
 import type { McpServer } from '@shared/types'
 
 const ACCESS_ICON: Record<WorkerAccess, typeof Zap> = { autonomous: Zap, safe: ShieldCheck, 'read-only': Eye }
@@ -30,7 +32,12 @@ const ACCESS_ICON: Record<WorkerAccess, typeof Zap> = { autonomous: Zap, safe: S
  * "@" mentions colleagues (they get their own copy of the message, see
  * engine.send), plugins and tools; "/" runs the + menu's commands.
  */
-export function WorkerComposer({ worker }: { worker: Worker }): JSX.Element {
+/**
+ * `threadId` is the thread being written to: the main one, another of the
+ * worker's threads, or `'new'` to start a task that runs beside the rest.
+ * Goal belongs to the main thread only.
+ */
+export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Worker; threadId?: string }): JSX.Element {
   const { send, stop, save, workers } = useWorkers(useShallow((s) => ({ send: s.send, stop: s.stop, save: s.save, workers: s.workers })))
   const { settings, mcpServers, saveMcpServers, setSettingsPage, setView } = useApp(
     useShallow((s) => ({
@@ -63,7 +70,9 @@ export function WorkerComposer({ worker }: { worker: Worker }): JSX.Element {
   const dictating = dictation.state !== 'idle'
   const plusAnchor = useRef<HTMLButtonElement>(null)
   const plusMenu = useDisclosure()
-  const working = worker.status === 'working'
+  const info = worker.threads.find((t) => t.id === threadId)
+  const isMain = threadId === MAIN_THREAD
+  const working = isMain ? worker.runningMessageId !== null : Boolean(info?.runningMessageId)
 
   useEffect(() => {
     const node = box.current
@@ -99,16 +108,20 @@ export function WorkerComposer({ worker }: { worker: Worker }): JSX.Element {
   const sources: SuggestSources = {
     '/': () => [
       { id: 'attach', title: 'Add photos and files', keywords: 'attach file image upload', section: 'Add', icon: <Paperclip size={16} strokeWidth={1.8} />, run: pickFiles },
-      {
-        id: 'goal',
-        title: 'Goal',
-        keywords: 'goal aim objective',
-        description: `Make this message ${worker.name}'s goal`,
-        section: 'Modes',
-        icon: <Target size={16} strokeWidth={1.8} />,
-        checked: goalArmed,
-        run: () => setGoalArmed(!goalArmed)
-      },
+      ...(isMain
+        ? [
+            {
+              id: 'goal',
+              title: 'Goal',
+              keywords: 'goal aim objective',
+              description: `Make this message ${worker.name}'s goal`,
+              section: 'Modes',
+              icon: <Target size={16} strokeWidth={1.8} />,
+              checked: goalArmed,
+              run: () => setGoalArmed(!goalArmed)
+            }
+          ]
+        : []),
       ...permissionItems(
         WORKER_ACCESS.map((a) => {
           const Icon = ACCESS_ICON[a.id]
@@ -155,7 +168,10 @@ export function WorkerComposer({ worker }: { worker: Worker }): JSX.Element {
 
   const submit = (): void => {
     if (!text.trim() && files.length === 0) return
-    void send(worker.id, text.trim(), files, goalArmed && text.trim() ? { goal: true } : {})
+    void send(worker.id, text.trim(), files, {
+      ...(isMain && goalArmed && text.trim() ? { goal: true } : {}),
+      ...(isMain ? {} : { threadId })
+    })
     setText('')
     setFiles([])
     setMentions([])
@@ -203,9 +219,13 @@ export function WorkerComposer({ worker }: { worker: Worker }): JSX.Element {
           placeholder={
             worker.paused
               ? `${worker.name} is paused — messages wait until you resume it`
-              : goalArmed
-                ? `Describe ${worker.name}'s goal`
-                : `Message ${worker.name}`
+              : threadId === 'new'
+                ? `Describe a task for ${worker.name} — it runs beside everything else`
+                : goalArmed
+                  ? `Describe ${worker.name}'s goal`
+                  : info
+                    ? `Message ${worker.name} in “${info.title}”`
+                    : `Message ${worker.name}`
           }
           onChange={(e) => {
             setText(e.target.value)
@@ -275,8 +295,30 @@ export function WorkerComposer({ worker }: { worker: Worker }): JSX.Element {
             </div>
           )}
           <div className="composer__spacer" />
+          {/* The model this worker thinks with, chosen here as in Chat (it was only in Edit worker). */}
+          <ModelSelect
+            variant="chip"
+            engine={worker.engine ?? 'native'}
+            label={`${worker.name}’s model`}
+            value={worker.model}
+            defaultLabel={worker.engine && worker.engine !== 'native' ? `${ENGINE_LABEL[worker.engine]}’s default` : 'Chat’s model'}
+            onChange={(ref) =>
+              void save({
+                id: worker.id,
+                name: worker.name,
+                color: worker.color,
+                personality: worker.personality,
+                purpose: worker.purpose,
+                model: ref && ref.modelId ? { providerId: ref.providerId ?? worker.engine ?? 'native', modelId: ref.modelId } : null
+              })
+            }
+          />
           {working && (
-            <button className="chip worker-stop" onClick={() => void stop(worker.id)} title={`Stop what ${worker.name} is doing now`}>
+            <button
+              className="chip worker-stop"
+              onClick={() => void stop(worker.id, threadId)}
+              title={isMain ? `Stop what ${worker.name} is doing in this conversation; its other tasks carry on` : `Stop this task; ${worker.name}'s other work carries on`}
+            >
               <Square size={10} strokeWidth={0} fill="currentColor" />
               <span className="chip__label">Stop</span>
             </button>
@@ -304,6 +346,7 @@ export function WorkerComposer({ worker }: { worker: Worker }): JSX.Element {
         onClose={plusMenu.close}
         onAttach={pickFiles}
         goalArmed={goalArmed}
+        canGoal={isMain}
         onGoal={() => {
           setGoalArmed(!goalArmed)
           box.current?.focus()
@@ -341,6 +384,7 @@ function WorkerAddMenu({
   onClose,
   onAttach,
   goalArmed,
+  canGoal,
   onGoal,
   hasBrowser,
   onBrowser,
@@ -352,6 +396,8 @@ function WorkerAddMenu({
   onClose: () => void
   onAttach: () => void
   goalArmed: boolean
+  /** Goal is for the main conversation; a side thread has none. */
+  canGoal: boolean
   onGoal: () => void
   hasBrowser: boolean
   onBrowser: () => void
@@ -382,18 +428,22 @@ function WorkerAddMenu({
         }}
       />
 
-      <div className="menu__label">Modes</div>
-      <MenuItem
-        icon={<Target size={16} strokeWidth={1.8} />}
-        title="Goal"
-        hint={goalArmed ? undefined : `Set ${worker.name}'s goal`}
-        checked={goalArmed}
-        onMouseEnter={() => setSub(null)}
-        onClick={() => {
-          onGoal()
-          close()
-        }}
-      />
+      {canGoal && (
+        <>
+          <div className="menu__label">Modes</div>
+          <MenuItem
+            icon={<Target size={16} strokeWidth={1.8} />}
+            title="Goal"
+            hint={goalArmed ? undefined : `Set ${worker.name}'s goal`}
+            checked={goalArmed}
+            onMouseEnter={() => setSub(null)}
+            onClick={() => {
+              onGoal()
+              close()
+            }}
+          />
+        </>
+      )}
 
       <div className="menu__label">Tools</div>
       <MenuItem

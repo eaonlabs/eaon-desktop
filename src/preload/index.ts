@@ -1,4 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import type { PostReviewResult, PrReview, ReviewState, StartReviewResult } from '@shared/prReview'
+import type { LinearIssuesResult, LinearStatus, StartIssueResult } from '@shared/linear'
 import type {
   Chat,
   DownloadedModel,
@@ -31,6 +33,7 @@ import { discordApi } from './features/discordPresence'
 import { modelLibraryApi } from './features/modelLibrary'
 import { libraryApi } from './features/library'
 import { terminalsApi } from './features/terminals'
+import { adeApi } from './features/ade'
 import { workersApi } from './features/workers'
 import { channelsApi } from './features/channels'
 import { agentBrowserApi } from './features/agentBrowser'
@@ -42,12 +45,29 @@ import { connectAppsApi } from './features/connectApps'
 import { linkAccountsApi } from './features/linkAccounts'
 import { usageApi } from './features/usage'
 import { paymentsApi } from './features/payments'
+import { enginesApi } from './features/engines'
+import { storageApi } from './features/storage'
+import { remoteApi } from './features/remote'
+import { controlApi } from './features/control'
+import { starApi } from './features/star'
+import { cliAccountsApi } from './features/cliAccounts'
 
 /** Subscribes to a main-process event; returns the unsubscribe. */
 function on<T>(channel: string, handler: (payload: T) => void): () => void {
   const listener = (_e: unknown, payload: T): void => handler(payload)
   ipcRenderer.on(channel, listener)
   return () => ipcRenderer.removeListener(channel, listener)
+}
+
+const MENU_CHANNELS = ['menu:settings', 'menu:new-chat', 'menu:archive-chat', 'menu:toggle-sidebar', 'menu:toggle-panel']
+let menuHandler: ((command: string) => void) | null = null
+const menuQueue: string[] = []
+for (const channel of MENU_CHANNELS) {
+  ipcRenderer.on(channel, () => {
+    const command = channel.replace('menu:', '')
+    if (menuHandler) menuHandler(command)
+    else menuQueue.push(command)
+  })
 }
 
 const api = {
@@ -80,7 +100,8 @@ const api = {
      * Saves the chats this window changed and the ones it deleted; main merges
      * them into the one list every window shares and tells the other windows.
      */
-    apply: (upserts: Chat[], removed: string[]): Promise<void> => ipcRenderer.invoke('chats:apply', upserts, removed),
+    /** `checkpoint`: a save made while a reply is still streaming; main writes it but doesn't send it to the other windows. */
+    apply: (upserts: Chat[], removed: string[], checkpoint = false): Promise<void> => ipcRenderer.invoke('chats:apply', upserts, removed, checkpoint),
     /** Another window (or a scheduled run) changed these chats. */
     onChanged: (handler: (change: { upserts: Chat[]; removed: string[] }) => void): (() => void) => on('chats:changed', handler),
     /** Replies being written right now, in any window: not to be marked interrupted on load. */
@@ -117,6 +138,21 @@ const api = {
   },
   github: {
     pullRequests: (): Promise<PullRequestsResult> => ipcRenderer.invoke('github:pull-requests')
+  },
+  /** A pull request reviewed by an agent in the ADE, posted by the person (shared/prReview.ts). */
+  prReview: {
+    start: (url: string): Promise<StartReviewResult> => ipcRenderer.invoke('pr-review:start', url),
+    list: (): Promise<ReviewState[]> => ipcRenderer.invoke('pr-review:list'),
+    post: (url: string, review: PrReview): Promise<PostReviewResult> => ipcRenderer.invoke('pr-review:post', url, review)
+  },
+  /** Linear issues as ADE sessions (shared/linear.ts). */
+  linear: {
+    status: (): Promise<LinearStatus> => ipcRenderer.invoke('linear:status'),
+    connect: (key: string): Promise<LinearStatus> => ipcRenderer.invoke('linear:connect', key),
+    disconnect: (): Promise<LinearStatus> => ipcRenderer.invoke('linear:disconnect'),
+    issues: (): Promise<LinearIssuesResult> => ipcRenderer.invoke('linear:issues'),
+    start: (issueId: string, project: string): Promise<StartIssueResult> => ipcRenderer.invoke('linear:start', issueId, project),
+    sync: (): Promise<void> => ipcRenderer.invoke('linear:sync')
   },
   codeIndex: {
     status: (cwd: string | null): Promise<IndexStatus> => ipcRenderer.invoke('index:status', cwd),
@@ -156,7 +192,10 @@ const api = {
     clear: (id: string): Promise<Provider[]> => ipcRenderer.invoke('keys:clear', id),
     hint: (id: string): Promise<string | null> => ipcRenderer.invoke('keys:hint', id),
     reveal: (id: string): Promise<string | null> => ipcRenderer.invoke('keys:reveal', id),
+    /** A masked hint per fallback key ("sk-p…a1b2"); the keys themselves stay in main. */
     getFallbacks: (id: string): Promise<string[]> => ipcRenderer.invoke('keys:get-fallbacks', id),
+    addFallback: (id: string, key: string): Promise<Provider[]> => ipcRenderer.invoke('keys:add-fallback', id, key),
+    removeFallback: (id: string, index: number): Promise<Provider[]> => ipcRenderer.invoke('keys:remove-fallback', id, index),
     setFallbacks: (id: string, keys: string[]): Promise<Provider[]> =>
       ipcRenderer.invoke('keys:set-fallbacks', id, keys)
   },
@@ -181,8 +220,13 @@ const api = {
   },
   app: {
     openExternal: (url: string): Promise<void> => ipcRenderer.invoke('app:open-external', url),
-    showItem: (path: string): Promise<void> => ipcRenderer.invoke('app:show-item', path),
+    /** macOS: System Settings at Privacy & Security → Files and Folders. */
+    openFolderPrivacy: (): Promise<void> => ipcRenderer.invoke('app:open-folder-privacy'),
+    /** Shows the file or folder in Finder/Explorer; false when it doesn't exist. */
+    showItem: (path: string): Promise<boolean> => ipcRenderer.invoke('app:show-item', path),
     version: (): Promise<string> => ipcRenderer.invoke('app:version'),
+    /** This version's GitHub release page when it has one, else the list of releases. */
+    openReleaseNotes: (): Promise<void> => ipcRenderer.invoke('app:open-release-notes'),
     /** Records a renderer error in crashes.log (main/crashGuard.ts). */
     reportError: (report: { message: string; stack?: string; source?: string }): void => ipcRenderer.send('app:report-error', report),
     /** Background mode for scheduled tasks; see main/background.ts. */
@@ -193,40 +237,40 @@ const api = {
       ipcRenderer.invoke('dialog:open-files', options),
     /** Absolute path of a file dropped onto the window (File.path was removed in Electron 32). */
     pathForFile: (file: File): string => webUtils.getPathForFile(file),
+    /**
+     * App-menu commands. Listened for from the start and held until the app
+     * subscribes, so a command that opened this window (New Chat with every
+     * window closed) isn't sent before anything is listening.
+     */
     onMenu: (handler: (command: string) => void): (() => void) => {
-      const channels = [
-        'menu:settings',
-        'menu:new-chat',
-        'menu:new-temp-chat',
-        'menu:archive-chat',
-        'menu:toggle-sidebar',
-        'menu:toggle-panel'
-      ]
-      const listeners = channels.map((channel) => {
-        const listener = (): void => handler(channel.replace('menu:', ''))
-        ipcRenderer.on(channel, listener)
-        return () => ipcRenderer.removeListener(channel, listener)
-      })
-      return () => listeners.forEach((off) => off())
+      menuHandler = handler
+      for (const command of menuQueue.splice(0)) handler(command)
+      return () => {
+        if (menuHandler === handler) menuHandler = null
+      }
     }
   },
   updater: {
     status: (): Promise<UpdateStatus> => ipcRenderer.invoke('updater:status'),
     check: (): Promise<void> => ipcRenderer.invoke('updater:check'),
-    /** On a stable build: the beta Eaon found, if any. Nothing is downloaded until it is accepted. */
-    beta: (): Promise<{ version: string } | null> => ipcRenderer.invoke('updater:beta'),
-    /** Shows the beta warning; on a yes the beta downloads and installs on restart. */
-    tryBeta: (): Promise<void> => ipcRenderer.invoke('updater:try-beta'),
-    onBeta: (handler: (beta: { version: string } | null) => void): (() => void) => {
-      const listener = (_e: unknown, payload: { version: string } | null): void => handler(payload)
-      ipcRenderer.on('updater:beta', listener)
-      return () => ipcRenderer.removeListener('updater:beta', listener)
-    },
+    /** A beta build only: download the latest stable release and install it on restart. */
+    switchToStable: (): Promise<void> => ipcRenderer.invoke('updater:switch-to-stable'),
     install: (): Promise<void> => ipcRenderer.invoke('updater:install'),
     onStatus: (handler: (status: UpdateStatus) => void): (() => void) => {
       const listener = (_e: unknown, payload: UpdateStatus): void => handler(payload)
       ipcRenderer.on('updater:status', listener)
       return () => ipcRenderer.removeListener('updater:status', listener)
+    },
+    /** Beta updates: a track of their own, separate from the stable one above. */
+    betaStatus: (): Promise<UpdateStatus> => ipcRenderer.invoke('updater:beta-status'),
+    checkBeta: (): Promise<void> => ipcRenderer.invoke('updater:check-beta'),
+    downloadBeta: (): Promise<void> => ipcRenderer.invoke('updater:download-beta'),
+    /** The "beta updates" setting was changed: look now, or forget what was found. */
+    betaChanged: (): Promise<void> => ipcRenderer.invoke('updater:beta-changed'),
+    onBetaStatus: (handler: (status: UpdateStatus) => void): (() => void) => {
+      const listener = (_e: unknown, payload: UpdateStatus): void => handler(payload)
+      ipcRenderer.on('updater:beta-status', listener)
+      return () => ipcRenderer.removeListener('updater:beta-status', listener)
     }
   },
   models: {
@@ -261,6 +305,7 @@ const fullApi = {
   modelLibrary: modelLibraryApi,
   library: libraryApi,
   terminals: terminalsApi,
+  ade: adeApi,
   workers: workersApi,
   channels: channelsApi,
   agentBrowser: agentBrowserApi,
@@ -271,7 +316,13 @@ const fullApi = {
   connectApps: connectAppsApi,
   linkAccounts: linkAccountsApi,
   usage: usageApi,
-  payments: paymentsApi
+  payments: paymentsApi,
+  engines: enginesApi,
+  storage: storageApi,
+  remote: remoteApi,
+  control: controlApi,
+  star: starApi,
+  cliAccounts: cliAccountsApi
 }
 
 contextBridge.exposeInMainWorld('api', fullApi)

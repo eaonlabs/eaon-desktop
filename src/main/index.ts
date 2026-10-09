@@ -5,12 +5,17 @@ import { extname, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import type { Chat, McpServer, Project, Provider, Settings, StreamEvent, StreamRequest, ThemePalette, UpdateStatus, Workspace } from '@shared/types'
 import { store } from './store'
+import { prepareStore } from './migrations'
+import { dismissProblem, onStoreHealth, problemFile, storeHealth } from './storeFiles'
 import { secrets } from './secrets'
 import type { ModelEdit } from '@shared/providers'
-import { editModels, listProviders, refreshModels, refreshProviderModels, removeProvider, testProvider, updateProvider } from './providers'
+import { clearProviderHealth, editModels, getProvider, listProviders, refreshModels, refreshProviderModels, removeProvider, testProvider, updateProvider } from './providers'
 import { refreshLocalProviders } from './providers/localDiscovery'
 import { refreshCatalogInBackground } from './providers/modelCatalog'
+import { startModelFreshness } from './providers/freshness'
 import { resolveApproval } from './agent/approvals'
+import { hardenAppWindow, openExternalSafely } from './externalLinks'
+import { catalogRowsPinned, providerKeyId } from './ipcGuards'
 import { activeRunIds, cancelRun, pauseGoal, runAgent } from './agent/loop'
 import './agent/sources'
 import { killBackgroundProcesses } from './localTools'
@@ -21,17 +26,33 @@ import { getStatuses, getTools, setMcpStatusListener, shutdownMcp, syncMcpServer
 import { forgetServer } from './mcpOAuth'
 import { getLocalServerStatus, setLocalServerListener, startLocalServer, stopLocalServer } from './localServer'
 import { getSystemInfo } from './system'
-import { askAboutBeta, betaOffer, checkForUpdates, getUpdateStatus, initUpdater, quitAndInstall } from './updater'
+import {
+  betaOptionChanged,
+  checkForBetaUpdates,
+  checkForUpdates,
+  downloadBetaUpdate,
+  getBetaStatus,
+  getUpdateStatus,
+  initUpdater,
+  quitAndInstall,
+  switchToStable
+} from './updater'
 import { listPullRequests } from './github'
 import { buildIndex, cancelIndexing, clearIndex, getIndexStatus, setIndexStatusListener } from './codeIndex'
 import { describeEmbeddingState, embeddingModels } from './embeddings'
 import { cancelAllDownloads, deleteDownloadedModel, downloadModel, getDownloadedModels, getModelDetail, searchModels } from './modelHub'
 import { applyRunAtLogin, backgroundSupported, launchedInBackground, syncTray } from './background'
-import { crashLogPath, installCrashGuard } from './crashGuard'
+import { crashLogPath, installCrashGuard, logCrash } from './crashGuard'
 import { applyAppIcon, currentAppIconFile } from './appIcon'
+import { DOCS_URL, ISSUES_URL, releaseNotesUrl } from '@shared/links'
 
 const here = join(fileURLToPath(import.meta.url), '..')
 app.setName('Eaon')
+// Windows groups taskbar buttons and files notifications by this id. The
+// installer stamps its shortcuts with the appId from electron-builder.yml;
+// left to Electron's default, notifications showed under the wrong name and
+// the running window didn't group with the pinned shortcut.
+if (process.platform === 'win32') app.setAppUserModelId('dev.eaon.desktop')
 
 /**
  * One Eaon per profile. Two would run every scheduled task twice and write
@@ -42,7 +63,7 @@ app.setName('Eaon')
 const primaryInstance = Boolean(process.env['EAON_CAPTURE']) || app.requestSingleInstanceLock()
 if (!primaryInstance) app.quit()
 // Crash logging and recovery, before anything else can throw; see crashGuard.ts.
-if (primaryInstance) installCrashGuard()
+if (primaryInstance) installCrashGuard(isAppWindow)
 
 /**
  * `eaon-file://` serves screenshots and attached images to the renderer. The
@@ -65,6 +86,15 @@ let lastFocused: BrowserWindow | null = null
 
 function openWindows(): BrowserWindow[] {
   return [...appWindows].filter((window) => !window.isDestroyed())
+}
+
+/**
+ * True for the page of an Eaon window. The crash guard reloads only these:
+ * a worker's hidden browser is a window too, and reloading it behind the
+ * agent's back used up the reload budget meant for the app.
+ */
+function isAppWindow(contents: Electron.WebContents): boolean {
+  return openWindows().some((window) => window.webContents.id === contents.id)
 }
 
 /** The window to act on: the focused Eaon window, else the one last in front, else the newest. */
@@ -120,10 +150,10 @@ function wantsVibrancy(settings: Settings): boolean {
 }
 
 /**
- * Windows draws its caption buttons over the page instead of giving us a
- * traffic-light gap, so the overlay has to be told what to paint behind them.
- * There is no vibrancy on Windows, so the theme's own background is the honest
- * answer; the symbols flip with the palette so they stay legible.
+ * Windows and Linux draw the caption buttons over the page instead of giving
+ * us a traffic-light gap, so the overlay has to be told what to paint behind
+ * them. There is no vibrancy there, so the theme's own background is the
+ * honest answer; the symbols flip with the palette so they stay legible.
  */
 function titleBarOverlayFor(settings: Settings): { color: string; symbolColor: string; height: number } {
   const palette = activePalette(settings)
@@ -150,13 +180,28 @@ function titleBarOverlayFor(settings: Settings): { color: string; symbolColor: s
  */
 function applyWindowAppearance(settings: Settings): void {
   nativeTheme.themeSource = settings.appearance.mode
-  for (const window of openWindows()) {
-    if (isMac) {
+  if (isMac) {
+    for (const window of openWindows()) {
       window.setVibrancy(wantsVibrancy(settings) ? 'sidebar' : null)
       pinTrafficLights(window)
-    } else if (process.platform === 'win32') {
-      // Windows: repaint the caption-button strip to match the new theme.
+    }
+  }
+  applyTitleBarOverlays(settings)
+}
+
+/**
+ * Repaints the caption-button strip on Windows and Linux to match the theme.
+ * Kept apart from applyWindowAppearance so an OS light/dark switch can call
+ * it: that one sets themeSource, which fires nativeTheme's 'updated' again.
+ */
+function applyTitleBarOverlays(settings: Settings): void {
+  if (isMac) return
+  for (const window of openWindows()) {
+    try {
       window.setTitleBarOverlay(titleBarOverlayFor(settings))
+    } catch (error) {
+      // A window manager without overlay support keeps the old colours; the theme still changes.
+      console.error('[window] could not repaint the title bar overlay:', error)
     }
   }
 }
@@ -196,8 +241,8 @@ function createWindow(): BrowserWindow {
     minHeight: 520,
     show: false,
     // macOS hides the title bar but keeps the traffic lights, which we position
-    // inside the sidebar panel. Windows has no equivalent, so it gets the
-    // Window Controls Overlay instead: the caption buttons are drawn over the
+    // inside the sidebar panel. Windows and Linux have no equivalent, so they get
+    // the Window Controls Overlay instead: the caption buttons are drawn over the
     // page at the top *right*, which is why the header padding flips sides in
     // the renderer (see --window-controls-left/right in tokens.css).
     ...(isMac
@@ -264,10 +309,10 @@ function createWindow(): BrowserWindow {
     }
   })
 
-  window.webContents.setWindowOpenHandler(({ url }) => {
-    shell.openExternal(url)
-    return { action: 'deny' }
-  })
+  // New windows open in the user's browser (web and email links only), the
+  // window never navigates away from the app, and the browser panel's
+  // <webview> gets no Node and no popups (externalLinks.ts).
+  hardenAppWindow(window)
 
   const devServer = process.env['ELECTRON_RENDERER_URL']
   if (devServer) window.loadURL(devServer)
@@ -275,9 +320,34 @@ function createWindow(): BrowserWindow {
   return window
 }
 
+/**
+ * Opens the running version's release notes: its GitHub release when there is
+ * one, else the list of releases (shared/links.ts). A HEAD request decides;
+ * it is capped so a slow network still opens something within a few seconds.
+ */
+async function openReleaseNotes(): Promise<void> {
+  const url = await releaseNotesUrl(app.getVersion(), async (tag) => {
+    const response = await fetch(tag, { method: 'HEAD', signal: AbortSignal.timeout(4000) })
+    return response.ok
+  })
+  await shell.openExternal(url)
+}
+
 function buildMenu(): void {
-  const send = (channel: string, ...args: unknown[]): void => {
-    BrowserWindow.getFocusedWindow()?.webContents.send(channel, ...args)
+  // To the Eaon window in front, not whatever window has focus: with the
+  // computer-use pill focused that was the pill, and the command was lost.
+  const send = (channel: string): void => {
+    currentWindow()?.webContents.send(channel)
+  }
+  // New Chat and Settings… also work with every window closed (macOS keeps
+  // running): they open one and pass the command on once its page has
+  // loaded. The preload holds it until the app is listening.
+  const sendOrOpen = (channel: string): void => {
+    if (currentWindow()) return send(channel)
+    const window = createWindow()
+    window.webContents.once('did-finish-load', () => {
+      if (!window.isDestroyed()) window.webContents.send(channel)
+    })
   }
   const template: Electron.MenuItemConstructorOptions[] = [
     {
@@ -286,7 +356,7 @@ function buildMenu(): void {
         { role: 'about' },
         { label: 'Check for Updates…', click: () => void checkForUpdates({ interactive: true }) },
         { type: 'separator' },
-        { label: 'Settings…', accelerator: 'Cmd+,', click: () => send('menu:settings') },
+        { label: 'Settings…', accelerator: 'CmdOrCtrl+,', click: () => sendOrOpen('menu:settings') },
         { type: 'separator' },
         { role: 'hide' },
         { role: 'hideOthers' },
@@ -297,20 +367,19 @@ function buildMenu(): void {
     {
       label: 'File',
       submenu: [
-        { label: 'New Chat', accelerator: 'Cmd+N', click: () => send('menu:new-chat') },
-        { label: 'New Temporary Chat', accelerator: 'Shift+Cmd+N', click: () => send('menu:new-temp-chat') },
+        { label: 'New Chat', accelerator: 'CmdOrCtrl+N', click: () => sendOrOpen('menu:new-chat') },
         // ⌥⌘N, as in Mail's New Viewer Window: ⌘N is already New Chat.
         { label: 'New Window', accelerator: 'Alt+CmdOrCtrl+N', click: () => void createWindow() },
         { type: 'separator' },
-        { label: 'Archive Chat', accelerator: 'Shift+Cmd+A', click: () => send('menu:archive-chat') }
+        { label: 'Archive Chat', accelerator: 'Shift+CmdOrCtrl+A', click: () => send('menu:archive-chat') }
       ]
     },
     { role: 'editMenu' },
     {
       label: 'View',
       submenu: [
-        { label: 'Toggle Sidebar', accelerator: 'Cmd+B', click: () => send('menu:toggle-sidebar') },
-        { label: 'Toggle Browser Panel', accelerator: 'Shift+Cmd+B', click: () => send('menu:toggle-panel') },
+        { label: 'Toggle Sidebar', accelerator: 'CmdOrCtrl+B', click: () => send('menu:toggle-sidebar') },
+        { label: 'Toggle Browser Panel', accelerator: 'Shift+CmdOrCtrl+B', click: () => send('menu:toggle-panel') },
         { type: 'separator' },
         { role: 'reload' },
         { role: 'toggleDevTools' },
@@ -326,6 +395,10 @@ function buildMenu(): void {
     {
       role: 'help',
       submenu: [
+        { label: 'Eaon Documentation', click: () => void shell.openExternal(DOCS_URL) },
+        { label: 'Release Notes', click: () => void openReleaseNotes() },
+        { label: 'Report an Issue…', click: () => void shell.openExternal(ISSUES_URL) },
+        { type: 'separator' },
         {
           label: 'Show Crash Log',
           click: () => {
@@ -382,6 +455,14 @@ function frameBatched(send: (event: StreamEvent) => void): {
 }
 
 function registerIpc(): void {
+  // Saved data repaired at startup, or a save that is failing: every window shows it (storeFiles.ts).
+  ipcMain.handle('store:health', () => storeHealth())
+  ipcMain.handle('store:dismiss', (_e, id: string) => dismissProblem(String(id)))
+  ipcMain.handle('store:reveal', (_e, id: string) => {
+    const path = problemFile(String(id))
+    if (path) shell.showItemInFolder(path)
+  })
+  onStoreHealth((health) => broadcast('store:health', health))
   ipcMain.handle('settings:get', (): Settings => store.getSettings())
   // Each window keeps its own copy of these, so a change made in one is sent
   // to the others; see the matching listeners in the renderer's store.
@@ -407,14 +488,18 @@ function registerIpc(): void {
   })
   ipcMain.handle('chats:get', (): Chat[] => store.getChats())
   // Returns nothing: echoing chats back cloned them across IPC again for a reply nobody read.
-  ipcMain.handle('chats:apply', (e, upserts: Chat[], removed: string[]): void => {
+  ipcMain.handle('chats:apply', (e, upserts: Chat[], removed: string[], checkpoint?: boolean): void => {
     store.applyChats(upserts, removed)
-    broadcast('chats:changed', { upserts, removed }, e.sender)
+    // A save made while a reply is still streaming is only for the disk: the
+    // other windows have the reply live, and this copy lags it by a few tokens.
+    if (checkpoint !== true) broadcast('chats:changed', { upserts, removed }, e.sender)
   })
   ipcMain.handle('chat:active-runs', (): string[] => activeRunIds())
   ipcMain.handle('window:new', () => void createWindow())
   ipcMain.handle('mcp:get', (): McpServer[] => store.getMcpServers())
-  ipcMain.handle('mcp:save', (_e, value: McpServer[]) => {
+  ipcMain.handle('mcp:save', (_e, raw: McpServer[]) => {
+    // Catalog plugins connect only to their vendor's server (ipcGuards.ts).
+    const value = catalogRowsPinned(raw)
     // A hand-added server deleted here takes its sign-in with it; left in the
     // vault, its tokens outlived it and a new server that reused the id
     // inherited them. Catalog plugins sign out through plugins:disconnect.
@@ -472,15 +557,25 @@ function registerIpc(): void {
   ipcMain.handle('providers:edit-models', (_e, id: string, edit: ModelEdit) => editModels(id, edit))
   ipcMain.handle('providers:test', (_e, id: string) => testProvider(id))
 
+  // Model-provider keys only: the vault's namespaced entries (plugin and
+  // chat-app tokens, the payment card, OAuth) are not the renderer's to
+  // read back, replace or clear (ipcGuards.ts).
+  const providerKey = (id: unknown): string => providerKeyId(id, listProviders().map((p) => p.id))
+  // A new or removed key makes the last check's verdict ("key rejected") stale.
   ipcMain.handle('keys:set', (_e, id: string, key: string) => {
-    secrets.set(id, key)
+    if (typeof key !== 'string') throw new Error('A key is text.')
+    const keyId = providerKey(id)
+    secrets.set(keyId, key)
+    clearProviderHealth(keyId)
     return listProviders()
   })
   ipcMain.handle('keys:clear', (_e, id: string) => {
-    secrets.clear(id)
+    const keyId = providerKey(id)
+    secrets.clear(keyId)
+    clearProviderHealth(keyId)
     return listProviders()
   })
-  ipcMain.handle('keys:hint', (_e, id: string) => secrets.hint(id))
+  ipcMain.handle('keys:hint', (_e, id: string) => secrets.hint(providerKey(id)))
   // Decrypts on demand for the user's own reveal/copy click — never held in
   // renderer state; `keys:hint` above stays the default, ambient-safe signal.
   // Only model-provider keys the user typed in. The vault also holds plugin
@@ -489,9 +584,28 @@ function registerIpc(): void {
   ipcMain.handle('keys:reveal', (_e, id: string) =>
     listProviders().some((p) => p.id === id && p.auth !== 'oauth') ? (secrets.get(id) ?? null) : null
   )
-  ipcMain.handle('keys:get-fallbacks', (_e, id: string) => secrets.getFallbacks(id))
+  // Fallback keys never cross into the renderer: it gets a masked hint per
+  // key (enough to tell them apart) and adds or removes one at a time.
+  ipcMain.handle('keys:get-fallbacks', (_e, id: string) =>
+    secrets.getFallbacks(providerKey(id)).map((key) => (key.length > 12 ? `${key.slice(0, 4)}…${key.slice(-4)}` : '••••'))
+  )
+  ipcMain.handle('keys:add-fallback', (_e, id: string, key: string) => {
+    const keyId = providerKey(id)
+    if (typeof key === 'string' && key.trim()) secrets.setFallbacks(keyId, [...secrets.getFallbacks(keyId), key.trim()])
+    clearProviderHealth(keyId)
+    return listProviders()
+  })
+  ipcMain.handle('keys:remove-fallback', (_e, id: string, index: number) => {
+    const keyId = providerKey(id)
+    secrets.setFallbacks(
+      keyId,
+      secrets.getFallbacks(keyId).filter((_, i) => i !== index)
+    )
+    return listProviders()
+  })
   ipcMain.handle('keys:set-fallbacks', (_e, id: string, keys: string[]) => {
-    secrets.setFallbacks(id, keys)
+    if (!Array.isArray(keys) || !keys.every((key) => typeof key === 'string')) throw new Error('Fallback keys are a list of text.')
+    secrets.setFallbacks(providerKey(id), keys)
     return listProviders()
   })
 
@@ -528,11 +642,23 @@ function registerIpc(): void {
   ipcMain.handle('chat:pause-goal', (_e, messageId: string) => pauseGoal(messageId))
   ipcMain.handle('chat:approve', (_e, requestId: string, approved: boolean) => resolveApproval(requestId, approved))
 
-  ipcMain.handle('app:open-external', (_e, url: string) => shell.openExternal(url))
+  ipcMain.handle('app:open-external', (_e, url: string) => openExternalSafely(url))
+  // Privacy & Security → Files and Folders, where Eaon is let into Downloads, Documents and Desktop.
+  ipcMain.handle('app:open-folder-privacy', () => {
+    if (isMac) return shell.openExternal('x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders')
+  })
   // `~` arrives from the renderer, which has no idea where home is; Work's
   // default folder is displayed as ~/Eaon until the first task creates it.
-  ipcMain.handle('app:show-item', (_e, path: string) => shell.showItemInFolder(path.replace(/^~(?=\/|$)/, homedir())))
+  // False when there's nothing there: showItemInFolder does nothing at all
+  // for a missing path, so the renderer says so instead.
+  ipcMain.handle('app:show-item', (_e, path: string) => {
+    const resolved = String(path).replace(/^~(?=\/|$)/, homedir())
+    if (!existsSync(resolved)) return false
+    shell.showItemInFolder(resolved)
+    return true
+  })
   ipcMain.handle('app:version', () => app.getVersion())
+  ipcMain.handle('app:open-release-notes', () => openReleaseNotes())
   ipcMain.handle('background:get', () => ({ supported: backgroundSupported(), enabled: runsInBackground() }))
   ipcMain.handle('background:set', async (_e, enabled: boolean) => {
     if (!backgroundSupported()) throw new Error('Running in the background is not available on this system.')
@@ -544,12 +670,21 @@ function registerIpc(): void {
 
   ipcMain.handle('updater:status', (): UpdateStatus => getUpdateStatus())
   ipcMain.handle('updater:check', () => checkForUpdates())
-  ipcMain.handle('updater:beta', () => betaOffer())
-  ipcMain.handle('updater:try-beta', () => askAboutBeta(false))
+  ipcMain.handle('updater:switch-to-stable', () => switchToStable())
+  // Beta updates are their own track (main/updates.ts): looked for when the user
+  // turns them on, offered with a Download button, never downloaded unasked.
+  ipcMain.handle('updater:beta-status', (): UpdateStatus => getBetaStatus())
+  ipcMain.handle('updater:check-beta', () => checkForBetaUpdates())
+  ipcMain.handle('updater:download-beta', () => downloadBetaUpdate())
+  ipcMain.handle('updater:beta-changed', () => betaOptionChanged())
   ipcMain.handle('updater:install', async () => {
-    // Flushed here rather than by holding the quit in before-quit/will-quit,
-    // which the updater's own quit-and-relaunch must not wait on.
-    await flushPendingWrites()
+    // Cleaned up and flushed here rather than by holding the quit in
+    // before-quit/will-quit, which the updater's own quit-and-relaunch must
+    // not wait on. Starting the cleanup without waiting for it exited under
+    // node-pty's reaping (SIGABRT), orphaned MCP servers and lost the
+    // terminal panes' restore state.
+    beginShutdown()
+    await Promise.all([flushPendingWrites(), mcpShutdown, featureShutdown])
     flushedBeforeClose = true
     flushedAfterClose = true
     quitAndInstall()
@@ -626,8 +761,11 @@ function openMainWindow(): void {
 
 const runsInBackground = (): boolean => backgroundSupported() && store.getSettings().background.enabled
 
-app.on('second-instance', () => {
-  if (app.isReady()) openMainWindow()
+app.on('second-instance', (_event, argv) => {
+  // The background agent starts as soon as it is registered (SMAppService
+  // loads it then, not just at the next login); this Eaon is already running,
+  // so that start only hands over. A window would jump forward for nothing.
+  if (app.isReady() && !launchedInBackground(argv)) openMainWindow()
 })
 
 // Workers' own browsers (BetterWright, features/workers/browser.ts) route
@@ -647,15 +785,32 @@ app.whenReady().then(async () => {
   protocol.handle('eaon-file', (request) => {
     let path = decodeURIComponent(new URL(request.url).pathname)
     if (process.platform === 'win32') path = path.replace(/^\/([a-zA-Z]:)/, '$1')
+    // A UNC path (//host/share, \\host\share) is fetched over SMB, and Windows
+    // hands the user's NTLM hash to whatever host it names. Only local files.
+    if (/^[\\/]{2}/.test(path)) return new Response('Not found', { status: 404 })
     if (!SERVABLE_IMAGES.has(extname(path).toLowerCase())) return new Response('Not found', { status: 404 })
     return net.fetch(pathToFileURL(path).toString())
   })
+  // Everything up to the window is a step that may fail on its own (a store
+  // file Windows won't let us rewrite, say). Each failure is logged and
+  // startup carries on: a process with no window and no IPC still holds the
+  // single-instance lock, so every later launch handed over to it and Eaon
+  // looked like it would never open again. IPC goes first for the same reason.
+  const step = (name: string, run: () => void): void => {
+    try {
+      run()
+    } catch (error) {
+      logCrash(`startup: ${name}`, error)
+    }
+  }
+  step('ipc', registerIpc)
   // The Dock icon picked in Settings → Appearance. In a packaged app the
   // default is the bundle's own icon; a dev run would otherwise show the
   // generic Electron icon, so it always sets one (appIcon.ts).
-  applyAppIcon(store.getSettings().appearance.appIcon, appWindows)
-  store.migrateWorkspaces()
-  store.applyLaunchMode()
+  step('app icon', () => applyAppIcon(store.getSettings().appearance.appIcon, appWindows))
+  // Migrations due, plus the repairs that run every launch; see migrations.ts.
+  step('store', () => prepareStore())
+  step('launch mode', () => store.applyLaunchMode())
   if (process.env['EAON_CAPTURE']) {
     // Start every capture run from the same baseline.
     store.patchSettings({ appearance: { ...store.getSettings().appearance, mode: 'dark' } })
@@ -666,14 +821,20 @@ app.whenReady().then(async () => {
   // Must be set before createWindow: the vibrancy view is built with whatever
   // appearance is active at creation time. applyWindowAppearance() keeps it in
   // sync afterwards.
-  nativeTheme.themeSource = settings.appearance.mode
-  registerIpc()
-  buildMenu()
+  step('theme', () => {
+    nativeTheme.themeSource = settings.appearance.mode
+  })
+  step('menu', buildMenu)
   // Started at login for scheduled tasks: no window until someone asks for one.
   if (!launchedInBackground()) createWindow()
-  initUpdater(openWindows)
-  // macOS switching light/dark by itself (Auto appearance) lays the titlebar out again too.
-  nativeTheme.on('updated', () => openWindows().forEach(pinTrafficLights))
+  step('updater', () => initUpdater(openWindows))
+  nativeTheme.on('updated', () => {
+    // macOS switching light/dark by itself (Auto appearance) lays the titlebar out again too.
+    openWindows().forEach(pinTrafficLights)
+    // Elsewhere the caption buttons were painted for the old appearance, which
+    // in 'system' mode is the one the OS just left.
+    if (!isMac) applyTitleBarOverlays(store.getSettings())
+  })
   for (const feature of FEATURES) {
     try {
       await feature.register(featureContext)
@@ -699,6 +860,8 @@ app.whenReady().then(async () => {
   void refreshCatalogInBackground().then((changed) => {
     if (changed) broadcast('providers:changed')
   })
+  // Connected providers' own model lists, soon after launch and every few hours.
+  startModelFreshness({ list: listProviders, get: getProvider, refresh: refreshModels }, () => broadcast('providers:changed'))
 
   app.on('activate', () => {
     // Only Eaon's own windows count. The computer-use pill is a window too, and
@@ -743,38 +906,45 @@ function flushPendingWrites(): Promise<void> {
   return Promise.race([store.flushWrites(), new Promise((resolve) => setTimeout(resolve, 3000))]).then(() => undefined)
 }
 
-// Child MCP processes are ours to clean up; leaving them running would orphan
-// stdio servers every time the app quits.
+/**
+ * Stops everything Eaon started, once: from before-quit, or from "Restart to
+ * update" before it hands over to the updater. Child MCP processes are ours
+ * to clean up; leaving them running would orphan stdio servers every time the
+ * app quits. Whoever exits next waits on `mcpShutdown` and `featureShutdown`.
+ */
+function beginShutdown(): void {
+  if (shutDown) return
+  shutDown = true
+  cancelAllDownloads()
+  // Held for by the caller: the SDK closes a stdio server by ending its stdin,
+  // then SIGTERM after 2 s and SIGKILL after 4 s. Exiting before then orphaned
+  // any server that ignores EOF. One that exits on EOF costs no wait.
+  mcpShutdown = Promise.race([shutdownMcp(), new Promise((resolve) => setTimeout(resolve, 4500))]).then(
+    () => undefined,
+    () => undefined
+  )
+  void stopLocalServer()
+  killBackgroundProcesses()
+  for (const feature of FEATURES) {
+    try {
+      feature.dispose?.()
+    } catch {
+      /* quitting regardless */
+    }
+  }
+  // Terminal shells must be reaped before exit: node-pty reports each exit
+  // on a thread-safe function, and one landing during teardown aborts the
+  // process (SIGABRT) instead of quitting it.
+  featureShutdown = Promise.race([
+    Promise.all(FEATURES.map((feature) => feature.shutdown?.().catch(() => undefined))),
+    new Promise((resolve) => setTimeout(resolve, 3000))
+  ]).then(() => undefined)
+}
+
 app.on('before-quit', (event) => {
   // A second instance that handed over never started anything to clean up.
   if (!primaryInstance) return
-  if (!shutDown) {
-    shutDown = true
-    cancelAllDownloads()
-    // Held for below: the SDK closes a stdio server by ending its stdin, then
-    // SIGTERM after 2 s and SIGKILL after 4 s. Exiting before then orphaned
-    // any server that ignores EOF. One that exits on EOF costs no wait.
-    mcpShutdown = Promise.race([shutdownMcp(), new Promise((resolve) => setTimeout(resolve, 4500))]).then(
-      () => undefined,
-      () => undefined
-    )
-    void stopLocalServer()
-    killBackgroundProcesses()
-    for (const feature of FEATURES) {
-      try {
-        feature.dispose?.()
-      } catch {
-        /* quitting regardless */
-      }
-    }
-    // Terminal shells must be reaped before exit: node-pty reports each exit
-    // on a thread-safe function, and one landing during teardown aborts the
-    // process (SIGABRT) instead of quitting it.
-    featureShutdown = Promise.race([
-      Promise.all(FEATURES.map((feature) => feature.shutdown?.().catch(() => undefined))),
-      new Promise((resolve) => setTimeout(resolve, 3000))
-    ]).then(() => undefined)
-  }
+  beginShutdown()
   if (flushedBeforeClose) return
   // Chats are saved asynchronously, and Quit right after a reply usually lands
   // while that save is still being written; exiting under it lost the last

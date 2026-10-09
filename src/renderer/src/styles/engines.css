@@ -1,0 +1,144 @@
+/* Settings → Agent engines. Status pills come from extension.css (.bx-status),
+   the logo tile from connectApps.css (.ca-logo); only what is new lives here. */
+
+.eng-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+.eng-head__text {
+  flex: 1;
+  min-width: 0;
+}
+.eng-head__name {
+  font-size: var(--fs-base);
+  font-weight: 600;
+  color: var(--text);
+}
+.eng-head__blurb {
+  margin-top: 2px;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+
+.eng-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.eng-command {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 3px 4px 3px 10px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+}
+.eng-command code {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
+.eng-hint {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+.row__desc.eng-danger,
+.eng-danger {
+  color: var(--danger);
+}
+.eng-fine-line {
+  display: block;
+  margin-top: 3px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.eng-fine {
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+  margin-top: 12px;
+}
+.eng-wait {
+  color: var(--text-3);
+}
+
+.eng-notice {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 10px 10px 10px 14px;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  line-height: 1.45;
+}
+.eng-notice > span {
+  flex: 1;
+  min-width: 0;
+}
+.eng-notice[data-tone='error'] {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+.eng-note {
+  margin: 10px 2px 0;
+  font-size: var(--fs-sm);
+  color: var(--danger);
+}
+.eng-note[data-ok] {
+  color: var(--text-2);
+}
+
+.eng-model {
+  padding: 11px 16px;
+  border-top: 1px solid var(--border);
+}
+.eng-model__name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: var(--fs-base);
+  font-weight: 500;
+  color: var(--text);
+}
+.eng-model__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 3px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.eng-model__meta code {
+  font-family: var(--font-mono);
+}
+.eng-model__desc {
+  margin-top: 3px;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+
+.eng-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  padding: 0 7px;
+  border-radius: var(--r-pill);
+  background: var(--surface-3);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--text-2);
+}

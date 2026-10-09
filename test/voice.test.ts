@@ -109,3 +109,23 @@ test('the timer and the transcript joining the message', () => {
   assert.equal(joinTranscript('Line one\n', 'line two'), 'Line one\nline two')
   assert.equal(joinTranscript('Keep me', '  '), 'Keep me')
 })
+
+test('when the first provider can’t transcribe (key refused, quota, unreachable, down), the next one with a key does', async () => {
+  for (const first of [401, 429, 503]) {
+    const both = fakeFetch([
+      { status: first, body: { error: { message: 'nope' } } },
+      { status: 200, body: { text: 'from groq' } }
+    ])
+    const result = await transcribe(audio, 'audio/webm', { getKey: keys({ openai: 'sk', groq: 'gsk' }), fetch: both.fetch })
+    assert.equal(result.text, 'from groq', `after ${first}`)
+    assert.equal(result.provider, 'Groq')
+    assert.deepEqual(both.sent.map((s) => new URL(s.url).host), ['api.openai.com', 'api.groq.com'])
+  }
+  // A bad recording is the recording's fault: no second provider is asked.
+  const bad = fakeFetch([{ status: 400, body: { error: { message: 'Invalid file format' } } }])
+  await assert.rejects(transcribe(audio, 'audio/webm', { getKey: keys({ openai: 'sk', groq: 'gsk' }), fetch: bad.fetch }), /couldn't transcribe the recording \(400/)
+  assert.equal(bad.sent.length, 1)
+  // Both failing reports the first provider's problem.
+  const down = fakeFetch([{ status: 401, body: { error: { message: 'bad key' } } }])
+  await assert.rejects(transcribe(audio, 'audio/webm', { getKey: keys({ openai: 'sk', groq: 'gsk' }), fetch: down.fetch }), /OpenAI didn't accept the API key/)
+})

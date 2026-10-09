@@ -1,6 +1,7 @@
-import { describeWorker, MAX_SLEEP_MINUTES } from '@shared/workers'
+import { isAbsolute, resolve } from 'node:path'
+import { describeWorker, MAIN_THREAD, MAX_SLEEP_MINUTES } from '@shared/workers'
 import type { AgentTool, ToolContext, ToolSource } from '../../agent/tools'
-import { HINT_MOODS, type WorkersEngine } from './engine'
+import { HINT_MOODS, type TransferWatch, type WorkersEngine } from './engine'
 
 /**
  * The tools a worker gets on top of the Work agent's: see its colleagues,
@@ -45,11 +46,23 @@ export function parseWakeTime(text: string, now: number): number | null {
 
 const fileList = (value: unknown): string[] => (Array.isArray(value) ? value.filter((f): f is string => typeof f === 'string' && f.trim().length > 0) : [])
 
+/** A file transfer the tool's Stop ends, with "Copying 120 of 480 MB…" as it goes. */
+function transferOf(ctx: ToolContext): TransferWatch {
+  const mb = (bytes: number): string => `${Math.round(bytes / (1024 * 1024))}`
+  return {
+    signal: ctx.signal,
+    onProgress: (p) => ctx.progress?.(p.total > 8 * 1024 * 1024 ? `Copying ${mb(p.bytes)} of ${mb(p.total)} MB…` : `Copying files… (${p.files})`)
+  }
+}
+
 function self(ctx: ToolContext): string {
   const id = ctx.request.workerId
   if (!id) throw new Error('Only a worker can use this tool.')
   return id
 }
+
+/** The thread the calling turn runs in: its wake-ups, status and delegations belong to that thread. */
+const threadOf = (ctx: ToolContext): string => ctx.request.workerThreadId ?? MAIN_THREAD
 
 export function workersToolSource(engine: WorkersEngine): ToolSource {
   const listWorkers: AgentTool = {
@@ -84,7 +97,11 @@ export function workersToolSource(engine: WorkersEngine): ToolSource {
     describe: (input) => `Message ${str(input.to)}`,
     run: async (input, ctx) => {
       const files = fileList(input.files)
-      const { recipient, delivered } = await engine.message(self(ctx), str(input.to), str(input.message), files, { shareContext: input.share_context === true })
+      const { recipient, delivered } = await engine.message(self(ctx), str(input.to), str(input.message), files, {
+        shareContext: input.share_context === true,
+        fromThreadId: threadOf(ctx),
+        transfer: transferOf(ctx)
+      })
       const where = delivered.length > 0 ? ` Files delivered to:\n${delivered.map((p) => `- ${p}`).join('\n')}` : ''
       const paused = recipient.paused ? ` ${recipient.name} is paused and will read it when resumed.` : ''
       return `Sent to ${recipient.name}.${paused}${where}`
@@ -107,22 +124,32 @@ export function workersToolSource(engine: WorkersEngine): ToolSource {
   const handOff: AgentTool = {
     name: 'hand_off',
     description:
-      'Hand a colleague a task to do in parallel. They get the task, your recent thread as background (share_context, default true) and any files; their result comes back to you as mail when they finish_handoff.',
+      'Delegate a well-defined job to a colleague; they work on it in a thread of their own, in parallel. Give the objective (task), the background they need (context — they see nothing else of yours), what to send back (required_output) and any files. Their result comes back to you as mail when they finish_handoff.',
     inputSchema: {
       type: 'object',
       properties: {
         to: { type: 'string', description: 'Colleague name' },
-        task: { type: 'string', description: 'What to do and what to send back' },
+        task: { type: 'string', description: 'The objective' },
+        context: { type: 'string', description: 'Background, constraints and file paths they need' },
+        required_output: { type: 'string', description: 'What to send back' },
+        deadline_minutes: { type: 'number', description: 'Optional: fail it if not done in this many minutes' },
         files: { type: 'array', items: { type: 'string' } },
-        share_context: { type: 'boolean' }
+        share_context: { type: 'boolean', description: 'Also attach your recent messages (only if they truly need them)' }
       },
       required: ['to', 'task']
     },
     mutating: false,
     describe: (input) => `Hand off to ${str(input.to)}`,
     run: async (input, ctx) => {
-      const { recipient, handoff, delivered } = await engine.handOff(self(ctx), str(input.to), str(input.task), fileList(input.files), input.share_context !== false)
-      return `Handed ${handoff.id} to ${recipient.name}${recipient.paused ? ' (paused: it starts when resumed)' : ''}. Its result will arrive as mail; carry on meanwhile.${
+      const { recipient, delegation, delivered } = await engine.handOff(self(ctx), str(input.to), str(input.task), fileList(input.files), {
+        shareContext: input.share_context === true,
+        context: str(input.context),
+        requiredOutput: str(input.required_output),
+        deadlineMinutes: num(input.deadline_minutes),
+        fromThreadId: threadOf(ctx),
+        transfer: transferOf(ctx)
+      })
+      return `Delegated ${delegation.id} to ${recipient.name}${recipient.paused ? ' (paused: it starts when resumed)' : ''}. Its result will arrive as mail; carry on meanwhile.${
         delivered.length ? ` Files delivered:\n${delivered.map((p) => `- ${p}`).join('\n')}` : ''
       }`
     }
@@ -143,7 +170,7 @@ export function workersToolSource(engine: WorkersEngine): ToolSource {
     },
     mutating: false,
     describe: (input) => `Report on ${str(input.task_id)}`,
-    run: async (input, ctx) => engine.finishHandoff(self(ctx), str(input.task_id), str(input.result), fileList(input.files), input.ok !== false)
+    run: async (input, ctx) => engine.finishHandoff(self(ctx), str(input.task_id), str(input.result), fileList(input.files), input.ok !== false, threadOf(ctx), transferOf(ctx))
   }
 
   const postToRoom: AgentTool = {
@@ -157,7 +184,7 @@ export function workersToolSource(engine: WorkersEngine): ToolSource {
     mutating: false,
     describe: (input) => `Post in ${str(input.room)}`,
     run: async (input, ctx) => {
-      const { room, woke } = await engine.postAsWorker(self(ctx), str(input.room), str(input.message), fileList(input.files))
+      const { room, woke } = await engine.postAsWorker(self(ctx), str(input.room), str(input.message), fileList(input.files), threadOf(ctx), transferOf(ctx))
       return `Posted in "${room.name}".${woke.length ? ` Woke ${woke.join(', ')}.` : ''}`
     }
   }
@@ -195,13 +222,17 @@ export function workersToolSource(engine: WorkersEngine): ToolSource {
       if (str(input.at) && at === null) {
         return { text: `Could not read at: "${str(input.at)}". Use a clock time like "09:30" or "9:30 PM", or an ISO date-time.`, isError: true }
       }
-      return engine.setHeartbeat(self(ctx), {
-        inMinutes: num(input.in_minutes),
-        everyMinutes: num(input.every_minutes),
-        ...(at ? { at } : {}),
-        note: str(input.note),
-        stop: input.stop === true
-      })
+      return engine.setHeartbeat(
+        self(ctx),
+        {
+          inMinutes: num(input.in_minutes),
+          everyMinutes: num(input.every_minutes),
+          ...(at ? { at } : {}),
+          note: str(input.note),
+          stop: input.stop === true
+        },
+        threadOf(ctx)
+      )
     }
   }
 
@@ -212,19 +243,25 @@ export function workersToolSource(engine: WorkersEngine): ToolSource {
    */
   const sleep: AgentTool = {
     name: 'sleep',
-    description: `Stop working now and wake up again later: when you are waiting for something (a build, a reply, a page to change, the market to open) or pacing long work. minutes = how long (1–${MAX_SLEEP_MINUTES}); note = what to check or do when you wake. This turn ends straight away and you continue when you wake; a goal you are working on carries on then.`,
+    description: `Stop working now and wake up again later: when you are waiting for something (a build, a reply, a page to change, the market to open) or pacing long work. minutes = how long (1–${MAX_SLEEP_MINUTES}); note = what to check or do when you wake. To wake the moment something happens instead of guessing a time, add until_process_exits (the pid of a background command) or until_file_changes (a path); minutes is then the longest you wait. This turn ends straight away; a goal you are working on carries on when you wake.`,
     inputSchema: {
       type: 'object',
       properties: {
         minutes: { type: 'number', description: `1–${MAX_SLEEP_MINUTES}` },
-        note: { type: 'string', description: 'What to check or do when you wake' }
+        note: { type: 'string', description: 'What to check or do when you wake' },
+        until_process_exits: { type: 'number', description: 'Wake when this process exits (pid from run_command background: true)' },
+        until_file_changes: { type: 'string', description: 'Wake when this file or folder changes or appears' }
       },
       required: ['minutes']
     },
     mutating: false,
     describe: (input) => `Sleep ${Math.max(1, Math.round(num(input.minutes) ?? 1))} min${str(input.note) ? ` · ${str(input.note)}` : ''}`,
     run: async (input, ctx) => {
-      const { until, text } = engine.sleep(self(ctx), num(input.minutes) ?? 1, str(input.note))
+      const file = str(input.until_file_changes)
+      const { until, text } = engine.sleep(self(ctx), num(input.minutes) ?? 1, str(input.note), threadOf(ctx), {
+        ...(num(input.until_process_exits) ? { processExits: num(input.until_process_exits) } : {}),
+        ...(file ? { fileChanges: isAbsolute(file) ? file : resolve(ctx.cwd, file) } : {})
+      })
       ctx.turn.yielded = { until }
       return text
     }
@@ -245,7 +282,7 @@ export function workersToolSource(engine: WorkersEngine): ToolSource {
     mutating: false,
     describe: (input) => str(input.activity) || 'Update status',
     run: async (input, ctx) => {
-      engine.setStatus(self(ctx), str(input.activity), str(input.mood) || undefined)
+      engine.setStatus(self(ctx), str(input.activity), str(input.mood) || undefined, threadOf(ctx))
       return 'Status updated.'
     }
   }
@@ -329,11 +366,15 @@ export function workersToolSource(engine: WorkersEngine): ToolSource {
       const tool = str(input.approve_tool)
       const approveInput = input.approve_input && typeof input.approve_input === 'object' ? (input.approve_input as Record<string, unknown>) : null
       if (tool && !approveInput) return { text: 'An approval needs approve_input: the exact input you will call it with.', isError: true }
-      engine.ask(self(ctx), {
-        question: str(input.question),
-        options: Array.isArray(input.options) ? input.options.filter((o): o is string => typeof o === 'string') : [],
-        approve: tool && approveInput ? { tool, input: approveInput, summary: str(input.approve_summary) || str(input.question) } : null
-      })
+      engine.ask(
+        self(ctx),
+        {
+          question: str(input.question),
+          options: Array.isArray(input.options) ? input.options.filter((o): o is string => typeof o === 'string') : [],
+          approve: tool && approveInput ? { tool, input: approveInput, summary: str(input.approve_summary) || str(input.question) } : null
+        },
+        threadOf(ctx)
+      )
       return tool
         ? 'Asked. If the user approves, you may make exactly that call once. Carry on with other work; the answer arrives as mail.'
         : 'Asked. Carry on with other work; the answer arrives as mail.'

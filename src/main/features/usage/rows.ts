@@ -1,5 +1,16 @@
-import { TOKN_TOOL, type UsageActivity, type UsageCounts, type UsageDay, type UsageModelRow, type UsageRange, type UsageTotals } from '@shared/usage'
-import { emptyCounts, localDay, type LedgerDays } from './ledger'
+import {
+  TOKN_TOOL,
+  type Billing,
+  type UsageActivity,
+  type UsageCounts,
+  type UsageDay,
+  type UsageModelRow,
+  type UsageRange,
+  type UsageSource,
+  type UsageSourceRow,
+  type UsageTotals
+} from '@shared/usage'
+import { emptyCounts, localDay, type LedgerDays, type LedgerSources } from './ledger'
 
 /**
  * Pricing and shaping the ledger, with no I/O: model names as Tokn writes
@@ -62,12 +73,16 @@ export function costOf(counts: UsageCounts, price: ToknPrice): number {
 
 const tokensOf = (c: UsageCounts): number => c.input + c.output + c.cacheRead + c.cacheWrite
 
+/** How each provider's requests are paid for; see `Billing`. */
+export type BillingOf = (providerId: string) => Billing
+
 function add(into: UsageCounts, from: UsageCounts): UsageCounts {
   into.requests += from.requests
   into.input += from.input
   into.output += from.output
   into.cacheRead += from.cacheRead
   into.cacheWrite += from.cacheWrite
+  if (from.unreported) into.unreported = (into.unreported ?? 0) + from.unreported
   return into
 }
 
@@ -94,11 +109,13 @@ export interface ToknSyncRow {
  * no price for are left out: Tokn would turn the second down, and the first
  * cost nothing.
  */
-export function syncRows(days: LedgerDays, pricing: ToknPricing, isLocal: (providerId: string) => boolean): ToknSyncRow[] {
+export function syncRows(days: LedgerDays, pricing: ToknPricing, billingOf: BillingOf): ToknSyncRow[] {
   const rows = new Map<string, { day: string; model: string; counts: UsageCounts; cost: number }>()
   for (const [day, providers] of Object.entries(days)) {
     for (const [providerId, models] of Object.entries(providers)) {
-      if (isLocal(providerId)) continue
+      // Plan use goes up too, at API rates: that is how Tokn values every
+      // tool's use, subscriptions included (Claude Code's, Codex's).
+      if (billingOf(providerId) === 'local') continue
       for (const [modelId, counts] of Object.entries(models)) {
         const priced = priceOf(modelId, pricing)
         if (!priced) continue
@@ -131,42 +148,49 @@ export function syncRows(days: LedgerDays, pricing: ToknPricing, isLocal: (provi
 export interface Summary {
   days: UsageDay[]
   models: UsageModelRow[]
-  totals: UsageTotals & { unpricedRequests: number }
-  today: UsageTotals
+  totals: UsageTotals & { unpricedRequests: number; unreportedRequests: number; planUsd: number }
+  today: UsageTotals & { planUsd: number }
+}
+
+/**
+ * One model's counts priced the way they are paid for: pay-per-token at
+ * Tokn's rates into `costUsd`, a plan's use at the same rates into `planUsd`
+ * (what it would have cost; never added to spend), local use as nothing.
+ * Null cost: Tokn has no price for the model.
+ */
+function priceRow(modelId: string, counts: UsageCounts, billing: Billing, pricing: ToknPricing): { priced: ReturnType<typeof priceOf>; cost: number | null } {
+  if (billing === 'local') return { priced: null, cost: 0 }
+  const priced = priceOf(modelId, pricing)
+  return { priced, cost: priced ? costOf(counts, priced.price) : null }
 }
 
 /** What Settings → Usage shows for the last `range` days, today included. */
-export function summarize(
-  days: LedgerDays,
-  range: UsageRange,
-  pricing: ToknPricing,
-  isLocal: (providerId: string) => boolean,
-  now: Date = new Date()
-): Summary {
+export function summarize(days: LedgerDays, range: UsageRange, pricing: ToknPricing, billingOf: BillingOf, now: Date = new Date()): Summary {
   const today = localDay(now)
   const span: string[] = []
   for (let i = range - 1; i >= 0; i--) {
-    const at = new Date(now)
-    at.setDate(now.getDate() - i)
-    span.push(localDay(at))
+    // Built from the calendar date at noon, so no daylight-saving change can
+    // repeat or skip a day.
+    span.push(localDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() - i, 12)))
   }
 
   const byModel = new Map<string, UsageModelRow>()
   const daily: UsageDay[] = []
-  const totals = { costUsd: 0, tokens: 0, requests: 0, unpricedRequests: 0 }
-  let todayTotals: UsageTotals = { costUsd: 0, tokens: 0, requests: 0 }
+  const totals = { costUsd: 0, planUsd: 0, tokens: 0, requests: 0, unpricedRequests: 0, unreportedRequests: 0 }
+  let todayTotals = { costUsd: 0, planUsd: 0, tokens: 0, requests: 0 }
 
   for (const day of span) {
-    const entry: UsageDay = { day, costUsd: 0, tokens: 0, requests: 0 }
+    const entry = { day, costUsd: 0, planUsd: 0, tokens: 0, requests: 0 }
     for (const [providerId, models] of Object.entries(days[day] ?? {})) {
-      const local = isLocal(providerId)
+      const billing = billingOf(providerId)
       for (const [modelId, counts] of Object.entries(models)) {
-        const priced = local ? null : priceOf(modelId, pricing)
-        const cost = local ? 0 : priced ? costOf(counts, priced.price) : null
-        entry.costUsd += cost ?? 0
+        const { priced, cost } = priceRow(modelId, counts, billing, pricing)
+        if (billing === 'plan') entry.planUsd += cost ?? 0
+        else entry.costUsd += cost ?? 0
         entry.tokens += tokensOf(counts)
         entry.requests += counts.requests
         if (cost === null) totals.unpricedRequests += counts.requests
+        totals.unreportedRequests += counts.unreported ?? 0
 
         const key = `${providerId} ${modelId}`
         const row = byModel.get(key) ?? {
@@ -174,7 +198,8 @@ export function summarize(
           modelId,
           toknModel: priced?.name ?? null,
           costUsd: cost === null ? null : 0,
-          local,
+          local: billing === 'local',
+          billing,
           ...emptyCounts()
         }
         add(row, counts)
@@ -183,29 +208,34 @@ export function summarize(
       }
     }
     totals.costUsd += entry.costUsd
+    totals.planUsd += entry.planUsd
     totals.tokens += entry.tokens
     totals.requests += entry.requests
-    if (day === today) todayTotals = { costUsd: entry.costUsd, tokens: entry.tokens, requests: entry.requests }
+    if (day === today) todayTotals = { costUsd: entry.costUsd, planUsd: entry.planUsd, tokens: entry.tokens, requests: entry.requests }
     daily.push(entry)
   }
 
-  const models = [...byModel.values()].sort((a, b) => {
-    if ((a.costUsd === null) !== (b.costUsd === null)) return a.costUsd === null ? 1 : -1
-    return (b.costUsd ?? 0) - (a.costUsd ?? 0) || b.requests - a.requests
-  })
+  // Spend first (what was billed), then plans by what they stood for, then
+  // the unpriced by requests.
+  const rank = (row: UsageModelRow): number => (row.costUsd === null ? 2 : row.billing === 'api' ? 0 : 1)
+  const models = [...byModel.values()].sort((a, b) => rank(a) - rank(b) || (b.costUsd ?? 0) - (a.costUsd ?? 0) || b.requests - a.requests)
   return { days: daily, models, totals, today: todayTotals }
 }
 
-/** Every counted day's totals, priced (local and unpriced models count as nothing spent). */
-export function dailyTotals(days: LedgerDays, pricing: ToknPricing, isLocal: (providerId: string) => boolean): Map<string, UsageDay> {
+/**
+ * Every counted day's totals, priced (local and unpriced models count as
+ * nothing spent; plan use goes in `planUsd`, not spend).
+ */
+export function dailyTotals(days: LedgerDays, pricing: ToknPricing, billingOf: BillingOf): Map<string, UsageDay> {
   const byDay = new Map<string, UsageDay>()
   for (const [day, providers] of Object.entries(days)) {
-    const entry: UsageDay = { day, costUsd: 0, tokens: 0, requests: 0 }
+    const entry = { day, costUsd: 0, planUsd: 0, tokens: 0, requests: 0 }
     for (const [providerId, models] of Object.entries(providers)) {
-      const local = isLocal(providerId)
+      const billing = billingOf(providerId)
       for (const [modelId, counts] of Object.entries(models)) {
-        const priced = local ? null : priceOf(modelId, pricing)
-        if (priced) entry.costUsd += costOf(counts, priced.price)
+        const { cost } = priceRow(modelId, counts, billing, pricing)
+        if (billing === 'plan') entry.planUsd += cost ?? 0
+        else entry.costUsd += cost ?? 0
         entry.tokens += tokensOf(counts)
         entry.requests += counts.requests
       }
@@ -213,6 +243,29 @@ export function dailyTotals(days: LedgerDays, pricing: ToknPricing, isLocal: (pr
     if (entry.requests > 0 || entry.tokens > 0) byDay.set(day, entry)
   }
   return byDay
+}
+
+/** The range's use by what it was for (chats, scheduled tasks, workers, trading), priced like the totals. */
+export function summarizeSources(sources: LedgerSources, range: UsageRange, pricing: ToknPricing, billingOf: BillingOf, now: Date = new Date()): UsageSourceRow[] {
+  const rows = new Map<UsageSource, UsageSourceRow>()
+  for (let i = range - 1; i >= 0; i--) {
+    const day = localDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() - i, 12))
+    for (const [source, providers] of Object.entries(sources[day] ?? {}) as [UsageSource, LedgerDays[string]][]) {
+      const row = rows.get(source) ?? { source, requests: 0, tokens: 0, costUsd: 0, planUsd: 0 }
+      for (const [providerId, models] of Object.entries(providers)) {
+        const billing = billingOf(providerId)
+        for (const [modelId, counts] of Object.entries(models)) {
+          const { cost } = priceRow(modelId, counts, billing, pricing)
+          if (billing === 'plan') row.planUsd += cost ?? 0
+          else row.costUsd += cost ?? 0
+          row.requests += counts.requests
+          row.tokens += tokensOf(counts)
+        }
+      }
+      rows.set(source, row)
+    }
+  }
+  return [...rows.values()].filter((row) => row.requests > 0).sort((a, b) => b.costUsd + b.planUsd - (a.costUsd + a.planUsd) || b.requests - a.requests)
 }
 
 /** The day `n` days after (or before) `day`, as a local calendar day. */

@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { spawn } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, statSync, symlinkSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import type { GatewayInfo } from '@shared/gateway'
@@ -742,4 +742,47 @@ test('every app is listed once, in the page\'s order', () => {
     'cline', 'copilot-cli', 'oh-my-pi', 'deepseek-harness', 'poolside', 'qwen-code', 'terminal'
   ])
   for (const app of apps.list()) assert.ok(app.files.every((f) => f.startsWith('~/')), app.id)
+})
+
+/* ------------------------------------------------- the user's files, kept theirs */
+
+test('a settings file kept as a symlink (dotfiles) is changed in place, and stays a link', async () => {
+  const { home, apps } = setup()
+  const real = join(home, 'dotfiles', 'claude.json')
+  put(real, '{\n  "theme": "dark"\n}\n')
+  mkdirSync(join(home, '.claude'), { recursive: true })
+  const link = join(home, '.claude', 'settings.json')
+  symlinkSync(real, link)
+  assert.ok((await apps.connect('claude-code')).ok)
+  assert.ok(lstatSync(link).isSymbolicLink(), 'still a link')
+  assert.equal((readJson(real) as { theme: string }).theme, 'dark')
+  assert.ok((readJson(real) as { env: Record<string, string> }).env.ANTHROPIC_BASE_URL, 'the change landed in the real file')
+  assert.ok((await apps.disconnect('claude-code')).ok)
+  assert.ok(lstatSync(link).isSymbolicLink())
+  assert.equal(read(real), '{\n  "theme": "dark"\n}\n', 'put back exactly')
+})
+
+test('a private settings file stays private, and a new one holding the key is made private', async () => {
+  const { home, apps } = setup()
+  const file = join(home, '.claude', 'settings.json')
+  put(file, '{}\n')
+  chmodSync(file, 0o600)
+  assert.ok((await apps.connect('claude-code')).ok)
+  assert.equal(statSync(file).mode & 0o777, 0o600, 'the key did not make it world-readable')
+  const fresh = setup()
+  assert.ok((await fresh.apps.connect('codex-cli')).ok)
+  const profile = join(fresh.home, '.codex', 'eaon.config.toml')
+  assert.ok(existsSync(profile))
+  assert.equal(statSync(profile).mode & 0o077, 0, 'a file Eaon creates with the key in it is readable by the user only')
+})
+
+test('Copy settings quotes values so pasting them runs nothing', async () => {
+  const { apps } = setup()
+  const text = apps.manual('terminal')
+  assert.ok(text.ok)
+  for (const line of text.text.split('\n').filter((l) => l.startsWith('export '))) assert.match(line, /^export [A-Z_]+='[^']*'$/, line)
+  const { exportLines } = await import('../src/main/features/connectApps/connector')
+  assert.equal(exportLines({ M: 'x$(rm -rf ~)`id`' }, 'darwin'), "export M='x$(rm -rf ~)`id`'")
+  assert.equal(exportLines({ M: "it's" }, 'linux'), "export M='it'\\''s'")
+  assert.equal(exportLines({ M: 'a & b "c"\nd' }, 'win32'), 'set "M=a & b cd"')
 })

@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useApp } from '../../../state/store'
 import { Card, Row, Section, Segmented, Select, Switch } from '../../ui'
-import type { AppIcon, ThemeMode } from '@shared/types'
+import type { AppIcon, Settings, ThemeMode } from '@shared/types'
 import { THEMES, type Palette, type Theme } from '../../../lib/themes'
+import { isMac } from '../../../lib/platform'
 import defaultIcon from '../../../assets/app-icons/default.png'
 import agentIcon from '../../../assets/app-icons/agent.png'
 
@@ -36,6 +37,16 @@ function useResolvedTone(mode: ThemeMode): 'light' | 'dark' {
   return mode === 'system' ? (systemDark ? 'dark' : 'light') : mode
 }
 
+/**
+ * Choosing a theme or mode here takes the app back from the ADE's terminal
+ * theme, which restyles the app while it is picked: the terminals go back to
+ * following the app (`eaon`), so the two never disagree.
+ */
+function releaseAde(settings: Settings | null): Partial<Settings> {
+  if (!settings || settings.ade.theme === 'eaon') return {}
+  return { ade: { ...settings.ade, theme: 'eaon', appBefore: null } }
+}
+
 export function AppearancePage(): JSX.Element {
   const { settings, patchSettings } = useApp(useShallow((s) => ({ settings: s.settings, patchSettings: s.patchSettings })))
   const a = settings?.appearance
@@ -53,7 +64,7 @@ export function AppearancePage(): JSX.Element {
               key={mode}
               className="theme-card"
               data-active={a.mode === mode}
-              onClick={() => void patchSettings({ appearance: { mode } })}
+              onClick={() => void patchSettings({ appearance: { mode }, ...releaseAde(settings) })}
             >
               <span className="theme-card__preview">
                 {mode === 'system' ? (
@@ -96,7 +107,8 @@ export function AppearancePage(): JSX.Element {
                         // never drops you into a different theme.
                         light: { preset: theme.name, ...light },
                         dark: { preset: theme.name, ...dark }
-                      }
+                      },
+                      ...releaseAde(settings)
                     })
                   }}
                 >
@@ -114,7 +126,7 @@ export function AppearancePage(): JSX.Element {
           <Row
             title="App icon"
             description={
-              window.api.platform === 'darwin'
+              isMac
                 ? 'Shown in the Dock while Eaon is running'
                 : "Shown on Eaon's windows and taskbar button"
             }
@@ -176,24 +188,31 @@ export function AppearancePage(): JSX.Element {
               ]}
             />
           </Row>
-          <Row title="Translucent sidebar" description="Blur the desktop through the sidebar">
-            <Switch
-              label="Translucent sidebar"
-              checked={a[tone].translucentSidebar}
-              onChange={(on) =>
-                void patchSettings({
-                  appearance: { light: { translucentSidebar: on }, dark: { translucentSidebar: on } }
-                })
-              }
-            />
-          </Row>
-          <Row title="Font smoothing" description="Use native macOS font anti-aliasing">
-            <Switch
-              label="Font smoothing"
-              checked={a.fontSmoothing}
-              onChange={(on) => void patchSettings({ appearance: { fontSmoothing: on } })}
-            />
-          </Row>
+          {/* Both are macOS-only: the sidebar's blur is the window's vibrancy
+              material, and font smoothing is a WebKit switch only macOS
+              honours. Elsewhere the switches would do nothing. */}
+          {isMac && (
+            <>
+              <Row title="Translucent sidebar" description="Blur the desktop through the sidebar">
+                <Switch
+                  label="Translucent sidebar"
+                  checked={a[tone].translucentSidebar}
+                  onChange={(on) =>
+                    void patchSettings({
+                      appearance: { light: { translucentSidebar: on }, dark: { translucentSidebar: on } }
+                    })
+                  }
+                />
+              </Row>
+              <Row title="Font smoothing" description="Use native macOS font anti-aliasing">
+                <Switch
+                  label="Font smoothing"
+                  checked={a.fontSmoothing}
+                  onChange={(on) => void patchSettings({ appearance: { fontSmoothing: on } })}
+                />
+              </Row>
+            </>
+          )}
         </Card>
       </Section>
     </>

@@ -89,6 +89,44 @@
   display: flex;
   flex-direction: column;
 }
+
+/* Narrow windows (a split screen, or zoomed in): 252px of navigation left the
+   page 268px at 520. The nav becomes an icon rail; each item keeps its name
+   as a tooltip and an accessible label (SettingsShell). */
+@media (max-width: 639px) {
+  .settings__nav {
+    width: 68px;
+    flex-basis: 68px;
+  }
+  .settings__search,
+  .settings__back span,
+  .settings__nav .nav-item__label {
+    display: none;
+  }
+  .settings__back {
+    justify-content: center;
+    padding: 0;
+  }
+  .settings__nav .nav-item {
+    justify-content: center;
+    padding: 0;
+  }
+  /* The group names are hidden; a hairline keeps the groups apart. */
+  .settings__group {
+    height: 1px;
+    margin: 8px 12px;
+    padding: 0;
+    overflow: hidden;
+    font-size: 0;
+    background: var(--border-soft);
+  }
+  .settings__group:first-child {
+    display: none;
+  }
+  .settings__scroll {
+    padding: 0 16px 90px;
+  }
+}
 .settings__titlebar {
   /* Matches the nav panel's inset row so both columns start together. */
   height: calc(var(--titlebar-h) + var(--sidebar-gap));
@@ -1079,4 +1117,274 @@
 }
 .plugin-row__link:hover {
   text-decoration: underline;
+}
+
+
+/* ---------------- Credits (settings/pages/Credits.tsx) ---------------- */
+
+.credits-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 30px 20px 28px;
+  border-radius: var(--r-lg);
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface-1));
+  border: 1px solid color-mix(in srgb, var(--accent) 16%, var(--border));
+  text-align: center;
+}
+.credits-hero__line {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0 0.4em;
+  margin: 0;
+  font-size: 19px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  color: var(--text);
+}
+.credits-hero__sub {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+.credits-heart {
+  flex: none;
+  color: var(--danger);
+  transform-origin: center;
+  animation: credits-beat 2.4s ease-in-out infinite;
+}
+@keyframes credits-beat {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  8% {
+    transform: scale(1.18);
+  }
+  16% {
+    transform: scale(1);
+  }
+  24% {
+    transform: scale(1.12);
+  }
+  34% {
+    transform: scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .credits-heart {
+    animation: none;
+  }
+}
+body[data-reduce-motion='on'] .credits-heart {
+  animation: none;
+}
+
+.credits-label {
+  margin: 22px 0 8px;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+.credits-person {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.credits-avatar {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface-2));
+}
+
+.credits-projects {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+  gap: 8px;
+}
+.credits-project {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-1);
+  color: var(--text);
+  text-align: left;
+  cursor: default;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+.credits-project:hover {
+  background: var(--hover-strong);
+  border-color: var(--border-strong);
+}
+.credits-project__name {
+  font-size: var(--fs-base);
+  font-weight: 500;
+}
+.credits-project__what {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+
+/* ---------------- Star prompt (components/StarPrompt.tsx) ---------------- */
+
+/* A card in the bottom corner, over whatever is open, until it is answered. */
+.star-card {
+  position: fixed;
+  right: 20px;
+  bottom: 20px;
+  z-index: 900;
+  width: min(360px, calc(100vw - 40px));
+  padding: 14px 16px 16px;
+  border-radius: var(--r-lg);
+  background: var(--surface-2);
+  box-shadow: 0 0 0 1px var(--border), var(--shadow-modal);
+  animation: star-card-in var(--dur-slow, 240ms) var(--ease) both;
+}
+@keyframes star-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+body[data-reduce-motion='on'] .star-card {
+  animation: none;
+}
+.star-card__head {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.star-card__icon {
+  flex: none;
+  color: #f0b429;
+}
+.star-card__title {
+  flex: 1;
+  font-size: var(--fs-base);
+  font-weight: 600;
+  color: var(--text);
+}
+.star-card__close {
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin-right: -4px;
+  border-radius: var(--r-xs);
+  color: var(--text-3);
+}
+.star-card__close:hover {
+  background: var(--hover-strong);
+  color: var(--text);
+}
+.star-card__text {
+  margin: 10px 0 0;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--text-2);
+}
+.star-card__actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+}
+.star-card__btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  height: 34px;
+  padding: 0 16px;
+  border-radius: var(--r-md);
+  background: var(--surface-3);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  transition: background var(--dur) var(--ease);
+}
+.star-card__btn:hover:not(:disabled) {
+  background: var(--surface-4);
+}
+.star-card__btn--github {
+  flex: 1;
+  background: color-mix(in srgb, #f0b429 16%, var(--surface-2));
+  box-shadow: 0 0 0 1px color-mix(in srgb, #f0b429 22%, transparent);
+}
+.star-card__btn--github:hover:not(:disabled) {
+  background: color-mix(in srgb, #f0b429 24%, var(--surface-2));
+}
+.star-card__btn:disabled {
+  opacity: 0.6;
+}
+
+/* ---------------- Settings → ADE: terminal theme ---------------- */
+
+.ade-themes {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(118px, 1fr));
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.ade-theme {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 6px;
+  border-radius: var(--r-md);
+  text-align: left;
+  transition: background var(--dur) var(--ease);
+}
+.ade-theme:hover {
+  background: var(--hover);
+}
+.ade-theme[data-on] {
+  background: var(--surface-3);
+  box-shadow: 0 0 0 1.5px var(--accent, var(--text-2));
+}
+.ade-theme__swatch {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 52px;
+  padding: 8px;
+  border-radius: var(--r-sm);
+  box-shadow: inset 0 0 0 1px var(--border-soft);
+  overflow: hidden;
+}
+.ade-theme__swatch[data-own] {
+  background: var(--surface-1);
+}
+.ade-theme__dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+.ade-theme__text {
+  position: absolute;
+  top: 6px;
+  left: 8px;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text);
+}
+.ade-theme__name {
+  overflow: hidden;
+  font-size: var(--fs-sm);
+  color: var(--text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

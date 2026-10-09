@@ -11,7 +11,10 @@ import { secrets } from '../secrets'
 import { store } from '../store'
 import { buildChildEnv } from './eaonCode/env'
 import { findInstallerCopy } from './eaonCode/locate'
-import { knownAgent, type TerminalAgent, type TerminalAgentId, type TerminalLayout, type TerminalSpawnRequest } from '@shared/terminals'
+import { eaonCliBinary, eaonCliEnv } from './eaonCli'
+import { cliAccountEnv } from './cliAccounts'
+import { adeHistory } from './ade/history'
+import { currentPane, privacyBlockedMessage, type TerminalAgent, type TerminalAgentId, type TerminalLayout, type TerminalSpawnRequest } from '@shared/terminals'
 
 /**
  * The ADE's terminal view: real shells in the project folder, each optionally
@@ -23,6 +26,8 @@ const LAYOUT_FILE = 'ade-terminals.json'
 
 const AGENTS: { id: TerminalAgentId; label: string; bin: string | null; installHint?: string }[] = [
   { id: 'eaon-code', label: 'Eaon Code', bin: 'eaon-code', installHint: 'Settings → Eaon Code' },
+  // Ships inside the app; a source checkout builds it with scripts/build-eaon-cli.sh.
+  { id: 'eaon-cli', label: 'Eaon CLI', bin: 'eaon-cli', installHint: 'npm run build:eaon-cli' },
   { id: 'claude', label: 'Claude Code', bin: 'claude', installHint: 'npm install -g @anthropic-ai/claude-code' },
   { id: 'codex', label: 'Codex', bin: 'codex', installHint: 'npm install -g @openai/codex' },
   {
@@ -64,11 +69,17 @@ function agents(): TerminalAgent[] {
   // the installer's copy under its script's whole path (`cli` alone could be anything).
   setExtraAgentBin(eaonBinary || null, 'eaon-code')
   setAgentScript(copy?.cli ?? (eaonBinary && /\.[cm]?js$/i.test(eaonBinary) ? eaonBinary : null), 'eaon-code')
+  // Eaon CLI runs from inside the app, wherever the app is — spaces and all.
+  const eaonCli = eaonCliBinary()
+  setAgentScript(eaonCli, 'eaon-cli')
   return AGENTS.map(({ id, label, bin, installHint }) => {
     if (!bin) return { id, label, command: null, installed: true }
     if (id === 'eaon-code') {
       const command = eaonCodeCommand(eaonBinary || null)
       return { id, label, command: command ?? bin, installed: Boolean(command), ...(installHint ? { installHint } : {}) }
+    }
+    if (id === 'eaon-cli') {
+      return { id, label, command: eaonCli ? shellQuote(eaonCli) : bin, installed: Boolean(eaonCli), ...(installHint ? { installHint } : {}) }
     }
     return {
       id,
@@ -83,9 +94,17 @@ function agents(): TerminalAgent[] {
 /**
  * Extra environment for a pane's agent. An Eaon Code pane gets the API keys
  * saved in Eaon (as the provider variables Eaon Code reads) when Settings →
- * Eaon Code shares them; a key already exported in the shell still wins.
+ * Eaon Code shares them; a key already exported in the shell still wins. An
+ * Eaon CLI pane gets where Eaon serves the downloaded models, starting the
+ * server if it is off; without it, Eaon CLI says what is wrong itself.
  */
-function agentEnv(agent: TerminalAgentId | undefined): Record<string, string> {
+async function agentEnv(agent: TerminalAgentId | undefined): Promise<Record<string, string>> {
+  // Every pane runs `claude` and `codex` as the accounts chosen in Settings → Accounts.
+  return { ...cliAccountEnv(), ...(await toolEnv(agent)) }
+}
+
+async function toolEnv(agent: TerminalAgentId | undefined): Promise<Record<string, string>> {
+  if (agent === 'eaon-cli') return eaonCliEnv().catch(() => ({}))
   if (agent !== 'eaon-code' || !store.getSettings().eaonCode.shareKeys) return {}
   const { env, shared } = buildChildEnv({}, true, (providerId) => secrets.get(providerId))
   const extra: Record<string, string> = {}
@@ -99,7 +118,7 @@ function agentEnv(agent: TerminalAgentId | undefined): Record<string, string> {
 /** A saved grid with each pane's agent made current (a Gemini CLI pane from before comes back as a shell). */
 function currentLayout(layout: TerminalLayout): TerminalLayout {
   return Object.fromEntries(
-    Object.entries(layout ?? {}).map(([cwd, panes]) => [cwd, (panes ?? []).map((pane) => ({ ...pane, agent: knownAgent(pane.agent) }))])
+    Object.entries(layout ?? {}).map(([cwd, panes]) => [cwd, (panes ?? []).map(currentPane)])
   )
 }
 
@@ -113,6 +132,47 @@ function isDir(dir: string | undefined): dir is string {
     return Boolean(dir) && fs.statSync(dir as string).isDirectory()
   } catch {
     return false
+  }
+}
+
+/**
+ * A pane opened on a past conversation starts its agent on that
+ * conversation (`claude --resume <id>`, `codex resume <id>`). The id goes into
+ * a shell command line, so only an id shaped like the agent's own is used.
+ */
+/** Agents that take a first task on their command line. */
+const PROMPTABLE = new Set(['claude', 'codex'])
+
+/**
+ * A pane given a task starts its agent on it: `claude '<task>'`. Quoted for
+ * the shell whole, so nothing in it is run; one line, as the ADE makes it.
+ */
+export function promptLine(req: TerminalSpawnRequest): TerminalSpawnRequest {
+  const prompt = req.prompt?.replace(/[\r\n]+/g, ' ').trim()
+  if (!prompt || req.resume || !req.command || !req.agent || !PROMPTABLE.has(req.agent)) return req
+  return { ...req, command: `${req.command} '${prompt.replace(/'/g, `'\\''`)}'` }
+}
+
+export function resumeLine(req: TerminalSpawnRequest): TerminalSpawnRequest {
+  const agent = req.agent
+  if (!req.resume || !req.command || !agent || agent === 'shell') return req
+  if (!/^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(req.resume) && !/^ses_[A-Za-z0-9]+$/.test(req.resume)) return req
+  return { ...req, command: AGENT_KINDS[agent].resume(req.command, req.resume) }
+}
+
+/**
+ * Whether macOS's privacy settings (Files and Folders) keep this app out of
+ * `cwd`. Denied, listing it fails with EPERM — not EACCES, which is ordinary
+ * file permissions — while the folder can still be stat'ed, so it looks fine
+ * until anything inside it is read.
+ */
+async function blockedByPrivacy(cwd: string): Promise<boolean> {
+  if (process.platform !== 'darwin') return false
+  try {
+    await fs.promises.readdir(cwd)
+    return false
+  } catch (error) {
+    return (error as NodeJS.ErrnoException).code === 'EPERM'
   }
 }
 
@@ -140,9 +200,21 @@ export function createTerminals(options: TerminalsOptions = {}): Feature & { tic
   let watch: SessionWatch | null = null
   /** Panes that have had their restore this run; a later Restart starts them as asked. */
   const restored = new Set<string>()
+  /** Panes that were given their task this run. */
+  const prompted = new Set<string>()
 
   const paneRecords = (): PaneRecords => {
-    if (!records) records = new PaneRecords(options.dir ?? path.join(app.getPath('userData'), 'terminals'))
+    if (!records) {
+      const made = new PaneRecords(options.dir ?? path.join(app.getPath('userData'), 'terminals'))
+      // The ADE's history of conversations that ran in its panes (ade/history.ts), from what is open now on.
+      if (!options.dir) {
+        void adeHistory().then((history) => {
+          made.onConversation = (agent, sessionId, cwd) => history.note(agent, sessionId, cwd)
+          for (const r of made.all()) if (r.sessionId && r.cwd) history.note(r.agent, r.sessionId, r.cwd)
+        })
+      }
+      records = made
+    }
     return records
   }
 
@@ -164,8 +236,13 @@ export function createTerminals(options: TerminalsOptions = {}): Feature & { tic
       const cwd = isDir(rec.cwd) ? rec.cwd : req.cwd
       if (rec.agent === 'shell') return { agent: 'shell', plan: { cwd, command: rec.program ?? null, screen } }
       const command = commandOf(rec.agent)
-      // The agent was uninstalled since: the pane comes back as its shell.
-      if (!command) return { agent: 'shell', plan: { cwd, command: null, screen } }
+      // The agent was uninstalled (or can't be found) since: the pane comes
+      // back as its shell, and says why rather than leaving the user to wonder.
+      if (!command) {
+        const missing = installed.find((a) => a.id === rec.agent)
+        const note = `\x1b[2m── ${missing?.label ?? rec.agent} isn't on this computer any more, so this pane opened as a plain shell.${missing?.installHint ? ` To get it back: ${missing.installHint}` : ''} ──\x1b[0m\r\n`
+        return { agent: 'shell', plan: { cwd, command: null, screen: `${screen ?? ''}${note}` } }
+      }
       const kind = AGENT_KINDS[rec.agent]
       if (rec.sessionId && (await kind.resumable(cwd, rec.sessionId).catch(() => false))) {
         // The agent draws its own conversation again; the old screen would only repeat it.
@@ -228,22 +305,39 @@ export function createTerminals(options: TerminalsOptions = {}): Feature & { tic
 
       ipcMain.handle('terminal:agents', () => listAgents())
       ipcMain.handle('terminal:spawn', async (_e, req: TerminalSpawnRequest) => {
+        // A folder macOS keeps Eaon out of: say so, instead of a shell whose every command fails.
+        if (!manager.has(req.paneId) && (await blockedByPrivacy(req.cwd))) {
+          return { ok: false, privacy: true, error: privacyBlockedMessage(req.cwd, app.getPath('home')) }
+        }
         // A pane with a live shell reattaches to it; only a pane's first
         // start in a run is its restore.
         if (!manager.has(req.paneId) && !restored.has(req.paneId)) {
           restored.add(req.paneId)
           const restore = await planRestore(req).catch(() => null)
           if (restore) {
-            const result = manager.spawn(req, agentEnv(restore.agent), restore.plan)
+            const result = manager.spawn(req, await agentEnv(restore.agent), restore.plan)
             if (result.ok && restore.agent !== (req.agent ?? 'shell')) send('terminal:agent', { paneId: req.paneId, agent: restore.agent })
             watch?.expect(req.paneId, restore.agent)
             return result
           }
         }
         restored.add(req.paneId)
-        return manager.spawn(req, agentEnv(req.agent))
+        // The task is given once: a Restart later starts the agent plain.
+        const first = !prompted.has(req.paneId)
+        prompted.add(req.paneId)
+        return manager.spawn(first ? promptLine(resumeLine(req)) : resumeLine(req), await agentEnv(req.agent))
       })
       ipcMain.handle('terminal:running', () => watch?.snapshot() ?? {})
+      // The conversation each pane is in, as far as the watch has seen: the ADE's
+      // sidebar lists a folder's past conversations without the ones open in a pane.
+      ipcMain.handle('terminal:conversations', (_e, paneIds: unknown) =>
+        Object.fromEntries(
+          (Array.isArray(paneIds) ? paneIds : [])
+            .filter((id): id is string => typeof id === 'string')
+            .slice(0, 200)
+            .map((id) => [id, paneRecords().get(id)?.sessionId ?? null])
+        )
+      )
       ipcMain.handle('terminal:layout', () => currentLayout(store.getJson<TerminalLayout>(LAYOUT_FILE, {})))
       ipcMain.handle('terminal:save-layout', (_e, layout: TerminalLayout) => {
         store.setJson(LAYOUT_FILE, layout)

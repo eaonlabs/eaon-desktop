@@ -5,6 +5,8 @@ import { createPortal } from "react-dom";
 import { EMOJI_GROUPS } from "./emojis";
 import { messageActionIcons, type MessageActionIcons } from "./messageActionIcons";
 import styles from "./MessageActions.module.css";
+import { CLIPBOARD_FAILED, copyText } from "../../lib/clipboard";
+import { notify } from "../Notice";
 
 const useIsoLayoutEffect = typeof window !== "undefined" ? useLayoutEffect : useEffect;
 
@@ -464,10 +466,10 @@ export function MessageActions({
   };
 
   const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(text);
-    } catch {
-      /* the drawn check still shows */
+    // The check draws only when the text really reached the clipboard.
+    if (!(await copyText(text))) {
+      notify(CLIPBOARD_FAILED, "error");
+      return;
     }
     setCopied(true);
     onCopy?.(text);

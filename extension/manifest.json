@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Eaon Browser Control",
   "short_name": "Eaon",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Lets Eaon use your browser for you: open, read and fill in pages, click, type, take screenshots, and send pages to Eaon.",
   "minimum_chrome_version": "116",
   "icons": {

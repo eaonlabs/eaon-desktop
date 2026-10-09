@@ -15,7 +15,7 @@ import {
 import { PaneRecords, restoredScreen, SCROLLBACK_BYTES } from '../src/main/features/terminals/paneRecords'
 import { agentUnder, byParent, programLine, SessionWatch, type Proc, type WatchDeps } from '../src/main/features/terminals/sessionWatch'
 import { createTerminals } from '../src/main/features/terminals'
-import { knownAgent, type TerminalAgent, type TerminalAgentId, type TerminalSpawnResult } from '@shared/terminals'
+import { currentPane, knownAgent, type TerminalAgent, type TerminalAgentId, type TerminalSpawnResult } from '@shared/terminals'
 
 /**
  * Bringing ADE panes back after a quit, and following which CLI runs in each:
@@ -170,10 +170,13 @@ test("Antigravity: the folder's latest conversation comes from its cache and mus
   assert.deepEqual([...(await kind.conversations(project)).keys()], [ID_A])
 })
 
-test('a Gemini CLI pane saved by an older version comes back as a shell', () => {
+test('a Gemini CLI pane saved by an older version comes back as a shell, and its name says so', () => {
   assert.equal(knownAgent('gemini'), 'shell')
   assert.equal(knownAgent('antigravity'), 'antigravity')
   assert.equal(knownAgent(undefined), 'shell')
+  assert.deepEqual(currentPane({ id: 'p1', name: 'Gemini', agent: 'gemini' as never }), { id: 'p1', name: 'Shell (was Gemini CLI)', agent: 'shell' })
+  const kept = { id: 'p2', name: 'Codex', agent: 'codex' as const }
+  assert.equal(currentPane(kept), kept)
 })
 
 /* ------------------------------------------------------------------ opencode */
@@ -569,4 +572,43 @@ setInterval(() => {}, 1000)
   // Quit again: the screen it came back with is kept along with what it printed since.
   const kept = readFileSync(join(dir, 'scrollback', 'pane-b.log'), 'utf8')
   assert.ok(kept.includes('MARKER-42') && kept.includes(sub))
+})
+
+test('away from Eaon the process table is read every 25 s rather than every 4; back at it, every beat', async () => {
+  const recs = new PaneRecords(recsDir)
+  let reads = 0
+  let attended = false
+  let now = 1_000_000
+  const watch = new SessionWatch(
+    () => new Map([['pane-a', 100]]),
+    () => false,
+    recs,
+    () => {},
+    {
+      table: async () => {
+        reads++
+        return [{ pid: 100, ppid: 1, args: '-zsh' }]
+      },
+      cwdOf: async () => '',
+      now: () => now,
+      attended: () => attended
+    }
+  )
+  await watch.poll()
+  assert.equal(reads, 1, 'the first beat looks')
+  // Six beats, 4 s apart, with no window in front: nothing for 24 s.
+  for (let i = 0; i < 6; i++) {
+    now += 4000
+    await watch.poll()
+  }
+  assert.equal(reads, 1)
+  now += 4000
+  await watch.poll()
+  assert.equal(reads, 2, '28 s on, it looks again')
+  attended = true
+  now += 4000
+  await watch.poll()
+  now += 4000
+  await watch.poll()
+  assert.equal(reads, 4, 'with a window in front, every beat looks')
 })

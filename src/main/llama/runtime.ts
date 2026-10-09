@@ -2,6 +2,7 @@ import { execFile, spawn, type ChildProcess } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { accessSync, constants, readFileSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:net'
+import { availableParallelism } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { app } from 'electron'
@@ -51,6 +52,13 @@ const LOAD_TIMEOUT_MS = 5 * 60_000
 /** Chat context per request. The KV cache is allocated up front, so this is memory, not a limit anyone reaches often. */
 const CHAT_CONTEXT = 32_768
 const EMBED_CONTEXT = 8_192
+/**
+ * CPU threads for generation and prompt processing. Left to itself llama.cpp
+ * takes every core, and on a machine without a GPU it can use (Linux, Intel
+ * Macs, Windows on Arm) each local reply, worker heartbeat and indexing batch
+ * then pins the whole computer. Half the cores keeps it usable.
+ */
+const THREADS = Math.max(1, Math.floor(availableParallelism() / 2))
 
 const platformDir = (): string => `${process.platform}-${process.arch === 'arm64' ? 'arm64' : 'x64'}`
 const binaryName = (): string => (process.platform === 'win32' ? 'llama-server.exe' : 'llama-server')
@@ -90,10 +98,32 @@ function freePort(): Promise<number> {
 }
 
 /**
+ * Windows' NTSTATUS exit codes, which Node reports unsigned (3221225781) and
+ * some tools signed (-1073741515). DLL_NOT_FOUND and ENTRYPOINT_NOT_FOUND are
+ * a missing or outdated Visual C++ runtime: the upstream Windows builds Eaon
+ * ships link against it but do not include it.
+ */
+const isStatus = (code: number | null, status: number): boolean => code === status || code === status - 2 ** 32
+const STATUS_DLL_NOT_FOUND = 0xc0000135
+const STATUS_ENTRYPOINT_NOT_FOUND = 0xc0000139
+const STATUS_ILLEGAL_INSTRUCTION = 0xc000001d
+
+/**
  * A failed load, said plainly. llama-server's own last lines are kept for the
  * details; the common causes get a sentence a person can act on.
  */
-export function explainFailure(log: string[], exitCode: number | null): string {
+export function explainFailure(log: string[], exitCode: number | null, signal: NodeJS.Signals | null = null): string {
+  // These die before llama-server writes anything useful, so how it exited is the whole story.
+  if (isStatus(exitCode, STATUS_DLL_NOT_FOUND) || isStatus(exitCode, STATUS_ENTRYPOINT_NOT_FOUND)) {
+    const arch = process.arch === 'arm64' ? 'arm64' : 'x64'
+    return (
+      'The local runtime could not start because the Microsoft Visual C++ Redistributable is missing or out of date. ' +
+      `Install the Microsoft Visual C++ Redistributable for Visual Studio 2015–2022 (${arch}) from https://aka.ms/vs/17/release/vc_redist.${arch}.exe, then try again.`
+    )
+  }
+  if (signal === 'SIGILL' || isStatus(exitCode, STATUS_ILLEGAL_INSTRUCTION)) {
+    return `This computer’s processor lacks instructions the local runtime needs${process.arch === 'x64' ? ' (AVX2)' : ''}, so local models cannot run on it. Use a cloud model instead.`
+  }
   const text = log.join('\n')
   const arch = /unknown model architecture: '([^']+)'/.exec(text)
   if (arch) return `This model’s architecture (${arch[1]}) isn’t supported by Eaon’s llama.cpp yet.`
@@ -101,8 +131,11 @@ export function explainFailure(log: string[], exitCode: number | null): string {
     return 'The model did not fit in memory. Close other apps, or pick a smaller variant of this model.'
   }
   if (/invalid magic|failed to load model|gguf_init/i.test(text)) return 'The model file could not be read. Delete it on the Models page and download it again.'
+  // Eaon's own stop is reported before this is reached, so a SIGKILL came from the system: the OOM killer, or macOS reclaiming memory.
+  if (signal === 'SIGKILL') return 'The system stopped the local model while it loaded, most likely because the computer ran out of memory. Close other apps, or pick a smaller variant of this model.'
   const tail = log.filter((line) => line.trim()).slice(-3).join(' ').slice(0, 300)
-  return `The local model stopped while loading${exitCode !== null ? ` (exit ${exitCode})` : ''}${tail ? `: ${tail}` : '.'}`
+  const how = signal ? ` (${signal})` : exitCode !== null ? ` (exit ${exitCode})` : ''
+  return `The local model stopped while loading${how}${tail ? `: ${tail}` : '.'}`
 }
 
 /** Servers this process started and has not seen exit; recorded so a crash cannot leave them behind. */
@@ -136,6 +169,8 @@ export class LlamaServer {
   readonly log: string[] = []
   state: 'loading' | 'ready' = 'loading'
   lastUsed = Date.now()
+  /** Requests running against it right now (`LlamaRuntime.use`); a server in use is never unloaded as idle. */
+  inUse = 0
   ready!: Promise<void>
   private child: ChildProcess | null = null
   private exited = false
@@ -173,29 +208,32 @@ export class LlamaServer {
     }
     child.stdout?.on('data', keep)
     child.stderr?.on('data', keep)
-    const exit = new Promise<number | null>((resolve) => {
-      child.on('exit', (code) => {
+    const exit = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
+      child.on('exit', (code, signal) => {
         this.exited = true
         if (running.delete(this)) writeRecord()
-        resolve(code)
+        resolve({ code, signal })
       })
       child.on('error', (error) => {
         this.log.push(String(error))
         this.exited = true
         if (running.delete(this)) writeRecord()
-        resolve(null)
+        resolve({ code: null, signal: null })
       })
     })
     this.ready = (async () => {
       const deadline = Date.now() + LOAD_TIMEOUT_MS
-      const exitCode = exit.then((code) => ({ code }))
       while (Date.now() < deadline) {
-        const outcome = await Promise.race([exitCode, this.probe(), new Promise<'wait'>((r) => setTimeout(() => r('wait'), 300))])
+        const outcome = await Promise.race([exit, this.probe(), new Promise<'wait'>((r) => setTimeout(() => r('wait'), 300))])
         if (outcome === 'ok') {
           this.state = 'ready'
           return
         }
-        if (typeof outcome === 'object') throw new Error(explainFailure(this.log, outcome.code))
+        if (typeof outcome === 'object') {
+          // Unloaded (or replaced by another model) before it was ready: Eaon's doing, not a failure to explain.
+          if (this.stopping) throw new Error('The local model was unloaded before it finished loading.')
+          throw new Error(explainFailure(this.log, outcome.code, outcome.signal))
+        }
       }
       this.stop()
       throw new Error('The local model took more than 5 minutes to load, so Eaon gave up. It may be too big for this computer.')
@@ -231,22 +269,46 @@ export class LlamaServer {
 
 class LlamaRuntime {
   private servers: { chat: LlamaServer | null; embedding: LlamaServer | null } = { chat: null, embedding: null }
+  /**
+   * A start in progress per slot. Starting awaits a free port before the
+   * server is in its slot, so callers that arrive together (workers waking at
+   * once) each spawned a server and loaded the model again, and all but the
+   * last were never stopped. They share this one instead.
+   */
+  private starting: Record<'chat' | 'embedding', { key: string; server: Promise<LlamaServer> } | null> = { chat: null, embedding: null }
+  /** Every server this runtime started and has not stopped, so one no slot holds any more is still stopped. */
+  private started = new Set<LlamaServer>()
   private version: string | null = null
   private idleTimer: ReturnType<typeof setInterval> | null = null
 
   /** The server for `model`, loading it (and unloading whatever else held the slot) first. */
   async ensure(model: RuntimeModel, kind: 'chat' | 'embedding' = 'chat'): Promise<RuntimeTarget> {
+    const server = await this.serverFor(model, kind)
+    return { baseUrl: server.baseUrl, apiKey: server.apiKey }
+  }
+
+  /**
+   * Runs one request against `model`, holding its server for as long as the
+   * request lasts: a server with a request in flight is never unloaded as
+   * idle, however long the reply streams.
+   */
+  async use<T>(model: RuntimeModel, kind: 'chat' | 'embedding', request: (target: RuntimeTarget) => Promise<T>): Promise<T> {
+    const server = await this.serverFor(model, kind)
+    server.inUse++
+    try {
+      return await request({ baseUrl: server.baseUrl, apiKey: server.apiKey })
+    } finally {
+      server.inUse--
+      server.lastUsed = Date.now()
+    }
+  }
+
+  private async serverFor(model: RuntimeModel, kind: 'chat' | 'embedding'): Promise<LlamaServer> {
     const binary = llamaBinary()
     if (!binary) throw new Error('This build of Eaon has no local runtime (llama-server). Run scripts/build-llama.sh, or use a cloud model.')
     const key = [model.path, model.mmprojPath ?? '', kind].join('|')
     let server = this.servers[kind]
-    if (!server || server.key !== key || !server.alive) {
-      server?.stop()
-      server = new LlamaServer(model.id, key, await freePort())
-      this.servers[kind] = server
-      server.start(binary, this.args(model, kind, server))
-      this.watchIdle()
-    }
+    if (!server || server.key !== key || !server.alive) server = await this.start(binary, model, kind, key)
     server.lastUsed = Date.now()
     try {
       await server.ready
@@ -255,7 +317,46 @@ class LlamaRuntime {
       throw error
     }
     server.lastUsed = Date.now()
-    return { baseUrl: server.baseUrl, apiKey: server.apiKey }
+    return server
+  }
+
+  /** Starts `model` in its slot, or joins the start already under way for it. */
+  private start(binary: string, model: RuntimeModel, kind: 'chat' | 'embedding', key: string): Promise<LlamaServer> {
+    const pending = this.starting[kind]
+    if (pending?.key === key) return pending.server
+    const entry: { key: string; server: Promise<LlamaServer> } = {
+      key,
+      server: freePort().then((port) => {
+        // Asked for something else (or unloaded) while the port was found: whatever came later has the slot.
+        if (this.starting[kind] !== entry) {
+          throw new Error(this.starting[kind] ? 'Another local model was loaded in its place: one runs at a time.' : 'The local model was unloaded before it finished loading.')
+        }
+        this.starting[kind] = null
+        const server = new LlamaServer(model.id, key, port)
+        this.servers[kind] = server
+        // Stops the server this one replaces before it starts, so its memory is on its way back first.
+        this.sweep()
+        this.started.add(server)
+        server.start(binary, this.args(model, kind, server))
+        this.watchIdle()
+        return server
+      })
+    }
+    this.starting[kind] = entry
+    // A failed start must not hold the slot; nobody else needs to see the error twice.
+    entry.server.catch(() => {
+      if (this.starting[kind] === entry) this.starting[kind] = null
+    })
+    return entry.server
+  }
+
+  /** Stops every server this runtime started that no slot holds. */
+  private sweep(): void {
+    for (const server of this.started) {
+      if (server === this.servers.chat || server === this.servers.embedding) continue
+      this.started.delete(server)
+      server.stop()
+    }
   }
 
   private args(model: RuntimeModel, kind: 'chat' | 'embedding', server: LlamaServer): string[] {
@@ -269,6 +370,11 @@ class LlamaRuntime {
       '-c', String(context),
       // Every layer on the GPU (Metal); llama.cpp keeps what does not fit on the CPU.
       '-ngl', '999',
+      '-t', String(THREADS),
+      '-tb', String(THREADS),
+      // Threads waiting for work sleep. llama.cpp's default (50) spins them, which on a CPU-only
+      // machine keeps every one of them busy between tokens and between requests.
+      '--poll', '0',
       '--no-webui'
     ]
     if (kind === 'embedding') return [...common, '--embedding']
@@ -286,23 +392,18 @@ class LlamaRuntime {
     this.idleTimer = setInterval(() => {
       for (const kind of ['chat', 'embedding'] as const) {
         const server = this.servers[kind]
-        if (server && server.state === 'ready' && Date.now() - server.lastUsed > IDLE_MS) {
+        if (server && server.state === 'ready' && server.inUse === 0 && Date.now() - server.lastUsed > IDLE_MS) {
           server.stop()
           this.servers[kind] = null
         }
       }
-      if (!this.servers.chat && !this.servers.embedding && this.idleTimer) {
+      this.sweep()
+      if (!this.servers.chat && !this.servers.embedding && !this.starting.chat && !this.starting.embedding && this.idleTimer) {
         clearInterval(this.idleTimer)
         this.idleTimer = null
       }
     }, 60_000)
     this.idleTimer.unref()
-  }
-
-  /** Marks the model in use, so a long streamed reply is not unloaded as idle. */
-  touch(kind: 'chat' | 'embedding' = 'chat'): void {
-    const server = this.servers[kind]
-    if (server) server.lastUsed = Date.now()
   }
 
   async status(): Promise<RuntimeStatus> {
@@ -314,9 +415,11 @@ class LlamaRuntime {
 
   unload(kind?: 'chat' | 'embedding'): void {
     for (const k of kind ? [kind] : (['chat', 'embedding'] as const)) {
-      this.servers[k]?.stop()
+      // A start still finding its port sees this and never spawns.
+      this.starting[k] = null
       this.servers[k] = null
     }
+    this.sweep()
   }
 
   /**

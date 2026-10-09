@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { CalendarClock, Plus, X } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
-import type { ScheduledTask } from '@shared/scheduler'
+import type { ScheduledTask, TaskRun } from '@shared/scheduler'
+import { resolveSelection } from '@shared/modelSelection'
 import { Card, Modal, Row, Section, Switch } from './ui'
 import { TopBar } from './TopBar'
 import { revealChat, useApp } from '../state/store'
@@ -25,9 +26,7 @@ function useNow(every: number): number {
 }
 
 export function ScheduledPage(): JSX.Element {
-  const { models, providers } = useApp(
-    useShallow((s) => ({ models: s.availableModels(), providers: s.providers }))
-  )
+  const providers = useApp((s) => s.providers)
   const [tasks, setTasks] = useState<ScheduledTask[] | null>(null)
   const [editing, setEditing] = useState<ScheduledTask | null>(null)
   const [editorOpen, setEditorOpen] = useState(false)
@@ -69,18 +68,17 @@ export function ScheduledPage(): JSX.Element {
     [attempt]
   )
   const onRunNow = useCallback((task: ScheduledTask) => attempt(() => window.api.scheduler.runNow(task.id)), [attempt])
+  const onRetry = useCallback((task: ScheduledTask, run: TaskRun) => attempt(() => window.api.scheduler.retry(task.id, run.id)), [attempt])
   const onStop = useCallback((task: ScheduledTask) => attempt(() => window.api.scheduler.cancel(task.id)), [attempt])
   const onOpenChat = useCallback((chatId: string) => revealChat(chatId), [])
 
+  // The same resolution the run itself uses (shared/modelSelection): a pinned
+  // model that can't run says so here, before its next slot fails.
   const modelLabel = (task: ScheduledTask): string | null => {
     if (!task.model) return null
-    const model = models.find((m) => m.providerId === task.model!.providerId && m.id === task.model!.modelId)
-    if (model) return model.label
-    // Not in the list can just mean the list is stale (a local runtime not
-    // refreshed yet); only call it unavailable when the provider itself is.
-    const provider = providers.find((p) => p.id === task.model!.providerId)
-    const usable = provider && provider.enabled && (provider.hasKey || provider.local)
-    return usable ? task.model.modelId : `${task.model.modelId} (${provider?.name ?? task.model.providerId} unavailable)`
+    const resolved = resolveSelection(task.model, providers)
+    if (resolved.model) return resolved.model.label
+    return `${resolved.wanted?.label ?? task.model.modelId} (unavailable: ${resolved.reason ?? 'not offered now'})`
   }
 
   return (
@@ -134,6 +132,7 @@ export function ScheduledPage(): JSX.Element {
                   onDelete={setDeleting}
                   onToggle={onToggle}
                   onRunNow={onRunNow}
+                  onRetry={onRetry}
                   onStop={onStop}
                   onOpenChat={onOpenChat}
                 />

@@ -12,6 +12,8 @@ import {
 } from '@shared/email'
 import type { Worker } from '@shared/workers'
 import { Card, Modal, Row, Section, Select, Switch } from '../../ui'
+import { CLIPBOARD_FAILED, copyText } from '../../../lib/clipboard'
+import { notify } from '../../Notice'
 
 /**
  * Settings → Email: the agent's own address. Either on the user's own domain,
@@ -440,11 +442,13 @@ function CopyButton({ text, label }: { text: string; label: string }): JSX.Eleme
       className="icon-btn"
       aria-label={label}
       title={label}
-      onClick={() => {
-        void navigator.clipboard.writeText(text)
-        setCopied(true)
-        window.setTimeout(() => setCopied(false), 1400)
-      }}
+      onClick={() =>
+        void copyText(text).then((ok) => {
+          if (!ok) return notify(CLIPBOARD_FAILED, 'error')
+          setCopied(true)
+          window.setTimeout(() => setCopied(false), 1400)
+        })
+      }
     >
       {copied ? <Check size={14} strokeWidth={2} /> : <Copy size={14} strokeWidth={1.9} />}
     </button>
@@ -661,6 +665,7 @@ function Verify({ state, run, busy }: { state: EmailState; run: Run; busy: boole
 function InboxPreview({ state, run }: { state: EmailState; run: Run }): JSX.Element {
   const [open, setOpen] = useState<EmailMessage | null>(null)
   const [loading, setLoading] = useState<string | null>(null)
+  const [readError, setReadError] = useState<string | null>(null)
   return (
     <Section
       label={
@@ -687,8 +692,11 @@ function InboxPreview({ state, run }: { state: EmailState; run: Run }): JSX.Elem
               disabled={loading === message.id}
               onClick={async () => {
                 setLoading(message.id)
+                setReadError(null)
                 try {
                   setOpen(await window.api.email.read(message.id))
+                } catch (e) {
+                  setReadError(`Couldn't open that message: ${errorText(e)}`)
                 } finally {
                   setLoading(null)
                 }
@@ -707,6 +715,7 @@ function InboxPreview({ state, run }: { state: EmailState; run: Run }): JSX.Elem
           ))
         )}
       </Card>
+      {readError && <p className="em-error">{readError}</p>}
       <Modal open={open !== null} onClose={() => setOpen(null)} title={open?.subject || '(no subject)'} width={620} actions={null}>
         {open && (
           <div className="em-read">
@@ -805,7 +814,9 @@ const DOMAIN_STATUS: Record<EmailDomain['status'], { s: string; label: string }>
 
 function DomainCard({ domain, run, busy, cloudflare = false }: { domain: EmailDomain; run: Run; busy: boolean; cloudflare?: boolean }): JSX.Element {
   const [username, setUsername] = useState('assistant')
-  const status = DOMAIN_STATUS[domain.status]
+  // A status this build doesn't know (a provider's new one, a hand-edited
+  // file) is shown as it is rather than taking the page down.
+  const status = DOMAIN_STATUS[domain.status] ?? { s: 'waiting', label: String(domain.status || 'Unknown') }
   return (
     <div className="em-domain">
       <Card>
