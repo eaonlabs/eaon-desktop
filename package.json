@@ -1,6 +1,6 @@
 {
   "name": "eaon-desktop",
-  "version": "2026.6.2",
+  "version": "2026.6.3-beta.1",
   "description": "The Eaon desktop app — a bring-your-own-key AI chat client",
   "main": "./out/main/index.js",
   "desktopName": "eaon.desktop",

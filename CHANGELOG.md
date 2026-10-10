@@ -3,6 +3,17 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [2026.6.3-beta.1] — 2026-10-10
+
+### Added
+- **Claude Code can trade on the Trading tab.** An agent desk runs your own
+  Claude Code in a pane, connected to Eaon's trading tools, beside the
+  controls that set a session going (the goal, when to start and stop, how
+  often it decides) and a live feed of what it does. You hand it the session
+  by typing the trade command in Claude Code; Eaon never types into it.
+  Every order still passes your limits and kill switch, and trading real
+  money needs its own switch.
+
 ## [2026.6.2] — 2026-10-08
 
 The stable release of everything in the 2026.6.2 betas below, plus:
