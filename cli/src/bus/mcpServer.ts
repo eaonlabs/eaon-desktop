@@ -5,9 +5,9 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { CallToolRequestSchema, GetPromptRequestSchema, ListPromptsRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
 import { YahooMarketData } from '@main/features/trading/marketData'
-import { brokerLabel, describeExit, describeLimits, duration, orderOutcome } from '@main/features/trading/engine'
+import { feedStep, num, traderTools, tradePrompt as missionPrompt, type McpToolDef, type TraderHost } from '@main/features/trading/claudeTrader'
 import { nextClose } from '@main/features/trading/marketHours'
-import { BROKERS, type ExitRequest, type OrderRequest, type TradingOrder, type TradingSchedule, type TradingSession, type TradingSnapshot } from '@shared/trading'
+import type { TradingSnapshot } from '@shared/trading'
 import { cliHome } from '../runtime/paths'
 import type { Worker } from '@shared/workers'
 import { BusNode, type PeerKind, type PeerMessage } from './bus'
@@ -129,12 +129,7 @@ export class Inbox {
 
 /* ------------------------------------------------------------------ tools */
 
-export interface McpToolDef {
-  name: string
-  description: () => string
-  inputSchema: Record<string, unknown>
-  run: (args: Record<string, unknown>) => Promise<string>
-}
+export type { McpToolDef }
 
 const str = (value: unknown): string => (typeof value === 'string' ? value.trim() : '')
 
@@ -294,44 +289,6 @@ export function createEaonMcpTools(
 
 /* ---------------------------------------------------------- full control */
 
-/** How a control tool appears in the desk's feed: as the trading agent's tool of the same job. */
-function feedStep(name: string, args: Record<string, unknown>): { name: string; input: Record<string, unknown> } | null {
-  switch (name) {
-    case 'eaon_quote':
-      return { name: 'trading_quote', input: { symbols: args.symbols } }
-    case 'eaon_history':
-    case 'eaon_scan':
-    case 'eaon_news':
-    case 'eaon_account':
-      return { name: `trading_${name.slice(5)}`, input: args }
-    case 'eaon_order':
-      return { name: 'trading_order', input: args }
-    case 'eaon_close_position':
-      return { name: 'trading_order', input: { symbol: args.symbol, side: 'sell', reason: 'Closing the whole position.' } }
-    case 'eaon_set_exit':
-      return { name: 'trading_exits', input: args }
-    case 'eaon_cancel':
-      return { name: 'trading_cancel', input: args }
-    default:
-      return null
-  }
-}
-
-/** The session Claude Code runs, if one is: a running session whose driver is Claude Code. */
-function claudeSession(snapshot: TradingSnapshot): TradingSession | null {
-  const s = snapshot.activeSession
-  return s && s.driver === 'claude-code' ? s : null
-}
-
-/** The mission Claude Code runs, if one is: an enabled schedule it drives (the every-market-day one first). */
-function claudeMission(snapshot: TradingSnapshot): TradingSchedule | null {
-  const mine = (snapshot.schedules ?? []).filter((s) => s.enabled && s.driver === 'claude-code')
-  return mine.find((s) => s.marketHours) ?? mine[0] ?? null
-}
-
-const when = (at: number | null): string =>
-  at === null ? 'when it next opens' : new Date(at).toLocaleString('en-US', { weekday: 'short', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' })
-
 /**
  * The `trade` prompt (in Claude Code, `/mcp__eaon__trade`): hands Claude Code
  * the session waiting for it — the mission, the limits, and the loop it
@@ -340,38 +297,8 @@ const when = (at: number | null): string =>
 export async function tradePrompt(bus: BusNode): Promise<string> {
   if (!bus.owner()) return 'Eaon isn’t running, so there is no trading session to run. Tell the user to open Eaon (`eaon`) first.'
   const snapshot = await bus.invokeOwner<TradingSnapshot>('trading:snapshot', [])
-  const session = claudeSession(snapshot)
-  const mission = claudeMission(snapshot)
-  if (!session && !mission)
-    return 'There is no Eaon trading session waiting for Claude Code. Tell the user to start one in Eaon: Trading tab → page 1 → mission control → AGENT: Claude Code → G. Then run this command again.'
-  const broker = BROKERS.find((b) => b.id === snapshot.config.broker)
-  const name = session?.name ?? mission!.name
-  const strategy = session?.strategy ?? mission!.strategy
-  const every = session?.everyMinutes ?? mission!.everyMinutes
-  const daily = Boolean(mission?.marketHours && (!session || session.scheduleId === mission.id))
-  const span = daily
-    ? `every market day, from the open until just before the close; when the market reopens a new day’s session starts, until the user stops the mission${session ? '' : '. No day’s session is running right now: eaon_wait_for_check waits for the next one, at the open'}`
-    : `until ${new Date(session!.endsAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} (${duration(Math.max(0, session!.endsAt - Date.now()))} from now)`
-  return [
-    `You are now the trading agent for Eaon’s ${daily ? 'mission' : 'trading session'} “${name}”, on ${brokerLabel(snapshot.config.broker)}${broker?.real ? ' — REAL MONEY: every loss is the user’s own money' : ' (practice money)'}. You trade US stocks and ETFs for the user, following their goal, within their limits, ${span}. Nobody approves each step: decide on your own, act, and keep going.`,
-    '',
-    'The goal, in the user’s words:',
-    strategy,
-    '',
-    `Run it in a loop until ${daily ? 'Eaon says the mission is over' : 'the session ends'}:`,
-    `1. Call eaon_wait_for_check. It waits until the next check is due — every ${every} minutes while the market is open, sooner when a price alert fires or the user writes to you${daily ? ', and through the night until the next open' : ''} — and returns the brief: the time, the market, the account, positions and open orders, what moved since your last check, any ALERT and any MESSAGE FROM THE USER. If it says no check is due yet${daily ? ' or that the market is closed' : ''}, call it again. ${daily ? 'When a day’s session ends, call it again to wait for the next open. Stop only when it says the mission is over, and say how it went.' : 'If it says the session has ended, stop and say how it went.'}`,
-    '2. Look before you act: eaon_history (trend, RSI, ATR, MACD, volume), eaon_scan (today’s movers), eaon_news, eaon_quote, eaon_account. Web search is fine for context.',
-    '3. Act only through Eaon: eaon_order (always with a reason), eaon_set_exit to raise or set stops, eaon_close_position, eaon_cancel. Orders past the user’s limits are refused, and the refusal says why. Don’t use the shell or files to trade.',
-    '4. End every check with eaon_log_decision: one line, what you did and why (the user sees it in Eaon). Then go back to step 1.',
-    '',
-    'Risk, unless the goal says otherwise: give every new position a stop_loss (under a recent swing low, or about 2×ATR below the entry) or a trailing_stop_pct; size from the stop to risk about 1% of equity, then fit the limits; cut losers at the stop and never average down; raise stops on winners rather than selling early; be slower to buy when SPY and QQQ are falling. Doing nothing is often right; never trade for the sake of it.',
-    `Limits (orders past them are refused): ${describeLimits(snapshot.config.limits)}.`,
-    'The user can write to you while you trade; their message arrives in the next brief. Answer it in your decision and follow it where it fits the limits. Don’t stop the loop to ask them questions.',
-    'Start now: call eaon_wait_for_check.'
-  ].join('\n')
+  return missionPrompt(snapshot, 'Trading tab → page 1 → mission control → AGENT: Claude Code → G')
 }
-
-const num = (value: unknown): number | undefined => (typeof value === 'number' && Number.isFinite(value) ? value : typeof value === 'string' && value.trim() && Number.isFinite(Number(value)) ? Number(value) : undefined)
 
 /** "3" or 3 hours, "90m", "15:30", or "close", as a time. */
 function untilFrom(args: Record<string, unknown>, now = Date.now()): number | null {
@@ -397,10 +324,14 @@ function controlTools(bus: BusNode): McpToolDef[] {
   }
   const snapshot = (): Promise<TradingSnapshot> => owner<TradingSnapshot>('trading:snapshot')
   /** Real money from here needs the user's say-so in the TUI, on top of everything the engine checks. */
+  const liveRefusal = (snap: TradingSnapshot): string | null =>
+    snap.config.broker === 'alpaca-live' && !controlMayTradeLive()
+      ? 'That would trade real money (Alpaca live). The user hasn’t allowed Claude Code to trade real money: in Eaon, Trading → 1 → Mission control → CLAUDE CODE.'
+      : null
   const guardLive = async (): Promise<TradingSnapshot> => {
     const snap = await snapshot()
-    if (snap.config.broker === 'alpaca-live' && !controlMayTradeLive())
-      throw new Error('That would trade real money (Alpaca live). The user hasn’t allowed Claude Code to trade real money: in Eaon, Trading → 1 → Mission control → CLAUDE CODE.')
+    const refusal = liveRefusal(snap)
+    if (refusal) throw new Error(refusal)
     return snap
   }
   const session = async (): Promise<NonNullable<TradingSnapshot['activeSession']>> => {
@@ -410,159 +341,24 @@ function controlTools(bus: BusNode): McpToolDef[] {
   }
   const object = (properties: Record<string, unknown>, required: string[] = []): Record<string, unknown> => ({ type: 'object', properties, required })
 
-  const research = (tool: string) => (args: Record<string, unknown>) => owner<string>('trading:research', tool, args)
+  // One wait for a check lasts up to four hours: a check, the next open, or the end. (The Claude Code Eaon opens allows five.)
+  const WAIT = 4 * 3_600_000
+  const host: TraderHost = {
+    snapshot,
+    waitSession: (maxWaitMs) => bus.invokeOwner('trading:wait-session', [maxWaitMs], maxWaitMs + 60_000),
+    waitCheck: (id, maxWaitMs) => bus.invokeOwner('trading:wait-check', [id, maxWaitMs], maxWaitMs + 60_000),
+    logDecision: (id, text) => owner('trading:log-decision', id, text),
+    sessionOrder: (id, request) => owner('trading:session-order', id, request),
+    placeOrder: (request) => owner('trading:place-order', request),
+    cancelOrder: (id) => owner('trading:cancel-order', id),
+    closePosition: (symbol) => owner('trading:close-position', symbol),
+    setExit: (request) => owner('trading:set-exit', request),
+    research: (tool, args) => owner<string>('trading:research', tool, args),
+    liveRefusal
+  }
 
   return [
-    {
-      name: 'eaon_wait_for_check',
-      description: () =>
-        'When you run an Eaon trading session or mission: waits for the next check (the interval, a price alert, a message from the user, or "check now"; overnight, the next open) and returns its brief — market, account, positions, what moved, alerts, messages. Says when to call again, when a day’s session ended (call again for the next), and when it is all over.',
-      inputSchema: object({}),
-      run: async () => {
-        // One call waits up to four hours: a check, the next open, or the end. (The Claude Code Eaon opens allows five.)
-        const WAIT = 4 * 3_600_000
-        const before = await snapshot()
-        let session = claudeSession(before)
-        if (!session) {
-          const had = claudeMission(before)
-          const between = await bus.invokeOwner<{ state: 'session'; id: string } | { state: 'waiting'; nextAt: number | null } | { state: 'none' }>('trading:wait-session', [WAIT], WAIT + 60_000)
-          if (between.state === 'none')
-            return had
-              ? `The mission “${had.name}” is over: the user stopped it in Eaon. Stop here and tell the user how it went.`
-              : 'No Eaon trading session or mission is waiting for Claude Code, so there is nothing to run. If one just ended, you’re done; otherwise the user starts one in Eaon (AGENT: Claude Code, then G).'
-          if (between.state === 'waiting') return `The market is closed; the mission’s next session starts ${when(between.nextAt)}. Call eaon_wait_for_check again to keep waiting for it.`
-          session = claudeSession(await snapshot())
-          if (!session) return 'The next session is starting. Call eaon_wait_for_check again.'
-        }
-        const result = await bus.invokeOwner<
-          { state: 'check'; check: number; brief: string; endsAt: number } | { state: 'waiting'; nextCheckAt: number | null } | { state: 'ended'; status: string; summary: string | null }
-        >('trading:wait-check', [session.id, WAIT], WAIT + 60_000)
-        if (result.state === 'check') return `CHECK ${result.check} of “${session.name}”\n\n${result.brief}`
-        if (result.state === 'waiting')
-          return `No check is due yet${result.nextCheckAt ? ` (next at ${new Date(result.nextCheckAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })})` : ''}. Call eaon_wait_for_check again.`
-        const mission = claudeMission(await snapshot())
-        if (mission && session.scheduleId === mission.id)
-          return `Today’s session has ended (${result.status}).${result.summary ? ` ${result.summary}` : ''} The mission goes on: the next session starts at the next market open. Call eaon_wait_for_check to wait for it.`
-        return `The session has ended (${result.status}).${result.summary ? ` ${result.summary}` : ''} Stop here and tell the user how it went.`
-      }
-    },
-    {
-      name: 'eaon_log_decision',
-      description: () => 'When you run an Eaon trading session: the one line that ends a check — what you did and why. The user sees it in Eaon’s activity feed.',
-      inputSchema: object({ decision: { type: 'string' } }, ['decision']),
-      run: async (args) => {
-        const session = claudeSession(await snapshot())
-        if (!session) throw new Error('No Eaon trading session is running for Claude Code right now (the market may be closed). Call eaon_wait_for_check.')
-        await owner('trading:log-decision', session.id, str(args.decision))
-        return 'Logged. Call eaon_wait_for_check for the next check.'
-      }
-    },
-    {
-      name: 'eaon_history',
-      description: () => 'Trend and indicators for up to 5 US stocks or ETFs over a range: moving averages, RSI, ATR, MACD momentum, volume against its average, the range high and low.',
-      inputSchema: object(
-        {
-          symbols: { type: 'array', items: { type: 'string' } },
-          range: { type: 'string', enum: ['1d', '5d', '1mo', '6mo', '1y'], description: 'Default 6mo (daily bars); 1d and 5d are intraday' }
-        },
-        ['symbols']
-      ),
-      run: research('trading_history')
-    },
-    {
-      name: 'eaon_scan',
-      description: () => 'Today’s biggest US stock movers — gainers, losers or most active — with relative volume. Skips penny stocks and tiny companies.',
-      inputSchema: object({ list: { type: 'string', enum: ['gainers', 'losers', 'active'] }, count: { type: 'number' } }),
-      run: research('trading_scan')
-    },
-    {
-      name: 'eaon_news',
-      description: () => 'The latest headlines about up to 3 stocks, newest first.',
-      inputSchema: object({ symbols: { type: 'array', items: { type: 'string' } } }, ['symbols']),
-      run: research('trading_news')
-    },
-    {
-      name: 'eaon_account',
-      description: () => 'The trading account in full: equity, cash, positions with their exits, open orders, P&L statistics, the running session and the limits.',
-      inputSchema: object({}),
-      run: research('trading_account')
-    },
-    {
-      name: 'eaon_order',
-      description: () => 'Buy or sell a US stock or ETF on Eaon’s trading desk (the simulator or the Alpaca account it is set to). Checked against the user’s limits first; refusals say why. Give shares (qty) or dollars (notional), and a reason.',
-      inputSchema: object(
-        {
-          symbol: { type: 'string' },
-          side: { type: 'string', enum: ['buy', 'sell'] },
-          qty: { type: 'number', description: 'Shares; fractions allowed' },
-          notional: { type: 'number', description: 'Dollars, instead of qty (market orders)' },
-          type: { type: 'string', enum: ['market', 'limit'] },
-          limit_price: { type: 'number' },
-          stop_loss: { type: 'number', description: 'Buys: sell if the price falls to this' },
-          take_profit: { type: 'number', description: 'Buys: sell if the price rises to this' },
-          trailing_stop_pct: { type: 'number', description: 'Buys: sell if the price falls this % below its high' },
-          reason: { type: 'string', description: 'Why, in a sentence; shown to the user' }
-        },
-        ['symbol', 'side', 'reason']
-      ),
-      run: async (args) => {
-        await guardLive()
-        const request: OrderRequest = {
-          symbol: str(args.symbol),
-          side: args.side === 'sell' ? 'sell' : 'buy',
-          reason: `Claude Code: ${str(args.reason) || 'no reason given'}`,
-          ...(num(args.qty) !== undefined ? { qty: num(args.qty) } : {}),
-          ...(num(args.notional) !== undefined ? { notional: num(args.notional) } : {}),
-          ...(args.type === 'limit' || args.type === 'market' ? { type: args.type } : {}),
-          ...(num(args.limit_price) !== undefined ? { limitPrice: num(args.limit_price) } : {}),
-          ...(num(args.stop_loss) !== undefined ? { stopLoss: num(args.stop_loss) } : {}),
-          ...(num(args.take_profit) !== undefined ? { takeProfit: num(args.take_profit) } : {}),
-          ...(num(args.trailing_stop_pct) !== undefined ? { trailPct: num(args.trailing_stop_pct) } : {})
-        }
-        const session = claudeSession(await snapshot())
-        const order = session ? await owner<TradingOrder>('trading:session-order', session.id, request) : await owner<TradingOrder>('trading:place-order', request)
-        if (order.status === 'rejected') return orderOutcome(order)
-        const exit = (await snapshot()).positions.find((p) => p.symbol === order.symbol)?.exit
-        return `${orderOutcome(order)} Order id: ${order.id}.${exit ? ` Protected: ${describeExit(exit)}.` : order.side === 'buy' ? ' No stop is set on it.' : ''}`
-      }
-    },
-    {
-      name: 'eaon_cancel',
-      description: () => 'Cancel an open order on Eaon’s desk by its id (eaon_trading lists open orders).',
-      inputSchema: object({ order_id: { type: 'string' } }, ['order_id']),
-      run: async (args) => {
-        const snap = await owner<TradingSnapshot>('trading:cancel-order', str(args.order_id))
-        const order = snap.orders.find((o) => o.id === str(args.order_id))
-        return order ? `Order ${order.id}: ${order.status}.` : 'Canceled.'
-      }
-    },
-    {
-      name: 'eaon_close_position',
-      description: () => 'Sell an entire holding at market on Eaon’s desk.',
-      inputSchema: object({ symbol: { type: 'string' } }, ['symbol']),
-      run: async (args) => {
-        await guardLive()
-        return orderOutcome(await owner<TradingOrder>('trading:close-position', str(args.symbol)))
-      }
-    },
-    {
-      name: 'eaon_set_exit',
-      description: () => 'Set, change or clear the protective exit on a holding: stop_loss, take_profit and trailing_stop_pct. Eaon watches it and sells at market when it is reached. 0 clears a value; clear removes them all.',
-      inputSchema: object(
-        { symbol: { type: 'string' }, stop_loss: { type: 'number' }, take_profit: { type: 'number' }, trailing_stop_pct: { type: 'number' }, clear: { type: 'boolean' } },
-        ['symbol']
-      ),
-      run: async (args) => {
-        const value = (raw: unknown): number | null | undefined => (raw === undefined ? undefined : num(raw) === 0 || raw === null ? null : num(raw))
-        const request: ExitRequest =
-          args.clear === true
-            ? { symbol: str(args.symbol), stopPrice: null, targetPrice: null, trailPct: null }
-            : { symbol: str(args.symbol), stopPrice: value(args.stop_loss), targetPrice: value(args.take_profit), trailPct: value(args.trailing_stop_pct) }
-        const snap = await owner<TradingSnapshot>('trading:set-exit', request)
-        const exit = snap.positions.find((p) => p.symbol === request.symbol.toUpperCase())?.exit
-        return exit ? `${exit.symbol} protected: ${describeExit(exit)}.` : `No exit on ${request.symbol.toUpperCase()} now.`
-      }
-    },
+    ...traderTools(host, { waitMs: WAIT }),
     {
       name: 'eaon_session',
       description: () =>

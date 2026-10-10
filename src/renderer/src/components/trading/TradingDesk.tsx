@@ -1,25 +1,28 @@
 import { Fragment, useEffect, useMemo, useState, type JSX } from 'react'
-import { ArrowDownRight, ArrowUpRight, Minus, OctagonX, Play, RefreshCw, Shield, Square, TriangleAlert } from 'lucide-react'
+import { ArrowDownRight, ArrowUpRight, Minus, OctagonX, Play, RefreshCw, Shield, TriangleAlert } from 'lucide-react'
 import { BROKERS, type EquityPoint, type PositionExit, type TradingPosition, type TradingSnapshot } from '@shared/trading'
 import { TopBar } from '../TopBar'
 import { Segmented } from '../ui'
+import { AgentDesk } from './AgentDesk'
 import { EquityChart } from './EquityChart'
 import { TradingSessions } from './TradingSessions'
 import { TradingSetup } from './TradingSetup'
 import { TradeTicket } from './TradeTicket'
-import { clock, dayAndTime, direction, qty, signedPct, signedUsd, usd, useTrading } from './tradingStore'
+import { clock, dayAndTime, direction, qty, signedPct, signedUsd, span, usd, useNow, useTrading } from './tradingStore'
 
 /**
- * The trading desk, in the ADE: what the account is worth and how it got
- * there, what the agent holds and has traded and why, when it trades next,
- * and the limits it trades within. Everything here is a view of main's
- * trading engine (features/trading); the agent itself trades through its
- * tools, from a chat or in a scheduled session.
+ * The trading desk: what the account is worth and how it got there, the
+ * agent at work (the user's Claude Code in a pane, or Eaon's own agent) with
+ * when it starts and stops and how often it decides, what it holds and has
+ * traded and why, and the limits it trades within. Everything here is a view
+ * of main's trading engine (features/trading); while a session runs, main
+ * refreshes it every few seconds.
  */
 
-type Range = '1d' | '1w' | '1m' | 'all'
+type Range = 'live' | '1d' | '1w' | '1m' | 'all'
 
 const RANGES: { value: Range; label: string; ms: number }[] = [
+  { value: 'live', label: 'Live', ms: Infinity },
   { value: '1d', label: '1D', ms: 24 * 60 * 60_000 },
   { value: '1w', label: '1W', ms: 7 * 24 * 60 * 60_000 },
   { value: '1m', label: '1M', ms: 31 * 24 * 60 * 60_000 },
@@ -28,7 +31,11 @@ const RANGES: { value: Range; label: string; ms: number }[] = [
 
 export function TradingDesk(): JSX.Element {
   const { snapshot, error, init, run } = useTrading()
-  const [range, setRange] = useState<Range>('1w')
+  const [picked, setPicked] = useState<Range | null>(null)
+  const [asTable, setAsTable] = useState(false)
+  const hasLive = (snapshot?.live?.length ?? 0) >= 2
+  // While a session runs the chart follows it live, unless the user picked a range.
+  const range: Range = picked && (picked !== 'live' || hasLive) ? picked : hasLive && snapshot?.activeSession ? 'live' : '1w'
 
   useEffect(() => {
     void init()
@@ -42,8 +49,9 @@ export function TradingDesk(): JSX.Element {
 
   const points = useMemo(() => {
     if (!snapshot) return []
-    const span = RANGES.find((r) => r.value === range)!.ms
-    const from = Date.now() - span
+    if (range === 'live') return snapshot.live ?? []
+    const width = RANGES.find((r) => r.value === range)!.ms
+    const from = Date.now() - width
     return snapshot.equity.filter((p) => p.at >= from)
   }, [snapshot, range])
 
@@ -100,17 +108,23 @@ export function TradingDesk(): JSX.Element {
 
           <Hero snapshot={snapshot} />
 
-          <ActiveSession snapshot={snapshot} />
+          <AgentDesk snapshot={snapshot} />
 
           <section className="tr-panel">
             <div className="tr-panel__head">
               <h2 className="tr-h2">Account value</h2>
-              <Segmented value={range} options={RANGES.map(({ value, label }) => ({ value, label }))} onChange={setRange} />
+              <div className="tr-panel__tools">
+                <Segmented value={range} options={RANGES.filter((r) => r.value !== 'live' || hasLive).map(({ value, label }) => ({ value, label }))} onChange={setPicked} />
+                <button className="btn btn--sm btn--ghost" aria-pressed={asTable} onClick={() => setAsTable((v) => !v)}>
+                  {asTable ? 'Chart' : 'Table'}
+                </button>
+              </div>
             </div>
-            <EquityChart points={points} baseline={rangeStart(points, account?.startingEquity ?? null, range)} />
+            <EquityChart asTable={asTable} points={points} baseline={rangeStart(points, range === 'live' ? (snapshot.activeSession?.startEquity ?? null) : (account?.startingEquity ?? null), range)} />
             <p className="tr-footnote">
               {broker.label} · {snapshot.dataSource}
               {account ? ` · updated ${clock(account.updatedAt)}` : ''}
+              {range === 'live' ? ' · a point every few seconds while the session runs' : ''}
             </p>
           </section>
 
@@ -146,7 +160,9 @@ export function TradingDesk(): JSX.Element {
 
           <TradingSessions snapshot={snapshot} />
 
-          <TradingSetup snapshot={snapshot} />
+          <div id="tr-setup">
+            <TradingSetup snapshot={snapshot} />
+          </div>
         </div>
       </div>
     </div>
@@ -155,7 +171,7 @@ export function TradingDesk(): JSX.Element {
 
 /** The baseline for the chart: the value at the start of the range shown (or where tracking began, for All). */
 function rangeStart(points: EquityPoint[], starting: number | null, range: Range): number | null {
-  if (range === 'all') return starting ?? points[0]?.equity ?? null
+  if (range === 'all' || range === 'live') return starting ?? points[0]?.equity ?? null
   return points[0]?.equity ?? null
 }
 
@@ -190,6 +206,7 @@ function Hero({ snapshot }: { snapshot: TradingSnapshot }): JSX.Element {
           <span className="tr-market__dot" aria-hidden="true" />
           {market}
         </span>
+        {snapshot.activeSession && account && <LiveAge at={account.updatedAt} />}
       </div>
       <div className="tr-hero__value">{account ? usd(account.equity) : '—'}</div>
       <div className="tr-hero__deltas">
@@ -204,30 +221,14 @@ function Hero({ snapshot }: { snapshot: TradingSnapshot }): JSX.Element {
   )
 }
 
-function ActiveSession({ snapshot }: { snapshot: TradingSnapshot }): JSX.Element | null {
-  const run = useTrading((s) => s.run)
-  const session = snapshot.activeSession
-  if (!session) return null
-  const change = (snapshot.account?.equity ?? session.startEquity) - session.startEquity
-  const last = [...session.log].reverse().find((e) => e.kind === 'decision' || e.kind === 'order')
+/** "Live · 2s ago": how fresh the numbers are while a session runs (main refreshes every few seconds). */
+function LiveAge({ at }: { at: number }): JSX.Element {
+  const now = useNow()
   return (
-    <section className="tr-session" aria-live="polite">
-      <div className="tr-session__pulse" aria-hidden="true" />
-      <div className="tr-session__body">
-        <div className="tr-session__title">
-          Trading until {clock(session.endsAt)} · {session.name}
-        </div>
-        <div className="tr-session__meta">
-          Checking every {session.everyMinutes} min · {session.checks} check{session.checks === 1 ? '' : 's'} · {session.orders} order
-          {session.orders === 1 ? '' : 's'} · <Delta value={change} pct={session.startEquity ? (change / session.startEquity) * 100 : 0} /> this session
-        </div>
-        {last && <div className="tr-session__last">{last.text}</div>}
-      </div>
-      <button className="btn" onClick={() => void run(() => window.api.trading.stopSession(session.id))}>
-        <Square size={11} strokeWidth={0} fill="currentColor" />
-        Stop
-      </button>
-    </section>
+    <span className="tr-liveage" title="Refreshed every few seconds while a session runs">
+      <span className="tr-liveage__dot" aria-hidden="true" />
+      Live · {span(now - at)} ago
+    </span>
   )
 }
 
@@ -251,7 +252,7 @@ function Positions({ snapshot }: { snapshot: TradingSnapshot }): JSX.Element {
   const run = useTrading((s) => s.run)
   const [editing, setEditing] = useState<string | null>(null)
   if (snapshot.positions.length === 0) {
-    return <p className="tr-empty">No holdings. Ask Eaon to trade from a chat, start a session below, or place an order yourself.</p>
+    return <p className="tr-empty">No holdings. Start the agent above, ask Eaon from a chat, or place an order yourself.</p>
   }
   return (
     <table className="tr-table">
@@ -403,6 +404,11 @@ const STATUS_LABEL: Record<string, string> = {
 
 const SOURCE_LABEL = { user: 'You', agent: 'Eaon', session: 'Session' }
 
+/** Who placed an order: Claude Code's carry its name at the start of the reason. */
+function sourceOf(order: { source: keyof typeof SOURCE_LABEL; reason: string }): string {
+  return order.reason.startsWith('Claude Code: ') ? 'Claude' : SOURCE_LABEL[order.source]
+}
+
 function Orders({ snapshot }: { snapshot: TradingSnapshot }): JSX.Element {
   const run = useTrading((s) => s.run)
   const [all, setAll] = useState(false)
@@ -453,7 +459,7 @@ function Orders({ snapshot }: { snapshot: TradingSnapshot }): JSX.Element {
                 )}
               </td>
               <td className="tr-why">
-                <span className="tr-source">{SOURCE_LABEL[o.source]}</span> {o.error ? <span className="tr-refused">{o.error}</span> : o.reason}
+                <span className="tr-source">{sourceOf(o)}</span> {o.error ? <span className="tr-refused">{o.error}</span> : o.reason.replace(/^Claude Code: /, '')}
               </td>
             </tr>
           ))}

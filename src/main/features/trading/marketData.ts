@@ -123,6 +123,8 @@ export interface YahooOptions {
   newsUrl?: string
   fetch?: typeof fetch
   now?: () => number
+  /** How long a quote is reused; 15 s by default. A desk that moves in real time wants it shorter. */
+  quoteTtlMs?: number
 }
 
 export class YahooMarketData implements PriceFeed {
@@ -132,6 +134,7 @@ export class YahooMarketData implements PriceFeed {
   private readonly newsUrl: string
   private readonly fetchImpl: typeof fetch
   private readonly now: () => number
+  private readonly quoteTtlMs: number
   private readonly quotes = new Map<string, { quote: Quote; at: number }>()
   private readonly barCache = new Map<string, { bars: Bar[]; at: number }>()
   private readonly screens = new Map<ScreenKind, { rows: ScreenRow[]; at: number }>()
@@ -145,12 +148,13 @@ export class YahooMarketData implements PriceFeed {
     this.newsUrl = options.newsUrl ?? YAHOO_NEWS_URL
     this.fetchImpl = options.fetch ?? fetch
     this.now = options.now ?? Date.now
+    this.quoteTtlMs = options.quoteTtlMs ?? QUOTE_TTL_MS
   }
 
   async quote(raw: string): Promise<Quote> {
     const symbol = normalizeSymbol(raw)
     const cached = this.quotes.get(symbol)
-    if (cached && this.now() - cached.at < QUOTE_TTL_MS) return { ...cached.quote }
+    if (cached && this.now() - cached.at < this.quoteTtlMs) return { ...cached.quote }
     // range=1d makes `previousClose` yesterday's close; over longer ranges
     // `chartPreviousClose` is the close before the whole range instead.
     const result = await this.chart(symbol, '1d', '5m')

@@ -223,6 +223,14 @@ export interface TradingSchedule {
   marketHours?: boolean
   /** Who runs its sessions: Eaon's agent (absent) or Claude Code. */
   driver?: SessionDriver
+  /** Checks this many seconds apart instead of `everyMinutes` (1 = a decision every second). */
+  everySeconds?: number
+  /**
+   * A single window at fixed times instead of repeating days: "start trading
+   * at 9:45 and stop at 11:30". `days`, `start` and `end` then only describe
+   * it. Once the window has passed the schedule switches itself off.
+   */
+  once?: { start: number; end: number }
 }
 
 export type TradingScheduleDraft = Omit<TradingSchedule, 'id' | 'createdAt'> & { id?: string }
@@ -265,6 +273,8 @@ export interface TradingSession {
    * user's Claude Code, which takes each check through Eaon's MCP tools.
    */
   driver?: SessionDriver
+  /** Checks this many seconds apart, overriding `everyMinutes`. */
+  everySeconds?: number
 }
 
 export type SessionDriver = 'eaon' | 'claude-code'
@@ -277,6 +287,8 @@ export interface StartSessionRequest {
   flattenAtEnd?: boolean
   name?: string
   driver?: SessionDriver
+  /** Checks this many seconds apart (1–3600), instead of `everyMinutes`. */
+  everySeconds?: number
 }
 
 export interface TradingSnapshot {
@@ -312,6 +324,11 @@ export interface TradingSnapshot {
   claudeWaiting?: boolean
   /** Orders and sessions wait for the trading disclaimer (apps that ask for it). */
   needsDisclaimer?: boolean
+  /**
+   * Equity every few seconds while a session runs with the desk open, newest
+   * last, for the chart's live view (the curve above keeps a point a minute).
+   */
+  live?: EquityPoint[]
   /** The last problem talking to the broker or the price feed, if it hasn't recovered. */
   error: string | null
   /** Where prices come from, for the desk's footnote. */
@@ -397,4 +414,50 @@ export const EMPTY_STATS: TradingStats = {
   worstTrade: null,
   investedPct: 0,
   ordersToday: 0
+}
+
+/** How far apart a session's or schedule's checks are, in ms (with `minuteMs` for a minute). */
+export function checkIntervalMs(cadence: { everyMinutes: number; everySeconds?: number }, minuteMs = 60_000): number {
+  return cadence.everySeconds ? (cadence.everySeconds * minuteMs) / 60 : cadence.everyMinutes * minuteMs
+}
+
+/** "every second", "every 15 s", "every 5 min". */
+export function cadenceText(cadence: { everyMinutes: number; everySeconds?: number }): string {
+  const seconds = cadence.everySeconds
+  if (seconds) {
+    if (seconds === 1) return 'every second'
+    if (seconds < 60 || seconds % 60 !== 0) return `every ${seconds} s`
+    return seconds === 60 ? 'every minute' : `every ${seconds / 60} min`
+  }
+  return cadence.everyMinutes === 1 ? 'every minute' : `every ${cadence.everyMinutes} min`
+}
+
+/** One step a session's agent took — a tool it used and what came back — for the desk's live feed. */
+export interface TradingStep {
+  id: string
+  sessionId: string
+  at: number
+  /** The check it belongs to, when known. */
+  check: number | null
+  /** The trading agent's name for the tool (`trading_order`…); Claude Code's calls are named the same. */
+  tool: string
+  input: Record<string, unknown>
+  status: 'running' | 'done' | 'error'
+  /** The start of what the tool answered. */
+  output: string | null
+}
+
+/** How the Trading tab starts the user's Claude Code, connected to Eaon's trading MCP server. */
+export interface ClaudeTradingLaunch {
+  paneId: string
+  /** Where it runs: the trading work folder. */
+  cwd: string
+  /** Typed into the pane's shell: `claude` with the MCP config and Eaon's context. */
+  command: string
+  installed: boolean
+  installHint: string
+  /** What the user types in Claude Code to hand it the session. */
+  tradeCommand: string
+  /** Whether Claude Code may trade real money (Alpaca live). */
+  liveMoney: boolean
 }

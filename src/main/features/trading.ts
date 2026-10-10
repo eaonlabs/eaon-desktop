@@ -1,10 +1,16 @@
-import type { BarRange, ExitRequest, OrderRequest, StartSessionRequest, TradingScheduleDraft } from '@shared/trading'
+import { chmodSync, mkdirSync, writeFileSync } from 'node:fs'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
+import type { BarRange, ClaudeTradingLaunch, ExitRequest, OrderRequest, StartSessionRequest, TradingScheduleDraft, TradingStep } from '@shared/trading'
 import type { StreamEvent } from '@shared/types'
 import { runAgent } from '../agent/loop'
 import { withUsageSource } from './usage/attribution'
 import { registerToolSource } from '../agent/tools'
 import { secrets } from '../secrets'
+import { onPath } from '../shellEnv'
 import { store } from '../store'
+import { CLAUDE_SERVER_NAME, ClaudeTradingServer, TRADE_COMMAND } from './trading/claudeServer'
+import { prepareOutsidePane } from './terminals/outsidePanes'
 import { TradingEngine, type KeyKind, type TradingConfigPatch } from './trading/engine'
 import { YahooMarketData } from './trading/marketData'
 import { setTradingHalted } from './trading/access'
@@ -28,7 +34,8 @@ const FILES = {
   schedules: 'trading-schedules.json',
   sessions: 'trading-sessions.json',
   sim: 'trading-sim.json',
-  exits: 'trading-exits.json'
+  exits: 'trading-exits.json',
+  claude: 'trading-claude.json'
 }
 /** Lets the window load first; nothing here is needed to paint it. */
 const START_DELAY_MS = 5000
@@ -44,6 +51,29 @@ const vaultName = (kind: KeyKind, part: 'key' | 'secret'): string => `trading:al
 let engine: TradingEngine | null = null
 let startTimer: ReturnType<typeof setTimeout> | null = null
 let stopPushes: (() => void) | null = null
+let claudeServer: ClaudeTradingServer | null = null
+
+/** The pane on the Trading tab that runs the user's Claude Code. */
+const CLAUDE_PANE = 'trading-claude'
+/** The newest steps kept for the desk's live feed. */
+const MAX_STEPS = 80
+
+/**
+ * What Claude Code is told about where it runs, on top of its own system
+ * prompt. It is passed on the command line, so it keeps clear of quotes and
+ * dollar signs (shells read those).
+ */
+const CLAUDE_CONTEXT = [
+  'You are running inside the Trading tab of Eaon, a desktop app.',
+  `The ${CLAUDE_SERVER_NAME} MCP server is the user's Eaon trading desk: its tools read the market and the account and place orders through Eaon, where the user's limits and kill switch apply.`,
+  `When the user runs ${TRADE_COMMAND} you become the trading agent for the session they set up in Eaon, and you keep its loop going until it ends.`,
+  'Trade only through those tools, never through the shell or files.'
+].join(' ')
+
+/** Whether the user let Claude Code trade real money, from the switch on the Trading tab. */
+function claudeLiveMoney(): boolean {
+  return store.getJson<{ liveMoney?: boolean }>(FILES.claude, {}).liveMoney === true
+}
 
 /** The running engine, for other features (and tests); null before registration. */
 export function tradingEngine(): TradingEngine | null {
@@ -86,6 +116,24 @@ export function onTradingAgentEvent(fn: (sessionId: string, event: StreamEvent) 
   return () => agentListeners.delete(fn)
 }
 
+/** The latest steps of the running session's agent (Eaon's or Claude Code), newest last. */
+const steps: TradingStep[] = []
+let sendSteps: ((steps: TradingStep[]) => void) | null = null
+
+function recordStep(sessionId: string, event: StreamEvent): void {
+  if (event.type === 'tool-call') {
+    const check = /:(\d+)$/.exec(event.messageId)?.[1]
+    steps.push({ id: event.toolId, sessionId, at: Date.now(), check: check ? Number(check) : null, tool: event.name, input: event.input ?? {}, status: 'running', output: null })
+    if (steps.length > MAX_STEPS) steps.splice(0, steps.length - MAX_STEPS)
+  } else if (event.type === 'tool-result') {
+    const step = steps.find((s) => s.id === event.toolId)
+    if (!step) return
+    step.status = event.status === 'done' ? 'done' : 'error'
+    step.output = event.output.slice(0, 400)
+  } else return
+  sendSteps?.(steps.slice())
+}
+
 export const tradingFeature: Feature = {
   id: 'trading',
   register: (ctx) => {
@@ -93,6 +141,7 @@ export const tradingFeature: Feature = {
       if (engine) ctx.send('trading:changed', engine.deskShown ? engine.snapshot() : engine.summary())
     }, PUSH_EVERY_MS)
     stopPushes = push.cancel
+    sendSteps = (list) => ctx.send('trading:steps', list)
     /**
      * The windows with the desk on screen, by webContents id (the CLI's desk
      * is one more), each with what stops watching for it going away: a window
@@ -101,7 +150,8 @@ export const tradingFeature: Feature = {
     const desks = new Map<number, () => void>()
 
     const trading = new TradingEngine({
-      prices: new YahooMarketData(),
+      // A running session's desk refreshes every few seconds; quotes that live 15 s would hold it still.
+      prices: new YahooMarketData({ quoteTtlMs: 4000 }),
       // Counted under Trading in Settings → Usage.
       runAgent: (request, emit, options) => withUsageSource('trading', () => runAgent(request, emit, options)),
       getSettings: () => store.getSettings(),
@@ -132,6 +182,7 @@ export const tradingFeature: Feature = {
       saveExits: (exits) => store.setJson(FILES.exits, exits),
       onChange: push.call,
       onAgentEvent: (sessionId, event) => {
+        recordStep(sessionId, event)
         for (const fn of agentListeners) fn(sessionId, event)
       },
       requireDisclaimer: () => disclaimerRequired
@@ -141,7 +192,56 @@ export const tradingFeature: Feature = {
     registerToolSource(tradingToolSource(trading))
     setTradingHalted(() => trading.getConfig().halted)
 
+    claudeServer = new ClaudeTradingServer({ engine: trading, settings: () => store.getSettings(), mayTradeLive: claudeLiveMoney })
+
     const { ipcMain } = ctx
+    ipcMain.handle('trading:steps', () => steps.slice())
+    /**
+     * Sets up the Claude Code pane: Eaon's trading MCP server running, a
+     * config file pointing Claude Code at it with this run's key, and the
+     * command the pane types to start Claude Code. Nothing is typed into
+     * Claude Code itself — the user hands it the session (TRADE_COMMAND).
+     */
+    ipcMain.handle('trading:claude-launch', async (): Promise<ClaudeTradingLaunch> => {
+      const settings = store.getSettings()
+      const cwd = join(settings.work.defaultFolder || join(homedir(), 'Eaon'), 'Trading')
+      const { url, token } = await claudeServer!.start()
+      const dir = join(cwd, '.eaon')
+      mkdirSync(dir, { recursive: true })
+      const configPath = join(dir, 'claude-mcp.json')
+      // The key lets anything that reads it place orders: only the user may read it.
+      writeFileSync(configPath, JSON.stringify({ mcpServers: { [CLAUDE_SERVER_NAME]: { type: 'http', url, headers: { Authorization: `Bearer ${token}` } } } }, null, 2), { mode: 0o600 })
+      try {
+        chmodSync(configPath, 0o600)
+      } catch {
+        /* Windows: the folder is the user's own */
+      }
+      // A wait for the next check takes up to four minutes; Claude Code mustn't give up on it first.
+      prepareOutsidePane(CLAUDE_PANE, process.env.MCP_TOOL_TIMEOUT ? {} : { MCP_TOOL_TIMEOUT: String(10 * 60_000) })
+      const command = [
+        'claude',
+        '--mcp-config',
+        '.eaon/claude-mcp.json',
+        // Eaon's trading tools run without asking each time: a session decides on its own, and the limits stand in front of every order.
+        '--allowedTools',
+        `mcp__${CLAUDE_SERVER_NAME}`,
+        '--append-system-prompt',
+        `'${CLAUDE_CONTEXT}'`
+      ].join(' ')
+      return {
+        paneId: CLAUDE_PANE,
+        cwd,
+        command,
+        installed: Boolean(onPath('claude')),
+        installHint: 'npm install -g @anthropic-ai/claude-code',
+        tradeCommand: TRADE_COMMAND,
+        liveMoney: claudeLiveMoney()
+      }
+    })
+    ipcMain.handle('trading:claude-live-money', (_e, on: boolean) => {
+      store.setJson(FILES.claude, { ...store.getJson<Record<string, unknown>>(FILES.claude, {}), liveMoney: on === true })
+      return claudeLiveMoney()
+    })
     ipcMain.handle('trading:snapshot', () => {
       trading.touch()
       return trading.snapshot()
@@ -215,6 +315,9 @@ export const tradingFeature: Feature = {
     if (startTimer) clearTimeout(startTimer)
     startTimer = null
     stopPushes?.()
+    sendSteps = null
+    claudeServer?.stop()
+    claudeServer = null
     // Synchronous: a running check is aborted and recorded as interrupted before the store flushes.
     engine?.stop()
   }

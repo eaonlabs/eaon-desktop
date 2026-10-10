@@ -339,10 +339,10 @@
   font-size: var(--fs-xs);
   color: var(--text-3);
 }
-.eq-chart__table-toggle {
-  position: absolute;
-  right: 0;
-  top: -40px;
+.tr-panel__tools {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .eq-table {
   max-height: 220px;
@@ -803,4 +803,369 @@
 }
 .tr-ticket__exits .input {
   min-width: 0;
+}
+
+/* ---- The agent desk: Claude Code in a pane, mission control and the live feed (AgentDesk.tsx) ---- */
+
+.tr-agent-desk {
+  --tr-amber: #d9a21b;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 18px;
+  align-items: start;
+}
+.tr-agent-desk[data-claude] {
+  grid-template-columns: minmax(0, 1.25fr) minmax(340px, 1fr);
+}
+.tr-agent-desk__side {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-width: 0;
+}
+@media (max-width: 1100px) {
+  .tr-agent-desk[data-claude] {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* Claude Code's pane: the ADE's terminal pane, tall enough to read it work. */
+.tr-claude {
+  height: clamp(460px, 68vh, 760px);
+  animation: none;
+}
+.tr-claude__screen {
+  min-height: 0;
+}
+.tr-claude__state {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-3);
+}
+.tr-claude__state[data-tone='live'] {
+  color: var(--diff-add-fg);
+}
+.tr-claude__state[data-tone='warn'] {
+  color: var(--tr-amber);
+}
+.tr-claude__handover {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px 8px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--tr-amber), transparent 60%);
+  background: color-mix(in srgb, var(--tr-amber), transparent 86%);
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+.tr-claude__handover > svg {
+  flex: none;
+  color: var(--tr-amber);
+}
+.tr-claude__handover > span {
+  flex: 1;
+  min-width: 0;
+}
+.tr-claude__handover code,
+.tr-claude__missing code {
+  font-family: var(--font-mono);
+  font-size: 0.95em;
+  padding: 1px 5px;
+  border-radius: var(--r-xs);
+  background: var(--surface-2);
+  user-select: all;
+}
+.tr-claude__note {
+  margin: 8px 12px 0;
+}
+.tr-claude__missing {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 24px;
+  text-align: center;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+.tr-claude__missing p {
+  margin: 0;
+  max-width: 360px;
+}
+
+/* Mission control */
+.tr-account-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.tr-account-chip:hover {
+  background: var(--hover-strong);
+}
+.tr-account-chip .tr-muted {
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+.tr-account-chip:not([data-linked]) .tr-muted {
+  color: var(--tr-amber);
+}
+.tr-account-chip[data-real] {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.tr-setup-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.tr-setup-form__row,
+.tr-setup-form__times {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 12px;
+}
+.tr-label {
+  width: 52px;
+  flex: none;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.tr-setup-form__span {
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+.tr-setup-form__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.tr-hint {
+  margin: 0;
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+}
+.tr-real span {
+  color: var(--danger);
+}
+.tr-badge {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  margin-right: 8px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--accent), transparent 85%);
+  color: var(--accent);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  vertical-align: 1px;
+}
+
+.tr-armed,
+.tr-running {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.tr-armed__title,
+.tr-running__title {
+  font-weight: 600;
+  font-size: var(--fs-sm);
+  color: var(--text);
+  min-width: 0;
+}
+.tr-armed__count {
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.tr-armed__count strong {
+  color: var(--text);
+  font-size: var(--fs-base);
+}
+.tr-armed__goal {
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--sunken);
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  white-space: pre-wrap;
+}
+.tr-running__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.tr-progress {
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.tr-progress span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 1s linear;
+}
+.tr-running__clock {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.tr-running__clock strong {
+  color: var(--text);
+  font-size: var(--fs-sm);
+}
+.tr-running__stats {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  margin: 0;
+}
+.tr-running__stats > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border-radius: var(--r-md);
+  background: var(--sunken);
+  min-width: 0;
+}
+.tr-running__stats dt {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.tr-running__stats dd {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.tr-running__stats dd .tr-muted {
+  font-weight: 400;
+}
+.tr-running__next {
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+@media (max-width: 1400px) {
+  .tr-running__stats {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+/* The live feed: the session's log and the agent's tool steps, newest first. */
+.tr-feed__say {
+  display: flex;
+  gap: 6px;
+}
+.tr-feed__say .input {
+  flex: 1;
+  min-width: 0;
+}
+.tr-feed__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-height: 340px;
+  overflow-y: auto;
+}
+.tr-feed__list li {
+  display: flex;
+  gap: 10px;
+  font-size: var(--fs-sm);
+  line-height: 1.4;
+  color: var(--text-2);
+}
+.tr-feed__time {
+  flex: none;
+  width: 78px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.tr-feed__text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.tr-feed__detail {
+  display: block;
+  font-size: var(--fs-xs);
+  color: var(--danger);
+}
+.tr-feed__list li[data-kind='decision'] {
+  color: var(--text);
+  font-weight: 500;
+}
+.tr-feed__list li[data-kind='order'] .tr-feed__text {
+  color: var(--text);
+}
+.tr-feed__list li[data-kind='message'] .tr-feed__text::before {
+  content: 'You: ';
+  color: var(--accent);
+  font-weight: 600;
+}
+.tr-feed__list li[data-kind='error'],
+.tr-feed__list li[data-kind='tool-error'] {
+  color: var(--danger);
+}
+.tr-feed__list li[data-kind^='tool'] {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.tr-feed__list li[data-kind='tool-running'] .tr-feed__text::after {
+  content: ' …';
+}
+
+/* "Live · 2s ago" beside the market status. */
+.tr-liveage {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.tr-liveage__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--diff-add-fg);
+  animation: bx-pulse 1.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tr-liveage__dot,
+  .tr-progress span {
+    animation: none;
+    transition: none;
+  }
 }

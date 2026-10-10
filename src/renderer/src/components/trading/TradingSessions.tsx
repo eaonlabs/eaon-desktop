@@ -1,13 +1,14 @@
 import { useState, type JSX } from 'react'
-import { CalendarClock, ChevronDown, ChevronRight, Pencil, Play, Plus, Trash2 } from 'lucide-react'
-import type { TradingSchedule, TradingScheduleDraft, TradingSession, TradingSnapshot } from '@shared/trading'
+import { CalendarClock, ChevronDown, ChevronRight, Pencil, Plus, Trash2 } from 'lucide-react'
+import { cadenceText, type TradingSchedule, type TradingScheduleDraft, type TradingSession, type TradingSnapshot } from '@shared/trading'
 import { Modal, Select, Switch } from '../ui'
 import { clock, dayAndTime, direction, signedUsd, useTrading } from './tradingStore'
 
 /**
- * When the agent trades: right now until a time the user picks, or in
- * windows that repeat on chosen days ("weekdays 9:30 to 4:00"). Past
- * sessions keep what the agent did and why, and what it made or lost.
+ * Windows that repeat on chosen days ("weekdays 9:30 to 4:00") and past
+ * sessions, which keep what the agent did and why, and what it made or lost.
+ * Starting the agent now, at a time, or every market day is up in the agent
+ * desk (AgentDesk.tsx).
  */
 
 const DAY_NAMES = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
@@ -22,15 +23,6 @@ const EVERY: { value: string; label: string }[] = [
 
 const STRATEGY_HINT =
   'e.g. Swing-trade large-cap tech. Buy on pullbacks to the 20-day average when RSI is under 40, take profit at +4%, cut losses at −2%. Hold at most 4 stocks.'
-
-/** Local "HH:MM" as today's (or tomorrow's) timestamp. */
-function atTime(time: string): number {
-  const [h, m] = time.split(':').map(Number)
-  const at = new Date()
-  at.setHours(h, m, 0, 0)
-  if (at.getTime() <= Date.now()) at.setDate(at.getDate() + 1)
-  return at.getTime()
-}
 
 function daysText(days: number[]): string {
   const sorted = [...days].sort()
@@ -53,14 +45,12 @@ export function TradingSessions({ snapshot }: { snapshot: TradingSnapshot }): JS
   return (
     <section className="tr-panel">
       <div className="tr-panel__head">
-        <h2 className="tr-h2">Agent trading</h2>
+        <h2 className="tr-h2">Schedules and past sessions</h2>
         <button className="btn btn--sm" onClick={() => setEditing('new')}>
           <Plus size={13} strokeWidth={2} />
           New schedule
         </button>
       </div>
-
-      {!snapshot.activeSession && <StartNow snapshot={snapshot} />}
 
       <div className="tr-sub">Schedules</div>
       {snapshot.schedules.length === 0 ? (
@@ -84,50 +74,8 @@ export function TradingSessions({ snapshot }: { snapshot: TradingSnapshot }): JS
         </>
       )}
 
-      {snapshot.activeSession && <SessionLog session={snapshot.activeSession} open />}
-
       {editing && <ScheduleEditor schedule={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
     </section>
-  )
-}
-
-function StartNow({ snapshot }: { snapshot: TradingSnapshot }): JSX.Element {
-  const run = useTrading((s) => s.run)
-  const [strategy, setStrategy] = useState('')
-  const [until, setUntil] = useState(() => (new Date().getHours() < 13 ? '16:00' : '23:00'))
-  const [every, setEvery] = useState('5')
-  const [flatten, setFlatten] = useState(false)
-  return (
-    <div className="tr-start">
-      <label className="tr-field">
-        <span>Strategy</span>
-        <textarea className="input" rows={3} value={strategy} placeholder={STRATEGY_HINT} onChange={(e) => setStrategy(e.target.value)} />
-      </label>
-      <div className="tr-start__row">
-        <label className="tr-field tr-field--inline">
-          <span>Trade until</span>
-          <input className="input tr-time" type="time" value={until} onChange={(e) => setUntil(e.target.value)} />
-        </label>
-        <Select value={every} options={EVERY} onChange={setEvery} width={150} />
-        <label className="tr-field tr-field--inline tr-switch-field">
-          <Switch label="Sell everything at the end" checked={flatten} onChange={setFlatten} />
-          <span>Sell all at the end</span>
-        </label>
-        <div style={{ flex: 1 }} />
-        <button
-          className="btn btn--primary"
-          disabled={!strategy.trim() || !/^\d{2}:\d{2}$/.test(until) || snapshot.config.halted}
-          onClick={() =>
-            void run(() => window.api.trading.startSession({ strategy: strategy.trim(), until: atTime(until), everyMinutes: Number(every), flattenAtEnd: flatten })).then(
-              (session) => session && setStrategy('')
-            )
-          }
-        >
-          <Play size={13} strokeWidth={2} />
-          Start trading
-        </button>
-      </div>
-    </div>
   )
 }
 
@@ -139,7 +87,13 @@ function ScheduleRow({ schedule, onEdit }: { schedule: TradingSchedule; onEdit: 
       <div className="tr-row__body">
         <div className="tr-row__title">{schedule.name}</div>
         <div className="tr-row__desc">
-          {daysText(schedule.days)} · {timeText(schedule.start)} – {timeText(schedule.end)} · every {schedule.everyMinutes} min
+          {schedule.once
+            ? `Once · ${dayAndTime(schedule.once.start)} – ${clock(schedule.once.end)}`
+            : schedule.marketHours
+              ? 'Every market day · open to close'
+              : `${daysText(schedule.days)} · ${timeText(schedule.start)} – ${timeText(schedule.end)}`}{' '}
+          · {cadenceText(schedule)}
+          {schedule.driver === 'claude-code' ? ' · Claude Code' : ''}
           {schedule.flattenAtEnd ? ' · sells all at the end' : ''}
         </div>
         <div className="tr-row__strategy">{schedule.strategy}</div>
@@ -149,9 +103,11 @@ function ScheduleRow({ schedule, onEdit }: { schedule: TradingSchedule; onEdit: 
         checked={schedule.enabled}
         onChange={(enabled) => void run(() => window.api.trading.saveSchedule({ ...schedule, enabled }))}
       />
-      <button className="icon-btn" aria-label={`Edit ${schedule.name}`} onClick={onEdit}>
-        <Pencil size={14} strokeWidth={1.9} />
-      </button>
+      {!schedule.once && !schedule.marketHours && (
+        <button className="icon-btn" aria-label={`Edit ${schedule.name}`} onClick={onEdit}>
+          <Pencil size={14} strokeWidth={1.9} />
+        </button>
+      )}
       <button className="icon-btn" aria-label={`Remove ${schedule.name}`} onClick={() => void run(() => window.api.trading.removeSchedule(schedule.id))}>
         <Trash2 size={14} strokeWidth={1.9} />
       </button>
@@ -270,11 +226,10 @@ function PastSession({ session }: { session: TradingSession }): JSX.Element {
   )
 }
 
-function SessionLog({ session, open = false }: { session: TradingSession; open?: boolean }): JSX.Element {
+function SessionLog({ session }: { session: TradingSession }): JSX.Element {
   const entries = [...session.log].reverse()
   return (
-    <div className="tr-log" data-open={open || undefined}>
-      {open && <div className="tr-sub">What Eaon is doing</div>}
+    <div className="tr-log">
       {session.summary && <p className="tr-log__summary">{session.summary}</p>}
       {session.error && <p className="tr-error">{session.error}</p>}
       {entries.length === 0 ? (
