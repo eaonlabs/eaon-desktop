@@ -4,7 +4,8 @@ import type { AddressInfo } from 'node:net'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { CallToolRequestSchema, GetPromptRequestSchema, ListPromptsRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
-import type { TradingSnapshot } from '@shared/trading'
+import { brokerLabel } from './engine'
+import { isRealMoney, type TradingSnapshot } from '@shared/trading'
 import { feedStep, runResearchTool, traderTools, tradePrompt, type McpToolDef, type TraderHost } from './claudeTrader'
 import type { TradingEngine } from './engine'
 import type { Settings } from '@shared/types'
@@ -63,8 +64,8 @@ export function claudeTraderHost(deps: ClaudeServerDeps): TraderHost {
     },
     research: (tool, args) => runResearchTool(engine, deps.settings(), tool, args),
     liveRefusal: (snap: TradingSnapshot) =>
-      snap.config.broker === 'alpaca-live' && !deps.mayTradeLive()
-        ? 'That would trade real money (Alpaca live). The user hasn’t let Claude Code trade real money: in Eaon’s Trading tab, under Claude Code, switch on “Let Claude Code trade real money”.'
+      isRealMoney(snap.config.broker) && !deps.mayTradeLive()
+        ? `That would trade real money (${brokerLabel(snap.config.broker)}). The user hasn’t let Claude Code trade real money: in Eaon’s Trading tab, under Claude Code, switch on “Let Claude Code trade real money”.`
         : null
   }
 }

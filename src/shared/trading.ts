@@ -15,28 +15,94 @@
  * renderer.
  */
 
-export type BrokerKind = 'simulator' | 'alpaca-paper' | 'alpaca-live'
+export type BrokerKind = 'simulator' | 'alpaca-paper' | 'alpaca-live' | 'tradier-paper' | 'tradier-live' | 'robinhood'
 
-export const BROKERS: { id: BrokerKind; label: string; description: string; real: boolean }[] = [
+/**
+ * How an account is linked: nothing (the simulator), a key pair (Alpaca), an
+ * access token (Tradier), or a browser sign-in to the broker's own MCP server
+ * (Robinhood's agentic account).
+ */
+export type BrokerLink = 'none' | 'keys' | 'token' | 'sign-in'
+
+export interface BrokerInfo {
+  id: BrokerKind
+  label: string
+  /** The company, for grouping paper and live accounts on the broker picker. */
+  provider: 'Eaon' | 'Alpaca' | 'Tradier' | 'Robinhood'
+  description: string
+  real: boolean
+  link: BrokerLink
+  /** Where the user gets the keys or token. */
+  linkUrl?: string
+  /** What the user pastes, in their broker's words. */
+  linkHelp?: string
+}
+
+export const BROKERS: BrokerInfo[] = [
   {
     id: 'simulator',
     label: 'Simulator',
+    provider: 'Eaon',
     description: 'Practice money in a local account, priced with real market quotes. No account needed and nothing is at risk.',
-    real: false
+    real: false,
+    link: 'none'
   },
   {
     id: 'alpaca-paper',
     label: 'Alpaca paper',
+    provider: 'Alpaca',
     description: 'A practice account at Alpaca, a real broker: real order handling, pretend money. Free with an Alpaca account.',
-    real: false
+    real: false,
+    link: 'keys',
+    linkUrl: 'https://app.alpaca.markets/paper/dashboard/overview',
+    linkHelp: 'Your paper account’s API key ID and secret key, from the Alpaca dashboard (Paper → API keys).'
   },
   {
     id: 'alpaca-live',
     label: 'Alpaca live',
+    provider: 'Alpaca',
     description: 'Real money in your Alpaca brokerage account. You can lose money. Every order still has to pass your limits.',
-    real: true
+    real: true,
+    link: 'keys',
+    linkUrl: 'https://app.alpaca.markets/brokerage/dashboard/overview',
+    linkHelp: 'Your live account’s API key ID and secret key, from the Alpaca dashboard (Live → API keys).'
+  },
+  {
+    id: 'tradier-paper',
+    label: 'Tradier sandbox',
+    provider: 'Tradier',
+    description: 'Tradier’s practice account: real order handling against delayed prices, pretend money. Whole shares only.',
+    real: false,
+    link: 'token',
+    linkUrl: 'https://dash.tradier.com/settings/api',
+    linkHelp: 'Your sandbox access token, from Tradier → Settings → API Access.'
+  },
+  {
+    id: 'tradier-live',
+    label: 'Tradier live',
+    provider: 'Tradier',
+    description: 'Real money in your Tradier brokerage account. Whole shares only. Every order still has to pass your limits.',
+    real: true,
+    link: 'token',
+    linkUrl: 'https://dash.tradier.com/settings/api',
+    linkHelp: 'Your brokerage access token, from Tradier → Settings → API Access.'
+  },
+  {
+    id: 'robinhood',
+    label: 'Robinhood',
+    provider: 'Robinhood',
+    description: 'Real money in your Robinhood Agentic account — a separate account you fund with only what you want the agent to trade. Linked by signing in to Robinhood.',
+    real: true,
+    link: 'sign-in',
+    linkUrl: 'https://robinhood.com/us/en/support/articles/agentic-trading-overview/',
+    linkHelp: 'Sign in to Robinhood in your browser and allow Eaon. Set up the Agentic account in the Robinhood app first.'
   }
 ]
+
+/** Whether an account trades real money. */
+export const isRealMoney = (kind: BrokerKind): boolean => BROKERS.find((b) => b.id === kind)?.real === true
+
+export const brokerInfo = (kind: BrokerKind): BrokerInfo => BROKERS.find((b) => b.id === kind) ?? BROKERS[0]
 
 /** Guardrails every order must pass, whoever places it. */
 export interface TradingLimits {
@@ -295,6 +361,8 @@ export interface TradingSnapshot {
   config: TradingConfig
   /** Which Alpaca keys are saved. The keys themselves never leave main. */
   keys: { paper: boolean; live: boolean }
+  /** Which accounts are linked and ready to trade (keys saved, token saved, signed in). */
+  linked?: Partial<Record<BrokerKind, boolean>>
   account: TradingAccount | null
   positions: TradingPosition[]
   /** Newest first, at most 200. */

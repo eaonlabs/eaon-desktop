@@ -1,59 +1,37 @@
-import { Fragment, useEffect, useMemo, useState, type JSX } from 'react'
-import { ArrowDownRight, ArrowUpRight, Minus, OctagonX, Play, RefreshCw, Shield, TriangleAlert } from 'lucide-react'
-import { BROKERS, type EquityPoint, type PositionExit, type TradingPosition, type TradingSnapshot } from '@shared/trading'
+import { Fragment, useEffect, useState, type JSX } from 'react'
+import { OctagonX, Play, RefreshCw, Shield, TriangleAlert } from 'lucide-react'
+import type { PositionExit, SessionDriver, TradingPosition, TradingSnapshot } from '@shared/trading'
 import { TopBar } from '../TopBar'
-import { Segmented } from '../ui'
-import { AgentDesk } from './AgentDesk'
-import { EquityChart } from './EquityChart'
+import { AccountsModal } from './Accounts'
+import { armedPlan, ClaudePane, ExecutionLog, MissionControl } from './AgentDesk'
+import { AccountCard, Analytics, MarketPanel, Strip } from './Dashboard'
 import { TradingSessions } from './TradingSessions'
 import { TradingSetup } from './TradingSetup'
 import { TradeTicket } from './TradeTicket'
-import { clock, dayAndTime, direction, qty, signedPct, signedUsd, span, usd, useNow, useTrading } from './tradingStore'
+import { dayAndTime, direction, qty, signedPct, signedUsd, usd, useTrading } from './tradingStore'
 
 /**
- * The trading desk: what the account is worth and how it got there, the
- * agent at work (the user's Claude Code in a pane, or Eaon's own agent) with
- * when it starts and stops and how often it decides, what it holds and has
- * traded and why, and the limits it trades within. Everything here is a view
- * of main's trading engine (features/trading); while a session runs, main
- * refreshes it every few seconds.
+ * The Trading tab: a dashboard over main's trading engine. Across the top,
+ * whether the agent is trading and how the account and the market are doing;
+ * then the account, the chart, and the agent itself — the user's Claude Code
+ * in a pane, or Eaon's own agent — with what it is told to do, what it holds
+ * and every step it takes, live; below, the trades, schedules and limits.
+ * While a session runs, main refreshes the account every few seconds.
  */
-
-type Range = 'live' | '1d' | '1w' | '1m' | 'all'
-
-const RANGES: { value: Range; label: string; ms: number }[] = [
-  { value: 'live', label: 'Live', ms: Infinity },
-  { value: '1d', label: '1D', ms: 24 * 60 * 60_000 },
-  { value: '1w', label: '1W', ms: 7 * 24 * 60 * 60_000 },
-  { value: '1m', label: '1M', ms: 31 * 24 * 60 * 60_000 },
-  { value: 'all', label: 'All', ms: Infinity }
-]
-
 export function TradingDesk(): JSX.Element {
   const { snapshot, error, init, run } = useTrading()
-  const [picked, setPicked] = useState<Range | null>(null)
-  const [asTable, setAsTable] = useState(false)
-  const hasLive = (snapshot?.live?.length ?? 0) >= 2
-  // While a session runs the chart follows it live, unless the user picked a range.
-  const range: Range = picked && (picked !== 'live' || hasLive) ? picked : hasLive && snapshot?.activeSession ? 'live' : '1w'
+  const [accounts, setAccounts] = useState(false)
+  const [driverPick, setDriver] = useState<SessionDriver>('claude-code')
 
   useEffect(() => {
     void init()
   }, [init])
 
-  // Main refreshes every 30 s while the desk is on screen, every 5 min otherwise.
+  // Main refreshes every few seconds while the desk is on screen and a session runs.
   useEffect(() => {
     void window.api.trading.setDeskOpen(true)
     return () => void window.api.trading.setDeskOpen(false)
   }, [])
-
-  const points = useMemo(() => {
-    if (!snapshot) return []
-    if (range === 'live') return snapshot.live ?? []
-    const width = RANGES.find((r) => r.value === range)!.ms
-    const from = Date.now() - width
-    return snapshot.equity.filter((p) => p.at >= from)
-  }, [snapshot, range])
 
   if (!snapshot) {
     return (
@@ -66,8 +44,10 @@ export function TradingDesk(): JSX.Element {
     )
   }
 
-  const { config, account, stats } = snapshot
-  const broker = BROKERS.find((b) => b.id === config.broker)!
+  const { config } = snapshot
+  const plan = armedPlan(snapshot)
+  const driver = snapshot.activeSession?.driver ?? plan?.driver ?? driverPick
+  const claude = driver === 'claude-code'
 
   return (
     <div className="page trading">
@@ -93,10 +73,10 @@ export function TradingDesk(): JSX.Element {
       />
       <div className="page__scroll scroll">
         <div className="page__inner page__inner--wide tr-desk">
-          {(error || snapshot.error) && (
+          {error && (
             <div className="tr-alert" role="alert">
               <TriangleAlert size={15} strokeWidth={2} />
-              <span>{error ?? snapshot.error}</span>
+              <span>{error}</span>
             </div>
           )}
           {config.halted && (
@@ -106,144 +86,56 @@ export function TradingDesk(): JSX.Element {
             </div>
           )}
 
-          <Hero snapshot={snapshot} />
-
-          <AgentDesk snapshot={snapshot} />
-
-          <section className="tr-panel">
-            <div className="tr-panel__head">
-              <h2 className="tr-h2">Account value</h2>
-              <div className="tr-panel__tools">
-                <Segmented value={range} options={RANGES.filter((r) => r.value !== 'live' || hasLive).map(({ value, label }) => ({ value, label }))} onChange={setPicked} />
-                <button className="btn btn--sm btn--ghost" aria-pressed={asTable} onClick={() => setAsTable((v) => !v)}>
-                  {asTable ? 'Chart' : 'Table'}
-                </button>
-              </div>
+          <div className="tr-dash" data-claude={claude || undefined}>
+            <Strip snapshot={snapshot} />
+            <div className="tr-dash__account">
+              <AccountCard snapshot={snapshot} onAccounts={() => setAccounts(true)} />
             </div>
-            <EquityChart asTable={asTable} points={points} baseline={rangeStart(points, range === 'live' ? (snapshot.activeSession?.startEquity ?? null) : (account?.startingEquity ?? null), range)} />
-            <p className="tr-footnote">
-              {broker.label} · {snapshot.dataSource}
-              {account ? ` · updated ${clock(account.updatedAt)}` : ''}
-              {range === 'live' ? ' · a point every few seconds while the session runs' : ''}
-            </p>
-          </section>
-
-          <section className="tr-kpis" aria-label="Statistics">
-            <Kpi label="Total return" value={signedUsd(stats.totalReturn)} delta={stats.totalReturnPct} />
-            <Kpi label="Realised P&L" value={signedUsd(stats.realizedPl)} note={`${signedUsd(stats.unrealizedPl)} open`} />
-            <Kpi label="Win rate" value={stats.trades ? `${Math.round(stats.winRate * 100)}%` : '—'} note={`${stats.wins} won · ${stats.losses} lost`} />
-            <Kpi label="Profit factor" value={stats.profitFactor === null ? '—' : stats.profitFactor.toFixed(2)} note="Gains ÷ losses" />
-            <Kpi label="Max drawdown" value={stats.maxDrawdownPct ? `−${stats.maxDrawdownPct.toFixed(2)}%` : '0%'} note="Deepest fall from a peak" />
-            <Kpi label="Sharpe ratio" value={stats.sharpe === null ? '—' : stats.sharpe.toFixed(2)} note={stats.sharpe === null ? 'Needs 5 days' : 'Annualised'} />
-            <Kpi label="Trades" value={String(stats.trades)} note={`${stats.ordersToday} orders today`} />
-            <Kpi label="Invested" value={`${Math.round(stats.investedPct)}%`} note={account ? `${usd(account.cash, true)} cash` : undefined} />
-          </section>
-
-          <div className="tr-grid">
-            <section className="tr-panel">
-              <div className="tr-panel__head">
-                <h2 className="tr-h2">Holdings</h2>
-                <span className="tr-muted">{snapshot.positions.length || 'None'}</span>
+            <div className="tr-dash__chart">
+              <MarketPanel snapshot={snapshot} />
+            </div>
+            {claude && (
+              <div className="tr-dash__claude">
+                <ClaudePane snapshot={snapshot} />
               </div>
-              <Positions snapshot={snapshot} />
-            </section>
-            <TradeTicket snapshot={snapshot} />
+            )}
+            <div className="tr-dash__mission">
+              <MissionControl snapshot={snapshot} driver={driver} setDriver={setDriver} plan={plan} />
+            </div>
+            <div className="tr-dash__positions">
+              <section className="tr-panel" aria-label="Holdings">
+                <div className="tr-panel__head">
+                  <h2 className="tr-label-head">Holdings</h2>
+                  <span className="tr-muted tr-num">{snapshot.positions.length || ''}</span>
+                </div>
+                <Positions snapshot={snapshot} />
+              </section>
+            </div>
+            <div className="tr-dash__log">
+              <ExecutionLog snapshot={snapshot} />
+            </div>
+            <div className="tr-dash__analytics">
+              <Analytics snapshot={snapshot} />
+            </div>
           </div>
 
           <section className="tr-panel">
             <div className="tr-panel__head">
-              <h2 className="tr-h2">Trades</h2>
+              <h2 className="tr-label-head">Trades</h2>
               <span className="tr-muted">Newest first, with the reason each was placed</span>
             </div>
             <Orders snapshot={snapshot} />
           </section>
 
-          <TradingSessions snapshot={snapshot} />
-
-          <div id="tr-setup">
-            <TradingSetup snapshot={snapshot} />
+          <div className="tr-grid">
+            <TradingSessions snapshot={snapshot} />
+            <TradeTicket snapshot={snapshot} />
           </div>
+
+          <TradingSetup snapshot={snapshot} />
         </div>
       </div>
-    </div>
-  )
-}
-
-/** The baseline for the chart: the value at the start of the range shown (or where tracking began, for All). */
-function rangeStart(points: EquityPoint[], starting: number | null, range: Range): number | null {
-  if (range === 'all' || range === 'live') return starting ?? points[0]?.equity ?? null
-  return points[0]?.equity ?? null
-}
-
-function Delta({ value, pct, size = 'md' }: { value: number; pct: number; size?: 'md' | 'lg' }): JSX.Element {
-  const dir = direction(value)
-  const Icon = dir === 'up' ? ArrowUpRight : dir === 'down' ? ArrowDownRight : Minus
-  return (
-    <span className="tr-delta" data-dir={dir} data-size={size}>
-      <Icon size={size === 'lg' ? 16 : 13} strokeWidth={2.2} aria-hidden="true" />
-      {signedUsd(value)} ({signedPct(pct)})
-    </span>
-  )
-}
-
-function Hero({ snapshot }: { snapshot: TradingSnapshot }): JSX.Element {
-  const { account, stats, config } = snapshot
-  const broker = BROKERS.find((b) => b.id === config.broker)!
-  const market = account
-    ? account.marketOpen
-      ? `Market open${account.nextClose ? ` · closes ${clock(account.nextClose)}` : ''}`
-      : `Market closed${account.nextOpen ? ` · opens ${dayAndTime(account.nextOpen)}` : ''}`
-    : 'Connecting to the broker…'
-  return (
-    <section className="tr-hero">
-      <div className="tr-hero__top">
-        <span className="tr-broker" data-real={broker.real || undefined}>
-          {broker.real && <TriangleAlert size={12} strokeWidth={2.2} />}
-          {broker.real ? 'Real money · ' : ''}
-          {broker.label}
-        </span>
-        <span className="tr-market" data-open={account?.marketOpen || undefined}>
-          <span className="tr-market__dot" aria-hidden="true" />
-          {market}
-        </span>
-        {snapshot.activeSession && account && <LiveAge at={account.updatedAt} />}
-      </div>
-      <div className="tr-hero__value">{account ? usd(account.equity) : '—'}</div>
-      <div className="tr-hero__deltas">
-        <span>
-          <Delta value={stats.todayReturn} pct={stats.todayReturnPct} size="lg" /> <span className="tr-muted">today</span>
-        </span>
-        <span>
-          <Delta value={stats.totalReturn} pct={stats.totalReturnPct} /> <span className="tr-muted">since {account ? usd(account.startingEquity, true) : 'start'}</span>
-        </span>
-      </div>
-    </section>
-  )
-}
-
-/** "Live · 2s ago": how fresh the numbers are while a session runs (main refreshes every few seconds). */
-function LiveAge({ at }: { at: number }): JSX.Element {
-  const now = useNow()
-  return (
-    <span className="tr-liveage" title="Refreshed every few seconds while a session runs">
-      <span className="tr-liveage__dot" aria-hidden="true" />
-      Live · {span(now - at)} ago
-    </span>
-  )
-}
-
-function Kpi({ label, value, delta, note }: { label: string; value: string; delta?: number; note?: string }): JSX.Element {
-  return (
-    <div className="tr-kpi">
-      <span className="tr-kpi__label">{label}</span>
-      <span className="tr-kpi__value">{value}</span>
-      {delta !== undefined ? (
-        <span className="tr-kpi__note tr-delta" data-dir={direction(delta)}>
-          {signedPct(delta)}
-        </span>
-      ) : (
-        note && <span className="tr-kpi__note">{note}</span>
-      )}
+      <AccountsModal snapshot={snapshot} open={accounts} onClose={() => setAccounts(false)} />
     </div>
   )
 }
@@ -252,7 +144,7 @@ function Positions({ snapshot }: { snapshot: TradingSnapshot }): JSX.Element {
   const run = useTrading((s) => s.run)
   const [editing, setEditing] = useState<string | null>(null)
   if (snapshot.positions.length === 0) {
-    return <p className="tr-empty">No holdings. Start the agent above, ask Eaon from a chat, or place an order yourself.</p>
+    return <p className="tr-empty">Nothing held. The agent’s buys show up here with their stops.</p>
   }
   return (
     <table className="tr-table">

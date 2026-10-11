@@ -7,7 +7,7 @@ import { CallToolRequestSchema, GetPromptRequestSchema, ListPromptsRequestSchema
 import { YahooMarketData } from '@main/features/trading/marketData'
 import { feedStep, num, traderTools, tradePrompt as missionPrompt, type McpToolDef, type TraderHost } from '@main/features/trading/claudeTrader'
 import { nextClose } from '@main/features/trading/marketHours'
-import type { TradingSnapshot } from '@shared/trading'
+import { BROKERS, isRealMoney, type TradingSnapshot } from '@shared/trading'
 import { cliHome } from '../runtime/paths'
 import type { Worker } from '@shared/workers'
 import { BusNode, type PeerKind, type PeerMessage } from './bus'
@@ -325,8 +325,8 @@ function controlTools(bus: BusNode): McpToolDef[] {
   const snapshot = (): Promise<TradingSnapshot> => owner<TradingSnapshot>('trading:snapshot')
   /** Real money from here needs the user's say-so in the TUI, on top of everything the engine checks. */
   const liveRefusal = (snap: TradingSnapshot): string | null =>
-    snap.config.broker === 'alpaca-live' && !controlMayTradeLive()
-      ? 'That would trade real money (Alpaca live). The user hasn’t allowed Claude Code to trade real money: in Eaon, Trading → 1 → Mission control → CLAUDE CODE.'
+    isRealMoney(snap.config.broker) && !controlMayTradeLive()
+      ? `That would trade real money (${BROKERS.find((b) => b.id === snap.config.broker)?.label ?? snap.config.broker}). The user hasn’t allowed Claude Code to trade real money: in Eaon, Trading → 1 → Mission control → CLAUDE CODE.`
       : null
   const guardLive = async (): Promise<TradingSnapshot> => {
     const snap = await snapshot()
