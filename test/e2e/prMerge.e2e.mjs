@@ -20,7 +20,7 @@ function fakeGh(dir, log, merged) {
       number: 7,
       title: 'Add the usage meter',
       body: 'Shows plan usage in the header.\n\n- Claude Code\n- Codex',
-      author: { login: 'sanscreates' },
+      author: { login: 'alexrivera' },
       state,
       isDraft: false,
       baseRefName: 'main',
@@ -104,7 +104,7 @@ scenario('Pull requests: a pull request’s Overview, Files, Checks and Merge ta
   // Overview: the description, who opened it, the review.
   await page.find('.pr-body', { text: /Shows plan usage in the header/, timeout: 15_000 })
   await page.find('.pr-detail__branch', { text: 'feature/usage-meter → main' })
-  await page.find('.pr-review', { text: /reviewer: approved/ })
+  await page.find('.pr-reviewer', { text: /reviewer: approved/ })
   await s.shot(page, 'overview')
 
   // Files: the diff, file by file, with real line numbers.
