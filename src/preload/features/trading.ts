@@ -2,6 +2,7 @@ import { ipcRenderer } from 'electron'
 import type {
   Bar,
   BarRange,
+  ClaudeTradingLaunch,
   ExitRequest,
   OrderRequest,
   Quote,
@@ -11,7 +12,8 @@ import type {
   TradingSchedule,
   TradingScheduleDraft,
   TradingSession,
-  TradingSnapshot
+  TradingSnapshot,
+  TradingStep
 } from '@shared/trading'
 
 /**
@@ -58,6 +60,17 @@ export const tradingApi = {
   removeSchedule: (id: string): Promise<TradingSnapshot> => ipcRenderer.invoke('trading:remove-schedule', id),
   startSession: (request: StartSessionRequest): Promise<TradingSession> => ipcRenderer.invoke('trading:start-session', request),
   stopSession: (id: string): Promise<TradingSnapshot> => ipcRenderer.invoke('trading:stop-session', id),
+  /** Runs the session's next check now. */
+  checkNow: (id: string): Promise<TradingSnapshot> => ipcRenderer.invoke('trading:check-now', id),
+  /** A message to the session's agent; it reads it in a check that starts at once. */
+  tellSession: (id: string, text: string): Promise<TradingSnapshot> => ipcRenderer.invoke('trading:tell-session', id, text),
+  /** Starts Eaon's trading MCP server and says how the Trading tab's pane starts Claude Code with it. */
+  claudeLaunch: (): Promise<ClaudeTradingLaunch> => ipcRenderer.invoke('trading:claude-launch'),
+  /** Lets Claude Code trade real money (Alpaca live), or stops it; resolves with the setting. */
+  setClaudeLiveMoney: (on: boolean): Promise<boolean> => ipcRenderer.invoke('trading:claude-live-money', on),
+  /** The latest steps of the session's agent — the tools it used — newest last. */
+  steps: (): Promise<TradingStep[]> => ipcRenderer.invoke('trading:steps'),
+  onSteps: (handler: (steps: TradingStep[]) => void): (() => void) => subscribe('trading:steps', handler),
   /** Tell main the desk is on screen (true) or gone (false): it refreshes every 30 s while open, every 5 min otherwise. */
   setDeskOpen: (open: boolean): Promise<void> => ipcRenderer.invoke('trading:desk-open', open),
   /** Every change, at most about twice a second. */

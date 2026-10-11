@@ -1,6 +1,5 @@
 import { tradingEngine } from '@main/features/trading'
-import { tradingToolSource } from '@main/features/trading/tools'
-import { isMutating } from '@main/agent/tools'
+import { runResearchTool } from '@main/features/trading/claudeTrader'
 import { store } from '@main/store'
 import { ipc } from '../runtime/ipc'
 
@@ -12,24 +11,10 @@ import { ipc } from '../runtime/ipc'
  * by the session that runs the engines; the bus carries it to `eaon mcp`.
  */
 
-const READS = new Set(['trading_account', 'trading_quote', 'trading_history', 'trading_scan', 'trading_news'])
-
 export function serveTradingResearch(): void {
   ipc.handle('trading:research', async (_event, name: unknown, input: unknown) => {
     const engine = tradingEngine()
     if (!engine) throw new Error('The trading engine isn’t running in this session.')
-    if (!READS.has(String(name))) throw new Error(`${String(name)} isn’t one of the research tools.`)
-    const tool = tradingToolSource(engine)
-      .tools({ mode: 'work', cwd: null, depth: 0, readOnly: true, settings: store.getSettings(), request: {} as never })
-      .find((t) => t.name === name)
-    if (!tool) throw new Error(`${String(name)} isn’t available.`)
-    const args = (input && typeof input === 'object' && !Array.isArray(input) ? input : {}) as Record<string, unknown>
-    const ctx = { request: { chatId: 'claude-code' }, settings: store.getSettings(), readOnly: true } as never
-    // This runs a tool without the loop's approval (see "Calling a tool's
-    // run() directly skips approval"), so it may only ever look: a tool on
-    // the list that some input makes mutating is refused, not run.
-    if (isMutating(tool, args, ctx)) throw new Error(`${String(name)} with those arguments would change something; research tools only look.`)
-    const result = await tool.run(args, ctx)
-    return typeof result === 'string' ? result : result.text
+    return runResearchTool(engine, store.getSettings(), String(name), (input ?? {}) as Record<string, unknown>)
   })
 }

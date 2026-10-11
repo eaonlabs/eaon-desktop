@@ -5,6 +5,7 @@ import type { Feature } from './types'
 import { PtyManager, type RestorePlan } from './terminals/ptyManager'
 import { AGENT_KINDS, setAgentScript, setExtraAgentBin } from './terminals/agentSessions'
 import { PaneRecords, restoredScreen } from './terminals/paneRecords'
+import { outsidePaneEnv } from './terminals/outsidePanes'
 import { cwdsOf, SessionWatch } from './terminals/sessionWatch'
 import { onPath } from '../shellEnv'
 import { secrets } from '../secrets'
@@ -309,6 +310,9 @@ export function createTerminals(options: TerminalsOptions = {}): Feature & { tic
         if (!manager.has(req.paneId) && (await blockedByPrivacy(req.cwd))) {
           return { ok: false, privacy: true, error: privacyBlockedMessage(req.cwd, app.getPath('home')) }
         }
+        // A pane outside the grid (the Trading tab's Claude Code) starts as asked, never restored.
+        const outside = outsidePaneEnv(req.paneId)
+        if (outside) return manager.spawn(req, { ...(await agentEnv(req.agent)), ...outside })
         // A pane with a live shell reattaches to it; only a pane's first
         // start in a run is its restore.
         if (!manager.has(req.paneId) && !restored.has(req.paneId)) {

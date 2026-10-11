@@ -31,7 +31,9 @@ import {
   type TradingScheduleDraft,
   type TradingSession,
   type TradingSnapshot,
-  type TradingStats
+  type TradingStats,
+  cadenceText,
+  checkIntervalMs
 } from '@shared/trading'
 import type { RunOptions, RunOutcome, ToolGate } from '../../agent/loop'
 import { resolveModel as resolveAppModel, STALL_MS } from '../scheduler/runner'
@@ -126,6 +128,12 @@ export interface TradingDeps {
   minuteMs?: number
   stallMs?: number
   refreshFastMs?: number
+  /**
+   * How often the account is refreshed while a session runs and a desk is on
+   * screen, so the desk moves in real time; 3 s by default (6 s on Alpaca,
+   * whose API allows 200 calls a minute).
+   */
+  liveRefreshMs?: number
   refreshSlowMs?: number
   /** How often prices are checked while an exit could fire; 15 s by default. */
   exitRefreshMs?: number
@@ -153,6 +161,8 @@ const BRIEF_ORDERS = 20
 const BRIEF_LOG = 10
 const MAX_SCHEDULES = 20
 const MAX_EQUITY_POINTS = 5000
+/** About an hour of live points at a refresh every 3 s. */
+const MAX_LIVE_POINTS = 1200
 const MAX_SESSION_DAYS = 7
 /** Turns of the session's own conversation the model is shown again. */
 const THREAD_TURNS = 6
@@ -319,6 +329,29 @@ function clockText(value: unknown): string | null {
 
 const everyMinutesOf = (value: unknown): number => Math.round(clampNumber(value, 1, 240, 5))
 
+/** A check interval in seconds (1 s to an hour), or undefined for none. */
+function everySecondsOf(value: unknown): number | undefined {
+  const n = finite(value)
+  return n === undefined || n <= 0 ? undefined : Math.round(Math.min(3600, Math.max(1, n)))
+}
+
+/** The minutes field that goes with a seconds cadence, for anything that only reads minutes. */
+const minutesFor = (seconds: number | undefined, minutes: unknown): number => (seconds ? Math.max(1, Math.ceil(seconds / 60)) : everyMinutesOf(minutes))
+
+/** A one-off window, if it is one: both ends are timestamps and it ends after it starts. */
+function onceOf(raw: unknown): { start: number; end: number } | undefined {
+  const v = raw as { start?: unknown; end?: unknown } | null
+  const start = finite(v?.start)
+  const end = finite(v?.end)
+  return start !== undefined && end !== undefined && end > start ? { start, end } : undefined
+}
+
+/** Local "HH:MM" of a timestamp. */
+function clockOf(at: number): string {
+  const d = new Date(at)
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+}
+
 /** A strategy's first words, for a session or schedule with no name. */
 function nameFrom(strategy: string): string {
   const words = strategy.replace(/\s+/g, ' ').trim()
@@ -340,12 +373,14 @@ function normalizeSchedule(raw: unknown, now: number): TradingSchedule | null {
     start,
     end,
     strategy,
-    everyMinutes: everyMinutesOf(v.everyMinutes),
+    everyMinutes: minutesFor(everySecondsOf(v.everySeconds), v.everyMinutes),
     flattenAtEnd: v.flattenAtEnd === true,
     enabled: v.enabled !== false,
     createdAt: typeof v.createdAt === 'number' ? v.createdAt : now,
     ...(v.marketHours === true ? { marketHours: true } : {}),
-    ...(v.driver === 'claude-code' ? { driver: 'claude-code' as const } : {})
+    ...(v.driver === 'claude-code' ? { driver: 'claude-code' as const } : {}),
+    ...(everySecondsOf(v.everySeconds) ? { everySeconds: everySecondsOf(v.everySeconds) } : {}),
+    ...(onceOf(v.once) ? { once: onceOf(v.once) } : {})
   }
 }
 
@@ -363,7 +398,7 @@ function normalizeSession(raw: unknown): TradingSession | null {
     endsAt: v.endsAt,
     endedAt: typeof v.endedAt === 'number' ? v.endedAt : null,
     status: SESSION_STATUSES.has(v.status as string) ? (v.status as TradingSession['status']) : 'done',
-    everyMinutes: everyMinutesOf(v.everyMinutes),
+    everyMinutes: minutesFor(everySecondsOf(v.everySeconds), v.everyMinutes),
     flattenAtEnd: v.flattenAtEnd === true,
     startEquity: finite(v.startEquity) ?? 0,
     endEquity: finite(v.endEquity) ?? null,
@@ -376,7 +411,8 @@ function normalizeSession(raw: unknown): TradingSession | null {
       v.benchmark && typeof v.benchmark.symbol === 'string' && finite(v.benchmark.start) !== undefined
         ? { symbol: v.benchmark.symbol, start: finite(v.benchmark.start)!, end: finite(v.benchmark.end) ?? null }
         : null,
-    ...(v.driver === 'claude-code' ? { driver: 'claude-code' as const } : {})
+    ...(v.driver === 'claude-code' ? { driver: 'claude-code' as const } : {}),
+    ...(everySecondsOf(v.everySeconds) ? { everySeconds: everySecondsOf(v.everySeconds) } : {})
   }
 }
 
@@ -904,7 +940,8 @@ interface ActiveSession {
 export const CLOSE_MARGIN_MS = 5 * 60_000
 
 /** The window a schedule is in at `now` (it may have opened yesterday if it runs past midnight), or null. */
-export function scheduleWindow(schedule: Pick<TradingSchedule, 'days' | 'start' | 'end' | 'marketHours'>, now: number): { start: number; end: number } | null {
+export function scheduleWindow(schedule: Pick<TradingSchedule, 'days' | 'start' | 'end' | 'marketHours' | 'once'>, now: number): { start: number; end: number } | null {
+  if (schedule.once) return now >= schedule.once.start && now < schedule.once.end ? { ...schedule.once } : null
   if (schedule.marketHours) {
     const session = sessionOn(marketDate(now))
     const end = session ? session.close - CLOSE_MARGIN_MS : 0
@@ -964,10 +1001,14 @@ export class TradingEngine {
   private orderChain: Promise<unknown> = Promise.resolve()
   private refreshTimer: ReturnType<typeof setTimeout> | null = null
   private scheduleTimer: ReturnType<typeof setInterval> | null = null
+  /** Wakes the schedules at the next one-off window's start, so "start at 9:45" starts at 9:45, not up to a tick later. */
+  private onceTimer: ReturnType<typeof setTimeout> | null = null
   private equitySaveTimer: ReturnType<typeof setTimeout> | null = null
   private scheduleTries = new Map<string, { windowStart: number; at: number; sessionId: string }>()
   private deskOpen = false
   private deskSeenAt = 0
+  /** Equity at every refresh while a session runs, for the chart's live view; per broker, in memory only. */
+  private live: { broker: BrokerKind; points: EquityPoint[] } | null = null
   private started = false
   private disposed = false
   private readonly now: () => number
@@ -1037,6 +1078,7 @@ export class TradingEngine {
     if (this.active) this.armSession(this.active, this.minuteMs / 6)
     this.armRefresh(0)
     void this.tickSchedules()
+    this.armOnce()
   }
 
   /**
@@ -1048,8 +1090,10 @@ export class TradingEngine {
     this.disposed = true
     if (this.refreshTimer) clearTimeout(this.refreshTimer)
     if (this.scheduleTimer) clearInterval(this.scheduleTimer)
+    if (this.onceTimer) clearTimeout(this.onceTimer)
     this.refreshTimer = null
     this.scheduleTimer = null
+    this.onceTimer = null
     this.flushEquity()
     const active = this.active
     if (active) {
@@ -1075,9 +1119,10 @@ export class TradingEngine {
   /** The desk is on screen: refresh every 30 s rather than every 5 minutes. */
   setDeskOpen(open: boolean): void {
     const was = this.fastRefresh()
+    const wasLive = this.liveRefresh()
     this.deskOpen = open
     if (open) this.deskSeenAt = this.now()
-    if (this.started && !this.disposed && open && !was) this.armRefresh(0)
+    if (this.started && !this.disposed && ((open && !was) || this.liveRefresh() !== wasLive)) this.armRefresh(open && !was ? 0 : undefined)
   }
 
   /** Someone looked at the desk (asked for a snapshot); keeps refreshes fast for a while. */
@@ -1151,7 +1196,8 @@ export class TradingEngine {
       ...(this.claudeWaiting() ? { claudeWaiting: true } : {}),
       needsDisclaimer: this.needsDisclaimer(),
       error: this.error,
-      dataSource: this.deps.prices.source
+      dataSource: this.deps.prices.source,
+      ...(!brief && this.live?.broker === kind ? { live: this.live.points.map((p) => ({ ...p })) } : {})
     }
   }
 
@@ -1514,6 +1560,7 @@ export class TradingEngine {
     if (amount === undefined || amount < SIM_CASH_MIN || amount > SIM_CASH_MAX) throw new Error(`The simulator can start with between ${money(SIM_CASH_MIN)} and ${money(SIM_CASH_MAX)}.`)
     await this.orderChain
     this.epoch++
+    this.live = null
     this.config.simulatorCash = roundMoney(amount)
     this.deps.saveConfig(this.config)
     this.simulator.reset(this.config.simulatorCash)
@@ -1560,12 +1607,20 @@ export class TradingEngine {
     const strategy = str(draft?.strategy)
     if (!strategy) throw new Error('Describe the strategy: what to trade and how.')
     // A mission follows the market's own hours; its clock times and days are only for show.
-    const market = draft.marketHours === true
+    const market = draft.marketHours === true && !draft.once
     if (market) draft = { ...draft, start: '09:30', end: '16:00', days: [1, 2, 3, 4, 5] }
+    // A one-off window: its clock times and day come from its two timestamps.
+    const once = draft.once ? onceOf(draft.once) : undefined
+    if (draft.once) {
+      if (!once) throw new Error('Pick when trading starts and when it stops; the stop has to come after the start.')
+      if (once.end < now + this.minuteMs) throw new Error('Pick a stop time at least a minute from now.')
+      if (once.end - once.start > MAX_SESSION_DAYS * 24 * 3600_000) throw new Error(`Trading can run for at most ${MAX_SESSION_DAYS} days in one go.`)
+      draft = { ...draft, start: clockOf(once.start), end: clockOf(once.end), days: [new Date(once.start).getDay()] }
+    }
     const start = clockText(draft.start)
     const end = clockText(draft.end)
     if (!start || !end) throw new Error('Give the window as 24-hour times, like 09:30 and 16:00.')
-    if (start === end) throw new Error('The window has to end at a different time from when it starts.')
+    if (start === end && !once) throw new Error('The window has to end at a different time from when it starts.')
     const days = Array.isArray(draft.days) ? [...new Set(draft.days.filter((d) => DAYS.has(d)))].sort() : []
     if (days.length === 0) throw new Error('Pick at least one day for the schedule.')
     const existing = draft.id ? this.schedules.find((s) => s.id === draft.id) : undefined
@@ -1577,12 +1632,14 @@ export class TradingEngine {
       start,
       end,
       strategy,
-      everyMinutes: everyMinutesOf(draft.everyMinutes),
+      everyMinutes: minutesFor(everySecondsOf(draft.everySeconds), draft.everyMinutes),
       flattenAtEnd: draft.flattenAtEnd === true,
       enabled: draft.enabled !== false,
       createdAt: existing?.createdAt ?? now,
       ...(market ? { marketHours: true } : {}),
-      ...(draft.driver === 'claude-code' ? { driver: 'claude-code' as const } : {})
+      ...(draft.driver === 'claude-code' ? { driver: 'claude-code' as const } : {}),
+      ...(everySecondsOf(draft.everySeconds) ? { everySeconds: everySecondsOf(draft.everySeconds) } : {}),
+      ...(once ? { once } : {})
     }
     if (existing) this.schedules[this.schedules.indexOf(existing)] = schedule
     else this.schedules.push(schedule)
@@ -1590,6 +1647,7 @@ export class TradingEngine {
     this.changed()
     // A window that is open right now starts straight away.
     if (this.started) void this.tickSchedules()
+    this.armOnce()
     return clone(schedule)
   }
 
@@ -1599,8 +1657,24 @@ export class TradingEngine {
     if (this.schedules.length === before) throw new Error('There is no such schedule.')
     this.scheduleTries.delete(id)
     this.deps.saveSchedules(this.schedules)
+    this.armOnce()
     this.changed()
     return this.snapshot()
+  }
+
+  private armOnce(): void {
+    if (this.onceTimer) clearTimeout(this.onceTimer)
+    this.onceTimer = null
+    if (!this.started || this.disposed) return
+    const now = this.now()
+    const next = Math.min(...this.schedules.filter((s) => s.enabled && s.once && s.once.start > now).map((s) => s.once!.start))
+    // Further off than a day, the 30-second tick gets there first anyway; the timer is set again then.
+    if (!Number.isFinite(next) || next - now > 24 * 3600_000) return
+    this.onceTimer = setTimeout(() => {
+      this.onceTimer = null
+      void this.tickSchedules().finally(() => this.armOnce())
+    }, next - now + 20)
+    this.onceTimer.unref?.()
   }
 
   /**
@@ -1612,6 +1686,7 @@ export class TradingEngine {
   async tickSchedules(): Promise<void> {
     if (this.disposed || this.config.halted || this.active) return
     const now = this.now()
+    this.retireOnce(now)
     for (const schedule of this.schedules) {
       if (!schedule.enabled) continue
       const window = scheduleWindow(schedule, now)
@@ -1627,6 +1702,7 @@ export class TradingEngine {
             strategy: schedule.strategy,
             until: window.end,
             everyMinutes: schedule.everyMinutes,
+            ...(schedule.everySeconds ? { everySeconds: schedule.everySeconds } : {}),
             flattenAtEnd: schedule.flattenAtEnd,
             name: schedule.name,
             ...(schedule.driver === 'claude-code' ? { driver: 'claude-code' as const } : {})
@@ -1640,6 +1716,20 @@ export class TradingEngine {
       }
       return
     }
+  }
+
+  /** One-off windows that have passed switch themselves off: there is nothing left for them to start. */
+  private retireOnce(now: number): void {
+    let retired = false
+    for (const schedule of this.schedules) {
+      if (schedule.once && schedule.enabled && now >= schedule.once.end) {
+        schedule.enabled = false
+        retired = true
+      }
+    }
+    if (!retired) return
+    this.deps.saveSchedules(this.schedules)
+    this.changed()
   }
 
   private recordStartFailure(schedule: TradingSchedule, windowStart: number, failedId: string | null, error: string): void {
@@ -1656,6 +1746,7 @@ export class TradingEngine {
         endedAt: now,
         status: 'failed',
         everyMinutes: schedule.everyMinutes,
+        ...(schedule.everySeconds ? { everySeconds: schedule.everySeconds } : {}),
         flattenAtEnd: schedule.flattenAtEnd,
         startEquity: 0,
         endEquity: null,
@@ -1695,7 +1786,8 @@ export class TradingEngine {
     // Another start may have slipped in while the account loaded.
     this.ensureNoSession()
 
-    const everyMinutes = everyMinutesOf(request.everyMinutes)
+    const everySeconds = everySecondsOf(request.everySeconds)
+    const everyMinutes = minutesFor(everySeconds, request.everyMinutes)
     const benchmark = await this.benchmarkPrice()
     const session: TradingSession = {
       id: randomUUID(),
@@ -1716,7 +1808,8 @@ export class TradingEngine {
       summary: null,
       error: null,
       benchmark: benchmark === null ? null : { symbol: BENCHMARK, start: benchmark, end: null },
-      ...(request.driver === 'claude-code' ? { driver: 'claude-code' as const } : {})
+      ...(request.driver === 'claude-code' ? { driver: 'claude-code' as const } : {}),
+      ...(everySeconds ? { everySeconds } : {})
     }
     this.sessions.unshift(session)
     this.trimSessions()
@@ -1725,7 +1818,7 @@ export class TradingEngine {
     this.log(
       session,
       'note',
-      `Started on ${brokerLabel(this.config.broker)}: a check every ${everyMinutes} min until ${localTime(until)}${session.flattenAtEnd ? ', selling everything at the end' : ''}.${
+      `Started on ${brokerLabel(this.config.broker)}: a check ${cadenceText(session)} until ${localTime(until)}${session.flattenAtEnd ? ', selling everything at the end' : ''}.${
         session.driver === 'claude-code' ? ' Claude Code makes the decisions; it takes the first check when you hand it the session.' : ''
       }`
     )
@@ -1928,9 +2021,14 @@ export class TradingEngine {
 
   /* ------------------------------------------------- Claude Code as the agent */
 
+  /** How far apart a session's checks are. */
+  private everyMs(session: TradingSession): number {
+    return checkIntervalMs(session, this.minuteMs)
+  }
+
   private agentState(active: ActiveSession): NonNullable<TradingSnapshot['agent']> {
     const external = active.session.driver === 'claude-code'
-    const every = active.session.everyMinutes * this.minuteMs
+    const every = this.everyMs(active.session)
     return {
       checking: external ? active.turnStartedAt !== null : Boolean(active.running),
       checkStartedAt: active.turnStartedAt,
@@ -1981,7 +2079,7 @@ export class TradingEngine {
     if (!this.active || this.active.session.id !== id || this.active.ending) return ended()
     const active = this.externalSession(id)
     const session = active.session
-    const every = session.everyMinutes * this.minuteMs
+    const every = this.everyMs(session)
     // A check Claude Code left without logging a decision is over now.
     if (active.turnStartedAt !== null) {
       active.turnStartedAt = null
@@ -2008,8 +2106,10 @@ export class TradingEngine {
           this.changed()
           return { state: 'check', check: session.checks, brief: brief.brief, endsAt: session.endsAt }
         }
-        // Closed market, or the broker didn't answer: try again at the next interval.
-        active.nextTurnAt = this.now() + every
+        // Closed market, or the broker didn't answer: try again at the next
+        // interval — but no sooner than a minute, so a check every second
+        // doesn't ask the broker every second while there is nothing to do.
+        active.nextTurnAt = this.now() + Math.max(every, this.minuteMs)
         if ('error' in brief) this.log(session, 'error', brief.error)
         else if (!active.closedNoted) {
           this.log(session, 'note', 'The market is closed, so there is nothing to do until it opens.')
@@ -2040,7 +2140,8 @@ export class TradingEngine {
       const fresh = (w: { start: number; end: number } | null): boolean =>
         w !== null && !this.sessions.some((s) => s.scheduleId === schedule.id && s.startedAt >= w.start && s.startedAt < w.end && s.status !== 'failed')
       let next: number | null = null
-      if (schedule.marketHours) next = fresh(scheduleWindow(schedule, at)) ? at : nextOpen(at)
+      if (schedule.once) next = at < schedule.once.end && fresh(schedule.once) ? Math.max(at, schedule.once.start) : null
+      else if (schedule.marketHours) next = fresh(scheduleWindow(schedule, at)) ? at : nextOpen(at)
       else
         for (let i = 0; i < 8 * 24 * 60 && next === null; i += 15) {
           const t = at + i * 60_000
@@ -2195,7 +2296,7 @@ export class TradingEngine {
   private async runTurn(active: ActiveSession): Promise<void> {
     if (this.active !== active || active.running || active.ending || this.disposed) return
     const started = this.now()
-    const every = active.session.everyMinutes * this.minuteMs
+    const every = this.everyMs(active.session)
     active.turnStartedAt = started
     this.lastTurnAt.set(active.session.id, started)
     this.changed()
@@ -2493,7 +2594,7 @@ export class TradingEngine {
       session.strategy,
       '',
       'How you work:',
-      `- Every ${session.everyMinutes} minutes you get a check: the time, whether the market is open, the account, positions and open orders. Look, decide, act, then stop. Doing nothing is often the right call; never trade for the sake of it.`,
+      `- ${cadenceText(session).replace(/^every/, 'Every')} you get a check: the time, whether the market is open, the account, positions and open orders. Look, decide, act, then stop. Doing nothing is often the right call; never trade for the sake of it.`,
       '- trading_history gives trend and indicators (averages, RSI, ATR, MACD, volume) for up to 5 stocks at once, trading_scan today’s movers, trading_news a stock’s headlines, trading_quote prices, trading_account the full account and statistics.',
       '- You place orders only with trading_order, and you always say why in its reason. Never chase a price that has run away; prefer limit orders for thinly traded stocks.',
       '',
@@ -2590,11 +2691,17 @@ export class TradingEngine {
     return Boolean(this.account?.marketOpen) || (kind === 'simulator' && this.config.simulatorAnytime)
   }
 
+  /** A session is running and someone is watching: refresh every few seconds, so the desk moves as the market does. */
+  private liveRefresh(): boolean {
+    return this.active !== null && this.deskOpen
+  }
+
   private armRefresh(delay?: number): void {
     if (!this.started || this.disposed) return
     if (this.refreshTimer) clearTimeout(this.refreshTimer)
     const fast = this.exitsLive() ? Math.min(this.deps.exitRefreshMs ?? 15_000, this.deps.refreshFastMs ?? 30_000) : (this.deps.refreshFastMs ?? 30_000)
-    const wait = delay ?? (this.fastRefresh() ? fast : (this.deps.refreshSlowMs ?? 5 * 60_000))
+    const live = this.deps.liveRefreshMs ?? (this.config.broker === 'simulator' ? 3000 : 6000)
+    const wait = delay ?? (this.liveRefresh() ? Math.min(live, fast) : this.fastRefresh() ? fast : (this.deps.refreshSlowMs ?? 5 * 60_000))
     this.refreshTimer = setTimeout(() => {
       this.refreshTimer = null
       void this.sync().finally(() => this.armRefresh())
@@ -2662,6 +2769,7 @@ export class TradingEngine {
         return { ...p, unrealizedPlPct: cost > 0 ? Math.round((p.unrealizedPl / cost) * 10_000) / 100 : 0, exit: this.exits[kind]?.[p.symbol] ?? null }
       })
       this.recordEquity(kind, account.equity)
+      if (this.active) this.recordLive(kind, account.equity)
       if (!this.exitWork) {
         this.exitWork = this.watchExits(kind).finally(() => {
           this.exitWork = null
@@ -2719,6 +2827,14 @@ export class TradingEngine {
       track.points = [...track.points.slice(0, half).filter((_, i) => i % 2 === 0), ...track.points.slice(half)]
     }
     this.saveEquityLater()
+  }
+
+  /** A point at every refresh while a session runs; the newest hour or so is kept. */
+  private recordLive(kind: BrokerKind, equity: number): void {
+    if (!(equity > 0)) return
+    if (this.live?.broker !== kind) this.live = { broker: kind, points: [] }
+    this.live.points.push({ at: this.now(), equity })
+    if (this.live.points.length > MAX_LIVE_POINTS) this.live.points.splice(0, this.live.points.length - MAX_LIVE_POINTS)
   }
 
   private saveEquityLater(): void {

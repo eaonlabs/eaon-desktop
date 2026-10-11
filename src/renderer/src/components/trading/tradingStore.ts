@@ -1,5 +1,6 @@
+import { useEffect, useState } from 'react'
 import { create } from 'zustand'
-import type { TradingSnapshot } from '@shared/trading'
+import type { TradingSnapshot, TradingStep } from '@shared/trading'
 
 /**
  * The trading desk's mirror of main's trading engine: the latest snapshot,
@@ -8,6 +9,8 @@ import type { TradingSnapshot } from '@shared/trading'
  */
 interface TradingState {
   snapshot: TradingSnapshot | null
+  /** The latest tools the session's agent used, newest last. */
+  steps: TradingStep[]
   /** A command failed; shown at the top of the desk until the next one. */
   error: string | null
   init: () => Promise<void>
@@ -26,12 +29,15 @@ const isSnapshot = (value: unknown): value is TradingSnapshot =>
 
 export const useTrading = create<TradingState>((set) => ({
   snapshot: null,
+  steps: [],
   error: null,
 
   async init() {
     if (bound) return
     bound = true
     window.api.trading.onChanged((snapshot) => set({ snapshot }))
+    window.api.trading.onSteps((steps) => set({ steps }))
+    void window.api.trading.steps().then((steps) => set({ steps }), () => {})
     try {
       set({ snapshot: await window.api.trading.snapshot() })
       // The desk wants fresh numbers, not the last saved ones.
@@ -106,4 +112,25 @@ export function dayAndTime(at: number): string {
   const today = new Date()
   const sameDay = date.toDateString() === today.toDateString()
   return sameDay ? clock(at) : date.toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+}
+
+/** The time now, ticking every `everyMs` while the component is on screen: countdowns and "2 s ago". */
+export function useNow(everyMs = 1000): number {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), everyMs)
+    return () => window.clearInterval(timer)
+  }, [everyMs])
+  return now
+}
+
+/** "12s", "4m 05s", "2h 10m": a countdown or an age. */
+export function span(ms: number): string {
+  const total = Math.max(0, Math.round(ms / 1000))
+  const h = Math.floor(total / 3600)
+  const m = Math.floor((total % 3600) / 60)
+  const s = total % 60
+  if (h > 0) return `${h}h ${String(m).padStart(2, '0')}m`
+  if (m > 0) return `${m}m ${String(s).padStart(2, '0')}s`
+  return `${s}s`
 }

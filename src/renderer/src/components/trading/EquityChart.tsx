@@ -54,11 +54,17 @@ function timeLabel(at: number, span: number): string {
   return date.toLocaleDateString([], { month: 'short', day: 'numeric' })
 }
 
-export function EquityChart({ points, baseline }: { points: EquityPoint[]; baseline: number | null }): JSX.Element {
+/** An axis label as precise as the ticks are apart: "$12.9K" across thousands, "$100,001" or "$100,000.25" across a live minute. */
+function tickLabel(tick: number, step: number): string {
+  if (step >= 1000 || Math.abs(tick) < 10_000) return usdCompact(tick)
+  return usd(tick, step >= 1)
+}
+
+/** The account's value; the desk's header holds the chart/table switch (`asTable`). */
+export function EquityChart({ points, baseline, asTable = false }: { points: EquityPoint[]; baseline: number | null; asTable?: boolean }): JSX.Element {
   const box = useRef<HTMLDivElement>(null)
   const [width, setWidth] = useState(640)
   const [hover, setHover] = useState<number | null>(null)
-  const [asTable, setAsTable] = useState(false)
 
   useLayoutEffect(() => {
     const node = box.current
@@ -116,9 +122,6 @@ export function EquityChart({ points, baseline }: { points: EquityPoint[]; basel
 
   return (
     <div ref={box} className="eq-chart">
-      <button className="eq-chart__table-toggle btn btn--sm btn--ghost" onClick={() => setAsTable((v) => !v)}>
-        {asTable ? 'Chart' : 'Table'}
-      </button>
       {asTable ? (
         <div className="eq-table scroll">
           <table className="tr-table">
@@ -155,7 +158,7 @@ export function EquityChart({ points, baseline }: { points: EquityPoint[]; basel
             <g key={tick}>
               <line className="eq-chart__grid" x1={PAD.left} x2={width - PAD.right} y1={y(tick)} y2={y(tick)} />
               <text className="eq-chart__tick" x={width - PAD.right + 8} y={y(tick)} dy="0.32em">
-                {usdCompact(tick)}
+                {tickLabel(tick, ticks.length > 1 ? ticks[1] - ticks[0] : 1000)}
               </text>
             </g>
           ))}
