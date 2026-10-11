@@ -1,51 +1,22 @@
 import { useState, type JSX } from 'react'
-import { ExternalLink, ShieldAlert } from 'lucide-react'
-import { BROKERS, LIVE_CONFIRMATION, type BrokerKind, type TradingLimits, type TradingSnapshot } from '@shared/trading'
+import { type TradingLimits, type TradingSnapshot } from '@shared/trading'
 import { Card, Modal, Row, Switch } from '../ui'
-import { errorText, usd, useTrading } from './tradingStore'
+import { usd, useTrading } from './tradingStore'
 
 /**
- * Where the money is and the limits it moves within. Practice is the
- * default; real money takes the user's Alpaca live keys *and* typing a
- * sentence, and even then every order has to pass the limits below.
+ * The limits every order moves within, and the simulator's own settings.
+ * Which account the agent trades, and linking one, is the account picker's
+ * (Accounts.tsx).
  */
 export function TradingSetup({ snapshot }: { snapshot: TradingSnapshot }): JSX.Element {
-  const { config, keys } = snapshot
+  const { config } = snapshot
   const run = useTrading((s) => s.run)
-  const [confirmLive, setConfirmLive] = useState(false)
   const [resetting, setResetting] = useState(false)
-
-  const choose = (broker: BrokerKind): void => {
-    if (broker === 'alpaca-live' && !config.liveConfirmedAt) {
-      setConfirmLive(true)
-      return
-    }
-    void run(() => window.api.trading.setConfig({ broker }))
-  }
 
   return (
     <section className="tr-panel">
       <div className="tr-panel__head">
-        <h2 className="tr-h2">Account and limits</h2>
-      </div>
-
-      <div className="tr-brokers" role="radiogroup" aria-label="Broker">
-        {BROKERS.map((broker) => (
-          <button
-            key={broker.id}
-            role="radio"
-            aria-checked={config.broker === broker.id}
-            className="tr-broker-card"
-            data-real={broker.real || undefined}
-            onClick={() => choose(broker.id)}
-          >
-            <span className="tr-broker-card__name">
-              {broker.real && <ShieldAlert size={14} strokeWidth={2} />}
-              {broker.label}
-            </span>
-            <span className="tr-broker-card__desc">{broker.description}</span>
-          </button>
-        ))}
+        <h2 className="tr-h2">Limits</h2>
       </div>
 
       {config.broker === 'simulator' && (
@@ -64,19 +35,9 @@ export function TradingSetup({ snapshot }: { snapshot: TradingSnapshot }): JSX.E
         </Card>
       )}
 
-      {config.broker !== 'simulator' && <AlpacaKeys kind={config.broker === 'alpaca-live' ? 'live' : 'paper'} saved={config.broker === 'alpaca-live' ? keys.live : keys.paper} />}
 
       <Limits limits={config.limits} />
 
-      <Modal
-        open={confirmLive}
-        onClose={() => setConfirmLive(false)}
-        title="Trade real money?"
-        width={480}
-        actions={null}
-      >
-        <LiveConfirm onDone={() => setConfirmLive(false)} />
-      </Modal>
       <Modal
         open={resetting}
         onClose={() => setResetting(false)}
@@ -102,95 +63,6 @@ export function TradingSetup({ snapshot }: { snapshot: TradingSnapshot }): JSX.E
         The practice account goes back to {usd(config.simulatorCash, true)} in cash with no holdings, and its trades and chart start again.
       </Modal>
     </section>
-  )
-}
-
-function LiveConfirm({ onDone }: { onDone: () => void }): JSX.Element {
-  const run = useTrading((s) => s.run)
-  const [typed, setTyped] = useState('')
-  return (
-    <div className="tr-live">
-      <p>
-        With Alpaca live, orders use the real money in your brokerage account, and you can lose it. Eaon only trades inside the limits below, and asks
-        you before every real-money order it places from a chat — but a scheduled session trades on its own within those limits.
-      </p>
-      <p>To go ahead, type:</p>
-      <p className="tr-live__phrase">{LIVE_CONFIRMATION}</p>
-      <input className="input" value={typed} onChange={(e) => setTyped(e.target.value)} aria-label="Confirmation" autoFocus />
-      <div className="modal__actions">
-        <button className="btn btn--ghost" onClick={onDone}>
-          Cancel
-        </button>
-        <button
-          className="btn btn--danger"
-          disabled={typed.trim() !== LIVE_CONFIRMATION}
-          onClick={async () => {
-            await run(() => window.api.trading.confirmLive(typed.trim()))
-            await run(() => window.api.trading.setConfig({ broker: 'alpaca-live' }))
-            onDone()
-          }}
-        >
-          Use real money
-        </button>
-      </div>
-    </div>
-  )
-}
-
-function AlpacaKeys({ kind, saved }: { kind: 'paper' | 'live'; saved: boolean }): JSX.Element {
-  const run = useTrading((s) => s.run)
-  const [keyId, setKeyId] = useState('')
-  const [secret, setSecret] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  return (
-    <Card>
-      {saved ? (
-        <Row title={`Alpaca ${kind} keys`} description="Saved in your system keychain.">
-          <button className="btn" onClick={() => void run(() => window.api.trading.clearKeys(kind))}>
-            Remove keys
-          </button>
-        </Row>
-      ) : (
-        <div className="row row--stack">
-          <div className="row__body">
-            <div className="row__title">Connect Alpaca {kind}</div>
-            <div className="row__desc">
-              In Alpaca’s dashboard, switch to your {kind === 'paper' ? 'paper' : 'live'} account and generate API keys, then paste them here. They’re checked with
-              Alpaca and stored in your system keychain.
-            </div>
-          </div>
-          <button className="btn btn--sm" onClick={() => void window.api.app.openExternal('https://app.alpaca.markets/')}>
-            <ExternalLink size={13} strokeWidth={1.9} />
-            Open Alpaca
-          </button>
-          <form
-            className="tr-keys"
-            onSubmit={async (e) => {
-              e.preventDefault()
-              setBusy(true)
-              setError(null)
-              try {
-                useTrading.getState().set(await window.api.trading.setKeys(kind, keyId.trim(), secret.trim()))
-                setKeyId('')
-                setSecret('')
-              } catch (err) {
-                setError(errorText(err))
-              } finally {
-                setBusy(false)
-              }
-            }}
-          >
-            <input className="input" placeholder="API key ID" value={keyId} onChange={(e) => setKeyId(e.target.value)} spellCheck={false} autoComplete="off" />
-            <input className="input" type="password" placeholder="Secret key" value={secret} onChange={(e) => setSecret(e.target.value)} autoComplete="off" />
-            <button className="btn btn--primary" type="submit" disabled={busy || !keyId.trim() || !secret.trim()}>
-              {busy ? 'Checking…' : 'Connect'}
-            </button>
-          </form>
-          {error && <p className="tr-error">{error}</p>}
-        </div>
-      )}
-    </Card>
   )
 }
 

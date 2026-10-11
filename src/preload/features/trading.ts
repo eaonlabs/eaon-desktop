@@ -30,6 +30,8 @@ function subscribe<T>(channel: string, handler: (payload: T) => void): () => voi
   return () => ipcRenderer.removeListener(channel, listener)
 }
 
+type KeyKind = 'paper' | 'live' | 'tradier-paper' | 'tradier-live'
+
 type ConfigPatch = Partial<Pick<TradingConfig, 'broker' | 'simulatorCash' | 'simulatorAnytime' | 'model' | 'halted'>> & {
   limits?: Partial<TradingConfig['limits']>
 }
@@ -41,8 +43,9 @@ export const tradingApi = {
   /** Broker, limits, simulator cash and hours, the session model, the kill switch. Switching broker or halting stops a running session. */
   setConfig: (patch: ConfigPatch): Promise<TradingSnapshot> => ipcRenderer.invoke('trading:set-config', patch),
   /** Checks the keys with Alpaca, then saves them. */
-  setKeys: (kind: 'paper' | 'live', keyId: string, secret: string): Promise<TradingSnapshot> => ipcRenderer.invoke('trading:set-keys', kind, keyId, secret),
-  clearKeys: (kind: 'paper' | 'live'): Promise<TradingSnapshot> => ipcRenderer.invoke('trading:clear-keys', kind),
+  /** Alpaca: key ID and secret. Tradier (`tradier-paper`/`tradier-live`): `keyId` is the account number or empty, `secret` the token. */
+  setKeys: (kind: KeyKind, keyId: string, secret: string): Promise<TradingSnapshot> => ipcRenderer.invoke('trading:set-keys', kind, keyId, secret),
+  clearKeys: (kind: KeyKind): Promise<TradingSnapshot> => ipcRenderer.invoke('trading:clear-keys', kind),
   /** `phrase` must be LIVE_CONFIRMATION exactly. */
   confirmLive: (phrase: string): Promise<TradingSnapshot> => ipcRenderer.invoke('trading:confirm-live', phrase),
   /** Resolves with the order as recorded; one a guardrail or the broker refused comes back `rejected`, with `error` saying why. */

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type JSX } from 'react'
-import { Check, CircleAlert, Copy, Link2, Play, RotateCcw, Send, ShieldAlert, Square, Zap } from 'lucide-react'
+import { Check, CircleAlert, Copy, Play, RotateCcw, Send, Square, Zap } from 'lucide-react'
 import {
   BROKERS,
   cadenceText,
@@ -12,7 +12,7 @@ import {
 } from '@shared/trading'
 import { Segmented, Select, Switch } from '../ui'
 import { terminals } from '../code/terminal/registry'
-import { clock, dayAndTime, direction, signedPct, signedUsd, span, usd, useNow, useTrading } from './tradingStore'
+import { clock, dayAndTime, direction, signedPct, signedUsd, span, useNow, useTrading } from './tradingStore'
 
 /**
  * The agent desk: the user's own Claude Code, running in a pane on the
@@ -61,25 +61,9 @@ function cadenceFields(seconds: number): { everySeconds?: number; everyMinutes: 
 }
 
 /** The armed schedule the desk started for an agent and hasn't run out yet: a one-off window or every market day. */
-function armedPlan(snapshot: TradingSnapshot): TradingSchedule | null {
+export function armedPlan(snapshot: TradingSnapshot): TradingSchedule | null {
   const now = Date.now()
   return snapshot.schedules.find((s) => s.enabled && (s.marketHours || (s.once && s.once.end > now))) ?? null
-}
-
-export function AgentDesk({ snapshot }: { snapshot: TradingSnapshot }): JSX.Element {
-  const session = snapshot.activeSession
-  const plan = armedPlan(snapshot)
-  const [driver, setDriver] = useState<SessionDriver>(() => session?.driver ?? plan?.driver ?? 'claude-code')
-  const usesClaude = (session?.driver ?? plan?.driver ?? driver) === 'claude-code'
-  return (
-    <div className="tr-agent-desk" data-claude={usesClaude || undefined}>
-      {usesClaude && <ClaudePane snapshot={snapshot} />}
-      <div className="tr-agent-desk__side">
-        <MissionControl snapshot={snapshot} driver={driver} setDriver={setDriver} plan={plan} />
-        <LiveFeed snapshot={snapshot} />
-      </div>
-    </div>
-  )
 }
 
 /* -------------------------------------------------------------- Claude Code */
@@ -104,7 +88,7 @@ function claudeState(snapshot: TradingSnapshot): { tone: 'idle' | 'wait' | 'live
   return { tone: 'idle', text: 'Connected to Eaon’s trading desk' }
 }
 
-function ClaudePane({ snapshot }: { snapshot: TradingSnapshot }): JSX.Element {
+export function ClaudePane({ snapshot }: { snapshot: TradingSnapshot }): JSX.Element {
   const screen = useRef<HTMLDivElement>(null)
   const [launch, setLaunch] = useState<ClaudeTradingLaunch | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -186,7 +170,7 @@ function ClaudePane({ snapshot }: { snapshot: TradingSnapshot }): JSX.Element {
 
 /* ---------------------------------------------------------- mission control */
 
-function MissionControl({
+export function MissionControl({
   snapshot,
   driver,
   setDriver,
@@ -201,30 +185,10 @@ function MissionControl({
   return (
     <section className="tr-panel tr-mission" aria-label="Mission control">
       <div className="tr-panel__head">
-        <h2 className="tr-h2">Agentic trading</h2>
-        <AccountChip snapshot={snapshot} />
+        <h2 className="tr-label-head">Agent</h2>
       </div>
       {session ? <RunningSession snapshot={snapshot} session={session} plan={plan} /> : plan ? <ArmedPlan snapshot={snapshot} plan={plan} /> : <SetUp snapshot={snapshot} driver={driver} setDriver={setDriver} />}
     </section>
-  )
-}
-
-/** Which account the agent trades, and whether it is linked; links to the setup below. */
-function AccountChip({ snapshot }: { snapshot: TradingSnapshot }): JSX.Element {
-  const broker = BROKERS.find((b) => b.id === snapshot.config.broker)!
-  const linked = Boolean(snapshot.account)
-  return (
-    <button
-      className="tr-account-chip"
-      data-real={broker.real || undefined}
-      data-linked={linked || undefined}
-      title={linked ? `Trading ${broker.label}. Change the account or its limits below.` : 'Link an account below'}
-      onClick={() => document.getElementById('tr-setup')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-    >
-      {broker.real ? <ShieldAlert size={13} strokeWidth={2} /> : <Link2 size={13} strokeWidth={2} />}
-      {broker.label}
-      <span className="tr-muted">{linked ? usd(snapshot.account!.equity, true) : 'not linked'}</span>
-    </button>
   )
 }
 
@@ -274,7 +238,7 @@ function SetUp({ snapshot, driver, setDriver }: { snapshot: TradingSnapshot; dri
   return (
     <div className="tr-setup-form">
       <div className="tr-setup-form__row">
-        <span className="tr-label">Agent</span>
+        <span className="tr-label">Driver</span>
         <Segmented
           value={driver}
           options={[
@@ -343,7 +307,7 @@ function SetUp({ snapshot, driver, setDriver }: { snapshot: TradingSnapshot; dri
         </label>
       )}
       <div className="tr-setup-form__actions">
-        {!snapshot.account && <span className="tr-muted">Link an account below first.</span>}
+        {!snapshot.account && <span className="tr-muted">Link an account first (Accounts, top left).</span>}
         <button className="btn btn--primary" disabled={blocked} onClick={() => void begin()}>
           <Play size={13} strokeWidth={2} />
           {when === 'now' ? 'Start trading' : 'Arm'}
@@ -504,31 +468,75 @@ function stepText(step: TradingStep): string {
 
 type FeedItem = { key: string; at: number; kind: string; text: string; detail?: string | null }
 
-function LiveFeed({ snapshot }: { snapshot: TradingSnapshot }): JSX.Element | null {
+/** A short tag per kind of entry, as the log's second column. */
+const TAG: Record<string, string> = {
+  decision: 'DECIDE',
+  order: 'ORDER',
+  note: 'NOTE',
+  error: 'ERROR',
+  message: 'YOU',
+  'tool-running': 'TOOL',
+  'tool-done': 'TOOL',
+  'tool-error': 'TOOL'
+}
+
+/**
+ * Everything the session's agent does, newest first, as a terminal-style
+ * log: its decisions, orders, notes, the tools it used, and what the user
+ * told it. The user can write to it from here.
+ */
+export function ExecutionLog({ snapshot }: { snapshot: TradingSnapshot }): JSX.Element {
   const steps = useTrading((s) => s.steps)
   const run = useTrading((s) => s.run)
+  const now = useNow()
   const [message, setMessage] = useState('')
   const session = snapshot.activeSession ?? snapshot.sessions[0] ?? null
-  if (!session) return null
-  const items: FeedItem[] = [
-    ...session.log.map((e, n) => ({ key: `l${n}-${e.at}`, at: e.at, kind: e.kind, text: e.text })),
-    ...steps.filter((s) => s.sessionId === session.id).map((s) => ({ key: s.id, at: s.at, kind: `tool-${s.status}`, text: stepText(s), detail: s.status === 'error' ? s.output : null }))
-  ]
-    .sort((a, b) => b.at - a.at)
-    .slice(0, 60)
-  const live = snapshot.activeSession?.id === session.id
+  const live = Boolean(session && snapshot.activeSession?.id === session.id)
+  const items: FeedItem[] = session
+    ? [
+        ...session.log.map((e, n) => ({ key: `l${n}-${e.at}`, at: e.at, kind: e.kind, text: e.text })),
+        ...steps.filter((s) => s.sessionId === session.id).map((s) => ({ key: s.id, at: s.at, kind: `tool-${s.status}`, text: stepText(s), detail: s.status === 'error' ? s.output : null }))
+      ]
+        .sort((a, b) => b.at - a.at)
+        .slice(0, 80)
+    : []
+  const agent = snapshot.agent
   const send = (): void => {
     const text = message.trim()
-    if (!text) return
+    if (!text || !session) return
     void run(() => window.api.trading.tellSession(session.id, text)).then((done) => done && setMessage(''))
   }
   return (
-    <section className="tr-panel tr-feed" aria-label="What the agent is doing">
+    <section className="tr-panel tr-log2" aria-label="Execution log">
       <div className="tr-panel__head">
-        <h2 className="tr-h2">{live ? 'Live' : 'Last session'}</h2>
-        <span className="tr-muted">{live ? 'Every step, as it happens' : session.name}</span>
+        <h2 className="tr-label-head">
+          Execution log{live && <span className="tr-label-head__live"> · Live</span>}
+        </h2>
+        {live && session && (
+          <span className="tr-log2__meta">
+            {session.checks} checks · {session.orders} orders
+            {agent?.checking ? ' · deciding' : agent?.nextCheckAt ? ` · next ${span(Math.max(0, agent.nextCheckAt - now))}` : ''}
+          </span>
+        )}
       </div>
-      {live && (
+      {session?.summary && <p className="tr-log__summary">{session.summary}</p>}
+      {items.length === 0 ? (
+        <p className="tr-empty">{session ? 'Nothing yet — every step shows up here as the agent works.' : 'No session yet. Start one on the left; every decision, order and tool the agent uses shows up here.'}</p>
+      ) : (
+        <ol className="tr-log2__list">
+          {items.map((item) => (
+            <li key={item.key} data-kind={item.kind}>
+              <span className="tr-log2__time">{new Date(item.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}</span>
+              <span className="tr-log2__tag">{TAG[item.kind] ?? item.kind.toUpperCase()}</span>
+              <span className="tr-log2__text">
+                {item.text}
+                {item.detail && <span className="tr-log2__detail">{item.detail}</span>}
+              </span>
+            </li>
+          ))}
+        </ol>
+      )}
+      {live && session && (
         <form
           className="tr-feed__say"
           onSubmit={(e) => {
@@ -541,22 +549,6 @@ function LiveFeed({ snapshot }: { snapshot: TradingSnapshot }): JSX.Element | nu
             <Send size={13} strokeWidth={2} />
           </button>
         </form>
-      )}
-      {session.summary && <p className="tr-log__summary">{session.summary}</p>}
-      {items.length === 0 ? (
-        <p className="tr-empty">Nothing yet — steps show up here as the agent works.</p>
-      ) : (
-        <ol className="tr-feed__list">
-          {items.map((item) => (
-            <li key={item.key} data-kind={item.kind}>
-              <span className="tr-feed__time">{new Date(item.at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' })}</span>
-              <span className="tr-feed__text">
-                {item.text}
-                {item.detail && <span className="tr-feed__detail">{item.detail}</span>}
-              </span>
-            </li>
-          ))}
-        </ol>
       )}
     </section>
   )

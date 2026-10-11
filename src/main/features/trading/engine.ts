@@ -32,12 +32,16 @@ import {
   type TradingSession,
   type TradingSnapshot,
   type TradingStats,
+  brokerInfo,
   cadenceText,
+  isRealMoney,
   checkIntervalMs
 } from '@shared/trading'
 import type { RunOptions, RunOutcome, ToolGate } from '../../agent/loop'
 import { resolveModel as resolveAppModel, STALL_MS } from '../scheduler/runner'
 import { AlpacaBroker, type AlpacaKind } from './alpaca'
+import { RobinhoodBroker, type McpLink } from './robinhood'
+import { TradierBroker, type TradierKind } from './tradier'
 import { roundMoney, roundPrice, roundQty, type AlpacaKeys, type Broker, type BrokerOrder } from './brokers'
 import { formatMarketTime, marketDate, nextOpen, sessionOn } from './marketHours'
 import { normalizeSymbol, type Headline, type PriceFeed, type ScreenKind, type ScreenRow } from './marketData'
@@ -64,7 +68,24 @@ import { SimulatorBroker, type SimState } from './simulator'
  */
 
 export type RunAgent = (request: StreamRequest, emit: (event: StreamEvent) => void, options: RunOptions) => Promise<RunOutcome>
-export type KeyKind = 'paper' | 'live'
+/** Saved credentials: Alpaca's paper and live key pairs, and Tradier's sandbox and brokerage tokens. */
+export type KeyKind = 'paper' | 'live' | 'tradier-paper' | 'tradier-live'
+export const KEY_KINDS: KeyKind[] = ['paper', 'live', 'tradier-paper', 'tradier-live']
+
+/** The credentials an account trades with, or null for one that needs none (the simulator) or signs in (Robinhood). */
+export function keyKindOf(kind: BrokerKind): KeyKind | null {
+  switch (kind) {
+    case 'alpaca-paper':
+      return 'paper'
+    case 'alpaca-live':
+      return 'live'
+    case 'tradier-paper':
+    case 'tradier-live':
+      return kind
+    default:
+      return null
+  }
+}
 export type OrderSource = TradingOrder['source']
 /** What the desk may change; `liveConfirmedAt` only through `confirmLive`. */
 export type TradingConfigPatch = Partial<Omit<TradingConfig, 'limits' | 'liveConfirmedAt' | 'disclaimer'>> & { limits?: Partial<TradingLimits> }
@@ -120,6 +141,10 @@ export interface TradingDeps {
   now?: () => number
   /** Makes an Alpaca client; tests point it at a fake server. */
   createBroker?: (kind: AlpacaKind, keys: AlpacaKeys) => Broker
+  /** Makes a Tradier client; tests point it at a fake server. */
+  createTradier?: (kind: TradierKind, keys: AlpacaKeys) => Broker
+  /** Robinhood's MCP server, through Eaon's MCP client; absent where there is none (tests, the CLI). */
+  robinhood?: McpLink
   /** The model sessions run on; defaults to the scheduler's resolution against the app's providers. */
   resolveModel?: (target: { model: TradingConfig['model'] }, settings: Settings) => Resolved
   /** Where a session's agent works: `<Work folder>/Trading` by default. */
@@ -534,8 +559,8 @@ export interface LimitCheck {
  */
 export function checkSwitches(config: TradingConfig, symbol: string, flatten = false): string | null {
   if (config.halted) return 'Trading is halted: the kill switch is on. Nothing can be bought or sold until it is switched off on the trading desk.'
-  if (config.broker === 'alpaca-live' && !config.liveConfirmedAt) {
-    return 'Real-money trading isn’t confirmed yet. Confirm it on the trading desk (Alpaca live) before any order can go through.'
+  if (isRealMoney(config.broker) && !config.liveConfirmedAt) {
+    return `Real-money trading isn’t confirmed yet. Confirm it on the trading desk (${brokerLabel(config.broker)}) before any order can go through.`
   }
   const allowed = config.limits.allowedSymbols
   if (!flatten && allowed.length > 0 && !allowed.includes(symbol)) {
@@ -980,8 +1005,9 @@ export class TradingEngine {
   private positions: TradingPosition[] = []
   private error: string | null = null
   private readonly simulator: SimulatorBroker
-  private readonly alpaca = new Map<AlpacaKind, Broker>()
-  private keyState = { paper: false, live: false }
+  /** Brokers built from saved credentials (Alpaca, Tradier, Robinhood), by account. */
+  private readonly alpaca = new Map<BrokerKind, Broker>()
+  private keyState: Record<KeyKind, boolean> = { paper: false, live: false, 'tradier-paper': false, 'tradier-live': false }
   private active: ActiveSession | null = null
   /** Claude Code's pending waits for a mission's next session, and when the last one returned. */
   private missionWaiters = 0
@@ -1049,7 +1075,7 @@ export class TradingEngine {
       .map(normalizeSession)
       .filter((s): s is TradingSession => s !== null)
       .sort((a, b) => b.startedAt - a.startedAt)
-    this.keyState = { paper: this.deps.getKeys('paper') !== null, live: this.deps.getKeys('live') !== null }
+    for (const kind of KEY_KINDS) this.keyState[kind] = this.deps.getKeys(kind) !== null
 
     let repaired = false
     for (const session of this.sessions) {
@@ -1177,7 +1203,8 @@ export class TradingEngine {
     const session = (s: TradingSession): TradingSession => clone(brief ? { ...s, log: s.log.slice(-BRIEF_LOG) } : s)
     return {
       config: clone(this.config),
-      keys: { ...this.keyState },
+      keys: { paper: this.keyState.paper, live: this.keyState.live },
+      linked: this.linked(),
       account: this.account && this.account.broker === kind ? { ...this.account } : null,
       positions: this.account?.broker === kind ? this.positions.map((p) => ({ ...p, exit: p.exit ? { ...p.exit } : null })) : [],
       orders: mine.slice(0, brief ? BRIEF_ORDERS : ORDERS_SHOWN).map(toPublic),
@@ -1246,14 +1273,20 @@ export class TradingEngine {
     return this.snapshot()
   }
 
-  /** Checks a pair of Alpaca keys against the account, then saves them in the vault. */
+  /**
+   * Checks credentials against the account, then saves them in the vault:
+   * an Alpaca key pair, or a Tradier token (`keyId` is then the account
+   * number, or empty for the token's first account).
+   */
   async setKeys(kind: KeyKind, keyId: string, secret: string): Promise<TradingSnapshot> {
-    if (kind !== 'paper' && kind !== 'live') throw new Error('Say which keys these are: paper or live.')
+    if (!KEY_KINDS.includes(kind)) throw new Error('Say which account these keys are for.')
+    const brokerKind = this.brokerOfKeys(kind)
     const keys = { keyId: str(keyId), secret: str(secret) }
-    if (!keys.keyId || !keys.secret) throw new Error('Paste both the API key ID and the secret key from your Alpaca dashboard.')
-    const brokerKind: AlpacaKind = kind === 'live' ? 'alpaca-live' : 'alpaca-paper'
-    const account = await this.makeAlpaca(brokerKind, keys).account()
-    if (account.blocked) throw new Error(`Alpaca accepted the keys, but trading is blocked on this account (status: ${account.status || 'unknown'}). Check your Alpaca dashboard.`)
+    const tradier = brokerKind.startsWith('tradier')
+    if (tradier ? !keys.secret : !keys.keyId || !keys.secret)
+      throw new Error(tradier ? 'Paste your Tradier access token.' : 'Paste both the API key ID and the secret key from your Alpaca dashboard.')
+    const account = await this.makeBroker(brokerKind, keys).account()
+    if (account.blocked) throw new Error(`${brokerLabel(brokerKind)} accepted the keys, but trading is blocked on this account (status: ${account.status || 'unknown'}).`)
     this.deps.saveKeys(kind, keys)
     this.keyState[kind] = true
     this.alpaca.delete(brokerKind)
@@ -1263,19 +1296,31 @@ export class TradingEngine {
   }
 
   async clearKeys(kind: KeyKind): Promise<TradingSnapshot> {
-    if (kind !== 'paper' && kind !== 'live') throw new Error('Say which keys to remove: paper or live.')
-    const brokerKind: AlpacaKind = kind === 'live' ? 'alpaca-live' : 'alpaca-paper'
+    if (!KEY_KINDS.includes(kind)) throw new Error('Say which account’s keys to remove.')
+    const brokerKind = this.brokerOfKeys(kind)
     this.deps.saveKeys(kind, null)
     this.keyState[kind] = false
     this.alpaca.delete(brokerKind)
     if (this.config.broker === brokerKind) {
-      if (this.active) await this.endSession(this.active, 'stopped', 'Stopped because the Alpaca keys were removed.')
+      if (this.active) await this.endSession(this.active, 'stopped', `Stopped because the ${brokerLabel(brokerKind)} keys were removed.`)
       this.account = null
       this.positions = []
       await this.sync()
     }
     this.changed()
     return this.snapshot()
+  }
+
+  private brokerOfKeys(kind: KeyKind): BrokerKind {
+    return kind === 'paper' ? 'alpaca-paper' : kind === 'live' ? 'alpaca-live' : kind
+  }
+
+  /** Which accounts can trade now: credentials saved, or (Robinhood) signed in and connected. */
+  private linked(): Partial<Record<BrokerKind, boolean>> {
+    const out: Partial<Record<BrokerKind, boolean>> = { simulator: true }
+    for (const kind of KEY_KINDS) out[this.brokerOfKeys(kind)] = this.keyState[kind]
+    out.robinhood = this.deps.robinhood?.state() === 'ready'
+    return out
   }
 
   confirmLive(phrase: string): TradingSnapshot {
@@ -1777,7 +1822,7 @@ export class TradingEngine {
     const until = finite(request.until)
     if (until === undefined || until < now + this.minuteMs) throw new Error('Pick an end time at least a minute from now.')
     if (until > now + MAX_SESSION_DAYS * 24 * 3600_000) throw new Error(`A session can run for at most ${MAX_SESSION_DAYS} days. Use a schedule for a window that repeats.`)
-    if (this.config.broker === 'alpaca-live' && !this.config.liveConfirmedAt) {
+    if (isRealMoney(this.config.broker) && !this.config.liveConfirmedAt) {
       throw new Error('Real-money trading isn’t confirmed yet. Confirm it on the trading desk before starting a session on Alpaca live.')
     }
     if (!this.broker()) throw new Error(this.missingKeys(this.config.broker))
@@ -2700,7 +2745,8 @@ export class TradingEngine {
     if (!this.started || this.disposed) return
     if (this.refreshTimer) clearTimeout(this.refreshTimer)
     const fast = this.exitsLive() ? Math.min(this.deps.exitRefreshMs ?? 15_000, this.deps.refreshFastMs ?? 30_000) : (this.deps.refreshFastMs ?? 30_000)
-    const live = this.deps.liveRefreshMs ?? (this.config.broker === 'simulator' ? 3000 : 6000)
+    // Each refresh is several calls to the broker: Alpaca and Tradier allow a few a second, Robinhood's MCP server is slower.
+    const live = this.deps.liveRefreshMs ?? (this.config.broker === 'simulator' ? 3000 : this.config.broker === 'robinhood' ? 10_000 : 6000)
     const wait = delay ?? (this.liveRefresh() ? Math.min(live, fast) : this.fastRefresh() ? fast : (this.deps.refreshSlowMs ?? 5 * 60_000))
     this.refreshTimer = setTimeout(() => {
       this.refreshTimer = null
@@ -2851,23 +2897,40 @@ export class TradingEngine {
 
   /* -------------------------------------------------------------- brokers */
 
-  private makeAlpaca(kind: AlpacaKind, keys: AlpacaKeys): Broker {
-    return this.deps.createBroker?.(kind, keys) ?? new AlpacaBroker({ kind, keys })
+  private makeBroker(kind: BrokerKind, keys: AlpacaKeys): Broker {
+    if (kind === 'tradier-paper' || kind === 'tradier-live')
+      return this.deps.createTradier?.(kind, keys) ?? new TradierBroker({ kind, keys, prices: this.deps.prices, now: this.now })
+    const alpaca = kind as AlpacaKind
+    return this.deps.createBroker?.(alpaca, keys) ?? new AlpacaBroker({ kind: alpaca, keys })
   }
 
-  /** The broker for an account, or null when it needs keys that aren't saved. */
+  /** The broker for an account, or null when it needs credentials that aren't saved (or, Robinhood, a sign-in). */
   private broker(kind: BrokerKind = this.config.broker): Broker | null {
     if (kind === 'simulator') return this.simulator
+    if (kind === 'robinhood') {
+      const link = this.deps.robinhood
+      if (!link || link.state() === 'missing' || link.state() === 'needs-auth') return null
+      let broker = this.alpaca.get(kind)
+      if (!broker) {
+        broker = new RobinhoodBroker({ link, prices: this.deps.prices, now: this.now })
+        this.alpaca.set(kind, broker)
+      }
+      return broker
+    }
     const cached = this.alpaca.get(kind)
     if (cached) return cached
-    const keys = this.deps.getKeys(kind === 'alpaca-live' ? 'live' : 'paper')
+    const keyKind = keyKindOf(kind)
+    const keys = keyKind ? this.deps.getKeys(keyKind) : null
     if (!keys) return null
-    const broker = this.makeAlpaca(kind, keys)
+    const broker = this.makeBroker(kind, keys)
     this.alpaca.set(kind, broker)
     return broker
   }
 
   private missingKeys(kind: BrokerKind): string {
+    const info = brokerInfo(kind)
+    if (info.link === 'sign-in') return `Link ${info.label}: sign in from the account picker on the Trading tab.`
+    if (info.link === 'token') return `Add your ${info.label} access token on the Trading tab to use it.`
     return `Add your Alpaca ${kind === 'alpaca-live' ? 'live' : 'paper'} keys on the trading desk to use ${brokerLabel(kind)}.`
   }
 

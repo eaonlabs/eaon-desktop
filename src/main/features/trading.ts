@@ -7,6 +7,7 @@ import { runAgent } from '../agent/loop'
 import { withUsageSource } from './usage/attribution'
 import { registerToolSource } from '../agent/tools'
 import { secrets } from '../secrets'
+import { callMcpToolResult, getStatuses, getTools } from '../mcp'
 import { onPath } from '../shellEnv'
 import { store } from '../store'
 import { CLAUDE_SERVER_NAME, ClaudeTradingServer, TRADE_COMMAND } from './trading/claudeServer'
@@ -46,7 +47,24 @@ const START_DELAY_MS = 5000
  */
 const PUSH_EVERY_MS = 500
 
-const vaultName = (kind: KeyKind, part: 'key' | 'secret'): string => `trading:alpaca-${kind}:${part}`
+/** Alpaca's keys keep their original names; Tradier's token is `secret`, its account number `key`. */
+const vaultName = (kind: KeyKind, part: 'key' | 'secret'): string => (kind === 'paper' || kind === 'live' ? `trading:alpaca-${kind}:${part}` : `trading:${kind}:${part}`)
+
+/** Robinhood's MCP server, as the `robinhood` catalog plugin connects it. */
+const ROBINHOOD_SERVER = 'plugin-robinhood'
+
+/**
+ * Whether Robinhood is linked, from the MCP client's status. Both reads go
+ * to mcp.json on disk and every snapshot asks, so the answer is kept a moment.
+ */
+let robinhoodSeen: { at: number; state: 'ready' | 'needs-auth' | 'starting' | 'error' | 'missing' } | null = null
+function robinhoodState(): 'ready' | 'needs-auth' | 'starting' | 'error' | 'missing' {
+  if (robinhoodSeen && Date.now() - robinhoodSeen.at < 2000) return robinhoodSeen.state
+  const status = getStatuses().find((s) => s.serverId === ROBINHOOD_SERVER)
+  const state = !status ? 'missing' : status.state === 'ready' ? 'ready' : status.state === 'needs-auth' ? 'needs-auth' : status.state === 'error' ? 'error' : 'starting'
+  robinhoodSeen = { at: Date.now(), state }
+  return state
+}
 
 let engine: TradingEngine | null = null
 let startTimer: ReturnType<typeof setTimeout> | null = null
@@ -156,8 +174,10 @@ export const tradingFeature: Feature = {
       runAgent: (request, emit, options) => withUsageSource('trading', () => runAgent(request, emit, options)),
       getSettings: () => store.getSettings(),
       getKeys: (kind) => {
-        const keyId = secrets.get(vaultName(kind, 'key'))
+        const keyId = secrets.get(vaultName(kind, 'key')) ?? ''
         const secret = secrets.get(vaultName(kind, 'secret'))
+        // A Tradier link may name no account (the token's first one is used).
+        if (kind.startsWith('tradier')) return secret ? { keyId, secret } : null
         return keyId && secret ? { keyId, secret } : null
       },
       saveKeys: (kind, keys) => {
@@ -185,7 +205,12 @@ export const tradingFeature: Feature = {
         recordStep(sessionId, event)
         for (const fn of agentListeners) fn(sessionId, event)
       },
-      requireDisclaimer: () => disclaimerRequired
+      requireDisclaimer: () => disclaimerRequired,
+      robinhood: {
+        state: robinhoodState,
+        tools: () => getTools().filter((t) => t.serverId === ROBINHOOD_SERVER),
+        call: (name, args) => callMcpToolResult(name, args, 30_000, ROBINHOOD_SERVER)
+      }
     })
     engine = trading
     trading.load()

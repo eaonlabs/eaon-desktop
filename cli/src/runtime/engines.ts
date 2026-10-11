@@ -2,7 +2,7 @@ import type { AgentTool, ToolContext } from '@main/agent/tools'
 import { registerToolSource, toolsFor, toolSourceOf } from '@main/agent/tools'
 import { store } from '@main/store'
 import { describeOrder } from '@main/features/trading/engine'
-import type { TradingSnapshot } from '@shared/trading'
+import { isRealMoney, type BrokerKind, type TradingSnapshot } from '@shared/trading'
 import { claimEngines, releaseEngines, type BusNode, type RemoteToolSpec, type ToolCallMeta } from '../bus/bus'
 import { startEngines } from './boot'
 import { events, handlerNames, invoke, ipc } from './ipc'
@@ -147,7 +147,7 @@ function standIn(spec: RemoteToolSpec, bus: BusNode): AgentTool {
     mutating,
     risky: () => true,
     // Real money always asks, whatever the approval mode.
-    catastrophic: () => mutating && knownBroker === 'alpaca-live',
+    catastrophic: () => mutating && knownBroker !== null && isRealMoney(knownBroker as BrokerKind),
     describe: (input) =>
       spec.name === 'trading_order'
         ? describeOrder({ side: input.side, symbol: input.symbol, qty: input.qty, notional: input.notional, type: input.type, limitPrice: input.limit_price })

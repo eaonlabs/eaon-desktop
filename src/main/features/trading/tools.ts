@@ -1,4 +1,4 @@
-import { BROKERS, type Bar, type BarRange, type TradingSnapshot } from '@shared/trading'
+import { BROKERS, isRealMoney, type Bar, type BarRange, type TradingSnapshot } from '@shared/trading'
 import type { AgentTool, ToolContext, ToolSource } from '../../agent/tools'
 import { parseWakeTime } from '../workers/tools'
 import {
@@ -165,7 +165,7 @@ function sessionStatus(engine: TradingEngine): string {
 }
 
 export function tradingToolSource(engine: TradingEngine): ToolSource {
-  const live = (): boolean => engine.brokerKind === 'alpaca-live'
+  const live = (): boolean => isRealMoney(engine.brokerKind)
   const fromSession = (ctx: ToolContext): boolean => sessionIdOf(ctx.request.chatId) !== null
 
   const account: AgentTool = {
