@@ -1,0 +1,7 @@
+# Copy to .dev.vars for `wrangler dev`. Never deploy DEV_LOGIN.
+PUBLIC_URL=http://localhost:8787
+SESSION_SECRET=dev-only-not-secret
+GITHUB_CLIENT_ID=
+GITHUB_CLIENT_SECRET=
+# Lets /auth/dev?login=<name> sign in without GitHub, for local testing only.
+DEV_LOGIN=1

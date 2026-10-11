@@ -13,6 +13,7 @@ import {
   type RemoveSessionOptions
 } from '@shared/adeSessions'
 import * as git from './git'
+import { isRemote } from '@shared/adeRemote'
 
 /**
  * The ADE's sessions, kept in `ade-sessions.json`. See `shared/adeSessions.ts`
@@ -35,6 +36,8 @@ export interface SessionBookDeps {
   worktreesRoot: () => string
   /** The home folder, whose own repository (if it is one) never makes a project of the folders in it. */
   home?: () => string
+  /** The repository a session on an SSH host is in, asked over SSH; null when it isn't in one or the host can't be reached. */
+  remoteRepo?: (cwd: string) => Promise<{ branch: string | null; repo: boolean } | null>
 }
 
 const isDir = (dir: string): boolean => {
@@ -64,7 +67,8 @@ function normalize(raw: unknown): AdeSession | null {
     repo: v.repo === true || Boolean(str(v.branch)) || v.worktree === true,
     worktree: v.worktree === true,
     createdAt: typeof v.createdAt === 'number' && Number.isFinite(v.createdAt) ? v.createdAt : 0,
-    ...(v.imported === true ? { imported: true } : {})
+    ...(v.imported === true ? { imported: true } : {}),
+    ...(str(v.host) ? { host: str(v.host) as string } : {})
   }
 }
 
@@ -130,6 +134,16 @@ export class SessionBook {
     let changed = false
     await Promise.all(
       this.sessions.map(async (session) => {
+        // On another machine: its branch is asked over SSH, and a host that can't be reached right now isn't "gone".
+        if (isRemote(session.cwd)) {
+          const info = await this.deps.remoteRepo?.(session.cwd).catch(() => null)
+          if (info && (info.branch !== session.branch || info.repo !== session.repo)) {
+            session.branch = info.branch
+            session.repo = info.repo
+            changed = true
+          }
+          return
+        }
         const missing = !isDir(session.cwd)
         if (Boolean(session.missing) !== missing) {
           if (missing) session.missing = true
@@ -300,6 +314,27 @@ export class SessionBook {
     const session = this.sessions.find((s) => s.id === id)
     if (!session) return null
     session.title = title.trim() || null
+    this.commit()
+    return { ...session }
+  }
+
+  /** A session in a folder on an SSH host (checked and resolved by the caller); the one there already if it has one. */
+  addRemote(fields: { cwd: string; host: string; title: string | null; branch: string | null; repo: boolean }): AdeSession {
+    const have = this.byCwd(fields.cwd)
+    if (have) return have
+    this.closed.delete(path.resolve(fields.cwd))
+    const session: AdeSession = {
+      id: `ses-${randomUUID()}`,
+      title: fields.title,
+      project: fields.cwd,
+      cwd: fields.cwd,
+      branch: fields.branch,
+      repo: fields.repo,
+      worktree: false,
+      createdAt: this.deps.now(),
+      host: fields.host
+    }
+    this.sessions.push(session)
     this.commit()
     return { ...session }
   }

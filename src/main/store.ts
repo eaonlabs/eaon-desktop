@@ -181,6 +181,12 @@ export const defaultSettings: Settings = {
     port: REMOTE_DEFAULT_PORT,
     token: null
   },
+  rc: {
+    enabled: false,
+    deviceId: null,
+    login: null,
+    avatar: null
+  },
   cliUsage: {
     meter: true,
     view: 'detailed'

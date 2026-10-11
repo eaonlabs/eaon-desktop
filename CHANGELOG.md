@@ -3,6 +3,22 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [2026.6.3-beta.1.2] — 2026-10-10
+
+### Added
+- **ADE sessions over SSH.** Start a session on another machine — a host
+  from your `~/.ssh/config` or one added in Eaon — and its terminals open
+  there, in the session's folder (New session → Session over SSH).
+- **Review a session's work.** See what a session changed since it left the
+  main branch, committed or not, comment on lines and send the comments to
+  its agent, then commit, push, open a pull request and merge.
+- **Pull requests get tabs:** Overview, Files, Checks and Merge, with merging
+  through the GitHub CLI. The agent review sits on Overview.
+- A notification when an agent finishes while Eaon is in the background, and
+  +added −removed counts on each session in the sidebar.
+- **Eaon Remote** (Settings → Remote devices): use the ADE and Workers from a
+  browser, linked with GitHub. Off by default; its website isn't live yet.
+
 ## [2026.6.3-beta.1.1] — 2026-10-10
 
 ### Added

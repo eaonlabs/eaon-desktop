@@ -155,7 +155,7 @@ export function tokenize(line: string): { t: TokenKind; v: string }[] {
 }
 
 /** One line, coloured. Memoised on its text: a long diff re-renders as a whole when it opens. */
-const Code = memo(function Code({ text }: { text: string }): JSX.Element {
+export const Code = memo(function Code({ text }: { text: string }): JSX.Element {
   const tokens = useMemo(() => tokenize(text), [text])
   return (
     <code className="diff__code">

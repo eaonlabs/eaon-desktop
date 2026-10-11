@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { AdeConversation, AdeSession, NewSessionRequest } from '@shared/adeSessions'
+import type { NewRemoteSessionRequest } from '@shared/adeRemote'
 import type { TerminalAgentId } from '@shared/terminals'
 import { useApp } from '../../state/store'
 import { useCode } from './codeStore'
@@ -57,6 +58,11 @@ interface SessionsState {
   toggleProject: (project: string) => void
   newSession: (project?: string | null) => void
   closeNewSession: () => void
+  /** The "Session over SSH" dialog is open. */
+  connecting: boolean
+  setConnecting: (open: boolean) => void
+  /** A session in a folder on an SSH host, opened, with `agent` started in it; an error to show, or null. */
+  createRemote: (req: NewRemoteSessionRequest, agent: TerminalAgentId | null) => Promise<string | null>
 }
 
 const COLLAPSED_KEY = 'eaon.ade.collapsed'
@@ -89,6 +95,7 @@ export const useAdeSessions = create<SessionsState>((set, get) => ({
   paneConversations: {},
   collapsed: readCollapsed(),
   creatingIn: undefined,
+  connecting: false,
 
   async load() {
     try {
@@ -242,6 +249,29 @@ export const useAdeSessions = create<SessionsState>((set, get) => ({
 
   closeNewSession() {
     set({ creatingIn: undefined })
+  },
+
+  setConnecting(open) {
+    set({ connecting: open })
+  },
+
+  async createRemote(req, agent) {
+    let result: Awaited<ReturnType<typeof window.api.ade.createRemote>>
+    try {
+      result = await window.api.ade.createRemote(req)
+    } catch (error) {
+      return clean(error)
+    }
+    if (!result.ok) return result.error
+    const session = result.session
+    set((s) => ({ sessions: s.sessions.some((x) => x.id === session.id) ? s.sessions : [...s.sessions, session], connecting: false }))
+    await get().open(session)
+    showAde()
+    if (agent) {
+      await useTerminals.getState().load()
+      useTerminals.getState().add(session.cwd, agent)
+    }
+    return null
   }
 }))
 

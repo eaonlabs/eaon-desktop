@@ -12,6 +12,7 @@ import { prReviewFeature } from './prReview'
 import { linearFeature } from './linear'
 import { workersFeature } from './workers'
 import { remoteFeature } from './remote'
+import { rcFeature } from './rc'
 import { controlFeature } from './control'
 import { starRepoFeature } from './starRepo'
 import { cliAccountsFeature } from './cliAccounts'
@@ -51,6 +52,8 @@ export const FEATURES: Feature[] = [
   workersFeature,
   // Follows the workers engine, so right after it.
   remoteFeature,
+  // After workers, terminals and the ADE, whose parts it serves.
+  rcFeature,
   // Drives the app for Eaon CLI; needs the workers service, so after it.
   controlFeature,
   // Built on the workers engine, so after it.

@@ -38,7 +38,7 @@ import {
   quitAndInstall,
   switchToStable
 } from './updater'
-import { listPullRequests } from './github'
+import { listPullRequests, mergePullRequest, pullRequestAction, pullRequestDetail, pullRequestDiff, type MergeOptions } from './github'
 import { buildIndex, cancelIndexing, clearIndex, getIndexStatus, setIndexStatusListener } from './codeIndex'
 import { describeEmbeddingState, embeddingModels } from './embeddings'
 import { cancelAllDownloads, deleteDownloadedModel, downloadModel, getDownloadedModels, getModelDetail, searchModels } from './modelHub'
@@ -528,6 +528,10 @@ function registerIpc(): void {
 
   ipcMain.handle('system:info', () => getSystemInfo())
   ipcMain.handle('github:pull-requests', () => shellPath.then(() => listPullRequests()))
+  ipcMain.handle('github:pr-detail', (_e, url: unknown) => shellPath.then(() => pullRequestDetail(url)))
+  ipcMain.handle('github:pr-diff', (_e, url: unknown) => shellPath.then(() => pullRequestDiff(url)))
+  ipcMain.handle('github:pr-merge', (_e, url: unknown, options: MergeOptions) => shellPath.then(() => mergePullRequest(url, options ?? { method: 'squash', deleteBranch: false, auto: false })))
+  ipcMain.handle('github:pr-action', (_e, url: unknown, action: unknown) => shellPath.then(() => pullRequestAction(url, action)))
 
   ipcMain.handle('index:status', (_e, cwd: string | null) => getIndexStatus(cwd))
   ipcMain.handle('index:build', (_e, cwd: string, force: boolean) => buildIndex(cwd, force))
@@ -660,6 +664,15 @@ function registerIpc(): void {
     if (!existsSync(resolved)) return false
     shell.showItemInFolder(resolved)
     return true
+  })
+  // A notification clicked while Eaon was in the background: bring back the window that sent it.
+  ipcMain.handle('app:focus-window', (e) => {
+    const window = BrowserWindow.fromWebContents(e.sender)
+    if (!window) return
+    if (window.isMinimized()) window.restore()
+    window.show()
+    window.focus()
+    if (isMac) app.focus({ steal: true })
   })
   ipcMain.handle('app:version', () => app.getVersion())
   ipcMain.handle('app:open-release-notes', () => openReleaseNotes())

@@ -12,6 +12,8 @@ import type {
   ModelDetail,
   ModelDownloadProgress,
   ModelSearchResult,
+  PullRequestAction,
+  PullRequestDetail,
   PullRequestsResult,
   SystemInfo,
   Project,
@@ -48,6 +50,7 @@ import { paymentsApi } from './features/payments'
 import { enginesApi } from './features/engines'
 import { storageApi } from './features/storage'
 import { remoteApi } from './features/remote'
+import { rcApi } from './features/rc'
 import { controlApi } from './features/control'
 import { starApi } from './features/star'
 import { cliAccountsApi } from './features/cliAccounts'
@@ -137,7 +140,15 @@ const api = {
     info: (): Promise<SystemInfo> => ipcRenderer.invoke('system:info')
   },
   github: {
-    pullRequests: (): Promise<PullRequestsResult> => ipcRenderer.invoke('github:pull-requests')
+    pullRequests: (): Promise<PullRequestsResult> => ipcRenderer.invoke('github:pull-requests'),
+    /** One pull request in full: description, reviews, checks, mergeability, what the repo allows. */
+    detail: (url: string): Promise<PullRequestDetail> => ipcRenderer.invoke('github:pr-detail', url),
+    /** Its changes as a unified diff. */
+    diff: (url: string): Promise<string> => ipcRenderer.invoke('github:pr-diff', url),
+    merge: (url: string, options: { method: 'squash' | 'merge' | 'rebase'; deleteBranch: boolean; auto: boolean; subject?: string; body?: string }): Promise<PullRequestAction> =>
+      ipcRenderer.invoke('github:pr-merge', url, options),
+    act: (url: string, action: 'approve' | 'ready' | 'draft' | 'close' | 'reopen' | 'update-branch' | 'disable-auto'): Promise<PullRequestAction> =>
+      ipcRenderer.invoke('github:pr-action', url, action)
   },
   /** A pull request reviewed by an agent in the ADE, posted by the person (shared/prReview.ts). */
   prReview: {
@@ -224,6 +235,8 @@ const api = {
     openFolderPrivacy: (): Promise<void> => ipcRenderer.invoke('app:open-folder-privacy'),
     /** Shows the file or folder in Finder/Explorer; false when it doesn't exist. */
     showItem: (path: string): Promise<boolean> => ipcRenderer.invoke('app:show-item', path),
+    /** Brings this window to the front, e.g. when its notification is clicked. */
+    focusWindow: (): Promise<void> => ipcRenderer.invoke('app:focus-window'),
     version: (): Promise<string> => ipcRenderer.invoke('app:version'),
     /** This version's GitHub release page when it has one, else the list of releases. */
     openReleaseNotes: (): Promise<void> => ipcRenderer.invoke('app:open-release-notes'),
@@ -320,6 +333,7 @@ const fullApi = {
   engines: enginesApi,
   storage: storageApi,
   remote: remoteApi,
+  rc: rcApi,
   control: controlApi,
   star: starApi,
   cliAccounts: cliAccountsApi

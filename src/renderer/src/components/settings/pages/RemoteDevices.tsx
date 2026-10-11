@@ -3,6 +3,7 @@ import QRCode from 'qrcode'
 import { TriangleAlert } from 'lucide-react'
 import { Card, Modal, Row, Section, Switch } from '../../ui'
 import type { RemoteInfo } from '@shared/remote'
+import { RemoteWebSection } from './RemoteWeb'
 
 /** The pairing link as a code to scan. Black on white in every theme, as phones read it. */
 function QrCode({ text, size = 196 }: { text: string; size?: number }): JSX.Element {
@@ -80,6 +81,8 @@ export function RemoteDevicesPage(): JSX.Element {
   return (
     <>
       <h1 className="settings__h1">Remote devices</h1>
+
+      <RemoteWebSection />
 
       <Section>
         <Card>

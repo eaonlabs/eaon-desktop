@@ -7,6 +7,7 @@ import { swapped } from './gridLayout'
 import { previewFor, settingsFor } from './appLook'
 import { findTheme } from './themes'
 import { reportError } from '../../ErrorBoundary'
+import { folderName } from '@shared/adeSessions'
 
 /**
  * Which panes each folder has in the ADE's terminal view, saved so the grid
@@ -199,6 +200,8 @@ async function loadLayout(): Promise<void> {
     if (!listening) {
       listening = true
       window.api.terminals.onAgent(({ paneId, agent }) => get().setAgent(paneId, agent))
+      // A pane started from Eaon Remote: main saved the layout; take it, so it shows and isn't saved over.
+      window.api.terminals.onLayoutChanged((layout) => set({ layout }))
       // A shell running a full-screen program keeps a typed `/theme` (registry.ts).
       terminals.setAgentLookup((paneId) => {
         for (const panes of Object.values(get().layout)) {
@@ -209,6 +212,8 @@ async function loadLayout(): Promise<void> {
       })
       // `/theme` typed in any pane.
       terminals.onCommand((_command, paneId) => get().openPicker(paneId))
+      // An agent that worked for a while went quiet while you were elsewhere.
+      terminals.onFinish((paneId, task) => notifyFinished(paneId, task))
     }
     const [layout, agents, running] = await Promise.all([
       window.api.terminals.layout(),
@@ -220,6 +225,39 @@ async function loadLayout(): Promise<void> {
   } catch (error) {
     reportError({ message: errorText(error), stack: error instanceof Error ? error.stack : undefined, source: 'terminals' })
     set({ loadError: errorText(error) })
+  }
+}
+
+/**
+ * A system notification when a pane's agent finishes (or stops to ask you
+ * something) while Eaon isn't the app in front, under Settings →
+ * Notifications' "task complete". Clicking it brings back the window, the
+ * pane's session and the pane.
+ */
+function notifyFinished(paneId: string, task: string | null): void {
+  const settings = useApp.getState().settings
+  if (!settings?.notifications.taskComplete || document.hasFocus() || typeof Notification === 'undefined') return
+  const { layout, agents } = useTerminals.getState()
+  const found = Object.entries(layout)
+    .map(([cwd, panes]) => ({ cwd, pane: panes.find((p) => p.id === paneId) }))
+    .find((x) => x.pane)
+  if (!found?.pane) return
+  const { cwd, pane } = found
+  const label = agents.find((a) => a.id === pane.agent)?.label ?? 'Terminal'
+  const folder = folderName(cwd)
+  const notification = new Notification(`${label} is done · ${pane.name}`, { body: task ? `${task} — ${folder}` : `Waiting for you in ${folder}` })
+  notification.onclick = () => {
+    void window.api.app.focusWindow()
+    const app = useApp.getState()
+    const ade = app.workspaces.find((w) => w.kind === 'code')
+    if (ade && ade.id !== app.settings?.activeWorkspaceId) app.setWorkspace(ade.id)
+    if (app.view !== 'chat') app.setView('chat')
+    // Imported here: the sessions store imports this one.
+    void import('../sessionsStore').then(async ({ useAdeSessions }) => {
+      const session = useAdeSessions.getState().sessions.find((s) => s.cwd === cwd)
+      if (session && useCode.getState().cwd !== cwd) await useAdeSessions.getState().open(session)
+      requestAnimationFrame(() => terminals.focus(paneId))
+    })
   }
 }
 

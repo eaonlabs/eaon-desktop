@@ -15,7 +15,13 @@ import { findInstallerCopy } from './eaonCode/locate'
 import { eaonCliBinary, eaonCliEnv } from './eaonCli'
 import { cliAccountEnv } from './cliAccounts'
 import { adeHistory } from './ade/history'
-import { currentPane, privacyBlockedMessage, type TerminalAgent, type TerminalAgentId, type TerminalLayout, type TerminalSpawnRequest } from '@shared/terminals'
+import { sshHosts } from './ade'
+import { remoteShellCommand, sshArgv, sshBinary } from './ade/ssh'
+import { remoteLocation } from '@shared/adeRemote'
+import { currentPane, PANE_NAMES, privacyBlockedMessage, type TerminalAgent, type TerminalAgentId, type TerminalLayout, type TerminalPaneSpec, type TerminalSpawnRequest, type TerminalSpawnResult } from '@shared/terminals'
+import { noteOutput, quietActivity, wentQuiet, type Activity } from '@shared/terminalActivity'
+import { taskFromTerminalTitle } from '@shared/adeSessions'
+import { randomUUID } from 'node:crypto'
 
 /**
  * The ADE's terminal view: real shells in the project folder, each optionally
@@ -194,7 +200,20 @@ export interface TerminalsOptions {
  *
  * A factory so a test can run it twice — once to quit, once to come back.
  */
-export function createTerminals(options: TerminalsOptions = {}): Feature & { tick: () => Promise<void> } {
+/** What Eaon Remote (features/rc) may see and do with the ADE's terminals. */
+export interface TerminalsControl {
+  agents(): Promise<TerminalAgent[]> | TerminalAgent[]
+  layout(): TerminalLayout
+  status(paneId: string): 'working' | 'idle' | 'exited' | 'stopped'
+  task(paneId: string): string | null
+  snapshot(paneId: string): { data: string; cols: number; rows: number; running: boolean }
+  write(paneId: string, data: string): void
+  tap(listener: (channel: string, payload: unknown) => void): () => void
+  addPane(cwd: string, agent: TerminalAgentId): Promise<TerminalPaneSpec>
+  startPane(paneId: string): Promise<void>
+}
+
+export function createTerminals(options: TerminalsOptions = {}): Feature & { tick: () => Promise<void>; control: TerminalsControl } {
   const manager = new PtyManager(options.settleMs)
   const listAgents = options.agents ?? agents
   let records: PaneRecords | null = null
@@ -289,11 +308,136 @@ export function createTerminals(options: TerminalsOptions = {}): Feature & { tic
     recs.flush()
   }
 
+  let send: (channel: string, payload: unknown) => void = () => undefined
+
+  /** Starts a pane's shell (its restore, the first time this run), or reattaches to the one it has. */
+  const spawnPane = async (req: TerminalSpawnRequest): Promise<TerminalSpawnResult> => {
+      // A session on another machine: the pane is `ssh` to its host, landing in its folder.
+      const remote = remoteLocation(req.cwd)
+      if (remote) {
+        restored.add(req.paneId)
+        const host = await sshHosts.find(remote.hostId)
+        if (!host) return { ok: false, error: 'This session’s SSH host isn’t in ~/.ssh/config or Eaon’s hosts any more.' }
+        const argv = [...sshArgv(host, { interactive: true }), remoteShellCommand(remote.path)]
+        return manager.spawn(resumeLine(req), {}, null, { bin: sshBinary(), argv })
+      }
+      // A folder macOS keeps Eaon out of: say so, instead of a shell whose every command fails.
+      if (!manager.has(req.paneId) && (await blockedByPrivacy(req.cwd))) {
+        return { ok: false, privacy: true, error: privacyBlockedMessage(req.cwd, app.getPath('home')) }
+      }
+      // A pane outside the grid (the Trading tab's Claude Code) starts as asked, never restored.
+      const outside = outsidePaneEnv(req.paneId)
+      if (outside) return manager.spawn(req, { ...(await agentEnv(req.agent)), ...outside })
+      // A pane with a live shell reattaches to it; only a pane's first
+      // start in a run is its restore.
+      if (!manager.has(req.paneId) && !restored.has(req.paneId)) {
+        restored.add(req.paneId)
+        const restore = await planRestore(req).catch(() => null)
+        if (restore) {
+          const result = manager.spawn(req, await agentEnv(restore.agent), restore.plan)
+          if (result.ok && restore.agent !== (req.agent ?? 'shell')) send('terminal:agent', { paneId: req.paneId, agent: restore.agent })
+          watch?.expect(req.paneId, restore.agent)
+          return result
+        }
+      }
+      restored.add(req.paneId)
+      // The task is given once: a Restart later starts the agent plain.
+      const first = !prompted.has(req.paneId)
+      prompted.add(req.paneId)
+      return manager.spawn(first ? promptLine(resumeLine(req)) : resumeLine(req), await agentEnv(req.agent))
+  }
+
+  /* --------------------------------------------- Eaon Remote (features/rc) */
+
+  /** Per pane: what decides working (shared/terminalActivity.ts), and the task its title names. */
+  const panes = new Map<string, { activity: Activity; working: boolean; exited: boolean; task: string | null }>()
+  const paneState = (paneId: string): { activity: Activity; working: boolean; exited: boolean; task: string | null } => {
+    let st = panes.get(paneId)
+    if (!st) panes.set(paneId, (st = { activity: quietActivity(), working: false, exited: false, task: null }))
+    return st
+  }
+  const poke = (paneId: string): void => {
+    paneState(paneId).activity.poked = Date.now()
+  }
+  manager.tap((channel, payload) => {
+    const { paneId, data } = payload as { paneId: string; data?: string }
+    const st = paneState(paneId)
+    if (channel === 'terminal:exit') {
+      st.exited = true
+      st.working = false
+      return
+    }
+    if (typeof data !== 'string') return
+    st.exited = false
+    st.working = noteOutput(st.activity, Date.now(), st.working && !wentQuiet(st.activity, Date.now()))
+    // The task an agent names in its terminal title (Claude Code does), as the sidebar shows it.
+    for (const m of data.matchAll(/\x1b\](?:0|2);([^\x07\x1b]*)(?:\x07|\x1b\\)/g)) {
+      const task = taskFromTerminalTitle(m[1])
+      if (task) st.task = task
+    }
+  })
+
+  const readLayout = (): TerminalLayout => currentLayout(store.getJson<TerminalLayout>(LAYOUT_FILE, {}))
+  const findPane = (paneId: string): { cwd: string; pane: TerminalPaneSpec } | null => {
+    for (const [cwd, list] of Object.entries(readLayout())) {
+      const pane = list.find((p) => p.id === paneId)
+      if (pane) return { cwd, pane }
+    }
+    return null
+  }
+  const launchFor = async (cwd: string, pane: TerminalPaneSpec, size = { cols: 120, rows: 32 }): Promise<TerminalSpawnResult> => {
+    const agent = (await listAgents()).find((a) => a.id === pane.agent)
+    return spawnPane({ paneId: pane.id, cwd, cols: size.cols, rows: size.rows, command: agent?.command ?? null, agent: pane.agent, ...(pane.resume ? { resume: pane.resume } : {}) })
+  }
+
+  const control: TerminalsControl = {
+    agents: () => listAgents(),
+    layout: readLayout,
+    status(paneId: string): 'working' | 'idle' | 'exited' | 'stopped' {
+      if (!manager.has(paneId)) return panes.get(paneId)?.exited ? 'exited' : 'stopped'
+      const st = paneState(paneId)
+      return st.working && !wentQuiet(st.activity, Date.now()) ? 'working' : 'idle'
+    },
+    task: (paneId: string): string | null => panes.get(paneId)?.task ?? null,
+    snapshot(paneId: string): { data: string; cols: number; rows: number; running: boolean } {
+      const size = manager.sizeOf(paneId)
+      return { data: manager.historyOf(paneId), cols: size?.cols ?? 120, rows: size?.rows ?? 32, running: Boolean(size) }
+    },
+    write(paneId: string, data: string): void {
+      poke(paneId)
+      manager.write(paneId, data)
+    },
+    tap: (listener: (channel: string, payload: unknown) => void) => manager.tap(listener),
+    /** A new pane in a session's folder, started now; the window is told its layout changed. */
+    async addPane(cwd: string, agent: TerminalAgentId): Promise<TerminalPaneSpec> {
+      const layout = readLayout()
+      const list = layout[cwd] ?? []
+      const taken = new Set(list.map((p) => p.name))
+      const pane: TerminalPaneSpec = { id: `pane-${randomUUID().slice(0, 8)}${Date.now().toString(36)}`, name: PANE_NAMES.find((n) => !taken.has(n)) ?? `Terminal ${list.length + 1}`, agent }
+      const next = { ...layout, [cwd]: [...list, pane] }
+      store.setJson(LAYOUT_FILE, next)
+      send('terminal:layout-changed', next)
+      const result = await launchFor(cwd, pane)
+      if (!result.ok) throw new Error(result.error ?? 'The terminal didn’t start.')
+      return pane
+    },
+    /** Starts a pane the window hasn't shown since Eaon opened (its shell starts when shown). */
+    async startPane(paneId: string): Promise<void> {
+      if (manager.has(paneId)) return
+      const found = findPane(paneId)
+      if (!found) throw new Error('That terminal isn’t in the ADE any more.')
+      const result = await launchFor(found.cwd, found.pane)
+      if (!result.ok) throw new Error(result.error ?? 'The terminal didn’t start.')
+    }
+  }
+
   return {
     id: 'terminals',
+    control,
     tick: () => watch?.tick() ?? Promise.resolve(),
-    register: ({ ipcMain, send }) => {
-      manager.setSender(send)
+    register: ({ ipcMain, send: sendToWindow }) => {
+      send = sendToWindow
+      manager.setSender(sendToWindow)
       // Closed panes leave nothing behind for a launch that will never ask.
       paneRecords().prune(layoutPaneIds(store.getJson<TerminalLayout>(LAYOUT_FILE, {})))
       watch = new SessionWatch(
@@ -305,32 +449,7 @@ export function createTerminals(options: TerminalsOptions = {}): Feature & { tic
       watch.start()
 
       ipcMain.handle('terminal:agents', () => listAgents())
-      ipcMain.handle('terminal:spawn', async (_e, req: TerminalSpawnRequest) => {
-        // A folder macOS keeps Eaon out of: say so, instead of a shell whose every command fails.
-        if (!manager.has(req.paneId) && (await blockedByPrivacy(req.cwd))) {
-          return { ok: false, privacy: true, error: privacyBlockedMessage(req.cwd, app.getPath('home')) }
-        }
-        // A pane outside the grid (the Trading tab's Claude Code) starts as asked, never restored.
-        const outside = outsidePaneEnv(req.paneId)
-        if (outside) return manager.spawn(req, { ...(await agentEnv(req.agent)), ...outside })
-        // A pane with a live shell reattaches to it; only a pane's first
-        // start in a run is its restore.
-        if (!manager.has(req.paneId) && !restored.has(req.paneId)) {
-          restored.add(req.paneId)
-          const restore = await planRestore(req).catch(() => null)
-          if (restore) {
-            const result = manager.spawn(req, await agentEnv(restore.agent), restore.plan)
-            if (result.ok && restore.agent !== (req.agent ?? 'shell')) send('terminal:agent', { paneId: req.paneId, agent: restore.agent })
-            watch?.expect(req.paneId, restore.agent)
-            return result
-          }
-        }
-        restored.add(req.paneId)
-        // The task is given once: a Restart later starts the agent plain.
-        const first = !prompted.has(req.paneId)
-        prompted.add(req.paneId)
-        return manager.spawn(first ? promptLine(resumeLine(req)) : resumeLine(req), await agentEnv(req.agent))
-      })
+      ipcMain.handle('terminal:spawn', (_e, req: TerminalSpawnRequest) => spawnPane(req))
       ipcMain.handle('terminal:running', () => watch?.snapshot() ?? {})
       // The conversation each pane is in, as far as the watch has seen: the ADE's
       // sidebar lists a folder's past conversations without the ones open in a pane.
@@ -349,8 +468,14 @@ export function createTerminals(options: TerminalsOptions = {}): Feature & { tic
       })
       // Keystrokes and resizes are fire-and-forget: a round trip per key would
       // put IPC latency between the user and every character they type.
-      ipcMain.on('terminal:write', (_e, paneId: string, data: string) => manager.write(paneId, data))
-      ipcMain.on('terminal:resize', (_e, paneId: string, cols: number, rows: number) => manager.resize(paneId, cols, rows))
+      ipcMain.on('terminal:write', (_e, paneId: string, data: string) => {
+        poke(paneId)
+        manager.write(paneId, data)
+      })
+      ipcMain.on('terminal:resize', (_e, paneId: string, cols: number, rows: number) => {
+        poke(paneId)
+        manager.resize(paneId, cols, rows)
+      })
       ipcMain.on('terminal:kill', (_e, paneId: string) => manager.kill(paneId))
     },
     shutdown: async () => {

@@ -232,6 +232,12 @@ body[data-reduce-motion='on'] .term-pane__dot {
   min-height: 0;
   padding: 6px 2px 2px 10px;
 }
+/* A file from Finder held over the terminal: it goes on the prompt as a path. */
+.term-pane__screen[data-file-over] {
+  outline: 1.5px dashed var(--accent);
+  outline-offset: -4px;
+  border-radius: 6px;
+}
 .term-wrapper {
   position: relative;
   width: 100%;

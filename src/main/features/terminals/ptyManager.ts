@@ -82,6 +82,11 @@ interface Session {
   pid: number
   /** The folder the pane belongs to, as asked for — a reattach must match it. */
   folder: string
+  /** A pane on another machine: the local process is `ssh`, so the process watcher has nothing to see in it. */
+  remote: boolean
+  /** The size the pty has now. */
+  cols: number
+  rows: number
   /** Recent output, replayed to a renderer that reattaches after a reload. */
   history: string[]
   historyLen: number
@@ -166,6 +171,8 @@ export class PtyManager {
   /** How much output each shell remembers for a reattaching renderer. */
   private readonly maxHistory = 512 * 1024
   private send: Sender = () => {}
+  /** Listeners on every pane's output and exits besides the window (Eaon Remote). */
+  private taps = new Set<Sender>()
   private muted = false
   private nextToken = 1
   private reaping = new Map<number, () => void>()
@@ -177,7 +184,20 @@ export class PtyManager {
     this.muted = false
   }
 
+  /** Hears every `terminal:data` and `terminal:exit` the window does; returns how to stop. */
+  tap(listener: Sender): () => void {
+    this.taps.add(listener)
+    return () => this.taps.delete(listener)
+  }
+
   private emit(channel: string, payload: unknown): void {
+    for (const tap of this.taps) {
+      try {
+        tap(channel, payload)
+      } catch {
+        /* a listener's failure is its own */
+      }
+    }
     if (this.muted) return
     try {
       this.send(channel, payload)
@@ -208,9 +228,19 @@ export class PtyManager {
     return env
   }
 
-  spawn(req: TerminalSpawnRequest, extraEnv: Record<string, string> = {}, restore: RestorePlan | null = null): TerminalSpawnResult {
-    const folder = req.cwd && fs.existsSync(req.cwd) ? req.cwd : os.homedir()
-    const cwd = restore?.cwd && isDir(restore.cwd) ? restore.cwd : folder
+  /**
+   * `remote`: the pane runs `ssh` with these arguments instead of a local
+   * shell (a session on an SSH host); the launch command is typed into the
+   * remote shell the same way.
+   */
+  spawn(
+    req: TerminalSpawnRequest,
+    extraEnv: Record<string, string> = {},
+    restore: RestorePlan | null = null,
+    remote: { bin: string; argv: string[] } | null = null
+  ): TerminalSpawnResult {
+    const folder = remote ? req.cwd : req.cwd && fs.existsSync(req.cwd) ? req.cwd : os.homedir()
+    const cwd = remote ? os.homedir() : restore?.cwd && isDir(restore.cwd) ? restore.cwd : folder
     const command = restore ? restore.command : req.command
 
     // A pane asking for the shell it already has gets the one it has — a
@@ -219,7 +249,9 @@ export class PtyManager {
     const existing = this.sessions.get(req.paneId)
     if (existing?.alive && existing.folder === folder) {
       try {
-        existing.proc.resize(Math.max(20, req.cols || 80), Math.max(5, req.rows || 24))
+        existing.cols = Math.max(20, req.cols || 80)
+        existing.rows = Math.max(5, req.rows || 24)
+        existing.proc.resize(existing.cols, existing.rows)
       } catch {
         /* died between the check and the resize */
       }
@@ -227,10 +259,10 @@ export class PtyManager {
     }
     this.kill(req.paneId)
 
-    const shell = loginShell()
+    const shell = remote ? remote.bin : loginShell()
     try {
       const pty = loadPty()
-      const proc = pty.spawn(shell, shellArgs(shell), {
+      const proc = pty.spawn(shell, remote ? remote.argv : shellArgs(shell), {
         name: 'xterm-256color',
         cols: Math.max(20, req.cols || 80),
         rows: Math.max(5, req.rows || 24),
@@ -250,6 +282,9 @@ export class PtyManager {
         token: this.nextToken++,
         pid: proc.pid,
         folder,
+        remote: Boolean(remote),
+        cols: Math.max(20, req.cols || 80),
+        rows: Math.max(5, req.rows || 24),
         history: [],
         historyLen: 0
       }
@@ -267,7 +302,9 @@ export class PtyManager {
           // dozen shells starting at once makes fixed delays unsafe.
           if (session.pendingCommand && !session.sawOutput) {
             session.sawOutput = true
-            this.scheduleCommand(session, 400)
+            // Over SSH the first bytes are a banner or the login, not a prompt: wait longer.
+            // Typed early, keys wait in the remote pty like any type-ahead.
+            this.scheduleCommand(session, session.remote ? 1500 : 400)
           }
           session.buffer.push(chunk)
           session.buffered += chunk.length
@@ -316,7 +353,7 @@ export class PtyManager {
       })
 
       // For shells that print nothing before their prompt.
-      if (session.pendingCommand) this.scheduleCommand(session, 2500)
+      if (session.pendingCommand) this.scheduleCommand(session, session.remote ? 6000 : 2500)
       return restore?.screen ? { ok: true, restored: restore.screen } : { ok: true }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
@@ -355,7 +392,9 @@ export class PtyManager {
     const s = this.sessions.get(paneId)
     if (!s?.alive) return
     try {
-      s.proc.resize(Math.max(20, Math.floor(cols)), Math.max(5, Math.floor(rows)))
+      s.cols = Math.max(20, Math.floor(cols))
+      s.rows = Math.max(5, Math.floor(rows))
+      s.proc.resize(s.cols, s.rows)
     } catch {
       /* exited between the check and the resize */
     }
@@ -383,7 +422,7 @@ export class PtyManager {
   /** Each live pane's shell pid. */
   pids(): Map<string, number> {
     const out = new Map<string, number>()
-    for (const [paneId, s] of this.sessions) if (s.alive && s.pid) out.set(paneId, s.pid)
+    for (const [paneId, s] of this.sessions) if (s.alive && s.pid && !s.remote) out.set(paneId, s.pid)
     return out
   }
 
@@ -395,6 +434,12 @@ export class PtyManager {
   }
 
   /** What a pane has printed, as far back as it is remembered — including what is still waiting to be sent. */
+  /** The size a running pane's pty has, or null when it isn't running. */
+  sizeOf(paneId: string): { cols: number; rows: number } | null {
+    const s = this.sessions.get(paneId)
+    return s?.alive ? { cols: s.cols, rows: s.rows } : null
+  }
+
   historyOf(paneId: string): string {
     const s = this.sessions.get(paneId)
     return s ? s.history.join('') + s.buffer.join('') : ''

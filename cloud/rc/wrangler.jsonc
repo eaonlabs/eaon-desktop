@@ -1,0 +1,25 @@
+{
+  // rc.eaon.dev: control Eaon Desktop from a browser, anywhere.
+  // Deploy: see cloud/rc/README.md (GitHub OAuth app, secrets, `wrangler deploy`).
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "eaon-rc",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-07-01",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    // The API, sign-in and the relay are the Worker's; everything else is the web app.
+    "run_worker_first": ["/api/*", "/auth/*", "/relay/*"]
+  },
+  "routes": [{ "pattern": "rc.eaon.dev", "custom_domain": true }],
+  "durable_objects": {
+    "bindings": [
+      { "name": "ACCOUNTS", "class_name": "Account" },
+      { "name": "LINKS", "class_name": "Links" }
+    ]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Account", "Links"] }],
+  "vars": { "PUBLIC_URL": "https://rc.eaon.dev" },
+  "observability": { "enabled": true }
+}

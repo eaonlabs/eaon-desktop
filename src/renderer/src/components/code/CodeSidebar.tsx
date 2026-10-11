@@ -7,6 +7,7 @@ import { useAdeSessions } from './sessionsStore'
 import { AgentMark } from './terminal/TerminalWorkspace'
 import { terminals } from './terminal/registry'
 import { useTerminals } from './terminal/terminalStore'
+import { RemoteSessionDialog } from './RemoteSessionDialog'
 import { NewSessionDialog, RemoveProjectDialog, RemoveSessionDialog, RenameSessionDialog } from './SessionDialogs'
 import { revealLabel } from '../../lib/files'
 import { CLIPBOARD_FAILED, copyText } from '../../lib/clipboard'
@@ -19,6 +20,7 @@ import {
   keepOrder,
   sessionSubtitle,
   sessionTitle,
+  type AdeChanges,
   type AdeConversation,
   type AdeSession,
   type ProjectGroup
@@ -82,6 +84,7 @@ export function CodeSidebar(): JSX.Element | null {
         </div>
       )}
       <NewSessionDialog />
+      <RemoteSessionDialog />
     </>
   )
 }
@@ -177,6 +180,43 @@ const STATE_LABEL: Record<SessionState, string> = {
   missing: 'Its folder is gone'
 }
 
+/**
+ * What a session's agents have changed and not committed. Counted again when
+ * its agents stop working (not while they type) and when Eaon comes back to
+ * the front, since the files may have been edited elsewhere.
+ */
+function useChanges(session: AdeSession, state: SessionState): AdeChanges | null {
+  const [changes, setChanges] = useState<AdeChanges | null>(null)
+  useEffect(() => {
+    if (!session.repo || session.missing || state === 'working') return
+    let live = true
+    const look = (): void => {
+      window.api.ade.changes(session.cwd).then(
+        (c) => live && setChanges(c),
+        () => undefined
+      )
+    }
+    look()
+    window.addEventListener('focus', look)
+    return () => {
+      live = false
+      window.removeEventListener('focus', look)
+    }
+  }, [session.cwd, session.repo, session.missing, state])
+  return changes
+}
+
+function ChangeCount({ changes }: { changes: AdeChanges | null }): JSX.Element | null {
+  if (!changes || (changes.added === 0 && changes.removed === 0 && changes.files === 0)) return null
+  const files = `${changes.files} ${changes.files === 1 ? 'file' : 'files'}`
+  return (
+    <span className="ade-session__diff" title={`${files} changed, not committed: ${changes.added} lines added, ${changes.removed} removed`}>
+      <span className="ade-session__diff-add">+{changes.added}</span>
+      <span className="ade-session__diff-del">−{changes.removed}</span>
+    </span>
+  )
+}
+
 function StateMark({ state }: { state: SessionState }): JSX.Element {
   return <span className="ade-state" data-state={state} role="img" aria-label={STATE_LABEL[state]} title={STATE_LABEL[state]} />
 }
@@ -189,10 +229,11 @@ function StateMark({ state }: { state: SessionState }): JSX.Element {
 function SessionRow({ session, active, solo = false, onNewSession }: { session: AdeSession; active: boolean; solo?: boolean; onNewSession?: () => void }): JSX.Element {
   const show = useAdeSessions((s) => s.show)
   const { state } = useSessionPanes(session)
+  const changes = useChanges(session, state)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [dialog, setDialog] = useState<'rename' | 'remove' | null>(null)
   const title = sessionTitle(session)
-  const sub = solo && !session.missing ? session.branch : sessionSubtitle(session)
+  const sub = solo && !session.missing && !session.host ? session.branch : sessionSubtitle(session)
 
   return (
     <div className="ade-session" data-active={active || undefined} data-state={state} data-solo={solo || undefined}>
@@ -226,6 +267,7 @@ function SessionRow({ session, active, solo = false, onNewSession }: { session: 
           <span className="ade-session__title">{title}</span>
           {sub && <span className="ade-session__branch">{sub}</span>}
         </span>
+        <ChangeCount changes={changes} />
       </button>
       {onNewSession && (
         <button type="button" className="ade-project__add ade-session__add" aria-label={`New session in ${title}`} title={`New session in ${title}`} onClick={onNewSession}>
@@ -250,7 +292,8 @@ function SessionRow({ session, active, solo = false, onNewSession }: { session: 
                   }
                 ]
               : []),
-            { icon: <Folder size={15} strokeWidth={1.9} />, label: revealLabel(), action: () => void window.api.app.showItem(session.cwd) },
+            // A folder on another machine has nothing to show in Finder.
+            ...(session.host ? [] : [{ icon: <Folder size={15} strokeWidth={1.9} />, label: revealLabel(), action: () => void window.api.app.showItem(session.cwd) }]),
             { icon: <Trash2 size={15} strokeWidth={1.9} />, label: 'Remove session…', danger: true, action: () => setDialog('remove') }
           ]}
         />

@@ -1206,38 +1206,6 @@ body[data-reduce-motion='on'] .credits-heart {
   background: color-mix(in srgb, var(--accent) 14%, var(--surface-2));
 }
 
-.credits-projects {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
-  gap: 8px;
-}
-.credits-project {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 2px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: var(--surface-1);
-  color: var(--text);
-  text-align: left;
-  cursor: default;
-  transition: background 0.12s ease, border-color 0.12s ease;
-}
-.credits-project:hover {
-  background: var(--hover-strong);
-  border-color: var(--border-strong);
-}
-.credits-project__name {
-  font-size: var(--fs-base);
-  font-weight: 500;
-}
-.credits-project__what {
-  font-size: var(--fs-xs);
-  color: var(--text-3);
-}
-
 /* ---------------- Star prompt (components/StarPrompt.tsx) ---------------- */
 
 /* A card in the bottom corner, over whatever is open, until it is answered. */
@@ -1395,4 +1363,17 @@ body[data-reduce-motion='on'] .star-card {
   font-size: var(--fs-xs);
   line-height: 1.5;
   color: var(--text-3);
+}
+
+/* Settings → Remote devices → Control from anywhere: the code to check while linking. */
+.rc-link {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.rc-link__code {
+  font-family: var(--font-mono);
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: 0.08em;
 }

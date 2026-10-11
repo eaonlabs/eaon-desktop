@@ -1,6 +1,7 @@
 import { execFile } from 'node:child_process'
 import path from 'node:path'
 import { promisify } from 'node:util'
+import { parseChanges, type AdeChanges } from '@shared/adeSessions'
 
 const exec = promisify(execFile)
 
@@ -55,6 +56,19 @@ export async function repoInfo(dir: string): Promise<RepoInfo | null> {
   const root = path.basename(common) === '.git' ? path.dirname(common) : common
   const branch = await git(dir, ['symbolic-ref', '--quiet', '--short', 'HEAD'], 5000).catch(() => null)
   return { top: path.resolve(top), root: path.resolve(root), branch: branch || null }
+}
+
+/** Uncommitted changes in a working tree, against its last commit; null outside git or before the first commit. */
+export async function changes(dir: string): Promise<AdeChanges | null> {
+  try {
+    const [numstat, untracked] = await Promise.all([
+      git(dir, ['diff', 'HEAD', '--numstat', '--no-renames'], 5000),
+      git(dir, ['ls-files', '--others', '--exclude-standard'], 5000)
+    ])
+    return parseChanges(numstat, untracked)
+  } catch {
+    return null
+  }
 }
 
 export async function branchExists(root: string, branch: string): Promise<boolean> {
