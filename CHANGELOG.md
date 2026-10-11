@@ -3,6 +3,17 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [2026.6.3-beta.1.1] — 2026-10-10
+
+### Added
+- **Robinhood and Tradier in Trading.** Robinhood connects through its own
+  Agentic Trading service: you sign in with Robinhood, and the agent can only
+  trade the separately funded Agentic account. Tradier connects with your
+  access token, for its sandbox (pretend money) or your brokerage account.
+  Every order still passes your limits and kill switch, and Claude Code
+  needs "Let Claude Code trade real money" for any real-money account.
+- A trading **Accounts** screen and a **Dashboard**.
+
 ## [2026.6.3-beta.1] — 2026-10-10
 
 ### Added
