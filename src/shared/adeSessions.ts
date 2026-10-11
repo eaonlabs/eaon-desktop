@@ -35,6 +35,8 @@ export interface AdeSession {
   imported?: boolean
   /** `cwd` was not there when last looked at (deleted or on a disk that isn't mounted). */
   missing?: boolean
+  /** On another machine over SSH (`cwd` is `ssh://…`, see adeRemote.ts): the host as the picker names it. */
+  host?: string
 }
 
 /** A Claude Code or Codex conversation filed on this computer. */
@@ -113,8 +115,9 @@ export function sessionTitle(session: Pick<AdeSession, 'title' | 'branch' | 'cwd
  * project's own. A checkout on no branch (a pull request being reviewed) says
  * so, by its folder's name rather than its whole path.
  */
-export function sessionSubtitle(session: Pick<AdeSession, 'branch' | 'cwd' | 'project' | 'missing'>): string {
+export function sessionSubtitle(session: Pick<AdeSession, 'branch' | 'cwd' | 'project' | 'missing' | 'host'>): string {
   if (session.missing) return 'Folder not found'
+  if (session.host) return [session.branch, `on ${session.host}`].filter(Boolean).join(' · ')
   if (session.cwd === session.project) return [session.branch, 'project folder'].filter(Boolean).join(' · ')
   return session.branch ?? `${folderName(session.cwd)} · no branch`
 }
@@ -266,3 +269,27 @@ export function keepOrder(groups: ProjectGroup[], shown: readonly string[]): Pro
 
 /** A project that is just its own folder: shown as one row, not a heading over a row repeating it. */
 export const isSoloProject = (group: ProjectGroup): boolean => group.sessions.length === 1 && group.sessions[0].cwd === group.project
+
+/** What a session's agents have changed and not committed: lines added and removed, and files touched (new ones included). */
+export interface AdeChanges {
+  added: number
+  removed: number
+  files: number
+}
+
+/**
+ * `git diff HEAD --numstat` (added, removed, path per line; `-` for a binary
+ * file) plus the untracked files, which have no lines to count but are changes.
+ */
+export function parseChanges(numstat: string, untracked: string): AdeChanges {
+  const changes: AdeChanges = { added: 0, removed: 0, files: 0 }
+  for (const line of numstat.split('\n')) {
+    const [added, removed] = line.split('\t')
+    if (added === undefined || removed === undefined) continue
+    changes.files++
+    changes.added += Number(added) || 0
+    changes.removed += Number(removed) || 0
+  }
+  changes.files += untracked.split('\n').filter(Boolean).length
+  return changes
+}

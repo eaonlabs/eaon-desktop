@@ -7,7 +7,7 @@ import type { WorkersHub } from '../features/workers/hub'
 import { gatewayModels } from '../gateway/models'
 import { getProvider } from '../providers'
 import { store } from '../store'
-import type { RemoteEngine } from './api'
+import type { RemoteApiDeps, RemoteEngine } from './api'
 import { Bonjour } from './bonjour'
 import { RemoteServer, type RemoteServerOptions } from './server'
 
@@ -81,6 +81,11 @@ export function defaultModelId(): string | null {
   const hit =
     (selectedProviderId ? models.find((m) => m.id === `${selectedProviderId}/${selectedModelId}`) : undefined) ?? models.find((m) => m.id.endsWith(`/${selectedModelId}`))
   return hit?.id ?? null
+}
+
+/** The Workers API's dependencies, for anything that serves it besides this server (Eaon Remote). */
+export function remoteApiDeps(engine: RemoteEngine, remove: (id: string) => Promise<void>, name: () => string): RemoteApiDeps {
+  return { engine, remove, info: () => ({ name: name(), appVersion: app.getVersion() }), models: remoteModels, defaultModel: defaultModelId, modelLabel }
 }
 
 export interface RemoteDeps {

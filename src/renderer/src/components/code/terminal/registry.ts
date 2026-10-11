@@ -5,6 +5,7 @@ import { WebglAddon } from '@xterm/addon-webgl'
 import type { TerminalAgentId } from '@shared/terminals'
 import { taskFromTerminalTitle } from '@shared/adeSessions'
 import { feedInput, type LineState } from './input'
+import { noteOutput, quietActivity, wentQuiet, type Activity } from '@shared/terminalActivity'
 import { scenes, seedOf } from './scenes'
 import { DEFAULT_THEME_ID, findTheme, type TerminalTheme } from './themes'
 import { isMac, isWindows } from '../../../lib/platform'
@@ -72,6 +73,12 @@ interface Runtime {
   scene: HTMLCanvasElement
   /** What has been typed since the last Enter, for spotting `/theme` (input.ts). */
   line: LineState
+  /** What decides whether it is working (activity.ts): pokes, and output that isn't an answer to one. */
+  activity: Activity
+  /** When the current stretch of work began. */
+  workingSince: number
+  /** A long stretch of work just went quiet; told to the finish listeners once it stays quiet. */
+  finishPending: boolean
 }
 
 /** The ADE's look: a terminal theme, and whether its scene is drawn. */
@@ -90,8 +97,10 @@ export interface PaneInfo {
   known: boolean
 }
 
-/** Output within this long means something is running. */
-const WORKING_MS = 1500
+/** Work this long is worth a notification when it ends… */
+const FINISH_WORKED_MS = 15_000
+/** …once the pane has been quiet this long, so a pause between steps isn't "done". */
+const FINISH_QUIET_MS = 4_000
 
 /* ------------------------------------------------------------------ keys */
 
@@ -243,6 +252,7 @@ class TerminalRegistry {
   private panes = new Map<string, Runtime>()
   private listeners = new Set<() => void>()
   private commandListeners = new Set<(command: 'theme', paneId: string) => void>()
+  private finishListeners = new Set<(paneId: string, task: string | null) => void>()
   private bound = false
   private ticker: number | null = null
   private theme: ITheme | null = null
@@ -259,8 +269,11 @@ class TerminalRegistry {
       const rt = this.panes.get(paneId)
       if (!rt) return
       rt.term.write(data)
-      rt.lastData = Date.now()
-      if (rt.status !== 'working') this.setStatus(rt, 'working')
+      const now = Date.now()
+      rt.lastData = now
+      // An echo of your typing, or a redraw for a focus or a resize, isn't work (activity.ts).
+      if (rt.replaying) return
+      if (noteOutput(rt.activity, now, rt.status === 'working') && rt.status !== 'working') this.setStatus(rt, 'working')
     })
     window.api.terminals.onExit(({ paneId, exitCode, requested }) => {
       const rt = this.panes.get(paneId)
@@ -273,15 +286,28 @@ class TerminalRegistry {
     // Output going quiet is how a pane turns from working to idle.
     this.ticker = window.setInterval(() => {
       const now = Date.now()
-      for (const rt of this.panes.values()) {
-        if (rt.status === 'working' && now - rt.lastData > WORKING_MS) this.setStatus(rt, 'idle')
+      for (const [paneId, rt] of this.panes) {
+        if (rt.status === 'working' && wentQuiet(rt.activity, now)) this.setStatus(rt, 'idle')
+        if (rt.finishPending && rt.status === 'idle' && now - rt.activity.last > FINISH_QUIET_MS) {
+          rt.finishPending = false
+          for (const listener of this.finishListeners) listener(paneId, rt.task)
+        }
       }
     }, 500)
   }
 
   private setStatus(rt: Runtime, status: PaneStatus): void {
+    if (status === 'working' && rt.status !== 'working') rt.workingSince = rt.activity.since || Date.now()
+    // Going quiet after a long stretch arms the notice; anything else (more output, an exit) disarms it.
+    rt.finishPending = status === 'idle' && rt.status === 'working' ? rt.activity.last - rt.workingSince >= FINISH_WORKED_MS : false
     rt.status = status
     this.bump()
+  }
+
+  /** A pane that worked for a while has gone quiet: an agent finished, or wants an answer. */
+  onFinish(listener: (paneId: string, task: string | null) => void): () => void {
+    this.finishListeners.add(listener)
+    return () => this.finishListeners.delete(listener)
   }
 
   private bump(): void {
@@ -372,7 +398,10 @@ class TerminalRegistry {
       privacy: false,
       task: null,
       scene,
-      line: ''
+      line: '',
+      activity: quietActivity(),
+      workingSince: 0,
+      finishPending: false
     }
 
     // Claude Code titles its terminal with the task at hand (behind a spinner
@@ -386,6 +415,8 @@ class TerminalRegistry {
 
     term.onData((data) => {
       if (rt.replaying) return
+      // Keys, pastes and focus reports: what the CLI prints back for a moment is its answer, not work.
+      rt.activity.poked = Date.now()
       const fed = feedInput(rt.line, data)
       rt.line = fed.line
       if (fed.command === 'theme' && this.takesCommands(paneId, rt)) {
@@ -397,7 +428,9 @@ class TerminalRegistry {
       window.api.terminals.write(paneId, data)
     })
     term.onBinary((data) => {
-      if (!rt.replaying) window.api.terminals.write(paneId, data)
+      if (rt.replaying) return
+      rt.activity.poked = Date.now()
+      window.api.terminals.write(paneId, data)
     })
     term.attachCustomKeyEventHandler((e) => {
       const verdict = resolveKey(e, term.hasSelection())
@@ -569,9 +602,16 @@ class TerminalRegistry {
     // anything its new shell prints.
     const old = result.reattached ? result.replay : result.restored
     if (old) this.replay(rt, old)
-    if (rt.status === 'starting' || rt.status === 'exited') this.setStatus(rt, result.reattached ? 'idle' : 'working')
+    if (rt.status === 'starting' || rt.status === 'exited') {
+      // A new shell starting up counts as work from now, until it goes quiet.
+      if (!result.reattached) rt.activity.since = rt.activity.last = Date.now()
+      this.setStatus(rt, result.reattached ? 'idle' : 'working')
+    }
     rt.sentCols = rt.sentRows = 0
-    if (result.reattached && rt.term.rows > 6) window.api.terminals.resize(paneId, rt.term.cols, rt.term.rows - 1)
+    if (result.reattached && rt.term.rows > 6) {
+      rt.activity.poked = Date.now()
+      window.api.terminals.resize(paneId, rt.term.cols, rt.term.rows - 1)
+    }
     this.fit(paneId)
   }
 
@@ -592,10 +632,25 @@ class TerminalRegistry {
     void this.spawn(paneId, launch)
   }
 
+  /**
+   * Puts text on a pane's prompt the way a terminal delivers a drop: as a
+   * paste (bracketed when the CLI asked for it), so a CLI sees a pasted path
+   * and Claude Code attaches a pasted image.
+   */
+  insertText(paneId: string, text: string): void {
+    const rt = this.panes.get(paneId)
+    if (!rt || rt.status === 'exited') return
+    rt.term.paste(text)
+    rt.term.focus()
+  }
+
   /** Types `data` into a pane as if from the keyboard, past the `/theme` watch. */
   send(paneId: string, data: string): void {
     const rt = this.panes.get(paneId)
-    if (rt) rt.line = ''
+    if (rt) {
+      rt.line = ''
+      rt.activity.poked = Date.now()
+    }
     window.api.terminals.write(paneId, data)
   }
 
@@ -666,6 +721,8 @@ class TerminalRegistry {
     if (rt.spawned && (cols !== rt.sentCols || rows !== rt.sentRows)) {
       rt.sentCols = cols
       rt.sentRows = rows
+      // A full-screen CLI repaints from scratch on every resize.
+      rt.activity.poked = Date.now()
       window.api.terminals.resize(paneId, cols, rows)
     }
   }

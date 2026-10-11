@@ -1,35 +1,11 @@
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import {
-  ArrowRight,
-  AtSign,
-  Boxes,
-  ChevronRight,
-  CircleAlert,
-  Clock3,
-  FolderClosed,
-  CandlestickChart,
-  GitPullRequest,
-  ListTodo,
-  HelpCircle,
-  LibraryBig,
-  Loader2,
-  PanelLeft,
-  Pin,
-  Plus,
-  Search,
-  Settings as SettingsIcon,
-  SquarePen,
-  Trash2,
-  Archive,
-  PencilLine,
-  ScrollText
-} from 'lucide-react'
+import { Archive, ArrowRight, AtSign, Boxes, CandlestickChart, ChevronRight, CircleAlert, Clock3, FolderClosed, GitPullRequest, ListTodo, HelpCircle, LibraryBig, Loader2, PanelLeft, PencilLine, Pin, Plus, ScrollText, Search, Server, Settings as SettingsIcon, SquarePen, Trash2 } from 'lucide-react'
 import { DOCS_URL } from '@shared/links'
 import { useApp, useWorkspaceKind, type ChatListItem } from '../state/store'
 import { DownloadsButton } from './DownloadsPanel'
 import { CodeSidebar } from './code/CodeSidebar'
-import { openNewSession } from './code/sessionsStore'
+import { openNewSession, useAdeSessions } from './code/sessionsStore'
 import { WorkersNav } from './workers/WorkersSidebar'
 import { WorkersSearchButton } from './workers/WorkerThreads'
 import { ConfirmDialog, MenuItem, MenuSearch, Modal, Popover, useDisclosure } from './ui'
@@ -198,6 +174,7 @@ function AdeNav(): JSX.Element {
   return (
     <>
       <NavItem icon={<SquarePen {...ICON} />} label="New session" onClick={() => void openNewSession()} />
+      <NavItem icon={<Server {...ICON} />} label="Session over SSH" onClick={() => useAdeSessions.getState().setConnecting(true)} />
       <NavItem
         icon={<GitPullRequest {...ICON} />}
         label="Pull requests"

@@ -1,6 +1,6 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { feedInput, type LineState } from '../src/renderer/src/components/code/terminal/input'
+import { feedInput, shellQuote, type LineState } from '../src/renderer/src/components/code/terminal/input'
 import { contrast, DEFAULT_THEME_ID, findTheme, mix, TERMINAL_THEMES } from '../src/renderer/src/components/code/terminal/themes'
 
 /**
@@ -186,4 +186,43 @@ test('the preview shows each theme’s app look, and for Eaon the app’s own', 
   const themed = { ...plain, ...settingsFor(findTheme('nord'), plain) } as Settings
   assert.equal(previewFor(findTheme('eaon'), themed)?.dark.background, '#111111')
   assert.equal(appearanceFor(findTheme('eaon'), plain.appearance), null)
+})
+
+test('a dropped file reaches the prompt as a path a shell reads back as one word', () => {
+  assert.equal(shellQuote('/Users/me/project/src/app.ts'), '/Users/me/project/src/app.ts')
+  assert.equal(shellQuote('/Users/me/Desktop/Screen Shot 2026-10-09 at 9.41.png'), "'/Users/me/Desktop/Screen Shot 2026-10-09 at 9.41.png'")
+  assert.equal(shellQuote("/tmp/it's here"), "'/tmp/it'\\''s here'")
+  assert.equal(shellQuote('/tmp/$HOME;rm'), "'/tmp/$HOME;rm'")
+})
+
+test('typing, focusing or resizing a pane never makes it look busy; an agent printing for a while does', async () => {
+  const { noteOutput, quietActivity, wentQuiet, ECHO_MS, SUSTAIN_MS, WORKING_MS } = await import('../src/shared/terminalActivity')
+  // Typing at an idle prompt: each key is echoed right away. Never working.
+  const typing = quietActivity()
+  let working = false
+  for (let t = 1000; t < 6000; t += 120) {
+    typing.poked = t
+    working = noteOutput(typing, t + 15, working)
+    assert.equal(working, false, `the echo at ${t + 15} ms`)
+  }
+  // A redraw on its own, long after any key: one burst is not work.
+  assert.equal(noteOutput(typing, 20_000, false), false)
+  assert.equal(noteOutput(typing, 20_000 + SUSTAIN_MS / 2, false), false)
+
+  // An agent's spinner: output every 100 ms with nobody typing. Working once it keeps going.
+  const agent = quietActivity()
+  working = false
+  let became = -1
+  for (let t = 0; t <= 3000; t += 100) {
+    working = noteOutput(agent, t, working)
+    if (working && became < 0) became = t
+  }
+  assert.equal(became, SUSTAIN_MS)
+  // Typing to it while it works (queueing a message) keeps it working.
+  agent.poked = 3050
+  assert.equal(noteOutput(agent, 3060, true), true)
+  // Then it stops: idle once quiet.
+  assert.equal(wentQuiet(agent, 3060 + WORKING_MS - 1), false)
+  assert.equal(wentQuiet(agent, 3060 + WORKING_MS + 1), true)
+  assert.ok(ECHO_MS > 100, 'a slow redraw still counts as the answer to a key')
 })

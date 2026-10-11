@@ -388,6 +388,19 @@ export interface Settings {
     /** `eaonr-…`, made the first time it is turned on and replaced by Reset key. */
     token: string | null
   }
+  /**
+   * Eaon Remote (rc.eaon.dev): this computer linked to a GitHub account, so
+   * its ADE sessions and Workers can be used from a browser anywhere. The
+   * device token is in the secrets vault, never here.
+   */
+  rc: {
+    /** Connected to the relay (when linked). */
+    enabled: boolean
+    deviceId: string | null
+    /** The GitHub account it is linked to. */
+    login: string | null
+    avatar: string | null
+  }
   /** The ADE's usage meter for Claude Code and Codex plans (Settings → Accounts). */
   cliUsage: {
     /** Show the meter in the ADE's header. */
@@ -806,3 +819,35 @@ export interface ModelDownloadProgress {
   totalBytes: number
   phase: 'downloading' | 'registering'
 }
+
+/** One pull request in full, for the Pull requests page's detail tabs (main/github.ts). */
+export interface PullRequestDetail {
+  url: string
+  number: number
+  title: string
+  body: string
+  repo: string
+  author: string
+  state: 'open' | 'closed' | 'merged' | 'draft'
+  base: string
+  head: string
+  additions: number
+  deletions: number
+  changedFiles: number
+  createdAt: string
+  updatedAt: string
+  /** MERGEABLE, CONFLICTING or UNKNOWN (GitHub still working it out). */
+  mergeable: string
+  /** CLEAN, BLOCKED, BEHIND, DIRTY, UNSTABLE, HAS_HOOKS, DRAFT, UNKNOWN. */
+  mergeState: string
+  /** APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED, or ''. */
+  reviewDecision: string
+  reviews: { author: string; state: string }[]
+  checks: { name: string; status: 'passed' | 'failed' | 'pending' | 'skipped'; url: string | null }[]
+  /** What the repository allows. */
+  methods: { squash: boolean; merge: boolean; rebase: boolean }
+  /** The repository deletes merged branches itself. */
+  deletesBranch: boolean
+}
+
+export type PullRequestAction = { ok: true; message: string } | { ok: false; error: string }

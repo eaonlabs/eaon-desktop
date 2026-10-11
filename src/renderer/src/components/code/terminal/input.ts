@@ -64,3 +64,8 @@ export function feedInput(line: LineState, data: string): Fed {
   if (/[\x00-\x1f\x7f]/.test(data)) return { line: null, command: null, erase: 0 }
   return { line: line === null ? null : line + data, command: null, erase: 0 }
 }
+
+/** A path as a shell (or a CLI's prompt) reads it back: bare when that is safe, else in single quotes. */
+export function shellQuote(path: string): string {
+  return /^[\w@%+=:,./-]+$/.test(path) ? path : `'${path.replace(/'/g, `'\\''`)}'`
+}

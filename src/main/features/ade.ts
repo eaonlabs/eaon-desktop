@@ -8,8 +8,13 @@ import { RecentFolders } from './eaonCode/recents'
 import { SessionBook, type SavedSessions } from './ade/sessions'
 import { allConversations, conversationsIn } from './ade/conversations'
 import { adeHistory } from './ade/history'
-import { projectRepo } from './ade/git'
-import type { AdeConversation, AdeImportCandidate, AdeSession, NewSessionRequest } from '@shared/adeSessions'
+import { changes, projectRepo } from './ade/git'
+import { HostBook } from './ade/hosts'
+import { makeRunner } from './ade/runner'
+import { resolveRemoteFolder } from './ade/ssh'
+import { commitAll, createPullRequest, mergePullRequest, push, reviewState } from './ade/review'
+import { parseChanges, type AdeChanges, type AdeConversation, type AdeImportCandidate, type AdeSession, type NewSessionRequest } from '@shared/adeSessions'
+import { hostLabel, isRemote, remoteCwd, type ManualHostInput, type NewRemoteSessionRequest, type NewRemoteSessionResult } from '@shared/adeRemote'
 import type { TerminalLayout } from '@shared/terminals'
 
 /**
@@ -38,6 +43,33 @@ const isDir = (dir: string): boolean => {
   }
 }
 
+/** SSH hosts: ~/.ssh/config's, then the ones added in Eaon. */
+export const sshHosts = new HostBook({
+  load: () => store.getJson<unknown>('ade-ssh-hosts.json', []),
+  save: (list) => store.setJson('ade-ssh-hosts.json', list)
+})
+/** git and gh in a session's folder, here or over SSH. */
+const run = makeRunner(sshHosts)
+
+/** The branch of a folder on an SSH host, and whether it is in a repository; null when the host can't say. */
+async function remoteRepo(cwd: string): Promise<{ branch: string | null; repo: boolean } | null> {
+  const inside = await run(cwd, 'git', ['rev-parse', '--is-inside-work-tree'], 15_000)
+  if (inside.code === null) return null
+  if (!inside.ok) return { branch: null, repo: false }
+  const branch = await run(cwd, 'git', ['symbolic-ref', '--quiet', '--short', 'HEAD'], 15_000)
+  return { branch: branch.ok ? branch.stdout.trim() || null : null, repo: true }
+}
+
+/** Uncommitted changes in a session's folder, here or on its host. */
+async function changesIn(cwd: string): Promise<AdeChanges | null> {
+  if (!isRemote(cwd)) return changes(cwd)
+  const [numstat, untracked] = await Promise.all([
+    run(cwd, 'git', ['diff', 'HEAD', '--numstat', '--no-renames'], 15_000),
+    run(cwd, 'git', ['ls-files', '--others', '--exclude-standard'], 15_000)
+  ])
+  return numstat.ok && untracked.ok ? parseChanges(numstat.stdout, untracked.stdout) : null
+}
+
 let book: SessionBook | null = null
 
 /** The ADE's sessions, for the features that make them (pull request reviews, Linear issues). */
@@ -57,7 +89,8 @@ function sessions(): SessionBook {
       load: () => store.getJson<SavedSessions>(FILE, { sessions: [] }),
       save: (value) => store.setJson(FILE, value),
       now: Date.now,
-      worktreesRoot
+      worktreesRoot,
+      remoteRepo
     })
   }
   return book
@@ -65,7 +98,8 @@ function sessions(): SessionBook {
 
 /** Makes `cwd` the folder the ADE reopens at launch, and its project a recent one. */
 function remember(recents: RecentFolders, session: AdeSession): string[] {
-  const list = recents.add(session.project)
+  // Recents are folders the folder picker can open here; a folder on another machine isn't one.
+  const list = isRemote(session.cwd) ? recents.list() : recents.add(session.project)
   const settings = store.getSettings().eaonCode
   if (settings.lastCwd !== session.cwd) store.patchSettings({ eaonCode: { ...settings, lastCwd: session.cwd } })
   return list
@@ -153,7 +187,44 @@ export const adeFeature: Feature = {
       return { session, recents: remember(recents, session) }
     })
 
-    ipcMain.handle('ade:conversations', (_e, cwd: unknown) => conversationsIn(text(cwd, 'a folder')))
+    // Claude Code and Codex file conversations on the machine they ran on; a remote session's aren't here.
+    ipcMain.handle('ade:conversations', (_e, cwd: unknown) => (isRemote(text(cwd, 'a folder')) ? [] : conversationsIn(text(cwd, 'a folder'))))
+    ipcMain.handle('ade:changes', (_e, cwd: unknown) => changesIn(text(cwd, 'a folder')))
+
+    // SSH hosts and sessions on them.
+    ipcMain.handle('ade:hosts', () => sshHosts.list())
+    ipcMain.handle('ade:add-host', (_e, input: ManualHostInput) => sshHosts.add(input ?? { hostname: '' }))
+    ipcMain.handle('ade:remove-host', (_e, id: unknown) => sshHosts.remove(text(id, 'a host')))
+    ipcMain.handle('ade:create-remote', async (_e, req: NewRemoteSessionRequest): Promise<NewRemoteSessionResult> => {
+      const host = await sshHosts.find(text(req?.hostId, 'a host'))
+      if (!host) return { ok: false, error: 'Pick a host first.' }
+      const folder = await resolveRemoteFolder(host, typeof req.path === 'string' ? req.path : '~')
+      if (!folder.ok) return folder
+      const cwd = remoteCwd(host.id, folder.path)
+      const repo = await remoteRepo(cwd)
+      const title = typeof req.title === 'string' && req.title.trim() ? req.title.trim().slice(0, 200) : null
+      return { ok: true, session: sessions().addRemote({ cwd, host: hostLabel(host), title, branch: repo?.branch ?? null, repo: repo?.repo ?? false }) }
+    })
+
+    // Review: only ever in a session's own folder.
+    const sessionCwd = (cwd: unknown): string => {
+      const dir = text(cwd, 'a folder')
+      if (!sessions().byCwd(dir)) throw new Error('That folder isn’t one of the ADE’s sessions.')
+      return dir
+    }
+    ipcMain.handle('ade:review', (_e, cwd: unknown) => reviewState(run, sessionCwd(cwd)))
+    ipcMain.handle('ade:commit', (_e, cwd: unknown, message: unknown) => commitAll(run, sessionCwd(cwd), typeof message === 'string' ? message.slice(0, 20_000) : ''))
+    ipcMain.handle('ade:push', (_e, cwd: unknown) => push(run, sessionCwd(cwd)))
+    ipcMain.handle('ade:create-pr', (_e, cwd: unknown, req: { title?: unknown; body?: unknown; draft?: unknown }) =>
+      createPullRequest(run, sessionCwd(cwd), {
+        title: typeof req?.title === 'string' ? req.title.slice(0, 500) : '',
+        body: typeof req?.body === 'string' ? req.body.slice(0, 60_000) : '',
+        draft: req?.draft === true
+      })
+    )
+    ipcMain.handle('ade:merge', (_e, cwd: unknown, method: unknown) =>
+      mergePullRequest(run, sessionCwd(cwd), method === 'merge' || method === 'rebase' ? method : 'squash')
+    )
     ipcMain.handle('ade:import-scan', () => importCandidates())
     ipcMain.handle('ade:import', (_e, folders: unknown) => {
       const list = (Array.isArray(folders) ? folders : [])
@@ -164,4 +235,10 @@ export const adeFeature: Feature = {
     // With the home folder as ~, for reading: the same paths the session's folders get.
     ipcMain.handle('ade:worktrees-root', () => ({ path: worktreesRoot(), home: os.homedir() }))
   }
+}
+
+/** What Eaon Remote (features/rc) reads about the ADE's sessions. */
+export const adeForRemote = {
+  list: (): AdeSession[] => sessions().list(),
+  changes: changesIn
 }

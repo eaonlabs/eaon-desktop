@@ -4,6 +4,7 @@ import { Folder, FolderOpen, X } from 'lucide-react'
 import { CodeHeader, folderName } from './CodeHeader'
 import { useCode } from './codeStore'
 import { TerminalWorkspace } from './terminal/TerminalWorkspace'
+import { ReviewPanel, useReview } from './ReviewPanel'
 
 /**
  * The ADE: a grid of real terminals in one project folder, each running a
@@ -11,6 +12,7 @@ import { TerminalWorkspace } from './terminal/TerminalWorkspace'
  */
 export function CodeView(): JSX.Element {
   const { cwd, initialised } = useCode(useShallow((s) => ({ cwd: s.cwd, initialised: s.initialised })))
+  const reviewing = useReview((s) => s.open)
 
   useEffect(() => {
     void useCode.getState().init()
@@ -19,7 +21,16 @@ export function CodeView(): JSX.Element {
   return (
     <>
       <CodeHeader />
-      {cwd ? <TerminalWorkspace /> : initialised ? <NoFolder /> : <div className="code-fill" />}
+      {cwd ? (
+        <div className="code-body">
+          <TerminalWorkspace />
+          {reviewing && <ReviewPanel cwd={cwd} />}
+        </div>
+      ) : initialised ? (
+        <NoFolder />
+      ) : (
+        <div className="code-fill" />
+      )}
       <Toast />
     </>
   )

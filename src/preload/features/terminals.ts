@@ -35,5 +35,7 @@ export const terminalsApi = {
   /** The conversation each pane is in, where its agent has one the watch has seen. */
   conversations: (paneIds: string[]): Promise<Record<string, string | null>> => ipcRenderer.invoke('terminal:conversations', paneIds),
   /** A pane's agent changed — the user quit one CLI and started another in it. */
-  onAgent: (handler: (event: TerminalAgentEvent) => void): (() => void) => subscribe('terminal:agent', handler)
+  onAgent: (handler: (event: TerminalAgentEvent) => void): (() => void) => subscribe('terminal:agent', handler),
+  /** The layout changed from outside the window (a pane started from Eaon Remote). */
+  onLayoutChanged: (handler: (layout: TerminalLayout) => void): (() => void) => subscribe('terminal:layout-changed', handler)
 }

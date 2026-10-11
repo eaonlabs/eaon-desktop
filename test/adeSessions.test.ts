@@ -1,6 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import {
+  parseChanges,
   ageLabel,
   branchForTitle,
   branchNameProblem,
@@ -112,4 +113,10 @@ test('paths under the home folder read from ~, whatever the home folder is', () 
   assert.equal(homeRelative('/Users/adam/Eaon', '/Users/ada'), '/Users/adam/Eaon', 'a neighbour whose name starts the same is not home')
   assert.equal(homeRelative('/Users/ada', '/Users/ada'), '~')
   assert.equal(homeRelative('/srv/repo', null), '/srv/repo')
+})
+
+test('uncommitted changes add up git’s numstat, count a binary file without lines, and count new files', () => {
+  const numstat = ['12\t3\tsrc/app.ts', '0\t7\tREADME.md', '-\t-\tassets/logo.png'].join('\n')
+  assert.deepEqual(parseChanges(numstat, 'notes.md\nsrc/new.ts\n'), { added: 12, removed: 10, files: 5 })
+  assert.deepEqual(parseChanges('', ''), { added: 0, removed: 0, files: 0 })
 })

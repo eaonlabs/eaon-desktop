@@ -2,8 +2,8 @@ import { ExternalLink, Heart } from 'lucide-react'
 import { Card, Row, Section } from '../../ui'
 
 /**
- * Settings → General → Credits. Who made Eaon and where, who helped, and what
- * it stands on. Contributors are from the repository's history
+ * Settings → General → Credits. Who made Eaon and where, and who helped.
+ * (The open-source projects it uses keep their notices in NOTICE.) Contributors are from the repository's history
  * (github.com/eaonlabs/eaon-desktop/graphs/contributors); add a line here when
  * a new person's work is merged.
  */
@@ -18,23 +18,6 @@ const PEOPLE: Person[] = [
   { handle: 'sanscreates', role: 'Creator and maintainer' },
   { handle: 'YoannDev90', role: 'Linux AppImage fixes' },
   { handle: 'morriszdweck', role: 'README and docs' }
-]
-
-interface Project {
-  name: string
-  url: string
-  what: string
-}
-
-/** What Eaon is built on. OpenCode and llama.cpp are MIT-licensed; their notices are in NOTICE. */
-const PROJECTS: Project[] = [
-  { name: 'llama.cpp', url: 'https://github.com/ggml-org/llama.cpp', what: 'Runs your downloaded models' },
-  { name: 'OpenCode', url: 'https://github.com/sst/opencode', what: 'Eaon CLI is a fork of it' },
-  { name: 'Electron', url: 'https://www.electronjs.org', what: 'The app shell' },
-  { name: 'React', url: 'https://react.dev', what: 'The interface' },
-  { name: 'xterm.js', url: 'https://xtermjs.org', what: 'The ADE’s terminals' },
-  { name: 'Model Context Protocol', url: 'https://modelcontextprotocol.io', what: 'Plugins and the control API' },
-  { name: 'Hugging Face', url: 'https://huggingface.co', what: 'Where open models are downloaded from' }
 ]
 
 const open = (url: string): void => void window.api.app.openExternal(url)
@@ -78,16 +61,6 @@ export function CreditsSection(): JSX.Element {
           </button>
         </Row>
       </Card>
-
-      <div className="credits-label">Built on</div>
-      <div className="credits-projects">
-        {PROJECTS.map((project) => (
-          <button key={project.name} className="credits-project" onClick={() => open(project.url)} title={project.url}>
-            <span className="credits-project__name">{project.name}</span>
-            <span className="credits-project__what">{project.what}</span>
-          </button>
-        ))}
-      </div>
     </Section>
   )
 }

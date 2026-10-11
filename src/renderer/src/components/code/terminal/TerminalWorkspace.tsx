@@ -15,8 +15,10 @@ import { useAdeSessions } from '../sessionsStore'
 import { ageLabel, sessionTitle, type AdeConversation, type AdeSession } from '@shared/adeSessions'
 import { terminals, type PaneStatus } from './registry'
 import { useTerminals } from './terminalStore'
-import { pathsForTerminal, type TerminalAgent, type TerminalAgentId, type TerminalPaneSpec } from '@shared/terminals'
+import { type TerminalAgent, type TerminalAgentId, type TerminalPaneSpec } from '@shared/terminals'
 import { ThemePicker } from './ThemePicker'
+import { shellQuote } from './input'
+import { isRemote } from '@shared/adeRemote'
 import { findTheme } from './themes'
 import {
   DIVIDER_PX,
@@ -399,25 +401,6 @@ const TerminalPane = memo(function TerminalPane({
       data-file-over={fileOver || undefined}
       style={{ gridColumn, gridRow }}
       onMouseDown={() => terminals.focus(pane.id)}
-      // Files dropped from Finder (an image for Claude Code, say) are typed in
-      // as their paths, as a terminal app does. Another pane being moved is
-      // the drop target's business, below.
-      onDragOver={(e) => {
-        if (!e.dataTransfer.types.includes('Files') || e.dataTransfer.types.includes(PANE_MIME)) return
-        e.preventDefault()
-        e.dataTransfer.dropEffect = 'copy'
-        if (!fileOver) setFileOver(true)
-      }}
-      onDragLeave={(e) => {
-        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFileOver(false)
-      }}
-      onDrop={(e) => {
-        if (!e.dataTransfer.files.length || e.dataTransfer.types.includes(PANE_MIME)) return
-        e.preventDefault()
-        setFileOver(false)
-        const paths = [...e.dataTransfer.files].map((file) => window.api.app.pathForFile(file)).filter(Boolean)
-        terminals.paste(pane.id, pathsForTerminal(paths))
-      }}
     >
       <header
         className="term-pane__head"
@@ -478,7 +461,29 @@ const TerminalPane = memo(function TerminalPane({
           <X size={14} strokeWidth={2} />
         </button>
       </header>
-      <div ref={screen} className="term-pane__screen" />
+      <div
+        ref={screen}
+        className="term-pane__screen"
+        data-file-over={fileOver || undefined}
+        // Files dropped from Finder land on the prompt as their paths, quoted for a shell.
+        onDragOver={(e) => {
+          // A path on this computer means nothing to an agent on another machine.
+          if (!e.dataTransfer.types.includes('Files') || isRemote(cwd)) return
+          e.preventDefault()
+          e.dataTransfer.dropEffect = 'copy'
+          if (!fileOver) setFileOver(true)
+        }}
+        // Moving between the terminal's own layers is not leaving it.
+        onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && setFileOver(false)}
+        onDrop={(e) => {
+          setFileOver(false)
+          if (isRemote(cwd)) return
+          const paths = [...e.dataTransfer.files].map((file) => window.api.app.pathForFile(file)).filter(Boolean)
+          if (paths.length === 0) return
+          e.preventDefault()
+          terminals.insertText(pane.id, `${paths.map(shellQuote).join(' ')} `)
+        }}
+      />
       {target && (
         // Over the terminal while another is dragged, so the drop lands here and not in the terminal.
         <div

@@ -8,6 +8,7 @@ import { useAdeSessions } from './sessionsStore'
 import { sessionTitle } from '@shared/adeSessions'
 import { NewTerminalButton } from './terminal/TerminalWorkspace'
 import { UsageMeter } from './UsageMeter'
+import { ReviewButton } from './ReviewPanel'
 import { revealLabel } from '../../lib/files'
 
 export const folderName = (path: string): string => path.split(/[\\/]/).filter(Boolean).pop() ?? path
@@ -22,6 +23,7 @@ export function CodeHeader(): JSX.Element {
       right={
         <div className="chat-header__actions">
           <UsageMeter />
+          <ReviewButton />
           <NewTerminalButton />
         </div>
       }
