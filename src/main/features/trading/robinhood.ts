@@ -94,15 +94,56 @@ export function pick(obj: unknown, keys: string[], depth = 3): unknown {
 }
 
 /** The list of records in an answer: the answer itself, or the first array of objects inside it. */
-export function rows(answer: unknown): Json[] {
+export function rows(answer: unknown, depth = 4): Json[] {
   if (Array.isArray(answer)) return answer.filter((r): r is Json => Boolean(r && typeof r === 'object'))
-  if (!answer || typeof answer !== 'object') return []
+  if (!answer || typeof answer !== 'object' || depth < 0) return []
+  const record = answer as Json
   for (const key of ['results', 'data', 'items', 'positions', 'orders', 'accounts']) {
-    const value = (answer as Json)[key]
+    const value = record[key]
     if (Array.isArray(value)) return rows(value)
   }
-  for (const value of Object.values(answer as Json)) if (Array.isArray(value) && value.some((v) => v && typeof v === 'object')) return rows(value)
+  for (const value of Object.values(record)) if (Array.isArray(value) && value.some((v) => v && typeof v === 'object')) return rows(value)
+  // Wrapped a level or more down: {"data": {"accounts": [...]}}.
+  for (const value of Object.values(record)) {
+    if (value && typeof value === 'object' && !Array.isArray(value)) {
+      const found = rows(value, depth - 1)
+      if (found.length) return found
+    }
+  }
   return []
+}
+
+const ACCOUNT_NUMBER_KEYS = ['account_number', 'rhs_account_number', 'brokerage_account_number', 'number', 'account_id']
+const truthy = (value: unknown): boolean => value === true || value === 'true' || value === 1
+
+/**
+ * The Agentic account among Robinhood's accounts. Robinhood marks it with
+ * `agentic_allowed` (every account carries the flag, so the word alone means
+ * nothing); failing that, a type or nickname that says agentic, or the only
+ * account there is. Returns the reason when there is no answer.
+ */
+export function agenticAccount(answer: unknown): { number: string } | { problem: string } {
+  const accounts: Json[] = []
+  const walk = (value: unknown, depth: number): void => {
+    if (!value || typeof value !== 'object' || depth < 0) return
+    if (Array.isArray(value)) {
+      for (const v of value) walk(v, depth - 1)
+      return
+    }
+    const record = value as Json
+    if (ACCOUNT_NUMBER_KEYS.some((k) => typeof record[k] === 'string' || typeof record[k] === 'number')) accounts.push(record)
+    else for (const v of Object.values(record)) walk(v, depth - 1)
+  }
+  walk(answer, 6)
+  const numberOf = (a: Json): string => String(ACCOUNT_NUMBER_KEYS.map((k) => a[k]).find((v) => typeof v === 'string' || typeof v === 'number'))
+  const flagged = accounts.filter((a) => truthy(a.agentic_allowed) || truthy(a.is_agentic) || truthy(a.agentic))
+  const named = accounts.filter((a) => ['type', 'account_type', 'brokerage_account_type', 'nickname', 'name'].some((k) => typeof a[k] === 'string' && /agentic/i.test(a[k] as string)))
+  const pickOne = flagged.length === 1 ? flagged[0] : named.length === 1 ? named[0] : accounts.length === 1 ? accounts[0] : (flagged[0] ?? named[0])
+  if (pickOne) return { number: numberOf(pickOne) }
+  if (accounts.length === 0) return { problem: 'Robinhood didn’t list any accounts for this sign-in.' }
+  return {
+    problem: `None of your ${accounts.length} Robinhood accounts is set up for agentic trading. Open the Robinhood app, set up the Agentic account (Account → Agentic trading) and fund it, then press Refresh.`
+  }
 }
 
 const SYMBOL_KEYS = ['symbol', 'ticker', 'instrument_symbol']
@@ -205,7 +246,7 @@ export function orderArgs(schema: Schema, order: SubmitOrder, accountNumber: str
     if (!set(['limit_price', 'price'], order.limitPrice)) throw new RobinhoodError('Robinhood’s order tool has no limit-price field Eaon recognises.')
   }
   set(['time_in_force'], 'gfd', ['gfd', 'day'])
-  if (accountNumber) set(['account_number', 'account_id', 'account'], accountNumber)
+  if (accountNumber) set(['account_number', 'rhs_account_number', 'account_id', 'account'], accountNumber)
   const refKey = first(['ref_id', 'client_order_id', 'idempotency_key'])
   if (refKey) args[refKey] = schema.properties[refKey]?.format === 'uuid' || refKey === 'ref_id' ? order.clientOrderId.replace(/^eaon-/, '') : order.clientOrderId
   // An explicit "yes, place it" flag: the user already said yes to real money in Eaon.
@@ -252,20 +293,27 @@ export class RobinhoodBroker implements Broker {
 
   /** With the account number, when the tool takes one. */
   private withAccount(name: string, account: string | null, extra: Json = {}): Json {
-    const props = schemaOf(this.tool(name)).properties
-    const key = ['account_number', 'account_id', 'account'].find((k) => k in props)
+    const schema = schemaOf(this.tool(name))
+    const key = ['account_number', 'rhs_account_number', 'account_id', 'account'].find((k) => k in schema.properties)
+    // Better a sentence than Robinhood's "missing properties": the call can't work without it.
+    if (key && !account && schema.required.includes(key))
+      throw new RobinhoodError(`Eaon couldn’t tell which Robinhood account is the Agentic one, and ${name} needs it. Make sure Agentic trading is set up in the Robinhood app, then press Refresh.`)
     return { ...extra, ...(key && account ? { [key]: account } : {}) }
   }
 
-  /** The Agentic account's number: the account marked agentic, else the only one, else none (the server picks). */
+  /**
+   * The Agentic account's number, found once and kept for ten minutes. Null
+   * when Robinhood offers no account list (its tools then pick the account
+   * themselves); a sentence for the user when the list has no Agentic account.
+   */
   async accountNumber(): Promise<string | null> {
     if (this.cachedAccount && this.now() - this.cachedAccount.at < 10 * 60_000) return this.cachedAccount.number
+    const tool = this.tool(ROBINHOOD_TOOLS.accounts) ?? this.link.tools().find((t) => /^(get|list)_(brokerage_)?accounts?$/.test(t.name))
     let number: string | null = null
-    if (this.tool(ROBINHOOD_TOOLS.accounts)) {
-      const accounts = rows(await this.call(ROBINHOOD_TOOLS.accounts))
-      const agentic = accounts.find((a) => /agentic/i.test(JSON.stringify(a))) ?? (accounts.length === 1 ? accounts[0] : undefined)
-      const value = agentic ? pick(agentic, ['account_number', 'rhs_account_number', 'number', 'account_id', 'id'], 1) : undefined
-      number = value === undefined ? null : String(value)
+    if (tool) {
+      const found = agenticAccount(await this.call(tool.name, {}))
+      if ('problem' in found) throw new RobinhoodError(found.problem)
+      number = found.number
     }
     this.cachedAccount = { number, at: this.now() }
     return number

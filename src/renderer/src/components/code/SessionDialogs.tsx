@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type JSX } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { Folder, GitBranch } from 'lucide-react'
+import { Folder, GitBranch, Server } from 'lucide-react'
 import { Modal, Select } from '../ui'
 import { useCode } from './codeStore'
 import { useAdeSessions } from './sessionsStore'
@@ -101,6 +101,17 @@ export function NewSessionDialog(): JSX.Element | null {
         title="New session"
         actions={
           <>
+            <button
+              type="button"
+              className="btn btn--ghost ade-dialog__ssh"
+              onClick={() => {
+                close()
+                useAdeSessions.getState().setConnecting(true)
+              }}
+            >
+              <Server size={14} strokeWidth={1.9} />
+              On another machine (SSH)…
+            </button>
             <button type="button" className="btn btn--ghost" onClick={close}>
               Cancel
             </button>
@@ -130,6 +141,17 @@ export function NewSessionDialog(): JSX.Element | null {
       width={480}
       actions={
         <>
+          <button
+            type="button"
+            className="btn btn--ghost ade-dialog__ssh"
+            onClick={() => {
+              close()
+              useAdeSessions.getState().setConnecting(true)
+            }}
+          >
+            <Server size={14} strokeWidth={1.9} />
+            On another machine (SSH)…
+          </button>
           <button type="button" className="btn btn--ghost" onClick={close} disabled={busy}>
             Cancel
           </button>

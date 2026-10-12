@@ -3,6 +3,17 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [2026.6.3-beta.1.3] — 2026-10-12
+
+### Changed
+- **A simpler ADE sidebar:** New session (choose this computer or a host
+  over SSH in its dialog), Pull requests, Linear and Settings. Trading,
+  Models and Plugins are in the Chat sidebar.
+
+### Fixed
+- Robinhood: Eaon finds your Agentic account more reliably, including when
+  Robinhood's answer nests the account list.
+
 ## [2026.6.3-beta.1.2] — 2026-10-10
 
 ### Added

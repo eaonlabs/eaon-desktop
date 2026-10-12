@@ -1693,3 +1693,9 @@ body[data-reduce-motion='on'] .ade-spinner {
   color: var(--accent);
   font-size: 12px;
 }
+
+/* New session: starting one on another machine instead, at the far left of the buttons. */
+.ade-dialog__ssh {
+  margin-right: auto;
+  gap: 6px;
+}

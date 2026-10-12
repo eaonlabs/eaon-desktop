@@ -253,7 +253,8 @@ if (fs.existsSync('.eaon/review-task.md')) {
         },
         { message: `the session, after ${what}`, timeout: 10_000 }
       )
-    for (const pageName of ['Pull requests', 'Linear', 'Models', 'Plugins']) {
+    // The pages in the ADE's own sidebar (Models, Plugins and Trading are in Chat's).
+    for (const pageName of ['Pull requests', 'Linear']) {
       await page.click('.sidebar .nav-item', { text: new RegExp(`^${pageName}$`) })
       await page.waitFor((name) => document.querySelector('.sidebar .nav-item[data-active]')?.textContent?.trim() === name, { args: [pageName], message: `${pageName} open` })
       await page.click('.ade-session[data-active] .ade-session__row')

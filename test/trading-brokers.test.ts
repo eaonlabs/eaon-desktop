@@ -5,7 +5,7 @@ import type { AddressInfo } from 'node:net'
 import { store } from '../src/main/store'
 import { defaultConfig, TradingEngine, type TradingDeps } from '../src/main/features/trading/engine'
 import { TradierBroker } from '../src/main/features/trading/tradier'
-import { orderArgs, parseAnswer, RobinhoodError, type McpLink, type McpToolInfo } from '../src/main/features/trading/robinhood'
+import { agenticAccount, orderArgs, parseAnswer, RobinhoodError, type McpLink, type McpToolInfo } from '../src/main/features/trading/robinhood'
 import type { AlpacaKeys } from '../src/main/features/trading/brokers'
 import type { PriceFeed } from '../src/main/features/trading/marketData'
 import { isRealMoney, LIVE_CONFIRMATION, type Quote, type TradingConfig } from '@shared/trading'
@@ -211,9 +211,10 @@ function fakeRobinhood(): { link: McpLink; calls: { name: string; args: Record<s
   const tool = (name: string, properties: Record<string, unknown> = {}, required: string[] = []): McpToolInfo => ({ name, description: name, inputSchema: { type: 'object', properties, required } })
   const tools: McpToolInfo[] = [
     tool('get_accounts'),
-    tool('get_portfolio', { account_number: { type: 'string' } }),
-    tool('get_equity_positions', { account_number: { type: 'string' } }),
-    tool('get_equity_orders', { account_number: { type: 'string' } }),
+    // Robinhood requires the account on every read ("missing properties: ['account_number']" otherwise).
+    tool('get_portfolio', { account_number: { type: 'string' } }, ['account_number']),
+    tool('get_equity_positions', { account_number: { type: 'string' } }, ['account_number']),
+    tool('get_equity_orders', { account_number: { type: 'string' } }, ['account_number']),
     { name: 'place_equity_order', description: 'Places a real-money order', inputSchema: placeSchema },
     tool('cancel_equity_order', { order_id: { type: 'string' } }, ['order_id'])
   ]
@@ -223,9 +224,20 @@ function fakeRobinhood(): { link: McpLink; calls: { name: string; args: Record<s
     call: async (name, args) => {
       calls.push({ name, args })
       const json = (value: unknown) => ({ text: JSON.stringify(value) })
+      const schema = tools.find((t) => t.name === name)?.inputSchema as { required?: string[] } | undefined
+      const missing = (schema?.required ?? []).filter((k) => args[k] === undefined)
+      if (missing.length) throw new Error(`MCP error -32602: invalid params: required: missing properties: ${JSON.stringify(missing)}`)
       switch (name) {
         case 'get_accounts':
-          return json({ accounts: [{ account_number: '5RH-MAIN', type: 'individual' }, { account_number: '5RH-AGENT', type: 'agentic', nickname: 'Agentic' }] })
+          // As Robinhood answers: every account carries agentic_allowed, the primary one first, wrapped a level down.
+          return json({
+            data: {
+              accounts: [
+                { account_number: '5RH-MAIN', type: 'individual', agentic_allowed: false, nickname: 'Individual' },
+                { account_number: '5RH-AGENT', type: 'individual', brokerage_account_type: 'limited_margin', agentic_allowed: true, nickname: 'Agentic' }
+              ]
+            }
+          })
         case 'get_portfolio': {
           const value = Object.entries(held).reduce((sum, [s, p]) => sum + Number(p.quantity) * prices[s], 0)
           return json({ portfolio: { equity: String(cash + value), cash: String(cash), buying_power: String(cash) } })
@@ -302,4 +314,15 @@ test('Robinhood order arguments come from the tool’s schema; anything required
   assert.throws(() => orderArgs({ properties: { ...schema.properties, trading_password: { type: 'string' } }, required: [...schema.required, 'trading_password'] }, order, '5RH-AGENT'), (e: unknown) => e instanceof RobinhoodError && /needs trading_password/.test(e.message))
   assert.throws(() => orderArgs({ properties: { ...schema.properties, type: { type: 'string', enum: ['market'] } }, required: schema.required }, order, null), /doesn’t take limit/)
   assert.deepEqual(parseAnswer('Here is the order:\n{"id": "x", "state": "filled"}\nDone.'), { id: 'x', state: 'filled' })
+})
+
+test('the Agentic account is the one Robinhood marks agentic_allowed, wherever the list sits in the answer', () => {
+  const main = { account_number: '111', agentic_allowed: false, nickname: 'Individual' }
+  const agent = { account_number: '222', agentic_allowed: true, nickname: 'Agentic' }
+  assert.deepEqual(agenticAccount({ data: { accounts: [main, agent] } }), { number: '222' }, 'not the first account just because its keys mention agentic')
+  assert.deepEqual(agenticAccount({ results: [main, { rhs_account_number: 333, type: 'agentic' }] }), { number: '333' })
+  assert.deepEqual(agenticAccount([{ account_number: '444' }]), { number: '444' }, 'the only account')
+  const none = agenticAccount({ accounts: [main, { ...main, account_number: '555' }] })
+  assert.ok('problem' in none && /None of your 2 Robinhood accounts is set up for agentic trading/.test(none.problem))
+  assert.ok('problem' in agenticAccount({ accounts: [] }))
 })
