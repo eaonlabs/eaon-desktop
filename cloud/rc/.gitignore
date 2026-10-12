@@ -2,3 +2,4 @@
 .wrangler/
 node_modules/
 worker-configuration.d.ts
+.secrets.json

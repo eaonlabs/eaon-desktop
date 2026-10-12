@@ -1,11 +1,11 @@
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { Archive, ArrowRight, AtSign, Boxes, CandlestickChart, ChevronRight, CircleAlert, Clock3, FolderClosed, GitPullRequest, ListTodo, HelpCircle, LibraryBig, Loader2, PanelLeft, PencilLine, Pin, Plus, ScrollText, Search, Server, Settings as SettingsIcon, SquarePen, Trash2 } from 'lucide-react'
+import { Archive, ArrowRight, AtSign, Boxes, CandlestickChart, ChevronRight, CircleAlert, Clock3, FolderClosed, GitPullRequest, ListTodo, HelpCircle, LibraryBig, Loader2, PanelLeft, PencilLine, Pin, Plus, ScrollText, Search, Settings as SettingsIcon, SquarePen, Trash2 } from 'lucide-react'
 import { DOCS_URL } from '@shared/links'
 import { useApp, useWorkspaceKind, type ChatListItem } from '../state/store'
 import { DownloadsButton } from './DownloadsPanel'
 import { CodeSidebar } from './code/CodeSidebar'
-import { openNewSession, useAdeSessions } from './code/sessionsStore'
+import { openNewSession } from './code/sessionsStore'
 import { WorkersNav } from './workers/WorkersSidebar'
 import { WorkersSearchButton } from './workers/WorkerThreads'
 import { ConfirmDialog, MenuItem, MenuSearch, Modal, Popover, useDisclosure } from './ui'
@@ -138,6 +138,7 @@ function ChatNav(): JSX.Element {
         }}
       />
       <NavItem icon={<LibraryBig {...ICON} />} label="Library" active={view === 'library'} onClick={() => setView('library')} />
+      <NavItem icon={<CandlestickChart {...ICON} />} label="Trading" active={view === 'trading'} onClick={() => setView('trading')} />
       <NavItem
         icon={<AtSign {...ICON} />}
         label="Plugins"
@@ -166,15 +167,17 @@ function ChatNav(): JSX.Element {
   )
 }
 
-/** The ADE: its sessions and folders, plus the pages that belong to coding. */
+/**
+ * The ADE: only what coding needs. Starting a session (on this computer, or
+ * over SSH from the same dialog), the pull requests and Linear issues it works
+ * from, and Settings; then its sessions. Models, Plugins and Trading live in
+ * the Chat sidebar, where they are used.
+ */
 function AdeNav(): JSX.Element {
-  const { view, setView, setModelsRepo, setSettingsPage } = useApp(
-    useShallow((s) => ({ view: s.view, setView: s.setView, setModelsRepo: s.setModelsRepo, setSettingsPage: s.setSettingsPage }))
-  )
+  const { view, setView, setSettingsPage } = useApp(useShallow((s) => ({ view: s.view, setView: s.setView, setSettingsPage: s.setSettingsPage })))
   return (
     <>
       <NavItem icon={<SquarePen {...ICON} />} label="New session" onClick={() => void openNewSession()} />
-      <NavItem icon={<Server {...ICON} />} label="Session over SSH" onClick={() => useAdeSessions.getState().setConnecting(true)} />
       <NavItem
         icon={<GitPullRequest {...ICON} />}
         label="Pull requests"
@@ -182,22 +185,6 @@ function AdeNav(): JSX.Element {
         onClick={() => setView('pull-requests')}
       />
       <NavItem icon={<ListTodo {...ICON} />} label="Linear" active={view === 'linear'} onClick={() => setView('linear')} />
-      <NavItem icon={<CandlestickChart {...ICON} />} label="Trading" active={view === 'trading'} onClick={() => setView('trading')} />
-      <NavItem
-        icon={<Boxes {...ICON} />}
-        label="Models"
-        active={view === 'models'}
-        onClick={() => {
-          setView('models')
-          setModelsRepo(null)
-        }}
-      />
-      <NavItem
-        icon={<AtSign {...ICON} />}
-        label="Plugins"
-        active={view === 'plugins' || view === 'integrations'}
-        onClick={() => setView('plugins')}
-      />
       <NavItem icon={<SettingsIcon {...ICON} />} label="Settings" onClick={() => setSettingsPage('general')} />
       <CodeSidebar />
     </>
