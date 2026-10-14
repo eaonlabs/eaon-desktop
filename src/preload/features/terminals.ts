@@ -1,4 +1,5 @@
 import { ipcRenderer } from 'electron'
+import type { CodexPane } from '@shared/cliAccounts'
 import type {
   TerminalAgent,
   TerminalAgentEvent,
@@ -34,6 +35,8 @@ export const terminalsApi = {
   running: (): Promise<Record<string, TerminalAgentId>> => ipcRenderer.invoke('terminal:running'),
   /** The conversation each pane is in, where its agent has one the watch has seen. */
   conversations: (paneIds: string[]): Promise<Record<string, string | null>> => ipcRenderer.invoke('terminal:conversations', paneIds),
+  /** Panes running Codex, with the account each started on (Settings → Accounts' "move" offer). */
+  codexPanes: (): Promise<CodexPane[]> => ipcRenderer.invoke('terminal:codex-panes'),
   /** A pane's agent changed — the user quit one CLI and started another in it. */
   onAgent: (handler: (event: TerminalAgentEvent) => void): (() => void) => subscribe('terminal:agent', handler),
   /** The layout changed from outside the window (a pane started from Eaon Remote). */

@@ -5,6 +5,85 @@
   display: block;
 }
 
+/* ---- The account entry (account/ToknAccount.tsx): top of Settings ---- */
+
+.account-entry {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 6px;
+  border-radius: var(--r-sm);
+  text-align: left;
+  color: var(--text);
+  transition: background var(--dur) var(--ease);
+}
+.account-entry:hover,
+.account-entry[data-open] {
+  background: var(--hover);
+}
+.account-entry__avatar {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--on-accent, #fff);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+.account-entry__avatar--mark {
+  background: none;
+  color: var(--text-2);
+}
+.account-entry__avatar--mark .tokn-mark {
+  border-radius: 6px;
+}
+.account-entry__text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+.account-entry__name,
+.account-entry__sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.account-entry__name {
+  font-size: var(--fs-base);
+}
+.account-entry__sub {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.account-menu__header {
+  justify-content: flex-start;
+  gap: 9px;
+  color: var(--text);
+}
+.settings__account {
+  display: flex;
+  /* Held open while the account loads, so the nav under it doesn't jump. */
+  min-height: 46px;
+  padding: 0 7px 6px;
+}
+/* The icon rail (settings.css): the avatar alone, its name in the tooltip. */
+@media (max-width: 639px) {
+  .settings__account .account-entry {
+    justify-content: center;
+    padding: 0;
+  }
+  .settings__account .account-entry__text {
+    display: none;
+  }
+}
+
 /* ---- Signed out ---- */
 
 .usage-hero {
@@ -341,6 +420,12 @@
 
 .usage-tiles--activity {
   margin: 8px 0 0;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+@media (max-width: 760px) {
+  .usage-tiles--activity {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 .usage-tile__sub {
   margin-top: 2px;

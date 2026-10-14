@@ -21,6 +21,7 @@ import { activeRunIds, cancelRun, pauseGoal, runAgent } from './agent/loop'
 import './agent/sources'
 import { killBackgroundProcesses } from './localTools'
 import { adoptLoginShellPath } from './shellEnv'
+import { noteFirstRun } from './features/onboarding'
 import { FEATURES } from './features'
 import type { FeatureContext } from './features/types'
 import { getStatuses, getTools, setMcpStatusListener, shutdownMcp, syncMcpServers } from './mcp'
@@ -820,6 +821,8 @@ app.whenReady().then(async () => {
       logCrash(`startup: ${name}`, error)
     }
   }
+  // Before anything writes the store: whether this is a fresh install, for the first-run setup.
+  step('first run', noteFirstRun)
   step('ipc', registerIpc)
   // The Dock icon picked in Settings → Appearance. In a packaged app the
   // default is the bundle's own icon; a dev run would otherwise show the

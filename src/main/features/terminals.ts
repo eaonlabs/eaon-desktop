@@ -13,11 +13,13 @@ import { store } from '../store'
 import { buildChildEnv } from './eaonCode/env'
 import { findInstallerCopy } from './eaonCode/locate'
 import { eaonCliBinary, eaonCliEnv } from './eaonCli'
-import { cliAccountEnv } from './cliAccounts'
+import { cliAccountEnv, cliToolEnv } from './cliAccounts'
+import { defaultDir, hasRollout } from './cliAccounts/folders'
 import { adeHistory } from './ade/history'
 import { sshHosts } from './ade'
 import { remoteShellCommand, sshArgv, sshBinary } from './ade/ssh'
 import { remoteLocation } from '@shared/adeRemote'
+import type { CodexPane } from '@shared/cliAccounts'
 import { currentPane, PANE_NAMES, privacyBlockedMessage, type TerminalAgent, type TerminalAgentId, type TerminalLayout, type TerminalPaneSpec, type TerminalSpawnRequest, type TerminalSpawnResult } from '@shared/terminals'
 import { noteOutput, quietActivity, wentQuiet, type Activity } from '@shared/terminalActivity'
 import { taskFromTerminalTitle } from '@shared/adeSessions'
@@ -222,6 +224,12 @@ export function createTerminals(options: TerminalsOptions = {}): Feature & { tic
   const restored = new Set<string>()
   /** Panes that were given their task this run. */
   const prompted = new Set<string>()
+  /**
+   * The CODEX_HOME each local pane's shell started with (null: Codex's
+   * default), so the account switcher can tell which Codex panes still run
+   * as the account it moved off. Remote panes run their host's Codex.
+   */
+  const codexHomes = new Map<string, string | null>()
 
   const paneRecords = (): PaneRecords => {
     if (!records) {
@@ -310,6 +318,32 @@ export function createTerminals(options: TerminalsOptions = {}): Feature & { tic
 
   let send: (channel: string, payload: unknown) => void = () => undefined
 
+  /** A local shell started (not reattached) with `env`: its Codex account is noted. */
+  const startLocal = (req: TerminalSpawnRequest, env: Record<string, string>, plan: RestorePlan | null = null): TerminalSpawnResult => {
+    const result = manager.spawn(req, env, plan)
+    if (result.ok && !result.reattached) codexHomes.set(req.paneId, env.CODEX_HOME ?? null)
+    return result
+  }
+
+  /** The panes running Codex right now, with the account each started on. */
+  const codexPanes = (): CodexPane[] => {
+    const running = watch?.snapshot() ?? {}
+    const target = cliToolEnv('codex').CODEX_HOME ?? defaultDir('codex')
+    const out: CodexPane[] = []
+    for (const [paneId, agent] of Object.entries(running)) {
+      if (agent !== 'codex' || !manager.has(paneId) || !codexHomes.has(paneId)) continue
+      const sessionId = paneRecords().get(paneId)?.sessionId ?? null
+      out.push({
+        paneId,
+        dir: codexHomes.get(paneId) ?? null,
+        sessionId,
+        busy: control.status(paneId) === 'working',
+        resumable: sessionId !== null && hasRollout(target, sessionId)
+      })
+    }
+    return out
+  }
+
   /** Starts a pane's shell (its restore, the first time this run), or reattaches to the one it has. */
   const spawnPane = async (req: TerminalSpawnRequest): Promise<TerminalSpawnResult> => {
       // A session on another machine: the pane is `ssh` to its host, landing in its folder.
@@ -327,14 +361,14 @@ export function createTerminals(options: TerminalsOptions = {}): Feature & { tic
       }
       // A pane outside the grid (the Trading tab's Claude Code) starts as asked, never restored.
       const outside = outsidePaneEnv(req.paneId)
-      if (outside) return manager.spawn(req, { ...(await agentEnv(req.agent)), ...outside })
+      if (outside) return startLocal(req, { ...(await agentEnv(req.agent)), ...outside })
       // A pane with a live shell reattaches to it; only a pane's first
       // start in a run is its restore.
       if (!manager.has(req.paneId) && !restored.has(req.paneId)) {
         restored.add(req.paneId)
         const restore = await planRestore(req).catch(() => null)
         if (restore) {
-          const result = manager.spawn(req, await agentEnv(restore.agent), restore.plan)
+          const result = startLocal(req, await agentEnv(restore.agent), restore.plan)
           if (result.ok && restore.agent !== (req.agent ?? 'shell')) send('terminal:agent', { paneId: req.paneId, agent: restore.agent })
           watch?.expect(req.paneId, restore.agent)
           return result
@@ -344,7 +378,7 @@ export function createTerminals(options: TerminalsOptions = {}): Feature & { tic
       // The task is given once: a Restart later starts the agent plain.
       const first = !prompted.has(req.paneId)
       prompted.add(req.paneId)
-      return manager.spawn(first ? promptLine(resumeLine(req)) : resumeLine(req), await agentEnv(req.agent))
+      return startLocal(first ? promptLine(resumeLine(req)) : resumeLine(req), await agentEnv(req.agent))
   }
 
   /* --------------------------------------------- Eaon Remote (features/rc) */
@@ -461,6 +495,8 @@ export function createTerminals(options: TerminalsOptions = {}): Feature & { tic
             .map((id) => [id, paneRecords().get(id)?.sessionId ?? null])
         )
       )
+      // Settings → Accounts and the usage meter: Codex panes still on an account the user moved off.
+      ipcMain.handle('terminal:codex-panes', () => codexPanes())
       ipcMain.handle('terminal:layout', () => currentLayout(store.getJson<TerminalLayout>(LAYOUT_FILE, {})))
       ipcMain.handle('terminal:save-layout', (_e, layout: TerminalLayout) => {
         store.setJson(LAYOUT_FILE, layout)
@@ -476,7 +512,10 @@ export function createTerminals(options: TerminalsOptions = {}): Feature & { tic
         poke(paneId)
         manager.resize(paneId, cols, rows)
       })
-      ipcMain.on('terminal:kill', (_e, paneId: string) => manager.kill(paneId))
+      ipcMain.on('terminal:kill', (_e, paneId: string) => {
+        manager.kill(paneId)
+        codexHomes.delete(paneId)
+      })
     },
     shutdown: async () => {
       await rememberPanes().catch(() => undefined)

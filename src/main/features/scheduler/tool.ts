@@ -72,8 +72,14 @@ export function scheduleFromInput(raw: unknown): Schedule {
     }
     case 'once':
       return { kind: 'once', at: parseLocalDateTime(input.at) }
+    case 'cron': {
+      const expr = str(input.expr || input.cron)
+      if (!expr) throw new Error('A cron schedule needs schedule.expr, e.g. "0 9 * * 1-5".')
+      const tz = str(input.tz || input.timezone)
+      return { kind: 'cron', expr, ...(tz ? { tz } : {}) }
+    }
     default:
-      throw new Error('schedule.type must be one of interval, daily, weekly, once.')
+      throw new Error('schedule.type must be one of interval, daily, weekly, once, cron.')
   }
 }
 
@@ -161,15 +167,17 @@ export function scheduleTool(engine: SchedulerEngine): AgentTool {
         schedule: {
           type: 'object',
           description:
-            'interval: {type, every, unit: minutes|hours}. daily: {type, time: "HH:MM", days?: ["mon",…] (omit for every day)}. weekly: {type, time, day: "mon"}. once: {type, at: "YYYY-MM-DDTHH:MM"}.',
+            'interval: {type, every, unit: minutes|hours}. daily: {type, time: "HH:MM", days?: ["mon",…] (omit for every day)}. weekly: {type, time, day: "mon"}. once: {type, at: "YYYY-MM-DDTHH:MM"}. cron: {type, expr: "0 9 * * 1-5" (minute hour day-of-month month day-of-week, or @daily etc.), tz?: IANA zone, omit for the user\'s local time} — use cron for anything the others can\'t say, such as "the 1st of every month" or "every 2 hours from 9 to 5 on weekdays".',
           properties: {
-            type: { type: 'string', enum: ['interval', 'daily', 'weekly', 'once'] },
+            type: { type: 'string', enum: ['interval', 'daily', 'weekly', 'once', 'cron'] },
             every: { type: 'number' },
             unit: { type: 'string', enum: ['minutes', 'hours'] },
             time: { type: 'string' },
             days: { type: 'array', items: { type: 'string' } },
             day: { type: 'string' },
-            at: { type: 'string' }
+            at: { type: 'string' },
+            expr: { type: 'string' },
+            tz: { type: 'string' }
           },
           required: ['type']
         },

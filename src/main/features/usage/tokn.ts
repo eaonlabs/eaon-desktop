@@ -1,8 +1,8 @@
 import { hostname } from 'node:os'
 import { app } from 'electron'
-import { TOKN_HOST, type ToknAccount } from '@shared/usage'
+import { TOKN_HOST, TOKNS_HOST, type ToknAccount, type ToknPage } from '@shared/usage'
 import { parseAuthorizationInput, pkce, randomState, startLoopback, tokenStore } from '../../providers/oauth/shared'
-import type { ToknPricing, ToknSyncRow } from './rows'
+import type { ToknAgentDay, ToknPricing, ToknSyncRow } from './rows'
 
 /**
  * Tokn (toknhq.com): "Sign in with Tokn", and the Tokn endpoints Eaon uses.
@@ -28,6 +28,19 @@ const REQUEST_TIMEOUT_MS = 30_000
 
 /** `EAON_TOKN_HOST` points Eaon at a local Tokn while developing it. */
 export const toknHost = (): string => (process.env.EAON_TOKN_HOST || TOKN_HOST).replace(/\/+$/, '')
+/** `EAON_TOKNS_HOST` does the same for Tokn's Eaon site (profiles and the Eaon leaderboard). */
+export const toknsHost = (): string => (process.env.EAON_TOKNS_HOST || TOKNS_HOST).replace(/\/+$/, '')
+
+/**
+ * The address of one of the account's pages: the Tokn profile, the Eaon
+ * profile on Tokn's Eaon site, or that site's leaderboard. Signed out, the
+ * profiles are the sites' home pages.
+ */
+export function toknPageUrl(page: ToknPage, account: ToknAccount | null = toknAccount()): string {
+  if (page === 'leaderboard') return `${toknsHost()}/`
+  if (page === 'eaon-profile') return account ? `${toknsHost()}/@${encodeURIComponent(account.handle)}` : `${toknsHost()}/`
+  return account?.profileUrl ?? toknHost()
+}
 
 interface Saved {
   token: string
@@ -205,6 +218,19 @@ export async function refreshAccount(): Promise<ToknAccount | null> {
   return account
 }
 
+/**
+ * A one-time code that links the tokn command on this computer to the
+ * account Eaon is signed in with (`tokn link --code`), so nobody signs in
+ * twice. Null when this Tokn doesn't offer it yet.
+ */
+export async function requestLinkCode(): Promise<string | null> {
+  const response = await authed('/api/cli/link-code', { method: 'POST' })
+  if (response.status === 404 || response.status === 405) return null
+  if (!response.ok) throw new ToknError(`Tokn couldn’t link the tokn command (${response.status})${tail(await reason(response))}`, response.status)
+  const body = (await response.json().catch(() => null)) as { code?: unknown } | null
+  return typeof body?.code === 'string' ? body.code : null
+}
+
 /** Tokn's price table. Public: no token needed. */
 export async function fetchPricing(): Promise<ToknPricing> {
   const response = await fetch(`${toknHost()}/api/cli/pricing`, {
@@ -236,12 +262,16 @@ export interface UploadResult {
   profileUrl?: string
 }
 
-/** Uploads every day's totals. Tokn replaces each (day, tool, model) row, so re-sending is safe. */
-export async function upload(rows: ToknSyncRow[], timezone: string): Promise<UploadResult> {
+/**
+ * Uploads every day's totals, and every day's agent runs. Tokn replaces each
+ * (day, tool, model) row and each (day, tool) agents entry, so re-sending is
+ * safe; a Tokn that doesn't know `agents` yet ignores it.
+ */
+export async function upload(rows: ToknSyncRow[], timezone: string, agents: ToknAgentDay[] = []): Promise<UploadResult> {
   const response = await authed('/api/cli/sync', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ rows, timezone, scannedAt: new Date().toISOString(), cliVersion: clientVersion() })
+    body: JSON.stringify({ rows, ...(agents.length > 0 ? { agents } : {}), timezone, scannedAt: new Date().toISOString(), cliVersion: clientVersion() })
   })
   if (!response.ok) {
     const why = await reason(response)

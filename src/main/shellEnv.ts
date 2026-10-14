@@ -14,9 +14,20 @@ import { delimiter, join } from 'node:path'
  * Asking the login shell once at startup fixes all of them together.
  */
 let adopted: Promise<void> | null = null
+/** The folders the login shell itself put on PATH, without the floor added below; null until read, or when it couldn't be. */
+let shellDirs: string[] | null = null
 
 export function adoptLoginShellPath(): Promise<void> {
   return (adopted ??= readLoginShellPath())
+}
+
+/**
+ * The folders a command in the user's own terminal is found in: the login
+ * shell's PATH, not the floor of common folders Eaon adds for itself. Null
+ * when the shell couldn't be asked (and always on Windows).
+ */
+export function terminalPathDirs(): string[] | null {
+  return shellDirs
 }
 
 /** Where `bin` is on PATH (the login shell's, once adopted), or null. */
@@ -105,6 +116,7 @@ async function readLoginShellPath(): Promise<void> {
   if (process.platform === 'win32') return
   const shell = process.env.SHELL || (process.platform === 'darwin' ? '/bin/zsh' : '/bin/bash')
   const fromShell = await loginShellPath(shell)
+  shellDirs = fromShell ? fromShell.split(delimiter).filter(Boolean) : null
 
   // Common install locations as a floor, for shells whose rc files print
   // nothing useful or time out.

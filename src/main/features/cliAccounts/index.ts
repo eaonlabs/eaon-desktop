@@ -1,35 +1,40 @@
 import { execFile } from 'node:child_process'
 import os from 'node:os'
-import { app, shell } from 'electron'
-import { CLI_TOOLS, type CliAccountsState, type CliTool } from '@shared/cliAccounts'
+import { app, Notification, shell } from 'electron'
+import { CLI_TOOLS, limitNoticeText, type CliAccountsState, type CliTool, type LimitNotice } from '@shared/cliAccounts'
 import { store } from '../../store'
 import { loadPty } from '../terminals/ptyManager'
 import type { Feature } from '../types'
 import { claudeAuthStatus, claudeGetUsage, cliEnv, codexRead, findCli, loginArgs, logoutArgs } from './cli'
+import { setCliAccounts } from './current'
 import { accountsRoot, CliAccounts, type LoginProcess } from './service'
+
+export { cliAccountEnv, cliToolEnv, onCliAccountChange } from './current'
 
 /**
  * Settings → Accounts and the ADE's usage meter: which Claude Code and Codex
- * account Eaon's terminals use, and how much of each plan is left. See
- * service.ts for the accounts and cli.ts for how the CLIs are asked.
+ * account Eaon's terminals (and its Codex engine) use, and how much of each
+ * plan is left. See service.ts for the accounts and cli.ts for how the CLIs
+ * are asked.
  *
  * Channels (all `cli-accounts:`): `state`, `refresh`, `use`, `rename`,
  * `remove`, `add`, `sign-in`, `login-input`, `login-cancel`, `login-dismiss`, `open-url`,
- * and the `changed` event.
+ * and the `changed` and `show` events.
  */
 
 const FILE = 'cli-accounts.json'
-/** While a window is showing the meter, the active accounts are read this often. */
+/**
+ * How often the background timer looks. While a window is up the active
+ * accounts are read each time and the others every half hour; with none up,
+ * only the active ones, every half hour, for the limit alerts.
+ */
 const BACKGROUND_MS = 10 * 60_000
 const LOGOUT_TIMEOUT_MS = 20_000
 
 let accounts: CliAccounts | null = null
 let timer: ReturnType<typeof setInterval> | null = null
-
-/** The folder variables every ADE pane gets, so `claude` and `codex` run as the chosen accounts. */
-export function cliAccountEnv(): Record<string, string> {
-  return accounts?.terminalEnv() ?? {}
-}
+/** Held until clicked or closed: a collected notification loses its handlers. */
+const notifications = new Set<Notification>()
 
 const isTool = (value: unknown): value is CliTool => CLI_TOOLS.includes(value as CliTool)
 
@@ -73,9 +78,42 @@ export const cliAccountsFeature: Feature = {
           changedTimer = null
           send('cli-accounts:changed', service.state())
         }, 50)
-      }
+      },
+      alert: (notice) => alert(notice),
+      autoSwitch: (tool) => tool === 'codex' && store.getSettings().cliUsage.autoSwitchCodex
     })
     accounts = service
+    setCliAccounts(service)
+
+    /**
+     * A limit, as a system notification: when it resets, and the account
+     * with room to move to — a button where the system has them (macOS),
+     * otherwise a click opens the switcher.
+     */
+    const alert = (notice: LimitNotice): void => {
+      if (!store.getSettings().cliUsage.alerts || !Notification.isSupported()) return
+      const { title, body } = limitNoticeText(notice, Date.now())
+      const offer = notice.switchTo && !notice.switched ? notice.switchTo : null
+      const notification = new Notification({ title, body, ...(offer ? { actions: [{ type: 'button' as const, text: `Switch to ${offer.name}` }] } : {}) })
+      notifications.add(notification)
+      const done = (): void => void notifications.delete(notification)
+      notification.on('action', () => {
+        done()
+        if (offer) service.use(notice.tool, offer.id)
+      })
+      notification.on('click', () => {
+        done()
+        const window = getWindows()[0]
+        if (window) {
+          if (window.isMinimized()) window.restore()
+          window.show()
+          window.focus()
+        }
+        send('cli-accounts:show', notice.tool)
+      })
+      notification.on('close', done)
+      notification.show()
+    }
 
     ipcMain.handle('cli-accounts:state', (): CliAccountsState => service.state())
     ipcMain.handle('cli-accounts:refresh', async (_e, options: { tool?: unknown; all?: unknown; force?: unknown } = {}) => {
@@ -118,11 +156,13 @@ export const cliAccountsFeature: Feature = {
       if (login.state === 'running' && login.url) await shell.openExternal(login.url)
     })
 
-    // In the background only while someone could be looking: a window up and the meter on.
+    // While someone could be looking (a window up, the meter on), every account;
+    // otherwise only what the alerts and the automatic switch need.
     timer = setInterval(() => {
-      if (!store.getSettings().cliUsage.meter) return
-      if (!getWindows().some((w) => w.isVisible() && !w.isMinimized())) return
-      void service.refresh()
+      const { meter, alerts, autoSwitchCodex } = store.getSettings().cliUsage
+      const visible = getWindows().some((w) => w.isVisible() && !w.isMinimized())
+      if (visible && meter) void service.refresh({ background: 'visible' })
+      else if (alerts || autoSwitchCodex) void service.refresh({ background: 'hidden' })
     }, BACKGROUND_MS)
     timer.unref?.()
   },
@@ -130,5 +170,7 @@ export const cliAccountsFeature: Feature = {
     if (timer) clearInterval(timer)
     timer = null
     accounts?.dispose()
+    setCliAccounts(null)
+    notifications.clear()
   }
 }

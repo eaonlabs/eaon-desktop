@@ -46,6 +46,7 @@ import { gatewayApi } from './features/gateway'
 import { connectAppsApi } from './features/connectApps'
 import { linkAccountsApi } from './features/linkAccounts'
 import { usageApi } from './features/usage'
+import { toknCliApi } from './features/toknCli'
 import { paymentsApi } from './features/payments'
 import { enginesApi } from './features/engines'
 import { storageApi } from './features/storage'
@@ -329,6 +330,7 @@ const fullApi = {
   connectApps: connectAppsApi,
   linkAccounts: linkAccountsApi,
   usage: usageApi,
+  toknCli: toknCliApi,
   payments: paymentsApi,
   engines: enginesApi,
   storage: storageApi,

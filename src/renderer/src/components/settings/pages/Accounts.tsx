@@ -5,6 +5,7 @@ import {
   CLI_TOOL_NAME,
   DEFAULT_ACCOUNT_ID,
   accountName,
+  liveWindows,
   usageKey,
   type AccountUsage,
   type CliAccount,
@@ -12,8 +13,9 @@ import {
   type CliTool
 } from '@shared/cliAccounts'
 import { useApp } from '../../../state/store'
-import { agoText, useCliAccounts } from '../../../state/cliAccounts'
+import { agoText, resetClock, untilText, useCliAccounts } from '../../../state/cliAccounts'
 import { Card, Row, Section, Segmented, Switch } from '../../ui'
+import { MoveCodexPanes } from '../../code/MoveCodexPanes'
 
 /**
  * Settings → Accounts: which Claude Code and Codex account Eaon's terminals
@@ -33,7 +35,8 @@ export function AccountsPage(): JSX.Element {
     void refresh({ all: true })
   }, [ensure, refresh])
 
-  const meter = settings?.cliUsage ?? { meter: true, view: 'detailed' as const }
+  const meter = settings?.cliUsage ?? { meter: true, view: 'detailed' as const, alerts: true, autoSwitchCodex: false }
+  const severalCodex = (state?.tools.codex.accounts.length ?? 0) > 1
 
   return (
     <>
@@ -50,6 +53,21 @@ export function AccountsPage(): JSX.Element {
           <Row title="Show in the ADE’s header" description="Your session and week at a glance, with every limit and when it resets one click away.">
             <Switch label="Show the usage meter" checked={meter.meter} onChange={(on) => void patchSettings({ cliUsage: { ...meter, meter: on } })} />
           </Row>
+          <Row title="Limit alerts" description="A notification when the account in use reaches 90% of a limit, or hits it, with when it resets. Once per limit until it resets.">
+            <Switch label="Limit alerts" checked={meter.alerts} onChange={(on) => void patchSettings({ cliUsage: { ...meter, alerts: on } })} />
+          </Row>
+          {severalCodex && (
+            <Row
+              title="Switch Codex accounts automatically when one hits its limit"
+              description="New panes, chats and workers move to the Codex account with the most room left. Panes already running stay where they are."
+            >
+              <Switch
+                label="Switch Codex accounts automatically"
+                checked={meter.autoSwitchCodex}
+                onChange={(on) => void patchSettings({ cliUsage: { ...meter, autoSwitchCodex: on } })}
+              />
+            </Row>
+          )}
           <Row title="Panel layout" description="Detailed shows one CLI with each limit spelled out; compact lists both, a line per limit.">
             <Segmented
               value={meter.view}
@@ -62,8 +80,8 @@ export function AccountsPage(): JSX.Element {
           </Row>
         </Card>
         <p className="accounts__fine">
-          Figures come from Claude Code and Codex themselves — the same numbers their <code>/usage</code> shows — read every few minutes while the
-          meter is on screen. Nothing is sent to a model to read them.
+          Figures come from Claude Code and Codex themselves — the same numbers their <code>/usage</code> shows. The accounts in use are read
+          every few minutes while Eaon is on screen, the others every half hour. Nothing is sent to a model to read them.
         </p>
       </Section>
     </>
@@ -130,8 +148,17 @@ function ToolAccounts({ tool, state }: { tool: CliTool; state: CliAccountsState 
         )}
       </Card>
       {error && <p className="accounts__error">{error}</p>}
+      {tool === 'codex' && entry.installed && (
+        <div className="accounts__move">
+          <MoveCodexPanes state={state} />
+        </div>
+      )}
       {entry.installed && entry.accounts.length > 1 && (
-        <p className="accounts__fine">Switching applies to panes opened from now on; panes already running keep the account they started with until they restart.</p>
+        <p className="accounts__fine">
+          {tool === 'codex'
+            ? 'Switching applies to new panes, and to Eaon’s Codex chats and workers from their next turn; a turn already running finishes first. Panes already running keep their account until you move them.'
+            : 'Switching applies to panes opened from now on; panes already running keep the account they started with until they restart.'}
+        </p>
       )}
     </Section>
   )
@@ -198,15 +225,26 @@ function AccountRow({
             {isDefault && <span className="account-row__tag">default</span>}
           </div>
         )}
-        <div className="account-row__usage">
-          {loading && !usage ? (
-            <>
-              <Loader2 size={11} className="spin" /> reading…
-            </>
-          ) : (
-            usageLine(tool, isDefault, usage, now)
-          )}
-        </div>
+        {loading && !usage ? (
+          <div className="account-row__usage">
+            <Loader2 size={11} className="spin" /> reading…
+          </div>
+        ) : usage?.ok && usage.windows.length > 0 ? (
+          <div className="account-row__windows">
+            {liveWindows(usage, now).map((w) => (
+              <div key={w.id} className="account-row__window" data-severity={w.severity}>
+                <span className="account-row__window-label">{w.label}</span>
+                <span className="account-row__window-percent">{w.hasReset ? '—' : `${w.percent}%`}</span>
+                <span className="account-row__window-when">
+                  {w.hasReset ? 'reset since last read' : w.resetsAt ? `resets in ${untilText(w.resetsAt, now)} · ${resetClock(w.resetsAt, now)}` : w.span}
+                </span>
+              </div>
+            ))}
+            <div className="account-row__usage">read {agoText(usage.at, now)}</div>
+          </div>
+        ) : (
+          <div className="account-row__usage">{usageLine(tool, isDefault, usage, now)}</div>
+        )}
       </div>
       {!pending && (
         <div className="account-row__actions">

@@ -16,6 +16,7 @@ import {
 import { engine as engineAdapter } from '../../engines'
 import { withUsageSource } from '../usage/attribution'
 import { recordUsage } from '../usage/ledger'
+import { trackAgentRun } from '../usage/agentRuns'
 import { setLeaseNames } from '../computer/tool'
 import { EngineError } from '../../engines/types'
 import { pauseGoal, runAgent } from '../../agent/loop'
@@ -240,7 +241,14 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
       (async (id, input) => {
         const adapter = engineAdapter(id)
         if (!adapter) throw new EngineError('not-installed', `The ${id} engine isn't available in this version of Eaon.`)
-        const result = await adapter.runTurn(input)
+        // A turn that called a tool is one of the workers' agent runs (Settings → Usage).
+        const run = trackAgentRun('worker', input.emit)
+        let result: Awaited<ReturnType<typeof adapter.runTurn>>
+        try {
+          result = await adapter.runTurn({ ...input, emit: run.emit })
+        } finally {
+          run.finish()
+        }
         // An agent engine bypasses Eaon's providers, so its tokens are counted
         // here: once per turn, under the engine's own name, as the workers'.
         // A turn that reported no tokens is left out rather than counted as free.

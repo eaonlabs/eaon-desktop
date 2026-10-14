@@ -60,7 +60,9 @@ const SETTINGS_ENUMS: Record<string, readonly string[]> = {
   'appearance.appIcon': values<AppIcon>({ default: true, agent: true }),
   effort: values<EffortLevel>({ none: true, minimal: true, light: true, medium: true, high: true, 'extra-high': true, ultra: true }),
   approvalMode: values<ApprovalMode>({ ask: true, auto: true, full: true }),
-  'computerUse.quality': values<Settings['computerUse']['quality']>({ balanced: true, sharp: true })
+  'computerUse.quality': values<Settings['computerUse']['quality']>({ balanced: true, sharp: true }),
+  'onboarding.setup': values<Settings['onboarding']['setup']>({ pending: true, done: true, skipped: true }),
+  'onboarding.tour': values<Settings['onboarding']['tour']>({ pending: true, done: true, skipped: true })
 }
 
 /**
@@ -100,7 +102,8 @@ export function repairSettings(raw: unknown, defaults: Record<string, unknown>):
       let ok: boolean
       if (isObject(fallback)) ok = isObject(value)
       else if (Array.isArray(fallback)) ok = Array.isArray(value)
-      else if (fallback === null) ok = value === null || typeof value === 'string'
+      // Null until set: an id or a path, or a time (`lastAskedAt`, `finishedAt`), which is a number.
+      else if (fallback === null) ok = value === null || typeof value === 'string' || (key.endsWith('At') && isFiniteNumber(value))
       else if (typeof fallback === 'number') ok = isFiniteNumber(value)
       else ok = typeof value === typeof fallback
       if (ok && SETTINGS_ENUMS[at]) ok = SETTINGS_ENUMS[at].includes(value as string)

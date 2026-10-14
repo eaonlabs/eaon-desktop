@@ -20,8 +20,18 @@ const CLIENT = { name: 'eaon_desktop', title: 'Eaon', version: '1' }
 /** The folder variable each CLI documents for keeping its login and settings somewhere else. */
 export const DIR_VARIABLE: Record<CliTool, string> = { claude: 'CLAUDE_CONFIG_DIR', codex: 'CODEX_HOME' }
 
-/** Where each CLI is: on PATH, else (Codex) the copy the ChatGPT app ships. */
-export function findCli(tool: CliTool, which: (bin: string) => string | null = onPath, exists: (file: string) => boolean = fs.existsSync): string | null {
+/** Names a CLI to use instead of searching (`none`: not installed). Codex's is the one Eaon's Codex engine honours too. */
+export const BIN_VARIABLE: Record<CliTool, string> = { claude: 'EAON_CLAUDE_BIN', codex: 'EAON_CODEX_BIN' }
+
+/** Where each CLI is: as set in BIN_VARIABLE, on PATH, else (Codex) the copy the ChatGPT app ships. */
+export function findCli(
+  tool: CliTool,
+  which: (bin: string) => string | null = onPath,
+  exists: (file: string) => boolean = fs.existsSync,
+  env: NodeJS.ProcessEnv = process.env
+): string | null {
+  const pinned = env[BIN_VARIABLE[tool]]?.trim()
+  if (pinned) return pinned === 'none' || !exists(pinned) ? null : pinned
   if (tool === 'claude') return which('claude')
   const found = which('codex')
   if (found) return found

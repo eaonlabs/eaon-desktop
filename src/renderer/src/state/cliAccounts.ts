@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { CliAccountsState, CliTool } from '@shared/cliAccounts'
+import { useApp } from './store'
 
 /**
  * Claude Code and Codex accounts and their plan usage, mirrored from main
@@ -22,6 +23,8 @@ export const useCliAccounts = create<CliAccountsStore>((set) => ({
     if (listening) return
     listening = true
     window.api.cliAccounts.onChanged((state) => set({ state }))
+    // A limit notification clicked: the accounts, where switching is one click.
+    window.api.cliAccounts.onShow(() => useApp.getState().setSettingsPage('accounts'))
     void window.api.cliAccounts.state().then((state) => set({ state }))
   },
   refresh: async (options = {}) => {
@@ -33,17 +36,7 @@ export const useCliAccounts = create<CliAccountsStore>((set) => ({
   }
 }))
 
-/** "4h 23m", "2d 5h", "12m", "now". */
-export function untilText(at: number | null, now: number): string | null {
-  if (at === null) return null
-  const ms = at - now
-  if (ms <= 0) return 'now'
-  const minutes = Math.round(ms / 60_000)
-  if (minutes < 60) return `${Math.max(1, minutes)}m`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 48) return `${hours}h ${minutes % 60}m`
-  return `${Math.floor(hours / 24)}d ${hours % 24}h`
-}
+export { untilText, resetClock } from '@shared/cliAccounts'
 
 /** "just now", "3 min ago". */
 export function agoText(at: number, now: number): string {

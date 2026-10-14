@@ -10,7 +10,7 @@ export const cliAccountsApi = {
   /** Reads the figures again unless they are fresh: the active accounts, or with `all` every account of `tool`. */
   refresh: (options: { tool?: CliTool; all?: boolean; force?: boolean } = {}): Promise<CliAccountsState> =>
     ipcRenderer.invoke('cli-accounts:refresh', options),
-  /** Which account Eaon's terminals run the CLI as, from the next pane on. */
+  /** Which account Eaon's terminals (and, for Codex, its chats and workers) run the CLI as, from the next pane or turn on. */
   use: (tool: CliTool, id: string): Promise<CliAccountsState> => ipcRenderer.invoke('cli-accounts:use', tool, id),
   rename: (tool: CliTool, id: string, label: string): Promise<CliAccountsState> => ipcRenderer.invoke('cli-accounts:rename', tool, id, label),
   /** Signs the account out (by the CLI) and forgets it. */
@@ -24,6 +24,12 @@ export const cliAccountsApi = {
   dismissLogin: (): Promise<void> => ipcRenderer.invoke('cli-accounts:login-dismiss'),
   /** Opens the sign-in page the CLI printed. */
   openLoginUrl: (): Promise<void> => ipcRenderer.invoke('cli-accounts:open-url'),
+  /** A limit notification was clicked: show the accounts of `tool`. */
+  onShow: (listener: (tool: CliTool) => void): (() => void) => {
+    const handler = (_e: unknown, tool: CliTool): void => listener(tool)
+    ipcRenderer.on('cli-accounts:show', handler)
+    return () => ipcRenderer.removeListener('cli-accounts:show', handler)
+  },
   onChanged: (listener: (state: CliAccountsState) => void): (() => void) => {
     const handler = (_e: unknown, state: CliAccountsState): void => listener(state)
     ipcRenderer.on('cli-accounts:changed', handler)

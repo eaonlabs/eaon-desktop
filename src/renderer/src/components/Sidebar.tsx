@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { Archive, ArrowRight, AtSign, Boxes, CandlestickChart, ChevronRight, CircleAlert, Clock3, FolderClosed, GitPullRequest, ListTodo, HelpCircle, LibraryBig, Loader2, PanelLeft, PencilLine, Pin, Plus, ScrollText, Search, Settings as SettingsIcon, SquarePen, Trash2 } from 'lucide-react'
+import { Archive, ArrowRight, AtSign, BookOpen, Boxes, CandlestickChart, ChevronRight, CircleAlert, Clock3, Compass, FolderClosed, GitPullRequest, ListTodo, HelpCircle, LibraryBig, Loader2, PanelLeft, PencilLine, Pin, Plus, ScrollText, Search, Settings as SettingsIcon, SquarePen, Trash2 } from 'lucide-react'
 import { DOCS_URL } from '@shared/links'
 import { useApp, useWorkspaceKind, type ChatListItem } from '../state/store'
 import { DownloadsButton } from './DownloadsPanel'
@@ -8,6 +8,7 @@ import { CodeSidebar } from './code/CodeSidebar'
 import { openNewSession } from './code/sessionsStore'
 import { WorkersNav } from './workers/WorkersSidebar'
 import { WorkersSearchButton } from './workers/WorkerThreads'
+import { useOnboarding } from './onboarding/onboardingStore'
 import { ConfirmDialog, MenuItem, MenuSearch, Modal, Popover, useDisclosure } from './ui'
 import type { Project } from '@shared/types'
 
@@ -59,18 +60,43 @@ export function Sidebar(): JSX.Element {
       </div>
 
       <div className="sidebar__footer">
-        <button
-          className="icon-btn"
-          aria-label="Help"
-          title="Help"
-          onClick={() => void window.api.app.openExternal(DOCS_URL)}
-        >
-          <HelpCircle size={16} strokeWidth={1.9} />
-        </button>
+        <HelpButton />
       </div>
       </div>
       </div>
     </aside>
+  )
+}
+
+/** Help: the tour of the app (the same one the first-run setup offers), and the documentation. */
+function HelpButton(): JSX.Element {
+  const anchor = useRef<HTMLButtonElement>(null)
+  const menu = useDisclosure()
+  const startTour = useOnboarding((s) => s.startTour)
+  return (
+    <>
+      <button ref={anchor} className="icon-btn" aria-label="Help" title="Help" data-open={menu.open || undefined} onClick={menu.toggle}>
+        <HelpCircle size={16} strokeWidth={1.9} />
+      </button>
+      <Popover anchor={anchor} open={menu.open} onClose={menu.close} placement="top-start" width={220}>
+        <MenuItem
+          icon={<Compass size={14} strokeWidth={2} />}
+          title="Take the tour"
+          onClick={() => {
+            menu.close()
+            startTour()
+          }}
+        />
+        <MenuItem
+          icon={<BookOpen size={14} strokeWidth={2} />}
+          title="Documentation"
+          onClick={() => {
+            menu.close()
+            void window.api.app.openExternal(DOCS_URL)
+          }}
+        />
+      </Popover>
+    </>
   )
 }
 

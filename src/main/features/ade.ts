@@ -12,7 +12,22 @@ import { changes, projectRepo } from './ade/git'
 import { HostBook } from './ade/hosts'
 import { makeRunner } from './ade/runner'
 import { resolveRemoteFolder } from './ade/ssh'
-import { commitAll, createPullRequest, mergePullRequest, push, reviewState } from './ade/review'
+import {
+  abortMerge,
+  baseBranches,
+  checkLog,
+  commitAll,
+  createPullRequest,
+  finishMerge,
+  markResolved,
+  mergePullRequest,
+  pullRequestText,
+  push,
+  readConflictFile,
+  reviewState,
+  updateFromBase,
+  writeConflictFile
+} from './ade/review'
 import { parseChanges, type AdeChanges, type AdeConversation, type AdeImportCandidate, type AdeSession, type NewSessionRequest } from '@shared/adeSessions'
 import { hostLabel, isRemote, remoteCwd, type ManualHostInput, type NewRemoteSessionRequest, type NewRemoteSessionResult } from '@shared/adeRemote'
 import type { TerminalLayout } from '@shared/terminals'
@@ -215,13 +230,44 @@ export const adeFeature: Feature = {
     ipcMain.handle('ade:review', (_e, cwd: unknown) => reviewState(run, sessionCwd(cwd)))
     ipcMain.handle('ade:commit', (_e, cwd: unknown, message: unknown) => commitAll(run, sessionCwd(cwd), typeof message === 'string' ? message.slice(0, 20_000) : ''))
     ipcMain.handle('ade:push', (_e, cwd: unknown) => push(run, sessionCwd(cwd)))
-    ipcMain.handle('ade:create-pr', (_e, cwd: unknown, req: { title?: unknown; body?: unknown; draft?: unknown }) =>
+    /** A branch name to hand git or gh: never something they would read as an option. */
+    const branchName = (value: unknown): string | undefined =>
+      typeof value === 'string' && /^[\w.][\w./-]{0,250}$/.test(value) && !value.includes('..') ? value : undefined
+    /** A path in the repository, as git lists it: relative, never climbing out. */
+    const repoPath = (value: unknown): string => {
+      const file = text(value, 'a file')
+      if (file.startsWith('/') || file.startsWith('-') || file.split(/[\\/]/).includes('..')) throw new Error('Expected a file in the repository.')
+      return file
+    }
+    ipcMain.handle('ade:create-pr', (_e, cwd: unknown, req: { title?: unknown; body?: unknown; draft?: unknown; base?: unknown }) =>
       createPullRequest(run, sessionCwd(cwd), {
         title: typeof req?.title === 'string' ? req.title.slice(0, 500) : '',
         body: typeof req?.body === 'string' ? req.body.slice(0, 60_000) : '',
-        draft: req?.draft === true
+        draft: req?.draft === true,
+        base: branchName(req?.base)
       })
     )
+    ipcMain.handle('ade:base-branches', (_e, cwd: unknown) => baseBranches(run, sessionCwd(cwd)))
+    ipcMain.handle('ade:pr-from-commits', (_e, cwd: unknown, base: unknown) => {
+      const name = branchName(base)
+      return name ? pullRequestText(run, sessionCwd(cwd), name) : { error: 'Pick a branch to compare with.' }
+    })
+    ipcMain.handle('ade:check-log', (_e, cwd: unknown, check: { url?: unknown; name?: unknown; workflow?: unknown }) =>
+      checkLog(run, sessionCwd(cwd), {
+        url: typeof check?.url === 'string' && /^https:\/\//.test(check.url) ? check.url : null,
+        name: typeof check?.name === 'string' ? check.name.slice(0, 300) : '',
+        workflow: typeof check?.workflow === 'string' ? check.workflow.slice(0, 300) : ''
+      })
+    )
+    ipcMain.handle('ade:update-from-base', (_e, cwd: unknown) => updateFromBase(run, sessionCwd(cwd)))
+    ipcMain.handle('ade:conflict-file', (_e, cwd: unknown, file: unknown) => readConflictFile(run, sessionCwd(cwd), repoPath(file)))
+    ipcMain.handle('ade:write-conflict-file', (_e, cwd: unknown, file: unknown, content: unknown) => {
+      if (typeof content !== 'string' || content.length > 20_000_000) throw new Error('Expected the file’s text.')
+      return writeConflictFile(run, sessionCwd(cwd), repoPath(file), content)
+    })
+    ipcMain.handle('ade:mark-resolved', (_e, cwd: unknown, file: unknown) => markResolved(run, sessionCwd(cwd), repoPath(file)))
+    ipcMain.handle('ade:finish-merge', (_e, cwd: unknown) => finishMerge(run, sessionCwd(cwd)))
+    ipcMain.handle('ade:abort-merge', (_e, cwd: unknown) => abortMerge(run, sessionCwd(cwd)))
     ipcMain.handle('ade:merge', (_e, cwd: unknown, method: unknown) =>
       mergePullRequest(run, sessionCwd(cwd), method === 'merge' || method === 'rebase' ? method : 'squash')
     )

@@ -82,3 +82,28 @@ function isLink(file: string): boolean {
     return false
   }
 }
+
+/**
+ * Whether a Codex folder has a conversation's rollout, so `codex resume <id>`
+ * run with that CODEX_HOME will find it. Newest days first; an extra
+ * account's `sessions` is the default's, linked, so this is nearly always yes.
+ */
+export function hasRollout(codexHome: string, id: string): boolean {
+  const sessions = path.join(codexHome, 'sessions')
+  const names = (dir: string): string[] => {
+    try {
+      return fs.readdirSync(dir).sort().reverse()
+    } catch {
+      return []
+    }
+  }
+  const suffix = `-${id}.jsonl`
+  for (const year of names(sessions)) {
+    for (const month of names(path.join(sessions, year))) {
+      for (const day of names(path.join(sessions, year, month))) {
+        if (names(path.join(sessions, year, month, day)).some((name) => name.startsWith('rollout-') && name.endsWith(suffix))) return true
+      }
+    }
+  }
+  return false
+}

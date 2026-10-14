@@ -88,7 +88,9 @@ const SLEEP_GAP_MS = 90_000
 const clone = <T>(value: T): T => structuredClone(value)
 const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 const systemZone = (): string => Intl.DateTimeFormat().resolvedOptions().timeZone
-const wallClock = (schedule: Schedule): boolean => schedule.kind === 'daily' || schedule.kind === 'weekly'
+/** Follows this computer's clock, so a change of zone moves its next run. A cron task with a zone of its own doesn't. */
+const wallClock = (schedule: Schedule): boolean =>
+  schedule.kind === 'daily' || schedule.kind === 'weekly' || (schedule.kind === 'cron' && !schedule.tz)
 
 export class SchedulerEngine {
   private tasks: ScheduledTask[] = []
@@ -567,6 +569,8 @@ function normalizeSchedule(schedule: Schedule): Schedule {
       return { kind: 'weekly', time: normalizeTime(schedule.time), day: schedule.day }
     case 'once':
       return { kind: 'once', at: schedule.at }
+    case 'cron':
+      return { kind: 'cron', expr: schedule.expr.trim().replace(/\s+/g, ' '), ...(schedule.tz?.trim() ? { tz: schedule.tz.trim() } : {}) }
   }
 }
 

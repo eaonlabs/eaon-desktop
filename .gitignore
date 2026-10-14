@@ -20,3 +20,4 @@ CLAUDE.md
 
 # Cua Driver (computer use engine): fetched by scripts/fetch-cua-driver.mjs
 resources/cua-driver/
+resources/tokn-cli/

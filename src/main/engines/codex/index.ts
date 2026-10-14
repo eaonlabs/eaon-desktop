@@ -4,6 +4,7 @@ import type { EngineAuth, EngineModels, EngineStatus } from '@shared/engines'
 import { app, shell } from 'electron'
 import { store } from '../../store'
 import { isOwnServerUrl } from '../../providers/compat'
+import { cliToolEnv, onCliAccountChange } from '../../features/cliAccounts/current'
 import { EngineError, type EngineAdapter, type EngineTurnInput, type EngineTurnResult } from '../types'
 import { AppServer, RpcError } from './appServer'
 import { authFromAccount, billingFor, checkChatgptSession, startChatgptLogin, type LoginHandle } from './auth'
@@ -40,6 +41,11 @@ import { accessPlan, runTurn, type TurnOutcome } from './turn'
  *   thread from Codex's own history. Two sessions never share a process, so
  *   one can't block or crash the other. Turns on one session run one at a
  *   time, in order.
+ *
+ * Codex runs as the account chosen in Settings → Accounts (its CODEX_HOME).
+ * When that changes, every process idle on the old account is stopped and
+ * the next turn starts on the new one, resuming the thread from the shared
+ * history; a turn already running finishes on the account it started with.
  */
 
 const STATUS_FRESH_MS = 5 * 60_000
@@ -67,6 +73,8 @@ export interface CodexEngineOptions {
   discovery?: DiscoveryOptions
   /** Environment for Codex's processes (defaults to Eaon's, with the login shell's PATH). */
   env?: () => NodeJS.ProcessEnv
+  /** Told when `env` now names another account: processes on the old one are replaced. */
+  onAccountChange?: (listener: () => void) => () => void
   store?: { getJson: <T>(name: string, fallback: T) => T; setJson: (name: string, value: unknown) => void }
   fetch?: typeof fetch
   openExternal?: (url: string) => void | Promise<void>
@@ -89,6 +97,8 @@ interface Session {
   activeTurnId: string | null
   lastUsed: number
   idleTimer: ReturnType<typeof setTimeout> | null
+  /** The account it was started on (see `generation`). */
+  generation: number
 }
 
 export function createCodexEngine(options: CodexEngineOptions = {}): EngineAdapter & {
@@ -118,8 +128,11 @@ export function createCodexEngine(options: CodexEngineOptions = {}): EngineAdapt
   let modelRecordsCache: CodexModelRecord[] | null = null
   const modelRecords = (): CodexModelRecord[] => (modelRecordsCache ??= docs.getJson<ModelCache | null>(MODELS_DOC, null)?.models ?? [])
 
+  /** Bumped each time the account changes; a process from an older one is replaced once it is free. */
+  let generation = 0
+
   // The control process.
-  let control: { server: AppServer; binary: string } | null = null
+  let control: { server: AppServer; binary: string; generation: number } | null = null
   let controlStarting: Promise<AppServer> | null = null
   let controlTimer: ReturnType<typeof setTimeout> | null = null
   let controlPins = 0
@@ -159,19 +172,22 @@ export function createCodexEngine(options: CodexEngineOptions = {}): EngineAdapt
     controlPins++
     if (controlTimer) clearTimeout(controlTimer)
     try {
-      if (control && (control.binary !== binary || !control.server.running)) {
+      // A control process on another account is replaced, unless something else is using it (a sign-in waiting).
+      const outdated = control !== null && control.generation !== generation && controlPins === 1
+      if (control && (control.binary !== binary || !control.server.running || outdated)) {
         const old = control.server
         control = null
         void old.stop()
       }
       if (!control) {
+        const startedFor = generation
         controlStarting ??= startServer(binary, homedir()).finally(() => (controlStarting = null))
         const server = await controlStarting
         if (disposed) {
           await server.stop()
           throw new EngineError('engine-crashed', 'Eaon is quitting.')
         }
-        control = { server, binary }
+        control = { server, binary, generation: startedFor }
         server.onExit(() => {
           if (control?.server === server) control = null
         })
@@ -389,13 +405,17 @@ export function createCodexEngine(options: CodexEngineOptions = {}): EngineAdapt
 
     // A process for this session: the warm one, or a fresh one.
     let session = input.sessionId ? sessions.get(input.sessionId) : undefined
-    if (session && !session.server.running) {
+    if (session && (!session.server.running || session.generation !== generation)) {
+      // Dead, or on the account Eaon has since moved off: a fresh process resumes the thread.
       sessions.delete(input.sessionId!)
+      if (session.idleTimer) clearTimeout(session.idleTimer)
+      void session.server.stop()
       session = undefined
     }
     let fresh = false
     if (!session) {
       let server: AppServer
+      const startedFor = generation
       try {
         const pending = startServer(binary, input.cwd)
         server = await pending
@@ -407,7 +427,7 @@ export function createCodexEngine(options: CodexEngineOptions = {}): EngineAdapt
         return cancelledResult(input, input.sessionId)
       }
       starting.add(server)
-      session = { server, threadId: null, loaded: false, activeTurnId: null, lastUsed: now(), idleTimer: null }
+      session = { server, threadId: null, loaded: false, activeTurnId: null, lastUsed: now(), idleTimer: null, generation: startedFor }
       fresh = true
     }
     const server = session.server
@@ -485,7 +505,8 @@ export function createCodexEngine(options: CodexEngineOptions = {}): EngineAdapt
       })
       session.activeTurnId = null
 
-      if (outcome.crashed || outcome.stuck) await drop()
+      // A turn that ran on while the account changed: its process goes now that it's done.
+      if (outcome.crashed || outcome.stuck || session.generation !== generation) await drop()
       else touch(threadId, session)
       if (outcome.errorKind === 'auth-expired' || outcome.errorKind === 'signed-out') {
         // The status must say so too, or Settings would keep showing "Signed in".
@@ -523,6 +544,30 @@ export function createCodexEngine(options: CodexEngineOptions = {}): EngineAdapt
     }
     return failure(input, 'other', `Codex couldn’t start the turn: ${message}`, message)
   }
+
+  /**
+   * The account changed: what Eaon knows about the old one is dropped, idle
+   * processes on it stop, and busy ones finish their turn first.
+   */
+  function accountChanged(): void {
+    if (disposed) return
+    generation++
+    account = null
+    if (control && controlPins === 0) {
+      if (controlTimer) clearTimeout(controlTimer)
+      controlTimer = null
+      const { server } = control
+      control = null
+      void server.stop()
+    }
+    for (const [key, session] of sessions) if (!session.activeTurnId && !queues.has(key)) void endSession(key)
+    // The next turn checks the new account first; Settings hears who it is now.
+    if (status) {
+      status = { ...status, checkedAt: 0 }
+      void detect()
+    }
+  }
+  const stopFollowing = options.onAccountChange?.(accountChanged) ?? (() => {})
 
   /* ------------------------------------------------------------- public */
 
@@ -598,6 +643,7 @@ export function createCodexEngine(options: CodexEngineOptions = {}): EngineAdapt
 
     async dispose() {
       disposed = true
+      stopFollowing()
       await login?.cancel().catch(() => {})
       if (controlTimer) clearTimeout(controlTimer)
       const servers = new Set<AppServer>([...starting, ...[...sessions.values()].map((s) => s.server)])
@@ -649,4 +695,8 @@ function safeVersion(): string {
   }
 }
 
-export const codexEngine = createCodexEngine()
+/** Eaon's Codex, as the Codex account chosen in Settings → Accounts. */
+export const codexEngine = createCodexEngine({
+  env: () => ({ ...process.env, ...cliToolEnv('codex') }),
+  onAccountChange: (listener) => onCliAccountChange((tool) => tool === 'codex' && listener())
+})

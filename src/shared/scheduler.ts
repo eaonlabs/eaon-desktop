@@ -1,3 +1,4 @@
+import { cronNext, cronPrev, describeCron, parseCron, validZone } from './cron'
 import type { AgentMode, Chat, TokenUsage } from './types'
 
 /**
@@ -6,7 +7,8 @@ import type { AgentMode, Chat, TokenUsage } from './types'
  * Shared because both sides need the same answers — the engine in main decides
  * when a task runs, and the page previews "Next run" while the user is still
  * editing. Everything here is pure and uses the machine's local time zone,
- * which is what "every weekday at 9" means to the person who typed it.
+ * which is what "every weekday at 9" means to the person who typed it; a cron
+ * schedule can name a zone of its own (shared/cron.ts).
  */
 
 export type IntervalUnit = 'minutes' | 'hours'
@@ -27,6 +29,14 @@ export type Schedule =
   | { kind: 'daily'; time: string; days: number[] }
   | { kind: 'weekly'; time: string; day: number }
   | { kind: 'once'; at: number }
+  /**
+   * A cron expression: five fields (minute hour day-of-month month
+   * day-of-week) or a shorthand such as `@daily`. Without `tz` it follows
+   * this computer's clock, like daily and weekly; with an IANA zone
+   * ("America/New_York") it follows that zone's wall clock wherever the
+   * computer is.
+   */
+  | { kind: 'cron'; expr: string; tz?: string }
 
 /**
  * `missed`: a slot that came due while Eaon was closed or the computer
@@ -194,6 +204,11 @@ export function nextRunAfter(schedule: Schedule, after: number): number | null {
   switch (schedule.kind) {
     case 'once':
       return schedule.at > after ? schedule.at : null
+    case 'cron': {
+      const cron = parseCron(schedule.expr)
+      if (typeof cron === 'string' || (schedule.tz && !validZone(schedule.tz))) return null
+      return cronNext(cron, after, schedule.tz || undefined)
+    }
     case 'interval': {
       const period = periodMs(schedule)
       const start = schedule.startAt ?? after + period
@@ -234,6 +249,14 @@ export function latestDue(schedule: Schedule, from: number, now: number): number
   if (schedule.kind === 'interval') {
     const period = periodMs(schedule)
     return from + Math.floor((now - from) / period) * period
+  }
+  if (schedule.kind === 'cron') {
+    // A cron schedule can fire every minute or once a year, so walk back
+    // from now rather than forward from `from`.
+    const cron = parseCron(schedule.expr)
+    if (typeof cron === 'string') return from
+    const last = cronPrev(cron, now, schedule.tz || undefined)
+    return last !== null && last > from ? last : from
   }
   let slot = from
   // Every daily or weekly schedule fires at least once a week, so the latest
@@ -373,6 +396,14 @@ export function scheduleError(schedule: Schedule, now: number, enabled = true): 
       if (!Number.isFinite(schedule.at)) return 'Pick a date and time.'
       if (enabled && schedule.at <= now) return 'That time has already passed.'
       return null
+    case 'cron': {
+      if (typeof schedule.expr !== 'string' || !schedule.expr.trim()) return 'Write a cron expression, such as 0 9 * * 1-5.'
+      const cron = parseCron(schedule.expr)
+      if (typeof cron === 'string') return cron
+      if (schedule.tz && !validZone(schedule.tz)) return `"${schedule.tz}" isn’t a time zone this computer knows.`
+      if (cronNext(cron, now, schedule.tz || undefined) === null) return 'That expression never runs, such as on February 30.'
+      return null
+    }
   }
 }
 
@@ -412,6 +443,8 @@ export function describeSchedule(schedule: Schedule): string {
       const ordered = [...days.filter((d) => d !== 0), ...days.filter((d) => d === 0)]
       return `${ordered.map((d) => DAY_SHORT[d]).join(', ')} at ${at}`
     }
+    case 'cron':
+      return describeCron(schedule.expr, schedule.tz || undefined)
     case 'once':
       return `Once on ${new Date(schedule.at).toLocaleString([], {
         weekday: 'short',

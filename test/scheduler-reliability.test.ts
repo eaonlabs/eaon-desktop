@@ -435,7 +435,7 @@ test('stored tasks are repaired, not dropped: bad times recomputed, bad schedule
       good,
       { ...good, name: 'Duplicate id' },
       { ...good, id: 'b', schedule: { kind: 'interval', every: 0, unit: 'minutes' } },
-      { ...good, id: 'c', schedule: { kind: 'cron', expr: '0 9 * * 1' } },
+      { ...good, id: 'c', schedule: { kind: 'sunrise', offset: 30 } },
       'not a task',
       { name: 'no id' }
     ]
@@ -449,7 +449,7 @@ test('stored tasks are repaired, not dropped: bad times recomputed, bad schedule
   assert.equal(tasks[2].enabled, false, 'an interval of 0 cannot run; paused, not deleted')
   assert.deepEqual(h.damaged, [2])
   const kinds = (h.saved.tasks as { schedule: { kind: string } }[]).map((t) => t.schedule.kind)
-  assert.deepEqual(kinds, ['daily', 'daily', 'interval', 'cron'], 'a newer Eaon’s task is written back as it was')
+  assert.deepEqual(kinds, ['daily', 'daily', 'interval', 'sunrise'], 'a newer Eaon’s task is written back as it was')
 })
 
 test('upgrading from 2026.6.x: runs saved inside tasks move to their own file, backed up first, and come back after a downgrade', () => {

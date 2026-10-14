@@ -31,9 +31,11 @@ export function makeRunner(hosts: HostBook) {
       if (res.code === 255 || res.code === null) return { ...res, ok: false, stderr: connectProblem(host, res) }
       return res
     }
+    // EAON_GH_BIN swaps in a stand-in GitHub CLI for the tests, as it does for the Pull requests page.
+    const bin = cmd === 'gh' && process.env.EAON_GH_BIN ? process.env.EAON_GH_BIN : cmd
     return new Promise((resolve) => {
       execFile(
-        cmd,
+        bin,
         args,
         { cwd, timeout: timeoutMs, maxBuffer: 32 * 1024 * 1024, windowsHide: true, env: { ...process.env, ...QUIET_ENV } },
         (error, stdout, stderr) => {

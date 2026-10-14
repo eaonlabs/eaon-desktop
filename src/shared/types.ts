@@ -407,6 +407,10 @@ export interface Settings {
     meter: boolean
     /** How its panel lays the figures out. */
     view: 'detailed' | 'compact'
+    /** A system notification when the active account nears (90%) or hits a limit. */
+    alerts: boolean
+    /** Move new Codex sessions, and Eaon's Codex engine, to another signed-in account when the active one hits its limit. */
+    autoSwitchCodex: boolean
   }
   /** The ADE's terminals: their theme (`/theme` in a pane, or the header's Theme button). */
   ade: {
@@ -429,6 +433,28 @@ export interface Settings {
     /** How many times the popup has been shown, at most three. */
     asked: number
     lastAskedAt: number | null
+  }
+  /**
+   * First run (components/onboarding): the setup, then the tour of the app.
+   * A fresh install starts both `pending`; an install from before they
+   * existed starts them `done` (main/features/onboarding.ts).
+   */
+  onboarding: {
+    setup: 'pending' | 'done' | 'skipped'
+    tour: 'pending' | 'done' | 'skipped'
+    /** When the setup was finished or skipped. */
+    finishedAt: number | null
+  }
+  /** The tokn command, which ships inside Eaon (main/features/toknCli.ts). */
+  toknCli: {
+    /** Put `tokn` on PATH. On by default: it comes with Eaon. */
+    install: boolean
+    /**
+     * Link it to the Tokn account Eaon is signed in with, and publish what it
+     * finds (Claude Code, Codex and the other CLIs' usage) every hour. Asked
+     * in the setup; off until the person says yes.
+     */
+    sync: boolean
   }
   /** Settings → General → Software update. */
   updates: {

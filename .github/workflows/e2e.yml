@@ -43,6 +43,10 @@ jobs:
       - name: Build
         run: npx electron-vite build
 
+      # The tokn command Eaon ships, so the first-run scenario checks linking it too.
+      - name: tokn
+        run: node scripts/fetch-tokn-cli.mjs
+
       # The harness adds --no-sandbox, --disable-gpu and --password-store=basic
       # on Linux, and gives each scenario its own profile and HOME.
       - name: Run the scenarios
