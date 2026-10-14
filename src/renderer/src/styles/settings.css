@@ -1297,6 +1297,20 @@ body[data-reduce-motion='on'] .star-card {
   opacity: 0.6;
 }
 
+/* The Eaon Free offer (components/FreeCreditsOffer.tsx), in the star card's shape. */
+.free-card__icon {
+  flex: none;
+  color: var(--accent);
+}
+.free-card__btn--claim {
+  flex: 1;
+  background: color-mix(in srgb, var(--accent) 16%, var(--surface-2));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent);
+}
+.free-card__btn--claim:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 24%, var(--surface-2));
+}
+
 /* ---------------- Settings → ADE: terminal theme ---------------- */
 
 .ade-themes {

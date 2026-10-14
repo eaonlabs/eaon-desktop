@@ -1,5 +1,6 @@
 import { shell } from 'electron'
 import type { StarAnswer, StarResult } from '@shared/star'
+import { wasOfferedThisRun } from '../freeCredits'
 import { alreadyStarred, shouldAsk, starRepository } from '../starPrompt'
 import { store } from '../store'
 import type { Feature } from './types'
@@ -21,6 +22,8 @@ export const starRepoFeature: Feature = {
     /** Whether to show the popup now. Showing it counts as an ask, however it is closed. */
     ipcMain.handle('star:should-ask', async (): Promise<boolean> => {
       if (!shouldAsk(state(), Date.now())) return false
+      // The Eaon Free offer came up this run, with the star popup before it when that was due.
+      if (wasOfferedThisRun()) return false
       // Someone who starred it long ago, on their own, is not asked.
       if (await alreadyStarred()) {
         patch({ status: 'starred' })

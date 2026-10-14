@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ExternalLink, Star, X } from 'lucide-react'
 import { askAfterMs, type StarResult } from '@shared/star'
+import { onboardingShowing } from './onboarding/onboardingStore'
 
 /** How often time in front of the app is counted. */
 const TICK_MS = 15_000
@@ -17,9 +18,6 @@ const THANKS_MS = 5_000
  */
 export function StarPrompt(): JSX.Element | null {
   const [open, setOpen] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [result, setResult] = useState<StarResult | null>(null)
-  const closing = useRef<number | null>(null)
 
   useEffect(() => {
     const target = askAfterMs(Math.random())
@@ -30,7 +28,7 @@ export function StarPrompt(): JSX.Element | null {
       const step = now - last
       last = now
       // A long gap is the computer asleep, not use.
-      if (document.visibilityState === 'visible' && document.hasFocus() && step < 3 * TICK_MS) used += step
+      if (document.visibilityState === 'visible' && document.hasFocus() && step < 3 * TICK_MS && !onboardingShowing()) used += step
       if (used < target) return
       window.clearInterval(timer)
       void window.api.star
@@ -38,17 +36,33 @@ export function StarPrompt(): JSX.Element | null {
         .then((ask) => setOpen(ask))
         .catch(() => undefined)
     }, TICK_MS)
-    return () => {
-      window.clearInterval(timer)
-      if (closing.current) window.clearTimeout(closing.current)
-    }
+    return () => window.clearInterval(timer)
   }, [])
 
-  if (!open) return null
+  return open ? <StarCard onClosed={() => setOpen(false)} /> : null
+}
+
+/**
+ * The card itself, once main has said it may ask. The Eaon Free offer shows
+ * it too, just before its own card (FreeCreditsOffer.tsx), with `intro` for a
+ * first launch: "If it helped today" says nothing to someone who just started.
+ */
+export function StarCard({ intro = false, onClosed }: { intro?: boolean; onClosed: () => void }): JSX.Element {
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<StarResult | null>(null)
+  const closing = useRef<number | null>(null)
+
+  useEffect(
+    () => () => {
+      if (closing.current) window.clearTimeout(closing.current)
+    },
+    []
+  )
 
   const later = (): void => {
+    if (closing.current) window.clearTimeout(closing.current)
     if (!result) void window.api.star.answer('later')
-    setOpen(false)
+    onClosed()
   }
 
   const openGitHub = (): void => {
@@ -59,7 +73,7 @@ export function StarPrompt(): JSX.Element | null {
       .catch(() => setResult({ starred: false, reason: 'failed' }))
       .finally(() => {
         setBusy(false)
-        closing.current = window.setTimeout(() => setOpen(false), THANKS_MS)
+        closing.current = window.setTimeout(onClosed, THANKS_MS)
       })
   }
 
@@ -68,7 +82,7 @@ export function StarPrompt(): JSX.Element | null {
       <div className="star-card__head">
         <Star className="star-card__icon" size={16} strokeWidth={2} fill="currentColor" aria-hidden />
         <span id="star-card-title" className="star-card__title">
-          {result ? (result.starred ? 'Starred. Thank you!' : 'Thanks for stopping by') : 'Enjoying Eaon?'}
+          {result ? (result.starred ? 'Starred. Thank you!' : 'Thanks for stopping by') : intro ? 'Welcome to Eaon' : 'Enjoying Eaon?'}
         </span>
         <button type="button" className="star-card__close" aria-label="Close" onClick={later}>
           <X size={14} strokeWidth={2} />
@@ -79,7 +93,9 @@ export function StarPrompt(): JSX.Element | null {
           ? result.starred
             ? 'Your star is on the repository. It helps other developers find Eaon.'
             : 'The repository is open in your browser. Press ★ there to star it.'
-          : 'Eaon is open source. If it helped today, a GitHub star helps other developers find it.'}
+          : intro
+            ? 'Eaon is free and open source. If you can, star it on GitHub; it helps other developers find it.'
+            : 'Eaon is open source. If it helped today, a GitHub star helps other developers find it.'}
       </p>
       {!result && (
         <div className="star-card__actions">

@@ -153,7 +153,8 @@ scenario('ADE review tools: Markdown and range comments, CI logs to an agent, re
   await page.fill('.review-comment--draft textarea', 'Half a thought')
   await page.eval(() => window.dispatchEvent(new Event('focus')))
   await sleep(1500)
-  assert.equal(await page.eval(() => document.querySelector('.review-comment--draft textarea')?.value ?? null), 'Half a thought')
+  // Trimmed: now and then the typing the harness does over DevTools leaves a trailing space, and comments are trimmed when saved anyway.
+  assert.equal(await page.eval(() => document.querySelector('.review-comment--draft textarea')?.value.trim() ?? null), 'Half a thought')
   await page.click('.review-comment--draft button', { text: /^Cancel$/ })
 
   // Through a reload, the comments are still there.

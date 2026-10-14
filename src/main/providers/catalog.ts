@@ -1,5 +1,6 @@
 import type { ModelInfo, Provider } from '@shared/types'
 import type { ProviderMeta } from '@shared/providers'
+import { FREE_BASE_URL, FREE_PROVIDER_ID } from '@shared/freeCredits'
 import generated from './catalog.generated.json'
 import type { CatalogModel } from './catalogSources'
 import { OPENAI_EFFORTS } from './models'
@@ -79,6 +80,24 @@ const COPILOT_HEADERS: Record<string, string> = {
 }
 
 const PROVIDERS: SeedProvider[] = [
+  // ---- Eaon Free: Eaon's own gateway, no key. Listed once claimed (shared/freeCredits.ts) ----
+  {
+    id: FREE_PROVIDER_ID,
+    name: 'Eaon Free',
+    kind: 'openai-compatible',
+    baseUrl: FREE_BASE_URL,
+    enabled: true,
+    builtIn: true,
+    auth: 'none',
+    category: 'eaon',
+    description: 'Free models from Eaon for a week, with a daily allowance',
+    // No X-Eaon-App header: with it, the gateway wants a full app signature, which Eaon Desktop doesn't make.
+    models: [
+      m(FREE_PROVIDER_ID, 'claude-haiku-5-5', 'Claude Haiku 5.5', { contextWindow: 200_000, maxOutput: 16_384, vision: true, reasoning: false, efforts: [] }),
+      m(FREE_PROVIDER_ID, 'eaon-free', 'Eaon Free', { contextWindow: 128_000, maxOutput: 16_384, vision: false, reasoning: true, efforts: [] })
+    ]
+  },
+
   // ---- Subscriptions: sign in with an existing plan, or a coding-plan key ----
   {
     // OpenAI's official "Sign in with ChatGPT" for open-source and local apps
@@ -362,6 +381,7 @@ export const BUILT_IN: SeedProvider[] = PROVIDERS.map((provider) => {
  */
 export const PROVIDER_META: Record<string, ProviderMeta> = {
   'eaon-local': { id: 'eaon-local', listsModels: false },
+  [FREE_PROVIDER_ID]: { id: FREE_PROVIDER_ID, listsModels: true },
   chatgpt: { id: 'chatgpt', listsModels: true, signInLabel: 'Sign in with ChatGPT' },
   'openai-codex': { id: 'openai-codex', listsModels: false, signInLabel: 'Sign in with ChatGPT (Codex)' },
   // Account sign-in next to the key field; both need a registered OAuth client (oauth/appClients.ts).

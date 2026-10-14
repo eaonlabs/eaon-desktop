@@ -138,12 +138,14 @@ const groupOf = (provider: Provider): ProviderGroup => {
   const entry = directoryById.get(provider.id)
   if (entry) return entry.group
   const category = provider.category ?? 'custom'
-  return category === 'local' ? 'custom' : category
+  // Eaon Free takes no key, so it never gets here; the type still has to say where it would go.
+  return category === 'local' || category === 'eaon' ? 'custom' : category
 }
 
 /** Every provider that takes a key or a sign-in, then the directory's not yet added; local runtimes need neither. */
 export function keyRows(): KeyRow[] {
-  const providers = listProviders().filter((p) => !p.local)
+  // Local runtimes and Eaon Free take no key.
+  const providers = listProviders().filter((p) => !p.local && p.auth !== 'none')
   const rows: KeyRow[] = providers.map((p) => {
     const meta = providerMeta(p.id)
     const entry = directoryById.get(p.id)

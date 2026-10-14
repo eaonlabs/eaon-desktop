@@ -102,7 +102,7 @@ export function repairSettings(raw: unknown, defaults: Record<string, unknown>):
       let ok: boolean
       if (isObject(fallback)) ok = isObject(value)
       else if (Array.isArray(fallback)) ok = Array.isArray(value)
-      // Null until set: an id or a path, or a time (`lastAskedAt`, `finishedAt`), which is a number.
+      // Null until set: an id or a path, or a time (`lastAskedAt`, `claimedAt`, `finishedAt`), which is a number.
       else if (fallback === null) ok = value === null || typeof value === 'string' || (key.endsWith('At') && isFiniteNumber(value))
       else if (typeof fallback === 'number') ok = isFiniteNumber(value)
       else ok = typeof value === typeof fallback

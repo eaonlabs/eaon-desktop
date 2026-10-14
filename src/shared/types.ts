@@ -86,7 +86,7 @@ export interface Provider {
   /** True once an OAuth sign-in has completed and its tokens are stored. */
   signedIn?: boolean
   /** Grouping in the providers list. */
-  category?: 'local' | 'subscription' | 'frontier' | 'gateway' | 'inference' | 'regional' | 'custom'
+  category?: 'eaon' | 'local' | 'subscription' | 'frontier' | 'gateway' | 'inference' | 'regional' | 'custom'
   /** One line shown under the provider name. */
   description?: string
   /** Where to create an API key for this provider. */
@@ -455,6 +455,15 @@ export interface Settings {
      * in the setup; off until the person says yes.
      */
     sync: boolean
+  }
+  /** Eaon Free: the free models on Eaon's gateway, and the card that offers them (shared/freeCredits.ts). */
+  freeCredits: {
+    /** Claimed from the offer or Settings → Model providers: the provider is listed and usable. */
+    claimed: boolean
+    claimedAt: number | null
+    /** How many times the offer card has been shown, at most three. */
+    offered: number
+    lastOfferedAt: number | null
   }
   /** Settings → General → Software update. */
   updates: {

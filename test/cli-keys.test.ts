@@ -41,7 +41,7 @@ test('directory: built-in providers that take a key or sign-in, then the directo
   const rows = dir.keyRows()
   const ids = rows.map((r) => r.id)
   assert.equal(new Set(ids).size, ids.length, 'no provider twice')
-  const builtIns = BUILT_IN.filter((p) => !p.local)
+  const builtIns = BUILT_IN.filter((p) => !p.local && p.auth !== 'none')
   assert.ok(builtIns.every((p) => ids.includes(p.id)), 'every built-in that takes a key is there')
   assert.ok(!ids.includes('ollama') && !ids.includes('lm-studio'), 'local runtimes need no key')
   assert.equal(rows.length, builtIns.length + dir.DIRECTORY.length)

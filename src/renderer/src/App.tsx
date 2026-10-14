@@ -35,6 +35,7 @@ import { installControl } from './lib/control'
 import { StarPrompt } from './components/StarPrompt'
 import { Onboarding } from './components/onboarding/Onboarding'
 import { Tour } from './components/onboarding/Tour'
+import { FreeCreditsOffer } from './components/FreeCreditsOffer'
 
 export default function App(): JSX.Element {
   const { ready, initError, view, settingsPage, activeChatId, browserOpen, init, setView, setSettingsPage } = useApp(
@@ -197,6 +198,7 @@ export default function App(): JSX.Element {
       <StoreNotice />
       <ComputerLeaseIndicator />
       <Notice />
+      <FreeCreditsOffer />
       <StarPrompt />
       <DiscordPresence />
       <Onboarding />

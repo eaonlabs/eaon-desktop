@@ -213,6 +213,12 @@ export const defaultSettings: Settings = {
     install: true,
     sync: false
   },
+  freeCredits: {
+    claimed: false,
+    claimedAt: null,
+    offered: 0,
+    lastOfferedAt: null
+  },
   updates: {
     beta: false
   },

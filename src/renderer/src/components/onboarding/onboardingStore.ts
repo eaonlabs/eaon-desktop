@@ -13,6 +13,15 @@ interface OnboardingState {
   endTour: (how: 'done' | 'skipped') => void
 }
 
+/**
+ * The setup or the tour is on screen. The corner cards (the star popup, the
+ * Eaon Free offer) don't count that time, so a fresh install meets them
+ * after the setup, not on top of it.
+ */
+export function onboardingShowing(): boolean {
+  return useApp.getState().settings?.onboarding.setup === 'pending' || useOnboarding.getState().tourOpen
+}
+
 export const useOnboarding = create<OnboardingState>((set) => ({
   tourOpen: false,
   startTour: () => {

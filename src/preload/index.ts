@@ -54,6 +54,7 @@ import { remoteApi } from './features/remote'
 import { rcApi } from './features/rc'
 import { controlApi } from './features/control'
 import { starApi } from './features/star'
+import { freeCreditsApi } from './features/freeCredits'
 import { cliAccountsApi } from './features/cliAccounts'
 
 /** Subscribes to a main-process event; returns the unsubscribe. */
@@ -338,6 +339,7 @@ const fullApi = {
   rc: rcApi,
   control: controlApi,
   star: starApi,
+  freeCredits: freeCreditsApi,
   cliAccounts: cliAccountsApi
 }
 
