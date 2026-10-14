@@ -47,6 +47,10 @@ jobs:
       - name: tokn
         run: node scripts/fetch-tokn-cli.mjs
 
+      # The Eaon Remote scenario runs the real relay (cloud/rc) under wrangler dev.
+      - name: wrangler
+        run: npm install -g wrangler@4 --no-fund --no-audit
+
       # The harness adds --no-sandbox, --disable-gpu and --password-store=basic
       # on Linux, and gives each scenario its own profile and HOME.
       - name: Run the scenarios

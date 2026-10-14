@@ -90,7 +90,8 @@ async function github(run: Runner, cwd: string, branch: string | null): Promise<
     return { github: null, githubProblem: 'Install the GitHub CLI (gh) and sign in with gh auth login to open pull requests from here.' }
   }
   if (/command not found|No such file/i.test(said)) return { github: null, githubProblem: 'The GitHub CLI (gh) isn’t installed there.' }
-  if (/gh auth login|not logged in|authentication/i.test(said)) return { github: null, githubProblem: 'Sign in to the GitHub CLI first: run gh auth login in a terminal.' }
+  // Signed out; inside GitHub Actions gh asks for GH_TOKEN instead of gh auth login.
+  if (/gh auth login|not logged in|authentication|GH_TOKEN/i.test(said)) return { github: null, githubProblem: 'Sign in to the GitHub CLI first: run gh auth login in a terminal.' }
   if (/none of the git remotes|no git remotes|not a git repository/i.test(said)) return { github: null, githubProblem: 'This repository has no GitHub remote.' }
   return { github: null, githubProblem: problemOf(res, 'GitHub couldn’t be asked about a pull request.') }
 }

@@ -356,6 +356,32 @@ test('a folder outside git, or with no commits, says so instead of failing', asy
   assert.ok(!none.ok && /no commits yet/.test(none.error))
 })
 
+test('gh signed out inside GitHub Actions reads as signed out, not as its GH_TOKEN example', async () => {
+  const actionsGh = path.join(tmp, 'gh-actions')
+  fs.writeFileSync(
+    actionsGh,
+    [
+      '#!/bin/sh',
+      'echo "gh: To use GitHub CLI in a GitHub Actions workflow, set the GH_TOKEN environment variable. Example:" >&2',
+      'echo "  env:" >&2',
+      'echo "    GH_TOKEN: \\${{ github.token }}" >&2',
+      'exit 4'
+    ].join('\n')
+  )
+  fs.chmodSync(actionsGh, 0o755)
+  const was = process.env.EAON_GH_BIN
+  process.env.EAON_GH_BIN = actionsGh
+  try {
+    const res = await reviewState(run, repo)
+    assert.ok(res.ok)
+    if (!res.ok) return
+    assert.equal(res.state.github, null)
+    assert.equal(res.state.githubProblem, 'Sign in to the GitHub CLI first: run gh auth login in a terminal.')
+  } finally {
+    process.env.EAON_GH_BIN = was
+  }
+})
+
 test('a failed check’s log comes from gh run view, for the job its link names', async () => {
   const res = await checkLog(run, repo, { url: 'https://github.com/octo-org/demo/actions/runs/31/job/32', name: 'test', workflow: 'CI' })
   assert.deepEqual(res, { ok: true, log: '── test › Run npm test\nnot ok 1 - adds', truncated: false })
