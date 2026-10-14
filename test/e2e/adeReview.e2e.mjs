@@ -59,7 +59,9 @@ scenario('ADE review and SSH sessions: diff, line comments to an agent, commit, 
   )
   chmodSync(fakeSsh, 0o755)
 
-  const app = await s.launch({ env: { EAON_SSH_BIN: fakeSsh } })
+  // Who Commit all commits as: the profile's HOME has no git config, and on
+  // Linux git can't make up an email from the host name.
+  const app = await s.launch({ env: { EAON_SSH_BIN: fakeSsh, GIT_AUTHOR_NAME: 'T', GIT_AUTHOR_EMAIL: 't@example.com', GIT_COMMITTER_NAME: 'T', GIT_COMMITTER_EMAIL: 't@example.com' } })
   const page = app.page
   const home = realpathSync(s.homeDir)
 
