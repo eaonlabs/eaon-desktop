@@ -5,6 +5,7 @@ import path from 'node:path'
 import { app } from 'electron'
 import type * as NodePty from 'node-pty'
 import type { TerminalSpawnRequest, TerminalSpawnResult } from '@shared/terminals'
+import { isMouseReport, shellInForeground, STRAY_MODES_OFF } from './strayModes'
 
 /**
  * Owns every pseudo-terminal behind the ADE's terminal view. Ported from Eaon
@@ -90,6 +91,10 @@ interface Session {
   /** Recent output, replayed to a renderer that reattaches after a reload. */
   history: string[]
   historyLen: number
+  /** The shell it runs, to tell when that shell is back in the foreground (strayModes.ts). */
+  shell: string
+  /** When stray mouse reporting was last switched off, so a burst of moves resets it once. */
+  modesResetAt: number
 }
 
 type Sender = (channel: string, payload: unknown) => void
@@ -286,7 +291,9 @@ export class PtyManager {
         cols: Math.max(20, req.cols || 80),
         rows: Math.max(5, req.rows || 24),
         history: [],
-        historyLen: 0
+        historyLen: 0,
+        shell,
+        modesResetAt: 0
       }
       this.sessions.set(req.paneId, session)
       // What a restored pane showed last time is part of its history now: a
@@ -382,10 +389,26 @@ export class PtyManager {
     const s = this.sessions.get(paneId)
     if (!s?.alive) return
     try {
+      // Mouse reports with only the shell to read them: a CLI ended without
+      // turning mouse reporting off. They'd print as gibberish at the prompt.
+      if (!s.remote && isMouseReport(data) && shellInForeground(s.proc.process, s.shell)) {
+        this.resetStrayModes(paneId, s)
+        return
+      }
       s.proc.write(data)
     } catch {
       /* exited between the check and the write */
     }
+  }
+
+  /** Switches off the modes a program left on, in the pane's terminal and in what a reload replays. */
+  private resetStrayModes(paneId: string, s: Session): void {
+    const now = Date.now()
+    if (now - s.modesResetAt < 1000) return
+    s.modesResetAt = now
+    s.history.push(STRAY_MODES_OFF)
+    s.historyLen += STRAY_MODES_OFF.length
+    this.emit('terminal:data', { paneId, data: STRAY_MODES_OFF })
   }
 
   resize(paneId: string, cols: number, rows: number): void {

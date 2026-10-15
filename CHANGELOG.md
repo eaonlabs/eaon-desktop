@@ -41,6 +41,9 @@ All notable changes to Eaon are documented here. Format loosely follows
 ### Fixed
 - A Settings page that hits an error shows it with Try again, instead of
   taking down the whole window.
+- An ADE terminal no longer fills with `35;40;26M…` when Claude Code (or
+  another CLI) exits without turning mouse reporting off: the moves are
+  dropped at the shell prompt and the terminal stops sending them.
 
 ## [2026.6.3-beta.1.3] — 2026-10-12
 
