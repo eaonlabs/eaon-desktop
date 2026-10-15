@@ -2,16 +2,18 @@
 # .exe), then installs it on a real Windows machine of each arch and starts
 # the installed app, the way someone downloading it would.
 #
-# On a push to a release branch, or by hand, the build is signed with Azure
-# Artifact Signing (account eaonsigning, profile eaon-public, issued to Vishnu
-# Chada): Eaon.exe, everything in it and the installer, so SmartScreen knows
-# the publisher. The runner signs in to Azure with GitHub's OIDC token through
-# the app registration eaon-windows-signing, whose federated credential trusts
-# this repository's `windows-signing` environment only; no secret is stored.
-# The signed files are then attached to the GitHub release for package.json's
-# version, if that release exists and has no Windows files yet.
+# On a push to a release branch (or by hand) the installer is attached to the
+# GitHub release for package.json's version, if that release exists and has
+# no Windows files yet. Pull requests only build and test it.
 #
-# Pull requests build unsigned (a fork's run can't get the token).
+# Unsigned unless asked for: run it by hand with "Sign with Azure" ticked to
+# sign with Azure Artifact Signing (account eaonsigning, profile eaon-public).
+# Off by default because an individual's certificate carries the signer's
+# city, state and country (CN=Vishnu Chada, L=San Ramon, S=ca, C=US), and
+# Windows shows them as the publisher. When on, the runner signs in to Azure
+# with GitHub's OIDC token through the app registration eaon-windows-signing,
+# whose federated credential trusts this repository's `windows-signing`
+# environment only; no secret is stored.
 name: Windows installer
 
 on:
@@ -20,6 +22,11 @@ on:
   pull_request:
     paths: ['src/**', 'package.json', 'package-lock.json', 'electron-builder.yml', 'scripts/**', '.github/workflows/windows.yml']
   workflow_dispatch:
+    inputs:
+      sign:
+        description: Sign with Azure (the certificate shows Vishnu Chada, San Ramon, CA, US as the publisher)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -37,13 +44,14 @@ jobs:
   build:
     name: Build installer
     runs-on: windows-latest
-    # Signing runs in the environment the Azure app trusts; pull requests get none.
-    environment: ${{ github.event_name != 'pull_request' && 'windows-signing' || '' }}
+    # Signing runs in the environment the Azure app trusts; anything else gets none.
+    environment: ${{ inputs.sign && 'windows-signing' || '' }}
     permissions:
       contents: write
       id-token: write
     env:
-      SIGN: ${{ github.event_name != 'pull_request' }}
+      SIGN: ${{ inputs.sign == true }}
+      ATTACH: ${{ github.event_name != 'pull_request' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -112,7 +120,7 @@ jobs:
 
       # Like the Linux installers: onto the release for this version, once.
       - name: Attach to the release
-        if: env.SIGN == 'true'
+        if: env.ATTACH == 'true'
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}

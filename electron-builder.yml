@@ -174,11 +174,11 @@ win:
       arch:
         - x64
         - arm64
-  # Signed only when built by .github/workflows/windows.yml on a release branch:
-  # Azure Artifact Signing, passed on the command line there (azureSignOptions,
-  # signAndEditExecutable) because it runs through PowerShell on Windows.
-  # A build made anywhere else (release:win on a Mac, a pull request) is
-  # unsigned, and SmartScreen shows "Windows protected your PC" for it.
+  # Unsigned by default, so SmartScreen shows "Windows protected your PC".
+  # .github/workflows/windows.yml signs only when run by hand with "Sign with
+  # Azure" (Azure Artifact Signing, passed on the command line there because it
+  # runs through PowerShell on Windows); the certificate names the signer's
+  # city, state and country, so it is not on for every release.
   artifactName: ${productName}-${version}-setup.${ext}
 # Linux: an AppImage (runs on most distributions, and updates itself) and a
 # .deb, each for x64 and arm64. Built on Linux by .github/workflows/linux.yml:
