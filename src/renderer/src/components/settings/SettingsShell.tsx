@@ -30,6 +30,7 @@ import {
 import { useShallow } from 'zustand/react/shallow'
 import { useApp, useIsWork } from '../../state/store'
 import { SearchField } from '../ui'
+import { AccountButton } from '../account/ToknAccount'
 import { GeneralPage } from './pages/General'
 import { AppearancePage } from './pages/Appearance'
 import { ConfigurationPage } from './pages/Configuration'
@@ -177,6 +178,10 @@ export function SettingsShell(): JSX.Element {
           <ArrowLeft size={16} strokeWidth={1.9} />
           <span>Back to app</span>
         </button>
+        {/* Eaon's account (Tokn), first thing in Settings. */}
+        <div className="settings__account">
+          <AccountButton placement="bottom-start" />
+        </div>
         <div className="settings__search">
           <SearchField value={query} onChange={setQuery} placeholder="Search settings..." variant="sm" />
         </div>

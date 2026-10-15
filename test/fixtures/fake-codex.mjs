@@ -104,14 +104,26 @@ const active = new Map() // threadId -> { turnId, interrupt }
 /** A sign-in that completed, kept in the state folder as the real Codex keeps it in ~/.codex: it outlasts the process. */
 const signedInFile = () => join(state, 'signed-in.json')
 
+/**
+ * An account of its own for a CODEX_HOME that has a `fake-account.json`
+ * ({ plan, email, usedPercent }), the way each real Codex folder holds its
+ * own login: Settings → Accounts' tests run several.
+ */
+function homeAccount() {
+  const home = process.env.CODEX_HOME
+  if (!home || !existsSync(join(home, 'fake-account.json'))) return null
+  return JSON.parse(readFileSync(join(home, 'fake-account.json'), 'utf8'))
+}
+
 function account() {
   // Signed in through account/login/start since: that wins over the starting account.
   const plan = existsSync(signedInFile()) ? JSON.parse(readFileSync(signedInFile(), 'utf8')).planType : null
-  const spec = plan ? `chatgpt:${plan}` : process.env.FAKE_CODEX_ACCOUNT || 'chatgpt:plus'
+  const own = homeAccount()
+  const spec = plan ? `chatgpt:${plan}` : own ? `chatgpt:${own.plan}` : process.env.FAKE_CODEX_ACCOUNT || 'chatgpt:plus'
   if (spec === 'none') return { account: null, requiresOpenaiAuth: true }
   if (spec === 'not-required') return { account: null, requiresOpenaiAuth: false }
   if (spec === 'apikey') return { account: { type: 'apiKey' }, requiresOpenaiAuth: true }
-  return { account: { type: 'chatgpt', email: 'person@example.com', planType: spec.split(':')[1] || 'plus' }, requiresOpenaiAuth: true }
+  return { account: { type: 'chatgpt', email: own?.email ?? 'person@example.com', planType: spec.split(':')[1] || 'plus' }, requiresOpenaiAuth: true }
 }
 
 function models() {
@@ -144,6 +156,11 @@ async function handle(method, p) {
       const session = process.env.FAKE_CODEX_SESSION || 'ok'
       if (session === 'expired') throw rpcError(-32603, 'failed to fetch codex rate limits: 401 Unauthorized: Your refresh token has expired. Please sign in again.')
       if (session === 'offline') throw rpcError(-32603, 'failed to fetch codex rate limits: error sending request for url (https://chatgpt.com/backend-api/wham/usage)')
+      const own = homeAccount()
+      if (own) {
+        const primary = { usedPercent: own.usedPercent ?? 12, windowDurationMins: 300, resetsAt: Math.round(Date.now() / 1000) + 2 * 3600 }
+        return { rateLimits: { limitId: 'codex', primary, secondary: null, planType: own.plan }, rateLimitsByLimitId: null }
+      }
       return { rateLimits: { limitId: 'codex', primary: { usedPercent: 12 } }, rateLimitsByLimitId: null }
     }
     case 'config/read':

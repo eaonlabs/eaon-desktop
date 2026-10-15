@@ -16,6 +16,15 @@ import { scenario } from './fixtures.mjs'
 const PORT = 8799
 const SITE = `http://localhost:${PORT}`
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms))
+/** The relay runs under `wrangler dev`; without wrangler on PATH the scenario says so and skips. */
+const hasWrangler = (() => {
+  try {
+    execFileSync('wrangler', ['--version'], { stdio: 'ignore' })
+    return true
+  } catch {
+    return false
+  }
+})()
 const gitEnv = { ...process.env, GIT_AUTHOR_NAME: 'T', GIT_AUTHOR_EMAIL: 't@e.com', GIT_COMMITTER_NAME: 'T', GIT_COMMITTER_EMAIL: 't@e.com' }
 
 /** A POST with exactly these headers: Node's fetch drops Origin, which is the header under test. */
@@ -104,7 +113,7 @@ function webSocket(cookie) {
   })
 }
 
-scenario('Eaon Remote: link with the website, then sessions, a live terminal and Workers over the relay', { timeout: 240_000 }, async (s) => {
+scenario('Eaon Remote: link with the website, then sessions, a live terminal and Workers over the relay', { timeout: 240_000, skip: hasWrangler ? false : 'needs wrangler on PATH (npm i -g wrangler)' }, async (s) => {
   mkdirSync(s.homeDir, { recursive: true })
   const relay = await startRelay(join(s.homeDir, '..', 'relay-state'))
   try {

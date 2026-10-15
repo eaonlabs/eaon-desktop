@@ -28,14 +28,17 @@ import { CodexEngineDetail, CodexEngineRow, CODEX_ROW_ID, useCodexEngine } from 
 import '../../../styles/providers.css'
 import { openInAde } from '../../code/terminal/terminalStore'
 import { LinkAccounts } from '../../LinkAccounts'
+import { FREE_ALLOWANCE } from '../../FreeCreditsOffer'
+import { formatAllowance, formatEndDay, FREE_DAYS, FREE_PROVIDER_ID, type FreeCreditsStatus } from '@shared/freeCredits'
 
 /** The plan's own CLI, named for the button that opens it in the ADE. */
 const PLAN_CLI = { claude: 'Claude Code', antigravity: 'Antigravity', codex: 'Codex' } as const
 
 type Category = NonNullable<Provider['category']>
 
-/** List order. Subscriptions first: signing in is the quickest way to a working model. */
+/** List order. Eaon's free models, then subscriptions: signing in is the quickest way to a working model. */
 const GROUPS: { id: Category; label: string }[] = [
+  { id: 'eaon', label: 'Eaon' },
   { id: 'subscription', label: 'Subscriptions' },
   { id: 'local', label: 'Local' },
   { id: 'frontier', label: 'Frontier labs' },
@@ -134,9 +137,11 @@ export function ProvidersPage(): JSX.Element {
   const [addingCustom, setAddingCustom] = useState(false)
   const [linking, setLinking] = useState(false)
   const [query, setQuery] = useState('')
+  const [free, setFree] = useState<FreeCreditsStatus | null>(null)
 
   useEffect(() => {
     void refreshProviders()
+    void window.api.freeCredits.status().then(setFree)
   }, [refreshProviders])
 
   // Sent here to fix one provider (a reply's "Fix key", the composer's "Sign in again"): open on it.
@@ -163,6 +168,9 @@ export function ProvidersPage(): JSX.Element {
   // Codex runs as its own engine, not a provider: listed with the subscriptions once Eaon has checked for it.
   const codexMatches = Boolean(codex.status) && (!query.trim() || 'codex openai chatgpt'.includes(query.trim().toLowerCase()))
   const showingCodex = selectedId === CODEX_ROW_ID && Boolean(codex.status)
+  // Eaon Free before it is claimed: a row of its own that offers it (claimed, it is a provider like the rest).
+  const offeringFree = Boolean(free && !free.claimed) && (!query.trim() || 'eaon free credits'.includes(query.trim().toLowerCase()))
+  const showingFree = selectedId === FREE_OFFER_ROW && offeringFree
 
   return (
     <div className="providers-shell">
@@ -181,6 +189,16 @@ export function ProvidersPage(): JSX.Element {
         </div>
 
         <div className="providers-list__scroll scroll">
+          {offeringFree && (
+            <div>
+              <div className="providers-list__group">Eaon</div>
+              <button className="provider-row" data-active={showingFree || undefined} onClick={() => setSelectedId(FREE_OFFER_ROW)}>
+                <BrandIcon id={FREE_PROVIDER_ID} name="Eaon Free" size={24} />
+                <span className="provider-row__label">Eaon Free</span>
+                <span className="provider-row__free">Free</span>
+              </button>
+            </div>
+          )}
           {groups.map((group) => (
             <div key={group.id}>
               <div className="providers-list__group">{group.label}</div>
@@ -198,12 +216,19 @@ export function ProvidersPage(): JSX.Element {
               ))}
             </div>
           ))}
-          {groups.length === 0 && <div className="providers-list__empty">No providers match “{query.trim()}”.</div>}
+          {groups.length === 0 && !offeringFree && <div className="providers-list__empty">No providers match “{query.trim()}”.</div>}
         </div>
       </nav>
 
       <div className="providers-detail scroll">
-        {showingCodex ? (
+        {showingFree ? (
+          <FreeCreditsOfferDetail
+            onClaimed={(status) => {
+              setFree(status)
+              setSelectedId(FREE_PROVIDER_ID)
+            }}
+          />
+        ) : showingCodex ? (
           <CodexEngineDetail engine={codex} onOpenProvider={(id) => setSelectedId(id)} />
         ) : selected && (
           <ProviderDetail
@@ -224,6 +249,163 @@ export function ProvidersPage(): JSX.Element {
         }}
       />
       <LinkAccounts open={linking} onClose={() => setLinking(false)} />
+    </div>
+  )
+}
+
+/** The list's row for Eaon Free while it is still on offer. */
+const FREE_OFFER_ROW = 'eaon-free:offer'
+
+/** Eaon Free, not claimed yet: what it is, and the button that turns it on. */
+function FreeCreditsOfferDetail({ onClaimed }: { onClaimed: (status: FreeCreditsStatus) => void }): JSX.Element {
+  const refreshProviders = useApp((s) => s.refreshProviders)
+  const [busy, setBusy] = useState(false)
+  const claim = async (): Promise<void> => {
+    setBusy(true)
+    try {
+      const status = await window.api.freeCredits.claim()
+      await refreshProviders()
+      onClaimed(status)
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <>
+      <div className="provider-detail__header">
+        <BrandIcon id={FREE_PROVIDER_ID} name="Eaon Free" size={40} />
+        <div className="provider-detail__heading">
+          <span className="provider-detail__name">Eaon Free</span>
+          <span className="provider-detail__tagline">Free models from Eaon for a week, with a daily allowance</span>
+        </div>
+      </div>
+      <div className="provider-detail__section">
+        <div className="provider-credits">
+          <div className="provider-credits__title">Free AI credits</div>
+          <p className="provider-credits__detail">
+            Claude Haiku 5.5 and Eaon’s own model, free for {FREE_DAYS} days from when you start, with no API key or account: {FREE_ALLOWANCE} on this computer,
+            starting over at midnight.
+          </p>
+          <div className="provider-credits__links">
+            <button className="btn btn--accent" disabled={busy} onClick={() => void claim()}>
+              {busy ? 'Setting up…' : 'Get free credits'}
+            </button>
+          </div>
+        </div>
+        <RedeemCode
+          onRedeemed={async () => {
+            await refreshProviders()
+            onClaimed(await window.api.freeCredits.status())
+          }}
+        />
+      </div>
+    </>
+  )
+}
+
+/**
+ * "Have an event code?": a code from an event Eaon sponsors, such as a
+ * hackathon. The gateway checks it, and Eaon Free then runs on the code's
+ * limits until it ends, past the free week.
+ */
+function RedeemCode({ onRedeemed }: { onRedeemed: () => void | Promise<void> }): JSX.Element {
+  const [value, setValue] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const redeem = async (): Promise<void> => {
+    setBusy(true)
+    setError(null)
+    try {
+      const result = await window.api.freeCredits.redeem(value)
+      if (!result.ok) return setError(result.message)
+      setValue('')
+      await onRedeemed()
+    } catch {
+      setError('Couldn’t check the code. Try again.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className="free-code">
+      <div className="free-code__title">Have an event code?</div>
+      <p className="free-code__desc">From a hackathon or another event Eaon sponsors. It gives Eaon Free the event’s allowance until the code ends.</p>
+      <div className="fallback-row">
+        <input
+          className="input"
+          value={value}
+          placeholder="EAON-XXXX-XXXX-XXXX"
+          aria-label="Event code"
+          spellCheck={false}
+          autoCapitalize="characters"
+          onChange={(e) => setValue(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && value.trim() && !busy && void redeem()}
+        />
+        <button className="btn btn--provider" disabled={!value.trim() || busy} onClick={() => void redeem()}>
+          {busy ? 'Checking…' : 'Redeem'}
+        </button>
+      </div>
+      {error && (
+        <div className="provider-status" data-tone="error">
+          {error}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Eaon Free's allowance, how much of today's is used, when the free week (or the event code) ends, and a box for a code. */
+function FreeCreditsSection(): JSX.Element {
+  const refreshProviders = useApp((s) => s.refreshProviders)
+  const [status, setStatus] = useState<FreeCreditsStatus | null>(null)
+  const load = (): void => void window.api.freeCredits.status().then(setStatus)
+  useEffect(() => {
+    load()
+    const timer = window.setInterval(load, 10_000)
+    return () => window.clearInterval(timer)
+  }, [])
+  const resets = status ? new Date(status.resetsAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : ''
+  const allowance = status
+    ? `${status.limits.requestsPerDay.toLocaleString('en-US')} requests and ${formatAllowance(status.limits.tokensPerDay)} tokens a day`
+    : FREE_ALLOWANCE
+  let desc: string
+  if (status?.code) desc = `The code “${status.code.name}” gives this computer ${allowance}, and up to ${status.limits.requestsPerMinute} requests a minute, until ${formatEndDay(status.code.endsAt)}.`
+  else if (status?.ended && status.endsAt) desc = `Your free week ended on ${formatEndDay(status.endsAt)}. Pick another model, add an API key to another provider, or redeem an event code below.`
+  else desc = `No API key needed. Each computer gets ${allowance}, and up to ${status?.limits.requestsPerMinute ?? 20} requests a minute${status?.endsAt ? `, until ${formatEndDay(status.endsAt)}` : ''}.`
+  return (
+    <div className="provider-detail__section">
+      <div className="provider-detail__section-title">{status?.ended ? 'Free credits' : 'Today’s free credits'}</div>
+      <p className="provider-detail__section-desc">{desc}</p>
+      {status && !status.ended && (
+        <div className="free-usage">
+          <FreeMeter label="Requests" used={status.requests} limit={status.limits.requestsPerDay} format={(n) => n.toLocaleString('en-US')} />
+          <FreeMeter label="Tokens" used={status.tokens} limit={status.limits.tokensPerDay} format={formatAllowance} />
+          <div className="free-usage__note">Starts over at {status.code ? `${resets} (midnight UTC)` : `midnight (${resets})`}.</div>
+        </div>
+      )}
+      {status && !status.code && (
+        <RedeemCode
+          onRedeemed={async () => {
+            await refreshProviders()
+            load()
+          }}
+        />
+      )}
+    </div>
+  )
+}
+
+function FreeMeter({ label, used, limit, format }: { label: string; used: number; limit: number; format: (n: number) => string }): JSX.Element {
+  const share = Math.min(1, used / limit)
+  return (
+    <div className="free-usage__row">
+      <span className="free-usage__label">{label}</span>
+      <span className="free-usage__bar" role="meter" aria-label={label} aria-valuemin={0} aria-valuemax={limit} aria-valuenow={used}>
+        <span className="free-usage__fill" data-full={share >= 1 || undefined} style={{ width: `${share * 100}%` }} />
+      </span>
+      <span className="free-usage__count">
+        {format(Math.min(used, limit))} of {format(limit)}
+      </span>
     </div>
   )
 }
@@ -288,7 +470,8 @@ function ProviderDetail({
       {meta.baseUrlLabel && <EndpointSection provider={provider} meta={meta} />}
       {provider.local && <LocalUrlSection provider={provider} />}
       {!provider.builtIn && <CustomConnectionSection provider={provider} />}
-      {provider.auth !== 'oauth' && !provider.local && (
+      {provider.id === FREE_PROVIDER_ID && <FreeCreditsSection />}
+      {provider.auth !== 'oauth' && provider.auth !== 'none' && !provider.local && (
         <KeySection provider={provider} meta={meta} auth={auth} onStatus={setStatus} status={status} />
       )}
 

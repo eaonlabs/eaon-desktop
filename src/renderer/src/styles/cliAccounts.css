@@ -297,6 +297,153 @@ body[data-reduce-motion='on'] .usage-panel__refresh[data-spinning] svg {
   color: var(--text-3);
 }
 
+/* The switcher: the account in use, the CLI's other accounts, and moving panes. */
+.usage-tool__active {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 12px;
+  font-family: var(--font-ui);
+  font-size: var(--fs-sm);
+}
+.usage-tool__active--compact {
+  margin: -2px 0 4px;
+  font-size: 12px;
+}
+.usage-account__dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px var(--border-strong);
+}
+.usage-account__dot[data-active] {
+  background: var(--accent);
+  box-shadow: none;
+}
+.usage-account__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+}
+.usage-account__plan {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  line-height: 16px;
+  color: var(--text-2);
+  background: color-mix(in srgb, var(--text), transparent 92%);
+}
+.usage-account__state {
+  flex: none;
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--text-3);
+}
+.usage-accounts {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 0 10px;
+}
+.usage-accounts__head {
+  margin-bottom: 4px;
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-3);
+}
+.usage-accounts__fine {
+  margin: 4px 0 0;
+  font-size: 10.5px;
+  line-height: 1.5;
+  color: var(--text-3);
+}
+.usage-account {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
+  width: auto;
+  height: auto;
+  gap: 1px;
+  margin: 0 -8px;
+  padding: 7px 8px 6px;
+  border-radius: var(--r-sm);
+  text-align: left;
+  color: inherit;
+}
+.usage-account__line {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 3px;
+  font-family: var(--font-ui);
+  font-size: var(--fs-sm);
+}
+.usage-account:not(:disabled):hover {
+  background: var(--hover);
+}
+.usage-account:not(:disabled):hover .usage-account__state {
+  color: var(--accent);
+}
+.usage-account:not(:disabled):hover .usage-account__dot {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+}
+.usage-account:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+.usage-account__note {
+  font-size: 11px;
+  color: var(--text-3);
+}
+.usage-panel__links {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  border-top: 0.5px solid var(--border);
+  margin-top: 2px;
+  padding-top: 2px;
+}
+.usage-panel__links .usage-panel__settings:disabled {
+  opacity: 0.5;
+}
+
+.move-panes {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding: 9px 10px;
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--accent), transparent 90%);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--accent), transparent 70%);
+}
+.move-panes[data-compact] {
+  margin-top: 6px;
+}
+.move-panes__text,
+.move-panes__done {
+  margin: 0;
+  font-family: var(--font-ui);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--text-2);
+}
+.move-panes__done {
+  margin: 0 0 12px;
+  color: var(--text-3);
+}
+.move-panes__btn {
+  gap: 6px;
+}
+
 /* ---- Settings → Accounts (components/settings/pages/Accounts.tsx) ---- */
 
 .accounts__label {
@@ -456,4 +603,50 @@ body[data-reduce-motion='on'] .usage-panel__refresh[data-spinning] svg {
   color: var(--text-3);
   white-space: pre-wrap;
   word-break: break-all;
+}
+
+.account-row__windows {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin-top: 4px;
+}
+.account-row__window {
+  display: grid;
+  grid-template-columns: minmax(64px, max-content) 38px 1fr;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 17px;
+  color: var(--text-3);
+}
+.account-row__window-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-2);
+}
+.account-row__window-percent {
+  text-align: right;
+  color: var(--text-2);
+}
+.account-row__window[data-severity='warning'] .account-row__window-percent {
+  color: var(--usage-warn);
+}
+.account-row__window[data-severity='critical'] .account-row__window-percent {
+  color: var(--usage-critical);
+}
+.account-row__window-when {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.account-row__windows .account-row__usage {
+  margin-top: 1px;
+}
+.accounts__move:not(:empty) {
+  margin-top: 10px;
+}
+.accounts__move .move-panes {
+  margin: 0;
 }

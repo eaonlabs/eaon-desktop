@@ -577,6 +577,7 @@ export const BRAND_ICONS: Record<string, (props: TileProps) => JSX.Element> = {
   'cloudflare-ai-gateway': LOGOS.cloudflare,
   'amazon-bedrock': LOGOS.bedrock,
   'lm-studio': LOGOS.lmstudio,
+  'eaon-free': LOGOS.eaon,
   vllm: LOGOS.vllm,
   jan: LOGOS.jan
 }

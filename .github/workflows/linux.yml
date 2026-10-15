@@ -68,6 +68,10 @@ jobs:
       - name: Cua Driver
         run: node scripts/fetch-cua-driver.mjs linux-${{ matrix.arch }}
 
+      # The tokn command, which Eaon ships and puts on PATH: the pinned, checked package.
+      - name: tokn
+        run: node scripts/fetch-tokn-cli.mjs
+
       - name: Build
         run: |
           npx electron-vite build

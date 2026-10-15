@@ -3,10 +3,25 @@ import assert from 'node:assert/strict'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { DEFAULT_ACCOUNT_ID, usageKey, type CliTool } from '@shared/cliAccounts'
+import {
+  DEFAULT_ACCOUNT_ID,
+  hasRoom,
+  limitAlerts,
+  limitNoticeText,
+  liveWindow,
+  switchTarget,
+  usageKey,
+  type AccountUsage,
+  type AlertMemory,
+  type CliAccount,
+  type CliTool,
+  type LimitNotice,
+  type UsageWindow
+} from '@shared/cliAccounts'
 import { claudeStatus, claudeUsage, codexAccount, codexUsage } from '../src/main/features/cliAccounts/parse'
-import { prepareFolder, removeFolder, SHARED } from '../src/main/features/cliAccounts/folders'
-import { CliAccounts, firstUrl, stripAnsi, type CliRunner, type LoginProcess } from '../src/main/features/cliAccounts/service'
+import { hasRollout, prepareFolder, removeFolder, SHARED } from '../src/main/features/cliAccounts/folders'
+import { findCli } from '../src/main/features/cliAccounts/cli'
+import { CliAccounts, firstUrl, SLOW_FRESH_MS, stripAnsi, type CliRunner, type LoginProcess } from '../src/main/features/cliAccounts/service'
 
 /**
  * Claude Code and Codex accounts: reading what each CLI says about its plan,
@@ -162,7 +177,7 @@ interface Script {
   loggedOut: string[]
 }
 
-function harness(installed: CliTool[] = ['claude', 'codex']) {
+function harness(installed: CliTool[] = ['claude', 'codex'], options: { autoSwitch?: boolean } = {}) {
   const { root, home, cleanup } = scratch()
   let clock = Date.parse('2026-10-07T18:00:00Z')
   let saved: unknown = {}
@@ -188,6 +203,7 @@ function harness(installed: CliTool[] = ['claude', 'codex']) {
     }
   }
   const logins: { tool: CliTool; dir: string; data: (d: string) => void; exit: (code: number) => void; written: string[]; killed: boolean }[] = []
+  const notices: LimitNotice[] = []
   const service = new CliAccounts({
     runner,
     root,
@@ -205,6 +221,8 @@ function harness(installed: CliTool[] = ['claude', 'codex']) {
       return proc
     },
     changed: () => {},
+    alert: (notice) => void notices.push(notice),
+    autoSwitch: () => options.autoSwitch === true,
     now: () => clock,
     defaultDirs: { claude: home, codex: home }
   })
@@ -212,6 +230,8 @@ function harness(installed: CliTool[] = ['claude', 'codex']) {
     service,
     script,
     logins,
+    notices,
+    clock: () => clock,
     root,
     cleanup,
     tick: (ms: number) => (clock += ms),
@@ -448,4 +468,258 @@ test('signing an existing account in again: a failure keeps it; the default sign
   } finally {
     h.cleanup()
   }
+})
+
+/* ------------------------------------------------- limits, resets and alerts */
+
+const NOW = Date.parse('2026-10-07T18:00:00Z')
+const win = (id: string, percent: number, resetsAt: number | null, extra: Partial<UsageWindow> = {}): UsageWindow => ({
+  id,
+  label: id === 'session' ? 'Session' : 'Week',
+  span: '',
+  percent,
+  resetsAt,
+  severity: percent >= 90 ? 'critical' : 'normal',
+  ...extra
+})
+const ok = (...windows: UsageWindow[]): AccountUsage => ({ ok: true, at: NOW, plan: 'plus', windows })
+
+test('a window whose reset has passed since it was read shows as reset, never as a stale 100%', () => {
+  const full = win('session', 100, NOW + 60_000, { reached: true })
+  assert.equal(liveWindow(full, NOW).percent, 100)
+  const after = liveWindow(full, NOW + 60_000)
+  assert.deepEqual([after.percent, after.hasReset, after.reached, after.severity], [0, true, false, 'normal'])
+  assert.equal(liveWindow(win('week', 50, null), NOW + 1e9).hasReset, false, 'no reset time: nothing to go by')
+  assert.equal(hasRoom(ok(full), NOW), false)
+  assert.equal(hasRoom(ok(full), NOW + 60_000), true, 'room again once it resets')
+  assert.equal(hasRoom({ ok: false, at: NOW, reason: 'signed-out', message: '' }, NOW), false)
+})
+
+test('limit alerts: at 90% and at the limit, each once per window reset', () => {
+  const reset = NOW + 3 * 3600_000
+  let memory: AlertMemory = {}
+  const step = (usage: AccountUsage, at = NOW): string[] => {
+    const result = limitAlerts('codex', 'a1', usage, memory, at)
+    memory = result.memory
+    return result.alerts.map((a) => `${a.windowId}:${a.level}`)
+  }
+  assert.deepEqual(step(ok(win('session', 89, reset))), [], 'under 90%: nothing')
+  assert.deepEqual(step(ok(win('session', 91, reset), win('week', 40, null))), ['session:near'])
+  assert.deepEqual(step(ok(win('session', 95, reset))), [], 'said once')
+  assert.deepEqual(step(ok(win('session', 97, reset, { reached: true }))), ['session:reached'], 'hitting it is news')
+  assert.deepEqual(step(ok(win('session', 100, reset))), [])
+  assert.deepEqual(step(ok(win('session', 93, reset + 5 * 3600_000)), reset + 1000), ['session:near'], 'its reset passed: armed again')
+  assert.deepEqual(step(ok(win('session', 10, reset + 5 * 3600_000)), reset + 2000), [])
+  assert.deepEqual(memory, {}, 'under 90% again forgets it')
+  assert.deepEqual(step(ok(win('week', 100, null))), ['week:reached'], 'no reset time: straight to the limit')
+  assert.deepEqual(step(ok(win('week', 100, null))), [])
+  assert.deepEqual(limitAlerts('codex', 'a1', { ok: false, at: NOW, reason: 'failed', message: 'x' }, memory, NOW).alerts, [])
+  assert.ok(Object.keys(limitAlerts('codex', 'a2', ok(win('week', 95, null)), memory, NOW).memory).includes('codex:a1:week'), 'other accounts are kept apart')
+})
+
+test('the account to switch to: signed in, with room, the emptiest first', () => {
+  const account = (id: string, email: string): CliAccount => ({ id, dir: id === DEFAULT_ACCOUNT_ID ? null : `/accounts/${id}`, label: '', email, plan: null, addedAt: 0 })
+  const tools = {
+    claude: { active: DEFAULT_ACCOUNT_ID, accounts: [account(DEFAULT_ACCOUNT_ID, 'alex@example.com')] },
+    codex: {
+      active: DEFAULT_ACCOUNT_ID,
+      accounts: [account(DEFAULT_ACCOUNT_ID, 'alex@example.com'), account('b', 'b@example.com'), account('c', 'c@example.com'), account('d', 'd@example.com'), account('e', 'e@example.com')]
+    }
+  }
+  const usage: Record<string, AccountUsage> = {
+    [usageKey('codex', DEFAULT_ACCOUNT_ID)]: ok(win('session', 100, NOW + 3600_000, { reached: true })),
+    [usageKey('codex', 'b')]: ok(win('session', 60, null)),
+    [usageKey('codex', 'c')]: ok(win('session', 20, null), win('week', 30, null)),
+    [usageKey('codex', 'd')]: ok(win('session', 95, null)),
+    [usageKey('codex', 'e')]: { ok: false, at: NOW, reason: 'signed-out', message: 'Not signed in' }
+  }
+  assert.equal(switchTarget('codex', { tools, usage }, NOW)?.id, 'c')
+  assert.equal(switchTarget('codex', { tools, usage }, NOW, 'c')?.id, 'b')
+  assert.equal(switchTarget('claude', { tools, usage }, NOW), null, 'one account: nowhere to go')
+  usage[usageKey('codex', 'b')] = ok(win('session', 100, NOW + 60_000))
+  usage[usageKey('codex', 'c')] = ok(win('session', 92, null))
+  assert.equal(switchTarget('codex', { tools, usage }, NOW), null, 'none has room')
+  assert.equal(switchTarget('codex', { tools, usage }, NOW + 60_000)?.id, 'b', 'until one resets')
+})
+
+test('the notification says what hit, when it resets, and where there is room', () => {
+  const notice: LimitNotice = { tool: 'codex', accountId: 'a1', windowId: 'session', label: 'Session', level: 'reached', percent: 100, resetsAt: NOW + 2 * 3600_000 + 5 * 60_000, name: 'Work', switchTo: { id: 'b', name: 'Personal' }, switched: false }
+  const text = limitNoticeText(notice, NOW)
+  assert.equal(text.title, 'Codex: Work hit its session limit')
+  assert.match(text.body, /^Resets (\w{3} )?at .+ \(in 2h 5m\)\. Personal has room\.$/)
+  assert.match(limitNoticeText({ ...notice, switched: true }, NOW).body, /New Codex sessions now use Personal\.$/)
+  assert.equal(limitNoticeText({ ...notice, level: 'near', percent: 92, resetsAt: null, switchTo: null }, NOW).title, 'Codex: Work is at 92% of its session limit')
+})
+
+test('Codex’s rateLimitReachedType marks the window it names as reached', () => {
+  const usage = codexUsage({
+    rateLimits: { limitId: 'codex', primary: { usedPercent: 40, windowDurationMins: 300, resetsAt: 1 }, secondary: { usedPercent: 99, windowDurationMins: 10080, resetsAt: 2 }, rateLimitReachedType: 'secondary' }
+  })
+  assert.deepEqual(usage.windows.map((w) => [w.id, w.reached === true, w.severity]), [
+    ['session', false, 'normal'],
+    ['week', true, 'critical']
+  ])
+  const none = codexUsage({ rateLimits: { limitId: 'codex', primary: { usedPercent: 40, windowDurationMins: 300, resetsAt: 1 }, rateLimitReachedType: null } })
+  assert.equal(none.windows[0].reached, undefined)
+})
+
+test('a conversation’s rollout is found in a Codex folder, linked or not', () => {
+  const { root, home, cleanup } = scratch()
+  try {
+    const id = '0199aaaa-bbbb-7ccc-8ddd-eeeeffff0000'
+    const day = path.join(home, 'sessions', '2026', '10', '07')
+    fs.mkdirSync(day, { recursive: true })
+    fs.writeFileSync(path.join(day, `rollout-2026-10-07T10-00-00-${id}.jsonl`), '{}\n')
+    assert.equal(hasRollout(home, id), true)
+    assert.equal(hasRollout(home, '0199aaaa-bbbb-7ccc-8ddd-eeeeffff0001'), false)
+    const extra = path.join(root, 'codex', 'x1')
+    prepareFolder('codex', extra, home)
+    assert.equal(hasRollout(extra, id), true, 'an extra account shares the default’s sessions')
+    assert.equal(hasRollout(path.join(root, 'nowhere'), id), false)
+  } finally {
+    cleanup()
+  }
+})
+
+/* ---------------------------------------------- the service: switching and alerts */
+
+/** Adds a signed-in Codex account through the scripted sign-in; returns its id and folder. */
+async function addCodex(h: ReturnType<typeof harness>, email: string, limits: unknown): Promise<{ id: string; dir: string }> {
+  h.service.addAccount('codex')
+  const login = h.logins[h.logins.length - 1]
+  h.script.codex.set(login.dir, { account: { account: { type: 'chatgpt', email, planType: 'plus' } }, limits })
+  login.exit(0)
+  await until(() => h.service.state().login.state === 'done')
+  h.service.dismissLogin()
+  return { id: h.service.state().tools.codex.active, dir: login.dir }
+}
+
+const codexLimits = (percent: number, resetsAt: number, reached: string | null = null): unknown => ({
+  rateLimits: { limitId: 'codex', primary: { usedPercent: percent, windowDurationMins: 300, resetsAt: Math.round(resetsAt / 1000) }, secondary: null, planType: 'plus', rateLimitReachedType: reached }
+})
+
+test('switching tells whoever follows the active account, and gives one CLI’s folder on its own', async () => {
+  const h = harness()
+  try {
+    const heard: CliTool[] = []
+    const stop = h.service.onActive((tool) => heard.push(tool))
+    const extra = await addCodex(h, 'work@example.com', codexLimits(10, h.clock() + 3600_000))
+    assert.deepEqual(heard, ['codex'], 'a new account, signed in, becomes the active one')
+    assert.deepEqual(h.service.toolEnv('codex'), { CODEX_HOME: extra.dir })
+    assert.deepEqual(h.service.toolEnv('claude'), {}, 'the other CLI is untouched')
+
+    h.service.use('codex', extra.id)
+    assert.deepEqual(heard, ['codex'], 'choosing the one already in use is no change')
+    h.service.use('codex', DEFAULT_ACCOUNT_ID)
+    assert.deepEqual(h.service.toolEnv('codex'), {})
+    h.service.use('codex', extra.id)
+    await h.service.remove('codex', extra.id)
+    assert.deepEqual(heard, ['codex', 'codex', 'codex', 'codex'], 'removing the active account falls back to the default, and says so')
+    stop()
+    h.service.use('codex', DEFAULT_ACCOUNT_ID)
+    assert.equal(heard.length, 4)
+  } finally {
+    h.cleanup()
+  }
+})
+
+test('the background reads the other accounts every half hour, and a window that reset straight away', async () => {
+  const h = harness(['codex'])
+  try {
+    const extra = await addCodex(h, 'work@example.com', codexLimits(10, h.clock() + 2 * 3600_000))
+    h.service.use('codex', DEFAULT_ACCOUNT_ID)
+    await h.service.refresh({ background: 'visible' })
+    const reads = (dir: string | null): number => h.script.calls.filter((c) => c === `codex read ${dir ?? 'default'}`).length
+    const extraReads = reads(extra.dir)
+    h.tick(10 * 60_000)
+    await h.service.refresh({ background: 'visible' })
+    assert.equal(reads(extra.dir), extraReads, 'an account not in use waits half an hour')
+    const defaultReads = reads(null)
+    h.tick(SLOW_FRESH_MS)
+    await h.service.refresh({ background: 'hidden' })
+    assert.equal(reads(extra.dir), extraReads, 'with no window up, only the account in use')
+    assert.equal(reads(null), defaultReads + 1)
+    await h.service.refresh({ background: 'visible' })
+    assert.equal(reads(extra.dir), extraReads + 1)
+
+    // The default's session resets in five minutes; read a minute before, then just after.
+    h.script.codex.set(null, { account: { account: { type: 'chatgpt', email: 'alex@example.com', planType: 'plus' } }, limits: codexLimits(100, h.clock() + 5 * 60_000, 'primary') })
+    h.tick(61_000)
+    await h.service.refresh()
+    const before = reads(null)
+    h.tick(30_000)
+    await h.service.refresh({ background: 'hidden' })
+    assert.equal(reads(null), before, 'fresh enough, and nothing reset')
+    h.tick(5 * 60_000)
+    await h.service.refresh({ background: 'hidden' })
+    assert.equal(reads(null), before + 1, 'its window reset since: read again, well before half an hour')
+  } finally {
+    h.cleanup()
+  }
+})
+
+test('the active account hitting its limit: one alert per reset, naming an account with room', async () => {
+  const h = harness(['codex'])
+  try {
+    const reset = h.clock() + 3 * 3600_000
+    const extra = await addCodex(h, 'work@example.com', codexLimits(12, reset))
+    h.script.codex.set(null, { account: { account: { type: 'chatgpt', email: 'alex@example.com', planType: 'plus' } }, limits: codexLimits(92, reset) })
+    h.service.use('codex', DEFAULT_ACCOUNT_ID)
+    await h.service.refresh({ all: true })
+    assert.deepEqual(h.notices.map((n) => [n.accountId, n.level, n.percent]), [[DEFAULT_ACCOUNT_ID, 'near', 92]], 'only the account in use is alerted on')
+    assert.deepEqual(h.notices[0].switchTo, { id: extra.id, name: 'work@example.com' })
+    assert.equal(h.notices[0].switched, false)
+
+    h.tick(61_000)
+    await h.service.refresh()
+    assert.equal(h.notices.length, 1, 'still near: not said again')
+    h.script.codex.set(null, { account: { account: { type: 'chatgpt', email: 'alex@example.com', planType: 'plus' } }, limits: codexLimits(100, reset, 'primary') })
+    h.tick(61_000)
+    await h.service.refresh()
+    assert.deepEqual(h.notices.map((n) => n.level), ['near', 'reached'])
+    assert.equal(h.service.state().tools.codex.active, DEFAULT_ACCOUNT_ID, 'no switching unless asked for')
+  } finally {
+    h.cleanup()
+  }
+})
+
+test('with the automatic switch on, a Codex account at its limit hands over to the one with room', async () => {
+  const h = harness(['codex'], { autoSwitch: true })
+  try {
+    const heard: CliTool[] = []
+    const reset = h.clock() + 3 * 3600_000
+    const extra = await addCodex(h, 'work@example.com', codexLimits(12, reset))
+    h.service.use('codex', DEFAULT_ACCOUNT_ID)
+    h.service.onActive((tool) => heard.push(tool))
+    await h.service.refresh({ all: true, force: true })
+    assert.equal(h.notices.length, 0)
+    h.script.codex.set(null, { account: { account: { type: 'chatgpt', email: 'alex@example.com', planType: 'plus' } }, limits: codexLimits(100, reset, 'primary') })
+    h.tick(61_000)
+    await h.service.refresh()
+    assert.equal(h.service.state().tools.codex.active, extra.id)
+    assert.deepEqual(heard, ['codex'], 'the engine and new panes hear of it')
+    assert.deepEqual(h.service.terminalEnv(), { CODEX_HOME: extra.dir })
+    assert.equal(h.notices.length, 1)
+    assert.equal(h.notices[0].switched, true)
+    assert.match(limitNoticeText(h.notices[0], h.clock()).body, /New Codex sessions now use work@example\.com\./)
+
+    // The new one hits its limit too, with nowhere left to go: an alert, and no switch.
+    h.script.codex.set(extra.dir, { account: { account: { type: 'chatgpt', email: 'work@example.com', planType: 'plus' } }, limits: codexLimits(100, reset, 'primary') })
+    h.tick(61_000)
+    await h.service.refresh()
+    assert.equal(h.service.state().tools.codex.active, extra.id)
+    assert.equal(h.notices.length, 2)
+    assert.equal(h.notices[1].switchTo, null)
+  } finally {
+    h.cleanup()
+  }
+})
+
+test('a CLI named in EAON_CLAUDE_BIN / EAON_CODEX_BIN is used instead of searching; `none` means not installed', () => {
+  const which = (bin: string): string | null => `/path/${bin}`
+  const exists = (file: string): boolean => file.startsWith('/fake/')
+  assert.equal(findCli('claude', which, exists, {}), '/path/claude')
+  assert.equal(findCli('codex', which, exists, { EAON_CODEX_BIN: '/fake/codex' }), '/fake/codex')
+  assert.equal(findCli('claude', which, exists, { EAON_CLAUDE_BIN: 'none' }), null)
+  assert.equal(findCli('codex', which, exists, { EAON_CODEX_BIN: '/missing/codex' }), null, 'a pinned CLI that isn’t there is not replaced by another')
 })

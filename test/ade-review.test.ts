@@ -4,10 +4,35 @@ import { execFileSync } from 'node:child_process'
 import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
-import { formatReviewComments, parseUnifiedDiff, prFromGh } from '../src/shared/adeReview'
+import {
+  actionsRunOf,
+  cleanRunLog,
+  conflictCount,
+  formatCheckFailure,
+  formatReviewComments,
+  hasConflictMarkers,
+  parseConflicts,
+  parseUnifiedDiff,
+  prFromGh,
+  pullRequestFromCommits,
+  resolveConflicts,
+  runsFromGh
+} from '../src/shared/adeReview'
 import { HostBook } from '../src/main/features/ade/hosts'
 import { makeRunner } from '../src/main/features/ade/runner'
-import { commitAll, reviewState } from '../src/main/features/ade/review'
+import {
+  abortMerge,
+  baseBranches,
+  checkLog,
+  commitAll,
+  finishMerge,
+  markResolved,
+  pullRequestText,
+  readConflictFile,
+  reviewState,
+  updateFromBase,
+  writeConflictFile
+} from '../src/main/features/ade/review'
 
 /**
  * Review in the ADE (shared/adeReview.ts, main/features/ade/review.ts): git's
@@ -101,14 +126,162 @@ test('a pull request’s checks are counted from what gh reports, check runs and
   assert.equal(prFromGh({ nope: true }), null)
 })
 
+test('each check keeps its name, status, conclusion, link and workflow, failing ones first', () => {
+  const pr = prFromGh({
+    number: 7,
+    url: 'https://github.com/octo-org/demo/pull/7',
+    mergeable: 'CONFLICTING',
+    baseRefName: 'main',
+    statusCheckRollup: [
+      { __typename: 'CheckRun', name: 'build', workflowName: 'CI', status: 'COMPLETED', conclusion: 'SUCCESS', detailsUrl: 'https://github.com/octo-org/demo/actions/runs/1/job/11' },
+      { __typename: 'StatusContext', context: 'deploy/preview', state: 'PENDING', targetUrl: 'https://preview.example.com/7' },
+      { __typename: 'CheckRun', name: 'test', workflowName: 'CI', status: 'COMPLETED', conclusion: 'TIMED_OUT', detailsUrl: 'https://github.com/octo-org/demo/actions/runs/1/job/12' }
+    ]
+  })
+  assert.equal(pr?.mergeable, 'CONFLICTING')
+  assert.equal(pr?.baseRef, 'main')
+  assert.deepEqual(pr?.checkRuns, [
+    { name: 'test', status: 'failed', conclusion: 'TIMED_OUT', url: 'https://github.com/octo-org/demo/actions/runs/1/job/12', workflow: 'CI' },
+    { name: 'deploy/preview', status: 'pending', conclusion: '', url: 'https://preview.example.com/7', workflow: '' },
+    { name: 'build', status: 'passed', conclusion: 'SUCCESS', url: 'https://github.com/octo-org/demo/actions/runs/1/job/11', workflow: 'CI' }
+  ])
+  // An older record without the new fields still reads.
+  const old = prFromGh({ number: 1, url: 'https://github.com/octo-org/demo/pull/1' })
+  assert.deepEqual([old?.mergeable, old?.baseRef, old?.checkRuns], ['UNKNOWN', '', []])
+})
+
+test('a branch’s workflow runs read as checks; an Actions link gives its run and job', () => {
+  assert.deepEqual(
+    runsFromGh([
+      { databaseId: 5, name: 'Fix it', workflowName: 'CI', status: 'completed', conclusion: 'failure', url: 'https://github.com/octo-org/demo/actions/runs/5' },
+      { databaseId: 6, name: 'Fix it', workflowName: 'Lint', status: 'in_progress', conclusion: '', url: 'https://github.com/octo-org/demo/actions/runs/6' }
+    ]),
+    [
+      { name: 'CI', status: 'failed', conclusion: 'FAILURE', url: 'https://github.com/octo-org/demo/actions/runs/5', workflow: 'CI' },
+      { name: 'Lint', status: 'pending', conclusion: '', url: 'https://github.com/octo-org/demo/actions/runs/6', workflow: 'Lint' }
+    ]
+  )
+  assert.deepEqual(runsFromGh('nope'), [])
+  assert.deepEqual(actionsRunOf('https://github.com/octo-org/demo/actions/runs/123/job/456'), { run: '123', job: '456' })
+  assert.deepEqual(actionsRunOf('https://github.com/octo-org/demo/actions/runs/123'), { run: '123', job: null })
+  assert.equal(actionsRunOf('https://ci.example.com/build/9'), null)
+  assert.equal(actionsRunOf(null), null)
+})
+
+test('a failed run’s log is cut to its end, one header per step, without timestamps or colours', () => {
+  const raw = [
+    'test\tSet up job\t2026-10-01T10:00:00.1234567Z Starting',
+    'test\tRun npm test\t2026-10-01T10:00:01.0000000Z \u001b[31mnot ok 1\u001b[0m - adds',
+    'test\tRun npm test\t2026-10-01T10:00:02.0000000Z ##[error]Process completed with exit code 1.',
+    ''
+  ].join('\n')
+  assert.deepEqual(cleanRunLog(raw), {
+    log: '── test › Set up job\nStarting\n── test › Run npm test\nnot ok 1 - adds\n##[error]Process completed with exit code 1.',
+    truncated: false
+  })
+  const long = Array.from({ length: 450 }, (_, i) => `line ${i + 1}`).join('\n')
+  const cut = cleanRunLog(long)
+  assert.equal(cut.truncated, true)
+  assert.equal(cut.log.split('\n').length, 200)
+  assert.ok(cut.log.startsWith('line 251\n') && cut.log.endsWith('line 450'))
+})
+
+test('a failed check goes to the agent with its link and its log in a fence the log can’t close', () => {
+  const text = formatCheckFailure({ name: 'test', url: 'https://github.com/octo-org/demo/actions/runs/1/job/2', conclusion: 'FAILURE' }, 'expected ```a```\nnot ok 1', true)
+  assert.equal(
+    text,
+    'The CI check "test" failed on this branch.\nhttps://github.com/octo-org/demo/actions/runs/1/job/2\n\n' +
+      'The end of its log:\n\n````text\nexpected ```a```\nnot ok 1\n````\n\n' +
+      'Please find the cause, fix it, and run the relevant tests before you finish.'
+  )
+  assert.match(formatCheckFailure({ name: 'e2e', url: null, conclusion: 'TIMED_OUT' }, ''), /^The CI check "e2e" failed \(timed out\) on this branch\.\n\nPlease/)
+})
+
+test('a range comment names its lines and quotes them all, without their shared indent', () => {
+  const text = formatReviewComments([
+    { id: '1', path: 'src/a.ts', line: 12, endLine: 10, side: 'new', quote: '  if (x) {\n    run()\n  }', body: 'Use **early return**.' },
+    { id: '2', path: 'src/a.ts', line: 3, endLine: 3, side: 'new', quote: 'const y = 2', body: 'Rename.' }
+  ])
+  assert.equal(
+    text,
+    'I reviewed your changes and left 2 comments. Please address each one:\n\n' +
+      'src/a.ts:3\n> const y = 2\nRename.\n\n' +
+      'src/a.ts:10-12\n> if (x) {\n>   run()\n> }\nUse **early return**.'
+  )
+  assert.match(formatReviewComments([{ id: '3', path: 'b.ts', line: 4, endLine: 6, side: 'old', quote: 'a\n\nb', body: 'Why?' }]), /b\.ts:4-6 \(removed lines\)\n> a\n>\n> b\nWhy\?$/)
+})
+
+test('conflict markers become blocks, diff3’s base included, and resolve to the side chosen', () => {
+  const file = [
+    'top',
+    '<<<<<<< HEAD',
+    'ours 1',
+    '||||||| merged common ancestors',
+    'base 1',
+    '=======',
+    'theirs 1',
+    '>>>>>>> main',
+    'middle',
+    '<<<<<<< HEAD',
+    'ours 2',
+    '=======',
+    'theirs 2a',
+    'theirs 2b',
+    '>>>>>>> main',
+    'end',
+    ''
+  ].join('\n')
+  const segments = parseConflicts(file)
+  assert.equal(conflictCount(segments), 2)
+  assert.deepEqual(segments[1], { kind: 'conflict', oursLabel: 'HEAD', theirsLabel: 'main', ours: ['ours 1'], base: ['base 1'], baseLabel: 'merged common ancestors', theirs: ['theirs 1'] })
+  assert.deepEqual(segments[3], { kind: 'conflict', oursLabel: 'HEAD', theirsLabel: 'main', ours: ['ours 2'], base: null, baseLabel: '', theirs: ['theirs 2a', 'theirs 2b'] })
+  // Nothing chosen gives the file back as it was.
+  assert.equal(resolveConflicts(segments, []), file)
+  assert.equal(resolveConflicts(segments, ['ours', 'theirs']), 'top\nours 1\nmiddle\ntheirs 2a\ntheirs 2b\nend\n')
+  assert.equal(resolveConflicts(segments, ['both', undefined]).split('<<<<<<<').length, 2)
+  assert.equal(resolveConflicts(segments, ['both', 'both']), 'top\nours 1\ntheirs 1\nmiddle\nours 2\ntheirs 2a\ntheirs 2b\nend\n')
+  assert.equal(hasConflictMarkers(file), true)
+  // A marker that never closes is text, not a conflict.
+  const open = 'a\n<<<<<<< HEAD\nb\n=======\nc\n'
+  assert.equal(conflictCount(parseConflicts(open)), 0)
+  assert.equal(resolveConflicts(parseConflicts(open), []), open)
+})
+
+test('a pull request’s title and description come from the branch’s commits', () => {
+  assert.deepEqual(pullRequestFromCommits(['Fix the CI link'], 'fix/ci-link'), { title: 'Fix the CI link', body: '' })
+  assert.deepEqual(pullRequestFromCommits(['Add a meter', 'Show it in the header'], 'feature/usage_meter'), {
+    title: 'Usage meter',
+    body: '- Add a meter\n- Show it in the header'
+  })
+  assert.deepEqual(pullRequestFromCommits(['One', 'Two'], null), { title: 'One', body: '- One\n- Two' })
+})
+
 let tmp = ''
 let repo = ''
 const env = { ...process.env, GIT_AUTHOR_NAME: 'T', GIT_AUTHOR_EMAIL: 't@e.com', GIT_COMMITTER_NAME: 'T', GIT_COMMITTER_EMAIL: 't@e.com' }
 const git = (...args: string[]): string => execFileSync('git', ['-C', repo, ...args], { env, encoding: 'utf8' }).trim()
 const run = makeRunner(new HostBook({ load: () => [], save: () => undefined, readConfig: async () => [] }))
 
+let ghLog = ''
+
 before(() => {
   tmp = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'ade-review-')))
+  // A stand-in GitHub CLI, so no test reaches GitHub or the user's gh sign-in:
+  // signed out, except for the run log the CI test asks for.
+  ghLog = path.join(tmp, 'gh.log')
+  const gh = path.join(tmp, 'gh')
+  fs.writeFileSync(
+    gh,
+    [
+      '#!/bin/sh',
+      `printf '%s\\n' "$*" >> '${ghLog}'`,
+      'if [ "$1 $2" = "run view" ]; then printf "test\\tRun npm test\\t2026-10-01T10:00:00.0Z not ok 1 - adds\\n"; exit 0; fi',
+      'echo "To get started with GitHub CLI, please run:  gh auth login" >&2',
+      'exit 4'
+    ].join('\n')
+  )
+  fs.chmodSync(gh, 0o755)
+  process.env.EAON_GH_BIN = gh
   repo = path.join(tmp, 'acme')
   fs.mkdirSync(repo)
   Object.assign(process.env, { GIT_AUTHOR_NAME: 'T', GIT_AUTHOR_EMAIL: 't@e.com', GIT_COMMITTER_NAME: 'T', GIT_COMMITTER_EMAIL: 't@e.com' })
@@ -118,7 +291,10 @@ before(() => {
   git('commit', '-q', '-m', 'first')
 })
 
-after(() => fs.rmSync(tmp, { recursive: true, force: true }))
+after(() => {
+  delete process.env.EAON_GH_BIN
+  fs.rmSync(tmp, { recursive: true, force: true })
+})
 
 test('a branch’s review holds what it committed since main and what it hasn’t yet, new files included', async () => {
   git('checkout', '-q', '-b', 'feature/thing')
@@ -178,4 +354,101 @@ test('a folder outside git, or with no commits, says so instead of failing', asy
   execFileSync('git', ['-C', empty, 'init', '-q'])
   const none = await reviewState(run, empty)
   assert.ok(!none.ok && /no commits yet/.test(none.error))
+})
+
+test('gh signed out inside GitHub Actions reads as signed out, not as its GH_TOKEN example', async () => {
+  const actionsGh = path.join(tmp, 'gh-actions')
+  fs.writeFileSync(
+    actionsGh,
+    [
+      '#!/bin/sh',
+      'echo "gh: To use GitHub CLI in a GitHub Actions workflow, set the GH_TOKEN environment variable. Example:" >&2',
+      'echo "  env:" >&2',
+      'echo "    GH_TOKEN: \\${{ github.token }}" >&2',
+      'exit 4'
+    ].join('\n')
+  )
+  fs.chmodSync(actionsGh, 0o755)
+  const was = process.env.EAON_GH_BIN
+  process.env.EAON_GH_BIN = actionsGh
+  try {
+    const res = await reviewState(run, repo)
+    assert.ok(res.ok)
+    if (!res.ok) return
+    assert.equal(res.state.github, null)
+    assert.equal(res.state.githubProblem, 'Sign in to the GitHub CLI first: run gh auth login in a terminal.')
+  } finally {
+    process.env.EAON_GH_BIN = was
+  }
+})
+
+test('a failed check’s log comes from gh run view, for the job its link names', async () => {
+  const res = await checkLog(run, repo, { url: 'https://github.com/octo-org/demo/actions/runs/31/job/32', name: 'test', workflow: 'CI' })
+  assert.deepEqual(res, { ok: true, log: '── test › Run npm test\nnot ok 1 - adds', truncated: false })
+  assert.match(fs.readFileSync(ghLog, 'utf8'), /^run view --job 32 --log-failed$/m)
+  const other = await checkLog(run, repo, { url: 'https://ci.example.com/9', name: 'deploy', workflow: '' })
+  assert.ok(!other.ok && /GitHub Actions/.test(other.error))
+})
+
+test('updating from main merges it in; conflicts are found, resolved here, and the merge finished', async () => {
+  git('checkout', '-q', '-b', 'feature/clash', 'main')
+  fs.writeFileSync(path.join(repo, 'app.ts'), 'one\nfeature two\nthree\n')
+  git('commit', '-q', '-am', 'feature edit')
+  git('checkout', '-q', 'main')
+  fs.writeFileSync(path.join(repo, 'app.ts'), 'one\nmain two\nthree\n')
+  git('commit', '-q', '-am', 'main edit')
+  git('checkout', '-q', 'feature/clash')
+
+  const before = await reviewState(run, repo)
+  assert.ok(before.ok && before.state.behindBase === 1 && before.state.merging === null && before.state.conflicted.length === 0)
+
+  const updated = await updateFromBase(run, repo)
+  assert.ok(!updated.ok && /left conflicts in a file/.test(updated.error))
+  const during = await reviewState(run, repo)
+  assert.ok(during.ok)
+  if (!during.ok) return
+  assert.equal(during.state.merging, 'merge')
+  assert.deepEqual(during.state.conflicted, ['app.ts'])
+
+  // Only conflicted files can be read or written, and nothing outside the repository.
+  assert.equal((await readConflictFile(run, repo, 'nope.ts')).ok, false)
+  assert.equal((await writeConflictFile(run, repo, 'nope.ts', 'x')).ok, false)
+  const read = await readConflictFile(run, repo, 'app.ts')
+  assert.ok(read.ok)
+  if (!read.ok) return
+  const segments = parseConflicts(read.text)
+  assert.equal(conflictCount(segments), 1)
+  assert.equal((await finishMerge(run, repo)).ok, false)
+  assert.ok(!(await markResolved(run, repo, 'app.ts')).ok, 'markers still there')
+
+  assert.ok((await writeConflictFile(run, repo, 'app.ts', resolveConflicts(segments, ['theirs']))).ok)
+  assert.ok((await markResolved(run, repo, 'app.ts')).ok)
+  const done = await finishMerge(run, repo)
+  assert.ok(done.ok, done.ok ? '' : done.error)
+  assert.equal(fs.readFileSync(path.join(repo, 'app.ts'), 'utf8'), 'one\nmain two\nthree\n')
+  assert.equal(git('rev-list', '--count', '--merges', 'main..HEAD'), '1')
+  const after = await reviewState(run, repo)
+  assert.ok(after.ok && after.state.merging === null && after.state.behindBase === 0)
+})
+
+test('a merge can be abandoned; branches and commits fill in a pull request', async () => {
+  git('checkout', '-q', 'main')
+  fs.writeFileSync(path.join(repo, 'app.ts'), 'one\nmain again\nthree\n')
+  git('commit', '-q', '-am', 'main again')
+  git('checkout', '-q', 'feature/clash')
+  fs.writeFileSync(path.join(repo, 'app.ts'), 'one\nclash again\nthree\n')
+  git('commit', '-q', '-am', 'clash again')
+  assert.equal((await updateFromBase(run, repo)).ok, false)
+  const aborted = await abortMerge(run, repo)
+  assert.ok(aborted.ok)
+  assert.equal(fs.readFileSync(path.join(repo, 'app.ts'), 'utf8'), 'one\nclash again\nthree\n')
+  assert.equal((await abortMerge(run, repo)).ok, false)
+
+  const branches = await baseBranches(run, repo)
+  assert.equal(branches.default, 'main')
+  assert.equal(branches.branches[0], 'main')
+  assert.ok(branches.branches.includes('feature/clash'))
+  const text = await pullRequestText(run, repo, 'main')
+  assert.deepEqual(text, { title: 'Clash', body: '- feature edit\n- clash again' })
+  assert.ok('error' in (await pullRequestText(run, repo, 'feature/clash')))
 })

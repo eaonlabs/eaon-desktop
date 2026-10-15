@@ -195,7 +195,12 @@ export async function launchApp(options) {
   }
   if (options.seed) seedStore(profileDir, options.seed)
 
-  const childEnv = { ...process.env, HOME: homeDir, ...env }
+  // Off unless a scenario turns them on, since every scenario starts from a
+  // fresh profile: the first-run setup and tour (EAON_ONBOARDING=on), putting
+  // `tokn` on PATH (EAON_TOKN_CLI=on), and the star popup and Eaon Free card
+  // that would come up in the corner of any scenario over half a minute long
+  // (EAON_OFFERS).
+  const childEnv = { ...process.env, HOME: homeDir, EAON_ONBOARDING: 'off', EAON_TOKN_CLI: 'off', EAON_OFFERS: 'off', ...env }
   // Any of these would change what launches: a node instead of Electron, a
   // dev server's page, or the screenshot harness (which wipes the store).
   for (const key of ['ELECTRON_RUN_AS_NODE', 'ELECTRON_RENDERER_URL', 'EAON_CAPTURE', 'EAON_CAPTURE_STEPS', 'NODE_OPTIONS']) delete childEnv[key]

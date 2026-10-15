@@ -419,3 +419,82 @@
   flex-wrap: wrap;
   gap: 4px 14px;
 }
+
+/* Eaon Free: the offer row's tag, and today's allowance (Providers.tsx). */
+.provider-row__free {
+  margin-left: auto;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.free-usage {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 12px;
+}
+.free-usage__row {
+  display: grid;
+  grid-template-columns: 76px 1fr auto;
+  align-items: center;
+  gap: 12px;
+  font-size: var(--fs-sm);
+}
+.free-usage__label {
+  color: var(--text-2);
+}
+.free-usage__bar {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  overflow: hidden;
+}
+.free-usage__fill {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+}
+.free-usage__fill[data-full] {
+  background: var(--danger, #d64545);
+}
+.free-usage__count {
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.free-usage__note {
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+
+/* Eaon Free: "Have an event code?" (Providers.tsx RedeemCode). */
+.free-code {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-soft);
+}
+.provider-credits + .free-code {
+  margin-top: 0;
+  border-top: 0;
+  padding-top: 4px;
+}
+.free-code__title {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text);
+}
+.free-code__desc {
+  margin: 4px 0 8px;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+.free-code .input {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  text-transform: uppercase;
+}
+.free-code .input::placeholder {
+  text-transform: none;
+}

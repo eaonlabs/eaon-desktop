@@ -46,6 +46,7 @@ import { gatewayApi } from './features/gateway'
 import { connectAppsApi } from './features/connectApps'
 import { linkAccountsApi } from './features/linkAccounts'
 import { usageApi } from './features/usage'
+import { toknCliApi } from './features/toknCli'
 import { paymentsApi } from './features/payments'
 import { enginesApi } from './features/engines'
 import { storageApi } from './features/storage'
@@ -53,6 +54,7 @@ import { remoteApi } from './features/remote'
 import { rcApi } from './features/rc'
 import { controlApi } from './features/control'
 import { starApi } from './features/star'
+import { freeCreditsApi } from './features/freeCredits'
 import { cliAccountsApi } from './features/cliAccounts'
 
 /** Subscribes to a main-process event; returns the unsubscribe. */
@@ -329,6 +331,7 @@ const fullApi = {
   connectApps: connectAppsApi,
   linkAccounts: linkAccountsApi,
   usage: usageApi,
+  toknCli: toknCliApi,
   payments: paymentsApi,
   engines: enginesApi,
   storage: storageApi,
@@ -336,6 +339,7 @@ const fullApi = {
   rc: rcApi,
   control: controlApi,
   star: starApi,
+  freeCredits: freeCreditsApi,
   cliAccounts: cliAccountsApi
 }
 

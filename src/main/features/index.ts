@@ -15,6 +15,8 @@ import { remoteFeature } from './remote'
 import { rcFeature } from './rc'
 import { controlFeature } from './control'
 import { starRepoFeature } from './starRepo'
+import { toknCliFeature } from './toknCli'
+import { freeCreditsFeature } from './freeCredits'
 import { cliAccountsFeature } from './cliAccounts'
 import { channelsFeature } from './channels'
 import { agentBrowserFeature } from './agentBrowser'
@@ -69,6 +71,8 @@ export const FEATURES: Feature[] = [
   linkAccountsFeature,
   usageFeature,
   starRepoFeature,
+  toknCliFeature,
+  freeCreditsFeature,
   cliAccountsFeature,
   discordPresenceFeature
 ]

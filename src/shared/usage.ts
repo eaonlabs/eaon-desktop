@@ -7,6 +7,12 @@
 
 export const TOKN_HOST = 'https://toknhq.com'
 
+/**
+ * Tokn's Eaon-only site: each user's Eaon profile at `/@<handle>` and the
+ * leaderboard of everyone using Eaon at `/`. Same account and token as Tokn.
+ */
+export const TOKNS_HOST = 'https://tokns.eaon.dev'
+
 /** The `tool` Eaon's rows carry on Tokn, next to `claude-code`, `codex` and the rest. */
 export const TOKN_TOOL = 'eaon'
 
@@ -51,6 +57,34 @@ export interface UsageSourceRow {
   tokens: number
   costUsd: number
   planUsd: number
+}
+
+/**
+ * What an agent run was: a Work task (or a Chat turn on an agent engine such
+ * as Codex), a worker's turn, or a scheduled task. Trading sessions and other
+ * apps' requests through Eaon aren't counted as agents.
+ */
+export type AgentRunSource = 'chat' | 'work' | 'worker' | 'scheduled'
+
+/** Eaon's agent runs, over everything counted (up to about 400 days). */
+export interface UsageAgents {
+  runs: number
+  runsInRange: number
+  /** Working time of every run, added up. */
+  totalMs: number
+  /** The longest single run, and the day it started; 0 and null before the first. */
+  longestMs: number
+  longestDay: string | null
+}
+
+/** Where the signed-in account's pages are, for the links that open them. */
+export type ToknPage = 'profile' | 'eaon-profile' | 'leaderboard'
+
+/** The account entry's state (sidebar and Settings), without the usage numbers. */
+export interface UsageAccountState {
+  account: ToknAccount | null
+  signIn: UsageSignIn
+  sync: UsageSync
 }
 
 export interface ToknAccount {
@@ -147,4 +181,5 @@ export interface UsageSummary {
   /** A year of days for the activity calendar: whole weeks, Sunday first, ending today. */
   calendar: UsageDay[]
   activity: UsageActivity
+  agents: UsageAgents
 }

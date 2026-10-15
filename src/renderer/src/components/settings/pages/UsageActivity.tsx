@@ -1,11 +1,12 @@
 import { useMemo, useState, type CSSProperties, type JSX } from 'react'
-import type { UsageActivity as Activity, UsageDay } from '@shared/usage'
+import type { UsageActivity as Activity, UsageAgents, UsageDay } from '@shared/usage'
 import { Segmented } from '../../ui'
 
 /**
  * Settings → Usage's activity section: a year of days as a calendar, one
  * column per week with Sunday at the top, and the numbers that go with it
- * (active days, streaks, the busiest day, everything so far).
+ * (active days, streaks, agents and the longest one, the busiest day,
+ * everything so far).
  *
  * Shading is ranked rather than linear, as on Tokn's profile: one huge day
  * would otherwise fade every other day to the faintest shade, so the four
@@ -45,6 +46,16 @@ const dateOf = (day: string): Date => new Date(`${day}T12:00:00`)
 const longDay = (day: string): string => dateOf(day).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
 const shortDay = (day: string): string => dateOf(day).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 
+/** An agent's working time: "45 s", "12 min", "2 h 5 min". */
+export function duration(ms: number): string {
+  const seconds = Math.round(ms / 1000)
+  if (seconds < 60) return `${seconds} s`
+  const minutes = Math.round(seconds / 60)
+  if (minutes < 60) return `${minutes} min`
+  const hours = Math.floor(minutes / 60)
+  return minutes % 60 ? `${hours} h ${minutes % 60} min` : `${hours} h`
+}
+
 function savedMetric(priced: boolean): Metric {
   try {
     const saved = localStorage.getItem(METRIC_KEY)
@@ -58,6 +69,7 @@ function savedMetric(priced: boolean): Metric {
 export function UsageActivity({
   days,
   activity,
+  agents,
   priced,
   range,
   money,
@@ -65,6 +77,7 @@ export function UsageActivity({
 }: {
   days: UsageDay[]
   activity: Activity
+  agents: UsageAgents
   priced: boolean
   range: number
   money: (usd: number) => string
@@ -183,6 +196,12 @@ export function UsageActivity({
           label="Current streak"
           value={plural(activity.currentStreak, 'day')}
           sub={`Longest: ${plural(activity.longestStreak, 'day')}`}
+        />
+        <StatTile label="Agents" value={agents.runs.toLocaleString()} sub={`${agents.runsInRange.toLocaleString()} in the last ${range} days`} />
+        <StatTile
+          label="Longest agent"
+          value={agents.longestMs > 0 ? duration(agents.longestMs) : '—'}
+          sub={agents.longestDay ? shortDay(agents.longestDay) : 'No agent runs yet'}
         />
         <StatTile
           label="Busiest day"

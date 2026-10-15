@@ -23,6 +23,8 @@ export type { ToolGate, TurnOrigin, UnattendedPolicy } from './policy'
 import { redactSecrets } from '../providers/redact'
 import { engine as engineAdapter } from '../engines'
 import { recordUsage } from '../features/usage/ledger'
+import { agentRunSource, trackAgentRun } from '../features/usage/agentRuns'
+import { usageSource } from '../features/usage/attribution'
 import { runEngineChat } from './engineChat'
 import type { EngineId } from '@shared/engines'
 
@@ -742,8 +744,23 @@ async function runOnEngine(request: StreamRequest, engineId: EngineId, emit: (ev
   }
 }
 
+/**
+ * One run: a turn on Eaon's own loop, or on an agent engine. A Work task, a
+ * worker's turn or a scheduled task that called a tool, and a Chat turn on an
+ * engine that did, are counted as agent runs for Settings → Usage and the
+ * Tokn profiles (features/usage/agentRuns.ts).
+ */
 export async function runAgent(request: StreamRequest, emit: (event: StreamEvent) => void, options: RunOptions = {}): Promise<RunOutcome> {
-  if (request.engine && request.engine !== 'native') return runOnEngine(request, request.engine, emit, options)
+  const onEngine = Boolean(request.engine && request.engine !== 'native')
+  const run = trackAgentRun(request.rawSystem !== undefined ? null : agentRunSource(request.mode, onEngine, usageSource()), emit)
+  try {
+    return onEngine ? await runOnEngine(request, request.engine as EngineId, run.emit, options) : await runOwnLoop(request, run.emit, options)
+  } finally {
+    run.finish()
+  }
+}
+
+async function runOwnLoop(request: StreamRequest, emit: (event: StreamEvent) => void, options: RunOptions): Promise<RunOutcome> {
   const usage = emptyUsage()
   const provider = getProvider(request.providerId)
   if (!provider) {

@@ -40,6 +40,10 @@ extraResources:
     filter:
       - '**/*'
       - '!STORE_LISTING.md'
+  # The tokn command (scripts/fetch-tokn-cli.mjs; main/features/toknCli.ts):
+  # plain JavaScript run by Eaon's own Node, one copy for every platform.
+  - from: resources/tokn-cli
+    to: tokn-cli
 publish:
   provider: github
   owner: eaonlabs

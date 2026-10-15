@@ -5,6 +5,8 @@ import { useApp } from '../../../state/store'
 import { Card, Row, Section, Segmented } from '../../ui'
 import { ProviderMark } from '../../composer/ProviderMark'
 import { UsageActivity } from './UsageActivity'
+import { ToknMark } from '../../account/ToknAccount'
+import { ToknCommand } from './ToknCommand'
 
 /**
  * Settings → Usage: what Eaon's own model requests cost, day by day and model
@@ -56,18 +58,6 @@ function ago(iso: string | null): string {
   return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
-/** Tokn's mark, as on toknhq.com. */
-function ToknMark({ size = 18 }: { size?: number }): JSX.Element {
-  return (
-    <svg className="tokn-mark" width={size} height={size} viewBox="0 0 32 32" aria-hidden="true">
-      <rect width="32" height="32" rx="7" fill="#ccff33" />
-      <path d="M13 7H9a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h4" stroke="#121214" strokeWidth="3.5" strokeLinecap="round" fill="none" />
-      <path d="M19 7h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" stroke="#121214" strokeWidth="3.5" strokeLinecap="round" fill="none" />
-      <rect x="13.5" y="13.5" width="5" height="5" rx="1.5" fill="#121214" />
-    </svg>
-  )
-}
-
 function useUsage(range: UsageRange): UsageSummary | null {
   const [summary, setSummary] = useState<UsageSummary | null>(null)
   const load = useCallback(() => {
@@ -108,6 +98,7 @@ export function UsagePage(): JSX.Element {
         it here and on your Tokn profile.
       </p>
       {!summary ? null : summary.account ? <SignedIn summary={summary} range={range} onRange={pickRange} /> : <SignedOut summary={summary} />}
+      {summary && <ToknCommand signedIn={Boolean(summary.account)} />}
     </>
   )
 }
@@ -135,8 +126,8 @@ function SignedOut({ summary }: { summary: UsageSummary }): JSX.Element {
           <div className="usage-hero__text">
             <div className="usage-hero__title">Sign in with Tokn</div>
             <p className="usage-hero__body">
-              Tokn tracks what AI coding costs across your tools. Signing in adds Eaon to your Tokn account, shows your Eaon usage
-              here, and keeps your Tokn profile up to date.
+              Tokn tracks what AI coding costs across your tools, and your Tokn account is your Eaon account. Signing in shows
+              your Eaon usage here and keeps your profiles on toknhq.com and tokns.eaon.dev up to date.
             </p>
             <div className="usage-hero__actions">
               {pending ? (
@@ -211,7 +202,11 @@ function WhatIsSent(): JSX.Element {
           title="Only Eaon’s own requests"
           description="Requests other apps make through Eaon (Connect apps, the Local API Server) count as those apps, not as Eaon."
         />
-        <Row title="Nothing from models on this computer" description="Local models are free, so they stay here and are never uploaded." />
+        <Row
+          title="Daily agent counts"
+          description="How many agent runs Eaon made each day, how long they worked and the longest one. Never what they worked on."
+        />
+        <Row title="Nothing from models on this computer" description="Local models are free, so their requests and tokens stay here and are never uploaded." />
       </Card>
     </Section>
   )
@@ -235,11 +230,21 @@ function SignedIn({ summary, range, onRange }: { summary: UsageSummary; range: U
             description="Eaon adds your daily totals to your Tokn profile a few minutes after you use it."
           >
             <div className="usage-account__actions">
-              <button className="btn" onClick={() => void window.api.usage.openProfile()}>
+              <button className="btn" onClick={() => void window.api.usage.openProfile('profile')}>
                 View on Tokn <ExternalLink size={12} strokeWidth={2} />
               </button>
               <button className="btn btn--ghost" onClick={() => void window.api.usage.signOut()}>
                 Sign out
+              </button>
+            </div>
+          </Row>
+          <Row title="Your Eaon profile" description="Your agents, streaks and tokens on tokns.eaon.dev, next to everyone else using Eaon.">
+            <div className="usage-account__actions">
+              <button className="btn" onClick={() => void window.api.usage.openProfile('eaon-profile')}>
+                Eaon profile <ExternalLink size={12} strokeWidth={2} />
+              </button>
+              <button className="btn btn--ghost" onClick={() => void window.api.usage.openProfile('leaderboard')}>
+                Leaderboard <ExternalLink size={12} strokeWidth={2} />
               </button>
             </div>
           </Row>
@@ -269,6 +274,7 @@ function SignedIn({ summary, range, onRange }: { summary: UsageSummary; range: U
         <UsageActivity
           days={summary.calendar}
           activity={summary.activity}
+          agents={summary.agents}
           priced={summary.priced}
           range={range}
           money={money}

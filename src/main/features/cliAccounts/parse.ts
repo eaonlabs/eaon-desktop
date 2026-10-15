@@ -143,13 +143,16 @@ export function codexUsage(response: unknown): CodexUsage {
       const minutes = num(w.windowDurationMins)
       const named = codexWindowName(minutes)
       const resets = num(w.resetsAt)
+      // Codex names the window it stopped on ("primary", "secondary"); any other word means the limit as a whole.
+      const hit = reached !== null && (percent >= 100 || reached.toLowerCase().includes(key) || !/primary|secondary/i.test(reached))
       windows.push({
         id: main ? named.id : `${limitId}:${named.id}`,
         label: main ? named.label : `${name} ${named.label.toLowerCase()}`,
         span: named.span,
         percent: clampPercent(percent),
         resetsAt: resets === null ? null : resets * 1000,
-        severity: reached && percent >= 100 ? 'critical' : severityOf(percent)
+        severity: hit ? 'critical' : severityOf(percent),
+        ...(hit ? { reached: true } : {})
       })
     }
   }

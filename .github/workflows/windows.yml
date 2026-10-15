@@ -48,6 +48,10 @@ jobs:
       - name: Cua Driver
         run: node scripts/fetch-cua-driver.mjs win32-x64 win32-arm64
 
+      # The tokn command, which Eaon ships and puts on PATH: the pinned, checked package.
+      - name: tokn
+        run: node scripts/fetch-tokn-cli.mjs
+
       - name: Build
         shell: bash
         run: |

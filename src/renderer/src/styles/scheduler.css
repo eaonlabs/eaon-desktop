@@ -328,13 +328,22 @@
 /* ---- Editor ---- */
 
 /* The modal can outgrow a short window; the form scrolls, the actions stay. */
+/*
+ * The form is its own scroll box reaching the dialog's edges. The dialog
+ * body around it gives up its focus-ring margin for that; with both, the
+ * form was 18px wider than the body, and focusing a field near the right
+ * edge scrolled the whole dialog sideways.
+ */
+.modal__body:has(> .sched-form) {
+  margin-inline: -22px;
+  padding-inline: 0;
+}
 .sched-form {
   display: flex;
   flex-direction: column;
   gap: 16px;
   max-height: calc(100vh - 220px);
   overflow-y: auto;
-  margin: 0 -22px;
   padding: 2px 22px;
   color: var(--text);
 }
@@ -462,6 +471,39 @@
 .sched-link:hover {
   text-decoration: underline;
   text-underline-offset: 2px;
+}
+
+.sched-cron {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 100%;
+}
+.sched-cron .sched-inline {
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+.sched-input--cron {
+  width: 190px;
+  min-width: 0;
+  font-family: var(--font-mono);
+  letter-spacing: 0.02em;
+}
+.sched-input--zone {
+  width: 190px;
+  min-width: 0;
+}
+.sched-cron__reads {
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+.sched-upcoming {
+  margin: -4px 0 0 20px;
+  padding: 0;
+  list-style: none;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
 }
 
 .sched-preview {

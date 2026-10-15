@@ -60,7 +60,7 @@ export function WorkersNav(): JSX.Element {
         }}
       />
       <NavItem icon={<Users {...ICON} />} label="Team" active={view === 'chat' && selectedId === null && selectedRoomId === null} onClick={() => show(null)} />
-      <NavItem icon={<Clock3 {...ICON} />} label="Scheduled" active={view === 'scheduled'} onClick={() => setView('scheduled')} />
+      <NavItem icon={<Clock3 {...ICON} />} label="Automations" active={view === 'scheduled'} onClick={() => setView('scheduled')} />
       <NavItem
         icon={<AtSign {...ICON} />}
         label="Plugins"

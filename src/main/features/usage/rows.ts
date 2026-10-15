@@ -2,6 +2,7 @@ import {
   TOKN_TOOL,
   type Billing,
   type UsageActivity,
+  type UsageAgents,
   type UsageCounts,
   type UsageDay,
   type UsageModelRow,
@@ -10,6 +11,7 @@ import {
   type UsageSourceRow,
   type UsageTotals
 } from '@shared/usage'
+import type { AgentRunDays } from './agentRuns'
 import { emptyCounts, localDay, type LedgerDays, type LedgerSources } from './ledger'
 
 /**
@@ -143,6 +145,58 @@ export function syncRows(days: LedgerDays, pricing: ToknPricing, billingOf: Bill
       cacheRead: row.counts.cacheRead,
       costUsd: Math.round(row.cost * 1e6) / 1e6
     }))
+}
+
+/** One `POST /api/cli/sync` `agents` entry: a day's agent runs. */
+export interface ToknAgentDay {
+  day: string
+  tool: string
+  runs: number
+  /** Every run's working time, added up. */
+  totalMs: number
+  /** The longest single run that started that day. */
+  longestMs: number
+}
+
+/** Tokn takes at most this many `agents` entries in one sync. */
+export const MAX_AGENT_DAYS = 5000
+
+/**
+ * The `agents` entries to upload: one per day with any runs, every source
+ * together, oldest first. Like the rows, each is the day's whole count (Tokn
+ * replaces a day rather than adding to it), and every day counted goes up
+ * each time; past the limit, the newest days do.
+ */
+export function syncAgents(days: AgentRunDays): ToknAgentDay[] {
+  const out: ToknAgentDay[] = []
+  for (const day of Object.keys(days).sort()) {
+    const entry = { day, tool: TOKN_TOOL, runs: 0, totalMs: 0, longestMs: 0 }
+    for (const totals of Object.values(days[day])) {
+      if (!totals) continue
+      entry.runs += totals.runs
+      entry.totalMs += totals.totalMs
+      entry.longestMs = Math.max(entry.longestMs, totals.longestMs)
+    }
+    if (entry.runs > 0) out.push({ ...entry, totalMs: Math.round(entry.totalMs), longestMs: Math.round(entry.longestMs) })
+  }
+  return out.slice(-MAX_AGENT_DAYS)
+}
+
+/** Agents and the longest one for Settings → Usage, over everything counted and over the range. */
+export function agentStats(days: AgentRunDays, range: UsageRange, now: Date = new Date()): UsageAgents {
+  const today = localDay(now)
+  const rangeStart = shiftDay(today, -(range - 1))
+  const stats: UsageAgents = { runs: 0, runsInRange: 0, totalMs: 0, longestMs: 0, longestDay: null }
+  for (const entry of syncAgents(days)) {
+    stats.runs += entry.runs
+    stats.totalMs += entry.totalMs
+    if (entry.day >= rangeStart && entry.day <= today) stats.runsInRange += entry.runs
+    if (entry.longestMs > stats.longestMs) {
+      stats.longestMs = entry.longestMs
+      stats.longestDay = entry.day
+    }
+  }
+  return stats
 }
 
 export interface Summary {

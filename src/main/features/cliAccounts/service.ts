@@ -5,8 +5,13 @@ import {
   CLI_TOOLS,
   CLI_TOOL_NAME,
   DEFAULT_ACCOUNT_ID,
+  accountName,
+  limitAlerts,
+  switchTarget,
   usageKey,
   type AccountUsage,
+  type AlertMemory,
+  type LimitNotice,
   type CliAccount,
   type CliAccountsState,
   type CliLogin,
@@ -27,6 +32,13 @@ import { prepareFolder, removeFolder } from './folders'
 export const FRESH_MS = 60_000
 /** …or this old when the user asks (the refresh button). */
 export const FORCED_FRESH_MS = 15_000
+/**
+ * In the background, the accounts not in use are read this seldom: often
+ * enough that the switcher's figures are worth trusting, rarely enough that
+ * five accounts don't mean five CLIs starting every few minutes. With no
+ * window up, the active accounts are read this seldom too (for the alerts).
+ */
+export const SLOW_FRESH_MS = 30 * 60_000
 
 export interface CliRunner {
   find: (tool: CliTool) => string | null
@@ -52,6 +64,10 @@ export interface CliAccountsDeps {
   save: (saved: Saved) => void
   startLogin: (tool: CliTool, bin: string, dir: string) => LoginProcess
   changed: () => void
+  /** An active account came close to or hit a limit (once per window reset). */
+  alert?: (notice: LimitNotice) => void
+  /** Whether to move to another account by itself when the active one hits its limit. */
+  autoSwitch?: (tool: CliTool) => boolean
   now?: () => number
   /** The default folders the shared links point at (tests). */
   defaultDirs?: Partial<Record<CliTool, string>>
@@ -60,6 +76,23 @@ export interface CliAccountsDeps {
 interface Saved {
   tools: Record<CliTool, { active: string; accounts: CliAccount[] }>
   usage: Record<string, AccountUsage>
+  /** What the alerts have already said, so a restart doesn't say it again. */
+  alerts?: AlertMemory
+}
+
+/** How a refresh decides what is worth reading. */
+export interface RefreshOptions {
+  tool?: CliTool
+  /** Every account of the tool(s), not just the active ones. */
+  all?: boolean
+  /** The refresh button: a shorter wait. */
+  force?: boolean
+  /**
+   * The background timer: every account, the inactive ones only once they
+   * are SLOW_FRESH_MS old; `'hidden'` (no window up) reads only the active
+   * ones, and only that seldom.
+   */
+  background?: 'visible' | 'hidden'
 }
 
 const defaultAccount = (at: number): CliAccount => ({ id: DEFAULT_ACCOUNT_ID, dir: null, label: '', email: null, plan: null, addedAt: at })
@@ -72,6 +105,7 @@ export class CliAccounts {
   /** The running sign-in made its account: failing, it takes the account with it. */
   private loginIsNew = false
   private now: () => number
+  private activeListeners = new Set<(tool: CliTool) => void>()
 
   constructor(private readonly deps: CliAccountsDeps) {
     this.now = deps.now ?? Date.now
@@ -84,7 +118,11 @@ export class CliAccounts {
       const active = accounts.some((a) => a.id === saved?.active) ? (saved!.active as string) : DEFAULT_ACCOUNT_ID
       tools[tool] = { active, accounts }
     }
-    this.saved = { tools, usage: raw.usage && typeof raw.usage === 'object' ? raw.usage : {} }
+    this.saved = {
+      tools,
+      usage: raw.usage && typeof raw.usage === 'object' ? raw.usage : {},
+      alerts: raw.alerts && typeof raw.alerts === 'object' ? raw.alerts : {}
+    }
   }
 
   /* -------------------------------------------------------------- reading */
@@ -111,6 +149,18 @@ export class CliAccounts {
     return env
   }
 
+  /** Just one CLI's folder variable: what Eaon's own Codex engine runs with. */
+  toolEnv(tool: CliTool): Record<string, string> {
+    const account = this.active(tool)
+    return account.dir ? { [DIR_VARIABLE[tool]]: account.dir } : {}
+  }
+
+  /** Told whenever a CLI's active account changes, whoever changed it. */
+  onActive(listener: (tool: CliTool) => void): () => void {
+    this.activeListeners.add(listener)
+    return () => this.activeListeners.delete(listener)
+  }
+
   active(tool: CliTool): CliAccount {
     const { active, accounts } = this.saved.tools[tool]
     return accounts.find((a) => a.id === active) ?? accounts[0]
@@ -118,29 +168,39 @@ export class CliAccounts {
 
   /**
    * Reads the figures again, for the active accounts (or every account of
-   * `tool`, for Settings) — unless what is known is fresh. Calls already
-   * under way are shared, never doubled.
+   * `tool`, for Settings and the switcher) — unless what is known is fresh.
+   * Calls already under way are shared, never doubled.
    */
-  async refresh(options: { tool?: CliTool; all?: boolean; force?: boolean } = {}): Promise<void> {
+  async refresh(options: RefreshOptions = {}): Promise<void> {
     const tools = options.tool ? [options.tool] : CLI_TOOLS
     const jobs: Promise<void>[] = []
     for (const tool of tools) {
-      const accounts = options.all ? this.saved.tools[tool].accounts : [this.active(tool)]
-      for (const account of accounts) jobs.push(this.read(tool, account.id, options.force === true))
+      const active = this.active(tool).id
+      const everyone = options.all || options.background === 'visible'
+      const accounts = everyone ? this.saved.tools[tool].accounts : [this.active(tool)]
+      for (const account of accounts) {
+        const maxAge = options.force ? FORCED_FRESH_MS : options.background === 'hidden' || (options.background && account.id !== active) ? SLOW_FRESH_MS : FRESH_MS
+        jobs.push(this.read(tool, account.id, maxAge))
+      }
     }
     await Promise.all(jobs)
   }
 
-  /** `force`: the refresh button's shorter wait; `'now'`: no wait at all (a sign-in just ended). */
-  private read(tool: CliTool, accountId: string, force: boolean | 'now'): Promise<void> {
+  /**
+   * Figures older than `maxAge` are read again, and so are ones with a window
+   * that has reset since (no sooner than the refresh button could). `'now'`:
+   * no wait at all (a sign-in just ended).
+   */
+  private read(tool: CliTool, accountId: string, maxAge: number | 'now'): Promise<void> {
     const key = usageKey(tool, accountId)
     const running = this.loading.get(key)
-    if (running && force !== 'now') return running
+    if (running && maxAge !== 'now') return running
     const last = this.saved.usage[key]
-    if (force !== 'now' && last && this.now() - last.at < (force ? FORCED_FRESH_MS : FRESH_MS)) return Promise.resolve()
+    if (maxAge !== 'now' && last && !this.stale(last, maxAge)) return Promise.resolve()
     const bin = this.deps.runner.find(tool)
     if (!bin) return Promise.resolve()
     const job = this.readNow(tool, accountId, bin)
+      .then(() => this.checkLimits(tool, accountId))
       .catch((error: unknown) => {
         this.saved.usage[key] = { ok: false, at: this.now(), reason: 'failed', message: messageOf(error) }
       })
@@ -151,6 +211,39 @@ export class CliAccounts {
     this.loading.set(key, job)
     this.deps.changed()
     return job
+  }
+
+  private stale(usage: AccountUsage, maxAge: number): boolean {
+    const age = this.now() - usage.at
+    if (age >= maxAge) return true
+    const reset = usage.ok && usage.windows.some((w) => w.resetsAt !== null && w.resetsAt <= this.now() && usage.at < w.resetsAt)
+    return reset && age >= FORCED_FRESH_MS
+  }
+
+  /**
+   * After a reading of an active account: an alert for each window that came
+   * close to or hit its limit (once per window reset), and — when the user
+   * asked for it — a hit Codex limit moves Eaon to another account with room.
+   */
+  private checkLimits(tool: CliTool, accountId: string): void {
+    const memory = this.saved.alerts ?? {}
+    if (accountId !== this.active(tool).id) return
+    const now = this.now()
+    const { alerts, memory: next } = limitAlerts(tool, accountId, this.saved.usage[usageKey(tool, accountId)], memory, now)
+    this.saved.alerts = next
+    const account = this.find(tool, accountId)
+    if (!account) return
+    // One notification per reading: the worst of what is new.
+    const alert = [...alerts].sort((a, b) => Number(b.level === 'reached') - Number(a.level === 'reached') || b.percent - a.percent)[0]
+    if (!alert) return
+    const target = switchTarget(tool, this.saved, now, accountId)
+    const switched = target !== null && alert.level === 'reached' && tool === 'codex' && this.deps.autoSwitch?.(tool) === true
+    if (switched) this.use(tool, target.id)
+    try {
+      this.deps.alert?.({ ...alert, name: accountName(account), switchTo: target ? { id: target.id, name: accountName(target) } : null, switched })
+    } catch (error) {
+      console.error('[cli-accounts] a limit alert failed:', error)
+    }
   }
 
   private async readNow(tool: CliTool, accountId: string, bin: string): Promise<void> {
@@ -201,12 +294,36 @@ export class CliAccounts {
 
   /* -------------------------------------------------------------- changing */
 
-  /** Makes `accountId` the one Eaon's terminals use. Panes already running keep theirs. */
+  /**
+   * Makes `accountId` the one Eaon's terminals and its Codex engine use.
+   * Panes already running keep theirs (the switcher offers to move them).
+   */
   use(tool: CliTool, accountId: string): void {
-    if (!this.find(tool, accountId)) throw new Error('No such account')
+    const account = this.find(tool, accountId)
+    if (!account) throw new Error('No such account')
+    const changed = this.saved.tools[tool].active !== accountId
+    // Repaired first: anything the default folder gained since (its sessions folder) is shared too.
+    if (account.dir) {
+      try {
+        prepareFolder(tool, account.dir, this.deps.defaultDirs?.[tool])
+      } catch {
+        /* the CLI makes what it needs itself */
+      }
+    }
     this.saved.tools[tool].active = accountId
     this.persist()
+    if (changed) this.announce(tool)
     void this.refresh({ tool })
+  }
+
+  private announce(tool: CliTool): void {
+    for (const listener of this.activeListeners) {
+      try {
+        listener(tool)
+      } catch (error) {
+        console.error('[cli-accounts] an account listener failed:', error)
+      }
+    }
   }
 
   rename(tool: CliTool, accountId: string, label: string): void {
@@ -229,11 +346,7 @@ export class CliAccounts {
     const bin = this.deps.runner.find(tool)
     if (bin) await this.deps.runner.logout(tool, bin, account.dir).catch(() => undefined)
     removeFolder(account.dir, this.deps.root)
-    const entry = this.saved.tools[tool]
-    entry.accounts = entry.accounts.filter((a) => a.id !== accountId)
-    if (entry.active === accountId) entry.active = DEFAULT_ACCOUNT_ID
-    delete this.saved.usage[usageKey(tool, accountId)]
-    this.persist()
+    this.forget(tool, accountId)
   }
 
   /**
@@ -345,6 +458,7 @@ export class CliAccounts {
     this.saved.tools[tool].active = accountId
     this.login = { state: 'done', tool, accountId, url: null, output, message: `Signed in${account.email ? ` as ${account.email}` : ''}` }
     this.persist()
+    this.announce(tool)
   }
 
   /** A sign-in that went nowhere: its folder and entry go. */
@@ -357,11 +471,18 @@ export class CliAccounts {
         /* outside root: never deleted */
       }
     }
+    this.forget(tool, accountId)
+  }
+
+  /** Drops an account's entry; the default takes over if it was the active one. */
+  private forget(tool: CliTool, accountId: string): void {
     const entry = this.saved.tools[tool]
     entry.accounts = entry.accounts.filter((a) => a.id !== accountId)
-    if (entry.active === accountId) entry.active = DEFAULT_ACCOUNT_ID
+    const wasActive = entry.active === accountId
+    if (wasActive) entry.active = DEFAULT_ACCOUNT_ID
     delete this.saved.usage[usageKey(tool, accountId)]
     this.persist()
+    if (wasActive) this.announce(tool)
   }
 
   dispose(): void {

@@ -18,7 +18,7 @@ const isObject = (value: unknown): value is Record<string, unknown> =>
 const isId = (value: unknown): value is string => typeof value === 'string' && value.length > 0
 const finite = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value)
 
-const KINDS = new Set(['interval', 'daily', 'weekly', 'once'])
+const KINDS = new Set(['interval', 'daily', 'weekly', 'once', 'cron'])
 const STATUSES = new Set<RunStatus>(['running', 'succeeded', 'failed', 'cancelled', 'missed', 'skipped'])
 const TRIGGERS = new Set(['schedule', 'manual', 'catch-up', 'retry'])
 

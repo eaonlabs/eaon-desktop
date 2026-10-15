@@ -1,20 +1,23 @@
 import { app, shell } from 'electron'
-import type { Billing, UsageRange, UsageSignIn, UsageSummary, UsageSync } from '@shared/usage'
+import type { Billing, ToknPage, UsageAccountState, UsageRange, UsageSignIn, UsageSummary, UsageSync } from '@shared/usage'
 import { getProvider, onModelUsage } from '../../providers'
 import { LOCAL_PROVIDER_ID } from '../../llama/models'
 import { store } from '../../store'
 import type { Feature, FeatureContext } from '../types'
+import { afterToknSignIn } from '../toknCli'
+import { agentRunDays, flushAgentRuns, onAgentRun } from './agentRuns'
 import { flushLedger, ledgerDays, ledgerSources, onLedgerChange, recordUsage } from './ledger'
-import { activity, calendar, dailyTotals, summarize, summarizeSources, syncRows, type BillingOf, type ToknPricing } from './rows'
-import { fetchPricing, refreshAccount, signIn, signOut, submitCode, toknAccount, toknHost, upload } from './tokn'
+import { activity, agentStats, calendar, dailyTotals, summarize, summarizeSources, syncAgents, syncRows, type BillingOf, type ToknPricing } from './rows'
+import { fetchPricing, refreshAccount, signIn, signOut, submitCode, toknAccount, toknPageUrl, upload } from './tokn'
 
 /**
- * Settings → Usage. Every model request Eaon makes for itself is counted on
- * this computer (`ledger.ts`); signing in with Tokn shows the counts priced at
- * Tokn's rates and uploads them as daily totals under the `eaon` tool, a few
- * minutes after new usage and whenever the user asks.
+ * Settings → Usage, and the Tokn account that is Eaon's account. Every model
+ * request Eaon makes for itself is counted on this computer (`ledger.ts`), and
+ * every agent run (`agentRuns.ts`); signing in with Tokn shows the counts
+ * priced at Tokn's rates and uploads them as daily totals under the `eaon`
+ * tool, a few minutes after new usage and whenever the user asks.
  *
- * Channels (all `usage:`): `summary`, `sign-in`, `cancel-sign-in`,
+ * Channels (all `usage:`): `summary`, `account`, `sign-in`, `cancel-sign-in`,
  * `submit-code`, `sign-out`, `sync`, `open-profile`, and the `changed` event.
  */
 
@@ -121,7 +124,8 @@ function summary(range: UsageRange): UsageSummary {
     ...shaped,
     sources: summarizeSources(ledgerSources(), range, pricing.models, billingOf),
     calendar: calendar(byDay),
-    activity: activity(byDay, range)
+    activity: activity(byDay, range),
+    agents: agentStats(agentRunDays(), range)
   }
 }
 
@@ -144,8 +148,9 @@ function syncNow(): Promise<void> {
     try {
       await loadPricing(Object.keys(pricing.models).length === 0)
       const rows = syncRows(ledgerDays(), pricing.models, billingLookup())
+      const agents = syncAgents(agentRunDays())
       const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
-      const result = rows.length > 0 ? await upload(rows, timezone) : { accepted: 0, rejected: 0, rank: null }
+      const result = rows.length > 0 || agents.length > 0 ? await upload(rows, timezone, agents) : { accepted: 0, rejected: 0, rank: null }
       setSync({ state: 'idle', at: new Date().toISOString(), accepted: result.accepted, rejected: result.rejected, rank: result.rank })
     } catch (error) {
       setSync({ ...sync, state: 'error', error: error instanceof Error ? error.message : String(error) })
@@ -188,6 +193,8 @@ async function startSignIn(): Promise<UsageSummary['account']> {
     app.focus({ steal: true })
     // Straight onto the profile, with everything counted so far.
     void syncNow()
+    // And the tokn command, when the person said yes to tracking the coding CLIs too.
+    afterToknSignIn()
     return account
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
@@ -211,8 +218,14 @@ export const usageFeature: Feature = {
       // Other apps' requests are never uploaded, so they are no reason to sync.
       if (source !== 'gateway') scheduleSync(SYNC_AFTER_USAGE_MS)
     })
+    onAgentRun(() => {
+      changed()
+      scheduleSync(SYNC_AFTER_USAGE_MS)
+    })
 
     ipcMain.handle('usage:summary', (_e, range: UsageRange) => summary(range === 7 || range === 90 ? range : 30))
+    // The account entry (sidebar, Settings) without the numbers, which it doesn't show.
+    ipcMain.handle('usage:account', (): UsageAccountState => ({ account: toknAccount(), signIn: signInState, sync }))
     ipcMain.handle('usage:sign-in', () => startSignIn())
     ipcMain.handle('usage:cancel-sign-in', () => signInAbort?.abort())
     ipcMain.handle('usage:submit-code', (_e, input: string) => submitCode(String(input ?? '')))
@@ -223,8 +236,8 @@ export const usageFeature: Feature = {
       setSync({ state: 'idle', at: null })
     })
     ipcMain.handle('usage:sync', () => syncNow())
-    ipcMain.handle('usage:open-profile', () => {
-      const url = toknAccount()?.profileUrl ?? toknHost()
+    ipcMain.handle('usage:open-profile', (_e, page?: ToknPage) => {
+      const url = toknPageUrl(page === 'eaon-profile' || page === 'leaderboard' ? page : 'profile')
       if (/^https?:\/\//.test(url)) void shell.openExternal(url)
     })
 
@@ -246,5 +259,6 @@ export const usageFeature: Feature = {
     if (syncTimer) clearTimeout(syncTimer)
     if (changedTimer) clearTimeout(changedTimer)
     flushLedger()
+    flushAgentRuns()
   }
 }

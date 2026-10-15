@@ -9,7 +9,7 @@ import type {
   RemoveSessionOptions
 } from '@shared/adeSessions'
 import type { ManualHostInput, NewRemoteSessionRequest, NewRemoteSessionResult, SshHost } from '@shared/adeRemote'
-import type { ReviewAction, ReviewResult } from '@shared/adeReview'
+import type { ReviewAction, ReviewCheck, ReviewFileText, ReviewLog, ReviewResult } from '@shared/adeReview'
 
 /** Renderer bridge for the ADE's sessions. Exposed as `window.api.ade`. */
 export const adeApi = {
@@ -41,7 +41,24 @@ export const adeApi = {
   review: (cwd: string): Promise<ReviewResult> => ipcRenderer.invoke('ade:review', cwd),
   commit: (cwd: string, message: string): Promise<ReviewAction> => ipcRenderer.invoke('ade:commit', cwd, message),
   push: (cwd: string): Promise<ReviewAction> => ipcRenderer.invoke('ade:push', cwd),
-  createPr: (cwd: string, req: { title: string; body: string; draft: boolean }): Promise<ReviewAction> => ipcRenderer.invoke('ade:create-pr', cwd, req),
+  /** Pushes, then opens a pull request into `base` (the default branch when not given). */
+  createPr: (cwd: string, req: { title: string; body: string; draft: boolean; base?: string }): Promise<ReviewAction> => ipcRenderer.invoke('ade:create-pr', cwd, req),
+  /** Branches a pull request can go into, the default one first. */
+  baseBranches: (cwd: string): Promise<{ default: string | null; branches: string[] }> => ipcRenderer.invoke('ade:base-branches', cwd),
+  /** A pull request title and description from the commits `base` doesn't have. */
+  prFromCommits: (cwd: string, base: string): Promise<{ title: string; body: string } | { error: string }> => ipcRenderer.invoke('ade:pr-from-commits', cwd, base),
+  /** The end of a failed check's log (GitHub Actions only). */
+  checkLog: (cwd: string, check: Pick<ReviewCheck, 'url' | 'name' | 'workflow'>): Promise<ReviewLog> => ipcRenderer.invoke('ade:check-log', cwd, check),
+  /** Merges the default branch into this one, fetching it first. */
+  updateFromBase: (cwd: string): Promise<ReviewAction> => ipcRenderer.invoke('ade:update-from-base', cwd),
+  /** A conflicted file's text, markers and all. */
+  conflictFile: (cwd: string, path: string): Promise<ReviewFileText> => ipcRenderer.invoke('ade:conflict-file', cwd, path),
+  writeConflictFile: (cwd: string, path: string, text: string): Promise<ReviewAction> => ipcRenderer.invoke('ade:write-conflict-file', cwd, path, text),
+  /** Stages a conflicted file once no markers are left in it. */
+  markResolved: (cwd: string, path: string): Promise<ReviewAction> => ipcRenderer.invoke('ade:mark-resolved', cwd, path),
+  /** Commits the merge (or continues the rebase) once nothing is in conflict. */
+  finishMerge: (cwd: string): Promise<ReviewAction> => ipcRenderer.invoke('ade:finish-merge', cwd),
+  abortMerge: (cwd: string): Promise<ReviewAction> => ipcRenderer.invoke('ade:abort-merge', cwd),
   merge: (cwd: string, method: 'squash' | 'merge' | 'rebase'): Promise<ReviewAction> => ipcRenderer.invoke('ade:merge', cwd, method),
   /** Where new sessions' worktrees go, and the home folder (to show paths under it as ~). */
   worktreesRoot: (): Promise<{ path: string; home: string }> => ipcRenderer.invoke('ade:worktrees-root')

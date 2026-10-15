@@ -108,7 +108,7 @@ export function TaskEditor({
       open={open}
       onClose={onClose}
       width={520}
-      title={task ? 'Edit schedule' : 'New schedule'}
+      title={task ? 'Edit automation' : 'New automation'}
       actions={
         <>
           {error && (

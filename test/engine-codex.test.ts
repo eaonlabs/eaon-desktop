@@ -766,3 +766,65 @@ test('dispose stops every Codex process it started', { timeout: 30_000 }, async 
     await h.done()
   }
 })
+
+test('a new Codex account: idle processes are replaced, a running turn finishes first, threads carry on', { timeout: 30_000 }, async () => {
+  const root = tempDir('account')
+  const state = join(root, 'state')
+  mkdirSync(state, { recursive: true })
+  // What Settings → Accounts would hand the engine: the account (here, its plan) and its folder.
+  let account = { FAKE_CODEX_ACCOUNT: 'chatgpt:plus', CODEX_HOME: join(root, 'home-a') }
+  const listeners = new Set<() => void>()
+  const switchTo = (next: typeof account): void => {
+    account = next
+    for (const listener of listeners) listener()
+  }
+  const h = harness({
+    state,
+    env: () => ({ ...process.env, EAON_CODEX_BIN: '', EAON_OFFLINE: '1', FAKE_CODEX_STATE: state, ...account }),
+    onAccountChange: (listener) => {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    }
+  })
+  try {
+    assert.equal((await h.engine.detect()).auth.plan, 'Plus')
+    const first = await h.engine.runTurn(turnInput(h, 'hello'))
+    assert.equal(first.error, undefined)
+    const idlePid = h.requests().filter((r) => r.method === 'thread/start').at(-1)!.pid
+
+    const controller = new AbortController()
+    const slow = turnInput(h, 'go slow', { messageId: 'slow', signal: controller.signal })
+    const slowRun = h.engine.runTurn(slow)
+    for (let i = 0; i < 100 && !slow.events.some((e) => e.type === 'delta'); i++) await new Promise((r) => setTimeout(r, 20))
+    const busyPid = h.requests().filter((r) => r.method === 'thread/start').at(-1)!.pid
+    assert.notEqual(busyPid, idlePid)
+
+    const statuses: string[] = []
+    const stop = h.engine.subscribe((s) => void statuses.push(s.auth.plan ?? ''))
+    switchTo({ FAKE_CODEX_ACCOUNT: 'chatgpt:pro', CODEX_HOME: join(root, 'home-b') })
+    for (let i = 0; i < 100 && alive(idlePid); i++) await new Promise((r) => setTimeout(r, 20))
+    assert.ok(!alive(idlePid), 'the idle session on the old account is stopped')
+    assert.ok(alive(busyPid), 'the turn in progress is left to finish')
+    for (let i = 0; i < 100 && !statuses.includes('Pro'); i++) await new Promise((r) => setTimeout(r, 20))
+    assert.ok(statuses.includes('Pro'), 'Settings hears who Codex is now')
+    stop()
+
+    const next = await h.engine.runTurn(turnInput(h, 'what do you remember from history', { sessionId: first.sessionId }))
+    assert.equal(next.error, undefined)
+    assert.equal(next.sessionId, first.sessionId, 'the same conversation, carried on')
+    assert.equal(next.text, 'I remember 1 earlier message(s).')
+    const resumed = h.requests().filter((r) => r.method === 'thread/resume')
+    assert.equal(resumed.length, 1)
+    assert.ok(![idlePid, busyPid].includes(resumed[0].pid), 'in a process started on the new account')
+
+    controller.abort()
+    const slowResult = await slowRun
+    assert.equal(slowResult.cancelled, true)
+    assert.equal(slowResult.errorKind, undefined, 'the switch never cut it short')
+    for (let i = 0; i < 100 && alive(busyPid); i++) await new Promise((r) => setTimeout(r, 20))
+    assert.ok(!alive(busyPid), 'once done, its process on the old account goes too')
+  } finally {
+    await h.done()
+    rmSync(root, { recursive: true, force: true })
+  }
+})

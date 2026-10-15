@@ -189,7 +189,9 @@ export const defaultSettings: Settings = {
   },
   cliUsage: {
     meter: true,
-    view: 'detailed'
+    view: 'detailed',
+    alerts: true,
+    autoSwitchCodex: false
   },
   ade: {
     theme: 'eaon',
@@ -201,6 +203,21 @@ export const defaultSettings: Settings = {
     launches: 0,
     asked: 0,
     lastAskedAt: null
+  },
+  onboarding: {
+    setup: 'pending',
+    tour: 'pending',
+    finishedAt: null
+  },
+  toknCli: {
+    install: true,
+    sync: false
+  },
+  freeCredits: {
+    claimed: false,
+    claimedAt: null,
+    offered: 0,
+    lastOfferedAt: null
   },
   updates: {
     beta: false

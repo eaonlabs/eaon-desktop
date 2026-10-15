@@ -9,12 +9,17 @@ import { ProviderIssueError } from '../src/main/providers/errors'
 import { oauthFlow } from '../src/main/providers/oauth'
 import { secrets } from '../src/main/secrets'
 import '../src/main/providers/oauth/flows'
+import { FREE_PROVIDER_ID } from '@shared/freeCredits'
+import { store } from '../src/main/store'
 
 /*
  * The provider matrix (spec §10): every built-in provider's setup URL, auth
  * kind, endpoint, listing, model flags, error mapping, refresh and sign-out,
  * checked against fake servers. No real keys and no network.
  */
+
+// Eaon Free is listed once claimed; claimed here, so it is checked like the rest.
+store.patchSettings({ freeCredits: { claimed: true, claimedAt: Date.now(), offered: 1, lastOfferedAt: Date.now() } })
 
 const https = (url: string | undefined): boolean => Boolean(url && /^https:\/\/[^\s/]+\.[^\s/]+/.test(url))
 
@@ -34,6 +39,8 @@ test('every built-in provider says how to set it up, and its auth kind matches',
       assert.equal(typeof flow.signOut, 'function', `${seed.id}: can sign out`)
       assert.equal(flow.isSignedIn(), false, `${seed.id}: signed out in a fresh profile`)
       assert.ok(meta.signInLabel, `${seed.id}: has a sign-in button`)
+    } else if (provider.auth === 'none') {
+      assert.equal(seed.id, FREE_PROVIDER_ID, `${seed.id}: only Eaon's own gateway is remote and keyless`)
     } else {
       assert.ok(https(provider.keyUrl), `${seed.id}: has an https page to get a key (${provider.keyUrl})`)
     }

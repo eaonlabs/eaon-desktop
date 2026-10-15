@@ -3,6 +3,8 @@ import type { ModelInfo, Provider, TokenUsage } from '@shared/types'
 import type { ModelSource } from '@shared/engines'
 import { isLastingIssue, type ModelEdit, type ModelEditFields, type ModelsRefresh, type ProviderHealth, type ProviderIssue } from '@shared/providers'
 import { describeModelsRefresh, foldDatedAliases } from '@shared/modelSelection'
+import { FREE_PROVIDER_ID } from '@shared/freeCredits'
+import { freeBaseUrl, freeHeaders, freeWeekOver, withFreeLimits } from '../freeCredits'
 import { secrets } from '../secrets'
 import { store, type ProviderOverride } from '../store'
 import { anthropicAdapter } from './adapters/anthropic'
@@ -138,6 +140,8 @@ export function adapterFor(provider: Provider, options: { track?: boolean } = {}
   } else if (isMixedApiProvider(provider)) adapter = routerAdapter
   else adapter = openaiChatAdapter
   if (provider.auth === 'oauth') adapter = withFreshCredentials(adapter)
+  // Eaon Free's daily allowance, for Eaon's own requests and other apps' through its local server alike.
+  if (provider.id === FREE_PROVIDER_ID) adapter = withFreeLimits(adapter)
   return options.track === false ? adapter : tracked(adapter, provider)
 }
 
@@ -251,11 +255,21 @@ function builtInProvider(seed: (typeof BUILT_IN)[number], override: ProviderOver
     enabled: override.enabled ?? seed.enabled,
     models: [],
     // A key provider signed in with the account (Hugging Face) is usable without a key.
-    hasKey: auth === 'oauth' ? Boolean(signedIn) : secrets.has(seed.id) || Boolean(accountFlow(seed.id)),
+    // Eaon Free needs no key: once claimed (it is only listed then) it is ready.
+    hasKey: auth === 'oauth' ? Boolean(signedIn) : seed.id === FREE_PROVIDER_ID || secrets.has(seed.id) || Boolean(accountFlow(seed.id)),
     signedIn,
     fallbackCount: auth === 'oauth' ? 0 : secrets.getFallbacks(seed.id).length,
     ...(override.health ? { health: override.health } : {}),
     modelsListedAt: override.listedAt ?? null
+  }
+  if (seed.id === FREE_PROVIDER_ID) {
+    provider.baseUrl = freeBaseUrl()
+    // With an event code: this install's random ID, so the gateway counts each device on its own.
+    const headers = freeHeaders()
+    if (Object.keys(headers).length) provider.headers = { ...provider.headers, ...headers }
+    // After its week (and without a code): still listed, so the picker and Settings can say why it stopped.
+    const over = freeWeekOver()
+    if (over) provider.health = { ok: false, issue: over, checkedAt: Date.now() }
   }
   if (seed.id === LOCAL_PROVIDER_ID) {
     provider.models = localModels().filter((m) => !isEmbeddingModel(m)).map(localModelInfo)
@@ -285,9 +299,12 @@ function customProvider(id: string, override: ProviderOverride): Provider {
   return { ...provider, ...composeModels(provider, [], override) }
 }
 
+/** Eaon Free is there once claimed from its offer (shared/freeCredits.ts), and not before. */
+const offered = (id: string): boolean => id !== FREE_PROVIDER_ID || store.getSettings().freeCredits.claimed
+
 export function listProviders(): Provider[] {
   const overrides = store.getProviderConfig()
-  const merged = BUILT_IN.map((seed) => builtInProvider(seed, overrides[seed.id] ?? {}))
+  const merged = BUILT_IN.filter((seed) => offered(seed.id)).map((seed) => builtInProvider(seed, overrides[seed.id] ?? {}))
   for (const [id, override] of Object.entries(overrides)) {
     if (!BUILT_IN.some((p) => p.id === id)) merged.push(customProvider(id, override))
   }
@@ -298,7 +315,7 @@ export function listProviders(): Provider[] {
 export function getProvider(id: string): Provider | undefined {
   const override = store.getProviderConfig()[id]
   const seed = BUILT_IN.find((p) => p.id === id)
-  if (seed) return builtInProvider(seed, override ?? {})
+  if (seed) return offered(id) ? builtInProvider(seed, override ?? {}) : undefined
   return override ? customProvider(id, override) : undefined
 }
 

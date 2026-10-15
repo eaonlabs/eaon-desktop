@@ -88,16 +88,17 @@ export function ScheduledPage(): JSX.Element {
         right={
           <button className="btn btn--primary" onClick={() => openEditor(null)}>
             <Plus size={14} strokeWidth={2} />
-            New schedule
+            New automation
           </button>
         }
       />
 
       <div className="page__scroll scroll">
         <div className="page__inner page__inner--sched">
-          <h1 className="page__title">Scheduled</h1>
+          <h1 className="page__title">Automations</h1>
           <p className="page__subtitle">
-            Prompts that run on their own while Eaon is running. Each run lands in Recents as a new chat.
+            Prompts that run on their own while Eaon is running: daily, weekly, every few minutes, once, or on a cron schedule. Each run
+            lands in Recents as a new chat.
           </p>
 
           {error && (
@@ -112,7 +113,10 @@ export function ScheduledPage(): JSX.Element {
           {tasks === null ? null : sorted.length === 0 ? (
             <Section>
               <Card>
-                <Row title="Nothing scheduled" description="Run a prompt every morning, every few hours, on weekdays, or once at a set time.">
+                <Row
+                  title="No automations yet"
+                  description="Run a prompt every morning, every few hours, on weekdays, once at a set time, or on any cron schedule."
+                >
                   <button className="btn" onClick={() => openEditor(null)}>
                     <CalendarClock size={14} strokeWidth={1.9} />
                     Create
