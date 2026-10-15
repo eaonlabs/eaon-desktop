@@ -70,8 +70,9 @@ test('the settings that nothing read are gone from Settings', () => {
   assert.ok(!mcp.includes('useDedicatedRoutingModel') && !mcp.includes('routingModelId'), 'MCP still offers the routing model nothing used')
   const browser = read('settings/pages/Misc.tsx')
   assert.ok(!browser.includes('blockTrackers') && !browser.includes('localStorage') && !browser.includes('AppshotsPage'))
-  const panel = read('BrowserPanel.tsx')
-  assert.ok(!panel.includes('importedFromChrome') && !panel.includes('Maximize2'), 'the browser panel still has its fake Import or dead Expand')
+  // Expand is real now (the panel takes the window; App sets data-browser-expanded); the fake Chrome import stays gone.
+  const panel = read('browser/BrowserPanel.tsx')
+  assert.ok(!panel.includes('importedFromChrome'), 'the browser panel still has its fake Import')
   // Shortcuts are a reference of the keys that work, not editable bindings nothing applied.
   assert.ok(!read('settings/pages/Shortcuts.tsx').includes('patchSettings'))
 })

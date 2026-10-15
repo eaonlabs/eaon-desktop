@@ -94,6 +94,8 @@ const stops = (): Stop[] => [
 function findTarget(stop: Stop): Element | null {
   for (const selector of stop.selector.split(',')) {
     for (const element of document.querySelectorAll(selector.trim())) {
+      // The setup's little window draws the same parts; it may still be fading out.
+      if (element.closest('.onboarding')) continue
       if (stop.text && !element.textContent?.includes(stop.text)) continue
       const rect = element.getBoundingClientRect()
       if (rect.width > 0 && rect.height > 0) return element
@@ -108,17 +110,21 @@ const CARD_W = 320
 const EDGE = 12
 
 interface Placement {
-  spot: { top: number; left: number; width: number; height: number } | null
+  spot: { top: number; left: number; width: number; height: number; radius: number } | null
   card: { top: number; left: number }
   side: Stop['side'] | 'center'
 }
 
-/** Where the spotlight and the card go for `rect`, keeping the card on screen. */
-function place(rect: DOMRect | null, side: Stop['side'], cardHeight: number): Placement {
+/** Where the spotlight and the card go for `target`, keeping the card on screen. */
+function place(target: Element | null, side: Stop['side'], cardHeight: number): Placement {
   const vw = window.innerWidth
   const vh = window.innerHeight
-  if (!rect) return { spot: null, card: { top: (vh - cardHeight) / 2, left: (vw - CARD_W) / 2 }, side: 'center' }
-  const spot = { top: rect.top - PAD, left: rect.left - PAD, width: rect.width + PAD * 2, height: rect.height + PAD * 2 }
+  if (!target) return { spot: null, card: { top: (vh - cardHeight) / 2, left: (vw - CARD_W) / 2 }, side: 'center' }
+  const rect = target.getBoundingClientRect()
+  // The hole follows the element's own corners, PAD further out, so a pill stays a pill.
+  const own = Number.parseFloat(getComputedStyle(target).borderTopLeftRadius) || 0
+  const radius = Math.min(own + PAD, (rect.height + PAD * 2) / 2)
+  const spot = { top: rect.top - PAD, left: rect.left - PAD, width: rect.width + PAD * 2, height: rect.height + PAD * 2, radius }
   const fits = {
     bottom: spot.top + spot.height + GAP + cardHeight < vh - EDGE,
     top: spot.top - GAP - cardHeight > EDGE,
@@ -156,6 +162,15 @@ function TourOverlay(): JSX.Element {
   const [list] = useState(stops)
   const [index, setIndex] = useState(0)
   const [layout, setLayout] = useState<Placement | null>(null)
+  // The card glides from stop to stop, but lands at the first one without sliding in from nowhere.
+  const [placed, setPlaced] = useState(false)
+  // Only a move to another stop glides. The page settling under a stop (a tab
+  // finishing loading, the window resizing) puts the card where it belongs at
+  // once, so Next is never a moving target.
+  const [gliding, setGliding] = useState(false)
+  // The stop the card was last placed for: until it is this one, the card is still on its way.
+  const [placedFor, setPlacedFor] = useState<Stop | null>(null)
+  const [leaving, setLeaving] = useState(false)
   const card = useRef<HTMLDivElement>(null)
   const stop = list[index]
   const last = index === list.length - 1
@@ -169,9 +184,24 @@ function TourOverlay(): JSX.Element {
   }, [stop])
 
   const measure = useCallback(() => {
-    const element = findTarget(stop)
-    setLayout(place(element?.getBoundingClientRect() ?? null, stop.side, card.current?.offsetHeight ?? 180))
+    setLayout(place(findTarget(stop), stop.side, card.current?.offsetHeight ?? 180))
+    setPlacedFor(stop)
   }, [stop])
+
+  useEffect(() => {
+    if (!placed) return
+    setGliding(true)
+    const timer = window.setTimeout(() => setGliding(false), 900)
+    return () => window.clearTimeout(timer)
+    // Each new stop, once the first has been placed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [index])
+
+  useEffect(() => {
+    if (!layout || placed) return
+    const frame = requestAnimationFrame(() => setPlaced(true))
+    return () => cancelAnimationFrame(frame)
+  }, [layout, placed])
 
   useLayoutEffect(() => {
     let frame = 0
@@ -194,10 +224,13 @@ function TourOverlay(): JSX.Element {
 
   const finish = useCallback(
     (how: 'done' | 'skipped') => {
-      // Back where a first-time user starts.
-      const app = useApp.getState()
-      if (app.settings?.activeWorkspaceId !== 'work' && app.workspaces.some((w) => w.id === 'work')) app.setWorkspace('work')
-      endTour(how)
+      setLeaving(true)
+      // A short fade, then back where a first-time user starts.
+      window.setTimeout(() => {
+        const app = useApp.getState()
+        if (app.settings?.activeWorkspaceId !== 'work' && app.workspaces.some((w) => w.id === 'work')) app.setWorkspace('work')
+        endTour(how)
+      }, 180)
     },
     [endTour]
   )
@@ -206,6 +239,7 @@ function TourOverlay(): JSX.Element {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent): void => {
+      if (leaving) return
       if (event.key === 'Escape') finish('skipped')
       else if (event.key === 'ArrowRight' || event.key === 'Enter') next()
       else if (event.key === 'ArrowLeft') back()
@@ -215,42 +249,47 @@ function TourOverlay(): JSX.Element {
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [next, back, finish])
+  }, [next, back, finish, leaving])
 
   const spot = layout?.spot
   return createPortal(
-    <div className="tour" role="dialog" aria-modal="true" aria-label="Tour of Eaon">
+    <div className="tour" data-leaving={leaving || undefined} role="dialog" aria-modal="true" aria-label="Tour of Eaon">
       {/* Takes every click, so the tour can't be lost by clicking the app behind it. */}
       <div className="tour__catcher" data-dim={!spot || undefined} />
       {spot && (
         <div
           className="tour__spot"
-          style={{ top: spot.top, left: spot.left, width: spot.width, height: spot.height } as CSSProperties}
+          data-placed={placed || undefined}
+          data-gliding={gliding || undefined}
+          style={{ top: spot.top, left: spot.left, width: spot.width, height: spot.height, borderRadius: spot.radius } as CSSProperties}
         />
       )}
       <div
         ref={card}
-        key={index}
         className="tour__card"
         data-side={layout?.side ?? 'center'}
         data-ready={layout ? true : undefined}
-        style={{ top: layout?.card.top ?? -9999, left: layout?.card.left ?? -9999, width: CARD_W }}
+        data-placed={placed || undefined}
+        data-gliding={gliding || undefined}
+        // Where it belongs for this stop, and done moving: what the end-to-end tests wait for before pressing Next.
+        data-settled={(placedFor === stop && !gliding) || undefined}
+        style={{ transform: layout ? `translate3d(${Math.round(layout.card.left)}px, ${Math.round(layout.card.top)}px, 0)` : 'translate3d(-9999px, -9999px, 0)', width: CARD_W }}
       >
-        <div className="tour__head">
-          <span className="tour__count">
-            {index + 1} of {list.length}
-          </span>
-          <button type="button" className="icon-btn tour__close" aria-label="End the tour" onClick={() => finish('skipped')}>
-            <X size={14} strokeWidth={2} />
-          </button>
+        <div key={index} className="tour__content">
+          <div className="tour__head">
+            <span className="tour__count">
+              {index + 1} of {list.length}
+            </span>
+            <button type="button" className="icon-btn tour__close" aria-label="End the tour" onClick={() => finish('skipped')}>
+              <X size={14} strokeWidth={2} />
+            </button>
+          </div>
+          <h2 className="tour__title">{stop.title}</h2>
+          <p className="tour__body">{stop.body}</p>
         </div>
-        <h2 className="tour__title">{stop.title}</h2>
-        <p className="tour__body">{stop.body}</p>
         <div className="tour__foot">
-          <div className="tour__dots" aria-hidden="true">
-            {list.map((_, i) => (
-              <span key={i} data-on={i === index || undefined} />
-            ))}
+          <div className="tour__progress" aria-hidden="true">
+            <span style={{ transform: `scaleX(${(index + 1) / list.length})` }} />
           </div>
           <div className="tour__buttons">
             {index > 0 && (

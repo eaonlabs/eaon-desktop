@@ -261,6 +261,13 @@ class TerminalRegistry {
   private agentOf: (paneId: string) => TerminalAgentId | undefined = () => undefined
   /** Bumped whenever any pane's status changes, for useSyncExternalStore. */
   private version = 0
+  /** The pane that last had the keyboard: where Design Mode sends its notes by default. */
+  private focusedPane: string | null = null
+  /** Local dev servers the panes have printed (Vite's "Local: http://localhost:5173/"), newest first. */
+  private servers: { url: string; paneId: string }[] = []
+  private serverListeners = new Set<() => void>()
+  /** Takes a link clicked in a pane, or declines it so it opens in the system browser. */
+  private linkOpener: ((url: string, paneId: string) => boolean) | null = null
 
   private bind(): void {
     if (this.bound) return
@@ -269,6 +276,7 @@ class TerminalRegistry {
       const rt = this.panes.get(paneId)
       if (!rt) return
       rt.term.write(data)
+      if (data.includes('://')) this.noteServers(paneId, data)
       const now = Date.now()
       rt.lastData = now
       // An echo of your typing, or a redraw for a focus or a resize, isn't work (activity.ts).
@@ -366,11 +374,14 @@ class TerminalRegistry {
     const fit = new FitAddon()
     term.loadAddon(fit)
     try {
-      term.loadAddon(new WebLinksAddon((_e, uri) => window.api.app.openExternal(uri)))
+      term.loadAddon(new WebLinksAddon((_e, uri) => (this.linkOpener?.(uri, paneId) ? undefined : void window.api.app.openExternal(uri))))
     } catch {
       /* links are a nicety */
     }
     term.open(wrapper)
+    term.textarea?.addEventListener('focus', () => {
+      this.focusedPane = paneId
+    })
     const scene = document.createElement('canvas')
     scene.className = 'term-scene'
     scene.setAttribute('aria-hidden', 'true')
@@ -662,18 +673,65 @@ class TerminalRegistry {
     this.panes.get(paneId)?.term.focus()
   }
 
-  /** Text as if pasted (bracketed when the program asked for it, as Claude Code does), then the pane focused. */
-  paste(paneId: string, text: string): void {
+  /** Text as if pasted (bracketed when the program asked for it, as Claude Code does), then the pane focused. False when there is no such pane. */
+  paste(paneId: string, text: string): boolean {
     const rt = this.panes.get(paneId)
-    if (!rt || !text) return
+    if (!rt || !text) return false
     rt.term.paste(text)
     rt.term.focus()
+    return true
+  }
+
+  /** Whether a multi-line paste reaches the pane as one block rather than as separate commands. */
+  takesBlockPaste(paneId: string): boolean {
+    return this.panes.get(paneId)?.term.modes.bracketedPasteMode ?? false
+  }
+
+  lastFocused(): string | null {
+    return this.focusedPane && this.panes.has(this.focusedPane) ? this.focusedPane : null
+  }
+
+  setLinkOpener(opener: ((url: string, paneId: string) => boolean) | null): void {
+    this.linkOpener = opener
+  }
+
+  devServers(paneIds?: string[]): string[] {
+    return this.servers.filter((s) => !paneIds || paneIds.includes(s.paneId)).map((s) => s.url)
+  }
+
+  onServers(listener: () => void): () => void {
+    this.serverListeners.add(listener)
+    return () => this.serverListeners.delete(listener)
+  }
+
+  private noteServers(paneId: string, data: string): void {
+    // eslint-disable-next-line no-control-regex
+    const plain = data.replace(/\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(\x07|\x1b\\)/g, '')
+    const found = plain.match(LOCAL_URL) ?? []
+    if (found.length === 0) return
+    let changed = false
+    for (const raw of found) {
+      const url = raw.replace(/[.,;:)\]]+$/, '').replace('://0.0.0.0', '://localhost').replace('://[::]', '://localhost')
+      const existing = this.servers.findIndex((s) => s.url === url)
+      if (existing === 0) continue
+      if (existing > 0) this.servers.splice(existing, 1)
+      this.servers.unshift({ url, paneId })
+      changed = true
+    }
+    if (!changed) return
+    this.servers = this.servers.slice(0, 8)
+    for (const listener of this.serverListeners) listener()
   }
 
   /** Closes a pane for good: the shell, the terminal and its history. */
   dispose(paneId: string): void {
     const rt = this.panes.get(paneId)
     window.api.terminals.kill(paneId)
+    if (this.focusedPane === paneId) this.focusedPane = null
+    if (this.servers.some((s) => s.paneId === paneId)) {
+      this.servers = this.servers.filter((s) => s.paneId !== paneId)
+      for (const listener of this.serverListeners) listener()
+    }
     if (!rt) return
     this.detach(paneId, null)
     try {
@@ -727,5 +785,7 @@ class TerminalRegistry {
     }
   }
 }
+
+const LOCAL_URL = /https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\]|[\w-]+\.local)(?::\d{2,5})?(?:\/[^\s'"`<>]*)?/g
 
 export const terminals = new TerminalRegistry()

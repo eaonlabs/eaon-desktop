@@ -3,6 +3,45 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [2026.6.3-beta.2] — 2026-10-14
+
+### Added
+- **Automations.** The Scheduled page is now Automations, with cron
+  schedules: five fields or `@daily` and friends, an optional time zone, a
+  plain-English reading and the next three runs. An agent's schedule tool
+  takes cron too.
+- **Claude Code and Codex accounts.** The usage meter lists every account
+  with its limits and reset times, one click to switch. Alerts at 90% and at
+  the limit offer an account with room; Codex can switch by itself.
+- **Review tools:** editable Markdown and range comments that survive a
+  restart, CI checks with the failed step's log (which can go to the agent),
+  merge conflicts resolved block by block or by the agent, a base-branch
+  picker and "Fill from commits" for pull requests.
+- **Eaon Free:** a free week of Claude Haiku on Eaon's gateway, no key
+  needed (150 requests and 2M tokens a day). Event codes, redeemed in
+  Settings → Model providers → Eaon Free, swap in an event's own limits.
+- **Tokn profiles.** Sign in with Tokn to count and sync agent runs to your
+  profile on tokns.eaon.dev. The `tokn` command now ships with Eaon and
+  links to the same account without a second sign-in.
+- **An in-app browser beside the ADE's terminals** (the Browser button, or
+  ⇧⌘B). A local dev server's link in a terminal opens in it. **Design Mode**
+  (⇧⌘C) lets you point at elements on the page, note what to change, and
+  send the notes with screenshots to an agent's terminal or the chat.
+- **A first-run setup** on a fresh install: welcome, Tokn, a model, light or
+  dark, then a tour of the app. It shows a small live Eaon at work beside
+  each step. Every step can be skipped; the tour is in the Help menu.
+
+### Changed
+- **Eaon Remote's website is live** at rc.eaon.dev, redrawn to look like
+  the app: a sidebar with the computer's sessions, terminals and Workers,
+  live terminals in the ADE's colours, light and dark, and a phone layout.
+- Settings: the account block at the top is gone; signed out, a "Sign in
+  with Tokn" prompt takes its place. Pages ease in as they open.
+
+### Fixed
+- A Settings page that hits an error shows it with Try again, instead of
+  taking down the whole window.
+
 ## [2026.6.3-beta.1.3] — 2026-10-12
 
 ### Changed

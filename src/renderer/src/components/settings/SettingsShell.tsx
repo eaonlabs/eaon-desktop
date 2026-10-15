@@ -30,7 +30,9 @@ import {
 import { useShallow } from 'zustand/react/shallow'
 import { useApp, useIsWork } from '../../state/store'
 import { SearchField } from '../ui'
-import { AccountButton } from '../account/ToknAccount'
+import { SignInPrompt } from '../account/ToknAccount'
+import { ErrorBoundary } from '../ErrorBoundary'
+import { SettingsPageError } from '../CrashScreen'
 import { GeneralPage } from './pages/General'
 import { AppearancePage } from './pages/Appearance'
 import { ConfigurationPage } from './pages/Configuration'
@@ -178,10 +180,8 @@ export function SettingsShell(): JSX.Element {
           <ArrowLeft size={16} strokeWidth={1.9} />
           <span>Back to app</span>
         </button>
-        {/* Eaon's account (Tokn), first thing in Settings. */}
-        <div className="settings__account">
-          <AccountButton placement="bottom-start" />
-        </div>
+        {/* Signed out: Tokn's sign-in, first thing in Settings. Signed in, the account is under Usage. */}
+        <SignInPrompt />
         <div className="settings__search">
           <SearchField value={query} onChange={setQuery} placeholder="Search settings..." variant="sm" />
         </div>
@@ -211,18 +211,32 @@ export function SettingsShell(): JSX.Element {
 
       <div className="settings__body">
         <div className="settings__titlebar" />
+        {/* One page failing shows an error in its place; the navigation, and every other page, keep working. */}
         {settingsPage === 'providers' ? (
-          <div className="settings__full">
-            <Page />
+          <div key={settingsPage} className="settings__full settings__page">
+            <PageBoundary page={settingsPage}>
+              <Page />
+            </PageBoundary>
           </div>
         ) : (
           <div ref={scroll} className="settings__scroll scroll">
-            <div className="settings__inner">
-              <Page />
+            <div key={settingsPage} className="settings__inner settings__page">
+              <PageBoundary page={settingsPage}>
+                <Page />
+              </PageBoundary>
             </div>
           </div>
         )}
       </div>
     </div>
+  )
+}
+
+/** Around one Settings page, so a page that can't be drawn shows an error in its own place. */
+function PageBoundary({ page, children }: { page: string; children: ReactNode }): JSX.Element {
+  return (
+    <ErrorBoundary resetKey={page} area={`settings: ${page}`} fallback={(error, retry) => <SettingsPageError error={error} retry={retry} />}>
+      {children}
+    </ErrorBoundary>
   )
 }

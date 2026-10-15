@@ -1,0 +1,613 @@
+/* ---------------- In-app browser (BrowserPanel) and Design Mode ----------------
+   Builds on the .browser panel in pages.css, which the agents' live browsers
+   share. This one is resizable, can fill the window, keeps a page per tab and
+   carries Design Mode's tray under the page. */
+
+.browser--web {
+  position: relative;
+  width: 520px;
+  max-width: none;
+  min-width: 340px;
+}
+/* Filling the window beside the sidebar: the page it was beside steps aside
+   (still mounted, so terminals and streams carry on). */
+.browser--web[data-expanded] {
+  flex: 1;
+  width: auto;
+  border-left: 0;
+}
+.app[data-browser-expanded] > .main {
+  display: none;
+}
+
+.browser__resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  width: 6px;
+  z-index: 5;
+  cursor: col-resize;
+  -webkit-app-region: no-drag;
+}
+.browser__resize::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 2px;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+.browser__resize:hover::after,
+body[data-resizing='browser'] .browser__resize::after {
+  opacity: 0.6;
+}
+/* A page under the pointer would take the drag. */
+body[data-resizing='browser'],
+body[data-resizing='browser'] * {
+  cursor: col-resize !important;
+  user-select: none;
+}
+body[data-resizing='browser'] webview {
+  pointer-events: none;
+}
+
+/* ---- Tabs ---- */
+
+.browser--web .browser__tabs {
+  gap: 2px;
+  padding-left: 10px;
+}
+.browser__tab-strip {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.browser__tab-strip::-webkit-scrollbar {
+  display: none;
+}
+.browser--web .browser__tab {
+  flex: 0 1 180px;
+  min-width: 64px;
+  -webkit-app-region: no-drag;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.browser--web .browser__tab[data-active='false']:hover {
+  background: var(--hover);
+  color: var(--text-2);
+}
+.browser--web .browser__tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.browser--web .browser__tab-label {
+  flex: 1;
+  min-width: 0;
+}
+.browser--web .browser__tab-close {
+  opacity: 0;
+}
+.browser--web .browser__tab[data-active='true'] .browser__tab-close,
+.browser--web .browser__tab:hover .browser__tab-close {
+  opacity: 1;
+}
+.browser__new-tab {
+  -webkit-app-region: no-drag;
+}
+.browser__favicon {
+  flex: none;
+  border-radius: 3px;
+  object-fit: contain;
+}
+.browser__spin {
+  flex: none;
+  animation: browser-spin 900ms linear infinite;
+  color: var(--text-3);
+}
+@keyframes browser-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---- Toolbar ---- */
+
+.browser--web .browser__toolbar {
+  gap: 2px;
+  padding: 2px 10px 8px;
+}
+.browser--web .browser__url {
+  margin: 0 4px;
+  height: 30px;
+  padding: 0 10px;
+  gap: 7px;
+  transition: border-color var(--dur) var(--ease), background var(--dur) var(--ease);
+}
+.browser--web .browser__url[data-focused] {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+  background: var(--canvas);
+}
+.browser__url-icon {
+  flex: none;
+  color: var(--text-3);
+}
+.browser__design {
+  margin-right: 2px;
+}
+.browser__design[data-active] {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+.browser__design[data-active]:hover {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--accent);
+}
+
+.browser__design-hint {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 12px 8px;
+  padding: 6px 6px 6px 10px;
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--accent) 11%, transparent);
+  color: var(--text);
+  font-size: var(--fs-xs);
+}
+.browser__design-hint > svg {
+  flex: none;
+  color: var(--accent);
+}
+.browser__design-hint > span {
+  flex: 1;
+  min-width: 0;
+}
+.browser__design-hint kbd,
+.browser-start kbd {
+  display: inline-block;
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: var(--surface-3);
+  border: 0.5px solid var(--border-strong);
+  font: inherit;
+  font-size: var(--fs-xxs);
+  line-height: 16px;
+  text-align: center;
+  color: var(--text-2);
+}
+.browser__design-done {
+  flex: none;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: var(--r-xs);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--accent);
+}
+.browser__design-done:hover {
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+.browser__find {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin: 0 12px 8px;
+  padding: 0 4px 0 10px;
+  height: 30px;
+  border-radius: var(--r-sm);
+  background: var(--surface-1);
+  border: 1px solid var(--border-soft);
+}
+.browser__find input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  outline: none;
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+.browser__find-count {
+  min-width: 36px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  margin-right: 4px;
+}
+
+/* ---- Pages ---- */
+
+.browser--web .browser__view {
+  position: relative;
+  overflow: hidden;
+}
+/* Every tab's page stays alive; only the active one is shown. Pages stay in
+   the flex flow and an inactive one collapses to nothing (Electron's advice
+   for hiding a <webview>): taken out of the flow, a page kept the size it
+   was created at, laying out at the window's width inside a narrow panel. */
+.browser__view webview.browser__page {
+  flex: 0 1;
+  width: 0;
+  height: 0;
+  border: 0;
+}
+.browser__view webview.browser__page[data-active] {
+  flex: 1 1 auto;
+  width: auto;
+  height: auto;
+}
+.browser__view[data-design]::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.browser__toast {
+  position: absolute;
+  left: 50%;
+  bottom: 14px;
+  transform: translateX(-50%);
+  max-width: calc(100% - 32px);
+  padding: 8px 12px;
+  border-radius: var(--r-md);
+  background: var(--menu-bg);
+  backdrop-filter: blur(20px);
+  box-shadow: var(--shadow-menu);
+  font-size: var(--fs-sm);
+  color: var(--text);
+  animation: browser-toast-in 220ms var(--ease);
+  z-index: 2;
+}
+@keyframes browser-toast-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 6px);
+  }
+}
+
+.browser-start {
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+  background: var(--canvas);
+}
+.browser-start__inner {
+  max-width: 440px;
+  margin: 0 auto;
+  padding: 56px 20px 32px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.browser-start__icon {
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-lg);
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+.browser-start__title {
+  margin: 14px 0 6px;
+  font-size: var(--fs-h2);
+  font-weight: 600;
+  color: var(--text);
+}
+.browser-start__lede {
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+  color: var(--text-3);
+  text-align: center;
+  text-wrap: pretty;
+}
+.browser-start__section {
+  align-self: stretch;
+  margin-top: 26px;
+}
+.browser-start__label {
+  padding: 0 10px 6px;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--text-3);
+}
+.browser-start__row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: var(--r-sm);
+  color: var(--text-3);
+  text-align: left;
+  transition: background var(--dur) var(--ease);
+}
+.browser-start__row:hover {
+  background: var(--hover);
+}
+.browser-start__row-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+.browser-start__row-url {
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-xs);
+}
+.browser-start .browser__banner {
+  align-self: stretch;
+  margin: 28px 0 0;
+}
+
+.browser-error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 24px;
+  background: var(--canvas);
+  color: var(--text-3);
+  text-align: center;
+}
+.browser-error__title {
+  margin-top: 6px;
+  font-size: var(--fs-base);
+  font-weight: 500;
+  color: var(--text);
+}
+.browser-error__body {
+  max-width: 340px;
+  font-size: var(--fs-sm);
+  text-wrap: pretty;
+}
+.browser-error__url {
+  max-width: 340px;
+  margin-bottom: 8px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xxs);
+  color: var(--text-4);
+}
+
+/* ---- Design Mode's tray ---- */
+
+.design-tray {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  max-height: 42%;
+  border-top: 1px solid var(--border-soft);
+  background: var(--canvas);
+}
+.design-tray__head {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px 8px 8px;
+}
+.design-tray__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 26px;
+  padding: 0 8px 0 6px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--text);
+}
+.design-tray__title:hover {
+  background: var(--hover);
+}
+.design-tray__title > svg:first-child {
+  color: var(--accent);
+}
+.design-tray__count {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  display: inline-grid;
+  place-items: center;
+  border-radius: var(--r-pill);
+  background: var(--surface-3);
+  font-size: var(--fs-xxs);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+}
+.design-tray__chevron {
+  color: var(--text-3);
+  transition: transform var(--dur) var(--ease);
+}
+.design-tray__chevron[data-collapsed] {
+  transform: rotate(-90deg);
+}
+
+.design-send {
+  display: inline-flex;
+}
+.design-send__main {
+  max-width: 220px;
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.design-send__main > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.design-send__more {
+  padding: 0 6px;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  box-shadow: inset 1px 0 0 color-mix(in srgb, var(--bg) 30%, transparent);
+}
+
+.design-tray__list {
+  min-height: 0;
+  overflow-y: auto;
+  margin: 0;
+  padding: 0 8px 8px;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.design-note {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px;
+  border-radius: var(--r-md);
+  transition: background var(--dur) var(--ease);
+}
+.design-note:hover,
+.design-note[data-editing] {
+  background: var(--surface-1);
+}
+.design-note__index {
+  flex: none;
+  width: 16px;
+  padding-top: 2px;
+  font-size: var(--fs-xxs);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-4);
+  text-align: right;
+}
+.design-note__thumb {
+  flex: none;
+  width: 64px;
+  height: 44px;
+  border-radius: var(--r-xs);
+  overflow: hidden;
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--border-soft);
+  display: grid;
+  place-items: center;
+}
+.design-note__thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: repeating-conic-gradient(var(--surface-2) 0 25%, var(--surface-1) 0 50%) 0 0 / 10px 10px;
+}
+.design-note__thumb--none {
+  color: var(--text-4);
+}
+.design-note__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.design-note__meta {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  padding-right: 52px;
+}
+.design-note[data-editing] .design-note__meta {
+  padding-right: 0;
+}
+.design-note__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xxs);
+  color: var(--accent);
+}
+.design-note__source {
+  flex: none;
+  max-width: 50%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xxs);
+  color: var(--text-3);
+}
+.design-note__text {
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+  color: var(--text);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.design-note__text[data-empty] {
+  color: var(--text-3);
+}
+.design-note__field {
+  width: 100%;
+  min-height: 52px;
+  max-height: 140px;
+  resize: vertical;
+  padding: 7px 9px;
+  border-radius: var(--r-sm);
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  background: var(--canvas);
+  outline: none;
+  font: inherit;
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+  color: var(--text);
+}
+.design-note__field::placeholder {
+  color: var(--text-3);
+}
+.design-note__edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-top: 4px;
+}
+.design-note__actions {
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  display: flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+.design-note:hover .design-note__actions,
+.design-note:focus-within .design-note__actions {
+  opacity: 1;
+}
+.design-note__actions .icon-btn {
+  width: 24px;
+  height: 24px;
+}

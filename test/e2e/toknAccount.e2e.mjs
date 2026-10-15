@@ -1,7 +1,8 @@
 /**
- * Eaon's account is a Tokn account: the entry at the top of Settings signs in
- * with Tokn, then shows who is signed in, opens their profiles and the Eaon
- * leaderboard, syncs, and signs out.
+ * Eaon's account is a Tokn account: signed out, the prompt at the top of
+ * Settings signs in with Tokn, says so, and folds away; Settings → Usage then
+ * opens the profiles and the Eaon leaderboard, syncs, and signs out, which
+ * brings the prompt back.
  *
  * Tokn is a fake on loopback (EAON_TOKN_HOST and EAON_TOKNS_HOST point at
  * it). The harness records the approval page instead of opening a browser;
@@ -46,20 +47,18 @@ scenario('Account: sign in with Tokn from Settings, open the profiles, sync and 
     const back = await fetch(redirect, { headers: { Connection: 'close' } })
     assert.equal(back.status, 200)
 
-    await page.find('.settings__account [data-testid="account-entry"]', { text: '@alex', timeout: 15_000 })
+    // "Signed in" for a moment, then the prompt folds away: the account is in Usage now.
+    await page.find('.settings__account', { text: 'Signed in as @alex', timeout: 15_000 })
     await s.shot(page, 'signed-in')
+    await page.waitFor(() => !document.querySelector('.settings__account'), { message: 'the sign-in prompt to fold away' })
 
-    const pick = async (label) => {
-      await page.click('.settings__account [data-testid="account-entry"]')
-      await page.click('.menu .menu__item', { text: label })
-    }
-    await pick('Your Eaon profile on tokns.eaon.dev')
-    await pick('Eaon leaderboard')
-    await pick('Your profile on toknhq.com')
+    const pick = (label) => page.click('.settings__inner .btn', { text: label })
+    await pick('Eaon profile')
+    await pick('Leaderboard')
+    await pick('View on Tokn')
     await page.waitFor(async () => (await window.api.usage.account()).sync.state === 'idle', { message: 'the first sync to finish' })
     const before = tokn.syncs.length
     await pick('Sync now')
-    await page.press('Escape')
     const urls = await app.openedUrls()
     assert.ok(urls.includes(`${tokn.url}/eaon/@alex`), `opened: ${urls.join(', ')}`)
     assert.ok(urls.includes(`${tokn.url}/eaon/`), `opened: ${urls.join(', ')}`)
@@ -79,8 +78,7 @@ scenario('Account: sign in with Tokn from Settings, open the profiles, sync and 
       assert.deepEqual(body.agents, [{ day: today, tool: 'eaon', runs: 2, totalMs: 300_000, longestMs: 200_000 }])
     }
 
-    await page.click('.settings__account [data-testid="account-entry"]')
-    await page.click('.menu .menu__item', { text: 'Sign out' })
+    await pick('Sign out')
     await page.find('.settings__account [data-testid="account-entry"]', { text: 'Sign in with Tokn' })
   } finally {
     await tokn.close()

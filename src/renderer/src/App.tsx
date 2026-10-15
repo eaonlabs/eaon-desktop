@@ -3,7 +3,9 @@ import { useShallow } from 'zustand/react/shallow'
 import { isAgentKind, useApp, useIsWork, useWorkspaceKind } from './state/store'
 import { Sidebar } from './components/Sidebar'
 import { ARCHIVE_REQUEST, ChatView } from './components/ChatView'
-import { BrowserPanel } from './components/BrowserPanel'
+import { BrowserKeys, BrowserPanel } from './components/browser/BrowserPanel'
+import { isLocalUrl, openInBrowser, useBrowser } from './components/browser/browserStore'
+import { terminals } from './components/code/terminal/registry'
 import { PluginsPage } from './components/plugins/PluginsPage'
 import { IntegrationsPage } from './components/plugins/IntegrationsPage'
 import { ScheduledPage } from './components/ScheduledPage'
@@ -61,9 +63,22 @@ export default function App(): JSX.Element {
   // What Eaon CLI asks of the window (tabs, ADE folders and terminals, settings).
   useEffect(() => installControl(), [])
 
+  // A local dev server's link in an ADE terminal opens beside it, in the in-app browser.
+  useEffect(() => {
+    terminals.setLinkOpener((url) => {
+      if (!isLocalUrl(url)) return false
+      openInBrowser(url)
+      return true
+    })
+    return () => terminals.setLinkOpener(null)
+  }, [])
+
 
   const isWork = useIsWork()
   const kind = useWorkspaceKind()
+  // The browser sits beside Chat, and beside the ADE's terminals.
+  const browserHere = isWork || (kind === 'code' && view === 'chat')
+  const browserExpanded = useBrowser((s) => s.expanded) && browserHere && browserOpen
   const agentBrowserOpen = useAgentBrowser((s) => s.open)
   // A worker's browser beside its page, while that page is the one open.
   const browserWorker = useWorkers((s) => (s.browserFor && s.selectedId === s.browserFor && !s.selectedRoomId ? s.workers.find((w) => w.id === s.browserFor) ?? null : null))
@@ -71,7 +86,7 @@ export default function App(): JSX.Element {
   const activityWorker = useWorkers((s) => (s.activityOpen && s.selectedId && !s.selectedRoomId ? s.workers.find((w) => w.id === s.selectedId) ?? null : null))
   // The same conditions that render the side panels below.
   useRoomForSidePanel(
-    (isWork && browserOpen) ||
+    (browserHere && browserOpen) ||
       (isWork && view === 'chat' && kind === 'chat' && agentBrowserOpen) ||
       (view === 'chat' && kind === 'workers' && (Boolean(browserWorker) || Boolean(activityWorker)))
   )
@@ -102,11 +117,13 @@ export default function App(): JSX.Element {
         case 'toggle-sidebar':
           app.toggleSidebar()
           break
-        case 'toggle-panel':
-          // The browser panel exists beside Chat only; elsewhere this flipped
-          // a hidden switch and the panel popped up later, unasked.
-          if (isAgentKind(app.workspaces.find((w) => w.id === app.settings?.activeWorkspaceId)?.kind)) app.toggleBrowser()
+        case 'toggle-panel': {
+          // The browser panel exists beside Chat and the ADE's terminals only;
+          // elsewhere this flipped a hidden switch and the panel popped up later, unasked.
+          const kind = app.workspaces.find((w) => w.id === app.settings?.activeWorkspaceId)?.kind
+          if (isAgentKind(kind) || kind === 'code') app.toggleBrowser()
           break
+        }
       }
     })
   }, [ready])
@@ -145,7 +162,7 @@ export default function App(): JSX.Element {
           <SettingsShell />
         </ErrorBoundary>
       ) : (
-        <div className="app">
+        <div className="app" data-browser-expanded={browserExpanded || undefined}>
           <ErrorBoundary area="sidebar" fallback={(_, retry) => <SidebarError retry={retry} />}>
             <Sidebar />
           </ErrorBoundary>
@@ -166,7 +183,7 @@ export default function App(): JSX.Element {
               {view === 'models' && <ModelsPage />}
             </ErrorBoundary>
           </div>
-          {isWork && browserOpen && (
+          {browserHere && browserOpen && (
             <ErrorBoundary area="browser panel" fallback={() => <PanelError onClose={() => useApp.getState().toggleBrowser(false)} />}>
               <BrowserPanel />
             </ErrorBoundary>
@@ -194,6 +211,7 @@ export default function App(): JSX.Element {
       )}
       {/* Outside the view switch, so ⌘1–3 and ⇧⌘P work from Settings too. */}
       <GlobalKeys onSettings={() => setSettingsPage('general')} onPlugins={() => setView('plugins')} />
+      {browserHere && view !== 'settings' && <BrowserKeys />}
       <UpdateToast />
       <StoreNotice />
       <ComputerLeaseIndicator />

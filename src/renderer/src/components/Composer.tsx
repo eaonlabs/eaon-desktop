@@ -54,7 +54,7 @@ import { VoiceBar } from './composer/VoiceBar'
  * of streamed tokens, and takes nothing from it but `variant`.
  */
 export const Composer = memo(function Composer({ variant = 'home' }: { variant?: 'home' | 'chat' }): JSX.Element {
-  const { settings, streamingChatId, activeChatId, send, stop, composerDraft, setComposerDraft, setWorkCwd, patchSettings } = useApp(
+  const { settings, streamingChatId, activeChatId, send, stop, composerDraft, setComposerDraft, composerAppend, appendToComposer, setWorkCwd, patchSettings } = useApp(
     useShallow((s) => ({
       settings: s.settings,
       streamingChatId: s.streamingChatId,
@@ -63,6 +63,8 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       stop: s.stop,
       composerDraft: s.composerDraft,
       setComposerDraft: s.setComposerDraft,
+      composerAppend: s.composerAppend,
+      appendToComposer: s.appendToComposer,
       setWorkCwd: s.setWorkCwd,
       patchSettings: s.patchSettings
     }))
@@ -152,6 +154,18 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
     setAttachments((current) => [...new Set([...current, ...paths])].slice(0, 12))
     textarea.current?.focus()
   }
+
+  // Design Mode's notes from the browser: added after what is already typed, never in place of it.
+  useEffect(() => {
+    if (composerAppend === null) return
+    appendToComposer(null)
+    setText((current) => (current.trim() ? `${current.trimEnd()}\n\n${composerAppend.text}` : composerAppend.text))
+    addAttachments(composerAppend.attachments)
+    const node = textarea.current
+    node?.focus()
+    requestAnimationFrame(() => node && node.setSelectionRange(node.value.length, node.value.length))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [composerAppend, appendToComposer])
 
   const submit = (): void => {
     if (streaming) {

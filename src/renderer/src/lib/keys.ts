@@ -22,7 +22,8 @@ export const SHORTCUTS: Shortcut[] = [
   { id: 'tab-workers', label: 'Go to Workers', modifiers: ['mod'], key: '2' },
   { id: 'tab-ade', label: 'Go to the ADE', modifiers: ['mod'], key: '3' },
   { id: 'toggle-sidebar', label: 'Show or hide the sidebar', modifiers: ['mod'], key: 'B' },
-  { id: 'toggle-browser', label: 'Show or hide the browser panel (Chat)', modifiers: ['shift', 'mod'], key: 'B' },
+  { id: 'toggle-browser', label: 'Show or hide the browser panel (Chat and the ADE)', modifiers: ['shift', 'mod'], key: 'B' },
+  { id: 'annotate-page-element', label: 'Point at a page element in the browser (Design Mode)', modifiers: ['shift', 'mod'], key: 'C' },
   { id: 'plugins', label: 'Open Plugins', modifiers: ['shift', 'mod'], key: 'P' },
   { id: 'settings', label: 'Open Settings', modifiers: ['mod'], key: ',' }
 ]
