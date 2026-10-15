@@ -93,7 +93,11 @@ scenario('first run: the setup signs in with Tokn, links tokn, picks dark, and t
     for (let stop = 1; stop <= 8; stop++) {
       // textContent: the count is drawn in capitals ("1 OF 7").
       await page.waitFor((stop) => document.querySelector('.tour__count')?.textContent === `${stop} of 8`, { args: [stop], message: `stop ${stop}` })
-      await page.waitFor(() => document.querySelector('.tour__card')?.getAnimations().every((a) => a.playState !== 'running') ?? false, { message: 'the card to settle' })
+      // Placed for this stop and done gliding there (the tab it's in may take a moment to draw what it points at).
+      await page.waitFor(() => {
+        const card = document.querySelector('.tour__card[data-settled]')
+        return card ? card.getAnimations().every((a) => a.playState !== 'running') : false
+      }, { message: 'the card to settle' })
       titles.push(await page.eval(() => document.querySelector('.tour__title')?.textContent ?? ''))
       // The plan meter shows only with a Claude Code or Codex account; without one its card sits in the middle.
       const spot = await page.eval(() => Boolean(document.querySelector('.tour__spot')))

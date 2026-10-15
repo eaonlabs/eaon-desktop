@@ -145,6 +145,39 @@
   margin: 0 auto;
 }
 
+/* Opening a page: its parts rise into place a beat apart, top first. Keyed on
+   the page (SettingsShell), so it plays on every switch. Only `from` is
+   given, so nothing is left transformed afterwards to trap fixed or sticky
+   children. */
+.settings__inner.settings__page > * {
+  animation: settings-page-in 420ms var(--spring-slow) both;
+}
+.settings__inner.settings__page > :nth-child(2) {
+  animation-delay: 30ms;
+}
+.settings__inner.settings__page > :nth-child(3) {
+  animation-delay: 60ms;
+}
+.settings__inner.settings__page > :nth-child(4) {
+  animation-delay: 90ms;
+}
+.settings__inner.settings__page > :nth-child(5) {
+  animation-delay: 120ms;
+}
+.settings__inner.settings__page > :nth-child(n + 6) {
+  animation-delay: 150ms;
+}
+/* Model providers fills the pane with its own columns: it arrives as one. */
+.settings__full.settings__page {
+  animation: settings-page-in 420ms var(--spring-slow) both;
+}
+@keyframes settings-page-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
 .settings__h1 {
   font-size: var(--fs-title);
   font-weight: 400;

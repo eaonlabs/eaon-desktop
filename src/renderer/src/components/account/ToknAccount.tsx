@@ -1,8 +1,6 @@
-import { useCallback, useEffect, useRef, useState, type JSX } from 'react'
-import { BarChart3, Loader2, LogOut, RefreshCw, Trophy, UserRound } from 'lucide-react'
+import { useCallback, useEffect, useState, type JSX } from 'react'
+import { Check, Loader2 } from 'lucide-react'
 import type { UsageAccountState } from '@shared/usage'
-import { useApp } from '../../state/store'
-import { MenuItem, MenuSeparator, Popover, useDisclosure } from '../ui'
 
 /**
  * Eaon's account is a Tokn account (toknhq.com): the one sign-in Eaon has.
@@ -10,8 +8,9 @@ import { MenuItem, MenuSeparator, Popover, useDisclosure } from '../ui'
  * profile and the Eaon leaderboard (tokns.eaon.dev). Model providers'
  * sign-ins (ChatGPT, Copilot) are credentials for those models, not this.
  *
- * The entry sits at the top of Settings (and in Settings → Usage); first
- * run offers the same sign-in (onboarding). Sign-in itself runs in main
+ * Signed out, Settings offers the sign-in at the top of its navigation;
+ * signed in, the account is in Settings → Usage. First run offers the same
+ * sign-in (onboarding). Sign-in itself runs in main
  * (features/usage).
  */
 
@@ -46,108 +45,76 @@ export function useToknAccount(): UsageAccountState | null {
   return state
 }
 
-/** The first letter of the name, or of the handle. */
-const initial = (name: string): string => (name.trim()[0] ?? '?').toUpperCase()
+/** How long "Signed in" shows in Settings before the prompt folds away. */
+const SIGNED_IN_NOTE_MS = 1600
 
 /**
- * The account entry: who is signed in, with their profiles, Sync now and
- * Sign out a click away; signed out, "Sign in with Tokn".
+ * Settings' sign-in prompt: "Sign in with Tokn" at the top of the navigation
+ * while signed out. Signed in, the account lives in Settings → Usage
+ * (profiles, Sync now, Sign out), so nothing shows here. Signing in from the
+ * prompt says so for a moment, then the prompt folds away.
  */
-export function AccountButton({ placement = 'top-start' }: { placement?: 'top-start' | 'bottom-start' }): JSX.Element | null {
+export function SignInPrompt(): JSX.Element | null {
   const state = useToknAccount()
-  const anchor = useRef<HTMLButtonElement>(null)
-  const menu = useDisclosure()
-  const setSettingsPage = useApp((s) => s.setSettingsPage)
-  if (!state) return null
+  const account = state?.account ?? null
+  // Seen signed out while open: only then is a sign-in worth a "Signed in" before folding away.
+  const [sawSignedOut, setSawSignedOut] = useState(false)
+  const [folded, setFolded] = useState(false)
+  useEffect(() => {
+    if (state && !state.account) {
+      setSawSignedOut(true)
+      setFolded(false)
+    }
+  }, [state])
+  useEffect(() => {
+    if (!account) return
+    const timer = window.setTimeout(() => setFolded(true), SIGNED_IN_NOTE_MS)
+    return () => window.clearTimeout(timer)
+  }, [account])
 
-  const { account, signIn, sync } = state
-  if (!account) {
-    const pending = signIn.state === 'pending'
+  if (!state) return null
+  if (account && (!sawSignedOut || folded)) return null
+
+  if (account) {
     return (
-      <button
-        className="account-entry"
-        data-testid="account-entry"
-        title={pending ? 'Waiting for you to approve Eaon on toknhq.com. Click to cancel.' : (signIn.error ?? 'Your Eaon account is your Tokn account, on toknhq.com.')}
-        onClick={() => void (pending ? window.api.usage.cancelSignIn() : window.api.usage.signIn())}
-      >
-        <span className="account-entry__avatar account-entry__avatar--mark">
-          {pending ? <Loader2 size={14} className="spinner" /> : <ToknMark size={22} />}
-        </span>
-        <span className="account-entry__text">
-          <span className="account-entry__name">{pending ? 'Waiting for Tokn…' : 'Sign in with Tokn'}</span>
-          <span className="account-entry__sub">
-            {pending ? 'Approve Eaon in your browser' : signIn.state === 'error' ? 'Couldn’t sign in. Try again.' : 'Account on toknhq.com'}
-          </span>
-        </span>
-      </button>
+      <div className="settings__account" data-folding="" role="status">
+        <div className="settings__account-inner">
+          <div className="account-entry account-entry--done">
+            <span className="account-entry__avatar account-entry__avatar--done">
+              <Check size={15} strokeWidth={2.4} />
+            </span>
+            <span className="account-entry__text">
+              <span className="account-entry__name">Signed in as @{account.handle}</span>
+              <span className="account-entry__sub">Your account is in Usage</span>
+            </span>
+          </div>
+        </div>
+      </div>
     )
   }
 
-  const name = account.name || account.handle
-  const syncing = sync.state === 'syncing'
-  const open = (page: 'profile' | 'eaon-profile' | 'leaderboard') => () => {
-    void window.api.usage.openProfile(page)
-    menu.close()
-  }
+  const { signIn } = state
+  const pending = signIn.state === 'pending'
   return (
-    <>
-      <button
-        ref={anchor}
-        className="account-entry"
-        data-testid="account-entry"
-        data-open={menu.open || undefined}
-        aria-haspopup="menu"
-        aria-expanded={menu.open}
-        title={`${name} (@${account.handle})`}
-        onClick={menu.toggle}
-      >
-        <span className="account-entry__avatar" aria-hidden="true">
-          {initial(name)}
-        </span>
-        <span className="account-entry__text">
-          <span className="account-entry__name">{name}</span>
-          <span className="account-entry__sub">@{account.handle}</span>
-        </span>
-      </button>
-      <Popover anchor={anchor} open={menu.open} onClose={menu.close} placement={placement} width={268}>
-        <div className="menu__header account-menu__header">
-          <span className="account-entry__avatar" aria-hidden="true">
-            {initial(name)}
+    <div className="settings__account">
+      <div className="settings__account-inner">
+        <button
+          className="account-entry"
+          data-testid="account-entry"
+          title={pending ? 'Waiting for you to approve Eaon on toknhq.com. Click to cancel.' : (signIn.error ?? 'Your Eaon account is your Tokn account, on toknhq.com.')}
+          onClick={() => void (pending ? window.api.usage.cancelSignIn() : window.api.usage.signIn())}
+        >
+          <span className="account-entry__avatar account-entry__avatar--mark">
+            {pending ? <Loader2 size={14} className="spinner" /> : <ToknMark size={22} />}
           </span>
           <span className="account-entry__text">
-            <span className="account-entry__name">{name}</span>
-            <span className="account-entry__sub">@{account.handle} on Tokn</span>
+            <span className="account-entry__name">{pending ? 'Waiting for Tokn…' : 'Sign in with Tokn'}</span>
+            <span className="account-entry__sub">
+              {pending ? 'Approve Eaon in your browser' : signIn.state === 'error' ? 'Couldn’t sign in. Try again.' : 'Account on toknhq.com'}
+            </span>
           </span>
-        </div>
-        <MenuSeparator />
-        <MenuItem icon={<ToknMark size={15} />} title="Your profile on toknhq.com" onClick={open('profile')} />
-        <MenuItem icon={<UserRound size={14} strokeWidth={2} />} title="Your Eaon profile on tokns.eaon.dev" onClick={open('eaon-profile')} />
-        <MenuItem icon={<Trophy size={14} strokeWidth={2} />} title="Eaon leaderboard" onClick={open('leaderboard')} />
-        <MenuSeparator />
-        <MenuItem
-          icon={<BarChart3 size={14} strokeWidth={2} />}
-          title="Usage"
-          onClick={() => {
-            setSettingsPage('usage')
-            menu.close()
-          }}
-        />
-        <MenuItem
-          icon={syncing ? <Loader2 size={14} className="spinner" /> : <RefreshCw size={14} strokeWidth={2} />}
-          title={syncing ? 'Syncing…' : 'Sync now'}
-          description={sync.state === 'error' ? 'The last sync didn’t go through.' : undefined}
-          disabled={syncing}
-          onClick={() => void window.api.usage.sync()}
-        />
-        <MenuItem
-          icon={<LogOut size={14} strokeWidth={2} />}
-          title="Sign out"
-          onClick={() => {
-            menu.close()
-            void window.api.usage.signOut()
-          }}
-        />
-      </Popover>
-    </>
+        </button>
+      </div>
+    </div>
   )
 }

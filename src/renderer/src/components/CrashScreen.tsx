@@ -65,6 +65,20 @@ export function PaneError({ error, retry }: { error: Error; retry: () => void })
   )
 }
 
+/** In place of one Settings page that hit a render error; the settings navigation beside it keeps working. */
+export function SettingsPageError({ error, retry }: { error: Error; retry: () => void }): JSX.Element {
+  return (
+    <div className="crash-screen crash-screen--pane" role="alert">
+      <ErrorNotice
+        title="This settings page hit an error"
+        body="Your settings are saved. Pick another page, try this one again, or reload the window."
+        message={error.message}
+        actions={[{ label: 'Try again', run: retry }, reload]}
+      />
+    </div>
+  )
+}
+
 /** In place of the sidebar, at its width, so the page beside it keeps its place. */
 export function SidebarError({ retry }: { retry: () => void }): JSX.Element {
   const open = useApp((s) => s.sidebarOpen)
