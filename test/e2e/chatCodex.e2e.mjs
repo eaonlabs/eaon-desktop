@@ -48,7 +48,21 @@ scenario('Chat runs on Codex: picked in the model picker, a reply, the same conv
   // Codex's own tab in the model picker, with its logo.
   await page.click('.chip--model')
   assert.ok(await page.eval(() => Boolean(document.querySelector('.mp__tab[aria-label="Codex"] img'))), 'the Codex tab shows its logo')
-  await page.click('.mp__tab[aria-label="Codex"]')
+  // The picker pops open with a spring: clicked mid-animation (a slow CI
+  // runner), the tab was missed and Starred stayed open. Click once it has
+  // landed, and again if the tab still isn't the open one.
+  await page.waitFor(() => {
+    const picker = document.querySelector('.mp')
+    return picker && picker.getAnimations({ subtree: true }).every((a) => a.playState !== 'running')
+  }, { message: 'the model picker to finish opening' })
+  for (let attempt = 0; ; attempt++) {
+    await page.click('.mp__tab[aria-label="Codex"]')
+    const open = await page
+      .waitFor(() => document.querySelector('.mp__tab[aria-label="Codex"]')?.getAttribute('aria-selected') === 'true', { message: 'the Codex tab to open', timeout: 2000 })
+      .then(() => true, () => false)
+    if (open) break
+    if (attempt === 2) assert.fail('the Codex tab never opened')
+  }
   const rows = await page.waitFor(() => {
     const r = [...document.querySelectorAll('.mp__list .mp__row')].map((row) => row.querySelector('.mp__row-name')?.textContent ?? '')
     return r.length ? r : null
