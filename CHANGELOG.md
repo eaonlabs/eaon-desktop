@@ -23,6 +23,10 @@ All notable changes to Eaon are documented here. Format loosely follows
 - **Tokn profiles.** Sign in with Tokn to count and sync agent runs to your
   profile on tokns.eaon.dev. The `tokn` command now ships with Eaon and
   links to the same account without a second sign-in.
+- **An in-app browser beside the ADE's terminals** (the Browser button, or
+  ⇧⌘B). A local dev server's link in a terminal opens in it. **Design Mode**
+  (⇧⌘C) lets you point at elements on the page, note what to change, and
+  send the notes with screenshots to an agent's terminal or the chat.
 - **A first-run setup** on a fresh install: welcome, Tokn, a model, light or
   dark, then a tour of the app. It shows a small live Eaon at work beside
   each step. Every step can be skipped; the tour is in the Help menu.

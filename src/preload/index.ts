@@ -30,6 +30,7 @@ import { pluginsApi } from './features/plugins'
 import { schedulerApi } from './features/scheduler'
 import { computerUseApi } from './features/computerUse'
 import { browserControlApi } from './features/browserControl'
+import { inAppBrowserApi } from './features/inAppBrowser'
 import { eaonCodeApi } from './features/eaonCode'
 import { discordApi } from './features/discordPresence'
 import { modelLibraryApi } from './features/modelLibrary'
@@ -315,6 +316,7 @@ const fullApi = {
   scheduler: schedulerApi,
   computerUse: computerUseApi,
   browserControl: browserControlApi,
+  inAppBrowser: inAppBrowserApi,
   eaonCode: eaonCodeApi,
   discord: discordApi,
   modelLibrary: modelLibraryApi,

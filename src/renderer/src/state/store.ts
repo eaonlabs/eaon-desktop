@@ -83,6 +83,8 @@ interface AppState {
   providerFocus: string | null
   /** Bumped to ask the composer to open its model picker (a failed reply's "Choose a model"). */
   modelMenuRequest: number
+  /** Text and files added to whatever is in the composer (Design Mode's notes), consumed once. */
+  composerAppend: { text: string; attachments: string[] } | null
   /** Code-index progress for the chat agent's project folder. */
   indexStatus: IndexStatus | null
   /** In-flight Hugging Face model downloads, keyed by `repoId::filename`. Lives
@@ -138,6 +140,7 @@ interface AppState {
   setGoalStatus: (status: 'paused' | 'active' | null) => void
   respondApproval: (approved: boolean) => void
   setComposerDraft: (text: string | null) => void
+  appendToComposer: (append: { text: string; attachments: string[] } | null) => void
   reindex: (force?: boolean) => Promise<void>
 
   createProject: (name: string) => Project
@@ -584,6 +587,7 @@ export const useApp = create<AppState>((set, get) => ({
   composerDraft: null,
   providerFocus: null,
   modelMenuRequest: 0,
+  composerAppend: null,
   indexStatus: null,
   modelDownloads: {},
   updateStatus: { state: 'idle' },
@@ -1033,6 +1037,10 @@ export const useApp = create<AppState>((set, get) => ({
 
   setComposerDraft(text) {
     set({ composerDraft: text })
+  },
+
+  appendToComposer(append) {
+    set({ composerAppend: append })
   },
 
   async reindex(force = false) {

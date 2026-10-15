@@ -23,10 +23,15 @@
   flex: none;
   white-space: nowrap;
 }
-/* A narrow window keeps the terminal icon and drops its label. */
-@media (max-width: 1120px) {
-  .code-terminal-btn span {
+/* A narrow window (or a browser panel beside the terminals) keeps the
+   header's icons and drops their labels; each keeps its title. */
+@container main (max-width: 1100px) {
+  /* Counts (the review button's pending comments) are information, not a label: they stay. */
+  .code-header .chat-header__actions .header-btn:not(.usage-pill) > span:not(.review-btn__count) {
     display: none;
+  }
+  .code-header .chat-header__actions .header-btn:not(.usage-pill) {
+    padding: 0 7px;
   }
 }
 .code-folder {

@@ -249,6 +249,7 @@ export const defaultSettings: Settings = {
     'open-new-window': null,
     'toggle-pin': '⌥⌘P',
     'focus-browser-address-bar': '⌘L',
+    'annotate-page-element': '⇧⌘C',
     'focus-main-chat': null,
     'focus-side-chat': null,
     'toggle-sidebar': '⌘B',

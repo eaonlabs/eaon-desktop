@@ -1,6 +1,6 @@
 import { useRef, type JSX } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { ChevronDown, Folder, FolderOpen } from 'lucide-react'
+import { ChevronDown, Folder, FolderOpen, Globe } from 'lucide-react'
 import { TopBar } from '../TopBar'
 import { MenuItem, MenuSeparator, Popover, useDisclosure } from '../ui'
 import { useCode } from './codeStore'
@@ -10,12 +10,15 @@ import { NewTerminalButton } from './terminal/TerminalWorkspace'
 import { UsageMeter } from './UsageMeter'
 import { ReviewButton } from './ReviewPanel'
 import { revealLabel } from '../../lib/files'
+import { shortcutLabel } from '../../lib/platform'
+import { useApp } from '../../state/store'
 
 export const folderName = (path: string): string => path.split(/[\\/]/).filter(Boolean).pop() ?? path
 
-/** The ADE's top bar: the project folder, the mode switch, plan usage, the terminals' theme and a new terminal. */
+/** The ADE's top bar: the project folder, plan usage, review, the browser and a new terminal. */
 export function CodeHeader(): JSX.Element {
   const cwd = useCode((s) => s.cwd)
+  const browserOpen = useApp((s) => s.browserOpen)
   return (
     <TopBar
       className="code-header"
@@ -24,6 +27,19 @@ export function CodeHeader(): JSX.Element {
         <div className="chat-header__actions">
           <UsageMeter />
           <ReviewButton />
+          {cwd && (
+            <button
+              className="header-btn"
+              aria-label="Browser"
+              aria-pressed={browserOpen}
+              data-active={browserOpen || undefined}
+              title={`${browserOpen ? 'Close' : 'Open'} the browser, with Design Mode for pointing your agent at the page (${shortcutLabel('⇧⌘B')})`}
+              onClick={() => useApp.getState().toggleBrowser()}
+            >
+              <Globe size={14} strokeWidth={2} />
+              <span>Browser</span>
+            </button>
+          )}
           <NewTerminalButton />
         </div>
       }

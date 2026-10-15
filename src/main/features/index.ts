@@ -1,4 +1,5 @@
 import { browserUseFeature } from './browserUse'
+import { inAppBrowserFeature } from './inAppBrowser'
 import { computerUseFeature } from './computerUse'
 import { discordPresenceFeature } from './discordPresence'
 import { eaonCodeFeature } from './eaonCode'
@@ -43,6 +44,7 @@ export const FEATURES: Feature[] = [
   skillsFeature,
   computerUseFeature,
   browserUseFeature,
+  inAppBrowserFeature,
   schedulerFeature,
   eaonCodeFeature,
   libraryFeature,
