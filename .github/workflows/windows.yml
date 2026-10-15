@@ -1,11 +1,17 @@
-# Windows installer check: builds the same one-file installer the Mac release
-# script makes (x64 and arm64 in one NSIS .exe), then installs it on a real
-# Windows machine of each arch and starts the installed app, the way someone
-# downloading it would. The installer stays on the run; nothing is attached to
-# a release (release:win on the Mac publishes the Windows files).
+# Windows installer: builds the one-file installer (x64 and arm64 in one NSIS
+# .exe), then installs it on a real Windows machine of each arch and starts
+# the installed app, the way someone downloading it would.
 #
-# Runs on a push to a release branch, on pull requests that touch the app, or
-# by hand.
+# On a push to a release branch, or by hand, the build is signed with Azure
+# Artifact Signing (account eaonsigning, profile eaon-public, issued to Vishnu
+# Chada): Eaon.exe, everything in it and the installer, so SmartScreen knows
+# the publisher. The runner signs in to Azure with GitHub's OIDC token through
+# the app registration eaon-windows-signing, whose federated credential trusts
+# this repository's `windows-signing` environment only; no secret is stored.
+# The signed files are then attached to the GitHub release for package.json's
+# version, if that release exists and has no Windows files yet.
+#
+# Pull requests build unsigned (a fork's run can't get the token).
 name: Windows installer
 
 on:
@@ -18,6 +24,11 @@ on:
 permissions:
   contents: read
 
+# Azure Artifact Signing: not secrets, just which tenant, app and account.
+env:
+  AZURE_TENANT_ID: d373dfd9-95a6-4c7d-bb72-1388a3e97f6b
+  AZURE_CLIENT_ID: c4794814-dd63-4b9b-8f27-3a2d08f9cbd2
+
 concurrency:
   group: windows-${{ github.ref }}
   cancel-in-progress: true
@@ -26,6 +37,13 @@ jobs:
   build:
     name: Build installer
     runs-on: windows-latest
+    # Signing runs in the environment the Azure app trusts; pull requests get none.
+    environment: ${{ github.event_name != 'pull_request' && 'windows-signing' || '' }}
+    permissions:
+      contents: write
+      id-token: write
+    env:
+      SIGN: ${{ github.event_name != 'pull_request' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -52,11 +70,61 @@ jobs:
       - name: tokn
         run: node scripts/fetch-tokn-cli.mjs
 
+      # The runner's Azure sign-in (az CLI), which Invoke-TrustedSigning
+      # (electron-builder's azureSignOptions) picks up through
+      # DefaultAzureCredential. The app's only role is Certificate Profile
+      # Signer on the signing account, so no subscription is selected.
+      - name: Sign in to Azure
+        if: env.SIGN == 'true'
+        uses: azure/login@v2
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+
+      # Signed: signAndEditExecutable back on (rcedit runs natively here, unlike
+      # on a Mac), and every executable signed through Artifact Signing.
       - name: Build
         shell: bash
         run: |
           npx electron-vite build
-          npx electron-builder --win --publish never
+          if [ "$SIGN" = "true" ]; then
+            npx electron-builder --win --publish never \
+              -c.win.signAndEditExecutable=true \
+              -c.win.azureSignOptions.publisherName="Vishnu Chada" \
+              -c.win.azureSignOptions.endpoint=https://eus.codesigning.azure.net/ \
+              -c.win.azureSignOptions.codeSigningAccountName=eaonsigning \
+              -c.win.azureSignOptions.certificateProfileName=eaon-public
+          else
+            npx electron-builder --win --publish never
+          fi
+
+      - name: Check the signature
+        if: env.SIGN == 'true'
+        shell: pwsh
+        run: |
+          foreach ($file in @((Get-ChildItem dist\*-setup.exe | Select-Object -First 1).FullName, 'dist\win-unpacked\Eaon.exe', 'dist\win-arm64-unpacked\Eaon.exe')) {
+            if (-not (Test-Path $file)) { continue }
+            $sig = Get-AuthenticodeSignature $file
+            Write-Host "$file : $($sig.Status) by $($sig.SignerCertificate.Subject)"
+            if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch 'CN=Vishnu Chada') { throw "$file is not signed by Vishnu Chada" }
+          }
+
+      # Like the Linux installers: onto the release for this version, once.
+      - name: Attach to the release
+        if: env.SIGN == 'true'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VERSION="$(node -p "require('./package.json').version")"
+          if ! gh release view "v$VERSION" > /dev/null 2>&1; then
+            echo "No release v$VERSION yet; the files are on this run."
+          elif gh release view "v$VERSION" --json assets -q '.assets[].name' | grep -qx latest.yml; then
+            echo "v$VERSION already has its Windows files; they stay as published. This build is on the run."
+          else
+            gh release upload "v$VERSION" dist/*-setup.exe dist/*-setup.exe.blockmap dist/latest.yml --clobber
+          fi
 
       - name: Keep the installer on the run
         uses: actions/upload-artifact@v4
@@ -93,6 +161,8 @@ jobs:
         shell: pwsh
         run: |
           $setup = Get-ChildItem installer\*-setup.exe | Select-Object -First 1
+          $sig = Get-AuthenticodeSignature $setup.FullName
+          Write-Host "Installer signature: $($sig.Status) $($sig.SignerCertificate.Subject)"
           Start-Process -FilePath $setup.FullName -ArgumentList '/S' -Wait
           $exe = Join-Path $env:LOCALAPPDATA 'Programs\Eaon\Eaon.exe'
           for ($i = 0; $i -lt 60 -and -not (Test-Path $exe); $i++) { Start-Sleep -Seconds 2 }

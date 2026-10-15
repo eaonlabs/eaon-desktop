@@ -134,11 +134,14 @@ export function PrReviewPanel({ pr }: { pr: PullRequestSummary }): JSX.Element |
           <label className="pr-review__label" htmlFor="pr-review-summary">
             Summary
           </label>
-          <textarea id="pr-review-summary" className="input pr-review__summary" value={draft.summary} onChange={(e) => setDraft({ ...draft, summary: e.target.value })} />
+          <textarea id="pr-review-summary" className="input pr-review__summary" value={draft.summary} onChange={(e) => {
+              const summary = e.target.value
+              setDraft((d) => d && { ...d, summary })
+            }} />
           {state.target.own ? (
             <p className="pr-review__fine">This is your own pull request, so it goes as a comment: GitHub doesn’t let you approve it or ask for changes.</p>
           ) : (
-            <Segmented value={draft.event} options={EVENTS} onChange={(event) => setDraft({ ...draft, event })} />
+            <Segmented value={draft.event} options={EVENTS} onChange={(event) => setDraft((d) => d && { ...d, event })} />
           )}
           {draft.comments.length > 0 && <div className="pr-review__label">Line comments</div>}
           {draft.comments.map((c, i) => (
@@ -151,7 +154,7 @@ export function PrReviewPanel({ pr }: { pr: PullRequestSummary }): JSX.Element |
                   type="button"
                   className="icon-btn"
                   aria-label={`Drop the comment on ${c.path} line ${c.line}`}
-                  onClick={() => setDraft({ ...draft, comments: draft.comments.filter((_, j) => j !== i) })}
+                  onClick={() => setDraft((d) => d && { ...d, comments: d.comments.filter((_, j) => j !== i) })}
                 >
                   <Trash2 size={13} strokeWidth={1.9} />
                 </button>
@@ -159,7 +162,10 @@ export function PrReviewPanel({ pr }: { pr: PullRequestSummary }): JSX.Element |
               <textarea
                 className="input"
                 value={c.body}
-                onChange={(e) => setDraft({ ...draft, comments: draft.comments.map((x, j) => (j === i ? { ...x, body: e.target.value } : x)) })}
+                onChange={(e) => {
+                  const body = e.target.value
+                  setDraft((d) => d && { ...d, comments: d.comments.map((x, j) => (j === i ? { ...x, body } : x)) })
+                }}
               />
             </div>
           ))}
