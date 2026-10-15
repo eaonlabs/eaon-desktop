@@ -11,11 +11,11 @@ import {
   type DiscordPlace,
   type DiscordStatus
 } from '@shared/discordPresence'
-import presenceArt from '../../../assets/discord/presence-v1.gif'
-import thinkingArt from '../../../assets/discord/thinking-v1.gif'
-import workingArt from '../../../assets/discord/working-v1.gif'
-import readyArt from '../../../assets/discord/ready-v1.gif'
-import awayArt from '../../../assets/discord/away-v1.gif'
+import presenceArt from '../../../assets/discord/presence-v3.gif'
+import thinkingArt from '../../../assets/discord/thinking-v3.gif'
+import workingArt from '../../../assets/discord/working-v3.gif'
+import readyArt from '../../../assets/discord/ready-v3.gif'
+import awayArt from '../../../assets/discord/away-v3.gif'
 
 const BADGES: Record<DiscordStatus, string> = {
   ready: readyArt,
