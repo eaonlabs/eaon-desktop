@@ -7,8 +7,9 @@
  * silicon Mac without Rosetta that fails ("bad CPU type in executable"), so
  * `win.signAndEditExecutable` is off and this does the same edit with resedit.
  * resedit is pure JavaScript, and it is what @electron/packager itself uses
- * for this job. Nothing is signed either way: these Windows builds are
- * unsigned.
+ * for this job. A signed build (.github/workflows/windows.yml, on Windows)
+ * turns signAndEditExecutable back on: rcedit then runs too, and the exe is
+ * signed after both.
  */
 const { readFileSync, writeFileSync } = require('node:fs')
 const { join } = require('node:path')
