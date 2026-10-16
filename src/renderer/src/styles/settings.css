@@ -1343,6 +1343,16 @@ body[data-reduce-motion='on'] .star-card {
 .free-card__btn--claim:hover:not(:disabled) {
   background: color-mix(in srgb, var(--accent) 24%, var(--surface-2));
 }
+.free-card__code {
+  margin-top: 10px;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.free-card__code:hover:not(:disabled) {
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
 
 /* ---------------- Settings → ADE: terminal theme ---------------- */
 

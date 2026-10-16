@@ -170,7 +170,9 @@ export function ProvidersPage(): JSX.Element {
   const showingCodex = selectedId === CODEX_ROW_ID && Boolean(codex.status)
   // Eaon Free before it is claimed: a row of its own that offers it (claimed, it is a provider like the rest).
   const offeringFree = Boolean(free && !free.claimed) && (!query.trim() || 'eaon free credits'.includes(query.trim().toLowerCase()))
-  const showingFree = selectedId === FREE_OFFER_ROW && offeringFree
+  // Sent to Eaon Free before it is claimed (the offer card's "Have an event code?"): its offer row.
+  const showingFree =
+    offeringFree && (selectedId === FREE_OFFER_ROW || (selectedId === FREE_PROVIDER_ID && !providers.some((p) => p.id === FREE_PROVIDER_ID)))
 
   return (
     <div className="providers-shell">
