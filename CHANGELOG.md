@@ -3,6 +3,13 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [2026.6.3-beta.2.2] — 2026-10-16
+
+### Fixed
+- Workers: a long purpose on a worker's card ran past the card's edges. It
+  now wraps inside the card, two lines at most, and a long name is cut
+  short.
+
 ## [2026.6.3-beta.2.1] — 2026-10-16
 
 ### Added
