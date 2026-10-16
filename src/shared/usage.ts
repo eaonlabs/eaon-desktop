@@ -23,6 +23,13 @@ export interface UsageCounts {
    * can't be known, so it is never shown as $0.
    */
   unreported?: number
+  /** One-hour cache writes, priced higher. Only Claude's transcripts tell the two apart. */
+  cacheWrite1h?: number
+  /**
+   * USD the tool worked out itself (Cursor's export, opencode). Used only
+   * for a model Tokn has no price for: Tokn's rate wins when there is one.
+   */
+  reportedCost?: number
 }
 
 /**
@@ -95,7 +102,33 @@ export type UsageRange = 7 | 30 | 90
  * (read from their own logs on this computer, shown here and never uploaded;
  * see main/features/usage/cliLogs.ts).
  */
-export type UsageTool = 'eaon' | 'claude-code' | 'codex'
+export type UsageTool =
+  | 'eaon'
+  | 'claude-code'
+  | 'claude-desktop'
+  | 'codex'
+  | 'cursor'
+  | 'gemini-cli'
+  | 'grok'
+  | 'qwen-code'
+  | 'copilot-cli'
+  | 'opencode'
+  | 'amp'
+  | 'droid'
+  | 'kimi-cli'
+
+/** The coding CLIs whose own usage Settings → Usage reads, as Tokn names them. */
+export type CliUsageTool = Exclude<UsageTool, 'eaon'>
+
+/** What importing Cursor's usage export did. */
+export interface CursorImport {
+  /** Requests new to Eaon; ones an earlier export already brought in aren't counted twice. */
+  added: number
+  /** Every Cursor request imported so far. */
+  total: number
+  /** The file wasn't Cursor's usage export. */
+  error?: string
+}
 
 export interface UsageToolCounts {
   /** Spend plus plan use at API rates: what the day's use stands for in dollars. */
@@ -203,8 +236,8 @@ export interface UsageSummary {
   chart: UsageDay[]
   /** The range by tool, busiest first; only tools with any use. */
   tools: UsageToolRow[]
-  /** Reading Claude Code's and Codex's logs: still on the first read, and which have any. */
-  cliLogs: { reading: boolean; found: Exclude<UsageTool, 'eaon'>[] }
+  /** Reading the CLIs' own logs: still on the first read, which have any, and Cursor requests imported. */
+  cliLogs: { reading: boolean; found: CliUsageTool[]; cursorImported: number }
   /** A year of days for the activity calendar, Claude Code and Codex included: whole weeks, Sunday first, ending today. */
   calendar: UsageDay[]
   /** Active days and streaks count Claude Code and Codex days too. */

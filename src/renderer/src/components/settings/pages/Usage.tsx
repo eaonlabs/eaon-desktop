@@ -5,7 +5,7 @@ import { useApp } from '../../../state/store'
 import { Card, Row, Section, Segmented } from '../../ui'
 import { ProviderMark } from '../../composer/ProviderMark'
 import { UsageActivity } from './UsageActivity'
-import { listOf, TOOL_LABEL, TOOL_ORDER, toolSplit } from './usageTools'
+import { listOf, TOOL_LABEL, TOOL_ORDER, toolMark, toolSplit } from './usageTools'
 import { ToknMark } from '../../account/ToknAccount'
 import { ToknCommand } from './ToknCommand'
 
@@ -323,12 +323,13 @@ function SignedIn({ summary, range, onRange }: { summary: UsageSummary; range: U
       </p>
       {summary.cliLogs.found.length > 0 && (
         <p className="usage-footnote">
-          {listOf(summary.cliLogs.found.map((tool) => TOOL_LABEL[tool]))} in the terminal {summary.cliLogs.found.length === 1 ? 'is' : 'are'} read
-          from {summary.cliLogs.found.length === 1 ? 'its' : 'their'} own logs on this computer for the daily chart, the activity calendar and
+          {listOf(summary.cliLogs.found.map((tool) => TOOL_LABEL[tool]))} {summary.cliLogs.found.length === 1 ? 'is' : 'are'} read from{' '}
+          {summary.cliLogs.found.length === 1 ? 'its' : 'their'} own records on this computer for the daily chart, the activity calendar and
           your streaks, as ≈ what the use would cost at API rates. The spend and token tiles, the models and what Eaon uploads stay
           Eaon’s own: the tokn command counts these tools on your Tokn profile itself.
         </p>
       )}
+      <CursorImportNote imported={summary.cliLogs.cursorImported} />
     </>
   )
 }
@@ -429,7 +430,48 @@ function DailyChart({ days, reading }: { days: UsageDay[]; reading: boolean }): 
   )
 }
 
-/** The range by tool: Eaon itself, and Claude Code and Codex from their logs. */
+/**
+ * Cursor keeps no token counts on this computer, so its usage comes from the
+ * CSV its dashboard exports. Importing a newer export adds only what's new.
+ */
+function CursorImportNote({ imported }: { imported: number }): JSX.Element {
+  const [note, setNote] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const pick = async (): Promise<void> => {
+    setBusy(true)
+    try {
+      const result = await window.api.usage.importCursor()
+      if (result) {
+        setNote(
+          result.error ??
+            (result.added > 0
+              ? `Added ${result.added.toLocaleString()} ${result.added === 1 ? 'request' : 'requests'}.`
+              : 'Nothing new: every request in it was already imported.')
+        )
+      }
+    } catch (error) {
+      setNote(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <p className="usage-footnote usage-cursor">
+      <ProviderMark providerId="cli:cursor" name="Cursor" size={14} />
+      <span>
+        {imported > 0
+          ? `${imported.toLocaleString()} Cursor ${imported === 1 ? 'request' : 'requests'} imported.`
+          : 'Cursor keeps no usage on this computer: export it from cursor.com/dashboard → Usage → Export CSV.'}
+        {note ? ` ${note}` : ''}
+      </span>
+      <button type="button" className="btn btn--ghost usage-cursor__import" disabled={busy} onClick={() => void pick()}>
+        {busy ? 'Importing…' : imported > 0 ? 'Import a newer export…' : 'Import CSV…'}
+      </button>
+    </p>
+  )
+}
+
+/** The range by tool: Eaon itself, and the coding CLIs from their own records. */
 function ToolTable({ tools: rows }: { tools: UsageToolRow[] }): JSX.Element {
   return (
     <div className="usage-table" role="table" aria-label="Usage by tool">
@@ -441,9 +483,10 @@ function ToolTable({ tools: rows }: { tools: UsageToolRow[] }): JSX.Element {
       </div>
       {rows.map((row) => (
         <div key={row.tool} className="usage-table__row" role="row">
-          <span role="cell" className="usage-table__name">
+          <span role="cell" className="usage-table__model">
             <i className="usage-tool-dot" data-tool={row.tool} aria-hidden="true" />
-            {TOOL_LABEL[row.tool]}
+            <ProviderMark providerId={toolMark(row.tool)} name={TOOL_LABEL[row.tool]} size={14} />
+            <span className="usage-table__name">{TOOL_LABEL[row.tool]}</span>
           </span>
           <span role="cell">{row.requests.toLocaleString()}</span>
           <span role="cell">{tokens(row.tokens)}</span>

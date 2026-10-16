@@ -33,3 +33,9 @@ beyond that, so check before using them anywhere else, such as marketing.
 `claude.webp` is Claude's own symbol (the starburst), supplied by the Eaon
 team, and identifies Claude Code wherever Eaon shows it (the ADE, Connect apps,
 Link accounts). It replaced the Lobe Icons tile `claudecode.svg`.
+
+In `marks/`, `cursor.svg`, `grok.svg` and `amp.svg` are Lobe Icons' `cursor`,
+`grok` and `amp-color` from the same package, bare (no tile), for the coding
+CLIs Settings → Usage counts. `droid.svg` is Factory's own favicon
+(factory.ai/favicon.svg, as in `../apps/droid.svg`) with its black tile taken
+out.

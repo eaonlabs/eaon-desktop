@@ -313,6 +313,36 @@
 :is(.usage-chart, .usage-table) [data-tool='codex'] {
   --tool: var(--text-2);
 }
+:is(.usage-chart, .usage-table) [data-tool='claude-desktop'] {
+  --tool: #b9876a;
+}
+:is(.usage-chart, .usage-table) [data-tool='cursor'] {
+  --tool: #8a94a6;
+}
+:is(.usage-chart, .usage-table) [data-tool='gemini-cli'] {
+  --tool: #4f8cf7;
+}
+:is(.usage-chart, .usage-table) [data-tool='grok'] {
+  --tool: #a3a3a3;
+}
+:is(.usage-chart, .usage-table) [data-tool='qwen-code'] {
+  --tool: #7c6cf2;
+}
+:is(.usage-chart, .usage-table) [data-tool='copilot-cli'] {
+  --tool: #9b6bd6;
+}
+:is(.usage-chart, .usage-table) [data-tool='opencode'] {
+  --tool: #e0a43a;
+}
+:is(.usage-chart, .usage-table) [data-tool='amp'] {
+  --tool: #e5604d;
+}
+:is(.usage-chart, .usage-table) [data-tool='droid'] {
+  --tool: #d4b25a;
+}
+:is(.usage-chart, .usage-table) [data-tool='kimi-cli'] {
+  --tool: #4fb39a;
+}
 .usage-chart__seg,
 .usage-chart__legend i,
 .usage-tool-dot {
@@ -320,7 +350,8 @@
 }
 .usage-chart__legend {
   display: flex;
-  gap: 14px;
+  flex-wrap: wrap;
+  gap: 6px 14px;
   padding-top: 2px;
   color: var(--text-2);
   font-size: var(--fs-xxs);
@@ -557,6 +588,18 @@
   color: var(--text-3);
   font-size: var(--fs-xs);
   line-height: 1.5;
+}
+.usage-cursor {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.usage-cursor > span {
+  flex: 1;
+  min-width: 0;
+}
+.usage-cursor__import {
+  flex: none;
 }
 
 @media (prefers-reduced-motion: reduce) {

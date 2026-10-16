@@ -20,7 +20,9 @@ const URLS: Record<string, string> = Object.fromEntries(
 /** Marks stored as white glyphs (the logo is one colour). */
 const MONO = new Set([
   'baseten',
-  'codex',
+  'cursor',
+  'droid',
+  'grok',
   'githubcopilot',
   'groq',
   'lmstudio',
@@ -89,7 +91,20 @@ const MARK: Record<string, string> = {
   'lm-studio': 'lmstudio',
   vllm: 'vllm',
   jan: 'jan',
-  eaon: 'eaon'
+  eaon: 'eaon',
+  // The coding CLIs whose own usage Settings → Usage counts (`cli:<tool>`, as the usage summary names them).
+  'cli:claude-code': 'claudecode',
+  'cli:claude-desktop': 'anthropic',
+  'cli:codex': 'codex',
+  'cli:cursor': 'cursor',
+  'cli:gemini-cli': 'geminicli',
+  'cli:grok': 'grok',
+  'cli:qwen-code': 'qwen',
+  'cli:copilot-cli': 'githubcopilot',
+  'cli:opencode': 'opencode',
+  'cli:amp': 'amp',
+  'cli:droid': 'droid',
+  'cli:kimi-cli': 'kimi'
 }
 
 /** Which mark file a provider uses, so two providers sharing one can be told apart. */

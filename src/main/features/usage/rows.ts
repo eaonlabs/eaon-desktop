@@ -1,6 +1,7 @@
 import {
   TOKN_TOOL,
   type Billing,
+  type CliUsageTool,
   type UsageActivity,
   type UsageAgents,
   type UsageCounts,
@@ -36,6 +37,7 @@ export type ToknPricing = Record<string, ToknPrice>
 
 const CACHE_READ_MULTIPLIER = 0.1
 const CACHE_WRITE_5M_MULTIPLIER = 1.25
+const CACHE_WRITE_1H_MULTIPLIER = 2
 
 /**
  * A model id as Tokn's table names it — Tokn's own `normalizeModel`: no
@@ -66,16 +68,21 @@ export function priceOf(modelId: string, pricing: ToknPricing): { name: string; 
 }
 
 /**
- * USD at published rates. Eaon's prompt caching is the 5-minute kind, so
- * every cache write is priced as one; reads default to a tenth of input.
+ * USD at published rates. Eaon's prompt caching is the 5-minute kind, so its
+ * cache writes are all priced as one; only Claude's transcripts have 1-hour
+ * writes. Reads default to a tenth of input.
  */
 export function costOf(counts: UsageCounts, price: ToknPrice): number {
   const read = price.cacheRead ?? price.input * CACHE_READ_MULTIPLIER
   const write = price.cacheWrite ?? price.input * CACHE_WRITE_5M_MULTIPLIER
-  return (counts.input * price.input + counts.output * price.output + counts.cacheRead * read + counts.cacheWrite * write) / 1_000_000
+  const write1h = price.cacheWrite1h ?? price.input * CACHE_WRITE_1H_MULTIPLIER
+  return (
+    (counts.input * price.input + counts.output * price.output + counts.cacheRead * read + counts.cacheWrite * write + (counts.cacheWrite1h ?? 0) * write1h) /
+    1_000_000
+  )
 }
 
-const tokensOf = (c: UsageCounts): number => c.input + c.output + c.cacheRead + c.cacheWrite
+const tokensOf = (c: UsageCounts): number => c.input + c.output + c.cacheRead + c.cacheWrite + (c.cacheWrite1h ?? 0)
 
 /** How each provider's requests are paid for; see `Billing`. */
 export type BillingOf = (providerId: string) => Billing
@@ -87,6 +94,8 @@ function add(into: UsageCounts, from: UsageCounts): UsageCounts {
   into.cacheRead += from.cacheRead
   into.cacheWrite += from.cacheWrite
   if (from.unreported) into.unreported = (into.unreported ?? 0) + from.unreported
+  if (from.cacheWrite1h) into.cacheWrite1h = (into.cacheWrite1h ?? 0) + from.cacheWrite1h
+  if (from.reportedCost) into.reportedCost = (into.reportedCost ?? 0) + from.reportedCost
   return into
 }
 
@@ -217,7 +226,8 @@ export interface Summary {
 function priceRow(modelId: string, counts: UsageCounts, billing: Billing, pricing: ToknPricing): { priced: ReturnType<typeof priceOf>; cost: number | null } {
   if (billing === 'local') return { priced: null, cost: 0 }
   const priced = priceOf(modelId, pricing)
-  return { priced, cost: priced ? costOf(counts, priced.price) : null }
+  // No Tokn price: what the tool worked out itself (Cursor's export, opencode), if it did.
+  return { priced, cost: priced ? costOf(counts, priced.price) : counts.reportedCost ? counts.reportedCost : null }
 }
 
 /** What Settings → Usage shows for the last `range` days, today included. */
@@ -308,11 +318,16 @@ export function dailyTotals(days: LedgerDays, pricing: ToknPricing, billingOf: B
   return byDay
 }
 
-/** The ledger's provider ids for Claude Code's and Codex's own logs (cliLogs.ts). */
-export const CLI_PROVIDERS: Record<Exclude<UsageTool, 'eaon'>, string> = { 'claude-code': 'cli:claude-code', codex: 'cli:codex' }
+/** The ledger's provider id for a CLI's own logs (cliLogs.ts): `cli:claude-code`, `cli:grok`. */
+export const cliProvider = (tool: CliUsageTool): string => `cli:${tool}`
+
+const CLI_TOOLS = new Set<string>([
+  'claude-code', 'claude-desktop', 'codex', 'cursor', 'gemini-cli', 'grok', 'qwen-code', 'copilot-cli', 'opencode', 'amp', 'droid', 'kimi-cli'
+] satisfies CliUsageTool[])
 
 export function toolOf(providerId: string): UsageTool {
-  return providerId === CLI_PROVIDERS['claude-code'] ? 'claude-code' : providerId === CLI_PROVIDERS.codex ? 'codex' : 'eaon'
+  const tool = providerId.startsWith('cli:') ? providerId.slice(4) : ''
+  return CLI_TOOLS.has(tool) ? (tool as CliUsageTool) : 'eaon'
 }
 
 /** Eaon's turns on its Codex engine, which Codex logs as well: `codex`, `codex:api`, `codex:provider`. */

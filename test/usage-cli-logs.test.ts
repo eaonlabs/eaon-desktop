@@ -124,3 +124,14 @@ test('with the logs: Eaon’s own Codex-engine turns aren’t counted twice, and
     ]
   )
 })
+
+test('a Claude response’s 1-hour cache writes are kept apart from its 5-minute ones', async () => {
+  resetCliLogs()
+  const { claudeDir, roots: r } = roots()
+  writeFileSync(
+    join(claudeDir, '-Users-a-app', 'hour.jsonl'),
+    claude('h', 14, 'claude-opus-5', { input_tokens: 1, output_tokens: 2, cache_read_input_tokens: 0, cache_creation_input_tokens: 500, cache_creation: { ephemeral_5m_input_tokens: 100, ephemeral_1h_input_tokens: 400 } } as never)
+  )
+  await readCliLogs(r)
+  assert.deepEqual(cliLogs().days['2026-10-14']['cli:claude-code']['claude-opus-5'], { requests: 1, input: 1, output: 2, cacheRead: 0, cacheWrite: 100, cacheWrite1h: 400 })
+})
