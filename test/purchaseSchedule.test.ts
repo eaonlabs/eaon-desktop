@@ -296,6 +296,7 @@ const form = (overrides: Partial<PurchaseForm> = {}): PurchaseForm => ({
   limited: false,
   orders: '4',
   track: true,
+  autopilot: false,
   ...overrides
 })
 

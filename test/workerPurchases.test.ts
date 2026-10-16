@@ -6,8 +6,9 @@ import { join } from 'node:path'
 import { Notification } from 'electron'
 import '../src/main/agent/sources'
 import { checkoutStepCovered, paymentsEngine, paymentsFeature } from '../src/main/features/payments'
-import { endRun, grantPurchase } from '../src/main/features/payments/plans'
-import { purchaseRunGate } from '../src/main/features/payments/purchaseRun'
+import { endRun, grantFor, grantPurchase } from '../src/main/features/payments/plans'
+import { autopilotRunGate, purchaseRunGate } from '../src/main/features/payments/purchaseRun'
+import { purchaseCovers } from '../src/main/features/payments/access'
 import { createWorkersService, type WorkersService } from '../src/main/features/workers/service'
 import { cadencePhrase, nextPurchaseAt, WATCH_FIRST_CHECK_MS } from '../src/main/features/workers/purchases'
 import { toolsFor, type AgentTool } from '../src/main/agent/tools'
@@ -183,6 +184,85 @@ test('a purchase run uses its browser, the card and what only reads; nothing els
   assert.match(purchaseRunGate(tool('computer', () => true), {}) ?? '', /only uses its browser/)
 })
 
+test('on autopilot a run asks nobody: ask_user is off, and once its order is authorized every press on the store goes through', async () => {
+  const tool = (name: string, mutating: AgentTool['mutating']): AgentTool => ({ name, mutating, description: '', inputSchema: {}, run: async () => '' }) as unknown as AgentTool
+  assert.match(autopilotRunGate(tool('ask_user', false), {}) ?? '', /autopilot/)
+  assert.equal(purchaseRunGate(tool('ask_user', false), {}), null, 'without autopilot it may still ask')
+  assert.equal(autopilotRunGate(tool('web_browser', () => true), {}), null)
+  assert.match(autopilotRunGate(tool('run_command', true), {}) ?? '', /only uses its browser/)
+
+  const engine = paymentsEngine()!
+  engine.setCard(card)
+  const at = 'https://www.amazon.com/gp/buy/spc/handlers/display.html'
+  const press = (messageId: string, name: string, unnamed = false) => purchaseCovers('c-auto', at, { messageId, name, ...(unnamed ? { unnamed } : {}) })
+  grantPurchase('m-auto', { planId: 'p-auto', item: 'Coffee', site: 'amazon.com', maxAmount: 40, currency: 'USD', autopilot: true })
+  try {
+    // Before the authorization nothing is priced yet: no "Buy now", no order.
+    assert.equal(press('m-auto', 'Buy Now'), false)
+    assert.equal(press('m-auto', '', true), false)
+    const record = engine.authorize({ merchant: 'Amazon', site: 'amazon.com', description: '', amount: 30, currency: 'USD', chatId: 'c-auto', planId: 'p-auto' }, 'scheduled')
+    grantFor('m-auto')!.used = true
+    assert.equal(press('m-auto', 'Place your order'), true)
+    assert.equal(press('m-auto', 'Place your order'), true, 'a second press, after picking a delivery option, needs nobody either')
+    assert.equal(press('m-auto', '', true), true, 'a click by position too')
+    assert.equal(purchaseCovers('c-auto', 'https://evil.example/pay', { messageId: 'm-auto', name: 'Pay now' }), false, 'only on its store')
+    engine.complete(record.id, 'c-auto', 'paid', 30, '', 'A-1')
+    assert.equal(press('m-auto', 'Place your order'), false, 'the order is in: nothing more')
+  } finally {
+    endRun('m-auto')
+  }
+
+  // Without autopilot: one press per authorization, and never a click on nothing named.
+  grantPurchase('m-ask', { planId: 'p-ask', item: 'Coffee', site: 'amazon.com', maxAmount: 40, currency: 'USD' })
+  try {
+    engine.authorize({ merchant: 'Amazon', site: 'amazon.com', description: '', amount: 30, currency: 'USD', chatId: 'c-auto', planId: 'p-ask' }, 'scheduled')
+    grantFor('m-ask')!.used = true
+    assert.equal(press('m-ask', '', true), false)
+    assert.equal(press('m-ask', 'Place your order'), true)
+    assert.equal(press('m-ask', 'Place your order'), false)
+  } finally {
+    endRun('m-ask')
+  }
+})
+
+test('an autopilot run is told so, and its ask_user never reaches the user', async () => {
+  const { url, server, requests } = await sseServer((body) => {
+    const messages = body.messages as { role: string; content?: unknown }[]
+    const results = messages.filter((m) => m.role === 'tool').map((m) => String(m.content))
+    if (results.length === 0) {
+      return [
+        chunk({ tool_calls: [{ index: 0, id: 'c0', function: { name: 'ask_user', arguments: JSON.stringify({ question: 'Shall I place the order?' }) } }] }),
+        chunk({}, 'tool_calls'),
+        '[DONE]'
+      ]
+    }
+    return [chunk({ content: 'Did not buy: the sample is out of stock.' }), chunk({}, 'stop'), '[DONE]']
+  })
+  try {
+    store.saveProviderConfig({ fake: { name: 'Fake', kind: 'openai-compatible', baseUrl: url, enabled: true, models: [{ id: 'fake-1', label: 'Fake 1', providerId: 'fake' }] } })
+    secrets.set('fake', 'test-key')
+    const { ctx, invoke } = context()
+    service = createWorkersService(ctx, { startDelayMs: 60_000 })
+    service.registerIpc()
+    service.start()
+    const engine = service.engine
+    const ada = engine.save(draft('Ada', { providerId: 'fake', modelId: 'fake-1' }))
+    const saved = invoke('workers:save-purchase', ada.id, { plan: { ...freeSample, autopilot: true }, everyMs: null, firstAt: Date.now(), anchorAt: Date.now() }) as WorkerRoutine
+    assert.equal(saved.purchase?.autopilot, true)
+    engine.start()
+    await until(() => requests.length >= 2 && !engine.list()[0].threads.some((t) => t.runningMessageId))
+    await engine.whenIdle()
+
+    assert.match(JSON.stringify(requests[0].messages), /Autopilot is on/)
+    const answer = (requests[1].messages as { role: string; content?: unknown }[]).find((m) => m.role === 'tool')
+    assert.match(String(answer?.content), /on autopilot/)
+    assert.equal(engine.list()[0].asks.length, 0, 'no question waits for the user')
+    assert.ok(Notification.shown.some((n) => /didn’t buy Free sample pack/.test(n.options.title)), 'it says why it skipped the order')
+  } finally {
+    server.close()
+  }
+})
+
 test('on its own store a purchase run may go to checkout, but placing the order still needs its authorization', () => {
   grantPurchase('m-cart', { planId: 'p', item: 'Coffee', site: 'amazon.com', maxAmount: 40, currency: 'USD' })
   try {
@@ -225,6 +305,7 @@ const form = (overrides: Partial<PurchaseForm> = {}): PurchaseForm => ({
   limited: false,
   orders: '4',
   track: true,
+  autopilot: false,
   ...overrides
 })
 

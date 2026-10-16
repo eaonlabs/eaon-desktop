@@ -1939,7 +1939,12 @@ export function browserTool(browsers: WorkerBrowsers, options: BrowserToolOption
       const name = el?.name ?? targetWords(input)
       if (action === 'type') return (!el && !name) || SENSITIVE.test(name) || /password/i.test(el?.role ?? '')
       // A purchase authorized for this site through payment_card already had its say.
-      if (action === 'click') return (!el && !name) || (SPENDING.test(name) && !purchaseCovers(ctx.request.chatId, browsers.url(id), { messageId: ctx.request.messageId, name }))
+      if (action === 'click') {
+        const click = { messageId: ctx.request.messageId, name }
+        // A click on nothing named could be anything, the order button included.
+        if (!el && !name) return !purchaseCovers(ctx.request.chatId, browsers.url(id), { ...click, unnamed: true })
+        return SPENDING.test(name) && !purchaseCovers(ctx.request.chatId, browsers.url(id), click)
+      }
       return false
     },
     describe: (raw) => {

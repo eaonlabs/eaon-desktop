@@ -5,7 +5,7 @@ import { secrets } from '../secrets'
 import { store } from '../store'
 import { agentBrowserUrl, typeSecretInAgentBrowser } from './agentBrowser'
 import { typeHidden } from './computer/tool'
-import { setPaymentAccess } from './payments/access'
+import { setPaymentAccess, type SpendingClick } from './payments/access'
 import { PaymentsEngine, urlMatchesSite } from './payments/engine'
 import { grantFor, setPurchaseLookup, watchFor } from './payments/plans'
 import { PAYMENT_GUIDANCE, paymentTool } from './payments/tool'
@@ -50,10 +50,22 @@ export function paymentsEngine(): PaymentsEngine | null {
 const CHECKOUT_STEP = /\b(check ?out|proceed to (?:check ?out|payment|shipping|delivery)|continue to (?:check ?out|payment|shipping|delivery)|go to check ?out)\b/i
 const ORDER_PRESS = /\b(place|buy now|pay now|pay \$|complete|confirm|submit|subscribe|donate|transfer|withdraw|book)\b/i
 
-export function checkoutStepCovered(url: string, click: { messageId?: string; name?: string } | undefined): boolean {
+export function checkoutStepCovered(url: string, click: SpendingClick | undefined): boolean {
   const grant = click?.messageId ? grantFor(click.messageId) : null
   const name = click?.name ?? ''
   return Boolean(grant && urlMatchesSite(url, grant.site) && CHECKOUT_STEP.test(name) && !ORDER_PRESS.test(name))
+}
+
+/**
+ * An autopilot purchase schedule's run, on its store, once its order is
+ * authorized (so the price was checked against the maximum): its presses go
+ * through without anyone, the order button too, and again if the first press
+ * didn't take, until the order is completed. Before the authorization the
+ * usual rules hold, so a "Buy now" can't place an order nobody priced.
+ */
+export function autopilotCovers(chatId: string, url: string, click: SpendingClick | undefined, payments: Pick<PaymentsEngine, 'openPlanOrder'>): boolean {
+  const grant = click?.messageId ? grantFor(click.messageId) : null
+  return Boolean(grant?.autopilot && grant.used && urlMatchesSite(url, grant.site) && payments.openPlanOrder(chatId, grant.planId, url))
 }
 
 function createEngine(): PaymentsEngine {
@@ -70,7 +82,9 @@ function createEngine(): PaymentsEngine {
   setPaymentAccess({
     // One press of the pay button per authorization (see claimSpendingClick).
     // A step towards checkout on a purchase schedule's store first, so it never uses up the one press an authorization covers.
-    covers: (chatId, url, click) => checkoutStepCovered(url, click) || created.claimSpendingClick(chatId, url),
+    // On autopilot, any press on the store while the schedule's order is authorized; a press on nothing named, only then.
+    covers: (chatId, url, click) =>
+      checkoutStepCovered(url, click) || autopilotCovers(chatId, url, click, created) || (!click?.unnamed && created.claimSpendingClick(chatId, url)),
     secret: () => {
       try {
         const { number, cvc } = created.cardSecret()

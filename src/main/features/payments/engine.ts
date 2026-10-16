@@ -434,6 +434,28 @@ export class PaymentsEngine {
     return true
   }
 
+  /**
+   * Whether this chat holds a live, unfinished authorization of this purchase
+   * schedule's order for `url`'s site: what lets an autopilot run press on
+   * through the store without anyone (payments.ts). Unlike
+   * `claimSpendingClick` nothing is used up; it lasts until the order is
+   * completed or the authorization runs out.
+   */
+  openPlanOrder(chatId: string, planId: string, url: string): boolean {
+    const off = this.effectiveMode() === 'off'
+    const now = this.now()
+    return this.config.purchases.some(
+      (p) =>
+        p.chatId === chatId &&
+        p.planId === planId &&
+        p.status === 'authorized' &&
+        (!off || p.amount === 0) &&
+        p.site !== null &&
+        now <= p.expiresAt &&
+        urlMatchesSite(url, p.site)
+    )
+  }
+
   /** The secret parts of the card, for typing only. Never returned to the model. */
   cardSecret(): CardSecret & { card: CardSummary } {
     const secret = this.secret()

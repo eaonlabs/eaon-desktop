@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Bot, CalendarDays, CreditCard, PackageSearch, Repeat, ShieldCheck, ShoppingBag } from 'lucide-react'
+import { Bot, CalendarDays, CreditCard, PackageSearch, Plane, Repeat, ShieldCheck, ShoppingBag } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { formatMoney, type PaymentsStatus } from '@shared/payments'
 import type { Worker, WorkerRoutine } from '@shared/workers'
@@ -60,7 +60,8 @@ function formFor(routine: WorkerRoutine | null, currency: string): PurchaseForm 
       time: '09:00',
       limited: false,
       orders: '4',
-      track: true
+      track: true,
+      autopilot: false
     }
   }
   const plan = routine.purchase
@@ -77,7 +78,8 @@ function formFor(routine: WorkerRoutine | null, currency: string): PurchaseForm 
     time: `${pad(at.getHours())}:${pad(at.getMinutes())}`,
     limited: plan.orders !== null && routine.everyMs !== null,
     orders: String(plan.orders ?? 4),
-    track: plan.track
+    track: plan.track,
+    autopilot: plan.autopilot === true
   }
 }
 
@@ -405,6 +407,14 @@ export function PurchaseDialog(): JSX.Element | null {
               </span>
               <Switch checked={form.track} onChange={(track) => set({ track })} label="Track each order" />
             </label>
+
+            <label className="purchase__track">
+              <span className="purchase__track-text">
+                <span>Autopilot</span>
+                <span className="purchase__hint">Never asks you anything. Goes from cart to order confirmation on its own</span>
+              </span>
+              <Switch checked={form.autopilot} onChange={(autopilot) => set({ autopilot })} label="Autopilot" />
+            </label>
           </div>
         </div>
 
@@ -448,6 +458,15 @@ export function PurchaseDialog(): JSX.Element | null {
               {site ? ` on ${site}` : ''}
             </dd>
           </div>
+          {form.autopilot && (
+            <div>
+              <dt>
+                <Plane size={14} strokeWidth={1.9} />
+                Autopilot
+              </dt>
+              <dd>Never asks you. If something’s off, it skips the order and tells you why</dd>
+            </div>
+          )}
           {form.track && (
             <div>
               <dt>
@@ -471,7 +490,8 @@ export function PurchaseDialog(): JSX.Element | null {
         </dl>
 
         <p className="purchase__fine">
-          Saving approves each order in advance, so {worker?.name ?? 'the worker'} won’t ask you first. It buys only this{site ? `, only on ${site}` : ''},{' '}
+          Saving approves each order in advance, so {worker?.name ?? 'the worker'} won’t ask you first
+          {form.autopilot ? ' or at any step' : ''}. It buys only this{site ? `, only on ${site}` : ''},{' '}
           {free ? 'and only when the order is free' : `and never over ${money ?? 'the maximum'} an order`}. Stop it any time from {worker?.name ?? 'the worker'}’s routines. Sign{' '}
           {worker?.name ?? 'the worker'}’s browser in to the store first: it won’t type passwords.
         </p>

@@ -3,7 +3,7 @@ import { isFreePlan, ORDER_WATCH_MS, type PurchasePlan } from '@shared/scheduler
 import { nextAligned, type Worker, type WorkerRoutine } from '@shared/workers'
 import { purchaseBrief, watchBrief } from '../payments/briefs'
 import { endRun, findPurchase, grantPurchase, planPurchases, watchOrder } from '../payments/plans'
-import { purchaseRunGate } from '../payments/purchaseRun'
+import { autopilotRunGate, purchaseRunGate } from '../payments/purchaseRun'
 import type { RoutineTurn } from './engine'
 import type { TurnOutcome } from './runner'
 
@@ -89,17 +89,18 @@ export function createPurchaseRoutines(deps: PurchaseRoutinesDeps) {
       if (plan.orders !== null && paid >= plan.orders) {
         return { task: `${UNATTENDED}\nThis purchase schedule ("${plan.item}") has placed all ${plan.orders} of its orders. Do not buy anything; say it is done.`, access: 'safe' }
       }
-      grantPurchase(messageId, { planId: routine.id, item: plan.item, site: plan.site, maxAmount: plan.maxAmount, currency: plan.currency })
+      const autopilot = plan.autopilot === true
+      grantPurchase(messageId, { planId: routine.id, item: plan.item, site: plan.site, maxAmount: plan.maxAmount, currency: plan.currency, autopilot })
       return {
         task: `${UNATTENDED}\n${purchaseBrief({ id: routine.id, plan, cadence: cadencePhrase(routine.everyMs), nextAt: routine.everyMs ? routine.nextAt : null })}`,
         access: 'autonomous',
-        toolGate: purchaseRunGate
+        toolGate: autopilot ? autopilotRunGate : purchaseRunGate
       }
     }
     if (routine.watch) {
       before.set(messageId, { stage: findPurchase(routine.watch.purchaseId)?.tracking?.stage })
       watchOrder(messageId, routine.watch.purchaseId)
-      return { task: `${UNATTENDED}\n${watchBrief(routine.watch)}`, access: 'autonomous', toolGate: purchaseRunGate }
+      return { task: `${UNATTENDED}\n${watchBrief(routine.watch)}`, access: 'autonomous', toolGate: routine.watch.autopilot ? autopilotRunGate : purchaseRunGate }
     }
     return null
   }
@@ -129,7 +130,15 @@ export function createPurchaseRoutines(deps: PurchaseRoutinesDeps) {
             everyMs: WATCH_EVERY_MS,
             daily: null,
             nextAt: at + WATCH_FIRST_CHECK_MS,
-            watch: { purchaseId: order.id, orderId: order.orderId, merchant: order.merchant, site: order.site, item: plan.item, placedAt: order.createdAt },
+            watch: {
+              purchaseId: order.id,
+              orderId: order.orderId,
+              merchant: order.merchant,
+              site: order.site,
+              item: plan.item,
+              placedAt: order.createdAt,
+              ...(plan.autopilot ? { autopilot: true } : {})
+            },
             ...(routine.threadId ? { threadId: routine.threadId } : {})
           })
         }

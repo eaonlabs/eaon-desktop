@@ -54,8 +54,12 @@ export function purchaseBrief(run: PlanRun): string {
     free
       ? '4. No card is typed for a free order: place the order yourself, pressing the order button once.'
       : '4. payment_card fill the card fields (skip this when the total is 0), then place the order, pressing the order button once.',
+    plan.autopilot
+      ? `   Autopilot is on: the user asked never to be asked anything during this run, and ask_user is off. Once the order is authorized, every press on ${plan.site} goes through, the order button included. If the first press didn't take (a delivery option to pick, an error on the page), fix that and press again, but check for an order confirmation first so it is never ordered twice. Before the authorization, use the cart and the checkout steps, not "Buy now".`
+      : null,
     `5. Read the confirmation page and call payment_card complete {purchase_id, status, charged, order_id}. The order number matters: Eaon uses it to track the delivery.`,
     'If the site asks you to sign in and you are not signed in, stop and report it. Never create an account or type a password.',
+    plan.autopilot ? 'Anything else that would mean asking the user (a different item, a higher price, a question on the page): don’t ask, don’t buy; stop and say what happened in your report.' : null,
     '',
     `End with a short report the user will read: the order number, what was charged, the delivery estimate${last ? `, and the price against the last order (${formatMoney(last.charged ?? last.amount, last.currency)} on ${day(last.createdAt)}): up or down by how much and what percent` : ''}.`,
     run.nextAt && (!plan.orders || paid.length + 1 < plan.orders) ? `The next order is scheduled for ${day(run.nextAt)}.` : null

@@ -125,6 +125,12 @@ export interface PurchasePlan {
   orders: number | null
   /** Follow each order with its order number until it is delivered. */
   track: boolean
+  /**
+   * Autopilot: the run never asks the user anything. Once its order is
+   * authorized (within the maximum, on this store), every press on the store
+   * goes through, the order button included, until the order is recorded.
+   */
+  autopilot?: boolean
 }
 
 /** An order being followed after a purchase: checks its status until it is delivered. */
@@ -138,6 +144,8 @@ export interface OrderWatch {
   item: string
   /** When the order was placed; tracking gives up a while after. */
   placedAt: number
+  /** Its schedule was on autopilot: checking on it never asks the user either. */
+  autopilot?: boolean
 }
 
 /** Tracking stops this long after the order, delivered or not. */

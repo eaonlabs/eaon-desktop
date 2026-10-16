@@ -53,6 +53,8 @@ export interface PurchaseForm {
   limited: boolean
   orders: string
   track: boolean
+  /** Never ask the user anything during a run (PurchasePlan.autopilot). */
+  autopilot: boolean
 }
 
 const HOUR = 60 * 60_000
@@ -157,7 +159,8 @@ export function buildPurchasePlan(form: PurchaseForm, now: number, editing: Work
     currency: form.currency,
     notes: form.notes.trim(),
     orders,
-    track: form.track
+    track: form.track,
+    ...(form.autopilot ? { autopilot: true } : {})
   }
 
   const keep = editing && !timingTouched ? editing : null

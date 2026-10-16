@@ -14,6 +14,8 @@ import type { CardSecret } from './engine'
 export interface SpendingClick {
   messageId?: string
   name?: string
+  /** A click by position, on nothing the page names: only an autopilot run's live order covers it. */
+  unnamed?: boolean
 }
 
 type Covers = (chatId: string, url: string, click?: SpendingClick) => boolean

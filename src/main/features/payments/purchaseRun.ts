@@ -25,3 +25,9 @@ export const purchaseRunGate: ToolGate = (tool) => {
   if (tool.mutating === false) return null
   return PURCHASE_RUN_REFUSAL
 }
+
+export const AUTOPILOT_ASK_REFUSAL =
+  'This purchase schedule is on autopilot: the user asked never to be asked anything during its runs, so nobody will see a question. Decide yourself within the schedule’s bounds, or if you can’t go on, stop and say why in your report.'
+
+/** A run on autopilot: the same tools, and no questions to the user. */
+export const autopilotRunGate: ToolGate = (tool, input) => (tool.name === 'ask_user' ? AUTOPILOT_ASK_REFUSAL : purchaseRunGate(tool, input))

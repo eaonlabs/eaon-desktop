@@ -293,7 +293,9 @@ export function paymentTool(engine: () => PaymentsEngine | null, fillers: Paymen
           return [
             `Authorized ${record.id}: ${formatMoney(record.amount, record.currency)} at ${record.merchant}${record.site ? ` (${record.site})` : ''}${how === 'approved' ? ', approved by the user' : how === 'scheduled' ? ', approved by the user\'s purchase schedule' : ', within the automatic limits'}.`,
             card ? `Card: ${card.brand} ending ${card.last4}, name "${card.nameOnCard}"${card.billingZip ? `, billing ZIP on file` : ''}.` : '',
-            `Next: fill {purchase_id: "${record.id}", target, fields} to type the card, then place the order yourself (press the pay button once; pressing it again asks the user first) and call complete. The authorization lasts 20 minutes.`,
+            grant?.autopilot
+              ? `Next: fill {purchase_id: "${record.id}", target, fields} to type the card, then place the order yourself and call complete. Autopilot: presses on ${grant.site} go through without asking until then, but check for an order confirmation before pressing the order button again. The authorization lasts 20 minutes.`
+              : `Next: fill {purchase_id: "${record.id}", target, fields} to type the card, then place the order yourself (press the pay button once; pressing it again asks the user first) and call complete. The authorization lasts 20 minutes.`,
             record.site ? '' : 'No site was given, so the card can only be typed on screen (target "screen"), not into your browser.'
           ]
             .filter(Boolean)
