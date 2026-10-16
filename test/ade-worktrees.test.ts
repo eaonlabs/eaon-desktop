@@ -224,3 +224,18 @@ test('a project on a detached HEAD is still a repository: it has no branch, and 
   )
   fs.rmSync(path.join(plain, '.git'), { recursive: true, force: true })
 })
+
+test('a folder opened twice at once (a relaunch and the sidebar, a removed session opened again) gets one session', async () => {
+  const saved = { value: null as SavedSessions | null }
+  const book = newBook(saved)
+  const [a, b] = await Promise.all([book.ensureFolder(repo), book.ensureFolder(`${repo}/`)])
+  assert.equal(a.id, b.id)
+  assert.equal(book.list().filter((s) => s.cwd === repo).length, 1)
+
+  // Closed, then opened again from the picker and the reopened folder together.
+  await book.remove(a.id, { deleteWorktree: false })
+  const [c, d, e] = await Promise.all([book.ensureFolder(repo), book.ensureFolder(repo), book.track(repo, '', false)])
+  assert.equal(new Set([c.id, d.id, e.id]).size, 1)
+  assert.equal(book.list().filter((s) => s.cwd === repo).length, 1)
+  assert.equal(saved.value?.sessions.filter((s) => s.cwd === repo).length, 1)
+})

@@ -122,7 +122,8 @@ export const useAdeSessions = create<SessionsState>((set, get) => ({
 
   async openFolder(folder) {
     const { session, recents } = await window.api.ade.openFolder(folder)
-    set((s) => ({ sessions: s.sessions.some((x) => x.id === session.id) ? s.sessions : [...s.sessions, session] }))
+    // By folder as well as id: the sidebar shows one session per folder, whatever main sent.
+    set((s) => ({ sessions: s.sessions.some((x) => x.id === session.id || x.cwd === session.cwd) ? s.sessions : [...s.sessions, session] }))
     useCode.setState({ cwd: session.cwd, recents })
     void get().loadConversations(session.cwd)
   },
