@@ -64,6 +64,20 @@ export function claudeUsage(response: unknown): ClaudeUsage {
       // A model's own weekly limit: only worth a row once some of it is used.
       if (percent < 1) continue
       windows.push({ id: `week:${model}`, label: `${model} week`, span: 'rolling 7 days', percent: clampPercent(percent), resetsAt, severity: severity(row.severity, percent) })
+    } else if (kind && kind !== 'weekly_scoped') {
+      // A meter Eaon doesn't know (Team and Enterprise plans have their own):
+      // the server's rows are meant to be shown as sent, so it gets a row of
+      // its own, named after what it is for or its kind.
+      const surface = str(obj(obj(row.scope)?.surface)?.display_name)
+      const group = str(row.group)
+      windows.push({
+        id: `${kind}:${model ?? surface ?? ''}`,
+        label: model ?? surface ?? sentence(kind),
+        span: group === 'session' ? '5 hours' : group === 'weekly' ? 'rolling 7 days' : group === 'monthly' ? 'this month' : '',
+        percent: clampPercent(percent),
+        resetsAt,
+        severity: severity(row.severity, percent)
+      })
     }
   }
   if (windows.length === 0) {
@@ -80,7 +94,45 @@ export function claudeUsage(response: unknown): ClaudeUsage {
       windows.push({ id, label, span, percent: clampPercent(percent), resetsAt: isoTime(w?.resets_at), severity: severityOf(percent) })
     }
   }
+  const spend = spendWindow(obj(limits.extra_usage))
+  if (spend && !windows.some((w) => w.id === spend.id)) windows.push(spend)
   return { available: true, plan, windows }
+}
+
+/** "monthly_spend" → "Monthly spend". */
+function sentence(kind: string): string {
+  const words = kind.replace(/[_-]+/g, ' ').trim()
+  return words.charAt(0).toUpperCase() + words.slice(1)
+}
+
+/**
+ * The plan's monthly spend: an Enterprise or Team member's own cap, or the
+ * usage credits a Pro or Max plan buys. The amounts are in minor units of
+ * the currency (cents for USD). Nothing when there is no cap to measure
+ * against.
+ */
+function spendWindow(extra: Record<string, unknown> | null): UsageWindow | null {
+  const cap = num(extra?.monthly_limit)
+  if (!extra || cap === null || cap <= 0) return null
+  const used = Math.max(0, num(extra.used_credits) ?? 0)
+  const percent = clampPercent((used / cap) * 100)
+  const currency = (str(extra.currency) ?? 'USD').toUpperCase()
+  const money = (minor: number): string => {
+    try {
+      return new Intl.NumberFormat('en-US', { style: 'currency', currency }).format(minor / 100)
+    } catch {
+      return `${(minor / 100).toFixed(2)} ${currency}`
+    }
+  }
+  return {
+    id: 'spend',
+    label: 'Monthly spend',
+    span: 'this billing period',
+    percent,
+    resetsAt: null,
+    severity: severityOf(percent),
+    detail: `${money(used)} of ${money(cap)}`
+  }
 }
 
 /** `claude auth status --json`. */

@@ -54,6 +54,8 @@ export interface UsageWindow {
   severity: UsageSeverity
   /** The CLI says this limit has been hit (Codex's `rateLimitReachedType`). */
   reached?: boolean
+  /** What the percentage is of, when it is money: "$12.40 of $50.00". */
+  detail?: string
 }
 
 export type AccountUsage =

@@ -169,12 +169,6 @@ body[data-reduce-motion='on'] .usage-panel__refresh[data-spinning] svg {
   font-size: 11px;
   color: var(--text-3);
 }
-.usage-tool__account {
-  margin-top: 3px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 .usage-status {
   margin: 0 0 12px;
