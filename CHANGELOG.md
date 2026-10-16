@@ -3,6 +3,33 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [2026.6.3-beta.2.5] — 2026-10-16
+
+### Added
+- **Every CLI in the ADE's terminals is recognised.** A pane running
+  Cursor CLI, Gemini CLI, Grok, Qwen Code, GitHub Copilot, Amp, Droid,
+  Kimi, Cline, Goose, Kilo Code, Junie, Kiro, OpenHands, CodeBuddy, Qoder,
+  Trae, Hermes Agent or OpenClaw shows its logo and name; any other
+  program shows its name instead of "Shell". Installed CLIs appear in New
+  terminal, and one left running starts again after a quit.
+- **Sharing on Eaon Remote.** Share a terminal or the whole computer with
+  one GitHub account, watch-only or watch-and-type, by a one-time link
+  that expires in 7 days. Revoke it on the website or in Settings →
+  Remote devices.
+- **Watch the agents' browsers on Eaon Remote**, live and view-only, with
+  what each has been doing; and a full-screen button on each terminal.
+
+### Changed
+- **Purchase schedules belong to Workers.** Type `/purchase` in a Worker's
+  conversation; the schedule becomes one of its routines, bought in its
+  own browser. A $0 maximum means free orders only, with no card needed.
+
+### Fixed
+- A scheduled purchase couldn't click through the store, so its order
+  stopped at the store's page. It can now go to checkout on the
+  schedule's own store, with only its browser, the card and read-only
+  tools.
+
 ## [2026.6.3-beta.2.4] — 2026-10-16
 
 ### Added
