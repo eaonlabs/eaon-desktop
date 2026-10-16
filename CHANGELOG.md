@@ -3,6 +3,15 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [2026.6.3-beta.2.3] — 2026-10-16
+
+### Fixed
+- The usage meter for Claude Code on an Enterprise or Team plan said there
+  were no limits. It now shows the plan's monthly spend cap (for example
+  "$12.40 of $50.00"), and any other limit the plan reports. The account
+  in use, with its email and plan, is shown at the top of the panel even
+  when it is the only one.
+
 ## [2026.6.3-beta.2.2] — 2026-10-16
 
 ### Fixed
