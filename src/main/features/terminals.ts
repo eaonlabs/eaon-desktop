@@ -20,7 +20,7 @@ import { sshHosts } from './ade'
 import { remoteShellCommand, sshArgv, sshBinary } from './ade/ssh'
 import { remoteLocation } from '@shared/adeRemote'
 import type { CodexPane } from '@shared/cliAccounts'
-import { currentPane, PANE_NAMES, privacyBlockedMessage, type TerminalAgent, type TerminalAgentId, type TerminalLayout, type TerminalPaneSpec, type TerminalSpawnRequest, type TerminalSpawnResult } from '@shared/terminals'
+import { currentPane, OTHER_AGENT_IDS, PANE_NAMES, privacyBlockedMessage, type OtherAgentId, type TerminalAgent, type TerminalAgentId, type TerminalLayout, type TerminalPaneSpec, type TerminalSpawnRequest, type TerminalSpawnResult } from '@shared/terminals'
 import { noteOutput, quietActivity, wentQuiet, type Activity } from '@shared/terminalActivity'
 import { taskFromTerminalTitle } from '@shared/adeSessions'
 import { randomUUID } from 'node:crypto'
@@ -33,7 +33,44 @@ import { randomUUID } from 'node:crypto'
 
 const LAYOUT_FILE = 'ade-terminals.json'
 
-const AGENTS: { id: TerminalAgentId; label: string; bin: string | null; installHint?: string }[] = [
+/**
+ * The other coding CLIs a pane recognises (agentSessions.ts), and how each is
+ * started. A full record, so one added to OTHER_AGENT_IDS without a line here
+ * doesn't build.
+ */
+const OTHER_AGENTS: Record<OtherAgentId, { label: string; bin: string }> = {
+  cursor: { label: 'Cursor CLI', bin: 'cursor-agent' },
+  gemini: { label: 'Gemini CLI', bin: 'gemini' },
+  grok: { label: 'Grok', bin: 'grok' },
+  qwen: { label: 'Qwen Code', bin: 'qwen' },
+  copilot: { label: 'GitHub Copilot', bin: 'copilot' },
+  amp: { label: 'Amp', bin: 'amp' },
+  droid: { label: 'Droid', bin: 'droid' },
+  kimi: { label: 'Kimi CLI', bin: 'kimi' },
+  cline: { label: 'Cline', bin: 'cline' },
+  goose: { label: 'Goose', bin: 'goose' },
+  kilo: { label: 'Kilo Code', bin: 'kilocode' },
+  junie: { label: 'Junie', bin: 'junie' },
+  kiro: { label: 'Kiro', bin: 'kiro-cli' },
+  openhands: { label: 'OpenHands', bin: 'openhands' },
+  aider: { label: 'Aider', bin: 'aider' },
+  crush: { label: 'Crush', bin: 'crush' },
+  warp: { label: 'Warp', bin: 'warp' },
+  codebuddy: { label: 'CodeBuddy', bin: 'codebuddy' },
+  qoder: { label: 'Qoder', bin: 'qodercli' },
+  trae: { label: 'Trae Agent', bin: 'trae-cli' },
+  vibe: { label: 'Mistral Vibe', bin: 'vibe' },
+  hermes: { label: 'Hermes Agent', bin: 'hermes' },
+  openclaw: { label: 'OpenClaw', bin: 'openclaw' },
+  auggie: { label: 'Auggie', bin: 'auggie' },
+  codebuff: { label: 'Codebuff', bin: 'codebuff' },
+  continue: { label: 'Continue', bin: 'cn' },
+  plandex: { label: 'Plandex', bin: 'plandex' },
+  jules: { label: 'Jules', bin: 'jules' },
+  qodo: { label: 'Qodo', bin: 'qodo' }
+}
+
+const AGENTS: { id: TerminalAgentId; label: string; bin: string | null; installHint?: string; other?: boolean }[] = [
   { id: 'eaon-code', label: 'Eaon Code', bin: 'eaon-code', installHint: 'Settings → Eaon Code' },
   // Ships inside the app; a source checkout builds it with scripts/build-eaon-cli.sh.
   { id: 'eaon-cli', label: 'Eaon CLI', bin: 'eaon-cli', installHint: 'npm run build:eaon-cli' },
@@ -49,6 +86,7 @@ const AGENTS: { id: TerminalAgentId; label: string; bin: string | null; installH
         : 'curl -fsSL https://antigravity.google/cli/install.sh | bash'
   },
   { id: 'opencode', label: 'OpenCode', bin: 'opencode', installHint: 'npm install -g opencode-ai' },
+  ...OTHER_AGENT_IDS.map((id) => ({ id, ...OTHER_AGENTS[id], other: true })),
   { id: 'shell', label: 'Shell', bin: null }
 ]
 
@@ -81,7 +119,7 @@ function agents(): TerminalAgent[] {
   // Eaon CLI runs from inside the app, wherever the app is — spaces and all.
   const eaonCli = eaonCliBinary()
   setAgentScript(eaonCli, 'eaon-cli')
-  return AGENTS.map(({ id, label, bin, installHint }) => {
+  return AGENTS.map(({ id, label, bin, installHint, other }) => {
     if (!bin) return { id, label, command: null, installed: true }
     if (id === 'eaon-code') {
       const command = eaonCodeCommand(eaonBinary || null)
@@ -95,7 +133,8 @@ function agents(): TerminalAgent[] {
       label,
       command: bin,
       installed: Boolean(onPath(bin)),
-      ...(installHint ? { installHint } : {})
+      ...(installHint ? { installHint } : {}),
+      ...(other ? { other } : {})
     }
   })
 }
@@ -330,7 +369,7 @@ export function createTerminals(options: TerminalsOptions = {}): Feature & { tic
     const running = watch?.snapshot() ?? {}
     const target = cliToolEnv('codex').CODEX_HOME ?? defaultDir('codex')
     const out: CodexPane[] = []
-    for (const [paneId, agent] of Object.entries(running)) {
+    for (const [paneId, { agent }] of Object.entries(running)) {
       if (agent !== 'codex' || !manager.has(paneId) || !codexHomes.has(paneId)) continue
       const sessionId = paneRecords().get(paneId)?.sessionId ?? null
       out.push({
@@ -478,7 +517,7 @@ export function createTerminals(options: TerminalsOptions = {}): Feature & { tic
         () => manager.pids(),
         (paneId) => manager.settling(paneId),
         paneRecords(),
-        (paneId, agent) => send('terminal:agent', { paneId, agent })
+        (paneId, agent, program) => send('terminal:agent', { paneId, agent, ...(program ? { program } : {}) })
       )
       watch.start()
 

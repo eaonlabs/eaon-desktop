@@ -9,13 +9,14 @@ import {
   agentOfArgs,
   claudeSlug,
   eaonSessionDir,
+  programOf,
   setAgentHome,
   setExtraAgentBin
 } from '../src/main/features/terminals/agentSessions'
 import { PaneRecords, restoredScreen, SCROLLBACK_BYTES } from '../src/main/features/terminals/paneRecords'
-import { agentUnder, byParent, programLine, SessionWatch, type Proc, type WatchDeps } from '../src/main/features/terminals/sessionWatch'
+import { agentUnder, byParent, foregroundUnder, programLine, SessionWatch, type Proc, type WatchDeps } from '../src/main/features/terminals/sessionWatch'
 import { createTerminals } from '../src/main/features/terminals'
-import { currentPane, knownAgent, type TerminalAgent, type TerminalAgentId, type TerminalSpawnResult } from '@shared/terminals'
+import { currentPane, knownAgent, TERMINAL_AGENT_IDS, type TerminalAgent, type TerminalAgentId, type TerminalSpawnResult } from '@shared/terminals'
 
 /**
  * Bringing ADE panes back after a quit, and following which CLI runs in each:
@@ -61,7 +62,7 @@ test('agents are recognised by their own name, not by a word in a path', () => {
   assert.equal(agentOfArgs('node /Users/me/.nvm/versions/node/v24/bin/opencode'), 'opencode')
   assert.equal(agentOfArgs('/usr/local/bin/node --max-old-space-size=8192 /opt/lib/codex/bin/codex'), 'codex')
   assert.equal(agentOfArgs('/Users/me/.local/bin/agy -c'), 'antigravity')
-  assert.equal(agentOfArgs('gemini --resume latest'), null, 'Gemini CLI is no longer one of the ADE agents')
+  assert.equal(agentOfArgs('gemini --resume latest'), 'gemini')
   assert.equal(agentOfArgs('node /x/@openai/codex/bin/codex.js resume'), 'codex')
   assert.equal(agentOfArgs('C:\\tools\\codex.exe'), 'codex')
   assert.equal(agentOfArgs('-zsh'), null)
@@ -73,6 +74,98 @@ test('agents are recognised by their own name, not by a word in a path', () => {
   assert.equal(agentOfArgs('/opt/eaon/bin/eaon --session x'), 'eaon-code')
   setExtraAgentBin(null, 'eaon-code')
   assert.equal(agentOfArgs('/opt/eaon/bin/eaon'), null)
+})
+
+test('the other coding CLIs are recognised the way they actually run', () => {
+  const cursor = '/Users/me/.local/share/cursor-agent/versions/2026.10.16-e3cb207'
+  // Cursor's launcher execs its own node under the name it was typed as, `cursor-agent` or `agent`.
+  assert.equal(agentOfArgs(`/Users/me/.local/bin/cursor-agent --use-system-ca ${cursor}/index.js`), 'cursor')
+  assert.equal(agentOfArgs(`/Users/me/.local/bin/agent --use-system-ca ${cursor}/index.js -p hi`), 'cursor')
+  assert.equal(agentOfArgs(`${cursor}/node ${cursor}/index.js`), 'cursor')
+  assert.equal(agentOfArgs('cursor-agent'), 'cursor')
+  assert.equal(agentOfArgs('agent'), null, 'a bare `agent` could be anything')
+  assert.equal(agentOfArgs('/usr/bin/ssh-agent -l'), null)
+  assert.equal(agentOfArgs('node /opt/homebrew/bin/gemini'), 'gemini')
+  assert.equal(agentOfArgs('/Users/me/.grok/bin/grok'), 'grok')
+  assert.equal(agentOfArgs('node /Users/me/.npm-global/bin/qwen'), 'qwen')
+  assert.equal(agentOfArgs('node /Users/me/.hermes/node/bin/copilot --resume'), 'copilot')
+  assert.equal(agentOfArgs('/usr/local/lib/node_modules/@github/copilot-darwin-arm64/copilot'), 'copilot')
+  assert.equal(agentOfArgs('copilot svc deploy --name api'), null, "AWS's copilot")
+  assert.equal(agentOfArgs('node /Users/me/.amp/bin/amp'), 'amp')
+  assert.equal(agentOfArgs('/Users/me/.local/bin/droid'), 'droid')
+  assert.equal(agentOfArgs('/Users/me/.local/share/uv/tools/kimi-cli/bin/python3 /Users/me/.local/bin/kimi'), 'kimi')
+  assert.equal(agentOfArgs('/opt/homebrew/Frameworks/Python.framework/Versions/3.13/Resources/Python.app/Contents/MacOS/Python /Users/me/.local/bin/kimi'), 'kimi')
+  assert.equal(agentOfArgs('/Users/me/.local/share/uv/tools/aider-chat/bin/python3.12 /Users/me/.local/bin/aider --model x'), 'aider')
+  assert.equal(agentOfArgs('node /usr/local/bin/cline'), 'cline')
+  assert.equal(agentOfArgs('goose session'), 'goose')
+  assert.equal(agentOfArgs('goose up'), null, 'pressly/goose, the migration tool')
+  assert.equal(agentOfArgs('node /usr/local/bin/kilocode'), 'kilo')
+  assert.equal(agentOfArgs('kilo main.c'), null, "antirez's editor")
+  assert.equal(agentOfArgs('junie'), 'junie')
+  assert.equal(agentOfArgs('/Users/me/.local/bin/kiro-cli'), 'kiro')
+  assert.equal(agentOfArgs('/Users/me/.local/share/uv/tools/openhands/bin/python /Users/me/.local/bin/openhands'), 'openhands')
+  assert.equal(agentOfArgs('/opt/homebrew/bin/crush'), 'crush')
+  assert.equal(agentOfArgs('/Users/me/.local/bin/warp'), 'warp')
+})
+
+test('every agent a pane can show is one the watch can recognise', () => {
+  for (const id of TERMINAL_AGENT_IDS) {
+    if (id === 'shell') continue
+    const kind = AGENT_KINDS[id]
+    assert.equal(kind.id, id)
+    assert.ok(kind.bins.length > 0, id)
+    for (const bin of kind.bins) assert.equal(agentOfArgs(bin), id, `${bin} is ${id}`)
+  }
+})
+
+test('any other program is named as you would call it', () => {
+  assert.equal(programOf('vim notes.md'), 'vim')
+  assert.equal(programOf('/opt/homebrew/bin/htop'), 'htop')
+  assert.equal(programOf('ssh me@host'), 'ssh')
+  assert.equal(programOf('npm run dev'), 'npm')
+  assert.equal(programOf('npx cowsay hi'), 'cowsay')
+  assert.equal(programOf('npm exec @acme/agent-cli@2.1.0 -- --fast'), 'agent-cli')
+  assert.equal(programOf('pnpm dlx some-new-cli'), 'some-new-cli')
+  assert.equal(programOf('uvx llm chat'), 'llm')
+  assert.equal(programOf('node ./tools/sync.js'), 'sync')
+  assert.equal(programOf('node /Users/me/.npm-global/lib/node_modules/brand-new-agent/dist/index.js'), 'brand-new-agent')
+  assert.equal(programOf('/usr/bin/python3 -u manage.py runserver'), 'manage')
+  assert.equal(programOf('bash ./deploy.sh prod'), 'deploy')
+  assert.equal(programOf('node'), 'node')
+  assert.equal(programOf('python3 -m http.server 8000'), 'http.server')
+  assert.equal(programOf('/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/Resources/Python.app/Contents/MacOS/Python -m http.server 8765'), 'http.server')
+  assert.equal(programOf("node -e setTimeout(()=>{},1e5)"), 'node')
+  assert.equal(programOf('-zsh'), null)
+  assert.equal(programOf('/bin/zsh'), null)
+  assert.equal(programOf('bash -c make'), null)
+})
+
+test('the program in a shell\'s foreground, through nested shells, not its background jobs', () => {
+  const table: Proc[] = [
+    { pid: 10, ppid: 1, args: '-zsh', fg: false },
+    { pid: 11, ppid: 10, args: 'npm run watch', fg: false },
+    { pid: 12, ppid: 10, args: '/Users/me/.local/bin/brand-new-cli --model x', fg: true }
+  ]
+  assert.equal(foregroundUnder(10, byParent(table)), 'brand-new-cli')
+  assert.equal(foregroundUnder(10, byParent(table.slice(0, 2))), null, 'only a background job: the prompt is showing')
+  const nested: Proc[] = [
+    { pid: 20, ppid: 1, args: '-zsh' },
+    { pid: 21, ppid: 20, args: 'bash' },
+    { pid: 22, ppid: 21, args: 'cat log.txt' },
+    { pid: 23, ppid: 21, args: 'less' }
+  ]
+  assert.equal(foregroundUnder(20, byParent(nested)), 'less')
+  assert.equal(foregroundUnder(20, byParent(nested.slice(0, 2))), null)
+})
+
+test('a pane running Cursor through its `agent` launcher shows Cursor', () => {
+  const cursor = '/Users/me/.local/share/cursor-agent/versions/2026.10.16-e3cb207'
+  const table: Proc[] = [
+    { pid: 10, ppid: 1, args: '-zsh' },
+    { pid: 11, ppid: 10, args: `/Users/me/.local/bin/agent --use-system-ca ${cursor}/index.js` },
+    { pid: 12, ppid: 11, args: '/bin/zsh -c git status' }
+  ]
+  assert.equal(agentUnder(10, byParent(table))?.agent, 'cursor')
 })
 
 test('the agent under a shell is the outermost one, wrappers included', () => {
@@ -170,11 +263,14 @@ test("Antigravity: the folder's latest conversation comes from its cache and mus
   assert.deepEqual([...(await kind.conversations(project)).keys()], [ID_A])
 })
 
-test('a Gemini CLI pane saved by an older version comes back as a shell, and its name says so', () => {
-  assert.equal(knownAgent('gemini'), 'shell')
+test('a pane saved with an agent this version does not run comes back as a shell, and its name says so', () => {
+  assert.equal(knownAgent('gemini'), 'gemini', 'Gemini CLI is one of the recognised CLIs again')
+  assert.equal(knownAgent('some-retired-cli'), 'shell')
   assert.equal(knownAgent('antigravity'), 'antigravity')
   assert.equal(knownAgent(undefined), 'shell')
-  assert.deepEqual(currentPane({ id: 'p1', name: 'Gemini', agent: 'gemini' as never }), { id: 'p1', name: 'Shell (was Gemini CLI)', agent: 'shell' })
+  assert.deepEqual(currentPane({ id: 'p1', name: 'Old', agent: 'some-retired-cli' as never }), { id: 'p1', name: 'Shell (was some-retired-cli)', agent: 'shell' })
+  const gemini = { id: 'p3', name: 'Gemini', agent: 'gemini' as const }
+  assert.equal(currentPane(gemini), gemini)
   const kept = { id: 'p2', name: 'Codex', agent: 'codex' as const }
   assert.equal(currentPane(kept), kept)
 })
@@ -294,11 +390,13 @@ interface Fake {
   now: number
   settling: Set<string>
   events: [string, TerminalAgentId][]
+  /** Every report, with the program a plain shell is running. */
+  programs: [string, TerminalAgentId, string | undefined][]
   panes: Map<string, number>
 }
 
 function fakeWatch(recs: PaneRecords): { fake: Fake; watch: SessionWatch } {
-  const fake: Fake = { table: [], cwds: new Map(), now: Date.now(), settling: new Set(), events: [], panes: new Map() }
+  const fake: Fake = { table: [], cwds: new Map(), now: Date.now(), settling: new Set(), events: [], programs: [], panes: new Map() }
   const deps: WatchDeps = {
     table: async () => fake.table,
     cwdOf: async (pid) => fake.cwds.get(pid) ?? '',
@@ -308,7 +406,10 @@ function fakeWatch(recs: PaneRecords): { fake: Fake; watch: SessionWatch } {
     () => fake.panes,
     (paneId) => fake.settling.has(paneId),
     recs,
-    (paneId, agent) => fake.events.push([paneId, agent]),
+    (paneId, agent, program) => {
+      if (!program) fake.events.push([paneId, agent])
+      fake.programs.push([paneId, agent, program])
+    },
     deps
   )
   return { fake, watch }
@@ -345,6 +446,33 @@ test('the logo follows the CLI: shell, then Claude Code, then OpenCode, then the
   // Quit on purpose, so it stays closed: the pane comes back as its shell.
   assert.equal(recs.get('pane-a')?.agent, 'shell')
   assert.equal(recs.get('pane-a')?.sessionId, undefined)
+})
+
+test('any CLI shows in its pane: one no agent list knows is named, then the prompt again', async () => {
+  const recs = new PaneRecords(recsDir)
+  const { fake, watch } = fakeWatch(recs)
+  fake.panes.set('pane-a', 100)
+  fake.table = [{ pid: 100, ppid: 1, args: '-zsh' }]
+  await watch.tick()
+  fake.table = [
+    { pid: 100, ppid: 1, args: '-zsh' },
+    { pid: 103, ppid: 100, args: 'node /usr/local/lib/node_modules/next-big-agent/dist/cli.js' }
+  ]
+  await watch.tick()
+  await watch.tick()
+  fake.table = [
+    { pid: 100, ppid: 1, args: '-zsh' },
+    { pid: 104, ppid: 100, args: 'grok' }
+  ]
+  await watch.tick()
+  fake.table = [{ pid: 100, ppid: 1, args: '-zsh' }]
+  await watch.tick()
+  assert.deepEqual(fake.programs, [
+    ['pane-a', 'shell', undefined],
+    ['pane-a', 'shell', 'next-big-agent'],
+    ['pane-a', 'grok', undefined],
+    ['pane-a', 'shell', undefined]
+  ])
 })
 
 test('a pane still starting its agent is not reported as a bare shell, nor forgotten', async () => {

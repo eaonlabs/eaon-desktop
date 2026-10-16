@@ -39,3 +39,13 @@ In `marks/`, `cursor.svg`, `grok.svg` and `amp.svg` are Lobe Icons' `cursor`,
 CLIs Settings → Usage counts. `droid.svg` is Factory's own favicon
 (factory.ai/favicon.svg, as in `../apps/droid.svg`) with its black tile taken
 out.
+
+The terminal tiles `cursor.svg`, `grok.svg`, `amp.svg`, `cline.svg`,
+`goose.svg`, `kilocode.svg`, `junie.svg`, `kiro.svg` and `openhands.svg` are
+Lobe Icons' `cursor`, `grok`, `amp-color`, `cline`, `goose`, `kilocode`,
+`junie-color`, `kiro-color` and `openhands-color` from the same package, laid
+on a tile like the others (Kiro's has its own). `droid.svg` is the mark in
+`marks/droid.svg` on a black tile.
+`codebuddy.svg`, `qoder.svg`, `trae.svg`, `hermes.svg` and `openclaw.svg`
+are Lobe Icons' `codebuddy-color`, `qoder-color`, `trae-color`, `hermesagent`
+and `openclaw-color`, on the same black tile.
