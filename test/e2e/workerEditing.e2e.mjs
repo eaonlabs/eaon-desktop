@@ -82,3 +82,32 @@ scenario('a worker’s model is chosen when it is made, from its message box, an
   }
   assert.deepEqual(app.pageErrors().filter((e) => /exception/i.test(e)), [])
 })
+
+scenario('a long purpose wraps inside its card, two lines at most, and a long name is cut short', { timeout: 90_000 }, async (s) => {
+  const app = await s.launch()
+  const page = app.page
+  await page.eval(() =>
+    window.api.workers.save({
+      name: 'Matic, the household purchasing helper',
+      color: '#E8944A',
+      personality: 'Calm.',
+      purpose:
+        'Here is your task. Every 2 weeks you will buy a 12-pack HEPA Bag Bundle from the store, check the price against the last order and tell me about it.'
+    })
+  )
+  await page.click('.mode-switch__option', { text: 'Workers' })
+  await page.find('.worker-card__purpose', { text: /Here is your task/ })
+  const fit = await page.eval(() => {
+    const card = [...document.querySelectorAll('.worker-card')].find((c) => c.textContent?.includes('Here is your task'))
+    const inside = (el) => {
+      const a = el.getBoundingClientRect()
+      const b = card.getBoundingClientRect()
+      return a.left >= b.left - 0.5 && a.right <= b.right + 0.5
+    }
+    const purpose = card.querySelector('.worker-card__purpose')
+    const lines = Math.round(purpose.getBoundingClientRect().height / parseFloat(getComputedStyle(purpose).lineHeight))
+    return { purpose: inside(purpose), name: inside(card.querySelector('.worker-card__name')), lines }
+  })
+  assert.deepEqual(fit, { purpose: true, name: true, lines: 2 })
+  await s.shot(page, 'long-purpose-card')
+})

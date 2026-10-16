@@ -374,6 +374,8 @@ body[data-idle] .wf .wf-attention {
 
 .worker-card {
   position: relative;
+  /* A grid item: a long purpose must wrap inside the column, not widen it. */
+  min-width: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -411,11 +413,20 @@ body[data-idle] .wf .wf-attention {
   box-shadow: 0 0 0 3px var(--surface-1);
 }
 .worker-card__name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: var(--fs-h2);
   font-weight: 600;
   color: var(--text);
 }
+/* Centred in a column, the text would size itself to its whole line and run
+   past the card's edges; it takes the card's width and wraps inside it. */
 .worker-card__purpose {
+  align-self: stretch;
+  min-width: 0;
+  overflow-wrap: anywhere;
   font-size: var(--fs-sm);
   color: var(--text-2);
   line-height: 1.4;
