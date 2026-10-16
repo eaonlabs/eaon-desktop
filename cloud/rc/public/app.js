@@ -685,7 +685,8 @@ function makeShell(dev) {
   let firstSide = true
   const drawSwitcher = () => switcherSlot.replaceChildren(switcher(dev))
   const drawSide = () => {
-    const nodes = sidebarLists(dev)
+    // Flat: a list's loading rows come as an array, which append would print as text.
+    const nodes = sidebarLists(dev).flat(Infinity).filter(Boolean)
     side.replaceChildren(...nodes)
     if (firstSide && device.sessions) {
       firstSide = false
@@ -814,7 +815,7 @@ function sidebarLists(dev) {
     }
   const workers = device.workers
   out.push(h('div', { class: 'sidebar__section' }, link(`/d/${dev}/w`, { style: { color: 'inherit' } }, 'Workers')))
-  if (!workers) out.push(device.workersError ? h('div', { class: 'sidebar__empty', text: shortError(device.workersError) }) : skeletonRows(2, 'nav-item'))
+  if (!workers) out.push(device.workersError ? h('div', { class: 'sidebar__empty', text: shortError(device.workersError) }) : skeletonRows(2, 'ade-session'))
   else if (!workers.length) out.push(h('div', { class: 'sidebar__empty', text: 'No Workers yet' }))
   else
     for (const w of workers)
