@@ -103,6 +103,46 @@ export interface TaskModel {
   modelId: string
 }
 
+/**
+ * A purchase schedule: what the user set up with /purchase. Saving it is the
+ * user's approval for each of its orders, within exactly these bounds: one
+ * order per run, on `site` (or a subdomain), costing at most `maxAmount`.
+ * Anything else the agent tries to buy in that run is refused.
+ */
+export interface PurchasePlan {
+  /** What to buy, with brand, size and quantity: "2 × Lavazza Super Crema, 2.2 lb bag". */
+  item: string
+  /** The store's website, a bare hostname: "amazon.com". */
+  site: string
+  /** What the user calls the store; defaults to the site. */
+  merchant: string
+  /** The most one order may cost, all in (tax, shipping, tips). */
+  maxAmount: number
+  currency: string
+  /** Delivery details, a link to the product, substitutions allowed or not. */
+  notes: string
+  /** How many orders in all; null keeps going until the user stops it. */
+  orders: number | null
+  /** Follow each order with its order number until it is delivered. */
+  track: boolean
+}
+
+/** An order being followed after a purchase: checks its status until it is delivered. */
+export interface OrderWatch {
+  /** The payments purchase record (pay_…). */
+  purchaseId: string
+  /** The merchant's order number. */
+  orderId: string
+  merchant: string
+  site: string | null
+  item: string
+  /** When the order was placed; tracking gives up a while after. */
+  placedAt: number
+}
+
+/** Tracking stops this long after the order, delivered or not. */
+export const ORDER_WATCH_MS = 30 * 24 * 60 * 60 * 1000
+
 export interface ScheduledTask {
   id: string
   name: string
@@ -136,6 +176,15 @@ export interface ScheduledTask {
    * (travel, or a manual change) its next run is worked out again.
    */
   zone?: string
+  /** Set for a purchase schedule. */
+  purchase?: PurchasePlan
+  /** Set for the follow-up that tracks a placed order. */
+  watch?: OrderWatch
+  /**
+   * A chat every run adds to, instead of a new chat per run: a purchase
+   * schedule keeps its orders and their tracking in one conversation.
+   */
+  thread?: string
 }
 
 /** What the editor (or the `schedule` tool) sends to create or update a task. */
@@ -149,6 +198,10 @@ export interface TaskDraft {
   cwd: string | null
   allowChanges: boolean
   enabled: boolean
+  /** Left out, an existing task keeps what it had; null removes it. */
+  purchase?: PurchasePlan | null
+  watch?: OrderWatch | null
+  thread?: string | null
 }
 
 /** Runs kept per task, newest first. */
@@ -407,9 +460,24 @@ export function scheduleError(schedule: Schedule, now: number, enabled = true): 
   }
 }
 
+/** Null when the plan is complete; otherwise what to fix, for the user. */
+export function purchasePlanError(plan: PurchasePlan): string | null {
+  if (!plan.item.trim()) return 'Say what to buy.'
+  if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(plan.site)) return 'Enter the store’s website, like amazon.com.'
+  if (!Number.isFinite(plan.maxAmount) || plan.maxAmount <= 0) return 'Set the most an order may cost.'
+  if (plan.maxAmount > 100_000) return 'That maximum is too high.'
+  if (!/^[A-Z]{3}$/.test(plan.currency)) return 'Use a three-letter currency code, like USD.'
+  if (plan.orders !== null && (!Number.isInteger(plan.orders) || plan.orders < 1 || plan.orders > 520)) return 'The number of orders is a whole number from 1.'
+  return null
+}
+
 export function draftError(draft: TaskDraft, now: number): string | null {
   if (!draft.name.trim()) return 'Give the task a name.'
   if (!draft.prompt.trim()) return 'Write the prompt the task should run.'
+  if (draft.purchase) {
+    const error = purchasePlanError(draft.purchase)
+    if (error) return error
+  }
   return scheduleError(draft.schedule, now, draft.enabled)
 }
 
@@ -427,6 +495,12 @@ function sameDays(a: number[], b: number[]): boolean {
 export function describeSchedule(schedule: Schedule): string {
   switch (schedule.kind) {
     case 'interval': {
+      // Whole days and weeks read as such: a purchase schedule is "every 2 weeks", not "every 336 hours".
+      if (schedule.unit === 'hours' && schedule.every % 24 === 0) {
+        const days = schedule.every / 24
+        if (days % 7 === 0) return days === 7 ? 'Every week' : `Every ${days / 7} weeks`
+        return days === 1 ? 'Every day' : `Every ${days} days`
+      }
       const unit = schedule.unit === 'hours' ? 'hour' : 'minute'
       return schedule.every === 1 ? `Every ${unit}` : `Every ${schedule.every} ${unit}s`
     }

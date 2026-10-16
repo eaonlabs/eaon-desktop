@@ -3,6 +3,55 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [2026.6.3-beta.2.2] — 2026-10-16
+
+### Fixed
+- Workers: a long purpose on a worker's card ran past the card's edges. It
+  now wraps inside the card, two lines at most, and a long name is cut
+  short.
+
+## [2026.6.3-beta.2.1] — 2026-10-16
+
+### Added
+- **Enterprise controls.** IT can deploy a managed policy (MDM or GPO) that
+  turns features off, caps how much agents may do on their own, allows or
+  blocks AI providers and limits which MCP servers may run. Users can see it
+  in Settings → Security but can't change it. A tamper-evident audit log
+  records sign-ins, key changes, settings, agent actions and refusals.
+  `docs/enterprise.md` covers deployment; `SECURITY.md` how to report a
+  vulnerability.
+- **A Code panel in Chat** (agent mode): the agent's work folder beside the
+  conversation, with a file tree, tabs, an editor, ⌘S, and the files the
+  agent just changed marked. Edit cards get "Open in Code".
+- **Purchase schedules.** In agent mode, `/purchase` (or the + menu) sets
+  up an order, once or on repeat, for one store up to a set amount. Saving
+  it approves exactly that; Today buys right away. The agent saves the
+  order number, follows the delivery until it arrives, and says how the
+  price moved since last time.
+- **Claude Code and Codex on the Usage page.** The daily chart stacks Eaon,
+  Claude Code and Codex, read from their own logs on this computer; a By
+  tool table splits the range, and active days and streaks count all three.
+  Shown only, never uploaded as Eaon's.
+- The Free AI credits card has a "Have an event code?" link.
+
+### Changed
+- New activity indicators in chat: one dot-matrix mark whose motion says
+  what the agent is doing. The reasoning-effort slider is redrawn.
+- Discord: the Eaon "e" turning in dots, in eaon.dev's look.
+- tokns.eaon.dev is gone; "View on Tokn" opens your toknhq.com profile.
+
+### Security
+- The window runs sandboxed and only Eaon's own page can reach the app;
+  web pages get no camera, location or OS link schemes.
+- App data is readable only by your user account.
+- The Local API Server has a "Require key" switch, and Eaon CLI gets its
+  own key for controlling the app, apart from the key other apps use.
+- Remote devices answer only phones on your own network, and can't give a
+  worker full autonomy unless you allow it.
+- Guests on chat apps can't use plugins, the card or local addresses;
+  agents can't read Eaon's own data or more kinds of credentials.
+- Developer tools are off in installed builds.
+
 ## [2026.6.3-beta.2] — 2026-10-14
 
 ### Added

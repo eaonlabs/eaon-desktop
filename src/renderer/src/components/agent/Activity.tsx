@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState, type JSX, type ReactNode } from 'react'
 import { ChevronRight } from 'lucide-react'
-import { formatElapsed, PixelGrid, Spinner, useElapsed } from './Loaders'
+import { DotMatrix, Elapsed, toolMotion } from './Loaders'
 
 /**
  * A run of steps — thinking and tool calls, in the order they happened —
@@ -218,12 +218,6 @@ export function runSummary(calls: ActivityCall[], thoughts: number): { text: str
   return { ...summary, text: `Thought, ${summary.text.charAt(0).toLowerCase()}${summary.text.slice(1)}` }
 }
 
-/** How long a live run has been going. Its own component, so the tick re-renders only the clock. */
-function RunClock({ since }: { since: number }): JSX.Element | null {
-  const elapsed = formatElapsed(useElapsed(since))
-  return elapsed ? <span className="activity__clock">{elapsed}</span> : null
-}
-
 /** Past this many steps a live run shows a window onto its latest ones rather than growing. */
 const WINDOW_AFTER = 4
 
@@ -274,7 +268,7 @@ export function ActivityGroup({
         {current ? (
           <>
             <span className="activity__orb">
-              <Spinner />
+              <DotMatrix motion={toolMotion(current.name)} />
             </span>
             <span className="activity__text step-shimmer">{current.label}</span>
             {current.detail && <span className="activity__detail">{current.detail}</span>}
@@ -282,7 +276,7 @@ export function ActivityGroup({
         ) : working ? (
           <>
             <span className="activity__orb">
-              <PixelGrid cell={3} />
+              <DotMatrix motion="think" />
             </span>
             <span className="activity__text step-shimmer">{thinking ? 'Thinking' : 'Working'}</span>
           </>
@@ -293,7 +287,7 @@ export function ActivityGroup({
             {summary!.blocked > 0 && <span className="activity__flag">{summary!.blocked} blocked</span>}
           </>
         )}
-        {active && <RunClock since={since} />}
+        {active && <Elapsed since={since} className="activity__clock" />}
         <ChevronRight size={13} strokeWidth={2.2} className="activity__chevron" />
       </button>
       {!open && current && live}

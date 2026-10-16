@@ -1,0 +1,468 @@
+/* ---------- Chat's code panel (components/ide) ----------
+   The agent's folder beside the conversation: a tree, tabs, an editor and a
+   status line. It docks like the browser panel, as the window's rightmost
+   column, and takes the app's surfaces rather than an editor theme of its
+   own, so it reads as part of Chat. */
+
+.ide {
+  --ide-line: 20px;
+  --ide-tree-w: 208px;
+  --ide-kw: #ff7b72;
+  --ide-str: #a5d6ff;
+  --ide-fn: #d2a8ff;
+  --ide-num: #79c0ff;
+  --ide-cm: #8b949e;
+  position: relative;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  min-width: 360px;
+  max-width: calc(100vw - 480px);
+  background: var(--canvas);
+  border-left: 1px solid var(--border-soft);
+  animation: ide-in 220ms var(--ease) both;
+}
+[data-theme='light'] .ide {
+  --ide-kw: #cf222e;
+  --ide-str: #0a3069;
+  --ide-fn: #8250df;
+  --ide-num: #0550ae;
+  --ide-cm: #6e7781;
+}
+@keyframes ide-in {
+  from {
+    opacity: 0;
+    transform: translateX(12px);
+  }
+}
+
+.ide__resize {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -3px;
+  z-index: 2;
+  width: 6px;
+  cursor: col-resize;
+  -webkit-app-region: no-drag;
+}
+.ide__resize::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 2px;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+.ide__resize:hover::after,
+body[data-resizing='ide'] .ide__resize::after {
+  opacity: 0.6;
+}
+body[data-resizing='ide'],
+body[data-resizing='ide'] * {
+  cursor: col-resize !important;
+  user-select: none;
+}
+
+/* ---- Title row ---- */
+
+.ide__bar {
+  height: var(--titlebar-h);
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 12px 0 14px;
+  border-bottom: 1px solid var(--border-soft);
+  -webkit-app-region: drag;
+}
+body[data-platform='win32'] .ide__bar,
+body[data-platform='linux'] .ide__bar {
+  height: calc(var(--titlebar-h) + var(--sidebar-gap));
+  padding-top: var(--sidebar-gap);
+  padding-right: calc(12px + var(--window-controls-right));
+}
+.ide__bar .icon-btn {
+  -webkit-app-region: no-drag;
+}
+.ide__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ide__title svg {
+  flex: none;
+  color: var(--text-3);
+}
+
+/* ---- Tree and editor, side by side ---- */
+
+.ide__body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: var(--ide-tree-w) minmax(0, 1fr);
+}
+
+.ide__tree {
+  min-height: 0;
+  overflow: auto;
+  padding: 6px 6px 16px;
+  border-right: 1px solid var(--border-soft);
+}
+.ide__tree-empty {
+  padding: 10px 8px;
+  color: var(--text-4);
+  font-size: var(--fs-xs);
+}
+.ide__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 24px;
+  padding: 0 6px 0 calc(6px + var(--depth, 0) * 12px);
+  border-radius: var(--r-sm);
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  text-align: left;
+  white-space: nowrap;
+}
+.ide__row:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.ide__row[data-active] {
+  background: var(--active);
+  color: var(--text);
+}
+.ide__chevron {
+  flex: none;
+  color: var(--text-4);
+  transition: transform var(--dur) var(--ease);
+}
+.ide__row[aria-expanded='true'] .ide__chevron {
+  transform: rotate(90deg);
+}
+/* Files line their icon up under the folder name, past the chevron's column. */
+.ide__file-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 12px;
+  margin-left: 0;
+}
+.ide__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Changed by the agent in this chat. */
+.ide__touched {
+  flex: none;
+  width: 5px;
+  height: 5px;
+  margin-left: auto;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.ide__main {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ---- Tabs ---- */
+
+.ide__tabs {
+  flex: none;
+  display: flex;
+  height: 34px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  border-bottom: 1px solid var(--border-soft);
+  scrollbar-width: none;
+}
+.ide__tab {
+  position: relative;
+  flex: none;
+  display: flex;
+  align-items: center;
+  max-width: 200px;
+  border-right: 1px solid var(--border-soft);
+  color: var(--text-3);
+}
+.ide__tab[data-active] {
+  background: var(--bg);
+  color: var(--text);
+}
+/* The open tab's edge: a hairline of accent along its top. */
+.ide__tab[data-active]::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: 1.5px;
+  background: var(--accent);
+}
+.ide__tab-open {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 100%;
+  padding: 0 4px 0 12px;
+  font-size: var(--fs-xs);
+}
+.ide__tab-open span:not(.ide__touched) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ide__tab-open .ide__touched {
+  margin-left: 2px;
+}
+.ide__tab-close {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  margin-right: 6px;
+  border-radius: var(--r-xs);
+  color: var(--text-4);
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+.ide__tab:hover .ide__tab-close,
+.ide__tab[data-active] .ide__tab-close,
+.ide__tab-close:focus-visible {
+  opacity: 1;
+}
+.ide__tab-close:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+/* Unsaved: a dot where the close button sits, the button under the pointer. */
+.ide__tab-close[data-dirty] {
+  opacity: 1;
+}
+.ide__tab-close[data-dirty]::after {
+  content: '';
+  position: absolute;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-2);
+}
+.ide__tab-close[data-dirty] svg {
+  opacity: 0;
+}
+.ide__tab-close[data-dirty]:hover::after {
+  opacity: 0;
+}
+.ide__tab-close[data-dirty]:hover svg {
+  opacity: 1;
+}
+
+/* ---- Editor ---- */
+
+.ide-editor {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: flex-start;
+  overflow: auto;
+  background: var(--bg);
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: var(--ide-line);
+}
+.ide-editor__gutter {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  flex: none;
+  min-width: 44px;
+  min-height: 100%;
+  padding: 8px 12px 40vh 8px;
+  background: var(--bg);
+  color: var(--text-4);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+.ide-editor__code {
+  position: relative;
+  flex: 1;
+  min-width: calc(var(--ide-cols) * 1ch);
+  padding: 8px 0 40vh;
+}
+.ide-editor__view,
+.ide-editor__input {
+  margin: 0;
+  padding: 0 16px 0 4px;
+  font: inherit;
+  line-height: inherit;
+  letter-spacing: 0;
+  tab-size: 2;
+  white-space: pre;
+  word-wrap: normal;
+}
+.ide-editor__view {
+  color: var(--text-2);
+  pointer-events: none;
+}
+.ide-editor__line {
+  min-height: var(--ide-line);
+}
+.ide-editor__input {
+  position: absolute;
+  inset: 8px 0 0 0;
+  width: 100%;
+  height: calc(100% - 8px);
+  resize: none;
+  overflow: hidden;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--text);
+  -webkit-text-fill-color: transparent;
+}
+.ide-editor__input::selection {
+  background: color-mix(in srgb, var(--accent) 32%, transparent);
+  -webkit-text-fill-color: transparent;
+}
+.ide-editor .tk-kw {
+  color: var(--ide-kw);
+}
+.ide-editor .tk-str {
+  color: var(--ide-str);
+}
+.ide-editor .tk-fn {
+  color: var(--ide-fn);
+}
+.ide-editor .tk-num {
+  color: var(--ide-num);
+}
+.ide-editor .tk-cm {
+  color: var(--ide-cm);
+  font-style: italic;
+}
+
+/* ---- Notices, banners and the status line ---- */
+
+.ide__banner {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border-soft);
+  background: color-mix(in srgb, var(--accent) 8%, var(--canvas));
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+}
+.ide__banner[data-tone='danger'] {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+.ide__banner span {
+  flex: 1;
+  min-width: 0;
+}
+.ide__banner-btn {
+  flex: none;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+}
+.ide__banner-btn:hover {
+  background: var(--hover);
+}
+
+.ide__notice,
+.ide__empty {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  text-align: center;
+}
+.ide__notice p,
+.ide__empty p {
+  margin: 0;
+}
+.ide__empty-title {
+  color: var(--text-2);
+  font-weight: 500;
+}
+.ide__empty-hint {
+  color: var(--text-4);
+  font-size: var(--fs-xs);
+}
+.ide__recent {
+  width: min(260px, 100%);
+  margin-top: 14px;
+  text-align: left;
+}
+.ide__recent-label {
+  padding: 0 6px 4px;
+  color: var(--text-4);
+  font-size: var(--fs-xxs);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.ide__status {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  height: 24px;
+  padding: 0 12px;
+  border-top: 1px solid var(--border-soft);
+  color: var(--text-4);
+  font-size: var(--fs-xxs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ide__status-path {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ide {
+    animation: none;
+  }
+}
+body[data-reduce-motion='on'] .ide {
+  animation: none;
+}

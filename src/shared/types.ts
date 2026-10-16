@@ -376,6 +376,8 @@ export interface Settings {
     smallModelId: string | null
     /** This install's key for the server, made on first use; apps connected to Eaon send it. */
     token: string | null
+    /** Refuse requests that send no key, from apps as well as browser pages. */
+    requireKey: boolean
   }
   /**
    * Remote devices (docs/remote-api.md): a phone on the user's network
@@ -387,6 +389,11 @@ export interface Settings {
     port: number
     /** `eaonr-…`, made the first time it is turned on and replaced by Reset key. */
     token: string | null
+    /**
+     * Let a phone create a worker with full autonomy, or raise one to it.
+     * Off by default: remote traffic crosses the local network.
+     */
+    allowAutonomous: boolean
   }
   /**
    * Eaon Remote (rc.eaon.dev): this computer linked to a GitHub account, so

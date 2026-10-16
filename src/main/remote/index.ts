@@ -133,7 +133,8 @@ export function createRemote(deps: RemoteDeps): RemoteController {
       info: () => ({ name: names.computerName, appVersion: app.getVersion() }),
       models: remoteModels,
       defaultModel: defaultModelId,
-      modelLabel
+      modelLabel,
+      allowAutonomous: () => store.getSettings().remote.allowAutonomous
     },
     hub: deps.hub,
     onStatus: deps.onStatus,

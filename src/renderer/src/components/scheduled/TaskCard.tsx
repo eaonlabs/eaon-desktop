@@ -1,5 +1,6 @@
 import { memo, useState } from 'react'
-import { ChevronDown, ChevronRight, Copy, Hammer, Loader2, MessagesSquare, Pencil, Play, RotateCcw, Square, Trash2 } from 'lucide-react'
+import { ChevronDown, ChevronRight, Copy, Hammer, Loader2, MessagesSquare, PackageSearch, Pencil, Play, RotateCcw, ShoppingBag, Square, Trash2 } from 'lucide-react'
+import { formatMoney } from '@shared/payments'
 import { describeSchedule, runReason, type ScheduledTask, type TaskRun } from '@shared/scheduler'
 import { Switch } from '../ui'
 import { formatDuration, formatRelative, formatStamp, formatWhen, STATUS_LABEL } from './format'
@@ -43,6 +44,11 @@ function StatusDot({ status }: { status: TaskRun['status'] }): JSX.Element {
 }
 
 function modeLabel(task: ScheduledTask): string {
+  if (task.purchase) {
+    const { maxAmount, currency, site, orders } = task.purchase
+    return `Up to ${formatMoney(maxAmount, currency)} on ${site}${orders && orders > 1 ? ` · ${orders} orders` : ''}`
+  }
+  if (task.watch) return 'Order tracking · stops when delivered'
   if (task.mode === 'chat') return 'Chat'
   return task.allowChanges ? 'Work · can make changes' : 'Work · read-only'
 }
@@ -206,12 +212,12 @@ export const TaskCard = memo(function TaskCard({
   const running = task.history.some((r) => r.status === 'running')
   const last = task.history.find((r) => r.status !== 'skipped') ?? task.history[0]
   const lastDetail = last ? runDetail(last) : undefined
-  const Icon = task.mode === 'work' ? Hammer : MessagesSquare
+  const Icon = task.purchase ? ShoppingBag : task.watch ? PackageSearch : task.mode === 'work' ? Hammer : MessagesSquare
 
   return (
     <article className="card sched-task" data-paused={!task.enabled || undefined} aria-label={task.name}>
       <div className="sched-task__head">
-        <span className="sched-task__icon" data-mode={task.mode}>
+        <span className="sched-task__icon" data-mode={task.purchase ? 'purchase' : task.mode}>
           <Icon size={16} strokeWidth={1.9} />
         </span>
         <div className="sched-task__body">
@@ -238,12 +244,14 @@ export const TaskCard = memo(function TaskCard({
           ) : (
             <button className="btn btn--sm" onClick={() => onRunNow(task)}>
               <Play size={12} strokeWidth={2.2} />
-              Run now
+              {task.purchase ? 'Buy now' : 'Run now'}
             </button>
           )}
-          <button className="icon-btn" aria-label={`Edit ${task.name}`} title="Edit" onClick={() => onEdit(task)}>
-            <Pencil size={14} strokeWidth={1.9} />
-          </button>
+          {!task.watch && (
+            <button className="icon-btn" aria-label={`Edit ${task.name}`} title="Edit" onClick={() => onEdit(task)}>
+              <Pencil size={14} strokeWidth={1.9} />
+            </button>
+          )}
           <button className="icon-btn" aria-label={`Delete ${task.name}`} title="Delete" onClick={() => onDelete(task)}>
             <Trash2 size={14} strokeWidth={1.9} />
           </button>

@@ -13,6 +13,34 @@ export type PaymentsMode = 'off' | 'approve' | 'auto'
 
 export type PurchaseStatus = 'authorized' | 'paid' | 'failed' | 'cancelled'
 
+/** Where a placed order is, as the agent last found it on the merchant's site or in the user's email. */
+export type OrderStage = 'ordered' | 'shipped' | 'out_for_delivery' | 'delivered' | 'problem' | 'cancelled'
+
+export const ORDER_STAGES: OrderStage[] = ['ordered', 'shipped', 'out_for_delivery', 'delivered', 'problem', 'cancelled']
+
+export const ORDER_STAGE_LABEL: Record<OrderStage, string> = {
+  ordered: 'Ordered',
+  shipped: 'Shipped',
+  out_for_delivery: 'Out for delivery',
+  delivered: 'Delivered',
+  problem: 'Needs attention',
+  cancelled: 'Cancelled'
+}
+
+/** An order that is done moving: tracking it further finds nothing new. */
+export const orderSettled = (stage: OrderStage | undefined): boolean => stage === 'delivered' || stage === 'cancelled'
+
+export interface OrderTracking {
+  stage: OrderStage
+  /** The delivery estimate as the merchant words it ("Thu, Oct 22"). */
+  eta?: string
+  carrier?: string
+  trackingNumber?: string
+  /** One line on what changed or what is wrong. */
+  note?: string
+  checkedAt: number
+}
+
 export interface PaymentLimits {
   /** Largest single purchase the agent may make without asking. */
   perPurchase: number
@@ -55,10 +83,16 @@ export interface PurchaseRecord {
   /** What the merchant actually charged, once the agent reports back. */
   charged: number | null
   status: PurchaseStatus
-  /** Whether the user approved it, or it ran automatically within the limits. */
-  how: 'approved' | 'auto'
+  /**
+   * Whether the user approved it, it ran automatically within the limits, or
+   * it is an order of a purchase schedule the user set up (approved once, for
+   * that store and up to that amount).
+   */
+  how: 'approved' | 'auto' | 'scheduled'
   /** A subscription or anything else that charges again later. Never automatic. */
   recurring?: boolean
+  /** The scheduled task (purchase schedule) this order belongs to. */
+  planId?: string
   chatId: string
   createdAt: number
   /** The card can be typed for this purchase until then. */
@@ -73,6 +107,9 @@ export interface PurchaseRecord {
   /** The merchant charged more than was authorized (tax or shipping added at checkout). */
   overAuthorized?: boolean
   note?: string
+  /** The merchant's order number, from the confirmation page or email. */
+  orderId?: string
+  tracking?: OrderTracking
 }
 
 export interface WaiverAcceptance {

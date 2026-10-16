@@ -1,10 +1,12 @@
 import { app, Notification, powerMonitor, type WebContents } from 'electron'
-import { mergeRunChat, type ScheduledTask, type TaskDraft } from '@shared/scheduler'
+import { mergeRunChat, ORDER_WATCH_MS, type ScheduledTask, type TaskDraft } from '@shared/scheduler'
+import { orderSettled } from '@shared/payments'
 import type { Chat } from '@shared/types'
 import { runAgent } from '../../agent/loop'
 import { registerToolSource } from '../../agent/tools'
 import { store } from '../../store'
 import { currentZone } from '../../timezone'
+import { findPurchase, planPurchases } from '../payments/plans'
 import type { FeatureContext } from '../types'
 import { SchedulerEngine, type RunResult } from './engine'
 import { RUNS_FILE, TASKS_FILE } from './migrate'
@@ -32,6 +34,9 @@ import { scheduleToolSource } from './tool'
 
 /** How long launch waits for the renderer before catching up missed runs anyway. */
 const STARTUP_GRACE_MS = 10_000
+/** A placed order is first checked a few hours later, then twice a day. */
+const WATCH_FIRST_CHECK_MS = 4 * 60 * 60_000
+const WATCH_EVERY_HOURS = 12
 
 export interface SchedulerOverrides {
   runAgent?: RunAgent
@@ -150,7 +155,52 @@ export function createScheduler(ctx: FeatureContext, overrides: SchedulerOverrid
     notification.show()
   }
 
-  const engine = new SchedulerEngine({
+  /**
+   * After a purchase schedule's run: each order it placed with an order
+   * number gets a tracking task in the same thread, and a schedule that has
+   * placed all its orders is switched off. After a tracking run: an order
+   * that arrived, was cancelled, or is a month old stops being tracked.
+   */
+  const followUp = (task: ScheduledTask): void => {
+    const now = (overrides.now ?? Date.now)()
+    if (task.purchase) {
+      const startedAt = task.history[0]?.startedAt ?? now
+      const orders = planPurchases(task.id)
+      const tracked = new Set(engine.list().map((t) => t.watch?.purchaseId).filter(Boolean))
+      if (task.purchase.track) {
+        for (const order of orders) {
+          if (order.status !== 'paid' || !order.orderId || order.createdAt < startedAt || tracked.has(order.id)) continue
+          engine.save({
+            name: `Track order ${order.orderId}`,
+            prompt: `Check on order ${order.orderId} from ${order.merchant}.`,
+            schedule: { kind: 'interval', every: WATCH_EVERY_HOURS, unit: 'hours', startAt: now + WATCH_FIRST_CHECK_MS },
+            mode: 'work',
+            model: task.model,
+            cwd: null,
+            allowChanges: false,
+            enabled: true,
+            watch: {
+              purchaseId: order.id,
+              orderId: order.orderId,
+              merchant: order.merchant,
+              site: order.site,
+              item: task.purchase.item,
+              placedAt: order.createdAt
+            },
+            thread: task.thread ?? null
+          })
+        }
+      }
+      const paid = orders.filter((o) => o.status === 'paid').length
+      if (task.purchase.orders !== null && paid >= task.purchase.orders && task.enabled) engine.setEnabled(task.id, false)
+    }
+    if (task.watch) {
+      const order = findPurchase(task.watch.purchaseId)
+      if (!order || orderSettled(order.tracking?.stage) || now - task.watch.placedAt > ORDER_WATCH_MS) engine.remove(task.id)
+    }
+  }
+
+  const engine: SchedulerEngine = new SchedulerEngine({
     load: () => store.getJson<unknown>(TASKS_FILE, []),
     save: (tasks) => store.setJson(TASKS_FILE, tasks),
     loadRuns: () => store.getJson<unknown>(RUNS_FILE, []),
@@ -158,14 +208,22 @@ export function createScheduler(ctx: FeatureContext, overrides: SchedulerOverrid
     onChange: (tasks) => ctx.send('scheduler:tasks', tasks),
     onDamaged: (count) =>
       store.setAside(TASKS_FILE, `${count} ${count === 1 ? 'entry wasn’t a task and was' : 'entries weren’t tasks and were'} set aside.`),
+    onFinished: followUp,
     now: overrides.now,
     monotonic: overrides.monotonic,
     // Checked on every tick, so travelling across zones moves "every day at
     // 9" to 9 where the user is now (see timezone.ts).
     zone: overrides.zone ?? (() => currentZone()),
     machine: process.platform === 'darwin' ? 'Mac' : 'computer',
-    execute: (task, handle) =>
-      runScheduledTask(task, handle, { runAgent: overrides.runAgent ?? runAgent, sink, notify, stallMs: overrides.stallMs })
+    execute: (task, handle) => {
+      // Tracking checks twice a day; only news is worth a banner.
+      const stageBefore = task.watch ? findPurchase(task.watch.purchaseId)?.tracking?.stage : undefined
+      const quietNotify: typeof notify = (t, chatId, result) => {
+        if (t.watch && findPurchase(t.watch.purchaseId)?.tracking?.stage === stageBefore) return
+        notify(t, chatId, result)
+      }
+      return runScheduledTask(task, handle, { runAgent: overrides.runAgent ?? runAgent, sink, notify: quietNotify, stallMs: overrides.stallMs })
+    }
   })
 
   const startEngine = (): void => {

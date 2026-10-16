@@ -26,7 +26,10 @@ export function readText(path: string): string | null {
 /** Copies the file aside once, before Eaon's first change to it. */
 export function backupOnce(path: string): void {
   const backup = `${path}.eaon-backup`
-  if (existsSync(path) && !existsSync(backup)) copyFileSync(path, backup)
+  if (existsSync(path) && !existsSync(backup)) {
+    copyFileSync(path, backup)
+    if (process.platform !== 'win32') chmodSync(backup, 0o600)
+  }
 }
 
 export function writeText(path: string, text: string): void {

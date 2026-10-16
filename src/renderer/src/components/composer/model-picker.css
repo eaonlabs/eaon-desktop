@@ -1,7 +1,7 @@
 /* The composer's model picker (ModelPicker.tsx) and its effort slider
-   (EffortControl.tsx). Sizes are taken from the reference design: a 296px
+   (ReasoningEffort.tsx). Sizes are taken from the reference design: a 296px
    panel, a 41px tab row, a 29px search row, 27px model rows (seven before it
-   scrolls) and a 70px effort row. */
+   scrolls) and the effort row. */
 
 .menu.mp {
   --mp-bg: #181715;
@@ -13,10 +13,6 @@
   --mp-icon: #a9a7a5;
   --mp-hover: rgba(255, 255, 255, 0.025);
   --mp-blue: #4b84d1;
-  --mp-blue-text: #5b92dc;
-  --mp-track: rgba(255, 255, 255, 0.14);
-  --mp-dot: rgba(255, 255, 255, 0.28);
-  --mp-dot-on: rgba(255, 255, 255, 0.62);
   max-height: none;
   overflow: hidden;
   padding: 0;
@@ -44,10 +40,6 @@
   --mp-icon: #6e6e73;
   --mp-hover: rgba(0, 0, 0, 0.04);
   --mp-blue: #3f7fd6;
-  --mp-blue-text: #2f6fc6;
-  --mp-track: rgba(0, 0, 0, 0.08);
-  --mp-dot: rgba(0, 0, 0, 0.22);
-  --mp-dot-on: rgba(255, 255, 255, 0.7);
   border-color: rgba(0, 0, 0, 0.1);
   box-shadow:
     0 18px 44px rgba(0, 0, 0, 0.16),
@@ -370,164 +362,13 @@
 
 .mp__foot {
   flex: none;
-  border-top: 1px solid var(--mp-line);
-}
-.effort {
-  position: relative;
-  padding: 0 10px 10px;
-  isolation: isolate;
-}
-.effort__head {
-  position: relative;
-  height: 36px;
   display: flex;
-  align-items: center;
   justify-content: center;
-  padding: 0 4.5px;
-}
-.effort__bolt {
-  position: absolute;
-  left: 2px;
-  color: var(--mp-blue);
-  transition: color 240ms ease;
-}
-.effort__label {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--mp-blue-text);
-  animation: effort-label-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
-  transition: color 240ms ease;
-}
-@keyframes effort-label-in {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-    filter: blur(1.5px);
-  }
-}
-.effort__reset {
-  position: absolute;
-  right: -1.5px;
-  width: 22px;
-  height: 22px;
-  display: grid;
-  place-items: center;
-  border: 0;
-  background: none;
-  color: var(--mp-text-2);
-  cursor: default;
-  transition: color 120ms ease, transform 300ms cubic-bezier(0.3, 1.4, 0.5, 1);
-}
-.effort__reset:hover:not(:disabled) {
-  color: var(--mp-text);
-}
-.effort__reset:active:not(:disabled) {
-  transform: rotate(-140deg);
-}
-.effort__reset:disabled {
-  opacity: 0.55;
-}
-
-.effort__track {
-  position: relative;
-  height: 24px;
-  border-radius: 12px;
-  background: var(--mp-track);
-  touch-action: none;
-  outline: none;
-  transition: background-color 240ms ease;
-}
-.effort__track:focus-visible {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--mp-blue) 55%, transparent);
-}
-.effort__fill {
-  position: absolute;
-  inset: 0 auto 0 0;
-  border-radius: 12px;
-  background: var(--mp-blue);
-  transition: background-color 240ms ease;
-}
-.effort__dot {
-  position: absolute;
-  top: 50%;
-  width: 4px;
-  height: 4px;
-  margin: -2px 0 0 -2px;
-  border-radius: 50%;
-  background: var(--mp-dot);
-  transition: opacity 120ms ease, background-color 160ms ease;
-}
-.effort__dot[data-filled] {
-  background: var(--mp-dot-on);
-}
-.effort__dot[data-hidden] {
-  opacity: 0;
-}
-.effort__thumb {
-  position: absolute;
-  top: -2px;
-  left: 0;
-  width: 28px;
-  height: 28px;
-  border-radius: 50%;
-  background: #ffffff;
-  box-shadow:
-    0 1px 3px rgba(0, 0, 0, 0.35),
-    0 0 0 0.5px rgba(0, 0, 0, 0.12);
-  will-change: transform;
-  pointer-events: none;
-}
-.effort__thumb::after {
-  /* Pressed: the thumb grows a little, without moving its centre. */
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  background: #ffffff;
-  transform: scale(1);
-  transition: transform 160ms cubic-bezier(0.3, 1.5, 0.5, 1);
-}
-.effort__track[data-dragging] .effort__thumb::after {
-  transform: scale(1.1);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
-}
-
-/* The top level: a purple pixel field behind the row, and the row in white. */
-.effort__field {
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  z-index: -1;
-  image-rendering: pixelated;
-  opacity: 0;
-  transition: opacity 260ms ease;
-}
-.effort__field[data-on] {
-  opacity: 1;
-}
-.effort[data-top] .effort__bolt,
-.effort[data-top] .effort__label {
-  color: #ffffff;
-}
-.effort[data-top] .effort__reset {
-  color: rgba(255, 255, 255, 0.7);
-}
-.effort[data-top] .effort__track {
-  background: rgba(10, 4, 30, 0.35);
-}
-.effort[data-top] .effort__fill {
-  background: #b9a2ff;
-}
-.effort[data-top] .effort__dot {
-  background: rgba(255, 255, 255, 0.45);
-}
-.effort[data-top] .effort__dot[data-filled] {
-  background: rgba(60, 25, 140, 0.55);
+  padding: 10px 16px 12px;
+  border-top: 1px solid var(--mp-line);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .effort__label,
   .mp__tab-name,
   .mp__tab[data-active]::after {
     animation: none;

@@ -447,32 +447,75 @@
   color: var(--diff-cm);
 }
 
-/* ---------- Working marks: shimmer, spinner, pixel grid ----------
-   Adapted from MIT and Apache-2.0 components; see components/agent/LICENSES.txt.
-   A label that is still happening has a slow sweep of light across it; a call
-   in flight has a thin arc; the model at work has a 3×3 grid with a wave
-   crossing it. All three stop under reduced motion. */
+/* ---------- Working marks: the dot matrix, and a sweep of light ----------
+   Anything still happening shows one mark, the dot matrix (agent/Loaders.tsx):
+   each dot runs the same keyframe from a delay its pattern gives it, so light
+   moves through the grid as a ripple, a scanline, a sweep. The line naming
+   the step has a slow, narrow sweep of light; nothing else moves. Both hold
+   still under reduced motion. */
+
+.dot-matrix {
+  display: block;
+  flex: none;
+  overflow: visible;
+  color: var(--text);
+}
+.dot-matrix circle {
+  fill: currentColor;
+  opacity: 0.16;
+  animation: dm-pulse var(--dm-cycle) cubic-bezier(0.3, 0, 0.2, 1) infinite;
+}
+/* A head that lights at once and fades over a third of the cycle: in sequence
+   the dots read as one point of light with a tail. */
+@keyframes dm-pulse {
+  0% {
+    opacity: 1;
+  }
+  34% {
+    opacity: 0.36;
+  }
+  62%,
+  100% {
+    opacity: 0.16;
+  }
+}
+.dot-matrix circle[data-still] {
+  animation: none;
+}
+.dot-matrix circle[data-still='hub'] {
+  opacity: 0.5;
+}
+.dot-matrix[data-motion='wait'] circle {
+  animation-name: dm-breathe;
+  animation-timing-function: ease-in-out;
+}
+@keyframes dm-breathe {
+  0%,
+  100% {
+    opacity: 0.22;
+  }
+  50% {
+    opacity: 0.8;
+  }
+}
 
 .step-shimmer {
   background-image: linear-gradient(
     90deg,
     var(--text-3) 0%,
-    var(--text-3) 38%,
-    var(--text) 50%,
-    var(--text-3) 62%,
+    var(--text-3) 42%,
+    var(--text-2) 50%,
+    var(--text-3) 58%,
     var(--text-3) 100%
   );
-  background-size: 250% 100%;
+  background-size: 300% 100%;
   background-repeat: no-repeat;
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  animation: step-shimmer 1.4s linear infinite;
+  animation: step-shimmer 2.4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
-/* The sweep runs through nested spans (a file name in a card's title) too,
-   and they take the plain colour back when the sweep is off. */
-.step-shimmer *,
-.step-card__title.step-shimmer .step-card__file {
+.step-shimmer * {
   color: inherit;
 }
 @keyframes step-shimmer {
@@ -484,80 +527,47 @@
   }
 }
 
-.spin-arc {
-  display: block;
-  flex: none;
-  animation: spin-arc 850ms linear infinite;
-}
-@keyframes spin-arc {
-  to {
-    rotate: 360deg;
-  }
-}
-
-.pixel-grid {
-  display: inline-grid;
-  flex: none;
-  grid-template-columns: repeat(3, var(--cell));
-  gap: calc(var(--cell) * 0.375);
-}
-.pixel-grid__cell {
-  width: var(--cell);
-  height: var(--cell);
-  border-radius: 1px;
-  background: var(--text);
-  opacity: 0.15;
-  animation: pixel-on 650ms ease-in-out infinite;
-}
-@keyframes pixel-on {
-  0%,
-  40%,
-  100% {
-    opacity: 0.15;
-  }
-  20% {
-    opacity: 1;
-  }
-}
-
 /* A reply that has started and has nothing to show yet. */
 .loading-state {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 9px;
   width: fit-content;
   min-height: 28px;
+  padding-left: 3px;
+  animation: loading-in 320ms var(--ease) both;
+}
+@keyframes loading-in {
+  from {
+    opacity: 0;
+  }
 }
 .loading-state__label {
   font-size: var(--fs-sm);
-  font-weight: 500;
 }
 .loading-state__clock {
   color: var(--text-4);
-  font-family: var(--font-mono);
   font-size: var(--fs-xs);
   font-variant-numeric: tabular-nums;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .step-shimmer,
-  .pixel-grid__cell,
-  .spin-arc {
+  .dot-matrix circle {
     animation: none;
+    opacity: var(--dm-rest, 0.16);
   }
-}
-body[data-reduce-motion='on'] .step-shimmer,
-body[data-reduce-motion='on'] .pixel-grid__cell,
-body[data-reduce-motion='on'] .spin-arc {
-  animation: none !important;
-}
-@media (prefers-reduced-motion: reduce) {
   .step-shimmer {
+    animation: none;
     background: none;
     color: var(--text-2);
   }
 }
+body[data-reduce-motion='on'] .dot-matrix circle {
+  animation: none !important;
+  opacity: var(--dm-rest, 0.16);
+}
 body[data-reduce-motion='on'] .step-shimmer {
+  animation: none !important;
   background: none;
   color: var(--text-2);
 }
@@ -851,6 +861,13 @@ body[data-reduce-motion='on'] .step-shimmer {
 .activity__list .tool {
   animation: none;
 }
+/* The line above already names the step in progress; its row in the list
+   keeps only the dots. */
+.activity__list .step-shimmer {
+  animation: none;
+  background: none;
+  color: inherit;
+}
 @keyframes step-in {
   from {
     opacity: 0;
@@ -904,8 +921,39 @@ body[data-reduce-motion='on'] .step-shimmer {
   color: var(--text-2);
 }
 .step-card[data-open] > .step-card__head,
+.step-card[data-open] > .step-card__bar,
 .command-card > .step-card__head {
   border-bottom: 1px solid var(--card-line);
+}
+/* An edit's header: the line that folds the diff, and a button that opens
+   the file in Chat's code panel, shown under the pointer. */
+.step-card__bar {
+  display: flex;
+  background: var(--card-head);
+}
+.step-card__bar > .step-card__head {
+  flex: 1;
+  min-width: 0;
+}
+.step-card__open {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 30px;
+  margin-left: -6px;
+  color: var(--text-4);
+  opacity: 0;
+  transition:
+    opacity var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+.step-card__bar:hover .step-card__open,
+.step-card__open:focus-visible {
+  opacity: 1;
+}
+.step-card__open:hover {
+  color: var(--text-2);
 }
 .step-card__icon {
   flex: none;

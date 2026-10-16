@@ -65,7 +65,7 @@ export function cancelApprovals(messageId: string): void {
 // code), xxd (-r writes files), and pagers like less/top (they never exit).
 const READ_ONLY_PROGRAMS = new Set([
   'ls', 'cat', 'head', 'tail', 'wc', 'grep', 'egrep', 'rg', 'ag', 'find', 'fd', 'tree', 'pwd', 'echo',
-  'which', 'whereis', 'type', 'file', 'stat', 'du', 'df', 'date', 'uname', 'whoami', 'printenv',
+  'which', 'whereis', 'type', 'file', 'stat', 'du', 'df', 'date', 'uname', 'whoami',
   'sort', 'uniq', 'cut', 'tr', 'jq', 'diff', 'cmp', 'basename', 'dirname', 'realpath', 'readlink', 'sw_vers',
   'ps', 'uptime', 'lsof', 'column', 'nl', 'od', 'hexdump', 'strings', 'md5', 'shasum', 'sha256sum', 'md5sum',
   'mdfind', 'mdls', 'system_profiler',
@@ -96,6 +96,9 @@ const WRITING_OPTIONS: Record<string, RegExp> = {
   tree: /(^|\s)-o\b/
 }
 
+/** Environment variables that only change formatting, allowed before a read-only command. */
+const HARMLESS_VARIABLE = /^(LANG|LANGUAGE|LC_[A-Z]+|TZ|NO_COLOR|CLICOLOR|COLUMNS|LINES|TERM)=/
+
 export function isReadOnlyCommand(command: string): boolean {
   const trimmed = command.trim()
   if (!trimmed) return false
@@ -110,7 +113,14 @@ export function isReadOnlyCommand(command: string): boolean {
   return trimmed.split(/\|\||&&|[|;&\n\r]/).every((segment) => {
     const words = segment.trim().split(/\s+/)
     let i = 0
-    while (i < words.length && /^[A-Z_][A-Z0-9_]*=/.test(words[i])) i++ // leading VAR=value
+    // A leading VAR=value changes what the program does, not only how it
+    // prints: GIT_CONFIG_KEY_0=core.fsmonitor turns `git status` into any
+    // command, and PAGER, LD_PRELOAD or NODE_OPTIONS do the same elsewhere.
+    // Only variables that change formatting keep a command read-only.
+    while (i < words.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(words[i])) {
+      if (!HARMLESS_VARIABLE.test(words[i])) return false
+      i++
+    }
     // `C:\Windows\System32\where.exe` and `GIT.EXE` are where and git.
     const program = words[i] ? programName(words[i]) : ''
     if (!program) return false
@@ -118,6 +128,8 @@ export function isReadOnlyCommand(command: string): boolean {
     const sub = READ_ONLY_SUBCOMMANDS[program]
     if (sub) return sub.test(rest)
     if (WRITING_OPTIONS[program]?.test(rest)) return false
+    // The environment holds API keys; printing a variable is a read of it.
+    if (program === 'echo' && /[$%]/.test(rest)) return false
     // uniq's second operand is a file it writes.
     if (program === 'uniq' && words.slice(i + 1).filter((word) => !word.startsWith('-')).length > 1) return false
     return READ_ONLY_PROGRAMS.has(program)

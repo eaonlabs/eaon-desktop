@@ -231,8 +231,8 @@
   letter-spacing: -0.01em;
 }
 
-/* One series, so no legend: the section label names it. Bars in the accent,
-   text in text colours, the axis recessive. */
+/* Bars in the accent, or stacked by tool with a legend under the axis; text
+   in text colours, the axis recessive. */
 .usage-chart {
   position: relative;
   padding: 12px 14px 8px;
@@ -290,16 +290,56 @@
 .usage-chart__slot[data-hover] .usage-chart__bar {
   opacity: 1;
 }
-/* Plan use at API rates: the top of the bar, lighter, since it was never charged. */
+/* With Claude Code or Codex in the range, a bar is stacked by tool: Eaon at
+   the bottom in the accent, Claude Code in its orange, Codex in grey. */
 .usage-chart__bar {
   display: flex;
-  flex-direction: column;
+  flex-direction: column-reverse;
   overflow: hidden;
 }
-.usage-chart__plan {
+.usage-chart__bar[data-stacked] {
+  background: none;
+}
+.usage-chart__seg {
   flex: none;
   width: 100%;
-  background: color-mix(in srgb, var(--accent), var(--surface-1) 58%);
+}
+:is(.usage-chart, .usage-table) [data-tool='eaon'] {
+  --tool: var(--accent);
+}
+:is(.usage-chart, .usage-table) [data-tool='claude-code'] {
+  --tool: #d97757;
+}
+:is(.usage-chart, .usage-table) [data-tool='codex'] {
+  --tool: var(--text-2);
+}
+.usage-chart__seg,
+.usage-chart__legend i,
+.usage-tool-dot {
+  background: var(--tool);
+}
+.usage-chart__legend {
+  display: flex;
+  gap: 14px;
+  padding-top: 2px;
+  color: var(--text-2);
+  font-size: var(--fs-xxs);
+}
+.usage-chart__legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.usage-chart__legend i,
+.usage-tool-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+}
+.usage-tool-dot {
+  flex: none;
+  margin-right: 8px;
 }
 .usage-chart__plot:hover .usage-chart__slot:not([data-hover]) .usage-chart__bar {
   opacity: 0.45;

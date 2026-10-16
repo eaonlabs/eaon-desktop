@@ -6,7 +6,8 @@ import { store } from '../store'
 import { agentBrowserUrl, typeSecretInAgentBrowser } from './agentBrowser'
 import { typeHidden } from './computer/tool'
 import { setPaymentAccess } from './payments/access'
-import { PaymentsEngine } from './payments/engine'
+import { PaymentsEngine, urlMatchesSite } from './payments/engine'
+import { setPurchaseLookup } from './payments/plans'
 import { PAYMENT_GUIDANCE, paymentTool } from './payments/tool'
 import type { Feature } from './types'
 import { workersService } from './workers'
@@ -63,6 +64,7 @@ function createEngine(): PaymentsEngine {
       }
     }
   })
+  setPurchaseLookup({ all: () => created.purchases() })
   return created
 }
 
@@ -108,5 +110,6 @@ export const paymentsFeature: Feature = {
   },
   dispose: () => {
     setPaymentAccess(null)
+    setPurchaseLookup(null)
   }
 }

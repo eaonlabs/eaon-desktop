@@ -20,7 +20,7 @@ export const DISCORD_BUTTON_LABEL = 'Get Eaon Desktop'
  * proxy caches by URL: bump this with VERSION in scripts/discord-art.py after
  * changing the art, and publish the new files before shipping.
  */
-export const DISCORD_ART_VERSION = 1
+export const DISCORD_ART_VERSION = 3
 const ART_BASE = 'https://eaon.dev/img/discord'
 
 export type DiscordStatus = 'ready' | 'thinking' | 'working' | 'away'

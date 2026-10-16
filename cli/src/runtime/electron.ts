@@ -104,10 +104,12 @@ function freeName(dir: string, name: string): string {
  */
 async function trashItem(path: string): Promise<void> {
   if (process.platform === 'win32') {
-    const literal = path.replace(/'/g, "''")
-    const script = `Add-Type -AssemblyName Microsoft.VisualBasic; if (Test-Path -LiteralPath '${literal}' -PathType Container) { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory('${literal}','OnlyErrorDialogs','SendToRecycleBin') } else { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile('${literal}','OnlyErrorDialogs','SendToRecycleBin') }`
+    // The path goes in through the environment, never into the script's text:
+    // PowerShell also ends a quoted string at ‘ ’ ‚ ‛, which escaping ' alone
+    // misses, so a crafted file name could run commands.
+    const script = `Add-Type -AssemblyName Microsoft.VisualBasic; $p = $env:EAON_TRASH_PATH; if (Test-Path -LiteralPath $p -PathType Container) { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteDirectory($p,'OnlyErrorDialogs','SendToRecycleBin') } else { [Microsoft.VisualBasic.FileIO.FileSystem]::DeleteFile($p,'OnlyErrorDialogs','SendToRecycleBin') }`
     const ok = await new Promise<boolean>((resolve) => {
-      const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { stdio: 'ignore' })
+      const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { stdio: 'ignore', env: { ...process.env, EAON_TRASH_PATH: path } })
       child.on('error', () => resolve(false))
       child.on('close', (code) => resolve(code === 0))
     })

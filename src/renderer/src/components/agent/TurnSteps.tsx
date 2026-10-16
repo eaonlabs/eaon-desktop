@@ -1,7 +1,7 @@
 import { memo, useLayoutEffect, useRef, useState, type CSSProperties, type JSX } from 'react'
 import { Brain, ChevronRight } from 'lucide-react'
 import { ActivityGroup } from './Activity'
-import { PixelGrid } from './Loaders'
+import { DotMatrix } from './Loaders'
 import { Markdown } from './Markdown'
 import { describeToolPart, ToolCall } from './ToolCall'
 import { thoughtBody, thoughtHasBody, thoughtTitle, type TurnStep } from './turnItems'
@@ -35,7 +35,7 @@ export const ThoughtRow = memo(function ThoughtRow({ text, live }: { text: strin
         data-static={!hasBody || undefined}
       >
         <span className="tool__glyph">
-          <span className="tool__icon">{live ? <PixelGrid cell={3} /> : <Brain size={13} strokeWidth={1.9} />}</span>
+          <span className="tool__icon">{live ? <DotMatrix motion="think" size={13} /> : <Brain size={13} strokeWidth={1.9} />}</span>
           {hasBody && <ChevronRight size={13} strokeWidth={2.2} className="tool__chevron" />}
         </span>
         <span className={`tool__label${live ? ' step-shimmer' : ''}`}>{live ? 'Thinking' : 'Thought'}</span>

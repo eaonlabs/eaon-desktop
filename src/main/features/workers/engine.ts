@@ -56,6 +56,7 @@ import { summariseReply } from '../scheduler/transcript'
 import type { TradingVenue } from '../trading/access'
 import { isOpen, nextOpen } from '../trading/marketHours'
 import { guestCap } from './guests'
+import { resolveWorkPath } from '../../localTools'
 import { workerPersona } from './prompt'
 import { buildTurnMessage, CHECK_IN_NOTE, RESUME_NOTE, RETRY_NOTE, runWorkerTurn, type RunAgent, type RunEngineTurn, type TurnOutcome } from './runner'
 import { ExecutionLog, isEnded } from './executions'
@@ -176,6 +177,8 @@ export interface TeamDraft {
   memberIds?: string[]
   kickoff?: string
   model?: { providerId: string; modelId: string } | null
+  /** Access for the workers it creates; the worker default when left out. */
+  access?: Worker['access']
 }
 
 interface Running {
@@ -1224,7 +1227,10 @@ export class WorkersEngine {
    * and can be stopped, and a stopped or failed one leaves nothing behind.
    */
   private async copyFiles(sender: Worker, target: Worker, files: string[], transfer: TransferWatch = {}): Promise<string[]> {
-    const sources = files.map((file) => (isAbsolute(file) ? file : resolve(sender.folder, file)))
+    // The same rules as read_file: no credential folders (through a symlink
+    // either), none of Eaon's own data, nothing outside the home folder.
+    // Handing a file over is reading it, by another route.
+    const sources = files.map((file) => resolveWorkPath(sender.folder, isAbsolute(file) ? file : resolve(sender.folder, file)).path)
     let total = 0
     for (const source of sources) {
       if (!existsSync(source)) throw new Error(`Cannot send ${source}: it does not exist.`)
@@ -1657,6 +1663,7 @@ export class WorkersEngine {
           color: role.color ?? '',
           personality: str(role.personality),
           purpose: `${str(role.purpose)} Part of the "${name}" team.`,
+          ...(draft.access ? { access: draft.access } : {}),
           ...(draft.model !== undefined ? { model: draft.model } : {})
         })
       )

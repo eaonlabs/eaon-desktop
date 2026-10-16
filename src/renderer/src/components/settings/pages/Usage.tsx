@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useState, type JSX } from 'react'
 import { ExternalLink, Loader2, RefreshCw } from 'lucide-react'
-import type { UsageDay, UsageModelRow, UsageRange, UsageSource, UsageSourceRow, UsageSummary } from '@shared/usage'
+import type { UsageDay, UsageModelRow, UsageRange, UsageSource, UsageSourceRow, UsageSummary, UsageTool, UsageToolRow } from '@shared/usage'
 import { useApp } from '../../../state/store'
 import { Card, Row, Section, Segmented } from '../../ui'
 import { ProviderMark } from '../../composer/ProviderMark'
 import { UsageActivity } from './UsageActivity'
+import { listOf, TOOL_LABEL, TOOL_ORDER, toolSplit } from './usageTools'
 import { ToknMark } from '../../account/ToknAccount'
 import { ToknCommand } from './ToknCommand'
 
@@ -127,7 +128,7 @@ function SignedOut({ summary }: { summary: UsageSummary }): JSX.Element {
             <div className="usage-hero__title">Sign in with Tokn</div>
             <p className="usage-hero__body">
               Tokn tracks what AI coding costs across your tools, and your Tokn account is your Eaon account. Signing in shows
-              your Eaon usage here and keeps your profiles on toknhq.com and tokns.eaon.dev up to date.
+              your Eaon usage here and keeps your profile on toknhq.com up to date.
             </p>
             <div className="usage-hero__actions">
               {pending ? (
@@ -238,16 +239,6 @@ function SignedIn({ summary, range, onRange }: { summary: UsageSummary; range: U
               </button>
             </div>
           </Row>
-          <Row title="Your Eaon profile" description="Your agents, streaks and tokens on tokns.eaon.dev, next to everyone else using Eaon.">
-            <div className="usage-account__actions">
-              <button className="btn" onClick={() => void window.api.usage.openProfile('eaon-profile')}>
-                Eaon profile <ExternalLink size={12} strokeWidth={2} />
-              </button>
-              <button className="btn btn--ghost" onClick={() => void window.api.usage.openProfile('leaderboard')}>
-                Leaderboard <ExternalLink size={12} strokeWidth={2} />
-              </button>
-            </div>
-          </Row>
           <Row
             title={sync.state === 'error' ? 'Couldn’t sync' : syncing ? 'Syncing…' : `Synced ${ago(sync.at)}`}
             description={
@@ -301,9 +292,15 @@ function SignedIn({ summary, range, onRange }: { summary: UsageSummary; range: U
         <Tile label="Requests" value={summary.totals.requests.toLocaleString()} />
       </div>
 
-      <Section label="Daily spend">
-        <DailyChart days={summary.days} />
+      <Section label="Daily use">
+        <DailyChart days={summary.chart} reading={summary.cliLogs.reading} />
       </Section>
+
+      {summary.tools.some((row) => row.tool !== 'eaon') && (
+        <Section label="By tool">
+          <ToolTable tools={summary.tools} />
+        </Section>
+      )}
 
       <Section label="By model">
         <ModelTable models={summary.models} />
@@ -324,6 +321,14 @@ function SignedIn({ summary, range, onRange }: { summary: UsageSummary; range: U
         {summary.totals.unreportedRequests > 0 &&
           ` ${summary.totals.unreportedRequests.toLocaleString()} ${summary.totals.unreportedRequests === 1 ? 'request' : 'requests'} came back without token counts from the provider, so ${summary.totals.unreportedRequests === 1 ? 'its' : 'their'} cost isn’t included.`}
       </p>
+      {summary.cliLogs.found.length > 0 && (
+        <p className="usage-footnote">
+          {listOf(summary.cliLogs.found.map((tool) => TOOL_LABEL[tool]))} in the terminal {summary.cliLogs.found.length === 1 ? 'is' : 'are'} read
+          from {summary.cliLogs.found.length === 1 ? 'its' : 'their'} own logs on this computer for the daily chart, the activity calendar and
+          your streaks, as ≈ what the use would cost at API rates. The spend and token tiles, the models and what Eaon uploads stay
+          Eaon’s own: the tokn command counts these tools on your Tokn profile itself.
+        </p>
+      )}
     </>
   )
 }
@@ -345,49 +350,59 @@ function Tile({ label, value, sub }: { label: string; value: string; sub?: strin
 const dayTotal = (day: UsageDay): number => day.costUsd + (day.planUsd ?? 0)
 
 /**
- * One bar a day: spend, with plan use at API rates stacked on top in a
- * lighter shade (what it would have cost, not a charge), and the day's
- * tokens and requests on hover.
+ * One bar a day: what the day's use stands for in dollars (spend, plus plan
+ * use at API rates), stacked by tool when Claude Code or Codex were used
+ * too, with the day's split, tokens and requests on hover.
  */
-function DailyChart({ days }: { days: UsageDay[] }): JSX.Element {
+function DailyChart({ days, reading }: { days: UsageDay[]; reading: boolean }): JSX.Element {
   const [hover, setHover] = useState<number | null>(null)
   const max = Math.max(...days.map(dayTotal), 0)
   const shown = hover !== null ? days[hover] : null
   const busiest = days.reduce<UsageDay | null>((best, d) => (!best || dayTotal(d) > dayTotal(best) ? d : best), null)
-  const anyPlan = days.some((d) => (d.planUsd ?? 0) > 0)
+  const tools = TOOL_ORDER.filter((tool) => days.some((d) => (d.tools?.[tool]?.usd ?? 0) > 0))
+  const stacked = tools.length > 1 || (tools.length === 1 && tools[0] !== 'eaon')
   const ticks = useMemo(() => {
     if (days.length === 0) return []
     const at = [0, Math.floor((days.length - 1) / 2), days.length - 1]
     return [...new Set(at)].map((i) => ({ i, label: dayLabel(days[i].day) }))
   }, [days])
 
-  if (max === 0) return <div className="usage-chart usage-chart--empty">No spend or plan use in this range yet.</div>
+  if (max === 0)
+    return (
+      <div className="usage-chart usage-chart--empty">
+        {reading ? 'Reading Claude Code’s and Codex’s logs…' : 'No spend or plan use in this range yet.'}
+      </div>
+    )
 
+  const split = shown && toolSplit(shown, money, tokens)
   return (
     <div className="usage-chart" onPointerLeave={() => setHover(null)}>
-      <div className="usage-chart__readout" aria-live="polite">
+      <div className="usage-chart__readout" aria-live="polite" title={split || undefined}>
         {shown ? (
           <>
-            <strong>{money(shown.costUsd)}</strong>
-            {(shown.planUsd ?? 0) > 0 && <>+ ≈ {money(shown.planUsd!)} on plans </>}
-            {dayLabel(shown.day, true)} · {tokens(shown.tokens)} tokens · {shown.requests.toLocaleString()} {shown.requests === 1 ? 'request' : 'requests'}
+            <strong>{money(dayTotal(shown))}</strong>
+            {dayLabel(shown.day, true)} · {split ?? `${tokens(shown.tokens)} tokens`} · {shown.requests.toLocaleString()}{' '}
+            {shown.requests === 1 ? 'request' : 'requests'}
           </>
         ) : (
           <>
-            <strong>{money(busiest?.costUsd ?? 0)}</strong>
-            {(busiest?.planUsd ?? 0) > 0 && <>+ ≈ {money(busiest!.planUsd!)} on plans </>}
-            busiest day{anyPlan ? ' · lighter: plan use at API rates' : ''}
+            <strong>{money(busiest ? dayTotal(busiest) : 0)}</strong>
+            busiest day{(busiest?.planUsd ?? 0) > 0 ? ' · plan use counted at API rates' : ''}
           </>
         )}
       </div>
-      <div className="usage-chart__plot" role="img" aria-label={`Daily spend over ${days.length} days, up to ${money(max)} a day`}>
+      <div className="usage-chart__plot" role="img" aria-label={`Daily use over ${days.length} days, up to ${money(max)} a day`}>
         {days.map((day, i) => {
           const total = dayTotal(day)
           const height = total > 0 ? Math.max(2, (total / max) * 100) : 0
           return (
             <div key={day.day} className="usage-chart__slot" data-hover={hover === i || undefined} onPointerEnter={() => setHover(i)}>
-              <div className="usage-chart__bar" style={{ height: `${height}%` }}>
-                {(day.planUsd ?? 0) > 0 && <div className="usage-chart__plan" style={{ height: `${((day.planUsd ?? 0) / total) * 100}%` }} />}
+              <div className="usage-chart__bar" data-stacked={stacked || undefined} style={{ height: `${height}%` }}>
+                {stacked &&
+                  tools.map((tool) => {
+                    const usd = day.tools?.[tool]?.usd ?? 0
+                    return usd > 0 ? <div key={tool} className="usage-chart__seg" data-tool={tool} style={{ height: `${(usd / total) * 100}%` }} /> : null
+                  })}
               </div>
             </div>
           )
@@ -400,6 +415,48 @@ function DailyChart({ days }: { days: UsageDay[] }): JSX.Element {
           </span>
         ))}
       </div>
+      {stacked && (
+        <div className="usage-chart__legend">
+          {tools.map((tool) => (
+            <span key={tool}>
+              <i data-tool={tool} />
+              {TOOL_LABEL[tool]}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** The range by tool: Eaon itself, and Claude Code and Codex from their logs. */
+function ToolTable({ tools: rows }: { tools: UsageToolRow[] }): JSX.Element {
+  return (
+    <div className="usage-table" role="table" aria-label="Usage by tool">
+      <div className="usage-table__row usage-table__row--head" role="row">
+        <span role="columnheader">Tool</span>
+        <span role="columnheader">Requests</span>
+        <span role="columnheader">Tokens</span>
+        <span role="columnheader">Cost</span>
+      </div>
+      {rows.map((row) => (
+        <div key={row.tool} className="usage-table__row" role="row">
+          <span role="cell" className="usage-table__name">
+            <i className="usage-tool-dot" data-tool={row.tool} aria-hidden="true" />
+            {TOOL_LABEL[row.tool]}
+          </span>
+          <span role="cell">{row.requests.toLocaleString()}</span>
+          <span role="cell">{tokens(row.tokens)}</span>
+          <span
+            role="cell"
+            className="usage-table__cost"
+            title={row.planUsd > 0 ? `≈ ${money(row.planUsd)} at API rates, covered by a plan or not billed per token` : undefined}
+          >
+            {row.costUsd > 0 || row.planUsd === 0 ? money(row.costUsd) : null}
+            {row.planUsd > 0 && <span className="usage-table__via">{row.costUsd > 0 ? ' + ' : ''}≈ {money(row.planUsd)}</span>}
+          </span>
+        </div>
+      ))}
     </div>
   )
 }

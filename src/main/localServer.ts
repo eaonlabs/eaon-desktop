@@ -10,6 +10,8 @@ import { gatewayModels, localGatewayModels, tokenAllowed } from './gateway/model
 import { serveChatCompletions } from './gateway/openaiChat'
 import { serveResponses } from './gateway/responses'
 import { store } from './store'
+import { featureAllowed, getPolicy, PolicyError } from './enterprise/policy'
+import { audit } from './enterprise/audit'
 
 /**
  * Eaon's gateway: a local server that lets other apps on this machine use the
@@ -108,7 +110,10 @@ function allowedHost(host: string | undefined): boolean {
     return false
   }
   if (isIP(name.replace(/^\[|\]$/g, ''))) return true
-  return name === 'localhost' || /\.(localhost|local|internal)$/.test(name) || name === hostname().toLowerCase()
+  // Any `.local` name would let a machine on the network answer mDNS for a
+  // name of its choosing and rebind it here; only this machine's own counts.
+  const own = hostname().toLowerCase().replace(/\.local$/, '')
+  return name === 'localhost' || /\.(localhost|internal)$/.test(name) || name === own || name === `${own}.local`
 }
 
 const OPENAPI_SPEC = {
@@ -204,11 +209,18 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
     : pathname.replace(/\/+$/, '')
   const anthropicStyle = path.startsWith('/v1/messages') || typeof req.headers['anthropic-version'] === 'string'
 
-  const auth = tokenAllowed(req.headers)
+  // A browser page (an extension, a dev server's page) must always send the
+  // key; programs that send no Origin (CLIs, SDKs) must too when the user or
+  // the organization's policy says so.
+  const requireKey = store.getSettings().localServer.requireKey || getPolicy()?.localApi?.requireKey === true
+  const auth = tokenAllowed(req.headers, requireKey)
   if (auth !== 'ok') {
+    audit('local_server.auth_failed', { path, origin: origin ?? null }, { via: 'local-api', outcome: 'failure' })
     const message =
       auth === 'missing'
-        ? 'Pages and browser extensions must send this Eaon’s key (as a Bearer token or x-api-key). The key is in Eaon → Settings → Local API Server.'
+        ? origin !== undefined
+          ? 'Pages and browser extensions must send this Eaon’s key (as a Bearer token or x-api-key). The key is in Eaon → Settings → Local API Server.'
+          : 'This Eaon’s key must be sent (as a Bearer token or x-api-key). The key is in Eaon → Settings → Local API Server.'
         : 'That key is not this Eaon’s. The key is in Eaon → Settings → Local API Server.'
     json(res, 401, anthropicStyle ? anthropicError(message, 'authentication_error') : { error: { message, type: 'invalid_api_key', code: 'invalid_api_key' } })
     return
@@ -259,12 +271,16 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
 
 export async function startLocalServer(): Promise<LocalServerStatus> {
   if (server) return status
+  if (!featureAllowed('localApiServer')) {
+    return { running: false, port: store.getSettings().localServer.port || 1337, url: null, error: new PolicyError('The Local API Server').message }
+  }
   const port = store.getSettings().localServer.port || 1337
 
   return new Promise((resolve) => {
     const next = createServer((req, res) => {
       void handle(req, res).catch((error) => {
-        if (!res.headersSent) json(res, 500, { error: { message: String(error) } })
+        console.error('[local-server] request failed:', error)
+        if (!res.headersSent) json(res, 500, { error: { message: 'Eaon could not complete the request.' } })
         else res.end()
       })
     })

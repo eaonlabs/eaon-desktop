@@ -1,11 +1,13 @@
 import { randomUUID } from 'node:crypto'
 import { describeSchedule, type ScheduledTask } from '@shared/scheduler'
+import { formatMoney, ORDER_STAGE_LABEL, type PurchaseRecord } from '@shared/payments'
 import type { Chat, ChatMessage, ModelInfo, Provider, Settings, StreamEvent, StreamRequest } from '@shared/types'
 import { clampEffort } from '@shared/effort'
 import { findModel, isProviderUsable, resolveSelection } from '@shared/modelSelection'
 import type { RunOptions, RunOutcome } from '../../agent/loop'
 import { listProviders } from '../../providers'
 import { store } from '../../store'
+import { endRun, findPurchase, grantPurchase, planPurchases, watchOrder } from '../payments/plans'
 import type { RunHandle, RunResult } from './engine'
 import { applyStreamEvent, summariseReply } from './transcript'
 import { withUsageSource } from '../usage/attribution'
@@ -110,7 +112,9 @@ export function unattendedBrief(task: ScheduledTask): string {
   const lines = [
     `This turn is the scheduled task "${task.name}" (${describeSchedule(task.schedule)}), running unattended. Nobody is watching and nobody can answer questions or approve anything: do the whole task without asking, then end with a short report of what you found or did — that report is what the user will read.`
   ]
-  if (task.mode === 'work') {
+  if (task.purchase) lines.push(purchaseBrief(task))
+  else if (task.watch) lines.push(watchBrief(task))
+  else if (task.mode === 'work') {
     lines.push(
       task.allowChanges
         ? 'You may make the changes the task calls for. Risky actions — changing files outside the Work folder, force-pushing, sudo and the like — are refused automatically; if one is needed, say so in your report instead.'
@@ -118,6 +122,63 @@ export function unattendedBrief(task: ScheduledTask): string {
     )
   }
   return lines.join('\n')
+}
+
+const day = (at: number): string => new Date(at).toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' })
+
+function orderLine(p: PurchaseRecord): string {
+  const money = formatMoney(p.charged ?? p.amount, p.currency)
+  const tracking = p.tracking ? `, ${ORDER_STAGE_LABEL[p.tracking.stage].toLowerCase()}` : ''
+  return `- ${day(p.createdAt)}: ${p.status === 'paid' ? money : p.status}${p.orderId ? `, order ${p.orderId}` : ''}${tracking}`
+}
+
+/**
+ * A purchase schedule's run: the order it places and the bounds it places
+ * it in. The bounds are enforced by payment_card as well; they are spelled
+ * out so the agent stops at a price over the limit instead of trying it.
+ */
+export function purchaseBrief(task: ScheduledTask): string {
+  const plan = task.purchase!
+  const past = planPurchases(task.id)
+  const paid = past.filter((p) => p.status === 'paid')
+  const last = paid[0]
+  const lines = [
+    `This run places one order of the user's purchase schedule. The user set it up and approved it in advance, for this store and up to this amount only.`,
+    `Buy: ${plan.item}`,
+    `Store: ${plan.merchant} (${plan.site}). Buy there and nowhere else.`,
+    `Most this order may cost: ${formatMoney(plan.maxAmount, plan.currency)}, everything included (tax, shipping, fees, tip). If the checkout total is higher, do not buy: stop and report the price.`,
+    plan.notes.trim() ? `The user's notes: ${plan.notes.trim()}` : null,
+    plan.orders ? `This is order ${paid.length + 1} of ${plan.orders}.` : `This schedule runs ${describeSchedule(task.schedule).toLowerCase()} until the user stops it.`,
+    past.length ? `Earlier orders of this schedule, newest first:\n${past.slice(0, 6).map(orderLine).join('\n')}` : 'This is the schedule\'s first order.',
+    '',
+    'How:',
+    `1. Open ${plan.site} in web_browser and find exactly this item. If it is unavailable, or only a different size, brand or quantity is, do not substitute unless the notes allow it: report what you found instead.`,
+    '2. Add it to the cart and go to checkout. Read the final total.',
+    `3. payment_card authorize {merchant: "${plan.merchant}", amount: <the total>, currency: "${plan.currency}", site: "${plan.site}", description}. It asks nobody: this schedule is the approval. Only one order per run.`,
+    '4. payment_card fill the card fields, then place the order.',
+    '5. Read the confirmation page and call payment_card complete {purchase_id, status, charged, order_id}. The order number matters: Eaon uses it to track the delivery.',
+    'If the site asks you to sign in and you are not signed in, stop and report it. Never create an account or type a password.',
+    '',
+    `End with a short report the user will read: the order number, what was charged, the delivery estimate${last ? `, and the price against the last order (${formatMoney(last.charged ?? last.amount, last.currency)} on ${day(last.createdAt)}): up or down by how much and what percent` : ''}.`,
+    task.nextRunAt && (!plan.orders || paid.length + 1 < plan.orders) ? `The next order is scheduled for ${day(task.nextRunAt)}.` : null
+  ]
+  return lines.filter((line) => line !== null).join('\n')
+}
+
+/** An order-tracking run: find where one placed order is, record it, say it in a line. */
+export function watchBrief(task: ScheduledTask): string {
+  const watch = task.watch!
+  const record = findPurchase(watch.purchaseId)
+  const known = record?.tracking
+  return [
+    `This run checks on an order Eaon placed: order ${watch.orderId} from ${watch.merchant}${watch.site ? ` (${watch.site})` : ''} for ${watch.item}, placed ${day(watch.placedAt)}.`,
+    known ? `Last check (${day(known.checkedAt)}): ${ORDER_STAGE_LABEL[known.stage]}${known.eta ? `, arriving ${known.eta}` : ''}${known.trackingNumber ? `, ${known.carrier ?? 'tracking'} ${known.trackingNumber}` : ''}.` : '',
+    `Find where it is now. If you have the user's email, search it for the order number first; otherwise open ${watch.site ?? 'the store'}'s order history in web_browser and find order ${watch.orderId}. Look, do not change anything: never cancel, return or edit the order.`,
+    `Then call payment_card track {purchase_id: "${watch.purchaseId}", stage, eta, carrier, tracking_number, note}.`,
+    'End with one or two lines: where the order is and when it arrives. If it is late, stuck or something is wrong, say what the user can do about it.'
+  ]
+    .filter(Boolean)
+    .join('\n')
 }
 
 export async function runScheduledTask(task: ScheduledTask, handle: RunHandle, deps: RunnerDeps): Promise<RunResult> {
@@ -145,7 +206,8 @@ export async function runScheduledTask(task: ScheduledTask, handle: RunHandle, d
   // shows it — never bumped to the model's highest, which ran tasks at Max.
   const effort = (target.ok ? clampEffort(settings.effort, target.model?.efforts) : undefined) ?? settings.effort
   const chat: Chat = {
-    id: randomUUID(),
+    // A purchase schedule writes every run into its one thread.
+    id: task.thread ?? randomUUID(),
     workspaceId: workspace.id,
     projectId: null,
     title: task.name,
@@ -205,6 +267,17 @@ export async function runScheduledTask(task: ScheduledTask, handle: RunHandle, d
       controller.abort()
     }
     let outcome: RunOutcome
+    // What this run may do with the card: one order of the schedule, or tracking one order.
+    if (task.purchase) {
+      grantPurchase(assistant.id, {
+        planId: task.id,
+        item: task.purchase.item,
+        site: task.purchase.site,
+        maxAmount: task.purchase.maxAmount,
+        currency: task.purchase.currency
+      })
+    }
+    if (task.watch) watchOrder(assistant.id, task.watch.purchaseId)
     try {
       watchdog = setTimeout(check, stallMs)
       // Stopped while the chat was being saved: an abort that has already
@@ -222,7 +295,7 @@ export async function runScheduledTask(task: ScheduledTask, handle: RunHandle, d
               },
               {
                 signal: controller.signal,
-                unattended: task.mode === 'work' && task.allowChanges ? 'safe' : 'read-only',
+                unattended: task.mode === 'work' && (task.allowChanges || task.purchase || task.watch) ? 'safe' : 'read-only',
                 // Only reached by a tool's own extra confirmation (computer use asking
                 // before each click); with nobody to ask, the answer is no.
                 approver: async () => false
@@ -232,6 +305,7 @@ export async function runScheduledTask(task: ScheduledTask, handle: RunHandle, d
     } finally {
       clearTimeout(watchdog)
       handle.signal.removeEventListener('abort', stop)
+      endRun(assistant.id)
     }
     const error =
       outcome.error ??

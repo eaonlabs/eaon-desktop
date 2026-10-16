@@ -26,6 +26,7 @@ import { oauthFlow } from './oauth'
 import { COPILOT_API_VERSION } from './oauth/copilot'
 import './oauth/flows'
 import { providerFetch, sdkFetch } from './safeFetch'
+import { providerAllowed } from '../enterprise/policy'
 
 /**
  * Bring-your-own-key (and sign-in) model access.
@@ -302,17 +303,23 @@ function customProvider(id: string, override: ProviderOverride): Provider {
 /** Eaon Free is there once claimed from its offer (shared/freeCredits.ts), and not before. */
 const offered = (id: string): boolean => id !== FREE_PROVIDER_ID || store.getSettings().freeCredits.claimed
 
+/**
+ * Providers an organization's policy forbids (enterprise/policy.ts) are not
+ * listed and can't be looked up, so no chat, worker, gateway request or
+ * embedding can send anything to them.
+ */
 export function listProviders(): Provider[] {
   const overrides = store.getProviderConfig()
-  const merged = BUILT_IN.filter((seed) => offered(seed.id)).map((seed) => builtInProvider(seed, overrides[seed.id] ?? {}))
+  const merged = BUILT_IN.filter((seed) => offered(seed.id) && providerAllowed(seed.id)).map((seed) => builtInProvider(seed, overrides[seed.id] ?? {}))
   for (const [id, override] of Object.entries(overrides)) {
-    if (!BUILT_IN.some((p) => p.id === id)) merged.push(customProvider(id, override))
+    if (!BUILT_IN.some((p) => p.id === id) && providerAllowed(id)) merged.push(customProvider(id, override))
   }
   return merged
 }
 
 /** One provider, without building the other sixty (the agent loop asks once per turn). */
 export function getProvider(id: string): Provider | undefined {
+  if (!providerAllowed(id)) return undefined
   const override = store.getProviderConfig()[id]
   const seed = BUILT_IN.find((p) => p.id === id)
   if (seed) return offered(id) ? builtInProvider(seed, override ?? {}) : undefined

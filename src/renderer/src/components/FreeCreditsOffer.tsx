@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { Gift, X } from 'lucide-react'
-import { FREE_DAYS, FREE_LIMITS, formatAllowance, formatEndDay, OFFER_AFTER_MS } from '@shared/freeCredits'
+import { FREE_DAYS, FREE_LIMITS, FREE_PROVIDER_ID, formatAllowance, formatEndDay, OFFER_AFTER_MS } from '@shared/freeCredits'
 import { useApp } from '../state/store'
 import { StarCard } from './StarPrompt'
 import { onboardingShowing } from './onboarding/onboardingStore'
@@ -25,6 +25,7 @@ export const FREE_ALLOWANCE = `${FREE_LIMITS.requestsPerDay} requests and ${form
  */
 export function FreeCreditsOffer(): JSX.Element | null {
   const refreshProviders = useApp((s) => s.refreshProviders)
+  const openProviderSettings = useApp((s) => s.openProviderSettings)
   const [card, setCard] = useState<'none' | 'star' | 'offer' | 'claimed'>('none')
   const [busy, setBusy] = useState(false)
   const [endsAt, setEndsAt] = useState<number | null>(null)
@@ -118,6 +119,20 @@ export function FreeCreditsOffer(): JSX.Element | null {
           </button>
         )}
       </div>
+      {card === 'offer' && (
+        // The box for a code lives with Eaon Free in Settings; this is the way there.
+        <button
+          type="button"
+          className="free-card__code"
+          disabled={busy}
+          onClick={() => {
+            close()
+            openProviderSettings(FREE_PROVIDER_ID)
+          }}
+        >
+          Have an event code?
+        </button>
+      )}
     </div>
   )
 }

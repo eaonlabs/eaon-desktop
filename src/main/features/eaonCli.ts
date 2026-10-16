@@ -3,6 +3,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { app, nativeTheme } from 'electron'
 import { ensureGatewayRunning } from '../gateway'
+import { controlToken } from '../gateway/models'
 import { onPath } from '../shellEnv'
 import { store } from '../store'
 
@@ -54,7 +55,9 @@ export async function eaonCliEnv(): Promise<Record<string, string>> {
   const info = await ensureGatewayRunning()
   return {
     EAON_LOCAL_URL: `http://127.0.0.1:${info.port}/local/v1`,
-    EAON_LOCAL_KEY: info.token,
+    // The control key: Eaon CLI drives the app (/control) as well as using
+    // the models, and it is the only client given that key.
+    EAON_LOCAL_KEY: controlToken(),
     // Light or dark as the app is, so the CLI's colours match the pane around it.
     EAON_THEME_MODE: appIsDark() ? 'dark' : 'light'
   }

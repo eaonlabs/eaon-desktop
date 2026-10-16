@@ -6,7 +6,7 @@ import { fileName, fileUrl, revealLabel } from '../../lib/files'
 import { CLIPBOARD_FAILED, copyText } from '../../lib/clipboard'
 import { notify } from '../Notice'
 import { generatedPaths, madeWith } from './imageResults'
-import { ThinkingOrb } from '../ThinkingOrb'
+import { DotMatrix } from './Loaders'
 import { Modal } from '../ui'
 import '../../styles/imagegen.css'
 
@@ -116,14 +116,14 @@ export const ImageGeneration = memo(function ImageGeneration({ part }: { part: C
       <div className="imggen__head">
         <span className="imggen__glyph">
           {running ? (
-            <ThinkingOrb size={14} state="working" />
+            <DotMatrix motion="snake" />
           ) : failed ? (
             part.status === 'denied' ? <Ban size={14} strokeWidth={2} /> : <TriangleAlert size={14} strokeWidth={2} />
           ) : (
             <ImagePlus size={14} strokeWidth={1.9} />
           )}
         </span>
-        <span className={`imggen__title${running ? ' shimmer' : ''}`}>{title}</span>
+        <span className={`imggen__title${running ? ' step-shimmer' : ''}`}>{title}</span>
         <span className="imggen__meta">{running ? clock(elapsed) : madeWith(part.output)}</span>
       </div>
       {prompt && <p className="imggen__prompt">{prompt}</p>}

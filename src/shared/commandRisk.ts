@@ -229,7 +229,7 @@ export function isCatastrophicCommand(command: string): boolean {
  * `~/.SSH` too, since Windows and macOS ignore case in paths.
  */
 export const CREDENTIAL_PATHS =
-  /(^|[\s'"=:~/\\])\.(ssh|aws|gnupg|netrc)([\\/]|\b)|\.config[\\/]gh\b|\.docker[\\/]config\.json|Library[\\/](Keychains|Cookies)\b|[\\/]GitHub CLI\b|Microsoft[\\/](Credentials|Protect|Vault)\b/i
+  /(^|[\s'"=:~/\\])\.(ssh|aws|gnupg|netrc|kube|azure|npmrc|pypirc|git-credentials)([\\/]|\b)|\.config[\\/](gh|gcloud|op|Eaon)\b|\.docker[\\/]config\.json|\.codex[\\/]auth\.json|\.claude[\\/]\.credentials\.json|Library[\\/](Keychains|Cookies)\b|Application Support[\\/]Eaon\b|AppData[\\/]Roaming[\\/]Eaon\b|\bkeys\.dat\b|[\\/]GitHub CLI\b|Microsoft[\\/](Credentials|Protect|Vault)\b/i
 
 export function isRiskyCommand(command: string): boolean {
   return (

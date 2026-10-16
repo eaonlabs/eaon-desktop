@@ -3,7 +3,7 @@ import { createWriteStream, existsSync, lstatSync, readlinkSync, realpathSync } 
 import { mkdir, readdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
-import { shell } from 'electron'
+import { app, shell } from 'electron'
 import type { Settings } from '@shared/types'
 import { findSymbol, indexedPaths, listProjectFiles, searchIndex } from './codeIndex'
 import { isCatastrophicCommand, isReadOnlyCommand, isRiskyCommand, writtenPaths } from './agent/approvals'
@@ -37,9 +37,34 @@ const HOME = homedir()
 
 /** Folders whose contents are credentials; never read or written by the agent. */
 const FORBIDDEN = [
-  ...['.ssh', '.aws', '.gnupg', '.config/gh', '.docker/config.json', 'Library/Keychains', 'Library/Cookies', '.netrc'].map((p) => join(HOME, p)),
+  ...[
+    '.ssh', '.aws', '.gnupg', '.config/gh', '.docker/config.json', 'Library/Keychains', 'Library/Cookies', '.netrc',
+    // Cloud, cluster and package-registry sign-ins.
+    '.kube', '.azure', '.config/gcloud', '.config/op', '.npmrc', '.pypirc', '.git-credentials', '.gem/credentials', '.cargo/credentials', '.cargo/credentials.toml',
+    // Other AI tools' sign-ins.
+    '.codex/auth.json', '.claude/.credentials.json'
+  ].map((p) => join(HOME, p)),
   ...(process.platform === 'win32' ? windowsCredentialFolders() : [])
 ]
+
+/**
+ * Eaon's own data: the key vault, settings (which hold the Local API and
+ * remote keys), chat-app sessions, browser cookies and the audit log. An
+ * agent that could read it could take over Eaon itself; one that could
+ * write it could rewrite its own permissions or the audit trail. Only the
+ * folders the agent is handed files from stay open.
+ */
+const APP_DATA_OPEN = ['attachments', 'design-mode']
+
+function inAppData(path: string): boolean {
+  let data: string
+  try {
+    data = app.getPath('userData')
+  } catch {
+    return false
+  }
+  return within(path, data) && !APP_DATA_OPEN.some((dir) => within(path, join(data, dir)))
+}
 
 /** gh keeps its token in %APPDATA%\GitHub CLI on Windows, and Credential Manager keeps its files beside it. */
 function windowsCredentialFolders(): string[] {
@@ -125,10 +150,10 @@ export function resolveWorkPath(cwd: string, target: string): ResolvedPath {
   const expanded = target.replace(/^~(?=$|[\\/])/, () => HOME)
   const path = isAbsolute(expanded) ? resolve(expanded) : resolve(root, expanded || '.')
   // Judged by where the path really leads, so a link inside the Work folder
-  // can't be a way around the credential folders or the "outside the Work
-  // folder asks first" rule.
+  // can't be a way around the credential folders, Eaon's own data or the
+  // "outside the Work folder asks first" rule.
   const real = realish(path)
-  if (FORBIDDEN.some((f) => within(path, f) || within(real, f) || within(real, realish(f)))) {
+  if (FORBIDDEN.some((f) => within(path, f) || within(real, f) || within(real, realish(f))) || inAppData(path) || inAppData(real)) {
     throw new Error(`"${target}" holds credentials, which the agent is not allowed to touch.`)
   }
   const inside = within(path, root) && within(real, realish(root))
@@ -138,6 +163,26 @@ export function resolveWorkPath(cwd: string, target: string): ResolvedPath {
     throw new Error(`"${target}" is outside your home folder, which the agent is not allowed to access.`)
   }
   return { path, inside }
+}
+
+/**
+ * Where `path` leads once symlinks are followed. For a file that doesn't
+ * exist yet, its nearest existing folder is resolved and the rest appended,
+ * so a write through a linked folder is caught too.
+ */
+function realTarget(path: string): string {
+  let head = path
+  const rest: string[] = []
+  for (;;) {
+    try {
+      return rest.length ? join(realpathSync(head), ...rest.reverse()) : realpathSync(head)
+    } catch {
+      const parent = dirname(head)
+      if (parent === head) return path
+      rest.push(head.slice(parent.length).replace(/^[\\/]+/, ''))
+      head = parent
+    }
+  }
 }
 
 const display = (cwd: string, path: string): string => {
@@ -200,7 +245,7 @@ export function shellLine(command: string, platform: NodeJS.Platform = process.p
 }
 
 /** Python writes to a pipe in the ANSI code page on Windows, and stops at the first character that has none. */
-const shellEnv = (): NodeJS.ProcessEnv =>
+export const shellEnv = (): NodeJS.ProcessEnv =>
   process.platform === 'win32' ? { PYTHONIOENCODING: process.env.PYTHONIOENCODING || 'utf-8' } : {}
 
 /**
@@ -211,7 +256,7 @@ const shellEnv = (): NodeJS.ProcessEnv =>
  * taskkill down with it before it is done. Elsewhere the child leads its own
  * process group.
  */
-function killTree(pid: number, signal: NodeJS.Signals): void {
+export function killTree(pid: number, signal: NodeJS.Signals): void {
   if (process.platform !== 'win32') {
     process.kill(-pid, signal)
     return
@@ -379,7 +424,8 @@ function runCommand(command: string, ctx: ToolContext, timeoutMs: number): Promi
 /** Starts a long-lived process (a dev server) and returns once it has had a moment to print. */
 async function runBackground(command: string, cwd: string): Promise<string> {
   const log = join(tmpdir(), `eaon-bg-${Date.now()}.log`)
-  const out = createWriteStream(log)
+  // A command's output can hold anything it printed; /tmp is shared on Linux.
+  const out = createWriteStream(log, { mode: 0o600 })
   const child = spawn(shellLine(command), {
     shell: process.platform === 'win32' ? true : process.env.SHELL || '/bin/bash',
     cwd,

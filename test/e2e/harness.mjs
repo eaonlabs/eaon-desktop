@@ -809,14 +809,24 @@ export class Page {
           if (usable.length === 0) return { why: 'disabled' }
           const el = usable[0]
           el.scrollIntoView({ block: 'center', inline: 'center' })
-          const rect = el.getBoundingClientRect()
-          const x = rect.x + rect.width / 2
-          const y = rect.y + rect.height / 2
-          const hit = document.elementFromPoint(x, y)
-          if (hit && hit !== el && !el.contains(hit) && !hit.contains(el)) {
-            return { why: `covered by <${hit.tagName.toLowerCase()} class="${hit.className}">` }
-          }
-          return { x, y }
+          const before = el.getBoundingClientRect()
+          // Still easing into place (a page opening, a row appearing above
+          // it): a click at where it is now would land on its neighbour.
+          return new Promise((resolve) =>
+            requestAnimationFrame(() =>
+              requestAnimationFrame(() => {
+                const rect = el.getBoundingClientRect()
+                if (Math.abs(rect.x - before.x) > 0.5 || Math.abs(rect.y - before.y) > 0.5) return resolve({ why: 'still moving' })
+                const x = rect.x + rect.width / 2
+                const y = rect.y + rect.height / 2
+                const hit = document.elementFromPoint(x, y)
+                if (hit && hit !== el && !el.contains(hit) && !hit.contains(el)) {
+                  return resolve({ why: `covered by <${hit.tagName.toLowerCase()} class="${hit.className}">` })
+                }
+                resolve({ x, y })
+              })
+            )
+          )
         },
         selector,
         textSource,

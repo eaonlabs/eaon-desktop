@@ -303,7 +303,7 @@ function ToknStep({ onBack, onNext }: { onBack: () => void; onNext: () => void }
   return (
     <>
       <Header title="Track your usage with Tokn">
-        See what your AI use costs, keep a streak going, and get a profile on toknhq.com with a place on the Eaon leaderboard. Eaon sends daily totals only, never your prompts or
+        See what your AI use costs, keep a streak going, and get a profile on toknhq.com. Eaon sends daily totals only, never your prompts or
         code.
       </Header>
       <div className="card" style={stagger(2)}>

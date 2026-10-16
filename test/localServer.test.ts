@@ -8,6 +8,7 @@ import { isOwnServerUrl } from '../src/main/providers/compat'
 import { gatewayToken } from '../src/main/gateway/models'
 import { store } from '../src/main/store'
 import { secrets } from '../src/main/secrets'
+import { gatewayToken } from '../src/main/gateway/models'
 import { chunk, sseServer } from './helpers'
 
 /**
@@ -207,6 +208,9 @@ test('web pages from other origins, and DNS-rebound hosts, cannot use the server
     assert.equal(local.headers['access-control-allow-origin'], 'http://localhost:5173')
     const desktopApp = await post(`${status.url}/v1/chat/completions`, body, { Origin: 'app://obsidian.md', ...key })
     assert.equal(desktopApp.status, 200)
+    // mDNS names other than this machine's could be rebound to it.
+    const mdns = await post(`${status.url}/v1/chat/completions`, body, { Host: 'printer.local:47304' })
+    assert.equal(mdns.status, 403)
     const cli = await post(`${status.url}/v1/chat/completions`, body)
     assert.equal(cli.status, 200)
     // Docker Desktop tools reach loopback servers as host.docker.internal.
@@ -330,5 +334,22 @@ test('a request body past the cap is refused with 413, not read into memory', { 
     assert.ok(chunked === 413 || chunked === -1, `refused (${chunked})`)
   } finally {
     await stopLocalServer()
+  }
+})
+
+test('with Require key on, apps that send no key are refused too', async () => {
+  const upstream = await sseServer(() => [chunk({ content: 'ok' }, 'stop')])
+  store.saveProviderConfig({ ...quietLocals, fake: { name: 'Fake', kind: 'openai-compatible', baseUrl: upstream.url, models: [{ id: 'fake-model', label: 'Fake', providerId: 'fake' }] } })
+  secrets.set('fake', 'key')
+  store.patchSettings({ localServer: { port: 47306, requireKey: true } })
+  const status = await startLocalServer()
+  const body = { model: 'fake-model', messages: [{ role: 'user', content: 'hi' }] }
+  try {
+    assert.equal((await post(`${status.url}/v1/chat/completions`, body)).status, 401)
+    assert.equal((await post(`${status.url}/v1/chat/completions`, body, { Authorization: `Bearer ${gatewayToken()}` })).status, 200)
+  } finally {
+    store.patchSettings({ localServer: { requireKey: false } })
+    await stopLocalServer()
+    upstream.server.close()
   }
 })

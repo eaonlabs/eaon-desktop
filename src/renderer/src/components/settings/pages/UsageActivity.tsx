@@ -1,6 +1,7 @@
 import { useMemo, useState, type CSSProperties, type JSX } from 'react'
 import type { UsageActivity as Activity, UsageAgents, UsageDay } from '@shared/usage'
 import { Segmented } from '../../ui'
+import { toolSplit } from './usageTools'
 
 /**
  * Settings → Usage's activity section: a year of days as a calendar, one
@@ -24,8 +25,9 @@ const METRIC_KEY = 'eaon.usage.heatMetric'
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const WEEKDAYS = ['', 'Mon', '', 'Wed', '', 'Fri', '']
 
+// Spend counts plan use at API rates too, so a day of Claude Code on a plan isn't a blank square.
 const valueOf = (day: UsageDay, metric: Metric): number =>
-  metric === 'cost' ? day.costUsd : metric === 'tokens' ? day.tokens : day.requests
+  metric === 'cost' ? day.costUsd + (day.planUsd ?? 0) : metric === 'tokens' ? day.tokens : day.requests
 
 function quartiles(values: number[]): [number, number, number] {
   if (values.length === 0) return [0, 0, 0]
@@ -42,6 +44,7 @@ function levelOf(value: number, [q1, q2, q3]: [number, number, number]): 0 | 1 |
   return 1
 }
 
+const dollars = (day: UsageDay): number => day.costUsd + (day.planUsd ?? 0)
 const dateOf = (day: string): Date => new Date(`${day}T12:00:00`)
 const longDay = (day: string): string => dateOf(day).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
 const shortDay = (day: string): string => dateOf(day).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
@@ -116,10 +119,11 @@ export function UsageActivity({
   }, [days, weeks])
 
   const shown = hover !== null ? days[hover] : null
+  // A day with Claude Code or Codex in it reads by tool: "Eaon $1.20 · Claude Code ≈ $40".
   const format = (day: UsageDay): string =>
     day.requests === 0
       ? 'No activity'
-      : `${money(day.costUsd)} · ${tokens(day.tokens)} tokens · ${day.requests.toLocaleString()} ${day.requests === 1 ? 'request' : 'requests'}`
+      : `${toolSplit(day, money, tokens) ?? `${money(day.costUsd)} · ${tokens(day.tokens)} tokens`} · ${day.requests.toLocaleString()} ${day.requests === 1 ? 'request' : 'requests'}`
 
   const plural = (n: number, word: string): string => `${n.toLocaleString()} ${word}${n === 1 ? '' : 's'}`
   const yearActive = days.filter((d) => d.requests > 0).length
@@ -205,13 +209,17 @@ export function UsageActivity({
         />
         <StatTile
           label="Busiest day"
-          value={activity.busiest ? (activity.busiest.costUsd > 0 ? money(activity.busiest.costUsd) : tokens(activity.busiest.tokens)) : '—'}
+          value={activity.busiest ? (dollars(activity.busiest) > 0 ? money(dollars(activity.busiest)) : tokens(activity.busiest.tokens)) : '—'}
           sub={activity.busiest ? shortDay(activity.busiest.day) : 'No activity yet'}
         />
         <StatTile
           label="All time"
-          value={money(activity.allTime.costUsd)}
-          sub={`${tokens(activity.allTime.tokens)} tokens`}
+          value={money(activity.allTime.costUsd + activity.allTime.planUsd)}
+          sub={
+            activity.allTime.planUsd > 0
+              ? `${tokens(activity.allTime.tokens)} tokens · ≈ ${money(activity.allTime.planUsd)} of it plan use at API rates`
+              : `${tokens(activity.allTime.tokens)} tokens`
+          }
         />
       </div>
     </>

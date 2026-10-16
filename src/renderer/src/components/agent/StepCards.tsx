@@ -1,12 +1,13 @@
 // Adapted from MIT and Apache-2.0 components; see components/agent/LICENSES.txt.
 import { memo, useLayoutEffect, useMemo, useRef, useState, type JSX } from 'react'
-import { Ban, ChevronDown, SquareTerminal, TriangleAlert } from 'lucide-react'
+import { Ban, ChevronDown, Code2, SquareTerminal, TriangleAlert } from 'lucide-react'
 import type { ChatToolPart } from '@shared/types'
-import { useApp } from '../../state/store'
+import { useApp, useIsWork } from '../../state/store'
+import { openInCode } from '../ide/ideStore'
 import { commandSummary, splitCommandOutput } from './commandText'
 import { FileDiff, diffStats } from './FileDiff'
 import { FileIcon, splitPath } from './FileIcon'
-import { Spinner } from './Loaders'
+import { DotMatrix } from './Loaders'
 
 /**
  * The two calls that keep a card of their own in the transcript, where the
@@ -45,6 +46,8 @@ export const EditCard = memo(function EditCard({ part }: { part: ChatToolPart })
   const hasDiff = before.length > 0 || after.length > 0
   const stats = useMemo(() => diffStats(before, after), [before, after])
   const waiting = useAwaitingApproval(part)
+  // Chat's code panel opens the file; a worker's transcript has no panel.
+  const canOpen = useIsWork() && part.status === 'done'
 
   const running = part.status === 'running'
   const failed = part.status === 'error'
@@ -79,31 +82,38 @@ export const EditCard = memo(function EditCard({ part }: { part: ChatToolPart })
 
   return (
     <div className="step-card edit-card" data-status={part.status} data-open={open || undefined}>
-      <button className="step-card__head" onClick={() => setChosen(!open)} aria-expanded={open} title={path}>
-        <span className="step-card__icon">
-          {skipped ? <Ban size={13} strokeWidth={2} /> : failed ? <TriangleAlert size={13} strokeWidth={2} /> : <FileIcon file={name} size={13} />}
-        </span>
-        <span className={`step-card__title${running && !waiting ? ' step-shimmer' : ''}`}>
-          {verb} <span className="step-card__file">{name}</span>
-        </span>
-        {folder && <span className="step-card__folder">{folder}</span>}
-        <span className="step-card__end">
-          {waiting ? (
-            <span className="step-card__note">Waiting for approval</span>
-          ) : running ? (
-            <Spinner />
-          ) : (
-            hasDiff &&
-            !failed && (
-              <span className="step-card__stat">
-                <span className="diff__stat-add">+{stats.added}</span>
-                {stats.removed > 0 && <span className="diff__stat-del">−{stats.removed}</span>}
-              </span>
-            )
-          )}
-          <ChevronDown size={13} strokeWidth={2} className="step-card__chevron" />
-        </span>
-      </button>
+      <div className="step-card__bar">
+        <button className="step-card__head" onClick={() => setChosen(!open)} aria-expanded={open} title={path}>
+          <span className="step-card__icon">
+            {skipped ? <Ban size={13} strokeWidth={2} /> : failed ? <TriangleAlert size={13} strokeWidth={2} /> : <FileIcon file={name} size={13} />}
+          </span>
+          <span className="step-card__title">
+            {verb} <span className="step-card__file">{name}</span>
+          </span>
+          {folder && <span className="step-card__folder">{folder}</span>}
+          <span className="step-card__end">
+            {waiting ? (
+              <span className="step-card__note">Waiting for approval</span>
+            ) : running ? (
+              <DotMatrix motion="snake" size={13} />
+            ) : (
+              hasDiff &&
+              !failed && (
+                <span className="step-card__stat">
+                  <span className="diff__stat-add">+{stats.added}</span>
+                  {stats.removed > 0 && <span className="diff__stat-del">−{stats.removed}</span>}
+                </span>
+              )
+            )}
+            <ChevronDown size={13} strokeWidth={2} className="step-card__chevron" />
+          </span>
+        </button>
+        {canOpen && (
+          <button className="step-card__open" onClick={() => void openInCode(path)} aria-label={`Open ${name} in Code`} title="Open in Code">
+            <Code2 size={13} strokeWidth={1.9} />
+          </button>
+        )}
+      </div>
       {open && (
         <div className="step-card__panel">
           <div>
@@ -169,12 +179,12 @@ export const CommandCard = memo(function CommandCard({ part }: { part: ChatToolP
         <span className="step-card__icon">
           {skipped ? <Ban size={13} strokeWidth={2} /> : failed ? <TriangleAlert size={13} strokeWidth={2} /> : <SquareTerminal size={13} strokeWidth={1.9} />}
         </span>
-        <span className={`step-card__title${running && !waiting ? ' step-shimmer' : ''}`}>{title}</span>
+        <span className="step-card__title">{title}</span>
         <span className="step-card__end">
           {waiting ? (
             <span className="step-card__note">Waiting for approval</span>
           ) : running ? (
-            <Spinner />
+            <DotMatrix motion="columns" size={13} />
           ) : (
             badExit && <span className="step-card__exit">{signal ? signal : `exit ${exit}`}</span>
           )}

@@ -11,7 +11,14 @@ export default defineConfig({
   preload: {
     plugins: [externalizeDepsPlugin()],
     resolve: { alias: { '@shared': resolve('src/shared') } },
-    build: { rollupOptions: { input: { index: resolve('src/preload/index.ts') } } }
+    // CommonJS: the window is sandboxed (main/index.ts), and a sandboxed
+    // preload can't be an ES module. It needs nothing but `electron`.
+    build: {
+      rollupOptions: {
+        input: { index: resolve('src/preload/index.ts') },
+        output: { format: 'cjs', entryFileNames: '[name].cjs' }
+      }
+    }
   },
   renderer: {
     root: resolve('src/renderer'),
