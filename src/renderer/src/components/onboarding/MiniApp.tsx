@@ -531,7 +531,7 @@ function ToknScene({ account }: { account: { name?: string; handle: string } | n
           <span className="mini-tokn__avatar">{account ? name.trim()[0]?.toUpperCase() : <ToknMark size={26} />}</span>
           <span className="mini-tokn__names">
             <span className="mini-tokn__name">{name}</span>
-            <span className="mini-tokn__handle">@{account?.handle ?? 'you'} · tokns.eaon.dev</span>
+            <span className="mini-tokn__handle">@{account?.handle ?? 'you'} · toknhq.com</span>
           </span>
         </div>
         <div className="mini-tokn__stats">

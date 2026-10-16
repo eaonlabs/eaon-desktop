@@ -54,6 +54,8 @@ await build({
 
 const result = spawnSync(process.execPath, ['--test', '--test-reporter=spec', ...readdirSync(out).filter((f) => f.endsWith('.mjs')).map((f) => join(out, f))], {
   stdio: 'inherit',
-  env: { ...process.env }
+  // Claude Code's and Codex's logs are read for Settings → Usage: never this
+  // computer's real ones (gigabytes, and not the tests' to count).
+  env: { ...process.env, CLAUDE_CONFIG_DIR: join(out, 'no-claude'), CODEX_HOME: join(out, 'no-codex') }
 })
 process.exit(result.status ?? 1)

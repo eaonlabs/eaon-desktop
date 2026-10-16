@@ -13,7 +13,7 @@ export const usageApi = {
   submitCode: (input: string): Promise<void> => ipcRenderer.invoke('usage:submit-code', input),
   signOut: (): Promise<void> => ipcRenderer.invoke('usage:sign-out'),
   sync: (): Promise<void> => ipcRenderer.invoke('usage:sync'),
-  /** Opens the Tokn profile (the default), the Eaon profile, or the Eaon leaderboard in the browser. */
+  /** Opens the Tokn profile in the browser. */
   openProfile: (page?: ToknPage): Promise<void> => ipcRenderer.invoke('usage:open-profile', page),
   /** Usage was recorded, or sign-in or sync moved: read the summary again. */
   onChanged: (callback: () => void): (() => void) => {

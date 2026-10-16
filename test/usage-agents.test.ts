@@ -33,7 +33,6 @@ import { chunk, sseServer } from './helpers'
  */
 
 process.env.EAON_TOKN_HOST = 'https://tokn.test'
-process.env.EAON_TOKNS_HOST = 'https://tokns.test'
 
 function freshLedger(): void {
   resetAgentRunsForTests()
@@ -275,13 +274,10 @@ test('the upload carries agents only when there are some', async () => {
   }
 })
 
-test('profile links: Tokn, the Eaon profile and the Eaon leaderboard', () => {
+test('the profile link: the account’s page on Tokn, or Tokn itself signed out', () => {
   const account = { id: 'u_9', handle: 'alex', profileUrl: 'https://tokn.test/profile/alex' }
   assert.equal(toknPageUrl('profile', account), 'https://tokn.test/profile/alex')
-  assert.equal(toknPageUrl('eaon-profile', account), 'https://tokns.test/@alex')
-  assert.equal(toknPageUrl('leaderboard', account), 'https://tokns.test/')
   assert.equal(toknPageUrl('profile', null), 'https://tokn.test')
-  assert.equal(toknPageUrl('eaon-profile', null), 'https://tokns.test/')
 })
 
 test('the account entry and Sync now: signed in, a sync sends the day’s agents with the rows', async () => {
@@ -331,10 +327,8 @@ test('the account entry and Sync now: signed in, a sync sends the day’s agents
     assert.equal(summary.agents.runs, 1)
     assert.equal(summary.agents.longestMs, 90_000)
 
-    await handlers.get('usage:open-profile')!(null, 'eaon-profile')
-    await handlers.get('usage:open-profile')!(null, 'leaderboard')
     await handlers.get('usage:open-profile')!(null)
-    assert.deepEqual(opened, ['https://tokns.test/@alex', 'https://tokns.test/', 'https://tokn.test/profile/alex'])
+    assert.deepEqual(opened, ['https://tokn.test/profile/alex'])
   } finally {
     restore()
     delete hooks.__eaonOpenExternal

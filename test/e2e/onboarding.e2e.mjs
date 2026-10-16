@@ -28,7 +28,7 @@ scenario('first run: the setup signs in with Tokn, links tokn, picks dark, and t
   const bin = join(s.homeDir, 'bin')
   try {
     const app = await s.launch({
-      env: { EAON_ONBOARDING: 'on', EAON_TOKN_CLI: 'on', EAON_TOKN_HOST: tokn.url, EAON_TOKNS_HOST: `${tokn.url}/eaon`, EAON_TOKN_BIN_DIR: bin }
+      env: { EAON_ONBOARDING: 'on', EAON_TOKN_CLI: 'on', EAON_TOKN_HOST: tokn.url, EAON_TOKN_BIN_DIR: bin }
     })
     const page = app.page
 

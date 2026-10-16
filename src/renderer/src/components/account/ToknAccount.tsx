@@ -4,8 +4,7 @@ import type { UsageAccountState } from '@shared/usage'
 
 /**
  * Eaon's account is a Tokn account (toknhq.com): the one sign-in Eaon has.
- * It puts Eaon's usage and agents on the user's Tokn profile, their Eaon
- * profile and the Eaon leaderboard (tokns.eaon.dev). Model providers'
+ * It puts Eaon's usage and agents on the user's Tokn profile. Model providers'
  * sign-ins (ChatGPT, Copilot) are credentials for those models, not this.
  *
  * Signed out, Settings offers the sign-in at the top of its navigation;

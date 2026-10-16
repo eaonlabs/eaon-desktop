@@ -7,12 +7,6 @@
 
 export const TOKN_HOST = 'https://toknhq.com'
 
-/**
- * Tokn's Eaon-only site: each user's Eaon profile at `/@<handle>` and the
- * leaderboard of everyone using Eaon at `/`. Same account and token as Tokn.
- */
-export const TOKNS_HOST = 'https://tokns.eaon.dev'
-
 /** The `tool` Eaon's rows carry on Tokn, next to `claude-code`, `codex` and the rest. */
 export const TOKN_TOOL = 'eaon'
 
@@ -77,8 +71,8 @@ export interface UsageAgents {
   longestDay: string | null
 }
 
-/** Where the signed-in account's pages are, for the links that open them. */
-export type ToknPage = 'profile' | 'eaon-profile' | 'leaderboard'
+/** The signed-in account's page on Tokn, for the link that opens it. */
+export type ToknPage = 'profile'
 
 /** The account entry's state (sidebar and Settings), without the usage numbers. */
 export interface UsageAccountState {
@@ -96,6 +90,27 @@ export interface ToknAccount {
 
 export type UsageRange = 7 | 30 | 90
 
+/**
+ * Where use happened: Eaon itself, or Claude Code and Codex in a terminal
+ * (read from their own logs on this computer, shown here and never uploaded;
+ * see main/features/usage/cliLogs.ts).
+ */
+export type UsageTool = 'eaon' | 'claude-code' | 'codex'
+
+export interface UsageToolCounts {
+  /** Spend plus plan use at API rates: what the day's use stands for in dollars. */
+  usd: number
+  tokens: number
+  requests: number
+}
+
+/** One tool's share of the range, priced like the totals. */
+export interface UsageToolRow extends UsageToolCounts {
+  tool: UsageTool
+  costUsd: number
+  planUsd: number
+}
+
 export interface UsageDay {
   day: string
   /** Estimated pay-per-token spend. */
@@ -104,6 +119,8 @@ export interface UsageDay {
   planUsd?: number
   tokens: number
   requests: number
+  /** The day split by tool, for the views that show Claude Code and Codex next to Eaon. */
+  tools?: Partial<Record<UsageTool, UsageToolCounts>>
 }
 
 export interface UsageModelRow extends UsageCounts {
@@ -151,11 +168,12 @@ export interface UsageActivity {
   /** Consecutive active days up to today, or yesterday: a day isn't over yet. */
   currentStreak: number
   longestStreak: number
-  /** The day with the most spend, or the most tokens when nothing was priced. */
+  /** The day with the most spend and plan use, or the most tokens when nothing was priced. */
   busiest: UsageDay | null
   /** The first day Eaon counted anything. */
   firstDay: string | null
-  allTime: UsageTotals
+  /** `planUsd`: plan use at API rates, never spend. */
+  allTime: UsageTotals & { planUsd: number }
 }
 
 export interface UsageSummary {
@@ -178,8 +196,18 @@ export interface UsageSummary {
   sources: UsageSourceRow[]
   /** False until Tokn's price table has loaded once; costs read as unpriced until then. */
   priced: boolean
-  /** A year of days for the activity calendar: whole weeks, Sunday first, ending today. */
+  /**
+   * The range's days with Claude Code and Codex added, split by tool, for
+   * the daily chart. `days`, the tiles and the models stay Eaon's alone.
+   */
+  chart: UsageDay[]
+  /** The range by tool, busiest first; only tools with any use. */
+  tools: UsageToolRow[]
+  /** Reading Claude Code's and Codex's logs: still on the first read, and which have any. */
+  cliLogs: { reading: boolean; found: Exclude<UsageTool, 'eaon'>[] }
+  /** A year of days for the activity calendar, Claude Code and Codex included: whole weeks, Sunday first, ending today. */
   calendar: UsageDay[]
+  /** Active days and streaks count Claude Code and Codex days too. */
   activity: UsageActivity
   agents: UsageAgents
 }

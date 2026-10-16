@@ -9,6 +9,8 @@ import {
   type UsageRange,
   type UsageSource,
   type UsageSourceRow,
+  type UsageTool,
+  type UsageToolRow,
   type UsageTotals
 } from '@shared/usage'
 import type { AgentRunDays } from './agentRuns'
@@ -278,25 +280,94 @@ export function summarize(days: LedgerDays, range: UsageRange, pricing: ToknPric
 
 /**
  * Every counted day's totals, priced (local and unpriced models count as
- * nothing spent; plan use goes in `planUsd`, not spend).
+ * nothing spent; plan use goes in `planUsd`, not spend). With `byTool`, each
+ * day is split by tool too, for the views that show Claude Code and Codex.
  */
-export function dailyTotals(days: LedgerDays, pricing: ToknPricing, billingOf: BillingOf): Map<string, UsageDay> {
+export function dailyTotals(days: LedgerDays, pricing: ToknPricing, billingOf: BillingOf, byTool = false): Map<string, UsageDay> {
   const byDay = new Map<string, UsageDay>()
   for (const [day, providers] of Object.entries(days)) {
-    const entry = { day, costUsd: 0, planUsd: 0, tokens: 0, requests: 0 }
+    const entry: UsageDay = { day, costUsd: 0, planUsd: 0, tokens: 0, requests: 0 }
     for (const [providerId, models] of Object.entries(providers)) {
       const billing = billingOf(providerId)
+      const tool = byTool ? ((entry.tools ??= {})[toolOf(providerId)] ??= { usd: 0, tokens: 0, requests: 0 }) : null
       for (const [modelId, counts] of Object.entries(models)) {
         const { cost } = priceRow(modelId, counts, billing, pricing)
-        if (billing === 'plan') entry.planUsd += cost ?? 0
+        if (billing === 'plan') entry.planUsd! += cost ?? 0
         else entry.costUsd += cost ?? 0
         entry.tokens += tokensOf(counts)
         entry.requests += counts.requests
+        if (tool) {
+          tool.usd += cost ?? 0
+          tool.tokens += tokensOf(counts)
+          tool.requests += counts.requests
+        }
       }
     }
     if (entry.requests > 0 || entry.tokens > 0) byDay.set(day, entry)
   }
   return byDay
+}
+
+/** The ledger's provider ids for Claude Code's and Codex's own logs (cliLogs.ts). */
+export const CLI_PROVIDERS: Record<Exclude<UsageTool, 'eaon'>, string> = { 'claude-code': 'cli:claude-code', codex: 'cli:codex' }
+
+export function toolOf(providerId: string): UsageTool {
+  return providerId === CLI_PROVIDERS['claude-code'] ? 'claude-code' : providerId === CLI_PROVIDERS.codex ? 'codex' : 'eaon'
+}
+
+/** Eaon's turns on its Codex engine, which Codex logs as well: `codex`, `codex:api`, `codex:provider`. */
+const codexEngine = (providerId: string): boolean => providerId === 'codex' || providerId.startsWith('codex:')
+
+/**
+ * Eaon's days and the CLIs' logs together. When Codex's logs were read,
+ * Eaon's own turns on the Codex engine are left to them: Codex wrote those
+ * turns to its logs too, and they'd otherwise count twice.
+ */
+export function withCliDays(eaon: LedgerDays, cli: LedgerDays, codexLogged: boolean): LedgerDays {
+  const days: LedgerDays = {}
+  for (const [day, providers] of Object.entries(eaon)) {
+    for (const [providerId, models] of Object.entries(providers)) {
+      if (codexLogged && codexEngine(providerId)) continue
+      ;(days[day] ??= {})[providerId] = models
+    }
+  }
+  for (const [day, providers] of Object.entries(cli)) {
+    for (const [providerId, models] of Object.entries(providers)) (days[day] ??= {})[providerId] = models
+  }
+  return days
+}
+
+/** The last `range` days, today included, each as `byDay` has it or empty. */
+export function rangeDays(byDay: Map<string, UsageDay>, range: UsageRange, now: Date = new Date()): UsageDay[] {
+  const out: UsageDay[] = []
+  for (let i = range - 1; i >= 0; i--) {
+    const day = localDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() - i, 12))
+    out.push(byDay.get(day) ?? { day, costUsd: 0, planUsd: 0, tokens: 0, requests: 0 })
+  }
+  return out
+}
+
+/** The range by tool (Eaon, Claude Code, Codex), priced like the totals; only tools with any use. */
+export function summarizeTools(days: LedgerDays, range: UsageRange, pricing: ToknPricing, billingOf: BillingOf, now: Date = new Date()): UsageToolRow[] {
+  const rows = new Map<UsageTool, UsageToolRow>()
+  for (let i = range - 1; i >= 0; i--) {
+    const day = localDay(new Date(now.getFullYear(), now.getMonth(), now.getDate() - i, 12))
+    for (const [providerId, models] of Object.entries(days[day] ?? {})) {
+      const tool = toolOf(providerId)
+      const row = rows.get(tool) ?? { tool, usd: 0, costUsd: 0, planUsd: 0, tokens: 0, requests: 0 }
+      const billing = billingOf(providerId)
+      for (const [modelId, counts] of Object.entries(models)) {
+        const { cost } = priceRow(modelId, counts, billing, pricing)
+        if (billing === 'plan') row.planUsd += cost ?? 0
+        else row.costUsd += cost ?? 0
+        row.usd += cost ?? 0
+        row.tokens += tokensOf(counts)
+        row.requests += counts.requests
+      }
+      rows.set(tool, row)
+    }
+  }
+  return [...rows.values()].filter((row) => row.requests > 0).sort((a, b) => b.usd - a.usd || b.tokens - a.tokens)
 }
 
 /** The range's use by what it was for (chats, scheduled tasks, workers, trading), priced like the totals. */
@@ -364,14 +435,19 @@ export function activity(byDay: Map<string, UsageDay>, range: UsageRange, now: D
   const last = active.at(-1)?.day
   const current = last && (last === today || last === shiftDay(today, -1)) ? run : 0
 
-  const anySpend = active.some((d) => d.costUsd > 0)
-  const busiest = active.reduce<UsageDay | null>(
-    (best, d) => (!best || (anySpend ? d.costUsd > best.costUsd : d.tokens > best.tokens) ? d : best),
-    null
-  )
-  const allTime = active.reduce<UsageTotals>(
-    (sum, d) => ({ costUsd: sum.costUsd + d.costUsd, tokens: sum.tokens + d.tokens, requests: sum.requests + d.requests }),
-    { costUsd: 0, tokens: 0, requests: 0 }
+  // In dollars, plan use (at API rates) counts too: a month of Claude Code
+  // on a plan is busy, though nothing was billed per token.
+  const usd = (d: UsageDay): number => d.costUsd + (d.planUsd ?? 0)
+  const anySpend = active.some((d) => usd(d) > 0)
+  const busiest = active.reduce<UsageDay | null>((best, d) => (!best || (anySpend ? usd(d) > usd(best) : d.tokens > best.tokens) ? d : best), null)
+  const allTime = active.reduce<UsageActivity['allTime']>(
+    (sum, d) => ({
+      costUsd: sum.costUsd + d.costUsd,
+      planUsd: sum.planUsd + (d.planUsd ?? 0),
+      tokens: sum.tokens + d.tokens,
+      requests: sum.requests + d.requests
+    }),
+    { costUsd: 0, planUsd: 0, tokens: 0, requests: 0 }
   )
   return {
     activeDays: active.length,

@@ -1,8 +1,8 @@
 /**
  * A Tokn (toknhq.com) on loopback for the end-to-end suite: it approves
  * anyone as @alex and keeps what is sent to it. Eaon is pointed at it with
- * EAON_TOKN_HOST (and EAON_TOKNS_HOST for the Eaon site's pages); the tokn
- * command Eaon runs is pointed at it through the same variable.
+ * EAON_TOKN_HOST; the tokn command Eaon runs is pointed at it through the
+ * same variable.
  */
 import { createServer } from 'node:http'
 

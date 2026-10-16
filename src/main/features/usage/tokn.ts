@@ -1,6 +1,6 @@
 import { hostname } from 'node:os'
 import { app } from 'electron'
-import { TOKN_HOST, TOKNS_HOST, type ToknAccount, type ToknPage } from '@shared/usage'
+import { TOKN_HOST, type ToknAccount, type ToknPage } from '@shared/usage'
 import { parseAuthorizationInput, pkce, randomState, startLoopback, tokenStore } from '../../providers/oauth/shared'
 import type { ToknAgentDay, ToknPricing, ToknSyncRow } from './rows'
 
@@ -28,17 +28,8 @@ const REQUEST_TIMEOUT_MS = 30_000
 
 /** `EAON_TOKN_HOST` points Eaon at a local Tokn while developing it. */
 export const toknHost = (): string => (process.env.EAON_TOKN_HOST || TOKN_HOST).replace(/\/+$/, '')
-/** `EAON_TOKNS_HOST` does the same for Tokn's Eaon site (profiles and the Eaon leaderboard). */
-export const toknsHost = (): string => (process.env.EAON_TOKNS_HOST || TOKNS_HOST).replace(/\/+$/, '')
-
-/**
- * The address of one of the account's pages: the Tokn profile, the Eaon
- * profile on Tokn's Eaon site, or that site's leaderboard. Signed out, the
- * profiles are the sites' home pages.
- */
-export function toknPageUrl(page: ToknPage, account: ToknAccount | null = toknAccount()): string {
-  if (page === 'leaderboard') return `${toknsHost()}/`
-  if (page === 'eaon-profile') return account ? `${toknsHost()}/@${encodeURIComponent(account.handle)}` : `${toknsHost()}/`
+/** The account's page on Tokn; signed out, Tokn's home page. */
+export function toknPageUrl(_page: ToknPage = 'profile', account: ToknAccount | null = toknAccount()): string {
   return account?.profileUrl ?? toknHost()
 }
 

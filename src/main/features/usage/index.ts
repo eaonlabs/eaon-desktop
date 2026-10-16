@@ -1,5 +1,5 @@
 import { app, shell } from 'electron'
-import type { Billing, ToknPage, UsageAccountState, UsageRange, UsageSignIn, UsageSummary, UsageSync } from '@shared/usage'
+import type { Billing, UsageAccountState, UsageRange, UsageSignIn, UsageSummary, UsageSync } from '@shared/usage'
 import { getProvider, onModelUsage } from '../../providers'
 import { LOCAL_PROVIDER_ID } from '../../llama/models'
 import { store } from '../../store'
@@ -7,7 +7,22 @@ import type { Feature, FeatureContext } from '../types'
 import { afterToknSignIn } from '../toknCli'
 import { agentRunDays, flushAgentRuns, onAgentRun } from './agentRuns'
 import { flushLedger, ledgerDays, ledgerSources, onLedgerChange, recordUsage } from './ledger'
-import { activity, agentStats, calendar, dailyTotals, summarize, summarizeSources, syncAgents, syncRows, type BillingOf, type ToknPricing } from './rows'
+import { cliLogs, flushCliLogs, onCliLogsChange } from './cliLogs'
+import {
+  activity,
+  agentStats,
+  calendar,
+  dailyTotals,
+  rangeDays,
+  summarize,
+  summarizeSources,
+  summarizeTools,
+  syncAgents,
+  syncRows,
+  withCliDays,
+  type BillingOf,
+  type ToknPricing
+} from './rows'
 import { fetchPricing, refreshAccount, signIn, signOut, submitCode, toknAccount, toknPageUrl, upload } from './tokn'
 
 /**
@@ -74,7 +89,10 @@ function billingLookup(): BillingOf {
       // engine's name plus how it was paid for: the user's plan (the default),
       // their API key, or a provider the engine was set up with, which Eaon
       // can't price.
-      const engineBilling = providerId === 'codex' ? 'plan' : providerId === 'codex:api' ? 'api' : providerId === 'codex:provider' ? 'local' : null
+      // Claude Code and Codex in a terminal (their own logs) are taken as on
+      // a plan: at API rates, what the use stands for, never spend.
+      const engineBilling =
+        providerId === 'codex' || providerId.startsWith('cli:') ? 'plan' : providerId === 'codex:api' ? 'api' : providerId === 'codex:provider' ? 'local' : null
       const provider = engineBilling || providerId === LOCAL_PROVIDER_ID ? null : getProvider(providerId)
       billing = engineBilling ?? (providerId === LOCAL_PROVIDER_ID || provider?.local ? 'local' : provider?.category === 'subscription' ? 'plan' : 'api')
       known.set(providerId, billing)
@@ -114,7 +132,11 @@ function summary(range: UsageRange): UsageSummary {
   const days = ledgerDays()
   const billingOf = billingLookup()
   const shaped = summarize(days, range, pricing.models, billingOf)
-  const byDay = dailyTotals(days, pricing.models, billingOf)
+  // The chart, the calendar and the streaks count Claude Code and Codex too;
+  // the tiles, the models and the upload stay Eaon's own.
+  const cli = cliLogs()
+  const everything = withCliDays(days, cli.days, cli.found.includes('codex'))
+  const byDay = dailyTotals(everything, pricing.models, billingOf, true)
   return {
     account: toknAccount(),
     signIn: signInState,
@@ -123,6 +145,9 @@ function summary(range: UsageRange): UsageSummary {
     priced: pricing.fetchedAt > 0,
     ...shaped,
     sources: summarizeSources(ledgerSources(), range, pricing.models, billingOf),
+    chart: rangeDays(byDay, range),
+    tools: summarizeTools(everything, range, pricing.models, billingOf),
+    cliLogs: { reading: cli.reading, found: cli.found },
     calendar: calendar(byDay),
     activity: activity(byDay, range),
     agents: agentStats(agentRunDays(), range)
@@ -218,6 +243,7 @@ export const usageFeature: Feature = {
       // Other apps' requests are never uploaded, so they are no reason to sync.
       if (source !== 'gateway') scheduleSync(SYNC_AFTER_USAGE_MS)
     })
+    onCliLogsChange(changed)
     onAgentRun(() => {
       changed()
       scheduleSync(SYNC_AFTER_USAGE_MS)
@@ -236,8 +262,8 @@ export const usageFeature: Feature = {
       setSync({ state: 'idle', at: null })
     })
     ipcMain.handle('usage:sync', () => syncNow())
-    ipcMain.handle('usage:open-profile', (_e, page?: ToknPage) => {
-      const url = toknPageUrl(page === 'eaon-profile' || page === 'leaderboard' ? page : 'profile')
+    ipcMain.handle('usage:open-profile', () => {
+      const url = toknPageUrl('profile')
       if (/^https?:\/\//.test(url)) void shell.openExternal(url)
     })
 
@@ -260,5 +286,6 @@ export const usageFeature: Feature = {
     if (changedTimer) clearTimeout(changedTimer)
     flushLedger()
     flushAgentRuns()
+    flushCliLogs()
   }
 }
