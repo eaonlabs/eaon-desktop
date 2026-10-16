@@ -3,6 +3,43 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [2026.6.3-beta.2.6] — 2026-10-16
+
+### Added
+- **Event codes everywhere you start.** The "Have an event code?" box is in
+  setup's Connect a model step, on the free credits card and in the
+  composer when no model is connected. With a code, each computer at an
+  event gets its own allowance instead of sharing the venue's.
+- **Autopilot for purchase schedules.** A schedule on autopilot never asks
+  you anything: once its order is authorized within the maximum on its
+  store, it goes from cart to order confirmation on its own. If something
+  is off, it skips the order and says why.
+- Paste a screenshot or a copied image into the message box to attach it.
+- Settings search finds settings by what they do ("dark mode", "API key",
+  "event code").
+
+### Fixed
+- **School and company networks.** Eaon trusts the computer's own
+  certificates and an environment proxy, so networks that filter HTTPS no
+  longer fail every request as "connection dropped".
+- **Windows ADE.** Claude Code, Codex and other CLIs installed with npm
+  start in a pane on a fresh machine; commands and tasks are quoted for
+  PowerShell; an agent installed while Eaon is open is found.
+- Approval prompts show on every page, so a run no longer waits unseen.
+- A saved API key can be replaced by typing over it, and a rejected key
+  says why, in Settings and in Link accounts.
+- Every failed or cut-off reply has Try again; Stop works right after
+  launch; the mic's stop keeps the recording; the model picker no longer
+  reopens by itself; drafts stay with their own chat.
+- Editing a purchase schedule's timing replaces it instead of adding a
+  second schedule that also buys.
+- A request that gets no answer times out after 90 seconds instead of five
+  minutes.
+- Settings fits the smallest window; Model providers no longer squeezes
+  the key field to a word a line.
+- A failed update install explains and reopens Eaon.
+- Many smaller fixes across chat, the ADE, Workers and Settings.
+
 ## [2026.6.3-beta.2.5] — 2026-10-16
 
 ### Added
