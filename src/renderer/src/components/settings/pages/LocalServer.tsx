@@ -91,7 +91,24 @@ export function LocalServerPage(): JSX.Element {
               filter={served}
             />
           </Row>
-          <Row title="Key" description="Apps connected to Eaon send this. Programs on this computer may leave it out; web pages and browser extensions must send it. A wrong key is refused.">
+          <Row
+            title="Require key"
+            description="Refuse every request that doesn't send the key. Browser pages and extensions always need it; with this on, so do apps on this computer."
+          >
+            <Switch
+              label="Require key"
+              checked={local.requireKey}
+              onChange={(on) => void patchSettings({ localServer: { requireKey: on } })}
+            />
+          </Row>
+          <Row
+            title="Key"
+            description={
+              local.requireKey
+                ? 'Apps connected to Eaon send this. It lets them use your models, not control Eaon.'
+                : 'Apps connected to Eaon send this. Apps on this computer that send no key still work; a wrong key is refused.'
+            }
+          >
             <code className="code-settings__path" style={{ fontSize: 12 }}>
               {gateway ? `${gateway.token.slice(0, 10)}…` : '…'}
             </code>

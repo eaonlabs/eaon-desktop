@@ -268,12 +268,17 @@ test('auto mode: a purchase within the limits runs without asking; one over them
   assert.equal(big.results[0].status, 'denied')
 })
 
-test('fill on screen types the card into the focused app, and the result never contains the digits', async () => {
+test('fill on screen asks first in automatic mode, then types the card into the focused app, and the result never contains the digits', async () => {
   configure('auto')
   paymentsEngine()!.acceptWaiver(PAYMENTS_WAIVER_VERSION, ALL_TICKED)
   const auth = await turn([{ action: 'authorize', merchant: 'Starbucks', amount: 6.45 }], false)
   const id = /Authorized (pay_\w+)/.exec(auth.results[0].output)![1]
-  const fill = await turn([{ action: 'fill', purchase_id: id, target: 'screen', fields: [{ field: 'number' }, { field: 'expiry' }, { field: 'cvc' }] }], false)
+  const fields = [{ field: 'number' }, { field: 'expiry' }, { field: 'cvc' }]
+  const declined = await turn([{ action: 'fill', purchase_id: id, target: 'screen', fields }], false)
+  assert.equal(declined.asked.length, 1, 'the app on screen cannot be checked against the site, so the user is asked')
+  assert.equal(declined.results[0].status, 'denied')
+  assert.deepEqual(typed, [])
+  const fill = await turn([{ action: 'fill', purchase_id: id, target: 'screen', fields }], true)
   assert.equal(fill.results[0].status, 'done')
   assert.deepEqual(typed, [VISA, '<tab>', '12/30', '<tab>', '123'])
   assert.ok(!fill.results[0].output.includes(VISA))
@@ -286,7 +291,7 @@ test('fill refuses another chat\'s purchase, and the browser without a site', as
   paymentsEngine()!.acceptWaiver(PAYMENTS_WAIVER_VERSION, ALL_TICKED)
   const auth = await turn([{ action: 'authorize', merchant: 'Starbucks', amount: 6.45 }], false, 'chat-a')
   const id = /Authorized (pay_\w+)/.exec(auth.results[0].output)![1]
-  const other = await turn([{ action: 'fill', purchase_id: id, target: 'screen', fields: ['number'] }], false, 'chat-b')
+  const other = await turn([{ action: 'fill', purchase_id: id, target: 'screen', fields: ['number'] }], true, 'chat-b')
   assert.match(other.results[0].output, /another conversation/)
   const browser = await turn([{ action: 'fill', purchase_id: id, target: 'browser', fields: [{ field: 'number', ref: 'e3' }] }], false, 'chat-a')
   assert.match(browser.results[0].output, /no site/)

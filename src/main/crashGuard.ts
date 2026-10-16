@@ -42,13 +42,13 @@ export function logCrash(kind: string, detail: unknown): void {
   console.error(`[crash] ${kind}: ${text}`)
   try {
     const path = crashLogPath()
-    mkdirSync(join(path, '..'), { recursive: true })
+    mkdirSync(join(path, '..'), { recursive: true, mode: 0o700 })
     try {
       if (statSync(path).size > MAX_LOG_BYTES) renameSync(path, join(path, '..', 'crashes.old.log'))
     } catch {
       // No log yet.
     }
-    appendFileSync(path, `${new Date().toISOString()} [${kind}] ${text}\n`)
+    appendFileSync(path, `${new Date().toISOString()} [${kind}] ${text}\n`, { mode: 0o600 })
   } catch {
     // Nowhere to write; the console line above is all there is.
   }

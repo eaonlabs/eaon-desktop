@@ -1,8 +1,8 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type JSX, type KeyboardEvent, type RefObject } from 'react'
 import { CircleAlert, Plus, Search, Star } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
-import type { Provider } from '@shared/types'
-import { clampEffort } from '@shared/effort'
+import type { ModelInfo, Provider } from '@shared/types'
+import { clampEffort, EFFORT_LABEL, orderEfforts } from '@shared/effort'
 import {
   groupOptions,
   modelKey,
@@ -18,7 +18,7 @@ import {
 import { useApp } from '../../state/store'
 import { Popover } from '../ui'
 import { LinkAccounts } from '../LinkAccounts'
-import { EffortControl } from './EffortControl'
+import { ReasoningEffort } from './ReasoningEffort'
 import { modKey, modLabel } from '../../lib/platform'
 import { markKey, ProviderMark } from './ProviderMark'
 import { useSetupAction } from './setupActions'
@@ -409,11 +409,11 @@ export function ModelPicker({ anchor, open, onClose }: { anchor: RefObject<HTMLE
 
         {(current || engineChoice) && effort && efforts.length >= 2 && (
           <div className="mp__foot">
-            <EffortControl
-              levels={efforts}
-              value={effort}
-              defaultLevel={clampEffort(undefined, efforts) ?? effort}
-              onChange={(level) => setEffort(level)}
+            <ReasoningEffort
+              labels={efforts.map((level) => EFFORT_LABEL[level])}
+              value={Math.max(0, efforts.indexOf(effort))}
+              model={engineChoice?.label ?? current?.label ?? ''}
+              onChange={(index) => setEffort(efforts[index])}
             />
           </div>
         )}

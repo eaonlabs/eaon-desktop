@@ -67,6 +67,8 @@ export interface EngineDeps {
   onChange?: (tasks: ScheduledTask[]) => void
   /** Records in the tasks file that weren't tasks at all and were left out; the service keeps a copy of the file. */
   onDamaged?: (count: number) => void
+  /** After a run is recorded, so follow-ups can change tasks (this one included) safely. */
+  onFinished?: (task: ScheduledTask, result: RunResult) => void
   now?: () => number
   /** A clock that stops while the computer sleeps (`performance.now`), to tell sleep from a clock change. */
   monotonic?: () => number
@@ -201,7 +203,10 @@ export class SchedulerEngine {
       // An unchanged interval keeps its grid, so editing the prompt does not
       // push the next run a whole period away.
       const kept = !scheduleChanged && existing?.schedule.kind === 'interval' ? existing.schedule.startAt : undefined
-      schedule = { ...schedule, startAt: kept ?? now + periodMs(schedule) }
+      // A new grid may start on a day the user picked (a purchase schedule's
+      // first order); one in the past starts a period from now as before.
+      const picked = scheduleChanged && schedule.startAt !== undefined && schedule.startAt > now ? schedule.startAt : undefined
+      schedule = { ...schedule, startAt: kept ?? picked ?? now + periodMs(schedule) }
     }
     const reschedule = scheduleChanged || !existing?.enabled || existing.nextRunAt === null
     const mode = draft.mode === 'work' ? 'work' : 'chat'
@@ -224,6 +229,11 @@ export class SchedulerEngine {
       lastStatus: existing?.lastStatus ?? null,
       history: [],
       zone: reschedule || !existing?.zone ? this.zone() : existing.zone
+    }
+    // Plan fields the draft leaves out stay as they were; null drops them.
+    for (const key of ['purchase', 'watch', 'thread'] as const) {
+      const value = draft[key] === undefined ? existing?.[key] : draft[key]
+      if (value !== null && value !== undefined) (task as unknown as Record<string, unknown>)[key] = clone(value)
     }
     if (existing) this.tasks[this.tasks.indexOf(existing)] = task
     else this.tasks.push(task)
@@ -538,6 +548,13 @@ export class SchedulerEngine {
     const task = this.find(taskId)
     if (task) task.lastStatus = this.latestStatus(taskId) ?? result.status
     this.commit()
+    if (!task) return
+    try {
+      // With its runs: a follow-up reads when this one started.
+      this.deps.onFinished?.(this.withHistory(task), result)
+    } catch (error) {
+      console.error('[scheduler] a run follow-up failed:', error)
+    }
   }
 
   private patchRun(runId: string, patch: Partial<TaskRun>): void {

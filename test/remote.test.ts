@@ -17,7 +17,7 @@ import type { FeatureContext } from '../src/main/features/types'
 import { gatewayToken, tokenAllowed } from '../src/main/gateway/models'
 import { Bonjour, instanceName } from '../src/main/remote/bonjour'
 import { createRemote, defaultModelId, remoteModels } from '../src/main/remote'
-import { RemoteServer, type RemoteServerOptions } from '../src/main/remote/server'
+import { isLocalNetworkPeer, RemoteServer, type RemoteServerOptions } from '../src/main/remote/server'
 import { MAX_WORKERS, WORKER_COLORS, type WorkerDraft } from '@shared/workers'
 import type { StreamEvent, StreamRequest } from '@shared/types'
 import { chunk, sseServer } from './helpers'
@@ -513,14 +513,14 @@ test('a paused worker has no next wake-up, and a goal run’s continuation count
 
 /* ----------------------------------------------------------------- commands */
 
-test('creating a worker: 201, defaults the way the desktop has them, a folder the phone never sees', async () => {
+test('creating a worker: 201, careful by default, a folder the phone never sees', async () => {
   const engine = await boot(fakeAgent().runAgent)
   const reply = await post('/remote/v1/workers', { name: '  Pixel ', purpose: 'Watch the build', personality: 'Dry.' })
   assert.equal(reply.status, 201)
   const w = reply.json.worker
   assert.deepEqual(Object.keys(w).sort(), WORKER_KEYS)
   assert.equal(w.name, 'Pixel')
-  assert.equal(w.access, 'autonomous')
+  assert.equal(w.access, 'safe', 'a phone does not hand out full autonomy unless the user allowed it')
   assert.equal(w.model, null)
   assert.ok(WORKER_COLORS.includes(w.color), 'a colour from the palette when none is given')
   assert.deepEqual([w.status, w.paused, w.purpose, w.personality], ['idle', false, 'Watch the build', 'Dry.'])
@@ -1218,7 +1218,7 @@ test('off by default; turning it on makes the key, starts the server and the ann
     bonjour: new Bonjour({ platform: 'darwin', spawn: dns.spawn }),
     server: { pingMs: 50 }
   })
-  assert.deepEqual(store.getSettings().remote, { enabled: false, port: 0, token: null })
+  assert.deepEqual(store.getSettings().remote, { enabled: false, port: 0, token: null, allowAutonomous: false })
 
   await remote.launch()
   assert.equal(remote.server.status().running, false, 'nothing listens until it is turned on')
@@ -1405,14 +1405,46 @@ test('the hub gives the remote server what the window gets, and a listener that 
 test('settings: old files without remote load with the defaults, and a nested patch keeps the rest', () => {
   writeFileSync(join(process.env.EAON_TEST_USERDATA!, 'store', 'settings.json'), JSON.stringify({ general: { language: 'French' }, localServer: { port: 4242 } }))
   const settings = store.getSettings()
-  assert.deepEqual(settings.remote, { enabled: false, port: 3266, token: null }, 'defaults: off, 3266, no key')
+  assert.deepEqual(settings.remote, { enabled: false, port: 3266, token: null, allowAutonomous: false }, 'defaults: off, 3266, no key, no autonomy from phones')
   assert.equal(settings.general.language, 'French')
   assert.equal(settings.localServer.port, 4242)
   assert.equal(settings.notifications.taskComplete, true, 'and everything else is still filled in')
   store.patchSettings({ remote: { enabled: true, port: 4100, token: null } })
   store.patchSettings({ remote: { ...store.getSettings().remote, token: 'eaonr-abc' } })
-  assert.deepEqual(store.getSettings().remote, { enabled: true, port: 4100, token: 'eaonr-abc' })
+  assert.deepEqual(store.getSettings().remote, { enabled: true, port: 4100, token: 'eaonr-abc', allowAutonomous: false })
   store.patchSettings({ remote: { ...store.getSettings().remote, token: null } })
   assert.equal(store.getSettings().remote.token, null, 'a null clears it')
   assert.equal(store.getSettings().localServer.port, settings.localServer.port, 'the other servers’ settings are untouched')
+})
+
+test('full autonomy from a phone only when the user allowed it', async () => {
+  let allowed = false
+  const svc = startService(fakeAgent().runAgent, {})
+  server = new RemoteServer({
+    token: () => TOKEN,
+    hub: svc.hub,
+    api: { engine: svc.engine, remove: svc.remove, info: () => ({ name: 'Test Mac', appVersion: '1.2.3' }), models: remoteModels, defaultModel: defaultModelId, home, allowAutonomous: () => allowed },
+    pingMs: 80
+  })
+  port = (await server.start(0)).port
+
+  const refused = await post('/remote/v1/workers', { name: 'Bold', purpose: 'Anything', access: 'autonomous' })
+  assert.equal(refused.status, 403)
+  const made = await post('/remote/v1/workers', { name: 'Calm', purpose: 'Careful work' })
+  assert.equal(made.json.worker.access, 'safe')
+  assert.equal((await call('PATCH', `/remote/v1/workers/${made.json.worker.id}`, { body: { access: 'autonomous' } })).status, 403)
+
+  allowed = true
+  const bold = await post('/remote/v1/workers', { name: 'Bold', purpose: 'Anything', access: 'autonomous' })
+  assert.equal(bold.status, 201)
+  assert.equal(bold.json.worker.access, 'autonomous')
+})
+
+test('only devices on the local network are answered', () => {
+  for (const ip of ['127.0.0.1', '::1', '::ffff:192.168.1.5', '10.0.0.2', '172.20.1.1', '100.101.102.103', '169.254.3.4', 'fd7a:115c:a1e0::1', 'fe80::1']) {
+    assert.equal(isLocalNetworkPeer(ip), true, ip)
+  }
+  for (const ip of ['8.8.8.8', '::ffff:1.2.3.4', '172.32.0.1', '100.128.0.1', '2001:4860:4860::8888']) {
+    assert.equal(isLocalNetworkPeer(ip), false, ip)
+  }
 })

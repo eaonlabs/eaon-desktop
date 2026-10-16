@@ -44,6 +44,12 @@ export interface RemoteApiDeps {
   now?: () => number
   /** The home directory to scrub out of text; the real one unless a test says otherwise. */
   home?: string
+  /**
+   * Whether a phone may give a worker full autonomy (Settings → Remote
+   * devices). Off unless the user turns it on: the remote API travels over
+   * the local network, and an autonomous worker can run any command.
+   */
+  allowAutonomous?: () => boolean
 }
 
 export interface ApiRequest {
@@ -166,6 +172,11 @@ export async function handleApi(deps: RemoteApiDeps, request: ApiRequest): Promi
     if (!worker) throw missing('There is no such worker.')
     return worker
   }
+  const refuseAutonomy = (access: WorkerAccess | undefined): void => {
+    if (access === 'autonomous' && !deps.allowAutonomous?.()) {
+      throw new ApiError(403, 'forbidden', 'Full autonomy can only be given from Eaon on the computer, or after turning on “Allow full autonomy from phones” in Settings → Remote devices.')
+    }
+  }
 
   const { method, path } = request
   if (!path.startsWith(`${REMOTE_BASE_PATH}/`)) throw missing(`There is no ${method} ${path}.`)
@@ -203,6 +214,7 @@ export async function handleApi(deps: RemoteApiDeps, request: ApiRequest): Promi
     if (method === 'GET') return { status: 200, body: { workers: engine.list().map(view) } }
     if (method === 'POST') {
       const fields = draftFields(objectBody(request.body))
+      refuseAutonomy(fields.access)
       if (fields.name === undefined) throw bad('name is required.')
       if (fields.purpose === undefined) throw bad('purpose is required.')
       if (engine.list().length >= MAX_WORKERS) throw conflict(`You can have up to ${MAX_WORKERS} workers. Remove one to make room for another.`)
@@ -215,7 +227,7 @@ export async function handleApi(deps: RemoteApiDeps, request: ApiRequest): Promi
           personality: fields.personality ?? '',
           purpose: fields.purpose,
           ...(fields.model !== undefined ? { model: fields.model } : {}),
-          access: fields.access ?? 'autonomous'
+          access: fields.access ?? (deps.allowAutonomous?.() ? 'autonomous' : 'safe')
         })
       } catch (error) {
         throw bad(errorText(error))
@@ -231,6 +243,7 @@ export async function handleApi(deps: RemoteApiDeps, request: ApiRequest): Promi
     if (method === 'PATCH') {
       const existing = find(id)
       const fields = draftFields(objectBody(request.body))
+      if (fields.access !== existing.access) refuseAutonomy(fields.access)
       // The engine replaces every field of a draft, so what the phone left out
       // is carried over from the worker rather than blanked.
       let saved: Worker

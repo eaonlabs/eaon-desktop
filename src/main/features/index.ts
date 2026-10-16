@@ -7,6 +7,7 @@ import { schedulerFeature } from './scheduler'
 import { skillsFeature } from './skills'
 import { modelLibraryFeature } from './modelLibrary'
 import { libraryFeature } from './library'
+import { workspaceFilesFeature } from './workspaceFiles'
 import { terminalsFeature } from './terminals'
 import { adeFeature } from './ade'
 import { prReviewFeature } from './prReview'
@@ -32,10 +33,13 @@ import { linkAccountsFeature } from './linkAccounts'
 import { usageFeature } from './usage'
 import { paymentsFeature } from './payments'
 import { enginesFeature } from './engines'
+import { enterpriseFeature } from './enterprise'
 import type { Feature } from './types'
 
 /** Every feature module, registered in this order at startup. */
 export const FEATURES: Feature[] = [
+  // First, so the policy is read and logged before anything it governs starts.
+  enterpriseFeature,
   providerAuthFeature,
   // Agent engines (Codex…) before workers, which run turns on them.
   enginesFeature,
@@ -48,6 +52,7 @@ export const FEATURES: Feature[] = [
   schedulerFeature,
   eaonCodeFeature,
   libraryFeature,
+  workspaceFilesFeature,
   terminalsFeature,
   adeFeature,
   // Make ADE sessions, so after it.

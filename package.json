@@ -38,7 +38,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.120.0",
-    "@modelcontextprotocol/sdk": "^1.30.0",
+    "@modelcontextprotocol/sdk": "^1.32.1",
     "baileys": "7.0.0-rc14",
     "betterwright": "2.8.8",
     "electron-updater": "^6.3.9",

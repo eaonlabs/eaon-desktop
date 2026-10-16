@@ -4,6 +4,7 @@ import { TriangleAlert } from 'lucide-react'
 import { Card, Modal, Row, Section, Switch } from '../../ui'
 import type { RemoteInfo } from '@shared/remote'
 import { RemoteWebSection } from './RemoteWeb'
+import { useApp } from '../../../state/store'
 
 /** The pairing link as a code to scan. Black on white in every theme, as phones read it. */
 function QrCode({ text, size = 196 }: { text: string; size?: number }): JSX.Element {
@@ -29,6 +30,9 @@ const errorText = (error: unknown): string => (error instanceof Error ? error.me
 export function RemoteDevicesPage(): JSX.Element {
   const [info, setInfo] = useState<RemoteInfo | null>(null)
   const [busy, setBusy] = useState(false)
+  const { settings, patchSettings } = useApp()
+  // The code holds the key; hidden until asked for, so a screen share doesn't leak it.
+  const [showCode, setShowCode] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [copied, setCopied] = useState<'key' | 'link' | null>(null)
   const [confirmReset, setConfirmReset] = useState(false)
@@ -133,6 +137,17 @@ export function RemoteDevicesPage(): JSX.Element {
                   onKeyDown={(e) => e.key === 'Enter' && applyPort()}
                 />
               </Row>
+              <Row
+                title="Allow full autonomy from phones"
+                description="Let a phone create a worker that runs any command without asking, or raise a worker to full autonomy. When off, phones create workers that ask before risky changes."
+              >
+                <Switch
+                  label="Allow full autonomy from phones"
+                  checked={settings?.remote.allowAutonomous ?? false}
+                  disabled={!settings}
+                  onChange={(on) => void patchSettings({ remote: { allowAutonomous: on } })}
+                />
+              </Row>
               <Row title="Key" description="Every request from a phone carries this key. Don’t share it.">
                 <code className="code-settings__path" style={{ fontSize: 12 }}>
                   {info.token ? `${info.token.slice(0, 10)}…` : '…'}
@@ -152,7 +167,13 @@ export function RemoteDevicesPage(): JSX.Element {
               <Card>
                 <div className="row row--stack">
                   <div className="ch-link">
-                    <QrCode text={info.link} />
+                    {showCode ? (
+                      <QrCode text={info.link} />
+                    ) : (
+                      <button className="btn" onClick={() => setShowCode(true)}>
+                        Show pairing code
+                      </button>
+                    )}
                     <ol className="bx-steps">
                       <li>
                         <span>Put the phone on the same network as this Mac, or on your Tailscale network.</span>

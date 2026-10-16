@@ -79,10 +79,19 @@ async function retryLockedAsync(run: () => Promise<void>): Promise<void> {
   }
 }
 
+/**
+ * Chats, settings and the local keys live here, so only the user may read
+ * them: 0700 for the folder and 0600 for each file. On Linux the parent
+ * (~/.config) is often readable by every account on the machine. Windows
+ * ignores the modes; its profile folder is already private.
+ */
+const PRIVATE_DIR = 0o700
+const PRIVATE_FILE = 0o600
+
 const realFs: StoreFs = {
   read: (path) => nodeFs.readFileSync(path, 'utf8'),
   writeDurable(path, data) {
-    const fd = nodeFs.openSync(path, 'w')
+    const fd = nodeFs.openSync(path, 'w', PRIVATE_FILE)
     try {
       nodeFs.writeFileSync(fd, data, 'utf8')
       nodeFs.fsyncSync(fd)
@@ -91,7 +100,7 @@ const realFs: StoreFs = {
     }
   },
   async writeDurableAsync(path, data) {
-    const handle = await open(path, 'w')
+    const handle = await open(path, 'w', PRIVATE_FILE)
     try {
       await handle.writeFile(data, 'utf8')
       await handle.sync()
@@ -105,7 +114,7 @@ const realFs: StoreFs = {
   unlink: (path) => nodeFs.unlinkSync(path),
   copy: (from, to) => nodeFs.copyFileSync(from, to),
   exists: (path) => nodeFs.existsSync(path),
-  mkdir: (path) => void nodeFs.mkdirSync(path, { recursive: true }),
+  mkdir: (path) => void nodeFs.mkdirSync(path, { recursive: true, mode: PRIVATE_DIR }),
   list: (dir) => nodeFs.readdirSync(dir)
 }
 

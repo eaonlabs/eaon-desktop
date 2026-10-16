@@ -41,7 +41,7 @@ import { FileDiff } from './FileDiff'
 import { splitPath } from './FileIcon'
 import type { FileChange } from './FilesChanged'
 import { ImageGeneration } from './ImageGeneration'
-import { Spinner } from './Loaders'
+import { DotMatrix, toolMotion } from './Loaders'
 import { CommandCard, EditCard } from './StepCards'
 import { SwarmCard, ToolImages } from './WorkBits'
 
@@ -294,7 +294,7 @@ const ToolRow = memo(function ToolRow({ part }: { part: ChatToolPart }): JSX.Ele
         <span className="tool__glyph">
           <span className="tool__icon">
             {running ? (
-              <Spinner />
+              <DotMatrix motion={toolMotion(part.name)} size={13} />
             ) : part.status === 'denied' ? (
               <Ban size={13} strokeWidth={2} />
             ) : part.status === 'error' ? (
@@ -336,7 +336,7 @@ const ToolRow = memo(function ToolRow({ part }: { part: ChatToolPart }): JSX.Ele
             {diff && <FileDiff file={diff.file} before={diff.before} after={diff.after} />}
             {part.output !== null && part.output.length > 0 && <pre className="tool__output scroll">{part.output}</pre>}
             {running && part.progress && <pre className="tool__output tool__output--live scroll">{part.progress}</pre>}
-            {running && !part.progress && <div className="tool__waiting step-shimmer">Running…</div>}
+            {running && !part.progress && <div className="tool__waiting">Running…</div>}
           </div>
         </div>
       )}

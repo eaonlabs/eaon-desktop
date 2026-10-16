@@ -647,24 +647,6 @@ a:hover {
   }
 }
 
-/* Text that shimmers while the model is working. */
-.shimmer {
-  background: linear-gradient(90deg, var(--text-4) 20%, var(--text) 45%, var(--text-4) 70%);
-  background-size: 220% 100%;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  animation: shimmer 2.4s linear infinite;
-}
-@keyframes shimmer {
-  from {
-    background-position: 140% 0;
-  }
-  to {
-    background-position: -40% 0;
-  }
-}
-
 /* ---- Staggered list entrance ------------------------------------
    Chat rows cascade in when the list is rebuilt (switching workspace,
    loading history) so the order is readable instead of everything

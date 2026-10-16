@@ -27,6 +27,8 @@ import { agentRunSource, trackAgentRun } from '../features/usage/agentRuns'
 import { usageSource } from '../features/usage/attribution'
 import { runEngineChat } from './engineChat'
 import type { EngineId } from '@shared/engines'
+import { audit, auditIncludesToolInputs } from '../enterprise/audit'
+import { clampUnattended } from '../enterprise/policy'
 
 /**
  * The agent loop — one implementation for every provider and both modes.
@@ -340,6 +342,8 @@ async function runTool(
   const { emit, request } = params
   emit({ type: 'tool-call', messageId: request.messageId, toolId: call.id, name: call.name, input: call.input })
 
+  /** Set once the call is known to change something; those, and every refusal, go to the audit log. */
+  let changes = false
   /** `forModel` replaces what the model is sent; the user always sees `output`. */
   const finish = (
     output: string,
@@ -347,6 +351,18 @@ async function runTool(
     images: NeutralImage[] = [],
     forModel = output
   ): NeutralToolResult & { status: 'done' | 'denied' | 'error' } => {
+    if (changes || status === 'denied') {
+      audit(
+        'agent.tool',
+        {
+          tool: call.name,
+          status,
+          chatId: request.chatId,
+          ...(auditIncludesToolInputs() ? { input: call.input } : {})
+        },
+        { via: params.unattended ? `agent:${params.unattended}` : 'agent', outcome: status === 'denied' ? 'denied' : status === 'error' ? 'failure' : 'success' }
+      )
+    }
     const paths = images.map(saveImage)
     emit({ type: 'tool-result', messageId: request.messageId, toolId: call.id, output, status, ...(paths.length ? { images: paths } : {}) })
     return { id: call.id, name: call.name, output: forModel, status, ...(images.length ? { images } : {}), ...(status === 'error' ? { isError: true } : {}) }
@@ -364,7 +380,8 @@ async function runTool(
   }
   const policy: RunPolicy = {
     readOnly: params.readOnly,
-    unattended: params.unattended,
+    // An organization's policy can hold autonomous runs to `safe` (enterprise/policy.ts).
+    unattended: params.unattended ? clampUnattended(params.unattended) : undefined,
     allowOnce: params.allowOnce,
     toolGate: params.toolGate,
     origin: params.origin
@@ -384,6 +401,7 @@ async function runTool(
     policy
   }
 
+  changes = isMutating(tool, call.input, ctx)
   // Every rule about whether this call may run — plan mode, a guest's cap,
   // who the work came from, the unattended policy or the approval mode, and
   // the tool's own risk — is in agent/policy.ts, shared with sub-agents and

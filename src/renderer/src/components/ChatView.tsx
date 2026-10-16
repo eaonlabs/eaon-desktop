@@ -40,6 +40,7 @@ import { ApprovalCard, approvalRisk, CallPreview, CommandPreview, enterApproves 
 import { WorkerFace } from './workers/WorkerFace'
 import { ChannelLogo } from './channels/ChannelLogo'
 import { AgentBrowserToggle } from './agentBrowser/AgentBrowserPanel'
+import { CodeToggle } from './ide/CodePanel'
 import { CHANNEL_LABEL } from '@shared/channels'
 import { fileUrl, isImagePath, isVideoPath } from '../lib/files'
 import type { Chat, ChatMessage, ChatToolPart } from '@shared/types'
@@ -75,14 +76,16 @@ function Home(): JSX.Element {
     useShallow((s) => ({ settings: s.settings, setComposerDraft: s.setComposerDraft, browserOpen: s.browserOpen, toggleBrowser: s.toggleBrowser }))
   )
   const showSuggestions = settings?.general.suggestedPrompts !== false
+  const isWork = useIsWork()
 
   return (
     <>
       <TopBar
         right={
-          browserOpen ? null : (
-            <BrowserToggle onClick={() => toggleBrowser()} />
-          )
+          <div className="chat-header__actions">
+            {isWork && <CodeToggle />}
+            {!browserOpen && <BrowserToggle onClick={() => toggleBrowser()} />}
+          </div>
         }
       />
       <div className="home">
@@ -346,6 +349,7 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
         }
         right={
           <div className="chat-header__actions">
+            {isWork && <CodeToggle />}
             {isWork && <AgentBrowserToggle />}
             {isWork && !browserOpen && <BrowserToggle onClick={() => toggleBrowser()} />}
           </div>

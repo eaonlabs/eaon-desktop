@@ -2,6 +2,7 @@ import { ACCESS_ORDER, weakerAccess, type GuestAccess } from '@shared/channels'
 import type { WorkerAccess, WorkerMail } from '@shared/workers'
 import type { ToolGate } from '../../agent/loop'
 import { isWebSearchTool } from '../../webSearch'
+import { toolSourceOf } from '../../agent/tools'
 
 /**
  * What a turn may do when a guest's message is in it — someone the user let
@@ -19,8 +20,15 @@ import { isWebSearchTool } from '../../webSearch'
  * own message batched with a guest's is held to the guest's level too.
  */
 
-/** Tools whose effects reach later turns. */
-const LASTING = new Set(['set_heartbeat', 'add_routine', 'remove_routine', 'set_goal', 'update_notes', 'message_worker', 'hand_off', 'post_to_room', 'create_worker', 'sleep'])
+/**
+ * Tools whose effects reach later turns, or other workers. Handing work to a
+ * colleague counts: the colleague runs it at its own access, which may be
+ * more than the guest's.
+ */
+const LASTING = new Set([
+  'set_heartbeat', 'add_routine', 'remove_routine', 'set_goal', 'update_notes', 'message_worker', 'hand_off', 'finish_handoff', 'post_to_room',
+  'create_worker', 'sleep', 'team'
+])
 
 /** Everything a "Talk only" turn may use. */
 const TALK = new Set(['web_fetch', 'set_status', 'ask_user', 'notify_user', 'send_chat_message', 'update_plan'])
@@ -65,6 +73,15 @@ const isPrivate = (name: string): boolean => PRIVATE.has(name) || name.startsWit
 const PRIVATE_REFUSAL =
   "You are answering a guest, and that tool can see the user's own accounts or screen, so a guest can't have you use it. Use web search or public pages instead."
 
+/**
+ * The user's connected accounts (plugins: Gmail, Slack, Notion, GitHub…),
+ * their card and their phone simulator. A guest can read the user's mail
+ * through a "read-only" plugin tool as easily as through the browser.
+ */
+const ACCOUNT_TOOLS = new Set(['payment_card', 'ios_simulator'])
+const ACCOUNT_REFUSAL =
+  "You are answering a guest, and that tool reaches the user's own connected accounts, card or devices, so a guest can't have you use it."
+
 const MONEY_AND_MAIL_REFUSAL =
   "You are answering a guest, and your email and the user's trading account are the user's alone, so a guest can't have you use them."
 
@@ -80,9 +97,9 @@ export function guestGate(cap: GuestAccess): ToolGate | undefined {
     if (isPrivate(tool.name)) return PRIVATE_REFUSAL
     // The agent's inbox and the user's brokerage account are the user's alone, whatever a guest may otherwise do.
     if (tool.name.startsWith('email_') || tool.name.startsWith('trading_')) return MONEY_AND_MAIL_REFUSAL
-    if (cap !== 'talk') return null
-    if (isWebSearchTool(tool.name)) return null
-    if (!TALK.has(tool.name)) return TALK_REFUSAL
+    if (ACCOUNT_TOOLS.has(tool.name) || toolSourceOf(tool) === 'plugins') return ACCOUNT_REFUSAL
+    // At every level below "Same as you", not only "Talk only": a guest must
+    // not reach the user's router, local servers or cloud metadata.
     if (tool.name === 'web_fetch') {
       try {
         if (isPrivateHost(new URL(String(input.url ?? '')).hostname)) return 'That address is on the user’s own computer or network, which a guest may not reach.'
@@ -90,6 +107,9 @@ export function guestGate(cap: GuestAccess): ToolGate | undefined {
         return null
       }
     }
+    if (cap !== 'talk') return null
+    if (isWebSearchTool(tool.name)) return null
+    if (!TALK.has(tool.name)) return TALK_REFUSAL
     return null
   }
 }

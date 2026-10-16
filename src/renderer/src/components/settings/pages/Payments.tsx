@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { CreditCard, ShieldAlert, Trash2 } from 'lucide-react'
 import {
   formatMoney,
+  ORDER_STAGE_LABEL,
   PAYMENTS_WAIVER,
   PAYMENTS_WAIVER_VERSION,
   type PaymentLimits,
@@ -241,12 +242,25 @@ function PurchaseRow({ purchase }: { purchase: PurchaseRecord }): JSX.Element {
           {purchase.description ? <span className="pay-purchase__what"> · {purchase.description}</span> : null}
         </div>
         <div className="row__desc">
-          {when} · {purchase.how === 'approved' ? 'You approved it' : 'Automatic'}
+          {when} · {purchase.how === 'approved' ? 'You approved it' : purchase.how === 'scheduled' ? 'Purchase schedule' : 'Automatic'}
           {purchase.recurring ? ' · Subscription' : ''}
           {purchase.site ? ` · ${purchase.site}` : ''}
           {purchase.overAuthorized ? ` · Charged more than the ${formatMoney(purchase.amount, purchase.currency)} approved` : ''}
           {purchase.note ? ` · ${purchase.note}` : ''}
         </div>
+        {purchase.orderId && (
+          <div className="row__desc pay-purchase__order">
+            Order <span className="pay-mono">{purchase.orderId}</span>
+            {purchase.tracking && (
+              <>
+                {' · '}
+                {ORDER_STAGE_LABEL[purchase.tracking.stage]}
+                {purchase.tracking.eta && purchase.tracking.stage !== 'delivered' ? `, arrives ${purchase.tracking.eta}` : ''}
+                {purchase.tracking.trackingNumber ? ` · ${purchase.tracking.carrier ?? 'Tracking'} ${purchase.tracking.trackingNumber}` : ''}
+              </>
+            )}
+          </div>
+        )}
       </div>
       <div className="row__trail">
         <span className="pay-mono pay-purchase__amount">{money(purchase.charged ?? purchase.amount, purchase.currency)}</span>

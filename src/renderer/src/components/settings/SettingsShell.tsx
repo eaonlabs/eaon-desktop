@@ -22,6 +22,7 @@ import {
   Server,
   Settings as SettingsIcon,
   ShieldCheck,
+  Lock,
   Smartphone,
   SquarePlus,
   Sun,
@@ -58,6 +59,8 @@ import { UsagePage } from './pages/Usage'
 import { AccountsPage } from './pages/Accounts'
 import { PaymentsPage } from './pages/Payments'
 import { EnginesPage } from './pages/Engines'
+import { SecurityPage } from './pages/Security'
+import type { PolicyFeature } from '@shared/enterprise'
 
 interface NavEntry {
   id: string
@@ -96,6 +99,7 @@ const NAV: NavEntry[] = [
   { id: 'local-server', label: 'Local API Server', icon: <Server size={size} strokeWidth={stroke} />, group: 'Advanced' },
   { id: 'remote-devices', label: 'Remote devices', icon: <Smartphone size={size} strokeWidth={stroke} />, group: 'Advanced' },
   { id: 'system', label: 'System Monitor', icon: <Activity size={size} strokeWidth={stroke} />, group: 'Advanced' },
+  { id: 'security', label: 'Security', icon: <Lock size={size} strokeWidth={stroke} />, group: 'Advanced' },
 
   { id: 'archived', label: 'Archived chats', icon: <Archive size={size} strokeWidth={stroke} />, group: 'Archived' }
 ]
@@ -104,6 +108,18 @@ const NAV: NavEntry[] = [
     concept — Browser drives `BrowserPanel` (Eaon Work only, see App.tsx) and
     Code index powers `codebase_search` over that folder. */
 const WORK_ONLY_PAGES = new Set(['browser', 'code-index'])
+
+/** Pages for surfaces an organization's policy can turn off; hidden when it does. */
+const POLICY_PAGES: Record<string, PolicyFeature> = {
+  'remote-devices': 'remoteAccess',
+  'local-server': 'localApiServer',
+  'computer-use': 'computerUse',
+  payments: 'payments',
+  'chat-apps': 'channels',
+  email: 'email',
+  'browser-control': 'browserUse',
+  discord: 'discordPresence'
+}
 
 const PAGES: Record<string, () => JSX.Element> = {
   general: GeneralPage,
@@ -130,6 +146,7 @@ const PAGES: Record<string, () => JSX.Element> = {
   'local-server': LocalServerPage,
   'remote-devices': RemoteDevicesPage,
   system: SystemMonitorPage,
+  security: SecurityPage,
   archived: ArchivedPage
 }
 
@@ -146,7 +163,25 @@ export function SettingsShell(): JSX.Element {
     if (!isWork && WORK_ONLY_PAGES.has(settingsPage)) setSettingsPage('general')
   }, [isWork, settingsPage, setSettingsPage])
 
-  const visibleNav = useMemo(() => (isWork ? NAV : NAV.filter((entry) => !WORK_ONLY_PAGES.has(entry.id))), [isWork])
+  // Features the organization's policy turned off (enterprise:status).
+  const [blocked, setBlocked] = useState<Set<string>>(() => new Set())
+  useEffect(() => {
+    void window.api.enterprise
+      .status()
+      .then(({ policy }) => {
+        const features = policy.policy?.features ?? {}
+        setBlocked(new Set(Object.entries(POLICY_PAGES).filter(([, feature]) => features[feature] === false).map(([page]) => page)))
+      })
+      .catch(() => undefined)
+  }, [])
+  useEffect(() => {
+    if (blocked.has(settingsPage)) setSettingsPage('security')
+  }, [blocked, settingsPage, setSettingsPage])
+
+  const visibleNav = useMemo(
+    () => NAV.filter((entry) => (isWork || !WORK_ONLY_PAGES.has(entry.id)) && !blocked.has(entry.id)),
+    [isWork, blocked]
+  )
 
   const entries = useMemo(() => {
     const q = query.trim().toLowerCase()

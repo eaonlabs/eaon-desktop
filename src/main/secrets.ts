@@ -75,7 +75,7 @@ function loadForWrite(): Vault {
 
 function persist(vault: Vault): void {
   const dir = app.getPath('userData')
-  if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
+  if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 })
   const json = JSON.stringify(vault)
   const payload = safeStorage.isEncryptionAvailable()
     ? safeStorage.encryptString(json)
@@ -83,7 +83,9 @@ function persist(vault: Vault): void {
   // Replaced whole: a crash mid-write would otherwise leave a vault that can
   // never be decrypted again.
   const tmp = `${vaultPath()}.tmp`
-  writeFileSync(tmp, payload)
+  // Owner-only, even when encrypted: a plaintext vault (no keyring) must not
+  // be readable by other accounts on the machine.
+  writeFileSync(tmp, payload, { mode: 0o600 })
   renameSync(tmp, vaultPath())
 }
 

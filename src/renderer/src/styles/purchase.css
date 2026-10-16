@@ -1,0 +1,334 @@
+/* ---------- Purchase schedule (components/purchase) ----------
+   The /purchase dialog: what to buy, where, the most per order, how often,
+   and a calendar for the first day. The summary at the bottom reads like a
+   receipt, since that is what saving it amounts to. */
+
+/* The body scrolls on a short window; keep its scrollbar off the right column. */
+.modal__body:has(> .purchase) {
+  scrollbar-gutter: stable;
+  padding-right: 10px;
+}
+.purchase {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  color: var(--text-2);
+}
+.purchase__lede {
+  margin: -2px 0 2px;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  text-wrap: pretty;
+}
+
+.purchase__notice {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px 9px 12px;
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface-2));
+  color: var(--text);
+  font-size: var(--fs-sm);
+}
+.purchase__notice svg {
+  flex: none;
+  color: var(--accent);
+}
+.purchase__notice span {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ---- Fields ---- */
+
+.purchase__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+.purchase__label {
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+}
+.purchase__optional {
+  margin-left: 4px;
+  color: var(--text-4);
+  font-weight: 400;
+}
+.purchase .input[aria-invalid='true'] {
+  border-color: color-mix(in srgb, var(--danger) 60%, transparent);
+}
+.purchase__pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 156px;
+  gap: 12px;
+}
+.purchase__money {
+  position: relative;
+  display: block;
+}
+.purchase__currency {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 11px;
+  display: grid;
+  place-items: center;
+  color: var(--text-3);
+  font-size: var(--fs-base);
+  pointer-events: none;
+}
+.purchase__money .input {
+  padding-left: 26px;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Segmented controls sit on the dialog's own surface, so they get a track. */
+.purchase .segment {
+  display: flex;
+  padding: 2px;
+  border-radius: calc(var(--r-sm) + 2px);
+  background: var(--sunken);
+  border: 1px solid var(--border);
+}
+.purchase .segment__item {
+  flex: 1;
+  padding: 0 8px;
+}
+.purchase .segment__item[data-active='true'] {
+  background: var(--surface-4);
+  box-shadow: 0 1px 2px var(--shadow-ink, rgba(0, 0, 0, 0.12));
+}
+
+/* ---- When: the calendar beside the day's details ---- */
+
+.purchase__when {
+  display: grid;
+  grid-template-columns: 252px minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+.purchase__side {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding-top: 22px;
+}
+
+.purchase__day {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--sunken);
+  border: 1px solid var(--border);
+}
+.purchase__day-name {
+  color: var(--text);
+  font-size: var(--fs-base);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+.purchase__day-note {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.purchase__day[data-today] {
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--sunken));
+}
+.purchase__day[data-today] .purchase__day-note {
+  color: var(--accent);
+  font-weight: 500;
+}
+
+.purchase__inline {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: var(--fs-xs);
+}
+.purchase__inline--stack {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+}
+.purchase__time {
+  width: 128px;
+  height: 30px;
+  font-variant-numeric: tabular-nums;
+}
+.purchase__count {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.purchase__count .input {
+  width: 64px;
+  height: 30px;
+  font-variant-numeric: tabular-nums;
+}
+
+.purchase__track {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+}
+.purchase__track-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  color: var(--text);
+  font-size: var(--fs-sm);
+}
+.purchase__hint {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+
+/* ---- The calendar ---- */
+
+.daypick {
+  padding: 8px 8px 6px;
+  border-radius: var(--r-md);
+  background: var(--sunken);
+  border: 1px solid var(--border);
+}
+.daypick__head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 2px 6px 6px;
+}
+.daypick__month {
+  flex: 1;
+  color: var(--text);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+.daypick__head .icon-btn:disabled {
+  opacity: 0.3;
+}
+.daypick__grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+}
+.daypick__weekday {
+  display: grid;
+  place-items: center;
+  height: 22px;
+  color: var(--text-4);
+  font-size: var(--fs-xxs);
+  font-weight: 500;
+}
+.daypick__day {
+  position: relative;
+  height: 30px;
+  border-radius: var(--r-sm);
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.daypick__day:hover:not(:disabled):not([data-picked]) {
+  background: var(--hover);
+  color: var(--text);
+}
+.daypick__day:disabled {
+  color: var(--text-4);
+  opacity: 0.45;
+}
+.daypick__day[data-today]::after {
+  content: '';
+  position: absolute;
+  bottom: 4px;
+  left: 50%;
+  width: 4px;
+  height: 4px;
+  margin-left: -2px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.daypick__day[data-picked] {
+  background: var(--fg);
+  color: var(--bg);
+  font-weight: 600;
+}
+.daypick__day[data-picked][data-today]::after {
+  background: var(--bg);
+}
+.daypick__day:focus-visible {
+  outline: 2px solid var(--focus-ring, var(--accent));
+  outline-offset: 1px;
+}
+
+/* ---- The receipt ---- */
+
+.purchase__receipt {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin: 2px 0 0;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  border: 1px dashed var(--border-strong, var(--border));
+}
+.purchase__receipt > div {
+  display: grid;
+  grid-template-columns: 112px minmax(0, 1fr);
+  gap: 10px;
+  align-items: baseline;
+}
+.purchase__receipt dt {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.purchase__receipt dt svg {
+  flex: none;
+  color: var(--text-4);
+  transform: translateY(1px);
+}
+.purchase__receipt dd {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  text-wrap: pretty;
+}
+
+.purchase__fine {
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+.purchase__error {
+  margin: -4px 0 0;
+  color: var(--danger);
+  font-size: var(--fs-xs);
+}
+
+@media (max-width: 620px) {
+  .purchase__when,
+  .purchase__pair {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .purchase__side {
+    padding-top: 0;
+  }
+}

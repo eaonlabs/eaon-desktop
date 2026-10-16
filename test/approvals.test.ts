@@ -13,7 +13,8 @@ test('read-only commands are recognised', () => {
     'cat package.json | jq .scripts',
     'grep -rn "TODO" src | head -20',
     'find . -name "*.ts" -not -path "./node_modules/*"',
-    'FOO=1 ls',
+    'LANG=C ls',
+    'NO_COLOR=1 git status',
     'npm ls --depth=0',
     'node --version',
     'fd -e ts src',
@@ -246,4 +247,22 @@ test('writtenPaths knows cmd and PowerShell writers and their switches', () => {
   assert.deepEqual(writtenPaths('npm test > nul 2>&1'), [])
   assert.deepEqual(writtenPaths('dir 2>NUL'), [])
   assert.deepEqual(writtenPaths('echo x > %TEMP%\\scratch.txt'), [])
+})
+
+test('environment variables that change behaviour make a command ask', () => {
+  for (const cmd of [
+    "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.fsmonitor GIT_CONFIG_VALUE_0='touch${IFS}/tmp/pwned' git status",
+    'GIT_EXTERNAL_DIFF=/tmp/x git diff',
+    'PAGER=/tmp/x git log',
+    'LD_PRELOAD=/tmp/x.so ls',
+    'DYLD_INSERT_LIBRARIES=/tmp/x.dylib ls',
+    'NODE_OPTIONS=--require=/tmp/x node --version',
+    'foo=1 ls',
+    'printenv',
+    'printenv OPENAI_API_KEY',
+    'echo $OPENAI_API_KEY',
+    'echo %OPENAI_API_KEY%'
+  ]) {
+    assert.equal(isReadOnlyCommand(cmd), false, cmd)
+  }
 })

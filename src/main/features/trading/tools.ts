@@ -309,6 +309,18 @@ export function tradingToolSource(engine: TradingEngine): ToolSource {
     }
   }
 
+  /**
+   * Whether a trade has to wait for the user, in any approval mode: a
+   * session acts on its own; a desk worker follows its "place orders on its
+   * own" switch, practice money or real; anything else waits when it is real money.
+   */
+  const orderNeedsUser = (ctx: ToolContext): boolean => {
+    if (fromSession(ctx)) return false
+    const plan = tradingFor(ctx.request.chatId)
+    if (plan && plan.via === TRADING_DESK) return !plan.autoPlace
+    return live()
+  }
+
   const order: AgentTool = {
     name: 'trading_order',
     description: 'Buy or sell a US stock or ETF. Checked against the user’s limits first. Give shares (qty) or dollars (notional, market orders only), and always a reason.',
@@ -330,14 +342,7 @@ export function tradingToolSource(engine: TradingEngine): ToolSource {
     },
     mutating: true,
     risky: () => true,
-    catastrophic: (_input, ctx) => {
-      if (fromSession(ctx)) return false
-      // A worker the user set up to trade on the desk: its "place orders on
-      // its own" switch decides, practice money or real.
-      const plan = tradingFor(ctx.request.chatId)
-      if (plan && plan.via === TRADING_DESK) return !plan.autoPlace
-      return live()
-    },
+    catastrophic: (_input, ctx) => orderNeedsUser(ctx),
     describe: (input) =>
       `${describeOrder({ side: input.side, symbol: input.symbol, qty: input.qty, notional: input.notional, type: input.type ?? (input.limit_price !== undefined ? 'limit' : 'market'), limitPrice: input.limit_price })}${live() ? ' (real money)' : ''}`,
     run: async (input, ctx) => {
@@ -380,7 +385,11 @@ export function tradingToolSource(engine: TradingEngine): ToolSource {
       }
     },
     mutating: (input) => Boolean(str(input.symbol)),
-    describe: (input) => (str(input.symbol) ? `Exits on ${str(input.symbol).toUpperCase()}` : 'List exits'),
+    // A stop above the price sells at once: an exit is an order, so it is
+    // asked about like one.
+    risky: (input) => Boolean(str(input.symbol)),
+    catastrophic: (input, ctx) => Boolean(str(input.symbol)) && orderNeedsUser(ctx),
+    describe: (input) => (str(input.symbol) ? `Exits on ${str(input.symbol).toUpperCase()}${live() ? ' (real money)' : ''}` : 'List exits'),
     run: async (input, ctx) => {
       const symbol = str(input.symbol)
       if (!symbol) {
@@ -406,6 +415,8 @@ export function tradingToolSource(engine: TradingEngine): ToolSource {
     description: 'Cancel an open order by its id.',
     inputSchema: { type: 'object', properties: { order_id: { type: 'string' } }, required: ['order_id'] },
     mutating: true,
+    // Cancelling can take away a protective order.
+    risky: () => true,
     describe: (input) => `Cancel order ${str(input.order_id)}`,
     run: async (input) => {
       const id = str(input.order_id)

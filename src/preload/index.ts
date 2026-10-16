@@ -35,6 +35,7 @@ import { eaonCodeApi } from './features/eaonCode'
 import { discordApi } from './features/discordPresence'
 import { modelLibraryApi } from './features/modelLibrary'
 import { libraryApi } from './features/library'
+import { workspaceFilesApi } from './features/workspaceFiles'
 import { terminalsApi } from './features/terminals'
 import { adeApi } from './features/ade'
 import { workersApi } from './features/workers'
@@ -57,6 +58,7 @@ import { controlApi } from './features/control'
 import { starApi } from './features/star'
 import { freeCreditsApi } from './features/freeCredits'
 import { cliAccountsApi } from './features/cliAccounts'
+import { enterpriseApi } from './features/enterprise'
 
 /** Subscribes to a main-process event; returns the unsubscribe. */
 function on<T>(channel: string, handler: (payload: T) => void): () => void {
@@ -321,6 +323,7 @@ const fullApi = {
   discord: discordApi,
   modelLibrary: modelLibraryApi,
   library: libraryApi,
+  workspaceFiles: workspaceFilesApi,
   terminals: terminalsApi,
   ade: adeApi,
   workers: workersApi,
@@ -342,7 +345,8 @@ const fullApi = {
   control: controlApi,
   star: starApi,
   freeCredits: freeCreditsApi,
-  cliAccounts: cliAccountsApi
+  cliAccounts: cliAccountsApi,
+  enterprise: enterpriseApi
 }
 
 contextBridge.exposeInMainWorld('api', fullApi)

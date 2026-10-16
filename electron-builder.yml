@@ -21,6 +21,23 @@ files:
   # merge) and its patched Playwright.
   - '!**/node_modules/rookie-cookies*/**'
   - '!**/node_modules/patchright-core/**'
+# Electron fuses, flipped in the binary at package time. Without them a local
+# process can run any script under Eaon's signature (NODE_OPTIONS, --inspect)
+# and inherit what macOS has granted Eaon: the microphone, Accessibility and
+# Screen Recording for computer use. ELECTRON_RUN_AS_NODE stays on: the
+# bundled `tokn` command runs on Eaon's own Node (features/toknCli.ts), so it
+# needs no Node on the computer. File-protocol privileges stay on: the
+# renderer is loaded from file://. Integrity validation checks app.asar
+# against the hash electron-builder writes into Info.plist / the exe, so a
+# modified bundle refuses to start; smoke-test a packaged build after
+# changing these.
+electronFuses:
+  runAsNode: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+  enableCookieEncryption: true
 # node-pty's native module and its spawn-helper must be real files on disk:
 # the helper is exec'd, which cannot happen from inside an asar archive.
 asarUnpack:

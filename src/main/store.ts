@@ -5,6 +5,7 @@ import { REMOTE_DEFAULT_PORT } from '@shared/remote'
 import { logCrash } from './crashGuard'
 import { backupDocs, flushDocWrites, readDoc, setAside, shapeOf, writeDocAsync, writeDocSync, type DocSpec } from './storeFiles'
 import { repairChats, repairMcpServers, repairProjects, repairProviderConfig, repairSettings, repairWorkspaces } from './storeRepair'
+import { enforceSettings } from './enterprise/policy'
 
 /**
  * What `providers.json` keeps per provider: the user's changes, layered over
@@ -174,12 +175,14 @@ export const defaultSettings: Settings = {
     port: 1337,
     defaultModelId: null,
     smallModelId: null,
-    token: null
+    token: null,
+    requireKey: false
   },
   remote: {
     enabled: false,
     port: REMOTE_DEFAULT_PORT,
-    token: null
+    token: null,
+    allowAutonomous: false
   },
   rc: {
     enabled: false,
@@ -357,10 +360,12 @@ export const store = {
   getSettings(): Settings {
     const saved = readDoc('settings.json', SETTINGS_DOC)
     for (const key of REMOVED_SETTINGS) delete saved[key]
-    return merge(defaultSettings, saved)
+    // An organization's policy (enterprise/policy.ts) has the last word on
+    // every setting it locks, whatever the file says.
+    return enforceSettings(merge(defaultSettings, saved))
   },
   saveSettings(settings: Settings): Settings {
-    const checked = checkedSettings(settings)
+    const checked = enforceSettings(checkedSettings(settings))
     writeJson('settings.json', checked)
     return checked
   },
@@ -368,7 +373,7 @@ export const store = {
     // Checked before it is saved or sent to every window: a patch that sets a
     // whole section to null, or an unknown option, would otherwise reach the
     // renderers as is.
-    const next = checkedSettings(merge(this.getSettings(), patch))
+    const next = enforceSettings(checkedSettings(merge(this.getSettings(), patch)))
     writeJson('settings.json', next)
     return next
   },

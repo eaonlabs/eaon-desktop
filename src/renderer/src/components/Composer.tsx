@@ -15,6 +15,7 @@ import {
   Paperclip,
   Plus,
   ShieldCheck,
+  ShoppingBag,
   Square,
   Target,
   AtSign,
@@ -42,6 +43,7 @@ import { useChatEngine } from './composer/chatEngine'
 import { EngineNotice } from './composer/EngineNotice'
 import { joinTranscript, useDictation } from './composer/useDictation'
 import { VoiceBar } from './composer/VoiceBar'
+import { usePurchaseDialog } from './purchase/purchaseStore'
 
 /**
  * The chat box. Deliberately plain — a + button, the text, the model and
@@ -220,6 +222,15 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
             (approvalMode) => void patchSettings({ approvalMode })
           ),
           { id: 'browser', title: 'Browser', keywords: 'web browse', section: 'Tools', icon: <Globe size={16} strokeWidth={1.8} />, run: () => toggleBrowser(true) },
+          {
+            id: 'purchase',
+            title: 'Purchase schedule',
+            keywords: 'purchase buy order shop reorder recurring subscribe',
+            description: 'Have the agent buy something, once or on repeat',
+            section: 'Tools',
+            icon: <ShoppingBag size={16} strokeWidth={1.8} />,
+            run: () => usePurchaseDialog.getState().show()
+          },
           { id: 'computer', title: 'Computer use', keywords: 'computer screen mouse', section: 'Tools', icon: <Laptop size={16} strokeWidth={1.8} />, hint: settings?.computerUse.enabled ? 'On' : 'Off', run: () => setSettingsPage('computer-use') },
           { id: 'plugins', title: 'Browse plugins', keywords: 'plugins mcp integrations', section: 'Tools', icon: <AtSign size={16} strokeWidth={1.8} />, run: () => setView('plugins') }
         )
@@ -487,10 +498,10 @@ function ActiveChip({
 /* ---------------------------------------------------------- goal end time */
 
 /** How long a goal runs: until it's done (the usual limits), for a while, or until a clock time. */
-type GoalEnd = { kind: 'none' } | { kind: 'for'; minutes: number } | { kind: 'at'; time: string }
+export type GoalEnd = { kind: 'none' } | { kind: 'for'; minutes: number } | { kind: 'at'; time: string }
 
 /** The goal's end as a timestamp, worked out when the message is sent. A clock time already past today means tomorrow. */
-function goalEndAt(end: GoalEnd, now = Date.now()): number | null {
+export function goalEndAt(end: GoalEnd, now = Date.now()): number | null {
   if (end.kind === 'for') return now + end.minutes * 60_000
   if (end.kind !== 'at') return null
   const [hours, minutes] = end.time.split(':').map(Number)
@@ -516,13 +527,27 @@ const GOAL_SPANS = [30, 60, 180, 480]
  * limits (Settings → Configuration); a span or a clock time keeps Eaon on it
  * until then, with the computer kept awake.
  */
-function GoalEndChip({ value, onChange }: { value: GoalEnd; onChange: (value: GoalEnd) => void }): JSX.Element {
+export function GoalEndChip({
+  value,
+  onChange,
+  who = 'Eaon',
+  doneHint = 'Stops when the goal is met, or at the usual limits',
+  spans = GOAL_SPANS
+}: {
+  value: GoalEnd
+  onChange: (value: GoalEnd) => void
+  /** Who works on it, for the tooltip: Eaon, or a worker's name. */
+  who?: string
+  /** What "Until it's done" means where this chip is. */
+  doneHint?: string
+  spans?: number[]
+}): JSX.Element {
   const anchor = useRef<HTMLButtonElement>(null)
   const menu = useDisclosure()
   const [time, setTime] = useState(value.kind === 'at' ? value.time : defaultEndTime())
   return (
     <>
-      <button ref={anchor} className="composer-chip composer-chip--button" onClick={menu.toggle} title="When Eaon stops working on the goal">
+      <button ref={anchor} className="composer-chip composer-chip--button" onClick={menu.toggle} title={`When ${who} stops working on the goal`}>
         <Clock3 size={13} strokeWidth={2} />
         <span className="composer-chip__label">{goalEndLabel(value)}</span>
         <ChevronDown size={11} strokeWidth={2.4} />
@@ -531,14 +556,14 @@ function GoalEndChip({ value, onChange }: { value: GoalEnd; onChange: (value: Go
         <div className="menu__label">Keep working on the goal</div>
         <MenuItem
           title="Until it's done"
-          description="Stops when the goal is met, or at the usual limits"
+          description={doneHint}
           checked={value.kind === 'none'}
           onClick={() => {
             onChange({ kind: 'none' })
             menu.close()
           }}
         />
-        {GOAL_SPANS.map((minutes) => (
+        {spans.map((minutes) => (
           <MenuItem
             key={minutes}
             title={minutes < 60 ? `For ${minutes} minutes` : `For ${minutes / 60} hour${minutes === 60 ? '' : 's'}`}
@@ -693,6 +718,16 @@ function AddMenu({
             onMouseEnter={() => setSub(null)}
             onClick={() => {
               toggleBrowser(true)
+              close()
+            }}
+          />
+          <MenuItem
+            icon={<ShoppingBag size={16} strokeWidth={1.8} />}
+            title="Purchase schedule"
+            hint="Buy on repeat"
+            onMouseEnter={() => setSub(null)}
+            onClick={() => {
+              usePurchaseDialog.getState().show()
               close()
             }}
           />

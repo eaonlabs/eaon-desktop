@@ -10,6 +10,8 @@ import { store } from './store'
 import { secrets } from './secrets'
 import { mcpCatalogEntry } from '@shared/mcpCatalog'
 import { McpOAuthProvider, oauthFetch, SignInRequiredError } from './mcpOAuth'
+import { audit } from './enterprise/audit'
+import { mcpCommandAllowed, PolicyError } from './enterprise/policy'
 
 /**
  * MCP client pool. Each enabled server gets a live connection; tools discovered
@@ -335,6 +337,10 @@ async function attemptConnect(server: McpServer, current: () => boolean): Promis
       }
     } else {
       if (!server.command) throw new Error('No command configured')
+      if (!mcpCommandAllowed(server.command)) {
+        audit('mcp.server_blocked', { id: server.id, command: server.command }, { via: 'system', outcome: 'denied' })
+        throw new PolicyError(`Starting "${server.command}" as an MCP server`)
+      }
       const launch = resolveLaunch(server.command, server.args)
       const transport = new StdioClientTransport({
         command: launch.command,

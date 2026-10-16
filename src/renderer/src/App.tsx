@@ -3,6 +3,8 @@ import { useShallow } from 'zustand/react/shallow'
 import { isAgentKind, useApp, useIsWork, useWorkspaceKind } from './state/store'
 import { Sidebar } from './components/Sidebar'
 import { ARCHIVE_REQUEST, ChatView } from './components/ChatView'
+import { CodePanel } from './components/ide/CodePanel'
+import { useIde } from './components/ide/ideStore'
 import { BrowserKeys, BrowserPanel } from './components/browser/BrowserPanel'
 import { isLocalUrl, openInBrowser, useBrowser } from './components/browser/browserStore'
 import { terminals } from './components/code/terminal/registry'
@@ -38,6 +40,7 @@ import { StarPrompt } from './components/StarPrompt'
 import { Onboarding } from './components/onboarding/Onboarding'
 import { Tour } from './components/onboarding/Tour'
 import { FreeCreditsOffer } from './components/FreeCreditsOffer'
+import { PurchaseDialog } from './components/purchase/PurchaseDialog'
 
 export default function App(): JSX.Element {
   const { ready, initError, view, settingsPage, activeChatId, browserOpen, init, setView, setSettingsPage } = useApp(
@@ -80,6 +83,7 @@ export default function App(): JSX.Element {
   const browserHere = isWork || (kind === 'code' && view === 'chat')
   const browserExpanded = useBrowser((s) => s.expanded) && browserHere && browserOpen
   const agentBrowserOpen = useAgentBrowser((s) => s.open)
+  const codeOpen = useIde((s) => s.open)
   // A worker's browser beside its page, while that page is the one open.
   const browserWorker = useWorkers((s) => (s.browserFor && s.selectedId === s.browserFor && !s.selectedRoomId ? s.workers.find((w) => w.id === s.browserFor) ?? null : null))
   // A worker's run history beside its page.
@@ -183,6 +187,11 @@ export default function App(): JSX.Element {
               {view === 'models' && <ModelsPage />}
             </ErrorBoundary>
           </div>
+          {isWork && view === 'chat' && kind === 'chat' && codeOpen && (
+            <ErrorBoundary area="code panel" fallback={() => <PanelError onClose={() => useIde.getState().setOpen(false)} />}>
+              <CodePanel />
+            </ErrorBoundary>
+          )}
           {browserHere && browserOpen && (
             <ErrorBoundary area="browser panel" fallback={() => <PanelError onClose={() => useApp.getState().toggleBrowser(false)} />}>
               <BrowserPanel />
@@ -218,6 +227,9 @@ export default function App(): JSX.Element {
       <Notice />
       <FreeCreditsOffer />
       <StarPrompt />
+      <ErrorBoundary area="purchase schedule" fallback={() => null}>
+        <PurchaseDialog />
+      </ErrorBoundary>
       <DiscordPresence />
       <Onboarding />
       <Tour />

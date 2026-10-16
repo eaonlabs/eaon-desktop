@@ -47,6 +47,10 @@ import { applyRunAtLogin, backgroundSupported, launchedInBackground, syncTray } 
 import { crashLogPath, installCrashGuard, logCrash } from './crashGuard'
 import { applyAppIcon, currentAppIconFile } from './appIcon'
 import { DOCS_URL, ISSUES_URL, releaseNotesUrl } from '@shared/links'
+import { audit } from './enterprise/audit'
+import { assertFeature, featureAllowed, providerAllowed, PolicyError } from './enterprise/policy'
+import { POLICY_GATED_FEATURES } from './features/enterprise'
+import { devServerUrl, guardIpc, guardWebviews, installSessionPolicy, isAppUrl } from './security/hardening'
 
 const here = join(fileURLToPath(import.meta.url), '..')
 app.setName('Eaon')
@@ -62,8 +66,16 @@ if (process.platform === 'win32') app.setAppUserModelId('dev.eaon.desktop')
  * while Eaon runs in the background) hands over to the first, which opens
  * its window. The capture harness is exempt; it drives its own profile.
  */
+/**
+ * The screenshot harness. Development builds only: it skips the single-instance
+ * lock and resets the chats and projects of whatever profile it runs in, so a
+ * packaged Eaon must never take it from the environment.
+ */
+if (app.isPackaged) delete process.env['EAON_CAPTURE']
 const primaryInstance = Boolean(process.env['EAON_CAPTURE']) || app.requestSingleInstanceLock()
 if (!primaryInstance) app.quit()
+// IPC answers only Eaon's own page; before any module registers a handler.
+guardIpc(ipcMain, isTrustedSender)
 // Crash logging and recovery, before anything else can throw; see crashGuard.ts.
 if (primaryInstance) installCrashGuard(isAppWindow)
 
@@ -97,6 +109,26 @@ function openWindows(): BrowserWindow[] {
  */
 function isAppWindow(contents: Electron.WebContents): boolean {
   return openWindows().some((window) => window.webContents.id === contents.id)
+}
+
+/** The bundled page every Eaon window loads (unless a dev server serves it). */
+const RENDERER_FILE = pathToFileURL(join(here, '../renderer/index.html')).toString()
+
+/**
+ * IPC answers Eaon's own page and nothing else: the main frame of an Eaon
+ * window, still showing Eaon. A page that got loaded in its place, or a
+ * frame inside it, is refused, so `window.api` can't be reached from web content.
+ */
+function isTrustedSender(event: Electron.IpcMainEvent | Electron.IpcMainInvokeEvent): boolean {
+  const frame = event.senderFrame
+  const main = event.sender.mainFrame
+  return (
+    Boolean(frame) &&
+    frame!.routingId === main.routingId &&
+    frame!.processId === main.processId &&
+    isAppWindow(event.sender) &&
+    isAppUrl(frame!.url, RENDERER_FILE)
+  )
 }
 
 /** The window to act on: the focused Eaon window, else the one last in front, else the newest. */
@@ -265,10 +297,15 @@ function createWindow(): BrowserWindow {
     // The icon picked in Settings → Appearance; macOS shows it on the Dock instead (appIcon.ts).
     ...(isMac ? {} : { icon: currentAppIconFile(settings.appearance.appIcon) ?? undefined }),
     webPreferences: {
-      preload: join(here, '../preload/index.mjs'),
-      sandbox: false,
+      preload: join(here, '../preload/index.cjs'),
+      // The page runs in Chromium's sandbox: a renderer exploit stays inside
+      // it. The preload needs only `electron`, which a sandboxed preload has.
+      sandbox: true,
       webviewTag: true,
       spellcheck: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      webSecurity: true,
       // Offscreen painting keeps capturePage in sync with the DOM when the
       // window is not frontmost; only used by the screenshot harness. Its
       // scale is set rather than left to Electron, whose default became 1x.
@@ -316,7 +353,7 @@ function createWindow(): BrowserWindow {
   // <webview> gets no Node and no popups (externalLinks.ts).
   hardenAppWindow(window)
 
-  const devServer = process.env['ELECTRON_RENDERER_URL']
+  const devServer = devServerUrl()
   if (devServer) window.loadURL(devServer)
   else window.loadFile(join(here, '../renderer/index.html'))
   return window
@@ -384,7 +421,9 @@ function buildMenu(): void {
         { label: 'Toggle Browser Panel', accelerator: 'Shift+CmdOrCtrl+B', click: () => send('menu:toggle-panel') },
         { type: 'separator' },
         { role: 'reload' },
-        { role: 'toggleDevTools' },
+        // Not in a packaged build: a "paste this into the console" scam would
+        // otherwise be one step from window.api.
+        ...(app.isPackaged ? [] : [{ role: 'toggleDevTools' as const }]),
         { type: 'separator' },
         { role: 'resetZoom' },
         { role: 'zoomIn' },
@@ -456,6 +495,55 @@ function frameBatched(send: (event: StreamEvent) => void): {
   }
 }
 
+/**
+ * Settings whose change matters to a security review: what the agent may do
+ * without asking, what listens on the network, what runs unattended.
+ */
+const SECURITY_SETTINGS = new Set(['general', 'mcp', 'localServer', 'remote', 'computerUse', 'browserUse', 'approvalMode', 'claudeCode', 'eaonCode', 'background', 'updates', 'configuration'])
+
+/**
+ * Records which settings changed, never their values beyond a few safe ones.
+ * Each value is the one now in force; a request the organization's policy
+ * held back is recorded as denied, with what was asked for.
+ */
+function auditSettingsChange(patch: Partial<Settings>, next: Settings): void {
+  const keys = Object.keys(patch ?? {})
+  const security = keys.filter((key) => SECURITY_SETTINGS.has(key))
+  if (security.length === 0) return
+  const details: Record<string, unknown> = { settings: security }
+  const refused: string[] = []
+  const note = (name: string, asked: unknown, now: unknown): void => {
+    if (asked === undefined) return
+    details[name] = now
+    if (asked !== now) refused.push(`${name}=${String(asked)}`)
+  }
+  note('approvalMode', patch.approvalMode, next.approvalMode)
+  note('fullAccess', patch.general?.fullAccess, next.general.fullAccess)
+  note('allowAllMcpTools', patch.mcp?.allowAllToolPermissions, next.mcp.allowAllToolPermissions)
+  note('localServerAutoStart', patch.localServer?.autoStart, next.localServer.autoStart)
+  note('localServerRequireKey', patch.localServer?.requireKey, next.localServer.requireKey)
+  note('remoteAllowAutonomous', patch.remote?.allowAutonomous, next.remote.allowAutonomous)
+  note('computerUse', patch.computerUse?.enabled, next.computerUse.enabled)
+  if (refused.length) details.refusedByPolicy = refused
+  audit('settings.changed', details, { outcome: refused.length ? 'denied' : 'success' })
+}
+
+/**
+ * Settings as the window sees them: without the Local API and remote keys,
+ * which the window reads through their own pages' calls only when the user
+ * copies them. The window can't set them either.
+ */
+function forRenderer(settings: Settings): Settings {
+  return { ...settings, localServer: { ...settings.localServer, token: null }, remote: { ...settings.remote, token: null } }
+}
+
+function withoutKeys(patch: Partial<Settings>): Partial<Settings> {
+  const clean: Partial<Settings> = { ...patch }
+  if (clean.localServer) clean.localServer = { ...clean.localServer, token: undefined as unknown as null }
+  if (clean.remote) clean.remote = { ...clean.remote, token: undefined as unknown as null }
+  return clean
+}
+
 function registerIpc(): void {
   // Saved data repaired at startup, or a save that is failing: every window shows it (storeFiles.ts).
   ipcMain.handle('store:health', () => storeHealth())
@@ -465,15 +553,17 @@ function registerIpc(): void {
     if (path) shell.showItemInFolder(path)
   })
   onStoreHealth((health) => broadcast('store:health', health))
-  ipcMain.handle('settings:get', (): Settings => store.getSettings())
+  ipcMain.handle('settings:get', (): Settings => forRenderer(store.getSettings()))
   // Each window keeps its own copy of these, so a change made in one is sent
   // to the others; see the matching listeners in the renderer's store.
-  ipcMain.handle('settings:patch', (e, patch: Partial<Settings>): Settings => {
+  ipcMain.handle('settings:patch', (e, raw: Partial<Settings>): Settings => {
+    const patch = withoutKeys(raw)
     const next = store.patchSettings(patch)
+    auditSettingsChange(patch, next)
     if (patch.appearance) applyWindowAppearance(next)
     if (patch.appearance?.appIcon) applyAppIcon(next.appearance.appIcon, appWindows)
-    broadcast('settings:changed', next, e.sender)
-    return next
+    broadcast('settings:changed', forRenderer(next), e.sender)
+    return forRenderer(next)
   })
 
   ipcMain.handle('workspaces:get', (): Workspace[] => store.getWorkspaces())
@@ -502,6 +592,13 @@ function registerIpc(): void {
   ipcMain.handle('mcp:save', (_e, raw: McpServer[]) => {
     // Catalog plugins connect only to their vendor's server (ipcGuards.ts).
     const value = catalogRowsPinned(raw)
+    const before = new Map(store.getMcpServers().map((s) => [s.id, s]))
+    for (const server of value) {
+      const previous = before.get(server.id)
+      if (!previous) audit('mcp.server_added', { id: server.id, name: server.name })
+      else if (JSON.stringify(previous) !== JSON.stringify(server)) audit('mcp.server_changed', { id: server.id, name: server.name })
+    }
+    for (const id of before.keys()) if (!value.some((s) => s.id === id)) audit('mcp.server_removed', { id })
     // A hand-added server deleted here takes its sign-in with it; left in the
     // vault, its tokens outlived it and a new server that reused the id
     // inherited them. Catalog plugins sign out through plugins:disconnect.
@@ -524,8 +621,15 @@ function registerIpc(): void {
   ipcMain.handle('mcp:sync', () => shellPath.then(() => syncMcpServers()))
 
   ipcMain.handle('local-server:status', () => getLocalServerStatus())
-  ipcMain.handle('local-server:start', () => startLocalServer())
-  ipcMain.handle('local-server:stop', () => stopLocalServer())
+  ipcMain.handle('local-server:start', () => {
+    assertFeature('localApiServer', 'The Local API Server')
+    audit('local_server.start_requested')
+    return startLocalServer()
+  })
+  ipcMain.handle('local-server:stop', () => {
+    audit('local_server.stop_requested')
+    return stopLocalServer()
+  })
 
   ipcMain.handle('system:info', () => getSystemInfo())
   ipcMain.handle('github:pull-requests', () => shellPath.then(() => listPullRequests()))
@@ -556,7 +660,11 @@ function registerIpc(): void {
   )
 
   ipcMain.handle('providers:list', (): Provider[] => listProviders())
-  ipcMain.handle('providers:update', (_e, id: string, patch: Partial<Provider>) => updateProvider(id, patch))
+  ipcMain.handle('providers:update', (_e, id: string, patch: Partial<Provider>) => {
+    if (patch.enabled && !providerAllowed(id)) throw new PolicyError(`The ${id} provider`)
+    if (patch.baseUrl !== undefined || patch.enabled !== undefined) audit('provider.changed', { provider: id, enabled: patch.enabled, baseUrl: patch.baseUrl })
+    return updateProvider(id, patch)
+  })
   ipcMain.handle('providers:remove', (_e, id: string) => removeProvider(id))
   ipcMain.handle('providers:refresh-models', (_e, id: string) => refreshModels(id))
   ipcMain.handle('providers:refresh', (_e, id: string) => refreshProviderModels(id))
@@ -573,14 +681,17 @@ function registerIpc(): void {
     // Checked here too, not only in Settings: no way in may store a Claude login as a key.
     if (isClaudeLoginToken(key)) throw new Error(CLAUDE_LOGIN_TOKEN)
     const keyId = providerKey(id)
+    if (key && !providerAllowed(keyId)) throw new PolicyError(`The ${keyId} provider`)
     secrets.set(keyId, key)
     clearProviderHealth(keyId)
+    audit(key ? 'credential.set' : 'credential.cleared', { provider: keyId })
     return listProviders()
   })
   ipcMain.handle('keys:clear', (_e, id: string) => {
     const keyId = providerKey(id)
     secrets.clear(keyId)
     clearProviderHealth(keyId)
+    audit('credential.cleared', { provider: keyId })
     return listProviders()
   })
   ipcMain.handle('keys:hint', (_e, id: string) => secrets.hint(providerKey(id)))
@@ -589,9 +700,11 @@ function registerIpc(): void {
   // Only model-provider keys the user typed in. The vault also holds plugin
   // tokens and OAuth credentials (ids with a `prefix:`), which the renderer
   // has no business reading back.
-  ipcMain.handle('keys:reveal', (_e, id: string) =>
-    listProviders().some((p) => p.id === id && p.auth !== 'oauth') ? (secrets.get(id) ?? null) : null
-  )
+  ipcMain.handle('keys:reveal', (_e, id: string) => {
+    const revealable = listProviders().some((p) => p.id === id && p.auth !== 'oauth')
+    audit('credential.revealed', { provider: String(id).slice(0, 200) }, { outcome: revealable ? 'success' : 'denied' })
+    return revealable ? (secrets.get(id) ?? null) : null
+  })
   // Fallback keys never cross into the renderer: it gets a masked hint per
   // key (enough to tell them apart) and adds or removes one at a time.
   ipcMain.handle('keys:get-fallbacks', (_e, id: string) =>
@@ -600,7 +713,10 @@ function registerIpc(): void {
   ipcMain.handle('keys:add-fallback', (_e, id: string, key: string) => {
     const keyId = providerKey(id)
     if (typeof key === 'string' && isClaudeLoginToken(key)) throw new Error(CLAUDE_LOGIN_TOKEN)
-    if (typeof key === 'string' && key.trim()) secrets.setFallbacks(keyId, [...secrets.getFallbacks(keyId), key.trim()])
+    if (typeof key === 'string' && key.trim()) {
+      secrets.setFallbacks(keyId, [...secrets.getFallbacks(keyId), key.trim()])
+      audit('credential.fallbacks_set', { provider: keyId, count: secrets.getFallbacks(keyId).length })
+    }
     clearProviderHealth(keyId)
     return listProviders()
   })
@@ -610,11 +726,13 @@ function registerIpc(): void {
       keyId,
       secrets.getFallbacks(keyId).filter((_, i) => i !== index)
     )
+    audit('credential.fallbacks_set', { provider: keyId, count: secrets.getFallbacks(keyId).length })
     return listProviders()
   })
   ipcMain.handle('keys:set-fallbacks', (_e, id: string, keys: string[]) => {
     if (!Array.isArray(keys) || !keys.every((key) => typeof key === 'string')) throw new Error('Fallback keys are a list of text.')
     secrets.setFallbacks(providerKey(id), keys)
+    audit('credential.fallbacks_set', { provider: providerKey(id), count: keys.filter((k) => k.trim()).length })
     return listProviders()
   })
 
@@ -680,6 +798,7 @@ function registerIpc(): void {
   ipcMain.handle('background:get', () => ({ supported: backgroundSupported(), enabled: runsInBackground() }))
   ipcMain.handle('background:set', async (_e, enabled: boolean) => {
     if (!backgroundSupported()) throw new Error('Running in the background is not available on this system.')
+    audit('background.changed', { enabled })
     applyRunAtLogin(enabled)
     store.patchSettings({ background: { enabled } })
     await syncTray(enabled, openMainWindow)
@@ -696,6 +815,7 @@ function registerIpc(): void {
   ipcMain.handle('updater:download-beta', () => downloadBetaUpdate())
   ipcMain.handle('updater:beta-changed', () => betaOptionChanged())
   ipcMain.handle('updater:install', async () => {
+    audit('update.install_requested', { from: app.getVersion() })
     // Cleaned up and flushed here rather than by holding the quit in
     // before-quit/will-quit, which the updater's own quit-and-relaunch must
     // not wait on. Starting the cleanup without waiting for it exited under
@@ -796,10 +916,14 @@ app.commandLine.appendSwitch('force-webrtc-ip-handling-policy', 'disable_non_pro
 
 app.whenReady().then(async () => {
   if (!primaryInstance) return
+  audit('app.started', { version: app.getVersion(), packaged: app.isPackaged }, { via: 'system' })
   // A Dock-launched app has almost no PATH, and asking the login shell takes
   // half a second or more (nvm, oh-my-zsh). That used to hold up the window;
   // it now runs while the window loads, and whatever spawns waits for it.
   shellPath = adoptLoginShellPath().catch((error) => console.error('[startup] could not read the login shell PATH:', error))
+  // Before any window or page exists (security/hardening.ts).
+  installSessionPolicy(isAppWindow)
+  guardWebviews()
   protocol.handle('eaon-file', (request) => {
     let path = decodeURIComponent(new URL(request.url).pathname)
     if (process.platform === 'win32') path = path.replace(/^\/([a-zA-Z]:)/, '$1')
@@ -856,6 +980,13 @@ app.whenReady().then(async () => {
     if (!isMac) applyTitleBarOverlays(store.getSettings())
   })
   for (const feature of FEATURES) {
+    // A surface the organization's policy turns off never starts: no server,
+    // no schedule, no IPC. The renderer hides its pages (enterprise:status).
+    const gate = POLICY_GATED_FEATURES[feature.id]
+    if (gate && !featureAllowed(gate)) {
+      audit('feature.blocked', { feature: feature.id, policy: gate }, { via: 'system', outcome: 'denied' })
+      continue
+    }
     try {
       await feature.register(featureContext)
     } catch (error) {
@@ -935,6 +1066,7 @@ function flushPendingWrites(): Promise<void> {
 function beginShutdown(): void {
   if (shutDown) return
   shutDown = true
+  audit('app.stopped', undefined, { via: 'system' })
   cancelAllDownloads()
   // Held for by the caller: the SDK closes a stdio server by ending its stdin,
   // then SIGTERM after 2 s and SIGKILL after 4 s. Exiting before then orphaned

@@ -6,6 +6,7 @@ import { LOCAL_PROVIDER_ID } from '../llama/models'
 import { listProviders } from '../providers'
 import { isOwnServerUrl } from '../providers/compat'
 import { store } from '../store'
+import { secrets } from '../secrets'
 
 /**
  * Which models the gateway serves, how a model name in a request is resolved
@@ -138,6 +139,37 @@ export function gatewayToken(): string {
   return token
 }
 
+const CONTROL_VAULT_ID = 'local-api:control'
+/** Used for this run only when the keychain can't keep one. */
+let ephemeralControlToken: string | null = null
+
+/**
+ * The key for Eaon's control API (`/control`), which can drive the app:
+ * read chats, message workers, open terminals. It is not the model key above,
+ * which Connect Apps writes into other apps' config files; this one goes only
+ * to Eaon CLI panes, and lives in the encrypted vault rather than settings.
+ * It works on the model routes too, so Eaon CLI needs only one key.
+ */
+export function controlToken(): string {
+  const saved = secrets.get(CONTROL_VAULT_ID)
+  if (saved) return saved
+  if (ephemeralControlToken) return ephemeralControlToken
+  const token = `eaonc-${randomBytes(24).toString('base64url')}`
+  try {
+    secrets.set(CONTROL_VAULT_ID, token)
+  } catch {
+    ephemeralControlToken = token
+  }
+  return token
+}
+
+/** Constant time, and the same for every length: both sides are hashed first. */
+export function sameToken(sent: string, expected: string): boolean {
+  if (!sent || !expected) return false
+  const digest = (text: string): Buffer => createHash('sha256').update(text).digest()
+  return timingSafeEqual(digest(sent), digest(expected))
+}
+
 /** The key a request sent, as a Bearer token or `x-api-key`; empty when none. */
 export function sentToken(headers: { authorization?: string; 'x-api-key'?: string | string[] }): string {
   const bearer = /^Bearer\s+(.+)$/i.exec(headers.authorization ?? '')?.[1]?.trim()
@@ -145,23 +177,21 @@ export function sentToken(headers: { authorization?: string; 'x-api-key'?: strin
   return bearer || apiKey?.trim() || ''
 }
 
-/** Compared in constant time, so the key can't be guessed a character at a time from response timings. */
-function sameToken(sent: string, token: string): boolean {
-  const a = createHash('sha256').update(sent).digest()
-  const b = createHash('sha256').update(token).digest()
-  return timingSafeEqual(a, b)
-}
-
 /**
- * Whether a request may use the server. A key that isn't this install's is
- * refused. No key at all is let through for programs (CLIs and SDKs, which
- * send no Origin), as before there was a key; a browser page or extension
- * (anything with an Origin) must send it. Origin rules alone let every
- * extension the user installed, and any page served from localhost (a dev
- * server running someone else's code), spend the user's API keys.
+ * Whether a request may use the server. A key that is neither this install's
+ * model key nor its control key is refused. No key at all is let through for
+ * programs (CLIs and SDKs, which send no Origin), as before there was a key,
+ * unless `requireKey` (the user's setting or the organization's policy); a
+ * browser page or extension (anything with an Origin) must always send it.
+ * Origin rules alone let every extension the user installed, and any page
+ * served from localhost (a dev server running someone else's code), spend
+ * the user's API keys.
  */
-export function tokenAllowed(headers: { authorization?: string; 'x-api-key'?: string | string[]; origin?: string }): 'ok' | 'missing' | 'wrong' {
+export function tokenAllowed(
+  headers: { authorization?: string; 'x-api-key'?: string | string[]; origin?: string },
+  requireKey = false
+): 'ok' | 'missing' | 'wrong' {
   const sent = sentToken(headers)
-  if (!sent) return headers.origin === undefined ? 'ok' : 'missing'
-  return sameToken(sent, gatewayToken()) ? 'ok' : 'wrong'
+  if (!sent) return headers.origin === undefined && !requireKey ? 'ok' : 'missing'
+  return sameToken(sent, gatewayToken()) || sameToken(sent, controlToken()) ? 'ok' : 'wrong'
 }

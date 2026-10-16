@@ -77,6 +77,9 @@ export function teamToolSource(engine: WorkersEngine, openRoom?: (roomId: string
       required: ['action']
     },
     mutating: (input) => ['create_team', 'post', 'message'].includes(action(input)),
+    // Creating workers or telling one what to do sets other agents to work at
+    // their own access, so it asks even in "Approve for me".
+    risky: (input) => ['create_team', 'post', 'message'].includes(action(input)),
     describe: (input) => {
       const a = action(input)
       if (a === 'create_team') return `Create team ${str(input.name)}`
@@ -100,7 +103,14 @@ export function teamToolSource(engine: WorkersEngine, openRoom?: (roomId: string
           const memberIds = (Array.isArray(input.members) ? input.members : [])
             .map((m) => workers.find((w) => w.name.toLowerCase() === str(m).toLowerCase())?.id)
             .filter((id): id is string => !!id)
-          const { room, workers: created } = engine.createTeam({ name: str(input.name), roles: rolesFrom(input.roles), memberIds, kickoff: str(input.kickoff) })
+          const { room, workers: created } = engine.createTeam({
+            name: str(input.name),
+            roles: rolesFrom(input.roles),
+            memberIds,
+            kickoff: str(input.kickoff),
+            // An agent's team starts careful; the user can raise it in Workers.
+            access: 'safe'
+          })
           openRoom?.(room.id)
           return [
             `Created the "${room.name}" group chat with ${created.map((w) => w.name).join(', ')}${memberIds.length ? ` and ${memberIds.length} existing worker${memberIds.length === 1 ? '' : 's'}` : ''}.`,

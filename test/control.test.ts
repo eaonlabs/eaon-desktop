@@ -8,7 +8,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import type { ControlAction } from '@shared/control'
 import { setControlTools } from '../src/main/control/server'
 import { createControlTools } from '../src/main/control/tools'
-import { gatewayToken } from '../src/main/gateway/models'
+import { controlToken, gatewayToken } from '../src/main/gateway/models'
 import { startLocalServer, stopLocalServer } from '../src/main/localServer'
 import { store } from '../src/main/store'
 
@@ -36,7 +36,7 @@ before(async () => {
   const status = await startLocalServer()
   assert.equal(status.running, true, status.error)
   base = status.url!
-  key = gatewayToken()
+  key = controlToken()
 })
 
 after(async () => {
@@ -64,6 +64,14 @@ test('the control API never answers without this install’s key — unlike the 
   assert.equal((await rest('/control/mcp', { method: 'POST', body: '{}', key: null })).status, 401)
   assert.equal((await rest('/control/v1/tools')).status, 200)
   assert.equal((await rest('/v1/models', { key: null })).status, 200, 'the model routes are as they were')
+})
+
+test('the model key that other apps hold does not open the control API; the control key opens both', async () => {
+  const modelKey = gatewayToken()
+  assert.notEqual(modelKey, key)
+  assert.equal((await rest('/control/v1/tools', { key: modelKey })).status, 401)
+  assert.equal((await rest('/v1/models', { key: modelKey })).status, 200)
+  assert.equal((await rest('/v1/models')).status, 200, 'Eaon CLI uses one key for both')
 })
 
 test('a web page on another origin cannot reach it, even with the key', async () => {

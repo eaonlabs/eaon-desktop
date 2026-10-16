@@ -58,6 +58,10 @@
   background: color-mix(in srgb, var(--accent), transparent 84%);
   color: color-mix(in srgb, var(--accent), var(--fg) 30%);
 }
+.sched-task__icon[data-mode='purchase'] {
+  background: color-mix(in srgb, var(--fg), transparent 90%);
+  color: var(--text);
+}
 .sched-task[data-paused='true'] .sched-task__icon,
 .sched-task[data-paused='true'] .sched-task__name {
   opacity: 0.55;

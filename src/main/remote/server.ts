@@ -17,6 +17,7 @@ import { gatewayModels } from '../gateway/models'
 import { serveChatCompletions } from '../gateway/openaiChat'
 import { ApiError, errorBody, handleApi, type ApiResponse, type ErrorCode, type RemoteApiDeps } from './api'
 import { EventTranslator } from './view'
+import { audit } from '../enterprise/audit'
 
 /**
  * The remote API's HTTP server: Eaon's Workers, for a phone on the user's
@@ -79,6 +80,25 @@ function sentKey(req: IncomingMessage): string | null {
 /** The address a request came from, as `::ffff:192.168.1.5` or `192.168.1.5`. */
 function peer(req: IncomingMessage): string {
   return (req.socket.remoteAddress ?? 'unknown').replace(/^::ffff:/i, '')
+}
+
+/**
+ * True for an address on the user's own network: loopback, the private
+ * ranges, link-local, and 100.64/10 (Tailscale and other CGNAT overlays).
+ * The server listens on every interface so a phone can reach it, which also
+ * makes it reachable from the internet on a Mac with a public address or a
+ * forwarded port. Requests from anywhere else are refused before the key is
+ * even looked at.
+ */
+export function isLocalNetworkPeer(address: string): boolean {
+  const ip = address.replace(/^::ffff:/i, '').toLowerCase()
+  const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(ip)
+  if (v4) {
+    const [a, b] = [Number(v4[1]), Number(v4[2])]
+    return a === 127 || a === 10 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168) || (a === 169 && b === 254) || (a === 100 && b >= 64 && b <= 127)
+  }
+  // ::1, unique-local fc00::/7 and link-local fe80::/10.
+  return ip === '::1' || /^f[cd][0-9a-f]{2}:/.test(ip) || /^fe[89ab][0-9a-f]:/.test(ip)
 }
 
 function listenError(error: NodeJS.ErrnoException, port: number): string {
@@ -256,6 +276,11 @@ export class RemoteServer {
     }
 
     const ip = peer(req)
+    if (!isLocalNetworkPeer(ip)) {
+      audit('remote.refused', { ip, reason: 'not on the local network' }, { via: 'remote', outcome: 'denied' })
+      this.fail(res, 403, 'forbidden', 'Eaon’s remote API only answers devices on your own network.')
+      return
+    }
     const wait = this.blockedFor(ip)
     if (wait > 0) {
       this.fail(res, 429, 'rate_limited', 'Too many wrong keys. Try again in a minute.', { 'Retry-After': String(wait) })
@@ -263,7 +288,13 @@ export class RemoteServer {
     }
     const key = sentKey(req)
     if (key === null || !sameKey(key, this.options.token())) {
-      this.noteFailure(ip)
+      // Only a wrong key counts towards the lockout. A request with none at
+      // all is what a web page's <img> sends (no Origin, no headers), and
+      // counting those let any page the phone opened lock the phone out.
+      if (key !== null) {
+        this.noteFailure(ip)
+        audit('remote.auth_failed', { ip }, { via: 'remote', outcome: 'failure' })
+      }
       this.fail(res, 401, 'unauthorized', 'The key is missing or wrong. Pair this device again from Eaon → Settings → Remote devices.', { 'WWW-Authenticate': 'Bearer' })
       return
     }
@@ -277,6 +308,7 @@ export class RemoteServer {
     }
     const path = url.pathname.replace(/\/+$/, '') || '/'
     const method = req.method ?? 'GET'
+    if (method !== 'GET' && method !== 'HEAD') audit('remote.request', { ip, method, path }, { via: 'remote' })
 
     if (path === `${REMOTE_BASE_PATH}/events` && method === 'GET') {
       this.openStream(res)

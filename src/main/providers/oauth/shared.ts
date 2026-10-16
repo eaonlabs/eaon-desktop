@@ -136,14 +136,16 @@ export async function startLoopback(options: {
       res.end(page(title, body))
     }
     if (url.pathname !== options.path) return reply(404, 'Not found', 'This is not the sign-in callback.')
+    // State first, errors included: otherwise any web page could cancel a
+    // sign-in in progress with <img src="http://localhost:1455/…?error=x">.
+    if (options.state && url.searchParams.get('state') !== options.state) {
+      return reply(400, 'Sign-in failed', 'The response did not match this sign-in attempt. Start again from Eaon.')
+    }
     const error = url.searchParams.get('error')
     if (error) {
       reply(400, 'Sign-in was cancelled', escapeHtml(url.searchParams.get('error_description') ?? error))
       settle(null)
       return
-    }
-    if (options.state && url.searchParams.get('state') !== options.state) {
-      return reply(400, 'Sign-in failed', 'The response did not match this sign-in attempt. Start again from Eaon.')
     }
     const value = url.searchParams.get('code')
     if (!value) return reply(400, 'Sign-in failed', 'No authorization code came back.')

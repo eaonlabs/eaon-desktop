@@ -1,9 +1,9 @@
-import { timingSafeEqual } from 'node:crypto'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
-import { gatewayToken } from '../gateway/models'
+import { controlToken, sameToken, sentToken } from '../gateway/models'
+import { audit } from '../enterprise/audit'
 import { toolInfo, type ControlTool } from './tools'
 
 /**
@@ -26,17 +26,13 @@ export function setControlTools(next: ControlTool[]): void {
 
 export const CONTROL_PREFIX = '/control'
 
-/** The key the caller sent, as `Authorization: Bearer` or `x-api-key`. */
-function sentKey(req: IncomingMessage): string {
-  const bearer = /^Bearer\s+(.+)$/i.exec(req.headers.authorization ?? '')?.[1]?.trim()
-  const apiKey = Array.isArray(req.headers['x-api-key']) ? req.headers['x-api-key'][0] : req.headers['x-api-key']
-  return bearer || apiKey?.trim() || ''
-}
-
+/**
+ * Only the control key (gateway/models.ts `controlToken`) opens these routes.
+ * The model key Connect Apps hands to other apps does not: an app that may
+ * spend tokens through Eaon may not also drive it.
+ */
 export function authorised(req: IncomingMessage): boolean {
-  const sent = Buffer.from(sentKey(req))
-  const key = Buffer.from(gatewayToken())
-  return sent.length === key.length && timingSafeEqual(sent, key)
+  return sameToken(sentToken(req.headers), controlToken())
 }
 
 function json(res: ServerResponse, status: number, body: unknown): void {
@@ -62,6 +58,8 @@ const asArgs = (value: unknown): Record<string, unknown> =>
 async function call(name: string, args: Record<string, unknown>): Promise<{ ok: true; result: unknown } | { ok: false; error: string; status: number }> {
   const tool = tools.find((t) => t.name === name)
   if (!tool) return { ok: false, error: `No tool "${name}".`, status: 404 }
+  const risk = toolInfo(tool).risk
+  if (risk !== 'read') audit('control.tool', { tool: name, risk }, { via: 'control-api' })
   try {
     return { ok: true, result: await tool.run(args) }
   } catch (error) {
@@ -98,6 +96,7 @@ function mcpServer(): Server {
 export async function handleControl(req: IncomingMessage, res: ServerResponse, pathname: string): Promise<boolean> {
   if (pathname !== CONTROL_PREFIX && !pathname.startsWith(`${CONTROL_PREFIX}/`)) return false
   if (!authorised(req)) {
+    audit('control.auth_failed', { path: pathname }, { via: 'control-api', outcome: 'failure' })
     json(res, 401, { error: { message: 'The control API needs this Eaon’s key: Eaon → Settings → Local API Server.' } })
     return true
   }

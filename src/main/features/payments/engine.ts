@@ -7,10 +7,12 @@ import {
   luhnValid,
   PAYMENTS_WAIVER,
   PAYMENTS_WAIVER_VERSION,
+  ORDER_STAGES,
   type CardInput,
   type CardSummary,
   type PaymentLimits,
   type PaymentsMode,
+  type OrderTracking,
   type PaymentsStatus,
   type PurchaseRecord,
   type PurchaseStatus,
@@ -64,6 +66,8 @@ export interface PurchaseRequest {
   chatId: string
   /** It signs the user up for charges that repeat (a subscription, auto-renew). */
   recurring?: boolean
+  /** The purchase schedule a scheduled order belongs to. */
+  planId?: string
 }
 
 const finite = (value: unknown, fallback: number): number => (typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : fallback)
@@ -130,7 +134,7 @@ function normalizePurchases(raw: unknown): PurchaseRecord[] {
   if (!Array.isArray(raw)) return []
   return raw
     .filter((p): p is PurchaseRecord => !!p && typeof p === 'object' && typeof (p as PurchaseRecord).id === 'string')
-    .map((p) => ({ ...p, status: STATUSES.includes(p.status) ? p.status : 'authorized' }))
+    .map((p): PurchaseRecord => ({ ...p, status: STATUSES.includes(p.status) ? p.status : 'authorized', how: p.how === 'auto' || p.how === 'scheduled' ? p.how : 'approved' }))
     .slice(0, MAX_PURCHASES)
 }
 
@@ -342,11 +346,18 @@ export class PaymentsEngine {
     return { needsUser: false, reason: 'Within your limits.' }
   }
 
+  /** Every purchase on record, newest first; status() shows only the latest. */
+  purchases(): PurchaseRecord[] {
+    return structuredClone(this.config.purchases)
+  }
+
   /**
    * Records a purchase as authorized, so the card can be typed for it. `how`
-   * says whether the user approved it; an automatic one must still fit.
+   * says whether the user approved it; an automatic one must still fit. A
+   * scheduled one is an order of a purchase schedule the user saved, which
+   * the tool has already checked against that schedule.
    */
-  authorize(request: PurchaseRequest, how: 'approved' | 'auto'): PurchaseRecord {
+  authorize(request: PurchaseRequest, how: PurchaseRecord['how']): PurchaseRecord {
     const mode = this.effectiveMode()
     if (mode === 'off') throw new Error('Payments are off. The user can turn them on in Settings → Payments.')
     const amount = round(Number(request.amount))
@@ -370,6 +381,7 @@ export class PaymentsEngine {
       status: 'authorized',
       how,
       ...(request.recurring ? { recurring: true } : {}),
+      ...(how === 'scheduled' && request.planId ? { planId: request.planId } : {}),
       chatId: request.chatId,
       createdAt: now,
       expiresAt: now + AUTHORIZATION_MS
@@ -417,7 +429,7 @@ export class PaymentsEngine {
     return { ...secret, card: this.config.card }
   }
 
-  complete(id: string, chatId: string, status: Exclude<PurchaseStatus, 'authorized'>, charged: number | null, note: string): PurchaseRecord {
+  complete(id: string, chatId: string, status: Exclude<PurchaseStatus, 'authorized'>, charged: number | null, note: string, orderId = ''): PurchaseRecord {
     const record = this.config.purchases.find((p) => p.id === id)
     if (!record) throw new Error(`No purchase "${id}".`)
     if (record.chatId !== chatId) throw new Error('That purchase belongs to another conversation.')
@@ -429,6 +441,39 @@ export class PaymentsEngine {
     if (record.charged !== null && record.charged > record.amount) record.overAuthorized = true
     record.completedAt = this.now()
     if (note) record.note = text(note, 300)
+    const order = text(orderId, 80)
+    if (status === 'paid' && order) {
+      record.orderId = order
+      record.tracking = { stage: 'ordered', checkedAt: this.now() }
+    }
+    this.persist()
+    return record
+  }
+
+  /**
+   * Where a placed order is now. `allowed` is the chat that made it, or a
+   * tracking run watching this very purchase; any other caller is refused.
+   */
+  track(id: string, allowed: (record: PurchaseRecord) => boolean, update: Omit<OrderTracking, 'checkedAt'> & { orderId?: string }): PurchaseRecord {
+    const record = this.config.purchases.find((p) => p.id === id)
+    if (!record) throw new Error(`No purchase "${id}".`)
+    if (!allowed(record)) throw new Error('That order belongs to another conversation.')
+    if (record.status !== 'paid') throw new Error(`That purchase is ${record.status}, so there is no order to track.`)
+    if (!ORDER_STAGES.includes(update.stage)) throw new Error(`stage is one of ${ORDER_STAGES.join(', ')}.`)
+    const tracking: OrderTracking = { stage: update.stage, checkedAt: this.now() }
+    // A detail the agent didn't find this time keeps what an earlier check found.
+    const eta = text(update.eta, 80) || (update.stage === 'delivered' ? '' : record.tracking?.eta)
+    const carrier = text(update.carrier, 60) || record.tracking?.carrier
+    const trackingNumber = text(update.trackingNumber, 80) || record.tracking?.trackingNumber
+    const note = text(update.note, 300)
+    if (eta) tracking.eta = eta
+    if (carrier) tracking.carrier = carrier
+    if (trackingNumber) tracking.trackingNumber = trackingNumber
+    if (note) tracking.note = note
+    record.tracking = tracking
+    // complete may have missed the order number; the first one found sticks.
+    const order = text(update.orderId, 80)
+    if (order && !record.orderId) record.orderId = order
     this.persist()
     return record
   }

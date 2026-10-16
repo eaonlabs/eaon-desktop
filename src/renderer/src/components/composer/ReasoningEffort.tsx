@@ -10,7 +10,7 @@ import {
 } from "react";
 import s from "./ReasoningEffort.module.css";
 
-const TRACK = 224;
+const TRACK = 264;
 const HEIGHT = 32;
 const RADIUS = HEIGHT / 2;
 const BUMP_H = 20;
@@ -432,6 +432,14 @@ export function ReasoningEffort({
         <span key={level} className={s.swap}>
           <span className={s.current}>{model}</span>
           <span className={s.next}>{level}</span>
+        </span>
+      </div>
+      {/* At rest the level reads above the track; the label that rises out of
+          the track while dragging takes its place. */}
+      <div className={s.rest} style={{ opacity: 1 - reveal }} aria-hidden>
+        <span>Reasoning</span>
+        <span key={level} className={s.restLevel}>
+          {level}
         </span>
       </div>
       <div
