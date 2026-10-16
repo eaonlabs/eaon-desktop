@@ -34,6 +34,10 @@ import { createWorkersHub, type WorkersHub } from './hub'
 import { teamToolSource } from './team'
 import type { RunAgent, RunEngineTurn } from './runner'
 import { workersToolSource } from './tools'
+import { createPurchaseRoutines, purchaseWorkerProblem, routineName, type PurchaseRoutineDraft } from './purchases'
+import { purchasePlanError } from '@shared/scheduler'
+import { formatMoney } from '@shared/payments'
+import { paymentsEngine } from '../payments'
 import { WorkerBrowsers, workerBrowserToolSource } from './browser'
 import { reportBrowserStep, setWorkerBrowsers } from '../agentBrowser'
 import { workerBrowserTarget } from '@shared/agentBrowser'
@@ -232,6 +236,13 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
     await store.flushWrites()
     await rm(join(app.getPath('userData'), 'store', name), { force: true })
   }
+  // Purchase schedules are routines on a worker (workers/purchases.ts); the engine is made just below.
+  const purchases = createPurchaseRoutines({
+    put: (workerId, routine) => engine.putRoutine(workerId, routine),
+    remove: (workerId, routineId) => engine.removeRoutineById(workerId, routineId),
+    reachOut,
+    now: overrides.now
+  })
   const engine = new WorkersEngine({
     // Everything a worker's run asks of a model — its loop, sub-agents,
     // compaction — is counted as the workers' (Settings → Usage).
@@ -284,6 +295,8 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
     },
     notify,
     reachOut,
+    routineTurn: purchases.routineTurn,
+    routineEnded: purchases.routineEnded,
     pauseGoal,
     tradingVenue,
     loadRooms: () => store.getJson<unknown>(ROOMS_FILE, null),
@@ -343,6 +356,33 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
       return engine.setMemory(idOf(id), { ...(typeof m.goal === 'string' ? { goal: m.goal } : {}), ...(typeof m.notes === 'string' ? { notes: m.notes } : {}) })
     })
     ipcMain.handle('workers:remove-routine', (_e, id: unknown, name: unknown) => engine.removeRoutine(idOf(id), str(name)))
+    ipcMain.handle('workers:remove-routine-id', (_e, id: unknown, routineId: unknown) => engine.removeRoutineById(idOf(id), str(routineId)))
+    ipcMain.handle('workers:run-routine', (_e, id: unknown, routineId: unknown) => engine.runRoutineNow(idOf(id), str(routineId)))
+    // The /purchase dialog: a purchase schedule saved as one of the worker's routines.
+    ipcMain.handle('workers:save-purchase', (_e, id: unknown, draft: PurchaseRoutineDraft) => {
+      const worker = engine.list().find((w) => w.id === idOf(id))
+      if (!worker) throw new Error('That worker isn’t there any more.')
+      const plan = draft?.plan
+      const problem = (plan && purchasePlanError(plan)) ?? null
+      if (!plan || problem) throw new Error(problem ?? 'Say what to buy.')
+      const status = paymentsEngine()?.status()
+      const cardReady = Boolean(status?.card) && status?.effectiveMode !== 'off'
+      const unfit = purchaseWorkerProblem(worker, plan, cardReady)
+      if (unfit) throw new Error(unfit)
+      const everyMs = typeof draft.everyMs === 'number' && draft.everyMs > 0 ? draft.everyMs : null
+      return engine.putRoutine(worker.id, {
+        ...(typeof draft.id === 'string' ? { id: draft.id } : {}),
+        name: routineName(plan),
+        task: `Buy ${plan.item} from ${plan.merchant}, ${plan.maxAmount === 0 ? 'free orders only' : `up to ${formatMoney(plan.maxAmount, plan.currency)} an order`}.`,
+        everyMs,
+        daily: null,
+        nextAt: Number(draft.firstAt),
+        purchase: plan,
+        ...(everyMs ? { anchorAt: Number(draft.anchorAt) } : {}),
+        // Editing keeps the thread its orders went in.
+        ...(typeof draft.id === 'string' ? { threadId: worker.routines.find((r) => r.id === draft.id)?.threadId } : {})
+      })
+    })
     ipcMain.handle('workers:set-paused', (_e, id: string, paused: boolean) => engine.setPaused(id, paused))
     ipcMain.handle('workers:wake', (_e, id: string) => engine.wake(id))
     ipcMain.handle('workers:stop', (_e, id: unknown, threadId?: unknown) => engine.stopTurn(idOf(id), optionalThread(threadId)))

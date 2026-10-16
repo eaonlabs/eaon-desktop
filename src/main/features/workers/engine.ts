@@ -51,7 +51,7 @@ import {
   type WorkerDelegation
 } from '@shared/workers'
 import type { GuestAccess } from '@shared/channels'
-import type { TurnOrigin } from '../../agent/policy'
+import type { ToolGate, TurnOrigin } from '../../agent/policy'
 import { summariseReply } from '../scheduler/transcript'
 import type { TradingVenue } from '../trading/access'
 import { isOpen, nextOpen } from '../trading/marketHours'
@@ -143,6 +143,23 @@ export interface WorkersDeps {
   concurrency?: number
   /** The current IANA time zone (default: the machine's, kept current across a change of zone). */
   zone?: () => string
+  /**
+   * A routine with more to it than its task — a purchase schedule, or the
+   * tracking of an order it placed (workers/purchases.ts): what its run is
+   * told instead of the task, the access it runs at and the tools it may
+   * use. Asked as the run starts, with the run's message id; null runs it
+   * like any routine.
+   */
+  routineTurn?: (worker: Worker, routine: WorkerRoutine, messageId: string) => RoutineTurn | null
+  /** That routine's run ended (after it was recorded): its follow-up. */
+  routineEnded?: (worker: Worker, routine: WorkerRoutine, messageId: string, outcome: TurnOutcome) => void
+}
+
+/** How a routine's run differs from its task as written (see `WorkersDeps.routineTurn`). */
+export interface RoutineTurn {
+  task: string
+  access: WorkerAccess
+  toolGate?: ToolGate
 }
 
 /**
@@ -212,6 +229,8 @@ interface Running {
   origin: TurnOrigin
   /** A routine this run is for (its own thread). */
   routineId: string | null
+  /** That routine ran with its own brief (`WorkersDeps.routineTurn`), so it hears when the run ends. */
+  routineTurned: boolean
   /** A delegated job this run works on (its own thread). */
   delegationId: string | null
   /** The delegated job this run finished with finish_handoff, if it did. */
@@ -1938,15 +1957,79 @@ export class WorkersEngine {
     const worker = this.require(id)
     const removed = worker.routines.filter((r) => r.name.toLowerCase() === str(name).toLowerCase())
     if (removed.length === 0) throw new Error(`No routine called "${name}".`)
+    this.dropRoutines(worker, removed)
+    return `Removed routine "${name}".`
+  }
+
+  /** `removeRoutine` by id: the UI's stop button, and a purchase schedule that has placed all its orders. */
+  removeRoutineById(id: string, routineId: string): void {
+    const worker = this.require(id)
+    const removed = worker.routines.filter((r) => r.id === routineId)
+    if (removed.length) this.dropRoutines(worker, removed)
+  }
+
+  private dropRoutines(worker: Worker, removed: WorkerRoutine[]): void {
     worker.routines = worker.routines.filter((r) => !removed.includes(r))
     for (const routine of removed) {
       const info = routine.threadId ? this.info(worker, routine.threadId) : undefined
-      if (!info) continue
-      this.dropWaiting(id, info.id, 'Its routine was removed.')
-      if (!this.running.has(slotKey(id, info.id))) info.closedAt = info.closedAt ?? this.now()
+      // A purchase schedule and its orders' tracking share a thread: it closes with the last of them.
+      if (!info || worker.routines.some((r) => r.threadId === info.id)) continue
+      this.dropWaiting(worker.id, info.id, 'Its routine was removed.')
+      if (!this.running.has(slotKey(worker.id, info.id))) info.closedAt = info.closedAt ?? this.now()
     }
     this.commit()
-    return `Removed routine "${name}".`
+  }
+
+  /**
+   * A routine set up whole by the app rather than the worker (a purchase
+   * schedule from its dialog, the tracking of an order it placed): added, or
+   * replacing the one with its id, keeping that one's runs and thread. Its
+   * first run is at `nextAt` exactly; after that, every `everyMs`.
+   */
+  putRoutine(id: string, input: Omit<WorkerRoutine, 'id' | 'runs' | 'marketHours' | 'zone'> & { id?: string }): WorkerRoutine {
+    const worker = this.require(id)
+    const name = str(input.name).slice(0, 80)
+    if (!name) throw new Error('Give the routine a name.')
+    if (!Number.isFinite(input.nextAt)) throw new Error('Say when it first runs.')
+    const existing = input.id ? worker.routines.find((r) => r.id === input.id) : undefined
+    if (!existing && worker.routines.length >= MAX_ROUTINES) {
+      throw new Error(`${worker.name} already has ${MAX_ROUTINES} routines. Remove one it no longer needs first.`)
+    }
+    const fields = {
+      name,
+      task: str(input.task).slice(0, 2000),
+      everyMs: input.everyMs && input.everyMs > 0 ? Math.max(input.everyMs, MIN_HEARTBEAT_MS) : null,
+      daily: null,
+      nextAt: input.nextAt,
+      ...(input.purchase ? { purchase: input.purchase } : {}),
+      ...(input.watch ? { watch: input.watch } : {}),
+      ...(typeof input.anchorAt === 'number' && Number.isFinite(input.anchorAt) ? { anchorAt: input.anchorAt } : {}),
+      ...(input.threadId && this.info(worker, input.threadId) ? { threadId: input.threadId } : {})
+    }
+    let routine: WorkerRoutine
+    if (existing) {
+      routine = Object.assign(existing, fields)
+      if (!input.purchase) delete routine.purchase
+      if (!input.watch) delete routine.watch
+      if (input.anchorAt === undefined) delete routine.anchorAt
+    } else {
+      routine = { id: input.id ?? randomUUID(), ...fields, runs: [] }
+      worker.routines.push(routine)
+    }
+    if (worker.status === 'asleep') worker.status = 'idle'
+    this.commit()
+    this.tick()
+    return clone(routine)
+  }
+
+  /** A routine's next run, now (a purchase schedule's "Buy now"). One already running is left to finish. */
+  runRoutineNow(id: string, routineId: string): void {
+    const worker = this.require(id)
+    const routine = worker.routines.find((r) => r.id === routineId)
+    if (!routine) throw new Error('That routine isn’t there any more.')
+    routine.nextAt = this.now()
+    this.commit()
+    this.tick()
   }
 
   /** The worker's own record of what it is working towards and what it has learned. */
@@ -2582,11 +2665,15 @@ export class WorkersEngine {
     const waitingOn = this.delegationList
       .filter((d) => isOpenDelegation(d) && d.parent.workerId === worker.id && d.parent.threadId === threadId)
       .map((d) => ({ id: d.id, to: d.recipient.name, objective: d.objective, state: d.state }))
-    const user = buildTurnMessage(mail, note, now, routine ? [routine] : [], cap, goalRun && !setsGoal ? goalRun.text : null, {
+    const assistantId = randomUUID()
+    // A purchase schedule's run: its own brief, access and tools (see WorkersDeps.routineTurn).
+    const special = routine && !cap ? (this.deps.routineTurn?.(clone(worker), clone(routine), assistantId) ?? null) : null
+    if (special) access = special.access
+    const user = buildTurnMessage(mail, note, now, routine ? [special ? { name: routine.name, task: special.task } : routine] : [], cap, goalRun && !setsGoal ? goalRun.text : null, {
       delegations: waitingOn,
       asks: worker.asks.map((a) => a.question)
     })
-    const assistant: ChatMessage = { id: randomUUID(), role: 'assistant', parts: [], createdAt: now + 1 }
+    const assistant: ChatMessage = { id: assistantId, role: 'assistant', parts: [], createdAt: now + 1 }
     thread.messages.push(user, assistant)
 
     // The receipt: the queued one if it waited, else a new one.
@@ -2641,6 +2728,7 @@ export class WorkersEngine {
       access,
       origin,
       routineId: routine?.id ?? null,
+      routineTurned: special !== null,
       delegationId: delegation?.id ?? null,
       reported: false,
       asked: false,
@@ -2698,6 +2786,7 @@ export class WorkersEngine {
       runEngineTurn: this.deps.runEngineTurn,
       allowOnce: (tool, input) => this.allowOnce(snapshot.id, tool, input),
       guestCap: cap,
+      ...(special?.toolGate ? { toolGate: special.toolGate } : {}),
       origin,
       stallMs: this.deps.stallMs,
       goal: goalRun ? { text: goalRun.text, status: 'active', iterations: goalRun.iterations } : null,
@@ -2880,6 +2969,14 @@ export class WorkersEngine {
     } else if (run.routineId && outcome.error) {
       const routine = worker.routines.find((r) => r.id === run.routineId)
       this.deps.reachOut?.(clone(worker), { title: `${worker.name}’s routine “${routine?.name ?? 'routine'}” failed`, body: clip(outcome.error, 300) })
+    }
+    const turned = run.routineTurned && run.routineId ? worker.routines.find((r) => r.id === run.routineId) : undefined
+    if (turned) {
+      try {
+        this.deps.routineEnded?.(clone(worker), clone(turned), run.messageId, outcome)
+      } catch (error) {
+        console.error('[workers] a routine’s follow-up failed:', error)
+      }
     }
     this.tick()
   }

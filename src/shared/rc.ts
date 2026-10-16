@@ -20,3 +20,20 @@ export interface RcInfo {
   /** A link in progress: the code to check on the website, and where to go. */
   linking: { code: string; url: string; expiresAt: number } | null
 }
+
+/** Someone this computer, or one of its terminals, is shared with (shared on rc.eaon.dev). */
+export interface RcShare {
+  id: string
+  /** Their GitHub login. */
+  login: string
+  /** One terminal, by what it was called when shared; null for the whole computer. */
+  paneLabel: string | null
+  pane: string | null
+  access: 'watch' | 'control'
+  /** The invite hasn't been accepted yet. */
+  pending: boolean
+  expired: boolean
+  createdAt: number
+  /** Connected to it right now. */
+  online: boolean
+}

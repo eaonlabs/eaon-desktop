@@ -4,7 +4,7 @@ import { clampEffort } from '@shared/effort'
 import { MAIN_THREAD, threadKey, type Worker, type WorkerMail, type WorkerRoutine, type WorkerThread } from '@shared/workers'
 import { CHANNEL_LABEL, type GuestAccess } from '@shared/channels'
 import type { RunOptions, RunOutcome } from '../../agent/loop'
-import type { TurnOrigin } from '../../agent/policy'
+import type { ToolGate, TurnOrigin } from '../../agent/policy'
 import type { EngineApprovalRequest, EngineTurnInput, EngineTurnResult } from '../../engines/types'
 import { ENGINE_LABEL } from '@shared/engines'
 import { isCatastrophicCommand, isRiskyCommand } from '@shared/commandRisk'
@@ -189,6 +189,8 @@ export interface TurnInput {
   allowOnce?: (tool: string, input: Record<string, unknown>) => boolean
   /** A guest's message is in this turn: hold it to this level (see guests.ts). */
   guestCap?: GuestAccess | null
+  /** The tools this turn may use, when it is held to fewer than usual (a purchase schedule's run). */
+  toolGate?: ToolGate
   /** Who the work in this turn came from; a guest's or a colleague's can't spend money (agent/policy). */
   origin?: TurnOrigin
   stallMs?: number
@@ -311,7 +313,9 @@ export async function runWorkerTurn(input: TurnInput): Promise<TurnOutcome> {
 
   // A guest's message holds the whole turn to what that guest may do.
   const access = input.guestCap ? guestPolicy(input.guestCap) : worker.access
-  const gate = input.guestCap ? guestGate(input.guestCap) : undefined
+  const guest = input.guestCap ? guestGate(input.guestCap) : undefined
+  const own = input.toolGate
+  const gate: ToolGate | undefined = guest && own ? (tool, args) => guest(tool, args) ?? own(tool, args) : (guest ?? own)
   const stallMs = input.stallMs ?? STALL_MS
   const dog = watchdog(input.signal, stallMs)
 

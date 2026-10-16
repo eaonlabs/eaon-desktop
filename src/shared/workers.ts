@@ -1,7 +1,7 @@
 import type { ChannelKind, GuestAccess } from './channels'
 import type { ChatMessage, EffortLevel, GoalState, StreamEvent, TokenUsage } from './types'
 import type { EngineId } from './engines'
-import { nextRunAfter, WEEKDAYS } from './scheduler'
+import { nextRunAfter, WEEKDAYS, type OrderWatch, type PurchasePlan } from './scheduler'
 
 /**
  * Eaon Workers: independent agents that live on the user's computer and keep
@@ -69,6 +69,25 @@ export interface WorkerHeartbeat {
  * clock time. Several can run side by side; the heartbeat stays the one-off
  * "wake me in 10 minutes" slot.
  */
+/** A purchase schedule as the /purchase dialog saves it on a worker (features/workers/purchases.ts). */
+export interface PurchaseRoutineDraft {
+  /** The routine being edited; absent for a new one. */
+  id?: string
+  plan: PurchasePlan
+  /** Between orders; null buys once. */
+  everyMs: number | null
+  /** The first order: now to buy right away, else the picked day and time. */
+  firstAt: number
+  /** The picked day and time later orders keep to (see WorkerRoutine.anchorAt). */
+  anchorAt: number
+}
+
+/** The first `anchorAt + k × everyMs` after `after`: a routine kept to the time the user picked. */
+export function nextAligned(anchorAt: number, everyMs: number, after: number): number {
+  if (anchorAt > after) return anchorAt
+  return anchorAt + (Math.floor((after - anchorAt) / everyMs) + 1) * everyMs
+}
+
 export interface WorkerRoutine {
   id: string
   name: string
@@ -86,6 +105,19 @@ export interface WorkerRoutine {
   threadId?: string
   /** The time zone `nextAt` was worked out in, for a daily routine: "9:00" means 9:00 where the user is now. */
   zone?: string
+  /**
+   * A purchase schedule the user set up for this worker: each run places one
+   * order of it, approved in advance for that store and up to that amount
+   * (features/workers/purchases.ts).
+   */
+  purchase?: PurchasePlan
+  /** Following one order a purchase schedule placed, until it arrives. */
+  watch?: OrderWatch
+  /**
+   * Runs fall on `anchorAt + k × everyMs`, the time the user picked, rather
+   * than drifting with when each run finished (a purchase schedule's 9:00).
+   */
+  anchorAt?: number
 }
 
 /**

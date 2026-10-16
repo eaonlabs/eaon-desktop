@@ -7,7 +7,7 @@ import { agentBrowserUrl, typeSecretInAgentBrowser } from './agentBrowser'
 import { typeHidden } from './computer/tool'
 import { setPaymentAccess } from './payments/access'
 import { PaymentsEngine, urlMatchesSite } from './payments/engine'
-import { setPurchaseLookup } from './payments/plans'
+import { grantFor, setPurchaseLookup, watchFor } from './payments/plans'
 import { PAYMENT_GUIDANCE, paymentTool } from './payments/tool'
 import type { Feature } from './types'
 import { workersService } from './workers'
@@ -41,6 +41,21 @@ export function paymentsEngine(): PaymentsEngine | null {
   return engine
 }
 
+/**
+ * The steps on the way to a checkout ("Proceed to checkout", "Continue to
+ * payment"), as opposed to the press that places the order. A purchase
+ * schedule's run may take these on its own store before it has a total to
+ * authorize; the order itself still needs its authorization.
+ */
+const CHECKOUT_STEP = /\b(check ?out|proceed to (?:check ?out|payment|shipping|delivery)|continue to (?:check ?out|payment|shipping|delivery)|go to check ?out)\b/i
+const ORDER_PRESS = /\b(place|buy now|pay now|pay \$|complete|confirm|submit|subscribe|donate|transfer|withdraw|book)\b/i
+
+export function checkoutStepCovered(url: string, click: { messageId?: string; name?: string } | undefined): boolean {
+  const grant = click?.messageId ? grantFor(click.messageId) : null
+  const name = click?.name ?? ''
+  return Boolean(grant && urlMatchesSite(url, grant.site) && CHECKOUT_STEP.test(name) && !ORDER_PRESS.test(name))
+}
+
 function createEngine(): PaymentsEngine {
   const created = new PaymentsEngine({
     load: () => store.getJson<unknown>(FILE, null),
@@ -54,7 +69,8 @@ function createEngine(): PaymentsEngine {
   })
   setPaymentAccess({
     // One press of the pay button per authorization (see claimSpendingClick).
-    covers: (chatId, url) => created.claimSpendingClick(chatId, url),
+    // A step towards checkout on a purchase schedule's store first, so it never uses up the one press an authorization covers.
+    covers: (chatId, url, click) => checkoutStepCovered(url, click) || created.claimSpendingClick(chatId, url),
     secret: () => {
       try {
         const { number, cvc } = created.cardSecret()
@@ -86,9 +102,16 @@ const tool = paymentTool(
 
 registerToolSource({
   id: 'payments',
-  // The main agent and workers, never sub-agents or trading sessions, and only once a card is set up.
+  // The main agent and workers, never sub-agents or trading sessions, and only once a card is set up —
+  // or in a purchase schedule's run, whose free orders and order tracking need no card.
   tools: (query) =>
-    query.mode === 'work' && query.depth === 0 && !query.request.chatId?.startsWith('trading:') && engine !== null && engine.effectiveMode() !== 'off' ? [tool] : [],
+    query.mode === 'work' &&
+    query.depth === 0 &&
+    !query.request.chatId?.startsWith('trading:') &&
+    engine !== null &&
+    (engine.effectiveMode() !== 'off' || grantFor(query.request.messageId) !== null || watchFor(query.request.messageId) !== null)
+      ? [tool]
+      : [],
   guidance: () => PAYMENT_GUIDANCE
 })
 

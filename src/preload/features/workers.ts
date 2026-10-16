@@ -12,7 +12,9 @@ import type {
   WorkerRoom,
   WorkerSendOptions,
   WorkerStreamEvent,
-  WorkerThread
+  WorkerThread,
+  PurchaseRoutineDraft,
+  WorkerRoutine
 } from '@shared/workers'
 
 /**
@@ -59,6 +61,11 @@ export const workersApi = {
   setMemory: (id: string, memory: { goal?: string; notes?: string }): Promise<string> => ipcRenderer.invoke('workers:set-memory', id, memory),
   /** Stops one of the worker's routines, by name. */
   removeRoutine: (id: string, name: string): Promise<string> => ipcRenderer.invoke('workers:remove-routine', id, name),
+  removeRoutineById: (id: string, routineId: string): Promise<void> => ipcRenderer.invoke('workers:remove-routine-id', id, routineId),
+  /** A routine's next run, now: a purchase schedule's "Buy now". */
+  runRoutine: (id: string, routineId: string): Promise<void> => ipcRenderer.invoke('workers:run-routine', id, routineId),
+  /** Saves a purchase schedule as one of the worker's routines (new, or replacing `draft.id`). */
+  savePurchase: (id: string, draft: PurchaseRoutineDraft): Promise<WorkerRoutine> => ipcRenderer.invoke('workers:save-purchase', id, draft),
   /** Pause, resume or clear the goal set from the composer's Goal. */
   setGoal: (id: string, status: 'active' | 'paused' | null): Promise<void> => ipcRenderer.invoke('workers:set-goal', id, status),
   /** Runs a check-in turn as soon as the worker is free. */

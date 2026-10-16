@@ -15,7 +15,6 @@ import {
   Paperclip,
   Plus,
   ShieldCheck,
-  ShoppingBag,
   Square,
   Target,
   AtSign,
@@ -43,7 +42,6 @@ import { useChatEngine } from './composer/chatEngine'
 import { EngineNotice } from './composer/EngineNotice'
 import { joinTranscript, useDictation } from './composer/useDictation'
 import { VoiceBar } from './composer/VoiceBar'
-import { usePurchaseDialog } from './purchase/purchaseStore'
 
 /**
  * The chat box. Deliberately plain — a + button, the text, the model and
@@ -222,15 +220,6 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
             (approvalMode) => void patchSettings({ approvalMode })
           ),
           { id: 'browser', title: 'Browser', keywords: 'web browse', section: 'Tools', icon: <Globe size={16} strokeWidth={1.8} />, run: () => toggleBrowser(true) },
-          {
-            id: 'purchase',
-            title: 'Purchase schedule',
-            keywords: 'purchase buy order shop reorder recurring subscribe',
-            description: 'Have the agent buy something, once or on repeat',
-            section: 'Tools',
-            icon: <ShoppingBag size={16} strokeWidth={1.8} />,
-            run: () => usePurchaseDialog.getState().show()
-          },
           { id: 'computer', title: 'Computer use', keywords: 'computer screen mouse', section: 'Tools', icon: <Laptop size={16} strokeWidth={1.8} />, hint: settings?.computerUse.enabled ? 'On' : 'Off', run: () => setSettingsPage('computer-use') },
           { id: 'plugins', title: 'Browse plugins', keywords: 'plugins mcp integrations', section: 'Tools', icon: <AtSign size={16} strokeWidth={1.8} />, run: () => setView('plugins') }
         )
@@ -718,16 +707,6 @@ function AddMenu({
             onMouseEnter={() => setSub(null)}
             onClick={() => {
               toggleBrowser(true)
-              close()
-            }}
-          />
-          <MenuItem
-            icon={<ShoppingBag size={16} strokeWidth={1.8} />}
-            title="Purchase schedule"
-            hint="Buy on repeat"
-            onMouseEnter={() => setSub(null)}
-            onClick={() => {
-              usePurchaseDialog.getState().show()
               close()
             }}
           />

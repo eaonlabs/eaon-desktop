@@ -8,7 +8,6 @@ import { TopBar } from './TopBar'
 import { revealChat, useApp } from '../state/store'
 import { TaskCard } from './scheduled/TaskCard'
 import { cleanError, TaskEditor } from './scheduled/TaskEditor'
-import { usePurchaseDialog } from './purchase/purchaseStore'
 
 /**
  * Scheduled tasks. The tasks themselves live in the main process
@@ -61,11 +60,6 @@ export function ScheduledPage(): JSX.Element {
   }, [])
 
   const openEditor = useCallback((task: ScheduledTask | null) => {
-    // A purchase schedule is edited where it was made; its bounds are what make its orders approved.
-    if (task?.purchase) {
-      usePurchaseDialog.getState().show(task)
-      return
-    }
     setEditing(task)
     setEditorOpen(true)
   }, [])

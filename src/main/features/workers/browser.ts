@@ -1393,6 +1393,11 @@ export class WorkerBrowsers {
     return this.sessions.has(workerId)
   }
 
+  /** Every browser opened so far (a worker's id, or the chat agent's `'agent'`). */
+  ids(): string[] {
+    return [...this.sessions.keys()]
+  }
+
   /** The window itself, for the chat agent's live view; null before its first page. */
   window(workerId: string): BrowserWindow | null {
     const window = this.sessions.get(workerId)?.window
@@ -1920,7 +1925,7 @@ export function browserTool(browsers: WorkerBrowsers, options: BrowserToolOption
       const name = el?.name ?? targetWords(input)
       if (action === 'type') return (!el && !name) || SENSITIVE.test(name) || /password/i.test(el?.role ?? '')
       // A purchase authorized for this site through payment_card already had its say.
-      if (action === 'click') return (!el && !name) || (SPENDING.test(name) && !purchaseCovers(ctx.request.chatId, browsers.url(id)))
+      if (action === 'click') return (!el && !name) || (SPENDING.test(name) && !purchaseCovers(ctx.request.chatId, browsers.url(id), { messageId: ctx.request.messageId, name }))
       return false
     },
     describe: (raw) => {

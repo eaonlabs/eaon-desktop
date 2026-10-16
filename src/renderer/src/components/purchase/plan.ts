@@ -1,9 +1,9 @@
-import { formatMoney } from '@shared/payments'
-import { purchasePlanError, scheduleError, type PurchasePlan, type Schedule, type ScheduledTask, type TaskDraft } from '@shared/scheduler'
+import { purchasePlanError, type PurchasePlan } from '@shared/scheduler'
+import { nextAligned, type PurchaseRoutineDraft, type WorkerRoutine } from '@shared/workers'
 
 /**
  * The purchase schedule dialog's arithmetic, without React: turning what the
- * user picked into the scheduled task that places the orders. Kept apart so
+ * user picked into the worker routine that places the orders. Kept apart so
  * it can be tested on its own.
  */
 
@@ -25,6 +25,17 @@ export const CADENCE_PHRASE: Record<Exclude<Cadence, 'once'>, string> = {
   weekly: 'Every week',
   biweekly: 'Every 2 weeks',
   monthly: 'Every 4 weeks'
+}
+
+/** How often a routine runs, as its row says it: "every week", "every 2 weeks", "every 90 min". */
+export function cadenceText(everyMs: number | null): string {
+  if (!everyMs) return 'once'
+  const days = everyMs / (24 * HOUR)
+  if (days === 1) return 'every day'
+  if (days === 7) return 'every week'
+  if (Number.isInteger(days) && days % 7 === 0) return `every ${days / 7} weeks`
+  if (Number.isInteger(days)) return `every ${days} days`
+  return everyMs >= HOUR && everyMs % HOUR === 0 ? `every ${everyMs / HOUR} h` : `every ${Math.round(everyMs / 60_000)} min`
 }
 
 export interface PurchaseForm {
@@ -84,12 +95,15 @@ export function storeName(site: string): string {
 }
 
 export function amountOf(raw: string): number {
-  const value = Number(raw.replace(/[^0-9.]/g, ''))
+  // Nothing typed is no amount, not 0: 0 means free orders.
+  const digits = raw.replace(/[^0-9.]/g, '')
+  if (!/\d/.test(digits)) return NaN
+  const value = Number(digits)
   return Number.isFinite(value) ? Math.round(value * 100) / 100 : NaN
 }
 
 export interface BuiltPlan {
-  draft: TaskDraft
+  draft: PurchaseRoutineDraft
   /** The first order goes in as soon as it is saved. */
   buyNow: boolean
   /** When the first scheduled order goes in (after the one placed now, if any); null when there is none. */
@@ -98,13 +112,13 @@ export interface BuiltPlan {
 }
 
 /**
- * The scheduled task for the form. Today as the start day means the first
- * order is placed right away; a repeating schedule's next order then falls
- * one period after today's chosen time. `keep` is an edited schedule's
- * current timing, used when the user didn't touch the timing fields, so
- * saving a changed note doesn't place an order.
+ * The worker routine for the form. Today as the start day means the first
+ * order is placed right away; a repeating schedule's later orders keep to
+ * the picked time, a period apart. `keep` is an edited schedule's routine
+ * when the user didn't touch the timing fields, so saving a changed note
+ * doesn't place an order or move the next one.
  */
-export function buildPurchasePlan(form: PurchaseForm, now: number, threadId: string, existing: ScheduledTask | null = null, keep: Schedule | null = null): BuiltPlan {
+export function buildPurchasePlan(form: PurchaseForm, now: number, keep: WorkerRoutine | null = null): BuiltPlan {
   const site = storeSite(form.site) ?? form.site.trim().toLowerCase()
   const maxAmount = amountOf(form.maxAmount)
   const orders = form.cadence === 'once' ? 1 : form.limited ? Math.round(Number(form.orders)) : null
@@ -121,51 +135,31 @@ export function buildPurchasePlan(form: PurchaseForm, now: number, threadId: str
 
   const today = startOfDay(now)
   const buyNow = !keep && form.startDay <= today
-  let schedule: Schedule
-  let enabled = true
+  let everyMs: number | null = form.cadence === 'once' ? null : CADENCE_HOURS[form.cadence] * HOUR
+  let firstAt: number
+  let anchorAt: number
   let nextAt: number | null
   if (keep) {
-    schedule = keep
-    nextAt = existing?.nextRunAt ?? null
-  } else if (form.cadence === 'once') {
-    if (buyNow) {
-      // Placed by Run now; the task stays off so the schedule never places it again.
-      schedule = { kind: 'once', at: now }
-      enabled = false
-      nextAt = null
-    } else {
-      schedule = { kind: 'once', at: atTime(form.startDay, form.time) }
-      nextAt = schedule.at
-    }
+    everyMs = keep.everyMs
+    firstAt = keep.nextAt
+    anchorAt = keep.anchorAt ?? keep.nextAt
+    nextAt = keep.nextAt
+  } else if (buyNow) {
+    firstAt = now
+    anchorAt = atTime(form.startDay, form.time)
+    nextAt = everyMs ? nextAligned(anchorAt, everyMs, now) : null
   } else {
-    const period = CADENCE_HOURS[form.cadence] * HOUR
-    let startAt = atTime(form.startDay, form.time)
-    if (buyNow) startAt += period
-    while (startAt <= now) startAt += period
-    schedule = { kind: 'interval', every: CADENCE_HOURS[form.cadence], unit: 'hours', startAt }
-    nextAt = startAt
+    firstAt = atTime(form.startDay, form.time)
+    anchorAt = firstAt
+    nextAt = firstAt
   }
   // A one-off already placed has nothing left to schedule.
   if (orders === 1 && buyNow) nextAt = null
 
-  const short = plan.item.length > 52 ? `${plan.item.slice(0, 51).trimEnd()}…` : plan.item
-  const draft: TaskDraft = {
-    ...(existing ? { id: existing.id } : {}),
-    name: `Buy ${short || 'something'}`,
-    prompt: `Buy ${plan.item} from ${plan.merchant}, up to ${Number.isFinite(maxAmount) ? formatMoney(maxAmount, plan.currency) : '?'} an order.`,
-    schedule,
-    mode: 'work',
-    model: existing?.model ?? null,
-    cwd: null,
-    allowChanges: true,
-    enabled: keep ? (existing?.enabled ?? true) : enabled,
-    purchase: plan,
-    thread: existing?.thread ?? threadId
-  }
-
+  const draft: PurchaseRoutineDraft = { ...(keep ? { id: keep.id } : {}), plan, everyMs, firstAt, anchorAt }
   const error =
     (!storeSite(form.site) && form.site.trim() ? 'Enter the store’s website, like amazon.com.' : null) ??
     purchasePlanError(plan) ??
-    (keep ? null : scheduleError(schedule, now, enabled))
+    (!keep && !buyNow && firstAt <= now ? 'Pick a time that hasn’t passed yet.' : null)
   return { draft, buyNow, nextAt, error }
 }

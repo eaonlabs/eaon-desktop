@@ -10,7 +10,13 @@ import type { CardSecret } from './engine'
  * - the card's digits, so page snapshots the model reads have them blanked.
  */
 
-type Covers = (chatId: string, url: string) => boolean
+/** The click being judged: whose run it is (a purchase schedule's run may go through checkout) and what the button says. */
+export interface SpendingClick {
+  messageId?: string
+  name?: string
+}
+
+type Covers = (chatId: string, url: string, click?: SpendingClick) => boolean
 
 let covers: Covers | null = null
 let secret: (() => CardSecret | null) | null = null
@@ -29,9 +35,9 @@ export function setPaymentAccess(access: { covers: Covers; secret: () => CardSec
  * permission policy asks each call's `catastrophic` once (agent/policy.ts),
  * which is where this is called from.
  */
-export function purchaseCovers(chatId: string, url: string): boolean {
+export function purchaseCovers(chatId: string, url: string, click?: SpendingClick): boolean {
   try {
-    return covers?.(chatId, url) ?? false
+    return covers?.(chatId, url, click) ?? false
   } catch {
     return false
   }

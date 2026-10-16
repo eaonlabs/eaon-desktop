@@ -7,9 +7,10 @@ import { computerNames, remoteApiDeps } from '../../remote'
 import { workersService } from '../workers'
 import { terminalsFeature } from '../terminals'
 import { adeForRemote } from '../ade'
-import { RC_DEFAULT_SERVER, type RcConnection, type RcInfo } from '@shared/rc'
+import { RC_DEFAULT_SERVER, type RcConnection, type RcInfo, type RcShare } from '@shared/rc'
 import { RelayClient } from './client'
-import { createRcHandler } from './handler'
+import { createRcHandler, type RcBrowsers } from './handler'
+import { agentBrowsersOpen, browserStatus, browserSteps, onBrowserStep, watchBrowserFrames } from '../agentBrowser'
 
 /**
  * Eaon Remote: this computer, linked to a GitHub account at rc.eaon.dev, so its
@@ -27,6 +28,23 @@ import { createRcHandler } from './handler'
  */
 
 const VAULT_KEY = 'eaon-rc-device'
+
+/** The agents' browsers, for the web's live view of them. */
+function remoteBrowsers(): RcBrowsers {
+  return {
+    list: agentBrowsersOpen,
+    status: browserStatus,
+    steps: browserSteps,
+    watch: watchBrowserFrames,
+    onStep: onBrowserStep,
+    label: (target) => {
+      const worker = /^worker:(.+)$/.exec(target)
+      if (!worker) return 'Eaon’s browser'
+      const name = workersService()?.engine.list().find((w) => w.id === worker[1])?.name
+      return name ? `${name}’s browser` : 'A Worker’s browser'
+    }
+  }
+}
 const server = (): string => (process.env.EAON_RC_URL || RC_DEFAULT_SERVER).replace(/\/$/, '')
 
 let client: RelayClient | null = null
@@ -93,6 +111,7 @@ export const rcFeature: Feature = {
         terminals: terminalsFeature.control,
         ade: adeForRemote,
         workers: workers ? remoteApiDeps(workers.engine, workers.remove, () => computerName) : null,
+        browsers: remoteBrowsers(),
         send: (message) => client?.send(message)
       })
       client = new RelayClient({
@@ -181,6 +200,31 @@ export const rcFeature: Feature = {
       else disconnect()
       changed()
       return info()
+    })
+
+    // Who this computer is shared with (shared on the website), and taking it back from here.
+    ipcMain.handle('rc:shares', async (): Promise<RcShare[]> => {
+      const token = secrets.get(VAULT_KEY)
+      if (!token) return []
+      const { shares } = await api<{ shares: Omit<RcShare, 'online'>[] }>('/api/device/shares', { headers: { Authorization: `Bearer ${token}` } })
+      const online = new Set(handler?.guestsOnline() ?? [])
+      return shares.map((s) => ({
+        id: s.id,
+        login: s.login,
+        pane: s.pane,
+        paneLabel: s.paneLabel,
+        access: s.access,
+        pending: s.pending,
+        expired: s.expired,
+        createdAt: s.createdAt,
+        online: !s.pending && online.has(s.login.toLowerCase())
+      }))
+    })
+    ipcMain.handle('rc:revoke-share', async (_e, id: unknown) => {
+      const token = secrets.get(VAULT_KEY)
+      if (!token || typeof id !== 'string' || !/^[\w-]{1,40}$/.test(id)) throw new Error('That share isn’t there any more.')
+      await api(`/api/device/shares/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
+      return true
     })
 
     ipcMain.handle('rc:unlink', async () => {

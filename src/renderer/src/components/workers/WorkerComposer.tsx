@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { ArrowUp, AtSign, Eye, FileText, Globe, Laptop, Mic, Paperclip, Plus, ShieldCheck, Square, Target, X, Zap } from 'lucide-react'
+import { ArrowUp, AtSign, Eye, FileText, Globe, Laptop, Mic, Paperclip, Plus, ShieldCheck, ShoppingBag, Square, Target, X, Zap } from 'lucide-react'
 import { useApp } from '../../state/store'
 import { useWorkers } from './workersStore'
 import { WorkerFace } from './WorkerFace'
@@ -19,6 +19,7 @@ import { fileName, fileUrl, isImagePath } from '../../lib/files'
 import { mcpCatalogEntry } from '@shared/mcpCatalog'
 import { MAIN_THREAD, mentionedWorkers, WORKER_ACCESS, type Worker, type WorkerAccess } from '@shared/workers'
 import type { McpServer } from '@shared/types'
+import { usePurchaseDialog } from '../purchase/purchaseStore'
 
 const ACCESS_ICON: Record<WorkerAccess, typeof Zap> = { autonomous: Zap, safe: ShieldCheck, 'read-only': Eye }
 
@@ -134,6 +135,15 @@ export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Wor
       ...(hasBrowser
         ? [{ id: 'browser', title: 'Its browser', keywords: 'browser web watch sign in', description: 'Watch it, or sign it in', section: 'Tools', icon: <Globe size={16} strokeWidth={1.8} />, run: showBrowser }]
         : []),
+      {
+        id: 'purchase',
+        title: 'Purchase schedule',
+        keywords: 'purchase buy order shop reorder recurring subscribe free',
+        description: `Have ${worker.name} buy something, once or on repeat`,
+        section: 'Tools',
+        icon: <ShoppingBag size={16} strokeWidth={1.8} />,
+        run: () => usePurchaseDialog.getState().show({ workerId: worker.id })
+      },
       { id: 'computer', title: 'Computer use', keywords: 'computer screen mouse', section: 'Tools', icon: <Laptop size={16} strokeWidth={1.8} />, hint: settings?.computerUse.enabled ? 'On' : 'Off', run: () => setSettingsPage('computer-use') },
       { id: 'plugins', title: 'Browse plugins', keywords: 'plugins mcp integrations', section: 'Tools', icon: <AtSign size={16} strokeWidth={1.8} />, run: () => setView('plugins') },
       { id: 'wake', title: 'Check in now', keywords: 'wake check in now', section: worker.name, icon: <Zap size={16} strokeWidth={1.8} />, run: () => void window.api.workers.wake(worker.id) },
@@ -454,6 +464,16 @@ function WorkerAddMenu({
         onMouseEnter={() => setSub(null)}
         onClick={() => {
           onBrowser()
+          close()
+        }}
+      />
+      <MenuItem
+        icon={<ShoppingBag size={16} strokeWidth={1.8} />}
+        title="Purchase schedule"
+        hint="Buy on repeat"
+        onMouseEnter={() => setSub(null)}
+        onClick={() => {
+          usePurchaseDialog.getState().show({ workerId: worker.id })
           close()
         }}
       />

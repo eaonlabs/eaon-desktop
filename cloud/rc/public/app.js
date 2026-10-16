@@ -67,7 +67,14 @@ const ICONS = {
   'panel-left': [['rect', { width: 18, height: 18, x: 3, y: 3, rx: 2 }], ['path', { d: 'M9 3v18' }]],
   hand: [['path', { d: 'M18 11V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2' }], ['path', { d: 'M14 10V4a2 2 0 0 0-2-2a2 2 0 0 0-2 2v2' }], ['path', { d: 'M10 10.5V6a2 2 0 0 0-2-2a2 2 0 0 0-2 2v8' }], ['path', { d: 'M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15' }]],
   home: [['path', { d: 'M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8' }], ['path', { d: 'M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z' }]],
-  dot: [['circle', { cx: 12, cy: 12, r: 1.5 }]]
+  dot: [['circle', { cx: 12, cy: 12, r: 1.5 }]],
+  globe: [['circle', { cx: 12, cy: 12, r: 10 }], ['path', { d: 'M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20' }], ['path', { d: 'M2 12h20' }]],
+  share: [['circle', { cx: 18, cy: 5, r: 3 }], ['circle', { cx: 6, cy: 12, r: 3 }], ['circle', { cx: 18, cy: 19, r: 3 }], ['line', { x1: 8.59, x2: 15.42, y1: 13.51, y2: 17.49 }], ['line', { x1: 15.41, x2: 8.59, y1: 6.51, y2: 10.49 }]],
+  maximize: [['path', { d: 'M8 3H5a2 2 0 0 0-2 2v3' }], ['path', { d: 'M21 8V5a2 2 0 0 0-2-2h-3' }], ['path', { d: 'M3 16v3a2 2 0 0 0 2 2h3' }], ['path', { d: 'M16 21h3a2 2 0 0 0 2-2v-3' }]],
+  minimize: [['path', { d: 'M8 3v3a2 2 0 0 1-2 2H3' }], ['path', { d: 'M21 8h-3a2 2 0 0 1-2-2V3' }], ['path', { d: 'M3 16h3a2 2 0 0 1 2 2v3' }], ['path', { d: 'M16 21v-3a2 2 0 0 1 2-2h3' }]],
+  eye: [['path', { d: 'M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0' }], ['circle', { cx: 12, cy: 12, r: 3 }]],
+  users: [['path', { d: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2' }], ['circle', { cx: 9, cy: 7, r: 4 }], ['path', { d: 'M22 21v-2a4 4 0 0 0-3-3.87' }], ['path', { d: 'M16 3.13a4 4 0 0 1 0 7.75' }]],
+  copy: [['rect', { width: 14, height: 14, x: 8, y: 8, rx: 2, ry: 2 }], ['path', { d: 'M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2' }]]
 }
 
 function icon(name, size = 16, stroke = 1.75) {
@@ -264,12 +271,22 @@ const workerState = (w) => (w.paused ? 'paused' : w.status)
 
 // ------------------------------------------------------------------ the relay
 
+/**
+ * The page's connections to the relay: your own account's (/relay/web), and
+ * one per account that shared something with you (/relay/guest). Their
+ * computers all land in `devices`; a shared one carries `ownerUid`, `owner`
+ * (their login) and `grants` (what you may do on it), and each message for it
+ * goes out on that account's connection, where the relay checks it.
+ */
 class Relay {
   constructor() {
     this.ws = null
+    /** owner uid -> { ws, login, connected, backoff, timer } */
+    this.guests = new Map()
     this.devices = new Map()
     this.pending = new Map()
     this.subs = new Map() // `${dev}/${pane}` -> handlers
+    this.bsubs = new Map() // `${dev}/${target}` -> handlers
     this.listeners = new Set()
     this.seq = 0
     this.backoff = 1000
@@ -293,44 +310,143 @@ class Relay {
       this.connected = true
       this.backoff = 1000
       this.ping = setInterval(() => ws.readyState === 1 && ws.send('ping'), 25_000)
-      // Terminals being watched start again where they are.
-      for (const key of this.subs.keys()) {
-        const [dev, pane] = key.split('/')
-        this.raw({ t: 'sub', dev, pane })
-      }
       this.emit()
     }
-    ws.onmessage = (event) => {
-      if (event.data === 'pong') return
-      let m
-      try {
-        m = JSON.parse(event.data)
-      } catch {
-        return
-      }
-      this.handle(m)
-    }
+    ws.onmessage = (event) => this.receive(event, null)
     ws.onclose = () => {
       clearInterval(this.ping)
       const was = this.connected
       this.connected = false
-      for (const [, p] of this.pending) p.reject(new Error('The connection dropped. Trying again…'))
-      this.pending.clear()
+      this.dropPending(null)
       if (was) this.emit()
       setTimeout(() => this.connect(), this.backoff)
       this.backoff = Math.min(this.backoff * 2, 15_000)
     }
   }
 
-  handle(m) {
+  /** Joins the relays of the accounts that share with you, and leaves the ones that stopped. */
+  syncGuests(owners) {
+    const want = new Map(owners.map((o) => [o.owner, o.login]))
+    for (const [uid, g] of this.guests) {
+      if (want.has(uid)) continue
+      this.guests.delete(uid)
+      clearTimeout(g.timer)
+      g.ws?.close()
+      this.dropDevices(uid)
+    }
+    for (const [uid, login] of want) if (!this.guests.has(uid)) this.connectGuest(uid, login)
+  }
+
+  /** Asks again whose relays to join (after accepting an invite, or one closing on us). */
+  async refreshGuests() {
+    try {
+      const { owners } = await api('/api/shared')
+      this.syncGuests(owners)
+    } catch {}
+  }
+
+  connectGuest(uid, login) {
+    const g = this.guests.get(uid) ?? { ws: null, login, connected: false, backoff: 1000, timer: null }
+    this.guests.set(uid, g)
+    const ws = new WebSocket(`${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/relay/guest?owner=${encodeURIComponent(uid)}`)
+    g.ws = ws
+    let opened = false
+    ws.onopen = () => {
+      opened = true
+      g.connected = true
+      g.backoff = 1000
+      g.ping = setInterval(() => ws.readyState === 1 && ws.send('ping'), 25_000)
+    }
+    ws.onmessage = (event) => this.receive(event, uid)
+    ws.onclose = (event) => {
+      clearInterval(g.ping)
+      g.connected = false
+      this.dropPending(uid)
+      if (this.guests.get(uid) !== g) return
+      // Revoked (or nothing left to see): its computers go, and the list says whether anything remains.
+      if (event.code === 4003 || !opened) {
+        this.guests.delete(uid)
+        this.dropDevices(uid)
+        this.emit()
+        if (event.code === 4003) setTimeout(() => this.refreshGuests(), 500)
+        return
+      }
+      this.markOffline(uid)
+      this.emit()
+      g.timer = setTimeout(() => this.guests.get(uid) === g && this.connectGuest(uid, login), g.backoff)
+      g.backoff = Math.min(g.backoff * 2, 15_000)
+    }
+  }
+
+  dropDevices(uid) {
+    for (const [id, d] of [...this.devices]) if (d.ownerUid === uid) this.devices.delete(id)
+  }
+
+  markOffline(uid) {
+    for (const d of this.devices.values()) if (d.ownerUid === uid) d.online = false
+  }
+
+  dropPending(src) {
+    for (const [id, p] of [...this.pending]) {
+      if (p.src !== src) continue
+      clearTimeout(p.timer)
+      p.reject(new Error('The connection dropped. Trying again…'))
+      this.pending.delete(id)
+    }
+  }
+
+  /** Which connection a computer's messages go on: its owner's when it was shared with you. */
+  srcOf(dev) {
+    return this.devices.get(dev)?.ownerUid ?? null
+  }
+
+  socketFor(dev) {
+    const uid = this.srcOf(dev)
+    return uid ? this.guests.get(uid)?.ws : this.ws
+  }
+
+  /** Watching resumes on a connection that came back, once it has said which computers it has. */
+  resubscribe(src) {
+    for (const key of this.subs.keys()) {
+      const [dev, pane] = key.split('/')
+      if (this.srcOf(dev) === src) this.raw({ t: 'sub', dev, pane })
+    }
+    for (const key of this.bsubs.keys()) {
+      const i = key.indexOf('/')
+      const dev = key.slice(0, i)
+      if (this.srcOf(dev) === src) this.raw({ t: 'bsub', dev, target: key.slice(i + 1) })
+    }
+  }
+
+  receive(event, src) {
+    if (event.data === 'pong') return
+    let m
+    try {
+      m = JSON.parse(event.data)
+    } catch {
+      return
+    }
+    this.handle(m, src)
+  }
+
+  handle(m, src = null) {
     if (m.t === 'hello') {
-      this.devices = new Map(m.devices.map((d) => [d.id, d]))
+      if (src) {
+        const g = this.guests.get(src)
+        this.dropDevices(src)
+        for (const d of m.devices) this.devices.set(d.id, { ...d, ownerUid: src, owner: d.owner || g?.login || '' })
+      } else {
+        for (const [id, d] of [...this.devices]) if (!d.ownerUid) this.devices.delete(id)
+        for (const d of m.devices) this.devices.set(d.id, d)
+        this.syncGuests(m.shared ?? [])
+      }
+      this.resubscribe(src)
       this.emit()
     } else if (m.t === 'presence') {
       const d = this.devices.get(m.dev)
       if (m.removed) this.devices.delete(m.dev)
       else if (d) Object.assign(d, { online: m.online, ...(m.name ? { name: m.name } : {}), ...(m.online ? { lastSeen: Date.now() } : {}) })
-      else refreshDevices()
+      else if (!src) refreshDevices()
       this.emit()
     } else if (m.t === 'res') {
       const p = this.pending.get(m.id)
@@ -342,23 +458,35 @@ class Relay {
     } else if (m.t === 'snap' || m.t === 'term' || m.t === 'exit') {
       const handlers = this.subs.get(`${m.dev}/${m.pane}`)
       if (handlers) handlers[m.t]?.(m)
+    } else if (m.t === 'bsnap' || m.t === 'bframe' || m.t === 'bstep') {
+      const handlers = this.bsubs.get(`${m.dev}/${m.target}`)
+      if (handlers) handlers[m.t]?.(m)
     }
   }
 
   raw(message) {
-    if (this.ws?.readyState === 1) this.ws.send(JSON.stringify(message))
+    const ws = this.socketFor(message.dev)
+    if (ws?.readyState === 1) ws.send(JSON.stringify(message))
   }
 
-  /** Resolves once the relay is open: a request made while it connects waits instead of failing. */
-  ready(ms = 12_000) {
-    if (this.connected) return Promise.resolve()
+  /** Whether messages for this computer can go out now. */
+  connectedFor(dev) {
+    const uid = this.srcOf(dev)
+    return uid ? Boolean(this.guests.get(uid)?.connected) : this.connected && this.devices.has(dev)
+  }
+
+  /** Resolves once the computer's connection is open: a request made while it connects waits instead of failing. */
+  ready(dev, ms = 12_000) {
+    if (this.connectedFor(dev)) return Promise.resolve()
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         off()
-        reject(new Error('Can’t reach Eaon Remote. Check your connection.'))
+        // Our own relay is up but the computer isn't on it: the relay answers that it's offline.
+        if (this.connected) resolve()
+        else reject(new Error('Can’t reach Eaon Remote. Check your connection.'))
       }, ms)
       const off = this.on(() => {
-        if (!this.connected) return
+        if (!this.connectedFor(dev)) return
         clearTimeout(timer)
         off()
         resolve()
@@ -367,14 +495,14 @@ class Relay {
   }
 
   async request(dev, method, path, body) {
-    await this.ready()
+    await this.ready(dev)
     return new Promise((resolve, reject) => {
       const id = `r${++this.seq}`
       const timer = setTimeout(() => {
         this.pending.delete(id)
         reject(new Error('The computer didn’t answer in time.'))
       }, 25_000)
-      this.pending.set(id, { resolve, reject, timer })
+      this.pending.set(id, { resolve, reject, timer, src: this.srcOf(dev) })
       this.raw({ t: 'req', dev, id, method, path, body })
     })
   }
@@ -389,6 +517,17 @@ class Relay {
     }
   }
 
+  /** An agent's browser: a snapshot, then pictures and steps as they happen. */
+  watchBrowser(dev, target, handlers) {
+    const key = `${dev}/${target}`
+    this.bsubs.set(key, handlers)
+    this.raw({ t: 'bsub', dev, target })
+    return () => {
+      this.bsubs.delete(key)
+      this.raw({ t: 'bunsub', dev, target })
+    }
+  }
+
   input(dev, pane, data) {
     this.raw({ t: 'input', dev, pane, data })
   }
@@ -400,9 +539,43 @@ let me = null
 async function refreshDevices() {
   try {
     const { devices } = await api('/api/devices')
-    relay.devices = new Map(devices.map((d) => [d.id, d]))
+    // Your own computers; the ones shared with you stay as their relays said.
+    for (const [id, d] of [...relay.devices]) if (!d.ownerUid) relay.devices.delete(id)
+    for (const d of devices) relay.devices.set(d.id, d)
     relay.emit()
   } catch {}
+}
+
+// ------------------------------------------------------------------ sharing
+
+/** What you may do on a computer: everything when it's yours, else what was shared with you. */
+const sharedBy = (dev) => relay.devices.get(dev)?.owner || null
+const isGuest = (dev) => Boolean(relay.devices.get(dev)?.ownerUid)
+const grantsOf = (dev) => relay.devices.get(dev)?.grants ?? []
+/** The whole computer: its sessions, Workers and browsers (watching, at least). */
+const seesAll = (dev) => !isGuest(dev) || grantsOf(dev).some((g) => g.pane === null)
+/** Typing into a terminal, starting one, answering a Worker. */
+const canType = (dev, pane = null) => !isGuest(dev) || grantsOf(dev).some((g) => g.access === 'control' && (g.pane === null || g.pane === pane))
+
+/** What you've shared, kept fresh while a page that shows it is open. */
+const sharing = {
+  list: null,
+  error: null,
+  listeners: new Set(),
+  on(fn) {
+    this.listeners.add(fn)
+    return () => this.listeners.delete(fn)
+  },
+  async load() {
+    try {
+      const { shares } = await api('/api/shares')
+      this.list = shares
+      this.error = null
+    } catch (error) {
+      this.error = error.message
+    }
+    for (const l of [...this.listeners]) l()
+  }
 }
 
 // ------------------------------------------------------------------ the open computer
@@ -417,8 +590,10 @@ const device = {
   sessions: null,
   agents: [],
   workers: null,
+  browsers: null,
   sessionsError: null,
   workersError: null,
+  browsersError: null,
   keys: {},
   listeners: new Set(),
   timers: {},
@@ -432,13 +607,44 @@ const device = {
   open(id) {
     if (this.id === id) return
     for (const t of Object.values(this.timers)) clearTimeout(t)
-    Object.assign(this, { id, sessions: null, agents: [], workers: null, sessionsError: null, workersError: null, keys: {}, timers: {} })
+    Object.assign(this, { id, sessions: null, agents: [], workers: null, browsers: null, sessionsError: null, workersError: null, browsersError: null, keys: {}, timers: {} })
     this.emit()
     this.kick()
   },
   /** Polls now, then on the usual beat. */
   kick() {
     if (!this.id) return
+    const dev = this.id
+    // A computer shared with you that its owner's relay hasn't described yet: wait for it.
+    if (!relay.devices.has(dev) && relay.guests.size) return
+    if (!seesAll(dev)) {
+      // Only some terminals were shared: those, and nothing else is asked for.
+      Object.assign(this, { workers: [], browsers: [] })
+      this.loop('sessions', 3000, async () => {
+        const panes = await Promise.all(
+          grantsOf(dev)
+            .filter((g) => g.pane)
+            .map((g) =>
+              relay.request(dev, 'GET', `/ade/panes/${encodeURIComponent(g.pane)}`).catch((error) => {
+                if (error.code === 'offline') throw error
+                return { id: g.pane, name: g.paneLabel || 'Terminal', agent: 'shell', agentLabel: '', status: 'exited', task: null }
+              })
+            )
+        )
+        const state = panes.some((p) => p.status === 'working') ? 'working' : panes.some((p) => p.status === 'idle') ? 'live' : 'idle'
+        return { sessions: [{ id: 'shared', title: `Shared by @${sharedBy(dev) ?? ''}`, subtitle: 'Shared with you', branch: null, state, panes, changes: null }], agents: [] }
+      })
+      return
+    }
+    this.loop('browsers', 3000, async () => {
+      try {
+        return { browsers: (await relay.request(dev, 'GET', '/browsers')).browsers }
+      } catch (error) {
+        // An Eaon from before browsers were shown here.
+        if (error.status === 404) return { browsers: [] }
+        throw error
+      }
+    })
     this.loop('sessions', 2500, async () => {
       const data = await relay.request(this.id, 'GET', '/ade/sessions')
       return { sessions: data.sessions, agents: data.agents }
@@ -472,7 +678,7 @@ const device = {
     this.kick()
   }
 }
-relay.on(() => relay.connected && device.id && !device.sessions && device.kick())
+relay.on(() => relay.connected && device.id && !device.sessions && !device.timers.sessions && device.kick())
 document.addEventListener('visibilitychange', () => !document.hidden && device.kick())
 
 // ------------------------------------------------------------------ menus
@@ -611,7 +817,12 @@ function render() {
     dropShell()
     return app.replaceChildren(solo(linkPage(params.get('code'))))
   }
-  const m = path.match(/^\/d\/([\w-]+)(?:\/(s|t|w)(?:\/([^/]+))?)?\/?$/)
+  const invite = path.match(/^\/share\/([\w.-]+)\/?$/)
+  if (invite) {
+    dropShell()
+    return app.replaceChildren(solo(sharePage(invite[1])))
+  }
+  const m = path.match(/^\/d\/([\w-]+)(?:\/(s|t|w|b)(?:\/([^/]+))?)?\/?$/)
   if (!m) {
     const devices = [...relay.devices.values()]
     if (!devices.length) {
@@ -627,10 +838,14 @@ function render() {
   const [, dev, kind, rawId] = m
   const id = rawId ? decodeURIComponent(rawId) : null
   route = { dev, kind: kind && id ? kind : kind === 'w' ? 'workers' : 'overview', id }
+  // Full screen is the terminal page's; any other page starts with the sidebar back.
+  if (route.kind !== 't') setFocus(false)
   try {
     localStorage.setItem('rc-last', dev)
   } catch {}
   device.open(dev)
+  // A computer shared with you, before its owner's relay has described it: drawn again once it has.
+  if (!relay.devices.has(dev)) onLeave(relay.on(() => relay.devices.has(dev) && render()))
   if (!shell || shell.dev !== dev || !app.contains(shell.root)) {
     dropShell()
     shell = makeShell(dev)
@@ -638,7 +853,17 @@ function render() {
   shell.setDrawer(false)
   shell.drawSide()
   const page =
-    route.kind === 't' ? terminalPage(dev, id) : route.kind === 's' ? sessionPage(dev, id) : route.kind === 'w' ? workerPage(dev, id) : route.kind === 'workers' ? workersPage(dev) : overviewPage(dev)
+    route.kind === 't'
+      ? terminalPage(dev, id)
+      : route.kind === 's'
+        ? sessionPage(dev, id)
+        : route.kind === 'w'
+          ? workerPage(dev, id)
+          : route.kind === 'b'
+            ? browserPage(dev, id)
+            : route.kind === 'workers'
+              ? workersPage(dev)
+              : overviewPage(dev)
   shell.show(page)
 }
 
@@ -738,7 +963,7 @@ function switcher(dev) {
       'span',
       { class: 'switcher__body' },
       h('span', { class: 'switcher__name', text: d?.name ?? 'Computer' }),
-      h('span', { class: 'switcher__sub', text: !relay.connected ? 'Connecting…' : online ? 'Online' : d?.lastSeen ? `Offline · seen ${ago(d.lastSeen)}` : 'Offline' })
+      h('span', { class: 'switcher__sub', text: [d?.owner ? `@${d.owner}’s` : null, !relay.connected ? 'Connecting…' : online ? 'Online' : d?.lastSeen ? `Offline · seen ${ago(d.lastSeen)}` : 'Offline'].filter(Boolean).join(' · ') })
     ),
     h('span', { class: 'switcher__chev' }, icon('chevrons-up-down', 15))
   )
@@ -747,17 +972,19 @@ function switcher(dev) {
       btn,
       (close) => {
         const devices = [...relay.devices.values()].sort((a, b) => Number(b.online) - Number(a.online) || a.name.localeCompare(b.name))
+        const item = (x) =>
+          menuItem({
+            iconNode: h('span', { class: 'state', dataset: { s: x.online ? 'online' : 'offline' } }),
+            title: x.name,
+            desc: [x.owner ? `@${x.owner}` : null, x.online ? `Online${!x.owner && PLATFORMS[x.platform] ? ` · ${PLATFORMS[x.platform]}` : ''}` : `Offline${x.lastSeen ? ` · seen ${ago(x.lastSeen)}` : ''}`].filter(Boolean).join(' · '),
+            check: x.id === dev,
+            onclick: () => (close(), go(`/d/${x.id}`))
+          })
+        const own = devices.filter((x) => !x.ownerUid)
+        const shared = devices.filter((x) => x.ownerUid)
         return [
-          h('div', { class: 'menu__label', text: 'Your computers' }),
-          devices.map((x) =>
-            menuItem({
-              iconNode: h('span', { class: 'state', dataset: { s: x.online ? 'online' : 'offline' } }),
-              title: x.name,
-              desc: x.online ? `Online${PLATFORMS[x.platform] ? ` · ${PLATFORMS[x.platform]}` : ''}` : `Offline${x.lastSeen ? ` · seen ${ago(x.lastSeen)}` : ''}`,
-              check: x.id === dev,
-              onclick: () => (close(), go(`/d/${x.id}`))
-            })
-          ),
+          own.length ? [h('div', { class: 'menu__label', text: 'Your computers' }), own.map(item)] : null,
+          shared.length ? [own.length ? h('div', { class: 'menu__sep' }) : null, h('div', { class: 'menu__label', text: 'Shared with you' }), shared.map(item)] : null,
           h('div', { class: 'menu__sep' }),
           menuItem({ iconNode: icon('link', 16), title: 'Link a computer', onclick: () => (close(), go('/link')) })
         ]
@@ -789,7 +1016,7 @@ function sidebarLists(dev) {
     h('div', { class: 'sidebar__section' }, 'Overview'),
     link(`/d/${dev}`, { class: 'nav-item', 'aria-current': route.kind === 'overview' ? 'page' : null }, h('span', { class: 'nav-item__icon' }, icon('home', 16)), h('span', { class: 'nav-item__label', text: 'This computer' }))
   )
-  out.push(h('div', { class: 'sidebar__section' }, 'Sessions'))
+  out.push(h('div', { class: 'sidebar__section' }, seesAll(dev) ? 'Sessions' : 'Shared with you'))
   if (!sessions) out.push(device.sessionsError ? h('div', { class: 'sidebar__empty', text: shortError(device.sessionsError) }) : skeletonRows(3, 'ade-session'))
   else if (!sessions.length) out.push(h('div', { class: 'sidebar__empty', text: 'No sessions yet' }))
   else
@@ -813,6 +1040,21 @@ function sidebarLists(dev) {
         )
       }
     }
+  if (!seesAll(dev)) return out
+  const browsers = device.browsers
+  if (browsers?.length) {
+    out.push(h('div', { class: 'sidebar__section' }, 'Browsers'))
+    for (const b of browsers)
+      out.push(
+        link(
+          `/d/${dev}/b/${encodeURIComponent(b.target)}`,
+          { class: 'nav-item', 'aria-current': route.kind === 'b' && route.id === b.target ? 'page' : null },
+          h('span', { class: 'nav-item__icon' }, icon('globe', 16)),
+          h('span', { class: 'nav-item__label', text: b.label }),
+          h('span', { class: 'nav-item__trail' }, h('span', { class: 'status-dot', dataset: { s: browserBusy(b) ? 'working' : b.controlled ? 'paused' : 'idle' } }))
+        )
+      )
+  }
   const workers = device.workers
   out.push(h('div', { class: 'sidebar__section' }, link(`/d/${dev}/w`, { style: { color: 'inherit' } }, 'Workers')))
   if (!workers) out.push(device.workersError ? h('div', { class: 'sidebar__empty', text: shortError(device.workersError) }) : skeletonRows(2, 'ade-session'))
@@ -901,6 +1143,8 @@ function crumbTrail(dev) {
   else if (route.kind === 'w') {
     const w = device.workers?.find((x) => x.id === route.id)
     trail.push(link(`/d/${dev}/w`, {}, 'Workers'), chev(), here(w?.name ?? 'Worker'))
+  } else if (route.kind === 'b') {
+    trail.push(here(device.browsers?.find((x) => x.target === route.id)?.label ?? 'Browser'))
   } else if (route.kind === 's') {
     trail.push(here(device.sessions?.find((x) => x.id === route.id)?.title ?? 'Session'))
   } else if (route.kind === 't') {
@@ -957,7 +1201,7 @@ function overviewPage(dev) {
   const head = live(h('div'), () => {
     const d = relay.devices.get(dev)
     if (!d && relay.devices.size)
-      return h('div', { class: 'card' }, empty('monitor', 'This computer isn’t linked any more', 'It was unlinked, from Eaon or from here.', link('/', { class: 'btn' }, 'Your computers')))
+      return h('div', { class: 'card' }, empty('monitor', 'This computer isn’t here any more', 'It was unlinked, or it stopped being shared with you.', link('/', { class: 'btn' }, 'Your computers')))
     return [
       h('h1', { class: 'title', text: d?.name ?? 'Computer' }),
       h(
@@ -983,14 +1227,42 @@ function overviewPage(dev) {
     )
   })
   const workers = live(h('div', { class: 'card' }), () => workerRows(dev))
+  const browsers = live(h('div'), () => {
+    if (!seesAll(dev) || !device.browsers?.length) return null
+    return h(
+      'section',
+      { class: 'section' },
+      h('div', { class: 'section__label', text: 'Browsers' }),
+      h(
+        'div',
+        { class: 'card' },
+        device.browsers.map((b) =>
+          link(
+            `/d/${dev}/b/${encodeURIComponent(b.target)}`,
+            { class: 'card__row' },
+            h('span', { class: 'state', dataset: { s: browserBusy(b) ? 'working' : 'idle' } }),
+            h('span', { class: 'card__row-body' }, h('span', { class: 'card__row-title', text: b.label }), h('span', { class: 'card__row-desc', text: b.last ? stepText(b.last.action, b.last.detail) : b.title || b.url || 'Not on a page yet' })),
+            h('span', { class: 'card__row-trail' }, icon('chevron-right', 15))
+          )
+        )
+      )
+    )
+  })
+  const share = h('button', { class: 'btn', type: 'button' }, icon('share', 15), h('span', { class: 'btn__label', text: 'Share' }))
+  share.onclick = () => shareDialog(share, dev, null)
+  const guest = live(h('div'), () => (isGuest(dev) ? guestNotice(dev) : null))
   return {
+    actions: isGuest(dev) ? [] : [share],
     node: h(
       'div',
       { class: 'page' },
       offlineNotice(dev),
+      guest,
       head,
-      h('section', { class: 'section' }, h('div', { class: 'section__label', text: 'Sessions' }), sessions),
-      h('section', { class: 'section' }, h('div', { class: 'section__label', text: 'Workers' }), workers)
+      h('section', { class: 'section' }, h('div', { class: 'section__label', text: seesAll(dev) ? 'Sessions' : 'Terminals shared with you' }), sessions),
+      browsers,
+      seesAll(dev) && h('section', { class: 'section' }, h('div', { class: 'section__label', text: 'Workers' }), workers),
+      !isGuest(dev) && sharingSection(dev)
     )
   }
 }
@@ -1049,8 +1321,8 @@ function sessionPage(dev, id) {
   const panes = live(h('div', { class: 'panes' }), () => {
     const x = device.sessions?.find((y) => y.id === id)
     if (!x) return device.sessions ? null : [1, 2].map(() => h('div', { class: 'pane-card' }, h('div', { class: 'term-head' }, h('span', { class: 'skeleton', style: { width: '50%' } }))))
-    const add = h('button', { class: 'pane-card pane-card--new', type: 'button' }, icon('plus', 18), 'New terminal')
-    add.onclick = () => newTerminalMenu(add, dev, id)
+    const add = seesAll(dev) && canType(dev) ? h('button', { class: 'pane-card pane-card--new', type: 'button' }, icon('plus', 18), 'New terminal') : null
+    if (add) add.onclick = () => newTerminalMenu(add, dev, id)
     return [
       ...x.panes.map((p) =>
         link(
@@ -1072,7 +1344,7 @@ function sessionPage(dev, id) {
     ]
   })
   return {
-    actions: [newBtn],
+    actions: seesAll(dev) && canType(dev) ? [newBtn] : [],
     node: h('div', { class: 'page' }, offlineNotice(dev), head, h('section', { class: 'section' }, h('div', { class: 'section__label', text: 'Terminals' }), panes))
   }
 }
@@ -1089,16 +1361,61 @@ const KEYS = [
   ['Enter', '\r']
 ]
 
+/** Full screen: the terminal page with nothing else on it, and the browser's own full screen where it allows. */
+const focused = () => document.documentElement.dataset.focus !== undefined
+function setFocus(on) {
+  const root = document.documentElement
+  if (on === focused()) return
+  if (on) {
+    root.dataset.focus = ''
+    // Chrome's keyboard lock keeps Esc for the terminal (holding it leaves full screen);
+    // elsewhere Esc leaves the browser's full screen and the page stays full window.
+    root.requestFullscreen?.().then(
+      () => navigator.keyboard?.lock?.(['Escape']).catch(() => {}),
+      () => {}
+    )
+  } else {
+    delete root.dataset.focus
+    navigator.keyboard?.unlock?.()
+    if (document.fullscreenElement) document.exitFullscreen().catch(() => {})
+  }
+  dispatchEvent(new Event('resize'))
+}
+
 function terminalPage(dev, pane) {
+  const typing = canType(dev, pane)
   const dot = h('span', { class: 'state' })
   const name = h('span', { class: 'term-head__name', text: 'Terminal' })
   const agent = h('span', { class: 'term-head__agent' })
   const status = h('span', { class: 'term-head__status', text: 'Connecting…' })
   const screen = h('div', { class: 'term-screen' }, h('div', { class: 'term-screen__wait' }, h('span', { class: 'spinner' })))
+  const full = h('button', { class: 'icon-btn term-head__btn', type: 'button' })
+  const drawFull = () => {
+    const on = focused()
+    full.replaceChildren(icon(on ? 'minimize' : 'maximize', 15))
+    full.setAttribute('aria-label', on ? 'Leave full screen' : 'Full screen')
+    full.title = on ? 'Leave full screen' : 'Full screen'
+  }
+  full.onclick = () => {
+    setFocus(!focused())
+    drawFull()
+    term?.focus()
+  }
+  drawFull()
   const view = h(
     'div',
     { class: 'term-pane' },
-    h('div', { class: 'term-head' }, dot, name, agent, h('span', { class: 'term-head__spacer' }), status),
+    h(
+      'div',
+      { class: 'term-head' },
+      dot,
+      name,
+      agent,
+      !typing && h('span', { class: 'term-head__badge' }, icon('eye', 12), 'Watching'),
+      h('span', { class: 'term-head__spacer' }),
+      status,
+      full
+    ),
     screen
   )
   let term = null
@@ -1125,7 +1442,12 @@ function terminalPage(dev, pane) {
     line,
     send
   )
-  const page = h('div', { class: 'term-page' }, offlineNotice(dev), view, keys, form)
+  const page = h('div', { class: 'term-page' }, offlineNotice(dev), view, typing && keys, typing && form)
+  onLeave(() => setFocus(false))
+  // The browser left its full screen (Esc where it can't be kept): the page stays full window, the button says so.
+  const onFullscreen = () => drawFull()
+  document.addEventListener('fullscreenchange', onFullscreen)
+  onLeave(() => document.removeEventListener('fullscreenchange', onFullscreen))
 
   const setState = (s, text) => {
     dot.dataset.s = s
@@ -1137,7 +1459,7 @@ function terminalPage(dev, pane) {
     if (!p) return
     name.textContent = p.task || p.name
     agent.textContent = p.agentLabel
-    line.placeholder = p.agent === 'shell' ? 'Type a command, then send' : `Message ${p.agentLabel}`
+    line.placeholder = p.agent === 'shell' ? 'Type a command, then send' : `Message ${p.agentLabel || 'the agent'}`
     if (status.dataset.stream !== 'live') return
     setState(paneState(p), p.status === 'working' ? 'Working' : 'Live')
   }
@@ -1145,7 +1467,14 @@ function terminalPage(dev, pane) {
   fromList()
 
   const size = { cols: 120, rows: 32 }
-  const fontFor = () => Math.max(8, Math.min(14, Math.floor((screen.clientWidth - 20) / (size.cols * 0.6))))
+  // The computer's terminal keeps its size (it's on that screen too); this one scales to fit. Full screen
+  // fills the height as well as the width, so a CLI reads like it does on its own screen.
+  const fontFor = () => {
+    const byWidth = Math.floor((screen.clientWidth - 20) / (size.cols * 0.6))
+    if (!focused()) return Math.max(8, Math.min(14, byWidth))
+    const byHeight = Math.floor((screen.clientHeight - 16) / (size.rows * 1.2))
+    return Math.max(8, Math.min(32, byWidth, byHeight))
+  }
   const make = () => {
     if (!window.Terminal) return setTimeout(make, 50)
     if (!page.isConnected) return
@@ -1158,10 +1487,11 @@ function terminalPage(dev, pane) {
       scrollback: 5000,
       convertEol: false,
       allowProposedApi: true,
-      cursorBlink: true
+      cursorBlink: typing,
+      disableStdin: !typing
     })
     term.open(screen)
-    term.onData((data) => relay.input(dev, pane, data))
+    if (typing) term.onData((data) => relay.input(dev, pane, data))
     const retheme = () => term && (term.options.theme = xtermTheme())
     themeListeners.add(retheme)
     onLeave(() => themeListeners.delete(retheme))
@@ -1211,7 +1541,7 @@ function terminalPage(dev, pane) {
       name.textContent = p.task || p.name
       agent.textContent = p.agentLabel
       if (p.status === 'stopped') {
-        const btn = h('button', { class: 'btn btn--sm', type: 'button' }, icon('play', 12, 2), 'Start it')
+        const btn = h('button', { class: 'btn btn--sm', type: 'button', hidden: !typing }, icon('play', 12, 2), 'Start it')
         btn.onclick = () => {
           btn.disabled = true
           relay.request(dev, 'POST', `/ade/panes/${encodeURIComponent(pane)}/start`).then(
@@ -1225,7 +1555,9 @@ function terminalPage(dev, pane) {
       }
     })
     .catch((e) => setState('exited', e.message))
-  return { node: page, full: true }
+  const share = h('button', { class: 'btn', type: 'button' }, icon('share', 15), h('span', { class: 'btn__label', text: 'Share' }))
+  share.onclick = () => shareDialog(share, dev, { pane, label: name.textContent && name.textContent !== 'Terminal' ? name.textContent : null })
+  return { node: page, full: true, actions: isGuest(dev) ? [] : [share] }
 }
 
 function workerPage(dev, id) {
@@ -1263,7 +1595,7 @@ function workerPage(dev, id) {
     }
   })
   const scroller = () => shell?.root.querySelector('.main__scroll')
-  const page = h('div', { class: 'page worker-page' }, offlineNotice(dev), head, asks, thread, h('div', { class: 'worker-composer' }, composer))
+  const page = h('div', { class: 'page worker-page' }, offlineNotice(dev), head, asks, thread, canType(dev) && h('div', { class: 'worker-composer' }, composer))
 
   let seen = ''
   let known = null
@@ -1315,7 +1647,9 @@ function workerPage(dev, id) {
             h(
               'div',
               { class: 'ask__actions' },
-              ask.approve
+              !canType(dev)
+                ? h('span', { class: 'ask__cmd', text: `Waiting for @${sharedBy(dev)} to answer.` })
+                : ask.approve
                 ? [
                     h('button', { class: 'btn btn--primary', type: 'button', text: 'Allow', onclick: (e) => answer(ask.id, { approved: true }, e.currentTarget) }),
                     h('button', { class: 'btn', type: 'button', text: 'Don’t allow', onclick: (e) => answer(ask.id, { approved: false }, e.currentTarget) })
@@ -1362,7 +1696,7 @@ function workerPage(dev, id) {
       )
       if (atBottom && sc) requestAnimationFrame(() => sc.scrollTo({ top: sc.scrollHeight, behavior: first ? 'instant' : 'smooth' }))
     }
-    if (worker.unread) relay.request(dev, 'POST', `/remote/v1/workers/${encodeURIComponent(id)}/read`).catch(() => {})
+    if (worker.unread && !isGuest(dev)) relay.request(dev, 'POST', `/remote/v1/workers/${encodeURIComponent(id)}/read`).catch(() => {})
   }
 
   // Skeleton until the first answer.
@@ -1382,6 +1716,352 @@ function workerPage(dev, id) {
     clearTimeout(timer)
   })
   return { node: page }
+}
+
+// ------------------------------------------------------------------ agents' browsers
+
+const VERBS = {
+  open: 'Opening',
+  click: 'Clicking',
+  type: 'Typing into',
+  press: 'Pressing',
+  select: 'Choosing',
+  scroll: 'Scrolling',
+  back: 'Going back',
+  read: 'Reading the page',
+  find: 'Looking for',
+  snapshot: 'Looking at the page',
+  screenshot: 'Taking a screenshot',
+  wait: 'Waiting for the browser to be handed back'
+}
+
+/** A step as the app's live view says it ("Clicking button “Sign in”"). */
+function stepText(action, detail) {
+  const verb = VERBS[action] ?? action
+  if (['read', 'snapshot', 'screenshot', 'back', 'wait'].includes(action)) return verb
+  if (action === 'scroll') return `${verb} ${detail || 'down'}`
+  return detail ? `${verb} ${detail}` : verb
+}
+
+/** The agent is in the middle of a step (one left unfinished for minutes is a run that stopped). */
+const browserBusy = (b) => Boolean(b.last && !b.last.done && Date.now() - b.last.at < 120_000)
+const clock = (at) => new Date(at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', second: '2-digit' })
+
+function browserPage(dev, target) {
+  const img = h('img', { class: 'bview__img', alt: '', hidden: true })
+  const waitText = h('span', { text: 'Connecting to the browser…' })
+  const wait = h('div', { class: 'bview__wait' }, h('span', { class: 'spinner' }), waitText)
+  const stage = h('div', { class: 'bview__stage' }, wait, img)
+  const dot = h('span', { class: 'state', dataset: { s: 'idle' } })
+  const url = h('span', { class: 'bview__url', text: '' })
+  const held = h('span', { class: 'term-head__badge', hidden: true }, icon('hand', 12), 'Taken over at the computer')
+  const full = h('button', { class: 'icon-btn term-head__btn', type: 'button', 'aria-label': 'Full screen', title: 'Full screen' }, icon('maximize', 15))
+  full.onclick = () => (document.fullscreenElement ? document.exitFullscreen() : stage.requestFullscreen?.())?.catch?.(() => {})
+  const now = h('div', { class: 'bview__now' })
+  const log = h('ol', { class: 'bview__log' })
+  let steps = []
+
+  const drawSteps = () => {
+    const last = steps.at(-1)
+    const busy = Boolean(last && !last.done)
+    dot.dataset.s = busy ? 'working' : 'idle'
+    now.replaceChildren(last ? h('span', { class: busy ? 'shimmer' : '', text: busy ? stepText(last.action, last.detail) : `Last: ${stepText(last.action, last.detail)}` }) : h('span', { text: 'Waiting for the agent to use its browser' }))
+    log.replaceChildren(
+      ...(steps.length
+        ? steps
+            .slice()
+            .reverse()
+            .map((st) =>
+              h(
+                'li',
+                { class: 'bview__step', dataset: { done: String(st.done) } },
+                h('span', { class: 'bview__step-dot' }),
+                h('span', { class: 'bview__step-text', text: stepText(st.action, st.detail) }),
+                h('time', { class: 'bview__step-time', text: clock(st.at) })
+              )
+            )
+        : [h('li', { class: 'bview__empty', text: 'Nothing yet. Each click, page and keystroke the agent makes shows up here.' })])
+    )
+  }
+  // A step is reported as it starts and again as it ends: one line, marked done.
+  const addStep = (step) => {
+    if (step.done) {
+      for (let i = steps.length - 1; i >= 0; i--) {
+        if (!steps[i].done && steps[i].action === step.action && steps[i].detail === step.detail) {
+          steps[i] = { ...steps[i], done: true }
+          return
+        }
+      }
+    }
+    steps.push(step)
+    if (steps.length > 200) steps = steps.slice(-200)
+  }
+  const setStatus = (st) => {
+    if (!st) return
+    url.textContent = st.url && st.url !== 'about:blank' ? st.url : 'Not on a page yet'
+    url.title = st.title || ''
+    held.hidden = !st.controlled
+    if (!st.open && img.hidden) waitText.textContent = 'The agent hasn’t opened its browser yet.'
+  }
+
+  onLeave(
+    relay.watchBrowser(dev, target, {
+      bsnap: (m) => {
+        steps = []
+        for (const st of m.steps ?? []) addStep(st)
+        setStatus(m.status)
+        drawSteps()
+        if (m.status?.open && img.hidden) waitText.textContent = 'Waiting for the page…'
+      },
+      bframe: (m) => {
+        img.src = m.frame.image
+        img.alt = m.frame.title ? `The agent’s browser: ${m.frame.title}` : 'The agent’s browser'
+        if (img.hidden) {
+          img.hidden = false
+          wait.remove()
+        }
+        url.textContent = m.frame.url && m.frame.url !== 'about:blank' ? m.frame.url : url.textContent
+      },
+      bstep: (m) => {
+        addStep(m.step)
+        setStatus(m.status)
+        drawSteps()
+      }
+    })
+  )
+  drawSteps()
+  return {
+    full: true,
+    node: h(
+      'div',
+      { class: 'bview-page' },
+      offlineNotice(dev),
+      h(
+        'div',
+        { class: 'bview' },
+        h('div', { class: 'bview__main term-pane' }, h('div', { class: 'term-head' }, dot, icon('globe', 14), url, h('span', { class: 'term-head__spacer' }), held, full), stage, now),
+        h('aside', { class: 'bview__side' }, h('div', { class: 'section__label', text: 'What it’s doing' }), log)
+      )
+    )
+  }
+}
+
+// ------------------------------------------------------------------ sharing: invite, list, revoke, accept
+
+const describeShare = (x) =>
+  [x.pane ? (x.paneLabel ? `Terminal “${x.paneLabel}”` : 'One terminal') : 'The whole computer', x.access === 'control' ? 'can watch and type' : 'can watch']
+
+/** The banner on a computer shared with you: whose it is, and what you may do. */
+function guestNotice(dev) {
+  const grants = grantsOf(dev)
+  const whole = grants.some((g) => g.pane === null)
+  const typing = grants.some((g) => g.access === 'control')
+  return h(
+    'div',
+    { class: 'notice notice--info' },
+    icon('users', 16),
+    h('span', {}, h('b', { text: `Shared with you by @${sharedBy(dev)}.` }), ` ${whole ? 'You can see everything on this computer' : `You can see ${grants.length === 1 ? 'one terminal' : `${grants.length} terminals`}`}${typing ? ' and type into it.' : ', but not type or change anything.'} They can stop sharing at any time.`)
+  )
+}
+
+/** Who you've shared this computer (or its terminals) with, and Revoke. */
+function sharingSection(dev) {
+  const build = () => {
+    const list = (sharing.list ?? []).filter((x) => x.dev === dev)
+    if (!list.length) return null
+    return h(
+      'section',
+      { class: 'section' },
+      h('div', { class: 'section__label', text: 'Sharing' }),
+      h(
+        'div',
+        { class: 'card' },
+        list.map((x) => {
+          const revoke = h('button', { class: 'btn btn--sm btn--danger', type: 'button', text: 'Revoke' })
+          revoke.onclick = async () => {
+            revoke.disabled = true
+            revoke.textContent = 'Revoking…'
+            try {
+              await api(`/api/shares/${encodeURIComponent(x.id)}`, { method: 'DELETE' })
+              await sharing.load()
+            } catch (error) {
+              toast(error.message)
+              revoke.disabled = false
+              revoke.textContent = 'Revoke'
+            }
+          }
+          return h(
+            'div',
+            { class: 'card__row' },
+            h('span', { class: 'avatar avatar--sm', text: (x.login[0] ?? '?').toUpperCase() }),
+            h(
+              'span',
+              { class: 'card__row-body' },
+              h('span', { class: 'card__row-title', text: `@${x.login}` }),
+              h('span', { class: 'card__row-desc', text: [...describeShare(x), x.pending ? (x.expired ? 'invite expired' : 'invite not accepted yet') : `since ${ago(x.acceptedAt)}`].join(' · ') })
+            ),
+            h('span', { class: 'card__row-trail' }, revoke)
+          )
+        })
+      )
+    )
+  }
+  const box = live(h('div'), build)
+  // The list changes on its own beat too: a share made, revoked, or accepted.
+  onLeave(sharing.on(() => box.replaceChildren(...[build()].flat(Infinity).filter(Boolean))))
+  void sharing.load()
+  const timer = setInterval(() => !document.hidden && sharing.load(), 15_000)
+  onLeave(() => clearInterval(timer))
+  return box
+}
+
+/**
+ * Sharing a terminal (`one` = { pane, label }) or the whole computer (`one`
+ * null) with a GitHub account: their username and whether they may type,
+ * then a link to send them.
+ */
+function shareDialog(anchor, dev, one) {
+  if (isGuest(dev)) return toast('Only its owner can share this computer.')
+  const d = relay.devices.get(dev)
+  popover(
+    anchor,
+    (close) => {
+      const body = h('div', { class: 'share' })
+      let access = 'watch'
+      const who = h('input', { class: 'input', placeholder: 'GitHub username', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', 'aria-label': 'GitHub username' })
+      const seg = h('div', { class: 'segment', role: 'radiogroup', 'aria-label': 'What they can do' })
+      const drawSeg = () =>
+        seg.replaceChildren(
+          ...[
+            ['watch', 'eye', 'Watch only'],
+            ['control', 'terminal', 'Watch and type']
+          ].map(([value, ic, label]) =>
+            h('button', { class: 'segment__item', type: 'button', role: 'radio', 'aria-checked': String(access === value), dataset: { active: String(access === value) }, onclick: () => ((access = value), drawSeg()) }, icon(ic, 13), label)
+          )
+        )
+      drawSeg()
+      const err = h('div', { class: 'share__error', hidden: true })
+      const create = h('button', { class: 'btn btn--primary', type: 'submit', text: 'Create invite link' })
+      const form = h(
+        'form',
+        {
+          class: 'share__form',
+          onsubmit: async (e) => {
+            e.preventDefault()
+            const login = who.value.trim().replace(/^@/, '')
+            if (!login) return who.focus()
+            create.disabled = true
+            err.hidden = true
+            try {
+              const made = await api('/api/shares', { method: 'POST', body: JSON.stringify({ dev, pane: one?.pane ?? null, paneLabel: one?.label ?? null, access, login }) })
+              void sharing.load()
+              const field = h('input', { class: 'input share__link', readonly: true, value: made.url, 'aria-label': 'Invite link', onfocus: (ev) => ev.target.select() })
+              const copy = h('button', { class: 'btn', type: 'button' }, icon('copy', 14), 'Copy')
+              copy.onclick = async () => {
+                try {
+                  await navigator.clipboard.writeText(made.url)
+                  copy.replaceChildren(icon('check', 14), 'Copied')
+                } catch {
+                  field.select()
+                }
+              }
+              body.replaceChildren(
+                h('div', { class: 'menu__label', text: `Send this to @${login}` }),
+                h('div', { class: 'share__row' }, field, copy),
+                h('p', { class: 'share__fine', text: `Only @${login} can open it, once, within 7 days, by signing in with GitHub. Revoke it any time under Sharing on ${d?.name ?? 'this computer'}’s page.` }),
+                h('div', { class: 'share__actions' }, h('button', { class: 'btn', type: 'button', text: 'Done', onclick: close }))
+              )
+              requestAnimationFrame(() => field.select())
+            } catch (error) {
+              err.textContent = error.message
+              err.hidden = false
+              create.disabled = false
+            }
+          }
+        },
+        who,
+        seg,
+        err,
+        h('div', { class: 'share__actions' }, create)
+      )
+      body.append(
+        h('div', { class: 'menu__label', text: one ? 'Share this terminal' : `Share ${d?.name ?? 'this computer'}` }),
+        h(
+          'p',
+          { class: 'share__fine', text: one ? `Only this terminal${one.label ? `, “${one.label}”` : ''}. They won’t see anything else on ${d?.name ?? 'this computer'}.` : 'Everything here: its sessions, terminals, Workers and agents’ browsers.' }
+        ),
+        form
+      )
+      requestAnimationFrame(() => who.focus())
+      return body
+    },
+    { width: 340, align: 'end' }
+  )
+}
+
+/** An invite link, opened: who shared what, and Accept (only as the account it's for). */
+function sharePage(token) {
+  const box = h('div', { style: { width: '100%', display: 'flex', justifyContent: 'center' } })
+  const card = (...children) => h('div', { class: 'link-card' }, ...children)
+  const failed = (message) =>
+    box.replaceChildren(
+      card(
+        h('div', { class: 'link-card__icon' }, icon('alert', 22, 1.7)),
+        h('h1', { class: 'link-card__title', text: 'This invite can’t be opened' }),
+        h('p', { class: 'link-card__text', text: message }),
+        h('div', { class: 'link-card__actions' }, link('/', { class: 'btn btn--lg' }, 'Eaon Remote'))
+      )
+    )
+  const where = (out) => `/d/${out.dev}${out.pane ? `/t/${encodeURIComponent(out.pane)}` : ''}`
+  box.append(card(h('div', { class: 'link-card__icon' }, h('span', { class: 'spinner' })), h('p', { class: 'link-card__text', text: 'Opening the invite…' })))
+  api('/api/share/open', { method: 'POST', body: JSON.stringify({ token }) })
+    .then(async (info) => {
+      if (info.accepted) {
+        await relay.refreshGuests()
+        return go(where(info), true)
+      }
+      const accept = h('button', { class: 'btn btn--primary btn--lg', type: 'button', text: 'Accept' })
+      accept.onclick = async () => {
+        accept.disabled = true
+        try {
+          const out = await api('/api/share/open', { method: 'POST', body: JSON.stringify({ token, accept: true }) })
+          await relay.refreshGuests()
+          go(where(out), true)
+        } catch (error) {
+          accept.disabled = false
+          toast(error.message)
+        }
+      }
+      const what = info.pane ? `a terminal${info.paneLabel ? `, “${info.paneLabel}”,` : ''} on ${info.device}` : info.device
+      box.replaceChildren(
+        card(
+          h('div', { class: 'link-card__icon' }, icon('users', 22, 1.7)),
+          h('h1', { class: 'link-card__title', text: `@${info.ownerLogin} shared ${what} with you` }),
+          h(
+            'p',
+            { class: 'link-card__text', text: info.access === 'control' ? 'You’ll be able to watch it live and type into it.' : 'You’ll be able to watch it live. You won’t be able to type or change anything.' }
+          ),
+          h('p', { class: 'link-card__text', style: { fontSize: '12px' }, text: `@${info.ownerLogin} can stop sharing at any time.` }),
+          h('div', { class: 'link-card__actions' }, link('/', { class: 'btn btn--lg' }, 'Not now'), accept)
+        )
+      )
+    })
+    .catch((error) => {
+      if (error.status === 403) {
+        const out = h('button', { class: 'btn btn--lg', type: 'button', text: 'Sign out' })
+        out.onclick = signOut
+        return box.replaceChildren(
+          card(
+            h('div', { class: 'link-card__icon' }, icon('users', 22, 1.7)),
+            h('h1', { class: 'link-card__title', text: 'This invite is for someone else' }),
+            h('p', { class: 'link-card__text', text: error.message }),
+            h('div', { class: 'link-card__actions' }, out)
+          )
+        )
+      }
+      failed(error.message)
+    })
+  return box
 }
 
 // ------------------------------------------------------------------ signed out, linking

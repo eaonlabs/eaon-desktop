@@ -247,7 +247,8 @@ export const TaskCard = memo(function TaskCard({
               {task.purchase ? 'Buy now' : 'Run now'}
             </button>
           )}
-          {!task.watch && (
+          {/* A purchase schedule's bounds are what approve its orders; purchase schedules are made and changed on a worker now. */}
+          {!task.watch && !task.purchase && (
             <button className="icon-btn" aria-label={`Edit ${task.name}`} title="Edit" onClick={() => onEdit(task)}>
               <Pencil size={14} strokeWidth={1.9} />
             </button>

@@ -359,9 +359,13 @@ export class PaymentsEngine {
    */
   authorize(request: PurchaseRequest, how: PurchaseRecord['how']): PurchaseRecord {
     const mode = this.effectiveMode()
-    if (mode === 'off') throw new Error('Payments are off. The user can turn them on in Settings → Payments.')
     const amount = round(Number(request.amount))
-    if (!(amount > 0)) throw new Error('"amount" must be the total you are about to pay, more than 0.')
+    // A purchase schedule's order that comes to nothing: no card is charged,
+    // so none is needed, but it is recorded (and covers one press of the
+    // order button) like any other, and its order number is tracked.
+    const free = amount === 0 && how === 'scheduled'
+    if (mode === 'off' && !free) throw new Error('Payments are off. The user can turn them on in Settings → Payments.')
+    if (!(amount > 0) && !free) throw new Error('"amount" must be the total you are about to pay, more than 0.')
     const currency = text(request.currency, 3).toUpperCase() || this.config.currency
     if (!/^[A-Z]{3}$/.test(currency)) throw new Error('"currency" is a three-letter code, like USD.')
     const merchant = text(request.merchant, 100)
@@ -411,10 +415,18 @@ export class PaymentsEngine {
    * other, so one approval can never become two orders.
    */
   claimSpendingClick(chatId: string, url: string): boolean {
-    if (this.effectiveMode() === 'off') return false
+    const off = this.effectiveMode() === 'off'
     const now = this.now()
     const record = this.config.purchases.find(
-      (p) => p.chatId === chatId && p.status === 'authorized' && p.site !== null && !p.submittedAt && now <= p.expiresAt && urlMatchesSite(url, p.site)
+      (p) =>
+        p.chatId === chatId &&
+        p.status === 'authorized' &&
+        // A free order needs no card, so payments being off doesn't stop it.
+        (!off || p.amount === 0) &&
+        p.site !== null &&
+        !p.submittedAt &&
+        now <= p.expiresAt &&
+        urlMatchesSite(url, p.site)
     )
     if (!record) return false
     record.submittedAt = now
