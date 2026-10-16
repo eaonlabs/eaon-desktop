@@ -204,6 +204,7 @@ function SendButton({ scopeKey, ready, onSent }: { scopeKey: string; ready: numb
   const cwd = useCode((s) => s.cwd)
   const panes = useTerminals(useShallow((s) => (inAde && cwd ? (s.layout[cwd] ?? NO_PANES) : NO_PANES)))
   const agents = useTerminals((s) => s.agents)
+  const programs = useTerminals((s) => s.programs)
   const anchor = useRef<HTMLDivElement>(null)
   const menu = useDisclosure()
   const [chosen, setChosen] = useState<Target | null>(null)
@@ -211,6 +212,8 @@ function SendButton({ scopeKey, ready, onSent }: { scopeKey: string; ready: numb
   const pasteable = (paneId: string): boolean => terminals.takesBlockPaste(paneId)
   const label = (pane: TerminalPaneSpec): string => {
     const agent = agents.find((a) => a.id === pane.agent)
+    const program = pane.agent === 'shell' ? programs[pane.id] : undefined
+    if (program) return `${pane.name} · ${program}`
     return agent && pane.agent !== 'shell' ? `${pane.name} · ${agent.label}` : pane.name
   }
 
@@ -286,7 +289,7 @@ function SendButton({ scopeKey, ready, onSent }: { scopeKey: string; ready: numb
               return (
                 <MenuItem
                   key={pane.id}
-                  icon={<AgentMark agent={pane.agent} size={16} />}
+                  icon={<AgentMark agent={pane.agent} program={programs[pane.id]} size={16} />}
                   title={label(pane)}
                   description={ok ? undefined : 'Not ready for a multi-line paste'}
                   checked={current.kind === 'pane' && current.paneId === pane.id}

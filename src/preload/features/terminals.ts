@@ -3,10 +3,10 @@ import type { CodexPane } from '@shared/cliAccounts'
 import type {
   TerminalAgent,
   TerminalAgentEvent,
-  TerminalAgentId,
   TerminalDataEvent,
   TerminalExitEvent,
   TerminalLayout,
+  TerminalRunning,
   TerminalSpawnRequest,
   TerminalSpawnResult
 } from '@shared/terminals'
@@ -32,7 +32,7 @@ export const terminalsApi = {
   onData: (handler: (event: TerminalDataEvent) => void): (() => void) => subscribe('terminal:data', handler),
   onExit: (handler: (event: TerminalExitEvent) => void): (() => void) => subscribe('terminal:exit', handler),
   /** What each live pane is running right now, as last read off the process table. */
-  running: (): Promise<Record<string, TerminalAgentId>> => ipcRenderer.invoke('terminal:running'),
+  running: (): Promise<Record<string, TerminalRunning>> => ipcRenderer.invoke('terminal:running'),
   /** The conversation each pane is in, where its agent has one the watch has seen. */
   conversations: (paneIds: string[]): Promise<Record<string, string | null>> => ipcRenderer.invoke('terminal:conversations', paneIds),
   /** Panes running Codex, with the account each started on (Settings → Accounts' "move" offer). */

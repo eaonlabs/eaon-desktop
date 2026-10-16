@@ -307,6 +307,8 @@ function SessionRow({ session, active, solo = false, onNewSession }: { session: 
 interface AgentItem {
   key: string
   agent: TerminalPaneSpec['agent']
+  /** With a plain shell: the program in its foreground (any CLI), shown by its initial. */
+  program?: string
   task: string
   /** working, open and waiting, ended, or not started yet this run (it starts when shown). */
   kind: 'working' | 'live' | 'exited' | 'past'
@@ -317,6 +319,7 @@ interface AgentItem {
 function AgentList({ session }: { session: AdeSession }): JSX.Element | null {
   const { panes } = useSessionPanes(session)
   const agents = useTerminals((s) => s.agents)
+  const programs = useTerminals((s) => s.programs)
   const { conversations, held, loadConversations } = useAdeSessions(
     useShallow((s) => ({
       conversations: s.conversations[session.cwd] ?? EMPTY_CONVERSATIONS,
@@ -347,7 +350,8 @@ function AgentList({ session }: { session: AdeSession }): JSX.Element | null {
     return {
       key: pane.id,
       agent: pane.agent,
-      task: info.task ?? conversation?.title ?? `${pane.name} · ${label(pane.agent)}`,
+      program: pane.agent === 'shell' ? programs[pane.id] : undefined,
+      task: info.task ?? conversation?.title ?? `${pane.name} · ${pane.agent === 'shell' && programs[pane.id] ? programs[pane.id] : label(pane.agent)}`,
       kind,
       at: info.lastData || conversation?.touched || 0,
       onOpen: () => void useAdeSessions.getState().show(session).then(() => terminals.focus(pane.id))
@@ -370,7 +374,7 @@ function AgentList({ session }: { session: AdeSession }): JSX.Element | null {
           {items.map((item) => (
             <button key={item.key} type="button" className="ade-agent" data-kind={item.kind} title={item.task} onClick={item.onOpen}>
               <AgentStatus kind={item.kind} />
-              <AgentMark agent={item.agent} size={15} />
+              <AgentMark agent={item.agent} program={item.program} size={15} />
               <span className="ade-agent__task">{item.task}</span>
               <span className="ade-agent__age">{item.kind === 'working' ? 'now' : item.at ? ageLabel(item.at, now) : ''}</span>
             </button>

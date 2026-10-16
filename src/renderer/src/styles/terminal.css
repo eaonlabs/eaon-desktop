@@ -305,6 +305,15 @@ body[data-reduce-motion='on'] .term-pane__dot {
   border-radius: 22%;
   object-fit: contain;
 }
+.term-mark--letter {
+  display: inline-grid;
+  place-items: center;
+  border-radius: 22%;
+  background: var(--text-2);
+  color: var(--bg);
+  font-weight: 700;
+  line-height: 1;
+}
 
 /* No panes yet: one card per agent CLI, the missing ones greyed with how to get them. */
 .term-empty {
