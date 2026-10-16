@@ -67,7 +67,7 @@ export function SystemMonitorPage(): JSX.Element {
           <div className="row">
             <div className="row__body">
               <div className="provider-detail__section-title" style={{ marginBottom: 0 }}>
-                Operating System
+                Operating system
               </div>
             </div>
           </div>

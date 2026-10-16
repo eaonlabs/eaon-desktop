@@ -16,6 +16,7 @@ import type { FeatureContext } from '../src/main/features/types'
 import { nextRunAfter, WEEKDAYS, WORKDAYS, type ScheduledTask, type TaskDraft } from '@shared/scheduler'
 import type { Chat, ChatToolPart, Settings, StreamEvent, StreamRequest } from '@shared/types'
 import { chunk, sseServer } from './helpers'
+import { formFromSchedule, scheduleFromForm } from '../src/renderer/src/components/scheduled/SchedulePicker'
 
 /**
  * The scheduler end to end: a due task fires on its own timer, runs the agent
@@ -409,6 +410,11 @@ test('editing and toggling keep the schedule honest', () => {
   const renamed = engine.save({ ...draft(), id: task.id, name: 'Renamed', schedule: task.schedule })
   assert.equal(renamed.nextRunAt, task.nextRunAt)
   assert.equal(renamed.schedule.kind === 'interval' && renamed.schedule.startAt, anchor)
+  // A changed interval sent back with the old grid's anchor (still in the
+  // future before the first run) starts a new grid, not the old one.
+  const changed = engine.save({ ...draft(), id: task.id, name: 'Renamed', schedule: { kind: 'interval', every: 5, unit: 'hours', startAt: anchor } })
+  assert.notEqual(changed.schedule.kind === 'interval' && changed.schedule.startAt, anchor)
+  assert.ok(Math.abs(changed.nextRunAt! - (Date.now() + 5 * HOUR)) < 60_000, 'the next run is a new period from now')
   const paused = engine.setEnabled(task.id, false)
   assert.equal(paused.nextRunAt, null)
   const resumed = engine.setEnabled(task.id, true)
@@ -549,4 +555,12 @@ test('real loop: with changes allowed, ordinary edits run and risky commands are
   assert.match(command.output!, /nobody to ask/)
   assert.ok(!streamed.some((e) => e.type === 'approval-request'))
   assert.equal(text(chat), 'Done: wrote note.txt.')
+})
+
+test('the editor carries an interval’s anchor only while the interval is unchanged', () => {
+  const previous = { kind: 'interval' as const, every: 2, unit: 'hours' as const, startAt: Date.now() + HOUR }
+  const form = formFromSchedule(previous)
+  assert.deepEqual(scheduleFromForm(form, previous), previous)
+  assert.deepEqual(scheduleFromForm({ ...form, every: '3' }, previous), { kind: 'interval', every: 3, unit: 'hours' })
+  assert.deepEqual(scheduleFromForm({ ...form, unit: 'minutes' }, previous), { kind: 'interval', every: 2, unit: 'minutes' })
 })

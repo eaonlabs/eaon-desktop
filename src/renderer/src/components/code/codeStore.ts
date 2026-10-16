@@ -31,6 +31,20 @@ interface CodeState {
 
 const api = (): typeof window.api.eaonCode => window.api.eaonCode
 
+/**
+ * The folder reopened at launch, when it has gone since (moved, deleted, a
+ * drive unplugged): the ADE says so and shows the folder picker, as clicking
+ * that session in the sidebar does, rather than panes that each fail in it.
+ * After the first paint, so a slow session list never holds up the ADE.
+ */
+async function leaveIfGone(cwd: string): Promise<void> {
+  const sessions = useAdeSessions.getState()
+  if (!sessions.loaded) await sessions.load()
+  const session = useAdeSessions.getState().sessions.find((s) => s.cwd === cwd)
+  if (!session?.missing || useCode.getState().cwd !== cwd) return
+  useCode.setState({ cwd: null, toast: `${cwd} isn’t there any more, so the ADE didn’t open it. Bring the folder back, or remove its session from the sidebar.` })
+}
+
 export const useCode = create<CodeState>((set, get) => ({
   initialised: false,
   status: null,
@@ -46,6 +60,7 @@ export const useCode = create<CodeState>((set, get) => ({
     const cwd = useApp.getState().settings?.eaonCode.lastCwd ?? recents[0] ?? null
     set({ recents, cwd })
     void get().refreshStatus(false)
+    if (cwd) void leaveIfGone(cwd)
   },
 
   async refreshStatus(refresh = true) {

@@ -9,12 +9,12 @@ import { checkoutStepCovered, paymentsEngine, paymentsFeature } from '../src/mai
 import { endRun, grantPurchase } from '../src/main/features/payments/plans'
 import { purchaseRunGate } from '../src/main/features/payments/purchaseRun'
 import { createWorkersService, type WorkersService } from '../src/main/features/workers/service'
-import { cadencePhrase, WATCH_FIRST_CHECK_MS } from '../src/main/features/workers/purchases'
+import { cadencePhrase, nextPurchaseAt, WATCH_FIRST_CHECK_MS } from '../src/main/features/workers/purchases'
 import { toolsFor, type AgentTool } from '../src/main/agent/tools'
 import type { StreamRequest } from '@shared/types'
 import { store } from '../src/main/store'
 import { secrets } from '../src/main/secrets'
-import { buildPurchasePlan, cadenceText, startOfDay, type PurchaseForm } from '../src/renderer/src/components/purchase/plan'
+import { buildPurchasePlan, cadenceText, nextOnCadence, startOfDay, type PurchaseForm } from '../src/renderer/src/components/purchase/plan'
 import { nextAligned, type PurchaseRoutineDraft, type WorkerDraft, type WorkerRoutine } from '@shared/workers'
 import type { PurchasePlan } from '@shared/scheduler'
 import type { FeatureContext } from '../src/main/features/types'
@@ -267,4 +267,70 @@ test('runs keep to the picked time however late one ran, and read as a cadence',
   assert.equal(cadencePhrase(2 * week), 'Every 2 weeks')
   assert.equal(cadenceText(24 * 60 * 60_000), 'every day')
   assert.equal(cadenceText(4 * week), 'every 4 weeks')
+})
+
+test('editing a schedule’s timing replaces it: never a second schedule, never an order on the spot', () => {
+  const now = new Date(2026, 9, 15, 15, 30).getTime()
+  const routine = { id: 'r1', name: 'Buy', task: '', everyMs: 14 * 24 * 60 * 60_000, daily: null, nextAt: now + 3 * 60 * 60_000, anchorAt: now - 11 * 24 * 60 * 60_000, runs: [] } as WorkerRoutine
+
+  // Today, at a time already gone: the next weekly order, not one now.
+  const today = buildPurchasePlan(form({ startDay: startOfDay(now), time: '09:00', cadence: 'weekly' }), now, routine, true)
+  assert.equal(today.error, null)
+  assert.equal(today.draft.id, 'r1', 'the edit names the routine it replaces')
+  assert.equal(today.buyNow, false)
+  assert.equal(today.draft.firstAt, new Date(2026, 9, 22, 9, 0).getTime())
+  assert.equal(today.draft.everyMs, 7 * 24 * 60 * 60_000)
+
+  const later = buildPurchasePlan(form({ startDay: startOfDay(new Date(2026, 9, 20).getTime()), time: '08:15', cadence: 'daily' }), now, routine, true)
+  assert.deepEqual([later.draft.id, later.buyNow, later.draft.firstAt], ['r1', false, new Date(2026, 9, 20, 8, 15).getTime()])
+
+  // A one-off moved to a time that has passed asks for another.
+  const once = buildPurchasePlan(form({ startDay: startOfDay(now), time: '09:00', cadence: 'once' }), now, routine, true)
+  assert.deepEqual([once.draft.id, once.buyNow], ['r1', false])
+  assert.match(once.error ?? '', /hasn’t passed/)
+})
+
+test('saving an edited schedule over IPC keeps one routine, not two', async () => {
+  const { ctx, invoke } = context()
+  service = createWorkersService(ctx, { startDelayMs: 60_000 })
+  service.registerIpc()
+  service.start()
+  // Never started: nothing runs, so nothing is bought. A free plan needs no card.
+  const ada = service.engine.save(draft('Ada', { providerId: 'fake', modelId: 'fake-1' }))
+  const now = Date.now()
+  const startDay = startOfDay(now + 3 * 24 * 60 * 60_000)
+  const first = buildPurchasePlan(form({ maxAmount: '0', site: 'sample.com', startDay, cadence: 'weekly' }), now)
+  assert.equal(first.error, null)
+  const saved = invoke('workers:save-purchase', ada.id, first.draft) as WorkerRoutine
+  const edited = buildPurchasePlan(form({ maxAmount: '0', site: 'sample.com', startDay: startOfDay(now + 4 * 24 * 60 * 60_000), cadence: 'daily' }), now, saved, true)
+  assert.equal(edited.error, null)
+  invoke('workers:save-purchase', ada.id, edited.draft)
+  const routines = service.engine.list().find((w) => w.id === ada.id)!.routines.filter((r) => r.purchase)
+  assert.equal(routines.length, 1, 'the edit replaced the schedule')
+  assert.equal(routines[0].id, saved.id)
+  assert.equal(routines[0].everyMs, 24 * 60 * 60_000)
+  assert.equal(routines[0].nextAt, edited.draft.firstAt)
+})
+
+test('daily and weekly orders keep their clock time across a daylight-saving change', () => {
+  const zone = process.env.TZ
+  process.env.TZ = 'America/New_York'
+  try {
+    const DAY = 24 * 60 * 60_000
+    // US clocks go forward on Sunday 8 March 2026.
+    const weekly = new Date(2026, 2, 2, 9, 0).getTime()
+    for (const next of [nextPurchaseAt(weekly, 7 * DAY, new Date(2026, 2, 9, 12, 0).getTime()), nextOnCadence(weekly, 7 * DAY, new Date(2026, 2, 9, 12, 0).getTime())]) {
+      assert.equal(next, new Date(2026, 2, 16, 9, 0).getTime())
+      assert.equal(new Date(next).getHours(), 9)
+    }
+    const daily = new Date(2026, 2, 7, 9, 0).getTime()
+    assert.equal(nextPurchaseAt(daily, DAY, new Date(2026, 2, 8, 10, 0).getTime()), new Date(2026, 2, 9, 9, 0).getTime())
+    assert.equal(nextPurchaseAt(daily, DAY, new Date(2026, 2, 8, 8, 0).getTime()), new Date(2026, 2, 8, 9, 0).getTime())
+    // Before the anchor it is the anchor; a cadence that isn't whole days keeps fixed steps.
+    assert.equal(nextPurchaseAt(daily, DAY, daily - 1), daily)
+    assert.equal(nextPurchaseAt(daily, 90 * 60_000, daily + 1), nextAligned(daily, 90 * 60_000, daily + 1))
+  } finally {
+    if (zone === undefined) delete process.env.TZ
+    else process.env.TZ = zone
+  }
 })

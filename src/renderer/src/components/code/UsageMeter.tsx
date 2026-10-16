@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
-import { ChevronRight, Plus, RefreshCw } from 'lucide-react'
+import { ChevronRight, Gauge, Plus, RefreshCw } from 'lucide-react'
 import {
   CLI_TOOLS,
   CLI_TOOL_NAME,
@@ -99,9 +99,14 @@ export function UsageMeter(): JSX.Element | null {
           if (!panel.open) void refresh({ all: true })
         }}
       >
-        <span className="usage-pill__bar" aria-hidden="true">
-          <span style={{ width: `${first?.percent ?? 0}%` }} data-severity={first?.severity} />
-        </span>
+        {first ? (
+          <span className="usage-pill__bar" aria-hidden="true">
+            <span style={{ width: `${first.percent}%` }} data-severity={first.severity} />
+          </span>
+        ) : (
+          // No limits read yet: an empty bar looked like a broken meter.
+          <Gauge size={13} strokeWidth={2} aria-hidden="true" />
+        )}
         <span className="usage-pill__text">{pill}</span>
       </button>
       <Popover anchor={anchor} open={panel.open} onClose={panel.close} placement="bottom-end" width={320} className="usage-panel">

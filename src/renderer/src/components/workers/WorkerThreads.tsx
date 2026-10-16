@@ -32,7 +32,7 @@ import {
 import { useApp } from '../../state/store'
 import { MenuItem, MenuSearch, Popover, useDisclosure } from '../ui'
 import { WorkerFace } from './WorkerFace'
-import { useWorkers } from './workersStore'
+import { errorText, useWorkers } from './workersStore'
 
 /**
  * A worker's threads, its run history and the Workers search.
@@ -245,9 +245,11 @@ export function WorkerActivityPanel({ worker }: { worker: Worker }): JSX.Element
   )
   const [error, setError] = useState<string | null>(null)
   const [retrying, setRetrying] = useState<string | null>(null)
+  // A retry that was refused belongs to its run; the list itself loaded fine.
+  const [retryError, setRetryError] = useState<{ runId: string; text: string } | null>(null)
   const load = (): void => {
     setError(null)
-    loadExecutions(worker.id).catch((e: Error) => setError(e.message))
+    loadExecutions(worker.id).catch((e: unknown) => setError(errorText(e)))
   }
   useEffect(load, [worker.id])
 
@@ -308,6 +310,11 @@ export function WorkerActivityPanel({ worker }: { worker: Worker }): JSX.Element
                       <span className="worker-run__state">{STATE_LABEL[run.state]}</span>
                     </div>
                     <div className="worker-run__meta">{meta.join(' · ')}</div>
+                    {retryError?.runId === run.id && (
+                      <div className="worker-run__detail" data-error role="alert">
+                        Couldn’t retry: {retryError.text}
+                      </div>
+                    )}
                     {(run.error || run.reason || run.result) && (
                       <div className="worker-run__detail" data-error={run.error ? true : undefined} title={run.error ?? run.reason ?? run.result ?? undefined}>
                         {run.error ?? run.reason ?? run.result}
@@ -325,9 +332,10 @@ export function WorkerActivityPanel({ worker }: { worker: Worker }): JSX.Element
                           disabled={retrying === run.id}
                           onClick={() => {
                             setRetrying(run.id)
+                            setRetryError(null)
                             retry(worker.id, run.id)
                               .then(() => selectThread(worker.id, run.threadId))
-                              .catch((e: Error) => setError(e.message))
+                              .catch((e: unknown) => setRetryError({ runId: run.id, text: errorText(e) }))
                               .finally(() => setRetrying(null))
                           }}
                           title={run.sideEffects ? 'It may already have changed things; the retry is told to check first' : undefined}

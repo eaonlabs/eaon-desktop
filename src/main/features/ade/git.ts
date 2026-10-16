@@ -94,11 +94,28 @@ export async function addWorktree(root: string, dir: string, branch: string): Pr
   await git(root, ['worktree', 'add', '-b', branch, dir], 60_000)
 }
 
+/** What runs before a worktree is removed: the terminals feature ends the shells in it and waits for them to go. */
+let beforeRemoval: ((dir: string) => Promise<void>) | null = null
+
+/**
+ * Has `wait` run before every worktree removal. The window closes a session's
+ * panes without waiting for their shells to exit, and on Windows git can't
+ * delete a folder a process is still in.
+ */
+export function onWorktreeRemoval(wait: (dir: string) => Promise<void>): void {
+  beforeRemoval = wait
+}
+
 /**
  * Removes the worktree at `dir`. Never forced: git refuses when it has
  * changes nobody committed, and that refusal is what the user is told.
  */
 export async function removeWorktree(root: string, dir: string): Promise<void> {
+  // Git's own refusal comes only after the shells are ended: asked first, a
+  // folder that stays keeps its agents running.
+  const pending = await git(dir, ['status', '--porcelain'], 15_000).catch(() => '')
+  if (pending) throw new GitError('it has changes nobody committed. Commit or discard them first.')
+  await beforeRemoval?.(dir).catch(() => undefined)
   await git(root, ['worktree', 'remove', dir], 60_000)
 }
 

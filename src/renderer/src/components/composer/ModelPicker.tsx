@@ -1,5 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type JSX, type KeyboardEvent, type RefObject } from 'react'
 import { CircleAlert, Plus, Search, Star } from 'lucide-react'
+import { FREE_PROVIDER_ID } from '@shared/freeCredits'
 import { useShallow } from 'zustand/react/shallow'
 import type { ModelInfo, Provider } from '@shared/types'
 import { clampEffort, EFFORT_LABEL, orderEfforts } from '@shared/effort'
@@ -343,6 +344,16 @@ export function ModelPicker({ anchor, open, onClose }: { anchor: RefObject<HTMLE
                 }}
               >
                 Link accounts
+              </button>
+              {/* No account or key, at an event: Eaon Free's settings take the event code. */}
+              <button
+                className="btn btn--ghost btn--sm"
+                onClick={() => {
+                  onClose()
+                  useApp.getState().openProviderSettings(FREE_PROVIDER_ID)
+                }}
+              >
+                Have an event code?
               </button>
             </div>
           ) : shown.length === 0 ? (

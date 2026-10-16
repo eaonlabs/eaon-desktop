@@ -1,13 +1,16 @@
+import { useState } from 'react'
 import { ArchiveRestore, Trash2 } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { useApp } from '../../../state/store'
-import { Card, Row, Section } from '../../ui'
+import { Card, ConfirmDialog, Row, Section } from '../../ui'
 
 export function ArchivedPage(): JSX.Element {
   const { chats, restoreChat, deleteChat } = useApp(
     useShallow((s) => ({ chats: s.chats, restoreChat: s.restoreChat, deleteChat: s.deleteChat }))
   )
   const archived = chats.filter((c) => c.archived).sort((a, b) => b.updatedAt - a.updatedAt)
+  // Deleting is permanent, so it asks first, as it does in the sidebar.
+  const [deleting, setDeleting] = useState<{ id: string; title: string } | null>(null)
 
   return (
     <>
@@ -33,7 +36,7 @@ export function ArchivedPage(): JSX.Element {
                   <ArchiveRestore size={14} strokeWidth={1.9} />
                   Restore
                 </button>
-                <button className="icon-btn" aria-label="Delete chat" onClick={() => deleteChat(chat.id)}>
+                <button className="icon-btn" aria-label="Delete chat" onClick={() => setDeleting({ id: chat.id, title: chat.title })}>
                   <Trash2 size={15} strokeWidth={1.9} />
                 </button>
               </Row>
@@ -41,6 +44,15 @@ export function ArchivedPage(): JSX.Element {
           </Card>
         )}
       </Section>
+      <ConfirmDialog
+        open={deleting !== null}
+        onClose={() => setDeleting(null)}
+        title="Delete this chat?"
+        confirmLabel="Delete"
+        onConfirm={() => deleting && deleteChat(deleting.id)}
+      >
+        “{deleting?.title}” and its messages are removed from this computer. This can’t be undone.
+      </ConfirmDialog>
     </>
   )
 }

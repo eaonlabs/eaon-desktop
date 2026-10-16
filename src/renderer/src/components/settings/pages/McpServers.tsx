@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Pencil, Plus, Trash2 } from 'lucide-react'
 import { useApp } from '../../../state/store'
-import { Card, Modal, Row, Section, Select, Switch } from '../../ui'
+import { Card, ConfirmDialog, Modal, Row, Section, Select, Switch } from '../../ui'
 import type { McpServer, McpServerStatus } from '@shared/types'
 import { joinArgs, splitArgs } from '@shared/plugins'
 
@@ -21,6 +21,8 @@ export function McpServersPage(): JSX.Element {
   const { settings, patchSettings, mcpServers, saveMcpServers } = useApp()
   const [statuses, setStatuses] = useState<McpServerStatus[]>([])
   const [editing, setEditing] = useState<McpServer | null>(null)
+  // Removing forgets the server's settings and the tokens in its environment, so it asks first.
+  const [removing, setRemoving] = useState<McpServer | null>(null)
   const [adding, setAdding] = useState(false)
 
   useEffect(() => {
@@ -52,7 +54,7 @@ export function McpServersPage(): JSX.Element {
         <h1 className="settings__h1">MCP Servers</h1>
         <button className="pill-btn" style={{ marginTop: 24 }} onClick={() => setAdding(true)}>
           <Plus size={14} strokeWidth={2} />
-          Add MCP Server
+          Add MCP server
         </button>
       </div>
 
@@ -73,11 +75,11 @@ export function McpServersPage(): JSX.Element {
           </div>
 
           <Row
-            title="Allow All MCP Tool Permissions"
+            title="Allow all MCP tool permissions"
             description="When enabled, all MCP tool calls will be automatically approved without showing permission dialogs. This setting applies globally to all conversations, including new chats."
           >
             <Switch
-              label="Allow All MCP Tool Permissions"
+              label="Allow all MCP tool permissions"
               checked={mcp.allowAllToolPermissions}
               onChange={(on) => void patchSettings({ mcp: { allowAllToolPermissions: on } })}
             />
@@ -122,7 +124,7 @@ export function McpServersPage(): JSX.Element {
                 server={server}
                 status={statusFor(server.id)}
                 onEdit={() => setEditing(server)}
-                onDelete={() => void saveMcpServers(mcpServers.filter((s) => s.id !== server.id))}
+                onDelete={() => setRemoving(server)}
                 onToggle={(on) =>
                   void saveMcpServers(mcpServers.map((s) => (s.id === server.id ? { ...s, enabled: on } : s)))
                 }
@@ -142,6 +144,15 @@ export function McpServersPage(): JSX.Element {
         }}
         onSave={upsert}
       />
+      <ConfirmDialog
+        open={removing !== null}
+        onClose={() => setRemoving(null)}
+        title="Remove this MCP server?"
+        confirmLabel="Remove"
+        onConfirm={() => removing && void saveMcpServers(mcpServers.filter((s) => s.id !== removing.id))}
+      >
+        “{removing?.name}” and its settings, including any tokens in its environment, are removed. You’d have to add it again to use it.
+      </ConfirmDialog>
     </>
   )
 }
@@ -298,7 +309,7 @@ function ServerDialog({
       open={open}
       onClose={onClose}
       width={480}
-      title={server ? 'Edit MCP Server' : 'Add MCP Server'}
+      title={server ? 'Edit MCP server' : 'Add MCP server'}
       actions={
         <>
           <button className="btn btn--provider-ghost" onClick={onClose}>

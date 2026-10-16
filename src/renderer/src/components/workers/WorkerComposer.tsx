@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { ArrowUp, AtSign, Eye, FileText, Globe, Laptop, Mic, Paperclip, Plus, ShieldCheck, ShoppingBag, Square, Target, X, Zap } from 'lucide-react'
 import { useApp } from '../../state/store'
-import { useWorkers } from './workersStore'
+import { errorText, useWorkers } from './workersStore'
 import { WorkerFace } from './WorkerFace'
 import { MenuItem, MenuSeparator, Popover, useDisclosure } from '../ui'
 import { PluginsSubmenu } from '../Composer'
@@ -58,6 +58,8 @@ export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Wor
   const [mentions, setMentions] = useState<Mention[]>([])
   const [dragging, setDragging] = useState(false)
   const [hasBrowser, setHasBrowser] = useState(false)
+  const [sending, setSending] = useState(false)
+  const [sendError, setSendError] = useState<string | null>(null)
   const box = useRef<HTMLTextAreaElement>(null)
   // Dictation: what is said lands at the end of the message, ready to edit, never sent by itself.
   const dictation = useDictation((spoken) => {
@@ -176,16 +178,29 @@ export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Wor
   const shownMentions = liveMentions(mentions, text)
   const hasChips = goalArmed || copiedTo.length > 0 || shownMentions.length > 0
 
-  const submit = (): void => {
-    if (!text.trim() && files.length === 0) return
-    void send(worker.id, text.trim(), files, {
-      ...(isMain && goalArmed && text.trim() ? { goal: true } : {}),
-      ...(isMain ? {} : { threadId })
-    })
-    setText('')
-    setFiles([])
-    setMentions([])
-    setGoalArmed(false)
+  // The box empties only once main has the message: a refused send (the
+  // worker removed, a bad file) leaves what was written there to try again.
+  const submit = async (): Promise<void> => {
+    if ((!text.trim() && files.length === 0) || sending) return
+    const sent = text
+    const sentFiles = files
+    setSending(true)
+    setSendError(null)
+    try {
+      await send(worker.id, text.trim(), files, {
+        ...(isMain && goalArmed && text.trim() ? { goal: true } : {}),
+        ...(isMain ? {} : { threadId })
+      })
+      // Anything typed while it was sending stays.
+      setText((current) => (current === sent ? '' : current))
+      setFiles((current) => current.filter((path) => !sentFiles.includes(path)))
+      setMentions([])
+      setGoalArmed(false)
+    } catch (error) {
+      setSendError(errorText(error))
+    } finally {
+      setSending(false)
+    }
   }
 
   return (
@@ -246,10 +261,18 @@ export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Wor
             if (suggest.onKeyDown(e)) return
             if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault()
-              submit()
+              void submit()
             }
           }}
         />
+        )}
+        {sendError && (
+          <div className="voice-error" role="alert">
+            <span className="voice-error__text">Couldn’t send: {sendError}</span>
+            <button onClick={() => setSendError(null)} aria-label="Dismiss">
+              <X size={12} strokeWidth={2.2} />
+            </button>
+          </div>
         )}
         {dictation.error && (
           <div className="voice-error" role="alert">
@@ -343,7 +366,7 @@ export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Wor
           >
             <Mic size={16} strokeWidth={1.9} />
           </button>
-          <button className="send" disabled={dictating || (!text.trim() && files.length === 0)} onClick={submit} aria-label="Send">
+          <button className="send" disabled={dictating || sending || (!text.trim() && files.length === 0)} onClick={() => void submit()} aria-label="Send">
             <ArrowUp size={17} strokeWidth={2.2} />
           </button>
         </div>

@@ -481,7 +481,8 @@ const ChatRow = memo(function ChatRow({
             onChange={(e) => setDraft(e.target.value)}
             onBlur={commitRename}
             onKeyDown={(e) => {
-              if (e.key === 'Enter') commitRename()
+              // Not while an input method is composing: that Enter picks the characters.
+              if (e.key === 'Enter' && !e.nativeEvent.isComposing) commitRename()
               if (e.key === 'Escape') {
                 setDraft(chat.title)
                 setRenaming(false)

@@ -26,19 +26,39 @@ export function SecurityPage(): JSX.Element {
   const [verifying, setVerifying] = useState(false)
   const [verified, setVerified] = useState<AuditStatus['verified']>()
 
-  useEffect(() => {
-    void window.api.enterprise.status().then(setStatus)
-  }, [])
+  const [loadError, setLoadError] = useState<string | null>(null)
+
+  const load = (): void => {
+    setLoadError(null)
+    window.api.enterprise.status().then(setStatus, (e: unknown) => setLoadError(e instanceof Error ? e.message : String(e)))
+  }
+  useEffect(load, [])
 
   const verify = async (): Promise<void> => {
     setVerifying(true)
     try {
       setVerified((await window.api.enterprise.verifyAudit()).verified)
+    } catch (e) {
+      setVerified({ ok: false, records: 0, files: 0, problem: e instanceof Error ? e.message : String(e) })
     } finally {
       setVerifying(false)
     }
   }
 
+  // Pages a policy turns off send people here, so a failure says so rather than leaving it blank.
+  if (!status && loadError)
+    return (
+      <>
+        <h1 className="settings__h1">Security</h1>
+        <Card>
+          <Row title="Couldn’t load the security settings" description={loadError.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}>
+            <button className="btn" onClick={load}>
+              Try again
+            </button>
+          </Row>
+        </Card>
+      </>
+    )
   if (!status) return <></>
   const { policy: managed, audit } = status
   const policy = managed.policy
@@ -88,8 +108,8 @@ export function SecurityPage(): JSX.Element {
                 : 'Your organization has turned the audit log off.'
             }
           >
-            <button className="btn btn--ghost" onClick={() => void window.api.enterprise.revealAudit()}>
-              Show Folder
+            <button className="btn" onClick={() => void window.api.enterprise.revealAudit()}>
+              Show folder
             </button>
           </Row>
           <Row title="Location" description={audit.directory} />

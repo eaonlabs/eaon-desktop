@@ -117,18 +117,47 @@ export interface ReviewComment {
 
 const HUNK = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/
 
-/** Unquotes a path git wrote in C style ("a\tb.txt"), for names with odd characters. */
-function gitPath(raw: string): string {
-  if (!raw.startsWith('"')) return raw
-  try {
-    return JSON.parse(raw) as string
-  } catch {
-    return raw.slice(1, -1)
-  }
-}
-
 /** `a/src/x.ts` → `src/x.ts`; `/dev/null` stays as it is. */
 const strip = (p: string): string => (p === '/dev/null' ? p : p.replace(/^[ab]\//, ''))
+
+const C_ESCAPES: Record<string, number> = { a: 7, b: 8, t: 9, n: 10, v: 11, f: 12, r: 13, '"': 34, '\\': 92 }
+
+/**
+ * A path as git wrote it in a diff. Git puts a tab after a name with a space
+ * in it on its `---`/`+++` lines, which is not part of the name; and quotes a
+ * name with odd characters C style, with anything past ASCII as octal UTF-8
+ * bytes (`"caf\303\251.md"`), which JSON can't read.
+ */
+export function gitPath(raw: string): string {
+  const path = raw.replace(/\t$/, '')
+  if (!(path.length >= 2 && path.startsWith('"') && path.endsWith('"'))) return path
+  // An octal escape is one byte, and a character past ASCII is several: a run of them is decoded together.
+  return path.slice(1, -1).replace(/(?:\\(?:[0-7]{3}|.))+/g, (run) => {
+    const bytes: number[] = []
+    for (const [, code] of run.matchAll(/\\([0-7]{3}|.)/g)) {
+      if (code.length === 3) bytes.push(parseInt(code, 8))
+      else if (code in C_ESCAPES) bytes.push(C_ESCAPES[code])
+      else bytes.push(...new TextEncoder().encode(code))
+    }
+    return new TextDecoder().decode(new Uint8Array(bytes))
+  })
+}
+
+/**
+ * The new-side path on a `diff --git a/x b/x` line. Names with spaces aren't
+ * quoted there, so splitting at a space can't work; a file that wasn't
+ * renamed has the same name both sides, which says where the split is. For a
+ * rename the `rename to` line (and for text, `+++`) sets the path afterwards.
+ */
+export function diffGitPath(line: string): string {
+  const rest = line.slice('diff --git '.length)
+  const half = (rest.length - 1) / 2
+  if (Number.isInteger(half) && rest[half] === ' ' && strip(rest.slice(0, half)) === strip(rest.slice(half + 1))) return strip(rest.slice(half + 1))
+  const quoted = /^(".*?(?<!\\)"|\S+) (".*"|\S+)$/.exec(rest)
+  if (quoted) return strip(gitPath(quoted[2]))
+  const b = rest.lastIndexOf(' b/')
+  return b > 0 ? rest.slice(b + 3) : rest
+}
 
 /**
  * Parses `git diff` output (unified, any number of files) into files and
@@ -144,8 +173,7 @@ export function parseUnifiedDiff(text: string): ReviewFile[] {
 
   for (const line of text.split('\n')) {
     if (line.startsWith('diff --git ')) {
-      const m = /^diff --git (".*?"|\S+) (".*?"|\S+)$/.exec(line)
-      const path = m ? strip(gitPath(m[2])) : line.slice(11)
+      const path = diffGitPath(line)
       file = { path, oldPath: null, status: 'modified', added: 0, removed: 0, binary: false, hunks: [] }
       files.push(file)
       hunk = null

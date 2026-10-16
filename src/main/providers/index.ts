@@ -389,7 +389,14 @@ export function clearProviderHealth(id: string): void {
 
 /** A listing that failed: the kept list becomes "the last one that worked", and a lasting failure marks the provider. */
 function listingFailed(id: string, issue: ProviderIssue, at = Date.now()): void {
-  editOverride(id, (override) => ({ ...override, listFailedAt: at }))
+  // Only the first failure after a listing that worked changes anything
+  // (`listingSource`). Local runtimes that aren't running fail on every
+  // window focus, and rewriting providers.json each time for nothing is
+  // wasted disk writes; one that never listed anything has nothing to mark.
+  const current = store.getProviderConfig()[id]
+  const listedAt = current?.listedAt
+  const alreadyMarked = listedAt === undefined || (current?.listFailedAt !== undefined && current.listFailedAt > listedAt)
+  if (!alreadyMarked) editOverride(id, (override) => ({ ...override, listFailedAt: at }))
   noteProviderHealth(id, issue, at)
 }
 

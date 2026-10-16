@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
 import { Gift, X } from 'lucide-react'
-import { FREE_DAYS, FREE_LIMITS, FREE_PROVIDER_ID, formatAllowance, formatEndDay, OFFER_AFTER_MS } from '@shared/freeCredits'
+import { FREE_DAYS, FREE_LIMITS, formatAllowance, formatEndDay, OFFER_AFTER_MS } from '@shared/freeCredits'
 import { useApp } from '../state/store'
 import { StarCard } from './StarPrompt'
+import { RedeemCode } from './RedeemCode'
 import { onboardingShowing } from './onboarding/onboardingStore'
 
 /** How often time in front of the app is counted. */
@@ -25,10 +26,13 @@ export const FREE_ALLOWANCE = `${FREE_LIMITS.requestsPerDay} requests and ${form
  */
 export function FreeCreditsOffer(): JSX.Element | null {
   const refreshProviders = useApp((s) => s.refreshProviders)
-  const openProviderSettings = useApp((s) => s.openProviderSettings)
   const [card, setCard] = useState<'none' | 'star' | 'offer' | 'claimed'>('none')
   const [busy, setBusy] = useState(false)
   const [endsAt, setEndsAt] = useState<number | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  // The code box opens in the card itself: at an event the code is the way
+  // in (each computer gets its own allowance, not one for the venue's IP).
+  const [codeOpen, setCodeOpen] = useState(false)
   const next = useRef<number | null>(null)
   /** Whether the offer follows the star popup; not when the credits were claimed already. */
   const offerNext = useRef(false)
@@ -73,6 +77,7 @@ export function FreeCreditsOffer(): JSX.Element | null {
 
   const claim = (): void => {
     setBusy(true)
+    setError(null)
     void window.api.freeCredits
       .claim()
       .then(async (status) => {
@@ -80,8 +85,15 @@ export function FreeCreditsOffer(): JSX.Element | null {
         await refreshProviders()
         setCard('claimed')
       })
-      .catch(() => undefined)
+      .catch(() => setError('Couldn’t set up the free credits. Check your connection and try again.'))
       .finally(() => setBusy(false))
+  }
+
+  const redeemed = async (): Promise<void> => {
+    const status = await window.api.freeCredits.status()
+    setEndsAt(status.code?.endsAt ?? status.endsAt)
+    await refreshProviders()
+    setCard('claimed')
   }
 
   const title = card === 'offer' ? 'Free AI credits' : 'Your free week has started'
@@ -119,20 +131,17 @@ export function FreeCreditsOffer(): JSX.Element | null {
           </button>
         )}
       </div>
-      {card === 'offer' && (
-        // The box for a code lives with Eaon Free in Settings; this is the way there.
-        <button
-          type="button"
-          className="free-card__code"
-          disabled={busy}
-          onClick={() => {
-            close()
-            openProviderSettings(FREE_PROVIDER_ID)
-          }}
-        >
-          Have an event code?
-        </button>
-      )}
+      {error && <p className="free-card__error">{error}</p>}
+      {card === 'offer' &&
+        (codeOpen ? (
+          <div className="free-card__redeem">
+            <RedeemCode onRedeemed={redeemed} />
+          </div>
+        ) : (
+          <button type="button" className="free-card__code" disabled={busy} onClick={() => setCodeOpen(true)}>
+            Have an event code?
+          </button>
+        ))}
     </div>
   )
 }

@@ -131,10 +131,10 @@ test('the brief tells the agent what to review, where to write, and not to chang
 
 test('an agent given a task starts on it, quoted whole; a resumed conversation or a shell is left alone', () => {
   const base = { paneId: 'p', cwd: '/w', cols: 80, rows: 24 }
-  assert.equal(promptLine({ ...base, command: 'claude', agent: 'claude', prompt: "Review PR #7 (it's broken). Read .eaon/review-task.md" }).command, `claude 'Review PR #7 (it'\\''s broken). Read .eaon/review-task.md'`)
-  assert.equal(promptLine({ ...base, command: 'codex', agent: 'codex', prompt: 'a\nb; rm -rf /' }).command, `codex 'a b; rm -rf /'`)
-  assert.equal(promptLine({ ...base, command: 'claude', agent: 'claude', prompt: 'x', resume: 'id' }).command, 'claude')
-  assert.equal(promptLine({ ...base, command: null, agent: 'shell', prompt: 'x' }).command, null)
+  assert.equal(promptLine({ ...base, command: 'claude', agent: 'claude', prompt: "Review PR #7 (it's broken). Read .eaon/review-task.md" }, 'posix').command, `claude 'Review PR #7 (it'\\''s broken). Read .eaon/review-task.md'`)
+  assert.equal(promptLine({ ...base, command: 'codex', agent: 'codex', prompt: 'a\nb; rm -rf /' }, 'posix').command, `codex 'a b; rm -rf /'`)
+  assert.equal(promptLine({ ...base, command: 'claude', agent: 'claude', prompt: 'x', resume: 'id' }, 'posix').command, 'claude')
+  assert.equal(promptLine({ ...base, command: null, agent: 'shell', prompt: 'x' }, 'posix').command, null)
 })
 
 test('Linear: work moves an issue to its first started state, and an open PR to its review one', () => {

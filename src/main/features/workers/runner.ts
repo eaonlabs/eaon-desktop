@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { ChatMessage, GoalState, Settings, StreamEvent, StreamRequest, TokenUsage } from '@shared/types'
+import type { ChatMessage, GoalState, Provider, Settings, StreamEvent, StreamRequest, TokenUsage } from '@shared/types'
 import { clampEffort } from '@shared/effort'
 import { MAIN_THREAD, threadKey, type Worker, type WorkerMail, type WorkerRoutine, type WorkerThread } from '@shared/workers'
 import { CHANNEL_LABEL, type GuestAccess } from '@shared/channels'
@@ -224,9 +224,13 @@ export interface TurnOutcome {
  * a clear error — never some other model the providers happen to list first,
  * which is what a stale selection used to fall back to.
  */
-export function resolveWorkerModel(model: Worker['model'], settings: Settings): ReturnType<typeof resolveModel> {
-  const target = resolveModel({ model }, settings, undefined, 'worker')
-  if (!model && settings.selectedModelId && (!target.ok || target.modelId !== settings.selectedModelId)) {
+export function resolveWorkerModel(model: Worker['model'], settings: Settings, providers?: Provider[]): ReturnType<typeof resolveModel> {
+  const target = resolveModel({ model }, settings, providers, 'worker')
+  // A saved choice may be an alias of the model it resolves to (a dated
+  // snapshot folded into its family's id): that is the same model, not a stand-in.
+  const wanted = settings.selectedModelId
+  const same = target.ok && (target.modelId === wanted || target.model?.aliases?.includes(wanted ?? '') === true)
+  if (!model && wanted && !same) {
     return {
       ok: false,
       error: `This worker follows Chat's model (${settings.selectedModelId}), which isn't available right now. Pick a model for the worker in its settings, or fix the provider in Settings → Model providers.`

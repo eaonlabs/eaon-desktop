@@ -39,7 +39,9 @@ export interface UpdatesDeps {
   publishStable: (status: UpdateStatus) => void
   publishBeta: (status: UpdateStatus) => void
   /** A stable check the user asked for found nothing, or failed: say so. */
-  interactiveResult?: (result: { kind: 'up-to-date' } | { kind: 'error'; message: string }) => void
+  interactiveResult?: (
+    result: { kind: 'up-to-date' } | { kind: 'error'; message: string } | { kind: 'downloading'; percent: number | null } | { kind: 'ready'; version: string }
+  ) => void
 }
 
 /* ------------------------------------------------------------------ versions */
@@ -156,7 +158,8 @@ export class UpdateController {
     })
     updater.on('error', (error: Error) => {
       if (this.mode === 'stable') {
-        this.setStable({ state: 'error', message: error.message })
+        // A later check failing (offline) doesn't take back an update that is ready.
+        if (this.stable.state !== 'downloaded') this.setStable({ state: 'error', message: error.message })
         if (this.interactive) this.deps.interactiveResult?.({ kind: 'error', message: error.message })
         this.interactive = false
       } else if (this.mode === 'beta-check' || this.mode === 'beta-download') {
@@ -199,7 +202,17 @@ export class UpdateController {
 
   /** Looks for a stable update, which then downloads by itself. */
   async checkStable(options: { interactive?: boolean } = {}): Promise<void> {
-    if (this.busy) return
+    // Asked for by the user while an update is on its way or already here:
+    // say so, rather than nothing at all, or a fresh check failing offline
+    // and hiding the update that is ready.
+    if (options.interactive && this.stable.state === 'downloaded') {
+      this.deps.interactiveResult?.({ kind: 'ready', version: this.stable.version })
+      return
+    }
+    if (this.busy) {
+      if (options.interactive && this.mode !== 'beta-check') this.deps.interactiveResult?.({ kind: 'downloading', percent: this.stable.state === 'downloading' ? this.stable.percent : null })
+      return
+    }
     this.mode = 'stable'
     this.interactive = Boolean(options.interactive)
     this.forStable()
@@ -211,7 +224,7 @@ export class UpdateController {
       // and the update sat at "starting download…" for good (Beta 6).
       if (result?.downloadPromise) await result.downloadPromise.catch(() => undefined)
     } catch (error) {
-      this.setStable({ state: 'error', message: error instanceof Error ? error.message : String(error) })
+      if (this.stable.state !== 'downloaded') this.setStable({ state: 'error', message: error instanceof Error ? error.message : String(error) })
       this.interactive = false
     } finally {
       this.mode = null

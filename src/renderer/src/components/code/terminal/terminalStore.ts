@@ -61,6 +61,11 @@ let listening = false
 const errorText = (error: unknown): string =>
   (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 
+function withoutPrompt(pane: TerminalPaneSpec): TerminalPaneSpec {
+  const { prompt: _prompt, ...rest } = pane
+  return rest
+}
+
 function persist(layout: TerminalLayout): void {
   if (saveTimer) clearTimeout(saveTimer)
   saveTimer = setTimeout(() => void window.api.terminals.saveLayout(layout), 300)
@@ -90,7 +95,9 @@ export const useTerminals = create<TerminalsState>((set, get) => ({
   },
 
   async refreshAgents() {
-    set({ agents: await window.api.terminals.agents() })
+    const agents = await window.api.terminals.agents()
+    // Asked on every focus: the same list again shouldn't re-render everything that shows it.
+    if (JSON.stringify(agents) !== JSON.stringify(get().agents)) set({ agents })
   },
 
   add(cwd, agent, resume, prompt) {
@@ -225,6 +232,21 @@ async function loadLayout(): Promise<void> {
       terminals.onCommand((_command, paneId) => get().openPicker(paneId))
       // An agent that worked for a while went quiet while you were elsewhere.
       terminals.onFinish((paneId, task) => notifyFinished(paneId, task))
+      // A task is typed once. Left in the saved layout, a pane brought back
+      // after a crash (where nothing recorded what it was running) typed it again.
+      terminals.onPromptSent((paneId) => {
+        const layout = get().layout
+        for (const [cwd, panes] of Object.entries(layout)) {
+          if (!panes.some((p) => p.id === paneId && p.prompt)) continue
+          const next = { ...layout, [cwd]: panes.map((p) => (p.id === paneId ? withoutPrompt(p) : p)) }
+          set({ layout: next })
+          persist(next)
+          return
+        }
+      })
+      // A CLI installed while Eaon was open (from a terminal, the browser) stops
+      // saying "Not installed" once you come back to the window.
+      window.addEventListener('focus', () => void get().refreshAgents().catch(() => undefined))
     }
     const [layout, agents, running] = await Promise.all([
       window.api.terminals.layout(),

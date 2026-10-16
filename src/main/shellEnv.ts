@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process'
-import { accessSync, constants } from 'node:fs'
+import { accessSync, constants, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { delimiter, join } from 'node:path'
 
@@ -137,4 +137,67 @@ async function readLoginShellPath(): Promise<void> {
 
   const parts = [...(fromShell?.split(delimiter) ?? []), ...(process.env.PATH?.split(delimiter) ?? []), ...floor]
   process.env.PATH = [...new Set(parts.filter(Boolean))].join(delimiter)
+}
+
+/**
+ * The `Path` value in `reg query` output, its %VARIABLES% expanded from
+ * `env`; null when the output has none.
+ */
+export function registryPath(output: string, env: NodeJS.ProcessEnv = process.env): string | null {
+  const value = /^\s*Path\s+REG_(?:EXPAND_)?SZ\s+(.*)$/im.exec(output)?.[1]?.trim()
+  if (!value) return null
+  return value.replace(/%([^%;]+)%/g, (whole, name: string) => env[name] ?? whole)
+}
+
+const REGISTRY_PATHS = ['HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Environment', 'HKCU\\Environment']
+/** How long a refresh is good for: the ADE asks on every focus. */
+const REFRESH_MS = 10_000
+let refreshing: Promise<void> | null = null
+let refreshedAt = 0
+
+function regQuery(key: string): Promise<string> {
+  return new Promise((resolve) => {
+    execFile('reg', ['query', key, '/v', 'Path'], { timeout: 3000, windowsHide: true }, (_error, stdout) => resolve(String(stdout ?? '')))
+  })
+}
+
+/**
+ * Windows: adds to PATH the folders the registry has on it now that Eaon's
+ * PATH doesn't. A process keeps the environment it started with, so Node or
+ * a CLI installed while Eaon was open isn't found (and its pane says "not
+ * installed") until Eaon restarts. A fresh terminal reads the registry; this
+ * does what it does. Only folders that exist are added, and nothing already
+ * on PATH moves. Anywhere else, and when `reg` fails or is slow, it does nothing.
+ */
+export function refreshWindowsPath(): Promise<void> {
+  if (process.platform !== 'win32') return Promise.resolve()
+  if (refreshing) return refreshing
+  if (Date.now() - refreshedAt < REFRESH_MS) return Promise.resolve()
+  refreshing = (async () => {
+    try {
+      const outputs = await Promise.all(REGISTRY_PATHS.map(regQuery))
+      const current = (process.env.PATH ?? '').split(delimiter).filter(Boolean)
+      const known = new Set(current.map((dir) => dir.toLowerCase().replace(/\\+$/, '')))
+      const added: string[] = []
+      for (const output of outputs) {
+        for (const dir of (registryPath(output) ?? '').split(delimiter)) {
+          const key = dir.toLowerCase().replace(/\\+$/, '')
+          if (!dir || known.has(key)) continue
+          known.add(key)
+          try {
+            if (statSync(dir).isDirectory()) added.push(dir)
+          } catch {
+            /* not there (or garbled by the console code page): left out */
+          }
+        }
+      }
+      if (added.length) process.env.PATH = [...current, ...added].join(delimiter)
+    } catch {
+      /* the PATH Eaon has is still a working one */
+    } finally {
+      refreshedAt = Date.now()
+      refreshing = null
+    }
+  })()
+  return refreshing
 }

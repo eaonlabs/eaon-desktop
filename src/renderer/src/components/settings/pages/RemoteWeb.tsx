@@ -1,5 +1,5 @@
 import { useEffect, useState, type JSX } from 'react'
-import { ExternalLink, Globe, Loader2 } from 'lucide-react'
+import { ExternalLink, Github, Loader2 } from 'lucide-react'
 import { Card, Row, Section, Switch } from '../../ui'
 import type { RcInfo, RcShare } from '@shared/rc'
 
@@ -82,7 +82,7 @@ export function RemoteWebSection(): JSX.Element {
             description={`Link it to your GitHub account, then open ${site} on any phone or computer to see and type into its ADE terminals and talk to its Workers. No app to install, and nothing on this computer is opened to the internet: it connects out.`}
           >
             <button type="button" className="btn btn--primary btn--sm" disabled={busy} onClick={() => void run(() => window.api.rc.link())}>
-              <Globe size={13} strokeWidth={2} />
+              <Github size={13} strokeWidth={2} />
               Link with GitHub
             </button>
           </Row>

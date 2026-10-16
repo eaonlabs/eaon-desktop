@@ -39,6 +39,28 @@ export function cadencePhrase(everyMs: number | null): string {
 
 export type { PurchaseRoutineDraft } from '@shared/workers'
 
+/**
+ * The next order on the picked time: `nextAligned`, except that a cadence of
+ * whole days steps by calendar days, so a 9:00 order stays at 9:00 across a
+ * daylight-saving change instead of moving an hour. The dialog's preview uses
+ * the same rule (purchase/plan.ts).
+ */
+export function nextPurchaseAt(anchorAt: number, everyMs: number, after: number): number {
+  if (everyMs % DAY !== 0) return nextAligned(anchorAt, everyMs, after)
+  if (anchorAt > after) return anchorAt
+  const days = everyMs / DAY
+  const at = (k: number): number => {
+    const d = new Date(anchorAt)
+    d.setDate(d.getDate() + k * days)
+    return d.getTime()
+  }
+  // The fixed-length guess is at most an hour out; settle on the first one past `after`.
+  let k = Math.floor((after - anchorAt) / everyMs) + 1
+  while (k > 1 && at(k - 1) > after) k--
+  while (at(k) <= after) k++
+  return at(k)
+}
+
 
 export const routineName = (plan: PurchasePlan): string => `Buy ${plan.item.length > 52 ? `${plan.item.slice(0, 51).trimEnd()}…` : plan.item}`
 
@@ -122,7 +144,7 @@ export function createPurchaseRoutines(deps: PurchaseRoutinesDeps) {
       } else if (routine.anchorAt !== undefined) {
         // Back to the picked time of day, however long this run took (or however late it started).
         const { runs: _runs, id, ...rest } = routine
-        deps.put(worker.id, { ...rest, id, nextAt: nextAligned(routine.anchorAt, routine.everyMs, at) })
+        deps.put(worker.id, { ...rest, id, nextAt: nextPurchaseAt(routine.anchorAt, routine.everyMs, at) })
       }
       return
     }

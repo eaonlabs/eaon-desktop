@@ -578,6 +578,8 @@ export const BRAND_ICONS: Record<string, (props: TileProps) => JSX.Element> = {
   'amazon-bedrock': LOGOS.bedrock,
   'lm-studio': LOGOS.lmstudio,
   'eaon-free': LOGOS.eaon,
+  // Models downloaded in Eaon, run by its own llama.cpp ("On this computer").
+  'eaon-local': LOGOS.eaon,
   vllm: LOGOS.vllm,
   jan: LOGOS.jan
 }

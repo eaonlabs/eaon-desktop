@@ -18,7 +18,7 @@ import {
   normalizeBrowserInput,
   parseRefs,
   stripAnsi,
-  type WorkerBrowsers
+  WorkerBrowsers
 } from '../src/main/features/workers/browser'
 
 /**
@@ -388,4 +388,21 @@ test('the page text the agent reads, and the text fallback of an unsnapshottable
   } finally {
     setPaymentAccess(null)
   }
+})
+
+test('waiting while the user has the browser keeps saying so, so the run isn’t stopped as stalled', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] })
+  const browsers = new WorkerBrowsers()
+  let handBack!: () => void
+  const done = new Promise<void>((resolve) => (handBack = resolve))
+  // The user in control, as takeControl leaves it (a session's `control`).
+  ;(browsers as unknown as { sessions: Map<string, unknown> }).sessions.set('w', { control: { done } })
+  let pulses = 0
+  const waiting = browsers.waitForUser('w', undefined, () => pulses++)
+  t.mock.timers.tick(3 * 60_000)
+  assert.equal(pulses, 3)
+  handBack()
+  assert.equal(await waiting, true)
+  t.mock.timers.tick(5 * 60_000)
+  assert.equal(pulses, 3, 'quiet once it is handed back')
 })

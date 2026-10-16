@@ -63,16 +63,24 @@
 }
 
 .settings__search {
-  padding: 0 12px 8px;
+  padding: 0 12px 2px;
 }
 
 .settings__nav-body {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  padding: 0 7px 16px;
+  padding: 6px 7px 16px;
+  /* Items scrolled up fade out under the search field instead of being
+     sliced through their middle at its edge. */
+  mask-image: linear-gradient(to bottom, transparent 0, #000 10px);
 }
 
+.settings__no-match {
+  padding: 12px 8px;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
 .settings__group {
   padding: 0 8px;
   margin: 12px 0 2px;
@@ -90,10 +98,11 @@
   flex-direction: column;
 }
 
-/* Narrow windows (a split screen, or zoomed in): 252px of navigation left the
-   page 268px at 520. The nav becomes an icon rail; each item keeps its name
-   as a tooltip and an accessible label (SettingsShell). */
-@media (max-width: 639px) {
+/* Narrow windows (a split screen, a small laptop, or zoomed in): at the
+   window's 720px minimum, 252px of navigation left Model providers' key
+   panel about 90px, one word per line. The nav becomes an icon rail; each
+   item keeps its name as a tooltip and an accessible label (SettingsShell). */
+@media (max-width: 859px) {
   .settings__nav {
     width: 68px;
     flex-basis: 68px;
@@ -137,6 +146,9 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  /* The page doesn't jump sideways between pages that scroll and pages
+     that don't. */
+  scrollbar-gutter: stable both-edges;
   padding: 0 24px 90px;
 }
 .settings__inner {
@@ -223,17 +235,38 @@
   color: var(--text-3);
   margin-top: 3px;
   line-height: 1.45;
+  /* Paths and addresses have no spaces to break at. */
+  overflow-wrap: anywhere;
 }
 .row__trail {
   flex: none;
   display: flex;
   align-items: center;
   gap: 10px;
+  max-width: 100%;
+}
+/* When a wide control (a select, a path field) would leave the text under
+   220px, the control moves under the text instead of squeezing it into a
+   word per line. Wide rows look exactly as before. */
+.row:has(> .row__body) {
+  flex-wrap: wrap;
+}
+.row:has(> .row__body) > .row__body {
+  flex: 1 1 220px;
+}
+.row:has(> .row__body) > .row__trail {
+  margin-left: auto;
 }
 .row--stack {
   align-items: flex-start;
   flex-direction: column;
   gap: 10px;
+}
+.row--stack.row > .row__body {
+  flex: 1;
+}
+.row--stack.row > .row__trail {
+  margin-left: 0;
 }
 
 /* App icon picker (Appearance). The images keep the macOS icon grid's margin,
@@ -465,7 +498,8 @@
 }
 .badge--ok {
   background: rgba(48, 209, 88, 0.16);
-  color: #4ade80;
+  /* A fixed light green was about 1.6:1 on a light theme; this one has a dark value there. */
+  color: var(--diff-add-fg);
 }
 .badge--warn {
   background: var(--danger-soft);
@@ -585,6 +619,15 @@
   min-width: 0;
   overflow-y: auto;
   padding: 30px 32px 80px;
+}
+
+@media (max-width: 859px) {
+  .providers-list {
+    width: 232px;
+  }
+  .providers-detail {
+    padding: 30px 20px 80px;
+  }
 }
 
 .provider-detail__header {
@@ -707,8 +750,10 @@
 
 .provider-detail__section-head {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
+  gap: 4px 12px;
   margin-bottom: 8px;
 }
 .provider-detail__section-actions {
@@ -924,6 +969,20 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* A key shown in part, as a field rather than loose text floating mid-row (Local API Server). */
+.key-chip {
+  display: inline-flex;
+  align-items: center;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  border: 1px solid var(--border-soft);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  white-space: nowrap;
+}
 .usage {
   display: inline-flex;
   align-items: center;
@@ -933,7 +992,9 @@
   width: 74px;
   height: 8px;
   border-radius: var(--r-pill);
-  background: var(--surface-4);
+  /* Not --surface-4: in light themes that is lighter than the card, so the
+     fill floated with no track around it. */
+  background: color-mix(in srgb, var(--text), transparent 88%);
   overflow: hidden;
   flex: none;
 }
@@ -1041,6 +1102,10 @@
   border-top: 1px solid var(--border);
 }
 
+/* The list clips overflow, which cut the focus ring off; it sits inside the row instead. */
+.plugin-row:focus-visible {
+  outline-offset: -2px;
+}
 .plugin-row {
   display: flex;
   align-items: center;
@@ -1241,12 +1306,13 @@ body[data-reduce-motion='on'] .credits-heart {
 
 /* ---------------- Star prompt (components/StarPrompt.tsx) ---------------- */
 
-/* A card in the bottom corner, over whatever is open, until it is answered. */
+/* A card in the bottom corner, over whatever is open, until it is answered;
+   under dialogs (.layer is 100), so it never covers a dialog's buttons. */
 .star-card {
   position: fixed;
   right: 20px;
   bottom: 20px;
-  z-index: 900;
+  z-index: 96;
   width: min(360px, calc(100vw - 40px));
   padding: 14px 16px 16px;
   border-radius: var(--r-lg);
@@ -1352,6 +1418,16 @@ body[data-reduce-motion='on'] .star-card {
   color: var(--text);
   text-decoration: underline;
   text-underline-offset: 2px;
+}
+/* The event code box, opened in the card. */
+.free-card__redeem .free-code {
+  margin-top: 10px;
+  padding-top: 10px;
+}
+.free-card__error {
+  margin: 8px 0 0;
+  font-size: var(--fs-xs);
+  color: var(--danger);
 }
 
 /* ---------------- Settings → ADE: terminal theme ---------------- */

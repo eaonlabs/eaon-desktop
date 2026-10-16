@@ -101,6 +101,9 @@ const CONTROL_LIVE_MS = 10_000
  * a worker's turn stops costing anything ten minutes later.
  */
 const PARK_AFTER_MS = 10 * 60_000
+/** How often a step waiting on the user in control says it is still alive: well inside a run's stall watchdog (STALL_MS, 15 minutes). */
+const USER_WAIT_PULSE_MS = 60_000
+const WAITING_FOR_USER = 'Waiting for you to hand the browser back'
 /** Waits, through the connection, until a page that has just arrived is usable. */
 const UNTIL_READY = `await page.waitForFunction(() => document.readyState !== 'loading', null, { timeout: 12000 }).catch(() => {}); return 1`
 
@@ -1505,19 +1508,30 @@ export class WorkerBrowsers {
     return Boolean(this.sessions.get(workerId)?.control)
   }
 
-  /** Waits while the user has control. True when it had to wait, so the caller knows the page may have changed. */
-  async waitForUser(workerId: string, signal?: AbortSignal): Promise<boolean> {
+  /**
+   * Waits while the user has control. True when it had to wait, so the caller
+   * knows the page may have changed. `stillWaiting` is called every
+   * USER_WAIT_PULSE_MS meanwhile: a run's stall watchdog only hears stream
+   * events, and someone signing in or checking out can easily take longer
+   * than it allows, which would end the run they are helping.
+   */
+  async waitForUser(workerId: string, signal?: AbortSignal, stillWaiting?: () => void): Promise<boolean> {
     const control = this.sessions.get(workerId)?.control
     if (!control) return false
-    await new Promise<void>((resolve, reject) => {
-      if (signal?.aborted) return reject(new Error('aborted'))
-      const onAbort = (): void => reject(new Error('aborted'))
-      signal?.addEventListener('abort', onAbort, { once: true })
-      void control.done.then(() => {
-        signal?.removeEventListener('abort', onAbort)
-        resolve()
+    const pulse = stillWaiting ? setInterval(stillWaiting, USER_WAIT_PULSE_MS) : undefined
+    try {
+      await new Promise<void>((resolve, reject) => {
+        if (signal?.aborted) return reject(new Error('aborted'))
+        const onAbort = (): void => reject(new Error('aborted'))
+        signal?.addEventListener('abort', onAbort, { once: true })
+        void control.done.then(() => {
+          signal?.removeEventListener('abort', onAbort)
+          resolve()
+        })
       })
-    })
+    } finally {
+      clearInterval(pulse)
+    }
     return true
   }
 
@@ -1949,7 +1963,7 @@ export function browserTool(browsers: WorkerBrowsers, options: BrowserToolOption
       if (browsers.controlled(id)) {
         options.onStep?.(ctx, { action: 'wait', detail: '', done: false })
         try {
-          await browsers.waitForUser(id, ctx.signal)
+          await browsers.waitForUser(id, ctx.signal, () => ctx.progress(WAITING_FOR_USER))
         } finally {
           options.onStep?.(ctx, { action: 'wait', detail: '', done: true })
         }
@@ -2021,7 +2035,7 @@ export function browserTool(browsers: WorkerBrowsers, options: BrowserToolOption
     const failed: { url: string; error: string }[] = []
     while (queue.length > 0 && saved.length < max) {
       if (ctx.signal.aborted) break
-      if (browsers.controlled(id)) await browsers.waitForUser(id, ctx.signal)
+      if (browsers.controlled(id)) await browsers.waitForUser(id, ctx.signal, () => ctx.progress(WAITING_FOR_USER))
       const url = queue.shift()!
       try {
         browsers.beginStep(id)

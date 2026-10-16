@@ -1,6 +1,7 @@
 import { app, safeStorage } from 'electron'
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
+import { renameRetryingLocked, writeFileDurable } from './storeFiles'
 
 /**
  * API keys are encrypted with the OS keychain via safeStorage before they touch
@@ -84,9 +85,11 @@ function persist(vault: Vault): void {
   // never be decrypted again.
   const tmp = `${vaultPath()}.tmp`
   // Owner-only, even when encrypted: a plaintext vault (no keyring) must not
-  // be readable by other accounts on the machine.
-  writeFileSync(tmp, payload, { mode: 0o600 })
-  renameSync(tmp, vaultPath())
+  // be readable by other accounts on the machine. Flushed before the rename,
+  // so a power cut can't leave a renamed but empty vault; the rename waits
+  // out an antivirus or indexer that briefly holds keys.dat open on Windows.
+  writeFileDurable(tmp, payload)
+  renameRetryingLocked(tmp, vaultPath())
 }
 
 export const secrets = {
@@ -101,6 +104,13 @@ export const secrets = {
   },
   has(providerId: string): boolean {
     return Boolean(load()[providerId])
+  },
+  /**
+   * False while the vault exists but can't be decrypted (a locked keyring,
+   * Safe Storage access denied), when every `has` says no without meaning it.
+   */
+  readable(): boolean {
+    return read() !== null
   },
   clear(providerId: string): void {
     const vault = loadForWrite()

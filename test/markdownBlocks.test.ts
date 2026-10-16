@@ -168,3 +168,15 @@ test('after a list, a blank line settles only once the next line is plainly not 
   // It can't any more.
   assert.equal(parseMarkdown('1. a\n\nSo').settledBlocks, 1)
 })
+
+test('a fence with an info string opens, and only a bare fence closes it', () => {
+  const { blocks } = parseMarkdown('```bash title=install.sh\nnpm install\n```\nAfter.')
+  assert.deepEqual(blocks[0], { kind: 'code', lang: 'bash', code: 'npm install', streaming: false })
+  assert.deepEqual(blocks[1], { kind: 'para', text: 'After.' })
+
+  // A ```lang line inside a block is part of the code, not its end.
+  const inner = parseMarkdown('```md\nExample:\n```js\nconst a = 1\n```\n')
+  assert.equal(inner.blocks[0].kind, 'code')
+  assert.equal((inner.blocks[0] as { code: string }).code, 'Example:\n```js\nconst a = 1')
+  assert.equal((inner.blocks[0] as { streaming: boolean }).streaming, false)
+})

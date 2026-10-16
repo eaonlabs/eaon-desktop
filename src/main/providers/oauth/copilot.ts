@@ -27,6 +27,10 @@ const COPILOT_TOKEN_URL = `https://api.${DOMAIN}/copilot_internal/v2/token`
 const USER_URL = `https://api.${DOMAIN}/user`
 const DEFAULT_BASE = 'https://api.individual.githubcopilot.com'
 const REFRESH_MARGIN_MS = 60_000
+/** Each sign-in request on its own; a hung one must not use up the code's 15 minutes. */
+const REQUEST_TIMEOUT_MS = 15_000
+/** The most extra wait between polls while GitHub can't be reached. */
+const MAX_BACKOFF_MS = 30_000
 
 /** Headers Copilot requires on every call; also sent as the provider's own headers. */
 export const COPILOT_HEADERS: Record<string, string> = {
@@ -123,7 +127,7 @@ export const copilotFlow: OAuthFlow = {
       method: 'POST',
       headers: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': COPILOT_HEADERS['User-Agent'] },
       body: new URLSearchParams({ client_id: CLIENT_ID, scope: 'read:user' }),
-      signal
+      signal: AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)])
     })
     if (!deviceResponse.ok) throw new Error(`GitHub did not start the sign-in (${deviceResponse.status}).`)
     const device = (await deviceResponse.json()) as {
@@ -144,20 +148,39 @@ export const copilotFlow: OAuthFlow = {
     let interval = Math.max(1, device.interval ?? 5) * 1000
     const deadline = Date.now() + (device.expires_in ?? 900) * 1000
     let github: string | null = null
+    // Extra wait after a poll that got no proper answer, doubling to a cap.
+    let backoff = 0
     while (!github) {
       if (Date.now() > deadline) throw new Error('The GitHub code expired before it was entered. Try again.')
-      await abortableSleep(interval, signal)
-      const response = await providerFetch(ACCESS_TOKEN_URL, {
-        method: 'POST',
-        headers: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': COPILOT_HEADERS['User-Agent'] },
-        body: new URLSearchParams({
-          client_id: CLIENT_ID,
-          device_code: device.device_code,
-          grant_type: 'urn:ietf:params:oauth:grant-type:device_code'
-        }),
-        signal
-      })
-      const body = (await response.json().catch(() => ({}))) as { access_token?: string; error?: string; error_description?: string; interval?: number }
+      await abortableSleep(interval + backoff, signal)
+      let response: Response
+      let body: { access_token?: string; error?: string; error_description?: string; interval?: number }
+      try {
+        response = await providerFetch(ACCESS_TOKEN_URL, {
+          method: 'POST',
+          headers: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': COPILOT_HEADERS['User-Agent'] },
+          body: new URLSearchParams({
+            client_id: CLIENT_ID,
+            device_code: device.device_code,
+            grant_type: 'urn:ietf:params:oauth:grant-type:device_code'
+          }),
+          signal: AbortSignal.any([signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)])
+        })
+        body = (await response.json().catch(() => ({}))) as typeof body
+      } catch (error) {
+        if (signal.aborted) throw error
+        // Wi-Fi that drops for a moment, or a request that hung: the user may
+        // still be typing the code, so keep polling until it expires.
+        backoff = Math.min(MAX_BACKOFF_MS, backoff ? backoff * 2 : interval)
+        continue
+      }
+      // A 5xx, a rate limit or a proxy's or Wi-Fi page's HTML says nothing
+      // about the sign-in itself; only GitHub's own answer ends it.
+      if (!body.access_token && !body.error) {
+        backoff = Math.min(MAX_BACKOFF_MS, backoff ? backoff * 2 : interval)
+        continue
+      }
+      backoff = 0
       if (body.access_token) github = body.access_token
       else if (body.error === 'authorization_pending') continue
       else if (body.error === 'slow_down') interval = body.interval ? body.interval * 1000 : interval + 5000

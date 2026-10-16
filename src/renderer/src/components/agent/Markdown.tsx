@@ -19,14 +19,16 @@ import { parseMarkdown, type Block, type ListItem, type ParsedMarkdown } from '.
 
 // Code spans are matched first and consume their contents, so `**` inside
 // backticks stays literal rather than turning into bold. `_` and `__` only
-// count at word edges, so snake_case names stay as they are.
+// count at word edges, so snake_case names stay as they are, and `*` only
+// when the text inside it starts and ends with a character, so arithmetic
+// (`2 * 3 * 4`) isn't set in italics.
 const INLINE = new RegExp(
   [
     '(?<tick>`+)(?<code>[\\s\\S]*?)\\k<tick>',
     '\\*\\*(?<bold>[\\s\\S]+?)\\*\\*',
     '(?<![\\w_])__(?<boldU>[^_\\s](?:[\\s\\S]*?[^_\\s])?)__(?![\\w_])',
     '~~(?<strike>[^~\\n]+?)~~',
-    '(?<![\\w*])\\*(?<italic>[^*\\n]+?)\\*(?!\\w)',
+    '(?<![\\w*])\\*(?<italic>[^*\\s](?:[^*\\n]*?[^*\\s])?)\\*(?!\\w)',
     '(?<![\\w_])_(?<italicU>[^_\\s](?:[^_\\n]*?[^_\\s])?)_(?![\\w_])',
     '\\[(?<linkText>[^\\]]*)\\]\\((?<href>[^)\\s]+)\\)',
     '<(?<angle>https?:\\/\\/[^\\s>]+)>',

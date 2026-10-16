@@ -7,7 +7,7 @@ import { docPath } from '../storeFiles'
  * install. This runs at startup before anything writes the store, so it can
  * still tell one apart: an install from before the setup existed already has
  * settings or chats on disk, and starts with both marked done. Its tour stays
- * a click away in the Help menu.
+ * a click away under the sidebar’s ? (help) button.
  *
  * `EAON_ONBOARDING=off` skips both: the end-to-end suite sets it, since
  * every scenario starts from a fresh profile, and a scenario about the setup

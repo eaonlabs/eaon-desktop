@@ -115,7 +115,8 @@
   font-size: var(--fs-xs);
   color: var(--text-3);
 }
-.mlib-meta > * + *::before {
+/* The dot trails each item, so a wrapped line never starts with one. */
+.mlib-meta > *:not(:last-child)::after {
   content: '·';
   margin: 0 6px;
   color: var(--text-4);

@@ -6,6 +6,7 @@ import { AgentMark } from '../../code/terminal/TerminalWorkspace'
 import { Card, Row, Section, Switch } from '../../ui'
 import { useTerminals } from '../../code/terminal/terminalStore'
 import { DEFAULT_THEME_ID, TERMINAL_THEMES, type TerminalTheme } from '../../code/terminal/themes'
+import { appTheme } from '../../code/terminal/registry'
 import { ageLabel, folderName, homeRelative, type AdeImportCandidate } from '@shared/adeSessions'
 
 const clean = (error: unknown): string =>
@@ -251,9 +252,13 @@ function TerminalThemeSection(): JSX.Element {
 /** A theme's background with a few of its colours on it; the app's own colours for Eaon. */
 function ThemeSwatch({ theme }: { theme: TerminalTheme }): JSX.Element {
   const c = theme.colors
+  // Eaon's own palette is the app's, read when drawn; without its dots the
+  // selected (default) swatch looked empty next to every other theme.
+  const own = c ? null : appTheme()
+  const dots = c ? [c.red, c.green, c.yellow, c.blue, c.magenta] : [own?.red, own?.green, own?.yellow, own?.blue, own?.magenta].filter((color): color is string => Boolean(color))
   return (
     <span className="ade-theme__swatch" style={c ? { background: c.background } : undefined} data-own={c ? undefined : ''}>
-      {(c ? [c.red, c.green, c.yellow, c.blue, c.magenta] : []).map((color, i) => (
+      {dots.map((color, i) => (
         <span key={i} className="ade-theme__dot" style={{ background: color }} />
       ))}
       <span className="ade-theme__text" style={c ? { color: c.foreground } : undefined}>

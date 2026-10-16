@@ -106,15 +106,30 @@ export function PurchaseDialog(): JSX.Element | null {
 
   useEffect(() => {
     if (!open) return
+    // Reset at once, not when payments answer: until then the dialog would
+    // show the last schedule's fields (and never stop, if they didn't answer).
     setError(null)
     setSaving(false)
     setTimingTouched(false)
+    setForm(formFor(routine, payments?.currency ?? 'USD'))
     void useWorkers.getState().init()
-    void window.api.payments.status().then((status) => {
-      setPayments(status)
-      setForm(formFor(routine, status.currency))
-    })
-    return window.api.payments.onChanged(setPayments)
+    let live = true
+    window.api.payments
+      .status()
+      .then((status) => {
+        if (!live) return
+        setPayments(status)
+        // A new schedule is in the user's currency; an edited one keeps its own.
+        if (!routine?.purchase) setForm((f) => ({ ...f, currency: status.currency }))
+      })
+      .catch((e: unknown) => live && setError(`Couldn’t read your payment settings: ${e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(e)}`))
+    const unsubscribe = window.api.payments.onChanged(setPayments)
+    return () => {
+      live = false
+      unsubscribe()
+    }
+    // The currency is only a starting guess; payments changing must not reset what the user typed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, routine])
 
   // The worker it was opened from, else the one on screen, else the first that can buy.
@@ -132,8 +147,9 @@ export function PurchaseDialog(): JSX.Element | null {
     setForm((f) => ({ ...f, ...patch }))
     if (timing) setTimingTouched(true)
   }
+  // Editing keeps the routine's own timing until a timing field is touched.
   const keep = routine && !timingTouched ? routine : null
-  const built = useMemo(() => buildPurchasePlan(form, Date.now(), keep), [form, keep])
+  const built = useMemo(() => buildPurchasePlan(form, Date.now(), routine, timingTouched), [form, routine, timingTouched])
   const cardReady = Boolean(payments?.card) && payments?.effectiveMode !== undefined && payments.effectiveMode !== 'off'
   const site = storeSite(form.site)
   const amount = amountOf(form.maxAmount)
@@ -146,7 +162,8 @@ export function PurchaseDialog(): JSX.Element | null {
   const symbol = form.currency === 'USD' ? '$' : form.currency
   const recurring = form.cadence !== 'once'
   const today = startOfDay(now)
-  const isToday = !keep && form.startDay <= today
+  // Only a new schedule buys on the spot; an edit moves the next order instead.
+  const isToday = !routine && form.startDay <= today
 
   const save = async (): Promise<void> => {
     if (built.error || saving || !ready || !worker) return
@@ -186,7 +203,7 @@ export function PurchaseDialog(): JSX.Element | null {
 
   const primary = !ready
     ? 'Schedule'
-    : keep
+    : routine
       ? 'Save changes'
       : isToday
         ? recurring
@@ -206,7 +223,7 @@ export function PurchaseDialog(): JSX.Element | null {
             Cancel
           </button>
           <button type="button" className="btn btn--primary" disabled={Boolean(built.error) || saving || !ready} onClick={() => void save()}>
-            {isToday && ready && !keep && <ShoppingBag size={14} strokeWidth={2} />}
+            {isToday && ready && <ShoppingBag size={14} strokeWidth={2} />}
             {saving ? 'Saving…' : primary}
           </button>
         </>
@@ -335,9 +352,9 @@ export function PurchaseDialog(): JSX.Element | null {
 
           <div className="purchase__side">
             <div className="purchase__day" data-today={isToday || undefined}>
-              <span className="purchase__day-name">{keep ? 'Next order' : dayLabel(form.startDay, now)}</span>
+              <span className="purchase__day-name">{routine ? 'Next order' : dayLabel(form.startDay, now)}</span>
               <span className="purchase__day-note">
-                {keep
+                {routine
                   ? built.nextAt
                     ? new Date(built.nextAt).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
                     : 'None scheduled'
@@ -395,14 +412,14 @@ export function PurchaseDialog(): JSX.Element | null {
           <div>
             <dt>
               <CalendarDays size={14} strokeWidth={1.9} />
-              First order
+              {routine && !keep ? 'Next order' : 'First order'}
             </dt>
             <dd>
               {keep
                 ? 'Already started'
                 : isToday
                   ? 'Today, right away'
-                  : new Date(atTime(form.startDay, form.time)).toLocaleString([], { weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                  : new Date(built.draft.firstAt).toLocaleString([], { weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
             </dd>
           </div>
           {recurring && (

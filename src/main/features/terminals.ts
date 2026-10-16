@@ -2,12 +2,13 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { app } from 'electron'
 import type { Feature } from './types'
-import { PtyManager, type RestorePlan } from './terminals/ptyManager'
+import { loginShell, PtyManager, type RestorePlan } from './terminals/ptyManager'
+import { quoteArg, quoteCommand, shellKindOf, type ShellKind } from './terminals/shellQuote'
 import { AGENT_KINDS, setAgentScript, setExtraAgentBin } from './terminals/agentSessions'
 import { PaneRecords, restoredScreen } from './terminals/paneRecords'
 import { outsidePaneEnv } from './terminals/outsidePanes'
 import { cwdsOf, SessionWatch } from './terminals/sessionWatch'
-import { onPath } from '../shellEnv'
+import { onPath, refreshWindowsPath } from '../shellEnv'
 import { secrets } from '../secrets'
 import { store } from '../store'
 import { buildChildEnv } from './eaonCode/env'
@@ -18,6 +19,7 @@ import { defaultDir, hasRollout } from './cliAccounts/folders'
 import { adeHistory } from './ade/history'
 import { sshHosts } from './ade'
 import { remoteShellCommand, sshArgv, sshBinary } from './ade/ssh'
+import { onWorktreeRemoval } from './ade/git'
 import { remoteLocation } from '@shared/adeRemote'
 import type { CodexPane } from '@shared/cliAccounts'
 import { currentPane, OTHER_AGENT_IDS, PANE_NAMES, privacyBlockedMessage, type OtherAgentId, type TerminalAgent, type TerminalAgentId, type TerminalLayout, type TerminalPaneSpec, type TerminalSpawnRequest, type TerminalSpawnResult } from '@shared/terminals'
@@ -90,9 +92,9 @@ const AGENTS: { id: TerminalAgentId; label: string; bin: string | null; installH
   { id: 'shell', label: 'Shell', bin: null }
 ]
 
-/** A path typed into a shell: quoted when it needs to be. */
-function shellQuote(value: string): string {
-  return /^[\w@%+=:,./-]+$/.test(value) ? value : `'${value.replace(/'/g, `'\\''`)}'`
+/** The syntax a local pane's shell reads (shellQuote.ts): PowerShell on Windows, POSIX elsewhere. */
+function paneShellKind(): ShellKind {
+  return shellKindOf(loginShell())
 }
 
 /**
@@ -102,10 +104,10 @@ function shellQuote(value: string): string {
  * `eaon-code` wrapper it writes: the wrapper fetches and rebuilds on start,
  * and the panes a launch restores would all rebuild one folder at once.
  */
-function eaonCodeCommand(pinned: string | null): string | null {
-  if (pinned) return /\.[cm]?js$/i.test(pinned) ? `node ${shellQuote(pinned)}` : shellQuote(pinned)
+function eaonCodeCommand(pinned: string | null, kind: ShellKind): string | null {
+  if (pinned) return /\.[cm]?js$/i.test(pinned) ? `node ${quoteArg(pinned, kind)}` : quoteCommand(pinned, kind)
   const copy = findInstallerCopy()
-  if (copy) return `node ${shellQuote(copy.cli)}`
+  if (copy) return `node ${quoteArg(copy.cli, kind)}`
   return onPath('eaon-code') ? 'eaon-code' : null
 }
 
@@ -119,14 +121,15 @@ function agents(): TerminalAgent[] {
   // Eaon CLI runs from inside the app, wherever the app is — spaces and all.
   const eaonCli = eaonCliBinary()
   setAgentScript(eaonCli, 'eaon-cli')
+  const kind = paneShellKind()
   return AGENTS.map(({ id, label, bin, installHint, other }) => {
     if (!bin) return { id, label, command: null, installed: true }
     if (id === 'eaon-code') {
-      const command = eaonCodeCommand(eaonBinary || null)
+      const command = eaonCodeCommand(eaonBinary || null, kind)
       return { id, label, command: command ?? bin, installed: Boolean(command), ...(installHint ? { installHint } : {}) }
     }
     if (id === 'eaon-cli') {
-      return { id, label, command: eaonCli ? shellQuote(eaonCli) : bin, installed: Boolean(eaonCli), ...(installHint ? { installHint } : {}) }
+      return { id, label, command: eaonCli ? quoteCommand(eaonCli, kind) : bin, installed: Boolean(eaonCli), ...(installHint ? { installHint } : {}) }
     }
     return {
       id,
@@ -193,12 +196,16 @@ const PROMPTABLE = new Set(['claude', 'codex'])
 
 /**
  * A pane given a task starts its agent on it: `claude '<task>'`. Quoted for
- * the shell whole, so nothing in it is run; one line, as the ADE makes it.
+ * the pane's shell whole, so nothing in it is run; one line, as the ADE makes it.
  */
-export function promptLine(req: TerminalSpawnRequest): TerminalSpawnRequest {
-  const prompt = req.prompt?.replace(/[\r\n]+/g, ' ').trim()
+export function promptLine(req: TerminalSpawnRequest, kind: ShellKind = paneShellKind()): TerminalSpawnRequest {
+  let prompt = req.prompt?.replace(/[\r\n]+/g, ' ').trim()
   if (!prompt || req.resume || !req.command || !req.agent || !PROMPTABLE.has(req.agent)) return req
-  return { ...req, command: `${req.command} '${prompt.replace(/'/g, `'\\''`)}'` }
+  // Windows PowerShell 5.1 hands an argument's double quotes to the program
+  // unescaped, and cmd can't escape one inside quotes: either way the task
+  // would arrive cut in pieces. It reads the same with single ones.
+  if (kind !== 'posix') prompt = prompt.replace(/"/g, "'")
+  return { ...req, command: `${req.command} ${quoteArg(prompt, kind)}` }
 }
 
 export function resumeLine(req: TerminalSpawnRequest): TerminalSpawnRequest {
@@ -521,7 +528,15 @@ export function createTerminals(options: TerminalsOptions = {}): Feature & { tic
       )
       watch.start()
 
-      ipcMain.handle('terminal:agents', () => listAgents())
+      // Asked again whenever the ADE is looked at, so a CLI installed since shows up. On
+      // Windows the PATH Eaon started with doesn't have what was installed after it.
+      ipcMain.handle('terminal:agents', async () => {
+        await refreshWindowsPath()
+        return listAgents()
+      })
+      // A session's worktree is deleted only once every shell in it is gone:
+      // Windows won't delete a folder a process is in.
+      onWorktreeRemoval((dir) => manager.closeIn(dir))
       ipcMain.handle('terminal:spawn', (_e, req: TerminalSpawnRequest) => spawnPane(req))
       ipcMain.handle('terminal:running', () => watch?.snapshot() ?? {})
       // The conversation each pane is in, as far as the watch has seen: the ADE's

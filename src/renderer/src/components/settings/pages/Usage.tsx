@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type JSX } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { ExternalLink, Loader2, RefreshCw } from 'lucide-react'
 import type { UsageDay, UsageModelRow, UsageRange, UsageSource, UsageSourceRow, UsageSummary, UsageTool, UsageToolRow } from '@shared/usage'
 import { useApp } from '../../../state/store'
@@ -59,10 +59,25 @@ function ago(iso: string | null): string {
   return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
-function useUsage(range: UsageRange): UsageSummary | null {
+function useUsage(range: UsageRange): { summary: UsageSummary | null; error: string | null; retry: () => void } {
   const [summary, setSummary] = useState<UsageSummary | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  // Only the latest request's answer is kept: switching range quickly could
+  // otherwise show the older range's figures if that request finished last.
+  const latest = useRef(0)
   const load = useCallback(() => {
-    void window.api.usage.summary(range).then(setSummary)
+    const id = ++latest.current
+    window.api.usage.summary(range).then(
+      (next) => {
+        if (id !== latest.current) return
+        setSummary(next)
+        setError(null)
+      },
+      (e: unknown) => {
+        if (id !== latest.current) return
+        setError((e instanceof Error ? e.message : String(e)).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
+      }
+    )
   }, [range])
   useEffect(() => {
     load()
@@ -74,12 +89,12 @@ function useUsage(range: UsageRange): UsageSummary | null {
       window.clearInterval(tick)
     }
   }, [load])
-  return summary
+  return { summary, error, retry: load }
 }
 
 export function UsagePage(): JSX.Element {
   const [range, setRange] = useState<UsageRange>(savedRange)
-  const summary = useUsage(range)
+  const { summary, error, retry } = useUsage(range)
 
   const pickRange = (value: string): void => {
     const next = Number(value) as UsageRange
@@ -98,7 +113,15 @@ export function UsagePage(): JSX.Element {
         What your AI use in Eaon costs, model by model and day by day, tracked with Tokn. Sign in with your Tokn account to see
         it here and on your Tokn profile.
       </p>
-      {!summary ? null : summary.account ? <SignedIn summary={summary} range={range} onRange={pickRange} /> : <SignedOut summary={summary} />}
+      {!summary && error ? (
+        <Card>
+          <Row title="Couldn’t load your usage" description={error}>
+            <button className="btn" onClick={retry}>
+              Try again
+            </button>
+          </Row>
+        </Card>
+      ) : !summary ? null : summary.account ? <SignedIn summary={summary} range={range} onRange={pickRange} /> : <SignedOut summary={summary} />}
       {summary && <ToknCommand signedIn={Boolean(summary.account)} />}
     </>
   )

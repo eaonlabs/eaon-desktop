@@ -205,7 +205,10 @@ export class SchedulerEngine {
       const kept = !scheduleChanged && existing?.schedule.kind === 'interval' ? existing.schedule.startAt : undefined
       // A new grid may start on a day the user picked (a purchase schedule's
       // first order); one in the past starts a period from now as before.
-      const picked = scheduleChanged && schedule.startAt !== undefined && schedule.startAt > now ? schedule.startAt : undefined
+      // The old grid's own anchor, sent back with a changed interval, is not
+      // a pick: it would run on the old timing while the editor showed another.
+      const stale = existing?.schedule.kind === 'interval' && existing.schedule.startAt === schedule.startAt
+      const picked = scheduleChanged && !stale && schedule.startAt !== undefined && schedule.startAt > now ? schedule.startAt : undefined
       schedule = { ...schedule, startAt: kept ?? picked ?? now + periodMs(schedule) }
     }
     const reschedule = scheduleChanged || !existing?.enabled || existing.nextRunAt === null

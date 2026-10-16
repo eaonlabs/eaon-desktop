@@ -32,7 +32,7 @@
 .computer__step[data-done='true'] .computer__step-mark {
   border-color: transparent;
   background: rgba(48, 209, 88, 0.16);
-  color: #4ade80;
+  color: var(--diff-add-fg);
 }
 /* Computer use was just switched on and this is the step left to do. Once,
    and gone under reduce motion like every other animation. */

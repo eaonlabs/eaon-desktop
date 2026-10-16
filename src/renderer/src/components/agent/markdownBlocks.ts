@@ -40,7 +40,14 @@ export interface ParsedMarkdown {
   settledBlocks: number
 }
 
-const FENCE = /^\s*```(\S*)\s*$/
+/**
+ * A fence's opening line: the language, then anything else on the line (an
+ * info string such as `title=x`), which is ignored. Only a bare fence closes
+ * one, so a ```lang line inside a block (a reply showing how to write
+ * Markdown) stays in it.
+ */
+const FENCE = /^\s*```\s*([^\s`]*)[^`]*$/
+const FENCE_CLOSE = /^\s*```\s*$/
 const HEADING = /^(#{1,6})\s+(.*)$/
 /** A list item: its indent, its marker (`-`, `*`, `+`, `1.`, `1)`) and its text. */
 const ITEM = /^( *)([-*+]|\d{1,9}[.)])(?:[ \t]+(.*))?$/
@@ -174,7 +181,7 @@ function parse(source: string): ParsedMarkdown {
       const code: string[] = []
       let closed = false
       for (i++; i < lines.length; i++) {
-        if (FENCE.test(lines[i])) {
+        if (FENCE_CLOSE.test(lines[i])) {
           closed = true
           break
         }

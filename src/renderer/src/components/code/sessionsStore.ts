@@ -148,7 +148,16 @@ export const useAdeSessions = create<SessionsState>((set, get) => ({
   },
 
   async remove(session, deleteWorktree) {
-    // Its terminals end first: a worktree git is asked to remove must not have a shell in it.
+    // Git won't delete a worktree with changes nobody committed. Asked before
+    // anything closes, so a session that stays keeps its agents running.
+    if (deleteWorktree && session.worktree) {
+      const pending = await window.api.ade.changes(session.cwd).catch(() => null)
+      if (pending && pending.files > 0) {
+        return `Its worktree has changes nobody committed (${pending.files === 1 ? '1 file' : `${pending.files} files`}), so nothing was removed. Commit or discard them first, or remove the session and keep its folder.`
+      }
+    }
+    // Its terminals end first: a worktree git is asked to remove must not have
+    // a shell in it (main waits for them to exit before git runs).
     const panes = useTerminals.getState().layout[session.cwd] ?? []
     for (const pane of panes) useTerminals.getState().close(session.cwd, pane.id)
     let result: Awaited<ReturnType<typeof window.api.ade.remove>>

@@ -40,6 +40,16 @@ const NETWORK_CODES = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ENETUNREACH', 'EHOSTUN
 const TIMEOUT_CODES = new Set(['ETIMEDOUT', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT', 'ESOCKETTIMEDOUT'])
 const OFFLINE_CODES = new Set(['ENOTFOUND', 'EAI_AGAIN', 'ENETUNREACH', 'ENETDOWN'])
 
+/**
+ * Certificate failures. On a school or company network these almost always
+ * mean a filter (GoGuardian, Securly, Zscaler) re-signing the connection with
+ * a root this computer doesn't pass on; otherwise a clock set far off makes
+ * every certificate look expired or not yet valid. Either way it is not a
+ * dropped connection, and retrying won't help.
+ */
+const CERT_CODE = /^(CERT_|ERR_TLS_CERT|UNABLE_TO_(GET|VERIFY|DECRYPT)|DEPTH_ZERO_SELF_SIGNED|SELF_SIGNED_CERT|ERR_SSL_)|SELF_SIGNED/
+const CERT_TEXT = /self[- ]signed certificate|unable to (get|verify) (local issuer|the first|issuer) certificate|certificate has expired|certificate is not yet valid|certificate (chain|signature|verify)|Hostname\/IP does not match certificate/i
+
 interface Facts {
   status: number | undefined
   /** The error's message and its cause's, joined; what the regexes read. */
@@ -110,6 +120,21 @@ const issue = (
 
 const seconds = (ms: number): string => (ms < 60_000 ? `${Math.max(1, Math.round(ms / 1000))} s` : `${Math.round(ms / 60_000)} min`)
 
+/** A certificate failure anywhere in the error's causes: a filtering network, a Wi-Fi sign-in page or a wrong clock. */
+export function isCertificateError(error: unknown): boolean {
+  const f = facts(error)
+  return (f.code !== undefined && CERT_CODE.test(f.code)) || (!f.status && CERT_TEXT.test(f.text))
+}
+
+/** The host to name to an IT team: "api.openai.com". */
+const hostOf = (url: string): string => {
+  try {
+    return new URL(url).host || url
+  } catch {
+    return url
+  }
+}
+
 /** Where a local runtime is, for "Couldn't reach Ollama at http://127.0.0.1:11434". */
 const where = (provider: ProviderLike): string => provider.baseUrl.replace(/\/v1\/?$/, '')
 
@@ -125,6 +150,17 @@ export function classifyProviderError(error: unknown, provider: ProviderLike, co
   // The Anthropic SDK wraps it as "Connection error." with the refusal as its cause, so look down the chain.
   const refusal = causeChain(error).find((e): e is RedirectRefusedError => e instanceof RedirectRefusedError)
   if (refusal) return issue(provider, 'other', redactSecrets(refusal.message), 'open-settings', f)
+
+  // ---- the secure connection was refused before anything was sent
+  if (isCertificateError(error)) {
+    return issue(
+      provider,
+      'network',
+      `A network filter, a Wi-Fi sign-in page or the computer’s clock blocked the secure connection to ${name}. Check the date and time, sign in to the Wi-Fi if it asks, or on a school or work network ask IT to allow ${hostOf(provider.baseUrl) || name}.`,
+      null,
+      f
+    )
+  }
 
   // ---- the request never got an answer
   const timedOut =

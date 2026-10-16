@@ -45,7 +45,8 @@ function stateOf(status: EngineStatus | null): { tone: Tone; label: string } {
   if (status.outdated) return { tone: 'error', label: 'Update needed' }
   if (status.blockedReason) return { tone: 'error', label: 'Can’t be used here' }
   if (status.auth.state === 'expired') return { tone: 'waiting', label: 'Session expired' }
-  if (status.auth.state === 'signed-out') return { tone: 'waiting', label: 'Not signed in' }
+  // Grey, not the pulsing "working on it" accent: nothing is happening until they sign in.
+  if (status.auth.state === 'signed-out') return { tone: 'off', label: 'Not signed in' }
   if (status.error || status.auth.state === 'unknown') return { tone: 'error', label: 'Couldn’t check' }
   return { tone: 'on', label: 'Ready' }
 }

@@ -238,6 +238,7 @@ function FontSizeInput({ value, onChange }: { value: number; onChange: (size: nu
   return (
     <input
       type="number"
+      aria-label="UI font size"
       min={FONT_MIN}
       max={FONT_MAX}
       value={draft}

@@ -154,7 +154,11 @@ function tradingVenue(via: string): TradingVenue | null {
 }
 
 export function createWorkersService(ctx: FeatureContext, overrides: WorkersOverrides = {}): WorkersService {
-  /** The worker whose page the user last opened, so its own questions don't also pop up a banner. */
+  /**
+   * The worker whose page is on screen, as the renderer reports it
+   * (workers:viewing): its own questions don't also pop up a banner. Cleared
+   * when the page goes away, so another tab still hears from that worker.
+   */
   let openWorkerId: string | null = null
   const notifications = new Set<Notification>()
   let startTimer: ReturnType<typeof setTimeout> | null = null
@@ -386,9 +390,9 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
     ipcMain.handle('workers:set-paused', (_e, id: string, paused: boolean) => engine.setPaused(id, paused))
     ipcMain.handle('workers:wake', (_e, id: string) => engine.wake(id))
     ipcMain.handle('workers:stop', (_e, id: unknown, threadId?: unknown) => engine.stopTurn(idOf(id), optionalThread(threadId)))
-    ipcMain.handle('workers:mark-read', (_e, id: unknown, threadId?: unknown) => {
-      openWorkerId = idOf(id)
-      return engine.markRead(idOf(id), optionalThread(threadId))
+    ipcMain.handle('workers:mark-read', (_e, id: unknown, threadId?: unknown) => engine.markRead(idOf(id), optionalThread(threadId)))
+    ipcMain.handle('workers:viewing', (_e, id: unknown) => {
+      openWorkerId = typeof id === 'string' && id ? id : null
     })
     // The user answering a worker's question: a reply, or approving the one action it asked about.
     ipcMain.handle('workers:answer', (_e, id: string, askId: string, answer: { text?: string; approved?: boolean }) =>

@@ -2,7 +2,7 @@ import { useEffect } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { isAgentKind, useApp, useIsWork, useWorkspaceKind } from './state/store'
 import { Sidebar } from './components/Sidebar'
-import { ARCHIVE_REQUEST, ChatView } from './components/ChatView'
+import { ApprovalPrompt, ARCHIVE_REQUEST, ChatView } from './components/ChatView'
 import { CodePanel } from './components/ide/CodePanel'
 import { useIde } from './components/ide/ideStore'
 import { BrowserKeys, BrowserPanel } from './components/browser/BrowserPanel'
@@ -221,6 +221,11 @@ export default function App(): JSX.Element {
       {/* Outside the view switch, so ⌘1–3 and ⇧⌘P work from Settings too. */}
       <GlobalKeys onSettings={() => setSettingsPage('general')} onPlugins={() => setView('plugins')} />
       {browserHere && view !== 'settings' && <BrowserKeys />}
+      {/* Once, outside the view switch: a run asks wherever the user is
+          (Settings, Plugins, Workers, the ADE), and waits until answered. */}
+      <ErrorBoundary area="approval prompt" fallback={() => null}>
+        <ApprovalPrompt />
+      </ErrorBoundary>
       <UpdateToast />
       <StoreNotice />
       <ComputerLeaseIndicator />

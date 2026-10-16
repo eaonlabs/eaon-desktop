@@ -8,7 +8,7 @@ import { useOnboarding } from './onboardingStore'
  * The tour: a spotlight on one part of the app at a time, with a card that
  * says what it is. It moves between the tabs itself, so the person watches
  * rather than clicks. ← and → step through it, Esc ends it, and it can be
- * taken again from the Help menu.
+ * taken again from the sidebar’s ? (help) button.
  *
  * Each stop names its element by selector (and the text it must contain,
  * for one row of a list). One that isn't on screen, in a narrow window say,

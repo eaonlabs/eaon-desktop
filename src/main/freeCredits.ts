@@ -25,7 +25,7 @@ import {
 import type { ProviderIssue } from '@shared/providers'
 import type { Adapter } from './providers/adapters/types'
 import { ProviderHttpError } from './providers/adapters/types'
-import { ProviderIssueError } from './providers/errors'
+import { isCertificateError, ProviderIssueError } from './providers/errors'
 import { secrets } from './secrets'
 import { store } from './store'
 
@@ -54,8 +54,16 @@ export const freeBaseUrl = (): string => process.env.EAON_FREE_GATEWAY_URL || FR
 export function activeCode(now = Date.now()): FreeCode | null {
   const code = store.getJson<FreeCode | null>(CODE_FILE, null)
   if (!code || typeof code.endsAt !== 'number') return null
-  if (now >= code.endsAt || !secrets.has(FREE_PROVIDER_ID)) {
+  if (now >= code.endsAt) {
     forgetCode()
+    return null
+  }
+  if (!secrets.has(FREE_PROVIDER_ID)) {
+    // A vault that can't be read right now (a locked keyring, Safe Storage
+    // access denied) has no key in it either; the code is only gone when the
+    // vault could be read and doesn't hold it. Otherwise it is kept for when
+    // the keychain unlocks, rather than losing an event's code for good.
+    if (secrets.readable()) forgetCode()
     return null
   }
   return code
@@ -210,7 +218,11 @@ export async function redeemFreeCode(typed: string, request: typeof fetch = fetc
       body: JSON.stringify({ code }),
       signal: AbortSignal.timeout(15_000)
     })
-  } catch {
+  } catch (error) {
+    // A filtering school or company network fails here too; "check your connection" would send people round in circles.
+    if (isCertificateError(error)) {
+      return { ok: false, message: 'A network filter, a Wi-Fi sign-in page or the computer’s clock blocked the secure connection to Eaon. Check the date and time, sign in to the Wi-Fi if it asks, or try another network.' }
+    }
     return { ok: false, message: 'Couldn’t reach Eaon to check the code. Check your connection and try again.' }
   }
   const body = (await response.json().catch(() => null)) as {
@@ -236,7 +248,13 @@ export async function redeemFreeCode(typed: string, request: typeof fetch = fetc
     }
   }
   if (saved.endsAt <= Date.now()) return { ok: false, message: `The code "${saved.name}" has already ended.` }
-  secrets.set(FREE_PROVIDER_ID, code)
+  try {
+    secrets.set(FREE_PROVIDER_ID, code)
+  } catch (error) {
+    // The gateway took the code; a locked or refused keychain is what failed,
+    // and "Couldn't check the code" would send people retyping it.
+    return { ok: false, message: error instanceof Error ? error.message : String(error) }
+  }
   store.setJson(CODE_FILE, saved)
   return { ok: true, code: saved }
 }

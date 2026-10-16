@@ -72,6 +72,39 @@ interface NavEntry {
 const size = 16
 const stroke = 1.9
 
+/**
+ * What people search for that isn't a page's name, so "dark mode" finds
+ * Appearance and "api key" finds Model providers instead of a blank list.
+ */
+const KEYWORDS: Record<string, string> = {
+  general: 'update beta version launch login startup sleep language suggested prompts contributors',
+  appearance: 'theme dark light mode color colour font size text zoom accent icon motion contrast',
+  configuration: 'approval autonomy sandbox permissions web search agent',
+  shortcuts: 'keyboard hotkey keys',
+  usage: 'tokens cost spend limits tokn activity streak',
+  accounts: 'claude code codex sign in login plan limit switch account',
+  providers: 'api key keys openai anthropic claude gemini google openrouter ollama lm studio model free credits event code hackathon eaon free sign in',
+  engines: 'claude code codex agent engine cli',
+  'computer-use': 'screen mouse keyboard accessibility screen recording permissions',
+  payments: 'card purchase buy money spending limit',
+  'browser-control': 'chrome extension browser',
+  plugins: 'skills mcp extensions',
+  'eaon-code': 'coding agent cli terminal',
+  ade: 'terminal theme shell worktree coding',
+  'chat-apps': 'telegram slack whatsapp discord imessage messages bot',
+  email: 'agentmail inbox mail',
+  discord: 'rich presence status activity',
+  browser: 'homepage search engine tabs',
+  mcp: 'model context protocol tools servers timeout',
+  'connect-apps': 'import openclaw hermes cline apps',
+  'code-index': 'embedding semantic search index repository',
+  'local-server': 'port api server openai compatible gateway key',
+  'remote-devices': 'phone mobile remote web rc github',
+  system: 'cpu memory gpu performance monitor',
+  security: 'audit log policy enterprise organization',
+  archived: 'archive restore deleted chats history'
+}
+
 const NAV: NavEntry[] = [
   { id: 'general', label: 'General', icon: <SettingsIcon size={size} strokeWidth={stroke} />, group: 'Personal' },
   { id: 'appearance', label: 'Appearance', icon: <Sun size={size} strokeWidth={stroke} />, group: 'Personal' },
@@ -185,7 +218,7 @@ export function SettingsShell(): JSX.Element {
 
   const entries = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return q ? visibleNav.filter((entry) => entry.label.toLowerCase().includes(q)) : visibleNav
+    return q ? visibleNav.filter((entry) => `${entry.label} ${KEYWORDS[entry.id] ?? ''}`.toLowerCase().includes(q)) : visibleNav
   }, [query, visibleNav])
 
   const groups = useMemo(() => {
@@ -221,6 +254,7 @@ export function SettingsShell(): JSX.Element {
           <SearchField value={query} onChange={setQuery} placeholder="Search settings..." variant="sm" />
         </div>
         <div className="settings__nav-body scroll">
+          {groups.length === 0 && <div className="settings__no-match">No settings match “{query.trim()}”.</div>}
           {groups.map(([group, items]) => (
             <div key={group}>
               <div className="settings__group">{group}</div>

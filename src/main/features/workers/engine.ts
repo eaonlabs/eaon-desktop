@@ -632,7 +632,9 @@ export class WorkersEngine {
       for (const { threadId } of this.slotsOf(worker, true)) {
         const latest = this.runs.latest(worker.id, threadId)
         if (!latest || latest.state !== 'interrupted' || latest.sideEffects || latest.trigger.kind === 'resume') continue
-        if (now - (latest.endedAt ?? 0) > DAY) continue
+        // Aged from when it started: recovery stamps `endedAt` with this
+        // launch, which would make a run cut off weeks ago look a moment old.
+        if (now - (latest.startedAt ?? latest.queuedAt) > DAY) continue
         this.resumes.set(slotKey(worker.id, threadId), latest)
       }
       if (worker.paused) worker.status = 'paused'
@@ -1671,25 +1673,43 @@ export class WorkersEngine {
     if (this.workers.length + roles.length > MAX_WORKERS) {
       throw new Error(`That would make ${this.workers.length + roles.length} workers; the most is ${MAX_WORKERS}. Remove some, or add existing workers to the team instead.`)
     }
-    const created: Worker[] = []
-    for (const role of roles) {
-      const base = str(role.name) || str(role.role)
+    // Everything that could refuse is checked before the first worker is
+    // made, so a refused team doesn't leave half its specialists behind.
+    if (this.roomsFile.rooms.length >= MAX_ROOMS) throw new Error(`You can have up to ${MAX_ROOMS} group chats. Remove one to make room for the team’s.`)
+    const taken = new Set(this.workers.map((w) => w.name.toLowerCase()))
+    const names = roles.map((role) => {
+      // Names are kept to 40 characters (see save), the " 2" included.
+      const base = (str(role.name) || str(role.role)).replace(/\s+/g, ' ').slice(0, 40).trim()
       let candidate = base
-      for (let n = 2; this.workers.some((w) => w.name.toLowerCase() === candidate.toLowerCase()); n++) candidate = `${base} ${n}`
-      created.push(
-        this.save({
-          name: candidate,
-          color: role.color ?? '',
-          personality: str(role.personality),
-          purpose: `${str(role.purpose)} Part of the "${name}" team.`,
-          ...(draft.access ? { access: draft.access } : {}),
-          ...(draft.model !== undefined ? { model: draft.model } : {})
-        })
-      )
+      for (let n = 2; taken.has(candidate.toLowerCase()); n++) candidate = `${base.slice(0, 40 - ` ${n}`.length).trim()} ${n}`
+      taken.add(candidate.toLowerCase())
+      return candidate
+    })
+    const created: Worker[] = []
+    let room: WorkerRoom | null = null
+    try {
+      roles.forEach((role, i) => {
+        created.push(
+          this.save({
+            name: names[i],
+            color: role.color ?? '',
+            personality: str(role.personality),
+            purpose: `${str(role.purpose)} Part of the "${name}" team.`,
+            ...(draft.access ? { access: draft.access } : {}),
+            ...(draft.model !== undefined ? { model: draft.model } : {})
+          })
+        )
+      })
+      room = this.saveRoom({ name, members: [...created.map((w) => w.id), ...existing] })
+      if (str(draft.kickoff)) this.postAsUser(room.id, str(draft.kickoff))
+      return { room: clone(this.requireRoom(room.id)), workers: created }
+    } catch (error) {
+      // Refused before its group chat was made: the workers made for it go
+      // again (nothing has run on them yet). Once the room exists the team
+      // does, and only the kickoff failed.
+      if (!room) for (const worker of created) void this.remove(worker.id)
+      throw error
     }
-    const room = this.saveRoom({ name, members: [...created.map((w) => w.id), ...existing] })
-    if (str(draft.kickoff)) this.postAsUser(room.id, str(draft.kickoff))
-    return { room: clone(this.requireRoom(room.id)), workers: created }
   }
 
   private requireRoom(roomId: string): WorkerRoom {
@@ -2465,13 +2485,17 @@ export class WorkersEngine {
   /**
    * A routine that comes due while its previous run is still going is
    * skipped, not stacked (the overlap policy is "skip"): its receipt says so
-   * and the next occurrence is scheduled from now.
+   * and the next occurrence is scheduled from now. A one-off (a purchase
+   * bought once) has no next occurrence: the run going is its only one, and
+   * the placeholder `begin` gives it would otherwise log "Skipped" every
+   * minute of a long run.
    */
   private skipOverlappingRoutines(now: number): boolean {
     let changed = false
     for (const worker of this.workers) {
       if (worker.paused) continue
       for (const routine of worker.routines) {
+        if (!routine.everyMs && !routine.daily) continue
         if (routine.nextAt > now || !routine.threadId || !this.running.has(slotKey(worker.id, routine.threadId))) continue
         this.runs.create({
           workerId: worker.id,

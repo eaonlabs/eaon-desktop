@@ -230,6 +230,19 @@ export function watchProcessExit(pid: number, onExit: (code: number | null) => v
   }
 }
 
+/**
+ * The shell run_command uses. Models write bash, and the description says
+ * so; the user's own $SHELL may be fish or nushell, where `export A=b`,
+ * `$(…)` and `&&` chains fail. bash where it exists, else sh. Windows keeps
+ * cmd.exe (`shell: true`).
+ */
+let unixShell: string | null = null
+function commandShell(): string | true {
+  if (process.platform === 'win32') return true
+  unixShell ??= existsSync('/bin/bash') ? '/bin/bash' : '/bin/sh'
+  return unixShell
+}
+
 /** A failed spawn names the shell ("spawn /bin/zsh ENOENT") when what is missing is usually the folder. */
 function spawnError(error: Error, cwd: string): Error {
   return (error as NodeJS.ErrnoException).code === 'ENOENT' && !existsSync(cwd) ? new Error(`The Work folder ${cwd} does not exist.`) : error
@@ -343,7 +356,7 @@ function runCommand(command: string, ctx: ToolContext, timeoutMs: number): Promi
   return new Promise((resolvePromise, reject) => {
     if (ctx.signal.aborted) return reject(new Error('aborted'))
     const child = spawn(shellLine(command), {
-      shell: process.platform === 'win32' ? true : process.env.SHELL || '/bin/bash',
+      shell: commandShell(),
       cwd: ctx.cwd,
       detached: process.platform !== 'win32',
       // Otherwise every command flashes a console window on Windows.
@@ -427,7 +440,7 @@ async function runBackground(command: string, cwd: string): Promise<string> {
   // A command's output can hold anything it printed; /tmp is shared on Linux.
   const out = createWriteStream(log, { mode: 0o600 })
   const child = spawn(shellLine(command), {
-    shell: process.platform === 'win32' ? true : process.env.SHELL || '/bin/bash',
+    shell: commandShell(),
     cwd,
     // Its own process group, to kill it by. Not on Windows: there a detached
     // cmd.exe has no console, so each program it starts opens a window of its own.

@@ -92,6 +92,7 @@ const MARK: Record<string, string> = {
   vllm: 'vllm',
   jan: 'jan',
   eaon: 'eaon',
+  'eaon-local': 'eaon',
   // The coding CLIs whose own usage Settings → Usage counts (`cli:<tool>`, as the usage summary names them).
   'cli:claude-code': 'claudecode',
   'cli:claude-desktop': 'anthropic',

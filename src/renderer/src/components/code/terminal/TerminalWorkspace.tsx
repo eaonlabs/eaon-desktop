@@ -65,7 +65,7 @@ import {
  */
 export function TerminalWorkspace(): JSX.Element {
   const cwd = useCode((s) => s.cwd)
-  const { loaded, loadError, panes, agents, maximized, load, add } = useTerminals(
+  const { loaded, loadError, panes, agents, maximized, load, add, refreshAgents } = useTerminals(
     useShallow((s) => ({
       loaded: s.loaded,
       loadError: s.loadError,
@@ -73,7 +73,8 @@ export function TerminalWorkspace(): JSX.Element {
       agents: s.agents,
       maximized: s.maximized,
       load: s.load,
-      add: s.add
+      add: s.add,
+      refreshAgents: s.refreshAgents
     }))
   )
   const appearance = useApp((s) => s.settings?.appearance)
@@ -86,6 +87,13 @@ export function TerminalWorkspace(): JSX.Element {
   useEffect(() => {
     void load()
   }, [load])
+
+  // The agent cards say which CLIs are installed: asked again each time they
+  // show, so one installed since the list was read can be started.
+  const empty = Boolean(cwd && loaded && panes.length === 0)
+  useEffect(() => {
+    if (empty) void refreshAgents().catch(() => undefined)
+  }, [empty, cwd, refreshAgents])
 
   // The terminals are painted in the ADE's theme, which by default is the
   // app's own: re-tone them when either changes.

@@ -24,7 +24,8 @@ export function CodeView(): JSX.Element {
       {cwd ? (
         <div className="code-body">
           <TerminalWorkspace />
-          {reviewing && <ReviewPanel cwd={cwd} />}
+          {/* Keyed by folder: one session's diff, drafts and half-written PR never show in another's. */}
+          {reviewing && <ReviewPanel key={cwd} cwd={cwd} />}
         </div>
       ) : initialised ? (
         <NoFolder />

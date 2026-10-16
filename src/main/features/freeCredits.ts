@@ -1,7 +1,7 @@
 import { FREE_DEFAULT_MODEL, FREE_PROVIDER_ID, shouldOffer, type FreeCreditsStatus, type OfferPlan, type RedeemResult } from '@shared/freeCredits'
 import { isProviderUsable } from '@shared/modelSelection'
 import { freeCreditsStatus, noteOffered, redeemFreeCode } from '../freeCredits'
-import { getProvider } from '../providers'
+import { clearProviderHealth, getProvider } from '../providers'
 import { alreadyStarred, shouldAsk } from '../starPrompt'
 import { store } from '../store'
 import type { Feature } from './types'
@@ -69,7 +69,14 @@ export const freeCreditsFeature: Feature = {
     /** An event code (a hackathon's): checked with the gateway, then Eaon Free runs on it until it ends. */
     ipcMain.handle('free-credits:redeem', async (_e, code: unknown): Promise<RedeemResult> => {
       const result = await redeemFreeCode(typeof code === 'string' ? code : '')
-      if (result.ok) claim()
+      if (result.ok) {
+        // A refusal from before the code (the free week over, an ended code)
+        // is lasting, so it would keep Eaon Free "Needs attention" until a
+        // request happened to succeed.
+        clearProviderHealth(FREE_PROVIDER_ID)
+        claim()
+        send('providers:changed')
+      }
       return result
     })
   }

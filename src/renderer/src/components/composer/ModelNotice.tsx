@@ -1,10 +1,11 @@
-import { useEffect, useState, type JSX } from 'react'
-import { CircleAlert, KeyRound, Link2, Laptop } from 'lucide-react'
+import { useEffect, useRef, useState, type JSX } from 'react'
+import { CircleAlert, KeyRound, Link2, Laptop, Ticket } from 'lucide-react'
 import type { DetectedApp } from '@shared/linkAccounts'
 import type { EngineStatus } from '@shared/engines'
 import type { ResolvedSelection } from '@shared/modelSelection'
 import { useApp } from '../../state/store'
 import { LinkAccounts } from '../LinkAccounts'
+import { RedeemCode } from '../RedeemCode'
 import { actionLabel } from './ModelPicker'
 import { useSetupAction } from './setupActions'
 
@@ -25,6 +26,14 @@ export function ModelNotice({ selection, onChooseModel }: { selection: ResolvedS
   const providers = useApp((s) => s.providers)
   const runAction = useSetupAction()
   const [linking, setLinking] = useState(false)
+  const refreshProviders = useApp((s) => s.refreshProviders)
+  // The event code box, opened from "Have an event code?": someone at a
+  // hackathon with no account or key gets in with the code they were handed.
+  const [redeeming, setRedeeming] = useState(false)
+  const codeBox = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (redeeming) codeBox.current?.querySelector('input')?.focus()
+  }, [redeeming])
   const found = useDetected(selection.status === 'none')
 
   if (selection.status === 'selected' && selection.attention) {
@@ -125,7 +134,20 @@ export function ModelNotice({ selection, onChooseModel }: { selection: ResolvedS
             <Laptop size={13} strokeWidth={2} />
             Use a local model
           </button>
+          {!redeeming && (
+            <button className="btn btn--sm" onClick={() => setRedeeming(true)}>
+              <Ticket size={13} strokeWidth={2} />
+              Have an event code?
+            </button>
+          )}
         </div>
+        {redeeming && (
+          // Redeeming makes Eaon Free usable and main selects its model, so
+          // refreshing the providers is what makes this notice go away.
+          <div ref={codeBox} className="model-notice__code">
+            <RedeemCode onRedeemed={refreshProviders} />
+          </div>
+        )}
       </div>
       <LinkAccounts open={linking} onClose={() => setLinking(false)} />
     </div>

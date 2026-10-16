@@ -56,6 +56,29 @@ export interface PurchaseForm {
 }
 
 const HOUR = 60 * 60_000
+const DAY = 24 * HOUR
+
+/**
+ * The first `anchorAt + k × everyMs` after `after`, like `nextAligned`, but a
+ * cadence of whole days steps by calendar days: a fixed 24 hours would move a
+ * 9:00 order to 8:00 or 10:00 once daylight saving starts or ends. Main keeps
+ * the same rule for the runs themselves (workers/purchases.ts).
+ */
+export function nextOnCadence(anchorAt: number, everyMs: number, after: number): number {
+  if (everyMs % DAY !== 0) return nextAligned(anchorAt, everyMs, after)
+  if (anchorAt > after) return anchorAt
+  const days = everyMs / DAY
+  const at = (k: number): number => {
+    const d = new Date(anchorAt)
+    d.setDate(d.getDate() + k * days)
+    return d.getTime()
+  }
+  // The fixed-length guess is at most an hour out; settle on the first one past `after`.
+  let k = Math.floor((after - anchorAt) / everyMs) + 1
+  while (k > 1 && at(k - 1) > after) k--
+  while (at(k) <= after) k++
+  return at(k)
+}
 
 export function startOfDay(at: number): number {
   const d = new Date(at)
@@ -114,11 +137,15 @@ export interface BuiltPlan {
 /**
  * The worker routine for the form. Today as the start day means the first
  * order is placed right away; a repeating schedule's later orders keep to
- * the picked time, a period apart. `keep` is an edited schedule's routine
- * when the user didn't touch the timing fields, so saving a changed note
- * doesn't place an order or move the next one.
+ * the picked time, a period apart.
+ *
+ * `editing` is the routine being edited: the draft always carries its id, so
+ * saving replaces it rather than adding a second schedule that also buys.
+ * Its timing is kept as it is unless `timingTouched`, so saving a changed
+ * note doesn't place an order or move the next one. An edit never buys on
+ * the spot: picking today moves the next order to the picked time instead.
  */
-export function buildPurchasePlan(form: PurchaseForm, now: number, keep: WorkerRoutine | null = null): BuiltPlan {
+export function buildPurchasePlan(form: PurchaseForm, now: number, editing: WorkerRoutine | null = null, timingTouched = false): BuiltPlan {
   const site = storeSite(form.site) ?? form.site.trim().toLowerCase()
   const maxAmount = amountOf(form.maxAmount)
   const orders = form.cadence === 'once' ? 1 : form.limited ? Math.round(Number(form.orders)) : null
@@ -133,8 +160,9 @@ export function buildPurchasePlan(form: PurchaseForm, now: number, keep: WorkerR
     track: form.track
   }
 
+  const keep = editing && !timingTouched ? editing : null
   const today = startOfDay(now)
-  const buyNow = !keep && form.startDay <= today
+  const buyNow = !editing && form.startDay <= today
   let everyMs: number | null = form.cadence === 'once' ? null : CADENCE_HOURS[form.cadence] * HOUR
   let firstAt: number
   let anchorAt: number
@@ -147,16 +175,18 @@ export function buildPurchasePlan(form: PurchaseForm, now: number, keep: WorkerR
   } else if (buyNow) {
     firstAt = now
     anchorAt = atTime(form.startDay, form.time)
-    nextAt = everyMs ? nextAligned(anchorAt, everyMs, now) : null
+    nextAt = everyMs ? nextOnCadence(anchorAt, everyMs, now) : null
   } else {
-    firstAt = atTime(form.startDay, form.time)
-    anchorAt = firstAt
+    anchorAt = atTime(form.startDay, form.time)
+    // An edited repeating schedule picked to start today, at a time already
+    // gone: its next order is the next one on the new cadence.
+    firstAt = editing && everyMs && anchorAt <= now ? nextOnCadence(anchorAt, everyMs, now) : anchorAt
     nextAt = firstAt
   }
   // A one-off already placed has nothing left to schedule.
   if (orders === 1 && buyNow) nextAt = null
 
-  const draft: PurchaseRoutineDraft = { ...(keep ? { id: keep.id } : {}), plan, everyMs, firstAt, anchorAt }
+  const draft: PurchaseRoutineDraft = { ...(editing ? { id: editing.id } : {}), plan, everyMs, firstAt, anchorAt }
   const error =
     (!storeSite(form.site) && form.site.trim() ? 'Enter the store’s website, like amazon.com.' : null) ??
     purchasePlanError(plan) ??

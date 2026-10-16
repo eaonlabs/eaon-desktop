@@ -253,6 +253,7 @@ class TerminalRegistry {
   private listeners = new Set<() => void>()
   private commandListeners = new Set<(command: 'theme', paneId: string) => void>()
   private finishListeners = new Set<(paneId: string, task: string | null) => void>()
+  private promptListeners = new Set<(paneId: string) => void>()
   private bound = false
   private ticker: number | null = null
   private theme: ITheme | null = null
@@ -310,6 +311,15 @@ class TerminalRegistry {
     rt.finishPending = status === 'idle' && rt.status === 'working' ? rt.activity.last - rt.workingSince >= FINISH_WORKED_MS : false
     rt.status = status
     this.bump()
+  }
+
+  /**
+   * A pane's shell started with the task it was given (Launch.prompt): the
+   * task is spent, and a pane brought back after a crash must not type it again.
+   */
+  onPromptSent(listener: (paneId: string) => void): () => void {
+    this.promptListeners.add(listener)
+    return () => this.promptListeners.delete(listener)
   }
 
   /** A pane that worked for a while has gone quiet: an agent finished, or wants an answer. */
@@ -598,6 +608,13 @@ class TerminalRegistry {
       ...(launch.resume ? { resume: launch.resume } : {}),
       ...(launch.prompt ? { prompt: launch.prompt } : {})
     })
+    // Closed while its shell was starting: the kill reached main before the
+    // shell did, so it found nothing to end. This one is that shell.
+    if (this.panes.get(paneId) !== rt) {
+      if (result.ok) window.api.terminals.kill(paneId)
+      return
+    }
+    if (result.ok && launch.prompt) for (const listener of this.promptListeners) listener(paneId)
     if (!result.ok) {
       rt.spawned = false
       rt.error = result.error ?? 'The terminal could not start.'
@@ -673,10 +690,10 @@ class TerminalRegistry {
     this.panes.get(paneId)?.term.focus()
   }
 
-  /** Text as if pasted (bracketed when the program asked for it, as Claude Code does), then the pane focused. False when there is no such pane. */
+  /** Text as if pasted (bracketed when the program asked for it, as Claude Code does), then the pane focused. False when there is no such pane, or nothing running in it to read it. */
   paste(paneId: string, text: string): boolean {
     const rt = this.panes.get(paneId)
-    if (!rt || !text) return false
+    if (!rt || !text || rt.status === 'exited') return false
     rt.term.paste(text)
     rt.term.focus()
     return true

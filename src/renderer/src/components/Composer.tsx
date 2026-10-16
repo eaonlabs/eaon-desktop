@@ -42,6 +42,20 @@ import { useChatEngine } from './composer/chatEngine'
 import { EngineNotice } from './composer/EngineNotice'
 import { joinTranscript, useDictation } from './composer/useDictation'
 import { VoiceBar } from './composer/VoiceBar'
+import { notify } from './Notice'
+import { errorText } from '../lib/errors'
+
+/**
+ * What was typed in each chat's box and not sent yet, by chat id. The box is
+ * keyed on the chat (ChatView), so switching chats starts a fresh one; this is
+ * what brings a half-written message back on returning, instead of it
+ * following the user into whichever chat they opened next. Kept for this
+ * window's session only.
+ */
+const drafts = new Map<string, { text: string; attachments: string[] }>()
+
+/** Image types a pasted image can be saved as (main/features/library.ts). */
+const PASTED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp'])
 
 /**
  * The chat box. Deliberately plain — a + button, the text, the model and
@@ -84,8 +98,10 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
   // Plugins pulled in with "@", shown as chips while their "@Name" is in the text.
   const [mentions, setMentions] = useState<Mention[]>([])
   const cwd = useApp((s) => agentWorkspace(s.workspaces)?.cwd ?? null)
-  const [text, setText] = useState('')
-  const [attachments, setAttachments] = useState<string[]>([])
+  // The chat this box belongs to, fixed for its life (it is keyed on it); home has none.
+  const [draftId] = useState(() => (variant === 'chat' ? activeChatId : null))
+  const [text, setText] = useState(() => (draftId ? (drafts.get(draftId)?.text ?? '') : ''))
+  const [attachments, setAttachments] = useState<string[]>(() => (draftId ? (drafts.get(draftId)?.attachments ?? []) : []))
   // Goal mode is armed per message: the next send becomes a goal the agent
   // keeps pursuing, then the composer drops back to normal.
   const [goalArmed, setGoalArmed] = useState(false)
@@ -132,10 +148,34 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
     node.style.height = `${Math.min(node.scrollHeight, 320)}px`
   }, [text])
 
-  // A failed reply's "Choose a model" opens the picker here.
-  const modelMenuRequest = useApp((s) => s.modelMenuRequest)
   useEffect(() => {
-    if (modelMenuRequest > 0) modelMenu.setOpen(true)
+    if (!draftId) return
+    if (text || attachments.length > 0) drafts.set(draftId, { text, attachments })
+    else drafts.delete(draftId)
+  }, [draftId, text, attachments])
+
+  // Ready to type when it appears: after the first message from Home (the
+  // conversation's box replaces Home's), on New chat, and on switching chats.
+  // Not while a dialog is up, which keeps focus for itself, and not when the
+  // user is already typing in another field.
+  useEffect(() => {
+    const node = textarea.current
+    if (!node || document.querySelector('[aria-modal="true"]')) return
+    const active = document.activeElement
+    if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement || (active instanceof HTMLElement && active.isContentEditable)) return
+    node.focus({ preventScroll: true })
+    node.setSelectionRange(node.value.length, node.value.length)
+  }, [])
+
+  // A failed reply's "Choose a model" opens the picker here. Only a new
+  // request does: the count stays in the store, and acting on whatever it was
+  // when the box mounted reopened the picker on every chat switch and send.
+  const modelMenuRequest = useApp((s) => s.modelMenuRequest)
+  const seenModelMenuRequest = useRef(modelMenuRequest)
+  useEffect(() => {
+    if (modelMenuRequest === seenModelMenuRequest.current) return
+    seenModelMenuRequest.current = modelMenuRequest
+    modelMenu.setOpen(true)
   }, [modelMenuRequest]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // A suggestion chip on the home screen drops its prompt here.
@@ -179,6 +219,36 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
     setMentions([])
     setGoalArmed(false)
     setGoalUntil({ kind: 'none' })
+  }
+
+  /**
+   * Files and images on the clipboard become attachments, as dropping them
+   * does. A file copied in Finder or Explorer has a path; a screenshot or an
+   * image copied from a page has only its bytes, so main saves those first.
+   * Anything else pastes as it always did.
+   */
+  const onPaste = (event: React.ClipboardEvent<HTMLTextAreaElement>): void => {
+    const files = [...event.clipboardData.files]
+    if (files.length === 0) return
+    const paths = files.map((file) => window.api.app.pathForFile(file)).filter(Boolean)
+    if (paths.length > 0) {
+      event.preventDefault()
+      addAttachments(paths)
+      return
+    }
+    // Text wins over a picture of it: Excel, Word and Keynote put an image of
+    // the selection on the clipboard beside its text.
+    if (event.clipboardData.getData('text/plain')) return
+    const images = files.filter((file) => PASTED_IMAGE_TYPES.has(file.type))
+    if (images.length === 0) return
+    event.preventDefault()
+    for (const image of images) {
+      void image
+        .arrayBuffer()
+        .then((data) => window.api.app.savePastedImage(new Uint8Array(data), image.type))
+        .then((path) => addAttachments([path]))
+        .catch((error: unknown) => notify(`Couldn't attach the pasted image: ${errorText(error)}`, 'error'))
+    }
   }
 
   const pickFiles = (): void =>
@@ -267,8 +337,11 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       }}
       onDragLeave={() => setDragging(false)}
       onDrop={(e) => {
-        e.preventDefault()
         setDragging(false)
+        // Dragged text drops into the box as text, the browser's own way;
+        // only files are taken over and attached.
+        if (!e.dataTransfer.types.includes('Files')) return
+        e.preventDefault()
         addAttachments([...e.dataTransfer.files].map((file) => window.api.app.pathForFile(file)).filter(Boolean))
       }}
     >
@@ -321,6 +394,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
             suggest.onCaret()
           }}
           onSelect={suggest.onCaret}
+          onPaste={onPaste}
           onKeyDown={(e) => {
             if (suggest.onKeyDown(e)) return
             if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
@@ -418,7 +492,12 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
           <button
             className="composer__round composer__mic"
             data-active={dictating || undefined}
-            onClick={() => (dictating ? dictation.cancel() : void dictation.start())}
+            // While recording, the mic finishes: what was said is written out,
+            // as the voice bar's own Done does. Throwing it away is the bar's
+            // Discard (or Esc); only a recording still starting is cancelled.
+            onClick={() =>
+              dictation.state === 'recording' ? dictation.finish() : dictating ? dictation.cancel() : void dictation.start()
+            }
             disabled={dictation.state === 'transcribing'}
             aria-label={dictating ? 'Stop dictating' : 'Dictate'}
             title={dictating ? 'Stop dictating' : 'Dictate a message'}

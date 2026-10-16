@@ -151,7 +151,7 @@ scenario('Eaon Free: claimed from Settings before the cards come up, the star po
   assert.equal(settings.freeCredits.offered, 0)
 })
 
-scenario('Eaon Free: the offer card’s “Have an event code?” opens the code box in Settings, claiming nothing', { timeout: 150_000 }, async (s) => {
+scenario('Eaon Free: the offer card’s “Have an event code?” opens the code box in the card, claiming nothing', { timeout: 150_000 }, async (s) => {
   const app = await s.launch({ env: { EAON_OFFERS: 'on', GH_TOKEN: '', GITHUB_TOKEN: '' } })
   const page = app.page
   await page.find('.star-card', { text: /Welcome to Eaon/, timeout: 90_000 })
@@ -159,9 +159,9 @@ scenario('Eaon Free: the offer card’s “Have an event code?” opens the code
   await page.find('.free-card', { text: /Free AI credits/ })
   await page.click('.free-card__code', { text: /Have an event code\?/ })
 
-  await page.find('.free-code__title', { text: /Have an event code\?/ })
-  await page.find('.provider-row[data-active]', { text: /Eaon Free/ })
-  assert.equal(await page.eval(() => Boolean(document.querySelector('.free-card'))), false, 'the card closes')
+  // At an event the code is the way in, so it opens right there, with nothing else to find.
+  await page.find('.free-card .free-code__title', { text: /Have an event code\?/ })
+  assert.ok(await page.eval(() => Boolean(document.querySelector('.free-card .free-code input[aria-label="Event code"]'))), 'the card has the code box')
   assert.equal((await page.eval(() => window.api.settings.get())).freeCredits.claimed, false, 'nothing claimed on the way')
   await s.shot(page, 'code-box')
 })

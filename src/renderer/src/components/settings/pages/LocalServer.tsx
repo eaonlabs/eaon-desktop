@@ -47,7 +47,7 @@ export function LocalServerPage(): JSX.Element {
         <Card>
           <Row title="Local API Server" description="Run an OpenAI-compatible server locally.">
             <button className="btn btn--provider" disabled={busy} onClick={() => void toggle()}>
-              {busy ? '…' : status.running ? 'Stop Server' : 'Start Server'}
+              {busy ? '…' : status.running ? 'Stop server' : 'Start server'}
             </button>
           </Row>
           <Row title="Auto start" description="Automatically start the Local API Server when the application launches.">
@@ -58,15 +58,7 @@ export function LocalServerPage(): JSX.Element {
             />
           </Row>
           <Row title="Port" description="The loopback port the server listens on. Restart the server to apply.">
-            <input
-              className="input"
-              style={{ width: 110 }}
-              type="number"
-              value={local.port}
-              onChange={(e) =>
-                void patchSettings({ localServer: { port: Number(e.target.value) || 1337 } })
-              }
-            />
+            <PortField value={local.port} onChange={(port) => void patchSettings({ localServer: { port } })} />
           </Row>
           <Row
             title="Default model"
@@ -109,11 +101,9 @@ export function LocalServerPage(): JSX.Element {
                 : 'Apps connected to Eaon send this. Apps on this computer that send no key still work; a wrong key is refused.'
             }
           >
-            <code className="code-settings__path" style={{ fontSize: 12 }}>
-              {gateway ? `${gateway.token.slice(0, 10)}…` : '…'}
-            </code>
+            <code className="key-chip">{gateway ? `${gateway.token.slice(0, 10)}…` : '…'}</code>
             <button
-              className="btn btn--ghost"
+              className="btn"
               disabled={!gateway}
               onClick={() => {
                 if (!gateway) return
@@ -134,7 +124,7 @@ export function LocalServerPage(): JSX.Element {
       <Section>
         <Card>
           <Row
-            title="Server Status"
+            title="Server status"
             description={
               status.error
                 ? `Failed to start: ${status.error}`
@@ -170,4 +160,35 @@ function gatewayRef(id: string | null | undefined): ModelRef | null {
   if (!id) return null
   const slash = id.indexOf('/')
   return slash > 0 ? { providerId: id.slice(0, slash), modelId: id.slice(slash + 1) } : { providerId: null, modelId: id }
+}
+
+/**
+ * Saved on Enter or leaving the field, within 1024–65535. Saving each
+ * keystroke put 1337 back the moment the field was cleared to type a new
+ * port, and saved "8" and "80" on the way to 8080.
+ */
+function PortField({ value, onChange }: { value: number; onChange: (port: number) => void }): JSX.Element {
+  const [draft, setDraft] = useState(String(value))
+  useEffect(() => setDraft(String(value)), [value])
+  const commit = (): void => {
+    const port = Math.round(Number(draft))
+    if (Number.isFinite(port) && port >= 1024 && port <= 65535) {
+      if (port !== value) onChange(port)
+      setDraft(String(port))
+    } else setDraft(String(value))
+  }
+  return (
+    <input
+      className="input"
+      style={{ width: 110 }}
+      type="number"
+      min={1024}
+      max={65535}
+      aria-label="Port"
+      value={draft}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => e.key === 'Enter' && commit()}
+    />
+  )
 }

@@ -118,6 +118,23 @@ const realFs: StoreFs = {
   list: (dir) => nodeFs.readdirSync(dir)
 }
 
+/**
+ * The durable write and the locked-file rename, for files kept outside the
+ * JSON documents (the key vault): owner-only, flushed to disk before it
+ * returns.
+ */
+export function writeFileDurable(path: string, data: string | Uint8Array): void {
+  const fd = nodeFs.openSync(path, 'w', PRIVATE_FILE)
+  try {
+    nodeFs.writeFileSync(fd, data)
+    nodeFs.fsyncSync(fd)
+  } finally {
+    nodeFs.closeSync(fd)
+  }
+}
+
+export const renameRetryingLocked = (from: string, to: string): void => retryLocked(() => nodeFs.renameSync(from, to))
+
 let fs: StoreFs = realFs
 
 /** Tests: replace some file operations (the rest stay real). Returns a function that restores them. */

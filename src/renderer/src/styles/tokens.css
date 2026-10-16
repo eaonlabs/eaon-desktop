@@ -44,12 +44,14 @@
   --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, monospace;
 
   --fs-base: 14px;
-  --fs-sm: 13px;
-  --fs-xs: 12px;
-  --fs-xxs: 11px;
+  /* Follow the base so Appearance → UI font size resizes all the text, not
+     just the fifth of it set in --fs-base (same sizes at the default 14px). */
+  --fs-sm: calc(var(--fs-base) - 1px);
+  --fs-xs: max(10px, calc(var(--fs-base) - 2px));
+  --fs-xxs: max(10px, calc(var(--fs-base) - 3px));
   --fs-title: 28px;
   --fs-h1: 30px;
-  --fs-h2: 15px;
+  --fs-h2: calc(var(--fs-base) + 1px);
 
   --ease: cubic-bezier(0.32, 0.72, 0, 1);
   --dur: 160ms;

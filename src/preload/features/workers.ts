@@ -73,6 +73,8 @@ export const workersApi = {
   /** Aborts one thread's running turn (the main one by default); the worker's other threads carry on. */
   stop: (id: string, threadId?: string): Promise<void> => ipcRenderer.invoke('workers:stop', id, threadId),
   markRead: (id: string, threadId?: string): Promise<void> => ipcRenderer.invoke('workers:mark-read', id, threadId),
+  /** The worker whose page is on screen, or null once it isn't: that worker's own banners are held back only while it is. */
+  viewing: (id: string | null): Promise<void> => ipcRenderer.invoke('workers:viewing', id),
   /** Brings a worker's own browser to the front (to watch, or to sign it in); false if it has not opened one yet. */
   showBrowser: (id: string): Promise<boolean> => ipcRenderer.invoke('workers:show-browser', id),
   hasBrowser: (id: string): Promise<boolean> => ipcRenderer.invoke('workers:has-browser', id),
