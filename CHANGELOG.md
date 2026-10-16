@@ -3,6 +3,25 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [2026.6.3-beta.2.4] — 2026-10-16
+
+### Added
+- **Usage for more coding CLIs.** Besides Claude Code and Codex, the Usage
+  page reads Claude Desktop's agent sessions, Gemini CLI, Qwen Code, Grok
+  Build, GitHub Copilot CLI, opencode, Amp, Droid and Kimi CLI from what
+  each keeps on your computer. Each has its own colour in the daily chart
+  and its logo in the By tool table.
+- **Cursor usage.** Cursor keeps no token counts on your computer, so its
+  usage comes from the CSV its dashboard exports (cursor.com/dashboard →
+  Usage → Export CSV): Settings → Usage → Import CSV. A newer export adds
+  only what's new.
+
+### Fixed
+- The ADE could show two cards for the same folder, both with the same
+  terminals, when Eaon reopened it.
+- Eaon Remote (rc.eaon.dev) printed "[object HTMLDivElement]" in the
+  sidebar while a computer's sessions and Workers were loading.
+
 ## [2026.6.3-beta.2.3] — 2026-10-16
 
 ### Fixed
