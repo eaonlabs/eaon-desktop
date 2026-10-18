@@ -116,7 +116,7 @@ mac:
   # Same for Eaon's llama-server (llama/darwin-arm64, llama/darwin-x64) and
   # the Eaon CLI (eaon-cli/darwin-<arch>; only the arch that was built ships).
   # Cua Driver is already universal, the same file in both builds.
-  x64ArchFiles: '{**/node_modules/node-pty/prebuilds/**,**/llama/darwin-*/**,**/eaon-cli/darwin-*/**,**/cua-driver/darwin/**}'
+  x64ArchFiles: '{**/node_modules/node-pty/prebuilds/**,**/llama/darwin-*/**,**/whisper/darwin-*/**,**/eaon-cli/darwin-*/**,**/cua-driver/darwin/**}'
   # Eaon's own llama.cpp runtime (scripts/build-llama.sh), both Mac arches:
   # main/llama/runtime.ts picks the one matching the running process.
   extraResources:
