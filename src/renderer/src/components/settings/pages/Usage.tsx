@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useMemo, useState, type JSX } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { ExternalLink, Loader2, RefreshCw } from 'lucide-react'
 import type { UsageDay, UsageModelRow, UsageRange, UsageSource, UsageSourceRow, UsageSummary, UsageTool, UsageToolRow } from '@shared/usage'
 import { useApp } from '../../../state/store'
 import { Card, Row, Section, Segmented } from '../../ui'
 import { ProviderMark } from '../../composer/ProviderMark'
 import { UsageActivity } from './UsageActivity'
-import { listOf, TOOL_LABEL, TOOL_ORDER, toolSplit } from './usageTools'
+import { listOf, TOOL_LABEL, TOOL_ORDER, toolMark, toolSplit } from './usageTools'
 import { ToknMark } from '../../account/ToknAccount'
 import { ToknCommand } from './ToknCommand'
 
@@ -59,10 +59,25 @@ function ago(iso: string | null): string {
   return new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
 }
 
-function useUsage(range: UsageRange): UsageSummary | null {
+function useUsage(range: UsageRange): { summary: UsageSummary | null; error: string | null; retry: () => void } {
   const [summary, setSummary] = useState<UsageSummary | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  // Only the latest request's answer is kept: switching range quickly could
+  // otherwise show the older range's figures if that request finished last.
+  const latest = useRef(0)
   const load = useCallback(() => {
-    void window.api.usage.summary(range).then(setSummary)
+    const id = ++latest.current
+    window.api.usage.summary(range).then(
+      (next) => {
+        if (id !== latest.current) return
+        setSummary(next)
+        setError(null)
+      },
+      (e: unknown) => {
+        if (id !== latest.current) return
+        setError((e instanceof Error ? e.message : String(e)).replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
+      }
+    )
   }, [range])
   useEffect(() => {
     load()
@@ -74,12 +89,12 @@ function useUsage(range: UsageRange): UsageSummary | null {
       window.clearInterval(tick)
     }
   }, [load])
-  return summary
+  return { summary, error, retry: load }
 }
 
 export function UsagePage(): JSX.Element {
   const [range, setRange] = useState<UsageRange>(savedRange)
-  const summary = useUsage(range)
+  const { summary, error, retry } = useUsage(range)
 
   const pickRange = (value: string): void => {
     const next = Number(value) as UsageRange
@@ -98,7 +113,15 @@ export function UsagePage(): JSX.Element {
         What your AI use in Eaon costs, model by model and day by day, tracked with Tokn. Sign in with your Tokn account to see
         it here and on your Tokn profile.
       </p>
-      {!summary ? null : summary.account ? <SignedIn summary={summary} range={range} onRange={pickRange} /> : <SignedOut summary={summary} />}
+      {!summary && error ? (
+        <Card>
+          <Row title="Couldn’t load your usage" description={error}>
+            <button className="btn" onClick={retry}>
+              Try again
+            </button>
+          </Row>
+        </Card>
+      ) : !summary ? null : summary.account ? <SignedIn summary={summary} range={range} onRange={pickRange} /> : <SignedOut summary={summary} />}
       {summary && <ToknCommand signedIn={Boolean(summary.account)} />}
     </>
   )
@@ -323,12 +346,13 @@ function SignedIn({ summary, range, onRange }: { summary: UsageSummary; range: U
       </p>
       {summary.cliLogs.found.length > 0 && (
         <p className="usage-footnote">
-          {listOf(summary.cliLogs.found.map((tool) => TOOL_LABEL[tool]))} in the terminal {summary.cliLogs.found.length === 1 ? 'is' : 'are'} read
-          from {summary.cliLogs.found.length === 1 ? 'its' : 'their'} own logs on this computer for the daily chart, the activity calendar and
+          {listOf(summary.cliLogs.found.map((tool) => TOOL_LABEL[tool]))} {summary.cliLogs.found.length === 1 ? 'is' : 'are'} read from{' '}
+          {summary.cliLogs.found.length === 1 ? 'its' : 'their'} own records on this computer for the daily chart, the activity calendar and
           your streaks, as ≈ what the use would cost at API rates. The spend and token tiles, the models and what Eaon uploads stay
           Eaon’s own: the tokn command counts these tools on your Tokn profile itself.
         </p>
       )}
+      <CursorImportNote imported={summary.cliLogs.cursorImported} />
     </>
   )
 }
@@ -429,7 +453,48 @@ function DailyChart({ days, reading }: { days: UsageDay[]; reading: boolean }): 
   )
 }
 
-/** The range by tool: Eaon itself, and Claude Code and Codex from their logs. */
+/**
+ * Cursor keeps no token counts on this computer, so its usage comes from the
+ * CSV its dashboard exports. Importing a newer export adds only what's new.
+ */
+function CursorImportNote({ imported }: { imported: number }): JSX.Element {
+  const [note, setNote] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+  const pick = async (): Promise<void> => {
+    setBusy(true)
+    try {
+      const result = await window.api.usage.importCursor()
+      if (result) {
+        setNote(
+          result.error ??
+            (result.added > 0
+              ? `Added ${result.added.toLocaleString()} ${result.added === 1 ? 'request' : 'requests'}.`
+              : 'Nothing new: every request in it was already imported.')
+        )
+      }
+    } catch (error) {
+      setNote(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <p className="usage-footnote usage-cursor">
+      <ProviderMark providerId="cli:cursor" name="Cursor" size={14} />
+      <span>
+        {imported > 0
+          ? `${imported.toLocaleString()} Cursor ${imported === 1 ? 'request' : 'requests'} imported.`
+          : 'Cursor keeps no usage on this computer: export it from cursor.com/dashboard → Usage → Export CSV.'}
+        {note ? ` ${note}` : ''}
+      </span>
+      <button type="button" className="btn btn--ghost usage-cursor__import" disabled={busy} onClick={() => void pick()}>
+        {busy ? 'Importing…' : imported > 0 ? 'Import a newer export…' : 'Import CSV…'}
+      </button>
+    </p>
+  )
+}
+
+/** The range by tool: Eaon itself, and the coding CLIs from their own records. */
 function ToolTable({ tools: rows }: { tools: UsageToolRow[] }): JSX.Element {
   return (
     <div className="usage-table" role="table" aria-label="Usage by tool">
@@ -441,9 +506,10 @@ function ToolTable({ tools: rows }: { tools: UsageToolRow[] }): JSX.Element {
       </div>
       {rows.map((row) => (
         <div key={row.tool} className="usage-table__row" role="row">
-          <span role="cell" className="usage-table__name">
+          <span role="cell" className="usage-table__model">
             <i className="usage-tool-dot" data-tool={row.tool} aria-hidden="true" />
-            {TOOL_LABEL[row.tool]}
+            <ProviderMark providerId={toolMark(row.tool)} name={TOOL_LABEL[row.tool]} size={14} />
+            <span className="usage-table__name">{TOOL_LABEL[row.tool]}</span>
           </span>
           <span role="cell">{row.requests.toLocaleString()}</span>
           <span role="cell">{tokens(row.tokens)}</span>

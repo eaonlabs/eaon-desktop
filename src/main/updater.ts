@@ -72,7 +72,11 @@ export function initUpdater(windows: () => BrowserWindow[]): void {
       void dialog.showMessageBox(
         result.kind === 'up-to-date'
           ? { type: 'info', message: `You're up to date`, detail: `Eaon Desktop ${app.getVersion()} is the latest version.` }
-          : { type: 'error', message: 'Update check failed', detail: result.message }
+          : result.kind === 'ready'
+            ? { type: 'info', message: 'An update is ready', detail: `Version ${result.version} has downloaded. Restart Eaon to install it.` }
+            : result.kind === 'downloading'
+              ? { type: 'info', message: 'An update is downloading', detail: result.percent === null ? 'Eaon will say when it’s ready to install.' : `${result.percent}% done. Eaon will say when it’s ready to install.` }
+              : { type: 'error', message: 'Update check failed', detail: result.message }
       )
     }
   })
@@ -135,6 +139,23 @@ export async function switchToStable(): Promise<void> {
   await controller?.switchToStable()
 }
 
+/**
+ * Quits into the downloaded update. By now Eaon has already shut its
+ * servers, terminals and features down, so an install that fails without
+ * quitting (a cancelled password prompt for a .deb, a missing installer)
+ * would leave a window where nothing works. It says why and starts Eaon
+ * again instead.
+ */
 export function quitAndInstall(): void {
-  autoUpdater.quitAndInstall()
+  const failed = (error: Error): void => {
+    dialog.showErrorBox('The update didn’t install', `${error.message}\n\nEaon will open again on the version you have. You can try the update later.`)
+    app.relaunch()
+    app.exit(0)
+  }
+  autoUpdater.once('error', failed)
+  try {
+    autoUpdater.quitAndInstall()
+  } catch (error) {
+    failed(error instanceof Error ? error : new Error(String(error)))
+  }
 }

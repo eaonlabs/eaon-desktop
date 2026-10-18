@@ -47,7 +47,7 @@ export function MarkdownTable(props: TableProps): JSX.Element {
       >
         <div className="tbl__head" role="row">
           {props.header.map((cell, c) => (
-            <div key={c} className="tbl__cell" role="columnheader" style={cellStyle(props.align[c])} title={cell}>
+            <div key={c} className="tbl__cell" role="columnheader" style={cellStyle(props.align[c])}>
               <span className="tbl__text">{props.renderCell(cell, `${props.id}-h${c}`)}</span>
             </div>
           ))}

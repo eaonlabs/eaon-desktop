@@ -60,7 +60,12 @@ export function PrReviewPanel({ pr }: { pr: PullRequestSummary }): JSX.Element |
     }
     setState(result.state)
     setDraft(null)
-    const failed = await useAdeSessions.getState().startTask(await sessionOf(result.state), result.prompt)
+    const session = await sessionOf(result.state)
+    if (!session) {
+      notify('The review’s ADE session couldn’t be found. Try Review again.', 'error')
+      return
+    }
+    const failed = await useAdeSessions.getState().startTask(session, result.prompt)
     if (failed) notify(failed, 'error')
   }
 
@@ -80,7 +85,13 @@ export function PrReviewPanel({ pr }: { pr: PullRequestSummary }): JSX.Element |
 
   const openSession = async (): Promise<void> => {
     if (!state) return
-    await useAdeSessions.getState().show(await sessionOf(state))
+    const session = await sessionOf(state)
+    // Removed from the ADE since the review started.
+    if (!session) {
+      notify('That review’s session isn’t in the ADE any more. Review again to check the pull request out again.', 'error')
+      return
+    }
+    await useAdeSessions.getState().show(session)
   }
 
   return (
@@ -190,12 +201,16 @@ export function PrReviewPanel({ pr }: { pr: PullRequestSummary }): JSX.Element |
   )
 }
 
-/** The ADE session a review runs in, as the sidebar knows it. */
-async function sessionOf(state: ReviewState): Promise<import('@shared/adeSessions').AdeSession> {
+/** The ADE session a review runs in, as the sidebar knows it; null when it was removed. */
+async function sessionOf(state: ReviewState): Promise<import('@shared/adeSessions').AdeSession | null> {
   const sessions = useAdeSessions.getState()
   if (!sessions.loaded) await sessions.load()
   const found = useAdeSessions.getState().sessions.find((s) => s.id === state.sessionId)
   if (found) return found
   await useAdeSessions.getState().load()
-  return useAdeSessions.getState().sessions.find((s) => s.id === state.sessionId) ?? (await window.api.ade.sessions()).find((s) => s.id === state.sessionId)!
+  const listed = useAdeSessions.getState().sessions.find((s) => s.id === state.sessionId)
+  if (listed) return listed
+  // The store's load failed and kept its old list: ask main directly.
+  const all = await window.api.ade.sessions().catch(() => [] as import('@shared/adeSessions').AdeSession[])
+  return all.find((s) => s.id === state.sessionId) ?? null
 }

@@ -50,12 +50,10 @@ export const ARCHIVE_REQUEST = 'eaon:archive-chat'
 
 export function ChatView(): JSX.Element {
   const chat = useApp((s) => s.activeChat())
-  return (
-    <>
-      {chat ? <Conversation chat={chat} /> : <Home />}
-      <ApprovalPrompt />
-    </>
-  )
+  // The approval card is mounted once, at the app's root (App.tsx), not here:
+  // a run that asked while Settings or another tab was open waited on a card
+  // nobody could see.
+  return chat ? <Conversation chat={chat} /> : <Home />
 }
 
 /**
@@ -163,7 +161,7 @@ function approvalSummary(tool: string, input: Record<string, unknown>): string {
  * It stays a moment after it's answered so it can leave the way it was
  * answered, and the next approval in the queue slides in where it was.
  */
-function ApprovalPrompt(): JSX.Element | null {
+export function ApprovalPrompt(): JSX.Element | null {
   const { pending, waiting, respondApproval } = useApp(
     useShallow((s) => ({ pending: s.pendingApproval, waiting: s.approvalQueue.length, respondApproval: s.respondApproval }))
   )
@@ -195,6 +193,11 @@ function ApprovalPrompt(): JSX.Element | null {
     respondApproval(approved)
   }
 
+  // The listener below is added once per request and reads the latest answer
+  // function from here, rather than being torn down and added on every render.
+  const respondLatest = useRef(respond)
+  respondLatest.current = respond
+
   // esc denies. ⏎ approves only from the card itself, or with nothing focused:
   // never from a text box (the composer sits right behind the card, and ⏎
   // there means "send"), never when a button has focus (it answers ⏎ itself),
@@ -204,11 +207,15 @@ function ApprovalPrompt(): JSX.Element | null {
     if (!pending) return
     const onKey = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {
+        // An Escape meant for something else — a menu, a dialog, the "/"
+        // suggestions, the dictation bar — closes that and leaves the
+        // question open. Denying on it threw away an answer nobody gave.
+        if (event.defaultPrevented || document.querySelector('[role="menu"], [role="dialog"][aria-modal="true"], .voice-bar')) return
         event.preventDefault()
-        respond(false)
+        respondLatest.current(false)
         return
       }
-      if (event.key !== 'Enter' || event.isComposing) return
+      if (event.key !== 'Enter' || event.isComposing || event.defaultPrevented) return
       const el = event.target instanceof HTMLElement ? event.target : null
       const allowed = enterApproves(
         {
@@ -221,11 +228,11 @@ function ApprovalPrompt(): JSX.Element | null {
       )
       if (!allowed) return
       event.preventDefault()
-      respond(true)
+      respondLatest.current(true)
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  })
+  }, [pending])
 
   if (!shown) return null
   const tool = shown.tool
@@ -391,7 +398,10 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
             <TodoPanel chat={chat} />
           </div>
         )}
-        <Composer variant="chat" />
+        {/* Keyed on the chat, so what was typed in one chat stays with it
+            (Composer keeps each chat's unsent draft) instead of following
+            the user into the next. */}
+        <Composer key={chat.id} variant="chat" />
       </div>
 
       {menu && (
@@ -497,7 +507,8 @@ function RenameChat({ title, onRename, onClose }: { title: string; onRename: (ti
         autoFocus
         onFocus={(e) => e.currentTarget.select()}
         onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={(e) => e.key === 'Enter' && save()}
+        // Not while an input method is composing: that Enter picks the characters.
+        onKeyDown={(e) => e.key === 'Enter' && !e.nativeEvent.isComposing && save()}
       />
     </Modal>
   )
@@ -552,6 +563,10 @@ export const MessageRow = memo(function MessageRow({
   // Still being written, by this window's run or another's (another window, a
   // scheduled task): its action bar waits until it is finished.
   const unfinished = streaming || message.parts.some((part) => part.type === 'tool' && part.status === 'running')
+  // The action bar (and the Try again in it) only shows for a reply with
+  // something in it; one cut off before it said anything gets its own button.
+  const actionBar = Boolean(body || message.usage) && !unfinished
+  const retryReply = useApp((s) => s.retryReply)
 
   if (message.role === 'user') {
     // A worker's turn: each piece of mail is its own bubble, and a heartbeat
@@ -646,7 +661,12 @@ export const MessageRow = memo(function MessageRow({
       {message.interrupted && !streaming && (
         <div className="msg__status" style={{ color: 'var(--text-3)' }} role="status">
           Eaon was closed before this reply finished{hasContent ? '; this is what it had so far' : ''}.
-          {canRetry && ' Use Retry to ask again.'}
+          {canRetry && actionBar && ' To ask again, use Try again in the menu below it.'}
+          {canRetry && !actionBar && !message.error && (
+            <button type="button" className="btn btn--sm" onClick={() => retryReply(message.id)}>
+              Try again
+            </button>
+          )}
         </div>
       )}
 
@@ -662,7 +682,7 @@ export const MessageRow = memo(function MessageRow({
 
       {!streaming && changes.length > 0 && <FilesChanged changes={changes} />}
 
-      {(body || message.usage) && !unfinished && (
+      {actionBar && (
         <div className="msg__actions" data-pinned={last || Boolean(message.feedback) || undefined}>
           <ReplyActions message={message} text={body} row={row} chatActions={chatActions} canRetry={canRetry} />
         </div>

@@ -1,6 +1,9 @@
 /* ---- The ADE header's usage meter (components/code/UsageMeter.tsx) ---- */
 
 .usage-pill {
+  /* The header's other buttons give way in a narrow window; this one keeps
+     its figures (it was squeezed to an empty sliver). */
+  flex: none;
   gap: 7px;
   padding: 0 10px;
   border-radius: 999px;
@@ -168,12 +171,6 @@ body[data-reduce-motion='on'] .usage-panel__refresh[data-spinning] svg {
   margin: 4px 0 10px;
   font-size: 11px;
   color: var(--text-3);
-}
-.usage-tool__account {
-  margin-top: 3px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .usage-status {
@@ -523,8 +520,16 @@ body[data-reduce-motion='on'] .usage-panel__refresh[data-spinning] svg {
   white-space: nowrap;
   text-overflow: ellipsis;
 }
+/* The name gives way to its plan and "default" tags, ending in an ellipsis. */
+.account-row__label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
 .account-row__plan,
 .account-row__tag {
+  flex: none;
   padding: 0 6px;
   border-radius: 999px;
   font-size: 10.5px;
@@ -547,9 +552,9 @@ body[data-reduce-motion='on'] .usage-panel__refresh[data-spinning] svg {
   font-family: var(--font-mono);
   font-size: 11px;
   color: var(--text-3);
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  /* It carries error messages, which were cut off mid-word: an ellipsis
+     doesn't apply to a flex container's text, so they were just clipped. */
+  overflow-wrap: anywhere;
 }
 .account-row__actions {
   display: flex;

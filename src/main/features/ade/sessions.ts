@@ -76,6 +76,8 @@ export class SessionBook {
   private sessions: AdeSession[] = []
   private adoptedOnce = false
   private closed = new Set<string>()
+  /** Sessions being made for folders, by folder: see ensureFolder. */
+  private making = new Map<string, Promise<AdeSession>>()
 
   constructor(private readonly deps: SessionBookDeps) {
     const raw = deps.load() as Partial<SavedSessions> | null
@@ -178,7 +180,21 @@ export class SessionBook {
     if (have) return have
     // Opened again on purpose (the picker, a recent folder): it is no longer closed.
     if (!imported) this.closed.delete(cwd)
+    // Git is asked before the session is made, so a second opening of the folder
+    // meanwhile (the reopened folder and the sidebar, at launch) waits for this
+    // one rather than making a second session showing the same terminals.
+    let making = this.making.get(cwd)
+    if (!making) {
+      making = this.makeFolder(cwd, imported).finally(() => this.making.delete(cwd))
+      this.making.set(cwd, making)
+    }
+    return { ...(await making) }
+  }
+
+  private async makeFolder(cwd: string, imported?: { at: number }): Promise<AdeSession> {
     const repo = await this.repo(cwd)
+    const have = this.byCwd(cwd)
+    if (have) return have
     const session: AdeSession = {
       id: `ses-${randomUUID()}`,
       title: null,

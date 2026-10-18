@@ -136,6 +136,8 @@ export function Popover({
     const onKey = (event: KeyboardEvent): void => {
       if (event.key === 'Escape') {
         event.stopPropagation()
+        // Marked as used, so other Escape listeners (an approval's Deny) leave it alone.
+        event.preventDefault()
         onClose()
       }
     }
@@ -286,6 +288,17 @@ export function MenuSearch({
         placeholder={placeholder}
         aria-label={placeholder}
         onChange={(e) => onChange(e.target.value)}
+        // The menu's arrow keys skip a search field, so from here ↓ steps
+        // into the results and ⏎ picks the first one.
+        onKeyDown={(e) => {
+          if (e.nativeEvent.isComposing) return
+          if (e.key !== 'ArrowDown' && e.key !== 'Enter') return
+          const first = e.currentTarget.closest('.menu')?.querySelector<HTMLElement>('[role="menuitem"]:not(:disabled)')
+          if (!first) return
+          e.preventDefault()
+          if (e.key === 'ArrowDown') first.focus()
+          else first.click()
+        }}
         spellCheck={false}
       />
     </div>

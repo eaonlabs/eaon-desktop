@@ -899,11 +899,13 @@ async function runOwnLoop(request: StreamRequest, emit: (event: StreamEvent) => 
     }
     // A provider failure becomes what to do about it ("Your ChatGPT session
     // expired. Sign in again."), with the raw words kept for Copy details;
-    // anything else keeps its own message.
+    // anything else keeps its own message. The issue goes along either way:
+    // an unrecognised failure (a context-length 400, say) still needs its
+    // Copy details and Try again under the error.
     const issue = classifyProviderError(error, provider)
     const message = issue.kind === 'other' ? redactSecrets(error instanceof Error ? error.message : String(error)) : issue.message
     noteProviderHealth(provider.id, issue)
-    emit({ type: 'error', messageId: request.messageId, error: message, ...(issue.kind === 'other' ? {} : { issue }) })
+    emit({ type: 'error', messageId: request.messageId, error: message, issue })
     return { text, error: message, usage }
   } finally {
     options.signal?.removeEventListener('abort', forwardAbort)

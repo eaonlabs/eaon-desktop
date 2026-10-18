@@ -1,10 +1,10 @@
 import { randomUUID } from 'node:crypto'
-import type { ChatMessage, GoalState, Settings, StreamEvent, StreamRequest, TokenUsage } from '@shared/types'
+import type { ChatMessage, GoalState, Provider, Settings, StreamEvent, StreamRequest, TokenUsage } from '@shared/types'
 import { clampEffort } from '@shared/effort'
 import { MAIN_THREAD, threadKey, type Worker, type WorkerMail, type WorkerRoutine, type WorkerThread } from '@shared/workers'
 import { CHANNEL_LABEL, type GuestAccess } from '@shared/channels'
 import type { RunOptions, RunOutcome } from '../../agent/loop'
-import type { TurnOrigin } from '../../agent/policy'
+import type { ToolGate, TurnOrigin } from '../../agent/policy'
 import type { EngineApprovalRequest, EngineTurnInput, EngineTurnResult } from '../../engines/types'
 import { ENGINE_LABEL } from '@shared/engines'
 import { isCatastrophicCommand, isRiskyCommand } from '@shared/commandRisk'
@@ -189,6 +189,8 @@ export interface TurnInput {
   allowOnce?: (tool: string, input: Record<string, unknown>) => boolean
   /** A guest's message is in this turn: hold it to this level (see guests.ts). */
   guestCap?: GuestAccess | null
+  /** The tools this turn may use, when it is held to fewer than usual (a purchase schedule's run). */
+  toolGate?: ToolGate
   /** Who the work in this turn came from; a guest's or a colleague's can't spend money (agent/policy). */
   origin?: TurnOrigin
   stallMs?: number
@@ -222,9 +224,13 @@ export interface TurnOutcome {
  * a clear error — never some other model the providers happen to list first,
  * which is what a stale selection used to fall back to.
  */
-export function resolveWorkerModel(model: Worker['model'], settings: Settings): ReturnType<typeof resolveModel> {
-  const target = resolveModel({ model }, settings, undefined, 'worker')
-  if (!model && settings.selectedModelId && (!target.ok || target.modelId !== settings.selectedModelId)) {
+export function resolveWorkerModel(model: Worker['model'], settings: Settings, providers?: Provider[]): ReturnType<typeof resolveModel> {
+  const target = resolveModel({ model }, settings, providers, 'worker')
+  // A saved choice may be an alias of the model it resolves to (a dated
+  // snapshot folded into its family's id): that is the same model, not a stand-in.
+  const wanted = settings.selectedModelId
+  const same = target.ok && (target.modelId === wanted || target.model?.aliases?.includes(wanted ?? '') === true)
+  if (!model && wanted && !same) {
     return {
       ok: false,
       error: `This worker follows Chat's model (${settings.selectedModelId}), which isn't available right now. Pick a model for the worker in its settings, or fix the provider in Settings → Model providers.`
@@ -311,7 +317,9 @@ export async function runWorkerTurn(input: TurnInput): Promise<TurnOutcome> {
 
   // A guest's message holds the whole turn to what that guest may do.
   const access = input.guestCap ? guestPolicy(input.guestCap) : worker.access
-  const gate = input.guestCap ? guestGate(input.guestCap) : undefined
+  const guest = input.guestCap ? guestGate(input.guestCap) : undefined
+  const own = input.toolGate
+  const gate: ToolGate | undefined = guest && own ? (tool, args) => guest(tool, args) ?? own(tool, args) : (guest ?? own)
   const stallMs = input.stallMs ?? STALL_MS
   const dog = watchdog(input.signal, stallMs)
 

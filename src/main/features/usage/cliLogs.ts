@@ -1,23 +1,33 @@
 import fs from 'node:fs/promises'
+import os from 'node:os'
 import path from 'node:path'
-import type { UsageCounts, UsageTool } from '@shared/usage'
+import type { CliUsageTool, CursorImport, UsageCounts } from '@shared/usage'
 import { store } from '../../store'
 import { defaultDir } from '../cliAccounts/folders'
+import { statOf, type CliDays } from './cliFiles'
+import { cursorDays, FILE_SOURCES, parseCursorCsv, sourceRoots, type CursorRow, type FileTool } from './cliSources'
 import { localDay, type LedgerDays } from './ledger'
-import { CLI_PROVIDERS } from './rows'
+import { cliProvider } from './rows'
 
 /**
- * Claude Code's and Codex's own use, read from the logs they keep on this
- * computer, so Settings → Usage can show them next to Eaon's: a day's
- * requests and tokens per model, nothing else. Extra accounts' folders link
- * their logs back to the default ones (cliAccounts/folders.ts), so the
- * default folders hold every account's.
+ * The coding CLIs' own use, read from what they keep on this computer, so
+ * Settings → Usage can show them next to Eaon's: a day's requests and tokens
+ * per model, nothing else. Extra accounts' folders link their logs back to
+ * the default ones (cliAccounts/folders.ts), so the default folders hold
+ * every account's.
  *
  *   Claude Code   <CLAUDE_CONFIG_DIR or ~/.claude>/projects/**.jsonl: one
  *                 `assistant` record per API response, with `message.usage`
+ *   Claude Desktop  its agent sessions (local-agent-mode-sessions), in
+ *                 Claude Code's format
  *   Codex         <CODEX_HOME or ~/.codex>/sessions/**.jsonl: `token_count`
  *                 events, each turn's `last_token_usage`, the model from
  *                 the records before it
+ *   the others    Gemini CLI, Qwen Code, Grok Build, Copilot CLI, opencode,
+ *                 Amp, Droid and Kimi CLI, each from its own files
+ *                 (cliSources.ts), read whole again when they change
+ *   Cursor        keeps no counts on this computer: its dashboard's usage
+ *                 export, imported (`importCursorCsv`)
  *
  * The rules are Tokn CLI's (tokn-cli core/parse.ts, sources/codex.ts), so the
  * two never disagree: Claude Code copies records into a new transcript when a
@@ -42,10 +52,15 @@ const FRESH_MS = 60_000
 const CHUNK = 1 << 20
 const MAX_DEPTH = 12
 
-type CliTool = Exclude<UsageTool, 'eaon'>
+/** The tools whose logs are read a line at a time, from where each file ended. */
+type LineTool = 'claude-code' | 'claude-desktop' | 'codex'
+const LINE_TOOLS: LineTool[] = ['claude-code', 'claude-desktop', 'codex']
 
-/** One response: its dedupe key (Claude Code only), day, model and tokens. */
-type Entry = [key: number, day: string, model: string, input: number, output: number, cacheRead: number, cacheWrite: number]
+/** Where each tool keeps its usage; null for one with no folder on this system. */
+export type CliRoots = Partial<Record<Exclude<CliUsageTool, 'cursor'>, string | null>>
+
+/** One response: its dedupe key (Claude only), day, model and tokens; 1-hour cache writes last, when there were any. */
+type Entry = [key: number, day: string, model: string, input: number, output: number, cacheRead: number, cacheWrite: number, cacheWrite1h?: number]
 
 interface FileState {
   size: number
@@ -57,22 +72,37 @@ interface FileState {
   entries: Entry[]
 }
 
+interface SourceState {
+  tool: FileTool
+  size: number
+  mtimeMs: number
+  days: CliDays
+}
+
 interface Saved {
   version: number
-  files: Record<string, FileState & { tool: CliTool }>
+  files: Record<string, FileState & { tool: LineTool }>
+  /** The other tools' files, each with what it held when last read. */
+  sources?: Record<string, SourceState>
 }
 
 export interface CliLogs {
-  /** day → `cli:claude-code` / `cli:codex` → model → counts. */
+  /** day → `cli:<tool>` → model → counts. */
   days: LedgerDays
   /** Whether the first read since launch is still going. */
   reading: boolean
-  /** The tools with any logs on this computer. */
-  found: CliTool[]
+  /** The tools with any use on this computer. */
+  found: CliUsageTool[]
+  /** Cursor requests imported from its usage export. */
+  cursorImported: number
 }
 
+/** Imported Cursor rows, by the export line they came from, so a second import adds only what's new. */
+const CURSOR_FILE = 'cursor-usage.json'
+
 let saved: Saved | null = null
-let result: CliLogs = { days: {}, reading: true, found: [] }
+let result: CliLogs = { days: {}, reading: true, found: [], cursorImported: 0 }
+let cursor: Record<string, CursorRow> | null = null
 let readAt = 0
 let reading: Promise<void> | null = null
 let saveTimer: ReturnType<typeof setTimeout> | null = null
@@ -98,7 +128,7 @@ export function onCliLogsChange(listener: () => void): () => void {
   return () => listeners.delete(listener)
 }
 
-export function readCliLogs(roots: Record<CliTool, string> = defaultRoots()): Promise<void> {
+export function readCliLogs(roots: CliRoots = defaultRoots()): Promise<void> {
   reading ??= read(roots)
     .catch((error) => console.warn('[usage] CLI logs:', error instanceof Error ? error.message : error))
     .finally(() => {
@@ -108,21 +138,38 @@ export function readCliLogs(roots: Record<CliTool, string> = defaultRoots()): Pr
   return reading
 }
 
-function defaultRoots(): Record<CliTool, string> {
+/** Claude Desktop's own folder, where its agent sessions live. */
+function claudeDesktopDir(env: NodeJS.ProcessEnv, home: string): string | null {
+  if (process.platform === 'darwin') return path.join(home, 'Library', 'Application Support', 'Claude')
+  if (process.platform === 'win32') return path.join(env.APPDATA ?? path.join(home, 'AppData', 'Roaming'), 'Claude')
+  if (process.platform === 'linux') return path.join(env.XDG_CONFIG_HOME ?? path.join(home, '.config'), 'Claude')
+  return null
+}
+
+/**
+ * Where each tool keeps its usage. EAON_CLI_LOGS_HOME stands in for the home
+ * folder the other tools are looked for in, so tests never read the real ones.
+ */
+export function defaultRoots(env: NodeJS.ProcessEnv = process.env, home: string = env['EAON_CLI_LOGS_HOME'] || os.homedir()): CliRoots {
+  const desktop = claudeDesktopDir(env, home)
   return {
     'claude-code': path.join(defaultDir('claude'), 'projects'),
-    codex: path.join(defaultDir('codex'), 'sessions')
+    'claude-desktop': desktop && path.join(desktop, 'local-agent-mode-sessions'),
+    codex: path.join(defaultDir('codex'), 'sessions'),
+    ...sourceRoots(env, home)
   }
 }
 
-async function read(roots: Record<CliTool, string>): Promise<void> {
+async function read(roots: CliRoots): Promise<void> {
   const state = load()
   let changed = result.reading
   const present = new Set<string>()
-  const found: CliTool[] = []
+  const found: CliUsageTool[] = []
 
-  for (const tool of Object.keys(roots) as CliTool[]) {
-    const files = await listLogs(roots[tool])
+  for (const tool of LINE_TOOLS) {
+    const root = roots[tool]
+    if (!root) continue
+    const files = await listLogs(root)
     if (files.length > 0) found.push(tool)
     for (const file of files) {
       present.add(file.path)
@@ -149,36 +196,123 @@ async function read(roots: Record<CliTool, string>): Promise<void> {
     delete state.files[file]
     changed = true
   }
+  if (await readSources(roots, state, present)) changed = true
+  for (const source of FILE_SOURCES) {
+    if (Object.values(state.sources ?? {}).some((s) => s.tool === source.tool && Object.keys(s.days).length > 0)) found.push(source.tool)
+  }
+  const imported = cursorRows()
+  if (Object.keys(imported).length > 0) found.push('cursor')
 
   if (!changed && found.join() === result.found.join()) return
-  result = { days: tally(state), reading: false, found }
+  result = { days: tally(state, imported), reading: false, found, cursorImported: Object.keys(imported).length }
   scheduleSave()
   for (const listener of listeners) listener()
 }
 
-/** Every day's counts, each Claude Code response once however many transcripts repeat it. */
-function tally(state: Saved): LedgerDays {
+/**
+ * The other tools' files: each read whole again when it changed (they are
+ * small, or a database), what it held kept until it does again. True when
+ * anything changed.
+ */
+async function readSources(roots: CliRoots, state: Saved, present: Set<string>): Promise<boolean> {
+  const sources = (state.sources ??= {})
+  let changed = false
+  for (const source of FILE_SOURCES) {
+    const root = roots[source.tool]
+    if (!root) continue
+    let files: string[]
+    try {
+      files = await source.files(root)
+    } catch {
+      continue
+    }
+    for (const file of files) {
+      present.add(file)
+      const stat = await statOf(file)
+      if (!stat) continue
+      const known = sources[file]
+      if (known && known.tool === source.tool && known.size === stat.size && known.mtimeMs === stat.mtimeMs) continue
+      try {
+        sources[file] = { tool: source.tool, size: stat.size, mtimeMs: stat.mtimeMs, days: await source.read(file, root) }
+        changed = true
+      } catch {
+        /* unreadable this time (locked, half-written): tried again on the next read */
+      }
+    }
+  }
+  for (const file of Object.keys(sources)) {
+    if (present.has(file)) continue
+    delete sources[file]
+    changed = true
+  }
+  return changed
+}
+
+function addInto(days: LedgerDays, day: string, provider: string, model: string, from: Omit<UsageCounts, 'requests'>, requests: number): void {
+  const counts = (((days[day] ??= {})[provider] ??= {})[model] ??= { requests: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }) as UsageCounts
+  counts.requests += requests
+  counts.input += from.input
+  counts.output += from.output
+  counts.cacheRead += from.cacheRead
+  counts.cacheWrite += from.cacheWrite
+  if (from.cacheWrite1h) counts.cacheWrite1h = (counts.cacheWrite1h ?? 0) + from.cacheWrite1h
+  if (from.reportedCost) counts.reportedCost = (counts.reportedCost ?? 0) + from.reportedCost
+}
+
+/** Every day's counts, each Claude response once however many transcripts repeat it. */
+function tally(state: Saved, imported: Record<string, CursorRow>): LedgerDays {
   const oldest = localDay(new Date(Date.now() - KEEP_DAYS * 86_400_000))
   const seen = new Set<number>()
   const days: LedgerDays = {}
   for (const file of Object.keys(state.files).sort()) {
     const { tool, entries } = state.files[file]
-    const provider = CLI_PROVIDERS[tool]
-    for (const [key, day, model, input, output, cacheRead, cacheWrite] of entries) {
+    const provider = cliProvider(tool)
+    for (const [key, day, model, input, output, cacheRead, cacheWrite, cacheWrite1h] of entries) {
       if (day < oldest) continue
       if (key !== 0) {
         if (seen.has(key)) continue
         seen.add(key)
       }
-      const counts = (((days[day] ??= {})[provider] ??= {})[model] ??= { requests: 0, input: 0, output: 0, cacheRead: 0, cacheWrite: 0 }) as UsageCounts
-      counts.requests++
-      counts.input += input
-      counts.output += output
-      counts.cacheRead += cacheRead
-      counts.cacheWrite += cacheWrite
+      addInto(days, day, provider, model, { input, output, cacheRead, cacheWrite, ...(cacheWrite1h ? { cacheWrite1h } : {}) }, 1)
     }
   }
+  const add = (provider: string, toolDays: CliDays): void => {
+    for (const [day, models] of Object.entries(toolDays)) {
+      if (day < oldest) continue
+      for (const [model, counts] of Object.entries(models)) addInto(days, day, provider, model, counts, counts.requests)
+    }
+  }
+  for (const source of Object.values(state.sources ?? {})) add(cliProvider(source.tool), source.days)
+  add(cliProvider('cursor'), cursorDays(Object.values(imported)))
   return days
+}
+
+/* ------------------------------------------------------------------ Cursor */
+
+function cursorRows(): Record<string, CursorRow> {
+  cursor ??= store.getJson<{ rows?: Record<string, CursorRow> }>(CURSOR_FILE, {}).rows ?? {}
+  return cursor
+}
+
+/**
+ * Cursor's usage export (cursor.com/dashboard → Usage → Export CSV), added to
+ * what was imported before: a request already in an earlier export isn't
+ * counted twice.
+ */
+export async function importCursorCsv(text: string): Promise<CursorImport> {
+  const parsed = parseCursorCsv(text)
+  const rows = cursorRows()
+  if (!parsed) return { added: 0, total: Object.keys(rows).length, error: 'That isn’t Cursor’s usage export. Export it from cursor.com/dashboard → Usage → Export CSV.' }
+  let added = 0
+  for (const [key, row] of parsed) {
+    if (rows[key]) continue
+    rows[key] = row
+    added++
+  }
+  if (added > 0) store.setJson(CURSOR_FILE, { rows })
+  readAt = 0
+  await readCliLogs()
+  return { added, total: Object.keys(rows).length }
 }
 
 /** Saved off the main thread a little after a read: the file can be megabytes. */
@@ -230,8 +364,9 @@ async function listLogs(root: string): Promise<{ path: string; size: number; mti
   return out
 }
 
-const MARKER: Record<CliTool, Buffer[]> = {
+const MARKER: Record<LineTool, Buffer[]> = {
   'claude-code': [Buffer.from('"usage"')],
+  'claude-desktop': [Buffer.from('"usage"')],
   codex: [Buffer.from('token_count'), Buffer.from('"model"')]
 }
 
@@ -240,7 +375,7 @@ const MARKER: Record<CliTool, Buffer[]> = {
  * finds to `state`. Only lines with a marker are decoded: most of a
  * transcript is conversation, never turned into a string here.
  */
-async function readFrom(file: string, tool: CliTool, state: FileState): Promise<void> {
+async function readFrom(file: string, tool: LineTool, state: FileState): Promise<void> {
   const handle = await fs.open(file, 'r')
   try {
     const buffer = Buffer.alloc(CHUNK)
@@ -255,7 +390,7 @@ async function readFrom(file: string, tool: CliTool, state: FileState): Promise<
       for (let end = data.indexOf(10, start); end !== -1; end = data.indexOf(10, start)) {
         const line = data.subarray(start, end)
         if (MARKER[tool].some((m) => line.indexOf(m) !== -1)) {
-          if (tool === 'claude-code') claudeLine(line.toString('utf8'), state)
+          if (tool !== 'codex') claudeLine(line.toString('utf8'), state)
           else codexLine(line.toString('utf8'), state)
         }
         start = end + 1
@@ -297,7 +432,13 @@ interface ClaudeRecord {
   message?: {
     id?: string
     model?: string
-    usage?: { input_tokens?: number; output_tokens?: number; cache_creation_input_tokens?: number; cache_read_input_tokens?: number }
+    usage?: {
+      input_tokens?: number
+      output_tokens?: number
+      cache_creation_input_tokens?: number
+      cache_read_input_tokens?: number
+      cache_creation?: { ephemeral_5m_input_tokens?: number; ephemeral_1h_input_tokens?: number }
+    }
   }
 }
 
@@ -314,7 +455,12 @@ export function claudeLine(line: string, state: FileState): void {
   const day = dayOf(record.timestamp)
   if (!day) return
   const key = message.id || record.requestId ? hash(`${message.id ?? ''}:${record.requestId ?? ''}`) : 0
-  state.entries.push([key, day, message.model, n(usage.input_tokens), n(usage.output_tokens), n(usage.cache_read_input_tokens), n(usage.cache_creation_input_tokens)])
+  // 1-hour cache writes cost more than 5-minute ones; the total holds both.
+  const written = n(usage.cache_creation_input_tokens)
+  const hour = Math.min(n(usage.cache_creation?.ephemeral_1h_input_tokens), written)
+  const entry: Entry = [key, day, message.model, n(usage.input_tokens), n(usage.output_tokens), n(usage.cache_read_input_tokens), written - hour]
+  if (hour > 0) entry.push(hour)
+  state.entries.push(entry)
 }
 
 interface CodexRecord {
@@ -350,6 +496,7 @@ export function codexLine(line: string, state: FileState): void {
 /** For tests: forget what was read. */
 export function resetCliLogs(): void {
   saved = { version: VERSION, files: {} }
-  result = { days: {}, reading: true, found: [] }
+  result = { days: {}, reading: true, found: [], cursorImported: 0 }
+  cursor = null
   readAt = 0
 }

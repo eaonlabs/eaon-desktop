@@ -275,6 +275,13 @@ function WorkerPage({ worker }: { worker: Worker }): JSX.Element {
     if (!thread && active !== 'new') void useWorkers.getState().loadThread(worker.id, active)
   }, [thread, worker.id, active])
 
+  // Main holds back this worker's banners only while its page is on screen:
+  // leaving it (another worker, the team, another tab) says so.
+  useEffect(() => {
+    void window.api.workers.viewing(worker.id)
+    return () => void window.api.workers.viewing(null)
+  }, [worker.id])
+
   // Reading the page is reading the thread on it.
   useEffect(() => {
     if (unread > 0 && active !== 'new') markRead(worker.id, active)

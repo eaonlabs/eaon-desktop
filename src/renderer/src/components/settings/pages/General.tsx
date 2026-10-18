@@ -145,7 +145,7 @@ export function GeneralPage(): JSX.Element {
             <Row title="Update available" description={`Version ${update.version} is downloading in the background`} />
           )}
           {update.state === 'downloaded' && (
-            <Row title="Update ready" description={`Version ${update.version} will install the next time the app restarts`}>
+            <Row title="Update ready" description={`Version ${update.version} is ready. Restart Eaon to install it.`}>
               <button className="btn" onClick={() => void window.api.updater.install()}>
                 Restart & install
               </button>

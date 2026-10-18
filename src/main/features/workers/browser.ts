@@ -7,7 +7,7 @@ import { isRunning } from '../../agent/loop'
 import type { AgentTool, ToolSource } from '../../agent/tools'
 import type { NeutralImage } from '../../providers/adapters/types'
 import { opensPrivateNetwork } from '../browser/privateTarget'
-import { purchaseCovers, redactPaymentSecrets } from '../payments/access'
+import { isCheckoutStep, purchaseCovers, redactPaymentSecrets } from '../payments/access'
 
 /**
  * Every worker's own web browser, driven through BetterWright
@@ -101,6 +101,9 @@ const CONTROL_LIVE_MS = 10_000
  * a worker's turn stops costing anything ten minutes later.
  */
 const PARK_AFTER_MS = 10 * 60_000
+/** How often a step waiting on the user in control says it is still alive: well inside a run's stall watchdog (STALL_MS, 15 minutes). */
+const USER_WAIT_PULSE_MS = 60_000
+const WAITING_FOR_USER = 'Waiting for you to hand the browser back'
 /** Waits, through the connection, until a page that has just arrived is usable. */
 const UNTIL_READY = `await page.waitForFunction(() => document.readyState !== 'loading', null, { timeout: 12000 }).catch(() => {}); return 1`
 
@@ -1336,6 +1339,9 @@ export class WorkerBrowsers {
   async screenshot(workerId: string): Promise<NeutralImage> {
     const text = await this.run(workerId, `const shot = await screenshot({ annotate: true, type: 'jpeg', quality: 70 }); return shot.path`)
     const path = text.replace(/^"|"$/g, '')
+    // The refs drawn on it are clicked next; a button that appeared since the
+    // last snapshot (a cart drawer) would otherwise be judged as nameless.
+    await this.snapshot(workerId).catch(() => '')
     return { mime: 'image/jpeg', data: (await readFile(path)).toString('base64') }
   }
 
@@ -1391,6 +1397,11 @@ export class WorkerBrowsers {
 
   has(workerId: string): boolean {
     return this.sessions.has(workerId)
+  }
+
+  /** Every browser opened so far (a worker's id, or the chat agent's `'agent'`). */
+  ids(): string[] {
+    return [...this.sessions.keys()]
   }
 
   /** The window itself, for the chat agent's live view; null before its first page. */
@@ -1500,19 +1511,30 @@ export class WorkerBrowsers {
     return Boolean(this.sessions.get(workerId)?.control)
   }
 
-  /** Waits while the user has control. True when it had to wait, so the caller knows the page may have changed. */
-  async waitForUser(workerId: string, signal?: AbortSignal): Promise<boolean> {
+  /**
+   * Waits while the user has control. True when it had to wait, so the caller
+   * knows the page may have changed. `stillWaiting` is called every
+   * USER_WAIT_PULSE_MS meanwhile: a run's stall watchdog only hears stream
+   * events, and someone signing in or checking out can easily take longer
+   * than it allows, which would end the run they are helping.
+   */
+  async waitForUser(workerId: string, signal?: AbortSignal, stillWaiting?: () => void): Promise<boolean> {
     const control = this.sessions.get(workerId)?.control
     if (!control) return false
-    await new Promise<void>((resolve, reject) => {
-      if (signal?.aborted) return reject(new Error('aborted'))
-      const onAbort = (): void => reject(new Error('aborted'))
-      signal?.addEventListener('abort', onAbort, { once: true })
-      void control.done.then(() => {
-        signal?.removeEventListener('abort', onAbort)
-        resolve()
+    const pulse = stillWaiting ? setInterval(stillWaiting, USER_WAIT_PULSE_MS) : undefined
+    try {
+      await new Promise<void>((resolve, reject) => {
+        if (signal?.aborted) return reject(new Error('aborted'))
+        const onAbort = (): void => reject(new Error('aborted'))
+        signal?.addEventListener('abort', onAbort, { once: true })
+        void control.done.then(() => {
+          signal?.removeEventListener('abort', onAbort)
+          resolve()
+        })
       })
-    })
+    } finally {
+      clearInterval(pulse)
+    }
     return true
   }
 
@@ -1920,7 +1942,13 @@ export function browserTool(browsers: WorkerBrowsers, options: BrowserToolOption
       const name = el?.name ?? targetWords(input)
       if (action === 'type') return (!el && !name) || SENSITIVE.test(name) || /password/i.test(el?.role ?? '')
       // A purchase authorized for this site through payment_card already had its say.
-      if (action === 'click') return (!el && !name) || (SPENDING.test(name) && !purchaseCovers(ctx.request.chatId, browsers.url(id)))
+      if (action === 'click') {
+        const click = { messageId: ctx.request.messageId, name }
+        // A click on nothing named could be anything, the order button included.
+        if (!el && !name) return !purchaseCovers(ctx.request.chatId, browsers.url(id), { ...click, unnamed: true })
+        // Going to the checkout spends nothing; placing the order there does.
+        return SPENDING.test(name) && !isCheckoutStep(name) && !purchaseCovers(ctx.request.chatId, browsers.url(id), click)
+      }
       return false
     },
     describe: (raw) => {
@@ -1944,7 +1972,7 @@ export function browserTool(browsers: WorkerBrowsers, options: BrowserToolOption
       if (browsers.controlled(id)) {
         options.onStep?.(ctx, { action: 'wait', detail: '', done: false })
         try {
-          await browsers.waitForUser(id, ctx.signal)
+          await browsers.waitForUser(id, ctx.signal, () => ctx.progress(WAITING_FOR_USER))
         } finally {
           options.onStep?.(ctx, { action: 'wait', detail: '', done: true })
         }
@@ -2016,7 +2044,7 @@ export function browserTool(browsers: WorkerBrowsers, options: BrowserToolOption
     const failed: { url: string; error: string }[] = []
     while (queue.length > 0 && saved.length < max) {
       if (ctx.signal.aborted) break
-      if (browsers.controlled(id)) await browsers.waitForUser(id, ctx.signal)
+      if (browsers.controlled(id)) await browsers.waitForUser(id, ctx.signal, () => ctx.progress(WAITING_FOR_USER))
       const url = queue.shift()!
       try {
         browsers.beginStep(id)

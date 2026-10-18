@@ -255,6 +255,8 @@ const api = {
       ipcRenderer.invoke('dialog:open-files', options),
     /** Absolute path of a file dropped onto the window (File.path was removed in Electron 32). */
     pathForFile: (file: File): string => webUtils.getPathForFile(file),
+    /** Saves an image pasted from the clipboard (it has no file of its own) and returns its path, to attach. */
+    savePastedImage: (data: Uint8Array, type: string): Promise<string> => ipcRenderer.invoke('library:save-pasted', data, type),
     /**
      * App-menu commands. Listened for from the start and held until the app
      * subscribes, so a command that opened this window (New Chat with every

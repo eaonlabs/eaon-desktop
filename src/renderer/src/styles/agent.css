@@ -111,12 +111,11 @@
   padding-top: 7px;
   padding-bottom: 7px;
 }
-/* A header too long for its column ends in an ellipsis rather than running
-   into the next one; the body's cells wrap instead (see .tbl__text). */
+/* A header too long for its column wraps between words, as the body's
+   cells do (see .tbl__text): in a narrow window an ellipsis left a column
+   with no readable name. */
 .tbl__head .tbl__text {
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  overflow-wrap: break-word;
 }
 .tbl__body {
   display: flex;

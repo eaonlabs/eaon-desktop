@@ -3,8 +3,8 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { BrowserWindow } from 'electron'
-import type { TerminalAgentId } from '@shared/terminals'
-import { AGENT_KINDS, agentOfArgs, type AgentId } from './agentSessions'
+import type { TerminalAgentId, TerminalRunning } from '@shared/terminals'
+import { AGENT_KINDS, agentOfArgs, programOf, type AgentId } from './agentSessions'
 import type { PaneRecords } from './paneRecords'
 
 const exec = promisify(execFile)
@@ -18,7 +18,8 @@ const exec = promisify(execFile)
  *
  *   1. Which agent is running in the pane right now — so its header's logo
  *      and name follow it. Close Codex and type `opencode`, and the pane stops
- *      claiming to be Codex.
+ *      claiming to be Codex. With no agent, whatever program is in the
+ *      shell's foreground is named instead, so any CLI shows up.
  *   2. Which conversation that agent is holding — so the pane can be brought
  *      back to it after Eaon quits. Most conversations are not started by the
  *      app: you open a shell and type `claude`, and nothing the app was told
@@ -59,6 +60,8 @@ export interface Proc {
   pid: number
   ppid: number
   args: string
+  /** In its terminal's foreground (`+` in ps's state); a job sent to the background with `&` is not. Unknown counts as yes. */
+  fg?: boolean
 }
 
 export interface WatchDeps {
@@ -85,11 +88,11 @@ interface Watched {
 /* ------------------------------------------------------------------ processes */
 
 export async function processTable(): Promise<Proc[]> {
-  const { stdout } = await exec('ps', ['-Ao', 'pid=,ppid=,args='], { maxBuffer: 8 * 1024 * 1024, timeout: 8000 })
+  const { stdout } = await exec('ps', ['-Ao', 'pid=,ppid=,stat=,args='], { maxBuffer: 8 * 1024 * 1024, timeout: 8000 })
   const out: Proc[] = []
   for (const line of stdout.split('\n')) {
-    const m = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line)
-    if (m) out.push({ pid: Number(m[1]), ppid: Number(m[2]), args: m[3] })
+    const m = /^\s*(\d+)\s+(\d+)\s+(\S+)\s+(.*)$/.exec(line)
+    if (m) out.push({ pid: Number(m[1]), ppid: Number(m[2]), args: m[4], fg: m[3].includes('+') })
   }
   return out
 }
@@ -120,6 +123,24 @@ export function agentUnder(shellPid: number, kids: Map<number, Proc[]>): { proc:
     const agent = agentOfArgs(proc.args)
     if (agent) return { proc, agent }
     queue.push(...(kids.get(proc.pid) ?? []))
+  }
+  return null
+}
+
+/**
+ * What a pane's shell is running in its foreground, named (`programOf`), when
+ * it is no agent: any CLI at all. Through nested shells, to what they run.
+ * Null when the shell is just waiting at its prompt.
+ */
+export function foregroundUnder(shellPid: number, kids: Map<number, Proc[]>, depth = 0): string | null {
+  if (depth > 4) return null
+  // A pipeline is several at once; the last started (`… | less`) is the one on screen.
+  const front = (kids.get(shellPid) ?? []).filter((proc) => proc.fg !== false)
+  for (const proc of [...front].sort((a, b) => b.pid - a.pid)) {
+    const name = programOf(proc.args)
+    if (name) return name
+    const inner = foregroundUnder(proc.pid, kids, depth + 1)
+    if (inner) return inner
   }
   return null
 }
@@ -244,7 +265,7 @@ export class SessionWatch {
   private lastTick = 0
   private watched = new Map<string, Watched>()
   /** What each pane was last reported as running, so only changes are sent. */
-  private running = new Map<string, TerminalAgentId>()
+  private running = new Map<string, TerminalRunning>()
   /** The program each pane was last seen running, by pid, so its folder is asked once. */
   private programs = new Map<string, { pid: number; line: string | null }>()
   /** Ticks never overlap; a slow `ps` must not start a second pass. */
@@ -260,8 +281,8 @@ export class SessionWatch {
      */
     private readonly settling: (paneId: string) => boolean,
     private readonly records: PaneRecords,
-    /** Told when the agent running in a pane changes — 'shell' for none. */
-    private readonly onAgent: (paneId: string, agent: TerminalAgentId) => void,
+    /** Told when what runs in a pane changes — 'shell' for no agent, with the program in its foreground if any. */
+    private readonly onAgent: (paneId: string, agent: TerminalAgentId, program?: string) => void,
     private readonly deps: WatchDeps = DEFAULT_DEPS
   ) {}
 
@@ -293,13 +314,13 @@ export class SessionWatch {
   }
 
   /** What each pane is running, as of the last tick. */
-  snapshot(): Record<string, TerminalAgentId> {
+  snapshot(): Record<string, TerminalRunning> {
     return Object.fromEntries(this.running)
   }
 
   /** Tells the watch what a pane was just started as, so it is not reported back as news. */
   expect(paneId: string, agent: TerminalAgentId): void {
-    this.running.set(paneId, agent)
+    this.running.set(paneId, { agent })
   }
 
   async tick(): Promise<void> {
@@ -319,10 +340,12 @@ export class SessionWatch {
         const found = agentUnder(shellPid, kids)
         const settling = this.settling(paneId)
         const now: TerminalAgentId = found?.agent ?? 'shell'
+        const program = found ? undefined : (foregroundUnder(shellPid, kids) ?? undefined)
+        const was = this.running.get(paneId)
         // A pane still starting its agent shows what it was opened as.
-        if (!(settling && !found) && this.running.get(paneId) !== now) {
-          this.running.set(paneId, now)
-          this.onAgent(paneId, now)
+        if (!(settling && !found) && (was?.agent !== now || was.program !== program)) {
+          this.running.set(paneId, program ? { agent: now, program } : { agent: now })
+          this.onAgent(paneId, now, program)
         }
 
         if (!found) {

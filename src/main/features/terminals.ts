@@ -2,12 +2,13 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { app } from 'electron'
 import type { Feature } from './types'
-import { PtyManager, type RestorePlan } from './terminals/ptyManager'
+import { loginShell, PtyManager, type RestorePlan } from './terminals/ptyManager'
+import { quoteArg, quoteCommand, shellKindOf, type ShellKind } from './terminals/shellQuote'
 import { AGENT_KINDS, setAgentScript, setExtraAgentBin } from './terminals/agentSessions'
 import { PaneRecords, restoredScreen } from './terminals/paneRecords'
 import { outsidePaneEnv } from './terminals/outsidePanes'
 import { cwdsOf, SessionWatch } from './terminals/sessionWatch'
-import { onPath } from '../shellEnv'
+import { onPath, refreshWindowsPath } from '../shellEnv'
 import { secrets } from '../secrets'
 import { store } from '../store'
 import { buildChildEnv } from './eaonCode/env'
@@ -18,12 +19,14 @@ import { defaultDir, hasRollout } from './cliAccounts/folders'
 import { adeHistory } from './ade/history'
 import { sshHosts } from './ade'
 import { remoteShellCommand, sshArgv, sshBinary } from './ade/ssh'
+import { onWorktreeRemoval } from './ade/git'
 import { remoteLocation } from '@shared/adeRemote'
 import type { CodexPane } from '@shared/cliAccounts'
-import { currentPane, PANE_NAMES, privacyBlockedMessage, type TerminalAgent, type TerminalAgentId, type TerminalLayout, type TerminalPaneSpec, type TerminalSpawnRequest, type TerminalSpawnResult } from '@shared/terminals'
+import { currentPane, OTHER_AGENT_IDS, PANE_NAMES, PROMPT_ARG, privacyBlockedMessage, type HandoffRequest, type HandoffResult, type OtherAgentId, type TerminalAgent, type TerminalAgentId, type TerminalLayout, type TerminalPaneSpec, type TerminalSpawnRequest, type TerminalSpawnResult } from '@shared/terminals'
 import { noteOutput, quietActivity, wentQuiet, type Activity } from '@shared/terminalActivity'
 import { taskFromTerminalTitle } from '@shared/adeSessions'
 import { randomUUID } from 'node:crypto'
+import { gitSummary, handoffDocument, handoffFileName, handoffPrompt, transcriptTurns, writeHandoff } from './terminals/handoff'
 
 /**
  * The ADE's terminal view: real shells in the project folder, each optionally
@@ -33,7 +36,44 @@ import { randomUUID } from 'node:crypto'
 
 const LAYOUT_FILE = 'ade-terminals.json'
 
-const AGENTS: { id: TerminalAgentId; label: string; bin: string | null; installHint?: string }[] = [
+/**
+ * The other coding CLIs a pane recognises (agentSessions.ts), and how each is
+ * started. A full record, so one added to OTHER_AGENT_IDS without a line here
+ * doesn't build.
+ */
+const OTHER_AGENTS: Record<OtherAgentId, { label: string; bin: string }> = {
+  cursor: { label: 'Cursor CLI', bin: 'cursor-agent' },
+  gemini: { label: 'Gemini CLI', bin: 'gemini' },
+  grok: { label: 'Grok', bin: 'grok' },
+  qwen: { label: 'Qwen Code', bin: 'qwen' },
+  copilot: { label: 'GitHub Copilot', bin: 'copilot' },
+  amp: { label: 'Amp', bin: 'amp' },
+  droid: { label: 'Droid', bin: 'droid' },
+  kimi: { label: 'Kimi CLI', bin: 'kimi' },
+  cline: { label: 'Cline', bin: 'cline' },
+  goose: { label: 'Goose', bin: 'goose' },
+  kilo: { label: 'Kilo Code', bin: 'kilocode' },
+  junie: { label: 'Junie', bin: 'junie' },
+  kiro: { label: 'Kiro', bin: 'kiro-cli' },
+  openhands: { label: 'OpenHands', bin: 'openhands' },
+  aider: { label: 'Aider', bin: 'aider' },
+  crush: { label: 'Crush', bin: 'crush' },
+  warp: { label: 'Warp', bin: 'warp' },
+  codebuddy: { label: 'CodeBuddy', bin: 'codebuddy' },
+  qoder: { label: 'Qoder', bin: 'qodercli' },
+  trae: { label: 'Trae Agent', bin: 'trae-cli' },
+  vibe: { label: 'Mistral Vibe', bin: 'vibe' },
+  hermes: { label: 'Hermes Agent', bin: 'hermes' },
+  openclaw: { label: 'OpenClaw', bin: 'openclaw' },
+  auggie: { label: 'Auggie', bin: 'auggie' },
+  codebuff: { label: 'Codebuff', bin: 'codebuff' },
+  continue: { label: 'Continue', bin: 'cn' },
+  plandex: { label: 'Plandex', bin: 'plandex' },
+  jules: { label: 'Jules', bin: 'jules' },
+  qodo: { label: 'Qodo', bin: 'qodo' }
+}
+
+const AGENTS: { id: TerminalAgentId; label: string; bin: string | null; installHint?: string; other?: boolean }[] = [
   { id: 'eaon-code', label: 'Eaon Code', bin: 'eaon-code', installHint: 'Settings → Eaon Code' },
   // Ships inside the app; a source checkout builds it with scripts/build-eaon-cli.sh.
   { id: 'eaon-cli', label: 'Eaon CLI', bin: 'eaon-cli', installHint: 'npm run build:eaon-cli' },
@@ -49,12 +89,13 @@ const AGENTS: { id: TerminalAgentId; label: string; bin: string | null; installH
         : 'curl -fsSL https://antigravity.google/cli/install.sh | bash'
   },
   { id: 'opencode', label: 'OpenCode', bin: 'opencode', installHint: 'npm install -g opencode-ai' },
+  ...OTHER_AGENT_IDS.map((id) => ({ id, ...OTHER_AGENTS[id], other: true })),
   { id: 'shell', label: 'Shell', bin: null }
 ]
 
-/** A path typed into a shell: quoted when it needs to be. */
-function shellQuote(value: string): string {
-  return /^[\w@%+=:,./-]+$/.test(value) ? value : `'${value.replace(/'/g, `'\\''`)}'`
+/** The syntax a local pane's shell reads (shellQuote.ts): PowerShell on Windows, POSIX elsewhere. */
+function paneShellKind(): ShellKind {
+  return shellKindOf(loginShell())
 }
 
 /**
@@ -64,10 +105,10 @@ function shellQuote(value: string): string {
  * `eaon-code` wrapper it writes: the wrapper fetches and rebuilds on start,
  * and the panes a launch restores would all rebuild one folder at once.
  */
-function eaonCodeCommand(pinned: string | null): string | null {
-  if (pinned) return /\.[cm]?js$/i.test(pinned) ? `node ${shellQuote(pinned)}` : shellQuote(pinned)
+function eaonCodeCommand(pinned: string | null, kind: ShellKind): string | null {
+  if (pinned) return /\.[cm]?js$/i.test(pinned) ? `node ${quoteArg(pinned, kind)}` : quoteCommand(pinned, kind)
   const copy = findInstallerCopy()
-  if (copy) return `node ${shellQuote(copy.cli)}`
+  if (copy) return `node ${quoteArg(copy.cli, kind)}`
   return onPath('eaon-code') ? 'eaon-code' : null
 }
 
@@ -81,21 +122,23 @@ function agents(): TerminalAgent[] {
   // Eaon CLI runs from inside the app, wherever the app is — spaces and all.
   const eaonCli = eaonCliBinary()
   setAgentScript(eaonCli, 'eaon-cli')
-  return AGENTS.map(({ id, label, bin, installHint }) => {
+  const kind = paneShellKind()
+  return AGENTS.map(({ id, label, bin, installHint, other }) => {
     if (!bin) return { id, label, command: null, installed: true }
     if (id === 'eaon-code') {
-      const command = eaonCodeCommand(eaonBinary || null)
+      const command = eaonCodeCommand(eaonBinary || null, kind)
       return { id, label, command: command ?? bin, installed: Boolean(command), ...(installHint ? { installHint } : {}) }
     }
     if (id === 'eaon-cli') {
-      return { id, label, command: eaonCli ? shellQuote(eaonCli) : bin, installed: Boolean(eaonCli), ...(installHint ? { installHint } : {}) }
+      return { id, label, command: eaonCli ? quoteCommand(eaonCli, kind) : bin, installed: Boolean(eaonCli), ...(installHint ? { installHint } : {}) }
     }
     return {
       id,
       label,
       command: bin,
       installed: Boolean(onPath(bin)),
-      ...(installHint ? { installHint } : {})
+      ...(installHint ? { installHint } : {}),
+      ...(other ? { other } : {})
     }
   })
 }
@@ -149,17 +192,20 @@ function isDir(dir: string | undefined): dir is string {
  * conversation (`claude --resume <id>`, `codex resume <id>`). The id goes into
  * a shell command line, so only an id shaped like the agent's own is used.
  */
-/** Agents that take a first task on their command line. */
-const PROMPTABLE = new Set(['claude', 'codex'])
 
 /**
  * A pane given a task starts its agent on it: `claude '<task>'`. Quoted for
- * the shell whole, so nothing in it is run; one line, as the ADE makes it.
+ * the pane's shell whole, so nothing in it is run; one line, as the ADE makes it.
  */
-export function promptLine(req: TerminalSpawnRequest): TerminalSpawnRequest {
-  const prompt = req.prompt?.replace(/[\r\n]+/g, ' ').trim()
-  if (!prompt || req.resume || !req.command || !req.agent || !PROMPTABLE.has(req.agent)) return req
-  return { ...req, command: `${req.command} '${prompt.replace(/'/g, `'\\''`)}'` }
+export function promptLine(req: TerminalSpawnRequest, kind: ShellKind = paneShellKind()): TerminalSpawnRequest {
+  let prompt = req.prompt?.replace(/[\r\n]+/g, ' ').trim()
+  const style = req.agent ? PROMPT_ARG[req.agent] : undefined
+  if (!prompt || req.resume || !req.command || !style) return req
+  // Windows PowerShell 5.1 hands an argument's double quotes to the program
+  // unescaped, and cmd can't escape one inside quotes: either way the task
+  // would arrive cut in pieces. It reads the same with single ones.
+  if (kind !== 'posix') prompt = prompt.replace(/"/g, "'")
+  return { ...req, command: `${req.command} ${style === 'positional' ? '' : `${style} `}${quoteArg(prompt, kind)}` }
 }
 
 export function resumeLine(req: TerminalSpawnRequest): TerminalSpawnRequest {
@@ -247,6 +293,36 @@ export function createTerminals(options: TerminalsOptions = {}): Feature & { tic
   }
 
   /**
+   * Writes a pane's conversation into its project for another agent to pick
+   * up (terminals/handoff.ts) and says what to start that agent on. The pane
+   * itself is left as it is.
+   */
+  const handOff = async (req: HandoffRequest): Promise<HandoffResult> => {
+    if (!req || typeof req.paneId !== 'string' || typeof req.cwd !== 'string' || !req.cwd) return { ok: false, error: 'No terminal to hand off from.' }
+    if (remoteLocation(req.cwd)) return { ok: false, error: 'Handing off works in folders on this computer for now, not on a remote host.' }
+    if (!isDir(req.cwd)) return { ok: false, error: `${req.cwd} isn't there any more.` }
+    const known = await listAgents()
+    const label = (id: TerminalAgentId): string => known.find((a) => a.id === id)?.label ?? id
+    const to = known.find((a) => a.id === req.to)
+    if (!to || to.id === 'shell' || !to.installed || !to.command) return { ok: false, error: `${label(req.to)} isn't installed on this computer.` }
+    const record = paneRecords().get(req.paneId)
+    // What the watch saw running wins over what the pane was opened as: Codex typed into a Claude pane is Codex.
+    const from = record && record.agent !== 'shell' ? record.agent : req.from
+    const fromLabel = from === 'shell' ? 'the previous agent' : label(from)
+    const at = new Date()
+    try {
+      // Filed under the folder the agent itself reported (the real path, past any symlink).
+      const [turns, git] = await Promise.all([transcriptTurns(from, record?.cwd || req.cwd, record?.sessionId), gitSummary(req.cwd)])
+      const screen = turns ? null : typeof req.screen === 'string' ? req.screen.slice(-400_000) : null
+      const markdown = handoffDocument({ fromLabel, toLabel: to.label, turns, screen, note: typeof req.note === 'string' ? req.note.slice(0, 4000) : '', git, at })
+      const file = await writeHandoff(req.cwd, handoffFileName(fromLabel, to.label, at), markdown)
+      return { ok: true, file, prompt: handoffPrompt(file, fromLabel), source: turns ? 'transcript' : 'screen' }
+    } catch (error) {
+      return { ok: false, error: `Couldn't write the handoff: ${error instanceof Error ? error.message : String(error)}` }
+    }
+  }
+
+  /**
    * How a pane comes back from the last run, or null when there is nothing
    * to bring back. The record of what was running wins over what the pane was
    * opened as: most agents are started by typing their name into a shell, and
@@ -330,7 +406,7 @@ export function createTerminals(options: TerminalsOptions = {}): Feature & { tic
     const running = watch?.snapshot() ?? {}
     const target = cliToolEnv('codex').CODEX_HOME ?? defaultDir('codex')
     const out: CodexPane[] = []
-    for (const [paneId, agent] of Object.entries(running)) {
+    for (const [paneId, { agent }] of Object.entries(running)) {
       if (agent !== 'codex' || !manager.has(paneId) || !codexHomes.has(paneId)) continue
       const sessionId = paneRecords().get(paneId)?.sessionId ?? null
       out.push({
@@ -478,12 +554,22 @@ export function createTerminals(options: TerminalsOptions = {}): Feature & { tic
         () => manager.pids(),
         (paneId) => manager.settling(paneId),
         paneRecords(),
-        (paneId, agent) => send('terminal:agent', { paneId, agent })
+        (paneId, agent, program) => send('terminal:agent', { paneId, agent, ...(program ? { program } : {}) })
       )
       watch.start()
 
-      ipcMain.handle('terminal:agents', () => listAgents())
+      // Asked again whenever the ADE is looked at, so a CLI installed since shows up. On
+      // Windows the PATH Eaon started with doesn't have what was installed after it.
+      ipcMain.handle('terminal:agents', async () => {
+        await refreshWindowsPath()
+        return listAgents()
+      })
+      // A session's worktree is deleted only once every shell in it is gone:
+      // Windows won't delete a folder a process is in.
+      onWorktreeRemoval((dir) => manager.closeIn(dir))
       ipcMain.handle('terminal:spawn', (_e, req: TerminalSpawnRequest) => spawnPane(req))
+      // Another agent takes over a pane's work: its conversation written into the project for it to read.
+      ipcMain.handle('terminal:handoff', (_e, req: HandoffRequest) => handOff(req))
       ipcMain.handle('terminal:running', () => watch?.snapshot() ?? {})
       // The conversation each pane is in, as far as the watch has seen: the ADE's
       // sidebar lists a folder's past conversations without the ones open in a pane.

@@ -162,9 +162,16 @@ export function loginShell(): string {
   return '/bin/sh'
 }
 
-/** `-l` for shells known to take it: a login shell sources the profile, which is where `claude` gets onto PATH. */
-function shellArgs(shell: string): string[] {
-  if (process.platform === 'win32') return /(pwsh|powershell)\.exe$/i.test(shell) ? ['-NoLogo'] : []
+/**
+ * `-l` for shells known to take it: a login shell sources the profile, which
+ * is where `claude` gets onto PATH. PowerShell gets an execution policy for
+ * this process only: Windows PowerShell's default refuses every script,
+ * and npm installs each CLI (`codex`, `claude`, `gemini`…) with a `.ps1`
+ * shim that PowerShell picks over the `.cmd` one — so on a fresh machine
+ * none of them would start.
+ */
+export function shellArgs(shell: string, platform: NodeJS.Platform = process.platform): string[] {
+  if (platform === 'win32') return /(pwsh|powershell)(\.exe)?$/i.test(shell) ? ['-NoLogo', '-ExecutionPolicy', 'Bypass'] : []
   return ['bash', 'zsh', 'fish', 'sh', 'dash', 'ksh'].includes(path.basename(shell).toLowerCase()) ? ['-l'] : []
 }
 
@@ -181,6 +188,8 @@ export class PtyManager {
   private muted = false
   private nextToken = 1
   private reaping = new Map<number, () => void>()
+  /** Shells killed but not yet gone, by spawn token, with their folder: what `closeIn` waits for. */
+  private ending = new Map<number, { folder: string; done: Promise<void>; resolve: () => void }>()
 
   constructor(private readonly settleMs = SETTLE_MS) {}
 
@@ -212,6 +221,11 @@ export class PtyManager {
   }
 
   private settle(token: number): void {
+    const ending = this.ending.get(token)
+    if (ending) {
+      this.ending.delete(token)
+      ending.resolve()
+    }
     const done = this.reaping.get(token)
     if (!done) return
     this.reaping.delete(token)
@@ -244,7 +258,9 @@ export class PtyManager {
     restore: RestorePlan | null = null,
     remote: { bin: string; argv: string[] } | null = null
   ): TerminalSpawnResult {
-    const folder = remote ? req.cwd : req.cwd && fs.existsSync(req.cwd) ? req.cwd : os.homedir()
+    // No folder asked for is the home folder; a folder asked for that isn't
+    // there is an error below, never quietly the home folder instead.
+    const folder = remote ? req.cwd : req.cwd || os.homedir()
     const cwd = remote ? os.homedir() : restore?.cwd && isDir(restore.cwd) ? restore.cwd : folder
     const command = restore ? restore.command : req.command
 
@@ -263,6 +279,12 @@ export class PtyManager {
       return { ok: true, reattached: true, replay: existing.history.join('') }
     }
     this.kill(req.paneId)
+    // Moved, renamed or deleted since (a worktree removed outside Eaon, a
+    // drive unplugged): a shell in the home folder would look like the
+    // project's, and an agent started there would work on the wrong files.
+    if (!remote && !isDir(folder)) {
+      return { ok: false, error: `${folder} isn’t there any more. It may have been moved, renamed or deleted.` }
+    }
 
     const shell = remote ? remote.bin : loginShell()
     try {
@@ -426,6 +448,11 @@ export class PtyManager {
   kill(paneId: string): void {
     const s = this.sessions.get(paneId)
     if (!s) return
+    if (!this.ending.has(s.token)) {
+      let resolve: () => void = () => undefined
+      const done = new Promise<void>((r) => (resolve = r))
+      this.ending.set(s.token, { folder: s.folder, done, resolve })
+    }
     s.alive = false
     if (s.timer) clearTimeout(s.timer)
     if (s.commandTimer) clearTimeout(s.commandTimer)
@@ -436,6 +463,26 @@ export class PtyManager {
       /* already gone */
     }
     this.sessions.delete(paneId)
+  }
+
+  /**
+   * Ends every local shell started in `dir` (or a folder inside it) and waits
+   * until they, and any already ending there, are gone — at most `timeoutMs`.
+   * Before a folder is deleted: Windows refuses while a process is in it.
+   */
+  async closeIn(dir: string, timeoutMs = 5000): Promise<void> {
+    const root = path.resolve(dir)
+    const inside = (folder: string): boolean => {
+      const rel = path.relative(root, path.resolve(folder))
+      return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))
+    }
+    for (const [paneId, s] of [...this.sessions]) if (!s.remote && inside(s.folder)) this.kill(paneId)
+    const waits = [...this.ending.values()].filter((e) => inside(e.folder)).map((e) => e.done)
+    if (!waits.length) return
+    const wait = (ms: number): Promise<void> => new Promise<void>((resolve) => setTimeout(resolve, ms).unref())
+    await Promise.race([Promise.all(waits).then(() => undefined), wait(timeoutMs)])
+    // Windows lets go of a process's folder a moment after the exit is reported.
+    if (process.platform === 'win32') await wait(250)
   }
 
   has(paneId: string): boolean {

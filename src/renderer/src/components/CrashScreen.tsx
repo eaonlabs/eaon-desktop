@@ -153,7 +153,14 @@ const CRASH_LOG: Record<string, string> = {
 
 function showCrashLog(): void {
   try {
-    void window.api.app.showItem(CRASH_LOG[window.api.platform] ?? CRASH_LOG.linux).catch(() => undefined)
+    const file = CRASH_LOG[window.api.platform] ?? CRASH_LOG.linux
+    // Nothing logged yet (a failure at startup, before the log was written):
+    // the folder, or Eaon's data folder, rather than a button that does nothing.
+    const folder = file.slice(0, file.lastIndexOf('/'))
+    const data = folder.slice(0, folder.lastIndexOf('/'))
+    void (async () => {
+      for (const path of [file, folder, data]) if (await window.api.app.showItem(path).catch(() => false)) return
+    })()
   } catch {
     // The preload bridge is what broke. Help › Show Crash Log in the menu bar does the same from main.
   }

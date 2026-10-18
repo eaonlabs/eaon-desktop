@@ -167,3 +167,10 @@
   font-size: 10px;
   color: var(--text-3);
 }
+
+/* In first-run setup, instead of a "Set up" button that would open Settings behind it. */
+.la__later {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  white-space: nowrap;
+}

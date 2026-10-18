@@ -447,6 +447,12 @@
 .model-notice__actions .btn svg {
   margin-right: 2px;
 }
+/* The event code box (components/RedeemCode.tsx), opened under the notice's buttons. */
+.model-notice__code .free-code {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-soft);
+}
 @keyframes model-notice-in {
   from {
     opacity: 0;

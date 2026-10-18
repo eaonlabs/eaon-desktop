@@ -101,7 +101,7 @@ function CardForm({ onSaved, onCancel }: { onSaved: (status: PaymentsStatus) => 
           <input className="input pay-mono" type="password" inputMode="numeric" autoComplete="off" value={cvc} placeholder="CVC" maxLength={4} onChange={(e) => setCvc(e.target.value.replace(/\D/g, ''))} />
         </label>
         <label className="pay-field">
-          <span>Billing ZIP or postcode</span>
+          <span>ZIP or postcode</span>
           <input className="input" autoComplete="off" value={zip} onChange={(e) => setZip(e.target.value)} />
         </label>
       </div>

@@ -51,7 +51,7 @@ import {
   type WorkerDelegation
 } from '@shared/workers'
 import type { GuestAccess } from '@shared/channels'
-import type { TurnOrigin } from '../../agent/policy'
+import type { ToolGate, TurnOrigin } from '../../agent/policy'
 import { summariseReply } from '../scheduler/transcript'
 import type { TradingVenue } from '../trading/access'
 import { isOpen, nextOpen } from '../trading/marketHours'
@@ -143,6 +143,24 @@ export interface WorkersDeps {
   concurrency?: number
   /** The current IANA time zone (default: the machine's, kept current across a change of zone). */
   zone?: () => string
+  /**
+   * A routine with more to it than its task — a purchase schedule, or the
+   * tracking of an order it placed (workers/purchases.ts): what its run is
+   * told instead of the task, the access it runs at and the tools it may
+   * use. Asked as the run starts, with the run's message id; null runs it
+   * like any routine. `asked`: not the routine's own time, but the user
+   * writing in its thread ("order it now"), which runs under the same terms.
+   */
+  routineTurn?: (worker: Worker, routine: WorkerRoutine, messageId: string, asked?: boolean) => RoutineTurn | null
+  /** That routine's run ended (after it was recorded): its follow-up. */
+  routineEnded?: (worker: Worker, routine: WorkerRoutine, messageId: string, outcome: TurnOutcome) => void
+}
+
+/** How a routine's run differs from its task as written (see `WorkersDeps.routineTurn`). */
+export interface RoutineTurn {
+  task: string
+  access: WorkerAccess
+  toolGate?: ToolGate
 }
 
 /**
@@ -212,6 +230,8 @@ interface Running {
   origin: TurnOrigin
   /** A routine this run is for (its own thread). */
   routineId: string | null
+  /** That routine ran with its own brief (`WorkersDeps.routineTurn`), so it hears when the run ends. */
+  routineTurned: boolean
   /** A delegated job this run works on (its own thread). */
   delegationId: string | null
   /** The delegated job this run finished with finish_handoff, if it did. */
@@ -613,7 +633,9 @@ export class WorkersEngine {
       for (const { threadId } of this.slotsOf(worker, true)) {
         const latest = this.runs.latest(worker.id, threadId)
         if (!latest || latest.state !== 'interrupted' || latest.sideEffects || latest.trigger.kind === 'resume') continue
-        if (now - (latest.endedAt ?? 0) > DAY) continue
+        // Aged from when it started: recovery stamps `endedAt` with this
+        // launch, which would make a run cut off weeks ago look a moment old.
+        if (now - (latest.startedAt ?? latest.queuedAt) > DAY) continue
         this.resumes.set(slotKey(worker.id, threadId), latest)
       }
       if (worker.paused) worker.status = 'paused'
@@ -1652,25 +1674,43 @@ export class WorkersEngine {
     if (this.workers.length + roles.length > MAX_WORKERS) {
       throw new Error(`That would make ${this.workers.length + roles.length} workers; the most is ${MAX_WORKERS}. Remove some, or add existing workers to the team instead.`)
     }
-    const created: Worker[] = []
-    for (const role of roles) {
-      const base = str(role.name) || str(role.role)
+    // Everything that could refuse is checked before the first worker is
+    // made, so a refused team doesn't leave half its specialists behind.
+    if (this.roomsFile.rooms.length >= MAX_ROOMS) throw new Error(`You can have up to ${MAX_ROOMS} group chats. Remove one to make room for the team’s.`)
+    const taken = new Set(this.workers.map((w) => w.name.toLowerCase()))
+    const names = roles.map((role) => {
+      // Names are kept to 40 characters (see save), the " 2" included.
+      const base = (str(role.name) || str(role.role)).replace(/\s+/g, ' ').slice(0, 40).trim()
       let candidate = base
-      for (let n = 2; this.workers.some((w) => w.name.toLowerCase() === candidate.toLowerCase()); n++) candidate = `${base} ${n}`
-      created.push(
-        this.save({
-          name: candidate,
-          color: role.color ?? '',
-          personality: str(role.personality),
-          purpose: `${str(role.purpose)} Part of the "${name}" team.`,
-          ...(draft.access ? { access: draft.access } : {}),
-          ...(draft.model !== undefined ? { model: draft.model } : {})
-        })
-      )
+      for (let n = 2; taken.has(candidate.toLowerCase()); n++) candidate = `${base.slice(0, 40 - ` ${n}`.length).trim()} ${n}`
+      taken.add(candidate.toLowerCase())
+      return candidate
+    })
+    const created: Worker[] = []
+    let room: WorkerRoom | null = null
+    try {
+      roles.forEach((role, i) => {
+        created.push(
+          this.save({
+            name: names[i],
+            color: role.color ?? '',
+            personality: str(role.personality),
+            purpose: `${str(role.purpose)} Part of the "${name}" team.`,
+            ...(draft.access ? { access: draft.access } : {}),
+            ...(draft.model !== undefined ? { model: draft.model } : {})
+          })
+        )
+      })
+      room = this.saveRoom({ name, members: [...created.map((w) => w.id), ...existing] })
+      if (str(draft.kickoff)) this.postAsUser(room.id, str(draft.kickoff))
+      return { room: clone(this.requireRoom(room.id)), workers: created }
+    } catch (error) {
+      // Refused before its group chat was made: the workers made for it go
+      // again (nothing has run on them yet). Once the room exists the team
+      // does, and only the kickoff failed.
+      if (!room) for (const worker of created) void this.remove(worker.id)
+      throw error
     }
-    const room = this.saveRoom({ name, members: [...created.map((w) => w.id), ...existing] })
-    if (str(draft.kickoff)) this.postAsUser(room.id, str(draft.kickoff))
-    return { room: clone(this.requireRoom(room.id)), workers: created }
   }
 
   private requireRoom(roomId: string): WorkerRoom {
@@ -1938,15 +1978,79 @@ export class WorkersEngine {
     const worker = this.require(id)
     const removed = worker.routines.filter((r) => r.name.toLowerCase() === str(name).toLowerCase())
     if (removed.length === 0) throw new Error(`No routine called "${name}".`)
+    this.dropRoutines(worker, removed)
+    return `Removed routine "${name}".`
+  }
+
+  /** `removeRoutine` by id: the UI's stop button, and a purchase schedule that has placed all its orders. */
+  removeRoutineById(id: string, routineId: string): void {
+    const worker = this.require(id)
+    const removed = worker.routines.filter((r) => r.id === routineId)
+    if (removed.length) this.dropRoutines(worker, removed)
+  }
+
+  private dropRoutines(worker: Worker, removed: WorkerRoutine[]): void {
     worker.routines = worker.routines.filter((r) => !removed.includes(r))
     for (const routine of removed) {
       const info = routine.threadId ? this.info(worker, routine.threadId) : undefined
-      if (!info) continue
-      this.dropWaiting(id, info.id, 'Its routine was removed.')
-      if (!this.running.has(slotKey(id, info.id))) info.closedAt = info.closedAt ?? this.now()
+      // A purchase schedule and its orders' tracking share a thread: it closes with the last of them.
+      if (!info || worker.routines.some((r) => r.threadId === info.id)) continue
+      this.dropWaiting(worker.id, info.id, 'Its routine was removed.')
+      if (!this.running.has(slotKey(worker.id, info.id))) info.closedAt = info.closedAt ?? this.now()
     }
     this.commit()
-    return `Removed routine "${name}".`
+  }
+
+  /**
+   * A routine set up whole by the app rather than the worker (a purchase
+   * schedule from its dialog, the tracking of an order it placed): added, or
+   * replacing the one with its id, keeping that one's runs and thread. Its
+   * first run is at `nextAt` exactly; after that, every `everyMs`.
+   */
+  putRoutine(id: string, input: Omit<WorkerRoutine, 'id' | 'runs' | 'marketHours' | 'zone'> & { id?: string }): WorkerRoutine {
+    const worker = this.require(id)
+    const name = str(input.name).slice(0, 80)
+    if (!name) throw new Error('Give the routine a name.')
+    if (!Number.isFinite(input.nextAt)) throw new Error('Say when it first runs.')
+    const existing = input.id ? worker.routines.find((r) => r.id === input.id) : undefined
+    if (!existing && worker.routines.length >= MAX_ROUTINES) {
+      throw new Error(`${worker.name} already has ${MAX_ROUTINES} routines. Remove one it no longer needs first.`)
+    }
+    const fields = {
+      name,
+      task: str(input.task).slice(0, 2000),
+      everyMs: input.everyMs && input.everyMs > 0 ? Math.max(input.everyMs, MIN_HEARTBEAT_MS) : null,
+      daily: null,
+      nextAt: input.nextAt,
+      ...(input.purchase ? { purchase: input.purchase } : {}),
+      ...(input.watch ? { watch: input.watch } : {}),
+      ...(typeof input.anchorAt === 'number' && Number.isFinite(input.anchorAt) ? { anchorAt: input.anchorAt } : {}),
+      ...(input.threadId && this.info(worker, input.threadId) ? { threadId: input.threadId } : {})
+    }
+    let routine: WorkerRoutine
+    if (existing) {
+      routine = Object.assign(existing, fields)
+      if (!input.purchase) delete routine.purchase
+      if (!input.watch) delete routine.watch
+      if (input.anchorAt === undefined) delete routine.anchorAt
+    } else {
+      routine = { id: input.id ?? randomUUID(), ...fields, runs: [] }
+      worker.routines.push(routine)
+    }
+    if (worker.status === 'asleep') worker.status = 'idle'
+    this.commit()
+    this.tick()
+    return clone(routine)
+  }
+
+  /** A routine's next run, now (a purchase schedule's "Buy now"). One already running is left to finish. */
+  runRoutineNow(id: string, routineId: string): void {
+    const worker = this.require(id)
+    const routine = worker.routines.find((r) => r.id === routineId)
+    if (!routine) throw new Error('That routine isn’t there any more.')
+    routine.nextAt = this.now()
+    this.commit()
+    this.tick()
   }
 
   /** The worker's own record of what it is working towards and what it has learned. */
@@ -2382,13 +2486,17 @@ export class WorkersEngine {
   /**
    * A routine that comes due while its previous run is still going is
    * skipped, not stacked (the overlap policy is "skip"): its receipt says so
-   * and the next occurrence is scheduled from now.
+   * and the next occurrence is scheduled from now. A one-off (a purchase
+   * bought once) has no next occurrence: the run going is its only one, and
+   * the placeholder `begin` gives it would otherwise log "Skipped" every
+   * minute of a long run.
    */
   private skipOverlappingRoutines(now: number): boolean {
     let changed = false
     for (const worker of this.workers) {
       if (worker.paused) continue
       for (const routine of worker.routines) {
+        if (!routine.everyMs && !routine.daily) continue
         if (routine.nextAt > now || !routine.threadId || !this.running.has(slotKey(worker.id, routine.threadId))) continue
         this.runs.create({
           workerId: worker.id,
@@ -2582,11 +2690,20 @@ export class WorkersEngine {
     const waitingOn = this.delegationList
       .filter((d) => isOpenDelegation(d) && d.parent.workerId === worker.id && d.parent.threadId === threadId)
       .map((d) => ({ id: d.id, to: d.recipient.name, objective: d.objective, state: d.state }))
-    const user = buildTurnMessage(mail, note, now, routine ? [routine] : [], cap, goalRun && !setsGoal ? goalRun.text : null, {
+    const assistantId = randomUUID()
+    // The user writing in a purchase schedule's thread ("order it now") gets
+    // the schedule's terms for this turn, not a worker with no card or checkout.
+    const asked = !routine && !cap && origin === 'user' && mail.some((m) => m.from === 'user' && !m.channel) ? worker.routines.find((r) => r.threadId === threadId && r.purchase) : undefined
+    const turned = routine ?? asked
+    // A purchase schedule's run: its own brief, access and tools (see WorkersDeps.routineTurn).
+    const special = turned && !cap ? (this.deps.routineTurn?.(clone(worker), clone(turned), assistantId, !routine) ?? null) : null
+    if (special) access = special.access
+    const briefs = routine ? [special ? { name: routine.name, task: special.task } : routine] : special && turned ? [{ name: turned.name, task: special.task }] : []
+    const user = buildTurnMessage(mail, note, now, briefs, cap, goalRun && !setsGoal ? goalRun.text : null, {
       delegations: waitingOn,
       asks: worker.asks.map((a) => a.question)
     })
-    const assistant: ChatMessage = { id: randomUUID(), role: 'assistant', parts: [], createdAt: now + 1 }
+    const assistant: ChatMessage = { id: assistantId, role: 'assistant', parts: [], createdAt: now + 1 }
     thread.messages.push(user, assistant)
 
     // The receipt: the queued one if it waited, else a new one.
@@ -2640,7 +2757,8 @@ export class WorkersEngine {
       postedRooms: new Set(),
       access,
       origin,
-      routineId: routine?.id ?? null,
+      routineId: (special ? turned?.id : routine?.id) ?? null,
+      routineTurned: special !== null,
       delegationId: delegation?.id ?? null,
       reported: false,
       asked: false,
@@ -2698,6 +2816,7 @@ export class WorkersEngine {
       runEngineTurn: this.deps.runEngineTurn,
       allowOnce: (tool, input) => this.allowOnce(snapshot.id, tool, input),
       guestCap: cap,
+      ...(special?.toolGate ? { toolGate: special.toolGate } : {}),
       origin,
       stallMs: this.deps.stallMs,
       goal: goalRun ? { text: goalRun.text, status: 'active', iterations: goalRun.iterations } : null,
@@ -2880,6 +2999,14 @@ export class WorkersEngine {
     } else if (run.routineId && outcome.error) {
       const routine = worker.routines.find((r) => r.id === run.routineId)
       this.deps.reachOut?.(clone(worker), { title: `${worker.name}’s routine “${routine?.name ?? 'routine'}” failed`, body: clip(outcome.error, 300) })
+    }
+    const turned = run.routineTurned && run.routineId ? worker.routines.find((r) => r.id === run.routineId) : undefined
+    if (turned) {
+      try {
+        this.deps.routineEnded?.(clone(worker), clone(turned), run.messageId, outcome)
+      } catch (error) {
+        console.error('[workers] a routine’s follow-up failed:', error)
+      }
     }
     this.tick()
   }

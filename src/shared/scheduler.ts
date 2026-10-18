@@ -125,6 +125,12 @@ export interface PurchasePlan {
   orders: number | null
   /** Follow each order with its order number until it is delivered. */
   track: boolean
+  /**
+   * Autopilot: the run never asks the user anything. Once its order is
+   * authorized (within the maximum, on this store), every press on the store
+   * goes through, the order button included, until the order is recorded.
+   */
+  autopilot?: boolean
 }
 
 /** An order being followed after a purchase: checks its status until it is delivered. */
@@ -138,6 +144,8 @@ export interface OrderWatch {
   item: string
   /** When the order was placed; tracking gives up a while after. */
   placedAt: number
+  /** Its schedule was on autopilot: checking on it never asks the user either. */
+  autopilot?: boolean
 }
 
 /** Tracking stops this long after the order, delivered or not. */
@@ -461,10 +469,14 @@ export function scheduleError(schedule: Schedule, now: number, enabled = true): 
 }
 
 /** Null when the plan is complete; otherwise what to fix, for the user. */
+/** A plan for free orders only: nothing is charged, so no card is needed. */
+export const isFreePlan = (plan: Pick<PurchasePlan, 'maxAmount'>): boolean => plan.maxAmount === 0
+
 export function purchasePlanError(plan: PurchasePlan): string | null {
   if (!plan.item.trim()) return 'Say what to buy.'
   if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(plan.site)) return 'Enter the store’s website, like amazon.com.'
-  if (!Number.isFinite(plan.maxAmount) || plan.maxAmount <= 0) return 'Set the most an order may cost.'
+  // 0 is a free order (a sample, a free trial, a $0 reorder): no card needed.
+  if (!Number.isFinite(plan.maxAmount) || plan.maxAmount < 0) return 'Set the most an order may cost, or 0 for free orders.'
   if (plan.maxAmount > 100_000) return 'That maximum is too high.'
   if (!/^[A-Z]{3}$/.test(plan.currency)) return 'Use a three-letter currency code, like USD.'
   if (plan.orders !== null && (!Number.isInteger(plan.orders) || plan.orders < 1 || plan.orders > 520)) return 'The number of orders is a whole number from 1.'

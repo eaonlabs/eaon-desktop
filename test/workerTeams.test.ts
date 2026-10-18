@@ -21,7 +21,7 @@ import type { ChatToolPart, StreamEvent, StreamRequest } from '@shared/types'
 import { chunk, sseServer } from './helpers'
 import { MAX_ROOM_CHAIN, finalReply } from '../src/main/features/workers/engine'
 import { teamToolSource } from '../src/main/features/workers/team'
-import { WORKER_CONCURRENCY, WORKER_TEMPLATES } from '@shared/workers'
+import { MAX_ROOMS, WORKER_CONCURRENCY, WORKER_TEMPLATES } from '@shared/workers'
 import { buildTurnMessage } from '../src/main/features/workers/runner'
 
 /**
@@ -296,6 +296,21 @@ test('a team from templates: workers, a group chat and the kickoff, all at once'
   await engine.whenIdle()
   assert.ok(agent.requests.every((r) => /Ship the v2 docs\./.test(textOf(r))))
   assert.throws(() => engine.createTeam({ name: 'Too big', roles: Array.from({ length: 9 }, () => templates[0]) }), /up to 8/)
+})
+
+test('a team refused for want of room leaves no specialists behind, and long names still fit', async () => {
+  const { engine } = start(fakeAgent().runAgent)
+  const long = 'A'.repeat(40)
+  const ada = engine.save(draft(long))
+  // A clash on a 40-character name still makes a name of 40 at most.
+  const { workers } = engine.createTeam({ name: 'Long', roles: [{ role: long, name: long, personality: '', purpose: 'x' }] })
+  assert.equal(workers[0].name.length, 40)
+  assert.notEqual(workers[0].name.toLowerCase(), long.toLowerCase())
+  // The group chats are all used: nothing is made.
+  for (let i = engine.rooms().length; i < MAX_ROOMS; i++) engine.saveRoom({ name: `Room ${i}`, members: [ada.id] })
+  const before = engine.list().length
+  assert.throws(() => engine.createTeam({ name: 'One more', roles: WORKER_TEMPLATES.slice(0, 2) }), new RegExp(`up to ${MAX_ROOMS} group chats`))
+  assert.equal(engine.list().length, before)
 })
 
 test('group chat tools are offered only to a worker in one; removing a worker takes it out of rooms; rooms survive a restart', async () => {

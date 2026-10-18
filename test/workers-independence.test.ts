@@ -7,7 +7,7 @@ import { Notification } from 'electron'
 import type { RunOptions, RunOutcome } from '../src/main/agent/loop'
 import { store } from '../src/main/store'
 import { createWorkersService, type WorkersOverrides, type WorkersService } from '../src/main/features/workers/service'
-import { engineApproval, type RunAgent, type RunEngineTurn } from '../src/main/features/workers/runner'
+import { engineApproval, resolveWorkerModel, type RunAgent, type RunEngineTurn } from '../src/main/features/workers/runner'
 import type { FeatureContext } from '../src/main/features/types'
 import type { EngineTurnInput } from '../src/main/engines/types'
 import {
@@ -19,7 +19,7 @@ import {
   type WorkerDraft,
   type WorkerExecution
 } from '@shared/workers'
-import type { StreamEvent, StreamRequest } from '@shared/types'
+import type { Provider, Settings, StreamEvent, StreamRequest } from '@shared/types'
 
 /**
  * Workers are independent agents, not one queue of turns: each worker — and
@@ -848,4 +848,83 @@ test('a Codex turn’s tokens are counted in Usage as the workers’, on the pla
   engine.send(nova.id, 'Again')
   await until(() => receipts(engine, nova.id).filter((e) => e.state === 'completed').length === 2)
   assert.match(JSON.stringify(ledgerSources()), /"codex:api":\{"gpt-6-luna"/)
+})
+
+test('a worker that follows Chat’s model runs when the saved choice is an alias of the model', () => {
+  const provider: Provider = {
+    id: 'anthropic',
+    name: 'Anthropic',
+    kind: 'anthropic',
+    baseUrl: 'https://example.test',
+    hasKey: true,
+    enabled: true,
+    builtIn: true,
+    local: false,
+    fallbackCount: 0,
+    auth: 'key',
+    models: [{ id: 'claude-x', label: 'Claude X', providerId: 'anthropic', aliases: ['claude-x-20251001'] }]
+  } as Provider
+  const settings = { ...store.getSettings(), selectedProviderId: 'anthropic', selectedModelId: 'claude-x-20251001' } as Settings
+  const target = resolveWorkerModel(null, settings, [provider])
+  assert.ok(target.ok, target.ok ? '' : target.error)
+  assert.equal(target.modelId, 'claude-x')
+  const gone = resolveWorkerModel(null, { ...settings, selectedModelId: 'claude-y' }, [provider])
+  assert.equal(gone.ok, false)
+})
+
+test('a one-off routine running long is not logged as skipped every minute', async () => {
+  const agent = heldAgent()
+  let clock = Date.parse('2026-10-04T09:00:00Z')
+  const { engine } = start(agent.runAgent, { now: () => clock })
+  const nova = engine.save(draft('Nova'))
+  engine.putRoutine(nova.id, { name: 'Once', task: 'Do it once', everyMs: null, daily: null, nextAt: clock })
+  engine.tick()
+  await until(() => agent.pending.length === 1)
+  for (let i = 0; i < 5; i++) {
+    clock += 2 * 60_000
+    engine.tick()
+  }
+  await settle()
+  assert.equal(receipts(engine, nova.id).filter((e) => e.state === 'missed').length, 0)
+  agent.pending[0].release()
+})
+
+test('a run cut off long ago is not picked up again on relaunch', async () => {
+  const agent = heldAgent()
+  let clock = Date.parse('2026-10-04T09:00:00Z')
+  let { engine } = start(agent.runAgent, { now: () => clock })
+  const nova = engine.save(draft('Nova'))
+  engine.send(nova.id, 'Think about the plan')
+  await until(() => agent.pending.length === 1)
+  // Eaon crashed, and was opened again two days later.
+  clock += 2 * 24 * 60 * 60_000
+  ;({ engine } = await relaunch(agent.runAgent, { now: () => clock }))
+  await settle(80)
+  assert.equal(agent.pending.length, 0, 'nothing restarted on its own')
+  assert.equal(receipts(engine, nova.id)[0].state, 'interrupted')
+})
+
+test('a worker’s own banners are held back only while its page is on screen', () => {
+  const handlers = new Map<string, (...args: unknown[]) => unknown>()
+  const window = { isFocused: () => true, isVisible: () => true, isDestroyed: () => false, isMinimized: () => false, show() {}, focus() {}, restore() {}, webContents: { isLoading: () => false, once() {} } }
+  const ctx = {
+    ipcMain: { handle: (channel: string, fn: (...args: unknown[]) => unknown) => handlers.set(channel, fn) },
+    getWindow: () => window,
+    send: () => {},
+    emitStream: () => {}
+  } as unknown as FeatureContext
+  service = createWorkersService(ctx, { runAgent: heldAgent().runAgent, startDelayMs: 60_000 })
+  service.registerIpc()
+  service.start()
+  const invoke = (channel: string, ...args: unknown[]): unknown => handlers.get(channel)!({}, ...args)
+  const nova = service.engine.save(draft('Nova'))
+  Notification.supported = true
+  invoke('workers:viewing', nova.id)
+  invoke('workers:mark-read', nova.id)
+  service.engine.ask(nova.id, { question: 'Which date?' })
+  assert.equal(Notification.shown.length, 0, 'its page is open: no banner')
+  // The user left its page (another tab); reading it earlier doesn't count.
+  invoke('workers:viewing', null)
+  service.engine.ask(nova.id, { question: 'And which time?' })
+  assert.equal(Notification.shown.length, 1)
 })

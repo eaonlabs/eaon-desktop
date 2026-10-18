@@ -3,7 +3,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { promisify } from 'node:util'
-import type { TerminalAgentId } from '@shared/terminals'
+import type { OtherAgentId, TerminalAgentId } from '@shared/terminals'
 
 const exec = promisify(execFile)
 
@@ -29,6 +29,10 @@ const exec = promisify(execFile)
  *              (Eaon CLI is a fork of OpenCode; see features/eaonCli.ts)
  *   eaon-code  ~/.eaon/agent/sessions/--<path>--/<ts>_<id>.jsonl
  *                                                        eaon-code --session <id>
+ *
+ * The other coding CLIs (Cursor, Gemini, Grok…) are only recognised: a pane
+ * running one shows it, and starts it again after a quit, as a new
+ * conversation.
  */
 
 export type AgentId = Exclude<TerminalAgentId, 'shell'>
@@ -47,6 +51,16 @@ export interface AgentKind {
   id: AgentId
   /** Names its process can carry in the process table. */
   bins: string[]
+  /**
+   * Its own script, matched on the whole path, for an agent whose launcher
+   * goes by a name too common to go by alone (Cursor's is also `agent`).
+   */
+  script?: RegExp
+  /**
+   * Whether a process by one of `bins` is this agent, from the words after
+   * the program, for a name another program shares (AWS has a `copilot` too).
+   */
+  accepts?: (rest: string[]) => boolean
   /** The conversation a running process says it holds. Only Claude Code says. */
   own?: (pid: number, cwd: string) => { sessionId: string; cwd: string } | null
   /** A conversation named on its command line (`--resume <id>` and kin). */
@@ -382,6 +396,63 @@ const eaonCode: AgentKind = {
   continueLatest: (command) => `${command} --continue`
 }
 
+/* ------------------------------------------------------------------ the other CLIs */
+
+/** A coding CLI the ADE recognises but doesn't follow into its conversations. */
+function otherKind(id: OtherAgentId, bins: string[], more: Pick<AgentKind, 'script' | 'accepts'> = {}): AgentKind {
+  return {
+    id,
+    bins,
+    ...more,
+    named: () => null,
+    conversations: async () => new Map(),
+    resumable: async () => false,
+    resume: (command) => command,
+    continueLatest: (command) => command
+  }
+}
+
+/** AWS's `copilot` (ECS) always takes one of these first; GitHub's runs bare or with flags. */
+const AWS_COPILOT = new Set(['app', 'env', 'svc', 'job', 'task', 'pipeline', 'storage', 'deploy', 'init', 'docs', 'run', 'version', 'completion'])
+
+const OTHER_KINDS: Record<OtherAgentId, AgentKind> = {
+  // Installed as `cursor-agent` and as `agent`; both run its node on its own index.js.
+  cursor: otherKind('cursor', ['cursor-agent'], { script: /[\\/]cursor-agent[\\/]versions[\\/][^\\/]+[\\/]index\.js$/ }),
+  gemini: otherKind('gemini', ['gemini']),
+  grok: otherKind('grok', ['grok']),
+  qwen: otherKind('qwen', ['qwen']),
+  copilot: otherKind('copilot', ['copilot'], { accepts: (rest) => !AWS_COPILOT.has(rest.find((w) => !w.startsWith('-')) ?? '') }),
+  amp: otherKind('amp', ['amp']),
+  droid: otherKind('droid', ['droid']),
+  kimi: otherKind('kimi', ['kimi', 'kimi-cli']),
+  cline: otherKind('cline', ['cline']),
+  goose: otherKind('goose', ['goose'], {
+    // pressly/goose, the database migration tool, shares the name and always takes a command.
+    accepts: (rest) => !/^(?:up|up-by-one|up-to|down|down-to|redo|reset|status|create|fix|validate)$/.test(rest.find((w) => !w.startsWith('-')) ?? '')
+  }),
+  // Not `kilo`: that is also antirez's text editor.
+  kilo: otherKind('kilo', ['kilocode']),
+  junie: otherKind('junie', ['junie']),
+  kiro: otherKind('kiro', ['kiro-cli']),
+  openhands: otherKind('openhands', ['openhands']),
+  aider: otherKind('aider', ['aider']),
+  crush: otherKind('crush', ['crush']),
+  warp: otherKind('warp', ['warp', 'warp-tui-stable', 'warp-tui-preview']),
+  codebuddy: otherKind('codebuddy', ['codebuddy']),
+  qoder: otherKind('qoder', ['qodercli']),
+  trae: otherKind('trae', ['trae-cli']),
+  vibe: otherKind('vibe', ['vibe']),
+  // Not when it is handed a script: that is Hermes the JavaScript engine.
+  hermes: otherKind('hermes', ['hermes'], { accepts: (rest) => !/\.(?:js|hbc)$/.test(rest.find((w) => !w.startsWith('-')) ?? '') }),
+  openclaw: otherKind('openclaw', ['openclaw']),
+  auggie: otherKind('auggie', ['auggie']),
+  codebuff: otherKind('codebuff', ['codebuff']),
+  continue: otherKind('continue', ['cn']),
+  plandex: otherKind('plandex', ['plandex', 'pdx']),
+  jules: otherKind('jules', ['jules']),
+  qodo: otherKind('qodo', ['qodo'])
+}
+
 /* ------------------------------------------------------------------ lookup */
 
 export const AGENT_KINDS: Record<AgentId, AgentKind> = {
@@ -390,7 +461,8 @@ export const AGENT_KINDS: Record<AgentId, AgentKind> = {
   antigravity,
   opencode,
   'eaon-code': eaonCode,
-  'eaon-cli': eaonCli
+  'eaon-cli': eaonCli,
+  ...OTHER_KINDS
 }
 
 /** Extra names an agent's process can carry — Eaon Code run from a pinned binary, say. */
@@ -424,8 +496,20 @@ const BY_BIN = new Map<string, AgentId>(
   Object.values(AGENT_KINDS).flatMap((kind) => kind.bins.map((bin) => [bin, kind.id] as [string, AgentId]))
 )
 
-/** Runtimes that run an agent as a script, where the agent's name is the script's. */
-const RUNTIMES = new Set(['node', 'bun', 'deno', 'python', 'python3'])
+/**
+ * Runtimes that run an agent as a script, where the agent's name is the
+ * script's: node, bun, deno, python and python3.12 alike. Any case: Homebrew's
+ * Python runs itself again as `…/Python.app/Contents/MacOS/Python`.
+ */
+const isRuntime = (name: string): boolean => /^(?:node|bun|deno|python(?:\d+(?:\.\d+)?)?)$/i.test(name)
+
+const SCRIPTED = Object.values(AGENT_KINDS).filter((kind): kind is AgentKind & { script: RegExp } => Boolean(kind.script))
+
+/** A process named after `id` that is that agent, by what follows the program. */
+function accepted(id: AgentId | undefined, rest: string[]): AgentId | null {
+  if (!id) return null
+  return AGENT_KINDS[id].accepts?.(rest) === false ? null : id
+}
 
 /** Whether a command line runs `file`: as the program, or as a runtime's script (`node --flag <file> …`). */
 function runsFile(line: string, file: string): boolean {
@@ -436,7 +520,7 @@ function runsFile(line: string, file: string): boolean {
   const before = line.slice(0, at).trim()
   if (!before) return true
   const words = before.split(/\s+/)
-  return RUNTIMES.has(binName(words[0])) && words.slice(1).every((word) => word.startsWith('-'))
+  return isRuntime(binName(words[0])) && words.slice(1).every((word) => word.startsWith('-'))
 }
 
 /**
@@ -449,11 +533,64 @@ export function agentOfArgs(args: string): AgentId | null {
   const words = args.trim().split(/\s+/)
   const first = binName(words[0] ?? '')
   const direct = BY_BIN.get(first) ?? extraBins.get(first)
-  if (direct) return direct
-  if (!RUNTIMES.has(first)) return null
+  if (direct) return accepted(direct, words.slice(1))
   // `node --max-old-space-size=… /path/to/codex`: the script is the first non-flag word.
-  const script = words.slice(1).find((w) => !w.startsWith('-'))
-  if (!script) return null
+  const at = words.findIndex((w, i) => i > 0 && !w.startsWith('-'))
+  if (at < 0) return null
+  const script = words[at]
+  const own = SCRIPTED.find((kind) => kind.script.test(script))
+  if (own) return own.id
+  if (!isRuntime(first)) return null
   const name = binName(script)
-  return BY_BIN.get(name) ?? extraBins.get(name) ?? null
+  return accepted(BY_BIN.get(name) ?? extraBins.get(name), words.slice(at + 1))
 }
+
+/** Shells: one in a pane's foreground is a nested shell, or a script it runs. */
+const SHELLS = new Set(['sh', 'bash', 'zsh', 'fish', 'dash', 'ksh', 'tcsh', 'csh', 'nu', 'pwsh', 'login'])
+/** Package runners, named after the package they run (`npx cowsay` is cowsay). */
+const RUNNERS: Record<string, string | null> = { npx: null, bunx: null, pnpx: null, uvx: null, npm: 'exec', pnpm: 'dlx', yarn: 'dlx', pipx: 'run', uv: 'tool' }
+/** Script names that say nothing; the folder they sit in is the program's. */
+const GENERIC_SCRIPT = /^(?:index|main|cli|run|start|app|bin|entry)$/
+const PLUMBING_DIR = /^(?:dist|bin|lib|src|build|out|node_modules|\.bin|scripts?)$/
+
+/** The name a script is called by: its file name, or for `…/foo/dist/index.js` its package's folder. */
+function scriptName(script: string): string {
+  const parts = script.split(/[\\/]/).filter(Boolean)
+  const name = binName(parts.pop() ?? '').replace(/\.(?:py|sh|ts|tsx|rb|pl)$/i, '')
+  if (!GENERIC_SCRIPT.test(name)) return name
+  const dir = [...parts].reverse().find((part) => !PLUMBING_DIR.test(part))
+  return dir ?? name
+}
+
+/**
+ * What a command line is called, for a pane running something no agent above
+ * is: `vim notes.md` is vim, `node ./tools/sync.js` is sync, `npx cowsay` is
+ * cowsay. Null for a bare shell, whose own foreground is what counts.
+ */
+export function programOf(args: string): string | null {
+  const words = args.trim().split(/\s+/)
+  const first = binName((words[0] ?? '').replace(/^-/, ''))
+  if (!first) return null
+  const rest = words.slice(1)
+  let name: string | null = first
+  if (SHELLS.has(first)) {
+    // `bash ./deploy.sh` is deploy; `zsh` or `bash -c …` is a shell.
+    if (rest.includes('-c')) return null
+    const script = rest.find((w) => !w.startsWith('-'))
+    name = script ? scriptName(script) : null
+  } else if (isRuntime(first)) {
+    // `python -m http.server` is the module; `node -e …` runs no file, so it is node.
+    const module = rest.indexOf('-m')
+    if (module >= 0 && rest[module + 1]) return rest[module + 1].slice(0, 32)
+    if (rest.some((w) => /^(?:-e|--eval|-p|--print|-c)$/.test(w))) return first
+    const script = rest.find((w) => !w.startsWith('-'))
+    name = script ? scriptName(script) : first
+  } else if (first in RUNNERS) {
+    const verb = RUNNERS[first]
+    const at = verb ? rest.indexOf(verb) : -1
+    const pkg = (verb ? (at >= 0 ? rest.slice(at + 1) : []) : rest).find((w) => !w.startsWith('-'))
+    if (pkg) name = (pkg.split('/').pop() ?? pkg).replace(/@[^@]*$/, '') || first
+  }
+  return name ? name.slice(0, 32) : null
+}
+

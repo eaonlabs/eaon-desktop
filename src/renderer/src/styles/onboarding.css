@@ -554,6 +554,9 @@
     display: none;
   }
 }
+.onboarding__skip--narrow {
+  display: none;
+}
 /* Too narrow for the panel too: a line saying how far along the setup is. */
 @media (max-width: 760px) {
   .onboarding__nav {
@@ -567,6 +570,16 @@
     transform: translate(-50%, -50%);
     font-size: var(--fs-sm);
     color: var(--text-3);
+  }
+  .onboarding__skip--narrow {
+    display: flex;
+    width: auto;
+    position: absolute;
+    top: calc(var(--titlebar-h) / 2);
+    right: 16px;
+    transform: translateY(-50%);
+    -webkit-app-region: no-drag;
+    z-index: 1;
   }
 }
 
@@ -1352,4 +1365,15 @@
 .tour__buttons {
   display: flex;
   gap: 6px;
+}
+
+/* Connect a model: the event code box (components/RedeemCode.tsx) as its own card. */
+.onboarding__code {
+  margin-top: 10px;
+  padding: 12px 14px;
+}
+.onboarding__code .free-code {
+  margin: 0;
+  padding: 0;
+  border: 0;
 }

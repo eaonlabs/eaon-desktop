@@ -93,9 +93,10 @@
 
 .providers-shell .provider-detail__title-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: baseline;
   justify-content: space-between;
-  gap: 12px;
+  gap: 4px 12px;
   margin-bottom: 8px;
 }
 .providers-shell .provider-detail__title-row .provider-detail__section-title {

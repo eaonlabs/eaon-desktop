@@ -1,8 +1,11 @@
 import { useEffect, useState } from 'react'
-import { AppWindow, Check, ChevronDown, CircleHelp, MonitorPlay, PanelRight, Pause, Play, Repeat, ShieldAlert, Target, TriangleAlert, X } from 'lucide-react'
+import { AppWindow, Check, ChevronDown, CircleHelp, MonitorPlay, PackageSearch, PanelRight, Pause, Pencil, Play, Repeat, ShoppingBag, ShieldAlert, Target, TriangleAlert, X } from 'lucide-react'
 import { MAX_GOAL_CHARS, MAX_NOTES_CHARS, relativeTime, type Worker, type WorkerAsk } from '@shared/workers'
 import { Modal } from '../ui'
 import { workerBrowserTarget } from '@shared/agentBrowser'
+import { formatMoney } from '@shared/payments'
+import { usePurchaseDialog } from '../purchase/purchaseStore'
+import { cadenceText } from '../purchase/plan'
 import { useWorkers } from './workersStore'
 import { Markdown } from '../agent/Markdown'
 import { ApprovalCard, CallPreview, CommandPreview } from '../agent/ApprovalCard'
@@ -178,9 +181,14 @@ export function WorkerMemory({ worker, now }: { worker: Worker; now: number }): 
   const [editing, setEditing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const routines = worker.routines ?? []
-  const stopRoutine = (name: string): void => {
+  const failed = (e: Error): void => setError(e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
+  const stopRoutine = (id: string): void => {
     setError(null)
-    window.api.workers.removeRoutine(worker.id, name).catch((e: Error) => setError(e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')))
+    window.api.workers.removeRoutineById(worker.id, id).catch(failed)
+  }
+  const buyNow = (id: string): void => {
+    setError(null)
+    window.api.workers.runRoutine(worker.id, id).catch(failed)
   }
   if (!worker.goal && !worker.notes && routines.length === 0) {
     return (
@@ -204,16 +212,34 @@ export function WorkerMemory({ worker, now }: { worker: Worker; now: number }): 
       )}
       {routines.map((routine) => {
         const last = routine.runs[routine.runs.length - 1]
+        const plan = routine.purchase
+        const Icon = plan ? ShoppingBag : routine.watch ? PackageSearch : Repeat
+        const when = routine.daily ? `daily at ${routine.daily}` : plan ? cadenceText(routine.everyMs) : `every ${Math.round((routine.everyMs ?? 0) / 60_000)} min`
         return (
-          <div key={routine.id} className="worker-memory__row" title={routine.task}>
-            <Repeat size={14} strokeWidth={2} />
+          <div key={routine.id} className="worker-memory__row" data-kind={plan ? 'purchase' : routine.watch ? 'watch' : undefined} title={routine.task}>
+            <Icon size={14} strokeWidth={2} />
             <span>
               <span className="worker-memory__label">{routine.name}</span>{' '}
-              {routine.daily ? `daily at ${routine.daily}` : `every ${Math.round((routine.everyMs ?? 0) / 60_000)} min`} · next{' '}
-              {relativeTime(routine.nextAt, now)}
+              {plan && <>{plan.maxAmount === 0 ? 'free only' : `up to ${formatMoney(plan.maxAmount, plan.currency)}`} on {plan.site} · {plan.autopilot ? 'autopilot · ' : ''}</>}
+              {when} · next {relativeTime(routine.nextAt, now)}
               {last && !last.ok && <span className="worker-memory__failed"> · last run failed</span>}
             </span>
-            <button className="icon-btn worker-memory__stop" aria-label={`Stop the routine “${routine.name}”`} title="Stop this routine" onClick={() => stopRoutine(routine.name)}>
+            {plan && (
+              <>
+                <button className="icon-btn worker-memory__stop" aria-label={`Buy ${plan.item} now`} title="Buy now" onClick={() => buyNow(routine.id)}>
+                  <Play size={12} strokeWidth={2.2} />
+                </button>
+                <button
+                  className="icon-btn worker-memory__stop"
+                  aria-label={`Edit the purchase schedule “${routine.name}”`}
+                  title="Edit"
+                  onClick={() => usePurchaseDialog.getState().show({ workerId: worker.id, routine })}
+                >
+                  <Pencil size={12} strokeWidth={2.2} />
+                </button>
+              </>
+            )}
+            <button className="icon-btn worker-memory__stop" aria-label={`Stop the routine “${routine.name}”`} title="Stop this routine" onClick={() => stopRoutine(routine.id)}>
               <X size={12} strokeWidth={2.2} />
             </button>
           </div>

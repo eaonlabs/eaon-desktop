@@ -56,6 +56,6 @@ const result = spawnSync(process.execPath, ['--test', '--test-reporter=spec', ..
   stdio: 'inherit',
   // Claude Code's and Codex's logs are read for Settings → Usage: never this
   // computer's real ones (gigabytes, and not the tests' to count).
-  env: { ...process.env, CLAUDE_CONFIG_DIR: join(out, 'no-claude'), CODEX_HOME: join(out, 'no-codex') }
+  env: { ...process.env, CLAUDE_CONFIG_DIR: join(out, 'no-claude'), CODEX_HOME: join(out, 'no-codex'), EAON_CLI_LOGS_HOME: join(out, 'no-cli-home') }
 })
 process.exit(result.status ?? 1)

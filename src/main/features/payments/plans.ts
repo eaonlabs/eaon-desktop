@@ -22,6 +22,8 @@ export interface PurchaseGrant {
   site: string
   maxAmount: number
   currency: string
+  /** Autopilot: presses on the store need nobody once the order is authorized (see payments.ts). */
+  autopilot?: boolean
   used: boolean
 }
 

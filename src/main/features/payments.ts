@@ -5,9 +5,9 @@ import { secrets } from '../secrets'
 import { store } from '../store'
 import { agentBrowserUrl, typeSecretInAgentBrowser } from './agentBrowser'
 import { typeHidden } from './computer/tool'
-import { setPaymentAccess } from './payments/access'
+import { setPaymentAccess, type SpendingClick } from './payments/access'
 import { PaymentsEngine, urlMatchesSite } from './payments/engine'
-import { setPurchaseLookup } from './payments/plans'
+import { grantFor, setPurchaseLookup, watchFor } from './payments/plans'
 import { PAYMENT_GUIDANCE, paymentTool } from './payments/tool'
 import type { Feature } from './types'
 import { workersService } from './workers'
@@ -41,6 +41,18 @@ export function paymentsEngine(): PaymentsEngine | null {
   return engine
 }
 
+/**
+ * An autopilot purchase schedule's run, on its store, once its order is
+ * authorized (so the price was checked against the maximum): its presses go
+ * through without anyone, the order button too, and again if the first press
+ * didn't take, until the order is completed. Before the authorization the
+ * usual rules hold, so a "Buy now" can't place an order nobody priced.
+ */
+export function autopilotCovers(chatId: string, url: string, click: SpendingClick | undefined, payments: Pick<PaymentsEngine, 'openPlanOrder'>): boolean {
+  const grant = click?.messageId ? grantFor(click.messageId) : null
+  return Boolean(grant?.autopilot && grant.used && urlMatchesSite(url, grant.site) && payments.openPlanOrder(chatId, grant.planId, url))
+}
+
 function createEngine(): PaymentsEngine {
   const created = new PaymentsEngine({
     load: () => store.getJson<unknown>(FILE, null),
@@ -54,7 +66,8 @@ function createEngine(): PaymentsEngine {
   })
   setPaymentAccess({
     // One press of the pay button per authorization (see claimSpendingClick).
-    covers: (chatId, url) => created.claimSpendingClick(chatId, url),
+    // On autopilot, any press on the store while the schedule's order is authorized; a press on nothing named, only then.
+    covers: (chatId, url, click) => autopilotCovers(chatId, url, click, created) || (!click?.unnamed && created.claimSpendingClick(chatId, url)),
     secret: () => {
       try {
         const { number, cvc } = created.cardSecret()
@@ -86,9 +99,16 @@ const tool = paymentTool(
 
 registerToolSource({
   id: 'payments',
-  // The main agent and workers, never sub-agents or trading sessions, and only once a card is set up.
+  // The main agent and workers, never sub-agents or trading sessions, and only once a card is set up —
+  // or in a purchase schedule's run, whose free orders and order tracking need no card.
   tools: (query) =>
-    query.mode === 'work' && query.depth === 0 && !query.request.chatId?.startsWith('trading:') && engine !== null && engine.effectiveMode() !== 'off' ? [tool] : [],
+    query.mode === 'work' &&
+    query.depth === 0 &&
+    !query.request.chatId?.startsWith('trading:') &&
+    engine !== null &&
+    (engine.effectiveMode() !== 'off' || grantFor(query.request.messageId) !== null || watchFor(query.request.messageId) !== null)
+      ? [tool]
+      : [],
   guidance: () => PAYMENT_GUIDANCE
 })
 

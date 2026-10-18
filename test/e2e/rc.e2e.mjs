@@ -7,7 +7,7 @@
  */
 import assert from 'node:assert/strict'
 import { execFileSync, spawn } from 'node:child_process'
-import { mkdirSync, realpathSync, writeFileSync, existsSync } from 'node:fs'
+import { mkdirSync, realpathSync, writeFileSync, existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import http from 'node:http'
 import WebSocket from 'ws'
@@ -222,6 +222,8 @@ scenario('Eaon Remote: link with the website, then sessions, a live terminal and
         value,
         shots,
         'home|/|1100|700',
+        // While the computer's lists are still on their way: loading rows, not text.
+        `sessions-loading|/d/${device.id}|1100|700|1500|hold`,
         `sessions|/d/${device.id}|1100|700`,
         `session|/d/${device.id}/s/${session.id}|1100|760`,
         `terminal|/d/${device.id}/t/${term}|1100|760`,
@@ -232,6 +234,9 @@ scenario('Eaon Remote: link with the website, then sessions, a live terminal and
     )
     execFileSync(resolve(import.meta.dirname, '../../node_modules/.bin/electron'), [resolve(import.meta.dirname, 'captureWeb.cjs'), SITE, '-', shots, 'signed-out|/|1100|700'], { timeout: 60_000, stdio: 'ignore' })
     s.t.diagnostic(`web screenshots: ${shots}`)
+    for (const file of readdirSync(shots).filter((f) => f.endsWith('.txt'))) {
+      assert.doesNotMatch(readFileSync(join(shots, file), 'utf8'), /\[object /, `${file}: an element printed as text`)
+    }
 
     // Unlink in Eaon: the website sees it go, and the device list is empty.
     await page.eval(() => window.api.rc.unlink())

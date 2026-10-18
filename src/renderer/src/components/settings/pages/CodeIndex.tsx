@@ -45,7 +45,10 @@ export function CodeIndexPage(): JSX.Element {
   ]
 
   const chooseModel = (value: string): void => {
-    const [embeddingProviderId, embeddingModelId] = value ? value.split(':') : [null, null]
+    // Split at the first colon only: model ids have their own (`nomic-embed-text:latest`,
+    // a download's `<model>:<quant>`), and `split(':')` dropped everything after it.
+    const at = value.indexOf(':')
+    const [embeddingProviderId, embeddingModelId] = value ? [value.slice(0, at), value.slice(at + 1)] : [null, null]
     void patchSettings({ codeIndex: { ...config, embeddingProviderId, embeddingModelId } })
   }
 
@@ -81,7 +84,7 @@ export function CodeIndexPage(): JSX.Element {
           >
             <button className="btn" disabled={!cwd || busy} onClick={() => void reindex(true)}>
               <RefreshCw size={14} strokeWidth={1.9} className={busy ? 'spinner' : undefined} />
-              {busy ? 'Indexing…' : 'Rebuild'}
+              {busy ? 'Indexing…' : indexStatus?.state === 'ready' ? 'Rebuild' : 'Build'}
             </button>
             <button
               className="btn btn--ghost"

@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { startOfDay } from './plan'
 
@@ -29,6 +29,8 @@ const addMonths = (month: number, n: number): number => {
 
 export function DayPicker({ value, min, max, onChange }: { value: number; min: number; max: number; onChange: (day: number) => void }): JSX.Element {
   const [month, setMonth] = useState(() => monthOf(value))
+  // A day set from outside (the dialog opening on another schedule) brings its month into view.
+  useEffect(() => setMonth(monthOf(value)), [value])
   const first = new Date(month)
   const lead = first.getDay()
   const daysInMonth = new Date(first.getFullYear(), first.getMonth() + 1, 0).getDate()

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type JSX } from 'react'
 import {
   ChevronRight,
   CircleCheck,
@@ -148,14 +148,7 @@ export function PullRequestsPage(): JSX.Element {
                 Loading pull requests…
               </div>
             )}
-            {!loading && data?.error && (
-              <div className="pr-empty pr-empty--error">
-                {data.error}
-                <button className="btn btn--sm" onClick={load}>
-                  Retry
-                </button>
-              </div>
-            )}
+            {!loading && data?.error && <PrListError error={data.error} retry={load} />}
             {!loading && !data?.error && groups.length === 0 && <div className="pr-empty">No pull requests</div>}
             {!loading &&
               groups.map((group) => (
@@ -170,7 +163,11 @@ export function PullRequestsPage(): JSX.Element {
         </aside>
 
         <section className="pr-detail scroll">
-          {selected ? <PrDetail key={selected.id} pr={selected} onChanged={load} /> : <div className="pr-detail__empty">Select a pull request to see it here</div>}
+          {selected ? (
+            <PrDetail key={selected.id} pr={selected} onChanged={load} />
+          ) : (
+            <div className="pr-detail__empty">{groups.length > 0 ? 'Select a pull request to see it here' : ''}</div>
+          )}
         </section>
       </div>
     </div>
@@ -185,6 +182,45 @@ const DETAIL_TABS: { value: DetailTab; label: string }[] = [
   { value: 'checks', label: 'Checks' },
   { value: 'merge', label: 'Merge' }
 ]
+
+/**
+ * Why the list couldn't load. GitHub CLI missing or signed out is the usual
+ * first-run state, not a failure, so it reads as a setup step with the
+ * command to run rather than as a red error.
+ */
+function PrListError({ error, retry }: { error: string; retry: () => void }): JSX.Element {
+  const missing = /not installed/i.test(error) && /\bgh\b/.test(error)
+  const signedOut = /Not signed in to GitHub CLI/i.test(error)
+  if (missing || signedOut) {
+    return (
+      <div className="pr-empty">
+        <span className="pr-empty__title">{missing ? 'Install GitHub CLI to see your pull requests' : 'Sign in to GitHub CLI to see your pull requests'}</span>
+        <span>
+          {missing ? 'Get it from cli.github.com, then run ' : 'In a terminal, run '}
+          <code className="pr-empty__cmd">gh auth login</code>
+        </span>
+        <span className="pr-empty__actions">
+          {missing && (
+            <button className="btn btn--sm" onClick={() => void window.api.app.openExternal('https://cli.github.com')}>
+              Get GitHub CLI
+            </button>
+          )}
+          <button className="btn btn--sm" onClick={retry}>
+            Check again
+          </button>
+        </span>
+      </div>
+    )
+  }
+  return (
+    <div className="pr-empty pr-empty--error">
+      {error}
+      <button className="btn btn--sm" onClick={retry}>
+        Retry
+      </button>
+    </div>
+  )
+}
 
 const errorText = (error: unknown): string => (error instanceof Error ? error.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(error))
 

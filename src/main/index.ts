@@ -51,6 +51,7 @@ import { audit } from './enterprise/audit'
 import { assertFeature, featureAllowed, providerAllowed, PolicyError } from './enterprise/policy'
 import { POLICY_GATED_FEATURES } from './features/enterprise'
 import { devServerUrl, guardIpc, guardWebviews, installSessionPolicy, isAppUrl } from './security/hardening'
+import { trustSystemNetwork } from './netTrust'
 
 const here = join(fileURLToPath(import.meta.url), '..')
 app.setName('Eaon')
@@ -78,6 +79,8 @@ if (!primaryInstance) app.quit()
 guardIpc(ipcMain, isTrustedSender)
 // Crash logging and recovery, before anything else can throw; see crashGuard.ts.
 if (primaryInstance) installCrashGuard(isAppWindow)
+// Node's own requests trust the system's certificates and proxy, before any is made; see netTrust.ts.
+trustSystemNetwork()
 
 /**
  * `eaon-file://` serves screenshots and attached images to the renderer. The
@@ -736,10 +739,29 @@ function registerIpc(): void {
     return listProviders()
   })
 
+  /** Chat runs a window asked for, from the request until the run ends, so Stop reaches one that hasn't started yet. */
+  const chatStreams = new Map<string, AbortController>()
   ipcMain.handle('chat:stream', async (event, request: StreamRequest) => {
-    // Tools spawn processes; a reply sent in the first moments after launch
-    // waits for the login shell's PATH.
-    await shellPath
+    // Registered before anything is awaited: the loop only lists a run once
+    // it starts, so a Stop pressed while this waited for the shell's PATH
+    // found nothing to stop, and the reply carried on behind the user's back.
+    const stopped = new AbortController()
+    chatStreams.set(request.messageId, stopped)
+    try {
+      // Tools spawn processes; a reply sent in the first moments after launch
+      // waits for the login shell's PATH.
+      await shellPath
+      // Stopped meanwhile, or the window that asked is gone: never start it.
+      if (stopped.signal.aborted || event.sender.isDestroyed()) {
+        if (!event.sender.isDestroyed()) event.sender.send('chat:event', { type: 'done', messageId: request.messageId } satisfies StreamEvent)
+        return
+      }
+      await streamChat(event, request, stopped.signal)
+    } finally {
+      if (chatStreams.get(request.messageId) === stopped) chatStreams.delete(request.messageId)
+    }
+  })
+  const streamChat = async (event: Electron.IpcMainInvokeEvent, request: StreamRequest, signal: AbortSignal): Promise<void> => {
     const sender = event.sender
     // The window that started the run gets every event. The others get the
     // reply as it is written, to show it live if they have that chat open,
@@ -757,15 +779,18 @@ function registerIpc(): void {
     sender.once('render-process-gone', abandon)
     const started = Date.now()
     try {
-      const outcome = await runAgent(request, batch.emit)
+      const outcome = await runAgent(request, batch.emit, { signal })
       notifyIfAway(request, outcome.error, Date.now() - started)
     } finally {
       sender.removeListener('destroyed', abandon)
       sender.removeListener('render-process-gone', abandon)
       batch.flush()
     }
+  }
+  ipcMain.handle('chat:cancel', (_e, messageId: string) => {
+    chatStreams.get(messageId)?.abort()
+    cancelRun(messageId)
   })
-  ipcMain.handle('chat:cancel', (_e, messageId: string) => cancelRun(messageId))
   ipcMain.handle('chat:pause-goal', (_e, messageId: string) => pauseGoal(messageId))
   ipcMain.handle('chat:approve', (_e, requestId: string, approved: boolean) => resolveApproval(requestId, approved))
 

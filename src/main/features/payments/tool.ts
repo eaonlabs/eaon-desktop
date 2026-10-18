@@ -96,7 +96,10 @@ export function outsideGrant(grant: PurchaseGrant, site: string | null, amount: 
     return `This purchase schedule is approved for ${grant.site} only${site ? `, not ${site}` : ''}. Pass site "${grant.site}".`
   }
   if (currency !== grant.currency) return `This purchase schedule is in ${grant.currency}, not ${currency}.`
-  if (!(amount > 0)) return '"amount" must be the total you are about to pay.'
+  if (!Number.isFinite(amount) || amount < 0) return '"amount" must be the checkout total: 0 for a free order.'
+  if (grant.maxAmount === 0 && amount > 0) {
+    return `This purchase schedule is for free orders only, and this one costs ${formatMoney(amount, currency)}. Do not buy it; report the price to the user instead.`
+  }
   if (amount > grant.maxAmount) {
     return `${formatMoney(amount, currency)} is over this purchase schedule's ${formatMoney(grant.maxAmount, grant.currency)} limit per order. Do not buy it; report the price to the user instead.`
   }
@@ -164,7 +167,7 @@ export function paymentTool(engine: () => PaymentsEngine | null, fillers: Paymen
     description: [
       "Pay with the user's saved payment card. Never type card details yourself.",
       'status: the card (brand, last 4), mode, limits and what has been spent.',
-      'authorize {merchant, amount, currency?, description, site?, recurring?}: before paying, the full total including tax, shipping, tips and fees. site is the checkout website\'s domain (required to fill your browser). recurring: true for a subscription, membership or anything that charges again. Returns a purchase id, good for one press of the pay button.',
+      'authorize {merchant, amount, currency?, description, site?, recurring?}: before paying, the full total including tax, shipping, tips and fees (0 for a purchase schedule\'s free order, which needs no card). site is the checkout website\'s domain (required to fill your browser). recurring: true for a subscription, membership or anything that charges again. Returns a purchase id, good for one press of the pay button.',
       'fill {purchase_id, target: "browser" | "screen", fields: [{field, ref?}]}: Eaon types the card into the checkout. browser: each field needs a ref from your latest web_browser snapshot. screen: types into the focused field of the app on screen, pressing Tab between fields (click the first field with the computer tool first).',
       `Fields: ${FIELDS.join(', ')} (expiry is MM/YY).`,
       'Then press the pay/place-order button yourself, check the confirmation, and call complete {purchase_id, status: "paid" | "failed" | "cancelled", charged?, order_id?} — always, even if it failed. order_id is the merchant\'s order number from the confirmation page or email.',
@@ -280,11 +283,19 @@ export function paymentTool(engine: () => PaymentsEngine | null, fillers: Paymen
             how
           )
           if (grant) grant.used = true
+          if (record.amount === 0) {
+            return [
+              `Authorized ${record.id}: a free order at ${record.merchant}${record.site ? ` (${record.site})` : ''}, approved by the user's purchase schedule. No card is needed and none is typed.`,
+              `Next: check the total still reads ${formatMoney(0, record.currency)}, place the order yourself (press the order button once), then call complete {purchase_id: "${record.id}", status: "paid", charged: 0, order_id}. If the checkout asks for payment or the total changes, stop and report instead. The authorization lasts 20 minutes.`
+            ].join('\n')
+          }
           const { card } = e.status()
           return [
             `Authorized ${record.id}: ${formatMoney(record.amount, record.currency)} at ${record.merchant}${record.site ? ` (${record.site})` : ''}${how === 'approved' ? ', approved by the user' : how === 'scheduled' ? ', approved by the user\'s purchase schedule' : ', within the automatic limits'}.`,
             card ? `Card: ${card.brand} ending ${card.last4}, name "${card.nameOnCard}"${card.billingZip ? `, billing ZIP on file` : ''}.` : '',
-            `Next: fill {purchase_id: "${record.id}", target, fields} to type the card, then place the order yourself (press the pay button once; pressing it again asks the user first) and call complete. The authorization lasts 20 minutes.`,
+            grant?.autopilot
+              ? `Next: fill {purchase_id: "${record.id}", target, fields} to type the card, then place the order yourself and call complete. Autopilot: presses on ${grant.site} go through without asking until then, but check for an order confirmation before pressing the order button again. The authorization lasts 20 minutes.`
+              : `Next: fill {purchase_id: "${record.id}", target, fields} to type the card, then place the order yourself (press the pay button once; pressing it again asks the user first) and call complete. The authorization lasts 20 minutes.`,
             record.site ? '' : 'No site was given, so the card can only be typed on screen (target "screen"), not into your browser.'
           ]
             .filter(Boolean)

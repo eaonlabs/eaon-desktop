@@ -1552,3 +1552,7 @@ body[data-reduce-motion='on'] .worker-run .spinner {
 .worker-memory__stop:focus-visible {
   opacity: 1;
 }
+/* A purchase schedule's row has Buy now and Edit beside Stop: they sit together at the end. */
+.worker-memory__stop + .worker-memory__stop {
+  margin-left: 0;
+}

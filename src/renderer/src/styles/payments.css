@@ -6,6 +6,9 @@
 .pay-field {
   display: flex;
   flex-direction: column;
+  /* A label that wraps in a narrow window pushes its field down; the label
+     takes the slack so the fields in a row still line up. */
+  justify-content: flex-end;
   gap: 5px;
   min-width: 0;
   font-size: var(--fs-xs);

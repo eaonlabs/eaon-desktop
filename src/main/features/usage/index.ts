@@ -1,5 +1,6 @@
-import { app, shell } from 'electron'
-import type { Billing, UsageAccountState, UsageRange, UsageSignIn, UsageSummary, UsageSync } from '@shared/usage'
+import { readFile } from 'node:fs/promises'
+import { app, dialog, shell } from 'electron'
+import type { Billing, CursorImport, UsageAccountState, UsageRange, UsageSignIn, UsageSummary, UsageSync } from '@shared/usage'
 import { getProvider, onModelUsage } from '../../providers'
 import { LOCAL_PROVIDER_ID } from '../../llama/models'
 import { store } from '../../store'
@@ -7,7 +8,7 @@ import type { Feature, FeatureContext } from '../types'
 import { afterToknSignIn } from '../toknCli'
 import { agentRunDays, flushAgentRuns, onAgentRun } from './agentRuns'
 import { flushLedger, ledgerDays, ledgerSources, onLedgerChange, recordUsage } from './ledger'
-import { cliLogs, flushCliLogs, onCliLogsChange } from './cliLogs'
+import { cliLogs, flushCliLogs, importCursorCsv, onCliLogsChange } from './cliLogs'
 import {
   activity,
   agentStats,
@@ -101,6 +102,20 @@ function billingLookup(): BillingOf {
   }
 }
 
+/** Picks Cursor's usage export (one or more CSVs) and imports it; null when the picker was closed. */
+async function chooseCursorCsv(): Promise<CursorImport | null> {
+  const win = ctx?.getWindow()
+  const options = { title: 'Import Cursor usage', filters: [{ name: 'CSV', extensions: ['csv'] }], properties: ['openFile', 'multiSelections'] as ('openFile' | 'multiSelections')[] }
+  const picked = win ? await dialog.showOpenDialog(win, options) : await dialog.showOpenDialog(options)
+  if (picked.canceled || picked.filePaths.length === 0) return null
+  let result: CursorImport = { added: 0, total: cliLogs().cursorImported }
+  for (const file of picked.filePaths) {
+    const one = await importCursorCsv(await readFile(file, 'utf8'))
+    result = { added: result.added + one.added, total: one.total, ...(one.error ? { error: one.error } : {}) }
+  }
+  return result
+}
+
 /** Tells every window to read the summary again; coalesced, since a busy agent records many requests a second. */
 function changed(): void {
   if (changedTimer) return
@@ -147,7 +162,7 @@ function summary(range: UsageRange): UsageSummary {
     sources: summarizeSources(ledgerSources(), range, pricing.models, billingOf),
     chart: rangeDays(byDay, range),
     tools: summarizeTools(everything, range, pricing.models, billingOf),
-    cliLogs: { reading: cli.reading, found: cli.found },
+    cliLogs: { reading: cli.reading, found: cli.found, cursorImported: cli.cursorImported },
     calendar: calendar(byDay),
     activity: activity(byDay, range),
     agents: agentStats(agentRunDays(), range)
@@ -262,6 +277,7 @@ export const usageFeature: Feature = {
       setSync({ state: 'idle', at: null })
     })
     ipcMain.handle('usage:sync', () => syncNow())
+    ipcMain.handle('usage:import-cursor', () => chooseCursorCsv())
     ipcMain.handle('usage:open-profile', () => {
       const url = toknPageUrl('profile')
       if (/^https?:\/\//.test(url)) void shell.openExternal(url)

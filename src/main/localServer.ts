@@ -269,8 +269,22 @@ async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> 
   json(res, 404, { error: { message: `No route for ${req.method} ${url.pathname}` } })
 }
 
-export async function startLocalServer(): Promise<LocalServerStatus> {
-  if (server) return status
+/**
+ * The start under way, if any. Settings, launch and the control API can each
+ * ask for the server at once; without this both would listen, the second
+ * would fail with EADDRINUSE and report "stopped" while the first held the port.
+ */
+let starting: Promise<LocalServerStatus> | null = null
+
+export function startLocalServer(): Promise<LocalServerStatus> {
+  if (server) return Promise.resolve(status)
+  starting ??= listen().finally(() => {
+    starting = null
+  })
+  return starting
+}
+
+async function listen(): Promise<LocalServerStatus> {
   if (!featureAllowed('localApiServer')) {
     return { running: false, port: store.getSettings().localServer.port || 1337, url: null, error: new PolicyError('The Local API Server').message }
   }
@@ -286,9 +300,12 @@ export async function startLocalServer(): Promise<LocalServerStatus> {
     })
 
     const fail = (error: Error): void => {
-      server = null
-      setOwnServerPort(null)
-      publish({ running: false, port, url: null, error: error.message })
+      // Only this attempt's own state: never clear a server that is running.
+      if (server === null || server === next) {
+        server = null
+        setOwnServerPort(null)
+        publish({ running: false, port, url: null, error: error.message })
+      }
       resolve(status)
     }
     next.on('error', fail)
@@ -299,6 +316,10 @@ export async function startLocalServer(): Promise<LocalServerStatus> {
     try {
       // Loopback only — this proxies the user's API keys.
       next.listen(port, '127.0.0.1', () => {
+        // A listen error can't come any more; a later one is logged, not
+        // taken as a failed start that would mark a running server stopped.
+        next.off('error', fail)
+        next.on('error', (error) => console.error('[local-server] server error:', error))
         server = next
         publish({ running: true, port, url: `http://127.0.0.1:${port}` })
         resolve(status)
@@ -311,6 +332,8 @@ export async function startLocalServer(): Promise<LocalServerStatus> {
 }
 
 export async function stopLocalServer(): Promise<LocalServerStatus> {
+  // A start still listening would otherwise come up after this said "stopped".
+  if (starting) await starting.catch(() => {})
   const port = status.port
   if (!server) {
     publish({ running: false, port, url: null })

@@ -277,7 +277,7 @@ test('the brief compares this order with the last one and stops at a price over 
     lastStatus: null,
     history: []
   } as never)
-  assert.match(brief, /If the checkout total is higher, do not buy/)
+  assert.match(brief, /If the final checkout total is higher, do not buy/)
   assert.match(brief, /order 112-4471923-0046611/, 'earlier orders are listed with their numbers')
   assert.match(brief, /price against the last order/)
 })
@@ -296,39 +296,17 @@ const form = (overrides: Partial<PurchaseForm> = {}): PurchaseForm => ({
   limited: false,
   orders: '4',
   track: true,
+  autopilot: false,
   ...overrides
 })
 
-test('today buys now, and the next order falls a period after today’s time', () => {
-  const now = new Date(2026, 9, 15, 15, 30).getTime()
-  const built = buildPurchasePlan(form({ startDay: startOfDay(now) }), now, 'thread-x')
-  assert.equal(built.error, null)
-  assert.equal(built.buyNow, true)
-  assert.equal(built.draft.purchase?.site, 'amazon.com')
-  assert.equal(built.draft.purchase?.merchant, 'Amazon')
-  assert.equal(built.draft.purchase?.orders, null)
-  assert.deepEqual(built.draft.schedule, { kind: 'interval', every: 168, unit: 'hours', startAt: new Date(2026, 9, 22, 9, 0).getTime() })
-  assert.equal(built.draft.thread, 'thread-x')
-})
-
-test('a later day waits for it; once today is placed right away and never again', () => {
-  const now = new Date(2026, 9, 15, 15, 30).getTime()
-  const later = buildPurchasePlan(form({ startDay: startOfDay(new Date(2026, 9, 20).getTime()), time: '08:15', cadence: 'biweekly' }), now, 't')
-  assert.equal(later.buyNow, false)
-  assert.equal(later.nextAt, new Date(2026, 9, 20, 8, 15).getTime())
-  const once = buildPurchasePlan(form({ cadence: 'once', startDay: startOfDay(now) }), now, 't')
-  assert.equal(once.buyNow, true)
-  assert.equal(once.draft.enabled, false)
-  assert.equal(once.draft.purchase?.orders, 1)
-  assert.equal(once.nextAt, null)
-  assert.equal(once.error, null)
-})
+// The dialog's timing (today, a later day, once) is tested with workers, where schedules live now: workerPurchases.test.ts.
 
 test('the dialog says what is missing, and reads store names off their sites', () => {
   const now = Date.now()
-  assert.match(buildPurchasePlan(form({ site: 'not a site' }), now, 't').error ?? '', /website/)
-  assert.match(buildPurchasePlan(form({ maxAmount: '' }), now, 't').error ?? '', /most an order may cost/)
-  assert.match(buildPurchasePlan(form({ item: ' ' }), now, 't').error ?? '', /what to buy/)
+  assert.match(buildPurchasePlan(form({ site: 'not a site' }), now).error ?? '', /website/)
+  assert.match(buildPurchasePlan(form({ maxAmount: '' }), now).error ?? '', /most an order may cost/)
+  assert.match(buildPurchasePlan(form({ item: ' ' }), now).error ?? '', /what to buy/)
   assert.equal(storeSite('Target.com.'), 'target.com')
   assert.equal(storeName('shop.example.co.uk'), 'Example')
   assert.equal(storeName('store.apple.com'), 'Apple')

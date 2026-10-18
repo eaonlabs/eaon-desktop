@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { WorkspaceEntry } from '@shared/workspaceFiles'
 import { joinPath } from './paths'
+import { toDisk, toEditor, type LineEnding } from './lineEndings'
 
 /**
  * Chat's code panel: the agent's folder as a tree, the files open in it as
@@ -11,10 +12,12 @@ import { joinPath } from './paths'
 export interface IdeTab {
   path: string
   kind: 'text' | 'binary' | 'too-large' | 'error'
-  /** What the editor shows. */
+  /** What the editor shows, with `\n` line endings whatever the file has (lineEndings.ts). */
   text: string
-  /** What is on disk, as far as the panel knows. */
+  /** What is on disk, as far as the panel knows (with `\n` line endings too). */
   saved: string
+  /** The line ending the file is saved with. */
+  eol?: LineEnding
   /** The file's modified time when it was read or saved. */
   modified: number
   /** On disk it changed under unsaved edits: the tab offers to reload. */
@@ -61,7 +64,10 @@ const storedWidth = (): number => {
 async function readTab(path: string): Promise<IdeTab> {
   try {
     const file = await window.api.workspaceFiles.read(path)
-    if (file.kind === 'text') return { path, kind: 'text', text: file.text, saved: file.text, modified: file.modified }
+    if (file.kind === 'text') {
+      const { text, eol } = toEditor(file.text)
+      return { path, kind: 'text', text, saved: text, eol, modified: file.modified }
+    }
     return { path, kind: file.kind, text: '', saved: '', modified: file.modified }
   } catch (error) {
     return { path, kind: 'error', text: '', saved: '', modified: 0, error: error instanceof Error ? error.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(error) }
@@ -133,7 +139,7 @@ export const useIde = create<IdeState>((set, get) => ({
     if (!tab || tab.kind !== 'text') return
     const text = tab.text
     try {
-      const modified = await window.api.workspaceFiles.write(path, text)
+      const modified = await window.api.workspaceFiles.write(path, toDisk(text, tab.eol ?? '\n'))
       set({ tabs: get().tabs.map((t) => (t.path === path ? { ...t, saved: text, modified, stale: false, error: undefined } : t)) })
     } catch (error) {
       const message = error instanceof Error ? error.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(error)

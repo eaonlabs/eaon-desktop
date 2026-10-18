@@ -1,5 +1,5 @@
 import { ipcRenderer } from 'electron'
-import type { ToknAccount, ToknPage, UsageAccountState, UsageRange, UsageSummary } from '@shared/usage'
+import type { CursorImport, ToknAccount, ToknPage, UsageAccountState, UsageRange, UsageSummary } from '@shared/usage'
 
 /** Renderer bridge for Settings → Usage and the Tokn account (Eaon's account). Exposed as `window.api.usage`. */
 export const usageApi = {
@@ -15,6 +15,8 @@ export const usageApi = {
   sync: (): Promise<void> => ipcRenderer.invoke('usage:sync'),
   /** Opens the Tokn profile in the browser. */
   openProfile: (page?: ToknPage): Promise<void> => ipcRenderer.invoke('usage:open-profile', page),
+  /** Picks Cursor's usage export (CSV) and imports it; null when the picker was closed. */
+  importCursor: (): Promise<CursorImport | null> => ipcRenderer.invoke('usage:import-cursor'),
   /** Usage was recorded, or sign-in or sync moved: read the summary again. */
   onChanged: (callback: () => void): (() => void) => {
     const listener = (): void => callback()

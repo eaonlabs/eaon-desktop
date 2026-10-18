@@ -497,15 +497,21 @@ async function authorize(
 
   provider.resetForSignIn(options.client)
 
+  // Every request the SDK makes (discovery, registration, the token
+  // exchange) ends on Cancel, and gives up on a server that stops answering
+  // rather than leaving the sign-in spinning.
+  const fetchFn = (url: string | URL, init?: RequestInit): Promise<Response> =>
+    fetch(url, { ...init, signal: AbortSignal.any([owner.signal, AbortSignal.timeout(20_000), ...(init?.signal ? [init.signal] : [])]) })
+
   const { resourceMetadataUrl, scope } = await challenge(serverUrl, options.headers ?? {}, owner.signal)
   stopIfCancelled()
   try {
-    const result = await auth(provider, { serverUrl, resourceMetadataUrl, scope })
+    const result = await auth(provider, { serverUrl, resourceMetadataUrl, scope, fetchFn })
     if (result === 'AUTHORIZED') return
     if (!browser.code) throw new Error('The server did not start a browser sign-in.')
     const code = await browser.code
     stopIfCancelled()
-    const exchanged = await auth(provider, { serverUrl, resourceMetadataUrl, scope, authorizationCode: code })
+    const exchanged = await auth(provider, { serverUrl, resourceMetadataUrl, scope, authorizationCode: code, fetchFn })
     if (exchanged !== 'AUTHORIZED') throw new Error('The server did not issue a token.')
   } catch (error) {
     if (error instanceof Error && /does not support dynamic client registration/i.test(error.message)) {

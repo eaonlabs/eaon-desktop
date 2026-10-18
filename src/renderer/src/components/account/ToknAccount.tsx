@@ -109,7 +109,7 @@ export function SignInPrompt(): JSX.Element | null {
           <span className="account-entry__text">
             <span className="account-entry__name">{pending ? 'Waiting for Tokn…' : 'Sign in with Tokn'}</span>
             <span className="account-entry__sub">
-              {pending ? 'Approve Eaon in your browser' : signIn.state === 'error' ? 'Couldn’t sign in. Try again.' : 'Account on toknhq.com'}
+              {pending ? 'Approve Eaon in your browser' : signIn.state === 'error' ? (signIn.error ?? 'Couldn’t sign in. Try again.') : 'Account on toknhq.com'}
             </span>
           </span>
         </button>

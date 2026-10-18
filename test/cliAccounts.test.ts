@@ -66,10 +66,41 @@ test('Claude Code’s usage: its own rows, classified on kind — session, week,
     [
       ['session', 'Session', 7, 'normal'],
       ['week', 'Week', 79, 'warning'],
-      ['week:Opus', 'Opus week', 12, 'normal']
+      ['week:Opus', 'Opus week', 12, 'normal'],
+      ['spend_something_new:', 'Spend something new', 50, 'normal']
     ]
   )
   assert.equal(usage.windows[0].resetsAt, Date.parse('2026-10-08T05:49:59.960876+00:00'))
+})
+
+test('Claude Code on an Enterprise plan: no session or week, but the member’s monthly spend cap, in cents', () => {
+  const usage = claudeUsage({
+    subscription_type: 'enterprise',
+    rate_limits_available: true,
+    rate_limits: {
+      five_hour: null,
+      seven_day: null,
+      limits: [],
+      extra_usage: { is_enabled: true, monthly_limit: 5000, used_credits: 1240, utilization: 24.8, currency: 'USD' }
+    }
+  })
+  assert.equal(usage.available, true)
+  assert.equal(usage.plan, 'enterprise')
+  assert.deepEqual(
+    usage.windows.map((w) => [w.id, w.label, w.percent, w.severity, w.detail]),
+    [['spend', 'Monthly spend', 25, 'normal', '$12.40 of $50.00']]
+  )
+  // A meter of the plan's own that Eaon has no name for is shown, not dropped.
+  const surface = claudeUsage({
+    rate_limits_available: true,
+    rate_limits: { limits: [{ kind: 'monthly_member', group: 'monthly', percent: 92, severity: 'critical', resets_at: null, scope: { surface: { display_name: 'Claude Code' } } }] }
+  })
+  assert.deepEqual(
+    surface.windows.map((w) => [w.label, w.span, w.percent, w.severity]),
+    [['Claude Code', 'this month', 92, 'critical']]
+  )
+  // No cap set: nothing to measure against.
+  assert.deepEqual(claudeUsage({ rate_limits_available: true, rate_limits: { extra_usage: { is_enabled: false, monthly_limit: null, used_credits: null } } }).windows, [])
 })
 
 test('Claude Code: the named windows stand in when there is no list; no limits for an API key', () => {
@@ -251,7 +282,7 @@ test('the default accounts are read once, then not again until the figures go st
     const state = h.service.state()
     const claude = state.usage[usageKey('claude', DEFAULT_ACCOUNT_ID)]
     assert.ok(claude?.ok)
-    assert.deepEqual(claude.windows.map((w) => w.percent), [7, 79, 12])
+    assert.deepEqual(claude.windows.map((w) => w.percent), [7, 79, 12, 50])
     const codex = state.usage[usageKey('codex', DEFAULT_ACCOUNT_ID)]
     assert.ok(codex?.ok && codex.windows[0].label === 'Month')
     assert.equal(state.tools.claude.accounts[0].email, 'me@example.com', 'who it is, as the CLI says')

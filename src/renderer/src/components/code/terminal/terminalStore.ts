@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import { useApp } from '../../../state/store'
 import { useCode } from '../codeStore'
-import { PANE_NAMES, type TerminalAgent, type TerminalAgentId, type TerminalLayout, type TerminalPaneSpec } from '@shared/terminals'
+import { PANE_NAMES, type TerminalAgent, type TerminalAgentId, type TerminalLayout, type TerminalPaneSpec, type TerminalRunning } from '@shared/terminals'
 import { terminals } from './registry'
 import { swapped } from './gridLayout'
 import { previewFor, settingsFor } from './appLook'
@@ -19,6 +19,8 @@ interface TerminalsState {
   /** Why the saved layout could not be read; the workspace shows it with a retry. */
   loadError: string | null
   layout: TerminalLayout
+  /** With no agent, the program in each pane's foreground (any CLI), by pane id. Not saved: it is re-read. */
+  programs: Record<string, string>
   agents: TerminalAgent[]
   /** The pane filling the whole grid, if one is maximised. */
   maximized: string | null
@@ -38,7 +40,7 @@ interface TerminalsState {
   close: (cwd: string, paneId: string) => void
   rename: (cwd: string, paneId: string, name: string) => void
   /** What runs in a pane changed under it — its logo and label follow. */
-  setAgent: (paneId: string, agent: TerminalAgentId) => void
+  setAgent: (paneId: string, agent: TerminalAgentId, program?: string) => void
   toggleMaximized: (paneId: string) => void
   /** Two panes trade places in a folder's grid. */
   swap: (cwd: string, a: string, b: string) => void
@@ -59,6 +61,11 @@ let listening = false
 const errorText = (error: unknown): string =>
   (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 
+function withoutPrompt(pane: TerminalPaneSpec): TerminalPaneSpec {
+  const { prompt: _prompt, ...rest } = pane
+  return rest
+}
+
 function persist(layout: TerminalLayout): void {
   if (saveTimer) clearTimeout(saveTimer)
   saveTimer = setTimeout(() => void window.api.terminals.saveLayout(layout), 300)
@@ -68,6 +75,7 @@ export const useTerminals = create<TerminalsState>((set, get) => ({
   loaded: false,
   loadError: null,
   layout: {},
+  programs: {},
   agents: [],
   maximized: null,
   dragging: null,
@@ -87,7 +95,9 @@ export const useTerminals = create<TerminalsState>((set, get) => ({
   },
 
   async refreshAgents() {
-    set({ agents: await window.api.terminals.agents() })
+    const agents = await window.api.terminals.agents()
+    // Asked on every focus: the same list again shouldn't re-render everything that shows it.
+    if (JSON.stringify(agents) !== JSON.stringify(get().agents)) set({ agents })
   },
 
   add(cwd, agent, resume, prompt) {
@@ -105,7 +115,9 @@ export const useTerminals = create<TerminalsState>((set, get) => ({
   close(cwd, paneId) {
     terminals.dispose(paneId)
     const layout = { ...get().layout, [cwd]: (get().layout[cwd] ?? []).filter((p) => p.id !== paneId) }
-    set((s) => ({ layout, maximized: s.maximized === paneId ? null : s.maximized }))
+    const programs = { ...get().programs }
+    delete programs[paneId]
+    set((s) => ({ layout, programs, maximized: s.maximized === paneId ? null : s.maximized }))
     persist(layout)
   },
 
@@ -115,7 +127,13 @@ export const useTerminals = create<TerminalsState>((set, get) => ({
     persist(layout)
   },
 
-  setAgent(paneId, agent) {
+  setAgent(paneId, agent, program) {
+    if ((get().programs[paneId] ?? undefined) !== program) {
+      const programs = { ...get().programs }
+      if (program) programs[paneId] = program
+      else delete programs[paneId]
+      set({ programs })
+    }
     const layout = get().layout
     for (const [cwd, panes] of Object.entries(layout)) {
       const pane = panes.find((p) => p.id === paneId)
@@ -199,7 +217,7 @@ async function loadLayout(): Promise<void> {
     // whatever happens to the rest of the load.
     if (!listening) {
       listening = true
-      window.api.terminals.onAgent(({ paneId, agent }) => get().setAgent(paneId, agent))
+      window.api.terminals.onAgent(({ paneId, agent, program }) => get().setAgent(paneId, agent, program))
       // A pane started from Eaon Remote: main saved the layout; take it, so it shows and isn't saved over.
       window.api.terminals.onLayoutChanged((layout) => set({ layout }))
       // A shell running a full-screen program keeps a typed `/theme` (registry.ts).
@@ -214,14 +232,29 @@ async function loadLayout(): Promise<void> {
       terminals.onCommand((_command, paneId) => get().openPicker(paneId))
       // An agent that worked for a while went quiet while you were elsewhere.
       terminals.onFinish((paneId, task) => notifyFinished(paneId, task))
+      // A task is typed once. Left in the saved layout, a pane brought back
+      // after a crash (where nothing recorded what it was running) typed it again.
+      terminals.onPromptSent((paneId) => {
+        const layout = get().layout
+        for (const [cwd, panes] of Object.entries(layout)) {
+          if (!panes.some((p) => p.id === paneId && p.prompt)) continue
+          const next = { ...layout, [cwd]: panes.map((p) => (p.id === paneId ? withoutPrompt(p) : p)) }
+          set({ layout: next })
+          persist(next)
+          return
+        }
+      })
+      // A CLI installed while Eaon was open (from a terminal, the browser) stops
+      // saying "Not installed" once you come back to the window.
+      window.addEventListener('focus', () => void get().refreshAgents().catch(() => undefined))
     }
     const [layout, agents, running] = await Promise.all([
       window.api.terminals.layout(),
       window.api.terminals.agents(),
-      window.api.terminals.running().catch(() => ({}) as Record<string, TerminalAgentId>)
+      window.api.terminals.running().catch(() => ({}) as Record<string, TerminalRunning>)
     ])
     set({ layout: layout ?? {}, agents, loaded: true, loadError: null })
-    for (const [paneId, agent] of Object.entries(running)) get().setAgent(paneId, agent)
+    for (const [paneId, { agent, program }] of Object.entries(running)) get().setAgent(paneId, agent, program)
   } catch (error) {
     reportError({ message: errorText(error), stack: error instanceof Error ? error.stack : undefined, source: 'terminals' })
     set({ loadError: errorText(error) })

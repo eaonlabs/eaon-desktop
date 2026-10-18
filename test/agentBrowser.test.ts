@@ -18,7 +18,7 @@ import {
   normalizeBrowserInput,
   parseRefs,
   stripAnsi,
-  type WorkerBrowsers
+  WorkerBrowsers
 } from '../src/main/features/workers/browser'
 
 /**
@@ -388,4 +388,33 @@ test('the page text the agent reads, and the text fallback of an unsnapshottable
   } finally {
     setPaymentAccess(null)
   }
+})
+
+test('waiting while the user has the browser keeps saying so, so the run isn’t stopped as stalled', async (t) => {
+  t.mock.timers.enable({ apis: ['setInterval'] })
+  const browsers = new WorkerBrowsers()
+  let handBack!: () => void
+  const done = new Promise<void>((resolve) => (handBack = resolve))
+  // The user in control, as takeControl leaves it (a session's `control`).
+  ;(browsers as unknown as { sessions: Map<string, unknown> }).sessions.set('w', { control: { done } })
+  let pulses = 0
+  const waiting = browsers.waitForUser('w', undefined, () => pulses++)
+  t.mock.timers.tick(3 * 60_000)
+  assert.equal(pulses, 3)
+  handBack()
+  assert.equal(await waiting, true)
+  t.mock.timers.tick(5 * 60_000)
+  assert.equal(pulses, 3, 'quiet once it is handed back')
+})
+
+test('a button first seen on a screenshot is known by name when clicked, not judged as nameless', async () => {
+  // A cart drawer opened after the last snapshot; the model clicked its Remove from the annotated screenshot.
+  const browsers = new WorkerBrowsers()
+  const shot = join(cwd, 'shot.jpg')
+  writeFileSync(shot, 'jpeg')
+  ;(browsers as unknown as { sessions: Map<string, { refs: Map<string, unknown> }> }).sessions.set('w1', { refs: new Map() })
+  browsers.run = async (_id: string, code: string) =>
+    code.includes('screenshot(') ? JSON.stringify(shot) : 'page page-1 https://maticrobots.com/cart "Cart"\n- button "Remove HEPA Bag Bundle from cart" [ref=e409]\n- button "CHECKOUT | $30" [ref=e423]'
+  await browsers.screenshot('w1')
+  assert.deepEqual(browsers.describe('w1', 'e409'), { role: 'button', name: 'Remove HEPA Bag Bundle from cart' })
 })

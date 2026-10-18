@@ -11,6 +11,7 @@ import { WorkersGlyph } from '../ModeSwitch'
 import { Switch } from '../ui'
 import { ADE_LENGTH, CHAT_LENGTH, MiniApp, WORKERS_LENGTH, reduceMotion, type Scene } from './MiniApp'
 import { useOnboarding } from './onboardingStore'
+import { RedeemCode } from '../RedeemCode'
 import '../../styles/onboarding.css'
 
 /**
@@ -126,7 +127,15 @@ function Setup(): JSX.Element {
     } else {
       await new Promise((done) => window.setTimeout(done, 220))
     }
-    await patchSettings({ onboarding: { setup: how, finishedAt: Date.now(), tour: tour ? 'pending' : 'skipped' } })
+    try {
+      await patchSettings({ onboarding: { setup: how, finishedAt: Date.now(), tour: tour ? 'pending' : 'skipped' } })
+    } catch {
+      // Not saved: the setup comes back as it was rather than frozen mid-exit
+      // with every button refusing (`leaving` would stay set).
+      for (const animation of [...(window_?.getAnimations() ?? []), ...(overlay?.getAnimations() ?? [])]) animation.cancel()
+      setLeaving(null)
+      return
+    }
     if (tour) startTour()
   }
 
@@ -177,6 +186,10 @@ function Setup(): JSX.Element {
         <div className="onboarding__progress" aria-hidden="true">
           Step {index + 1} of {STEPS.length}
         </div>
+        {/* The panel with Skip is hidden in a narrow window; this one shows there instead. */}
+        <button type="button" className="onboarding__skip onboarding__skip--narrow" onClick={() => void finish('skipped', false)}>
+          Skip setup
+        </button>
         <div className="onboarding__layout">
           <section key={step} className="onboarding__step" data-direction={direction}>
             {step === 'welcome' && <Welcome place={place} onPlace={setPlace} onNext={next} />}
@@ -372,8 +385,13 @@ function ModelsStep({ ready, refresh, onBack, onNext }: { ready: string[]; refre
           </div>
         ))}
       </div>
+      {/* At an event, its code is the way in: no account or key, and each
+          computer gets its own allowance instead of sharing the venue's IP. */}
+      <div className="card onboarding__code" style={stagger(3)}>
+        <RedeemCode onRedeemed={refresh} />
+      </div>
       {ready.length > 0 && (
-        <p className="onboarding__done onboarding__ready" style={stagger(3)}>
+        <p className="onboarding__done onboarding__ready" style={stagger(4)}>
           <Check size={14} strokeWidth={2.4} />
           Ready: {ready.join(', ')}
         </p>
@@ -387,6 +405,7 @@ function ModelsStep({ ready, refresh, onBack, onNext }: { ready: string[]; refre
         </button>
       </Footer>
       <LinkAccounts
+        inSetup
         open={linking}
         onClose={() => {
           setLinking(false)
@@ -488,7 +507,7 @@ function Ready({ onBack, onTour, onStart }: { onBack: () => void; onTour: () => 
   ]
   return (
     <>
-      <Header title="You’re all set">Take a one-minute tour of where everything is, or start right away. The tour is in the Help menu whenever you want it.</Header>
+      <Header title="You’re all set">Take a one-minute tour of where everything is, or start right away. The tour is under the ? button at the bottom of the sidebar whenever you want it.</Header>
       <div className="card onboarding__keys" style={stagger(2)}>
         {keys.map((key) => (
           <div key={key.text} className="card__row">

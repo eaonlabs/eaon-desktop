@@ -15,7 +15,8 @@ import {
 } from '@shared/workers'
 import { reportError } from '../ErrorBoundary'
 
-const errorText = (error: unknown): string =>
+/** An IPC failure as the sentence main threw, without Electron's "Error invoking remote method …" prefix. */
+export const errorText = (error: unknown): string =>
   (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
 
 /**

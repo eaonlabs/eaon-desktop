@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CalendarDays, CreditCard, PackageSearch, Repeat, ShieldCheck, ShoppingBag } from 'lucide-react'
+import { Bot, CalendarDays, CreditCard, PackageSearch, Plane, Repeat, ShieldCheck, ShoppingBag } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import { formatMoney, type PaymentsStatus } from '@shared/payments'
-import type { ScheduledTask } from '@shared/scheduler'
-import { revealChat, useApp } from '../../state/store'
-import { Modal, Segmented, Switch } from '../ui'
+import type { Worker, WorkerRoutine } from '@shared/workers'
+import { useApp } from '../../state/store'
+import { useWorkers } from '../workers/workersStore'
+import { WorkerFace } from '../workers/WorkerFace'
+import { Modal, Segmented, Select, Switch } from '../ui'
 import { DayPicker } from './DayPicker'
 import { usePurchaseDialog } from './purchaseStore'
 import {
@@ -21,26 +24,31 @@ import {
 import '../../styles/purchase.css'
 
 /**
- * Purchase schedule: what the agent should buy, where, for at most how much,
- * how often, and from which day. Saving is the user's approval for each of
- * its orders within exactly those bounds; today as the start day places the
- * first order right away and opens its chat to watch it happen.
+ * Purchase schedule: which worker buys what, where, for at most how much,
+ * how often, and from which day. It is saved as one of that worker's
+ * routines, and saving is the user's approval for each of its orders within
+ * exactly those bounds. Today as the start day places the first order right
+ * away and opens the worker to watch it happen. A maximum of 0 is for free
+ * orders, which need no card.
  */
 
 const DAY = 24 * 60 * 60_000
 const CADENCES: Cadence[] = ['once', 'daily', 'weekly', 'biweekly', 'monthly']
 
-function cadenceOf(task: ScheduledTask): Cadence {
-  if (task.schedule.kind !== 'interval') return 'once'
-  const hours = task.schedule.unit === 'hours' ? task.schedule.every : task.schedule.every / 60
+function cadenceOf(routine: WorkerRoutine): Cadence {
+  if (!routine.everyMs) return 'once'
+  const hours = routine.everyMs / (60 * 60_000)
   return (Object.keys(CADENCE_HOURS) as Exclude<Cadence, 'once'>[]).find((c) => CADENCE_HOURS[c] === hours) ?? 'weekly'
 }
 
+/** A worker that can place orders: one on Eaon's own loop (an agent engine has no Eaon browser or card). */
+const canBuy = (w: Worker): boolean => !w.engine || w.engine === 'native'
+
 const pad = (n: number): string => String(n).padStart(2, '0')
 
-function formFor(task: ScheduledTask | null, currency: string): PurchaseForm {
+function formFor(routine: WorkerRoutine | null, currency: string): PurchaseForm {
   const now = Date.now()
-  if (!task?.purchase) {
+  if (!routine?.purchase) {
     return {
       item: '',
       site: '',
@@ -52,24 +60,26 @@ function formFor(task: ScheduledTask | null, currency: string): PurchaseForm {
       time: '09:00',
       limited: false,
       orders: '4',
-      track: true
+      track: true,
+      autopilot: false
     }
   }
-  const plan = task.purchase
-  const next = task.nextRunAt ?? (task.schedule.kind === 'once' ? task.schedule.at : now)
-  const at = new Date(next)
+  const plan = routine.purchase
+  const next = routine.nextAt
+  const at = new Date(routine.anchorAt ?? next)
   return {
     item: plan.item,
     site: plan.site,
     maxAmount: plan.maxAmount.toFixed(2),
     currency: plan.currency,
     notes: plan.notes,
-    cadence: cadenceOf(task),
+    cadence: cadenceOf(routine),
     startDay: startOfDay(Math.max(next, now)),
     time: `${pad(at.getHours())}:${pad(at.getMinutes())}`,
-    limited: plan.orders !== null && task.schedule.kind === 'interval',
+    limited: plan.orders !== null && routine.everyMs !== null,
     orders: String(plan.orders ?? 4),
-    track: plan.track
+    track: plan.track,
+    autopilot: plan.autopilot === true
   }
 }
 
@@ -84,66 +94,101 @@ const dayLabel = (day: number, now: number): string => {
 const clock = (time: string): string => new Date(atTime(startOfDay(Date.now()), time)).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
 
 export function PurchaseDialog(): JSX.Element | null {
-  const { open, task, close } = usePurchaseDialog()
+  const { open, workerId: openedFor, routine, close } = usePurchaseDialog()
   const setSettingsPage = useApp((s) => s.setSettingsPage)
+  const { workers, select, selectThread } = useWorkers(useShallow((s) => ({ workers: s.workers, select: s.select, selectThread: s.selectThread })))
+  const buyers = workers.filter(canBuy)
   const [payments, setPayments] = useState<PaymentsStatus | null>(null)
   const [form, setForm] = useState<PurchaseForm>(() => formFor(null, 'USD'))
+  const [workerId, setWorkerId] = useState<string | null>(null)
   // Editing: the timing stays as it is until one of its fields is touched.
   const [timingTouched, setTimingTouched] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  // A new schedule gets its own thread each time the dialog opens; the dialog itself stays mounted.
-  const [threadId, setThreadId] = useState(() => crypto.randomUUID())
 
   useEffect(() => {
     if (!open) return
+    // Reset at once, not when payments answer: until then the dialog would
+    // show the last schedule's fields (and never stop, if they didn't answer).
     setError(null)
     setSaving(false)
     setTimingTouched(false)
-    setThreadId(crypto.randomUUID())
-    void window.api.payments.status().then((status) => {
-      setPayments(status)
-      setForm(formFor(task, status.currency))
-    })
-    return window.api.payments.onChanged(setPayments)
-  }, [open, task])
+    setForm(formFor(routine, payments?.currency ?? 'USD'))
+    void useWorkers.getState().init()
+    let live = true
+    window.api.payments
+      .status()
+      .then((status) => {
+        if (!live) return
+        setPayments(status)
+        // A new schedule is in the user's currency; an edited one keeps its own.
+        if (!routine?.purchase) setForm((f) => ({ ...f, currency: status.currency }))
+      })
+      .catch((e: unknown) => live && setError(`Couldn’t read your payment settings: ${e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(e)}`))
+    const unsubscribe = window.api.payments.onChanged(setPayments)
+    return () => {
+      live = false
+      unsubscribe()
+    }
+    // The currency is only a starting guess; payments changing must not reset what the user typed.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, routine])
+
+  // The worker it was opened from, else the one on screen, else the first that can buy.
+  useEffect(() => {
+    if (!open) return
+    const fits = (id: string | null | undefined): boolean => Boolean(id && buyers.some((w) => w.id === id))
+    const onScreen = useWorkers.getState().selectedId
+    setWorkerId(fits(openedFor) ? openedFor : fits(onScreen) ? onScreen : (buyers[0]?.id ?? null))
+    // Only when it opens: picking another worker is the user's.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, openedFor, buyers.length])
 
   const now = Date.now()
   const set = (patch: Partial<PurchaseForm>, timing = false): void => {
     setForm((f) => ({ ...f, ...patch }))
     if (timing) setTimingTouched(true)
   }
-  const keep = task && !timingTouched ? task.schedule : null
-  const built = useMemo(() => buildPurchasePlan(form, Date.now(), threadId, task, keep), [form, threadId, task, keep])
-  const ready = payments?.effectiveMode !== undefined && payments.effectiveMode !== 'off'
+  // Editing keeps the routine's own timing until a timing field is touched.
+  const keep = routine && !timingTouched ? routine : null
+  const built = useMemo(() => buildPurchasePlan(form, Date.now(), routine, timingTouched), [form, routine, timingTouched])
+  const cardReady = Boolean(payments?.card) && payments?.effectiveMode !== undefined && payments.effectiveMode !== 'off'
   const site = storeSite(form.site)
   const amount = amountOf(form.maxAmount)
+  const free = amount === 0
+  // A card only matters for orders that cost something; free ones (a maximum of 0) need none.
+  const needsCard = Number.isFinite(amount) && amount > 0 && !cardReady
+  const worker = buyers.find((w) => w.id === workerId) ?? null
+  const ready = !needsCard && worker !== null
   const money = Number.isFinite(amount) && amount > 0 ? formatMoney(amount, form.currency) : null
   const symbol = form.currency === 'USD' ? '$' : form.currency
   const recurring = form.cadence !== 'once'
   const today = startOfDay(now)
-  const isToday = !keep && form.startDay <= today
+  // Only a new schedule buys on the spot; an edit moves the next order instead.
+  const isToday = !routine && form.startDay <= today
 
   const save = async (): Promise<void> => {
-    if (built.error || saving || !ready) return
+    if (built.error || saving || !ready || !worker) return
     setSaving(true)
     setError(null)
     try {
-      const saved = await window.api.scheduler.save(built.draft)
+      const saved = await window.api.workers.savePurchase(worker.id, built.draft)
       if (built.buyNow) {
-        await window.api.scheduler.runNow(saved.id)
-        // The run's chat arrives from main a moment later: open it once it's here.
-        const thread = saved.thread
-        if (thread) {
-          const reveal = (): boolean => {
-            if (!useApp.getState().chats.some((c) => c.id === thread)) return false
-            revealChat(thread)
-            return true
-          }
-          if (!reveal()) {
-            const stop = useApp.subscribe(() => reveal() && stop())
-            setTimeout(stop, 10_000)
-          }
+        // To the worker, and to the schedule's thread once its first run has made it.
+        select(worker.id)
+        const app = useApp.getState()
+        const tab = app.workspaces.find((w) => w.kind === 'workers')
+        if (tab && app.settings?.activeWorkspaceId !== tab.id) app.setWorkspace(tab.id)
+        if (app.view !== 'chat') app.setView('chat')
+        const reveal = (): boolean => {
+          const thread = useWorkers.getState().workers.find((w) => w.id === worker.id)?.threads.find((t) => t.routineId === saved.id)
+          if (!thread) return false
+          selectThread(worker.id, thread.id)
+          return true
+        }
+        if (!reveal()) {
+          const stop = useWorkers.subscribe(() => reveal() && stop())
+          setTimeout(stop, 15_000)
         }
       }
       close()
@@ -160,7 +205,7 @@ export function PurchaseDialog(): JSX.Element | null {
 
   const primary = !ready
     ? 'Schedule'
-    : keep
+    : routine
       ? 'Save changes'
       : isToday
         ? recurring
@@ -172,7 +217,7 @@ export function PurchaseDialog(): JSX.Element | null {
     <Modal
       open={open}
       onClose={close}
-      title={task ? 'Edit purchase schedule' : 'Purchase schedule'}
+      title={routine ? 'Edit purchase schedule' : 'Purchase schedule'}
       width={560}
       actions={
         <>
@@ -180,19 +225,50 @@ export function PurchaseDialog(): JSX.Element | null {
             Cancel
           </button>
           <button type="button" className="btn btn--primary" disabled={Boolean(built.error) || saving || !ready} onClick={() => void save()}>
-            {isToday && ready && !keep && <ShoppingBag size={14} strokeWidth={2} />}
+            {isToday && ready && <ShoppingBag size={14} strokeWidth={2} />}
             {saving ? 'Saving…' : primary}
           </button>
         </>
       }
     >
       <div className="purchase">
-        <p className="purchase__lede">The agent buys this for you on a schedule, with your saved card, and keeps an eye on each order until it arrives.</p>
+        <p className="purchase__lede">A worker buys this for you on a schedule, with its own browser, and keeps an eye on each order until it arrives.</p>
 
-        {payments && !ready && (
+        {workers.length > 0 && buyers.length === 0 && (
+          <div className="purchase__notice" role="status">
+            <Bot size={15} strokeWidth={1.9} />
+            <span>Your workers run on other agent engines, which can’t use Eaon’s browser and card. Make a worker that runs on Eaon to buy for you.</span>
+          </div>
+        )}
+        {workers.length === 0 && (
+          <div className="purchase__notice" role="status">
+            <Bot size={15} strokeWidth={1.9} />
+            <span>Purchases are made by a worker. Make one in Workers first.</span>
+          </div>
+        )}
+
+        {buyers.length > 0 && (
+          <div className="purchase__field">
+            <span className="purchase__label">Who buys it</span>
+            {routine ? (
+              <span className="purchase__worker">
+                {worker && <WorkerFace color={worker.color} size={18} />}
+                {worker?.name ?? 'Its worker'}
+              </span>
+            ) : (
+              <Select
+                value={workerId ?? ''}
+                onChange={(id) => setWorkerId(id)}
+                options={buyers.map((w) => ({ value: w.id, label: w.name, icon: <WorkerFace color={w.color} size={16} /> }))}
+              />
+            )}
+          </div>
+        )}
+
+        {payments && needsCard && (
           <div className="purchase__notice" role="status">
             <CreditCard size={15} strokeWidth={1.9} />
-            <span>Add a card in Payments first. Scheduled orders are paid with it.</span>
+            <span>Orders that cost something are paid with your card, so add one in Payments. Free orders (a maximum of 0) don’t need one.</span>
             <button
               type="button"
               className="btn btn--sm"
@@ -242,9 +318,13 @@ export function PurchaseDialog(): JSX.Element | null {
                 placeholder="45.00"
                 value={form.maxAmount}
                 onChange={(e) => set({ maxAmount: e.target.value.replace(/[^0-9.]/g, '') })}
-                onBlur={() => Number.isFinite(amount) && amount > 0 && set({ maxAmount: amount.toFixed(2) })}
+                onBlur={() => Number.isFinite(amount) && set({ maxAmount: amount.toFixed(2) })}
                 aria-label={`Most per order, in ${form.currency}`}
+                aria-describedby="purchase-free-hint"
               />
+            </span>
+            <span className="purchase__hint" id="purchase-free-hint">
+              {free ? 'Free orders only. No card needed.' : '0 for free orders'}
             </span>
           </label>
         </div>
@@ -274,9 +354,9 @@ export function PurchaseDialog(): JSX.Element | null {
 
           <div className="purchase__side">
             <div className="purchase__day" data-today={isToday || undefined}>
-              <span className="purchase__day-name">{keep ? 'Next order' : dayLabel(form.startDay, now)}</span>
+              <span className="purchase__day-name">{routine ? 'Next order' : dayLabel(form.startDay, now)}</span>
               <span className="purchase__day-note">
-                {keep
+                {routine
                   ? built.nextAt
                     ? new Date(built.nextAt).toLocaleString([], { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
                     : 'None scheduled'
@@ -327,6 +407,14 @@ export function PurchaseDialog(): JSX.Element | null {
               </span>
               <Switch checked={form.track} onChange={(track) => set({ track })} label="Track each order" />
             </label>
+
+            <label className="purchase__track">
+              <span className="purchase__track-text">
+                <span>Autopilot</span>
+                <span className="purchase__hint">Never asks you anything. Goes from cart to order confirmation on its own</span>
+              </span>
+              <Switch checked={form.autopilot} onChange={(autopilot) => set({ autopilot })} label="Autopilot" />
+            </label>
           </div>
         </div>
 
@@ -334,14 +422,14 @@ export function PurchaseDialog(): JSX.Element | null {
           <div>
             <dt>
               <CalendarDays size={14} strokeWidth={1.9} />
-              First order
+              {routine && !keep ? 'Next order' : 'First order'}
             </dt>
             <dd>
               {keep
                 ? 'Already started'
                 : isToday
                   ? 'Today, right away'
-                  : new Date(atTime(form.startDay, form.time)).toLocaleString([], { weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                  : new Date(built.draft.firstAt).toLocaleString([], { weekday: 'long', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
             </dd>
           </div>
           {recurring && (
@@ -366,10 +454,19 @@ export function PurchaseDialog(): JSX.Element | null {
               Each order
             </dt>
             <dd>
-              {money ? `Up to ${money}` : 'Set a maximum'}
+              {free ? 'Free only, never charged' : money ? `Up to ${money}` : 'Set a maximum'}
               {site ? ` on ${site}` : ''}
             </dd>
           </div>
+          {form.autopilot && (
+            <div>
+              <dt>
+                <Plane size={14} strokeWidth={1.9} />
+                Autopilot
+              </dt>
+              <dd>Never asks you. If something’s off, it skips the order and tells you why</dd>
+            </div>
+          )}
           {form.track && (
             <div>
               <dt>
@@ -379,7 +476,7 @@ export function PurchaseDialog(): JSX.Element | null {
               <dd>Tracks the order number twice a day and tells you when it ships and arrives</dd>
             </div>
           )}
-          {payments?.card && (
+          {payments?.card && !free && (
             <div>
               <dt>
                 <CreditCard size={14} strokeWidth={1.9} />
@@ -393,8 +490,10 @@ export function PurchaseDialog(): JSX.Element | null {
         </dl>
 
         <p className="purchase__fine">
-          Saving approves each order in advance, so the agent won’t ask you first. It buys only this{site ? `, only on ${site}` : ''}, and never over{' '}
-          {money ?? 'the maximum'} an order. Pause or delete it any time in Scheduled.
+          Saving approves each order in advance, so {worker?.name ?? 'the worker'} won’t ask you first
+          {form.autopilot ? ' or at any step' : ''}. It buys only this{site ? `, only on ${site}` : ''},{' '}
+          {free ? 'and only when the order is free' : `and never over ${money ?? 'the maximum'} an order`}. Stop it any time from {worker?.name ?? 'the worker'}’s routines. Sign{' '}
+          {worker?.name ?? 'the worker'}’s browser in to the store first: it won’t type passwords.
         </p>
 
         {(error || (built.error && (form.item || form.site || form.maxAmount))) && (

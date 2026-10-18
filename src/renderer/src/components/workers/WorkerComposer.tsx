@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { ArrowUp, AtSign, Eye, FileText, Globe, Laptop, Mic, Paperclip, Plus, ShieldCheck, Square, Target, X, Zap } from 'lucide-react'
+import { ArrowUp, AtSign, Eye, FileText, Globe, Laptop, Mic, Paperclip, Plus, ShieldCheck, ShoppingBag, Square, Target, X, Zap } from 'lucide-react'
 import { useApp } from '../../state/store'
-import { useWorkers } from './workersStore'
+import { errorText, useWorkers } from './workersStore'
 import { WorkerFace } from './WorkerFace'
 import { MenuItem, MenuSeparator, Popover, useDisclosure } from '../ui'
 import { PluginsSubmenu } from '../Composer'
@@ -19,6 +19,7 @@ import { fileName, fileUrl, isImagePath } from '../../lib/files'
 import { mcpCatalogEntry } from '@shared/mcpCatalog'
 import { MAIN_THREAD, mentionedWorkers, WORKER_ACCESS, type Worker, type WorkerAccess } from '@shared/workers'
 import type { McpServer } from '@shared/types'
+import { usePurchaseDialog } from '../purchase/purchaseStore'
 
 const ACCESS_ICON: Record<WorkerAccess, typeof Zap> = { autonomous: Zap, safe: ShieldCheck, 'read-only': Eye }
 
@@ -57,6 +58,8 @@ export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Wor
   const [mentions, setMentions] = useState<Mention[]>([])
   const [dragging, setDragging] = useState(false)
   const [hasBrowser, setHasBrowser] = useState(false)
+  const [sending, setSending] = useState(false)
+  const [sendError, setSendError] = useState<string | null>(null)
   const box = useRef<HTMLTextAreaElement>(null)
   // Dictation: what is said lands at the end of the message, ready to edit, never sent by itself.
   const dictation = useDictation((spoken) => {
@@ -134,6 +137,15 @@ export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Wor
       ...(hasBrowser
         ? [{ id: 'browser', title: 'Its browser', keywords: 'browser web watch sign in', description: 'Watch it, or sign it in', section: 'Tools', icon: <Globe size={16} strokeWidth={1.8} />, run: showBrowser }]
         : []),
+      {
+        id: 'purchase',
+        title: 'Purchase schedule',
+        keywords: 'purchase buy order shop reorder recurring subscribe free',
+        description: `Have ${worker.name} buy something, once or on repeat`,
+        section: 'Tools',
+        icon: <ShoppingBag size={16} strokeWidth={1.8} />,
+        run: () => usePurchaseDialog.getState().show({ workerId: worker.id })
+      },
       { id: 'computer', title: 'Computer use', keywords: 'computer screen mouse', section: 'Tools', icon: <Laptop size={16} strokeWidth={1.8} />, hint: settings?.computerUse.enabled ? 'On' : 'Off', run: () => setSettingsPage('computer-use') },
       { id: 'plugins', title: 'Browse plugins', keywords: 'plugins mcp integrations', section: 'Tools', icon: <AtSign size={16} strokeWidth={1.8} />, run: () => setView('plugins') },
       { id: 'wake', title: 'Check in now', keywords: 'wake check in now', section: worker.name, icon: <Zap size={16} strokeWidth={1.8} />, run: () => void window.api.workers.wake(worker.id) },
@@ -166,16 +178,29 @@ export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Wor
   const shownMentions = liveMentions(mentions, text)
   const hasChips = goalArmed || copiedTo.length > 0 || shownMentions.length > 0
 
-  const submit = (): void => {
-    if (!text.trim() && files.length === 0) return
-    void send(worker.id, text.trim(), files, {
-      ...(isMain && goalArmed && text.trim() ? { goal: true } : {}),
-      ...(isMain ? {} : { threadId })
-    })
-    setText('')
-    setFiles([])
-    setMentions([])
-    setGoalArmed(false)
+  // The box empties only once main has the message: a refused send (the
+  // worker removed, a bad file) leaves what was written there to try again.
+  const submit = async (): Promise<void> => {
+    if ((!text.trim() && files.length === 0) || sending) return
+    const sent = text
+    const sentFiles = files
+    setSending(true)
+    setSendError(null)
+    try {
+      await send(worker.id, text.trim(), files, {
+        ...(isMain && goalArmed && text.trim() ? { goal: true } : {}),
+        ...(isMain ? {} : { threadId })
+      })
+      // Anything typed while it was sending stays.
+      setText((current) => (current === sent ? '' : current))
+      setFiles((current) => current.filter((path) => !sentFiles.includes(path)))
+      setMentions([])
+      setGoalArmed(false)
+    } catch (error) {
+      setSendError(errorText(error))
+    } finally {
+      setSending(false)
+    }
   }
 
   return (
@@ -236,10 +261,18 @@ export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Wor
             if (suggest.onKeyDown(e)) return
             if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault()
-              submit()
+              void submit()
             }
           }}
         />
+        )}
+        {sendError && (
+          <div className="voice-error" role="alert">
+            <span className="voice-error__text">Couldn’t send: {sendError}</span>
+            <button onClick={() => setSendError(null)} aria-label="Dismiss">
+              <X size={12} strokeWidth={2.2} />
+            </button>
+          </div>
         )}
         {dictation.error && (
           <div className="voice-error" role="alert">
@@ -333,7 +366,7 @@ export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Wor
           >
             <Mic size={16} strokeWidth={1.9} />
           </button>
-          <button className="send" disabled={dictating || (!text.trim() && files.length === 0)} onClick={submit} aria-label="Send">
+          <button className="send" disabled={dictating || sending || (!text.trim() && files.length === 0)} onClick={() => void submit()} aria-label="Send">
             <ArrowUp size={17} strokeWidth={2.2} />
           </button>
         </div>
@@ -454,6 +487,16 @@ function WorkerAddMenu({
         onMouseEnter={() => setSub(null)}
         onClick={() => {
           onBrowser()
+          close()
+        }}
+      />
+      <MenuItem
+        icon={<ShoppingBag size={16} strokeWidth={1.8} />}
+        title="Purchase schedule"
+        hint="Buy on repeat"
+        onMouseEnter={() => setSub(null)}
+        onClick={() => {
+          usePurchaseDialog.getState().show({ workerId: worker.id })
           close()
         }}
       />

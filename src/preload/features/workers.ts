@@ -12,7 +12,9 @@ import type {
   WorkerRoom,
   WorkerSendOptions,
   WorkerStreamEvent,
-  WorkerThread
+  WorkerThread,
+  PurchaseRoutineDraft,
+  WorkerRoutine
 } from '@shared/workers'
 
 /**
@@ -59,6 +61,11 @@ export const workersApi = {
   setMemory: (id: string, memory: { goal?: string; notes?: string }): Promise<string> => ipcRenderer.invoke('workers:set-memory', id, memory),
   /** Stops one of the worker's routines, by name. */
   removeRoutine: (id: string, name: string): Promise<string> => ipcRenderer.invoke('workers:remove-routine', id, name),
+  removeRoutineById: (id: string, routineId: string): Promise<void> => ipcRenderer.invoke('workers:remove-routine-id', id, routineId),
+  /** A routine's next run, now: a purchase schedule's "Buy now". */
+  runRoutine: (id: string, routineId: string): Promise<void> => ipcRenderer.invoke('workers:run-routine', id, routineId),
+  /** Saves a purchase schedule as one of the worker's routines (new, or replacing `draft.id`). */
+  savePurchase: (id: string, draft: PurchaseRoutineDraft): Promise<WorkerRoutine> => ipcRenderer.invoke('workers:save-purchase', id, draft),
   /** Pause, resume or clear the goal set from the composer's Goal. */
   setGoal: (id: string, status: 'active' | 'paused' | null): Promise<void> => ipcRenderer.invoke('workers:set-goal', id, status),
   /** Runs a check-in turn as soon as the worker is free. */
@@ -66,6 +73,8 @@ export const workersApi = {
   /** Aborts one thread's running turn (the main one by default); the worker's other threads carry on. */
   stop: (id: string, threadId?: string): Promise<void> => ipcRenderer.invoke('workers:stop', id, threadId),
   markRead: (id: string, threadId?: string): Promise<void> => ipcRenderer.invoke('workers:mark-read', id, threadId),
+  /** The worker whose page is on screen, or null once it isn't: that worker's own banners are held back only while it is. */
+  viewing: (id: string | null): Promise<void> => ipcRenderer.invoke('workers:viewing', id),
   /** Brings a worker's own browser to the front (to watch, or to sign it in); false if it has not opened one yet. */
   showBrowser: (id: string): Promise<boolean> => ipcRenderer.invoke('workers:show-browser', id),
   hasBrowser: (id: string): Promise<boolean> => ipcRenderer.invoke('workers:has-browser', id),

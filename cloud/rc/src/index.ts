@@ -8,8 +8,9 @@ export { Links } from './links'
  * rc.eaon.dev: control Eaon Desktop from a browser, anywhere.
  *
  *   /auth/*   sign in with GitHub (and /auth/dev under `wrangler dev`)
- *   /api/*    the signed-in user, linking a computer, the computer list
- *   /relay/*  WebSockets: a computer's (device token) and a browser tab's (cookie)
+ *   /api/*    the signed-in user, linking a computer, the computer list, sharing
+ *   /relay/*  WebSockets: a computer's (device token), a browser tab's (cookie),
+ *             and a tab joining another account's relay as a guest (shares.ts)
  *   anything else: the web app in ./public
  *
  * A device token is `eaonrc1.<github user id>.<device id>.<secret>`. The
@@ -26,6 +27,20 @@ const links = (env: Env): DurableObjectStub => env.LINKS.get(env.LINKS.idFromNam
 const call = (stub: DurableObjectStub, path: string, init: RequestInit = {}): Promise<Response> => stub.fetch(`https://do${path}`, init)
 
 const post = (body: unknown): RequestInit => ({ method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+
+/** An invite link's token: `<owner uid>.<share id>.<secret>`. */
+export function parseShareToken(token: string): { owner: string; id: string; secret: string } | null {
+  const m = /^([\w-]{1,40})\.([\w-]{6,40})\.([\w-]{20,100})$/.exec(token)
+  return m ? { owner: m[1], id: m[2], secret: m[3] } : null
+}
+
+/** An unlinked computer's shares are gone: the accounts they were with forget them too. */
+async function forgetDropped(env: Env, owner: string, res: Response): Promise<Response> {
+  if (!res.ok) return res
+  const body = (await res.json()) as { dropped?: { uid: string; share: string }[] }
+  await Promise.all((body.dropped ?? []).map((d) => call(account(env, d.uid), '/incoming/remove', post({ owner, share: d.share }))))
+  return json({ ok: true })
+}
 
 export function parseDeviceToken(token: string): { uid: string; id: string; secret: string } | null {
   const m = /^eaonrc1\.([\w-]{1,40})\.([\w-]{6,40})\.([\w-]{20,100})$/.exec(token)
@@ -112,7 +127,23 @@ async function api(env: Env, request: Request, url: URL): Promise<Response> {
   if (path === '/api/device/unlink' && request.method === 'POST') {
     const token = parseDeviceToken((request.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, ''))
     if (!token) return json({ error: 'Not a device token.' }, 401)
-    return call(account(env, token.uid), '/devices/self-remove', { method: 'POST', headers: { 'X-RC-Device': token.id, 'X-RC-Secret': token.secret } })
+    return forgetDropped(env, token.uid, await call(account(env, token.uid), '/devices/self-remove', { method: 'POST', headers: { 'X-RC-Device': token.id, 'X-RC-Secret': token.secret } }))
+  }
+  // The computer's own view of who it's shared with, and revoking from it (Settings → Remote devices).
+  if (path === '/api/device/shares' || path.startsWith('/api/device/shares/')) {
+    const token = parseDeviceToken((request.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, ''))
+    if (!token) return json({ error: 'Not a device token.' }, 401)
+    const auth = { 'X-RC-Device': token.id, 'X-RC-Secret': token.secret }
+    if (path === '/api/device/shares' && request.method === 'GET') return call(account(env, token.uid), '/devices/self-shares', { headers: auth })
+    const one = /^\/api\/device\/shares\/([\w-]+)$/.exec(path)
+    if (one && request.method === 'DELETE') {
+      const res = await call(account(env, token.uid), `/devices/self-shares/${one[1]}`, { method: 'DELETE', headers: auth })
+      if (!res.ok) return res
+      const done = (await res.json()) as { uid: string | null }
+      if (done.uid) await call(account(env, done.uid), '/incoming/remove', post({ owner: token.uid, share: one[1] }))
+      return json({ ok: true })
+    }
+    return json({ error: 'not found' }, 404)
   }
 
   // ---- from the web app: signed in, and from our own pages
@@ -148,9 +179,42 @@ async function api(env: Env, request: Request, url: URL): Promise<Response> {
 
   if (path === '/api/devices' && request.method === 'GET') return call(account(env, user.uid), '/devices')
   const one = /^\/api\/devices\/([\w-]+)$/.exec(path)
-  if (one && (request.method === 'PATCH' || request.method === 'DELETE')) {
-    return call(account(env, user.uid), `/devices/${one[1]}`, { method: request.method, headers: { 'content-type': 'application/json' }, body: request.method === 'PATCH' ? await request.text() : undefined })
+  if (one && request.method === 'PATCH') {
+    return call(account(env, user.uid), `/devices/${one[1]}`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: await request.text() })
   }
+  if (one && request.method === 'DELETE') return forgetDropped(env, user.uid, await call(account(env, user.uid), `/devices/${one[1]}`, { method: 'DELETE' }))
+
+  // ---- sharing (shares.ts): what you shared, invites, and what's shared with you
+  if (path === '/api/shares' && request.method === 'GET') return call(account(env, user.uid), '/shares')
+  if (path === '/api/shares' && request.method === 'POST') {
+    const res = await call(account(env, user.uid), '/shares/add', { ...post(await request.json().catch(() => ({}))), headers: { 'content-type': 'application/json', 'X-RC-Login': user.login } })
+    if (!res.ok) return res
+    const made = (await res.json()) as { share: { id: string }; secret: string }
+    return json({ share: made.share, url: `${env.PUBLIC_URL}/share/${user.uid}.${made.share.id}.${made.secret}` })
+  }
+  const share = /^\/api\/shares\/([\w-]+)$/.exec(path)
+  if (share && request.method === 'DELETE') {
+    const res = await call(account(env, user.uid), `/shares/${share[1]}`, { method: 'DELETE' })
+    if (!res.ok) return res
+    const done = (await res.json()) as { uid: string | null }
+    if (done.uid) await call(account(env, done.uid), '/incoming/remove', post({ owner: user.uid, share: share[1] }))
+    return json({ ok: true })
+  }
+  if (path === '/api/share/open' && request.method === 'POST') {
+    const body = (await request.json().catch(() => ({}))) as { token?: string; accept?: boolean }
+    const token = parseShareToken(String(body.token ?? ''))
+    if (!token) return json({ error: 'That isn’t an invite link.' }, 400)
+    if (token.owner === user.uid) return json({ error: 'This is your own invite. Send the link to the person it’s for.' }, 400)
+    const res = await call(account(env, token.owner), '/shares/invite', {
+      ...post({ id: token.id, secret: token.secret, accept: body.accept === true }),
+      headers: { 'content-type': 'application/json', 'X-RC-Uid': user.uid, 'X-RC-Login': user.login }
+    })
+    if (!res.ok) return res
+    const out = (await res.json()) as { accepted?: boolean; ownerLogin?: string }
+    if (out.accepted) await call(account(env, user.uid), '/incoming/add', post({ owner: token.owner, ownerLogin: out.ownerLogin ?? '', share: token.id }))
+    return json(out)
+  }
+  if (path === '/api/shared' && request.method === 'GET') return call(account(env, user.uid), '/incoming')
   return json({ error: 'not found' }, 404)
 }
 
@@ -173,6 +237,16 @@ async function relay(env: Env, request: Request, url: URL): Promise<Response> {
     const user = await currentUser(env, request)
     if (!user) return new Response('Sign in first.', { status: 401 })
     return account(env, user.uid).fetch('https://do/web', { headers: { Upgrade: 'websocket', 'X-RC-Login': user.login } })
+  }
+
+  // Another account's relay, as a guest: it checks what was shared with you, message by message.
+  if (url.pathname === '/relay/guest') {
+    if (!sameOrigin(env, request)) return new Response('Forbidden.', { status: 403 })
+    const user = await currentUser(env, request)
+    if (!user) return new Response('Sign in first.', { status: 401 })
+    const owner = url.searchParams.get('owner') ?? ''
+    if (!/^[\w-]{1,40}$/.test(owner) || owner === user.uid) return new Response('Not found.', { status: 404 })
+    return account(env, owner).fetch('https://do/guest', { headers: { Upgrade: 'websocket', 'X-RC-Uid': user.uid, 'X-RC-Login': user.login } })
   }
 
   return new Response('Not found.', { status: 404 })

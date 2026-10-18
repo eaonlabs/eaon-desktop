@@ -3,6 +3,122 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [2026.7.0-beta.1] — 2026-10-17
+
+### Added
+- **Hand off to another agent in the ADE.** When a coding agent gets stuck,
+  Hand off starts another one (Codex, Gemini, Cursor, Amp and more) in a new
+  pane on the same work. What was asked, said and done so far is written
+  into the project under `.eaon/handoffs/`, kept out of git, and the new
+  agent starts by reading it. The first pane keeps running.
+- **Ask for a purchase in its schedule's thread.** Writing "order it" in a
+  purchase schedule's thread places the order on the schedule's terms (its
+  store, its maximum, its tracking) instead of reaching a worker with no
+  card tool and a blocked checkout.
+
+### Fixed
+- **Discounts that only show at checkout.** A purchase schedule judged the
+  product page's price, so a free order (an email tied to a pass) stopped at
+  $30. It now goes through checkout, fills it in from the description and
+  notes, applies what they mention and judges the final total.
+- Going to checkout ("Checkout", "Proceed to checkout") no longer waits for
+  approval; placing the order and express pay buttons still do.
+- A button first seen on a screenshot (a cart drawer's Remove) is clicked by
+  its name instead of being blocked as a nameless click.
+- A purchase run that doesn't buy takes its item back out of the cart.
+
+## [2026.6.3-beta.2.6] — 2026-10-16
+
+### Added
+- **Event codes everywhere you start.** The "Have an event code?" box is in
+  setup's Connect a model step, on the free credits card and in the
+  composer when no model is connected. With a code, each computer at an
+  event gets its own allowance instead of sharing the venue's.
+- **Autopilot for purchase schedules.** A schedule on autopilot never asks
+  you anything: once its order is authorized within the maximum on its
+  store, it goes from cart to order confirmation on its own. If something
+  is off, it skips the order and says why.
+- Paste a screenshot or a copied image into the message box to attach it.
+- Settings search finds settings by what they do ("dark mode", "API key",
+  "event code").
+
+### Fixed
+- **School and company networks.** Eaon trusts the computer's own
+  certificates and an environment proxy, so networks that filter HTTPS no
+  longer fail every request as "connection dropped".
+- **Windows ADE.** Claude Code, Codex and other CLIs installed with npm
+  start in a pane on a fresh machine; commands and tasks are quoted for
+  PowerShell; an agent installed while Eaon is open is found.
+- Approval prompts show on every page, so a run no longer waits unseen.
+- A saved API key can be replaced by typing over it, and a rejected key
+  says why, in Settings and in Link accounts.
+- Every failed or cut-off reply has Try again; Stop works right after
+  launch; the mic's stop keeps the recording; the model picker no longer
+  reopens by itself; drafts stay with their own chat.
+- Editing a purchase schedule's timing replaces it instead of adding a
+  second schedule that also buys.
+- A request that gets no answer times out after 90 seconds instead of five
+  minutes.
+- Settings fits the smallest window; Model providers no longer squeezes
+  the key field to a word a line.
+- A failed update install explains and reopens Eaon.
+- Many smaller fixes across chat, the ADE, Workers and Settings.
+
+## [2026.6.3-beta.2.5] — 2026-10-16
+
+### Added
+- **Every CLI in the ADE's terminals is recognised.** A pane running
+  Cursor CLI, Gemini CLI, Grok, Qwen Code, GitHub Copilot, Amp, Droid,
+  Kimi, Cline, Goose, Kilo Code, Junie, Kiro, OpenHands, CodeBuddy, Qoder,
+  Trae, Hermes Agent or OpenClaw shows its logo and name; any other
+  program shows its name instead of "Shell". Installed CLIs appear in New
+  terminal, and one left running starts again after a quit.
+- **Sharing on Eaon Remote.** Share a terminal or the whole computer with
+  one GitHub account, watch-only or watch-and-type, by a one-time link
+  that expires in 7 days. Revoke it on the website or in Settings →
+  Remote devices.
+- **Watch the agents' browsers on Eaon Remote**, live and view-only, with
+  what each has been doing; and a full-screen button on each terminal.
+
+### Changed
+- **Purchase schedules belong to Workers.** Type `/purchase` in a Worker's
+  conversation; the schedule becomes one of its routines, bought in its
+  own browser. A $0 maximum means free orders only, with no card needed.
+
+### Fixed
+- A scheduled purchase couldn't click through the store, so its order
+  stopped at the store's page. It can now go to checkout on the
+  schedule's own store, with only its browser, the card and read-only
+  tools.
+
+## [2026.6.3-beta.2.4] — 2026-10-16
+
+### Added
+- **Usage for more coding CLIs.** Besides Claude Code and Codex, the Usage
+  page reads Claude Desktop's agent sessions, Gemini CLI, Qwen Code, Grok
+  Build, GitHub Copilot CLI, opencode, Amp, Droid and Kimi CLI from what
+  each keeps on your computer. Each has its own colour in the daily chart
+  and its logo in the By tool table.
+- **Cursor usage.** Cursor keeps no token counts on your computer, so its
+  usage comes from the CSV its dashboard exports (cursor.com/dashboard →
+  Usage → Export CSV): Settings → Usage → Import CSV. A newer export adds
+  only what's new.
+
+### Fixed
+- The ADE could show two cards for the same folder, both with the same
+  terminals, when Eaon reopened it.
+- Eaon Remote (rc.eaon.dev) printed "[object HTMLDivElement]" in the
+  sidebar while a computer's sessions and Workers were loading.
+
+## [2026.6.3-beta.2.3] — 2026-10-16
+
+### Fixed
+- The usage meter for Claude Code on an Enterprise or Team plan said there
+  were no limits. It now shows the plan's monthly spend cap (for example
+  "$12.40 of $50.00"), and any other limit the plan reports. The account
+  in use, with its email and plan, is shown at the top of the panel even
+  when it is the only one.
+
 ## [2026.6.3-beta.2.2] — 2026-10-16
 
 ### Fixed

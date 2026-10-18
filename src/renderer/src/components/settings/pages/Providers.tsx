@@ -20,6 +20,8 @@ import {
 import { useShallow } from 'zustand/react/shallow'
 import { useApp } from '../../../state/store'
 import { BrandIcon } from '../../../icons/brand'
+import { RedeemCode } from '../../RedeemCode'
+import { CLIPBOARD_FAILED, copyText } from '../../../lib/clipboard'
 import { Modal, SearchField, Switch } from '../../ui'
 import type { ModelInfo, Provider } from '@shared/types'
 import { checkKeyShape, customProviderId, type ModelEdit, type ModelEditFields, type ModelsRefresh, type ProviderAuthStatus, type ProviderMeta } from '@shared/providers'
@@ -179,7 +181,7 @@ export function ProvidersPage(): JSX.Element {
       <nav className="providers-list">
         <div className="providers-list__top">
           <div className="providers-list__header">
-            <span className="providers-list__title">Model Providers</span>
+            <span className="providers-list__title">Model providers</span>
             <button className="icon-btn" onClick={() => setLinking(true)} aria-label="Link accounts" title="Link accounts">
               <Link2 size={16} strokeWidth={2.1} />
             </button>
@@ -310,52 +312,6 @@ function FreeCreditsOfferDetail({ onClaimed }: { onClaimed: (status: FreeCredits
  * hackathon. The gateway checks it, and Eaon Free then runs on the code's
  * limits until it ends, past the free week.
  */
-function RedeemCode({ onRedeemed }: { onRedeemed: () => void | Promise<void> }): JSX.Element {
-  const [value, setValue] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const redeem = async (): Promise<void> => {
-    setBusy(true)
-    setError(null)
-    try {
-      const result = await window.api.freeCredits.redeem(value)
-      if (!result.ok) return setError(result.message)
-      setValue('')
-      await onRedeemed()
-    } catch {
-      setError('Couldn’t check the code. Try again.')
-    } finally {
-      setBusy(false)
-    }
-  }
-  return (
-    <div className="free-code">
-      <div className="free-code__title">Have an event code?</div>
-      <p className="free-code__desc">From a hackathon or another event Eaon sponsors. It gives Eaon Free the event’s allowance until the code ends.</p>
-      <div className="fallback-row">
-        <input
-          className="input"
-          value={value}
-          placeholder="EAON-XXXX-XXXX-XXXX"
-          aria-label="Event code"
-          spellCheck={false}
-          autoCapitalize="characters"
-          onChange={(e) => setValue(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && value.trim() && !busy && void redeem()}
-        />
-        <button className="btn btn--provider" disabled={!value.trim() || busy} onClick={() => void redeem()}>
-          {busy ? 'Checking…' : 'Redeem'}
-        </button>
-      </div>
-      {error && (
-        <div className="provider-status" data-tone="error">
-          {error}
-        </div>
-      )}
-    </div>
-  )
-}
-
 /** Eaon Free's allowance, how much of today's is used, when the free week (or the event code) ends, and a box for a code. */
 function FreeCreditsSection(): JSX.Element {
   const refreshProviders = useApp((s) => s.refreshProviders)
@@ -462,7 +418,13 @@ function ProviderDetail({
         <Switch
           label={`Enable ${provider.name}`}
           checked={provider.enabled}
-          onChange={(on) => void window.api.providers.update(provider.id, { enabled: on }).then(() => refreshProviders())}
+          onChange={(on) =>
+            void window.api.providers
+              .update(provider.id, { enabled: on })
+              .then(() => refreshProviders())
+              // A managed policy can refuse it: the switch would just stay put with nothing said.
+              .catch((error: unknown) => setStatus({ ok: false, message: plainError(error) }))
+          }
         />
       </div>
 
@@ -504,14 +466,14 @@ function AttentionBanner({ provider }: { provider: Provider }): JSX.Element | nu
         </span>
       </div>
       {reconnect && (
-        <button className="btn btn--provider" onClick={() => void window.api.providerAuth.signIn(provider.id).finally(() => void refreshProviders())}>
+        <button className="btn btn--provider" onClick={() => void window.api.providerAuth.signIn(provider.id).catch(() => undefined).finally(() => void refreshProviders())}>
           Sign in again
         </button>
       )}
       {!reconnect && provider.hasKey && (
         <button
           className="btn btn--provider-ghost"
-          onClick={() => void window.api.providers.test(provider.id).finally(() => void refreshProviders())}
+          onClick={() => void window.api.providers.test(provider.id).catch(() => undefined).finally(() => void refreshProviders())}
           title="Check the key again"
         >
           Check again
@@ -894,6 +856,9 @@ function KeySection({
       await refreshProviders()
       const models = useApp.getState().availableModels()
       if (result.ok && !settings?.selectedModelId && models[0]) selectModel(models[0].id, models[0].providerId)
+    } catch (error) {
+      // A locked keychain or a managed policy refuses the key; say so instead of a spinner that just stops.
+      onStatus({ ok: false, message: plainError(error) })
     } finally {
       setBusy(false)
     }
@@ -906,7 +871,7 @@ function KeySection({
 
   const copyKey = async (): Promise<void> => {
     const value = key || revealedSaved || (provider.hasKey ? await window.api.keys.reveal(provider.id) : '')
-    if (value) await navigator.clipboard.writeText(value)
+    if (value && !(await copyText(value))) onStatus({ ok: false, message: CLIPBOARD_FAILED })
   }
 
   const saveBaseUrl = async (): Promise<void> => {
@@ -944,8 +909,8 @@ function KeySection({
     await refreshProviders()
   }
 
-  const keyFieldValue = key || revealedSaved || (provider.hasKey ? '•'.repeat(32) : '')
-  const keyFieldReadOnly = !key && Boolean(revealedSaved || (provider.hasKey && !reveal))
+  const masked = !key && !revealedSaved && provider.hasKey
+  const keyFieldValue = key || revealedSaved || (masked ? '•'.repeat(32) : '')
 
   return (
     <div className="provider-detail__section">
@@ -996,11 +961,13 @@ function KeySection({
         <input
           type={reveal ? 'text' : 'password'}
           value={keyFieldValue}
-          readOnly={keyFieldReadOnly}
           placeholder="sk-…"
           spellCheck={false}
+          // Typing or pasting over a saved key replaces it: the field used to be
+          // read-only then, so a rejected key could only be fixed by removing it first.
+          onFocus={(e) => masked && e.currentTarget.select()}
           onChange={(e) => {
-            setKey(e.target.value)
+            setKey(masked ? e.target.value.replace(/•/g, '') : e.target.value)
             setRevealedSaved(null)
           }}
           onKeyDown={(e) => e.key === 'Enter' && void saveKey()}
@@ -1154,7 +1121,8 @@ function ModelsSection({ provider }: { provider: Provider }): JSX.Element {
   const addModel = async (): Promise<void> => {
     const id = newModelId.trim()
     if (!id) return
-    await edit({ add: id })
+    // On failure the field keeps the id, with the error showing, so it can be fixed.
+    if (!(await edit({ add: id }))) return
     setNewModelId('')
     setAddingModel(false)
     // A model added by id starts with nothing known about it: say what it can do.
@@ -1541,6 +1509,10 @@ function CustomConnectionSection({ provider }: { provider: Provider }): JSX.Elem
   )
 }
 
+/** An IPC error as a sentence, without Electron's "Error invoking remote method" prefix. */
+const plainError = (error: unknown): string =>
+  (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
+
 /* ------------------------------------------------------- custom provider */
 
 function AddCustomProviderModal({
@@ -1558,23 +1530,35 @@ function AddCustomProviderModal({
   const [format, setFormat] = useState<'openai-compatible' | 'anthropic' | 'openai-responses'>('openai-compatible')
   const [baseUrl, setBaseUrl] = useState('')
   const [key, setKey] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
 
   const reset = (): void => {
     setName('')
     setFormat('openai-compatible')
     setBaseUrl('')
     setKey('')
+    setError(null)
   }
 
   const create = async (): Promise<void> => {
     // Never an id in use: that provider's settings and key would be overwritten.
     const id = customProviderId(name, providers.map((p) => p.id))
     if (!id) return
-    await window.api.providers.update(id, { name: name.trim(), kind: format, baseUrl: baseUrl.trim(), enabled: true })
-    if (key.trim()) await window.api.keys.set(id, key.trim())
-    await refreshProviders()
-    reset()
-    onCreated(id)
+    setBusy(true)
+    setError(null)
+    try {
+      await window.api.providers.update(id, { name: name.trim(), kind: format, baseUrl: baseUrl.trim(), enabled: true })
+      if (key.trim()) await window.api.keys.set(id, key.trim())
+      await refreshProviders()
+      reset()
+      onCreated(id)
+    } catch (e) {
+      // The modal used to stay open with nothing said (a refused key, a blocked provider).
+      setError(plainError(e))
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
@@ -1584,7 +1568,7 @@ function AddCustomProviderModal({
         reset()
         onClose()
       }}
-      title="Add Custom Provider"
+      title="Add custom provider"
       width={480}
       actions={
         <>
@@ -1597,8 +1581,8 @@ function AddCustomProviderModal({
           >
             Cancel
           </button>
-          <button className="btn btn--provider" disabled={!name.trim() || !baseUrl.trim()} onClick={() => void create()}>
-            Create
+          <button className="btn btn--provider" disabled={!name.trim() || !baseUrl.trim() || busy} onClick={() => void create()}>
+            {busy ? 'Creating…' : 'Create'}
           </button>
         </>
       }
@@ -1632,6 +1616,11 @@ function AddCustomProviderModal({
 
       <div className="field-label">API key</div>
       <input className="input" type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder="Paste your API key" spellCheck={false} />
+      {error && (
+        <div className="provider-status" data-tone="error" style={{ marginTop: 12 }}>
+          {error}
+        </div>
+      )}
     </Modal>
   )
 }

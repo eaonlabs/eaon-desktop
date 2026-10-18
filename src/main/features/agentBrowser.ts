@@ -37,6 +37,11 @@ import { browserTool, WorkerBrowsers } from './workers/browser'
  * it back (closing the view hands it back too, so the agent is never left
  * waiting on nobody). The real window can still be shown, for a site that
  * needs it.
+ *
+ * Eaon Remote watches too (`watchBrowserFrames`, `onBrowserStep`): the same
+ * pictures and steps, sent over the relay to a browser tab anywhere. The last
+ * steps of each browser are kept, so a view that opens late still says what
+ * the agent has been doing.
  */
 
 const AGENT = 'agent'
@@ -54,6 +59,8 @@ interface Watch {
   frame: AgentBrowserFrame | null
   /** Its pixels, scaled, so an unchanged picture is told apart before it is encoded. */
   pixels: Buffer | null
+  /** Watchers outside a window (Eaon Remote). */
+  sinks: Set<(frame: AgentBrowserFrame) => void>
 }
 const watches = new Map<BrowserTarget, Watch>()
 /**
@@ -62,6 +69,11 @@ const watches = new Map<BrowserTarget, Watch>()
  * and each one left behind kept its browser streaming for the rest of the run.
  */
 const viewers = new Map<number, () => void>()
+
+/** Each browser's last steps, for a view that opens after they happened. */
+const STEPS_KEPT = 60
+const recentSteps = new Map<BrowserTarget, AgentBrowserStep[]>()
+const stepListeners = new Set<(step: AgentBrowserStep) => void>()
 
 /** The workers service hands over its browsers, so a worker's can be watched and taken over too. */
 export function setWorkerBrowsers(browsers: WorkerBrowsers): void {
@@ -94,21 +106,30 @@ function sendFrame(target: BrowserTarget, image: NativeImage): void {
   }
   watch.frame = frame
   for (const viewer of watch.viewers.values()) if (!viewer.contents.isDestroyed()) viewer.contents.send('agent-browser:frame', frame)
+  for (const sink of watch.sinks) sink(frame)
 }
 
-function startWatching(target: BrowserTarget, sender: WebContents): void {
+/** The watch on a browser, started if nobody was watching it. */
+function watchOf(target: BrowserTarget): Watch | null {
   const found = resolve(target)
-  if (!found) return
+  if (!found) return null
   let watch = watches.get(target)
   if (!watch) {
-    watch = { viewers: new Map(), stop: () => undefined, frame: null, pixels: null }
+    watch = { viewers: new Map(), stop: () => undefined, frame: null, pixels: null, sinks: new Set() }
     watches.set(target, watch)
     // It sends what is there now, then pictures as things happen.
     watch.stop = found.browsers.watchFrames(found.id, (image) => sendFrame(target, image))
-  } else if (watch.frame) {
-    // Another view on a browser already watched: what the others see, now.
-    sender.send('agent-browser:frame', watch.frame)
   }
+  return watch
+}
+
+const unwatched = (watch: Watch): boolean => watch.viewers.size === 0 && watch.sinks.size === 0
+
+function startWatching(target: BrowserTarget, sender: WebContents): void {
+  const watch = watchOf(target)
+  if (!watch) return
+  // Another view on a browser already watched: what the others see, now.
+  if (watch.frame) sender.send('agent-browser:frame', watch.frame)
   const viewer = watch.viewers.get(sender.id)
   if (viewer) viewer.count++
   else watch.viewers.set(sender.id, { contents: sender, count: 1 })
@@ -121,7 +142,7 @@ function stopWatching(target: BrowserTarget, senderId: number): void {
   if (!watch || !viewer) return
   viewer.count--
   if (viewer.count <= 0) watch.viewers.delete(senderId)
-  if (watch.viewers.size === 0) unwatch(target, watch)
+  if (unwatched(watch)) unwatch(target, watch)
   if (![...watches.values()].some((w) => w.viewers.has(senderId))) unfollow(senderId)
 }
 
@@ -140,7 +161,7 @@ function unwatch(target: BrowserTarget, watch: Watch): void {
 /** A window that closed, crashed or reloaded: its views go with it. */
 function dropViewer(senderId: number): void {
   for (const [target, watch] of [...watches]) {
-    if (watch.viewers.delete(senderId) && watch.viewers.size === 0) unwatch(target, watch)
+    if (watch.viewers.delete(senderId) && unwatched(watch)) unwatch(target, watch)
   }
   unfollow(senderId)
 }
@@ -166,6 +187,43 @@ function follow(sender: WebContents): void {
 function unfollow(senderId: number): void {
   viewers.get(senderId)?.()
   viewers.delete(senderId)
+}
+
+/**
+ * A browser's pictures for a watcher outside a window (Eaon Remote): the
+ * latest one now, if there is one, then each as it changes, until the
+ * returned function stops it. Null when there is no such browser.
+ */
+export function watchBrowserFrames(target: BrowserTarget, onFrame: (frame: AgentBrowserFrame) => void): (() => void) | null {
+  const watch = watchOf(target)
+  if (!watch) return null
+  watch.sinks.add(onFrame)
+  if (watch.frame) onFrame(watch.frame)
+  return () => {
+    watch.sinks.delete(onFrame)
+    if (watches.get(target) === watch && unwatched(watch)) unwatch(target, watch)
+  }
+}
+
+/** Every step any agent takes in its browser, as it happens. */
+export function onBrowserStep(listener: (step: AgentBrowserStep) => void): () => void {
+  stepListeners.add(listener)
+  return () => stepListeners.delete(listener)
+}
+
+/** A browser's last steps, oldest first. */
+export function browserSteps(target: BrowserTarget): AgentBrowserStep[] {
+  return [...(recentSteps.get(target) ?? [])]
+}
+
+/** The agents' browsers opened so far: the chat agent's, then each worker's. */
+export function agentBrowsersOpen(): AgentBrowserStatus[] {
+  const targets = [...(agentBrowsers?.ids().includes(AGENT) ? [AGENT_BROWSER] : []), ...(workerBrowsers?.ids() ?? []).map((id) => `worker:${id}`)]
+  return targets.map(status)
+}
+
+export function browserStatus(target: BrowserTarget): AgentBrowserStatus {
+  return status(target)
 }
 
 function status(target: BrowserTarget): AgentBrowserStatus {
@@ -207,6 +265,11 @@ export async function typeSecretInAgentBrowser(ctx: ToolContext, ref: string, va
 export function reportBrowserStep(target: BrowserTarget, ctx: ToolContext, step: { action: string; detail: string; done: boolean }): void {
   const event: AgentBrowserStep = { target, chatId: ctx.request.chatId, action: step.action, detail: step.detail, done: step.done, at: Date.now() }
   send('agent-browser:step', event)
+  const kept = recentSteps.get(target) ?? []
+  kept.push(event)
+  if (kept.length > STEPS_KEPT) kept.splice(0, kept.length - STEPS_KEPT)
+  recentSteps.set(target, kept)
+  for (const listener of stepListeners) listener(event)
 }
 
 export const agentBrowserFeature: Feature = {
@@ -277,6 +340,8 @@ export const agentBrowserFeature: Feature = {
     for (const watch of watches.values()) watch.stop()
     watches.clear()
     for (const id of [...viewers.keys()]) unfollow(id)
+    recentSteps.clear()
+    stepListeners.clear()
     void agentBrowsers?.closeAll()
   }
 }

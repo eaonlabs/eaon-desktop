@@ -340,6 +340,8 @@
 }
 .switch:disabled {
   cursor: default;
+  /* It looked exactly like a working switch that did nothing. */
+  opacity: 0.45;
 }
 .switch__knob {
   position: absolute;
@@ -503,6 +505,11 @@ textarea.input {
   color: var(--text);
   outline: none;
   font-size: var(--fs-sm);
+}
+/* `outline: none` above outranked the app's focus ring, so typing in it had no visible focus. */
+.stepper input:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
 }
 
 /* ---------------- Slider ---------------- */
@@ -717,7 +724,8 @@ textarea.input {
   position: fixed;
   right: 20px;
   bottom: 20px;
-  z-index: 150;
+  /* Under dialogs and menus (100, 101), so it never covers their buttons. */
+  z-index: 96;
   display: flex;
   align-items: flex-start;
   gap: 10px;

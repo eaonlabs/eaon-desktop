@@ -89,8 +89,10 @@ export function scheduleFromForm(form: ScheduleForm, previous?: Schedule): Sched
   switch (form.kind) {
     case 'interval': {
       const every = Number(form.every)
-      // Carried so an unchanged interval keeps its grid; main drops it if the interval changed.
-      const startAt = previous?.kind === 'interval' ? previous.startAt : undefined
+      // Carried only while every/unit are unchanged, so the interval keeps its
+      // grid. A changed interval starts a new one: the old anchor may still be
+      // in the future, and main would take it as a start the user picked.
+      const startAt = previous?.kind === 'interval' && previous.every === every && previous.unit === form.unit ? previous.startAt : undefined
       return { kind: 'interval', every, unit: form.unit, ...(startAt ? { startAt } : {}) }
     }
     case 'daily':

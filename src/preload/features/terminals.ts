@@ -1,12 +1,14 @@
 import { ipcRenderer } from 'electron'
 import type { CodexPane } from '@shared/cliAccounts'
 import type {
+  HandoffRequest,
+  HandoffResult,
   TerminalAgent,
   TerminalAgentEvent,
-  TerminalAgentId,
   TerminalDataEvent,
   TerminalExitEvent,
   TerminalLayout,
+  TerminalRunning,
   TerminalSpawnRequest,
   TerminalSpawnResult
 } from '@shared/terminals'
@@ -32,11 +34,13 @@ export const terminalsApi = {
   onData: (handler: (event: TerminalDataEvent) => void): (() => void) => subscribe('terminal:data', handler),
   onExit: (handler: (event: TerminalExitEvent) => void): (() => void) => subscribe('terminal:exit', handler),
   /** What each live pane is running right now, as last read off the process table. */
-  running: (): Promise<Record<string, TerminalAgentId>> => ipcRenderer.invoke('terminal:running'),
+  running: (): Promise<Record<string, TerminalRunning>> => ipcRenderer.invoke('terminal:running'),
   /** The conversation each pane is in, where its agent has one the watch has seen. */
   conversations: (paneIds: string[]): Promise<Record<string, string | null>> => ipcRenderer.invoke('terminal:conversations', paneIds),
   /** Panes running Codex, with the account each started on (Settings → Accounts' "move" offer). */
   codexPanes: (): Promise<CodexPane[]> => ipcRenderer.invoke('terminal:codex-panes'),
+  /** Writes a pane's conversation into its project for another agent, and says what to start that agent on. */
+  handoff: (req: HandoffRequest): Promise<HandoffResult> => ipcRenderer.invoke('terminal:handoff', req),
   /** A pane's agent changed — the user quit one CLI and started another in it. */
   onAgent: (handler: (event: TerminalAgentEvent) => void): (() => void) => subscribe('terminal:agent', handler),
   /** The layout changed from outside the window (a pane started from Eaon Remote). */

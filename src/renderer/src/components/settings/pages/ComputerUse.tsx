@@ -209,7 +209,7 @@ export function ComputerUsePage(): JSX.Element {
             {owner && !owner.self && (
               <Row
                 title={`Started from ${owner.name ?? 'a terminal'}`}
-                description={`macOS gives these permissions to the app that started Eaon, so switch on ${owner.name ?? 'that app (usually your terminal)'} below, not Eaon or Electron.`}
+                description={`macOS gives these permissions to the app that started Eaon, so switch on ${owner.name ?? 'that app (usually your terminal)'} below, not ${['Eaon', 'Electron'].filter((name) => name !== owner.name).join(' or ')}.`}
               />
             )}
             <ol className="computer__steps">

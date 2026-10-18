@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
-import { ChevronRight, Plus, RefreshCw } from 'lucide-react'
+import { ChevronRight, Gauge, Plus, RefreshCw } from 'lucide-react'
 import {
   CLI_TOOLS,
   CLI_TOOL_NAME,
@@ -99,9 +99,14 @@ export function UsageMeter(): JSX.Element | null {
           if (!panel.open) void refresh({ all: true })
         }}
       >
-        <span className="usage-pill__bar" aria-hidden="true">
-          <span style={{ width: `${first?.percent ?? 0}%` }} data-severity={first?.severity} />
-        </span>
+        {first ? (
+          <span className="usage-pill__bar" aria-hidden="true">
+            <span style={{ width: `${first.percent}%` }} data-severity={first.severity} />
+          </span>
+        ) : (
+          // No limits read yet: an empty bar looked like a broken meter.
+          <Gauge size={13} strokeWidth={2} aria-hidden="true" />
+        )}
         <span className="usage-pill__text">{pill}</span>
       </button>
       <Popover anchor={anchor} open={panel.open} onClose={panel.close} placement="bottom-end" width={320} className="usage-panel">
@@ -203,12 +208,12 @@ function ToolDetail({ state, tool, now }: { state: CliAccountsState; tool: CliTo
   const several = state.tools[tool].accounts.length > 1
   return (
     <div className="usage-tool">
-      {several && account && (
+      {account && (several || account.email || account.plan) && (
         <div className="usage-tool__active">
           <span className="usage-account__dot" data-active aria-hidden="true" />
           <span className="usage-account__name">{accountName(account)}</span>
           {account.plan && <span className="usage-account__plan">{planLabel(account.plan)}</span>}
-          <span className="usage-account__state">In use</span>
+          {several && <span className="usage-account__state">In use</span>}
         </div>
       )}
       <Status usage={usage} tool={tool} loading={loading} />
@@ -227,18 +232,14 @@ function ToolDetail({ state, tool, now }: { state: CliAccountsState; tool: CliTo
           <div className="usage-window__note">
             {w.hasReset
               ? `Your ${w.label.toLowerCase()} limit has reset since this was read`
-              : `${w.percent}% used${w.resetsAt ? ` · resets ${resetClock(w.resetsAt, now)}` : ` of your ${w.label.toLowerCase()} limit`}`}
+              : w.detail
+                ? `${w.detail} used${w.resetsAt ? ` · resets ${resetClock(w.resetsAt, now)}` : ` ${w.span}`}`
+                : `${w.percent}% used${w.resetsAt ? ` · resets ${resetClock(w.resetsAt, now)}` : ` of your ${w.label.toLowerCase()} limit`}`}
           </div>
         </div>
       ))}
       <div className="usage-tool__foot">
         {CLI_TOOL_SOURCE[tool]}’s own figures{usage ? ` · ${agoText(usage.at, now)}` : ''}
-        {!several && account && (account.email || account.plan) && (
-          <div className="usage-tool__account">
-            {accountName(account)}
-            {account.plan ? ` · ${planLabel(account.plan)}` : ''}
-          </div>
-        )}
       </div>
     </div>
   )
@@ -292,7 +293,12 @@ function WindowRows({ usage, now }: { usage: AccountUsage; now: number }): JSX.E
   return (
     <>
       {windows.map((w) => (
-        <span key={w.id} className="usage-compact__row" data-severity={w.severity} title={w.resetsAt ? `Resets ${resetClock(w.resetsAt, now)}` : undefined}>
+        <span
+          key={w.id}
+          className="usage-compact__row"
+          data-severity={w.severity}
+          title={[w.detail, w.resetsAt ? `Resets ${resetClock(w.resetsAt, now)}` : null].filter(Boolean).join(' · ') || undefined}
+        >
           <span className="usage-compact__label">{w.label}</span>
           <span className="usage-compact__bar">
             <span style={{ width: `${Math.max(w.percent, 2)}%` }} />
@@ -349,7 +355,11 @@ function ToolCompact({
 
 function Status({ usage, tool, loading }: { usage: AccountUsage | undefined; tool: CliTool; loading: boolean }): JSX.Element | null {
   if (!usage) return <p className="usage-status">{loading ? `Asking ${CLI_TOOL_NAME[tool]}…` : 'Not read yet'}</p>
-  if (usage.ok) return usage.windows.length === 0 ? <p className="usage-status">No limits reported for this plan.</p> : null
+  if (usage.ok) {
+    return usage.windows.length === 0 ? (
+      <p className="usage-status">{CLI_TOOL_NAME[tool]} reports no usage limits for {usage.plan ? `this ${planLabel(usage.plan)} plan` : 'this plan'}.</p>
+    ) : null
+  }
   if (usage.reason === 'signed-out') {
     return (
       <p className="usage-status">

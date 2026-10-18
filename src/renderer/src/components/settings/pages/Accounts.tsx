@@ -14,7 +14,7 @@ import {
 } from '@shared/cliAccounts'
 import { useApp } from '../../../state/store'
 import { agoText, resetClock, untilText, useCliAccounts } from '../../../state/cliAccounts'
-import { Card, Row, Section, Segmented, Switch } from '../../ui'
+import { Card, ConfirmDialog, Row, Section, Segmented, Switch } from '../../ui'
 import { MoveCodexPanes } from '../../code/MoveCodexPanes'
 
 /**
@@ -185,6 +185,8 @@ function AccountRow({
   const [label, setLabel] = useState(account.label)
   const isDefault = account.id === DEFAULT_ACCOUNT_ID
   const now = Date.now()
+  const [confirmRemove, setConfirmRemove] = useState(false)
+  const signedOut = Boolean(usage && !usage.ok && usage.reason === 'signed-out')
 
   return (
     <div className="account-row" data-active={active || undefined}>
@@ -220,7 +222,9 @@ function AccountRow({
           />
         ) : (
           <div className="account-row__name">
-            {pending ? 'Signing in…' : accountName(account)}
+            <span className="account-row__label" title={pending ? undefined : accountName(account)}>
+              {pending ? 'Signing in…' : accountName(account)}
+            </span>
             {account.plan && <span className="account-row__plan">{account.plan}</span>}
             {isDefault && <span className="account-row__tag">default</span>}
           </div>
@@ -251,16 +255,25 @@ function AccountRow({
           <button className="btn btn--ghost btn--sm" onClick={() => setEditing(true)}>
             Rename
           </button>
-          {!isDefault && usage && !usage.ok && usage.reason === 'signed-out' && (
+          {!isDefault && signedOut && (
             <button className="btn btn--ghost btn--sm" onClick={() => void act(() => window.api.cliAccounts.signIn(tool, account.id))}>
               Sign in
             </button>
           )}
           {!isDefault && (
-            <button className="btn btn--ghost btn--sm" onClick={() => void act(() => window.api.cliAccounts.remove(tool, account.id))}>
-              {usage && !usage.ok && usage.reason === 'signed-out' ? 'Remove' : 'Sign out'}
+            <button className="btn btn--ghost btn--sm" onClick={() => setConfirmRemove(true)}>
+              {signedOut ? 'Remove' : 'Sign out'}
             </button>
           )}
+          <ConfirmDialog
+            open={confirmRemove}
+            onClose={() => setConfirmRemove(false)}
+            title={signedOut ? 'Remove this account?' : 'Sign out of this account?'}
+            confirmLabel={signedOut ? 'Remove' : 'Sign out'}
+            onConfirm={() => void act(() => window.api.cliAccounts.remove(tool, account.id))}
+          >
+            {accountName(account)} is removed from Eaon’s list. To use it again you’ll sign in again.
+          </ConfirmDialog>
         </div>
       )}
     </div>

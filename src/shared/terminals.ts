@@ -5,25 +5,66 @@
  * renderer; the renderer only draws them (`components/code/terminal/`).
  */
 
-export const TERMINAL_AGENT_IDS = ['shell', 'eaon-code', 'eaon-cli', 'claude', 'codex', 'antigravity', 'opencode'] as const
-export type TerminalAgentId = (typeof TERMINAL_AGENT_IDS)[number]
+/**
+ * The ADE's own agents, offered in "New terminal" whether installed or not,
+ * and brought back to their conversation after a quit.
+ */
+export const LAUNCH_AGENT_IDS = ['eaon-code', 'eaon-cli', 'claude', 'codex', 'antigravity', 'opencode'] as const
 
 /**
- * A pane's agent as saved by an older version, made current. Gemini CLI was
- * replaced by Antigravity; a pane saved as Gemini (or anything else this
- * version doesn't know) comes back as a plain shell.
+ * Other coding CLIs. A pane running one shows its logo and name, it is offered
+ * in "New terminal" once installed, and a pane left running one starts it
+ * again after a quit (as a new conversation: the ADE can't tell which of
+ * theirs it was).
  */
+export const OTHER_AGENT_IDS = [
+  'cursor',
+  'gemini',
+  'grok',
+  'qwen',
+  'copilot',
+  'amp',
+  'droid',
+  'kimi',
+  'cline',
+  'goose',
+  'kilo',
+  'junie',
+  'kiro',
+  'openhands',
+  'aider',
+  'crush',
+  'warp',
+  'codebuddy',
+  'qoder',
+  'trae',
+  'vibe',
+  'hermes',
+  'openclaw',
+  'auggie',
+  'codebuff',
+  'continue',
+  'plandex',
+  'jules',
+  'qodo'
+] as const
+
+export const TERMINAL_AGENT_IDS = ['shell', ...LAUNCH_AGENT_IDS, ...OTHER_AGENT_IDS] as const
+export type TerminalAgentId = (typeof TERMINAL_AGENT_IDS)[number]
+export type OtherAgentId = (typeof OTHER_AGENT_IDS)[number]
+
+/** A pane's agent as saved by an older version, made current: anything this version doesn't know comes back as a plain shell. */
 export function knownAgent(agent: unknown): TerminalAgentId {
   return (TERMINAL_AGENT_IDS as readonly unknown[]).includes(agent) ? (agent as TerminalAgentId) : 'shell'
 }
 
-/** CLIs older versions ran in panes and this one no longer does. */
-const RETIRED_AGENTS: Record<string, string> = { gemini: 'Gemini CLI' }
+/** CLIs older versions ran in panes and this one no longer does, by their saved id. Gemini CLI is back (OTHER_AGENT_IDS). */
+const RETIRED_AGENTS: Record<string, string> = {}
 
 /**
  * A saved pane made current. One whose agent this version no longer runs
  * comes back as a shell — and says so in its name, rather than still being
- * called "Gemini CLI" while a plain shell runs in it.
+ * called by that agent's name while a plain shell runs in it.
  */
 export function currentPane(pane: TerminalPaneSpec): TerminalPaneSpec {
   const agent = knownAgent(pane.agent)
@@ -41,6 +82,8 @@ export interface TerminalAgent {
   installed: boolean
   /** Where to get it when it is missing. */
   installHint?: string
+  /** One of the other coding CLIs: offered only once it is installed. */
+  other?: boolean
 }
 
 /** One pane in a folder's grid, as saved between launches. */
@@ -100,10 +143,20 @@ export interface TerminalSpawnResult {
   restored?: string
 }
 
-/** The agent running in a pane changed — the user quit one CLI and started another. */
-export interface TerminalAgentEvent {
-  paneId: string
+/** What a pane is running, as read off the process table. */
+export interface TerminalRunning {
   agent: TerminalAgentId
+  /**
+   * With a plain shell: the program in its foreground, named as you'd call it
+   * (`vim`, `npm`, a CLI this version has never heard of). Every CLI shows up
+   * in its pane's header, not just the agents above.
+   */
+  program?: string
+}
+
+/** What runs in a pane changed — the user quit one CLI and started another. */
+export interface TerminalAgentEvent extends TerminalRunning {
+  paneId: string
 }
 
 export interface TerminalDataEvent {
@@ -172,3 +225,49 @@ export function pathsForTerminal(paths: string[]): string {
   const listed = paths.filter(Boolean).map(quote)
   return listed.length ? `${listed.join(' ')} ` : ''
 }
+
+/** Handing a pane's work to another agent (features/terminals/handoff.ts). */
+export interface HandoffRequest {
+  /** The pane whose conversation is handed over. */
+  paneId: string
+  cwd: string
+  /** The agent running in it. */
+  from: TerminalAgentId
+  /** The agent that takes over, in a new pane. */
+  to: TerminalAgentId
+  /** Anything the user wants to tell the new agent. */
+  note?: string
+  /** The pane's terminal text, used when Eaon can't read the agent's own transcript. */
+  screen?: string
+}
+
+export type HandoffResult =
+  | {
+      ok: true
+      /** The file written, relative to the project. */
+      file: string
+      /** The line the new agent starts on. */
+      prompt: string
+      /** Where the conversation came from. */
+      source: 'transcript' | 'screen'
+    }
+  | { ok: false; error: string }
+
+/**
+ * How each agent takes a first task on its command line, checked against each
+ * CLI's own --help. An agent not listed gets the task typed in once it is up.
+ */
+export const PROMPT_ARG: Partial<Record<TerminalAgentId, 'positional' | '--prompt' | '-i'>> = {
+  claude: 'positional',
+  codex: 'positional',
+  cursor: 'positional',
+  'eaon-code': 'positional',
+  opencode: '--prompt',
+  'eaon-cli': '--prompt',
+  copilot: '-i',
+  gemini: '-i',
+  qwen: '-i'
+}
+
+/** Agents whose own transcript Eaon reads for a handoff; any other hands over its terminal's text. */
+export const HANDOFF_TRANSCRIPT_AGENTS: readonly TerminalAgentId[] = ['claude', 'codex']

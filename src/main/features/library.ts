@@ -1,7 +1,7 @@
-import { shell } from 'electron'
+import { app, shell } from 'electron'
 import { existsSync } from 'node:fs'
-import { stat } from 'node:fs/promises'
-import { basename, extname } from 'node:path'
+import { mkdir, stat, writeFile } from 'node:fs/promises'
+import { basename, extname, join } from 'node:path'
 import type { Feature } from './types'
 import type { LibraryFileStat } from '@shared/library'
 
@@ -49,6 +49,31 @@ export async function couldRun(path: string): Promise<boolean> {
   }
 }
 
+/** Image types the clipboard hands over, and the extension each is saved under. */
+const PASTED_TYPES: Record<string, string> = { 'image/png': '.png', 'image/jpeg': '.jpg', 'image/gif': '.gif', 'image/webp': '.webp' }
+/** Larger than any screenshot; what a model takes is capped lower when it is sent (agent/context.ts). */
+const PASTED_MAX_BYTES = 50 * 1024 * 1024
+
+/**
+ * An image pasted into a message box (a screenshot, an image copied in a
+ * browser) has no file behind it, and attachments are paths. It is saved
+ * under the app's data rather than a temp folder, so the chat that shows it
+ * can still show it after the system clears temp files.
+ */
+export async function savePastedImage(data: unknown, type: unknown, folder = join(app.getPath('userData'), 'Pasted')): Promise<string> {
+  const ext = typeof type === 'string' ? PASTED_TYPES[type] : undefined
+  if (!ext) throw new Error('Only PNG, JPEG, GIF and WebP images can be pasted.')
+  const bytes = data instanceof Uint8Array ? data : data instanceof ArrayBuffer ? new Uint8Array(data) : null
+  if (!bytes || bytes.byteLength === 0) throw new Error('The pasted image was empty.')
+  if (bytes.byteLength > PASTED_MAX_BYTES) throw new Error('The pasted image is too large to attach.')
+  await mkdir(folder, { recursive: true })
+  // Readable in the attachment chip, and unique without asking the disk.
+  const stamp = new Date().toISOString().slice(0, 19).replace('T', ' ').replace(/:/g, '.')
+  const path = join(folder, `Pasted image ${stamp} ${Math.random().toString(36).slice(2, 6)}${ext}`)
+  await writeFile(path, bytes)
+  return path
+}
+
 export const libraryFeature: Feature = {
   id: 'library',
   register: ({ ipcMain }) => {
@@ -75,6 +100,7 @@ export const libraryFeature: Feature = {
       const error = await shell.openPath(path)
       if (error) throw new Error(error)
     })
+    ipcMain.handle('library:save-pasted', (_e, data: unknown, type: unknown) => savePastedImage(data, type))
     ipcMain.handle('library:reveal', (_e, path: string) => {
       if (typeof path === 'string' && path) shell.showItemInFolder(path)
     })

@@ -18,7 +18,8 @@ export function UpdateToast(): JSX.Element | null {
       </span>
       <div className="update-toast__body">
         <div className="update-toast__title">Update ready</div>
-        <p className="update-toast__desc">Version {status.version} will install the next time you restart.</p>
+        {/* Not "the next time you restart": a .deb installs only from Restart now (main/updater.ts). */}
+        <p className="update-toast__desc">Version {status.version} is ready. Restart Eaon to install it.</p>
         <div className="update-toast__actions">
           <button className="btn btn--primary btn--sm" onClick={() => void window.api.updater.install()}>
             Restart now

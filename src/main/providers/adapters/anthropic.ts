@@ -154,8 +154,13 @@ export const anthropicAdapter: Adapter = guardedAdapter({
       // The loop does its own retrying with visible status; SDK retries would
       // stack under it and make a dead provider look like a hang.
       maxRetries: 0,
-      // Never carry the key to another origin on a redirect.
-      fetch: sdkFetch
+      // Never carry the key to another origin on a redirect. The answer's
+      // headers count as the reply starting, as they do for the other adapters.
+      fetch: (input: string | URL | Request, init?: RequestInit) =>
+        sdkFetch(input, init).then((response) => {
+          guard.touch()
+          return response
+        })
     })
 
     const messages: Anthropic.Beta.BetaMessageParam[] = []

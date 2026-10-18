@@ -1,12 +1,34 @@
 import { memo, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type JSX } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { ArrowLeft, ArrowRight, Eraser, LockOpen, Maximize2, Minimize2, MoreHorizontal, PencilLine, Plus, RotateCcw, SquareTerminal, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, ArrowRightLeft, Eraser, LockOpen, Maximize2, Minimize2, MoreHorizontal, PencilLine, Plus, RotateCcw, SquareTerminal, X } from 'lucide-react'
 import claudeCodeLogo from '../../../assets/providers/claude.webp'
 import codexLogo from '../../../assets/providers/codex.svg'
 import antigravityLogo from '../../../assets/providers/antigravity.png'
 import openCodeLogo from '../../../assets/providers/opencode.svg'
 import eaonLogo from '../../../assets/providers/eaon.png'
+import cursorLogo from '../../../assets/providers/cursor.svg'
+import geminiCliLogo from '../../../assets/providers/geminicli.svg'
+import grokLogo from '../../../assets/providers/grok.svg'
+import qwenLogo from '../../../assets/providers/qwen.svg'
+import copilotLogo from '../../../assets/providers/githubcopilot.svg'
+import ampLogo from '../../../assets/providers/amp.svg'
+import droidLogo from '../../../assets/providers/droid.svg'
+import kimiLogo from '../../../assets/providers/kimi.svg'
+import clineLogo from '../../../assets/providers/cline.svg'
+import gooseLogo from '../../../assets/providers/goose.svg'
+import kiloLogo from '../../../assets/providers/kilocode.svg'
+import junieLogo from '../../../assets/providers/junie.svg'
+import kiroLogo from '../../../assets/providers/kiro.svg'
+import openHandsLogo from '../../../assets/providers/openhands.svg'
+import codeBuddyLogo from '../../../assets/providers/codebuddy.svg'
+import qoderLogo from '../../../assets/providers/qoder.svg'
+import traeLogo from '../../../assets/providers/trae.svg'
+import mistralLogo from '../../../assets/providers/mistral.svg'
+import hermesLogo from '../../../assets/providers/hermes.svg'
+import openClawLogo from '../../../assets/providers/openclaw.svg'
+import ollamaLogo from '../../../assets/providers/ollama.png'
 import { useApp } from '../../../state/store'
+import { HandoffDialog } from './HandoffDialog'
 import { ContextMenu } from '../../Sidebar'
 import { MenuItem, MenuSeparator, Popover, useDisclosure } from '../../ui'
 import { folderName } from '../CodeHeader'
@@ -44,7 +66,7 @@ import {
  */
 export function TerminalWorkspace(): JSX.Element {
   const cwd = useCode((s) => s.cwd)
-  const { loaded, loadError, panes, agents, maximized, load, add } = useTerminals(
+  const { loaded, loadError, panes, agents, maximized, load, add, refreshAgents } = useTerminals(
     useShallow((s) => ({
       loaded: s.loaded,
       loadError: s.loadError,
@@ -52,7 +74,8 @@ export function TerminalWorkspace(): JSX.Element {
       agents: s.agents,
       maximized: s.maximized,
       load: s.load,
-      add: s.add
+      add: s.add,
+      refreshAgents: s.refreshAgents
     }))
   )
   const appearance = useApp((s) => s.settings?.appearance)
@@ -65,6 +88,13 @@ export function TerminalWorkspace(): JSX.Element {
   useEffect(() => {
     void load()
   }, [load])
+
+  // The agent cards say which CLIs are installed: asked again each time they
+  // show, so one installed since the list was read can be started.
+  const empty = Boolean(cwd && loaded && panes.length === 0)
+  useEffect(() => {
+    if (empty) void refreshAgents().catch(() => undefined)
+  }, [empty, cwd, refreshAgents])
 
   // The terminals are painted in the ADE's theme, which by default is the
   // app's own: re-tone them when either changes.
@@ -106,7 +136,7 @@ export function TerminalWorkspace(): JSX.Element {
         </p>
         {session && <PastConversations session={session} />}
         <div className="term-empty__agents">
-          {agents.map((agent) => (
+          {agents.filter(offered).map((agent) => (
             <button
               key={agent.id}
               className="term-agent-card"
@@ -372,9 +402,13 @@ const TerminalPane = memo(function TerminalPane({
   const [fileOver, setFileOver] = useState(false)
   const target = dragging !== null && dragging !== pane.id
   const status = usePaneStatus(pane.id)
+  const program = useTerminals((s) => (pane.agent === 'shell' ? s.programs[pane.id] : undefined))
+  // What the header calls it: the agent, or the CLI a plain shell is running.
+  const shown = program ?? agent?.label ?? ''
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [renaming, setRenaming] = useState(false)
   const [draft, setDraft] = useState(pane.name)
+  const [handingOff, setHandingOff] = useState(false)
   const launch = { cwd, command: agent?.command ?? null, agent: pane.agent, ...(pane.resume ? { resume: pane.resume } : {}), ...(pane.prompt ? { prompt: pane.prompt } : {}) }
 
   useEffect(() => {
@@ -415,7 +449,7 @@ const TerminalPane = memo(function TerminalPane({
         onDragEnd={() => setDragging(null)}
       >
         <span className="term-pane__dot" role="img" aria-label={STATUS_LABEL[status]} title={STATUS_LABEL[status]} />
-        <AgentMark agent={pane.agent} size={14} />
+        <AgentMark agent={pane.agent} program={program} size={14} />
         {renaming ? (
           <input
             autoFocus
@@ -434,11 +468,11 @@ const TerminalPane = memo(function TerminalPane({
             onDoubleClick={(e) => e.stopPropagation()}
           />
         ) : (
-          <span className="term-pane__name" title={`${pane.name} · ${agent?.label ?? pane.agent}`}>
+          <span className="term-pane__name" title={`${pane.name} · ${shown}`}>
             {pane.name}
           </span>
         )}
-        <span className="term-pane__agent">{agent?.label ?? ''}</span>
+        <span className="term-pane__agent">{shown}</span>
         <span className="term-pane__spacer" />
         <button
           className="term-pane__btn"
@@ -538,12 +572,17 @@ const TerminalPane = memo(function TerminalPane({
             },
             ...(prev && !maximized ? [{ icon: <ArrowLeft size={15} strokeWidth={1.9} />, label: 'Move left', action: () => swap(cwd, pane.id, prev) }] : []),
             ...(next && !maximized ? [{ icon: <ArrowRight size={15} strokeWidth={1.9} />, label: 'Move right', action: () => swap(cwd, pane.id, next) }] : []),
+            // Another model takes a fresh look from where this one stopped; this pane carries on as it is.
+            ...(pane.agent !== 'shell' && !isRemote(cwd)
+              ? [{ icon: <ArrowRightLeft size={15} strokeWidth={1.9} />, label: 'Hand off to another agent…', action: () => setHandingOff(true) }]
+              : []),
             { icon: <RotateCcw size={15} strokeWidth={1.9} />, label: 'Restart', action: () => terminals.restart(pane.id, launch) },
             { icon: <Eraser size={15} strokeWidth={1.9} />, label: 'Clear', action: () => terminals.clear(pane.id) },
             { icon: <X size={15} strokeWidth={1.9} />, label: 'Close', danger: true, action: () => close(cwd, pane.id) }
           ]}
         />
       )}
+      {handingOff && <HandoffDialog open onClose={() => setHandingOff(false)} cwd={cwd} pane={pane} from={pane.agent} fromLabel={agent?.label ?? 'This agent'} />}
     </section>
   )
 })
@@ -558,21 +597,72 @@ const STATUS_LABEL: Record<PaneStatus, string> = {
   exited: 'Exited'
 }
 
-/** A small mark for what runs in a pane. */
-export function AgentMark({ agent, size }: { agent: TerminalAgentId; size: number }): JSX.Element {
-  const src = AGENT_LOGOS[agent]
-  if (src) return <img className="term-mark term-mark--img" src={src} width={size} height={size} alt="" />
-  return <SquareTerminal className="term-mark term-mark--shell" size={size} strokeWidth={2} />
+/**
+ * A small mark for what runs in a pane: the agent's logo, or with a plain
+ * shell, the program in its foreground (any CLI) as its initial.
+ */
+export function AgentMark({ agent, program, size }: { agent: TerminalAgentId; program?: string; size: number }): JSX.Element {
+  if (agent === 'shell' && !program) return <SquareTerminal className="term-mark term-mark--shell" size={size} strokeWidth={2} />
+  const logo = agent === 'shell' ? (PROGRAM_LOGOS[program!] ?? { letter: program!.charAt(0).toUpperCase() }) : AGENT_LOGOS[agent]
+  if (typeof logo === 'string') return <img className="term-mark term-mark--img" src={logo} width={size} height={size} alt="" />
+  // No logo published: its initial on a tile, sized like one.
+  return (
+    <span className="term-mark term-mark--letter" style={{ width: size, height: size, fontSize: Math.round(size * 0.6) }} aria-hidden="true">
+      {logo.letter}
+    </span>
+  )
 }
 
-const AGENT_LOGOS: Partial<Record<TerminalAgentId, string>> = {
+/**
+ * Every agent's logo. A full record on purpose: an agent added to
+ * TERMINAL_AGENT_IDS without one here doesn't build, so no CLI a pane
+ * recognises is ever drawn as a plain shell.
+ */
+const AGENT_LOGOS: Record<Exclude<TerminalAgentId, 'shell'>, string | { letter: string }> = {
   claude: claudeCodeLogo,
   codex: codexLogo,
   antigravity: antigravityLogo,
   opencode: openCodeLogo,
   'eaon-code': eaonLogo,
-  'eaon-cli': eaonLogo
+  'eaon-cli': eaonLogo,
+  cursor: cursorLogo,
+  gemini: geminiCliLogo,
+  grok: grokLogo,
+  qwen: qwenLogo,
+  copilot: copilotLogo,
+  amp: ampLogo,
+  droid: droidLogo,
+  kimi: kimiLogo,
+  cline: clineLogo,
+  goose: gooseLogo,
+  kilo: kiloLogo,
+  junie: junieLogo,
+  kiro: kiroLogo,
+  openhands: openHandsLogo,
+  aider: { letter: 'A' },
+  crush: { letter: 'C' },
+  warp: { letter: 'W' },
+  codebuddy: codeBuddyLogo,
+  qoder: qoderLogo,
+  trae: traeLogo,
+  vibe: mistralLogo,
+  hermes: hermesLogo,
+  openclaw: openClawLogo,
+  auggie: { letter: 'A' },
+  codebuff: { letter: 'C' },
+  continue: { letter: 'C' },
+  plandex: { letter: 'P' },
+  jules: { letter: 'J' },
+  qodo: { letter: 'Q' }
 }
+
+/** Programs that are no agent but have a logo of their own, by the name a pane shows. */
+const PROGRAM_LOGOS: Record<string, string> = {
+  ollama: ollamaLogo
+}
+
+/** Offered to start: the ADE's own agents always (greyed when missing), the other CLIs once installed. */
+const offered = (agent: TerminalAgent): boolean => agent.installed || !agent.other
 
 /** "New terminal" in the ADE's top bar: pick what runs in it. */
 export function NewTerminalButton(): JSX.Element | null {
@@ -587,7 +677,7 @@ export function NewTerminalButton(): JSX.Element | null {
   }, [load])
   if (!cwd) return null
   const installed = agents.filter((a) => a.installed)
-  const missing = agents.filter((a) => !a.installed)
+  const missing = agents.filter((a) => !a.installed && offered(a))
   return (
     <>
       <button

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'rea
 import { Check, ExternalLink, Loader2, Sparkles } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import type { ModelInfo, Provider } from '@shared/types'
-import type { ProviderAuthStatus } from '@shared/providers'
+import { checkKeyShape, isLastingIssue, type ProviderAuthStatus } from '@shared/providers'
 import { LINK_TARGETS, type DetectedApp, type LinkTarget } from '@shared/linkAccounts'
 import { providerReadiness } from '@shared/modelSelection'
 import { useApp } from '../state/store'
@@ -30,7 +30,11 @@ const errorText = (error: unknown): string =>
 /** Linked: the provider has models Eaon can use right now (not merely a stored key a check found broken). */
 const isLinked = (p: Provider | undefined): boolean => Boolean(p && providerReadiness(p).state === 'ready')
 
-export function LinkAccounts({ open, onClose }: { open: boolean; onClose: () => void }): JSX.Element | null {
+/**
+ * `inSetup`: shown over first-run setup, where going to Settings or the ADE
+ * would change the app hidden underneath and seem to do nothing.
+ */
+export function LinkAccounts({ open, onClose, inSetup = false }: { open: boolean; onClose: () => void; inSetup?: boolean }): JSX.Element | null {
   const { providers, refreshProviders } = useApp(useShallow((s) => ({ providers: s.providers, refreshProviders: s.refreshProviders })))
   const [apps, setApps] = useState<DetectedApp[]>([])
   const [auth, setAuth] = useState<Record<string, ProviderAuthStatus>>({})
@@ -153,6 +157,7 @@ export function LinkAccounts({ open, onClose }: { open: boolean; onClose: () => 
               showKey={wantsKey.has(target.providerId)}
               onLinked={() => void refreshProviders()}
               onPicked={onClose}
+              inSetup={inSetup}
             />
           ))}
         </div>
@@ -175,7 +180,8 @@ function LinkRow({
   found,
   showKey,
   onLinked,
-  onPicked
+  onPicked,
+  inSetup
 }: {
   target: LinkTarget
   provider: Provider
@@ -184,8 +190,9 @@ function LinkRow({
   showKey: boolean
   onLinked: () => void
   onPicked: () => void
+  inSetup: boolean
 }): JSX.Element {
-  const setSettingsPage = useApp((s) => s.setSettingsPage)
+  const openProviderSettings = useApp((s) => s.openProviderSettings)
   const [key, setKey] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -224,12 +231,19 @@ function LinkRow({
     })
   const saveKey = (): Promise<void> =>
     run(async () => {
-      await window.api.keys.set(provider.id, key.trim())
+      // Half a key, a line break or another provider's key would only come back
+      // as a 401; Settings checks the same before saving.
+      const shape = checkKeyShape(provider.id, provider.name, key)
+      if (shape.problem) throw new Error(shape.problem)
+      await window.api.keys.set(provider.id, shape.key)
       // Linking is asking to use it: a provider switched off earlier comes back on.
       if (!provider.enabled) await window.api.providers.update(provider.id, { enabled: true })
-      setKey('')
       // Lists the models the key can reach; a failure here still leaves the catalog's list.
-      await window.api.providers.refresh(provider.id).catch(() => undefined)
+      // A rejected key is said here and the field stays open: it used to close
+      // as if the key had worked, leaving "Add API key" and no reason.
+      const listed = await window.api.providers.refresh(provider.id).catch(() => null)
+      if (listed?.issue && isLastingIssue(listed.issue.kind)) throw new Error(listed.issue.message)
+      setKey('')
       setKeyOpen(false)
     })
   const turnOn = (): Promise<void> =>
@@ -250,16 +264,23 @@ function LinkRow({
     )
   } else if (target.method === 'signin') {
     action = status?.needsClientId ? (
-      <button
-        className="btn btn--sm"
-        title={`${provider.name} sign-in needs a one-time setup in Settings → Model providers`}
-        onClick={() => {
-          setSettingsPage('providers')
-          onPicked()
-        }}
-      >
-        Set up
-      </button>
+      inSetup ? (
+        <span className="la__later" title={`${provider.name} sign-in needs a one-time setup in Settings → Model providers`}>
+          Set up in Settings later
+        </span>
+      ) : (
+        <button
+          className="btn btn--sm"
+          title={`${provider.name} sign-in needs a one-time setup in Settings → Model providers`}
+          onClick={() => {
+            // This provider's page, not the list's first one.
+            openProviderSettings(provider.id)
+            onPicked()
+          }}
+        >
+          Set up
+        </button>
+      )
     ) : pending ? (
       <button className="btn btn--sm" onClick={() => void window.api.providerAuth.cancel(provider.id)}>
         <Loader2 size={13} className="spinner" /> Waiting… Cancel
@@ -323,7 +344,7 @@ function LinkRow({
       {!linked && target.why && (
         <p className="la-row__why">
           {target.why}
-          {provider.id === 'anthropic' && (
+          {provider.id === 'anthropic' && !inSetup && (
             <>
               {' '}
               <button

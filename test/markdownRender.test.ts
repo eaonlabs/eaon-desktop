@@ -52,6 +52,10 @@ test('a typical reply renders as Markdown, not as punctuation', () => {
 test('snake_case and stray symbols stay as written', () => {
   const out = html('Set max_tool_rounds to 2 * 3 and keep file_name_here.')
   assert.doesNotMatch(out, /<em>|<strong>/)
+  // Spaced asterisks are arithmetic, not emphasis.
+  assert.doesNotMatch(html('2 * 3 * 4 = 24'), /<em>/)
+  assert.match(html('a *really* good idea'), /<em>really<\/em>/)
+  assert.match(html('*two words*'), /<em>two words<\/em>/)
 })
 
 test("links that aren't web or mail addresses are shown as text, not opened", () => {

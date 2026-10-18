@@ -305,6 +305,15 @@ body[data-reduce-motion='on'] .term-pane__dot {
   border-radius: 22%;
   object-fit: contain;
 }
+.term-mark--letter {
+  display: inline-grid;
+  place-items: center;
+  border-radius: 22%;
+  background: var(--text-2);
+  color: var(--bg);
+  font-weight: 700;
+  line-height: 1;
+}
 
 /* No panes yet: one card per agent CLI, the missing ones greyed with how to get them. */
 .term-empty {
@@ -729,4 +738,120 @@ body[data-reduce-motion='on'] .theme-picker {
 /* Files from Finder over a pane: they will be typed in as paths. */
 .term-pane[data-file-over] {
   box-shadow: 0 0 0 2px var(--accent, var(--text-2));
+}
+
+/* ---- Hand off to another agent (terminal/HandoffDialog.tsx) ---- */
+
+.handoff__lede {
+  margin: -4px 0 14px;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  line-height: 1.5;
+}
+.handoff__current {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 18px;
+  padding: 12px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--surface-1);
+}
+.handoff__current .term-mark {
+  flex: none;
+  margin-top: 1px;
+}
+.handoff__current-text {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.handoff__current-title {
+  font-size: var(--fs-base);
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.handoff__current-desc {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  line-height: 1.45;
+}
+.handoff__agents {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  max-height: 232px;
+  overflow-y: auto;
+  margin: 8px 0 18px;
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+}
+.handoff__agent {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  min-height: 34px;
+  padding: 0 10px 0 6px;
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font-size: var(--fs-base);
+  text-align: left;
+}
+.handoff__agent:hover {
+  background: var(--hover);
+}
+.handoff__agent[data-selected] {
+  background: var(--hover-strong);
+}
+.handoff__agent:focus-visible {
+  outline-offset: -2px;
+}
+.handoff__check {
+  display: inline-flex;
+  justify-content: center;
+  flex: none;
+  width: 16px;
+  color: var(--text);
+}
+.handoff__agent-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.handoff__agent-tag {
+  flex: none;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.handoff__empty {
+  padding: 12px 10px;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+.handoff__optional {
+  font-weight: 400;
+  color: var(--text-3);
+}
+.handoff__note {
+  width: 100%;
+  min-height: 66px;
+  padding: 8px 10px;
+  resize: vertical;
+  line-height: 1.45;
+  font: inherit;
+  font-size: var(--fs-sm);
+}
+.handoff__error {
+  margin-top: 10px;
+  font-size: var(--fs-sm);
+  color: var(--danger);
 }
