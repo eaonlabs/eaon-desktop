@@ -70,6 +70,11 @@ jobs:
         shell: bash
         run: ./scripts/fetch-llama-windows.sh
 
+      # Upstream whisper.cpp's Windows builds, for dictation on this computer.
+      - name: whisper-server for Windows
+        shell: bash
+        run: ./scripts/build-whisper.sh windows
+
       # Cua Driver, the computer-use engine: the pinned, checksummed release.
       - name: Cua Driver
         run: node scripts/fetch-cua-driver.mjs win32-x64 win32-arm64

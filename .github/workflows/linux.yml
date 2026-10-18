@@ -54,6 +54,10 @@ jobs:
       - name: llama-server for Linux
         run: ./scripts/build-llama.sh
 
+      # whisper.cpp's server, for dictation on this computer, compiled on this machine.
+      - name: whisper-server for Linux
+        run: ./scripts/build-whisper.sh
+
       # electron-builder's bundled fpm (which makes the .deb) is an x86 program;
       # on arm64 the system's own fpm is used instead.
       - name: fpm for arm64
