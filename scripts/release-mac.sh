@@ -53,6 +53,10 @@ fi
 if [ ! -x resources/llama/darwin-arm64/llama-server ] || [ ! -x resources/llama/darwin-x64/llama-server ]; then
   ./scripts/build-llama.sh all
 fi
+# And whisper.cpp's server, for dictation on this computer.
+if [ ! -x resources/whisper/darwin-arm64/whisper-server ] || [ ! -x resources/whisper/darwin-x64/whisper-server ]; then
+  ./scripts/build-whisper.sh all
+fi
 
 # Cua Driver, the computer-use engine: the pinned, checksummed release.
 node scripts/fetch-cua-driver.mjs darwin

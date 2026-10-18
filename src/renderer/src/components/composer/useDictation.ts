@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { isMac, isWindows } from '../../lib/platform'
+import { useApp } from '../../state/store'
+import { LOCAL_SPEECH_ID } from '@shared/speech'
+import { toSpeechWav } from '../../lib/wav'
 
 export type DictationState = 'idle' | 'starting' | 'recording' | 'transcribing'
 
@@ -138,8 +141,12 @@ export function useDictation(onText: (text: string) => void): Dictation {
         setState('transcribing')
         void (async () => {
           try {
-            const audio = new Uint8Array(await new Blob(current.chunks, { type: current.mimeType }).arrayBuffer())
-            const result = await window.api.voice.transcribe(audio, current.mimeType)
+            const recording = new Blob(current.chunks, { type: current.mimeType })
+            // A model on this computer takes WAV; a hosted one the smaller recording as made.
+            const local = useApp.getState().settings?.voice?.speechProviderId === LOCAL_SPEECH_ID
+            const result = local
+              ? await window.api.voice.transcribe(await toSpeechWav(recording), 'audio/wav')
+              : await window.api.voice.transcribe(new Uint8Array(await recording.arrayBuffer()), current.mimeType)
             if (!result.ok) setError(result.error)
             else if (!result.text) setError('Didn’t catch anything. Try again a little closer to the mic.')
             else textHandler.current(result.text)

@@ -124,6 +124,11 @@ mac:
       to: llama
       filter:
         - 'darwin-*/**'
+    # Dictation on this computer: whisper.cpp's server (scripts/build-whisper.sh; main/features/voice/localWhisper.ts).
+    - from: resources/whisper
+      to: whisper
+      filter:
+        - 'darwin-*/**'
     # Eaon CLI, the OpenCode fork (scripts/build-eaon-cli.sh; main/features/eaonCli.ts).
     - from: resources/eaon-cli
       to: eaon-cli
@@ -168,6 +173,8 @@ win:
   extraResources:
     - from: resources/llama/win32-${arch}
       to: llama/win32-${arch}
+    - from: resources/whisper/win32-${arch}
+      to: whisper/win32-${arch}
     - from: resources/eaon-cli/win32-${arch}
       to: eaon-cli/win32-${arch}
     - from: resources/cua-driver/win32-${arch}
@@ -221,6 +228,8 @@ linux:
   extraResources:
     - from: resources/llama/linux-${arch}
       to: llama/linux-${arch}
+    - from: resources/whisper/linux-${arch}
+      to: whisper/linux-${arch}
     - from: resources/eaon-cli/linux-${arch}
       to: eaon-cli/linux-${arch}
     - from: resources/cua-driver/linux-${arch}
