@@ -3,6 +3,30 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [2026.7.0-beta.1] — 2026-10-17
+
+### Added
+- **Hand off to another agent in the ADE.** When a coding agent gets stuck,
+  Hand off starts another one (Codex, Gemini, Cursor, Amp and more) in a new
+  pane on the same work. What was asked, said and done so far is written
+  into the project under `.eaon/handoffs/`, kept out of git, and the new
+  agent starts by reading it. The first pane keeps running.
+- **Ask for a purchase in its schedule's thread.** Writing "order it" in a
+  purchase schedule's thread places the order on the schedule's terms (its
+  store, its maximum, its tracking) instead of reaching a worker with no
+  card tool and a blocked checkout.
+
+### Fixed
+- **Discounts that only show at checkout.** A purchase schedule judged the
+  product page's price, so a free order (an email tied to a pass) stopped at
+  $30. It now goes through checkout, fills it in from the description and
+  notes, applies what they mention and judges the final total.
+- Going to checkout ("Checkout", "Proceed to checkout") no longer waits for
+  approval; placing the order and express pay buttons still do.
+- A button first seen on a screenshot (a cart drawer's Remove) is clicked by
+  its name instead of being blocked as a nameless click.
+- A purchase run that doesn't buy takes its item back out of the cart.
+
 ## [2026.6.3-beta.2.6] — 2026-10-16
 
 ### Added
