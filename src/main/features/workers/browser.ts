@@ -8,6 +8,7 @@ import type { AgentTool, ToolSource } from '../../agent/tools'
 import type { NeutralImage } from '../../providers/adapters/types'
 import { opensPrivateNetwork } from '../browser/privateTarget'
 import { isCheckoutStep, purchaseCovers, redactPaymentSecrets } from '../payments/access'
+import { nothingDue } from '../payments/checkout'
 
 /**
  * Every worker's own web browser, driven through BetterWright
@@ -948,6 +949,21 @@ export class WorkerBrowsers {
     const wall = botWallNote({ title: contents.getTitle(), ...(status ? { status: status.code } : {}) })
     if (wall) return wall
     return status ? httpStatusNote(status.code, status.text) : null
+  }
+
+  /**
+   * The words on the page as it is now, every frame's (an embedded checkout
+   * sits in one): for judging a spending click by what the page says is due.
+   * Empty if it can't be read.
+   */
+  async pageText(workerId: string): Promise<string> {
+    const session = this.sessions.get(workerId)
+    if (!session || session.window.isDestroyed()) return ''
+    return this.run(
+      workerId,
+      `const read = (f) => Promise.race([f.evaluate(() => (document.body ? document.body.innerText : '')).catch(() => ''), new Promise((r) => setTimeout(() => r(''), 2500))]);` +
+        ` return (await Promise.all(page.frames().slice(0, 20).map(read))).filter(Boolean).map((t) => String(t).slice(0, 40000)).join('\\n')`
+    ).catch(() => '')
   }
 
   /** The page's visible text, for telling a bot wall served with a 403 from an ordinary refusal. */
@@ -2151,7 +2167,10 @@ export function browserTool(browsers: WorkerBrowsers, options: BrowserToolOption
         // A click on nothing named could be anything, the order button included.
         if (!el && !name) return !purchaseCovers(ctx.request.chatId, browsers.url(id), { ...click, unnamed: true })
         // Going to the checkout spends nothing; placing the order there does.
-        return SPENDING.test(name) && !isCheckoutStep(name) && !purchaseCovers(ctx.request.chatId, browsers.url(id), click)
+        if (!SPENDING.test(name) || isCheckoutStep(name) || purchaseCovers(ctx.request.chatId, browsers.url(id), click)) return false
+        // A checkout a code or pass has brought to nothing spends nothing: its
+        // Pay button is pressed like any other. Anything due waits for the user.
+        return browsers.pageText(id).then((text) => !nothingDue(text), () => true)
       }
       return false
     },

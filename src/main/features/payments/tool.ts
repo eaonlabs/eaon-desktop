@@ -171,7 +171,8 @@ export function paymentTool(engine: () => PaymentsEngine | null, fillers: Paymen
       'fill {purchase_id, target: "browser" | "screen", fields: [{field, ref?}]}: Eaon types the card into the checkout. browser: each field needs a ref from your latest web_browser snapshot. screen: types into the focused field of the app on screen, pressing Tab between fields (click the first field with the computer tool first).',
       `Fields: ${FIELDS.join(', ')} (expiry is MM/YY).`,
       'Then press the pay/place-order button yourself, check the confirmation, and call complete {purchase_id, status: "paid" | "failed" | "cancelled", charged?, order_id?} — always, even if it failed. order_id is the merchant\'s order number from the confirmation page or email.',
-      `track {purchase_id, stage, eta?, carrier?, tracking_number?, note?}: where a placed order is now. Stages: ${ORDER_STAGES.join(', ')}.`
+      `track {purchase_id, stage, eta?, carrier?, tracking_number?, note?}: where a placed order is now. Stages: ${ORDER_STAGES.join(', ')}.`,
+      'Free orders need none of this: when a promo code, pass or membership entered at checkout brings the total due to zero, nothing is charged, so place the order without authorizing (even with no card saved). Always go to the checkout and apply the code first — the product page price is not the total.'
     ].join(' '),
     inputSchema: {
       type: 'object',

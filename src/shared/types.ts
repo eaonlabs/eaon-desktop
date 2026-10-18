@@ -316,10 +316,16 @@ export interface ThemePalette {
   contrast: number
 }
 
+/** How the wallpaper is drawn: as it is, as a halftone dot screen, or as ASCII art. */
+export type SeeThroughStyle = 'photo' | 'halftone' | 'ascii'
+
 export interface SeeThrough {
   enabled: boolean
   tint: number
+  /** The halftone switch from before `style`; still read when `style` is unset, and kept in step with it. */
   texture: boolean
+  /** Unset on installs from before it, which follow `texture` instead. */
+  style?: SeeThroughStyle
   /** The desktop's own wallpaper, or a picture the user chose. */
   source: 'desktop' | 'custom'
   /** The chosen picture, as Eaon's own copy of it (see main/features/wallpaper.ts). */
@@ -361,7 +367,7 @@ export interface Settings {
      * See-through: the desktop's wallpaper drawn behind the app, lined up
      * with the screen, so the window reads as glass over the desktop.
      * `tint` (0–100) is how much of the theme's colour lies over it, and
-     * `texture` adds a halftone screen made from the wallpaper itself.
+     * `style` draws it as it is, as a halftone screen or as ASCII art.
      */
     seeThrough: SeeThrough
   }

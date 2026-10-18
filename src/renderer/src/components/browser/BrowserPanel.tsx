@@ -450,6 +450,9 @@ const BrowserPage = memo(function BrowserPage({
       className="browser__page"
       data-active={active || undefined}
       src={initialUrl}
+      // Its own session: sites get their own cookies and storage, apart from
+      // Eaon's page and its eaon-file: scheme.
+      partition="persist:in-app-browser"
       // eslint-disable-next-line react/no-unknown-property
       allowpopups={'true' as unknown as boolean}
     />

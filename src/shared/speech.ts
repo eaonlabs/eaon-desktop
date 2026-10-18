@@ -58,3 +58,67 @@ export function speechUrl(providerId: string, baseUrl: string | undefined): stri
   const base = baseUrl?.trim().replace(/\/+$/, '')
   return base ? `${base}/audio/transcriptions` : null
 }
+
+/* ------------------------------------------------------- on this computer */
+
+/**
+ * Dictation that never leaves the computer: whisper.cpp's server, bundled with
+ * Eaon (resources/whisper), running one of these models, downloaded once from
+ * Hugging Face into Eaon's own folder. Picked as the speech provider by this id.
+ */
+export const LOCAL_SPEECH_ID = 'eaon-whisper'
+
+export interface LocalSpeechModel {
+  id: string
+  label: string
+  /** One line for the picker: what it's good for. */
+  blurb: string
+  file: string
+  bytes: number
+  /** SHA-256 of the file, checked once it has downloaded. */
+  sha256: string
+  /** Speaks only English; the others detect the language. */
+  englishOnly?: boolean
+}
+
+export const LOCAL_SPEECH_MODELS: LocalSpeechModel[] = [
+  {
+    id: 'base',
+    label: 'Whisper Base',
+    blurb: 'Fast, for short notes',
+    file: 'ggml-base.bin',
+    bytes: 147951465,
+    sha256: '60ed5bc3dd14eea856493d334349b405782ddcaf0028d4b5df4088345fba2efe'
+  },
+  {
+    id: 'small',
+    label: 'Whisper Small',
+    blurb: 'More accurate, still quick',
+    file: 'ggml-small.bin',
+    bytes: 487601967,
+    sha256: '1be3a9b2063867b937e64e2ec7483364a79917e157fa98c5d94b5c1fffea987b'
+  },
+  {
+    id: 'large-v3-turbo',
+    label: 'Whisper Large v3 Turbo',
+    blurb: 'Most accurate, best on Apple silicon or a GPU',
+    file: 'ggml-large-v3-turbo-q5_0.bin',
+    bytes: 574041195,
+    sha256: '394221709cd5ad1f40c46e6031ca61bce88931e6e088c188294c6d5a55ffa7e2'
+  }
+]
+
+export const localSpeechModel = (id: string | null | undefined): LocalSpeechModel | undefined => LOCAL_SPEECH_MODELS.find((m) => m.id === id)
+
+/** Where a model downloads from. */
+export const localSpeechUrl = (model: LocalSpeechModel): string => `https://huggingface.co/ggerganov/whisper.cpp/resolve/main/${model.file}`
+
+/** What Settings shows of the local models: which are downloaded, and any download in progress. */
+export interface LocalSpeechState {
+  /** Whether this build of Eaon has whisper-server for this machine. */
+  available: boolean
+  downloaded: string[]
+  /** The model downloading now, and how far along (0–1). */
+  downloading: { id: string; progress: number } | null
+  error: string | null
+}

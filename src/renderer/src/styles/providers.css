@@ -505,9 +505,106 @@
   flex: none;
   display: grid;
   place-items: center;
-  border-radius: 24%;
-  background: linear-gradient(160deg, #ff6b8b, #c13cff);
-  color: #ffffff;
+  background: var(--surface-3);
+  box-shadow: inset 0 0 0 1px var(--border);
+  color: var(--text);
+}
+
+/* The local Whisper models: a row each, picked like a radio, with its download. */
+.local-speech {
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+.local-speech__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 56px;
+  padding: 0 12px 0 4px;
+  transition: background var(--dur) var(--ease);
+}
+.local-speech__row + .local-speech__row {
+  border-top: 1px solid var(--border-soft);
+}
+.local-speech__row[data-active] {
+  background: var(--hover);
+}
+.local-speech__pick {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 8px;
+  text-align: left;
+}
+.local-speech__pick:disabled {
+  cursor: default;
+}
+.local-speech__dot {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  box-shadow: inset 0 0 0 1.5px var(--border-strong);
+  color: var(--on-accent, #fff);
+}
+.local-speech__row[data-active] .local-speech__dot {
+  background: var(--accent);
+  box-shadow: none;
+}
+.local-speech__pick:disabled .local-speech__dot {
+  opacity: 0.4;
+}
+.local-speech__text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.local-speech__name {
+  color: var(--text);
+  font-size: var(--fs-base);
+  font-weight: 500;
+}
+.local-speech__blurb {
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+.local-speech__row .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.local-speech__progress {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.local-speech__bar {
+  width: 96px;
+  height: 5px;
+  border-radius: 999px;
+  background: var(--hover-strong);
+  overflow: hidden;
+}
+.local-speech__bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width 240ms var(--ease);
+}
+.local-speech__pct {
+  min-width: 34px;
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 .speech-model-input {
   max-width: 320px;

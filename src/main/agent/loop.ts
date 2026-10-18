@@ -416,7 +416,7 @@ async function runTool(
   // the tool's own risk — is in agent/policy.ts, shared with sub-agents and
   // the CLI. The approval mode is read live: what may run without asking
   // follows the composer's permission picker mid-turn.
-  const facts = callFacts(tool, call.input, ctx, params.settings)
+  const facts = await callFacts(tool, call.input, ctx, params.settings)
   const approvalMode = (params.liveSettings?.() ?? params.settings).approvalMode
   const decision = decide(tool, call.input, facts, policy, approvalMode)
   if (decision.kind === 'deny') return finish(decision.reason, 'denied')

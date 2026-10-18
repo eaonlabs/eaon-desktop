@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useApp } from '../../../state/store'
 import { Card, Row, Section, Segmented, Select, Slider, Switch } from '../../ui'
-import type { AppIcon, Settings, ThemeMode } from '@shared/types'
+import type { AppIcon, SeeThroughStyle, Settings, ThemeMode } from '@shared/types'
 import { THEMES, type Palette, type Theme } from '../../../lib/themes'
 import { isMac } from '../../../lib/platform'
 import defaultIcon from '../../../assets/app-icons/default.png'
@@ -351,6 +351,13 @@ function ThemeSwatch({ palette, tone }: { palette: Palette; tone: 'light' | 'dar
   )
 }
 
+/** What each wallpaper style looks like, under the Style control. */
+const STYLE_HINTS: Record<SeeThroughStyle, string> = {
+  photo: 'The wallpaper as it is',
+  halftone: 'A print-style dot screen made from the wallpaper itself',
+  ascii: 'The wallpaper redrawn as ASCII art, in its own colours'
+}
+
 /**
  * See-through: a picture behind the app (components/SeeThrough) — the
  * desktop's own wallpaper, or one the user picks. The OS only says which
@@ -376,6 +383,7 @@ function SeeThroughSection(): JSX.Element | null {
   }, [hasCustom])
 
   if (!see) return null
+  const style = see.style ?? (see.texture ? 'halftone' : 'photo')
   const desktopKnown = window.api.platform === 'darwin' || window.api.platform === 'win32'
   const usable = desktopKnown || hasCustom
   const set = (patch: Partial<typeof see>): void => void patchSettings({ appearance: { seeThrough: { ...see, ...patch } } })
@@ -440,8 +448,17 @@ function SeeThroughSection(): JSX.Element | null {
             <Row title="Tint" description="How much of the theme’s colour lies over the wallpaper. Higher is easier to read">
               <Slider value={see.tint} min={0} max={100} onChange={(tint) => set({ tint })} />
             </Row>
-            <Row title="Halftone texture" description="A print-style dot screen made from the wallpaper itself">
-              <Switch label="Halftone texture" checked={see.texture} onChange={(texture) => set({ texture })} />
+            <Row title="Style" description={STYLE_HINTS[style]}>
+              <Segmented
+                value={style}
+                // `texture` follows along for builds from before `style`.
+                onChange={(next) => set({ style: next, texture: next === 'halftone' })}
+                options={[
+                  { value: 'photo' as const, label: 'Photo' },
+                  { value: 'halftone' as const, label: 'Halftone' },
+                  { value: 'ascii' as const, label: 'ASCII' }
+                ]}
+              />
             </Row>
           </>
         )}

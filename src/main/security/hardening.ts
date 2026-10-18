@@ -152,8 +152,8 @@ function applySessionPolicy(target: Session, isAppContents: (contents: WebConten
 }
 
 /**
- * Permission rules for every session: the default one (the app and the
- * in-app browser) and each one made later (the agents' and workers'
+ * Permission rules for every session: the default one (the app) and each
+ * one made later (the in-app browser's and the agents' and workers'
  * browsers, which are created lazily). Must run before any page loads.
  */
 export function installSessionPolicy(isAppContents: (contents: WebContents) => boolean): void {
