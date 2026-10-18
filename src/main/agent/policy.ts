@@ -102,12 +102,12 @@ export interface CallFacts {
  * remember their answer for `run` (payment_card records whether the user was
  * asked), so the loop must not ask them twice.
  */
-export function callFacts(
+export async function callFacts(
   tool: AgentTool,
   input: Record<string, unknown>,
   ctx: ToolContext,
   settings: { mcp: { allowAllToolPermissions: boolean } }
-): CallFacts {
+): Promise<CallFacts> {
   const mutating = isMutating(tool, input, ctx)
   const spends = tool.spends?.(input, ctx) ?? false
   if (!mutating) return { mutating, risky: false, catastrophic: false, preApproved: false, spends }
@@ -116,7 +116,7 @@ export function callFacts(
     risky: (tool.risky?.(input, ctx) ?? false) || delegates(tool, input, ctx),
     // What can't be undone (a real-money order, a destructive plugin call) is
     // never covered by the blanket plugin pre-approval, in any mode.
-    catastrophic: tool.catastrophic?.(input, ctx) ?? false,
+    catastrophic: (await tool.catastrophic?.(input, ctx)) ?? false,
     // Settings → MCP → Allow All MCP Tool Permissions: the user has approved
     // every plugin call in advance. Plan mode and read-only runs still refuse.
     preApproved: settings.mcp.allowAllToolPermissions && toolSourceOf(tool) === 'plugins',
@@ -179,13 +179,13 @@ export function decide(
  * a front end re-checking a pending approval after the user changed the mode
  * mid-turn (the CLI). Never spends an approve-once grant.
  */
-export function runsWithoutAsking(
+export async function runsWithoutAsking(
   tool: AgentTool,
   input: Record<string, unknown>,
   ctx: ToolContext,
   approvalMode: ApprovalMode
-): boolean {
-  const facts = callFacts(tool, input, ctx, ctx.settings)
+): Promise<boolean> {
+  const facts = await callFacts(tool, input, ctx, ctx.settings)
   const policy: RunPolicy = ctx.policy ?? { readOnly: ctx.readOnly }
   return decide(tool, input, facts, { ...policy, allowOnce: undefined }, approvalMode).kind === 'run'
 }

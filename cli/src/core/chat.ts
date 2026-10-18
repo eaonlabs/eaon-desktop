@@ -98,14 +98,14 @@ interface LiveTurn {
  * asks for what is risky, "full access" for what can't be undone. Approvals
  * that aren't for a tool call (a tool confirming a step of its own) always ask.
  */
-function allowedNow(request: StreamRequest, modeAtStart: string, tool: string, input: Record<string, unknown>): boolean {
+async function allowedNow(request: StreamRequest, modeAtStart: string, tool: string, input: Record<string, unknown>): Promise<boolean> {
   const settings = store.getSettings()
   if (settings.approvalMode === 'ask' || settings.approvalMode === modeAtStart) return false
   try {
     const found = toolsFor({ mode: request.mode, cwd: request.cwd ?? null, depth: 0, readOnly: false, settings, request }).find((t) => t.name === tool)
     if (!found) return false
     const ctx = { request, cwd: request.cwd ?? '', settings, depth: 0, readOnly: false } as unknown as ToolContext
-    return runsWithoutAsking(found, input, ctx, settings.approvalMode)
+    return await runsWithoutAsking(found, input, ctx, settings.approvalMode)
   } catch {
     return false
   }
@@ -427,13 +427,12 @@ export class ChatController extends EventEmitter {
     let flushTimer: ReturnType<typeof setTimeout> | null = null
     const onEvent = (event: StreamEvent): void => {
       if (event.type === 'approval-request') {
-        if (allowedNow(request, settings.approvalMode, event.tool, event.input)) {
-          resolveApproval(event.requestId, true)
-          return
-        }
-        this.approvals.push({ requestId: event.requestId, messageId: event.messageId, chatId, tool: event.tool, input: event.input, summary: event.summary })
-        this.emit('approval')
-        this.emit('change', chatId)
+        void allowedNow(request, settings.approvalMode, event.tool, event.input).then((allowed) => {
+          if (allowed) return resolveApproval(event.requestId, true)
+          this.approvals.push({ requestId: event.requestId, messageId: event.messageId, chatId, tool: event.tool, input: event.input, summary: event.summary })
+          this.emit('approval')
+          this.emit('change', chatId)
+        })
         return
       }
       const current = this.chats.get(chatId)

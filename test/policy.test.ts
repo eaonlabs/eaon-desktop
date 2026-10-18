@@ -181,16 +181,16 @@ function ctxFor(policy: RunPolicy, request = baseRequest()): ToolContext {
 interface Judged {
   tool: AgentTool
   input: Record<string, unknown>
-  facts: ReturnType<typeof callFacts>
+  facts: Awaited<ReturnType<typeof callFacts>>
 }
 
 /** Every (tool, input) pair whose call would change something, with what the tool says about it. */
-function judgeAll(): Judged[] {
+async function judgeAll(): Promise<Judged[]> {
   const out: Judged[] = []
   for (const tool of everyTool()) {
     for (const input of inputsFor(tool)) {
       try {
-        const facts = callFacts(tool, input, ctxFor({ readOnly: false }), settings)
+        const facts = await callFacts(tool, input, ctxFor({ readOnly: false }), settings)
         out.push({ tool, input, facts })
       } catch {
         /* a predicate that needs a live feature: its tool is covered by its own tests */
@@ -200,7 +200,7 @@ function judgeAll(): Judged[] {
   return out
 }
 
-const judged = judgeAll()
+const judged = await judgeAll()
 const changing = judged.filter((j) => j.facts.mutating)
 const label = (j: Judged): string => `${j.tool.name} ${JSON.stringify(j.input)}`
 

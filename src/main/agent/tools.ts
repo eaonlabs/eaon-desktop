@@ -103,9 +103,10 @@ export interface AgentTool {
    * Whether a call could do lasting damage nobody can undo: wiping a disk,
    * `sudo`, spending money, typing a card number, a plugin action its server
    * marks destructive. An autonomous worker runs risky calls on its own but
-   * never these. Defaults to false.
+   * never these. Defaults to false. May look before it answers (the worker's
+   * browser reads a checkout's total), so it can return a promise.
    */
-  catastrophic?: (input: Record<string, unknown>, ctx: ToolContext) => boolean
+  catastrophic?: (input: Record<string, unknown>, ctx: ToolContext) => boolean | Promise<boolean>
   /**
    * Whether a call spends the user's money (a card payment). Refused in a
    * turn that carries work from a guest or a colleague, whatever else
