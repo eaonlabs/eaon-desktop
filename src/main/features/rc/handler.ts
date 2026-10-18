@@ -3,6 +3,7 @@ import { sessionSubtitle, sessionTitle, type AdeChanges, type AdeSession } from 
 import { TERMINAL_AGENT_IDS, type TerminalAgentId } from '@shared/terminals'
 import type { TerminalsControl } from '../terminals'
 import type { AgentBrowserFrame, AgentBrowserStatus, AgentBrowserStep, BrowserTarget } from '@shared/agentBrowser'
+import type { GuestTerminals } from './guestTerminals'
 
 /**
  * This computer's side of Eaon Remote: what a browser tab may ask through the
@@ -29,8 +30,17 @@ import type { AgentBrowserFrame, AgentBrowserStatus, AgentBrowserStep, BrowserTa
  * page can't be clicked from the web.
  *
  * A guest's messages (another account something was shared with) carry
- * `guest`, its GitHub login; the relay has already checked them against
- * what was shared.
+ * `guest`, its GitHub login. The relay checks them against what was shared,
+ * and this side checks again, because a guest must never reach one of the
+ * user's own shells:
+ *
+ * - A guest types only into a guest terminal of its own (guestTerminals.ts),
+ *   a sandboxed one locked to a folder. The user's terminals are watch-only
+ *   for guests, whatever the share says.
+ * - A guest with control of the whole computer who opens a terminal gets a
+ *   locked shell in that session's folder, not a new shell of the user's.
+ * - Workers aren't reachable by guests at all: a Worker acts with the user's
+ *   own access.
  */
 
 export interface RcHandlerDeps {
@@ -38,6 +48,8 @@ export interface RcHandlerDeps {
   ade: { list: () => AdeSession[]; changes: (cwd: string) => Promise<AdeChanges | null> }
   workers: RemoteApiDeps | null
   browsers?: RcBrowsers | null
+  /** Sandboxed terminals for guests. Without it, guests can only watch. */
+  guests?: GuestTerminals | null
   send: (message: Record<string, unknown>) => void
 }
 
@@ -122,6 +134,15 @@ export function createRcHandler(deps: RcHandlerDeps) {
     }
     return null
   }
+
+  /** A guest terminal as a pane: its folder, the name the friend sees, what it runs. */
+  const guestPane = (paneId: string): { cwd: string; name: string; agent: TerminalAgentId } | null => {
+    const g = deps.guests?.pane(paneId)
+    return g ? { cwd: g.folder, name: g.label, agent: ((g.agent ?? 'shell') as TerminalAgentId) } : null
+  }
+
+  /** Any pane this computer can show: one of the user's, or a guest's. */
+  const anyPane = (paneId: string) => paneInLayout(paneId) ?? guestPane(paneId)
 
   const sendChunks = (to: string, pane: string, data: string): void => {
     for (let i = 0; i < data.length; i += CHUNK) deps.send({ t: 'term', to, pane, data: data.slice(i, i + CHUNK) })
@@ -212,6 +233,41 @@ export function createRcHandler(deps: RcHandlerDeps) {
     return { status: 404, body: errorBody('not_found', `There is no ${method} ${path}.`) }
   }
 
+  const forbidden = (message: string): { status: number; body: unknown } => ({ status: 403, body: errorBody('forbidden', message) })
+
+  /** What a guest may ask: a narrower route, checked here as well as on the relay. */
+  async function guestRoute(login: string, method: string, rawPath: string): Promise<{ status: number; body: unknown }> {
+    const path = rawPath.split('?')[0].replace(/\/+$/, '') || '/'
+    if (path.startsWith('/remote/v1/')) return forbidden('Workers aren’t shared with guests.')
+    if (method === 'GET' && (path === '/ade/sessions' || path === '/browsers')) return route(method, rawPath, null)
+
+    const pane = /^\/ade\/panes\/([\w-]+)$/.exec(path)
+    if (pane && method === 'GET') {
+      const g = guestPane(pane[1])
+      if (g) return deps.guests?.owns(pane[1], login) ? { status: 200, body: await paneView(pane[1], g.name, g.agent) } : forbidden('That terminal isn’t yours.')
+      return route(method, rawPath, null)
+    }
+
+    const start = /^\/ade\/panes\/([\w-]+)\/start$/.exec(path)
+    if (start && method === 'POST') {
+      if (!deps.guests?.owns(start[1], login)) return forbidden('Only the terminal shared with you can be started.')
+      await deps.guests.start(start[1])
+      return { status: 200, body: { ok: true } }
+    }
+
+    const add = /^\/ade\/sessions\/([\w-]+)\/panes$/.exec(path)
+    if (add && method === 'POST') {
+      // A new terminal from a guest is a locked shell in that folder, whatever was asked for.
+      if (!deps.guests) return forbidden('Guests can watch terminals on this computer, not open them.')
+      const session = deps.ade.list().find((s) => s.id === add[1])
+      if (!session) return { status: 404, body: errorBody('not_found', 'That session isn’t in the ADE any more.') }
+      const made = await deps.guests.openAdhoc(session.cwd, login)
+      return { status: 201, body: { pane: await paneView(made.paneId, made.label, 'shell') } }
+    }
+
+    return forbidden('That isn’t shared with you.')
+  }
+
   return {
     /** The GitHub logins of guests connected now. */
     guestsOnline(): string[] {
@@ -220,12 +276,14 @@ export function createRcHandler(deps: RcHandlerDeps) {
     },
     async handle(m: Record<string, unknown>): Promise<void> {
       const from = typeof m.from === 'string' ? m.from : ''
-      if (typeof m.guest === 'string' && from) guests.set(from, { login: m.guest, at: Date.now() })
+      const guest = typeof m.guest === 'string' ? m.guest : null
+      if (guest && from) guests.set(from, { login: guest, at: Date.now() })
       switch (m.t) {
         case 'req': {
           let res: { status: number; body: unknown }
           try {
-            res = await route(String(m.method ?? 'GET').toUpperCase(), String(m.path ?? '/'), m.body)
+            const method = String(m.method ?? 'GET').toUpperCase()
+            res = guest ? await guestRoute(guest, method, String(m.path ?? '/')) : await route(method, String(m.path ?? '/'), m.body)
           } catch (error) {
             res =
               error instanceof ApiError
@@ -237,8 +295,20 @@ export function createRcHandler(deps: RcHandlerDeps) {
         }
         case 'sub': {
           const id = String(m.pane ?? '')
-          const found = paneInLayout(id)
+          const found = anyPane(id)
           if (!found || !from) return
+          const isGuestPane = !paneInLayout(id)
+          // A friend watches only their own guest terminal; the user watches any.
+          if (isGuestPane && guest && !deps.guests?.owns(id, guest)) return
+          // The friend's terminal starts the first time they open it.
+          if (isGuestPane && !terminals.running(id)) {
+            try {
+              await deps.guests?.start(id)
+            } catch (error) {
+              deps.send({ t: 'term', to: from, pane: id, data: `\r\n${error instanceof Error ? error.message : 'This terminal couldn’t start.'}\r\n` })
+              return
+            }
+          }
           let tabs = watchers.get(id)
           if (!tabs) watchers.set(id, (tabs = new Set()))
           tabs.add(from)
@@ -252,7 +322,13 @@ export function createRcHandler(deps: RcHandlerDeps) {
         case 'input': {
           const id = String(m.pane ?? '')
           const data = typeof m.data === 'string' ? m.data.slice(0, 64 * 1024) : ''
-          if (data && paneInLayout(id)) terminals.write(id, data)
+          if (!data) return
+          if (guest) {
+            // Guests type only into their own guest terminal, never into one of the user's.
+            if (deps.guests?.owns(id, guest)) terminals.write(id, data)
+            return
+          }
+          if (paneInLayout(id) || guestPane(id)) terminals.write(id, data)
           return
         }
         case 'bsub':

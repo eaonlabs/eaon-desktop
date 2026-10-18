@@ -37,6 +37,9 @@ export interface Device {
 
 type Who = { kind: 'device'; id: string } | { kind: 'web'; conn: string; login: string } | { kind: 'guest'; conn: string; uid: string; login: string }
 
+/** What the owner's tabs (or the computer, for a locked terminal) send to make a share. */
+type ShareDraft = { dev?: string; pane?: string | null; paneLabel?: string | null; access?: string; login?: string }
+
 /** A share another account made with this one: whose relay to join. */
 export interface Incoming {
   owner: string
@@ -173,6 +176,36 @@ export class Account extends DurableObject<Env> {
     return (await this.devices()).map(({ hash: _hash, ...d }) => ({ ...d, online: this.online(d.id) }))
   }
 
+  /** A new share and its invite secret, or why not. Used by the owner's tabs and (for locked terminals) the computer itself. */
+  private async addShare(body: ShareDraft, ownerLogin: string): Promise<Response> {
+    const login = String(body.login ?? '').trim().replace(/^@/, '')
+    if (!isLogin(login)) return json({ error: 'Type their GitHub username.' }, 400)
+    if (login.toLowerCase() === ownerLogin.toLowerCase()) return json({ error: 'That’s you. Your own computers are already yours on every browser you sign in to.' }, 400)
+    const dev = String(body.dev ?? '')
+    if (!(await this.devices()).some((d) => d.id === dev)) return json({ error: 'No such computer.' }, 404)
+    const pane = typeof body.pane === 'string' && /^[\w-]{1,80}$/.test(body.pane) ? body.pane : null
+    const access: Access = body.access === 'control' ? 'control' : 'watch'
+    const list = await this.shares()
+    if (list.length >= MAX_SHARES) return json({ error: `You already have ${MAX_SHARES} shares. Revoke one first.` }, 409)
+    const secret = randomToken(24)
+    const share: Share = {
+      id: randomToken(9),
+      dev,
+      pane,
+      paneLabel: pane ? String(body.paneLabel ?? '').slice(0, 120) || null : null,
+      access,
+      login,
+      uid: null,
+      hash: await sha256(secret),
+      ownerLogin,
+      createdAt: Date.now(),
+      acceptedAt: null
+    }
+    list.push(share)
+    await this.saveShares(list)
+    return json({ share: publicShare(share), secret })
+  }
+
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url)
 
@@ -224,34 +257,8 @@ export class Account extends DurableObject<Env> {
     if (url.pathname === '/shares' && request.method === 'GET') return json({ shares: (await this.shares()).map(publicShare) })
 
     if (url.pathname === '/shares/add' && request.method === 'POST') {
-      const body = (await request.json()) as { dev?: string; pane?: string | null; paneLabel?: string | null; access?: string; login?: string }
-      const login = String(body.login ?? '').trim().replace(/^@/, '')
-      if (!isLogin(login)) return json({ error: 'Type their GitHub username.' }, 400)
-      const ownerLogin = request.headers.get('X-RC-Login') ?? ''
-      if (login.toLowerCase() === ownerLogin.toLowerCase()) return json({ error: 'That’s you. Your own computers are already yours on every browser you sign in to.' }, 400)
-      const dev = String(body.dev ?? '')
-      if (!(await this.devices()).some((d) => d.id === dev)) return json({ error: 'No such computer.' }, 404)
-      const pane = typeof body.pane === 'string' && /^[\w-]{1,80}$/.test(body.pane) ? body.pane : null
-      const access: Access = body.access === 'control' ? 'control' : 'watch'
-      const list = await this.shares()
-      if (list.length >= MAX_SHARES) return json({ error: `You already have ${MAX_SHARES} shares. Revoke one first.` }, 409)
-      const secret = randomToken(24)
-      const share: Share = {
-        id: randomToken(9),
-        dev,
-        pane,
-        paneLabel: pane ? String(body.paneLabel ?? '').slice(0, 120) || null : null,
-        access,
-        login,
-        uid: null,
-        hash: await sha256(secret),
-        ownerLogin,
-        createdAt: Date.now(),
-        acceptedAt: null
-      }
-      list.push(share)
-      await this.saveShares(list)
-      return json({ share: publicShare(share), secret })
+      const body = (await request.json()) as ShareDraft
+      return this.addShare(body, request.headers.get('X-RC-Login') ?? '')
     }
 
     const shareMatch = /^\/shares\/([\w-]+)$/.exec(url.pathname)
@@ -306,6 +313,16 @@ export class Account extends DurableObject<Env> {
       const device = await this.deviceBySecret(request)
       if (!device) return json({ error: 'Not linked.' }, 401)
       return json({ shares: (await this.shares()).filter((s) => s.dev === device.id).map(publicShare) })
+    }
+    // A locked terminal (a sandboxed guest terminal the computer made for a
+    // friend): the computer creates its share itself. Only that kind: a
+    // `guest-…` pane with control. A computer can't hand out its whole self.
+    if (url.pathname === '/devices/self-shares/add' && request.method === 'POST') {
+      const device = await this.deviceBySecret(request)
+      if (!device) return json({ error: 'Not linked.' }, 401)
+      const body = (await request.json()) as ShareDraft & { ownerLogin?: string }
+      if (typeof body.pane !== 'string' || !/^guest-[\w-]{1,80}$/.test(body.pane)) return json({ error: 'A computer can only share a locked terminal itself.' }, 400)
+      return this.addShare({ dev: device.id, pane: body.pane, paneLabel: body.paneLabel, access: 'control', login: body.login }, String(body.ownerLogin ?? '').slice(0, 39))
     }
     const selfRevoke = /^\/devices\/self-shares\/([\w-]+)$/.exec(url.pathname)
     if (selfRevoke && request.method === 'DELETE') {

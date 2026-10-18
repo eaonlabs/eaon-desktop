@@ -6,6 +6,7 @@ import { app } from 'electron'
 import type * as NodePty from 'node-pty'
 import type { TerminalSpawnRequest, TerminalSpawnResult } from '@shared/terminals'
 import { isMouseReport, shellInForeground, STRAY_MODES_OFF } from './strayModes'
+import type { GuestLaunch } from './guestSandbox'
 
 /**
  * Owns every pseudo-terminal behind the ADE's terminal view. Ported from Eaon
@@ -251,18 +252,23 @@ export class PtyManager {
    * `remote`: the pane runs `ssh` with these arguments instead of a local
    * shell (a session on an SSH host); the launch command is typed into the
    * remote shell the same way.
+   *
+   * `guest`: a terminal for someone the folder was shared with
+   * (guestSandbox.ts). It runs exactly that program, in exactly that folder,
+   * with exactly that environment: none of the user's, nothing typed into it.
    */
   spawn(
     req: TerminalSpawnRequest,
     extraEnv: Record<string, string> = {},
     restore: RestorePlan | null = null,
-    remote: { bin: string; argv: string[] } | null = null
+    remote: { bin: string; argv: string[] } | null = null,
+    guest: GuestLaunch | null = null
   ): TerminalSpawnResult {
     // No folder asked for is the home folder; a folder asked for that isn't
     // there is an error below, never quietly the home folder instead.
-    const folder = remote ? req.cwd : req.cwd || os.homedir()
-    const cwd = remote ? os.homedir() : restore?.cwd && isDir(restore.cwd) ? restore.cwd : folder
-    const command = restore ? restore.command : req.command
+    const folder = guest ? guest.cwd : remote ? req.cwd : req.cwd || os.homedir()
+    const cwd = guest ? guest.cwd : remote ? os.homedir() : restore?.cwd && isDir(restore.cwd) ? restore.cwd : folder
+    const command = guest ? null : restore ? restore.command : req.command
 
     // A pane asking for the shell it already has gets the one it has — a
     // renderer reload must not kill a healthy agent mid-task. Only when the
@@ -286,15 +292,15 @@ export class PtyManager {
       return { ok: false, error: `${folder} isn’t there any more. It may have been moved, renamed or deleted.` }
     }
 
-    const shell = remote ? remote.bin : loginShell()
+    const shell = guest ? guest.bin : remote ? remote.bin : loginShell()
     try {
       const pty = loadPty()
-      const proc = pty.spawn(shell, remote ? remote.argv : shellArgs(shell), {
+      const proc = pty.spawn(shell, guest ? guest.argv : remote ? remote.argv : shellArgs(shell), {
         name: 'xterm-256color',
         cols: Math.max(20, req.cols || 80),
         rows: Math.max(5, req.rows || 24),
         cwd,
-        env: this.buildEnv(req.paneId, extraEnv)
+        env: guest ? guest.env : this.buildEnv(req.paneId, extraEnv)
       })
       const session: Session = {
         proc,

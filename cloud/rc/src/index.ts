@@ -135,6 +135,13 @@ async function api(env: Env, request: Request, url: URL): Promise<Response> {
     if (!token) return json({ error: 'Not a device token.' }, 401)
     const auth = { 'X-RC-Device': token.id, 'X-RC-Secret': token.secret }
     if (path === '/api/device/shares' && request.method === 'GET') return call(account(env, token.uid), '/devices/self-shares', { headers: auth })
+    // A locked terminal the computer shares itself (see /devices/self-shares/add).
+    if (path === '/api/device/shares' && request.method === 'POST') {
+      const res = await call(account(env, token.uid), '/devices/self-shares/add', { ...post(await request.json().catch(() => ({}))), headers: { 'content-type': 'application/json', ...auth } })
+      if (!res.ok) return res
+      const made = (await res.json()) as { share: { id: string }; secret: string }
+      return json({ share: made.share, url: `${env.PUBLIC_URL}/share/${token.uid}.${made.share.id}.${made.secret}` })
+    }
     const one = /^\/api\/device\/shares\/([\w-]+)$/.exec(path)
     if (one && request.method === 'DELETE') {
       const res = await call(account(env, token.uid), `/devices/self-shares/${one[1]}`, { method: 'DELETE', headers: auth })
