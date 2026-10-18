@@ -1,6 +1,42 @@
-import { useEffect, useState } from 'react'
-import { AppWindow, Check, ChevronDown, CircleHelp, MonitorPlay, PackageSearch, PanelRight, Pause, Pencil, Play, Repeat, ShoppingBag, ShieldAlert, Target, TriangleAlert, X } from 'lucide-react'
-import { MAX_GOAL_CHARS, MAX_NOTES_CHARS, relativeTime, type Worker, type WorkerAsk } from '@shared/workers'
+import { useEffect, useId, useState } from 'react'
+import { useShallow } from 'zustand/react/shallow'
+import {
+  AppWindow,
+  BookOpen,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Eye,
+  GraduationCap,
+  Loader,
+  Loader2,
+  MonitorPlay,
+  PackageSearch,
+  PanelRight,
+  Pause,
+  Pencil,
+  PencilLine,
+  Play,
+  Repeat,
+  ShieldAlert,
+  ShoppingBag,
+  Square,
+  Target,
+  Terminal,
+  TriangleAlert,
+  X
+} from 'lucide-react'
+import {
+  MAX_GOAL_CHARS,
+  MAX_NOTES_CHARS,
+  relativeTime,
+  watchText,
+  type Worker,
+  type WorkerAsk,
+  type WorkerJob,
+  type WorkerPlaybook,
+  type WorkerWatch
+} from '@shared/workers'
 import { Modal } from '../ui'
 import { workerBrowserTarget } from '@shared/agentBrowser'
 import { formatMoney } from '@shared/payments'
@@ -8,7 +44,7 @@ import { usePurchaseDialog } from '../purchase/purchaseStore'
 import { cadenceText } from '../purchase/plan'
 import { useWorkers } from './workersStore'
 import { Markdown } from '../agent/Markdown'
-import { ApprovalCard, CallPreview, CommandPreview } from '../agent/ApprovalCard'
+import { approvalRisk, CommandPreview } from '../agent/ApprovalCard'
 import { LiveBrowserAddress, LiveBrowserControls, LiveBrowserStage, LiveBrowserSteps, useLiveBrowser } from '../agentBrowser/LiveBrowser'
 
 /**
@@ -18,20 +54,18 @@ import { LiveBrowserAddress, LiveBrowserControls, LiveBrowserStage, LiveBrowserS
  * up to watch or to sign it in somewhere.
  */
 
-/** Questions a worker put to the user, above its composer. */
+/** Questions a worker put to the user, at the foot of its thread. */
 export function WorkerAsks({ worker }: { worker: Worker }): JSX.Element | null {
   if (!worker.asks?.length) return null
   return (
     <div className="worker-asks">
-      {worker.asks.map((ask) => (
-        <AskCard key={ask.id} worker={worker} ask={ask} />
-      ))}
+      {worker.asks.map((ask) => (ask.approve ? <AskApproval key={ask.id} worker={worker} ask={ask} /> : <AskQuestion key={ask.id} worker={worker} ask={ask} />))}
     </div>
   )
 }
 
-function AskCard({ worker, ask }: { worker: Worker; ask: WorkerAsk }): JSX.Element {
-  const [reply, setReply] = useState('')
+/** Sends the answer once (`busy` covers the round trip so a double click can't answer twice), and says why when it couldn't. */
+function useAnswer(worker: Worker, ask: WorkerAsk): [boolean, (value: { text?: string; approved?: boolean }) => Promise<void>, string | null] {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const answer = async (value: { text?: string; approved?: boolean }): Promise<void> => {
@@ -48,71 +82,202 @@ function AskCard({ worker, ask }: { worker: Worker; ask: WorkerAsk }): JSX.Eleme
       setBusy(false)
     }
   }
-  if (ask.approve) {
-    const { tool, input, summary } = ask.approve
-    const note = reply.trim() || undefined
-    return (
-      <ApprovalCard
-        variant="inline"
-        tool={tool}
-        input={input}
-        title={`${worker.name} needs your OK`}
-        asker={worker.name}
-        since={relativeTime(ask.at)}
-        lead={<Markdown text={ask.question} />}
-        approveLabel="Approve once"
-        denyLabel="Decline"
-        busy={busy}
-        extra={
-          <input
-            className="input approval__note"
-            value={reply}
-            placeholder="Add a note (optional)"
-            onChange={(e) => setReply(e.target.value)}
-          />
-        }
-        onApprove={() => void answer({ approved: true, text: note })}
-        onDeny={() => void answer({ approved: false, text: note })}
-      >
-        {tool === 'run_command' && typeof input.command === 'string' ? (
-          <CommandPreview command={input.command} />
-        ) : (
-          <CallPreview summary={summary} args={input} />
-        )}
-        {error && <div className="msg__error">{error}</div>}
-      </ApprovalCard>
-    )
+  return [busy, answer, error]
+}
+
+const LETTERS = 'ABCDEFGH'
+
+/**
+ * A question as a card of lettered choices. One answer: picking it sends it.
+ * Several ("choose all that apply"): pick them, then Done. Either way the
+ * last row takes an answer of the user's own. With the card focused, a
+ * choice's letter picks it too.
+ */
+function AskQuestion({ worker, ask }: { worker: Worker; ask: WorkerAsk }): JSX.Element {
+  const [busy, answer, error] = useAnswer(worker, ask)
+  const options = ask.options ?? []
+  const multiple = Boolean(ask.multiple) && options.length > 1
+  const [picked, setPicked] = useState<number[]>([])
+  const [other, setOther] = useState('')
+  const titleId = useId()
+  const own = other.trim()
+
+  const choose = (index: number): void => {
+    if (busy) return
+    if (!multiple) {
+      setPicked([index])
+      void answer({ text: options[index] })
+      return
+    }
+    setPicked((current) => (current.includes(index) ? current.filter((i) => i !== index) : [...current, index].sort((a, b) => a - b)))
   }
+  const ready = picked.length > 0 || own.length > 0
+  const done = (): void => {
+    if (!ready || busy) return
+    const chosen = multiple ? picked.map((i) => options[i]) : []
+    void answer({ text: [...chosen, ...(own ? [own] : [])].join('; ') })
+  }
+
   return (
-    <div className="worker-ask" data-kind="question">
-      <div className="worker-ask__head">
-        <CircleHelp size={15} strokeWidth={2} />
-        <span className="worker-ask__who">{worker.name} asks</span>
-        <span className="worker-ask__when">{relativeTime(ask.at)}</span>
-      </div>
-      {/* Written by the model, so it gets the same Markdown as the thread. */}
-      <div className="worker-ask__question">
-        <Markdown text={ask.question} />
-      </div>
-      <div className="worker-ask__actions">
-        {/* A question saved by an older build, or asked without choices, may have no options list. */}
-        {(ask.options ?? []).map((option) => (
-          <button key={option} className="btn btn--sm" disabled={busy} onClick={() => void answer({ text: option })}>
-            {option}
+    <section
+      className="ask-card"
+      aria-labelledby={titleId}
+      aria-busy={busy || undefined}
+      tabIndex={-1}
+      onKeyDown={(e) => {
+        if (e.target instanceof HTMLInputElement || e.metaKey || e.ctrlKey || e.altKey) return
+        const index = LETTERS.indexOf(e.key.toUpperCase())
+        if (e.key.length === 1 && index !== -1 && index < options.length) {
+          e.preventDefault()
+          choose(index)
+        } else if (e.key === 'Enter' && multiple) {
+          e.preventDefault()
+          done()
+        }
+      }}
+    >
+      <header className="ask-card__head">
+        {/* Written by the model, so it gets the same Markdown as the thread. */}
+        <div id={titleId} className="ask-card__title" title={`${worker.name} asked ${relativeTime(ask.at)}`}>
+          <Markdown text={ask.question} />
+        </div>
+        <p className="ask-card__hint">
+          {multiple ? 'Choose all that apply' : options.length > 0 ? 'Choose one, or write your own' : `${worker.name} is waiting for your answer`}
+        </p>
+      </header>
+      <div className="ask-card__options" role="group" aria-labelledby={titleId}>
+        {options.map((option, index) => (
+          <button
+            key={`${index}-${option}`}
+            type="button"
+            className="ask-option"
+            aria-pressed={picked.includes(index)}
+            disabled={busy}
+            onClick={() => choose(index)}
+          >
+            <span className="ask-option__key" aria-hidden="true">
+              {LETTERS[index]}
+            </span>
+            <span className="ask-option__label">{option}</span>
           </button>
         ))}
-        <input
-          className="input worker-ask__reply"
-          value={reply}
-          placeholder="Or write an answer…"
-          onChange={(e) => setReply(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' && reply.trim()) void answer({ text: reply.trim() })
-          }}
-        />
+        <label className="ask-option ask-option--other" data-filled={own ? true : undefined}>
+          <span className="ask-option__key" aria-hidden="true">
+            {options.length > 0 ? LETTERS[options.length] : <PencilLine size={12} strokeWidth={2.2} />}
+          </span>
+          <input
+            className="ask-option__input"
+            value={other}
+            disabled={busy}
+            placeholder={options.length > 0 ? 'Something else…' : 'Write an answer…'}
+            aria-label="Your own answer"
+            onChange={(e) => setOther(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                e.preventDefault()
+                done()
+              }
+            }}
+          />
+        </label>
       </div>
+      {(multiple || own) && (
+        <footer className="ask-card__foot">
+          <button type="button" className="ask-btn ask-btn--primary" disabled={!ready || busy} onClick={done}>
+            {busy ? <Loader2 size={14} strokeWidth={2.2} className="spinner" /> : 'Done'}
+          </button>
+        </footer>
+      )}
       {error && <div className="msg__error">{error}</div>}
-    </div>
+    </section>
+  )
+}
+
+/** "Atlas wants to …", by the tool it is asking to use. */
+const WANTS: Record<string, string> = {
+  run_command: 'run a command',
+  write_file: 'change a file',
+  edit_file: 'change a file',
+  delete_file: 'delete a file',
+  move_file: 'move a file',
+  computer: 'use your mouse and keyboard',
+  browser: 'act in your browser',
+  web_browser: 'act in its browser',
+  email_send: 'send an email',
+  email_reply: 'reply to an email',
+  trading_order: 'place an order',
+  trading_session: 'trade for you',
+  payment_card: 'pay with your card',
+  ios_simulator: 'use the iOS Simulator',
+  use_plugin_tool: 'use a plugin',
+  schedule: 'change your schedules'
+}
+
+/**
+ * Asking for one specific action the worker may not take alone. Leads with
+ * who wants to do what and why; the exact call is behind "Show the
+ * breakdown". Allow lets exactly that call through, once.
+ */
+function AskApproval({ worker, ask }: { worker: Worker; ask: WorkerAsk }): JSX.Element {
+  const [busy, answer, error] = useAnswer(worker, ask)
+  const [open, setOpen] = useState(false)
+  const [note, setNote] = useState('')
+  const titleId = useId()
+  const { tool, input, summary } = ask.approve!
+  // A namespaced call ("default_api.email_send") is the same tool.
+  const name = tool.split('.').pop() ?? tool
+  const risk = approvalRisk(name, input)
+  const wants = WANTS[name]
+  const json = JSON.stringify(input, null, 2) ?? ''
+  const text = note.trim() || undefined
+  return (
+    <section className="ask-card ask-card--approve" data-risk={risk} aria-labelledby={titleId}>
+      <header className="ask-card__head ask-card__head--row">
+        <h3 id={titleId} className="ask-card__title ask-card__title--big">
+          {wants ? `${worker.name} wants to ${wants}` : `${worker.name} needs your OK`}
+        </h3>
+        <span className="ask-badge" title={risk === 'high' ? `Can’t be undone · asked ${relativeTime(ask.at)}` : `Asked ${relativeTime(ask.at)}`}>
+          <Loader size={15} strokeWidth={2.2} className="ask-badge__icon" aria-hidden="true" />
+          Approval needed
+        </span>
+      </header>
+      <div className="ask-card__lead">
+        <Markdown text={ask.question} />
+      </div>
+      <button type="button" className="ask-card__disclose" aria-expanded={open} onClick={() => setOpen(!open)}>
+        <ChevronRight size={15} strokeWidth={2} />
+        {open ? 'Hide the breakdown' : 'Show the breakdown'}
+      </button>
+      {open && (
+        <div className="ask-card__breakdown">
+          {summary && summary !== ask.question && <p className="ask-card__summary">{summary}</p>}
+          {name === 'run_command' && typeof input.command === 'string' ? (
+            <CommandPreview command={input.command} />
+          ) : (
+            json.length > 2 && <pre className="approval__json">{json.slice(0, 4000)}</pre>
+          )}
+          <p className="ask-card__tool">
+            <code>{tool}</code>
+          </p>
+          <input className="input ask-card__note" value={note} placeholder={`Add a note for ${worker.name} (optional)`} onChange={(e) => setNote(e.target.value)} />
+        </div>
+      )}
+      <footer className="ask-card__foot ask-card__foot--start">
+        <button
+          type="button"
+          className="ask-btn ask-btn--primary ask-btn--lg"
+          disabled={busy}
+          title="Lets exactly this call through, once"
+          onClick={() => void answer({ approved: true, text })}
+        >
+          Allow
+        </button>
+        <button type="button" className="ask-btn ask-btn--lg" disabled={busy} onClick={() => void answer({ approved: false, text })}>
+          Deny
+        </button>
+      </footer>
+      {error && <div className="msg__error">{error}</div>}
+    </section>
   )
 }
 
@@ -132,15 +297,19 @@ export function WorkerGoalBanner({ worker, now }: { worker: Worker; now: number 
   const goal = worker.goalRun
   if (!goal) return null
   const set = (status: 'active' | 'paused' | null): void => void window.api.workers.setGoal(worker.id, status)
+  const until =
+    goal.status === 'active' && typeof goal.until === 'number' ? ` · until ${new Date(goal.until).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}` : ''
   const progress =
     goal.status === 'active'
       ? worker.status === 'working'
-        ? ' · on it now'
-        : typeof goal.nextAt === 'number'
-          ? ` · continues ${relativeTime(goal.nextAt, now)}`
-          : worker.heartbeat.nextAt !== null
-            ? ` · picks up ${relativeTime(worker.heartbeat.nextAt, now)}`
-            : ''
+        ? `${until} · on it now`
+        : goal.failures && typeof goal.nextAt === 'number'
+          ? `${until} · hit a problem, trying again ${relativeTime(goal.nextAt, now)}`
+          : typeof goal.nextAt === 'number'
+            ? `${until} · continues ${relativeTime(goal.nextAt, now)}`
+            : worker.heartbeat.nextAt !== null
+              ? `${until} · picks up ${relativeTime(worker.heartbeat.nextAt, now)}`
+              : until
       : goal.summary
         ? ` · ${goal.summary}`
         : ''
@@ -175,12 +344,20 @@ export function WorkerGoalBanner({ worker, now }: { worker: Worker; now: number 
   )
 }
 
-/** Goal, routines and notes: the worker's own memory, under its profile. */
+/**
+ * Goal, routines, jobs, watches, playbooks and notes: what the worker keeps
+ * going on its own, under its profile. Jobs can be stopped and watches and
+ * playbooks removed here; the worker is told when a job it started is
+ * stopped.
+ */
 export function WorkerMemory({ worker, now }: { worker: Worker; now: number }): JSX.Element | null {
   const [notesOpen, setNotesOpen] = useState(false)
   const [editing, setEditing] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const routines = worker.routines ?? []
+  const jobs = recentJobs(worker.jobs ?? [])
+  const watches = worker.watches ?? []
+  const playbooks = worker.playbooks ?? []
   const failed = (e: Error): void => setError(e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, ''))
   const stopRoutine = (id: string): void => {
     setError(null)
@@ -190,7 +367,7 @@ export function WorkerMemory({ worker, now }: { worker: Worker; now: number }): 
     setError(null)
     window.api.workers.runRoutine(worker.id, id).catch(failed)
   }
-  if (!worker.goal && !worker.notes && routines.length === 0) {
+  if (!worker.goal && !worker.notes && routines.length === 0 && jobs.length === 0 && watches.length === 0 && playbooks.length === 0) {
     return (
       <div className="worker-memory">
         <button className="worker-memory__toggle" onClick={() => setEditing(true)} title={`Write ${worker.name} a goal or notes it keeps in mind on every task`}>
@@ -210,6 +387,12 @@ export function WorkerMemory({ worker, now }: { worker: Worker; now: number }): 
           </span>
         </div>
       )}
+      {jobs.map((job) => (
+        <JobRow key={job.id} worker={worker} job={job} now={now} />
+      ))}
+      {watches.map((watch) => (
+        <WatchRow key={watch.id} worker={worker} watch={watch} now={now} />
+      ))}
       {routines.map((routine) => {
         const last = routine.runs[routine.runs.length - 1]
         const plan = routine.purchase
@@ -245,6 +428,17 @@ export function WorkerMemory({ worker, now }: { worker: Worker; now: number }): 
           </div>
         )
       })}
+      {playbooks.length > 0 && (
+        <div className="worker-memory__group">
+          <span className="worker-memory__heading">
+            <BookOpen size={13} strokeWidth={2} />
+            Playbooks
+          </span>
+          {playbooks.map((playbook) => (
+            <PlaybookRow key={playbook.id} worker={worker} playbook={playbook} />
+          ))}
+        </div>
+      )}
       {worker.notes && (
         <div className="worker-memory__notes" data-open={notesOpen || undefined}>
           <button className="worker-memory__toggle" onClick={() => setNotesOpen(!notesOpen)} aria-expanded={notesOpen}>
@@ -259,6 +453,224 @@ export function WorkerMemory({ worker, now }: { worker: Worker; now: number }): 
       </button>
       {error && <div className="msg__error">{error}</div>}
       {editing && <MemoryEditor worker={worker} onClose={() => setEditing(false)} />}
+    </div>
+  )
+}
+
+/** Every job still running, and the last three that ended. */
+function recentJobs(jobs: WorkerJob[]): WorkerJob[] {
+  const ended = jobs.filter((j) => j.endedAt !== null).slice(-3)
+  return [...jobs.filter((j) => j.endedAt === null), ...ended.reverse()]
+}
+
+const ago = (ms: number): string => {
+  const minutes = Math.round(ms / 60_000)
+  if (minutes < 1) return 'under a minute'
+  if (minutes < 60) return `${minutes} min`
+  return minutes % 60 && minutes < 600 ? `${Math.floor(minutes / 60)} h ${minutes % 60} min` : `${Math.round(minutes / 60)} h`
+}
+
+function JobRow({ worker, job, now }: { worker: Worker; job: WorkerJob; now: number }): JSX.Element {
+  const [log, setLog] = useState<string | null>(null)
+  const running = job.endedAt === null
+  const toggleLog = (): void => {
+    if (log !== null) return setLog(null)
+    void window.api.workers.jobLog(worker.id, job.id).then(setLog, (error: unknown) => setLog(error instanceof Error ? error.message : String(error)))
+  }
+  return (
+    <div className="worker-memory__item">
+      <div className="worker-memory__row" data-running={running || undefined} title={job.command}>
+        <Terminal size={14} strokeWidth={2} />
+        <span className="worker-memory__body">
+          <span className="worker-memory__label">{job.name}</span>{' '}
+          {running ? (
+            <span className="worker-memory__live">running for {ago(now - job.startedAt)}</span>
+          ) : (
+            <span className={job.ok ? undefined : 'worker-memory__failed'}>
+              {job.result} · {relativeTime(job.endedAt!, now)}
+            </span>
+          )}
+        </span>
+        <span className="worker-memory__actions">
+          <button className="worker-memory__action" onClick={toggleLog} aria-expanded={log !== null}>
+            {log !== null ? 'Hide output' : 'Output'}
+          </button>
+          {running && (
+            <button
+              className="worker-memory__action"
+              onClick={() => void window.api.workers.stopJob(worker.id, job.id)}
+              aria-label={`Stop ${job.name}`}
+              title={`Stop it; ${worker.name} is told`}
+            >
+              <Square size={11} strokeWidth={2.4} />
+              Stop
+            </button>
+          )}
+        </span>
+      </div>
+      {log !== null && <pre className="worker-memory__text">{log}</pre>}
+    </div>
+  )
+}
+
+function WatchRow({ worker, watch, now }: { worker: Worker; watch: WorkerWatch; now: number }): JSX.Element {
+  const failing = watch.when === 'fails' && watch.last?.met
+  return (
+    <div className="worker-memory__row" title={watch.note ? `When it fires: ${watch.note}` : undefined}>
+      <Eye size={14} strokeWidth={2} />
+      <span className="worker-memory__body">
+        <span className="worker-memory__label">{watch.name}</span> {watchText(watch)} · every {Math.round(watch.everyMs / 60_000)} min
+        {watch.last ? (
+          <span className={failing ? 'worker-memory__failed' : undefined}>
+            {' '}
+            · {failing ? 'failing' : 'looked'} {relativeTime(watch.last.at, now)}
+          </span>
+        ) : (
+          ' · first look soon'
+        )}
+        {watch.fires > 0 && ` · woke ${worker.name} ${watch.fires === 1 ? 'once' : `${watch.fires} times`}`}
+      </span>
+      <span className="worker-memory__actions">
+        <button
+          className="worker-memory__action worker-memory__action--icon"
+          onClick={() => void window.api.workers.removeWatch(worker.id, watch.id)}
+          aria-label={`Stop watching ${watch.name}`}
+          title="Stop watching"
+        >
+          <X size={12} strokeWidth={2.2} />
+        </button>
+      </span>
+    </div>
+  )
+}
+
+function PlaybookRow({ worker, playbook }: { worker: Worker; playbook: WorkerPlaybook }): JSX.Element {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="worker-memory__item">
+      <div className="worker-memory__row worker-memory__row--sub">
+        <button className="worker-memory__playbook" onClick={() => setOpen(!open)} aria-expanded={open}>
+          <ChevronDown size={13} strokeWidth={2} />
+          <span className="worker-memory__label">{playbook.name}</span>
+          {playbook.summary && <span className="worker-memory__summary"> — {playbook.summary}</span>}
+        </button>
+        <span className="worker-memory__actions">
+          {playbook.uses > 0 && <span className="worker-memory__uses">used {playbook.uses === 1 ? 'once' : `${playbook.uses}×`}</span>}
+          <button
+            className="worker-memory__action worker-memory__action--icon"
+            onClick={() => void window.api.workers.removePlaybook(worker.id, playbook.id)}
+            aria-label={`Remove the playbook ${playbook.name}`}
+            title="Remove playbook"
+          >
+            <X size={12} strokeWidth={2.2} />
+          </button>
+        </span>
+      </div>
+      {open && <pre className="worker-memory__text">{playbook.steps}</pre>}
+    </div>
+  )
+}
+
+/**
+ * "Teach" among the profile facts: show the worker how to do something once,
+ * in its own browser, and it saves the steps as a playbook to do it alone
+ * from then on.
+ */
+export function WorkerTeachFact({ worker }: { worker: Worker }): JSX.Element {
+  const { teaching, startTeaching } = useWorkers(useShallow((s) => ({ teaching: s.teaching, startTeaching: s.startTeaching })))
+  const on = teaching === worker.id
+  return (
+    <button
+      className="worker-fact worker-fact--app"
+      data-active={on || undefined}
+      disabled={on}
+      title={`Show ${worker.name} how to do something in its browser; it learns the steps`}
+      onClick={() => void startTeaching(worker.id)}
+    >
+      <GraduationCap size={13} strokeWidth={2} />
+      {on ? 'Teaching…' : 'Teach'}
+    </button>
+  )
+}
+
+/**
+ * Over the worker's browser while the user teaches it: what has been
+ * recorded so far, what the task was, and Finish / Cancel. The browser is
+ * the user's while this shows; the worker waits.
+ */
+function TeachBar({ worker }: { worker: Worker }): JSX.Element {
+  const finishTeaching = useWorkers((s) => s.finishTeaching)
+  const [steps, setSteps] = useState<string[]>([])
+  const [task, setTask] = useState('')
+  const [open, setOpen] = useState(false)
+  const [busy, setBusy] = useState(false)
+  useEffect(() => {
+    let live = true
+    const read = (): void => void window.api.workers.teachSteps(worker.id).then((list) => live && setSteps(list))
+    read()
+    const timer = setInterval(read, 1000)
+    return () => {
+      live = false
+      clearInterval(timer)
+    }
+  }, [worker.id])
+  const finish = async (value: string | null): Promise<void> => {
+    if (busy) return
+    setBusy(true)
+    try {
+      await finishTeaching(value)
+    } finally {
+      setBusy(false)
+    }
+  }
+  const ready = steps.length > 0 && task.trim().length > 0
+  return (
+    <div className="teach-bar">
+      <div className="teach-bar__head">
+        <GraduationCap size={15} strokeWidth={2} />
+        <span className="teach-bar__title">
+          Teaching {worker.name}
+          <span className="teach-bar__hint">
+            {steps.length === 0 ? 'Do the task here; every page, click and entry is written down' : `${steps.length} step${steps.length === 1 ? '' : 's'} so far`}
+          </span>
+        </span>
+        {steps.length > 0 && (
+          <button className="btn btn--ghost btn--sm" onClick={() => setOpen(!open)} aria-expanded={open}>
+            {open ? 'Hide steps' : 'Steps'}
+          </button>
+        )}
+      </div>
+      {open && (
+        <ol className="teach-bar__steps">
+          {steps.map((step, i) => (
+            <li key={i}>{step}</li>
+          ))}
+        </ol>
+      )}
+      <div className="teach-bar__finish">
+        <input
+          className="input"
+          value={task}
+          placeholder="What did you show it? e.g. file an expense report"
+          aria-label="What you showed it"
+          onChange={(e) => setTask(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && ready) void finish(task.trim())
+          }}
+        />
+        <button className="btn btn--ghost btn--sm" disabled={busy} onClick={() => void finish(null)}>
+          Cancel
+        </button>
+        <button
+          className="btn btn--primary btn--sm"
+          disabled={busy || !ready}
+          title={steps.length === 0 ? 'Nothing recorded yet' : !task.trim() ? 'Say what it was for' : `Send the steps to ${worker.name} to save as a playbook`}
+          onClick={() => void finish(task.trim())}
+        >
+          Finish
+        </button>
+      </div>
+      <p className="teach-bar__note">Passwords and card numbers are never recorded, only that one was typed.</p>
     </div>
   )
 }
@@ -347,6 +759,7 @@ export function WorkerBrowserPanel({ worker }: { worker: Worker }): JSX.Element 
   const setBrowser = useWorkers((s) => s.setBrowser)
   const target = workerBrowserTarget(worker.id)
   const { frame, steps, working, controlled, exists } = useLiveBrowser(target, true)
+  const teaching = useWorkers((s) => s.teaching === worker.id)
   return (
     <aside className="browser agent-browser" aria-label={`${worker.name}’s browser`}>
       <div className="browser__tabs">
@@ -369,6 +782,7 @@ export function WorkerBrowserPanel({ worker }: { worker: Worker }): JSX.Element 
       <div className="browser__toolbar">
         <LiveBrowserAddress target={target} frame={frame} controlled={controlled} />
       </div>
+      {teaching && <TeachBar worker={worker} />}
       <LiveBrowserStage target={target} frame={frame} latest={steps[steps.length - 1]} working={working} controlled={controlled} agentName={worker.name} />
       <LiveBrowserSteps steps={steps} />
     </aside>

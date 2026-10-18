@@ -3,6 +3,28 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [2026.7.0-beta.2] — 2026-10-18
+
+### Added
+- **Workers on their own for hours.** Give a worker a goal with an end time
+  and it keeps going (the computer stays awake) and reports when time is up.
+  A failed goal turn is tried again. Workers can start background jobs and
+  watch pages or files, and are woken when one ends or changes; they keep
+  playbooks, and you can **Teach** one by doing a task in its browser.
+  Questions can come with lettered choices.
+- **A redesigned chat turn.** Steps, tool calls (with a peek at what each
+  did) and a "Worked for" line; approvals dock over the message box; a
+  permission picker, project picker and changes pill in the composer; a
+  review of the files a turn changed; a new home screen.
+- **See-through.** The desktop's wallpaper behind the window, tinted to the
+  theme (Settings → Appearance). Terminals get a Glass theme and scene blur.
+- **Usage rings.** The plan usage meter as rings at the foot of the sidebar,
+  or a bar in the ADE header (Settings → Accounts).
+- **Speech to text** picks its model in Settings → Providers.
+- **Claude Code in the ADE always starts with bypass permissions**
+  (`--dangerously-skip-permissions`), including resumed panes and handoffs.
+- A redesigned worker page and composer, and a new Eaon CLI logo.
+
 ## [2026.7.0-beta.1] — 2026-10-17
 
 ### Added

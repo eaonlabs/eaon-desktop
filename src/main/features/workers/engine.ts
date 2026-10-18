@@ -6,13 +6,25 @@ import { basename, extname, isAbsolute, join, resolve } from 'node:path'
 import type { ChatMessage, GoalState, Settings, StreamEvent, TokenUsage } from '@shared/types'
 import type { EngineId } from '@shared/engines'
 import {
+  DEFAULT_WATCH_MINUTES,
+  FAILURES_BEFORE_PAUSE,
   MAIN_THREAD,
   MAX_RUNNING_PER_WORKER,
   MAX_THREADS,
   STALE_WAKEUPS,
   threadKey,
   GOAL_MAX_TURNS,
+  JOB_DEFAULT_HOURS,
+  JOB_MAX_HOURS,
+  keepsWatch,
   MAX_GOAL_CHARS,
+  MAX_GOAL_HOURS,
+  MAX_JOBS_KEPT,
+  MAX_PLAYBOOK_CHARS,
+  MAX_PLAYBOOKS,
+  MAX_RUNNING_JOBS,
+  MAX_WATCHES,
+  MIN_WATCH_MINUTES,
   MAX_SLEEP_MINUTES,
   MAX_NOTES_CHARS,
   MAX_ROOM_MEMBERS,
@@ -39,6 +51,12 @@ import {
   type WorkerMail,
   type WorkerMood,
   type WorkerGoalRun,
+  type WorkerJob,
+  type WorkerPlaybook,
+  type WorkerWatch,
+  type WatchCondition,
+  type WatchKind,
+  watchText,
   type WorkerSendOptions,
   type WorkerThread,
   type RoomPost,
@@ -57,6 +75,8 @@ import type { TradingVenue } from '../trading/access'
 import { isOpen, nextOpen } from '../trading/marketHours'
 import { guestCap } from './guests'
 import { resolveWorkPath } from '../../localTools'
+import { hoursText, type JobHost } from './jobs'
+import { judge, newLines, type WatchReading } from './watch'
 import { workerPersona } from './prompt'
 import { buildTurnMessage, CHECK_IN_NOTE, RESUME_NOTE, RETRY_NOTE, runWorkerTurn, type RunAgent, type RunEngineTurn, type TurnOutcome } from './runner'
 import { ExecutionLog, isEnded } from './executions'
@@ -137,6 +157,16 @@ export interface WorkersDeps {
   saveRooms?: (data: RoomsFile) => void
   onRoomsChange?: (rooms: WorkerRoom[]) => void
   onRoomPost?: (roomId: string, post: RoomPost) => void
+  /** Runs background jobs (start_job). Without one, workers can't start any. */
+  jobs?: JobHost
+  /** Looks at what a watch watches (watch.ts `look`). Without one, watches never fire. */
+  look?: (worker: Worker, watch: WorkerWatch) => Promise<WatchReading>
+  /**
+   * Called with true while some worker is on a goal with an end time (and
+   * false once none is): the computer must stay awake between its turns and
+   * through its sleeps, or the run stops when the lid closes.
+   */
+  keepAwake?: (on: boolean) => void
   now?: () => number
   stallMs?: number
   maxTurnsPerHour?: number
@@ -261,6 +291,8 @@ const MAX_CREATED_PER_DAY = 2
 const MAX_TRANSFER_BYTES = 500 * 1024 * 1024
 const HINT_MS = 30 * 60_000
 const MAX_OPEN_HANDOFFS = 20
+/** How long a goal run waits after a failed turn before trying again: the first, second and third time. */
+const RETRY_MINUTES = [1, 5, 15]
 /** The placeholder thread id a due routine has until its first run makes it a thread. */
 const ROUTINE_SLOT = 'routine:'
 /** Workers may wake each other this many times in a room before the user posts again. */
@@ -342,6 +374,8 @@ function normalizeGoalRun(raw: unknown): WorkerGoalRun | null {
     startedAt: typeof g.startedAt === 'number' ? g.startedAt : 0,
     turns: typeof g.turns === 'number' ? g.turns : 0,
     nextAt: typeof g.nextAt === 'number' ? g.nextAt : null,
+    ...(typeof g.until === 'number' ? { until: g.until } : {}),
+    ...(typeof g.failures === 'number' && g.failures > 0 ? { failures: g.failures } : {}),
     ...(typeof g.summary === 'string' ? { summary: g.summary } : {}),
     ...(g.pausedByUser === true ? { pausedByUser: true } : {})
   }
@@ -354,6 +388,18 @@ function normalizeGoalRun(raw: unknown): WorkerGoalRun | null {
 function resumeGoalRun(run: WorkerGoalRun | null, heartbeatAt: unknown, now: number): WorkerGoalRun | null {
   if (!run || run.status !== 'active' || typeof run.nextAt === 'number' || typeof heartbeatAt === 'number') return run
   return { ...run, nextAt: now }
+}
+
+/**
+ * Saved jobs. One still marked running died with the Eaon that started it
+ * (jobs end when Eaon quits), so it is recorded as lost rather than waited on.
+ */
+function normalizeJobs(raw: unknown, now: number): WorkerJob[] {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .filter((j): j is WorkerJob => !!j && typeof j.id === 'string' && typeof j.command === 'string')
+    .map((j) => (j.endedAt === null || typeof j.endedAt !== 'number' ? { ...j, endedAt: now, pid: null, result: 'lost when Eaon quit', ok: false } : j))
+    .slice(-MAX_JOBS_KEPT)
 }
 
 const STATUSES: Worker['status'][] = ['idle', 'working', 'asleep', 'paused', 'failed']
@@ -450,6 +496,13 @@ function normalize(raw: Partial<Worker> & { id: string; name: string; handoffs?:
     notes: typeof raw.notes === 'string' ? raw.notes : '',
     goalRun: resumeGoalRun(normalizeGoalRun(raw.goalRun), heartbeat.nextAt, now),
     asks: Array.isArray(raw.asks) ? raw.asks.filter((a) => a && typeof a.id === 'string' && typeof a.question === 'string') : [],
+    jobs: normalizeJobs(raw.jobs, now),
+    watches: Array.isArray(raw.watches)
+      ? raw.watches
+          .filter((w) => w && typeof w.id === 'string' && typeof w.target === 'string' && typeof w.nextAt === 'number')
+          .map((w) => ({ ...w, text: typeof w.text === 'string' ? w.text : '', note: typeof w.note === 'string' ? w.note : '', last: w.last ?? null, firedAt: w.firedAt ?? null, fires: w.fires ?? 0 }))
+      : [],
+    playbooks: Array.isArray(raw.playbooks) ? raw.playbooks.filter((p) => p && typeof p.id === 'string' && typeof p.name === 'string' && typeof p.steps === 'string') : [],
     status: STATUSES.includes(raw.status as Worker['status']) ? (raw.status as Worker['status']) : 'idle',
     activity: typeof raw.activity === 'string' ? raw.activity : '',
     moodHint: raw.moodHint && typeof raw.moodHint.until === 'number' && typeof raw.moodHint.mood === 'string' ? raw.moodHint : null,
@@ -568,6 +621,14 @@ export class WorkersEngine {
   private readonly unattendedWakes = new Map<string, number>()
   /** When workers created workers, for the per-day cap. */
   private createdLog: number[] = []
+  /** Jobs being stopped, and by whom: one the worker stopped itself doesn't wake it. */
+  private readonly stoppedJobs = new Map<string, 'worker' | 'user'>()
+  /** Watches being looked at right now. */
+  private readonly looking = new Set<string>()
+  /** What each watch last saw, to tell the worker which lines are new. Not saved: after a restart the first change just has none. */
+  private readonly lastContent = new Map<string, string>()
+  /** What `keepAwake` was last told. */
+  private awake = false
   private delegationList: WorkerDelegation[] = []
   private readonly runs: ExecutionLog
   private timer: ReturnType<typeof setTimeout> | null = null
@@ -727,6 +788,10 @@ export class WorkersEngine {
     this.waiting.clear()
     for (const worker of this.workers) worker.queued = null
     this.deps.saveWorkers(this.workers)
+    if (this.awake) {
+      this.awake = false
+      this.deps.keepAwake?.(false)
+    }
   }
 
   /** Resolves once every turn in progress has finished and been recorded. */
@@ -849,6 +914,9 @@ export class WorkersEngine {
       notes: '',
       goalRun: null,
       asks: [],
+      jobs: [],
+      watches: [],
+      playbooks: [],
       // Awake and ready for its first job; `workerMood` lets it doze off after
       // DOZE_AFTER_MS with nothing to do, so a new worker does not greet the
       // user with its eyes shut.
@@ -902,6 +970,7 @@ export class WorkersEngine {
       if (delegation.recipient.workerId === id) this.endDelegation(delegation, 'cancelled', `${worker.name} was removed.`)
       else if (delegation.parent.workerId === id) this.endDelegation(delegation, 'cancelled', `${worker.name}, who asked for it, was removed.`)
     }
+    for (const job of worker.jobs) if (job.endedAt === null) this.deps.jobs?.stop(job.id)
     this.workers = this.workers.filter((w) => w.id !== id)
     for (const threadId of keys) this.threads.delete(threadKey(id, threadId))
     this.wakes.delete(id)
@@ -941,7 +1010,9 @@ export class WorkersEngine {
     const goal = threadId === MAIN_THREAD && options?.goal === true && body.length > 0
     if (goal) {
       worker.goal = body.slice(0, MAX_GOAL_CHARS)
-      worker.goalRun = { text: worker.goal, status: 'active', iterations: 0, startedAt: at, turns: 0, nextAt: null }
+      // An end time in the past means none; one too far off is brought in to the longest a run may be.
+      const until = typeof options.until === 'number' && options.until > at ? Math.min(options.until, at + MAX_GOAL_HOURS * HOUR) : null
+      worker.goalRun = { text: worker.goal, status: 'active', iterations: 0, startedAt: at, turns: 0, nextAt: null, ...(until ? { until } : {}) }
     } else if (threadId === MAIN_THREAD && worker.goalRun?.status === 'blocked') {
       // The user answering is what a blocked goal was waiting for.
       const { summary: _summary, ...run } = worker.goalRun
@@ -1844,8 +1915,10 @@ export class WorkersEngine {
     if (!goal) throw new Error(`${worker.name} has no goal.`)
     const run = this.running.get(slotKey(id, MAIN_THREAD))
     if (status === 'active') {
-      const { summary: _summary, pausedByUser: _paused, ...rest } = goal
-      worker.goalRun = { ...rest, status: 'active', turns: 0, nextAt: run ? null : this.now() }
+      const { summary: _summary, pausedByUser: _paused, failures: _failures, until, ...rest } = goal
+      // A run whose time ran out carries on as an ordinary goal; one paused before its end keeps it.
+      const keep = typeof until === 'number' && until > this.now() ? { until } : {}
+      worker.goalRun = { ...rest, ...keep, status: 'active', turns: 0, nextAt: run ? null : this.now() }
     } else {
       if (run) this.deps.pauseGoal?.(run.messageId)
       worker.goalRun = status === 'paused' ? { ...goal, status: 'paused', pausedByUser: true, nextAt: null } : null
@@ -2075,7 +2148,7 @@ export class WorkersEngine {
    * question asks for one specific action; approving it lets that exact call
    * through once (see allowOnce).
    */
-  ask(id: string, input: { question: string; options?: string[]; approve?: WorkerAsk['approve'] }, threadId: string = MAIN_THREAD): WorkerAsk {
+  ask(id: string, input: { question: string; options?: string[]; multiple?: boolean; approve?: WorkerAsk['approve'] }, threadId: string = MAIN_THREAD): WorkerAsk {
     const worker = this.require(id)
     const question = str(input.question).slice(0, 800)
     if (!question) throw new Error('Ask a question.')
@@ -2083,7 +2156,8 @@ export class WorkersEngine {
     const ask: WorkerAsk = {
       id: randomUUID(),
       question,
-      options: (input.options ?? []).map(str).filter(Boolean).slice(0, 4),
+      options: (input.options ?? []).map(str).filter(Boolean).slice(0, 6),
+      ...(input.multiple && !input.approve ? { multiple: true } : {}),
       approve: input.approve ?? null,
       at: this.now(),
       ...(threadId !== MAIN_THREAD ? { threadId } : {})
@@ -2181,6 +2255,338 @@ export class WorkersEngine {
     return clone(created)
   }
 
+  /* ------------------------------------------------- jobs, watches, playbooks */
+
+  /**
+   * Starts a background job: a command that runs outside any turn (a build,
+   * a test suite, a long download). The worker is woken with how it went
+   * when it ends, so it can sleep or work on something else meanwhile. Its
+   * end is mailed to the thread that started it.
+   */
+  startJob(id: string, input: { name?: string; command: string; cwd?: string; timeoutMinutes?: number }, threadId: string = MAIN_THREAD): string {
+    const worker = this.require(id)
+    const host = this.deps.jobs
+    if (!host) throw new Error('Background jobs are not available here; use run_command.')
+    const command = str(input.command)
+    if (!command) throw new Error('Give the command to run.')
+    if (worker.jobs.filter((j) => j.endedAt === null).length >= MAX_RUNNING_JOBS) {
+      throw new Error(`You already have ${MAX_RUNNING_JOBS} jobs running. Wait for one to end, or stop one (check_job with stop: true).`)
+    }
+    const cwd = str(input.cwd) ? (isAbsolute(str(input.cwd)) ? str(input.cwd) : resolve(worker.folder, str(input.cwd))) : worker.folder
+    if (!existsSync(cwd)) throw new Error(`There is no folder ${cwd}.`)
+    const name = (str(input.name) || command.split(/\s+/).slice(0, 3).join(' ')).replace(/\s+/g, ' ').slice(0, 60)
+    const minutes = typeof input.timeoutMinutes === 'number' && Number.isFinite(input.timeoutMinutes) && input.timeoutMinutes > 0 ? input.timeoutMinutes : JOB_DEFAULT_HOURS * 60
+    const timeoutMs = Math.round(Math.min(Math.max(minutes, 1), JOB_MAX_HOURS * 60) * 60_000)
+    const jobId = randomUUID().slice(0, 8)
+    const log = join(worker.folder, '.jobs', `${workerSlug(name).toLowerCase()}-${jobId}.log`)
+    const job: WorkerJob = {
+      id: jobId,
+      name,
+      command,
+      cwd,
+      log,
+      pid: null,
+      startedAt: this.now(),
+      endedAt: null,
+      result: null,
+      ok: null,
+      timeoutMs,
+      ...(threadId !== MAIN_THREAD ? { threadId } : {})
+    }
+    job.pid = host.start({ id: jobId, command, cwd, log, timeoutMs }, (end) => this.jobEnded(id, jobId, end)).pid
+    worker.jobs.push(job)
+    this.trimJobs(worker)
+    if (worker.status === 'asleep') worker.status = 'idle'
+    this.commit()
+    return `Started job ${jobId} ("${name}")${job.pid ? `, pid ${job.pid}` : ''}. Its output goes to ${log}. You will be woken when it ends (it is stopped after ${hoursText(timeoutMs)}): sleep or get on with other work meanwhile. check_job shows how it is going.`
+  }
+
+  /** How a job is doing: running or how it ended, and the last of its output. */
+  async jobStatus(id: string, ref: string, lines = 40): Promise<string> {
+    const worker = this.require(id)
+    const job = this.findJob(worker, ref)
+    const now = this.now()
+    const state =
+      job.endedAt === null
+        ? `is running (${hoursText(now - job.startedAt)} so far${job.pid ? `, pid ${job.pid}` : ''})`
+        : `${job.ok ? 'finished' : 'ended'}: ${job.result} after ${hoursText(job.endedAt - job.startedAt)}, ${relativeTime(job.endedAt, now)}`
+    const tail = (await this.deps.jobs?.tail(job.log, Math.min(Math.max(Math.round(lines), 1), 400))) ?? ''
+    return `Job ${job.id} ("${job.name}") ${state}.\nCommand: ${job.command}\nLog: ${job.log}\n${tail ? `Last output:\n${clip(tail, 12_000)}` : 'No output yet.'}`
+  }
+
+  /** Stops a running job. One the worker stops itself doesn't wake it; one the user stops does, so it knows. */
+  stopJob(id: string, ref: string, by: 'worker' | 'user'): string {
+    const worker = this.require(id)
+    const job = this.findJob(worker, ref)
+    if (job.endedAt !== null) return `Job ${job.id} ("${job.name}") already ended: ${job.result}.`
+    this.stoppedJobs.set(job.id, by)
+    if (!this.deps.jobs?.stop(job.id)) {
+      // Nothing running under that id any more: record it as ended here.
+      Object.assign(job, { endedAt: this.now(), pid: null, result: 'stopped', ok: false })
+      this.commit()
+    }
+    return `Stopping job ${job.id} ("${job.name}").`
+  }
+
+  private findJob(worker: Worker, ref: string): WorkerJob {
+    const key = str(ref).toLowerCase()
+    // Newest first: a name reused for a second run means the latest one.
+    const jobs = [...worker.jobs].reverse()
+    const job = key ? (jobs.find((j) => j.id === key) ?? jobs.find((j) => j.name.toLowerCase() === key)) : jobs.find((j) => j.endedAt === null)
+    if (!job) throw new Error(worker.jobs.length ? `No job "${ref}". Yours: ${worker.jobs.map((j) => `${j.id} (${j.name})`).join(', ')}.` : 'You have no jobs.')
+    return job
+  }
+
+  private jobEnded(workerId: string, jobId: string, end: { result: string; ok: boolean; tail: string }): void {
+    if (this.disposed) return
+    const worker = this.find(workerId)
+    const job = worker?.jobs.find((j) => j.id === jobId)
+    const by = this.stoppedJobs.get(jobId)
+    this.stoppedJobs.delete(jobId)
+    if (!worker || !job || job.endedAt !== null) return
+    const now = this.now()
+    Object.assign(job, { endedAt: now, pid: null, result: end.result, ok: end.ok })
+    if (by !== 'worker') {
+      const how = by === 'user' ? 'was stopped by the user' : end.ok ? 'finished' : 'ended'
+      this.deliverMail(worker, {
+        id: randomUUID(),
+        from: 'eaon',
+        fromName: 'Eaon',
+        text: [
+          `Your job ${job.id} ("${job.name}") ${how}: ${end.result} after ${hoursText(now - job.startedAt)}.`,
+          `Command: ${job.command}`,
+          `Log: ${job.log}`,
+          end.tail ? `Last output:\n${clip(end.tail, 3000)}` : 'It printed nothing.'
+        ].join('\n'),
+        files: [],
+        at: now,
+        event: { kind: 'job', title: `Job "${job.name}" ${how}` }
+      }, job.threadId ?? MAIN_THREAD)
+    }
+    this.commit()
+    this.tick()
+  }
+
+  /** Ended jobs beyond MAX_JOBS_KEPT go, oldest first; running ones always stay. */
+  private trimJobs(worker: Worker): void {
+    let extra = worker.jobs.length - MAX_JOBS_KEPT
+    if (extra <= 0) return
+    worker.jobs = worker.jobs.filter((j) => !(extra > 0 && j.endedAt !== null && extra-- > 0))
+  }
+
+  /**
+   * Keeps an eye on something between turns: a page, a file or folder, or a
+   * check command. Eaon looks every few minutes without the model, and wakes
+   * the worker only when the condition is met, in the thread that set it.
+   * Adding one with a name in use replaces it.
+   */
+  addWatch(
+    id: string,
+    input: { name: string; kind: string; target: string; when?: string; text?: string; note?: string; everyMinutes?: number },
+    threadId: string = MAIN_THREAD
+  ): string {
+    const worker = this.require(id)
+    const kind = (['url', 'file', 'command'] as WatchKind[]).find((k) => k === str(input.kind))
+    if (!kind) throw new Error('kind must be url, file or command.')
+    const target = str(input.target)
+    if (!target) throw new Error('Say what to watch (target): a URL, a path, or a command.')
+    if (kind === 'url' && !/^https?:\/\/\S+$/i.test(target)) throw new Error('A url watch needs a full http(s) URL.')
+    const when = (['change', 'contains', 'missing', 'fails'] as WatchCondition[]).find((c) => c === (str(input.when) || 'change'))
+    if (!when) throw new Error('when must be change, contains, missing or fails.')
+    const text = str(input.text).slice(0, 200)
+    if ((when === 'contains' || when === 'missing') && !text) throw new Error(`when: ${when} needs the text to look for.`)
+    const name = (str(input.name) || target).replace(/\s+/g, ' ').slice(0, 60)
+    const existing = worker.watches.find((w) => w.name.toLowerCase() === name.toLowerCase())
+    if (!existing && worker.watches.length >= MAX_WATCHES) throw new Error(`You already watch ${MAX_WATCHES} things. Remove one with unwatch first.`)
+    const minutes = typeof input.everyMinutes === 'number' && Number.isFinite(input.everyMinutes) ? input.everyMinutes : DEFAULT_WATCH_MINUTES
+    const everyMs = Math.round(Math.min(Math.max(minutes, MIN_WATCH_MINUTES), 7 * 24 * 60) * 60_000)
+    const now = this.now()
+    const same = existing && existing.kind === kind && existing.target === target && existing.when === when && existing.text === text
+    const watch: WorkerWatch = {
+      id: existing?.id ?? randomUUID(),
+      name,
+      kind,
+      target,
+      when,
+      text,
+      note: str(input.note).slice(0, 400),
+      everyMs,
+      // The first look straight away: it sets the baseline, or catches a condition that already holds.
+      nextAt: now,
+      last: same ? existing.last : null,
+      firedAt: existing?.firedAt ?? null,
+      fires: existing?.fires ?? 0,
+      ...(threadId !== MAIN_THREAD ? { threadId } : {})
+    }
+    if (!same) this.lastContent.delete(watch.id)
+    if (existing) {
+      delete existing.threadId
+      Object.assign(existing, watch)
+    } else worker.watches.push(watch)
+    if (worker.status === 'asleep') worker.status = 'idle'
+    this.commit()
+    this.tick()
+    return `${existing ? 'Updated' : 'Watching'} "${name}": ${watchText(watch)}, checked every ${Math.round(everyMs / 60_000)} min. Eaon looks for you without using the model; you are woken only when it fires.`
+  }
+
+  removeWatch(id: string, ref: string): string {
+    const worker = this.require(id)
+    const key = str(ref).toLowerCase()
+    const watch = worker.watches.find((w) => w.id === ref || w.name.toLowerCase() === key)
+    if (!watch) throw new Error(worker.watches.length ? `No watch "${ref}". Yours: ${worker.watches.map((w) => w.name).join(', ')}.` : 'You watch nothing.')
+    worker.watches = worker.watches.filter((w) => w !== watch)
+    this.lastContent.delete(watch.id)
+    worker.status = this.isRunning(id) ? worker.status : this.restingStatus(worker)
+    this.commit()
+    return `Stopped watching "${watch.name}".`
+  }
+
+  /** Starts a look at every watch that is due. Each look sets its next time first, so a slow one never piles up. */
+  private checkWatches(now: number): void {
+    const look = this.deps.look
+    if (!look) return
+    for (const worker of this.workers) {
+      if (worker.paused) continue
+      for (const watch of worker.watches) {
+        if (watch.nextAt > now || this.looking.has(watch.id)) continue
+        this.looking.add(watch.id)
+        watch.nextAt = now + watch.everyMs
+        void look(clone(worker), clone(watch))
+          .catch((error): WatchReading => ({ ok: false, content: '', summary: errorText(error) }))
+          .then((reading) => this.recordLook(worker.id, watch.id, reading))
+          .catch((error) => console.error('[workers] a watch failed:', error))
+          .finally(() => this.looking.delete(watch.id))
+      }
+    }
+  }
+
+  private recordLook(workerId: string, watchId: string, reading: WatchReading): void {
+    if (this.disposed) return
+    const worker = this.find(workerId)
+    const watch = worker?.watches.find((w) => w.id === watchId)
+    if (!worker || !watch) return
+    const now = this.now()
+    const verdict = judge(watch, reading)
+    const before = this.lastContent.get(watch.id)
+    if (reading.ok) this.lastContent.set(watch.id, reading.content.slice(0, 50_000))
+    watch.last = { at: now, fingerprint: verdict.fingerprint, met: verdict.met, summary: reading.summary }
+    if (!verdict.fire) {
+      this.commit()
+      return
+    }
+    watch.firedAt = now
+    watch.fires += 1
+    const added = watch.when === 'change' ? newLines(before, reading.content) : []
+    const output = watch.kind === 'command' && watch.when !== 'change' && reading.content.trim() ? clip(reading.content.trim(), 1500) : ''
+    this.deliverMail(worker, {
+      id: randomUUID(),
+      from: 'eaon',
+      fromName: 'Eaon',
+      text: [
+        `Your watch "${watch.name}" (${watchText(watch)}): ${verdict.what} — ${reading.summary}.`,
+        added.length ? `New lines:\n${added.map((line) => `> ${line}`).join('\n')}` : '',
+        output ? `Output:\n${output}` : '',
+        watch.note ? `What you meant to do: ${watch.note}` : '',
+        'The watch carries on; unwatch it once there is nothing left to watch.'
+      ]
+        .filter(Boolean)
+        .join('\n'),
+      files: [],
+      at: now,
+      event: { kind: 'watch', title: `${watch.name}: ${verdict.what}` }
+    }, watch.threadId ?? MAIN_THREAD)
+    this.commit()
+    this.tick()
+  }
+
+  /** Saves (or rewrites, by name) a procedure the worker can follow again. */
+  savePlaybook(id: string, input: { name: string; summary: string; steps: string }): string {
+    const worker = this.require(id)
+    const name = str(input.name).replace(/\s+/g, ' ').slice(0, 80)
+    const steps = str(input.steps)
+    if (!name || !steps) throw new Error('A playbook needs a name and its steps.')
+    if (steps.length > MAX_PLAYBOOK_CHARS) throw new Error(`Keep a playbook under ${MAX_PLAYBOOK_CHARS} characters; split a long one in two.`)
+    const summary = str(input.summary).replace(/\s+/g, ' ').slice(0, 200)
+    const now = this.now()
+    const existing = worker.playbooks.find((p) => p.name.toLowerCase() === name.toLowerCase())
+    if (existing) Object.assign(existing, { name, steps, updatedAt: now, ...(summary ? { summary } : {}) })
+    else {
+      if (worker.playbooks.length >= MAX_PLAYBOOKS) throw new Error(`You have ${MAX_PLAYBOOKS} playbooks. Fold some together or remove one you no longer use.`)
+      worker.playbooks.push({ id: randomUUID(), name, summary, steps, createdAt: now, updatedAt: now, uses: 0 })
+    }
+    this.commit()
+    return `${existing ? 'Updated' : 'Saved'} playbook "${name}". It is listed in your prompt from now on; read_playbook gives you the steps.`
+  }
+
+  /** A playbook's steps, by name (or the one whose name contains it); reading one counts as using it. */
+  readPlaybook(id: string, ref: string): string {
+    const worker = this.require(id)
+    const playbook = this.findPlaybook(worker, ref)
+    playbook.uses += 1
+    this.commit()
+    return `# ${playbook.name}\n${playbook.summary ? `Use it to: ${playbook.summary}\n` : ''}\n${playbook.steps}`
+  }
+
+  removePlaybook(id: string, ref: string): string {
+    const worker = this.require(id)
+    const playbook = this.findPlaybook(worker, ref)
+    worker.playbooks = worker.playbooks.filter((p) => p !== playbook)
+    this.commit()
+    return `Removed playbook "${playbook.name}".`
+  }
+
+  private findPlaybook(worker: Worker, ref: string): WorkerPlaybook {
+    const key = str(ref).toLowerCase()
+    const playbook =
+      worker.playbooks.find((p) => p.id === ref || p.name.toLowerCase() === key) ?? (key ? worker.playbooks.find((p) => p.name.toLowerCase().includes(key)) : undefined)
+    if (!playbook) {
+      throw new Error(worker.playbooks.length ? `No playbook "${ref}". Yours: ${worker.playbooks.map((p) => p.name).join(', ')}.` : 'You have no playbooks yet.')
+    }
+    return playbook
+  }
+
+  /**
+   * The user showed the worker how to do something in its browser (Teach).
+   * The steps arrive as the user's message, with the ask to turn them into a
+   * playbook it can follow on its own.
+   */
+  teach(id: string, input: { task: string; steps: string[] }): void {
+    const steps = input.steps.map(str).filter(Boolean)
+    if (steps.length === 0) throw new Error('Nothing was recorded. Do the task in the browser while Teach is on, then finish.')
+    const task = str(input.task) || 'do this'
+    const text = [
+      `I just showed you in your browser how to ${task.replace(/^to\s+/i, '')}. What I did:`,
+      ...steps.map((step, i) => `${i + 1}. ${step}`),
+      '',
+      'Save this as a playbook (save_playbook) so you can do it yourself from now on: write the steps you would follow, generalise what was one-off (the exact item, dates, names), and note what you would need to ask me. Then tell me in a line what you saved.'
+    ].join('\n')
+    this.send(id, clip(text, 12_000))
+  }
+
+  /**
+   * A goal with an end time whose time has come: the run stops, and the
+   * worker's next turn asks it for a report — what it got done, what is left
+   * — which reaches the user as a notification.
+   */
+  private expireGoal(worker: Worker, now: number): void {
+    const goal = worker.goalRun
+    if (!goal || typeof goal.until !== 'number' || goal.until > now) return
+    if (!(goal.status === 'active' || (goal.status === 'paused' && !goal.pausedByUser))) return
+    const ran = hoursText(now - goal.startedAt)
+    const { failures: _failures, ...rest } = goal
+    worker.goalRun = { ...rest, status: 'paused', nextAt: null, summary: `Time’s up — worked on it for ${ran}` }
+    const end = new Date(goal.until).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+    this.deliverMail(worker, {
+      id: randomUUID(),
+      from: 'eaon',
+      fromName: 'Eaon',
+      text: `Your time on the goal "${goal.text}" is up: the user gave you until ${end}, and you have worked on it for ${ran}. Stop working on it now. Reply with a short report for the user: what you got done, what is left, and anything they need to decide. Save what you would need to pick it up again with update_notes, and stop any background job for it that shouldn't keep running.`,
+      files: [],
+      at: now,
+      event: { kind: 'goal', title: 'Time’s up on the goal' }
+    })
+  }
+
   /* -------------------------------------------------------------- scheduling */
 
   /**
@@ -2193,6 +2599,7 @@ export class WorkersEngine {
   tick(): void {
     if (!this.started) return
     const now = this.now()
+    this.checkWatches(now)
     let changed = this.rezoneRoutines(now)
     changed = this.expireDelegations(now) || changed
     changed = this.skipOverlappingRoutines(now) || changed
@@ -2385,7 +2792,26 @@ export class WorkersEngine {
   private commit(): void {
     this.deps.saveWorkers(this.workers)
     this.deps.onChange?.(this.workers)
+    this.holdAwake()
     this.arm()
+  }
+
+  /**
+   * The computer stays awake while a worker is on a goal with an end time,
+   * or a job is running: sleep would freeze both until the lid opens again.
+   */
+  private holdAwake(): void {
+    const now = this.now()
+    const wanted =
+      this.started &&
+      this.workers.some(
+        (w) =>
+          !w.paused &&
+          ((w.goalRun?.status === 'active' && typeof w.goalRun.until === 'number' && w.goalRun.until > now) || w.jobs.some((j) => j.endedAt === null))
+      )
+    if (wanted === this.awake) return
+    this.awake = wanted
+    this.deps.keepAwake?.(wanted)
   }
 
   /**
@@ -2421,6 +2847,13 @@ export class WorkersEngine {
         soonest = Math.min(soonest, next)
       }
     }
+    // Watches are looked at whatever the worker is doing (a look is not a turn).
+    if (this.deps.look) {
+      for (const w of this.workers) {
+        if (w.paused) continue
+        for (const watch of w.watches) if (!this.looking.has(watch.id)) soonest = Math.min(soonest, watch.nextAt)
+      }
+    }
     for (const d of this.delegationList) if (isOpenDelegation(d) && d.deadlineAt !== null) soonest = Math.min(soonest, Math.max(d.deadlineAt, now))
     if (soonest === Infinity) return
     const delay = Math.min(Math.max(soonest - now, 0), MAX_DELAY)
@@ -2431,10 +2864,16 @@ export class WorkersEngine {
     this.timer.unref?.()
   }
 
-  /** A thread's soonest timed wake-up: its heartbeat, and for the main thread a goal run carrying on. */
+  /**
+   * A thread's soonest timed wake-up: its heartbeat, and for the main thread
+   * a goal run carrying on — and a goal with an end time then, even
+   * mid-sleep, for its report.
+   */
   private nextWake(worker: Worker, threadId: string, slot: Slot): number | null {
     let next = slot.heartbeat.nextAt ?? Infinity
-    if (threadId === MAIN_THREAD && worker.goalRun?.status === 'active' && typeof worker.goalRun.nextAt === 'number') next = Math.min(next, worker.goalRun.nextAt)
+    const goal = threadId === MAIN_THREAD && worker.goalRun?.status === 'active' ? worker.goalRun : null
+    if (goal && typeof goal.nextAt === 'number') next = Math.min(next, goal.nextAt)
+    if (goal && typeof goal.until === 'number') next = Math.min(next, goal.until)
     return next === Infinity ? null : next
   }
 
@@ -2557,7 +2996,8 @@ export class WorkersEngine {
     const scheduled =
       worker.routines.length > 0 ||
       this.slotsOf(worker).some(({ threadId, slot }) => slot.inbox.length > 0 || this.nextWake(worker, threadId, slot) !== null) ||
-      this.wakes.has(worker.id)
+      this.wakes.has(worker.id) ||
+      keepsWatch(worker)
     return scheduled ? 'idle' : 'asleep'
   }
 
@@ -2597,6 +3037,8 @@ export class WorkersEngine {
    */
   private begin(worker: Worker, requested: string, priority: boolean): boolean {
     const now = this.now()
+    // Time's up on a timed goal: this turn is the report, not more work on it.
+    this.expireGoal(worker, now)
     let threadId = requested
     let routine: WorkerRoutine | undefined
     if (requested.startsWith(ROUTINE_SLOT)) {
@@ -2702,7 +3144,7 @@ export class WorkersEngine {
     const user = buildTurnMessage(mail, note, now, briefs, cap, goalRun && !setsGoal ? goalRun.text : null, {
       delegations: waitingOn,
       asks: worker.asks.map((a) => a.question)
-    })
+    }, goalRun?.until ?? null)
     const assistant: ChatMessage = { id: assistantId, role: 'assistant', parts: [], createdAt: now + 1 }
     thread.messages.push(user, assistant)
 
@@ -2752,7 +3194,8 @@ export class WorkersEngine {
       activitySet: false,
       heartbeatSet: false,
       // Not for chat-app mail: the reply goes back to the chat it came from.
-      userTriggered: woke || !!retry || mail.some((m) => m.from === 'user' && !m.channel),
+      // A timed goal's closing report is news too: the user left it working for hours.
+      userTriggered: woke || !!retry || mail.some((m) => (m.from === 'user' && !m.channel) || m.event?.kind === 'goal'),
       stoppedByUser: false,
       postedRooms: new Set(),
       access,
@@ -2819,7 +3262,7 @@ export class WorkersEngine {
       ...(special?.toolGate ? { toolGate: special.toolGate } : {}),
       origin,
       stallMs: this.deps.stallMs,
-      goal: goalRun ? { text: goalRun.text, status: 'active', iterations: goalRun.iterations } : null,
+      goal: goalRun ? { text: goalRun.text, status: 'active', iterations: goalRun.iterations, ...(goalRun.until ? { until: goalRun.until } : {}) } : null,
       onToolRun: (_name, mutating) => {
         if (mutating && !execution.sideEffects) this.runs.update(execution, { sideEffects: true })
       },
@@ -2901,17 +3344,35 @@ export class WorkersEngine {
     // checks in with the user after GOAL_MAX_TURNS. A failed turn, or the
     // user stopping it, pauses it.
     const goal = worker.goalRun
+    let retryAt: number | null = null
     if (goal && run.goalTurn) {
       if (outcome.error) {
-        worker.goalRun = { ...goal, status: 'paused', summary: 'The last turn failed', nextAt: null }
+        // A dropped connection or an overloaded model shouldn't end hours of
+        // work: try again after a pause, a little longer each time.
+        const failures = (goal.failures ?? 0) + 1
+        const timeLeft = typeof goal.until !== 'number' || goal.until > now
+        if (goal.status === 'active' && failures < FAILURES_BEFORE_PAUSE && timeLeft) {
+          retryAt = now + RETRY_MINUTES[Math.min(failures, RETRY_MINUTES.length) - 1] * 60_000
+          worker.goalRun = { ...goal, failures, nextAt: retryAt }
+        } else {
+          const { failures: _failures, ...rest } = goal
+          worker.goalRun = { ...rest, status: 'paused', summary: failures > 1 ? `Paused after ${failures} failed turns in a row` : 'The last turn failed', nextAt: null }
+        }
       } else if (outcome.cancelled && run.stoppedByUser) {
         worker.goalRun = { ...goal, status: 'paused', pausedByUser: true, summary: 'Stopped', nextAt: null }
       } else if (outcome.cancelled) {
         // Cut short some other way (the worker paused, Eaon quitting): pick it up again later.
         if (goal.status === 'active') worker.goalRun = { ...goal, nextAt: now }
       } else if (goal.status === 'active' || (goal.status === 'paused' && !goal.pausedByUser)) {
-        const { summary: _summary, ...rest } = goal
-        if (goal.turns >= GOAL_MAX_TURNS) {
+        const { summary: _summary, failures: _failures, ...rest } = goal
+        if (typeof goal.until === 'number') {
+          // A timed run has no turn budget: it carries on until its end time, then reports.
+          if (goal.until <= now) this.expireGoal(worker, now)
+          else {
+            const ownWake = run.heartbeatSet && worker.heartbeat.nextAt !== null
+            worker.goalRun = { ...rest, status: 'active', nextAt: ownWake ? null : now }
+          }
+        } else if (goal.turns >= GOAL_MAX_TURNS) {
           worker.goalRun = { ...goal, status: 'paused', summary: `Paused after ${GOAL_MAX_TURNS} turns on it; resume to keep going`, nextAt: null }
           this.deps.reachOut?.(clone(worker), {
             title: `${worker.name} paused its goal`,
@@ -2941,6 +3402,8 @@ export class WorkersEngine {
       if (outcome.error) {
         worker.lastError = outcome.error
         worker.lastOutcome = { at: now, ok: false }
+        // Not dead when its goal run tries again by itself.
+        if (retryAt !== null) worker.activity = `Hit a problem; trying again ${relativeTime(retryAt, now)}`
       } else if (outcome.cancelled) {
         if (!run.activitySet && run.stoppedByUser) worker.activity = 'Stopped'
       } else {
@@ -2956,7 +3419,7 @@ export class WorkersEngine {
     // whole worker out (its receipt and thread say so).
     if (worker.paused) worker.status = 'paused'
     else if (this.isRunning(worker.id)) worker.status = 'working'
-    else if (run.threadId === MAIN_THREAD && outcome.error) worker.status = 'failed'
+    else if (run.threadId === MAIN_THREAD && outcome.error && retryAt === null) worker.status = 'failed'
     else if (worker.status === 'failed' && run.threadId !== MAIN_THREAD) worker.status = 'failed'
     else worker.status = this.restingStatus(worker)
 

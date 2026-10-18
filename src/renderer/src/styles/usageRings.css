@@ -1,0 +1,320 @@
+/* The sidebar's plan usage rings and their card (components/UsageRings.tsx).
+   Each window has its colour — the session green, the week amber — until
+   it runs low, when it turns to a warning and then to danger. */
+
+.usage-rings,
+.usage-card {
+  --ring-session: #3fb984;
+  --ring-week: #e9b443;
+  --ring-warn: #f08c4a;
+  --ring-low: var(--danger);
+}
+[data-theme='light'] .usage-rings,
+[data-theme='light'] .usage-card {
+  --ring-session: #1f9d63;
+  --ring-week: #c98a12;
+  --ring-warn: #d0661c;
+}
+
+.usage-rings {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-right: auto;
+}
+
+.usage-ring {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  transition:
+    background var(--dur) var(--ease),
+    transform 160ms var(--ease);
+  -webkit-app-region: no-drag;
+}
+.usage-ring:hover,
+.usage-ring[data-open] {
+  background: var(--hover);
+}
+.usage-ring:active {
+  transform: scale(0.94);
+}
+.usage-ring[data-off] {
+  opacity: 0.55;
+}
+.usage-ring__svg {
+  position: absolute;
+  inset: 2px;
+  width: 32px;
+  height: 32px;
+  overflow: visible;
+}
+.usage-ring__track {
+  fill: none;
+  stroke: var(--hover-strong, var(--border));
+  stroke-width: 2.6;
+}
+.usage-ring__arc {
+  fill: none;
+  stroke-width: 2.6;
+  stroke-linecap: round;
+  transition:
+    stroke-dasharray 700ms var(--ease),
+    stroke 300ms var(--ease);
+  animation: ring-draw 900ms var(--ease) both;
+}
+@keyframes ring-draw {
+  from {
+    stroke-dasharray: 0 200;
+  }
+}
+.usage-ring__arc[data-tone='session'] {
+  stroke: var(--ring-session);
+}
+.usage-ring__arc[data-tone='week'] {
+  stroke: var(--ring-week);
+}
+.usage-ring__arc[data-tone='warn'] {
+  stroke: var(--ring-warn);
+}
+.usage-ring__arc[data-tone='low'] {
+  stroke: var(--ring-low);
+}
+.usage-ring__mark {
+  position: relative;
+  display: grid;
+  place-items: center;
+}
+
+/* ---- card ---- */
+
+/* Solid, not the menus' frosted glass: the card sits over the conversation,
+   and its figures must not share the page with the text behind them. */
+.menu.usage-card {
+  max-height: none;
+  padding: 0;
+  background: var(--surface-3);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.usage-card__inner {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 14px 8px;
+}
+.usage-card__head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.usage-card__title {
+  color: var(--text);
+  font-size: var(--fs-base);
+  font-weight: 600;
+}
+.usage-card__plan {
+  margin-left: auto;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+.usage-card__refresh {
+  align-self: center;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  margin-left: 4px;
+  border-radius: var(--r-xs);
+  color: var(--text-4);
+  transition:
+    color var(--dur) var(--ease),
+    background var(--dur) var(--ease);
+}
+.usage-card__head .usage-card__title + .usage-card__refresh {
+  margin-left: auto;
+}
+.usage-card__refresh:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.usage-card__refresh[data-spinning] svg {
+  animation: usage-spin 900ms linear infinite;
+}
+@keyframes usage-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+.usage-card__legend {
+  display: flex;
+  gap: 14px;
+  margin-top: -4px;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.usage-card__legend span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.usage-card__legend i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+}
+.usage-card__legend i[data-tone='session'] {
+  background: var(--ring-session);
+}
+.usage-card__legend i[data-tone='week'] {
+  background: var(--ring-week);
+}
+.usage-card__note {
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+}
+
+.usage-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  animation: tool-in 260ms var(--ease) both;
+}
+.usage-row__top {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-variant-numeric: tabular-nums;
+}
+.usage-row__label {
+  color: var(--text);
+  font-size: var(--fs-base);
+  font-weight: 600;
+}
+.usage-row__left {
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+}
+.usage-row__reset {
+  margin-left: auto;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.usage-row__bar {
+  position: relative;
+  height: 6px;
+  border-radius: var(--r-pill);
+  background: var(--hover);
+}
+.usage-row__bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  transition: width 700ms var(--ease);
+  animation: bar-grow 800ms var(--ease) both;
+}
+@keyframes bar-grow {
+  from {
+    width: 0;
+  }
+}
+.usage-row__bar > span[data-tone='session'] {
+  background: var(--ring-session);
+}
+.usage-row__bar > span[data-tone='week'] {
+  background: var(--ring-week);
+}
+.usage-row__bar > span[data-tone='warn'] {
+  background: var(--ring-warn);
+}
+.usage-row__bar > span[data-tone='low'] {
+  background: var(--ring-low);
+}
+/* The pace mark: where an even spend would have the bar by now. */
+.usage-row__bar > i {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 2px;
+  margin-left: -1px;
+  border-radius: 1px;
+  background: var(--text);
+  opacity: 0.7;
+  box-shadow: 0 0 0 2px var(--surface-3);
+}
+.usage-row__pace {
+  display: flex;
+  justify-content: space-between;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+.usage-row__pace [data-over] {
+  color: var(--ring-warn);
+}
+
+.usage-card__more {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 30px;
+  margin: 0 -6px;
+  padding: 0 6px;
+  border-radius: var(--r-sm);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  text-align: left;
+  transition:
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+.usage-card__more:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.usage-card__account {
+  margin-left: auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-4);
+  font-size: var(--fs-xs);
+}
+
+/* In the ADE's header the rings sit in a row of buttons: smaller, centred. */
+.usage-rings[data-where='header'] {
+  margin-right: 0;
+  -webkit-app-region: no-drag;
+}
+.usage-rings[data-where='header'] .usage-ring {
+  width: 28px;
+  height: 28px;
+}
+.usage-rings[data-where='header'] .usage-ring__svg {
+  inset: 1px;
+  width: 26px;
+  height: 26px;
+}
+.usage-rings[data-where='header'] .usage-ring__mark {
+  transform: scale(0.82);
+}
+
+/* The bar in the sidebar's foot: it takes the room the rings would. */
+.sidebar__footer .usage-pill[data-where='sidebar'] {
+  margin-right: auto;
+  min-width: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .usage-ring__arc,
+  .usage-row,
+  .usage-row__bar > span {
+    animation: none;
+  }
+}

@@ -70,7 +70,12 @@ export interface ToolContext {
    * standard gate the loop already applied — e.g. computer use confirming a
    * single click. Resolves false when denied.
    */
-  confirm: (title: string, detail: Record<string, unknown>, summary?: string) => Promise<boolean>
+  confirm: (title: string, detail: Record<string, unknown>, summary?: string, critical?: boolean) => Promise<boolean>
+  /**
+   * The user's settings as they are now, not as the turn began: what may run
+   * without asking follows the composer's permission picker mid-turn.
+   */
+  liveSettings?: () => Settings
   /**
    * The limits this run works under (agent/policy.ts). A tool that starts
    * agents of its own (swarm) hands them on, so a sub-agent can never do

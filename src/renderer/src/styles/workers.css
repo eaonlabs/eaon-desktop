@@ -1109,87 +1109,11 @@ button.msg-attachment:hover {
 }
 
 /* ---- Autonomy: questions waiting on the user, the worker's own memory ---- */
-/* Questions sit on the composer, in its column: the dock centres its
-   children, and without a width of its own a long question stretched this
-   to the whole pane, wider than both the thread and the composer. */
+/* Questions sit at the foot of the thread, as cards — see "A worker's thread" below. */
 .worker-asks {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  width: var(--composer-chat-w);
-  max-width: calc(100% - 48px);
-  max-height: 40vh;
-  margin-bottom: 8px;
-  overflow: auto;
-  overscroll-behavior: contain;
-}
-.worker-ask {
-  flex: none;
-  padding: 12px 14px;
-  border-radius: var(--r-composer);
-  background: var(--surface-1);
-  box-shadow: inset 0 0 0 1px var(--border-soft);
-}
-.worker-ask[data-kind='approve'] {
-  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent), transparent 60%);
-}
-.worker-ask__head {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--text-3);
-  font-size: var(--fs-xs);
-}
-.worker-ask[data-kind='approve'] .worker-ask__head svg {
-  color: var(--accent);
-}
-.worker-ask__who {
-  color: var(--text-2);
-  font-weight: 500;
-}
-.worker-ask__when {
-  margin-left: auto;
-}
-.worker-ask__question {
-  margin: 6px 0 0;
-  font-size: var(--fs-sm);
-  line-height: 1.5;
-  white-space: pre-wrap;
-}
-.worker-ask__action {
-  margin: 4px 0 0;
-  font-size: var(--fs-xs);
-  color: var(--text-2);
-}
-.worker-ask__tool {
-  color: var(--text-4);
-  font-family: var(--font-mono);
-}
-.worker-ask__actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
-  margin-top: 10px;
-}
-/* An answer can be a sentence: it wraps inside its chip rather than running
-   past the card. */
-.worker-ask__actions .btn {
-  max-width: 100%;
-  height: auto;
-  min-height: 28px;
-  padding-top: 4px;
-  padding-bottom: 4px;
-  white-space: normal;
-  text-align: left;
-  line-height: 1.35;
-}
-/* The reply box takes a line of its own once the chips leave it too little. */
-.worker-ask__reply {
-  flex: 1 1 220px;
-  min-width: 0;
-  height: 28px;
-  font-size: var(--fs-sm);
+  gap: 12px;
 }
 .worker-memory {
   display: flex;
@@ -1245,6 +1169,203 @@ button.msg-attachment:hover {
   overflow: auto;
 }
 
+/* Jobs, watches and playbooks among the worker's memory: a row each, with its actions on the right. */
+.worker-memory__item {
+  display: flex;
+  flex-direction: column;
+}
+.worker-memory__body {
+  flex: 1;
+  min-width: 0;
+}
+.worker-memory__actions {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: auto;
+}
+.worker-memory__action {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.worker-memory__action:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+.worker-memory__action--icon {
+  width: 22px;
+  padding: 0;
+  justify-content: center;
+}
+.worker-memory__row:not(:hover):not(:focus-within) .worker-memory__action--icon {
+  opacity: 0;
+}
+.worker-memory__row[data-running] > svg {
+  color: var(--accent);
+}
+.worker-memory__live {
+  color: var(--accent);
+}
+.worker-memory__group {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.worker-memory__heading {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.worker-memory__row--sub {
+  align-items: center;
+  padding-left: 21px;
+}
+.worker-memory__playbook {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  text-align: left;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.worker-memory__playbook svg {
+  flex: none;
+  align-self: center;
+  color: var(--text-3);
+  transition: transform 0.15s;
+}
+.worker-memory__playbook[aria-expanded='true'] svg {
+  transform: rotate(180deg);
+}
+.worker-memory__summary {
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.worker-memory__uses {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.worker-fact--app[data-active] {
+  color: var(--accent);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent), transparent 60%);
+}
+
+/* Teach: the user showing a worker a task in its browser. */
+.teach-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 10px 8px;
+  padding: 10px 12px;
+  border-radius: var(--r-lg);
+  background: color-mix(in srgb, var(--accent), var(--surface-1) 90%);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent), transparent 70%);
+  font-size: var(--fs-sm);
+}
+.teach-bar__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.teach-bar__head > svg {
+  flex: none;
+  color: var(--accent);
+}
+.teach-bar__title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  font-weight: 500;
+  color: var(--text);
+}
+.teach-bar__hint {
+  font-weight: 400;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+.teach-bar__steps {
+  margin: 0;
+  padding: 6px 10px 6px 28px;
+  max-height: 160px;
+  overflow: auto;
+  border-radius: var(--r-sm);
+  background: var(--surface-1);
+  font-size: var(--fs-xs);
+  line-height: 1.55;
+  color: var(--text-2);
+}
+.teach-bar__finish {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.teach-bar__finish .input {
+  flex: 1;
+  min-width: 0;
+  height: 28px;
+}
+.teach-bar__note {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+
+/* A job, a watch or a timed goal reporting back: a heartbeat-like marker that opens to what it said. */
+.msg__event {
+  align-self: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  max-width: 90%;
+}
+.msg__event .msg__event-head {
+  cursor: pointer;
+  /* Its parent is already capped at 90%; another 90% of that cut off the chevron. */
+  max-width: 100%;
+}
+.msg__event-head:hover {
+  color: var(--text-2);
+}
+.msg__event-head svg:first-child {
+  color: var(--accent);
+}
+.msg__event-head .msg__event-chevron {
+  flex: none;
+  color: var(--text-3);
+  transition: transform 0.15s;
+}
+.msg__event[data-open] .msg__event-chevron {
+  transform: rotate(180deg);
+}
+.msg__event-text {
+  align-self: stretch;
+  margin: 0;
+  padding: 8px 10px;
+  max-height: 260px;
+  overflow: auto;
+  border-radius: var(--r-sm);
+  background: var(--sunken);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  color: var(--text-2);
+}
+
 /* ---- The editor's trading section ---- */
 .worker-trading {
   display: flex;
@@ -1281,6 +1402,535 @@ button.msg-attachment:hover {
   color: var(--text-2);
 }
 
+
+/* ================================================================ A worker's thread
+   A messenger, not a transcript: the worker's name in a pill over the
+   thread, what the user wrote in solid bubbles on the right, the worker's
+   replies in soft grey ones on the left, a time over each stretch of
+   conversation, and its questions as cards to answer in place. */
+
+.thread--worker,
+.composer--worker,
+.worker-asks {
+  --wk-user-bg: var(--fg);
+  --wk-user-fg: var(--bg);
+  --wk-bubble: color-mix(in srgb, var(--fg) 7%, var(--canvas));
+  --wk-card: var(--surface-3);
+}
+
+/* Like Chat: the top bar floats over the thread, which runs up under it
+   and under the name pill below it, and the veil's graded blur builds over
+   both as the thread scrolls (ChatView's .scroll-veil, a little taller here
+   to reach past the pill). */
+.main:has(> .chat-header--float) > .thread--worker {
+  padding-top: calc(var(--titlebar-h) + var(--sidebar-gap) + 64px);
+  scroll-padding-top: calc(var(--titlebar-h) + var(--sidebar-gap) + 52px);
+}
+.scroll-veil--worker {
+  --veil-h: calc(var(--titlebar-h) + var(--sidebar-gap) + 92px + var(--veil-over));
+}
+.main > .worker-pill-bar {
+  position: absolute;
+  top: calc(var(--titlebar-h) + var(--sidebar-gap) + 6px);
+  right: 0;
+  left: 0;
+  z-index: 4;
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+.worker-pill {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(320px, calc(100% - 48px));
+  height: 36px;
+  padding: 0 15px 0 8px;
+  border-radius: var(--r-pill);
+  background: var(--wk-card);
+  box-shadow:
+    0 0 0 1px var(--border-soft),
+    0 6px 18px -12px rgb(0 0 0 / 0.45);
+  font-size: var(--fs-base);
+  font-weight: 500;
+  color: var(--text);
+  transition: transform var(--dur) var(--ease);
+}
+.worker-pill:active {
+  transform: scale(0.97);
+}
+.worker-pill .wf {
+  flex: none;
+}
+.worker-pill__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* A worker with threads: their switcher floats under the pill, over the
+   thread like the pill itself, and the thread and veil start lower. */
+.main:has(> .chat-header--float) > .worker-threads {
+  position: absolute;
+  top: calc(var(--titlebar-h) + var(--sidebar-gap) + 48px);
+  right: 0;
+  left: 0;
+  z-index: 4;
+  margin: 0 auto;
+}
+.main:has(> .chat-header--float):has(> .worker-threads) > .thread--worker {
+  padding-top: calc(var(--titlebar-h) + var(--sidebar-gap) + 100px);
+}
+.main:has(> .worker-threads) > .scroll-veil--worker {
+  --veil-h: calc(var(--titlebar-h) + var(--sidebar-gap) + 128px + var(--veil-over));
+}
+
+.thread__inner--worker {
+  gap: 18px;
+}
+
+/* A time over the first message and over each that follows a long pause. */
+.thread-time {
+  align-self: center;
+  margin: 6px 0 -6px;
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.thread--worker .msg--user {
+  max-width: min(72%, 560px);
+  padding: 10px 18px;
+  border-radius: 22px;
+  background: linear-gradient(100deg, var(--wk-user-bg) 45%, color-mix(in srgb, var(--wk-user-bg) 88%, var(--wk-user-fg)));
+  color: var(--wk-user-fg);
+  line-height: 1.45;
+}
+body[data-see-through='on'] .worker-pill {
+  background: var(--glass-float);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+}
+body[data-see-through='on'] .thread--worker .msg--user {
+  background: var(--wk-user-bg);
+}
+
+/* Each run of the reply's text is a bubble; what it did between them (its
+   steps, a plan, the files it changed) keeps the full width. */
+.thread--worker .msg--assistant {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+.thread--worker .msg--assistant > :not(.msg-bubble) {
+  align-self: stretch;
+  margin: 4px 0;
+}
+.msg-bubble {
+  min-width: 0;
+  max-width: min(80%, 640px);
+  padding: 10px 17px;
+  border-radius: 22px;
+  background: var(--wk-bubble);
+  line-height: 1.5;
+}
+.msg-bubble > :first-child {
+  margin-top: 0;
+}
+.msg-bubble > :last-child {
+  margin-bottom: 0;
+}
+.msg-bubble pre {
+  max-width: 100%;
+}
+.thread--worker .msg--assistant[data-streaming='true'] > .msg-bubble > * {
+  animation: block-resolve 280ms var(--spring-moderate) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .thread--worker .msg--assistant[data-streaming='true'] > .msg-bubble > * {
+    animation: none;
+  }
+}
+
+/* Mail from a colleague: its face, then the same soft bubble. */
+.thread--worker .msg-mail__text {
+  padding: 10px 16px;
+  border-radius: 6px 22px 22px 22px;
+  background: var(--wk-bubble);
+  box-shadow: none;
+  line-height: 1.5;
+}
+/* Heartbeats and events read as quiet lines between messages, not as pills. */
+.thread--worker .msg__heartbeat {
+  background: transparent;
+  font-size: var(--fs-sm);
+}
+.thread--worker .msg__event-head:hover {
+  background: var(--hover);
+}
+
+/* At the foot of the thread while a turn runs. */
+.worker-working {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  padding: 0 2px;
+  font-size: var(--fs-base);
+  animation: wk-rise 260ms var(--ease) both;
+}
+.worker-working .wf {
+  flex: none;
+}
+.worker-working__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.worker-working__activity {
+  color: var(--text-4);
+}
+@keyframes wk-rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+body[data-reduce-motion='on'] .worker-working {
+  animation: none;
+}
+
+/* ---- Question and approval cards ---- */
+
+.ask-card {
+  align-self: flex-start;
+  width: min(100%, 620px);
+  padding: 20px 22px 18px;
+  border-radius: 22px;
+  background: var(--wk-card);
+  box-shadow:
+    0 0 0 1px var(--border-soft),
+    0 10px 28px -20px rgb(0 0 0 / 0.5);
+  outline: none;
+  animation: wk-rise 260ms var(--ease) both;
+  transition: opacity var(--dur) var(--ease);
+}
+.ask-card[aria-busy='true'] {
+  opacity: 0.6;
+}
+.ask-card__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.ask-card__title .md__p {
+  margin: 0 0 4px;
+}
+.ask-card__title .md__p:last-child {
+  margin: 0;
+}
+.ask-card__hint {
+  margin: 3px 0 0;
+  font-size: var(--fs-base);
+  color: var(--text-3);
+}
+
+.ask-card__options {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 14px -10px 0;
+}
+.ask-option {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 42px;
+  padding: 7px 10px;
+  border-radius: 12px;
+  text-align: left;
+  font-size: var(--fs-base);
+  line-height: 1.4;
+  color: var(--text);
+  cursor: pointer;
+  transition: background var(--dur) var(--ease);
+}
+.ask-option:hover:not(:disabled),
+.ask-option--other:focus-within {
+  background: var(--hover);
+}
+.ask-option:disabled {
+  cursor: default;
+}
+.ask-option__key {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 7px;
+  background: var(--surface-1);
+  box-shadow: inset 0 0 0 1px var(--border);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--text-3);
+  transition:
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease),
+    transform var(--dur-spring-fast, 200ms) var(--spring-fast, ease);
+}
+.ask-option[aria-pressed='true'] .ask-option__key,
+.ask-option--other[data-filled] .ask-option__key {
+  background: linear-gradient(180deg, color-mix(in srgb, var(--accent), #ffffff 16%), var(--accent));
+  box-shadow: none;
+  color: #ffffff;
+}
+.ask-option[aria-pressed='true']:active .ask-option__key,
+.ask-option:active .ask-option__key {
+  transform: scale(0.9);
+}
+.ask-option__label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.ask-option__input {
+  flex: 1;
+  min-width: 0;
+  height: 26px;
+  border: 0;
+  background: none;
+  outline: none;
+  font: inherit;
+  color: var(--text);
+}
+.ask-option__input::placeholder {
+  color: var(--text-3);
+}
+
+.ask-card__foot {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 14px;
+}
+.ask-card__foot--start {
+  justify-content: flex-start;
+  margin-top: 18px;
+}
+.ask-btn {
+  display: inline-grid;
+  place-items: center;
+  min-width: 72px;
+  height: 36px;
+  padding: 0 18px;
+  border-radius: var(--r-pill);
+  background: var(--surface-1);
+  box-shadow: inset 0 0 0 1px var(--border);
+  font-size: var(--fs-base);
+  font-weight: 500;
+  color: var(--text);
+  transition:
+    background var(--dur) var(--ease),
+    opacity var(--dur) var(--ease),
+    transform var(--dur) var(--ease);
+}
+.ask-btn:not(:disabled):hover {
+  background: var(--surface-2);
+}
+.ask-btn--primary {
+  background: var(--fg);
+  box-shadow: none;
+  color: var(--bg);
+}
+.ask-btn--primary:not(:disabled):hover {
+  background: color-mix(in srgb, var(--fg) 86%, var(--bg));
+}
+.ask-btn:disabled {
+  opacity: 0.4;
+}
+.ask-btn:not(:disabled):active {
+  transform: scale(0.96);
+}
+.ask-btn--lg {
+  min-width: 96px;
+  height: 44px;
+  padding: 0 24px;
+  border-radius: 14px;
+  font-size: 15px;
+}
+
+/* Approval: who wants to do what, a badge, why, and Allow / Deny. */
+.ask-card__head--row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+.ask-card__title--big {
+  font-size: 19px;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+}
+.ask-badge {
+  --badge: #b86e00;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 13px 0 11px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, #f5a524 20%, transparent);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--badge);
+  white-space: nowrap;
+}
+:root:not([data-theme='light']) .ask-badge {
+  --badge: #f5b443;
+}
+.ask-card[data-risk='high'] .ask-badge {
+  --badge: var(--danger);
+  background: color-mix(in srgb, var(--danger) 15%, transparent);
+}
+.ask-badge__icon {
+  animation: spin 2.8s linear infinite;
+}
+body[data-reduce-motion='on'] .ask-badge__icon,
+body[data-idle] .ask-badge__icon {
+  animation: none;
+}
+.ask-card__lead {
+  margin-top: 10px;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+.ask-card__lead .md__p {
+  margin-bottom: 6px;
+}
+.ask-card__lead .md__p:last-child {
+  margin-bottom: 0;
+}
+.ask-card__disclose {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 0 -2px;
+  padding: 3px 0;
+  font-size: var(--fs-base);
+  color: var(--text-3);
+  transition: color var(--dur) var(--ease);
+}
+.ask-card__disclose:hover {
+  color: var(--text);
+}
+.ask-card__disclose svg {
+  transition: transform var(--dur) var(--ease);
+}
+.ask-card__disclose[aria-expanded='true'] svg {
+  transform: rotate(90deg);
+}
+.ask-card__breakdown {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+.ask-card__summary {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+.ask-card__tool {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-4);
+}
+.ask-card__tool code {
+  font-family: var(--font-mono);
+}
+.ask-card__note {
+  height: 32px;
+  font-size: var(--fs-sm);
+}
+
+/* ---- The composer: one pill, + at one end, the mic or send at the other ---- */
+.composer--worker[data-variant='chat'] {
+  border-radius: 24px;
+  background: var(--wk-card);
+}
+.composer__meta--worker {
+  width: 100%;
+}
+
+/* ================================================================ Sidebar rows
+   Each worker as a conversation: its face, its name and when it last did
+   something, and what it's up to underneath. */
+.nav-item.worker-row {
+  height: auto;
+  min-height: 50px;
+  padding: 6px 8px 6px 5px;
+  gap: 10px;
+}
+.worker-row__face {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+}
+.worker-row__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.worker-row__top,
+.worker-row__bottom {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.worker-row__name,
+.worker-row__preview {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.worker-row__name {
+  font-weight: 500;
+}
+.worker-row__time {
+  flex: none;
+  font-size: var(--fs-xxs);
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.worker-row__preview {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.worker-row[data-unread] .worker-row__preview {
+  color: var(--text-2);
+}
+.worker-row__trail {
+  flex: none;
+}
+.worker-row .spinner {
+  color: var(--text-3);
+}
 
 /* ---------------------------------------------------------------- threads */
 

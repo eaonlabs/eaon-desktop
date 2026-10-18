@@ -79,7 +79,7 @@ scenario('a worker runs a side task beside its main thread; Stop only stops the 
   await s.shot(page, 'side-thread')
 
   // Stop on the side thread stops that run and leaves the main thread alone.
-  await page.click('.worker-stop')
+  await page.click('.composer--worker .send--stop')
   await within(sideStream.closed, 5000, "Stop did not close the side thread's model request within 5 s")
   assert.equal(sideStream.aborted, true)
   assert.equal(mainStream.open, true, "stopping the side task closed the main thread's request too")

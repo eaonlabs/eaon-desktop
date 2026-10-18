@@ -1,7 +1,7 @@
 import { memo, useLayoutEffect, useRef, useState, type CSSProperties, type JSX } from 'react'
 import { Brain, ChevronRight } from 'lucide-react'
 import { ActivityGroup } from './Activity'
-import { DotMatrix } from './Loaders'
+import { useElapsed } from './Loaders'
 import { Markdown } from './Markdown'
 import { describeToolPart, ToolCall } from './ToolCall'
 import { thoughtBody, thoughtHasBody, thoughtTitle, type TurnStep } from './turnItems'
@@ -35,7 +35,9 @@ export const ThoughtRow = memo(function ThoughtRow({ text, live }: { text: strin
         data-static={!hasBody || undefined}
       >
         <span className="tool__glyph">
-          <span className="tool__icon">{live ? <DotMatrix motion="think" size={13} /> : <Brain size={13} strokeWidth={1.9} />}</span>
+          <span className="tool__icon" data-pulse={live || undefined}>
+            <Brain size={14} strokeWidth={1.8} />
+          </span>
           {hasBody && <ChevronRight size={13} strokeWidth={2.2} className="tool__chevron" />}
         </span>
         <span className={`tool__label${live ? ' step-shimmer' : ''}`}>{live ? 'Thinking' : 'Thought'}</span>
@@ -53,6 +55,32 @@ export const ThoughtRow = memo(function ThoughtRow({ text, live }: { text: strin
     </div>
   )
 })
+
+/** "18s", "1m 22s", "1h 4m": whole seconds, never under one. */
+function duration(ms: number): string {
+  const seconds = Math.max(1, Math.round(ms / 1000))
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return seconds % 60 ? `${minutes}m ${seconds % 60}s` : `${minutes}m`
+  return minutes % 60 ? `${Math.floor(minutes / 60)}h ${minutes % 60}m` : `${Math.floor(minutes / 60)}h`
+}
+
+/**
+ * Over a turn that did work: how long it has been at it, ticking while it
+ * runs, and how long it took once done, on a hairline that sets the work
+ * apart from the conversation above it. A finished turn from before turns
+ * were timed has no length to give, and shows none.
+ */
+export function TurnHeader({ startedAt, finishedAt, live }: { startedAt: number; finishedAt?: number; live: boolean }): JSX.Element | null {
+  const elapsed = useElapsed(startedAt, live)
+  if (!live && !finishedAt) return null
+  const text = live ? (elapsed < 1000 ? 'Working' : `Working for ${duration(elapsed)}`) : `Worked for ${duration(finishedAt! - startedAt)}`
+  return (
+    <div className="turn-head" data-live={live || undefined}>
+      <span className="turn-head__text">{text}</span>
+    </div>
+  )
+}
 
 function Step({ step, live }: { step: TurnStep; live: boolean }): JSX.Element {
   return step.kind === 'thought' ? <ThoughtRow text={step.text} live={live} /> : <ToolCall part={step.part} />

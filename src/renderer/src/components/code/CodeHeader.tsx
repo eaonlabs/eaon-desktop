@@ -7,7 +7,7 @@ import { useCode } from './codeStore'
 import { useAdeSessions } from './sessionsStore'
 import { sessionTitle } from '@shared/adeSessions'
 import { NewTerminalButton } from './terminal/TerminalWorkspace'
-import { UsageMeter } from './UsageMeter'
+import { UsagePlacement } from '../UsagePlacement'
 import { ReviewButton } from './ReviewPanel'
 import { revealLabel } from '../../lib/files'
 import { shortcutLabel } from '../../lib/platform'
@@ -25,7 +25,7 @@ export function CodeHeader(): JSX.Element {
       left={cwd ? <FolderChip /> : null}
       right={
         <div className="chat-header__actions">
-          <UsageMeter />
+          <UsagePlacement where="header" />
           <ReviewButton />
           {cwd && (
             <button

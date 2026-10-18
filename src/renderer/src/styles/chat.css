@@ -1,22 +1,80 @@
 /* Home hero, composer, tray and the conversation view. */
 
 .home {
+  position: relative;
+  z-index: 1;
   flex: 1;
   min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
+}
+/* Behind the whole page, top bar included; it never takes the pointer. */
+.home__field {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  /* Quieter behind the title and the box, where the eye is meant to rest. */
+  -webkit-mask-image: radial-gradient(ellipse 46% 40% at 50% 46%, rgb(0 0 0 / 0.35), #000 100%);
+  mask-image: radial-gradient(ellipse 46% 40% at 50% 46%, rgb(0 0 0 / 0.35), #000 100%);
+  animation: field-in 900ms var(--ease) both;
+}
+@keyframes field-in {
+  from {
+    opacity: 0;
+  }
+}
+.main > .chat-header {
+  position: relative;
+  z-index: 2;
+}
+.home__hero {
+  flex: 1;
+  min-height: 0;
+  /* Its own width, not its widest child's: the chips and title below size
+     against the column and wrap inside it, rather than spilling over the
+     sidebar or a panel beside a narrow chat. */
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
   justify-content: center;
-  padding: 8px 0 0;
+  padding: 0 24px 24px;
+}
+.home__mark {
+  width: 44px;
+  height: 44px;
+  margin-bottom: 18px;
+  color: var(--text);
+  animation: hero-in 520ms var(--ease) both;
+}
+.home__dock {
+  display: flex;
+  justify-content: center;
+  width: 100%;
+  padding: 0 0 16px;
+  animation: hero-in 520ms var(--ease) 120ms both;
+}
+@keyframes hero-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
 }
 
 .home__title {
-  font-size: var(--fs-title);
+  max-width: 100%;
+  text-wrap: balance;
+  font-size: clamp(calc(var(--fs-title) * 0.9), 3.2vw, calc(var(--fs-title) * 1.12));
   font-weight: 500;
   letter-spacing: -0.02em;
   color: var(--text);
-  margin: 0 0 26px;
+  margin: 0;
   text-align: center;
+  animation: hero-in 520ms var(--ease) 60ms both;
 }
 .home__icon {
   color: var(--text-3);
@@ -33,12 +91,13 @@
   gap: 8px;
   width: var(--composer-chat-w);
   max-width: calc(100% - 48px);
-  margin: 18px 0 0;
+  margin: 26px 0 0;
 }
 .suggestion-chip {
   display: inline-flex;
   align-items: center;
   gap: 7px;
+  background: color-mix(in srgb, var(--canvas) 72%, transparent);
   height: 34px;
   padding: 0 14px 0 12px;
   border-radius: var(--r-pill);
@@ -305,6 +364,187 @@
   color: var(--bg);
 }
 
+/* ---- Two shapes ----
+   Home: a roomy box, the text over a toolbar of +, permissions, the model
+   and send. In a conversation: one line between + and send, with the
+   permission and the model on a quiet row under it. Above either, the
+   project the agent works in and (in a conversation) what it has changed. */
+
+.composer-stack,
+.perm-menu {
+  --warn: #f0883e;
+}
+[data-theme='light'] .composer-stack,
+[data-theme='light'] .perm-menu {
+  --warn: #c2570c;
+}
+
+.composer {
+  box-shadow:
+    0 0 0 1px var(--border-soft),
+    0 10px 30px -18px rgb(0 0 0 / 0.55);
+}
+.composer:focus-within {
+  box-shadow:
+    0 0 0 1px var(--border-strong),
+    0 10px 30px -18px rgb(0 0 0 / 0.55);
+}
+.composer__round:not(.composer__mic) {
+  background: var(--hover);
+}
+
+.composer[data-variant='home'] {
+  padding: 0 8px 8px;
+}
+.composer[data-variant='home'] .composer__input {
+  min-height: 74px;
+  padding: 16px 8px 8px;
+}
+.composer[data-variant='home'] .composer__toolbar {
+  height: 36px;
+  gap: 6px;
+}
+
+.composer[data-variant='chat'] {
+  padding: 6px;
+  border-radius: 22px;
+}
+.composer__row {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+}
+/* One line, the buttons sit on the box's midline; more lines, they stay at
+   the bottom by the last one. + matches send's size, so each sits in the
+   middle of its own rounded end of the pill. */
+.composer__row > .composer__round,
+.composer__row > .send {
+  margin-bottom: 2px;
+}
+.composer__row > .composer__round:not(.composer__mic) {
+  width: 32px;
+  height: 32px;
+}
+/* The mic is smaller than send: lifted by half the difference. */
+.composer__row > .composer__mic {
+  margin-bottom: 4px;
+}
+.composer[data-variant='chat'] .composer__input {
+  flex: 1;
+  min-width: 0;
+  min-height: 36px;
+  padding: 8px 4px 7px;
+}
+.composer[data-variant='chat'] .voice-bar {
+  flex: 1;
+}
+
+/* Under the box in a conversation: what Eaon may do, and with which model. */
+.composer__meta {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 34px;
+  margin-top: 4px;
+  padding: 0 2px;
+}
+.composer__meta .chip--model {
+  color: var(--text-2);
+}
+
+/* Over the box: the project, and the chat's changes. */
+.composer__above {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0 0 8px;
+  padding: 0 2px;
+}
+
+.composer-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  height: 30px;
+  padding: 0 11px;
+  border-radius: var(--r-pill);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  white-space: nowrap;
+  transition:
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease),
+    box-shadow var(--dur) var(--ease);
+}
+.composer-pill:hover,
+.composer-pill[data-open] {
+  background: var(--hover);
+  color: var(--text);
+}
+.composer-pill__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.composer-pill__chevron {
+  flex: none;
+  color: var(--text-4);
+}
+.composer-pill[data-tone='warn'],
+.composer-pill[data-tone='warn'] .composer-pill__chevron {
+  color: var(--warn);
+}
+.composer-pill[data-tone='warn']:hover,
+.composer-pill[data-tone='warn'][data-open] {
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+}
+.composer__above .composer-pill {
+  max-width: 260px;
+  background: color-mix(in srgb, var(--surface-2) 70%, transparent);
+  box-shadow: inset 0 0 0 1px var(--border-soft);
+}
+.composer__above .composer-pill:hover,
+.composer__above .composer-pill[data-open] {
+  background: var(--surface-3);
+}
+.composer-pill--changes {
+  animation: chip-in var(--dur-spring) var(--spring-moderate) both;
+}
+.composer-pill--changes .diff__stat-add,
+.composer-pill--changes .diff__stat-del {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The project menu runs taller than a menu usually does: the folders, then its way out. */
+.menu.project-menu {
+  max-height: min(480px, calc(100vh - 24px));
+}
+
+/* The permission menu: each choice described; full access in orange. */
+.perm-menu__option[data-tone='warn'] .menu__item,
+.perm-menu__option[data-tone='warn'] .menu__item svg {
+  color: var(--warn);
+}
+.perm-menu__option[data-tone='warn'] .menu__item [class*='desc'] {
+  color: color-mix(in srgb, var(--warn) 80%, var(--text-2));
+}
+
+/* Tight on room, the toolbar's controls keep their icons: a pill never
+   shrinks past its icon, and the model keeps its mark and a few letters. */
+.composer__toolbar > .composer-pill,
+.composer__meta > .composer-pill,
+.composer__toolbar > .composer__round,
+.composer__toolbar > .send {
+  flex-shrink: 0;
+}
+.composer__toolbar > .chip--model,
+.composer__meta > .chip--model {
+  min-width: 52px;
+}
+
 /* The + menu holds every agent control in one short list; it is sized to
    show all of it without scrolling, which the general 340px cap would not. */
 .menu.menu--tall {
@@ -463,7 +703,10 @@
      with room to spare instead of jammed against it. The padding is trimmed
      by as much, so the first message still starts where it did. */
   margin-top: var(--sidebar-gap);
-  padding: calc(24px - var(--sidebar-gap)) 0 12px;
+  padding: calc(24px - var(--sidebar-gap)) 0 24px;
+  /* The reply fades into the composer rather than being cut off by it. */
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 24px), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 24px), transparent);
 }
 
 .thread__inner {
@@ -551,6 +794,7 @@
 /* A column: in Work the goal banner and checklist stack above the composer.
    As a row they sat beside it, both squeezed to half width. */
 .composer-dock {
+  position: relative;
   flex: none;
   display: flex;
   flex-direction: column;
@@ -581,7 +825,8 @@
 @container (max-width: 430px) {
   .chip__label,
   .chip--model .chip__effort,
-  .composer-chip__label {
+  .composer-chip__label,
+  .composer__toolbar .composer-pill__label {
     display: none;
   }
   .chip {
@@ -642,9 +887,12 @@
 /* ---- Message entrances ------------------------------------------ */
 
 /* New turns rise into place so it's obvious where content appeared, rather
-   than it materialising and leaving the eye to hunt for it. */
-.msg-row {
-  animation: msg-in var(--dur-spring) var(--spring-moderate) backwards;
+   than it materialising and leaving the eye to hunt for it. Only turns that
+   arrive while the chat is open (data-fresh): the ones already there when it
+   opens come in with the thread's own fade. A user's message animates its
+   bubble below, so its row doesn't move too. */
+.msg-row[data-fresh]:not(.msg-user-block) {
+  animation: msg-in 260ms var(--ease) backwards;
 }
 @keyframes msg-in {
   from {
@@ -654,15 +902,148 @@
 }
 
 /* The user's own message comes from the composer, so it enters from lower and
-   slightly scaled — the direction it physically travelled. */
-.msg--user {
-  animation: user-msg-in var(--dur-spring-fast) var(--spring-fast) backwards;
+   slightly scaled — the direction it physically travelled — growing from its
+   corner nearest the composer. */
+.msg-row[data-fresh] > .msg--user {
+  transform-origin: 100% 100%;
+  animation: user-msg-in 300ms var(--ease) backwards;
 }
 @keyframes user-msg-in {
   from {
     opacity: 0;
-    transform: translateY(10px) scale(0.97);
+    transform: translateY(14px) scale(0.96);
   }
+}
+
+/* ---- The top bar over a conversation ----------------------------
+   It floats over the thread rather than sitting above it, so messages
+   scroll on up beneath it. Behind it, a veil of graded blur — the way a
+   lens defocuses — lies over what passes under the bar: six layers, each
+   blurring twice as hard as the last and each masked to a band a little
+   higher up, so the blur builds smoothly from nothing at the veil's foot to
+   its fullest under the bar's buttons, with no edge anywhere. A faint wash
+   of the page's own colour, densest at the top, keeps the bar's text
+   legible. It fades in with the first stretch of scrolling. */
+.main > .chat-header--float {
+  position: absolute;
+  top: 0;
+  right: 0;
+  left: 0;
+  z-index: 4;
+}
+/* How far the veil has built, 0 to 1, set from the scroll position. A typed
+   property, so a wheel notch's jump in it eases instead of snapping. */
+@property --veil {
+  syntax: '<number>';
+  inherits: true;
+  initial-value: 0;
+}
+.scroll-veil {
+  /* Starts above the window's top edge: a blur has nothing to sample past
+     its own edge, and right at the top of the window that read as a dark
+     rim. Offscreen, the rim never shows. */
+  --veil-over: 40px;
+  --veil-h: calc(var(--titlebar-h) + var(--sidebar-gap) + 40px + var(--veil-over));
+  position: absolute;
+  top: calc(-1 * var(--veil-over));
+  right: 0;
+  left: 0;
+  z-index: 3;
+  height: var(--veil-h);
+  pointer-events: none;
+  --veil: 0;
+  transition: --veil 320ms cubic-bezier(0.25, 0.8, 0.3, 1);
+  /* A light wash, not a dark band: just enough of the page's colour behind
+     the bar's text to keep it legible, gone well before the blur ends. */
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--canvas) calc(30% * var(--veil)), transparent) 0%,
+    color-mix(in srgb, var(--canvas) calc(18% * var(--veil)), transparent) 55%,
+    transparent 85%
+  );
+}
+/* Over a wallpaper the wash would only dim it: the blur alone does the work. */
+body[data-see-through='on'] .scroll-veil {
+  background: none;
+}
+.scroll-veil > span {
+  position: absolute;
+  inset: 0;
+  /* 1, 2, 4, 8, 16, 32 px, each layer's band one sixth higher than the last. */
+  -webkit-backdrop-filter: blur(calc(1px * pow(2, var(--i)) * var(--veil)));
+  backdrop-filter: blur(calc(1px * pow(2, var(--i)) * var(--veil)));
+  -webkit-mask-image: linear-gradient(
+    to top,
+    transparent calc(var(--i) * 16.66%),
+    #000 calc((var(--i) + 1) * 16.66%),
+    #000 calc((var(--i) + 2) * 16.66%),
+    transparent calc((var(--i) + 3) * 16.66%)
+  );
+  mask-image: linear-gradient(
+    to top,
+    transparent calc(var(--i) * 16.66%),
+    #000 calc((var(--i) + 1) * 16.66%),
+    #000 calc((var(--i) + 2) * 16.66%),
+    transparent calc((var(--i) + 3) * 16.66%)
+  );
+}
+/* The top layer runs to the very top rather than fading out there. */
+.scroll-veil > span:last-child {
+  -webkit-mask-image: linear-gradient(to top, transparent 66%, #000 92%);
+  mask-image: linear-gradient(to top, transparent 66%, #000 92%);
+}
+@media (prefers-reduced-transparency: reduce) {
+  .scroll-veil > span {
+    display: none;
+  }
+}
+
+/* The thread runs up under the bar, starting its first message where it did. */
+.main:has(> .chat-header--float) > .thread {
+  margin-top: 0;
+  padding-top: calc(var(--titlebar-h) + var(--sidebar-gap) + 24px);
+  scroll-padding-top: calc(var(--titlebar-h) + var(--sidebar-gap) + 12px);
+}
+
+/* ---- Back to the latest ----------------------------------------- */
+
+/* Floats over the end of the thread once the reader has scrolled away from
+   it, and sinks back out of sight when they're there again. */
+.thread-jump {
+  position: absolute;
+  top: -40px;
+  left: 50%;
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-pill);
+  background: var(--surface-3);
+  color: var(--text-2);
+  box-shadow:
+    0 0 0 1px var(--border-soft),
+    0 8px 20px -8px rgb(0 0 0 / 0.5);
+  opacity: 0;
+  transform: translate(-50%, 8px) scale(0.85);
+  pointer-events: none;
+  transition:
+    opacity 160ms var(--ease),
+    transform 260ms var(--ease),
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+.thread-jump[data-shown] {
+  opacity: 1;
+  transform: translate(-50%, 0) scale(1);
+  pointer-events: auto;
+}
+.thread-jump:hover {
+  background: var(--surface-4);
+  color: var(--text);
+}
+.thread-jump:active {
+  transform: translate(-50%, 0) scale(0.92);
 }
 
 /* ---- Send / stop morph ------------------------------------------ */
@@ -675,26 +1056,6 @@
     opacity: 0;
     transform: scale(0.5) rotate(-45deg);
   }
-}
-
-/* ---- Streaming caret --------------------------------------------
-   A caret on the last line while tokens are still arriving, so a slow
-   or paused stream is distinguishable from a finished one. */
-/* On the last paragraph rather than the message: the reply is a stack of
-   blocks now, so a caret on the container sat alone under the final code block
-   or tool call instead of trailing the sentence being written. It is suppressed
-   entirely when the reply currently ends in something other than prose, where
-   there is no line for it to trail. */
-.msg--assistant[data-streaming='true'] > .md__p:last-child::after {
-  content: '';
-  display: inline-block;
-  width: 2px;
-  height: 1.05em;
-  margin-left: 2px;
-  vertical-align: text-bottom;
-  border-radius: 1px;
-  background: var(--provider-accent);
-  animation: caret-blink 1.05s steps(1, end) infinite;
 }
 
 /* Each block resolves through a soft blur as it arrives. Only while streaming,
@@ -719,15 +1080,5 @@
 @media (prefers-reduced-motion: reduce) {
   .msg--assistant[data-streaming='true'] > * {
     animation: none;
-  }
-}
-@keyframes caret-blink {
-  0%,
-  45% {
-    opacity: 1;
-  }
-  50%,
-  95% {
-    opacity: 0;
   }
 }

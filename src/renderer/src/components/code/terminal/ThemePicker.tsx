@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { Check, X } from 'lucide-react'
 import { useApp } from '../../../state/store'
-import { Switch } from '../../ui'
+import { Slider, Switch } from '../../ui'
 import { appTheme, terminals } from './registry'
 import { SCENES, scenes, seedOf } from './scenes'
 import { findTheme, TERMINAL_THEMES, type TerminalColors, type TerminalTheme } from './themes'
@@ -83,8 +83,8 @@ export function ThemePicker(): JSX.Element | null {
       }
     })
   )
-  const cli = cliLabel && cliCommand ? { label: cliLabel, command: cliCommand } : null
-  const look = useApp((s) => s.settings?.ade ?? { theme: 'eaon', scenes: true })
+  const cli = useMemo(() => (cliLabel && cliCommand ? { label: cliLabel, command: cliCommand } : null), [cliLabel, cliCommand])
+  const look = useApp((s) => s.settings?.ade ?? { theme: 'eaon', scenes: true, blur: false, blurAmount: 10 })
   const saved = findTheme(look.theme)
   const [index, setIndex] = useState(0)
   const panel = useRef<HTMLDivElement>(null)
@@ -233,6 +233,13 @@ export function ThemePicker(): JSX.Element | null {
           <span>Draw each theme’s scene behind the text</span>
           <Switch label="Scenes" checked={look.scenes} onChange={(on) => saveLook({ scenes: on })} />
         </footer>
+        {look.scenes && (
+          <footer className="theme-picker__foot theme-picker__foot--blur">
+            <span>Blur the scene</span>
+            {look.blur && <Slider value={look.blurAmount} min={2} max={30} onChange={(blurAmount) => saveLook({ blurAmount })} />}
+            <Switch label="Blur the scene" checked={look.blur} onChange={(on) => saveLook({ blur: on })} />
+          </footer>
+        )}
         {from && cli && (
           // The CLI's own /theme (Claude Code's light and dark text styles): still one click away.
           <button

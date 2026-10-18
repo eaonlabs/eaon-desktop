@@ -1,5 +1,6 @@
 import { isAbsolute, resolve } from 'node:path'
-import { describeWorker, MAIN_THREAD, MAX_SLEEP_MINUTES } from '@shared/workers'
+import { DEFAULT_WATCH_MINUTES, describeWorker, JOB_DEFAULT_HOURS, JOB_MAX_HOURS, MAIN_THREAD, MAX_SLEEP_MINUTES } from '@shared/workers'
+import { isCatastrophicCommand, isReadOnlyCommand, isRiskyCommand } from '../../agent/approvals'
 import type { AgentTool, ToolContext, ToolSource } from '../../agent/tools'
 import { HINT_MOODS, type TransferWatch, type WorkersEngine } from './engine'
 
@@ -353,7 +354,8 @@ export function workersToolSource(engine: WorkersEngine): ToolSource {
       type: 'object',
       properties: {
         question: { type: 'string' },
-        options: { type: 'array', items: { type: 'string' }, description: 'Up to 4 quick answers' },
+        options: { type: 'array', items: { type: 'string' }, description: 'Up to 6 quick answers, shown as lettered choices' },
+        multiple: { type: 'boolean', description: 'The user may pick several options ("choose all that apply")' },
         approve_tool: { type: 'string', description: 'For an approval: the name of the tool you want to call, exactly as you call it (e.g. email_send)' },
         approve_input: { type: 'object', description: 'For an approval: its exact input' },
         approve_summary: { type: 'string', description: 'For an approval: what it does, in one line' }
@@ -371,6 +373,7 @@ export function workersToolSource(engine: WorkersEngine): ToolSource {
         {
           question: str(input.question),
           options: Array.isArray(input.options) ? input.options.filter((o): o is string => typeof o === 'string') : [],
+          multiple: input.multiple === true,
           approve: tool && approveInput ? { tool, input: approveInput, summary: str(input.approve_summary) || str(input.question) } : null
         },
         threadOf(ctx)
@@ -430,6 +433,116 @@ export function workersToolSource(engine: WorkersEngine): ToolSource {
     run: async (input, ctx) => engine.removeRoutine(self(ctx), str(input.name))
   }
 
+  /**
+   * Long work outside the turn: the job runs while the worker sleeps or does
+   * something else, and its end wakes the worker. Checked like run_command,
+   * since that is what it is.
+   */
+  const startJob: AgentTool = {
+    name: 'start_job',
+    description: `Run a long command in the background — a build, a test suite, a data run, a download — and be woken when it ends, with its result and the last of its output. Then sleep or do other work; never poll it. name = a short label; timeout_minutes (default ${JOB_DEFAULT_HOURS * 60}, max ${JOB_MAX_HOURS * 60}). For servers that never end use run_command with background: true.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        command: { type: 'string' },
+        name: { type: 'string' },
+        cwd: { type: 'string', description: 'Folder to run in; default your folder' },
+        timeout_minutes: { type: 'number' }
+      },
+      required: ['command']
+    },
+    mutating: true,
+    risky: (input) => isRiskyCommand(str(input.command)),
+    catastrophic: (input) => isCatastrophicCommand(str(input.command)),
+    describe: (input) => str(input.name) || str(input.command),
+    run: async (input, ctx) =>
+      engine.startJob(self(ctx), { command: str(input.command), name: str(input.name), cwd: str(input.cwd), timeoutMinutes: num(input.timeout_minutes) }, threadOf(ctx))
+  }
+
+  const checkJob: AgentTool = {
+    name: 'check_job',
+    description: 'See how a background job is going (running, or how it ended) and the last lines of its output; stop: true ends it. job = its id or name; empty means your running one.',
+    inputSchema: {
+      type: 'object',
+      properties: { job: { type: 'string' }, lines: { type: 'number', description: 'Output lines to show, default 40' }, stop: { type: 'boolean' } }
+    },
+    mutating: (input) => input.stop === true,
+    describe: (input) => `${input.stop === true ? 'Stop' : 'Check'} ${str(input.job) || 'job'}`,
+    run: async (input, ctx) => (input.stop === true ? engine.stopJob(self(ctx), str(input.job), 'worker') : engine.jobStatus(self(ctx), str(input.job), num(input.lines) ?? 40))
+  }
+
+  /**
+   * How a worker maintains things: Eaon itself looks every few minutes, and
+   * the model is only woken when something happens. A command watch runs its
+   * command over and over unattended, so it must pass the same checks now.
+   */
+  const watch: AgentTool = {
+    name: 'watch',
+    description: `Keep an eye on something between turns and be woken only when it matters — Eaon looks for you, without the model, so watching costs nothing. kind: url (a page or API), file (a file or folder; path relative to your folder) or command (a check, e.g. "git fetch -q && git status -sb", "curl -sf localhost:3000/health"). when: change (default; the first look sets the baseline), contains or missing (text), or fails (page down, file missing, command exits non-zero — and again when it recovers). every_minutes (default ${DEFAULT_WATCH_MINUTES}). note = what to do when it fires. Reusing a name replaces that watch. Use it to maintain things: a site's uptime, a price, an inbox folder, CI, a log.`,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        kind: { type: 'string', enum: ['url', 'file', 'command'] },
+        target: { type: 'string', description: 'The URL, path or command' },
+        when: { type: 'string', enum: ['change', 'contains', 'missing', 'fails'] },
+        text: { type: 'string', description: 'For contains / missing' },
+        every_minutes: { type: 'number' },
+        note: { type: 'string', description: 'What to do when it fires' }
+      },
+      required: ['name', 'kind', 'target']
+    },
+    mutating: (input) => str(input.kind) === 'command' && !isReadOnlyCommand(str(input.target)),
+    risky: (input) => str(input.kind) === 'command' && isRiskyCommand(str(input.target)),
+    catastrophic: (input) => str(input.kind) === 'command' && isCatastrophicCommand(str(input.target)),
+    describe: (input) => `${str(input.name) || str(input.target)}${str(input.when) ? ` · ${str(input.when)}` : ''}`,
+    run: async (input, ctx) =>
+      engine.addWatch(self(ctx), {
+        name: str(input.name),
+        kind: str(input.kind),
+        target: str(input.target),
+        when: str(input.when) || undefined,
+        text: str(input.text),
+        note: str(input.note),
+        everyMinutes: num(input.every_minutes)
+      }, threadOf(ctx))
+  }
+
+  const unwatch: AgentTool = {
+    name: 'unwatch',
+    description: 'Stop a watch, by name.',
+    inputSchema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] },
+    mutating: false,
+    describe: (input) => str(input.name),
+    run: async (input, ctx) => engine.removeWatch(self(ctx), str(input.name))
+  }
+
+  const savePlaybook: AgentTool = {
+    name: 'save_playbook',
+    description:
+      'Save how to do a task you (or the user) will want done again, as steps you can follow next time: after working something out, or when the user shows you. summary = when to use it, one line; steps = numbered steps with the URLs, commands, files and gotchas that matter. Reusing a name updates it; remove: true deletes it.',
+    inputSchema: {
+      type: 'object',
+      properties: { name: { type: 'string' }, summary: { type: 'string' }, steps: { type: 'string' }, remove: { type: 'boolean' } },
+      required: ['name']
+    },
+    mutating: false,
+    describe: (input) => `${input.remove === true ? 'Remove' : 'Save'} ${str(input.name)}`,
+    run: async (input, ctx) =>
+      input.remove === true
+        ? engine.removePlaybook(self(ctx), str(input.name))
+        : engine.savePlaybook(self(ctx), { name: str(input.name), summary: str(input.summary), steps: str(input.steps) })
+  }
+
+  const readPlaybook: AgentTool = {
+    name: 'read_playbook',
+    description: 'Read one of your playbooks before doing that task, and follow it (improve it with save_playbook if something has changed).',
+    inputSchema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] },
+    mutating: false,
+    describe: (input) => str(input.name),
+    run: async (input, ctx) => engine.readPlaybook(self(ctx), str(input.name))
+  }
+
   const tools = [
     listWorkers,
     messageWorker,
@@ -440,6 +553,12 @@ export function workersToolSource(engine: WorkersEngine): ToolSource {
     setHeartbeat,
     addRoutine,
     removeRoutine,
+    startJob,
+    checkJob,
+    watch,
+    unwatch,
+    savePlaybook,
+    readPlaybook,
     setStatus,
     setGoal,
     updateNotes,

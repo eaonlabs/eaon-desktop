@@ -1,12 +1,16 @@
+import { speechUrl } from '@shared/speech'
+
 /**
  * Speech to text for dictation in the composers. The audio is recorded in the
  * renderer (MediaRecorder, webm/opus) and sent here; this sends it to the
- * first provider the user has a key for. OpenAI first, then Groq, which runs
- * Whisper fast and cheaply. Nothing is sent anywhere without a saved key.
+ * speech-to-text model the user picked in Settings → Model providers, or,
+ * with none picked, the first provider the user has a key for: OpenAI first,
+ * then Groq, which runs Whisper fast and cheaply. Nothing is sent to a
+ * hosted provider without a saved key.
  */
 
 export interface Transcriber {
-  provider: 'openai' | 'groq'
+  provider: string
   label: string
   url: string
   /** Tried in order: a model the account can't use falls through to the next. */
@@ -18,14 +22,38 @@ export const TRANSCRIBERS: Transcriber[] = [
   { provider: 'groq', label: 'Groq', url: 'https://api.groq.com/openai/v1/audio/transcriptions', models: ['whisper-large-v3-turbo'] }
 ]
 
+/** The speech-to-text model picked in settings, and what is needed to reach it. */
+export interface SpeechChoice {
+  providerId: string
+  modelId: string
+  /** The provider's name, for messages. */
+  label: string
+  /** Its base URL, for a custom or local provider without a known endpoint. */
+  baseUrl?: string
+  /** A local runtime needs no key. */
+  keyless?: boolean
+}
+
 /** Both providers refuse files over 25 MB; ten minutes of opus is a few MB. */
 export const MAX_AUDIO_BYTES = 24 * 1024 * 1024
 
 export const NO_KEY_MESSAGE =
   'Dictation needs an OpenAI or Groq API key. Add one in Settings → Model providers, then try again.'
 
-export function pickTranscriber(getKey: (providerId: string) => string | undefined): { transcriber: Transcriber; key: string } | null {
+export function pickTranscriber(
+  getKey: (providerId: string) => string | undefined,
+  choice?: SpeechChoice | null
+): { transcriber: Transcriber; key: string } | null {
+  if (choice) return chosenTranscriber(getKey, choice)
   return usableTranscribers(getKey)[0] ?? null
+}
+
+/** The model picked in settings, or null when it has no address or needs a key that isn't saved. */
+function chosenTranscriber(getKey: (providerId: string) => string | undefined, choice: SpeechChoice): { transcriber: Transcriber; key: string } | null {
+  const url = speechUrl(choice.providerId, choice.baseUrl)
+  const key = getKey(choice.providerId)?.trim() ?? ''
+  if (!url || (!key && !choice.keyless)) return null
+  return { transcriber: { provider: choice.providerId, label: choice.label, url, models: [choice.modelId] }, key }
 }
 
 /** Every transcriber with a saved key, in order of preference. */
@@ -38,6 +66,8 @@ export function usableTranscribers(getKey: (providerId: string) => string | unde
 
 export interface TranscribeDeps {
   getKey: (providerId: string) => string | undefined
+  /** The model picked in settings; null or absent picks automatically. */
+  choice?: SpeechChoice | null
   fetch?: typeof fetch
   timeoutMs?: number
 }
@@ -56,7 +86,8 @@ export function transcriptionRequest(audio: Uint8Array, mimeType: string, model:
   form.append('file', new Blob([audio], { type: mimeType || 'audio/webm' }), fileNameFor(mimeType))
   form.append('model', model)
   form.append('response_format', 'json')
-  return { method: 'POST', headers: { Authorization: `Bearer ${key}` }, body: form }
+  // A local server needs no key, and some refuse an empty bearer.
+  return { method: 'POST', headers: key ? { Authorization: `Bearer ${key}` } : {}, body: form }
 }
 
 class ProviderError extends Error {
@@ -94,6 +125,18 @@ async function errorFrom(response: Response, label: string): Promise<ProviderErr
 export async function transcribe(audio: Uint8Array, mimeType: string, deps: TranscribeDeps): Promise<{ text: string; provider: string }> {
   if (audio.byteLength === 0) throw new Error('Nothing was recorded.')
   if (audio.byteLength > MAX_AUDIO_BYTES) throw new Error('That recording is too long to transcribe. Keep it under ten minutes.')
+  if (deps.choice) {
+    // A model picked in settings is the only one used: falling through to
+    // another provider would send the recording somewhere the user didn't pick.
+    const chosen = chosenTranscriber(deps.getKey, deps.choice)
+    if (!chosen)
+      throw new Error(
+        speechUrl(deps.choice.providerId, deps.choice.baseUrl)
+          ? `Dictation is set to ${deps.choice.label}, which needs an API key. Add one in Settings → Model providers, or pick another speech-to-text model there.`
+          : `Dictation is set to ${deps.choice.label}, which has no address to send recordings to. Pick another speech-to-text model in Settings → Model providers.`
+      )
+    return transcribeWith(chosen.transcriber, chosen.key, audio, mimeType, deps)
+  }
   const usable = usableTranscribers(deps.getKey)
   if (usable.length === 0) throw new Error(NO_KEY_MESSAGE)
   let first: Error | null = null

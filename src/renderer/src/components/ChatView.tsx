@@ -1,11 +1,14 @@
-import { useEffect, useLayoutEffect, useRef, useState, memo, useMemo } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, memo, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { useShallow } from 'zustand/react/shallow'
 import {
   Archive,
+  ArrowDown,
   CalendarClock,
+  ChevronDown,
   Compass,
   Copy,
+  Eye,
   FileText,
   FolderOpen,
   FolderTree,
@@ -15,6 +18,8 @@ import {
   MoreHorizontal,
   PanelRight,
   PencilLine,
+  Target,
+  Terminal,
   Trash2,
   TriangleAlert
 } from 'lucide-react'
@@ -28,9 +33,11 @@ import { Markdown } from './agent/Markdown'
 import { FilesChanged } from './agent/FilesChanged'
 import { LoadingState } from './agent/Loaders'
 import { toolPartChanges } from './agent/ToolCall'
-import { StepRun } from './agent/TurnSteps'
+import { TurnLive } from './agent/StepCards'
+import { StepRun, TurnHeader } from './agent/TurnSteps'
 import { turnItems } from './agent/turnItems'
 import { TopBar } from './TopBar'
+import { AsciiField } from './AsciiField'
 import { RowBoundary } from './ErrorBoundary'
 import { GoalBanner, PlanCard, TodoPanel, UsageLine } from './agent/WorkBits'
 import { FileDiff } from './agent/FileDiff'
@@ -41,7 +48,9 @@ import { WorkerFace } from './workers/WorkerFace'
 import { ChannelLogo } from './channels/ChannelLogo'
 import { AgentBrowserToggle } from './agentBrowser/AgentBrowserPanel'
 import { CodeToggle } from './ide/CodePanel'
+import { openInCode } from './ide/ideStore'
 import { CHANNEL_LABEL } from '@shared/channels'
+import type { WorkerMail } from '@shared/workers'
 import { fileUrl, isImagePath, isVideoPath } from '../lib/files'
 import type { Chat, ChatMessage, ChatToolPart } from '@shared/types'
 
@@ -50,9 +59,10 @@ export const ARCHIVE_REQUEST = 'eaon:archive-chat'
 
 export function ChatView(): JSX.Element {
   const chat = useApp((s) => s.activeChat())
-  // The approval card is mounted once, at the app's root (App.tsx), not here:
-  // a run that asked while Settings or another tab was open waited on a card
-  // nobody could see.
+  // The overlay approval card is mounted once, at the app's root (App.tsx),
+  // not here: a run that asked while Settings or another tab was open waited
+  // on a card nobody could see. The open conversation docks its own over the
+  // message box (see ApprovalPrompt).
   return chat ? <Conversation chat={chat} /> : <Home />
 }
 
@@ -86,27 +96,46 @@ function Home(): JSX.Element {
           </div>
         }
       />
+      <AsciiField className="home__field" />
       <div className="home">
-        <h1 className="home__title">What can I help with?</h1>
-        <Composer variant="home" />
-        {showSuggestions && (
-          <div className="home-chips" role="group" aria-label="Things Eaon can do">
-            {SUGGESTIONS.map((s, index) => (
-              <button
-                key={s.label}
-                type="button"
-                className="suggestion-chip"
-                style={{ ['--i' as string]: index }}
-                onClick={() => setComposerDraft(s.prompt)}
-              >
-                <s.icon size={15} strokeWidth={1.9} />
-                {s.label}
-              </button>
-            ))}
-          </div>
-        )}
+        <div className="home__hero">
+          <EaonSymbol className="home__mark" />
+          <h1 className="home__title">{isWork ? 'What should we work on?' : 'What can I help with?'}</h1>
+          {showSuggestions && (
+            <div className="home-chips" role="group" aria-label="Things Eaon can do">
+              {SUGGESTIONS.map((s, index) => (
+                <button
+                  key={s.label}
+                  type="button"
+                  className="suggestion-chip"
+                  style={{ ['--i' as string]: index }}
+                  onClick={() => setComposerDraft(s.prompt)}
+                >
+                  <s.icon size={15} strokeWidth={1.9} />
+                  {s.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="home__dock">
+          <Composer variant="home" />
+        </div>
       </div>
     </>
+  )
+}
+
+/** Eaon's mark, in the text colour: the brand's symbol, drawn inline so it follows the theme. */
+function EaonSymbol({ className }: { className?: string }): JSX.Element {
+  return (
+    <svg className={className} viewBox="0 0 200 200" aria-hidden="true">
+      <path
+        fill="currentColor"
+        fillRule="evenodd"
+        d="M186.6 50A100 100 0 1 0 186.6 150H103A15 15 0 0 1 103 120H197.98A100 100 0 0 0 197.98 80H103A15 15 0 0 1 103 50Z"
+      />
+    </svg>
   )
 }
 
@@ -143,6 +172,28 @@ const APPROVAL_TITLES: Record<string, string> = {
   schedule: 'Change your schedules?'
 }
 
+/** "Write index.html?": the title names the file when the call is about one. */
+function approvalTitle(tool: string, input: Record<string, unknown>): string {
+  const path = typeof input.path === 'string' ? input.path : ''
+  const name = path.split(/[\\/]/).pop() ?? ''
+  if (name && tool === 'write_file') return `Write ${name}?`
+  if (name && tool === 'edit_file') return `Edit ${name}?`
+  if (name && tool === 'delete_file') return `Move ${name} to the Trash?`
+  if (APPROVAL_TITLES[tool]) return APPROVAL_TITLES[tool]
+  // Browser Use and desktop control name each action as its own tool.
+  if (tool.startsWith('desktop_')) return APPROVAL_TITLES.computer
+  if (tool.startsWith('browser_')) return APPROVAL_TITLES.browser
+  return `Allow ${tool.replace(/_/g, ' ')}?`
+}
+
+/** Where a file call acts: its folder, beside what it does. */
+function approvalDetail(tool: string, input: Record<string, unknown>): string | undefined {
+  if (!['write_file', 'edit_file', 'delete_file', 'move_file'].includes(tool)) return undefined
+  const path = typeof input.path === 'string' ? input.path : typeof input.from === 'string' ? input.from : ''
+  const folder = path.split(/[\\/]/).slice(0, -1).join('/')
+  return folder || undefined
+}
+
 /** The one line that says what is about to happen, for tools without a bespoke preview. */
 function approvalSummary(tool: string, input: Record<string, unknown>): string {
   const pick = (key: string): string => (typeof input[key] === 'string' ? (input[key] as string) : '')
@@ -157,14 +208,50 @@ function approvalSummary(tool: string, input: Record<string, unknown>): string {
 }
 
 /**
- * Asking before a tool runs, as a card over the chat (agent/ApprovalCard.tsx).
- * It stays a moment after it's answered so it can leave the way it was
- * answered, and the next approval in the queue slides in where it was.
+ * How many docked approval prompts are on screen: one while a conversation is
+ * open. With none, the app-wide overlay answers for the open chat's turns too,
+ * since Settings or another page is in front of it.
  */
-export function ApprovalPrompt(): JSX.Element | null {
-  const { pending, waiting, respondApproval } = useApp(
-    useShallow((s) => ({ pending: s.pendingApproval, waiting: s.approvalQueue.length, respondApproval: s.respondApproval }))
+let docks = 0
+const dockListeners = new Set<() => void>()
+const isDocked = (): boolean => docks > 0
+function subscribeDock(listener: () => void): () => void {
+  dockListeners.add(listener)
+  return () => {
+    dockListeners.delete(listener)
+  }
+}
+function registerDock(): () => void {
+  docks++
+  dockListeners.forEach((listener) => listener())
+  return () => {
+    docks--
+    dockListeners.forEach((listener) => listener())
+  }
+}
+
+/**
+ * Asking before a tool runs (agent/ApprovalCard.tsx). For the chat on screen
+ * it docks over the message box, where the answer is given, with the
+ * conversation still in view; for a turn anywhere else, or while another page
+ * covers the chat, it is a card over the page (mounted once, in App.tsx). It
+ * stays a moment after it's answered so it can leave the way it was answered,
+ * and the next approval in the queue slides in where it was.
+ */
+export function ApprovalPrompt({ placement = 'overlay' }: { placement?: 'dock' | 'overlay' }): JSX.Element | null {
+  const docked = useSyncExternalStore(subscribeDock, isDocked)
+  const { asked, waiting, respondApproval, here } = useApp(
+    useShallow((s) => {
+      const ask = s.pendingApproval
+      const here = Boolean(ask && s.activeChat()?.messages.some((m) => m.id === ask.messageId))
+      return { asked: ask, waiting: s.approvalQueue.length, respondApproval: s.respondApproval, here }
+    })
   )
+  // Before paint, so the overlay never flashes a card the dock has taken.
+  useLayoutEffect(() => (placement === 'dock' ? registerDock() : undefined), [placement])
+  // Each placement answers for its own: the dock for the open chat's turns,
+  // the overlay for the rest, and for those too while no dock is on screen.
+  const pending = asked && (placement === 'dock' ? here : !(here && docked)) ? asked : null
   const [shown, setShown] = useState<PendingApproval | null>(pending)
   const [answer, setAnswer] = useState<'approve' | 'deny' | null>(null)
   const [swap, setSwap] = useState(false)
@@ -199,13 +286,15 @@ export function ApprovalPrompt(): JSX.Element | null {
   respondLatest.current = respond
 
   // esc denies. ⏎ approves only from the card itself, or with nothing focused:
-  // never from a text box (the composer sits right behind the card, and ⏎
+  // never from a text box (the message box sits right by the card, and ⏎
   // there means "send"), never when a button has focus (it answers ⏎ itself),
   // and never for a call that could delete or change the system, which needs
   // a click.
   useEffect(() => {
     if (!pending) return
     const onKey = (event: KeyboardEvent): void => {
+      const target = event.target as HTMLElement | null
+      if (target?.closest('textarea, input, [contenteditable="true"]')) return
       if (event.key === 'Escape') {
         // An Escape meant for something else — a menu, a dialog, the "/"
         // suggestions, the dictation bar — closes that and leaves the
@@ -257,22 +346,34 @@ export function ApprovalPrompt(): JSX.Element | null {
     body = <CallPreview summary={shown.summary || approvalSummary(tool, input)} args={tool === 'use_plugin_tool' ? input.arguments : input} />
   }
 
+  const card = (
+    <ApprovalCard
+      key={shown.requestId}
+      variant={placement === 'dock' ? 'dock' : 'dialog'}
+      tool={tool}
+      input={shown.input}
+      title={approvalTitle(tool, input)}
+      detail={approvalDetail(tool, input)}
+      waiting={pending ? waiting : 0}
+      busy={!pending}
+      onApprove={() => respond(true)}
+      onDeny={() => respond(false)}
+      swap={swap}
+    >
+      {body}
+    </ApprovalCard>
+  )
+
+  if (placement === 'dock') {
+    return (
+      <div className="approval-dock" data-state={pending ? 'in' : 'out'} data-answer={answer ?? undefined}>
+        {card}
+      </div>
+    )
+  }
   return createPortal(
     <div className="approval-layer" data-state={pending ? 'in' : 'out'} data-answer={answer ?? undefined} data-wide={edit || undefined}>
-      <ApprovalCard
-        key={shown.requestId}
-        variant="dialog"
-        tool={tool}
-        input={shown.input}
-        title={APPROVAL_TITLES[tool] ?? (tool.startsWith('desktop_') ? APPROVAL_TITLES.computer : tool.startsWith('browser_') ? APPROVAL_TITLES.browser : `Allow ${tool.replace(/_/g, ' ')}?`)}
-        waiting={pending ? waiting : 0}
-        busy={!pending}
-        onApprove={() => respond(true)}
-        onDeny={() => respond(false)}
-        swap={swap}
-      >
-        {body}
-      </ApprovalCard>
+      {card}
     </div>,
     document.body
   )
@@ -316,6 +417,58 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
     if (following.current) node.scrollTop = node.scrollHeight
   }, [chat.id, chat.messages])
 
+  // The thread changing size without a new message — the code panel or the
+  // browser sliding open, the window resizing, a card folding — keeps a
+  // reader who was at the end there, rather than leaving the reply below the fold.
+  useEffect(() => {
+    const node = thread.current
+    const inner = node?.firstElementChild
+    if (!node || !inner) return
+    const observer = new ResizeObserver(() => {
+      if (following.current) node.scrollTop = node.scrollHeight
+    })
+    observer.observe(node)
+    observer.observe(inner)
+    return () => observer.disconnect()
+  }, [])
+
+  // Rows already there when a chat opens have been read: they appear with the
+  // thread, which fades in as one. Only rows that arrive afterwards rise into
+  // place, so opening a long chat no longer replays every message's entrance.
+  const opened = useRef<{ chatId: string; ids: Set<string> }>({ chatId: '', ids: new Set() })
+  if (opened.current.chatId !== chat.id) opened.current = { chatId: chat.id, ids: new Set(chat.messages.map((m) => m.id)) }
+  useLayoutEffect(() => {
+    if (document.body.dataset.reduceMotion === 'on') return
+    thread.current?.animate([{ opacity: 0, transform: 'translateY(6px)' }, { opacity: 1, transform: 'none' }], {
+      duration: 240,
+      easing: 'cubic-bezier(0.32, 0.72, 0, 1)'
+    })
+  }, [chat.id])
+
+  // Scrolled away from the end: a button to get back to it.
+  const [away, setAway] = useState(false)
+  // Scrolled off the top: a veil of graded blur builds over what passes
+  // under the top bar, as far as the reader has scrolled — no re-render,
+  // one custom property the veil's blur and wash are scaled by. Not its
+  // opacity: a backdrop blur can't see past a parent that isn't fully
+  // opaque, so fading the veil kept the blur off until the fade ended.
+  const veil = useRef<HTMLDivElement>(null)
+  const showVeil = (top: number): void => {
+    const t = Math.min(1, Math.max(0, top / 140))
+    // Smoothstep: eases in from nothing and settles, rather than a straight ramp.
+    if (veil.current) veil.current.style.setProperty('--veil', (t * t * (3 - 2 * t)).toFixed(3))
+  }
+  useEffect(() => {
+    setAway(false)
+    showVeil(thread.current?.scrollTop ?? 0)
+  }, [chat.id])
+  const toEnd = (): void => {
+    const node = thread.current
+    if (!node) return
+    following.current = true
+    node.scrollTo({ top: node.scrollHeight, behavior: document.body.dataset.reduceMotion === 'on' ? 'auto' : 'smooth' })
+  }
+
   const requestArchive = (): void => {
     if (streaming) setConfirmArchive(true)
     else archiveChat(chat.id)
@@ -335,6 +488,7 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
   return (
     <>
       <TopBar
+        className="chat-header--float"
         left={
           <>
             <span className="chat-header__title" title={chat.title}>
@@ -363,12 +517,32 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
         }
       />
 
+      <div ref={veil} className="scroll-veil" aria-hidden="true">
+        {[0, 1, 2, 3, 4, 5].map((i) => (
+          <span key={i} style={{ '--i': i } as React.CSSProperties} />
+        ))}
+      </div>
       <div
         ref={thread}
         className="thread scroll"
         onScroll={(e) => {
+          // Reaching the end follows again. Leaving it is only ever the
+          // reader's doing (below): layout moves the scroll position too — a
+          // panel sliding open reflows the thread, scroll anchoring shifts it —
+          // and dropping the follow on those left the reply below the fold.
           const node = e.currentTarget
-          following.current = node.scrollHeight - node.scrollTop - node.clientHeight < 8
+          const gap = node.scrollHeight - node.scrollTop - node.clientHeight
+          if (gap < 8) following.current = true
+          // Past a screenful's edge, not a nudge: the button is for finding the way back.
+          setAway(!following.current && gap > 160)
+          showVeil(node.scrollTop)
+        }}
+        onKeyDown={(e) => {
+          if (['ArrowUp', 'PageUp', 'Home'].includes(e.key) || (e.key === ' ' && e.shiftKey)) following.current = false
+        }}
+        // On the thread itself rather than a message: the scrollbar.
+        onPointerDown={(e) => {
+          if (e.target === e.currentTarget) following.current = false
         }}
         // Wheel events arrive before the scroll they cause, so this lets go
         // before the next token's scroll-to-end can undo the user's move.
@@ -385,6 +559,7 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
                 chatActions
                 last={message.id === lastReplyId}
                 canRetry={message.id === lastReplyId && !streamingChatId}
+                fresh={!opened.current.ids.has(message.id)}
               />
             </RowBoundary>
           ))}
@@ -392,6 +567,10 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
       </div>
 
       <div className="composer-dock">
+        <ApprovalPrompt placement="dock" />
+        <button className="thread-jump" data-shown={away || undefined} onClick={toEnd} tabIndex={away ? 0 : -1} aria-hidden={!away} aria-label="Scroll to latest" title="Scroll to latest">
+          <ArrowDown size={15} strokeWidth={2} />
+        </button>
         {isWork && (
           <div className="composer-dock__pinned">
             <GoalBanner chat={chat} />
@@ -527,10 +706,20 @@ export const MessageRow = memo(function MessageRow({
   quietWhenEmpty = false,
   chatActions = false,
   last = false,
-  canRetry = false
+  canRetry = false,
+  fresh = true,
+  bubbles = false
 }: {
   message: ChatMessage
   streaming: boolean
+  /**
+   * A worker's thread: each run of the reply's text is its own bubble, and a
+   * turn that has said nothing yet shows nothing — the thread's "is working"
+   * line stands in for it.
+   */
+  bubbles?: boolean
+  /** Arrived while the chat was open, so it rises into place; see Conversation. */
+  fresh?: boolean
   /**
    * A chat's reply: thumbs, emoji, reply, fork and (for the last reply) try
    * again, all kept in the chat. A worker's reply has nowhere to keep them, so
@@ -556,6 +745,8 @@ export const MessageRow = memo(function MessageRow({
   // A turn that only thought or called tools and said nothing still has
   // content to show; testing the joined text alone would render it as "No response".
   const hasContent = items.length > 0
+  // A turn that did work — thought, read, ran — gets the "Worked for" line over it; a plain answer doesn't.
+  const didWork = useMemo(() => items.some((item) => item.kind === 'steps'), [items])
   const changes = useMemo(
     () => toolPartChanges(message.parts.filter((part): part is ChatToolPart => part.type === 'tool')),
     [message.parts]
@@ -563,6 +754,7 @@ export const MessageRow = memo(function MessageRow({
   // Still being written, by this window's run or another's (another window, a
   // scheduled task): its action bar waits until it is finished.
   const unfinished = streaming || message.parts.some((part) => part.type === 'tool' && part.status === 'running')
+  const isWork = useIsWork()
   // The action bar (and the Try again in it) only shows for a reply with
   // something in it; one cut off before it said anything gets its own button.
   const actionBar = Boolean(body || message.usage) && !unfinished
@@ -573,7 +765,7 @@ export const MessageRow = memo(function MessageRow({
     // is a quiet marker rather than something the user seems to have said.
     if (message.mail || message.heartbeat) {
       return (
-        <div className="msg-row msg-row--mail">
+        <div className="msg-row msg-row--mail" data-fresh={fresh || undefined}>
           {message.heartbeat && (
             <div className="msg__heartbeat">
               <HeartPulse size={13} strokeWidth={2} />
@@ -581,7 +773,9 @@ export const MessageRow = memo(function MessageRow({
             </div>
           )}
           {message.mail?.map((mail) =>
-            mail.from === 'user' ? (
+            mail.event ? (
+              <MailEvent key={mail.id} event={mail.event} text={mail.text} />
+            ) : mail.from === 'user' ? (
               <div key={mail.id} className="msg-user-block">
                 <Attachments paths={mail.files} />
                 {mail.text && <div className="msg--user">{mail.text}</div>}
@@ -617,7 +811,7 @@ export const MessageRow = memo(function MessageRow({
       )
     }
     return (
-      <div className="msg-row msg-user-block">
+      <div className="msg-row msg-user-block" data-fresh={fresh || undefined}>
         {message.scheduledTaskId && (
           <span className="msg__scheduled">
             <CalendarClock size={12} strokeWidth={2} />
@@ -631,63 +825,73 @@ export const MessageRow = memo(function MessageRow({
   }
 
   if (!hasContent && !streaming && !message.error && !message.plan && quietWhenEmpty) return null
+  if (bubbles && !hasContent && streaming && !message.error && !message.plan) return null
 
   return (
-    <div className="msg-row" ref={row}>
-      {/* An error no longer replaces what the turn already did: a Work turn
-          that failed on its twentieth call used to hide the nineteen edits and
-          commands before it, which still happened. */}
-      {hasContent ? (
-        // Rendered part by part rather than as one joined string, so a thought
-        // or a tool call stays where the model made it — between the sentence
-        // that led to it and the one that follows from its result.
-        <div className="msg--assistant" data-streaming={streaming || undefined}>
-          {items.map((item, index) =>
-            item.kind === 'text' ? (
-              <Markdown key={item.key} text={item.text} />
-            ) : (
-              <StepRun key={item.key} steps={item.steps} active={streaming && index === items.length - 1} />
-            )
-          )}
-        </div>
-      ) : streaming ? (
-        <LoadingState label="Thinking" />
-      ) : message.error ? null : message.interrupted ? null : (
-        <div className="msg__status" style={{ color: 'var(--text-3)' }}>
-          No response
-        </div>
-      )}
+    <TurnLive.Provider value={unfinished}>
+      <div className="msg-row" ref={row} data-fresh={fresh || undefined}>
+        {(didWork || (streaming && !hasContent)) && <TurnHeader startedAt={message.createdAt} finishedAt={message.finishedAt} live={unfinished} />}
+        {/* An error no longer replaces what the turn already did: a Work turn
+            that failed on its twentieth call used to hide the nineteen edits and
+            commands before it, which still happened. */}
+        {hasContent ? (
+          // Rendered part by part rather than as one joined string, so a thought
+          // or a tool call stays where the model made it — between the sentence
+          // that led to it and the one that follows from its result.
+          <div className="msg--assistant" data-streaming={streaming || undefined}>
+            {items.map((item, index) =>
+              item.kind === 'text' ? (
+                bubbles ? (
+                  <div key={item.key} className="msg-bubble">
+                    <Markdown text={item.text} />
+                  </div>
+                ) : (
+                  <Markdown key={item.key} text={item.text} />
+                )
+              ) : (
+                <StepRun key={item.key} steps={item.steps} active={streaming && index === items.length - 1} />
+              )
+            )}
+          </div>
+        ) : streaming ? (
+          <LoadingState label="Thinking" />
+        ) : message.error ? null : message.interrupted ? null : (
+          <div className="msg__status" style={{ color: 'var(--text-3)' }}>
+            No response
+          </div>
+        )}
 
-      {message.interrupted && !streaming && (
-        <div className="msg__status" style={{ color: 'var(--text-3)' }} role="status">
-          Eaon was closed before this reply finished{hasContent ? '; this is what it had so far' : ''}.
-          {canRetry && actionBar && ' To ask again, use Try again in the menu below it.'}
-          {canRetry && !actionBar && !message.error && (
-            <button type="button" className="btn btn--sm" onClick={() => retryReply(message.id)}>
-              Try again
-            </button>
-          )}
-        </div>
-      )}
+        {message.interrupted && !streaming && (
+          <div className="msg__status" style={{ color: 'var(--text-3)' }} role="status">
+            Eaon was closed before this reply finished{hasContent ? '; this is what it had so far' : ''}.
+            {canRetry && actionBar && ' To ask again, use Try again in the menu below it.'}
+            {canRetry && !actionBar && !message.error && (
+              <button type="button" className="btn btn--sm" onClick={() => retryReply(message.id)}>
+                Try again
+              </button>
+            )}
+          </div>
+        )}
 
-      {message.error && (
-        <div className="msg__error">
-          <TriangleAlert size={15} strokeWidth={1.9} style={{ flex: 'none', marginTop: 1 }} />
-          <span>{message.error}</span>
-          <ProviderErrorActions issue={message.errorIssue} retryId={canRetry ? message.id : null} />
-        </div>
-      )}
+        {message.error && (
+          <div className="msg__error">
+            <TriangleAlert size={15} strokeWidth={1.9} style={{ flex: 'none', marginTop: 1 }} />
+            <span>{message.error}</span>
+            <ProviderErrorActions issue={message.errorIssue} retryId={canRetry ? message.id : null} />
+          </div>
+        )}
 
-      {message.plan && <PlanCard message={message} plan={message.plan} />}
+        {message.plan && <PlanCard message={message} plan={message.plan} />}
 
-      {!streaming && changes.length > 0 && <FilesChanged changes={changes} />}
+        {!streaming && changes.length > 0 && <FilesChanged changes={changes} onOpen={isWork ? (file) => void openInCode(file) : undefined} />}
 
-      {actionBar && (
-        <div className="msg__actions" data-pinned={last || Boolean(message.feedback) || undefined}>
-          <ReplyActions message={message} text={body} row={row} chatActions={chatActions} canRetry={canRetry} />
-        </div>
-      )}
-    </div>
+        {actionBar && (
+          <div className="msg__actions" data-pinned={last || Boolean(message.feedback) || undefined}>
+            <ReplyActions message={message} text={body} row={row} chatActions={chatActions} canRetry={canRetry} />
+          </div>
+        )}
+      </div>
+    </TurnLive.Provider>
   )
 })
 
@@ -791,4 +995,26 @@ async function copyTranscript(chat: Chat): Promise<void> {
 function initials(name: string): string {
   const words = name.replace(/\(.*?\)/g, '').trim().split(/\s+/).filter(Boolean)
   return ((words[0]?.[0] ?? '?') + (words.length > 1 ? words[words.length - 1][0] : '')).toUpperCase()
+}
+
+const EVENT_ICON = { job: Terminal, watch: Eye, goal: Target } as const
+
+/**
+ * Something a worker set up reporting back — a job ending, a watch firing,
+ * a timed goal running out — as a quiet marker like a heartbeat, with what
+ * it said one click away.
+ */
+function MailEvent({ event, text }: { event: NonNullable<WorkerMail['event']>; text: string }): JSX.Element {
+  const [open, setOpen] = useState(false)
+  const Icon = EVENT_ICON[event.kind] ?? Eye
+  return (
+    <div className="msg__event" data-open={open || undefined}>
+      <button className="msg__heartbeat msg__event-head" onClick={() => setOpen(!open)} aria-expanded={open}>
+        <Icon size={13} strokeWidth={2} />
+        <span>{event.title}</span>
+        <ChevronDown size={12} strokeWidth={2} className="msg__event-chevron" />
+      </button>
+      {open && <pre className="msg__event-text">{text}</pre>}
+    </div>
+  )
 }

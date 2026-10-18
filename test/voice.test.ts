@@ -72,6 +72,28 @@ test('Groq gets its own endpoint and model', async () => {
   assert.equal(sent[0].file?.name, 'speech.m4a')
 })
 
+test('a speech-to-text model picked in settings is used instead of the automatic choice', async () => {
+  // Mistral picked, though an OpenAI key is saved too.
+  const mistral = fakeFetch([{ status: 200, body: { text: 'bonjour' } }])
+  const choice = { providerId: 'mistral', modelId: 'voxtral-mini-latest', label: 'Mistral' }
+  const result = await transcribe(audio, 'audio/webm', { getKey: keys({ openai: 'sk', mistral: 'ms' }), choice, fetch: mistral.fetch })
+  assert.deepEqual(result, { text: 'bonjour', provider: 'Mistral' })
+  assert.equal(mistral.sent[0].url, 'https://api.mistral.ai/v1/audio/transcriptions')
+  assert.equal(mistral.sent[0].model, 'voxtral-mini-latest')
+  assert.equal(mistral.sent[0].auth, 'Bearer ms')
+
+  // A local whisper server: its own base URL, a typed model, and no key at all.
+  const local = fakeFetch([{ status: 200, body: { text: 'hi' } }])
+  const server = { providerId: 'custom-whisper', modelId: 'large-v3', label: 'Whisper box', baseUrl: 'http://127.0.0.1:9000/v1/', keyless: true }
+  await transcribe(audio, 'audio/webm', { getKey: keys({}), choice: server, fetch: local.fetch })
+  assert.equal(local.sent[0].url, 'http://127.0.0.1:9000/v1/audio/transcriptions')
+  assert.equal(local.sent[0].auth, null, 'no empty bearer')
+
+  // Picked but no key: says which provider, rather than asking for OpenAI or Groq.
+  await assert.rejects(transcribe(audio, 'audio/webm', { getKey: keys({ openai: 'sk' }), choice }), /set to Mistral, which needs an API key/)
+  assert.equal(pickTranscriber(keys({ openai: 'sk' }), choice), null)
+})
+
 test('refusals come back as messages a person can act on', async () => {
   await assert.rejects(transcribe(audio, 'audio/webm', { getKey: keys({}) }), { message: NO_KEY_MESSAGE })
   await assert.rejects(transcribe(new Uint8Array(), 'audio/webm', { getKey: keys({ openai: 'sk' }) }), /Nothing was recorded/)

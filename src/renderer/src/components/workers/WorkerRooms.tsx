@@ -50,9 +50,20 @@ export function RoomPage({ room }: { room: WorkerRoom }): JSX.Element {
     if (node && following.current) node.scrollTop = node.scrollHeight
   }, [posts?.length, answering.length])
 
+  // Chat's veil of graded blur over what scrolls under the top bar (see ChatView).
+  const veil = useRef<HTMLDivElement>(null)
+  const showVeil = (top: number): void => {
+    const t = Math.min(1, Math.max(0, top / 140))
+    veil.current?.style.setProperty('--veil', (t * t * (3 - 2 * t)).toFixed(3))
+  }
+  useLayoutEffect(() => {
+    showVeil(scroller.current?.scrollTop ?? 0)
+  })
+
   return (
     <>
       <TopBar
+        className="chat-header--float"
         left={
           <>
             <button className="header-btn worker-back" onClick={() => selectRoom(null)} title="Back to the team">
@@ -67,12 +78,18 @@ export function RoomPage({ room }: { room: WorkerRoom }): JSX.Element {
         }
         right={<RoomActions room={room} />}
       />
+      <div ref={veil} className="scroll-veil" aria-hidden="true">
+        {[0, 1, 2, 3, 4, 5].map((i) => (
+          <span key={i} style={{ ['--i' as string]: i }} />
+        ))}
+      </div>
       <div
         ref={scroller}
         className="thread scroll"
         onScroll={(e) => {
           const node = e.currentTarget
           following.current = node.scrollHeight - node.scrollTop - node.clientHeight < 8
+          showVeil(node.scrollTop)
         }}
       >
         <div className="thread__inner room">

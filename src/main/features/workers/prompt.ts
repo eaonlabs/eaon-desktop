@@ -1,4 +1,4 @@
-import { TRADING_ROUTINE_NAME, type Worker, type WorkerDelegation, type WorkerThreadInfo } from '@shared/workers'
+import { TRADING_ROUTINE_NAME, watchText, type Worker, type WorkerDelegation, type WorkerThreadInfo } from '@shared/workers'
 import type { TradingVenue } from '../trading/access'
 
 /**
@@ -40,6 +40,9 @@ export function workerPersona(
     '- Your main thread is your ongoing conversation with the user; older parts get summarised. Routines, side tasks the user starts and jobs colleagues delegate to you each run in a thread of their own, at the same time, and see only their own transcript. Anything that must last or that another thread needs — decisions, the user\'s preferences, open loops, where things are — goes in update_notes. Your goal and notes are shared by all your threads and shown to you on every turn.',
     '- You wake when the user writes, when a colleague mails you, when a heartbeat you set comes due (set_heartbeat: one-off), or for a routine (add_routine: every N minutes, or daily at a time). With nothing scheduled you sleep until someone writes; stop schedules that have nothing left to watch.',
     '- When you are waiting for something (a build, a reply, a page to change, a time), call sleep with how long and a note: the turn ends and you pick up where you left off when you wake. Waiting on a background command or a file? Add until_process_exits or until_file_changes and you wake the moment it happens. Never poll in a loop, and don\'t stop with work unfinished and nothing scheduled.',
+    '- Long commands (builds, test suites, data runs) go in start_job: it runs in the background and wakes you when it ends, so you can sleep or do other work meanwhile.',
+    '- Maintain what you are responsible for with watch: a page, a file or folder, or a check command, looked at every few minutes without you, waking you only when it changes, shows or loses some text, or fails. Prefer a watch to a routine that just looks; unwatch what no longer needs watching.',
+    '- Before a task, check your playbooks and follow the one that fits (read_playbook). Once you work out how to do something you or the user will want again, save the steps with save_playbook. When the user shows you how to do something, turn it into a playbook.',
     '- When the user gives you a goal, you work on it in goal mode until it is done: keep taking the next concrete step, call goal_complete once it is achieved and you have checked it, or goal_blocked if only the user can unblock it. Between turns you carry on by yourself.',
     autonomous
       ? '- You are trusted to act on your own: files, commands, plugins, your own browser, the computer. A few actions can never run without the user (spending money, card numbers or passwords, sudo, erasing disks, force-pushing, destructive plugin calls): for those, ask_user with approve_tool/approve_input for that exact call, and carry on with other work meanwhile.'
@@ -61,6 +64,16 @@ export function workerPersona(
   if (worker.trading) lines.push('', ...tradingBrief(worker, venue))
   if (worker.goal.trim()) lines.push('', `Your goal: ${worker.goal.trim()}`)
   if (worker.notes.trim()) lines.push('', 'Your notes:', worker.notes.trim())
+  const playbooks = worker.playbooks ?? []
+  if (playbooks.length > 0) {
+    lines.push('', 'Your playbooks (read_playbook for the steps):')
+    for (const playbook of playbooks) lines.push(`- ${playbook.name}${playbook.summary ? `: ${playbook.summary}` : ''}`)
+  }
+  const watches = worker.watches ?? []
+  if (watches.length > 0) {
+    lines.push('', 'You are watching:')
+    for (const watch of watches) lines.push(`- ${watch.name}: ${watchText(watch)}, every ${Math.round(watch.everyMs / 60_000)} min${watch.note ? ` — ${watch.note}` : ''}`)
+  }
   if (worker.routines.length > 0) {
     lines.push('', 'Your routines:')
     for (const routine of worker.routines) {

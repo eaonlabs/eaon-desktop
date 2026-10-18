@@ -1,0 +1,218 @@
+/* See-through windows (components/SeeThrough.tsx).
+   The desktop's picture sits behind the whole page, under a wash of the
+   theme's own colour (--see-tint, from the tint setting). The page stops
+   painting its own background, and its panels turn to frosted glass: they
+   blur and soften the picture under them, so text on them stays easy to
+   read. Off, none of this applies and nothing here costs anything. */
+
+.see-through {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 500ms var(--ease);
+}
+.see-through[data-ready] {
+  opacity: 1;
+}
+/* The picture at the display's size, slid so its corner sits on the
+   display's: moving the window is one transform, done on the compositor. */
+.see-through__layer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  will-change: transform;
+}
+.see-through__picture {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+.see-through__tint {
+  position: absolute;
+  inset: 0;
+  background: var(--canvas);
+  opacity: var(--see-tint, 0.55);
+  transition: opacity 240ms var(--ease);
+}
+
+/* macOS: the title bars drag through the app while see-through is on, so the
+   picture can keep up with the window (SeeThrough.tsx). The system's own
+   drag would swallow the press before the page saw it. */
+body[data-see-through='on'][data-platform='darwin']
+  :is(.chat-header, .titlebar, .drag, .ide__bar, .page__bar, .settings__titlebar, .settings__nav-top, .browser__tabs, .crash-screen__drag) {
+  -webkit-app-region: no-drag;
+}
+
+/* ---- the page over it ---- */
+
+body[data-see-through='on'],
+body[data-see-through='on'][data-platform='darwin'][data-translucent='on'] {
+  /* Read from the theme's own surfaces before they turn translucent below. */
+  --glass: color-mix(in srgb, var(--canvas) 52%, transparent);
+  --glass-strong: color-mix(in srgb, var(--canvas) 62%, transparent);
+  /* What floats over everything — dialogs, menus, cards, toasts — stays
+     near opaque: it is read, not looked through. */
+  --glass-float: color-mix(in srgb, var(--canvas) 84%, transparent);
+  --glass-blur: blur(26px) saturate(150%);
+  background: transparent;
+
+  /* The app's solid surfaces become tints of the text colour, so a selected
+     row, a segmented switch, a chip or a hovered button reads as a step of
+     glass over whatever is behind it rather than a dark slab cut into it. */
+  --surface-1: color-mix(in srgb, var(--fg) 5%, transparent);
+  --surface-2: color-mix(in srgb, var(--fg) 8%, transparent);
+  --surface-3: color-mix(in srgb, var(--fg) 11%, transparent);
+  --surface-4: color-mix(in srgb, var(--fg) 15%, transparent);
+  --sunken: color-mix(in srgb, #000 24%, transparent);
+  --active: color-mix(in srgb, var(--fg) 12%, transparent);
+
+  /* Quiet text is quiet against a flat colour; over a picture the same grey
+     can vanish. Each step keeps more of the text colour here. */
+  --text-2: color-mix(in srgb, var(--fg), var(--bg) 24%);
+  --text-3: color-mix(in srgb, var(--fg), var(--bg) 38%);
+  --text-4: color-mix(in srgb, var(--fg), var(--bg) 50%);
+}
+[data-theme='light'] body[data-see-through='on'] {
+  --sunken: color-mix(in srgb, #fff 40%, transparent);
+}
+
+/* Text that sits straight on the picture — page titles, section labels,
+   intros and small print — keeps its weight with a soft shadow under it,
+   so a bright patch of wallpaper never washes it out. */
+body[data-see-through='on']
+  :is(.settings__h1, .settings__lede, .settings__section-label, .credits-label, .accounts__fine, .meter-choice__head, .page__title, .page__subtitle, .section-head__title, .library__group, .pr-list__group, .home__title) {
+  color: var(--text);
+  text-shadow: 0 1px 2px color-mix(in srgb, var(--canvas) 70%, transparent), 0 0 12px color-mix(in srgb, var(--canvas) 55%, transparent);
+}
+body[data-see-through='on'] :is(.settings__lede, .settings__section-label, .credits-label, .accounts__fine, .meter-choice__hint, .page__subtitle, .section-head__title, .library__group, .pr-list__group) {
+  color: var(--text-2);
+}
+
+/* Controls that sit straight on the picture, with no panel behind them:
+   frosted, so the picture goes soft under them. */
+body[data-see-through='on'] :is(.mode-switch, .thread-jump, .review__summary, .review__tools, .usage-pill) {
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+}
+body[data-see-through='on'] .mode-switch__option[data-active] {
+  background: color-mix(in srgb, var(--fg) 14%, transparent);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--fg) 14%, transparent);
+}
+
+/* What floats over everything is read, not looked through: near opaque. */
+body[data-see-through='on'] :is(.modal, .approval, .usage-card, .update-toast, .peek, .menu) {
+  background: var(--glass-float);
+  -webkit-backdrop-filter: blur(30px) saturate(160%);
+  backdrop-filter: blur(30px) saturate(160%);
+}
+body[data-see-through='on'] .menu.usage-card {
+  background: var(--glass-float);
+}
+
+/* Lists, cards and tiles on every page: frosted glass like the sidebar's,
+   so what is written on them reads over any part of the picture. (The app's
+   surface colours are light tints here, which suits a button or a chip, but
+   left these containers nearly clear.) */
+body[data-see-through='on']
+  :is(
+    .plugin-list, .skills__list, .card, .worker-card, .worker-memory, .worker-trading, .worker-fact,
+    .tasks, .tr-panel, .tr-strip, .ca-feature, .ca-app, .plan-card, .code-stats, .code-queue, .code-checks,
+    .code-failure, .code-dialog__option, .mlib-card, .mlib-banner, .model-card, .provider-detail__section,
+    .provider-signin, .usage-hero, .usage-tile, .usage-chart, .usage-heat, .usage-table, .la-row, .la__note,
+    .template-card, .suggestion-card, .term-agent-card, .imggen__tile, .ch-app, .purchase__receipt,
+    .browser__banner, .team-hint, .bx-status, .credits-hero, .credits-project
+  ) {
+  background: color-mix(in srgb, var(--canvas) 58%, transparent);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+}
+/* Fields sit on the picture too: a frosted well, so typed text and placeholders read. */
+body[data-see-through='on'] :is(.input, .select, .search-field input, .key-field input, .stepper input) {
+  background: color-mix(in srgb, var(--canvas) 50%, transparent);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+}
+
+/* A field's own icon (search) sits over the frosted well, not under it. */
+body[data-see-through='on'] .search-field__icon {
+  z-index: 1;
+}
+
+/* Panels that float: frosted, so the picture reads through them softly. */
+body[data-see-through='on'] .sidebar__panel,
+body[data-see-through='on'] .settings__nav-panel,
+body[data-see-through='on'] .ide__frame,
+body[data-see-through='on'] .theme-card__preview {
+  background: var(--glass);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+}
+/* A message bubble scrolls inside the thread, whose fade-out mask keeps a
+   blur from reaching past it: a frosted bubble showed as a hard dark box
+   under the top bar. It is a tint of glass instead, with no blur of its own. */
+body[data-see-through='on'] .msg--user {
+  background: color-mix(in srgb, var(--fg) 12%, transparent);
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+body[data-see-through='on'] .composer,
+body[data-see-through='on'] .approval[data-variant='dock'],
+body[data-see-through='on'] .composer__above .composer-pill,
+body[data-see-through='on'] .suggestion-chip {
+  background: var(--glass-strong);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+}
+
+/* Inside the code panel and the transcript, boxes stay a touch darker than
+   the glass around them, so code keeps its contrast. */
+body[data-see-through='on'] .ide {
+  /* Mostly opaque: it is also what sticky headers hide scrolled code under. */
+  --ide-bg: color-mix(in srgb, var(--canvas) 88%, transparent);
+  --ide-editor-bg: color-mix(in srgb, var(--canvas) 45%, transparent);
+}
+body[data-see-through='on'] .code-block,
+body[data-see-through='on'] .step-card__box,
+body[data-see-through='on'] .files-changed,
+body[data-see-through='on'] .tool__panel > div {
+  background: color-mix(in srgb, var(--canvas) 55%, transparent);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+}
+
+/* The home screen's character field would fight the picture: the picture is
+   the backdrop now. */
+body[data-see-through='on'] .home__field {
+  display: none;
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  body[data-see-through='on'] {
+    --glass: var(--surface-1);
+    --glass-strong: var(--surface-2);
+  }
+}
+
+/* Settings → Appearance: the chosen wallpaper's thumbnail beside its button. */
+.wallpaper-pick {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.wallpaper-pick__thumb {
+  width: 88px;
+  height: 56px;
+  object-fit: cover;
+  border-radius: var(--r-sm);
+  box-shadow: 0 0 0 1px var(--border-soft);
+  animation: chip-in 220ms var(--ease) both;
+}
+
+/* A question or approval card sits in the thread, whose fade-out mask keeps
+   a backdrop blur from working (see .msg--user above): near-opaque instead. */
+body[data-see-through='on'] .ask-card {
+  background: var(--glass-float);
+}

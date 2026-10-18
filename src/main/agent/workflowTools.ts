@@ -172,7 +172,9 @@ registerToolSource({
     const tools = [updatePlan]
     if (query.readOnly) tools.push(presentPlan)
     if (query.request.goal?.status === 'active' && !query.readOnly) tools.push(goalComplete, goalBlocked)
-    if (query.request.goal?.status === 'active' && query.request.goal.until && !query.readOnly) tools.push(wait)
+    // A worker waits by sleeping instead: its turn ends and frees its slot, and
+    // a wait of over 15 minutes inside a turn would look like a stall.
+    if (query.request.goal?.status === 'active' && query.request.goal.until && !query.readOnly && !query.request.workerId) tools.push(wait)
     return tools
   }
 })

@@ -16,6 +16,7 @@ import { useApp } from '../../../state/store'
 import { agoText, resetClock, untilText, useCliAccounts } from '../../../state/cliAccounts'
 import { Card, ConfirmDialog, Row, Section, Segmented, Switch } from '../../ui'
 import { MoveCodexPanes } from '../../code/MoveCodexPanes'
+import { PlacementPreview, StylePreview } from '../MeterPreviews'
 
 /**
  * Settings → Accounts: which Claude Code and Codex account Eaon's terminals
@@ -35,7 +36,14 @@ export function AccountsPage(): JSX.Element {
     void refresh({ all: true })
   }, [ensure, refresh])
 
-  const meter = settings?.cliUsage ?? { meter: true, view: 'detailed' as const, alerts: true, autoSwitchCodex: false }
+  const meter = settings?.cliUsage ?? {
+    meter: true,
+    view: 'detailed' as const,
+    alerts: true,
+    autoSwitchCodex: false,
+    placement: 'sidebar' as const,
+    style: 'rings' as const
+  }
   const severalCodex = (state?.tools.codex.accounts.length ?? 0) > 1
 
   return (
@@ -50,7 +58,7 @@ export function AccountsPage(): JSX.Element {
 
       <Section label="Usage meter">
         <Card>
-          <Row title="Show in the ADE’s header" description="Your session and week at a glance, with every limit and when it resets one click away.">
+          <Row title="Show the usage meter" description="Your session and week at a glance, with every limit and when it resets one click away.">
             <Switch label="Show the usage meter" checked={meter.meter} onChange={(on) => void patchSettings({ cliUsage: { ...meter, meter: on } })} />
           </Row>
           <Row title="Limit alerts" description="A notification when the account in use reaches 90% of a limit, or hits it, with when it resets. Once per limit until it resets.">
@@ -68,6 +76,69 @@ export function AccountsPage(): JSX.Element {
               />
             </Row>
           )}
+        </Card>
+        {meter.meter && (
+          <>
+            <div className="meter-choice">
+              <div className="meter-choice__head">
+                <span className="meter-choice__title">Placement</span>
+                <span className="meter-choice__hint">The sidebar’s foot is there on every tab; the ADE’s header only in the ADE.</span>
+              </div>
+              <div className="theme-grid" role="radiogroup" aria-label="Placement">
+                {(
+                  [
+                    { value: 'sidebar', label: 'Sidebar' },
+                    { value: 'header', label: 'ADE header' },
+                    { value: 'both', label: 'Both' }
+                  ] as const
+                ).map((option) => (
+                  <button
+                    key={option.value}
+                    className="theme-card"
+                    role="radio"
+                    aria-checked={(meter.placement ?? 'sidebar') === option.value}
+                    data-active={(meter.placement ?? 'sidebar') === option.value}
+                    onClick={() => void patchSettings({ cliUsage: { ...meter, placement: option.value } })}
+                  >
+                    <span className="theme-card__preview">
+                      <PlacementPreview placement={option.value} style={meter.style ?? 'rings'} />
+                    </span>
+                    <span className="theme-card__label">{option.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="meter-choice">
+              <div className="meter-choice__head">
+                <span className="meter-choice__title">Style</span>
+                <span className="meter-choice__hint">How the meter looks wherever it sits. Click it for every limit and when each resets.</span>
+              </div>
+              <div className="theme-grid theme-grid--two" role="radiogroup" aria-label="Style">
+                {(
+                  [
+                    { value: 'rings', label: 'Rings' },
+                    { value: 'bar', label: 'Bar' }
+                  ] as const
+                ).map((option) => (
+                  <button
+                    key={option.value}
+                    className="theme-card"
+                    role="radio"
+                    aria-checked={(meter.style ?? 'rings') === option.value}
+                    data-active={(meter.style ?? 'rings') === option.value}
+                    onClick={() => void patchSettings({ cliUsage: { ...meter, style: option.value } })}
+                  >
+                    <span className="theme-card__preview">
+                      <StylePreview style={option.value} />
+                    </span>
+                    <span className="theme-card__label">{option.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+        <Card>
           <Row title="Panel layout" description="Detailed shows one CLI with each limit spelled out; compact lists both, a line per limit.">
             <Segmented
               value={meter.view}

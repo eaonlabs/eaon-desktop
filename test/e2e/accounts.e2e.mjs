@@ -53,7 +53,8 @@ scenario('Accounts: every Codex account’s limits in the usage meter, one click
   const app = await s.launch({ env, seed: { 'cli-accounts.json': accounts } })
   const page = app.page
   const ade = (await page.eval(() => window.api.workspaces.get())).find((w) => w.kind === 'code')
-  await page.eval((id) => window.api.settings.patch({ activeWorkspaceId: id }), ade.id)
+  // The bar meter in the ADE's header (Settings → Accounts; the default is rings in the sidebar).
+  await page.eval((id) => window.api.settings.patch({ activeWorkspaceId: id, cliUsage: { placement: 'header', style: 'bar' } }), ade.id)
   await page.reload()
 
   // The pill: the account in use, as Codex reports it.

@@ -221,6 +221,12 @@ export interface LoopParams {
   depth: number
   readOnly: boolean
   settings: Settings
+  /**
+   * Settings as they are now. An interactive turn reads its approval mode
+   * here at each call, so switching to full access (or back to asking)
+   * applies to the turn already running, not only the next one.
+   */
+  liveSettings?: () => Settings
   signal: AbortSignal
   emit: (event: StreamEvent) => void
   approver: Approver
@@ -396,8 +402,11 @@ async function runTool(
     depth: params.depth,
     readOnly: params.readOnly,
     settings: params.settings,
+    liveSettings: params.liveSettings,
     progress: (output) => emit({ type: 'tool-progress', messageId: request.messageId, toolId: call.id, output }),
-    confirm: (title, detail, summary) => params.approver(title, detail, summary),
+    // A tool's own confirmation is for something it judged serious: unless it
+    // says otherwise, full access never answers it on the user's behalf.
+    confirm: (title, detail, summary, critical = true) => params.approver(title, detail, summary, critical),
     policy
   }
 
@@ -405,10 +414,15 @@ async function runTool(
   // Every rule about whether this call may run — plan mode, a guest's cap,
   // who the work came from, the unattended policy or the approval mode, and
   // the tool's own risk — is in agent/policy.ts, shared with sub-agents and
-  // the CLI.
-  const decision = decide(tool, call.input, callFacts(tool, call.input, ctx, params.settings), policy, params.settings.approvalMode)
+  // the CLI. The approval mode is read live: what may run without asking
+  // follows the composer's permission picker mid-turn.
+  const facts = callFacts(tool, call.input, ctx, params.settings)
+  const approvalMode = (params.liveSettings?.() ?? params.settings).approvalMode
+  const decision = decide(tool, call.input, facts, policy, approvalMode)
   if (decision.kind === 'deny') return finish(decision.reason, 'denied')
-  if (decision.kind === 'ask' && !(await params.approver(call.name, call.input, tool.describe?.(call.input)))) {
+  // What can't be undone is asked about as critical: full access never
+  // answers it on the user's behalf.
+  if (decision.kind === 'ask' && !(await params.approver(call.name, call.input, tool.describe?.(call.input), facts.catastrophic))) {
     return finish(USER_DENIED, 'denied')
   }
 
@@ -585,7 +599,7 @@ export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
           messages.push({
             role: 'user',
             text: left
-              ? `Keep going toward the goal; you have ${left} left. Take the next concrete step, or call wait if you are waiting for something to happen. If it is achieved and verified, call goal_complete; if you are blocked, call goal_blocked.`
+              ? `Keep going toward the goal; you have ${left} left. Take the next concrete step, or call ${request.workerId ? 'sleep' : 'wait'} if you are waiting for something to happen. If it is achieved and verified, call goal_complete; if you are blocked, call goal_blocked.`
               : request.workerId
                 ? // A worker waits by sleeping: the turn ends and it wakes when it said.
                   'Keep going toward the goal. Take the next concrete step, or call sleep if you are waiting for something to happen. If it is achieved and verified, call goal_complete; if you are blocked, call goal_blocked.'
@@ -845,10 +859,13 @@ async function runOwnLoop(request: StreamRequest, emit: (event: StreamEvent) => 
       emit,
       // A tool still finishing after Stop (see unlessAborted) may ask late;
       // the answer is no, and the dialog is never shown.
+      // Interactive turns follow the permission picker as it changes; a
+      // scheduled run keeps the policy it started with.
+      ...(options.unattended ? {} : { liveSettings: () => store.getSettings() }),
       approver:
         options.approver ??
-        ((tool: string, input: Record<string, unknown>, summary?: string) =>
-          controller.signal.aborted ? Promise.resolve(false) : requestApproval(request.messageId, tool, input, emit, summary)),
+        ((tool: string, input: Record<string, unknown>, summary?: string, critical?: boolean) =>
+          controller.signal.aborted ? Promise.resolve(false) : requestApproval(request.messageId, tool, input, emit, summary, critical)),
       unattended: options.unattended,
       allowOnce: options.allowOnce,
       onToolRun: options.onToolRun,

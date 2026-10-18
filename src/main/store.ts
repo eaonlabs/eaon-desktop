@@ -147,7 +147,8 @@ export const defaultSettings: Settings = {
     reduceMotion: 'system',
     fontSize: 14,
     fontSmoothing: true,
-    appIcon: 'default'
+    appIcon: 'default',
+    seeThrough: { enabled: false, tint: 55, texture: true, source: 'desktop', custom: null }
   },
   configuration: {
     configScope: 'User config',
@@ -194,11 +195,15 @@ export const defaultSettings: Settings = {
     meter: true,
     view: 'detailed',
     alerts: true,
-    autoSwitchCodex: false
+    autoSwitchCodex: false,
+    placement: 'sidebar',
+    style: 'rings'
   },
   ade: {
     theme: 'eaon',
     scenes: true,
+    blur: false,
+    blurAmount: 10,
     appBefore: null
   },
   starPrompt: {
@@ -231,6 +236,10 @@ export const defaultSettings: Settings = {
     smallModelId: null,
     env: [],
     enabled: false
+  },
+  voice: {
+    speechProviderId: null,
+    speechModelId: null
   },
   codeIndex: {
     embeddingProviderId: null,

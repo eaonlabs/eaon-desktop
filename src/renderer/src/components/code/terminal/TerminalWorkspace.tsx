@@ -157,7 +157,7 @@ export function TerminalWorkspace(): JSX.Element {
   const shown = maximized && panes.some((p) => p.id === maximized) ? panes.filter((p) => p.id === maximized) : panes
 
   return (
-    <div className="term-workspace" data-themed={theme.colors ? '' : undefined} style={themed}>
+    <div className="term-workspace" data-themed={theme.colors ? '' : undefined} data-glass={theme.glass || undefined} style={themed}>
       <ThemePicker />
       <TerminalGrid cwd={cwd} panes={shown} agents={agents} maximized={maximized} />
     </div>
@@ -683,6 +683,8 @@ export function NewTerminalButton(): JSX.Element | null {
       <button
         ref={anchor}
         className="header-btn"
+        aria-label="New terminal"
+        title="New terminal"
         data-open={menu.open || undefined}
         onClick={() => {
           void refreshAgents()

@@ -1,5 +1,5 @@
 import { memo, useMemo, useState, type JSX } from 'react'
-import { ChevronRight } from 'lucide-react'
+import { ChevronRight, Code2 } from 'lucide-react'
 import { FileDiff, diffStats } from './FileDiff'
 import { FileIcon, splitPath } from './FileIcon'
 
@@ -23,8 +23,18 @@ interface ChangedFile {
   removed: number
 }
 
-/** Memoised: the line counts run a diff per change, and a finished turn's changes never move. */
-export const FilesChanged = memo(function FilesChanged({ changes }: { changes: FileChange[] }): JSX.Element | null {
+/**
+ * Memoised: the line counts run a diff per change, and a finished turn's changes never move.
+ *
+ * `onOpen` adds a button per file that opens it in the code panel's editor.
+ */
+export const FilesChanged = memo(function FilesChanged({
+  changes,
+  onOpen
+}: {
+  changes: FileChange[]
+  onOpen?: (file: string) => void
+}): JSX.Element | null {
   const files = useMemo(() => {
     const byFile = new Map<string, ChangedFile>()
     for (const change of changes) {
@@ -58,7 +68,7 @@ export const FilesChanged = memo(function FilesChanged({ changes }: { changes: F
   return (
     <div className="files-changed">
       <div className="files-changed__head">
-        <span className="files-changed__title">{files.length === 1 ? '1 file changed' : `${files.length} files changed`}</span>
+        <span className="files-changed__title">{files.length === 1 ? 'Changed 1 file' : `Changed ${files.length} files`}</span>
         <span className="files-changed__stat">
           {added > 0 && <span className="diff__stat-add">+{added}</span>}
           {removed > 0 && <span className="diff__stat-del">−{removed}</span>}
@@ -72,20 +82,27 @@ export const FilesChanged = memo(function FilesChanged({ changes }: { changes: F
         const isOpen = open.has(entry.file)
         return (
           <div key={entry.file} className="files-changed__file" data-open={isOpen || undefined}>
-            <button className="files-changed__row" onClick={() => toggle(entry.file)} title={entry.file} aria-expanded={isOpen}>
-              <ChevronRight size={13} strokeWidth={2.2} className="files-changed__chevron" />
-              <span className="files-changed__icon">
-                <FileIcon file={name} />
-              </span>
-              <span className="files-changed__name">{name}</span>
-              {folder && <span className="files-changed__folder">{folder}</span>}
-              <span className="files-changed__stat">
-                {entry.added > 0 && <span className="diff__stat-add">+{entry.added}</span>}
-                {entry.removed > 0 && <span className="diff__stat-del">−{entry.removed}</span>}
-              </span>
-            </button>
+            <div className="files-changed__bar">
+              <button className="files-changed__row" onClick={() => toggle(entry.file)} title={entry.file} aria-expanded={isOpen}>
+                <ChevronRight size={13} strokeWidth={2.2} className="files-changed__chevron" />
+                <span className="files-changed__icon">
+                  <FileIcon file={name} />
+                </span>
+                <span className="files-changed__name">{name}</span>
+                {folder && <span className="files-changed__folder">{folder}</span>}
+                <span className="files-changed__stat">
+                  {entry.added > 0 && <span className="diff__stat-add">+{entry.added}</span>}
+                  {entry.removed > 0 && <span className="diff__stat-del">−{entry.removed}</span>}
+                </span>
+              </button>
+              {onOpen && (
+                <button className="files-changed__open" onClick={() => onOpen(entry.file)} aria-label={`Open ${name}`} title="Open in Code">
+                  <Code2 size={13} strokeWidth={1.9} />
+                </button>
+              )}
+            </div>
             {isOpen && (
-              <div className="files-changed__diffs">
+              <div className="files-changed__diffs step-card__panel">
                 {entry.changes.map((change, index) => (
                   <FileDiff key={index} file={change.file} before={change.before} after={change.after} bare />
                 ))}

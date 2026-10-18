@@ -34,7 +34,7 @@ scenario('a worker’s model is chosen when it is made, from its message box, an
   assert.deepEqual(ada?.model, { providerId: 'lm-studio', modelId: 'fake-model-two' })
 
   // The message box shows its model, and changes it.
-  const chip = '.composer .ms__trigger.chip--model'
+  const chip = '.composer-stack .ms__trigger.chip--model'
   assert.match((await page.eval((sel) => document.querySelector(sel)?.textContent, chip)) ?? '', /fake model two/i)
   await s.shot(page, 'worker-model-chip')
   await pickIn(page, chip, /^fake model$/i)

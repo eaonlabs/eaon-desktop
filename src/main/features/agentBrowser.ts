@@ -243,6 +243,11 @@ function browserOf(ctx: ToolContext): { browsers: WorkerBrowsers; id: string } |
 }
 
 /** The page the calling agent's browser is on; null when it has none open. */
+/** Tells every live view of `target` that something outside them changed it, such as Teach taking or handing back control. */
+export function refreshBrowserStatus(target: BrowserTarget): void {
+  pushStatus(target)
+}
+
 export function agentBrowserUrl(ctx: ToolContext): string | null {
   const found = browserOf(ctx)
   const url = found ? found.browsers.url(found.id) : ''

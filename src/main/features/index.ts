@@ -8,6 +8,7 @@ import { skillsFeature } from './skills'
 import { modelLibraryFeature } from './modelLibrary'
 import { libraryFeature } from './library'
 import { workspaceFilesFeature } from './workspaceFiles'
+import { wallpaperFeature } from './wallpaper'
 import { terminalsFeature } from './terminals'
 import { adeFeature } from './ade'
 import { prReviewFeature } from './prReview'
@@ -53,6 +54,7 @@ export const FEATURES: Feature[] = [
   eaonCodeFeature,
   libraryFeature,
   workspaceFilesFeature,
+  wallpaperFeature,
   terminalsFeature,
   adeFeature,
   // Make ADE sessions, so after it.

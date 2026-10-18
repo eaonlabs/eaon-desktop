@@ -1,6 +1,6 @@
 import { useLayoutEffect, useRef, useState, type JSX, type ReactNode } from 'react'
-import { ChevronRight } from 'lucide-react'
-import { DotMatrix, Elapsed, toolMotion } from './Loaders'
+import { Brain, ChevronDown, Hammer } from 'lucide-react'
+import { Elapsed } from './Loaders'
 
 /**
  * A run of steps — thinking and tool calls, in the order they happened —
@@ -268,27 +268,30 @@ export function ActivityGroup({
         {current ? (
           <>
             <span className="activity__orb">
-              <DotMatrix motion={toolMotion(current.name)} />
+              <Hammer size={14} strokeWidth={1.8} />
             </span>
             <span className="activity__text step-shimmer">{current.label}</span>
             {current.detail && <span className="activity__detail">{current.detail}</span>}
           </>
         ) : working ? (
           <>
-            <span className="activity__orb">
-              <DotMatrix motion="think" />
+            <span className="activity__orb" data-pulse>
+              <Brain size={14} strokeWidth={1.8} />
             </span>
             <span className="activity__text step-shimmer">{thinking ? 'Thinking' : 'Working'}</span>
           </>
         ) : (
           <>
+            <span className="activity__orb">
+              <Hammer size={14} strokeWidth={1.8} />
+            </span>
             <span className="activity__text">{summary!.text}</span>
             {summary!.failed > 0 && <span className="activity__flag">{summary!.failed} failed</span>}
             {summary!.blocked > 0 && <span className="activity__flag">{summary!.blocked} blocked</span>}
           </>
         )}
         {active && <Elapsed since={since} className="activity__clock" />}
-        <ChevronRight size={13} strokeWidth={2.2} className="activity__chevron" />
+        <ChevronDown size={13} strokeWidth={2} className="activity__chevron" />
       </button>
       {!open && current && live}
       {open && (

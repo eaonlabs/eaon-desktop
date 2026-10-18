@@ -1,4 +1,5 @@
 import { memo, useEffect, useState, type CSSProperties, type JSX } from 'react'
+import { Brain } from 'lucide-react'
 
 /**
  * The transcript's one "still going" mark: a small dot matrix.
@@ -211,7 +212,9 @@ export function LoadingState({ label }: { label: string }): JSX.Element {
   const [since] = useState(() => Date.now())
   return (
     <div className="loading-state" role="status">
-      <DotMatrix motion="think" />
+      <span className="loading-state__icon" aria-hidden>
+        <Brain size={14} strokeWidth={1.8} />
+      </span>
       <span className="loading-state__label step-shimmer">{label}</span>
       <Elapsed since={since} className="loading-state__clock" />
     </div>

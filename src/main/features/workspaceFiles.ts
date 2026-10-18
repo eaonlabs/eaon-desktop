@@ -58,6 +58,19 @@ export const workspaceFilesFeature: Feature = {
   register: ({ ipcMain }) => {
     ipcMain.handle('workspace-files:root', () => chatFolder())
 
+    // The composer's project picker: the folders in the home folder, by name,
+    // as places to start. Picking one is the user's choice of where the agent
+    // works, the same as choosing it in the open dialog; nothing is read.
+    ipcMain.handle('workspace-files:places', async (): Promise<WorkspaceEntry[]> => {
+      const home = homedir()
+      const entries = await readdir(home, { withFileTypes: true }).catch(() => [])
+      return entries
+        .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
+        .map((entry) => ({ name: entry.name, path: join(home, entry.name), directory: true }))
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+        .slice(0, 60)
+    })
+
     ipcMain.handle('workspace-files:list', async (_e, path: unknown): Promise<WorkspaceEntry[]> => {
       const dir = await allowed(path)
       const entries = await readdir(dir, { withFileTypes: true })

@@ -36,6 +36,7 @@ import { discordApi } from './features/discordPresence'
 import { modelLibraryApi } from './features/modelLibrary'
 import { libraryApi } from './features/library'
 import { workspaceFilesApi } from './features/workspaceFiles'
+import { wallpaperApi } from './features/wallpaper'
 import { terminalsApi } from './features/terminals'
 import { adeApi } from './features/ade'
 import { workersApi } from './features/workers'
@@ -326,6 +327,7 @@ const fullApi = {
   modelLibrary: modelLibraryApi,
   library: libraryApi,
   workspaceFiles: workspaceFilesApi,
+  wallpaper: wallpaperApi,
   terminals: terminalsApi,
   ade: adeApi,
   workers: workersApi,

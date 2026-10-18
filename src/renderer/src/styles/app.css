@@ -604,6 +604,10 @@ a:hover {
   color: var(--text-4);
 }
 
+/* With the usage meter elsewhere (or off), the foot has nothing to hold. */
+.sidebar__footer:empty {
+  display: none;
+}
 .sidebar__footer {
   flex: none;
   display: flex;

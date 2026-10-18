@@ -30,7 +30,7 @@ import { ContextMenu } from '../Sidebar'
 import { Modal } from '../ui'
 import { WorkerFace } from './WorkerFace'
 import { WorkerEditor } from './WorkerEditor'
-import { WorkerAsks, WorkerBrowserFact, WorkerGoalBanner, WorkerMemory } from './WorkerAutonomy'
+import { WorkerAsks, WorkerBrowserFact, WorkerGoalBanner, WorkerMemory, WorkerTeachFact } from './WorkerAutonomy'
 import { WorkerComposer } from './WorkerComposer'
 import { RoomEditor, RoomPage, TeamDialog } from './WorkerRooms'
 import { ThreadTabs } from './WorkerThreads'
@@ -287,44 +287,64 @@ function WorkerPage({ worker }: { worker: Worker }): JSX.Element {
     if (unread > 0 && active !== 'new') markRead(worker.id, active)
   }, [unread, worker.id, active, markRead])
 
+  // A turn running in the thread on screen; the worker's other threads may be working too.
+  const working = runningId !== null
+  const asks = worker.asks ?? []
+
   useLayoutEffect(() => {
     const node = scroller.current
     if (node && following.current) node.scrollTop = node.scrollHeight
-  }, [thread?.messages, inbox.length])
+  }, [thread?.messages, inbox.length, asks.length, working])
 
   const queued = inbox.filter((mail) => mail.from === 'user')
+
+  // Scrolled off the top: Chat's veil of graded blur builds over what passes
+  // under the top bar and the name pill (see ChatView).
+  const veil = useRef<HTMLDivElement>(null)
+  const showVeil = (top: number): void => {
+    const t = Math.min(1, Math.max(0, top / 140))
+    veil.current?.style.setProperty('--veil', (t * t * (3 - 2 * t)).toFixed(3))
+  }
+  useLayoutEffect(() => {
+    showVeil(scroller.current?.scrollTop ?? 0)
+  })
 
   return (
     <>
       <TopBar
+        className="chat-header--float"
         left={
           <>
             <button className="header-btn worker-back" onClick={() => select(null)} title="Back to the team">
               <ArrowLeft size={14} strokeWidth={2} />
               <span>Team</span>
             </button>
-            <span className="worker-title">
-              <WorkerFace color={worker.color} mood={mood} size={20} />
-              <span className="chat-header__title">{worker.name}</span>
-            </span>
           </>
         }
         right={<WorkerActions worker={worker} />}
       />
       <ThreadTabs worker={worker} active={active} />
 
+      <div ref={veil} className="scroll-veil scroll-veil--worker" aria-hidden="true">
+        {[0, 1, 2, 3, 4, 5].map((i) => (
+          <span key={i} style={{ ['--i' as string]: i }} />
+        ))}
+      </div>
+      <WorkerPill worker={worker} mood={mood} onClick={() => scroller.current?.scrollTo({ top: 0, behavior: 'smooth' })} />
+
       <div
         ref={scroller}
-        className="thread scroll"
+        className="thread thread--worker scroll"
         onScroll={(e) => {
           const node = e.currentTarget
           following.current = node.scrollHeight - node.scrollTop - node.clientHeight < 8
+          showVeil(node.scrollTop)
         }}
         onWheel={(e) => {
           if (e.deltaY < 0) following.current = false
         }}
       >
-        <div className="thread__inner">
+        <div className="thread__inner thread__inner--worker" style={{ ['--worker' as string]: worker.color }}>
           {isMain ? <WorkerProfile worker={worker} now={now} mood={mood} /> : <ThreadHeader worker={worker} info={info} />}
           {thread?.summary && (
             <div className="worker-compacted">
@@ -337,11 +357,15 @@ function WorkerPage({ worker }: { worker: Worker }): JSX.Element {
               for help when it needs to.
             </p>
           )}
-          {thread?.messages.map((message) => (
-            <RowBoundary key={message.id} item={message}>
-              <MessageRow message={message} streaming={message.id === runningId} quietWhenEmpty />
-            </RowBoundary>
-          ))}
+          {thread?.messages.map((message, index) => {
+            const stamp = timeStamp(message.createdAt, index > 0 ? thread.messages[index - 1].createdAt : null, now)
+            return (
+              <RowBoundary key={message.id} item={message}>
+                {stamp && <div className="thread-time">{stamp}</div>}
+                <MessageRow message={message} streaming={message.id === runningId} quietWhenEmpty bubbles />
+              </RowBoundary>
+            )
+          })}
           {queued.map((mail) => (
             <div key={mail.id} className="msg-row msg-user-block msg-row--queued">
               {/* Mail saved by an older build can be missing its file list. */}
@@ -374,6 +398,9 @@ function WorkerPage({ worker }: { worker: Worker }): JSX.Element {
               </span>
             </div>
           ))}
+          {working && <WorkerWorking worker={worker} mood={mood} activity={isMain ? worker.activity : (info?.activity ?? '')} />}
+          {/* Its questions sit in the thread, where it asked them, as cards to answer. */}
+          <WorkerAsks worker={worker} />
         </div>
       </div>
 
@@ -384,10 +411,37 @@ function WorkerPage({ worker }: { worker: Worker }): JSX.Element {
             <WorkerGoalBanner worker={worker} now={now} />
           </div>
         )}
-        <WorkerAsks worker={worker} />
         <WorkerComposer key={active} worker={worker} threadId={active} />
       </div>
     </>
+  )
+}
+
+/**
+ * Its face and name in a pill under the top bar, over the thread: the thread
+ * scrolls under both, behind the veil's blur.
+ */
+function WorkerPill({ worker, mood, onClick }: { worker: Worker; mood: ReturnType<typeof workerMood>; onClick: () => void }): JSX.Element {
+  return (
+    <div className="worker-pill-bar">
+      <button className="worker-pill" onClick={onClick} title={`${worker.name} — back to the top`}>
+        <WorkerFace color={worker.color} mood={mood} size={22} busy={worker.status === 'working'} />
+        <span className="worker-pill__name">{worker.name}</span>
+      </button>
+    </div>
+  )
+}
+
+/** At the foot of the thread while a turn runs: its face at work, and what it is doing. */
+function WorkerWorking({ worker, mood, activity }: { worker: Worker; mood: ReturnType<typeof workerMood>; activity: string }): JSX.Element {
+  return (
+    <div className="worker-working" role="status">
+      <WorkerFace color={worker.color} mood={mood} size={22} busy />
+      <span className="worker-working__text">
+        <span className="worker-working__name step-shimmer">{worker.name} is working</span>
+        {activity && <span className="worker-working__activity"> · {activity}</span>}
+      </span>
+    </div>
   )
 }
 
@@ -420,6 +474,30 @@ function ThreadHeader({ worker, info }: { worker: Worker; info: WorkerThreadInfo
       </p>
     </div>
   )
+}
+
+const HALF_HOUR = 30 * 60_000
+
+/**
+ * A time over the first message, and over any that comes half an hour or more
+ * after the one before it: "9:41 AM", "Yesterday 6:12 PM", "Mon, Oct 12, 9:41 AM".
+ */
+function timeStamp(at: number | undefined, before: number | null | undefined, now: number): string | null {
+  if (typeof at !== 'number') return null
+  if (typeof before === 'number' && at - before < HALF_HOUR) return null
+  const date = new Date(at)
+  const time = date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+  const today = new Date(now)
+  const yesterday = new Date(now - 86_400_000)
+  if (date.toDateString() === today.toDateString()) return time
+  if (date.toDateString() === yesterday.toDateString()) return `Yesterday ${time}`
+  const day = date.toLocaleDateString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    ...(date.getFullYear() === today.getFullYear() ? {} : { year: 'numeric' })
+  })
+  return `${day}, ${time}`
 }
 
 /** "the trading desk", "Robinhood", or the name of a server the user added. */
@@ -491,6 +569,7 @@ function WorkerProfile({ worker, now, mood }: { worker: Worker; now: number; moo
         )}
         <ConnectedApps worker={worker} />
         <WorkerBrowserFact worker={worker} />
+        <WorkerTeachFact worker={worker} />
       </div>
       {worker.personality && <p className="worker-profile__personality">“{worker.personality}”</p>}
       <WorkerMemory worker={worker} now={now} />
@@ -554,7 +633,13 @@ function statusLine(worker: Worker): string {
   if (worker.status === 'failed') return worker.lastError ? `Stopped: ${worker.lastError}` : 'Last task failed'
   if (worker.inbox.length > 0) return `${worker.inbox.length} message${worker.inbox.length === 1 ? '' : 's'} waiting`
   if (worker.lastRunAt === null) return 'Ready for its first job'
-  return worker.activity || (worker.heartbeat.nextAt === null ? 'Asleep until you write' : 'Waiting for its next heartbeat')
+  if (worker.activity) return worker.activity
+  // A job or a watch wakes it, so it isn't asleep until the user writes.
+  const jobs = (worker.jobs ?? []).filter((j) => j.endedAt === null)
+  if (jobs.length > 0) return jobs.length === 1 ? `Waiting on ${jobs[0].name}` : `Waiting on ${jobs.length} jobs`
+  const watches = worker.watches ?? []
+  if (watches.length > 0) return watches.length === 1 ? `Watching ${watches[0].name}` : `Watching ${watches.length} things`
+  return worker.heartbeat.nextAt === null ? 'Asleep until you write' : 'Waiting for its next heartbeat'
 }
 
 function WorkerActions({ worker }: { worker: Worker }): JSX.Element {

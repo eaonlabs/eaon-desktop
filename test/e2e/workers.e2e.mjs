@@ -104,7 +104,7 @@ scenario('two workers run at the same time; stopping one leaves the other runnin
   await s.shot(page, 'both-working')
 
   // Stop Ada from its page.
-  await page.click('.worker-stop')
+  await page.click('.composer--worker .send--stop')
   await within(ada.closed, 5000, "Stop did not close Ada's model request within 5 s")
   assert.equal(ada.aborted, true)
   await page.waitFor(async () => (await window.api.workers.list()).find((w) => w.name === 'Ada')?.status !== 'working', { message: 'Ada to stop working' })

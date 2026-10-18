@@ -139,6 +139,11 @@ interface AppState {
   /** Clears or pauses the active chat's goal. */
   setGoalStatus: (status: 'paused' | 'active' | null) => void
   respondApproval: (approved: boolean) => void
+  /**
+   * Switching to full access mid-turn: approves everything waiting that full
+   * access would have run without asking. What can't be undone keeps waiting.
+   */
+  releaseApprovals: () => void
   setComposerDraft: (text: string | null) => void
   appendToComposer: (append: { text: string; attachments: string[] } | null) => void
   reindex: (force?: boolean) => Promise<void>
@@ -181,6 +186,8 @@ export interface PendingApproval {
   tool: string
   input: Record<string, unknown>
   summary?: string
+  /** Can't be undone: asked in every mode, and never released by switching to full access. */
+  critical?: boolean
 }
 
 /** What the sidebar shows for a chat. */
@@ -422,7 +429,14 @@ function applyStreamEvent(event: StreamEvent): void {
   // dialog and the main process blocks on the answer, so they must be
   // handled before the message-indexing path below (which would drop them).
   if (event.type === 'approval-request') {
-    const request: PendingApproval = { requestId: event.requestId, messageId: event.messageId, tool: event.tool, input: event.input, summary: event.summary }
+    const request: PendingApproval = {
+      requestId: event.requestId,
+      messageId: event.messageId,
+      tool: event.tool,
+      input: event.input,
+      summary: event.summary,
+      ...(event.critical ? { critical: true } : {})
+    }
     // Several can be waiting at once: swarm sub-agents run in parallel and
     // each may stop to ask. Replacing the open one left it unanswered, and
     // its sub-agent — so the whole turn — waiting forever.
@@ -506,6 +520,9 @@ function applyStreamEvent(event: StreamEvent): void {
       nextMessage = { ...message, parts }
     }
   }
+
+  // Stamped once, when the turn ends, so its header can say how long it worked.
+  if (finished && !nextMessage.finishedAt) nextMessage = { ...nextMessage, finishedAt: Date.now() }
 
   if (nextMessage === message && !finished && !nextChat) return
 
@@ -1033,6 +1050,15 @@ export const useApp = create<AppState>((set, get) => ({
     if (!pending) return
     void window.api.chat.approve(pending.requestId, approved)
     set((s) => ({ pendingApproval: s.approvalQueue[0] ?? null, approvalQueue: s.approvalQueue.slice(1) }))
+  },
+
+  releaseApprovals() {
+    const { pendingApproval, approvalQueue } = get()
+    const waiting = pendingApproval ? [pendingApproval, ...approvalQueue] : approvalQueue
+    if (waiting.length === 0) return
+    for (const ask of waiting) if (!ask.critical) void window.api.chat.approve(ask.requestId, true)
+    const kept = waiting.filter((ask) => ask.critical)
+    set({ pendingApproval: kept[0] ?? null, approvalQueue: kept.slice(1) })
   },
 
   setComposerDraft(text) {

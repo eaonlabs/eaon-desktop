@@ -5,7 +5,7 @@ import { useApp } from '../../state/store'
 import { errorText, useWorkers } from './workersStore'
 import { WorkerFace } from './WorkerFace'
 import { MenuItem, MenuSeparator, Popover, useDisclosure } from '../ui'
-import { PluginsSubmenu } from '../Composer'
+import { GoalEndChip, goalEndAt, PluginsSubmenu, type GoalEnd } from '../Composer'
 import { PluginLogo } from '../plugins/PluginLogo'
 import { useMcpStatuses, useSkills } from '../plugins/usePlugins'
 import { useSuggest, type SuggestItem, type SuggestSources } from '../composer/SuggestMenu'
@@ -17,11 +17,14 @@ import { ModelSelect } from '../composer/ModelSelect'
 import { ENGINE_LABEL } from '@shared/engines'
 import { fileName, fileUrl, isImagePath } from '../../lib/files'
 import { mcpCatalogEntry } from '@shared/mcpCatalog'
-import { MAIN_THREAD, mentionedWorkers, WORKER_ACCESS, type Worker, type WorkerAccess } from '@shared/workers'
+import { GOAL_MAX_TURNS, MAIN_THREAD, mentionedWorkers, WORKER_ACCESS, type Worker, type WorkerAccess } from '@shared/workers'
 import type { McpServer } from '@shared/types'
 import { usePurchaseDialog } from '../purchase/purchaseStore'
 
 const ACCESS_ICON: Record<WorkerAccess, typeof Zap> = { autonomous: Zap, safe: ShieldCheck, 'read-only': Eye }
+
+/** How long a worker can be left on a goal from the composer: from an hour to twelve. */
+const WORKER_GOAL_SPANS = [60, 180, 480, 720]
 
 /**
  * Writing to a worker: text and files, plus what Chat's + menu offers that
@@ -55,6 +58,8 @@ export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Wor
   const [files, setFiles] = useState<string[]>([])
   // Armed per message, like Chat's Goal: the next send becomes the worker's goal.
   const [goalArmed, setGoalArmed] = useState(false)
+  // How long it works on the goal: until it's done, or for hours on end.
+  const [goalEnd, setGoalEnd] = useState<GoalEnd>({ kind: 'none' })
   const [mentions, setMentions] = useState<Mention[]>([])
   const [dragging, setDragging] = useState(false)
   const [hasBrowser, setHasBrowser] = useState(false)
@@ -177,6 +182,7 @@ export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Wor
   const copiedTo = mentionedWorkers(text, colleagues, worker.id)
   const shownMentions = liveMentions(mentions, text)
   const hasChips = goalArmed || copiedTo.length > 0 || shownMentions.length > 0
+  const hasContent = text.trim().length > 0 || files.length > 0
 
   // The box empties only once main has the message: a refused send (the
   // worker removed, a bad file) leaves what was written there to try again.
@@ -188,7 +194,7 @@ export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Wor
     setSendError(null)
     try {
       await send(worker.id, text.trim(), files, {
-        ...(isMain && goalArmed && text.trim() ? { goal: true } : {}),
+        ...(isMain && goalArmed && text.trim() ? { goal: true, until: goalEndAt(goalEnd) } : {}),
         ...(isMain ? {} : { threadId })
       })
       // Anything typed while it was sending stays.
@@ -196,6 +202,7 @@ export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Wor
       setFiles((current) => current.filter((path) => !sentFiles.includes(path)))
       setMentions([])
       setGoalArmed(false)
+      setGoalEnd({ kind: 'none' })
     } catch (error) {
       setSendError(errorText(error))
     } finally {
@@ -219,7 +226,7 @@ export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Wor
         addFiles([...e.dataTransfer.files].map((file) => window.api.app.pathForFile(file)).filter(Boolean))
       }}
     >
-      <div className="composer" data-goal={goalArmed || undefined}>
+      <div className="composer composer--worker" data-variant="chat" data-goal={goalArmed || undefined}>
         {files.length > 0 && (
           <div className="composer__attachments">
             {files.map((path) => (
@@ -232,39 +239,6 @@ export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Wor
               </span>
             ))}
           </div>
-        )}
-        {dictating ? (
-          <VoiceBar dictation={dictation} />
-        ) : (
-        <textarea
-          ref={box}
-          className="composer__input"
-          rows={1}
-          value={text}
-          placeholder={
-            worker.paused
-              ? `${worker.name} is paused — messages wait until you resume it`
-              : threadId === 'new'
-                ? `Describe a task for ${worker.name} — it runs beside everything else`
-                : goalArmed
-                  ? `Describe ${worker.name}'s goal`
-                  : info
-                    ? `Message ${worker.name} in “${info.title}”`
-                    : `Message ${worker.name}`
-          }
-          onChange={(e) => {
-            setText(e.target.value)
-            suggest.onCaret()
-          }}
-          onSelect={suggest.onCaret}
-          onKeyDown={(e) => {
-            if (suggest.onKeyDown(e)) return
-            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-              e.preventDefault()
-              void submit()
-            }
-          }}
-        />
         )}
         {sendError && (
           <div className="voice-error" role="alert">
@@ -282,7 +256,9 @@ export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Wor
             </button>
           </div>
         )}
-        <div className="composer__toolbar">
+        {/* One line between + and the round button at the end: the mic while
+            there's nothing to send, send once there is, stop while it works. */}
+        <div className="composer__row">
           <button
             ref={plusAnchor}
             className="composer__round"
@@ -293,83 +269,151 @@ export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Wor
           >
             <Plus size={18} strokeWidth={1.9} />
           </button>
-          {hasChips && (
-            <div className="composer__chips">
-              {goalArmed && (
-                <Chip icon={<Target size={13} strokeWidth={2} />} label="Goal" title={`This message becomes ${worker.name}'s goal`} onClear={() => setGoalArmed(false)} clearLabel="Turn off Goal" />
-              )}
-              {copiedTo.map((w) => (
-                <Chip
-                  key={w.id}
-                  icon={<WorkerFace color={w.color} size={14} />}
-                  label={w.name}
-                  title={`${w.name} gets this message too`}
-                  onClear={() => setText(removeMention(text, w.name))}
-                  clearLabel={`Remove @${w.name}`}
-                />
-              ))}
-              {shownMentions.map((m) => (
-                <Chip
-                  key={m.id}
-                  icon={
-                    <span className="composer-chip__logo">
-                      <PluginLogo logo={m.pluginId ? mcpCatalogEntry(m.pluginId)?.logoAssetName : undefined} name={m.name} size={13} />
-                    </span>
-                  }
-                  label={m.name}
-                  title={`${m.name} is mentioned in this message`}
-                  onClear={() => {
-                    setMentions((current) => current.filter((x) => x.id !== m.id))
-                    setText(removeMention(text, m.name))
-                  }}
-                  clearLabel={`Remove @${m.name}`}
-                />
-              ))}
-            </div>
+          {dictating ? (
+            <VoiceBar dictation={dictation} />
+          ) : (
+            <textarea
+              ref={box}
+              className="composer__input"
+              rows={1}
+              value={text}
+              placeholder={
+                worker.paused
+                  ? `${worker.name} is paused — messages wait until you resume it`
+                  : threadId === 'new'
+                    ? `Describe a task for ${worker.name} — it runs beside everything else`
+                    : goalArmed
+                      ? `Describe ${worker.name}'s goal`
+                      : info
+                        ? `Message ${worker.name} in “${info.title}”`
+                        : `Message ${worker.name}`
+              }
+              onChange={(e) => {
+                setText(e.target.value)
+                suggest.onCaret()
+              }}
+              onSelect={suggest.onCaret}
+              onKeyDown={(e) => {
+                if (suggest.onKeyDown(e)) return
+                if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+                  e.preventDefault()
+                  void submit()
+                }
+              }}
+            />
           )}
-          <div className="composer__spacer" />
-          {/* The model this worker thinks with, chosen here as in Chat (it was only in Edit worker). */}
-          <ModelSelect
-            variant="chip"
-            engine={worker.engine ?? 'native'}
-            label={`${worker.name}’s model`}
-            value={worker.model}
-            defaultLabel={worker.engine && worker.engine !== 'native' ? `${ENGINE_LABEL[worker.engine]}’s default` : 'Chat’s model'}
-            onChange={(ref) =>
-              void save({
-                id: worker.id,
-                name: worker.name,
-                color: worker.color,
-                personality: worker.personality,
-                purpose: worker.purpose,
-                model: ref && ref.modelId ? { providerId: ref.providerId ?? worker.engine ?? 'native', modelId: ref.modelId } : null
-              })
-            }
-          />
-          {working && (
+          {working && (hasContent || dictating) && (
             <button
-              className="chip worker-stop"
+              className="composer__round worker-stop"
               onClick={() => void stop(worker.id, threadId)}
+              aria-label="Stop"
               title={isMain ? `Stop what ${worker.name} is doing in this conversation; its other tasks carry on` : `Stop this task; ${worker.name}'s other work carries on`}
             >
-              <Square size={10} strokeWidth={0} fill="currentColor" />
-              <span className="chip__label">Stop</span>
+              <Square size={11} strokeWidth={0} fill="currentColor" />
             </button>
           )}
-          <button
-            className="composer__round composer__mic"
-            data-active={dictating || undefined}
-            onClick={() => (dictating ? dictation.cancel() : void dictation.start())}
-            disabled={dictation.state === 'transcribing'}
-            aria-label={dictating ? 'Stop dictating' : 'Dictate'}
-            title={dictating ? 'Stop dictating' : 'Dictate a message'}
-          >
-            <Mic size={16} strokeWidth={1.9} />
-          </button>
-          <button className="send" disabled={dictating || sending || (!text.trim() && files.length === 0)} onClick={() => void submit()} aria-label="Send">
-            <ArrowUp size={17} strokeWidth={2.2} />
-          </button>
+          {dictating ? (
+            <button
+              className="composer__round composer__mic"
+              data-active
+              onClick={() => dictation.cancel()}
+              disabled={dictation.state === 'transcribing'}
+              aria-label="Stop dictating"
+              title="Stop dictating"
+            >
+              <Mic size={16} strokeWidth={1.9} />
+            </button>
+          ) : hasContent ? (
+            <button
+              key="send"
+              className="send"
+              disabled={sending}
+              onClick={() => void submit()}
+              aria-label="Send"
+              title={working ? `Send — ${worker.name} reads it when it finishes` : 'Send'}
+            >
+              <ArrowUp size={17} strokeWidth={2.2} />
+            </button>
+          ) : working ? (
+            <button
+              key="stop"
+              className="send send--stop"
+              onClick={() => void stop(worker.id, threadId)}
+              aria-label="Stop"
+              title={isMain ? `Stop what ${worker.name} is doing in this conversation; its other tasks carry on` : `Stop this task; ${worker.name}'s other work carries on`}
+            >
+              <Square size={11} strokeWidth={0} fill="currentColor" />
+            </button>
+          ) : (
+            <button key="mic" className="send send--mic" onClick={() => void dictation.start()} aria-label="Dictate" title="Dictate a message">
+              <Mic size={16} strokeWidth={2} />
+            </button>
+          )}
         </div>
+      </div>
+      <div className="composer__meta composer__meta--worker">
+        {hasChips && (
+          <div className="composer__chips">
+            {goalArmed && (
+              <Chip icon={<Target size={13} strokeWidth={2} />} label="Goal" title={`This message becomes ${worker.name}'s goal`} onClear={() => setGoalArmed(false)} clearLabel="Turn off Goal" />
+            )}
+            {goalArmed && (
+              <GoalEndChip
+                value={goalEnd}
+                onChange={setGoalEnd}
+                who={worker.name}
+                doneHint={`Stops when it's met, or checks in after ${GOAL_MAX_TURNS} turns`}
+                spans={WORKER_GOAL_SPANS}
+              />
+            )}
+            {copiedTo.map((w) => (
+              <Chip
+                key={w.id}
+                icon={<WorkerFace color={w.color} size={14} />}
+                label={w.name}
+                title={`${w.name} gets this message too`}
+                onClear={() => setText(removeMention(text, w.name))}
+                clearLabel={`Remove @${w.name}`}
+              />
+            ))}
+            {shownMentions.map((m) => (
+              <Chip
+                key={m.id}
+                icon={
+                  <span className="composer-chip__logo">
+                    <PluginLogo logo={m.pluginId ? mcpCatalogEntry(m.pluginId)?.logoAssetName : undefined} name={m.name} size={13} />
+                  </span>
+                }
+                label={m.name}
+                title={`${m.name} is mentioned in this message`}
+                onClear={() => {
+                  setMentions((current) => current.filter((x) => x.id !== m.id))
+                  setText(removeMention(text, m.name))
+                }}
+                clearLabel={`Remove @${m.name}`}
+              />
+            ))}
+          </div>
+        )}
+        <div className="composer__spacer" />
+        {/* The model this worker thinks with, chosen here as in Chat (it was only in Edit worker). */}
+        <ModelSelect
+          variant="chip"
+          engine={worker.engine ?? 'native'}
+          label={`${worker.name}’s model`}
+          value={worker.model}
+          defaultLabel={worker.engine && worker.engine !== 'native' ? `${ENGINE_LABEL[worker.engine]}’s default` : 'Chat’s model'}
+          onChange={(ref) =>
+            void save({
+              id: worker.id,
+              name: worker.name,
+              color: worker.color,
+              personality: worker.personality,
+              purpose: worker.purpose,
+              model: ref && ref.modelId ? { providerId: ref.providerId ?? worker.engine ?? 'native', modelId: ref.modelId } : null
+            })
+          }
+        />
       </div>
       {suggest.menu}
       <WorkerAddMenu

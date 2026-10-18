@@ -50,7 +50,7 @@ interface TerminalsState {
   closePicker: () => void
   setPreview: (themeId: string | null) => void
   /** Saves a theme (and whether scenes are drawn) for every pane. */
-  saveLook: (look: { theme?: string; scenes?: boolean }) => void
+  saveLook: (look: { theme?: string; scenes?: boolean; blur?: boolean; blurAmount?: number }) => void
 }
 
 const uid = (): string => `pane-${Math.random().toString(36).slice(2, 10)}${Date.now().toString(36)}`
@@ -187,9 +187,24 @@ export const useTerminals = create<TerminalsState>((set, get) => ({
     if (!settings) return
     if (look.theme !== undefined) {
       // A theme restyles the app too; `eaon` gives it back its own look.
-      void app.patchSettings(settingsFor(findTheme(look.theme), settings)).then(() => app.setAppearancePreview(null))
+      const theme = findTheme(look.theme)
+      void app.patchSettings(settingsFor(theme, settings)).then(() => {
+        app.setAppearancePreview(null)
+        // Glass needs a wallpaper to show: picking it turns see-through on,
+        // with the desktop's picture where the OS says what it is, else the
+        // user's own if they chose one.
+        const see = useApp.getState().settings?.appearance.seeThrough
+        const usable = window.api.platform === 'darwin' || window.api.platform === 'win32' || Boolean(see?.custom)
+        if (theme.glass && see && !see.enabled && usable) void app.patchSettings({ appearance: { seeThrough: { ...see, enabled: true } } })
+      })
     }
-    if (look.scenes !== undefined) void app.patchSettings({ ade: { ...useApp.getState().settings!.ade, scenes: look.scenes } })
+    const { scenes, blur, blurAmount } = look
+    if (scenes !== undefined || blur !== undefined || blurAmount !== undefined) {
+      const ade = useApp.getState().settings!.ade
+      void app.patchSettings({
+        ade: { ...ade, ...(scenes !== undefined ? { scenes } : {}), ...(blur !== undefined ? { blur } : {}), ...(blurAmount !== undefined ? { blurAmount } : {}) }
+      })
+    }
   }
 }))
 
