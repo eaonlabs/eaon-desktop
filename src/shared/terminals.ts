@@ -225,3 +225,49 @@ export function pathsForTerminal(paths: string[]): string {
   const listed = paths.filter(Boolean).map(quote)
   return listed.length ? `${listed.join(' ')} ` : ''
 }
+
+/** Handing a pane's work to another agent (features/terminals/handoff.ts). */
+export interface HandoffRequest {
+  /** The pane whose conversation is handed over. */
+  paneId: string
+  cwd: string
+  /** The agent running in it. */
+  from: TerminalAgentId
+  /** The agent that takes over, in a new pane. */
+  to: TerminalAgentId
+  /** Anything the user wants to tell the new agent. */
+  note?: string
+  /** The pane's terminal text, used when Eaon can't read the agent's own transcript. */
+  screen?: string
+}
+
+export type HandoffResult =
+  | {
+      ok: true
+      /** The file written, relative to the project. */
+      file: string
+      /** The line the new agent starts on. */
+      prompt: string
+      /** Where the conversation came from. */
+      source: 'transcript' | 'screen'
+    }
+  | { ok: false; error: string }
+
+/**
+ * How each agent takes a first task on its command line, checked against each
+ * CLI's own --help. An agent not listed gets the task typed in once it is up.
+ */
+export const PROMPT_ARG: Partial<Record<TerminalAgentId, 'positional' | '--prompt' | '-i'>> = {
+  claude: 'positional',
+  codex: 'positional',
+  cursor: 'positional',
+  'eaon-code': 'positional',
+  opencode: '--prompt',
+  'eaon-cli': '--prompt',
+  copilot: '-i',
+  gemini: '-i',
+  qwen: '-i'
+}
+
+/** Agents whose own transcript Eaon reads for a handoff; any other hands over its terminal's text. */
+export const HANDOFF_TRANSCRIPT_AGENTS: readonly TerminalAgentId[] = ['claude', 'codex']

@@ -1,4 +1,4 @@
-import { Terminal, type ITheme } from '@xterm/xterm'
+import { Terminal, type IBuffer, type ITheme } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import { WebLinksAddon } from '@xterm/addon-web-links'
 import { WebglAddon } from '@xterm/addon-webgl'
@@ -269,6 +269,11 @@ class TerminalRegistry {
   private serverListeners = new Set<() => void>()
   /** Takes a link clicked in a pane, or declines it so it opens in the system browser. */
   private linkOpener: ((url: string, paneId: string) => boolean) | null = null
+  /**
+   * Tasks waiting to be typed into an agent that can't take one on its
+   * command line (see PROMPT_ARG), once that agent is up and waiting.
+   */
+  private typed = new Map<string, { text: string; agent: TerminalAgentId; since: number; checking: boolean }>()
 
   private bind(): void {
     if (this.bound) return
@@ -297,6 +302,7 @@ class TerminalRegistry {
       const now = Date.now()
       for (const [paneId, rt] of this.panes) {
         if (rt.status === 'working' && wentQuiet(rt.activity, now)) this.setStatus(rt, 'idle')
+        this.typeIfReady(paneId, rt, now)
         if (rt.finishPending && rt.status === 'idle' && now - rt.activity.last > FINISH_QUIET_MS) {
           rt.finishPending = false
           for (const listener of this.finishListeners) listener(paneId, rt.task)
@@ -672,6 +678,67 @@ class TerminalRegistry {
     rt.term.focus()
   }
 
+  /**
+   * Types `text` into a pane and presses Enter once `agent` is running in it
+   * and waiting: for a new agent that takes no task on its command line.
+   * Never into the shell before the agent is up, where it would run as a command.
+   */
+  typeWhenReady(paneId: string, text: string, agent: TerminalAgentId): void {
+    this.typed.set(paneId, { text, agent, since: Date.now(), checking: false })
+  }
+
+  private typeIfReady(paneId: string, rt: Runtime, now: number): void {
+    const job = this.typed.get(paneId)
+    if (!job || job.checking) return
+    // Exited, or still nothing after two minutes: the task isn't typed into whatever comes next.
+    if (rt.status === 'exited' || now - job.since > 120_000) {
+      this.typed.delete(paneId)
+      return
+    }
+    if (rt.status !== 'idle' || now - job.since < 3000 || now - rt.activity.last < 1200) return
+    job.checking = true
+    void window.api.terminals
+      .running()
+      .then((running) => {
+        const seen = running[paneId]?.agent
+        // On macOS and Linux the process table says when the agent itself is up.
+        // Windows has no watch, and a CLI the watch doesn't know never shows:
+        // then a pane gone quiet a while after starting.
+        const ready = seen ? seen === job.agent : now - job.since > (window.api.platform === 'win32' ? 6000 : 20_000)
+        if (!ready || this.typed.get(paneId) !== job || rt.status === 'exited') return
+        this.typed.delete(paneId)
+        rt.term.paste(job.text)
+        // A beat for the paste to land before Enter, or some CLIs take the Enter as part of it.
+        window.setTimeout(() => window.api.terminals.write(paneId, '\r'), 150)
+      })
+      .catch(() => undefined)
+      .finally(() => {
+        job.checking = false
+      })
+  }
+
+  /**
+   * The text a pane shows, scrollback included, oldest first: what an agent
+   * without a transcript Eaon can read hands over (features/terminals/handoff.ts).
+   * A full-screen CLI draws on the alternate screen, so that is added after.
+   */
+  screenText(paneId: string, maxLines = 5000): string {
+    const rt = this.panes.get(paneId)
+    if (!rt) return ''
+    const read = (buffer: IBuffer): string[] => {
+      const out: string[] = []
+      for (let i = Math.max(0, buffer.length - maxLines); i < buffer.length; i++) out.push(buffer.getLine(i)?.translateToString(true) ?? '')
+      return out
+    }
+    const lines = read(rt.term.buffer.normal)
+    if (rt.term.buffer.active.type === 'alternate') lines.push('', ...read(rt.term.buffer.alternate))
+    return lines
+      .map((line) => line.trimEnd())
+      .join('\n')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
+  }
+
   /** Types `data` into a pane as if from the keyboard, past the `/theme` watch. */
   send(paneId: string, data: string): void {
     const rt = this.panes.get(paneId)
@@ -743,6 +810,7 @@ class TerminalRegistry {
   /** Closes a pane for good: the shell, the terminal and its history. */
   dispose(paneId: string): void {
     const rt = this.panes.get(paneId)
+    this.typed.delete(paneId)
     window.api.terminals.kill(paneId)
     if (this.focusedPane === paneId) this.focusedPane = null
     if (this.servers.some((s) => s.paneId === paneId)) {

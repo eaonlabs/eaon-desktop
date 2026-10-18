@@ -1,6 +1,6 @@
 import { memo, useEffect, useRef, useState, useSyncExternalStore, type CSSProperties, type JSX } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { ArrowLeft, ArrowRight, Eraser, LockOpen, Maximize2, Minimize2, MoreHorizontal, PencilLine, Plus, RotateCcw, SquareTerminal, X } from 'lucide-react'
+import { ArrowLeft, ArrowRight, ArrowRightLeft, Eraser, LockOpen, Maximize2, Minimize2, MoreHorizontal, PencilLine, Plus, RotateCcw, SquareTerminal, X } from 'lucide-react'
 import claudeCodeLogo from '../../../assets/providers/claude.webp'
 import codexLogo from '../../../assets/providers/codex.svg'
 import antigravityLogo from '../../../assets/providers/antigravity.png'
@@ -28,6 +28,7 @@ import hermesLogo from '../../../assets/providers/hermes.svg'
 import openClawLogo from '../../../assets/providers/openclaw.svg'
 import ollamaLogo from '../../../assets/providers/ollama.png'
 import { useApp } from '../../../state/store'
+import { HandoffDialog } from './HandoffDialog'
 import { ContextMenu } from '../../Sidebar'
 import { MenuItem, MenuSeparator, Popover, useDisclosure } from '../../ui'
 import { folderName } from '../CodeHeader'
@@ -407,6 +408,7 @@ const TerminalPane = memo(function TerminalPane({
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [renaming, setRenaming] = useState(false)
   const [draft, setDraft] = useState(pane.name)
+  const [handingOff, setHandingOff] = useState(false)
   const launch = { cwd, command: agent?.command ?? null, agent: pane.agent, ...(pane.resume ? { resume: pane.resume } : {}), ...(pane.prompt ? { prompt: pane.prompt } : {}) }
 
   useEffect(() => {
@@ -570,12 +572,17 @@ const TerminalPane = memo(function TerminalPane({
             },
             ...(prev && !maximized ? [{ icon: <ArrowLeft size={15} strokeWidth={1.9} />, label: 'Move left', action: () => swap(cwd, pane.id, prev) }] : []),
             ...(next && !maximized ? [{ icon: <ArrowRight size={15} strokeWidth={1.9} />, label: 'Move right', action: () => swap(cwd, pane.id, next) }] : []),
+            // Another model takes a fresh look from where this one stopped; this pane carries on as it is.
+            ...(pane.agent !== 'shell' && !isRemote(cwd)
+              ? [{ icon: <ArrowRightLeft size={15} strokeWidth={1.9} />, label: 'Hand off to another agent…', action: () => setHandingOff(true) }]
+              : []),
             { icon: <RotateCcw size={15} strokeWidth={1.9} />, label: 'Restart', action: () => terminals.restart(pane.id, launch) },
             { icon: <Eraser size={15} strokeWidth={1.9} />, label: 'Clear', action: () => terminals.clear(pane.id) },
             { icon: <X size={15} strokeWidth={1.9} />, label: 'Close', danger: true, action: () => close(cwd, pane.id) }
           ]}
         />
       )}
+      {handingOff && <HandoffDialog open onClose={() => setHandingOff(false)} cwd={cwd} pane={pane} from={pane.agent} fromLabel={agent?.label ?? 'This agent'} />}
     </section>
   )
 })

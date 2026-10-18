@@ -22,10 +22,11 @@ import { remoteShellCommand, sshArgv, sshBinary } from './ade/ssh'
 import { onWorktreeRemoval } from './ade/git'
 import { remoteLocation } from '@shared/adeRemote'
 import type { CodexPane } from '@shared/cliAccounts'
-import { currentPane, OTHER_AGENT_IDS, PANE_NAMES, privacyBlockedMessage, type OtherAgentId, type TerminalAgent, type TerminalAgentId, type TerminalLayout, type TerminalPaneSpec, type TerminalSpawnRequest, type TerminalSpawnResult } from '@shared/terminals'
+import { currentPane, OTHER_AGENT_IDS, PANE_NAMES, PROMPT_ARG, privacyBlockedMessage, type HandoffRequest, type HandoffResult, type OtherAgentId, type TerminalAgent, type TerminalAgentId, type TerminalLayout, type TerminalPaneSpec, type TerminalSpawnRequest, type TerminalSpawnResult } from '@shared/terminals'
 import { noteOutput, quietActivity, wentQuiet, type Activity } from '@shared/terminalActivity'
 import { taskFromTerminalTitle } from '@shared/adeSessions'
 import { randomUUID } from 'node:crypto'
+import { gitSummary, handoffDocument, handoffFileName, handoffPrompt, transcriptTurns, writeHandoff } from './terminals/handoff'
 
 /**
  * The ADE's terminal view: real shells in the project folder, each optionally
@@ -191,8 +192,6 @@ function isDir(dir: string | undefined): dir is string {
  * conversation (`claude --resume <id>`, `codex resume <id>`). The id goes into
  * a shell command line, so only an id shaped like the agent's own is used.
  */
-/** Agents that take a first task on their command line. */
-const PROMPTABLE = new Set(['claude', 'codex'])
 
 /**
  * A pane given a task starts its agent on it: `claude '<task>'`. Quoted for
@@ -200,12 +199,13 @@ const PROMPTABLE = new Set(['claude', 'codex'])
  */
 export function promptLine(req: TerminalSpawnRequest, kind: ShellKind = paneShellKind()): TerminalSpawnRequest {
   let prompt = req.prompt?.replace(/[\r\n]+/g, ' ').trim()
-  if (!prompt || req.resume || !req.command || !req.agent || !PROMPTABLE.has(req.agent)) return req
+  const style = req.agent ? PROMPT_ARG[req.agent] : undefined
+  if (!prompt || req.resume || !req.command || !style) return req
   // Windows PowerShell 5.1 hands an argument's double quotes to the program
   // unescaped, and cmd can't escape one inside quotes: either way the task
   // would arrive cut in pieces. It reads the same with single ones.
   if (kind !== 'posix') prompt = prompt.replace(/"/g, "'")
-  return { ...req, command: `${req.command} ${quoteArg(prompt, kind)}` }
+  return { ...req, command: `${req.command} ${style === 'positional' ? '' : `${style} `}${quoteArg(prompt, kind)}` }
 }
 
 export function resumeLine(req: TerminalSpawnRequest): TerminalSpawnRequest {
@@ -290,6 +290,36 @@ export function createTerminals(options: TerminalsOptions = {}): Feature & { tic
       records = made
     }
     return records
+  }
+
+  /**
+   * Writes a pane's conversation into its project for another agent to pick
+   * up (terminals/handoff.ts) and says what to start that agent on. The pane
+   * itself is left as it is.
+   */
+  const handOff = async (req: HandoffRequest): Promise<HandoffResult> => {
+    if (!req || typeof req.paneId !== 'string' || typeof req.cwd !== 'string' || !req.cwd) return { ok: false, error: 'No terminal to hand off from.' }
+    if (remoteLocation(req.cwd)) return { ok: false, error: 'Handing off works in folders on this computer for now, not on a remote host.' }
+    if (!isDir(req.cwd)) return { ok: false, error: `${req.cwd} isn't there any more.` }
+    const known = await listAgents()
+    const label = (id: TerminalAgentId): string => known.find((a) => a.id === id)?.label ?? id
+    const to = known.find((a) => a.id === req.to)
+    if (!to || to.id === 'shell' || !to.installed || !to.command) return { ok: false, error: `${label(req.to)} isn't installed on this computer.` }
+    const record = paneRecords().get(req.paneId)
+    // What the watch saw running wins over what the pane was opened as: Codex typed into a Claude pane is Codex.
+    const from = record && record.agent !== 'shell' ? record.agent : req.from
+    const fromLabel = from === 'shell' ? 'the previous agent' : label(from)
+    const at = new Date()
+    try {
+      // Filed under the folder the agent itself reported (the real path, past any symlink).
+      const [turns, git] = await Promise.all([transcriptTurns(from, record?.cwd || req.cwd, record?.sessionId), gitSummary(req.cwd)])
+      const screen = turns ? null : typeof req.screen === 'string' ? req.screen.slice(-400_000) : null
+      const markdown = handoffDocument({ fromLabel, toLabel: to.label, turns, screen, note: typeof req.note === 'string' ? req.note.slice(0, 4000) : '', git, at })
+      const file = await writeHandoff(req.cwd, handoffFileName(fromLabel, to.label, at), markdown)
+      return { ok: true, file, prompt: handoffPrompt(file, fromLabel), source: turns ? 'transcript' : 'screen' }
+    } catch (error) {
+      return { ok: false, error: `Couldn't write the handoff: ${error instanceof Error ? error.message : String(error)}` }
+    }
   }
 
   /**
@@ -538,6 +568,8 @@ export function createTerminals(options: TerminalsOptions = {}): Feature & { tic
       // Windows won't delete a folder a process is in.
       onWorktreeRemoval((dir) => manager.closeIn(dir))
       ipcMain.handle('terminal:spawn', (_e, req: TerminalSpawnRequest) => spawnPane(req))
+      // Another agent takes over a pane's work: its conversation written into the project for it to read.
+      ipcMain.handle('terminal:handoff', (_e, req: HandoffRequest) => handOff(req))
       ipcMain.handle('terminal:running', () => watch?.snapshot() ?? {})
       // The conversation each pane is in, as far as the watch has seen: the ADE's
       // sidebar lists a folder's past conversations without the ones open in a pane.
