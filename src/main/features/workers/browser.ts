@@ -7,7 +7,7 @@ import { isRunning } from '../../agent/loop'
 import type { AgentTool, ToolSource } from '../../agent/tools'
 import type { NeutralImage } from '../../providers/adapters/types'
 import { opensPrivateNetwork } from '../browser/privateTarget'
-import { purchaseCovers, redactPaymentSecrets } from '../payments/access'
+import { isCheckoutStep, purchaseCovers, redactPaymentSecrets } from '../payments/access'
 
 /**
  * Every worker's own web browser, driven through BetterWright
@@ -1339,6 +1339,9 @@ export class WorkerBrowsers {
   async screenshot(workerId: string): Promise<NeutralImage> {
     const text = await this.run(workerId, `const shot = await screenshot({ annotate: true, type: 'jpeg', quality: 70 }); return shot.path`)
     const path = text.replace(/^"|"$/g, '')
+    // The refs drawn on it are clicked next; a button that appeared since the
+    // last snapshot (a cart drawer) would otherwise be judged as nameless.
+    await this.snapshot(workerId).catch(() => '')
     return { mime: 'image/jpeg', data: (await readFile(path)).toString('base64') }
   }
 
@@ -1943,7 +1946,8 @@ export function browserTool(browsers: WorkerBrowsers, options: BrowserToolOption
         const click = { messageId: ctx.request.messageId, name }
         // A click on nothing named could be anything, the order button included.
         if (!el && !name) return !purchaseCovers(ctx.request.chatId, browsers.url(id), { ...click, unnamed: true })
-        return SPENDING.test(name) && !purchaseCovers(ctx.request.chatId, browsers.url(id), click)
+        // Going to the checkout spends nothing; placing the order there does.
+        return SPENDING.test(name) && !isCheckoutStep(name) && !purchaseCovers(ctx.request.chatId, browsers.url(id), click)
       }
       return false
     },

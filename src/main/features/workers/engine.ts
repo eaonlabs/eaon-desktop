@@ -148,9 +148,10 @@ export interface WorkersDeps {
    * tracking of an order it placed (workers/purchases.ts): what its run is
    * told instead of the task, the access it runs at and the tools it may
    * use. Asked as the run starts, with the run's message id; null runs it
-   * like any routine.
+   * like any routine. `asked`: not the routine's own time, but the user
+   * writing in its thread ("order it now"), which runs under the same terms.
    */
-  routineTurn?: (worker: Worker, routine: WorkerRoutine, messageId: string) => RoutineTurn | null
+  routineTurn?: (worker: Worker, routine: WorkerRoutine, messageId: string, asked?: boolean) => RoutineTurn | null
   /** That routine's run ended (after it was recorded): its follow-up. */
   routineEnded?: (worker: Worker, routine: WorkerRoutine, messageId: string, outcome: TurnOutcome) => void
 }
@@ -2690,10 +2691,15 @@ export class WorkersEngine {
       .filter((d) => isOpenDelegation(d) && d.parent.workerId === worker.id && d.parent.threadId === threadId)
       .map((d) => ({ id: d.id, to: d.recipient.name, objective: d.objective, state: d.state }))
     const assistantId = randomUUID()
+    // The user writing in a purchase schedule's thread ("order it now") gets
+    // the schedule's terms for this turn, not a worker with no card or checkout.
+    const asked = !routine && !cap && origin === 'user' && mail.some((m) => m.from === 'user' && !m.channel) ? worker.routines.find((r) => r.threadId === threadId && r.purchase) : undefined
+    const turned = routine ?? asked
     // A purchase schedule's run: its own brief, access and tools (see WorkersDeps.routineTurn).
-    const special = routine && !cap ? (this.deps.routineTurn?.(clone(worker), clone(routine), assistantId) ?? null) : null
+    const special = turned && !cap ? (this.deps.routineTurn?.(clone(worker), clone(turned), assistantId, !routine) ?? null) : null
     if (special) access = special.access
-    const user = buildTurnMessage(mail, note, now, routine ? [special ? { name: routine.name, task: special.task } : routine] : [], cap, goalRun && !setsGoal ? goalRun.text : null, {
+    const briefs = routine ? [special ? { name: routine.name, task: special.task } : routine] : special && turned ? [{ name: turned.name, task: special.task }] : []
+    const user = buildTurnMessage(mail, note, now, briefs, cap, goalRun && !setsGoal ? goalRun.text : null, {
       delegations: waitingOn,
       asks: worker.asks.map((a) => a.question)
     })
@@ -2751,7 +2757,7 @@ export class WorkersEngine {
       postedRooms: new Set(),
       access,
       origin,
-      routineId: routine?.id ?? null,
+      routineId: (special ? turned?.id : routine?.id) ?? null,
       routineTurned: special !== null,
       delegationId: delegation?.id ?? null,
       reported: false,

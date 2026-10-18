@@ -41,15 +41,16 @@ export function purchaseBrief(run: PlanRun): string {
     `Buy: ${plan.item}`,
     `Store: ${plan.merchant} (${plan.site}). Buy there and nowhere else.`,
     free
-      ? 'This order must be free: the checkout total has to be exactly 0. There is no card for it. If the item costs anything, or the checkout asks for a payment method, do not buy: stop and report the price.'
-      : `Most this order may cost: ${formatMoney(plan.maxAmount, plan.currency)}, everything included (tax, shipping, fees, tip). If the checkout total is higher, do not buy: stop and report the price.`,
+      ? 'This order must be free: the final total on the checkout page has to be exactly 0. There is no card for it. If the final total is more than 0, or the checkout won’t go on without a payment method, do not buy: stop and report the price.'
+      : `Most this order may cost: ${formatMoney(plan.maxAmount, plan.currency)}, everything included (tax, shipping, fees, tip). If the final checkout total is higher, do not buy: stop and report the price.`,
+    'The price on the product page or in the cart doesn’t decide it. A discount often only shows at checkout: an email or account tied to a membership or pass, a code, member pricing. Do what the description and notes say there, then judge the final total.',
     plan.notes.trim() ? `The user's notes: ${plan.notes.trim()}` : null,
     plan.orders ? `This is order ${paid.length + 1} of ${plan.orders}.` : `This schedule runs ${run.cadence.toLowerCase()} until the user stops it.`,
     past.length ? `Earlier orders of this schedule, newest first:\n${past.slice(0, 6).map(orderLine).join('\n')}` : "This is the schedule's first order.",
     '',
     'How:',
     `1. Open ${plan.site} in web_browser and find exactly this item. If it is unavailable, or only a different size, brand or quantity is, do not substitute unless the notes allow it: report what you found instead.`,
-    '2. Add it to the cart and go to checkout. Read the final total.',
+    '2. Add it to the cart and go through checkout: fill in what it asks for (email, name, shipping address) from the description and notes, apply any email, code or membership they mention, and read the final total. Going to checkout and filling it in spends nothing; only the order button does.',
     `3. payment_card authorize {merchant: "${plan.merchant}", amount: <the total${free ? ', 0' : ''}>, currency: "${plan.currency}", site: "${plan.site}", description}. It asks nobody: this schedule is the approval. Only one order per run.`,
     free
       ? '4. No card is typed for a free order: place the order yourself, pressing the order button once.'
@@ -59,6 +60,7 @@ export function purchaseBrief(run: PlanRun): string {
       : null,
     `5. Read the confirmation page and call payment_card complete {purchase_id, status, charged, order_id}. The order number matters: Eaon uses it to track the delivery.`,
     'If the site asks you to sign in and you are not signed in, stop and report it. Never create an account or type a password.',
+    'If you don’t place the order, take what you added out of the cart before you finish.',
     plan.autopilot ? 'Anything else that would mean asking the user (a different item, a higher price, a question on the page): don’t ask, don’t buy; stop and say what happened in your report.' : null,
     '',
     `End with a short report the user will read: the order number, what was charged, the delivery estimate${last ? `, and the price against the last order (${formatMoney(last.charged ?? last.amount, last.currency)} on ${day(last.createdAt)}): up or down by how much and what percent` : ''}.`,

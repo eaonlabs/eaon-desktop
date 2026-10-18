@@ -277,7 +277,7 @@ test('the brief compares this order with the last one and stops at a price over 
     lastStatus: null,
     history: []
   } as never)
-  assert.match(brief, /If the checkout total is higher, do not buy/)
+  assert.match(brief, /If the final checkout total is higher, do not buy/)
   assert.match(brief, /order 112-4471923-0046611/, 'earlier orders are listed with their numbers')
   assert.match(brief, /price against the last order/)
 })

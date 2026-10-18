@@ -5,10 +5,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Notification } from 'electron'
 import '../src/main/agent/sources'
-import { checkoutStepCovered, paymentsEngine, paymentsFeature } from '../src/main/features/payments'
+import { paymentsEngine, paymentsFeature } from '../src/main/features/payments'
 import { endRun, grantFor, grantPurchase } from '../src/main/features/payments/plans'
 import { autopilotRunGate, purchaseRunGate } from '../src/main/features/payments/purchaseRun'
-import { purchaseCovers } from '../src/main/features/payments/access'
+import { isCheckoutStep, purchaseCovers } from '../src/main/features/payments/access'
 import { createWorkersService, type WorkersService } from '../src/main/features/workers/service'
 import { cadencePhrase, nextPurchaseAt, WATCH_FIRST_CHECK_MS } from '../src/main/features/workers/purchases'
 import { toolsFor, type AgentTool } from '../src/main/agent/tools'
@@ -263,18 +263,78 @@ test('an autopilot run is told so, and its ask_user never reaches the user', asy
   }
 })
 
-test('on its own store a purchase run may go to checkout, but placing the order still needs its authorization', () => {
-  grantPurchase('m-cart', { planId: 'p', item: 'Coffee', site: 'amazon.com', maxAmount: 40, currency: 'USD' })
+test('going to checkout never waits for anyone; placing the order, or an express pay button, still does', () => {
+  // The cart button on maticrobots.com that a run was stopped at.
+  assert.equal(isCheckoutStep('CHECKOUT | $30'), true)
+  assert.equal(isCheckoutStep('Proceed to checkout'), true)
+  assert.equal(isCheckoutStep('Continue to payment'), true)
+  assert.equal(isCheckoutStep('Place your order'), false)
+  assert.equal(isCheckoutStep('Buy Now'), false)
+  assert.equal(isCheckoutStep('Checkout with Shop Pay'), false)
+  assert.equal(isCheckoutStep('Express checkout'), false)
+  assert.equal(isCheckoutStep('PayPal Checkout'), false)
+  assert.equal(isCheckoutStep('Complete checkout'), false)
+})
+
+test('the user writing "order it" in a schedule’s thread runs under the schedule: card tool, its bounds, its tracking', async () => {
+  // Run 1 (the schedule's): reports the cart price. Run 2 (the user's "order it"): checks out with the email, $0, orders.
+  const { url, server, requests } = await sseServer((body) => {
+    const messages = body.messages as { role: string; content?: unknown }[]
+    const text = JSON.stringify(messages)
+    const results = messages.filter((m) => m.role === 'tool').map((m) => String(m.content))
+    const call = (args: Record<string, unknown>) => [
+      chunk({ tool_calls: [{ index: 0, id: `c${results.length}`, function: { name: 'payment_card', arguments: JSON.stringify(args) } }] }),
+      chunk({}, 'tool_calls'),
+      '[DONE]'
+    ]
+    if (!text.includes('order it')) return [chunk({ content: 'The bundle is listed at $30, so I stopped.' }), chunk({}, 'stop'), '[DONE]']
+    const mine = results.filter((r) => /pay_|Recorded/.test(r))
+    if (mine.length === 0) return call({ action: 'authorize', merchant: 'Matic', amount: 0, currency: 'USD', site: 'maticrobots.com', description: 'HEPA Bag Bundle' })
+    if (mine.length === 1) return call({ action: 'complete', purchase_id: /pay_[a-z0-9]+/.exec(mine[0])?.[0], status: 'paid', charged: 0, order_id: 'M-7' })
+    return [chunk({ content: 'Ordered it free with the pass email, order M-7.' }), chunk({}, 'stop'), '[DONE]']
+  })
   try {
-    const at = 'https://www.amazon.com/gp/cart/view.html'
-    assert.equal(checkoutStepCovered(at, { messageId: 'm-cart', name: 'Proceed to checkout' }), true)
-    assert.equal(checkoutStepCovered(at, { messageId: 'm-cart', name: 'Continue to payment' }), true)
-    assert.equal(checkoutStepCovered(at, { messageId: 'm-cart', name: 'Place your order' }), false)
-    assert.equal(checkoutStepCovered(at, { messageId: 'm-cart', name: 'Buy Now' }), false)
-    assert.equal(checkoutStepCovered('https://evil.example/checkout', { messageId: 'm-cart', name: 'Proceed to checkout' }), false)
-    assert.equal(checkoutStepCovered(at, { messageId: 'another-run', name: 'Proceed to checkout' }), false)
+    store.saveProviderConfig({ fake: { name: 'Fake', kind: 'openai-compatible', baseUrl: url, enabled: true, models: [{ id: 'fake-1', label: 'Fake 1', providerId: 'fake' }] } })
+    secrets.set('fake', 'test-key')
+    const { ctx, invoke } = context()
+    service = createWorkersService(ctx, { startDelayMs: 60_000 })
+    service.registerIpc()
+    service.start()
+    const engine = service.engine
+    const ada = engine.save(draft('Ada', { providerId: 'fake', modelId: 'fake-1' }))
+    const plan: PurchasePlan = { ...freeSample, item: '12-pack HEPA Bag Bundle', site: 'maticrobots.com', merchant: 'Matic', notes: 'Use the pass email to get it free', orders: null }
+    const week = 7 * 24 * 60 * 60_000
+    const anchor = Date.now()
+    const saved = invoke('workers:save-purchase', ada.id, { plan, everyMs: week, firstAt: anchor, anchorAt: anchor }) as WorkerRoutine
+    engine.start()
+    await until(() => requests.length >= 1 && !engine.list()[0].threads.some((t) => t.runningMessageId))
+    await engine.whenIdle()
+    const brief = JSON.stringify(requests[0].messages)
+    assert.match(brief, /doesn’t decide it/, 'the cart price is not the answer')
+    assert.match(brief, /go through checkout/)
+    const threadId = engine.list()[0].routines.find((r) => r.id === saved.id)!.threadId!
+    const nextBefore = engine.list()[0].routines.find((r) => r.id === saved.id)!.nextAt
+    assert.ok(Notification.shown.some((n) => /didn’t buy/.test(n.options.title)))
+    Notification.shown.length = 0
+
+    engine.send(ada.id, 'order it, press checkout; the email makes it free', [], { threadId })
+    await until(() => requests.length >= 4 && !engine.list()[0].threads.some((t) => t.runningMessageId))
+    await engine.whenIdle()
+
+    const asked = requests[1]
+    const offered = ((asked.tools as { function: { name: string } }[]) ?? []).map((t) => t.function.name)
+    assert.ok(offered.includes('payment_card'), 'the card tool is there, no card saved and all')
+    assert.match(JSON.stringify(asked.messages), /The user wrote in this purchase schedule’s thread/)
+    const order = paymentsEngine()!.purchases().find((p) => p.planId === saved.id)
+    assert.deepEqual([order?.status, order?.amount, order?.orderId, order?.how], ['paid', 0, 'M-7', 'scheduled'])
+    const after = engine.list()[0]
+    const routine = after.routines.find((r) => r.id === saved.id)
+    assert.ok(routine, 'a repeating schedule carries on')
+    assert.equal(routine.nextAt, nextBefore, 'still on its picked day and time')
+    assert.ok(after.routines.some((r) => r.watch?.orderId === 'M-7' && r.threadId === threadId), 'the order is tracked in the thread')
+    assert.equal(Notification.shown.some((n) => /didn’t buy/.test(n.options.title)), false)
   } finally {
-    endRun('m-cart')
+    server.close()
   }
 })
 

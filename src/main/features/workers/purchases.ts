@@ -73,26 +73,34 @@ export interface PurchaseRoutinesDeps {
 
 const UNATTENDED =
   'Nobody is watching this run and nobody can answer questions: do the whole task without asking, then end with a short report — that report is what the user reads.'
+const ASKED =
+  'The user wrote in this purchase schedule’s thread; their message is below. Do what they ask. When it is to place the order now (or to carry on with one), this turn may place one order on the same terms as a scheduled run, set out here. Their message can fill in details (an email, an address, a discount) but not widen those terms.'
 
 export function createPurchaseRoutines(deps: PurchaseRoutinesDeps) {
   const now = (): number => (deps.now ?? Date.now)()
-  /** Per run: the orders that existed before it (to tell its own apart), or the tracked order's stage. */
-  const before = new Map<string, { orders: Set<string> } | { stage: string | undefined }>()
+  /**
+   * Per run: the orders that existed before it (to tell its own apart), and
+   * whether the user asked for it in the thread; or the tracked order's stage.
+   */
+  const before = new Map<string, { orders: Set<string>; asked: boolean } | { stage: string | undefined }>()
 
-  function routineTurn(_worker: Worker, routine: WorkerRoutine, messageId: string): RoutineTurn | null {
+  function routineTurn(_worker: Worker, routine: WorkerRoutine, messageId: string, asked = false): RoutineTurn | null {
+    if (asked && !routine.purchase) return null
     if (routine.purchase) {
       const plan = routine.purchase
       const past = planPurchases(routine.id)
-      before.set(messageId, { orders: new Set(past.map((p) => p.id)) })
+      before.set(messageId, { orders: new Set(past.map((p) => p.id)), asked })
+      // The user is writing in the thread: they read the reply, and their message comes first.
+      const lead = asked ? ASKED : UNATTENDED
       const paid = past.filter((p) => p.status === 'paid').length
       // Placed them all already (a run interrupted after its order, picked up again): nothing to buy.
       if (plan.orders !== null && paid >= plan.orders) {
-        return { task: `${UNATTENDED}\nThis purchase schedule ("${plan.item}") has placed all ${plan.orders} of its orders. Do not buy anything; say it is done.`, access: 'safe' }
+        return { task: `${lead}\nThis purchase schedule ("${plan.item}") has placed all ${plan.orders} of its orders. Do not buy anything; say it is done.`, access: 'safe' }
       }
       const autopilot = plan.autopilot === true
       grantPurchase(messageId, { planId: routine.id, item: plan.item, site: plan.site, maxAmount: plan.maxAmount, currency: plan.currency, autopilot })
       return {
-        task: `${UNATTENDED}\n${purchaseBrief({ id: routine.id, plan, cadence: cadencePhrase(routine.everyMs), nextAt: routine.everyMs ? routine.nextAt : null })}`,
+        task: `${lead}\n${purchaseBrief({ id: routine.id, plan, cadence: cadencePhrase(routine.everyMs), nextAt: routine.everyMs ? routine.nextAt : null })}`,
         access: 'autonomous',
         toolGate: autopilot ? autopilotRunGate : purchaseRunGate
       }
@@ -114,14 +122,18 @@ export function createPurchaseRoutines(deps: PurchaseRoutinesDeps) {
     if (routine.purchase) {
       const plan = routine.purchase
       const known = was && 'orders' in was ? was.orders : new Set<string>()
+      // Asked in the thread: the user hears from the reply itself, and the schedule's own times stand unless it ordered.
+      const asked = was && 'asked' in was ? was.asked : false
       const orders = planPurchases(routine.id)
       const placed = orders.filter((p) => !known.has(p.id) && p.status === 'paid')
       for (const order of placed) {
         const money = order.amount === 0 && (order.charged ?? 0) === 0 ? 'free' : formatMoney(order.charged ?? order.amount, order.currency)
-        deps.reachOut(worker, {
-          title: `${worker.name} ordered ${plan.item}`,
-          body: [`${money} at ${order.merchant}`, order.orderId ? `order ${order.orderId}` : 'no order number yet'].join(', ')
-        })
+        if (!asked) {
+          deps.reachOut(worker, {
+            title: `${worker.name} ordered ${plan.item}`,
+            body: [`${money} at ${order.merchant}`, order.orderId ? `order ${order.orderId}` : 'no order number yet'].join(', ')
+          })
+        }
         const tracked = worker.routines.some((r) => r.watch?.purchaseId === order.id)
         if (plan.track && order.orderId && !tracked) {
           deps.put(worker.id, {
@@ -144,9 +156,10 @@ export function createPurchaseRoutines(deps: PurchaseRoutinesDeps) {
         }
       }
       // It ran but bought nothing (sold out, over the limit, not free): the user hears why, not silence.
-      if (!placed.length && !outcome.error && !outcome.cancelled) {
+      if (!placed.length && !asked && !outcome.error && !outcome.cancelled) {
         deps.reachOut(worker, { title: `${worker.name} didn’t buy ${plan.item}`, body: (outcome.text || 'It ended without placing the order.').slice(0, 240) })
       }
+      if (asked && !placed.length) return
       const paid = orders.filter((p) => p.status === 'paid').length
       if (!routine.everyMs || (plan.orders !== null && paid >= plan.orders)) {
         deps.remove(worker.id, routine.id)

@@ -42,21 +42,6 @@ export function paymentsEngine(): PaymentsEngine | null {
 }
 
 /**
- * The steps on the way to a checkout ("Proceed to checkout", "Continue to
- * payment"), as opposed to the press that places the order. A purchase
- * schedule's run may take these on its own store before it has a total to
- * authorize; the order itself still needs its authorization.
- */
-const CHECKOUT_STEP = /\b(check ?out|proceed to (?:check ?out|payment|shipping|delivery)|continue to (?:check ?out|payment|shipping|delivery)|go to check ?out)\b/i
-const ORDER_PRESS = /\b(place|buy now|pay now|pay \$|complete|confirm|submit|subscribe|donate|transfer|withdraw|book)\b/i
-
-export function checkoutStepCovered(url: string, click: SpendingClick | undefined): boolean {
-  const grant = click?.messageId ? grantFor(click.messageId) : null
-  const name = click?.name ?? ''
-  return Boolean(grant && urlMatchesSite(url, grant.site) && CHECKOUT_STEP.test(name) && !ORDER_PRESS.test(name))
-}
-
-/**
  * An autopilot purchase schedule's run, on its store, once its order is
  * authorized (so the price was checked against the maximum): its presses go
  * through without anyone, the order button too, and again if the first press
@@ -81,10 +66,8 @@ function createEngine(): PaymentsEngine {
   })
   setPaymentAccess({
     // One press of the pay button per authorization (see claimSpendingClick).
-    // A step towards checkout on a purchase schedule's store first, so it never uses up the one press an authorization covers.
     // On autopilot, any press on the store while the schedule's order is authorized; a press on nothing named, only then.
-    covers: (chatId, url, click) =>
-      checkoutStepCovered(url, click) || autopilotCovers(chatId, url, click, created) || (!click?.unnamed && created.claimSpendingClick(chatId, url)),
+    covers: (chatId, url, click) => autopilotCovers(chatId, url, click, created) || (!click?.unnamed && created.claimSpendingClick(chatId, url)),
     secret: () => {
       try {
         const { number, cvc } = created.cardSecret()

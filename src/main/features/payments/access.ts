@@ -10,6 +10,19 @@ import type { CardSecret } from './engine'
  * - the card's digits, so page snapshots the model reads have them blanked.
  */
 
+/**
+ * The steps on the way to a checkout ("Checkout | $30", "Proceed to
+ * checkout", "Continue to payment"), as opposed to the press that places
+ * the order. They open a page and spend nothing, so they never wait for
+ * anyone: a run that can't reach the checkout can't read the total it is
+ * meant to judge, or see a discount that only applies there. Express
+ * buttons that pay in one go ("Checkout with Shop Pay") aren't steps.
+ */
+const CHECKOUT_STEP = /\b(check ?out|proceed to (?:check ?out|payment|shipping|delivery)|continue to (?:check ?out|payment|shipping|delivery)|go to check ?out)\b/i
+const ORDER_PRESS = /\b(place|buy now|pay now|pay \$|complete|confirm|submit|subscribe|donate|transfer|withdraw|book|express|1-click|one-click|shop ?pay|paypal|apple pay|google pay|amazon pay|g ?pay|venmo|klarna|afterpay|affirm)\b/i
+
+export const isCheckoutStep = (name: string): boolean => CHECKOUT_STEP.test(name) && !ORDER_PRESS.test(name)
+
 /** The click being judged: whose run it is (a purchase schedule's run may go through checkout) and what the button says. */
 export interface SpendingClick {
   messageId?: string
