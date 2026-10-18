@@ -2,6 +2,7 @@ import { app, BrowserWindow, clipboard, Menu, shell, webContents, type WebConten
 import { mkdir, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { ANNOTATE_SHORTCUT, browserKey, matchesBinding, type BrowserKeyAction } from '@shared/browser'
+import { openExternalLink } from '../security/hardening'
 import { store } from '../store'
 import type { Feature } from './types'
 
@@ -133,7 +134,7 @@ function wirePage(contents: WebContents): void {
     if (params.linkURL) {
       template.push(
         { label: 'Open Link in New Tab', click: () => tell('in-app-browser:open', { url: params.linkURL, background: false }) },
-        { label: 'Open Link in Default Browser', click: () => void shell.openExternal(params.linkURL) },
+        { label: 'Open Link in Default Browser', click: () => void openExternalLink(params.linkURL) },
         { label: 'Copy Link Address', click: () => clipboard.writeText(params.linkURL) },
         { type: 'separator' }
       )
