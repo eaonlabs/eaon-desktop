@@ -532,8 +532,9 @@
   align-items: center;
   gap: 9px;
   width: fit-content;
-  min-height: 28px;
-  padding-left: 3px;
+  min-height: 30px;
+  padding-left: 1px;
+  color: var(--text-3);
   animation: loading-in 320ms var(--ease) both;
 }
 @keyframes loading-in {
@@ -541,8 +542,14 @@
     opacity: 0;
   }
 }
+.loading-state__icon {
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+}
 .loading-state__label {
-  font-size: var(--fs-sm);
+  font-size: var(--fs-base);
 }
 .loading-state__clock {
   color: var(--text-4);
@@ -615,21 +622,17 @@ body[data-reduce-motion='on'] .step-shimmer {
 .tool__head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   max-width: 100%;
-  height: 28px;
-  padding: 0 7px 0 2px;
-  border-radius: var(--r-sm);
+  min-height: 30px;
+  padding: 0 4px 0 1px;
   text-align: left;
-  color: var(--text-3);
-  font-size: var(--fs-sm);
-  transition:
-    background var(--dur) var(--ease),
-    color var(--dur) var(--ease);
+  color: var(--text-2);
+  font-size: var(--fs-base);
+  transition: color var(--dur) var(--ease);
 }
 .tool__head:not([data-static]):hover {
-  background: var(--hover);
-  color: var(--text-2);
+  color: var(--text);
 }
 .tool__glyph {
   flex: none;
@@ -638,6 +641,21 @@ body[data-reduce-motion='on'] .step-shimmer {
   width: 16px;
   height: 16px;
   color: var(--text-3);
+  transition: color var(--dur) var(--ease);
+}
+.tool__head:not([data-static]):hover .tool__glyph {
+  color: var(--text-2);
+}
+/* A thought being written: its brain breathes. */
+.tool__icon[data-pulse],
+.activity__orb[data-pulse],
+.loading-state__icon {
+  animation: think-pulse 1.6s ease-in-out infinite;
+}
+@keyframes think-pulse {
+  50% {
+    opacity: 0.35;
+  }
 }
 .tool__icon,
 .tool__chevron {
@@ -672,8 +690,28 @@ body[data-reduce-motion='on'] .step-shimmer {
 }
 .tool__label {
   flex: none;
+  color: inherit;
+}
+/* A file the call was about, by name: plain words, not code. */
+.tool__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Past the call's words, the sign that it opens; it turns as it does. */
+.tool__more {
+  flex: none;
+  color: var(--text-4);
+  transition:
+    transform 200ms var(--ease),
+    color var(--dur) var(--ease);
+}
+.tool__head:hover .tool__more {
   color: var(--text-2);
-  font-weight: 450;
+}
+.tool[data-open] .tool__more {
+  transform: rotate(90deg);
 }
 .tool__detail {
   min-width: 0;
@@ -684,27 +722,28 @@ body[data-reduce-motion='on'] .step-shimmer {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* What the call was about — a file, a query, a URL — as a small pill. */
-.tool__chip {
+/* What the call ran or looked for — a command, a pattern, a URL — as code. */
+.tool__chip,
+.step-card__cmd {
   display: inline-block;
   min-width: 0;
   max-width: 100%;
-  height: 20px;
-  padding: 0 7px;
-  border-radius: var(--r-pill);
+  height: 22px;
+  padding: 0 6px;
+  border-radius: var(--r-xs);
   background: var(--hover);
-  box-shadow: inset 0 0 0 0.5px var(--border-soft);
-  color: var(--text-3);
+  color: var(--text-2);
   font-family: var(--font-mono);
-  font-size: 11.5px;
-  line-height: 20px;
+  font-size: 12.5px;
+  line-height: 22px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   transition: color var(--dur) var(--ease);
 }
-.tool__head:hover .tool__chip {
-  color: var(--text-2);
+.tool__head:hover .tool__chip,
+.step-card__head:hover .step-card__cmd {
+  color: var(--text);
 }
 .tool__range {
   flex: none;
@@ -730,10 +769,22 @@ body[data-reduce-motion='on'] .step-shimmer {
     opacity: 0;
   }
 }
+/* What a call returned, in a box under its line, in line with its words. */
 .tool__panel > div {
-  margin: 2px 0 6px 9px;
-  padding-left: 15px;
+  margin: 2px 0 8px 25px;
+  padding: 8px 10px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-md);
+  background: var(--code-bg);
+}
+/* A thought's reasoning hangs off a hairline instead: it is prose, not output. */
+.thought .tool__panel > div {
+  margin: 2px 0 6px 8px;
+  padding: 0 0 0 16px;
+  border: 0;
   border-left: 1px solid var(--border-soft);
+  border-radius: 0;
+  background: none;
 }
 .tool__output {
   margin: 0;
@@ -766,21 +817,17 @@ body[data-reduce-motion='on'] .step-shimmer {
 .activity__head {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 9px;
   max-width: 100%;
-  min-height: 28px;
-  padding: 0 7px 0 2px;
-  border-radius: var(--r-sm);
+  min-height: 30px;
+  padding: 0 4px 0 1px;
   text-align: left;
-  color: var(--text-3);
-  font-size: var(--fs-sm);
-  transition:
-    color var(--dur) var(--ease),
-    background var(--dur) var(--ease);
+  color: var(--text-2);
+  font-size: var(--fs-base);
+  transition: color var(--dur) var(--ease);
 }
 .activity__head:hover {
-  background: var(--hover);
-  color: var(--text-2);
+  color: var(--text);
 }
 .activity__orb {
   flex: none;
@@ -788,6 +835,7 @@ body[data-reduce-motion='on'] .step-shimmer {
   place-items: center;
   width: 16px;
   height: 16px;
+  color: var(--text-3);
 }
 .activity__text {
   min-width: 0;
@@ -822,16 +870,21 @@ body[data-reduce-motion='on'] .step-shimmer {
 .activity__chevron {
   flex: none;
   color: var(--text-4);
-  transition: transform var(--dur) var(--ease);
+  transform: rotate(-90deg);
+  transition:
+    transform 200ms var(--ease),
+    color var(--dur) var(--ease);
+}
+.activity__head:hover .activity__chevron {
+  color: var(--text-2);
 }
 .activity[data-open] .activity__chevron {
-  transform: rotate(90deg);
+  transform: none;
 }
-/* The steps, hung off a hairline so they read as the line's contents. */
+/* The steps, straight under the line in its own column: the line names
+   them, the list is them. */
 .activity__list {
-  margin: 2px 0 4px 9px;
-  padding-left: 12px;
-  border-left: 1px solid var(--border-soft);
+  margin: 0 0 2px;
   overflow: hidden;
   interpolate-size: allow-keywords;
   transition:
@@ -874,20 +927,22 @@ body[data-reduce-motion='on'] .step-shimmer {
   }
 }
 .activity__live {
-  margin: 2px 0 6px 26px;
+  margin: 2px 0 6px 25px;
   max-height: 140px;
 }
 
-/* ---------- Step cards: an edit's diff, a command and its output ----------
+/* ---------- Step rows: an edit, a command ----------
    Adapted from MIT and Apache-2.0 components; see components/agent/LICENSES.txt.
-   A bordered card with a quiet header band: what happened, to what, and how
-   it ended, over the thing itself. */
+   Lines like the rest of the turn's steps — "Edited index.html +329 −63",
+   "Ran npm test" — that open into a box under them: the diff, or what the
+   command printed. A running command shows its output's tail there as it
+   prints. */
 
 .step-card,
 .files-changed {
   --card-line: var(--border);
   --card-head: color-mix(in srgb, var(--bg), var(--fg) 4%);
-  --card-body: color-mix(in srgb, var(--bg), var(--sink-color) 22%);
+  --card-body: var(--code-bg);
 }
 [data-theme='light'] .step-card,
 [data-theme='light'] .files-changed {
@@ -895,128 +950,130 @@ body[data-reduce-motion='on'] .step-shimmer {
   --card-body: var(--bg);
 }
 .step-card {
-  margin: 8px 0;
-  border: 1px solid var(--card-line);
-  border-radius: var(--r-md);
-  background: var(--card-body);
-  overflow: hidden;
+  margin: 0;
   white-space: normal;
   animation: tool-in var(--dur-spring) var(--spring-moderate) both;
 }
-.step-card__head {
+.step-card__bar {
   display: flex;
   align-items: center;
-  gap: 7px;
-  width: 100%;
-  height: 30px;
-  padding: 0 9px 0 10px;
-  background: var(--card-head);
-  color: var(--text-3);
-  font-size: var(--fs-xs);
+  min-width: 0;
+}
+.step-card__head {
+  display: flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  min-height: 30px;
+  padding: 0 4px 0 1px;
+  color: var(--text-2);
+  font-size: var(--fs-base);
   text-align: left;
   transition: color var(--dur) var(--ease);
 }
 .step-card__head:not(:disabled):hover {
-  color: var(--text-2);
+  color: var(--text);
 }
-.step-card[data-open] > .step-card__head,
-.step-card[data-open] > .step-card__bar,
-.command-card > .step-card__head {
-  border-bottom: 1px solid var(--card-line);
-}
-/* An edit's header: the line that folds the diff, and a button that opens
-   the file in Chat's code panel, shown under the pointer. */
-.step-card__bar {
-  display: flex;
-  background: var(--card-head);
-}
-.step-card__bar > .step-card__head {
-  flex: 1;
-  min-width: 0;
-}
-.step-card__open {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 28px;
-  height: 30px;
-  margin-left: -6px;
-  color: var(--text-4);
-  opacity: 0;
-  transition:
-    opacity var(--dur) var(--ease),
-    color var(--dur) var(--ease);
-}
-.step-card__bar:hover .step-card__open,
-.step-card__open:focus-visible {
-  opacity: 1;
-}
-.step-card__open:hover {
-  color: var(--text-2);
+.step-card__head:disabled {
+  cursor: default;
 }
 .step-card__icon {
   flex: none;
   display: grid;
   place-items: center;
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
   color: var(--text-3);
+  transition: color var(--dur) var(--ease);
+}
+.step-card__head:not(:disabled):hover .step-card__icon {
+  color: var(--text-2);
 }
 .step-card[data-status='error'] .step-card__icon,
 .step-card[data-status='denied'] .step-card__icon {
   color: var(--danger);
 }
 .step-card__title {
-  flex: 0 1 auto;
-  min-width: 0;
-  color: var(--text-2);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.step-card__file {
-  color: var(--text);
-  font-weight: 500;
-}
-.step-card__folder {
-  flex: 0 1 auto;
-  min-width: 0;
-  color: var(--text-4);
-  font-size: var(--fs-xxs);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.step-card__end {
-  display: flex;
   flex: none;
-  align-items: center;
-  gap: 8px;
-  margin-left: auto;
-  padding-left: 6px;
+  color: inherit;
+}
+/* The file, underlined: it is a thing, and the hover card has its whole path. */
+.step-card__file {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, currentColor 35%, transparent);
+  text-underline-offset: 3px;
+  transition: text-decoration-color var(--dur) var(--ease);
+}
+.step-card__head:hover .step-card__file {
+  text-decoration-color: currentColor;
+}
+/* Beside the line, under the pointer: open the file in Chat's code panel. */
+.step-card__open {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-xs);
+  color: var(--text-4);
+  opacity: 0;
+  transition:
+    opacity var(--dur) var(--ease),
+    color var(--dur) var(--ease),
+    background var(--dur) var(--ease);
+}
+.step-card__bar:hover .step-card__open,
+.step-card__open:focus-visible {
+  opacity: 1;
+}
+.step-card__open:hover {
+  background: var(--hover);
+  color: var(--text);
 }
 .step-card__stat {
+  flex: none;
   display: inline-flex;
   gap: 6px;
   font-family: var(--font-mono);
-  font-size: var(--fs-xxs);
+  font-size: var(--fs-sm);
   font-variant-numeric: tabular-nums;
 }
 .step-card__note {
+  flex: none;
   color: var(--text-3);
-  font-size: var(--fs-xxs);
+  font-size: var(--fs-xs);
 }
 .step-card__exit {
+  flex: none;
   color: var(--diff-del-fg);
   font-family: var(--font-mono);
-  font-size: var(--fs-xxs);
+  font-size: var(--fs-xs);
 }
 .step-card__chevron {
+  flex: none;
   color: var(--text-4);
-  transition: transform var(--dur) var(--ease);
+  transition:
+    transform 200ms var(--ease),
+    color var(--dur) var(--ease);
+}
+.step-card__head:hover .step-card__chevron {
+  color: var(--text-2);
 }
 .step-card[data-open] .step-card__chevron {
-  transform: rotate(180deg);
+  transform: rotate(90deg);
+}
+/* What the line opens into, in line with its words. */
+.step-card__box {
+  margin: 2px 0 8px 25px;
+  border: 1px solid var(--card-line);
+  border-radius: var(--r-md);
+  background: var(--card-body);
+  overflow: hidden;
 }
 .step-card__message {
   margin: 0;
@@ -1031,7 +1088,7 @@ body[data-reduce-motion='on'] .step-shimmer {
   overflow-wrap: anywhere;
 }
 
-/* The diff sits flush in the card, without its own card around it. */
+/* The diff sits flush in the box, without its own card around it. */
 .edit-card__body {
   position: relative;
 }
@@ -1086,36 +1143,15 @@ body[data-reduce-motion='on'] .step-shimmer {
   transform: rotate(180deg);
 }
 
-/* A command: the line it ran, then the tail of what it printed. */
+/* A command's output: folded, its last lines; open, all of it, scrolling. */
 .command-card__body {
-  padding: 8px 10px 9px;
+  padding: 8px 10px;
   font-family: var(--font-mono);
   font-size: var(--fs-xs);
   line-height: 17px;
 }
-.command-card__line {
-  display: flex;
-  gap: 7px;
-}
-.command-card__prompt {
-  flex: none;
-  color: #d29922;
-  user-select: none;
-}
-[data-theme='light'] .command-card__prompt {
-  color: #b26b00;
-}
-.command-card__command {
-  min-width: 0;
-  color: var(--text);
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-}
-.step-card[data-status='denied'] .command-card__command {
-  color: var(--text-3);
-}
 .command-card__output {
-  margin: 6px 0 0;
+  margin: 0;
   max-height: 84px;
   overflow: hidden;
   color: var(--text-3);
@@ -1125,7 +1161,6 @@ body[data-reduce-motion='on'] .step-shimmer {
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-/* Folded output shows its last lines; the ones above fade out. */
 .command-card__output[data-overflow='true']:not([data-open]) {
   -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 22px);
   mask-image: linear-gradient(to bottom, transparent 0, #000 22px);
@@ -1133,6 +1168,71 @@ body[data-reduce-motion='on'] .step-shimmer {
 .command-card__output[data-open] {
   max-height: 340px;
   overflow-y: auto;
+}
+
+/* ---------- A turn's header: "Working for 18s" ---------- */
+
+.turn-head {
+  display: flex;
+  align-items: center;
+  margin: 0 0 10px;
+  padding: 0 0 9px 1px;
+  border-bottom: 1px solid var(--border-soft);
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- Hover card: a step in full ---------- */
+
+.peek-line {
+  position: relative;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+.peek {
+  position: fixed;
+  z-index: 60;
+  width: max-content;
+  padding: 9px 12px 10px;
+  border-radius: var(--r-lg);
+  background: var(--surface-3);
+  border: 0.5px solid var(--border-strong);
+  box-shadow: var(--shadow-menu);
+  pointer-events: none;
+  animation: peek-in 160ms var(--ease) both;
+}
+@keyframes peek-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+.peek__label {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.peek__summary + .peek__label {
+  margin-top: 7px;
+}
+.peek__summary {
+  margin-top: 2px;
+  color: var(--text);
+  font-size: var(--fs-sm);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.peek__raw {
+  margin: 2px 0 0;
+  max-height: 220px;
+  overflow: hidden;
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 /* ---------- Files changed: the turn's edits, once, at the end ---------- */
@@ -1177,6 +1277,67 @@ body[data-reduce-motion='on'] .step-shimmer {
 .files-changed__file + .files-changed__file {
   border-top: 1px solid var(--border-soft);
 }
+/* A file's row, and beside it under the pointer, a button that opens it in Code. */
+.files-changed__bar {
+  display: flex;
+  align-items: center;
+  transition: background var(--dur) var(--ease);
+}
+.files-changed__bar:hover,
+.files-changed__file[data-open] .files-changed__bar {
+  background: var(--hover);
+}
+.files-changed__bar .files-changed__row {
+  flex: 1;
+  min-width: 0;
+}
+.files-changed__open {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 24px;
+  margin-right: 6px;
+  margin-left: -6px;
+  border-radius: var(--r-xs);
+  color: var(--text-4);
+  opacity: 0;
+  transition:
+    opacity var(--dur) var(--ease),
+    color var(--dur) var(--ease),
+    background var(--dur) var(--ease);
+}
+.files-changed__bar:hover .files-changed__open,
+.files-changed__open:focus-visible {
+  opacity: 1;
+}
+.files-changed__open:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+/* The review's turn picker. */
+.ide__filter {
+  flex: none;
+}
+.ide__filter-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 8px 0 10px;
+  border-radius: var(--r-pill);
+  box-shadow: inset 0 0 0 1px var(--border-soft);
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  transition:
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+.ide__filter-btn:hover,
+.ide__filter-btn[data-open] {
+  background: var(--hover);
+  color: var(--text);
+}
 .files-changed__row {
   display: flex;
   align-items: center;
@@ -1186,11 +1347,6 @@ body[data-reduce-motion='on'] .step-shimmer {
   padding: 0 12px 0 8px;
   text-align: left;
   font-size: var(--fs-sm);
-  transition: background var(--dur) var(--ease);
-}
-.files-changed__row:hover,
-.files-changed__file[data-open] .files-changed__row {
-  background: var(--hover);
 }
 .files-changed__chevron {
   flex: none;

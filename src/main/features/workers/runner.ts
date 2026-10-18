@@ -32,6 +32,7 @@ const EMPTY_USAGE: TokenUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite:
 
 /** "[From Nova, a fellow worker] …" — the header each piece of mail gets in the model's copy. */
 function mailHeader(mail: WorkerMail): string {
+  if (mail.event) return `[${mail.event.title}]`
   const channel = mail.channel
   if (channel) {
     const where = `${channel.isGroup ? `in ${channel.chatName}` : 'in a direct message'} on ${CHANNEL_LABEL[channel.kind]}`
@@ -74,7 +75,9 @@ export function buildTurnMessage(
    * put to the user with no answer yet. Restated every turn so compaction
    * can't make the worker forget it is waiting.
    */
-  open: { delegations: { id: string; to: string; objective: string; state: string }[]; asks: string[] } | null = null
+  open: { delegations: { id: string; to: string; objective: string; state: string }[]; asks: string[] } | null = null,
+  /** That goal's end time, for one the user gave hours to. */
+  goalUntil: number | null = null
 ): ChatMessage {
   // The system prompt only carries the date (it stays cached all day); a
   // worker checking on something needs the time too. Per turn, so it costs
@@ -102,8 +105,9 @@ export function buildTurnMessage(
     lines.push(`[Still open] ${parts.join('; ')}. Don't redo these; their answers arrive as mail.`)
   }
   if (goal) {
+    const left = goalUntil ? ` You have until ${new Date(goalUntil).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })} (${remaining(goalUntil - now)} left).` : ''
     lines.push(
-      `[Goal] Keep working toward your goal: "${goal}". Take the next concrete step. Call goal_complete once it is achieved and verified, goal_blocked if you need the user, or sleep if you are waiting for something.`
+      `[Goal] Keep working toward your goal: "${goal}".${left} Take the next concrete step. Call goal_complete once it is achieved and verified, goal_blocked if you need the user, or sleep if you are waiting for something.`
     )
   }
   for (const item of mail) {
@@ -145,6 +149,13 @@ export function buildTurnMessage(
           : {}),
     ...(userFiles.length > 0 ? { attachments: userFiles } : {})
   }
+}
+
+/** "3 h 20 min", "45 min" — the time a timed goal has left. */
+function remaining(ms: number): string {
+  const minutes = Math.max(0, Math.round(ms / 60_000))
+  if (minutes < 60) return `${minutes} min`
+  return minutes % 60 ? `${Math.floor(minutes / 60)} h ${minutes % 60} min` : `${minutes / 60} h`
 }
 
 /** The note on a turn the user asked for with "Wake now". */

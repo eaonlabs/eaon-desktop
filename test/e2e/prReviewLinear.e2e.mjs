@@ -179,8 +179,10 @@ if (fs.existsSync('.eaon/review-task.md')) {
     s.t.diagnostic(`claude was run with: ${JSON.stringify(asked)}`)
     assert.equal(asked.length, 1, 'Claude Code started once')
     assert.equal(realpathSync(asked[0].cwd), realpathSync(worktree))
-    assert.equal(asked[0].args.length, 1, 'the task is one argument')
-    assert.match(asked[0].args[0], /^Review pull request #7 \(Retry the login three times\)\. Read \.eaon\/review-task\.md/)
+    // Claude Code panes always start with bypass permissions; the task is the one argument after that.
+    assert.deepEqual(asked[0].args.slice(0, 1), ['--dangerously-skip-permissions'])
+    assert.equal(asked[0].args.length, 2, 'the task is one argument')
+    assert.match(asked[0].args[1], /^Review pull request #7 \(Retry the login three times\)\. Read \.eaon\/review-task\.md/)
     assert.equal(readFileSync(join(worktree, 'login.ts'), 'utf8'), 'export const retries = 3\n', 'the PR’s change is what’s checked out')
     assert.equal(git(worktree, 'status', '--porcelain'), '', 'Eaon’s notes stay out of git')
     const sub = await page.eval(() => [...document.querySelectorAll('.ade-session')].map((el) => el.textContent?.replace(/\s+/g, ' ')).find((t) => t?.includes('Review #7')))
@@ -228,7 +230,8 @@ if (fs.existsSync('.eaon/review-task.md')) {
     s.t.diagnostic(`claude runs: ${JSON.stringify(runs)}`)
     assert.equal(runs.length, 2)
     const worked = runs[1]
-    assert.match(worked.args[0], /^Work on Linear issue ENG-12 \(Add search to the docs\)\. Read \.eaon\/issue\.md/)
+    assert.equal(worked.args[0], '--dangerously-skip-permissions')
+    assert.match(worked.args[1], /^Work on Linear issue ENG-12 \(Add search to the docs\)\. Read \.eaon\/issue\.md/)
     const issueDir = realpathSync(worked.cwd)
     assert.ok(issueDir.startsWith(join(home, 'Eaon', 'worktrees', 'widget') + '/'), `a worktree of its own: ${issueDir}`)
     assert.equal(git(issueDir, 'rev-parse', '--abbrev-ref', 'HEAD'), 'alex/eng-12-add-search', 'on the branch Linear named')

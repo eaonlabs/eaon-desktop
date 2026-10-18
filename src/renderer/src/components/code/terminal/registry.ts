@@ -242,7 +242,8 @@ export function xtermTheme(look: TerminalLook): ITheme {
     // With a scene, the terminal is see-through and the pane paints the
     // background. Almost, not fully: on a background of alpha 0, xterm's GPU
     // renderer draws dim text (SGR 2) over solid black.
-    background: look.scenes && look.theme.scene ? `${colors.background}01` : colors.background,
+    // Glass is see-through too: the frosted pane is what's behind the text.
+    background: (look.scenes && look.theme.scene) || look.theme.glass ? `${colors.background}01` : colors.background,
     cursorAccent: colors.background,
     selectionBackground: selection
   }
@@ -526,7 +527,10 @@ class TerminalRegistry {
 
   /** GPU renderer, falling back quietly to the DOM one when WebGL is gone or lost. */
   private attachRenderer(paneId: string, rt: Runtime): void {
-    if (rt.gpuBlocked || rt.webgl) return
+    // Glass panes draw with xterm's DOM renderer: the GPU one paints dimmed
+    // text (SGR 2, which CLI agents use constantly) over an opaque block of
+    // the background, a solid strip on a pane the wallpaper shows through.
+    if (rt.gpuBlocked || rt.webgl || this.look.theme.glass) return
     try {
       const addon = new WebglAddon()
       addon.onContextLoss(() => {
@@ -832,7 +836,11 @@ class TerminalRegistry {
   /** Repaints every terminal after the app's or the ADE's theme changed. */
   applyTheme(): void {
     this.theme = xtermTheme(this.look)
+    const glass = Boolean(this.look.theme.glass)
     for (const [paneId, rt] of this.panes) {
+      // Into glass, off the GPU renderer; out of it, back on (see attachRenderer).
+      if (glass) this.releaseRenderer(rt)
+      else if (rt.host && !rt.webgl) this.attachRenderer(paneId, rt)
       rt.term.options.theme = this.theme
       this.showScene(paneId, rt)
     }
@@ -871,6 +879,7 @@ class TerminalRegistry {
   }
 }
 
+/** A dev server's address as CLIs print it: localhost, a loopback address, or a .local name. */
 const LOCAL_URL = /https?:\/\/(?:localhost|127\.0\.0\.1|0\.0\.0\.0|\[::1?\]|[\w-]+\.local)(?::\d{2,5})?(?:\/[^\s'"`<>]*)?/g
 
 export const terminals = new TerminalRegistry()

@@ -73,6 +73,12 @@ export interface TerminalTheme {
    * Null for `eaon`, which leaves the app as the person set it.
    */
   app: string | null
+  /**
+   * Glass: the panes are frosted and see-through, so the wallpaper the app
+   * shows (Settings → Appearance → See-through) is the terminals' backdrop.
+   * Picking one turns see-through on.
+   */
+  glass?: boolean
 }
 
 /** Sixteen ANSI colours in order: black, red, green, yellow, blue, magenta, cyan, white, then the bright eight. */
@@ -111,6 +117,21 @@ export const DEFAULT_THEME_ID = 'eaon'
 
 export const TERMINAL_THEMES: TerminalTheme[] = [
   { id: 'eaon', name: 'Eaon', mode: 'dark', scene: null, blurb: 'The app’s own colours, light or dark as the app is', colors: null, app: null },
+  {
+    id: 'see-through',
+    name: 'See-through',
+    mode: 'dark',
+    // The app keeps its own look: the point is the wallpaper, not new colours.
+    app: null,
+    scene: null,
+    glass: true,
+    blurb: 'Your wallpaper behind the terminals, through frosted glass',
+    // Bright and a touch saturated, so text holds up over whatever picture is behind it.
+    colors: palette('#0c0c10', '#f5f5f7', ['#2a2a33', '#ff7a85', '#7ee2a8', '#ffd479', '#7cb7ff', '#d39bff', '#6fe3e3', '#e6e6ea', '#8a8a96', '#ff9aa3', '#9df0bf', '#ffe29e', '#a3cdff', '#e2b8ff', '#98eded', '#ffffff'], {
+      cursor: '#ffffff',
+      selection: '#7cb7ff55'
+    })
+  },
   {
     id: 'everforest',
     name: 'Everforest',

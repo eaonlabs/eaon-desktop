@@ -111,6 +111,7 @@ async function runSubagent(
       depth: 1,
       readOnly,
       settings: ctx.settings,
+      liveSettings: ctx.liveSettings,
       signal: ctx.signal,
       // Only approvals reach the UI; tool traffic becomes the card's activity line.
       emit: (event) => {
@@ -121,7 +122,7 @@ async function runSubagent(
           publish({ ...run, activity: `${event.name}${detail ? ` ${detail.slice(0, 80)}` : ''}` })
         }
       },
-      approver: (tool, input, summary) => ctx.confirm(tool, input, summary),
+      approver: (tool, input, summary, critical) => ctx.confirm(tool, input, summary, critical ?? false),
       // The run's own limits, unchanged: a sub-agent of a scheduled task, a
       // worker or a guest's turn is held to exactly what its lead is. Without
       // them its calls went through the interactive approval path, where an

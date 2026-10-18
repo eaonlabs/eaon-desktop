@@ -319,6 +319,36 @@
   gap: 22px;
   margin-top: 14px;
 }
+.theme-grid--two {
+  /* Two cards, each the size of the three above them. */
+  grid-template-columns: repeat(3, 1fr);
+}
+/* Settings → Accounts → Usage meter: a title over picture cards. */
+.meter-choice {
+  margin-top: 18px;
+}
+.meter-choice__head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.meter-choice__title {
+  color: var(--text);
+  font-size: var(--fs-base);
+  font-weight: 500;
+}
+.meter-choice__hint {
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+.meter-choice + .card {
+  margin-top: 20px;
+}
+.meter-preview {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
 .theme-card {
   display: flex;
   flex-direction: column;

@@ -499,3 +499,23 @@
 .free-code .input::placeholder {
   text-transform: none;
 }
+
+/* Speech to text: a row of its own above the providers, marked with a mic. */
+.speech-mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 24%;
+  background: linear-gradient(160deg, #ff6b8b, #c13cff);
+  color: #ffffff;
+}
+.speech-model-input {
+  max-width: 320px;
+  margin-top: 8px;
+}
+.speech-status {
+  padding: 0 4px;
+}
+.speech-status:empty {
+  display: none;
+}

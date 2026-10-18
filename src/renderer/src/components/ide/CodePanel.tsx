@@ -1,23 +1,45 @@
-import { useEffect, useMemo, useRef, type JSX, type PointerEvent as ReactPointerEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type JSX, type PointerEvent as ReactPointerEvent } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { ChevronRight, Code2, FileWarning, FolderOpen, PanelRight, RotateCw, X } from 'lucide-react'
+import { ChevronDown, ChevronRight, Code2, FileWarning, FolderOpen, GitCompareArrows, RotateCw, X } from 'lucide-react'
 import { useApp } from '../../state/store'
 import { FileIcon, splitPath } from '../agent/FileIcon'
+import { MenuItem, Popover, useDisclosure } from '../ui'
+import { ChangesReview } from './ChangesReview'
+import { useChatChanges } from './changes'
 import { CodeEditor } from './CodeEditor'
 import { isDirty, useIde, type IdeTab } from './ideStore'
 import { joinPath, touchedFiles } from './paths'
 
 /**
- * Chat as an editor: beside the conversation, the folder the agent works in
- * as a tree, the files open in tabs, and an editor that saves with ⌘S. Files
- * the agent changed in this chat carry a dot, and the tree and open files
- * follow its edits as they land.
+ * Chat as an editor: beside the conversation, a card with two panes. Files is
+ * the folder the agent works in as a tree, the files open in tabs, and an
+ * editor that saves with ⌘S; Changes is every edit the agent made in this
+ * chat, per file, as diffs to review. Files the agent changed carry a dot, and
+ * the tree and open files follow its edits as they land.
+ *
+ * The card slides in from the window's edge and back out when closed
+ * (`closing`, kept mounted by App for the length of the slide).
  */
-export function CodePanel(): JSX.Element {
-  const { root, tabs, active, width, setOpen, refresh, setWidth } = useIde(
-    useShallow((s) => ({ root: s.root, tabs: s.tabs, active: s.active, width: s.width, setOpen: s.setOpen, refresh: s.refresh, setWidth: s.setWidth }))
+export function CodePanel({ closing = false }: { closing?: boolean }): JSX.Element {
+  const { root, tabs, active, width, pane, setOpen, setPane, refresh, setWidth } = useIde(
+    useShallow((s) => ({
+      root: s.root,
+      tabs: s.tabs,
+      active: s.active,
+      width: s.width,
+      pane: s.pane,
+      setOpen: s.setOpen,
+      setPane: s.setPane,
+      refresh: s.refresh,
+      setWidth: s.setWidth
+    }))
   )
   const touched = useTouched(root)
+  const all = useChatChanges()
+  // The Changes pane shows every turn's edits, or one turn's.
+  const [turn, setTurn] = useState<number | null>(null)
+  const changes = useMemo(() => (turn === null ? all.changes : all.changes.filter((_, i) => all.turns[i] === turn)), [all, turn])
+  const changedFiles = all.files
   useFollowAgent()
 
   const tab = tabs.find((t) => t.path === active) ?? null
@@ -28,7 +50,9 @@ export function CodePanel(): JSX.Element {
     event.preventDefault()
     const startX = event.clientX
     const startW = panel.current?.offsetWidth ?? width
-    const max = Math.max(420, window.innerWidth - 480)
+    // As far as leaves the chat 520px beside the sidebar (ide.css caps it the same way).
+    const sidebar = document.querySelector<HTMLElement>('.sidebar')?.offsetWidth ?? 0
+    const max = Math.max(360, window.innerWidth - 520 - sidebar)
     const move = (e: PointerEvent): void => setWidth(Math.min(max, Math.max(360, startW + startX - e.clientX)))
     const up = (): void => {
       window.removeEventListener('pointermove', move)
@@ -40,39 +64,121 @@ export function CodePanel(): JSX.Element {
     window.addEventListener('pointerup', up)
   }
 
-  return (
-    <aside className="ide" ref={panel} style={{ width }} aria-label="Code">
-      <div className="ide__resize" onPointerDown={startResize} aria-hidden />
-      <div className="ide__bar">
-        <span className="ide__title" title={root ?? undefined}>
-          <Code2 size={14} strokeWidth={1.9} />
-          {root ? splitPath(root).name || root : 'Code'}
-        </span>
-        <div style={{ flex: 1 }} />
-        <button className="icon-btn" onClick={() => void refresh()} aria-label="Refresh" title="Refresh">
-          <RotateCw size={14} strokeWidth={1.9} />
-        </button>
-        {root && (
-          <button className="icon-btn" onClick={() => void window.api.app.showItem(root)} aria-label="Show in folder" title="Show in folder">
-            <FolderOpen size={15} strokeWidth={1.9} />
-          </button>
-        )}
-        <button className="icon-btn" data-active onClick={() => setOpen(false)} aria-label="Close code" title="Close">
-          <PanelRight size={16} strokeWidth={1.9} />
-        </button>
-      </div>
+  const openChanged = (path: string): void => {
+    setPane('files')
+    void useIde.getState().openFile(root ? joinPath(root, path) : path)
+  }
 
-      <div className="ide__body">
-        <nav className="ide__tree scroll" aria-label="Files">
-          {root && <Folder path={root} depth={0} touched={touched} />}
-        </nav>
-        <div className="ide__main">
-          {tabs.length > 0 && <Tabs tabs={tabs} active={active} touched={touched} />}
-          {tab ? <TabBody key={tab.path} tab={tab} /> : <Empty touched={touched} />}
-          {tab && <StatusBar tab={tab} root={root} />}
+  return (
+    <aside
+      className="ide"
+      ref={panel}
+      style={{ '--ide-w': `${width}px` } as React.CSSProperties}
+      data-closing={closing || undefined}
+      aria-label="Code"
+    >
+      <div className="ide__resize" onPointerDown={startResize} aria-hidden />
+      <div className="ide__frame">
+        <div className="ide__bar">
+          <div className="ide__seg" role="tablist" aria-label="Code panel" data-pane={pane}>
+            <span className="ide__seg-thumb" aria-hidden />
+            <button role="tab" aria-selected={pane === 'files'} className="ide__seg-btn" onClick={() => setPane('files')}>
+              <Code2 size={13} strokeWidth={1.9} />
+              Files
+            </button>
+            <button role="tab" aria-selected={pane === 'changes'} className="ide__seg-btn" onClick={() => setPane('changes')}>
+              <GitCompareArrows size={13} strokeWidth={1.9} />
+              Changes
+              {changedFiles > 0 && <span className="ide__seg-count">{changedFiles}</span>}
+            </button>
+          </div>
+          <div style={{ flex: 1 }} />
+          <button className="icon-btn" onClick={() => void refresh()} aria-label="Refresh" title="Refresh">
+            <RotateCw size={14} strokeWidth={1.9} />
+          </button>
+          {root && (
+            <button className="icon-btn" onClick={() => void window.api.app.showItem(root)} aria-label="Show in folder" title="Show in folder">
+              <FolderOpen size={15} strokeWidth={1.9} />
+            </button>
+          )}
+          <button className="icon-btn" onClick={() => setOpen(false)} aria-label="Close code" title="Close">
+            <X size={15} strokeWidth={1.9} />
+          </button>
         </div>
+
+        {pane === 'files' ? (
+          <div className="ide__body ide__pane" key="files">
+            <nav className="ide__tree scroll" aria-label="Files">
+              {root && (
+                <div className="ide__tree-root" title={root}>
+                  {splitPath(root).name || root}
+                </div>
+              )}
+              {root && <Folder path={root} depth={0} touched={touched} />}
+            </nav>
+            <div className="ide__main">
+              {tabs.length > 0 && <Tabs tabs={tabs} active={active} touched={touched} />}
+              {tab ? <TabBody key={tab.path} tab={tab} /> : <Empty touched={touched} />}
+              {tab && <StatusBar tab={tab} root={root} />}
+            </div>
+          </div>
+        ) : (
+          <div className="ide__changes ide__pane" key="changes">
+            {changes.length > 0 ? (
+              <ChangesReview
+                key={turn ?? 'all'}
+                changes={changes}
+                root={root}
+                onOpen={openChanged}
+                onRefresh={() => void refresh()}
+                turnFilter={new Set(all.turns).size > 1 && <TurnFilter turns={[...new Set(all.turns)]} value={turn} onChange={setTurn} />}
+              />
+            ) : (
+              <div className="ide__empty">
+                <GitCompareArrows size={22} strokeWidth={1.5} />
+                <p className="ide__empty-title">No changes yet</p>
+                <p className="ide__empty-hint">Files Eaon edits in this chat show up here, ready to review.</p>
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </aside>
+  )
+}
+
+/** Which turn's edits the Changes pane shows: all of them, or one reply's. */
+function TurnFilter({ turns, value, onChange }: { turns: number[]; value: number | null; onChange: (turn: number | null) => void }): JSX.Element {
+  const anchor = useRef<HTMLButtonElement>(null)
+  const menu = useDisclosure()
+  return (
+    <div className="ide__filter">
+      <button ref={anchor} className="ide__filter-btn" data-open={menu.open || undefined} onClick={menu.toggle}>
+        {value === null ? 'All turns' : `Turn ${value}`}
+        <ChevronDown size={13} strokeWidth={2} />
+      </button>
+      <Popover anchor={anchor} open={menu.open} onClose={menu.close} placement="bottom-start" width={180}>
+        <MenuItem
+          title="All turns"
+          checked={value === null}
+          onClick={() => {
+            onChange(null)
+            menu.close()
+          }}
+        />
+        {turns.map((t) => (
+          <MenuItem
+            key={t}
+            title={`Turn ${t}`}
+            checked={value === t}
+            onClick={() => {
+              onChange(t)
+              menu.close()
+            }}
+          />
+        ))}
+      </Popover>
+    </div>
   )
 }
 

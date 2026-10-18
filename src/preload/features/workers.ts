@@ -81,6 +81,18 @@ export const workersApi = {
   /** Answers a worker's question: a reply, or approving (or declining) the one action it asked about. */
   answer: (id: string, askId: string, answer: { text?: string; approved?: boolean }): Promise<void> =>
     ipcRenderer.invoke('workers:answer', id, askId, answer),
+  /** Ends a background job the worker started; the worker is told. */
+  stopJob: (id: string, jobId: string): Promise<string> => ipcRenderer.invoke('workers:stop-job', id, jobId),
+  /** A job's state and the last 200 lines of its output. */
+  jobLog: (id: string, jobId: string): Promise<string> => ipcRenderer.invoke('workers:job-log', id, jobId),
+  removeWatch: (id: string, watchId: string): Promise<string> => ipcRenderer.invoke('workers:remove-watch', id, watchId),
+  removePlaybook: (id: string, playbookId: string): Promise<string> => ipcRenderer.invoke('workers:remove-playbook', id, playbookId),
+  /** Teach: hands the user the worker's browser and records what they do there. */
+  teachStart: (id: string): Promise<boolean> => ipcRenderer.invoke('workers:teach-start', id),
+  /** The steps recorded so far. */
+  teachSteps: (id: string): Promise<string[]> => ipcRenderer.invoke('workers:teach-steps', id),
+  /** Ends Teach: with a task, the steps go to the worker to save as a playbook; null cancels. Resolves to how many steps were sent. */
+  teachStop: (id: string, task: string | null): Promise<number> => ipcRenderer.invoke('workers:teach-stop', id, task),
   /** The whole list, whenever anything but a token changes. */
   onChanged: (handler: (workers: Worker[]) => void): (() => void) => subscribe('workers:changed', handler),
   /** Stream events from running turns, batched per frame. */

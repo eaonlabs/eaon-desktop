@@ -5,6 +5,8 @@ import type { WorkspaceEntry, WorkspaceFile } from '@shared/workspaceFiles'
 export const workspaceFilesApi = {
   /** The folder Chat's agent works in, created if it is not there yet. */
   root: (): Promise<string> => ipcRenderer.invoke('workspace-files:root'),
+  /** The folders in the home folder, for the composer's project picker. */
+  places: (): Promise<WorkspaceEntry[]> => ipcRenderer.invoke('workspace-files:places'),
   /** A folder's entries, folders first. */
   list: (path: string): Promise<WorkspaceEntry[]> => ipcRenderer.invoke('workspace-files:list', path),
   read: (path: string): Promise<WorkspaceFile> => ipcRenderer.invoke('workspace-files:read', path),

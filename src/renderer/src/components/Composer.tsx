@@ -40,8 +40,10 @@ import { ModelPicker } from './composer/ModelPicker'
 import { ModelNotice } from './composer/ModelNotice'
 import { useChatEngine } from './composer/chatEngine'
 import { EngineNotice } from './composer/EngineNotice'
+import { ProviderMark } from './composer/ProviderMark'
 import { joinTranscript, useDictation } from './composer/useDictation'
 import { VoiceBar } from './composer/VoiceBar'
+import { ChangesPill, PermissionPicker, ProjectPicker } from './composer/ComposerBits'
 import { notify } from './Notice'
 import { errorText } from '../lib/errors'
 
@@ -287,7 +289,11 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
               { id: 'full' as const, title: 'Full autonomy', keywords: 'full autonomy', icon: <Zap size={16} strokeWidth={1.8} /> }
             ],
             settings?.approvalMode,
-            (approvalMode) => void patchSettings({ approvalMode })
+            (approvalMode) => {
+              void patchSettings({ approvalMode })
+              // As the permission picker does: what full access would have run stops waiting.
+              if (approvalMode === 'full') useApp.getState().releaseApprovals()
+            }
           ),
           { id: 'browser', title: 'Browser', keywords: 'web browse', section: 'Tools', icon: <Globe size={16} strokeWidth={1.8} />, run: () => toggleBrowser(true) },
           { id: 'computer', title: 'Computer use', keywords: 'computer screen mouse', section: 'Tools', icon: <Laptop size={16} strokeWidth={1.8} />, hint: settings?.computerUse.enabled ? 'On' : 'Off', run: () => setSettingsPage('computer-use') },
@@ -295,7 +301,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
         )
       }
       items.push(
-        { id: 'model', title: 'Model', keywords: 'model effort switch', section: 'Chat', icon: <Sparkles size={16} strokeWidth={1.8} />, hint: model?.label, run: () => modelMenu.setOpen(true) },
+        { id: 'model', title: 'Model', keywords: 'model effort switch', section: 'Chat', icon: <Sparkles size={16} strokeWidth={1.8} />, hint: engineChoice ? engineChoice.label : model?.label, run: () => modelMenu.setOpen(true) },
         { id: 'new', title: 'New chat', keywords: 'new clear reset', section: 'Chat', icon: <MessageSquarePlus size={16} strokeWidth={1.8} />, run: () => newChat() }
       )
       return isAgent ? [...items, ...skillItems(skills, settings?.disabledSkills ?? [])] : items
@@ -322,9 +328,147 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
 
   const planOn = isAgent && Boolean(settings?.planMode)
   const swarmOn = isAgent && Boolean(settings?.work.swarm)
-  const autoApprove = isAgent && settings?.approvalMode === 'auto'
-  const fullAutonomy = isAgent && settings?.approvalMode === 'full'
-  const hasChips = Boolean(cwd) || planOn || swarmOn || goalArmed || autoApprove || fullAutonomy || shownMentions.length > 0
+  const hasChips = planOn || swarmOn || goalArmed || shownMentions.length > 0
+
+  // The box's parts, laid out per variant below: on the home screen the text
+  // sits over a toolbar; in a conversation it is one line between + and send,
+  // with the permission and the model on a quiet row under the box.
+  const input = dictating ? (
+    <VoiceBar dictation={dictation} />
+  ) : (
+    <textarea
+      ref={textarea}
+      className="composer__input"
+      placeholder={
+        goalArmed
+          ? 'Describe the goal — Eaon keeps working until it is done'
+          : planOn
+            ? 'Describe the task — Eaon researches and proposes a plan first'
+            : variant === 'chat'
+              ? 'Ask for follow-up changes'
+              : isAgent
+                ? 'Ask Eaon to do anything'
+                : 'Ask anything'
+      }
+      value={text}
+      rows={1}
+      onChange={(e) => {
+        setText(e.target.value)
+        suggest.onCaret()
+      }}
+      onSelect={suggest.onCaret}
+      onPaste={onPaste}
+      onKeyDown={(e) => {
+        if (suggest.onKeyDown(e)) return
+        if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+          e.preventDefault()
+          // While a reply streams, ⏎ in the message box does nothing. It
+          // used to press Stop, so a follow-up typed during a reply ended
+          // the run, and so did the ⏎ meant for an approval card. Kept
+          // from the card's own ⏎ handler too (ChatView, on document): a
+          // message typed here must not approve a command nobody read.
+          // Stop is the button; the card has its own focused buttons.
+          if (streaming) {
+            e.stopPropagation()
+            return
+          }
+          submit()
+        }
+      }}
+    />
+  )
+  const plusButton = (
+    <button
+      ref={plusAnchor}
+      className="composer__round"
+      data-open={plusMenu.open || undefined}
+      onClick={plusMenu.toggle}
+      aria-label="Add files and more"
+      title="Add files, tools and modes"
+    >
+      <Plus size={18} strokeWidth={1.9} />
+    </button>
+  )
+  const chips = hasChips && (
+    <div className="composer__chips">
+      {goalArmed && <ActiveChip icon={<Target size={13} strokeWidth={2} />} label="Goal" title="The next message is a goal Eaon keeps working on until it is done" onClear={() => setGoalArmed(false)} clearLabel="Turn off Goal" />}
+      {goalArmed && <GoalEndChip value={goalUntil} onChange={setGoalUntil} />}
+      {planOn && <ActiveChip icon={<Lightbulb size={13} strokeWidth={2} />} label="Plan" title="Eaon researches and proposes a plan before changing anything" onClear={() => void patchSettings({ planMode: false })} clearLabel="Turn off Plan mode" />}
+      {swarmOn && <ActiveChip icon={<Network size={13} strokeWidth={2} />} label="Swarm" title="Eaon can split work across parallel sub-agents" onClear={() => void patchSettings({ work: { swarm: false } })} clearLabel="Turn off Swarm" />}
+      {shownMentions.map((mention) => (
+        <ActiveChip
+          key={mention.id}
+          icon={
+            <span className="composer-chip__logo">
+              <PluginLogo logo={mention.pluginId ? mcpCatalogEntry(mention.pluginId)?.logoAssetName : undefined} name={mention.name} size={13} />
+            </span>
+          }
+          label={mention.name}
+          title={`${mention.name} is mentioned in this message`}
+          onClear={() => {
+            setMentions((current) => current.filter((m) => m.id !== mention.id))
+            setText(removeMention(text, mention.name))
+          }}
+          clearLabel={`Remove @${mention.name}`}
+        />
+      ))}
+    </div>
+  )
+  const modelButton = (
+    <button
+      ref={modelAnchor}
+      className="chip chip--model"
+      data-open={modelMenu.open || undefined}
+      data-unavailable={(engineChoice ? !engineChoice.ready : selection.status === 'unavailable') || undefined}
+      onClick={modelMenu.toggle}
+      title={
+        engineChoice
+          ? engineChoice.ready
+            ? 'Runs on Codex, with your Codex sign-in'
+            : `Unavailable — ${engineChoice.reason ?? ''}`
+          : selection.status === 'unavailable'
+            ? `Unavailable — ${selection.reason ?? ''}`
+            : undefined
+      }
+    >
+      {engineChoice ? <ProviderMark providerId={engineChoice.engine} size={15} /> : model && <ProviderMark providerId={model.providerId} size={15} />}
+      <span className="chip__model">{engineChoice ? engineChoice.label : (model?.label ?? selection.wanted?.label ?? 'No model')}</span>
+      {effort && <span className="chip__effort">{EFFORT_LABEL[effort]}</span>}
+      <ChevronDown size={13} strokeWidth={2} className="chip__chevron" />
+    </button>
+  )
+  const micButton = (
+    <button
+      className="composer__round composer__mic"
+      data-active={dictating || undefined}
+      // While recording, the mic finishes: what was said is written out,
+      // as the voice bar's own Done does. Throwing it away is the bar's
+      // Discard (or Esc); only a recording still starting is cancelled.
+      onClick={() =>
+        dictation.state === 'recording' ? dictation.finish() : dictating ? dictation.cancel() : void dictation.start()
+      }
+      disabled={dictation.state === 'transcribing'}
+      aria-label={dictating ? 'Stop dictating' : 'Dictate'}
+      title={dictating ? 'Stop dictating' : 'Dictate a message'}
+    >
+      <Mic size={16} strokeWidth={1.9} />
+    </button>
+  )
+  const sendButton = (
+    <button
+      className={`send ${streaming ? 'send--stop' : ''}`}
+      disabled={busyElsewhere || (!streaming && (noModel || dictating || (!text.trim() && attachments.length === 0)))}
+      onClick={submit}
+      aria-label={streaming ? 'Stop' : 'Send'}
+      title={busyElsewhere ? 'Eaon is still replying in another chat' : !streaming && noModel ? 'Connect a model first — see above' : undefined}
+    >
+      {streaming ? (
+        <Square size={11} strokeWidth={0} fill="currentColor" />
+      ) : (
+        <ArrowUp size={17} strokeWidth={2.2} />
+      )}
+    </button>
+  )
 
   return (
     <div
@@ -350,7 +494,13 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       ) : (
         <ModelNotice selection={selection} onChooseModel={() => modelMenu.setOpen(true)} />
       )}
-      <div className="composer" data-goal={goalArmed || undefined}>
+      {isAgent && (
+        <div className="composer__above">
+          <ProjectPicker />
+          {variant === 'chat' && <ChangesPill />}
+        </div>
+      )}
+      <div className="composer" data-variant={variant} data-goal={goalArmed || undefined}>
         {attachments.length > 0 && (
           <div className="composer__attachments">
             {attachments.map((path) => (
@@ -372,48 +522,6 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
             ))}
           </div>
         )}
-        {dictating ? (
-          <VoiceBar dictation={dictation} />
-        ) : (
-        <textarea
-          ref={textarea}
-          className="composer__input"
-          placeholder={
-            goalArmed
-              ? 'Describe the goal — Eaon keeps working until it is done'
-              : planOn
-                ? 'Describe the task — Eaon researches and proposes a plan first'
-                : variant === 'home' && isAgent
-                  ? 'Ask anything, or give Eaon a task'
-                  : 'Ask anything'
-          }
-          value={text}
-          rows={1}
-          onChange={(e) => {
-            setText(e.target.value)
-            suggest.onCaret()
-          }}
-          onSelect={suggest.onCaret}
-          onPaste={onPaste}
-          onKeyDown={(e) => {
-            if (suggest.onKeyDown(e)) return
-            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-              e.preventDefault()
-              // While a reply streams, ⏎ in the message box does nothing. It
-              // used to press Stop, so a follow-up typed during a reply ended
-              // the run, and so did the ⏎ meant for an approval card. Kept
-              // from the card's own ⏎ handler too (ChatView, on document): a
-              // message typed here must not approve a command nobody read.
-              // Stop is the button; the card has its own focused buttons.
-              if (streaming) {
-                e.stopPropagation()
-                return
-              }
-              submit()
-            }
-          }}
-        />
-        )}
         {dictation.error && (
           <div className="voice-error" role="alert">
             <span className="voice-error__text">{dictation.error}</span>
@@ -423,103 +531,37 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
           </div>
         )}
 
-        <div className="composer__toolbar">
-          <button
-            ref={plusAnchor}
-            className="composer__round"
-            data-open={plusMenu.open || undefined}
-            onClick={plusMenu.toggle}
-            aria-label="Add files and more"
-            title="Add files, tools and modes"
-          >
-            <Plus size={18} strokeWidth={1.9} />
-          </button>
-
-          {hasChips && (
-            <div className="composer__chips">
-              {cwd && (
-                <ActiveChip icon={<Folder size={13} strokeWidth={2} />} label={fileName(cwd)} title={`Working in ${cwd}`} onClear={() => setWorkCwd(null)} clearLabel="Stop using this folder" />
-              )}
-              {goalArmed && <ActiveChip icon={<Target size={13} strokeWidth={2} />} label="Goal" title="The next message is a goal Eaon keeps working on until it is done" onClear={() => setGoalArmed(false)} clearLabel="Turn off Goal" />}
-              {goalArmed && <GoalEndChip value={goalUntil} onChange={setGoalUntil} />}
-              {planOn && <ActiveChip icon={<Lightbulb size={13} strokeWidth={2} />} label="Plan" title="Eaon researches and proposes a plan before changing anything" onClear={() => void patchSettings({ planMode: false })} clearLabel="Turn off Plan mode" />}
-              {swarmOn && <ActiveChip icon={<Network size={13} strokeWidth={2} />} label="Swarm" title="Eaon can split work across parallel sub-agents" onClear={() => void patchSettings({ work: { swarm: false } })} clearLabel="Turn off Swarm" />}
-              {autoApprove && <ActiveChip icon={<ShieldCheck size={13} strokeWidth={2} />} label="Auto-approve" title="Eaon only asks before actions that look unsafe" onClear={() => void patchSettings({ approvalMode: 'ask' })} clearLabel="Ask before every action again" />}
-              {fullAutonomy && <ActiveChip icon={<Zap size={13} strokeWidth={2} />} label="Full autonomy" title="Eaon runs any command and change on its own, and only stops for what can't be undone" onClear={() => void patchSettings({ approvalMode: 'ask' })} clearLabel="Ask before every action again" />}
-              {shownMentions.map((mention) => (
-                <ActiveChip
-                  key={mention.id}
-                  icon={
-                    <span className="composer-chip__logo">
-                      <PluginLogo logo={mention.pluginId ? mcpCatalogEntry(mention.pluginId)?.logoAssetName : undefined} name={mention.name} size={13} />
-                    </span>
-                  }
-                  label={mention.name}
-                  title={`${mention.name} is mentioned in this message`}
-                  onClear={() => {
-                    setMentions((current) => current.filter((m) => m.id !== mention.id))
-                    setText(removeMention(text, mention.name))
-                  }}
-                  clearLabel={`Remove @${mention.name}`}
-                />
-              ))}
+        {variant === 'chat' ? (
+          <div className="composer__row">
+            {plusButton}
+            {input}
+            {micButton}
+            {sendButton}
+          </div>
+        ) : (
+          <>
+            {input}
+            <div className="composer__toolbar">
+              {plusButton}
+              {isAgent && <PermissionPicker />}
+              {chips}
+              <div className="composer__spacer" />
+              {modelButton}
+              {micButton}
+              {sendButton}
             </div>
-          )}
-
-          <div className="composer__spacer" />
-
-          <button
-            ref={modelAnchor}
-            className="chip chip--model"
-            data-open={modelMenu.open || undefined}
-            data-unavailable={(engineChoice ? !engineChoice.ready : selection.status === 'unavailable') || undefined}
-            onClick={modelMenu.toggle}
-            title={
-              engineChoice
-                ? engineChoice.ready
-                  ? 'Runs on Codex, with your Codex sign-in'
-                  : `Unavailable — ${engineChoice.reason ?? ''}`
-                : selection.status === 'unavailable'
-                  ? `Unavailable — ${selection.reason ?? ''}`
-                  : undefined
-            }
-          >
-            <span className="chip__model">{engineChoice ? engineChoice.label : (model?.label ?? selection.wanted?.label ?? 'No model')}</span>
-            {effort && <span className="chip__effort">{EFFORT_LABEL[effort]}</span>}
-            <ChevronDown size={13} strokeWidth={2} className="chip__chevron" />
-          </button>
-
-          <button
-            className="composer__round composer__mic"
-            data-active={dictating || undefined}
-            // While recording, the mic finishes: what was said is written out,
-            // as the voice bar's own Done does. Throwing it away is the bar's
-            // Discard (or Esc); only a recording still starting is cancelled.
-            onClick={() =>
-              dictation.state === 'recording' ? dictation.finish() : dictating ? dictation.cancel() : void dictation.start()
-            }
-            disabled={dictation.state === 'transcribing'}
-            aria-label={dictating ? 'Stop dictating' : 'Dictate'}
-            title={dictating ? 'Stop dictating' : 'Dictate a message'}
-          >
-            <Mic size={16} strokeWidth={1.9} />
-          </button>
-
-          <button
-            className={`send ${streaming ? 'send--stop' : ''}`}
-            disabled={busyElsewhere || (!streaming && (noModel || dictating || (!text.trim() && attachments.length === 0)))}
-            onClick={submit}
-            aria-label={streaming ? 'Stop' : 'Send'}
-            title={busyElsewhere ? 'Eaon is still replying in another chat' : !streaming && noModel ? 'Connect a model first — see above' : undefined}
-          >
-            {streaming ? (
-              <Square size={11} strokeWidth={0} fill="currentColor" />
-            ) : (
-              <ArrowUp size={17} strokeWidth={2.2} />
-            )}
-          </button>
-        </div>
+          </>
+        )}
       </div>
+
+      {variant === 'chat' && (
+        <div className="composer__meta">
+          {isAgent && <PermissionPicker />}
+          {chips}
+          <div className="composer__spacer" />
+          {modelButton}
+        </div>
+      )}
 
       {suggest.menu}
       <AddMenu
@@ -708,8 +750,7 @@ function AddMenu({
   const cwd = useApp((s) => agentWorkspace(s.workspaces)?.cwd ?? null)
   const isAgent = useIsWork()
   const pluginsRow = useRef<HTMLDivElement>(null)
-  const approvalRow = useRef<HTMLDivElement>(null)
-  const [sub, setSub] = useState<'plugins' | 'approval' | null>(null)
+  const [sub, setSub] = useState<'plugins' | null>(null)
   const connected = useApp((s) => s.mcpServers.filter((m) => m.enabled).length)
 
   const close = (): void => {
@@ -810,81 +851,9 @@ function AddMenu({
             />
           </div>
 
-          <MenuSeparator />
-          <div ref={approvalRow} onMouseEnter={() => setSub('approval')}>
-            <MenuItem
-              icon={
-                settings?.approvalMode === 'full' ? (
-                  <Zap size={16} strokeWidth={1.8} />
-                ) : settings?.approvalMode === 'auto' ? (
-                  <ShieldCheck size={16} strokeWidth={1.8} />
-                ) : (
-                  <Hand size={16} strokeWidth={1.8} />
-                )
-              }
-              title="Permissions"
-              hint={settings?.approvalMode === 'full' ? 'Full autonomy' : settings?.approvalMode === 'auto' ? 'Auto-approve' : 'Ask first'}
-              submenu
-              open={sub === 'approval'}
-              onClick={() => setSub(sub === 'approval' ? null : 'approval')}
-            />
-          </div>
-
           <PluginsSubmenu anchor={pluginsRow} open={open && sub === 'plugins'} onClose={() => setSub(null)} onDone={close} />
-          <ApprovalMenu anchor={approvalRow} open={open && sub === 'approval'} onClose={() => setSub(null)} onDone={close} />
         </>
       )}
-    </Popover>
-  )
-}
-
-/* ------------------------------------------------------------ Approval menu */
-
-function ApprovalMenu({
-  anchor,
-  open,
-  onClose,
-  onDone
-}: {
-  anchor: React.RefObject<HTMLElement>
-  open: boolean
-  onClose: () => void
-  onDone: () => void
-}): JSX.Element {
-  const { settings, patchSettings } = useApp(useShallow((s) => ({ settings: s.settings, patchSettings: s.patchSettings })))
-  return (
-    <Popover anchor={anchor} open={open} onClose={onClose} placement="right-start" width={330}>
-      <div className="menu__label">When Eaon wants to change something</div>
-      <MenuItem
-        icon={<Hand size={16} strokeWidth={1.8} />}
-        title="Ask first"
-        description="Ask before editing files, running commands or acting in apps"
-        checked={settings?.approvalMode === 'ask'}
-        onClick={() => {
-          void patchSettings({ approvalMode: 'ask' })
-          onDone()
-        }}
-      />
-      <MenuItem
-        icon={<ShieldCheck size={16} strokeWidth={1.8} />}
-        title="Auto-approve"
-        description="Only ask for actions that look unsafe"
-        checked={settings?.approvalMode === 'auto'}
-        onClick={() => {
-          void patchSettings({ approvalMode: 'auto' })
-          onDone()
-        }}
-      />
-      <MenuItem
-        icon={<Zap size={16} strokeWidth={1.8} />}
-        title="Full autonomy"
-        description="Run any command and make any change on its own, anywhere on this computer. Still asks before sudo, erasing disks, force-pushing, passwords or payments"
-        checked={settings?.approvalMode === 'full'}
-        onClick={() => {
-          void patchSettings({ approvalMode: 'full' })
-          onDone()
-        }}
-      />
     </Popover>
   )
 }

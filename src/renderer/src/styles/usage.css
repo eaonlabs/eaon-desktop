@@ -610,3 +610,22 @@
     animation: none;
   }
 }
+
+/* "Include CLI usage": the tools being counted, each with its logo. */
+.usage-cli-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 12px;
+  margin-top: 8px;
+}
+.usage-cli-tool {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--text-2);
+}
+.usage-cli-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}

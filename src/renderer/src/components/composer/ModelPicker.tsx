@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type JSX, type KeyboardEvent, type RefObject } from 'react'
-import { CircleAlert, Plus, Search, Star } from 'lucide-react'
+import { Check, CircleAlert, Plus, Search, Star } from 'lucide-react'
 import { FREE_PROVIDER_ID } from '@shared/freeCredits'
 import { useShallow } from 'zustand/react/shallow'
 import type { ModelInfo, Provider } from '@shared/types'
@@ -46,7 +46,27 @@ const STARRED = '__starred'
 /** The tab of Codex's own models: picking one runs Chat on Codex, with Codex's sign-in. */
 const CODEX_TAB = '__engine:codex'
 
-export function ModelPicker({ anchor, open, onClose }: { anchor: RefObject<HTMLElement>; open: boolean; onClose: () => void }): JSX.Element {
+export function ModelPicker({
+  anchor,
+  open,
+  onClose,
+  selected,
+  onPick,
+  follow
+}: {
+  anchor: RefObject<HTMLElement>
+  open: boolean
+  onClose: () => void
+  /**
+   * Picking for something else than the app (a worker): its model, and what
+   * a pick does instead of changing the app's. The effort slider and Codex's
+   * tab are the app's, so they are left out then.
+   */
+  selected?: ModelInfo | null
+  onPick?: (model: ModelInfo) => void
+  /** A first row that goes back to following the app's model, with its label; set when `onPick` is. */
+  follow?: { label: string; on: boolean; run: () => void }
+}): JSX.Element {
   const { settings, selectModel, setEffort, toggleFavorite, providers, patchSettings } = useApp(
     useShallow((s) => ({
       settings: s.settings,
@@ -58,11 +78,13 @@ export function ModelPicker({ anchor, open, onClose }: { anchor: RefObject<HTMLE
     }))
   )
   const selection = useApp((s) => s.modelSelection())
-  const engineChoice = useChatEngine()
-  const current = engineChoice ? null : selection.model
+  const chatEngine = useChatEngine()
+  // Picking for a worker, the app's own choice (and Codex's tab) doesn't apply.
+  const engineChoice = onPick ? null : chatEngine
+  const current = onPick ? (selected ?? null) : engineChoice ? null : selection.model
   // Codex, when Eaon has checked for it: its own models, or why they can't be used yet.
   const codex = useEngineModels('codex')
-  const codexOptions = useMemo(() => engineOptions('codex', codex.models, codex.status), [codex.models, codex.status])
+  const codexOptions = useMemo(() => (onPick ? [] : engineOptions('codex', codex.models, codex.status)), [onPick, codex.models, codex.status])
   const codexReadiness = codex.status ? engineReadiness('codex', codex.status) : null
   const [codexBusy, setCodexBusy] = useState(false)
   const [linking, setLinking] = useState(false)
@@ -145,7 +167,13 @@ export function ModelPicker({ anchor, open, onClose }: { anchor: RefObject<HTMLE
       return
     }
     if (!option.providerId) return
-    selectModel(option.modelId, option.providerId)
+    if (onPick) {
+      const model = useApp
+        .getState()
+        .availableModels()
+        .find((m) => m.id === option.modelId && m.providerId === option.providerId)
+      if (model) onPick(model)
+    } else selectModel(option.modelId, option.providerId)
     onClose()
   }
 
@@ -235,7 +263,7 @@ export function ModelPicker({ anchor, open, onClose }: { anchor: RefObject<HTMLE
                 </button>
               )
             })}
-            {codex.status && (
+            {codex.status && !onPick && (
               <button
                 role="tab"
                 className="mp__tab"
@@ -286,7 +314,7 @@ export function ModelPicker({ anchor, open, onClose }: { anchor: RefObject<HTMLE
           />
         </label>
 
-        {selection.status === 'unavailable' && selection.wanted && (
+        {!onPick && selection.status === 'unavailable' && selection.wanted && (
           <div className="mp__notice" role="status">
             <CircleAlert size={13} strokeWidth={2} />
             <span>
@@ -333,6 +361,21 @@ export function ModelPicker({ anchor, open, onClose }: { anchor: RefObject<HTMLE
         )}
 
         <div className="mp__list" ref={list} role="listbox" aria-label="Models">
+          {follow && !q && (
+            <div
+              className="mp__row mp__row--follow"
+              role="option"
+              aria-selected={follow.on}
+              data-current={follow.on || undefined}
+              onClick={() => {
+                follow.run()
+                onClose()
+              }}
+            >
+              <span className="mp__row-name">{follow.label}</span>
+              {follow.on && <Check size={13} strokeWidth={2.2} className="mp__check" />}
+            </div>
+          )}
           {options.length === 0 && codexOptions.length === 0 ? (
             <div className="mp__empty">
               <p>No usable model is connected. Sign in to a supported account, add an API key, or choose a local model.</p>
@@ -418,7 +461,7 @@ export function ModelPicker({ anchor, open, onClose }: { anchor: RefObject<HTMLE
           )}
         </div>
 
-        {(current || engineChoice) && effort && efforts.length >= 2 && (
+        {!onPick && (current || engineChoice) && effort && efforts.length >= 2 && (
           <div className="mp__foot">
             <ReasoningEffort
               labels={efforts.map((level) => EFFORT_LABEL[level])}

@@ -131,6 +131,8 @@ export interface WorkerAsk {
   question: string
   /** Quick answers offered as buttons; the user can always write their own. */
   options: string[]
+  /** The user may pick several of `options` ("choose all that apply"); the answer lists them. */
+  multiple?: boolean
   approve: { tool: string; input: Record<string, unknown>; summary: string } | null
   at: number
   /** The thread it was asked from; the answer goes back there. The main thread when absent. */
@@ -184,6 +186,12 @@ export interface WorkerMail {
   handoff?: { id: string; task: string; requiredOutput?: string; deadlineAt?: number | null }
   /** A colleague finished (or failed, or dropped) a task this worker delegated. */
   handoffResult?: { id: string; task: string; ok: boolean; state?: DelegationState }
+  /**
+   * Not a message from anyone: something the worker set up reporting back —
+   * a background job that ended, a watch that fired, a timed goal running
+   * out. `from` is 'eaon'; the thread shows it as an event, not a bubble.
+   */
+  event?: { kind: 'job' | 'watch' | 'goal'; title: string }
 }
 
 /**
@@ -499,6 +507,8 @@ export interface WorkerGoalRun extends GoalState {
   startedAt: number
   turns: number
   pausedByUser?: boolean
+  /** Turns in a row that failed; a run carries on after a pause until FAILURES_BEFORE_PAUSE. */
+  failures?: number
   /**
    * When it next continues on its own, after a turn that left it unfinished.
    * Null while a turn is on it, and when the worker chose its own wake-up
@@ -510,6 +520,12 @@ export interface WorkerGoalRun extends GoalState {
 export interface WorkerSendOptions {
   /** Make this message the worker's goal, replacing the one it had. */
   goal?: boolean
+  /**
+   * With `goal`: work on it until this time (a timestamp) instead of until
+   * the usual turn budget runs out — hours of unattended work, with the
+   * computer kept awake. Null or unset for an ordinary goal.
+   */
+  until?: number | null
   /** Which thread it is for; the main thread when absent. `'new'` starts a task thread. */
   threadId?: string
 }
@@ -606,6 +622,103 @@ export const WORKER_ACCESS: { id: WorkerAccess; label: string; description: stri
   { id: 'read-only', label: 'Look only', description: 'Reads, searches and reports; it never changes anything.' }
 ]
 
+/**
+ * A long-running command a worker started (start_job): a build, a test
+ * suite, a data run, a scrape. It runs outside any turn, so the worker can
+ * sleep or do other work meanwhile, and wakes it when it ends with how it
+ * went and the last of its output. Jobs end when Eaon quits.
+ */
+export interface WorkerJob {
+  id: string
+  name: string
+  command: string
+  /** Where it runs: the worker's folder unless it said otherwise. */
+  cwd: string
+  /** Everything it printed, stdout and stderr together. */
+  log: string
+  pid: number | null
+  startedAt: number
+  endedAt: number | null
+  /** "exit code 0", "terminated (SIGTERM)", "stopped", "timed out after 6 h", "lost when Eaon quit". */
+  result: string | null
+  ok: boolean | null
+  /** It is killed after this long; the worker picks it (default JOB_DEFAULT_HOURS). */
+  timeoutMs: number
+  /** The thread that started it; its end is mailed there. The main thread when absent. */
+  threadId?: string
+}
+
+export type WatchKind = 'url' | 'file' | 'command'
+/**
+ * When a watch wakes its worker:
+ * - `change`: what it sees differs from last time (the first look sets the baseline);
+ * - `contains` / `missing`: the text appears / is gone (case-insensitive);
+ * - `fails`: the page errors or can't be reached, the file is missing, the
+ *   command exits non-zero — and again when it recovers.
+ */
+export type WatchCondition = 'change' | 'contains' | 'missing' | 'fails'
+
+/**
+ * Something a worker keeps an eye on between turns (watch): a page, a file
+ * or folder, or a check command, looked at every few minutes by Eaon itself
+ * — no model, no tokens — and the worker is woken only when its condition
+ * is met. How a worker maintains things for hours or days at no cost while
+ * nothing happens.
+ */
+export interface WorkerWatch {
+  id: string
+  name: string
+  kind: WatchKind
+  /** A URL, a path (relative to the worker's folder), or a shell command. */
+  target: string
+  when: WatchCondition
+  /** For `contains` / `missing`. */
+  text: string
+  /** What to do when it fires, in the worker's own words. */
+  note: string
+  everyMs: number
+  nextAt: number
+  /** What the last look saw, kept short: a fingerprint for `change`, and whether the condition held. */
+  last: { at: number; fingerprint: string; met: boolean; summary: string } | null
+  /** When it last woke the worker, and how often in all. */
+  firedAt: number | null
+  fires: number
+  /** The thread that set it; it wakes that thread. The main thread when absent. */
+  threadId?: string
+}
+
+/** "https://example.com changing", "`npm test` failing" — a watch in words, for the worker's prompt and its mail. */
+export function watchText(watch: Pick<WorkerWatch, 'kind' | 'target' | 'when' | 'text'>): string {
+  const what = watch.kind === 'command' ? `\`${watch.target}\`` : watch.target
+  switch (watch.when) {
+    case 'change':
+      return `${what} changing`
+    case 'contains':
+      return `"${watch.text}" appearing in ${what}`
+    case 'missing':
+      return `"${watch.text}" going from ${what}`
+    case 'fails':
+      return `${what} ${watch.kind === 'url' ? 'going down' : watch.kind === 'file' ? 'going missing' : 'failing'}`
+  }
+}
+
+/**
+ * A procedure a worker learned — from doing a task, or from the user showing
+ * it once in its browser (Teach) — saved so the next time is quick and done
+ * the same way. Only names and one-line descriptions sit in its prompt; it
+ * reads the steps when it uses one.
+ */
+export interface WorkerPlaybook {
+  id: string
+  name: string
+  /** When to use it, in one line. */
+  summary: string
+  steps: string
+  createdAt: number
+  updatedAt: number
+  uses: number
+}
+
 export interface Worker {
   id: string
   name: string
@@ -654,6 +767,12 @@ export interface Worker {
   goalRun: WorkerGoalRun | null
   /** Questions waiting on the user, oldest first. */
   asks: WorkerAsk[]
+  /** Background jobs, running and recently ended (the last MAX_JOBS_KEPT). */
+  jobs: WorkerJob[]
+  /** What it keeps an eye on between turns. */
+  watches: WorkerWatch[]
+  /** What it has learned to do, step by step. */
+  playbooks: WorkerPlaybook[]
   status: WorkerStatus
   /** One line on what it is doing, kept current by the worker itself. */
   activity: string
@@ -757,6 +876,25 @@ export const MAX_GOAL_CHARS = 600
  * check in with the user after this many turns.
  */
 export const GOAL_MAX_TURNS = 30
+/**
+ * A goal with an end time (Work for 4 hours, until 6 PM) has no turn budget;
+ * this is the longest one may be given.
+ */
+export const MAX_GOAL_HOURS = 24
+/** Turns in a row that may fail before a goal run gives up; each one waits a little longer before trying again. */
+export const FAILURES_BEFORE_PAUSE = 4
+/** Background jobs: how many may run at once per worker, how many ended ones are kept, and their time limits. */
+export const MAX_RUNNING_JOBS = 4
+export const MAX_JOBS_KEPT = 10
+export const JOB_DEFAULT_HOURS = 6
+export const JOB_MAX_HOURS = 48
+/** Watches: how many per worker, and how often they may look. */
+export const MAX_WATCHES = 20
+export const MIN_WATCH_MINUTES = 1
+export const DEFAULT_WATCH_MINUTES = 10
+/** Playbooks: how many per worker and how long one may be. */
+export const MAX_PLAYBOOKS = 40
+export const MAX_PLAYBOOK_CHARS = 8000
 /** The longest a worker may sleep in one go (sleep tool). */
 export const MAX_SLEEP_MINUTES = 24 * 60
 export const MAX_NOTES_CHARS = 4000
@@ -807,7 +945,7 @@ export function workerMood(worker: Worker, now = Date.now()): WorkerMood {
   if (worker.asks.length > 0) return 'curious'
   if (worker.lastOutcome && now - worker.lastOutcome.at < HAPPY_FOR_MS) return worker.lastOutcome.ok ? 'happy' : 'sad'
   if (worker.status === 'asleep') return 'asleep'
-  if (worker.heartbeat.nextAt === null && worker.inbox.length === 0) {
+  if (worker.heartbeat.nextAt === null && worker.inbox.length === 0 && !keepsWatch(worker)) {
     const since = worker.lastRunAt ?? worker.createdAt
     if (now - since > DOZE_AFTER_MS) return 'asleep'
     if (now - since > SLEEPY_AFTER_MS) return 'sleepy'
@@ -829,7 +967,11 @@ export function relativeTime(at: number, now = Date.now()): string {
   return future ? `in ${text}` : `${text} ago`
 }
 
-/** One line under a worker's name: what it is up to, or when it wakes next. */
+/** A job still running, or a watch: the worker is waiting on something, not dozing. */
+export function keepsWatch(worker: Pick<Worker, 'jobs' | 'watches'>): boolean {
+  return (worker.jobs ?? []).some((j) => j.endedAt === null) || (worker.watches ?? []).length > 0
+}
+
 /** The routine that comes due soonest, if the worker has any. */
 export function nextRoutine(worker: Pick<Worker, 'routines'>): WorkerRoutine | null {
   let soonest: WorkerRoutine | null = null
@@ -854,6 +996,7 @@ export function runningThreads(worker: Pick<Worker, 'runningMessageId' | 'thread
   return (worker.runningMessageId ? 1 : 0) + (worker.threads ?? []).filter((t) => t.runningMessageId).length
 }
 
+/** One line under a worker's name: what it is up to, or when it wakes next. */
 export function describeWorker(worker: Worker, now = Date.now()): string {
   if (worker.paused) return 'Paused'
   const running = runningThreads(worker)
@@ -866,6 +1009,8 @@ export function describeWorker(worker: Worker, now = Date.now()): string {
   if (worker.asks?.length) return worker.asks.length === 1 ? 'Has a question for you' : `Has ${worker.asks.length} questions for you`
   const waiting = worker.inbox.length + (worker.threads ?? []).reduce((n, t) => n + t.inbox.length, 0)
   if (waiting > 0) return `${waiting} message${waiting === 1 ? '' : 's'} waiting`
+  const jobs = (worker.jobs ?? []).filter((j) => j.endedAt === null)
+  if (jobs.length > 0) return jobs.length === 1 ? `Waiting on ${jobs[0].name}` : `Waiting on ${jobs.length} jobs`
   const beats = [worker.heartbeat, ...(worker.threads ?? []).filter((t) => !t.closedAt).map((t) => t.heartbeat)].filter((h) => h.nextAt !== null)
   const beat = beats.sort((a, b) => a.nextAt! - b.nextAt!)[0]
   if (beat) {
@@ -874,6 +1019,8 @@ export function describeWorker(worker: Worker, now = Date.now()): string {
   }
   const routine = nextRoutine(worker)
   if (routine) return `${routine.name} ${relativeTime(routine.nextAt, now)}`
+  const watches = worker.watches ?? []
+  if (watches.length > 0) return watches.length === 1 ? `Watching ${watches[0].name}` : `Watching ${watches.length} things`
   if (worker.lastRunAt === null) return 'Ready for its first job'
   return worker.activity || 'Asleep — wakes when you message it'
 }

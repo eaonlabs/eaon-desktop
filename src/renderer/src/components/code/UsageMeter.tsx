@@ -65,7 +65,7 @@ const usageOf = (state: CliAccountsState | null, tool: CliTool): AccountUsage | 
 
 const shortLabel = (w: UsageWindow): string => (w.id === 'session' ? '' : w.id === 'week' ? ' wk' : w.id === 'month' ? ' mo' : '')
 
-export function UsageMeter(): JSX.Element | null {
+export function UsageMeter({ where = 'header' }: { where?: 'sidebar' | 'header' }): JSX.Element | null {
   const { state, ensure, refresh } = useCliAccounts()
   const settings = useApp((s) => s.settings)
   const anchor = useRef<HTMLButtonElement>(null)
@@ -77,7 +77,8 @@ export function UsageMeter(): JSX.Element | null {
     void refresh()
   }, [ensure, refresh])
 
-  if (!state || !settings?.cliUsage.meter) return null
+  // Whether it shows at all is UsagePlacement's call (Settings → Accounts).
+  if (!state || !settings) return null
   if (!CLI_TOOLS.some((t) => state.tools[t].installed)) return null
 
   const usage = usageOf(state, tool)
@@ -90,6 +91,7 @@ export function UsageMeter(): JSX.Element | null {
       <button
         ref={anchor}
         className="header-btn usage-pill"
+        data-where={where}
         data-active={panel.open || undefined}
         data-severity={first?.severity}
         title={`${CLI_TOOL_NAME[tool]} plan usage`}
@@ -109,7 +111,7 @@ export function UsageMeter(): JSX.Element | null {
         )}
         <span className="usage-pill__text">{pill}</span>
       </button>
-      <Popover anchor={anchor} open={panel.open} onClose={panel.close} placement="bottom-end" width={320} className="usage-panel">
+      <Popover anchor={anchor} open={panel.open} onClose={panel.close} placement={where === 'sidebar' ? 'top-start' : 'bottom-end'} width={320} className="usage-panel">
         <UsagePanel state={state} tool={tool} setTool={setTool} close={panel.close} />
       </Popover>
     </>

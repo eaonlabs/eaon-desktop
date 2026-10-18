@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useApp } from '../../../state/store'
-import { Card, Row, Section, Segmented, Select, Switch } from '../../ui'
+import { Card, Row, Section, Segmented, Select, Slider, Switch } from '../../ui'
 import type { AppIcon, Settings, ThemeMode } from '@shared/types'
 import { THEMES, type Palette, type Theme } from '../../../lib/themes'
 import { isMac } from '../../../lib/platform'
@@ -120,6 +120,10 @@ export function AppearancePage(): JSX.Element {
           </div>
         ))}
       </Section>
+
+      <SeeThroughSection />
+
+      <AdeBackgroundSection />
 
       <Section label="Preferences">
         <Card>
@@ -344,5 +348,131 @@ function ThemeSwatch({ palette, tone }: { palette: Palette; tone: 'light' | 'dar
         <span className="theme-swatch__pill" style={{ background: palette.accent }} />
       </span>
     </span>
+  )
+}
+
+/**
+ * See-through: a picture behind the app (components/SeeThrough) — the
+ * desktop's own wallpaper, or one the user picks. The OS only says which
+ * picture the desktop shows on macOS and Windows; anywhere, a chosen picture
+ * works.
+ */
+function SeeThroughSection(): JSX.Element | null {
+  const { settings, patchSettings } = useApp(useShallow((s) => ({ settings: s.settings, patchSettings: s.patchSettings })))
+  const see = settings?.appearance.seeThrough
+  const [preview, setPreview] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [choosing, setChoosing] = useState(false)
+  const hasCustom = see?.source === 'custom' && Boolean(see.custom)
+
+  // The chosen picture's thumbnail, once, when the page opens on it.
+  useEffect(() => {
+    if (!hasCustom) return
+    let live = true
+    void window.api.wallpaper.preview().then((url) => live && setPreview(url))
+    return () => {
+      live = false
+    }
+  }, [hasCustom])
+
+  if (!see) return null
+  const desktopKnown = window.api.platform === 'darwin' || window.api.platform === 'win32'
+  const usable = desktopKnown || hasCustom
+  const set = (patch: Partial<typeof see>): void => void patchSettings({ appearance: { seeThrough: { ...see, ...patch } } })
+
+  const choose = async (): Promise<void> => {
+    setError(null)
+    setChoosing(true)
+    try {
+      const picked = await window.api.wallpaper.choose()
+      if (picked) {
+        setPreview(picked.preview)
+        set({ source: 'custom', custom: picked.path })
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(e))
+    } finally {
+      setChoosing(false)
+    }
+  }
+
+  return (
+    <Section label="Window">
+      <Card>
+        <Row
+          title="See-through"
+          description={
+            usable
+              ? 'Show a wallpaper through the window, with the panels as frosted glass over it'
+              : 'Choose a picture below: on Linux the desktop doesn’t say which wallpaper it shows'
+          }
+        >
+          <Switch label="See-through" checked={see.enabled && usable} disabled={!usable} onChange={(enabled) => set({ enabled })} />
+        </Row>
+        {(see.enabled || !desktopKnown) && (
+          <Row title="Wallpaper" description={see.source === 'custom' ? 'A picture of your own, filling the screen' : 'Your desktop’s wallpaper, lined up with the screen'}>
+            <Segmented
+              value={see.source}
+              onChange={(source) => {
+                // Custom with nothing chosen yet goes straight to choosing one.
+                if (source === 'custom' && !see.custom) void choose()
+                else set({ source })
+              }}
+              options={[
+                ...(desktopKnown ? [{ value: 'desktop' as const, label: 'Desktop' }] : []),
+                { value: 'custom' as const, label: 'Custom' }
+              ]}
+            />
+          </Row>
+        )}
+        {see.source === 'custom' && (see.enabled || !desktopKnown) && (
+          <Row title="Picture" description={error ?? 'JPEG, PNG, HEIC, WebP and more. Eaon keeps its own copy'}>
+            <div className="wallpaper-pick">
+              {preview && <img className="wallpaper-pick__thumb" src={preview} alt="Chosen wallpaper" />}
+              <button className="btn btn--ghost" disabled={choosing} onClick={() => void choose()}>
+                {see.custom ? 'Change…' : 'Choose image…'}
+              </button>
+            </div>
+          </Row>
+        )}
+        {see.enabled && usable && (
+          <>
+            <Row title="Tint" description="How much of the theme’s colour lies over the wallpaper. Higher is easier to read">
+              <Slider value={see.tint} min={0} max={100} onChange={(tint) => set({ tint })} />
+            </Row>
+            <Row title="Halftone texture" description="A print-style dot screen made from the wallpaper itself">
+              <Switch label="Halftone texture" checked={see.texture} onChange={(texture) => set({ texture })} />
+            </Row>
+          </>
+        )}
+      </Card>
+    </Section>
+  )
+}
+
+/** The ADE's terminal backgrounds: each theme's scene, and how soft it is. */
+function AdeBackgroundSection(): JSX.Element | null {
+  const { settings, patchSettings } = useApp(useShallow((s) => ({ settings: s.settings, patchSettings: s.patchSettings })))
+  const ade = settings?.ade
+  if (!ade) return null
+  const set = (patch: Partial<typeof ade>): void => void patchSettings({ ade: { ...ade, ...patch } })
+  return (
+    <Section label="ADE background">
+      <Card>
+        <Row title="Scenes" description="Draw each terminal theme’s scene behind the text. Pick a theme from the ADE’s theme button">
+          <Switch label="Scenes" checked={ade.scenes} onChange={(scenes) => set({ scenes })} />
+        </Row>
+        {ade.scenes && (
+          <Row title="Blur" description="Soften the scene so it reads as a backdrop and the text stands out">
+            <Switch label="Blur" checked={ade.blur} onChange={(blur) => set({ blur })} />
+          </Row>
+        )}
+        {ade.scenes && ade.blur && (
+          <Row title="Blur strength" description="How soft the scene gets">
+            <Slider value={ade.blurAmount} min={2} max={30} onChange={(blurAmount) => set({ blurAmount })} />
+          </Row>
+        )}
+      </Card>
+    </Section>
   )
 }

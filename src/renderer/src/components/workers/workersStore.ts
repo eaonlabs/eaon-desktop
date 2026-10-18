@@ -59,6 +59,8 @@ interface WorkersState {
   browserFor: string | null
   /** Workers whose browser panel the user closed: it won't pop open for them again this session. */
   browserDismissed: Set<string>
+  /** The worker the user is showing a task in its browser (Teach); null when none. */
+  teaching: string | null
 
   init: () => Promise<void>
   select: (id: string | null) => void
@@ -88,6 +90,10 @@ interface WorkersState {
   openTeamDialog: (open: boolean) => void
   /** Opens a worker's browser beside its page, or closes it (`null`; `dismiss` keeps it from popping open again). */
   setBrowser: (workerId: string | null, dismiss?: string) => void
+  /** Teach: hands the user the worker's browser, opened beside its page, and records what they do. */
+  startTeaching: (workerId: string) => Promise<void>
+  /** Ends Teach: with a task the steps go to the worker; null cancels. Resolves to how many steps were sent. */
+  finishTeaching: (task: string | null) => Promise<number>
   createTeam: (draft: TeamDraftInput) => Promise<WorkerRoom>
 }
 
@@ -116,6 +122,7 @@ export const useWorkers = create<WorkersState>((set, get) => ({
   teamDialog: false,
   browserFor: null,
   browserDismissed: new Set(),
+  teaching: null,
 
   init() {
     if (get().ready) return Promise.resolve()
@@ -191,6 +198,20 @@ export const useWorkers = create<WorkersState>((set, get) => ({
       // Opening it on purpose lets it pop open again later.
       ...(workerId && s.browserDismissed.has(workerId) ? { browserDismissed: new Set([...s.browserDismissed].filter((id) => id !== workerId)) } : {})
     }))
+  },
+  async startTeaching(workerId) {
+    const current = get().teaching
+    if (current && current !== workerId) await window.api.workers.teachStop(current, null)
+    await window.api.workers.teachStart(workerId)
+    set({ teaching: workerId })
+    get().setBrowser(workerId)
+  },
+  async finishTeaching(task) {
+    const workerId = get().teaching
+    if (!workerId) return 0
+    const sent = await window.api.workers.teachStop(workerId, task)
+    set({ teaching: null })
+    return sent
   },
   async createTeam(draft) {
     const { room, workers } = await window.api.workers.createTeam(draft)

@@ -1,6 +1,7 @@
 import { memo, useState, type JSX } from 'react'
 import {
   Ban,
+  BookOpen,
   ChevronRight,
   FilePenLine,
   FilePlus2,
@@ -41,7 +42,7 @@ import { FileDiff } from './FileDiff'
 import { splitPath } from './FileIcon'
 import type { FileChange } from './FilesChanged'
 import { ImageGeneration } from './ImageGeneration'
-import { DotMatrix, toolMotion } from './Loaders'
+import { PeekLine, rawCall } from './ToolPeek'
 import { CommandCard, EditCard } from './StepCards'
 import { SwarmCard, ToolImages } from './WorkBits'
 
@@ -56,7 +57,7 @@ import { SwarmCard, ToolImages } from './WorkBits'
  */
 
 const ICONS: Record<string, typeof Search> = {
-  read_file: FileText,
+  read_file: BookOpen,
   list_dir: FolderTree,
   grep: Search,
   codebase_search: Search,
@@ -218,6 +219,40 @@ const LABELS: Record<string, string> = {
   generate_image: 'Image'
 }
 
+/**
+ * What a finished call did, and what a running one is doing, for the calls a
+ * coding turn makes most: "Read snake.py", "Running npm test". Anything not
+ * listed keeps its plain label.
+ */
+const PAST: Record<string, string> = {
+  read_file: 'Read',
+  list_dir: 'Listed',
+  grep: 'Searched',
+  codebase_search: 'Searched',
+  find_file: 'Looked for',
+  find_symbol: 'Looked for',
+  delete_file: 'Deleted',
+  move_file: 'Moved',
+  run_command: 'Ran',
+  web_search: 'Searched the web',
+  web_fetch: 'Read',
+  load_skill: 'Loaded skill'
+}
+const LIVE: Record<string, string> = {
+  read_file: 'Reading',
+  list_dir: 'Listing',
+  grep: 'Searching',
+  codebase_search: 'Searching',
+  find_file: 'Looking for',
+  find_symbol: 'Looking for',
+  delete_file: 'Deleting',
+  move_file: 'Moving',
+  run_command: 'Running',
+  web_search: 'Searching the web',
+  web_fetch: 'Reading',
+  load_skill: 'Loading skill'
+}
+
 /** The call as its activity line counts it. */
 export function describeToolPart(part: ChatToolPart): ActivityCall {
   return { name: part.name, status: part.status, label: LABELS[part.name] ?? part.name, detail: summarise(part.name, part.input) }
@@ -270,11 +305,11 @@ const ToolRow = memo(function ToolRow({ part }: { part: ChatToolPart }): JSX.Ele
   const showProgress = part.status === 'running' && Boolean(part.progress)
 
   const Icon = ICONS[part.name] ?? SquareTerminal
-  const label = LABELS[part.name] ?? part.name
-  const detail = summarise(part.name, part.input)
-  const chip = PATH_DETAIL.has(part.name) ? splitPath(detail).name || detail : detail
-  const range = lineRange(part)
   const running = part.status === 'running'
+  const label = (running ? LIVE[part.name] : PAST[part.name]) ?? LABELS[part.name] ?? part.name
+  const detail = summarise(part.name, part.input)
+  const name = PATH_DETAIL.has(part.name) ? splitPath(detail).name || detail : detail
+  const range = lineRange(part)
 
   const before = typeof part.input.old_text === 'string' ? part.input.old_text : null
   const after =
@@ -286,38 +321,39 @@ const ToolRow = memo(function ToolRow({ part }: { part: ChatToolPart }): JSX.Ele
   // A diff is the honest rendering of a change; the tool's own one-line output
   // is what the model reads, not what the user needs to review.
   const diff = after !== null ? { file: String(part.input.path ?? 'file'), before: before ?? '', after } : null
+  const opens = Boolean(diff) || Boolean(part.output) || running
 
   return (
     <div className="tool" data-status={part.status} data-open={open || showProgress || undefined}>
-      <button className="tool__head" onClick={() => setOpen(!open)} aria-expanded={open}>
-        {/* The call's icon, which turns into the chevron under the pointer. */}
-        <span className="tool__glyph">
-          <span className="tool__icon">
-            {running ? (
-              <DotMatrix motion={toolMotion(part.name)} size={13} />
-            ) : part.status === 'denied' ? (
-              <Ban size={13} strokeWidth={2} />
-            ) : part.status === 'error' ? (
-              <TriangleAlert size={13} strokeWidth={2} />
-            ) : (
-              <Icon size={13} strokeWidth={1.9} />
-            )}
+      <PeekLine summary={`${label}${detail ? ` ${detail}` : ''}`} raw={part.name === 'run_command' ? detail : rawCall(part.input)}>
+        <button className="tool__head" onClick={() => opens && setOpen(!open)} aria-expanded={opens ? open : undefined} data-static={!opens || undefined}>
+          <span className="tool__glyph">
+            <span className="tool__icon">
+              {part.status === 'denied' ? (
+                <Ban size={14} strokeWidth={1.9} />
+              ) : part.status === 'error' ? (
+                <TriangleAlert size={14} strokeWidth={1.9} />
+              ) : (
+                <Icon size={14} strokeWidth={1.8} />
+              )}
+            </span>
           </span>
-          <ChevronRight size={13} strokeWidth={2.2} className="tool__chevron" />
-        </span>
-        <span className={`tool__label${running ? ' step-shimmer' : ''}`}>{label}</span>
-        {detail &&
-          (PROSE.has(part.name) ? (
-            <span className="tool__detail" data-prose>
-              {detail}
-            </span>
-          ) : (
-            <span className="tool__chip" title={detail}>
-              {chip}
-            </span>
-          ))}
-        {range && <span className="tool__range">{range}</span>}
-      </button>
+          <span className={`tool__label${running ? ' step-shimmer' : ''}`}>{label}</span>
+          {detail &&
+            (PROSE.has(part.name) ? (
+              <span className="tool__detail" data-prose>
+                {detail}
+              </span>
+            ) : PATH_DETAIL.has(part.name) ? (
+              // A path reads as its file's name; a command or a pattern is code.
+              <span className="tool__name">{name}</span>
+            ) : (
+              <code className="tool__chip">{name}</code>
+            ))}
+          {range && <span className="tool__range">{range}</span>}
+          {opens && <ChevronRight size={13} strokeWidth={2} className="tool__more" />}
+        </button>
+      </PeekLine>
 
       {part.agents && part.agents.length > 0 && <SwarmCard agents={part.agents} />}
       {part.images && part.images.length > 0 && <ToolImages images={part.images} />}

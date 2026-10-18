@@ -144,9 +144,10 @@ function settingsWith(over: Partial<Settings['ade']> = {}): Settings {
   } as unknown as Settings
 }
 
-test('every terminal theme but Eaon names an app theme that exists', () => {
+test('every terminal theme but Eaon and glass names an app theme that exists', () => {
   for (const theme of TERMINAL_THEMES) {
-    if (theme.id === DEFAULT_THEME_ID) assert.equal(theme.app, null)
+    // Glass leaves the app's colours alone: the wallpaper is the point.
+    if (theme.id === DEFAULT_THEME_ID || theme.glass) assert.equal(theme.app, null)
     else assert.ok(THEMES.some((t) => t.name === theme.app), `${theme.name} → ${theme.app}`)
   }
 })

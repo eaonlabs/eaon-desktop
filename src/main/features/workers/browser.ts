@@ -85,6 +85,8 @@ interface Session {
   parkTimer: ReturnType<typeof setTimeout> | null
   /** Set while the page is parked: where it was, the history entry the park added, and its last picture. */
   parked: { url: string; title: string; index: number; frame: NativeImage | null } | null
+  /** Set while the user is showing the worker a task (Teach): the steps so far, and how to stop listening. */
+  recording: { steps: string[]; stop: () => void } | null
 }
 
 type FrameListener = (image: NativeImage) => void
@@ -565,7 +567,8 @@ export class WorkerBrowsers {
       busy: 0,
       inputAt: 0,
       parkTimer: null,
-      parked: null
+      parked: null,
+      recording: null
     }
     // There are no tabs. A link with target=_blank or a window.open() would
     // otherwise become a real, visible window on the user's screen, in this
@@ -1585,7 +1588,7 @@ export class WorkerBrowsers {
     if (!this.controlled(workerId)) return false
     let target = url.trim()
     if (!target) return false
-    if (!/^[a-z][\w+.-]*:/i.test(target)) target = /\s/.test(target) || !/\./.test(target) ? `https://duckduckgo.com/?q=${encodeURIComponent(target)}` : `https://${target}`
+    target = addressUrl(target)
     if (!/^https?:/i.test(target)) return false
     await this.open(workerId, target)
     return true
@@ -1616,6 +1619,82 @@ export class WorkerBrowsers {
     }
   }
 
+  /* -------------------------------------------------------------- teaching */
+
+  /**
+   * Teach: the user shows the worker how to do something in its browser.
+   * The browser is created if it has none, handed to the user (the worker's
+   * own steps wait, as for any take-over), and what they do is written down
+   * as plain steps: pages opened, what they clicked, typed, chose and ticked.
+   * Passwords and card numbers are never recorded, only that one was typed.
+   *
+   * The listener runs in an isolated world and only takes real input
+   * (`isTrusted`), so a page can neither see it nor feed it steps.
+   */
+  async startRecording(workerId: string): Promise<boolean> {
+    const session = await this.session(workerId)
+    if (session.recording) return true
+    const contents = session.window.webContents
+    const steps: string[] = []
+    const add = (step: string): void => {
+      if (steps.length < MAX_TAUGHT_STEPS && steps[steps.length - 1] !== step) steps.push(step)
+    }
+    const inject = (): void => {
+      if (!contents.isDestroyed()) void contents.executeJavaScriptInIsolatedWorld(TEACH_WORLD, [{ code: TEACH_SCRIPT }]).catch(() => {})
+    }
+    const onConsole = (details: { message: string }): void => {
+      const message = details.message
+      if (!message.startsWith(TEACH_TAG)) return
+      try {
+        const step = describeTaught(JSON.parse(message.slice(TEACH_TAG.length)))
+        if (step) add(step)
+      } catch {
+        /* not one of ours */
+      }
+    }
+    const onNavigate = (_event: unknown, url: string): void => {
+      if (!/^https?:/i.test(url)) return
+      // A link the user just clicked says where it went already.
+      const last = steps[steps.length - 1]
+      if (last?.endsWith(`→ ${url}`)) return
+      add(`Opened ${url}`)
+    }
+    contents.on('console-message', onConsole)
+    contents.on('did-navigate', onNavigate)
+    contents.on('dom-ready', inject)
+    session.recording = {
+      steps,
+      stop: () => {
+        if (contents.isDestroyed()) return
+        contents.off('console-message', onConsole)
+        contents.off('did-navigate', onNavigate)
+        contents.off('dom-ready', inject)
+        void contents.executeJavaScriptInIsolatedWorld(TEACH_WORLD, [{ code: 'window.__eaonTeach && window.__eaonTeach.stop()' }]).catch(() => {})
+      }
+    }
+    const url = contents.getURL()
+    if (/^https?:/i.test(url)) add(`Started on ${url}`)
+    inject()
+    this.takeControl(workerId)
+    return true
+  }
+
+  /** Ends Teach and hands the browser back. Returns the steps recorded (none when it wasn't on). */
+  stopRecording(workerId: string): string[] {
+    const session = this.sessions.get(workerId)
+    const recording = session?.recording
+    if (!session || !recording) return []
+    recording.stop()
+    session.recording = null
+    this.releaseControl(workerId)
+    return [...recording.steps]
+  }
+
+  /** The steps so far, to show the user while they teach. */
+  recordedSteps(workerId: string): string[] {
+    return [...(this.sessions.get(workerId)?.recording?.steps ?? [])]
+  }
+
   /** Closes a browser (the app quitting, a worker removed); its logins stay in the partition for next time. */
   async close(workerId: string): Promise<void> {
     // One still being created goes too, once it exists.
@@ -1623,6 +1702,8 @@ export class WorkerBrowsers {
     const session = this.sessions.get(workerId)
     this.holders.delete(workerId)
     if (!session) return
+    session.recording?.stop()
+    session.recording = null
     this.releaseControl(workerId)
     this.sessions.delete(workerId)
     if (session.parkTimer) clearTimeout(session.parkTimer)
@@ -1683,6 +1764,129 @@ const str = (value: unknown): string => (typeof value === 'string' ? value : '')
 const js = (value: string): string => JSON.stringify(value)
 
 /* ------------------------------------------------------------ site capture */
+
+/**
+ * What the live view's address bar makes of what was typed: a URL as it is,
+ * a local dev server ("localhost:5173", "127.0.0.1:3000/app") over http, a
+ * domain over https, anything else a search. "localhost:5173" used to read as
+ * a URL with the scheme "localhost:", which was then refused.
+ */
+export function addressUrl(typed: string): string {
+  const text = typed.trim()
+  if (/^[a-z][\w+.-]*:\/\//i.test(text) || /^(about|data):/i.test(text)) return text
+  if (/^(localhost|127(\.\d{1,3}){3}|0\.0\.0\.0|\[::1\])(:\d+)?([/?#]|$)/i.test(text)) return `http://${text}`
+  return /\s/.test(text) || !/\./.test(text) ? `https://duckduckgo.com/?q=${encodeURIComponent(text)}` : `https://${text}`
+}
+
+/* ----------------------------------------------------------------- Teach */
+
+/** The isolated world Teach listens in: not the page's, so the page can't see or fake it. */
+const TEACH_WORLD = 1207
+const TEACH_TAG = '__eaon_teach__'
+const MAX_TAUGHT_STEPS = 200
+
+/**
+ * Listens for what the user does on the page and reports each action as a
+ * tagged console message. Only real input counts. Re-run on every page (the
+ * isolated world goes with the document); the flag stops a second copy.
+ */
+const TEACH_SCRIPT = String.raw`(() => {
+  if (window.__eaonTeach) return
+  const TAG = '${TEACH_TAG}'
+  const clean = (text) => (text || '').replace(/\s+/g, ' ').trim().slice(0, 80)
+  const send = (step) => console.debug(TAG + JSON.stringify(step))
+  const interactive = 'a,button,input,select,textarea,summary,label,[role=button],[role=link],[role=menuitem],[role=tab],[role=checkbox],[role=radio],[role=option],[role=switch],[contenteditable=true]'
+  const roleOf = (el) => {
+    const role = el.getAttribute('role')
+    if (role) return role
+    const tag = el.tagName.toLowerCase()
+    if (tag === 'a') return 'link'
+    if (tag === 'select') return 'dropdown'
+    if (tag === 'textarea') return 'field'
+    if (tag === 'input') {
+      const type = (el.type || 'text').toLowerCase()
+      if (type === 'checkbox' || type === 'radio') return type
+      if (type === 'submit' || type === 'button') return 'button'
+      return 'field'
+    }
+    return tag === 'button' || tag === 'summary' ? 'button' : tag
+  }
+  const labelOf = (el) => {
+    const by = el.getAttribute('aria-labelledby')
+    const labelled = by ? by.split(/\s+/).map((id) => document.getElementById(id)?.innerText || '').join(' ') : ''
+    return clean(
+      el.getAttribute('aria-label') ||
+        labelled ||
+        (el.labels && el.labels[0] && el.labels[0].innerText) ||
+        el.getAttribute('placeholder') ||
+        el.getAttribute('title') ||
+        el.getAttribute('alt') ||
+        (el.tagName === 'INPUT' && /^(submit|button)$/i.test(el.type) ? el.value : '') ||
+        el.innerText ||
+        el.getAttribute('name') ||
+        ''
+    )
+  }
+  const secret = (el) => el.type === 'password' || /cc-|card|cvc|cvv/i.test((el.autocomplete || '') + ' ' + (el.name || '') + ' ' + (el.id || ''))
+  const isField = (el) => el.matches('textarea, select, [contenteditable=true], input:not([type=checkbox]):not([type=radio]):not([type=submit]):not([type=button]):not([type=image])')
+  const onClick = (event) => {
+    if (!event.isTrusted || !(event.target instanceof Element)) return
+    const el = event.target.closest(interactive) || event.target
+    if (isField(el)) return
+    if (el.matches('input[type=checkbox], input[type=radio]')) return
+    send({ kind: 'click', role: roleOf(el), label: labelOf(el), href: el.tagName === 'A' && el.href ? el.href : '' })
+  }
+  const onChange = (event) => {
+    if (!event.isTrusted || !(event.target instanceof Element)) return
+    const el = event.target
+    if (el.tagName === 'SELECT') return send({ kind: 'select', label: labelOf(el), value: clean(el.selectedOptions[0]?.innerText || el.value) })
+    if (el.matches('input[type=checkbox], input[type=radio]')) return send({ kind: 'check', role: el.type, label: labelOf(el), checked: el.checked })
+    if (isField(el)) send({ kind: 'type', label: labelOf(el), value: secret(el) ? '' : String(el.value || el.innerText || '').slice(0, 120), secret: secret(el) })
+  }
+  const onKey = (event) => {
+    if (!event.isTrusted || event.key !== 'Enter' || !(event.target instanceof Element) || !isField(event.target) || event.target.tagName === 'TEXTAREA') return
+    const el = event.target
+    // The field's text first: Enter often submits before it loses focus.
+    if (!secret(el) && el.value) send({ kind: 'type', label: labelOf(el), value: String(el.value).slice(0, 120), secret: false })
+    send({ kind: 'enter', label: labelOf(el) })
+  }
+  document.addEventListener('click', onClick, true)
+  document.addEventListener('change', onChange, true)
+  document.addEventListener('keydown', onKey, true)
+  window.__eaonTeach = {
+    stop() {
+      document.removeEventListener('click', onClick, true)
+      document.removeEventListener('change', onChange, true)
+      document.removeEventListener('keydown', onKey, true)
+      window.__eaonTeach = null
+    }
+  }
+})()`
+
+/** One recorded action in words, or null for one that says nothing. */
+export function describeTaught(raw: unknown): string | null {
+  const step = raw as { kind?: string; role?: string; label?: string; href?: string; value?: string; secret?: boolean; checked?: boolean } | null
+  if (!step || typeof step.kind !== 'string') return null
+  const label = typeof step.label === 'string' ? step.label.trim() : ''
+  const named = label ? ` "${label}"` : ''
+  const role = typeof step.role === 'string' && step.role ? step.role : 'element'
+  switch (step.kind) {
+    case 'click':
+      if (!label && !step.href) return null
+      return `Clicked the ${role}${named}${step.href ? ` → ${step.href}` : ''}`
+    case 'type':
+      if (step.secret) return `Typed a password or card detail into${named || ' a field'} (not recorded; ask the user when you need it)`
+      return `Typed "${step.value ?? ''}" into${named || ' a field'}`
+    case 'select':
+      return `Chose "${step.value ?? ''}" in${named || ' a dropdown'}`
+    case 'check':
+      return `${step.checked ? (role === 'radio' ? 'Picked' : 'Ticked') : 'Unticked'}${named || ` a ${role}`}`
+    case 'enter':
+      return `Pressed Enter in${named || ' the field'}`
+    default:
+      return null
+  }
+}
 
 export const MAX_CAPTURE_PAGES = 200
 const DEFAULT_CAPTURE_PAGES = 30

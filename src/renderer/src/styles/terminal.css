@@ -254,6 +254,14 @@ body[data-reduce-motion='on'] .term-pane__dot {
   image-rendering: pixelated;
   pointer-events: none;
   z-index: 0;
+  /* The blur option (Settings → Appearance, or the theme picker): the scene
+     goes soft behind the text. Grown a little while blurred, so its edges
+     stay past the pane's rounded corners rather than fading in from them. */
+  filter: blur(var(--ade-scene-blur, 0px));
+  transform: scale(calc(1 + min(var(--ade-scene-blur, 0px), 40px) / 400px));
+  transition:
+    filter 260ms var(--ease),
+    transform 260ms var(--ease);
 }
 .term-wrapper .xterm {
   position: relative;
@@ -263,7 +271,9 @@ body[data-reduce-motion='on'] .term-pane__dot {
   height: 100%;
 }
 .term-pane .xterm-viewport {
-  scrollbar-width: thin;
+  /* xterm draws its own scrollbar (restyled below); the native one under it
+     only showed as a dark line down the pane's edge. */
+  scrollbar-width: none;
   /* xterm.css paints the viewport black; below the last whole row it showed
      as a darker strip. The pane is already --term-bg, the theme's background. */
   background-color: transparent !important;
@@ -724,6 +734,15 @@ body[data-reduce-motion='on'] .theme-picker {
   border-top: 1px solid var(--border-soft);
   color: var(--text-2);
 }
+.theme-picker__foot--blur {
+  border-top: 0;
+  padding-top: 0;
+}
+.theme-picker__foot--blur .slider {
+  flex: 1;
+  max-width: 160px;
+  margin-left: auto;
+}
 .theme-picker__own {
   padding: 0 14px 12px;
   text-align: left;
@@ -733,6 +752,65 @@ body[data-reduce-motion='on'] .theme-picker {
 }
 .theme-picker__own:hover {
   text-decoration: underline;
+}
+
+/* ---- Glass (the See-through theme) ----
+   The panes are frosted glass over whatever is behind the app: with
+   see-through on (Settings → Appearance), that's the wallpaper. The pane
+   keeps a dark veil so the terminal's text holds its contrast, its header a
+   little more, and a hairline of light round its edge. */
+.term-workspace[data-glass] .term-pane {
+  background: color-mix(in srgb, var(--term-bg) 46%, transparent);
+  -webkit-backdrop-filter: blur(24px) saturate(150%);
+  backdrop-filter: blur(24px) saturate(150%);
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.08),
+    0 12px 32px -18px rgb(0 0 0 / 0.6);
+}
+.term-workspace[data-glass] .term-pane__head {
+  background: color-mix(in srgb, var(--term-bg) 32%, transparent);
+  border-bottom-color: rgb(255 255 255 / 0.07);
+}
+.term-workspace[data-glass] .term-pane:focus-within {
+  box-shadow:
+    inset 0 0 0 1px rgb(255 255 255 / 0.16),
+    0 12px 32px -18px rgb(0 0 0 / 0.6);
+}
+@media (prefers-reduced-transparency: reduce) {
+  .term-workspace[data-glass] .term-pane {
+    background: var(--term-bg);
+  }
+}
+
+/* ---- The terminal's scrollbar ----
+   xterm draws a 14px VS Code scrollbar: a flat block the full height of the
+   pane down its right edge, which read as a stripe cut into the pane, worst
+   on glass. Here it is a slim rounded thumb with no track, inset from the
+   edge, that shows while the pane scrolls or is pointed at and fades away
+   after. */
+.term-pane .xterm .xterm-scrollable-element > .scrollbar.vertical {
+  width: 10px !important;
+  background: transparent !important;
+}
+.term-pane .xterm .xterm-scrollable-element > .scrollbar.vertical > .slider {
+  left: 3px !important;
+  width: 4px !important;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--term-fg, var(--fg)) 22%, transparent) !important;
+  transition:
+    width 120ms var(--ease),
+    left 120ms var(--ease),
+    background 120ms var(--ease);
+}
+.term-pane .xterm .xterm-scrollable-element > .scrollbar.vertical:hover > .slider,
+.term-pane .xterm .xterm-scrollable-element > .scrollbar.vertical > .slider.active {
+  left: 2px !important;
+  width: 6px !important;
+  background: color-mix(in srgb, var(--term-fg, var(--fg)) 40%, transparent) !important;
+}
+/* Its inset shadow under the top row when scrolled: a dark bar on glass. */
+.term-pane .xterm .xterm-scrollable-element > .shadow {
+  display: none !important;
 }
 
 /* Files from Finder over a pane: they will be typed in as paths. */

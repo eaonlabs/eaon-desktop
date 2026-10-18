@@ -2,31 +2,34 @@ import type { Canvas } from './screen'
 import { mix } from './theme'
 
 /**
- * The Eaon mark, turning in 3D as a grid of lit dots — after the dot-matrix
- * logos OpenAI showed for its CLI. The app icon's tile is a thick slab with
- * the arrow cut through it, spinning about the vertical axis; every dot is
- * a ray cast at the slab and shaded by a point light, so its face, its edge
- * and the walls of the cut-out each catch the light as it turns. The walls
- * of the cut-out are Eaon's coral.
+ * The welcome screen's art, in the dot-matrix look of the Eaon website: a field of
+ * faint square dots that glimmer, with a band of light sweeping across, and
+ * Eaon Desktop's mark turning in 3D in front of it, drawn in the same dots.
+ *
+ * The mark is the app icon (resources/icon.png): a dark rounded tile with the
+ * white "e" disc printed on it, as a thick slab spinning about the vertical
+ * axis. Every dot is a ray cast at the slab and shaded by a point light, so
+ * the face and the edge each catch the light as it turns. The "e" is printed
+ * on both faces, reading the right way round on each.
  *
  * A dot is "■ ": two columns by one row, which makes the grid square on a
- * terminal's tall cells.
+ * terminal's tall cells. Both the field and the mark sit on even columns, so
+ * the mark's dots fall on the field's grid.
  */
 
 /* ------------------------------------------------------------- the shape */
 
 // The tile: a rounded square from -1 to 1; y grows downward, as on screen.
 const CORNER = 0.54
-const THICKNESS = 0.32
-// The arrow, from the icon (resources/icon.png), drawn larger: at a couple
-// of dozen dots across, the icon's proportions leave it a smudge.
-const APEX: [number, number] = [0, -0.354]
-const LEFT: [number, number] = [-0.375, 0.349]
-const RIGHT: [number, number] = [0.375, 0.349]
-const ARC_CENTER: [number, number] = [0, 0.785]
-const ARC_RADIUS = 0.575
-const MARK_SCALE = 1.55
-const MARK_SHIFT = 0.02
+const THICKNESS = 0.3
+// The "e" (resources/brand/eaon-symbol.svg): a disc with two slots cut in
+// from the right, their inner ends rounded. Drawn a little larger, and with
+// wider slots, than on the icon: at a couple of dozen dots across, the
+// icon's proportions close the slots up.
+const E_RADIUS = 0.66
+const SLOT_MID = 0.37
+const SLOT_HALF = 0.17
+const SLOT_END = 0.02
 
 const len = (x: number, y: number): number => Math.hypot(x, y)
 
@@ -36,49 +39,31 @@ function roundBox(x: number, y: number): number {
   return len(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - CORNER
 }
 
-/** Signed distance to a triangle (Inigo Quilez's formulation). */
-function triangle(px: number, py: number, a: [number, number], b: [number, number], c: [number, number]): number {
-  const e0x = b[0] - a[0], e0y = b[1] - a[1]
-  const e1x = c[0] - b[0], e1y = c[1] - b[1]
-  const e2x = a[0] - c[0], e2y = a[1] - c[1]
-  const v0x = px - a[0], v0y = py - a[1]
-  const v1x = px - b[0], v1y = py - b[1]
-  const v2x = px - c[0], v2y = py - c[1]
-  const clamp = (v: number): number => Math.min(1, Math.max(0, v))
-  const h0 = clamp((v0x * e0x + v0y * e0y) / (e0x * e0x + e0y * e0y))
-  const h1 = clamp((v1x * e1x + v1y * e1y) / (e1x * e1x + e1y * e1y))
-  const h2 = clamp((v2x * e2x + v2y * e2y) / (e2x * e2x + e2y * e2y))
-  const q0 = (v0x - e0x * h0) ** 2 + (v0y - e0y * h0) ** 2
-  const q1 = (v1x - e1x * h1) ** 2 + (v1y - e1y * h1) ** 2
-  const q2 = (v2x - e2x * h2) ** 2 + (v2y - e2y * h2) ** 2
-  const s = Math.sign(e0x * e2y - e0y * e2x)
-  const d = Math.min(q0, q1, q2)
-  const side = Math.min(s * (v0x * e0y - v0y * e0x), s * (v1x * e1y - v1y * e1x), s * (v2x * e2y - v2y * e2x))
-  return -Math.sqrt(d) * Math.sign(side)
+/** Whether (x, y) on a face is the white "e". */
+function isE(x: number, y: number): boolean {
+  const u = x / E_RADIUS
+  const v = y / E_RADIUS
+  if (u * u + v * v > 1) return false
+  for (const mid of [-SLOT_MID, SLOT_MID]) {
+    if (Math.abs(v - mid) > SLOT_HALF) continue
+    if (u >= SLOT_END || len(u - SLOT_END, v - mid) <= SLOT_HALF) return false
+  }
+  return true
 }
-
-/** The arrow: the triangle above the arc that forms its base. */
-function mark(x: number, y: number): number {
-  const u = x / MARK_SCALE
-  const v = (y - MARK_SHIFT) / MARK_SCALE
-  return Math.max(triangle(u, v, APEX, LEFT, RIGHT), ARC_RADIUS - len(u - ARC_CENTER[0], v - ARC_CENTER[1])) * MARK_SCALE
-}
-
-/** The tile with the arrow cut out: negative inside. */
-const shape = (x: number, y: number): number => Math.max(roundBox(x, y), -mark(x, y))
 
 /* ------------------------------------------------------------ rendering */
 
-/** A lit dot: brightness 0–1, and whether it is a wall of the cut-out. */
-interface Dot {
-  b: number
-  wall: boolean
-}
+/** A lit dot: brightness 0–1. */
+type Dot = number
 
 // A point light close in front, up and to the left: near enough that brightness falls off across the face.
 const LIGHT = [-1.3, -1.5, 2.4]
 const STEPS = 140
 const LEVELS = 20
+// How much light each part gives back: the tile is near black, the "e" white.
+const TILE = 0.6
+const EDGE = 0.75
+const PRINT = 1.2
 
 /** The dots across for a logo `rows` tall: the silhouette is widest face-on. */
 export function logoColumns(rows: number): number {
@@ -111,23 +96,24 @@ function frame(theta: number, rows: number): (Dot | null)[][] {
       const xOut = cos * x - sin * zOut
       let normal: [number, number, number] | null = null
       let z = zIn
-      let wall = false
-      if (Math.abs(xIn) <= 1.02 && shape(xIn, y) <= 0) {
-        // The face toward us.
-        normal = [0, 0, Math.sign(sin * x + cos * zIn) || 1]
+      let albedo = EDGE
+      if (Math.abs(xIn) <= 1.02 && roundBox(xIn, y) <= 0) {
+        // A face: the front reads the "e" as it is, the back mirrored, so it reads right from behind too.
+        const side = Math.sign(sin * x + cos * zIn) || 1
+        normal = [0, 0, side]
+        albedo = isE(side > 0 ? xIn : -xIn, y) ? PRINT : TILE
       } else {
-        // Through the face's gap or past its edge: the first wall the ray meets.
+        // Past the face's edge: the rim, where the ray first meets it.
         const n = Math.max(1, Math.ceil(Math.abs(xOut - xIn) / 0.008))
         for (let k = 1; k <= n; k++) {
           const xo = xIn + ((xOut - xIn) * k) / n
-          if (Math.abs(xo) > 1.02 || shape(xo, y) > 0) continue
+          if (Math.abs(xo) > 1.02 || roundBox(xo, y) > 0) continue
           const e = 0.004
-          const gx = shape(xo + e, y) - shape(xo - e, y)
-          const gy = shape(xo, y + e) - shape(xo, y - e)
+          const gx = roundBox(xo + e, y) - roundBox(xo - e, y)
+          const gy = roundBox(xo, y + e) - roundBox(xo, y - e)
           const g = len(gx, gy) || 1
           normal = [gx / g, gy / g, 0]
           z = zIn + ((zOut - zIn) * k) / n
-          wall = -mark(xo, y) >= roundBox(xo, y)
           break
         }
       }
@@ -143,16 +129,17 @@ function frame(theta: number, rows: number): (Dot | null)[][] {
       const ly = LIGHT[1] - y
       const lz = LIGHT[2] - z
       const ll = Math.hypot(lx, ly, lz)
-      const diffuse = Math.max(0, (wx * lx + ny * ly + wz * lz) / ll) / (1 + 0.09 * ll * ll)
+      const diffuse = Math.max(0, (wx * lx + ny * ly + wz * lz) / ll) / (1 + 0.05 * ll * ll)
       const hx = lx / ll
       const hy = ly / ll
       const hz = lz / ll + 1
       const hl = Math.hypot(hx, hy, hz)
       const spec = Math.max(0, (wx * hx + ny * hy + wz * hz) / hl) ** 24
-      // A little grain, fixed to the screen, like the reference's dots.
+      // A little grain, fixed to the screen, like the website's dots.
       const grain = (((Math.sin(i * 12.9898 + j * 78.233) * 43758.5453) % 1) + 1) % 1
-      const b = Math.min(1, 0.1 + 1.45 * diffuse + 0.55 * spec + grain * 0.07)
-      row.push({ b: Math.round(b * LEVELS) / LEVELS, wall })
+      // Enough light all round that the turned-away face still stands out from the field.
+      const b = Math.min(1, albedo * (0.3 + 1.1 * diffuse) + 0.35 * spec + grain * 0.06)
+      row.push(Math.round(b * LEVELS) / LEVELS)
     }
     out.push(row)
   }
@@ -163,7 +150,7 @@ const frames = new Map<string, (Dot | null)[][]>()
 
 /**
  * The logo at `now`: one turn every seven seconds, slowing as either face
- * comes round so the arrow can be read, and hurrying past the edge. Frames
+ * comes round so the "e" can be read, and hurrying past the edge. Frames
  * are kept once made.
  */
 function frameAt(rows: number, now: number): (Dot | null)[][] {
@@ -179,18 +166,74 @@ function frameAt(rows: number, now: number): (Dot | null)[][] {
   return found
 }
 
-const FACE_DARK = '#18181B'
-const FACE_LIGHT = '#FFFFFF'
-const WALL_DARK = '#3A1C12'
-const WALL_LIGHT = '#FF9A72'
+// The website's dots: near-black to white, never tinted.
+const DOT_DARK = '#161618'
+const DOT_LIGHT = '#F4F4F5'
 
 /** Draws the turning logo with its top-left corner at (x, y). */
 export function drawSpinningLogo(c: Canvas, x: number, y: number, rows: number, now = Date.now()): void {
   frameAt(rows, now).forEach((row, j) => {
     row.forEach((dot, i) => {
-      if (!dot) return
-      const fg = dot.wall ? mix(WALL_DARK, WALL_LIGHT, dot.b) : mix(FACE_DARK, FACE_LIGHT, dot.b ** 1.25)
-      c.text(x + i * 2, y + j, '■', { fg })
+      if (dot === null) return
+      c.text(x + i * 2, y + j, '■', { fg: mix(DOT_DARK, DOT_LIGHT, dot ** 1.15) })
     })
   })
+}
+
+/* ------------------------------------------------------------- the field */
+
+/** A stable value in [0, 1) for a dot, so the field doesn't crawl from frame to frame. */
+const hash = (a: number, b: number): number => {
+  const h = Math.sin(a * 12.9898 + b * 78.233) * 43758.5453
+  return h - Math.floor(h)
+}
+
+/** The band crosses the field in this long, then the field rests until the next pass. */
+const SWEEP_MS = 3200
+const SWEEP_EVERY_MS = 7000
+/** The band's width, and the fading trail it leaves, in dots. */
+const BAND = 5
+const TRAIL = 9
+
+/** How lit the band leaves column `i` of `cols` at `now`: 0 away from it. */
+function band(i: number, cols: number, now: number): number {
+  const t = now % SWEEP_EVERY_MS
+  if (t > SWEEP_MS + 1200) return 0
+  // From just off the left edge to past the right, the trail included.
+  const head = -BAND + ((cols + BAND + TRAIL) * t) / SWEEP_MS
+  const d = head - i
+  if (d < 0) return 0
+  if (d <= BAND) return 1
+  return Math.max(0, 1 - (d - BAND) / TRAIL) ** 2
+}
+
+export interface FieldOptions {
+  /** Cells kept clear: the text over the field. */
+  skip?: (x: number, y: number) => boolean
+  /** Where the logo turns: the field fades out toward its middle, so the mark stands clear of it. */
+  quiet?: { x: number; y: number; w: number; h: number }
+}
+
+/** Fills `c` with the field at `now`; the logo is drawn after, over it. */
+export function drawDotField(c: Canvas, now = Date.now(), { skip, quiet }: FieldOptions = {}): void {
+  const cols = Math.ceil(c.w / 2)
+  for (let j = 0; j < c.h; j++) {
+    for (let i = 0; i < cols; i++) {
+      const x = i * 2
+      if (skip?.(x, j)) continue
+      const seed = hash(i, j)
+      // Most dots sit just above the background; a few are brighter, and each glimmers on its own slow beat.
+      const base = 0.025 + 0.08 * seed ** 3
+      const glimmer = Math.max(0, Math.sin(now / (900 + seed * 1400) + seed * 40)) ** 8 * 0.12 * hash(j, i)
+      // The band lights its dots unevenly, as the website's does.
+      const lit = band(i, cols, now) * (0.24 + 0.24 * hash(i + 7, j + 3))
+      let b = base + glimmer + lit
+      if (quiet) {
+        const dx = (x + 1 - (quiet.x + quiet.w / 2)) / (quiet.w / 2)
+        const dy = (j + 0.5 - (quiet.y + quiet.h / 2)) / (quiet.h / 2)
+        b *= 0.25 + 0.75 * Math.min(1, Math.max(0, Math.hypot(dx, dy) - 0.55) / 0.6)
+      }
+      c.text(x, j, '■', { fg: mix(DOT_DARK, DOT_LIGHT, Math.min(1, b)) })
+    }
+  }
 }

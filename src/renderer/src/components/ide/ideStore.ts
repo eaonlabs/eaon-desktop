@@ -37,6 +37,9 @@ interface IdeState {
   /** Where the caret is in the active tab, for the status bar. */
   caret: { line: number; col: number }
   width: number
+  /** Which pane the card shows: the folder and editor, or the chat's changes. */
+  pane: 'files' | 'changes'
+  setPane: (pane: 'files' | 'changes') => void
   setOpen: (open: boolean) => void
   toggleDir: (path: string) => Promise<void>
   openFile: (path: string) => Promise<void>
@@ -85,6 +88,11 @@ export const useIde = create<IdeState>((set, get) => ({
   active: null,
   caret: { line: 1, col: 1 },
   width: storedWidth(),
+  pane: 'files',
+
+  setPane(pane) {
+    set({ pane })
+  },
 
   setOpen(open) {
     set({ open })
@@ -201,6 +209,7 @@ export const useIde = create<IdeState>((set, get) => ({
 export async function openInCode(path: string): Promise<void> {
   const ide = useIde.getState()
   if (!ide.open) ide.setOpen(true)
+  ide.setPane('files')
   const root = ide.root ?? (await window.api.workspaceFiles.root())
   await useIde.getState().openFile(joinPath(root, path))
 }

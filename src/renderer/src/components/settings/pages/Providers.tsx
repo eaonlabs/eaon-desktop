@@ -32,6 +32,10 @@ import { openInAde } from '../../code/terminal/terminalStore'
 import { LinkAccounts } from '../../LinkAccounts'
 import { FREE_ALLOWANCE } from '../../FreeCreditsOffer'
 import { formatAllowance, formatEndDay, FREE_DAYS, FREE_PROVIDER_ID, type FreeCreditsStatus } from '@shared/freeCredits'
+import { SpeechMark, SpeechToTextDetail } from './SpeechToText'
+
+/** The list's Speech to text row, which isn't a provider: it picks one for dictation. */
+const SPEECH = '__speech'
 
 /** The plan's own CLI, named for the button that opens it in the ADE. */
 const PLAN_CLI = { claude: 'Claude Code', antigravity: 'Antigravity', codex: 'Codex' } as const
@@ -175,6 +179,9 @@ export function ProvidersPage(): JSX.Element {
   // Sent to Eaon Free before it is claimed (the offer card's "Have an event code?"): its offer row.
   const showingFree =
     offeringFree && (selectedId === FREE_OFFER_ROW || (selectedId === FREE_PROVIDER_ID && !providers.some((p) => p.id === FREE_PROVIDER_ID)))
+  // Speech to text isn't a provider: a row of its own that picks one for dictation.
+  const speechMatches = !query.trim() || 'speech to text dictation voice whisper transcribe'.includes(query.trim().toLowerCase())
+  const showingSpeech = selectedId === SPEECH
 
   return (
     <div className="providers-shell">
@@ -203,6 +210,15 @@ export function ProvidersPage(): JSX.Element {
               </button>
             </div>
           )}
+          {speechMatches && (
+            <div>
+              <div className="providers-list__group">Voice</div>
+              <button className="provider-row" data-active={showingSpeech || undefined} onClick={() => setSelectedId(SPEECH)}>
+                <SpeechMark size={24} />
+                <span className="provider-row__label">Speech to text</span>
+              </button>
+            </div>
+          )}
           {groups.map((group) => (
             <div key={group.id}>
               <div className="providers-list__group">{group.label}</div>
@@ -214,13 +230,13 @@ export function ProvidersPage(): JSX.Element {
                   key={provider.id}
                   provider={provider}
                   pending={auth[provider.id]?.state === 'pending'}
-                  active={!showingCodex && provider.id === selected?.id}
+                  active={!showingCodex && !showingSpeech && provider.id === selected?.id}
                   onClick={() => setSelectedId(provider.id)}
                 />
               ))}
             </div>
           ))}
-          {groups.length === 0 && !offeringFree && <div className="providers-list__empty">No providers match “{query.trim()}”.</div>}
+          {groups.length === 0 && !offeringFree && !speechMatches && <div className="providers-list__empty">No providers match “{query.trim()}”.</div>}
         </div>
       </nav>
 
@@ -234,6 +250,8 @@ export function ProvidersPage(): JSX.Element {
           />
         ) : showingCodex ? (
           <CodexEngineDetail engine={codex} onOpenProvider={(id) => setSelectedId(id)} />
+        ) : showingSpeech ? (
+          <SpeechToTextDetail onOpenProvider={setSelectedId} />
         ) : selected && (
           <ProviderDetail
             key={selected.id}

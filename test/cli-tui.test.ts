@@ -4,7 +4,7 @@ import { parseInput, type KeyEvent } from '../cli/src/tui/input'
 import { Screen } from '../cli/src/tui/screen'
 import { plainOutput, strWidth, to256, truncate, wrap } from '../cli/src/tui/term'
 import { scanner, SCANNER_FRAME_MS, TextField } from '../cli/src/tui/widgets'
-import { drawSpinningLogo, logoWidth } from '../cli/src/tui/logo3d'
+import { drawDotField, drawSpinningLogo, logoWidth } from '../cli/src/tui/logo3d'
 import { App } from '../cli/src/tui/app'
 import { renderMarkdown, wrapSegments } from '../cli/src/tui/markdown'
 import { bar, bucketCandles, lineChart, sparkline } from '../cli/src/tui/charts'
@@ -208,17 +208,44 @@ test('scanner: a light sweeps right and back along eight cells, with a fading ta
   assert.equal(back[3].text, '⬝')
 })
 
-test('logo: face-on, the arrow is cut through the middle of the tile', () => {
+test('logo: face-on, the tile carries the “e”: a bright disc with two slots cut in from the right', () => {
   const rows = 22
-  const frame = Screen.snapshot(logoWidth(rows), rows, (c) => drawSpinningLogo(c, 0, 0, rows, 0)).text.split('\n')
-  const mid = Math.floor(logoWidth(rows) / 2)
-  // The tile's left and right edges are solid halfway down; the arrow's middle is open.
-  const row = frame[Math.floor(rows * 0.55)]
-  assert.equal(row.trim().startsWith('■'), true)
-  assert.equal(row.trimEnd().endsWith('■'), true)
-  assert.notEqual(row[mid], '■')
-  // Above the arrow's tip, the tile is solid across.
-  assert.equal(frame[2][mid] === '■' || frame[2][mid - 1] === '■' || frame[2][mid + 1] === '■', true)
+  const width = logoWidth(rows)
+  const { text, grid } = Screen.snapshot(width, rows, (c) => drawSpinningLogo(c, 0, 0, rows, 0))
+  const frame = text.split('\n')
+  const lum = (x: number, y: number): number => {
+    const fg = grid.styles[y * width + x]?.fg
+    return typeof fg === 'string' ? parseInt(fg.slice(1, 3), 16) : 0
+  }
+  // The dot column `k` dots right of the middle.
+  const mid = (width - 1) / 2
+  const at = (k: number): number => mid + k * 2
+  // The tile is solid edge to edge halfway down.
+  const middle = Math.floor(rows / 2)
+  assert.equal(frame[middle].trim().startsWith('■'), true)
+  assert.equal(frame[middle].trimEnd().endsWith('■'), true)
+  // The "e" is far brighter than the tile around it.
+  assert.ok(lum(at(-3), middle) > 230)
+  assert.ok(lum(at(-9), middle) < 200)
+  // Its middle bar runs out to the right; the slot above it is tile.
+  assert.ok(lum(at(3), middle) > 230)
+  const slot = Math.round((1.18 - 0.37 * 0.66) / ((2 * 1.18) / rows) - 0.5)
+  assert.ok(lum(at(3), slot) < 200)
+  assert.ok(lum(at(-3), slot) > 230)
+})
+
+test('logo: the field is dots on even columns, keeps skipped cells clear, and the band passes across it', () => {
+  const draw = (now: number) =>
+    Screen.snapshot(40, 6, (c) => drawDotField(c, now, { skip: (x, y) => y === 2 && x >= 10 && x < 20 }))
+  const still = draw(5000)
+  const rows = still.text.split('\n')
+  assert.equal(rows[0], Array.from({ length: 20 }, () => '■').join(' '))
+  assert.equal(rows[2].slice(10, 20).trim(), '')
+  // Mid-sweep, part of the field is lit well above its resting level.
+  const lum = (g: typeof still.grid, i: number): number => parseInt(String(g.styles[i]?.fg ?? '#000000').slice(1, 3), 16)
+  const resting = Math.max(...still.grid.styles.map((_, i) => lum(still.grid, i)))
+  const sweeping = draw(1600)
+  assert.ok(Math.max(...sweeping.grid.styles.map((_, i) => lum(sweeping.grid, i))) > resting + 40)
 })
 
 test('selection: dragging over text copies it; a plain click copies nothing', () => {

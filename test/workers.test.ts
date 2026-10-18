@@ -827,6 +827,26 @@ test('ask_user does not block; approving lets exactly that call through once, an
   assert.throws(() => engine.answer(nova.id, ask.id, { text: 'again' }), /already answered/)
 })
 
+test('a "choose all that apply" question keeps its choices, and the picked ones arrive as one answer', async () => {
+  const agent = fakeAgent('Drafting it.')
+  const { engine } = start(agent.runAgent)
+  const nova = engine.save(draft('Nova'))
+  const choices = ['Revenue and burn', 'Key hires', 'Product launches', 'Asks for investors', 'Runway', 'Churn', 'Extra']
+  const ask = engine.ask(nova.id, { question: 'Which sections should the update cover?', options: choices, multiple: true })
+  assert.equal(ask.multiple, true)
+  assert.deepEqual(engine.list()[0].asks[0].options, choices.slice(0, 6), 'at most six choices')
+  // An approval is a yes or no, never several picks.
+  const approval = engine.ask(nova.id, { question: 'Send it?', multiple: true, approve: { tool: 'email_send', input: { to: 'a@b.c' }, summary: 'Send' } })
+  assert.equal(approval.multiple, undefined)
+  engine.answer(nova.id, approval.id, { approved: false })
+
+  engine.answer(nova.id, ask.id, { text: 'Revenue and burn; Key hires' })
+  await until(() => agent.requests.length >= 1)
+  await engine.whenIdle()
+  const said = agent.requests.map((r) => text(r.history.at(-1)!)).join('\n')
+  assert.match(said, /\[Answer to "Which sections should the update cover\?"\] Revenue and burn; Key hires/)
+})
+
 test('an approval asked for by a namespaced tool name still lets the real call through', () => {
   // GPT-style models call tools "functions.<name>" in approve_tool (Oct 1 2026: "functions.email_send"
   // was approved, the real call email_send was then refused as unapproved). Gemini says "default_api.".

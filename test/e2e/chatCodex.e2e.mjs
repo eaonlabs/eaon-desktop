@@ -85,9 +85,9 @@ scenario('Chat runs on Codex: picked in the model picker, a reply, the same conv
 
   // A command Codex wants to run is asked in Chat's own approval dialog.
   await sendMessage(page, 'run the tests')
-  await page.find('.approval-layer[data-state="in"] .approval', { timeout: 30_000 })
+  await page.find('.approval-dock[data-state="in"] .approval', { timeout: 30_000 })
   await s.shot(page, 'codex-approval')
-  await page.click('.approval-layer[data-state="in"] .approval__approve')
+  await page.click('.approval-dock[data-state="in"] .approval__approve')
   await waitForReply(page, { text: /Hello there\./, streaming: false, timeout: 30_000 })
   const ran = await page.eval(() => [...document.querySelectorAll('.msg-row')].at(-1)?.textContent ?? '')
   assert.match(ran, /npm test|3 passed|tests/i, 'the command it ran shows in the reply')

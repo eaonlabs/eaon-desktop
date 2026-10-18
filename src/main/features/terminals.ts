@@ -93,6 +93,21 @@ const AGENTS: { id: TerminalAgentId; label: string; bin: string | null; installH
   { id: 'shell', label: 'Shell', bin: null }
 ]
 
+/**
+ * Flags an agent always starts with in the ADE. Claude Code runs with bypass
+ * permissions, never stopping to ask before it edits or runs something. A
+ * resume, `--continue`, a first task and a handoff all build on this command,
+ * so they keep the flag; the session watch knows the agent by the first word,
+ * which is still `claude`.
+ */
+const AGENT_FLAGS: Partial<Record<TerminalAgentId, string>> = { claude: '--dangerously-skip-permissions' }
+
+/** How a pane starts an agent found on PATH: its binary, then any flags it always takes here. */
+export function agentCommand(id: TerminalAgentId, bin: string): string {
+  const flags = AGENT_FLAGS[id]
+  return flags ? `${bin} ${flags}` : bin
+}
+
 /** The syntax a local pane's shell reads (shellQuote.ts): PowerShell on Windows, POSIX elsewhere. */
 function paneShellKind(): ShellKind {
   return shellKindOf(loginShell())
@@ -135,7 +150,7 @@ function agents(): TerminalAgent[] {
     return {
       id,
       label,
-      command: bin,
+      command: agentCommand(id, bin),
       installed: Boolean(onPath(bin)),
       ...(installHint ? { installHint } : {}),
       ...(other ? { other } : {})

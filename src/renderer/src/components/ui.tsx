@@ -26,6 +26,17 @@ interface PopoverProps {
   width?: number
   children: ReactNode
   className?: string
+  /**
+   * A side placement sits against the edge of the nearest ancestor matching
+   * this selector — by default its parent menu. The sidebar's usage card
+   * opens against the sidebar's edge, clear of the sidebar.
+   */
+  against?: string
+  /**
+   * A side placement that is not a submenu: it closes on an outside click
+   * and Escape like any menu, rather than leaving that to a parent menu.
+   */
+  standalone?: boolean
 }
 
 /** Menu surface anchored to a trigger, kept inside the viewport. */
@@ -37,7 +48,9 @@ export function Popover({
   offset = 6,
   width,
   children,
-  className
+  className,
+  against = '.menu',
+  standalone = false
 }: PopoverProps): JSX.Element | null {
   const ref = useRef<HTMLDivElement>(null)
   const [style, setStyle] = useState<CSSProperties>({ opacity: 0, top: 0, left: 0 })
@@ -64,7 +77,7 @@ export function Popover({
       // room — never back over the parent, where it hid the rows people were
       // trying to reach.
       const side = placement === 'right-start' || placement === 'left-start'
-      const parent = side ? (anchor.current?.closest('.menu')?.getBoundingClientRect() ?? trigger) : trigger
+      const parent = side ? (anchor.current?.closest(against)?.getBoundingClientRect() ?? trigger) : trigger
 
       switch (placement) {
         case 'bottom-end':
@@ -127,9 +140,9 @@ export function Popover({
       window.removeEventListener('resize', place)
       window.removeEventListener('scroll', place, true)
     }
-  }, [open, placement, offset, width, anchor])
+  }, [open, placement, offset, width, anchor, against])
 
-  const submenu = placement === 'right-start' || placement === 'left-start'
+  const submenu = !standalone && (placement === 'right-start' || placement === 'left-start')
 
   useEffect(() => {
     if (!open) return

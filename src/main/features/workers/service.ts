@@ -1,4 +1,4 @@
-import { app, Notification, powerMonitor } from 'electron'
+import { app, Notification, powerMonitor, powerSaveBlocker } from 'electron'
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { ChatMessage, StreamEvent } from '@shared/types'
@@ -11,7 +11,8 @@ import {
   type WorkerMessageEvent,
   type WorkerSendOptions,
   type WorkerStreamEvent,
-  type WorkerThread
+  type WorkerThread,
+  type WorkerWatch
 } from '@shared/workers'
 import { engine as engineAdapter } from '../../engines'
 import { withUsageSource } from '../usage/attribution'
@@ -39,7 +40,10 @@ import { purchasePlanError } from '@shared/scheduler'
 import { formatMoney } from '@shared/payments'
 import { paymentsEngine } from '../payments'
 import { WorkerBrowsers, workerBrowserToolSource } from './browser'
-import { reportBrowserStep, setWorkerBrowsers } from '../agentBrowser'
+import { createJobHost, type JobHost } from './jobs'
+import { look, type WatchReading } from './watch'
+import { isReadOnlyCommand } from '../../agent/approvals'
+import { refreshBrowserStatus, reportBrowserStep, setWorkerBrowsers } from '../agentBrowser'
 import { workerBrowserTarget } from '@shared/agentBrowser'
 
 /**
@@ -77,6 +81,8 @@ export interface WorkersOverrides {
   maxTurnsPerHour?: number
   concurrency?: number
   startDelayMs?: number
+  jobs?: JobHost
+  look?: (worker: Worker, watch: WorkerWatch) => Promise<WatchReading>
 }
 
 export interface WorkersService {
@@ -235,6 +241,28 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
     notification.show()
   }
 
+  const jobs = overrides.jobs ?? createJobHost()
+  /** Held while a worker is on a timed goal or a job runs (engine `keepAwake`). */
+  let blocker: number | null = null
+  const keepAwake = (on: boolean): void => {
+    if (on && blocker === null) blocker = powerSaveBlocker.start('prevent-app-suspension')
+    else if (!on && blocker !== null) {
+      powerSaveBlocker.stop(blocker)
+      blocker = null
+    }
+  }
+  /**
+   * A watch's look. A command watch runs unattended over and over, so a
+   * worker whose access was turned down to Look only after setting one may
+   * only keep the read-only ones.
+   */
+  const lookAt = async (worker: Worker, watch: WorkerWatch): Promise<WatchReading> => {
+    if (watch.kind === 'command' && worker.access === 'read-only' && !isReadOnlyCommand(watch.target)) {
+      return { ok: false, content: '', summary: 'not run: this worker may only look, and the command changes things' }
+    }
+    return look(watch, worker.folder)
+  }
+
   const removeStoreFile = async (name: string): Promise<void> => {
     // A save may still be queued for it; let it land, then remove the file.
     await store.flushWrites()
@@ -310,6 +338,9 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
       batch.flush()
       ctx.send('workers:room-post', { roomId, post } satisfies RoomPostEvent)
     },
+    jobs,
+    look: overrides.look ?? lookAt,
+    keepAwake,
     now: overrides.now,
     stallMs: overrides.stallMs,
     maxTurnsPerHour: overrides.maxTurnsPerHour,
@@ -343,7 +374,13 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
         idOf(id),
         str(text),
         Array.isArray(files) ? files.filter((f): f is string => typeof f === 'string') : [],
-        options && typeof options === 'object' ? { goal: options.goal === true, ...(optionalThread(options.threadId) ? { threadId: options.threadId } : {}) } : {}
+        options && typeof options === 'object'
+          ? {
+              goal: options.goal === true,
+              ...(typeof options.until === 'number' && Number.isFinite(options.until) ? { until: options.until } : {}),
+              ...(optionalThread(options.threadId) ? { threadId: options.threadId } : {})
+            }
+          : {}
       )
     )
     ipcMain.handle('workers:clear', (_e, id: unknown, threadId?: unknown) => engine.clear(idOf(id), optionalThread(threadId)))
@@ -406,6 +443,29 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
     ipcMain.handle('workers:room-post', (_e, roomId: string, text: string, files: string[]) => engine.postAsUser(roomId, text, files))
     ipcMain.handle('workers:room-read', (_e, roomId: string) => engine.markRoomRead(roomId))
     ipcMain.handle('workers:create-team', (_e, draft: TeamDraft) => engine.createTeam(draft))
+    // What a worker runs, watches and knows, as the user manages it from its page.
+    ipcMain.handle('workers:stop-job', (_e, id: unknown, jobId: unknown) => engine.stopJob(idOf(id), str(jobId), 'user'))
+    ipcMain.handle('workers:job-log', (_e, id: unknown, jobId: unknown) => engine.jobStatus(idOf(id), str(jobId), 200))
+    ipcMain.handle('workers:remove-watch', (_e, id: unknown, watchId: unknown) => engine.removeWatch(idOf(id), str(watchId)))
+    ipcMain.handle('workers:remove-playbook', (_e, id: unknown, playbookId: unknown) => engine.removePlaybook(idOf(id), str(playbookId)))
+    // Teach: the user shows the worker a task in its browser, which records the steps.
+    ipcMain.handle('workers:teach-start', async (_e, id: unknown) => {
+      const workerId = idOf(id)
+      if (!engine.has(workerId)) throw new Error('That worker no longer exists.')
+      const started = await browsers.startRecording(workerId)
+      refreshBrowserStatus(workerBrowserTarget(workerId))
+      return started
+    })
+    ipcMain.handle('workers:teach-stop', (_e, id: unknown, task: unknown) => {
+      const workerId = idOf(id)
+      const steps = browsers.stopRecording(workerId)
+      refreshBrowserStatus(workerBrowserTarget(workerId))
+      // Cancelled: nothing is sent.
+      if (typeof task !== 'string') return 0
+      engine.teach(workerId, { task, steps })
+      return steps.length
+    })
+    ipcMain.handle('workers:teach-steps', (_e, id: unknown) => browsers.recordedSteps(idOf(id)))
   }
 
   return {
@@ -436,6 +496,8 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
       startTimer = null
       batch.flush()
       engine.stop()
+      jobs.stopAll()
+      keepAwake(false)
       void browsers.closeAll()
     },
     openWorker

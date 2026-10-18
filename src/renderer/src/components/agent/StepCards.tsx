@@ -1,13 +1,13 @@
 // Adapted from MIT and Apache-2.0 components; see components/agent/LICENSES.txt.
-import { memo, useLayoutEffect, useMemo, useRef, useState, type JSX } from 'react'
-import { Ban, ChevronDown, Code2, SquareTerminal, TriangleAlert } from 'lucide-react'
+import { createContext, memo, useContext, useLayoutEffect, useMemo, useRef, useState, type JSX } from 'react'
+import { Ban, ChevronDown, ChevronRight, Code2, Pencil, SquareTerminal, TriangleAlert } from 'lucide-react'
 import type { ChatToolPart } from '@shared/types'
 import { useApp, useIsWork } from '../../state/store'
 import { openInCode } from '../ide/ideStore'
 import { commandSummary, splitCommandOutput } from './commandText'
 import { FileDiff, diffStats } from './FileDiff'
-import { FileIcon, splitPath } from './FileIcon'
-import { DotMatrix } from './Loaders'
+import { splitPath } from './FileIcon'
+import { PeekLine } from './ToolPeek'
 
 /**
  * The two calls that keep a card of their own in the transcript, where the
@@ -31,6 +31,13 @@ function useAwaitingApproval(part: ChatToolPart): boolean {
   })
 }
 
+/**
+ * Whether the turn these cards sit in is still being written. A live turn's
+ * edits show their diffs as they land; a finished turn folds them to a line
+ * each, and its files-changed card at the end is where they are reviewed.
+ */
+export const TurnLive = createContext(false)
+
 const text = (value: unknown): string => (typeof value === 'string' ? value : '')
 
 /** How much of a diff a card shows before "Show more". */
@@ -39,7 +46,7 @@ const CLIPPED = 168
 /** An `edit_file` or `write_file` call: the file, its counts, and the diff. */
 export const EditCard = memo(function EditCard({ part }: { part: ChatToolPart }): JSX.Element {
   const path = text(part.input.path) || 'file'
-  const { name, folder } = splitPath(path)
+  const { name } = splitPath(path)
   const write = part.name === 'write_file'
   const before = write ? '' : text(part.input.old_text)
   const after = write ? text(part.input.content) : text(part.input.new_text)
@@ -52,9 +59,12 @@ export const EditCard = memo(function EditCard({ part }: { part: ChatToolPart })
   const running = part.status === 'running'
   const failed = part.status === 'error'
   const skipped = part.status === 'denied'
-  // A skipped or failed edit folds to its line; what it would have done is a click away.
+  // Open while the turn is live; folded to its line once it is finished, and
+  // always for a skipped or failed edit. What it did is a click away.
+  const live = useContext(TurnLive)
   const [chosen, setChosen] = useState<boolean | null>(null)
-  const open = chosen ?? !(skipped || failed)
+  // Waiting on approval, the diff is in the approval itself; showing it here too only repeated it.
+  const open = chosen ?? (live && !(skipped || failed || waiting))
   const [more, setMore] = useState(false)
   const [overflows, setOverflows] = useState(false)
   const body = useRef<HTMLDivElement>(null)
@@ -82,41 +92,36 @@ export const EditCard = memo(function EditCard({ part }: { part: ChatToolPart })
 
   return (
     <div className="step-card edit-card" data-status={part.status} data-open={open || undefined}>
-      <div className="step-card__bar">
-        <button className="step-card__head" onClick={() => setChosen(!open)} aria-expanded={open} title={path}>
+      <PeekLine className="step-card__bar" summary={`${verb} ${path}`}>
+        <button className="step-card__head" onClick={() => setChosen(!open)} aria-expanded={open}>
           <span className="step-card__icon">
-            {skipped ? <Ban size={13} strokeWidth={2} /> : failed ? <TriangleAlert size={13} strokeWidth={2} /> : <FileIcon file={name} size={13} />}
+            {skipped ? <Ban size={14} strokeWidth={1.9} /> : failed ? <TriangleAlert size={14} strokeWidth={1.9} /> : <Pencil size={14} strokeWidth={1.8} />}
           </span>
-          <span className="step-card__title">
-            {verb} <span className="step-card__file">{name}</span>
-          </span>
-          {folder && <span className="step-card__folder">{folder}</span>}
-          <span className="step-card__end">
-            {waiting ? (
-              <span className="step-card__note">Waiting for approval</span>
-            ) : running ? (
-              <DotMatrix motion="snake" size={13} />
-            ) : (
-              hasDiff &&
-              !failed && (
-                <span className="step-card__stat">
-                  <span className="diff__stat-add">+{stats.added}</span>
-                  {stats.removed > 0 && <span className="diff__stat-del">−{stats.removed}</span>}
-                </span>
-              )
-            )}
-            <ChevronDown size={13} strokeWidth={2} className="step-card__chevron" />
-          </span>
+          <span className={`step-card__title${running && !waiting ? ' step-shimmer' : ''}`}>{verb}</span>
+          <span className="step-card__file">{name}</span>
+          {waiting ? (
+            <span className="step-card__note">Waiting for approval</span>
+          ) : (
+            hasDiff &&
+            !failed &&
+            !running && (
+              <span className="step-card__stat">
+                <span className="diff__stat-add">+{stats.added}</span>
+                {stats.removed > 0 && <span className="diff__stat-del">−{stats.removed}</span>}
+              </span>
+            )
+          )}
+          <ChevronRight size={13} strokeWidth={2} className="step-card__chevron" />
         </button>
         {canOpen && (
           <button className="step-card__open" onClick={() => void openInCode(path)} aria-label={`Open ${name} in Code`} title="Open in Code">
             <Code2 size={13} strokeWidth={1.9} />
           </button>
         )}
-      </div>
+      </PeekLine>
       {open && (
         <div className="step-card__panel">
-          <div>
+          <div className="step-card__box">
             {failed && part.output ? (
               <pre className="step-card__message">{part.output}</pre>
             ) : hasDiff ? (
@@ -159,51 +164,39 @@ export const CommandCard = memo(function CommandCard({ part }: { part: ChatToolP
     el.dataset.overflow = String(el.scrollHeight > el.clientHeight + 1)
   }, [output, open])
 
-  const programs = commandSummary(command) || 'command'
-  const title = waiting
-    ? `Run ${programs}?`
-    : running
-      ? `Running ${programs}`
-      : skipped
-        ? `Skipped ${programs}`
-        : failed
-          ? `Couldn't run ${programs}`
-          : background
-            ? `Started ${programs} in the background`
-            : `Ran ${programs}`
+  const verb = waiting ? 'Run' : running ? 'Running' : skipped ? 'Skipped' : failed ? "Couldn't run" : background ? 'Started' : 'Ran'
   const badExit = (exit !== null && exit !== 0) || signal !== null
+  // The line shows the command's first line; the whole of it is in the card a hover raises.
+  const line = command.split('\n')[0] || commandSummary(command) || 'command'
+  // Running, the output's tail shows under the line as it prints; done, it is a click away.
+  const showOutput = Boolean(output) && (open || running)
 
   return (
-    <div className="step-card command-card" data-status={part.status} data-open={open || undefined} data-exit={badExit || undefined}>
-      <button className="step-card__head" onClick={() => setOpen(!open)} aria-expanded={open} disabled={!output}>
-        <span className="step-card__icon">
-          {skipped ? <Ban size={13} strokeWidth={2} /> : failed ? <TriangleAlert size={13} strokeWidth={2} /> : <SquareTerminal size={13} strokeWidth={1.9} />}
-        </span>
-        <span className="step-card__title">{title}</span>
-        <span className="step-card__end">
+    <div className="step-card command-card" data-status={part.status} data-open={showOutput || undefined} data-exit={badExit || undefined}>
+      <PeekLine className="step-card__bar" summary={`${verb} ${commandSummary(command) || 'a command'}${background ? ' in the background' : ''}`} raw={command}>
+        <button className="step-card__head" onClick={() => setOpen(!open)} aria-expanded={output ? open : undefined} disabled={!output}>
+          <span className="step-card__icon">
+            {skipped ? <Ban size={14} strokeWidth={1.9} /> : failed ? <TriangleAlert size={14} strokeWidth={1.9} /> : <SquareTerminal size={14} strokeWidth={1.8} />}
+          </span>
+          <span className={`step-card__title${running && !waiting ? ' step-shimmer' : ''}`}>{verb}</span>
+          <code className="step-card__cmd">{line}</code>
           {waiting ? (
             <span className="step-card__note">Waiting for approval</span>
-          ) : running ? (
-            <DotMatrix motion="columns" size={13} />
           ) : (
             badExit && <span className="step-card__exit">{signal ? signal : `exit ${exit}`}</span>
           )}
-          {output && <ChevronDown size={13} strokeWidth={2} className="step-card__chevron" />}
-        </span>
-      </button>
-      <div className="command-card__body">
-        <div className="command-card__line">
-          <span className="command-card__prompt" aria-hidden>
-            $
-          </span>
-          <span className="command-card__command">{command}</span>
+          {output && <ChevronRight size={13} strokeWidth={2} className="step-card__chevron" />}
+        </button>
+      </PeekLine>
+      {showOutput && (
+        <div className="step-card__panel">
+          <div className="step-card__box command-card__body">
+            <pre ref={pane} className="command-card__output scroll" data-open={open || undefined}>
+              {output}
+            </pre>
+          </div>
         </div>
-        {output && (
-          <pre ref={pane} className="command-card__output scroll" data-open={open || undefined}>
-            {output}
-          </pre>
-        )}
-      </div>
+      )}
     </div>
   )
 })

@@ -207,6 +207,8 @@ export interface ChatMessage {
   role: 'user' | 'assistant' | 'system'
   parts: ChatMessagePart[]
   createdAt: number
+  /** When the turn finished, for the "Worked for 1m 22s" line. Absent on older chats and unfinished turns. */
+  finishedAt?: number
   /**
    * Set on a reply while it is only a checkpoint of one still being written.
    * The final save removes it; if it is still there when the chat loads, Eaon
@@ -314,6 +316,24 @@ export interface ThemePalette {
   contrast: number
 }
 
+export interface SeeThrough {
+  enabled: boolean
+  tint: number
+  texture: boolean
+  /** The desktop's own wallpaper, or a picture the user chose. */
+  source: 'desktop' | 'custom'
+  /** The chosen picture, as Eaon's own copy of it (see main/features/wallpaper.ts). */
+  custom: string | null
+}
+
+/** What the window needs to draw the wallpaper behind it: the image, and where the screen and the window are. */
+export interface WallpaperFrame {
+  /** The display the window is on: its id, and its bounds in screen points. */
+  display: { id: number; x: number; y: number; width: number; height: number }
+  /** The window's content area, in screen points. */
+  content: { x: number; y: number; width: number; height: number }
+}
+
 export interface Settings {
   general: {
     defaultPermissions: boolean
@@ -337,6 +357,13 @@ export interface Settings {
     fontSize: number
     fontSmoothing: boolean
     appIcon: AppIcon
+    /**
+     * See-through: the desktop's wallpaper drawn behind the app, lined up
+     * with the screen, so the window reads as glass over the desktop.
+     * `tint` (0–100) is how much of the theme's colour lies over it, and
+     * `texture` adds a halftone screen made from the wallpaper itself.
+     */
+    seeThrough: SeeThrough
   }
   configuration: {
     configScope: string
@@ -410,7 +437,7 @@ export interface Settings {
   }
   /** The ADE's usage meter for Claude Code and Codex plans (Settings → Accounts). */
   cliUsage: {
-    /** Show the meter in the ADE's header. */
+    /** Show the plan usage meter at all. */
     meter: boolean
     /** How its panel lays the figures out. */
     view: 'detailed' | 'compact'
@@ -418,13 +445,21 @@ export interface Settings {
     alerts: boolean
     /** Move new Codex sessions, and Eaon's Codex engine, to another signed-in account when the active one hits its limit. */
     autoSwitchCodex: boolean
+    /** Where it sits: the sidebar's foot, the ADE's header, or both. */
+    placement: 'sidebar' | 'header' | 'both'
+    /** What it looks like: a ring per CLI, or a bar with the figures. */
+    style: 'rings' | 'bar'
   }
+  /** Settings → Usage. */
   /** The ADE's terminals: their theme (`/theme` in a pane, or the header's Theme button). */
   ade: {
     /** A terminal theme id (components/code/terminal/themes.ts); `eaon` follows the app. */
     theme: string
     /** Draw the theme's scene behind the terminal text. */
     scenes: boolean
+    /** Soften the scene behind the text with a blur, `blurAmount` px strong. */
+    blur: boolean
+    blurAmount: number
     /**
      * The app's own appearance from before a terminal theme restyled it (the
      * app follows the terminal theme), put back when `eaon` is picked again.
@@ -486,6 +521,11 @@ export interface Settings {
     smallModelId: string | null
     env: { id: string; key: string; value: string }[]
     enabled: boolean
+  }
+  /** Dictation: the speech-to-text model (see shared/speech.ts). Both null picks automatically. */
+  voice: {
+    speechProviderId: string | null
+    speechModelId: string | null
   }
   codeIndex: {
     /** Provider used for embeddings; null means keyword-only search. */
@@ -704,6 +744,12 @@ export type StreamEvent =
       input: Record<string, unknown>
       /** The tool's own one-line description of this call, e.g. `click [2] button "Place order"`. */
       summary?: string
+      /**
+       * Asked whatever the approval mode, because it can't be undone (sudo, a
+       * wiped disk, a payment). Switching to full access releases the other
+       * waiting approvals, never these.
+       */
+      critical?: boolean
     }
   // A tool started and finished, as two events, so the transcript can show the
   // call the moment it is made rather than only once its output lands — a

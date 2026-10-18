@@ -339,18 +339,6 @@
 .code-text {
   white-space: pre-wrap;
 }
-.code-assistant[data-streaming='true'] > .code-text[data-caret] > .md__p:last-child::after {
-  content: '';
-  display: inline-block;
-  width: 2px;
-  height: 1.05em;
-  margin-left: 2px;
-  vertical-align: text-bottom;
-  border-radius: 1px;
-  background: var(--provider-accent);
-  animation: caret-blink 1.05s steps(1, end) infinite;
-}
-
 .code-thinking {
   margin-bottom: 2px;
 }

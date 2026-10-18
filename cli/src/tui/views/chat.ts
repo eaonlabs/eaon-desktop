@@ -17,7 +17,7 @@ import { plainOutput, strWidth, truncate, type Style } from '../term'
 import { C, S } from '../theme'
 import { describeToolCall, shortPath } from '../toolText'
 import { scanner, spinner, TextField } from '../widgets'
-import { drawSpinningLogo, logoWidth } from '../logo3d'
+import { drawDotField, drawSpinningLogo, logoWidth } from '../logo3d'
 import { matchCommands, runSlash, type SlashContext } from '../slash'
 
 /**
@@ -542,24 +542,33 @@ export class ChatView implements View {
           ['/login', 'sign in with ChatGPT or GitHub Copilot'],
           ['ollama', 'a local model works too: start Ollama and it appears in /model']
         ]
-    // The turning mark when there's room for it, then the wordmark, the tagline and the tips.
+    // The turning mark on its field of dots when there's room for it, then the wordmark, the tagline and the tips.
     const textRows = LOGO.length + 2 + (model ? 0 : 2) + 1 + tips.length
     const logoRows = Math.min(22, c.h - textRows - 3)
-    // Under 16 rows the arrow is a blur, so short terminals keep the lettering alone.
+    // Under 16 rows the "e" is a blur, so short terminals keep the lettering alone.
     this.logoShown = logoRows >= 16 && logoWidth(logoRows) <= c.w - 4
     const total = (this.logoShown ? logoRows + 1 : 0) + textRows
     let y = Math.max(0, Math.floor((c.h - total) / 2))
+    const tipW = Math.min(c.w - 4, 86)
+    const x = Math.floor((c.w - tipW) / 2)
     if (this.logoShown) {
-      drawSpinningLogo(c, Math.floor((c.w - logoWidth(logoRows)) / 2), y, logoRows)
-      y += logoRows + 1
+      const now = Date.now()
+      // On even columns, so the mark's dots land on the field's.
+      const logoX = Math.floor((c.w - logoWidth(logoRows)) / 2) & ~1
+      const textTop = y + logoRows + 1
+      drawDotField(c, now, {
+        // The lettering, tagline and tips sit on a clear band, a dot's margin all round.
+        skip: (cx, cy) => cy >= textTop - 1 && cy <= textTop + textRows && cx >= x - 3 && cx <= x + tipW + 2,
+        quiet: { x: logoX, y, w: logoWidth(logoRows), h: logoRows }
+      })
+      drawSpinningLogo(c, logoX, y, logoRows, now)
+      y = textTop
     }
     LOGO.forEach((line, i) => c.text(Math.floor((c.w - strWidth(line)) / 2), y + i, line, { fg: C.amber, bold: true }))
     y += LOGO.length + 1
     const tag = 'code · chat · workers · agentic trading — in your terminal'
     c.text(Math.floor((c.w - strWidth(tag)) / 2), y, tag, S.muted)
     y += 2
-    const tipW = Math.min(c.w - 4, 86)
-    const x = Math.floor((c.w - tipW) / 2)
     if (!model) {
       const selection = chatSelection()
       c.text(

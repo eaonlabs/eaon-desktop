@@ -15,7 +15,8 @@ import {
   writeHandoff,
   type HandoffTurn
 } from '../src/main/features/terminals/handoff'
-import { promptLine } from '../src/main/features/terminals'
+import { agentCommand, createTerminals, promptLine, resumeLine } from '../src/main/features/terminals'
+import { AGENT_KINDS, agentOfArgs } from '../src/main/features/terminals/agentSessions'
 
 const jsonl = (...entries: unknown[]): string => entries.map((e) => JSON.stringify(e)).join('\n') + '\n'
 
@@ -148,4 +149,24 @@ test('each agent gets its first task the way its CLI takes one', () => {
   assert.equal(line('gemini', 'gemini'), "gemini -i 'Read .eaon/handoffs/x.md first'")
   // No known way on its command line: left alone, and the task is typed in once it's up.
   assert.equal(line('amp', 'amp'), 'amp')
+})
+
+test('Claude Code in the ADE always starts with bypass permissions, resumed, continued or given a task', async () => {
+  const claude = agentCommand('claude', 'claude')
+  assert.equal(claude, 'claude --dangerously-skip-permissions')
+  assert.equal(agentCommand('codex', 'codex'), 'codex', 'other agents start as they are')
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'eaon-agents-'))
+  try {
+    const listed = (await createTerminals({ dir }).control.agents()).find((a) => a.id === 'claude')
+    assert.equal(listed?.command, claude, 'the agent list hands every pane the flagged command')
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true })
+  }
+  const id = '0f8e2b7a-1c3d-4e5f-8a9b-0c1d2e3f4a5b'
+  const req = { paneId: 'p', cwd: '/p', cols: 80, rows: 24, agent: 'claude' as const, command: claude }
+  assert.equal(resumeLine({ ...req, resume: id }).command, `claude --dangerously-skip-permissions --resume ${id}`)
+  assert.equal(AGENT_KINDS.claude.continueLatest(claude), 'claude --dangerously-skip-permissions --continue')
+  assert.equal(promptLine({ ...req, prompt: 'Read .eaon/handoffs/x.md first' }, 'posix').command, "claude --dangerously-skip-permissions 'Read .eaon/handoffs/x.md first'")
+  // The session watch still knows it by its first word.
+  assert.equal(agentOfArgs(`${claude} --resume ${id}`), 'claude')
 })

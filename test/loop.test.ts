@@ -157,6 +157,40 @@ test('read-only shell commands run without asking; approved writes happen', asyn
   assert.equal(existsSync(join(req.cwd!, 'y.txt')), true)
 })
 
+test('switching to full access mid-turn applies to that turn: the next write runs without asking', async () => {
+  const req = request()
+  const { server } = await setup((_b, i) => {
+    if (i === 0) return toolCall('run_command', { command: 'ls' })
+    // The user picks Full access while the turn is running.
+    if (i === 1) {
+      store.patchSettings({ approvalMode: 'full' })
+      return toolCall('write_file', { path: 'z.txt', content: 'zz' })
+    }
+    return say('done')
+  })
+  const asked: string[] = []
+  try {
+    await runAgent(req, () => {}, { approver: async (tool) => (asked.push(tool), false) })
+  } finally {
+    server.close()
+    store.patchSettings({ approvalMode: 'ask' })
+  }
+  assert.deepEqual(asked, [])
+  assert.equal(existsSync(join(req.cwd!, 'z.txt')), true)
+})
+
+test('an approval that full access would still ask for is flagged critical; an ordinary one is not', async () => {
+  const req = request()
+  const { server } = await setup((_b, i) => (i === 0 ? toolCall('write_file', { path: 'w.txt', content: 'w' }) : say('done')))
+  const flags: (boolean | undefined)[] = []
+  try {
+    await runAgent(req, () => {}, { approver: async (_tool, _input, _summary, critical) => (flags.push(critical), true) })
+  } finally {
+    server.close()
+  }
+  assert.deepEqual(flags, [false])
+})
+
 test('a 429 is retried after its retry-after, with a visible note', async () => {
   const { server, requests } = await setup((_b, i) =>
     i === 0 ? { status: 429, body: JSON.stringify({ error: { message: 'rate limited' } }) } : say('hello')

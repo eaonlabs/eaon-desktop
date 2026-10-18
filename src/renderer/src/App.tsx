@@ -35,6 +35,8 @@ import { THEMES } from './lib/themes'
 import { useRoomForSidePanel } from './state/sidePanel'
 import { Starting } from './components/Starting'
 import { modKey } from './lib/platform'
+import { usePresence } from './lib/presence'
+import { SeeThrough } from './components/SeeThrough'
 import { installControl } from './lib/control'
 import { StarPrompt } from './components/StarPrompt'
 import { Onboarding } from './components/onboarding/Onboarding'
@@ -84,6 +86,8 @@ export default function App(): JSX.Element {
   const browserExpanded = useBrowser((s) => s.expanded) && browserHere && browserOpen
   const agentBrowserOpen = useAgentBrowser((s) => s.open)
   const codeOpen = useIde((s) => s.open)
+  // Kept a moment after it closes, so the panel slides away instead of vanishing.
+  const code = usePresence(isWork && view === 'chat' && kind === 'chat' && codeOpen, 260)
   // A worker's browser beside its page, while that page is the one open.
   const browserWorker = useWorkers((s) => (s.browserFor && s.selectedId === s.browserFor && !s.selectedRoomId ? s.workers.find((w) => w.id === s.browserFor) ?? null : null))
   // A worker's run history beside its page.
@@ -148,6 +152,7 @@ export default function App(): JSX.Element {
 
   return (
     <>
+      <SeeThrough />
       {view === 'settings' ? (
         // Settings pages render inside SettingsShell, so one failing takes the
         // shell with it; this keeps it to Settings rather than the window.
@@ -187,9 +192,9 @@ export default function App(): JSX.Element {
               {view === 'models' && <ModelsPage />}
             </ErrorBoundary>
           </div>
-          {isWork && view === 'chat' && kind === 'chat' && codeOpen && (
+          {code.mounted && (
             <ErrorBoundary area="code panel" fallback={() => <PanelError onClose={() => useIde.getState().setOpen(false)} />}>
-              <CodePanel />
+              <CodePanel closing={code.closing} />
             </ErrorBoundary>
           )}
           {browserHere && browserOpen && (
@@ -303,6 +308,8 @@ function useTheme(): void {
       const tone = THEMES.find((theme) => theme.name === palette.preset)?.[resolved]
       root.style.setProperty('--text-fade', String(tone?.textFade ?? 1))
       root.style.setProperty('--fs-base', `${appearance.fontSize}px`)
+      // The ADE's scenes, softened when the blur is on (terminal.css).
+      root.style.setProperty('--ade-scene-blur', settings.ade?.blur ? `${Math.max(0, settings.ade.blurAmount ?? 10)}px` : '0px')
       // No --font-ui override: the typeface is always the system stack in
       // tokens.css. `palette.fontFamily` is still stored by older installs
       // (Inter, SF Mono, Georgia) and deliberately ignored.

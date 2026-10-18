@@ -128,6 +128,7 @@ export function ApprovalCard({
   asker = 'Eaon',
   since,
   lead,
+  detail,
   extra,
   waiting = 0,
   approveLabel = 'Approve',
@@ -149,6 +150,8 @@ export function ApprovalCard({
   since?: string
   /** Above the preview: why it's asking, when it said so (a worker's question). */
   lead?: ReactNode
+  /** Beside what it does: where, say a file's folder. */
+  detail?: string
   /** Under the preview: a note field, say. */
   extra?: ReactNode
   /** More approvals queued behind this one. */
@@ -157,10 +160,11 @@ export function ApprovalCard({
   denyLabel?: string
   busy?: boolean
   /**
-   * `dialog` takes ⏎ and esc (it's all that's on screen); `inline` sits next
-   * to a composer, where those keys belong to the text box.
+   * `dialog` takes ⏎ and esc (it's all that's on screen); `dock` sits over
+   * Chat's message box and takes them too, outside the text box; `inline`
+   * sits next to a worker's composer, where those keys belong to the text box.
    */
-  variant: 'dialog' | 'inline'
+  variant: 'dialog' | 'dock' | 'inline'
   /** The next one in a queue, arriving where the last one was. */
   swap?: boolean
   /** Exactly what will happen: the command, the diff, the call. */
@@ -177,9 +181,12 @@ export function ApprovalCard({
   const deny = useRef<HTMLButtonElement>(null)
   const card = useRef<HTMLElement>(null)
 
+  const keys = variant !== 'inline'
   useEffect(() => {
-    if (variant === 'dialog') (startsOnDeny(risk) ? deny : approve).current?.focus({ preventScroll: true })
-  }, [variant, title, tool, risk])
+    // A card that takes keys starts on a button: Approve, or Deny for a call
+    // that could delete or change the system (see startsOnDeny).
+    if (keys) (startsOnDeny(risk) ? deny : approve).current?.focus({ preventScroll: true })
+  }, [keys, title, tool, risk])
 
   // A modal keeps Tab inside itself: past the last button it goes back to the
   // first, rather than into the page behind that the dialog is blocking.
@@ -221,7 +228,7 @@ export function ApprovalCard({
           </span>
           <span className="approval__meta">
             <span className="approval__does">{does}</span>
-            <span className="approval__tool">{tool.replace(/_/g, ' ')}</span>
+            {detail && <span className="approval__tool">{detail}</span>}
           </span>
         </span>
         {waiting > 0 && (
@@ -242,11 +249,11 @@ export function ApprovalCard({
         </span>
         <button ref={deny} type="button" className="btn btn--ghost approval__deny" disabled={busy} onClick={onDeny}>
           {denyLabel}
-          {variant === 'dialog' && <kbd className="approval__kbd">esc</kbd>}
+          {keys && <kbd className="approval__kbd">esc</kbd>}
         </button>
         <button ref={approve} type="button" className="btn approval__approve" disabled={busy} onClick={onApprove}>
           {approveLabel}
-          {variant === 'dialog' && <kbd className="approval__kbd">⏎</kbd>}
+          {keys && <kbd className="approval__kbd">⏎</kbd>}
         </button>
       </footer>
     </section>
