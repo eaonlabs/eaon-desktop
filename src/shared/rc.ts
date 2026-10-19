@@ -37,3 +37,50 @@ export interface RcShare {
   /** Connected to it right now. */
   online: boolean
 }
+
+/**
+ * A terminal shared with a friend, locked to one folder by the operating
+ * system's sandbox (main/features/terminals/guestSandbox.ts). It travels as an
+ * ordinary one-terminal share on rc.eaon.dev; the folder, the mode and the
+ * lock live only on this computer.
+ */
+export type LockedMode = 'shell' | 'cli'
+
+export interface LockedTerminal {
+  id: string
+  /** The share on rc.eaon.dev that carries it; null if it couldn't be made. */
+  shareId: string | null
+  folder: string
+  /** What the friend sees it called: the folder's name unless you gave one. */
+  label: string
+  mode: LockedMode
+  /** In `cli` mode, the CLI they're locked to. */
+  agent: string | null
+  /** Shell mode: whether it may reach the internet. CLI mode always may. */
+  network: boolean
+  /** Their GitHub login. */
+  login: string
+  createdAt: number
+  /** When it stops working on its own; null to last until revoked. */
+  expiresAt: number | null
+  /** Their terminal is running now. */
+  running?: boolean
+  /** They're connected right now. */
+  online?: boolean
+  /** The invite hasn't been accepted yet. */
+  pending?: boolean
+}
+
+export interface LockedTerminalDraft {
+  folder: string
+  label?: string
+  mode: LockedMode
+  agent?: string | null
+  network?: boolean
+  login: string
+  /** Hours until it stops working; 0 or absent for until revoked. */
+  hours?: number
+}
+
+/** Whether this computer can share locked terminals, and why not. */
+export type LockedSupport = { ok: true } | { ok: false; reason: string }

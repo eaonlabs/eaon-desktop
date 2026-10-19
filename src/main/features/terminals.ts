@@ -27,6 +27,7 @@ import { noteOutput, quietActivity, wentQuiet, type Activity } from '@shared/ter
 import { taskFromTerminalTitle } from '@shared/adeSessions'
 import { randomUUID } from 'node:crypto'
 import { gitSummary, handoffDocument, handoffFileName, handoffPrompt, transcriptTurns, writeHandoff } from './terminals/handoff'
+import type { GuestLaunch } from './terminals/guestSandbox'
 
 /**
  * The ADE's terminal view: real shells in the project folder, each optionally
@@ -274,6 +275,11 @@ export interface TerminalsControl {
   tap(listener: (channel: string, payload: unknown) => void): () => void
   addPane(cwd: string, agent: TerminalAgentId): Promise<TerminalPaneSpec>
   startPane(paneId: string): Promise<void>
+  /** A guest's sandboxed terminal (guestSandbox.ts), outside the ADE's layout. */
+  startGuest(paneId: string, launch: GuestLaunch, size?: { cols: number; rows: number }): void
+  /** Ends a terminal: a guest's when its share is revoked or runs out. */
+  kill(paneId: string): void
+  running(paneId: string): boolean
 }
 
 export function createTerminals(options: TerminalsOptions = {}): Feature & { tick: () => Promise<void>; control: TerminalsControl } {
@@ -546,6 +552,13 @@ export function createTerminals(options: TerminalsOptions = {}): Feature & { tic
       if (!result.ok) throw new Error(result.error ?? 'The terminal didn’t start.')
       return pane
     },
+    startGuest(paneId: string, launch: GuestLaunch, size = { cols: 120, rows: 32 }): void {
+      if (manager.has(paneId)) return
+      const result = manager.spawn({ paneId, cwd: launch.cwd, cols: size.cols, rows: size.rows, command: null }, {}, null, null, launch)
+      if (!result.ok) throw new Error(result.error ?? 'The terminal didn’t start.')
+    },
+    kill: (paneId: string): void => manager.kill(paneId),
+    running: (paneId: string): boolean => manager.has(paneId),
     /** Starts a pane the window hasn't shown since Eaon opened (its shell starts when shown). */
     async startPane(paneId: string): Promise<void> {
       if (manager.has(paneId)) return

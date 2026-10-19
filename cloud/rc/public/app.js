@@ -555,7 +555,13 @@ const grantsOf = (dev) => relay.devices.get(dev)?.grants ?? []
 /** The whole computer: its sessions, Workers and browsers (watching, at least). */
 const seesAll = (dev) => !isGuest(dev) || grantsOf(dev).some((g) => g.pane === null)
 /** Typing into a terminal, starting one, answering a Worker. */
-const canType = (dev, pane = null) => !isGuest(dev) || grantsOf(dev).some((g) => g.access === 'control' && (g.pane === null || g.pane === pane))
+// A guest types only into a locked terminal (a `guest-…` pane: sandboxed to a
+// folder on the computer). The owner's own terminals are watch-only for guests,
+// and the computer refuses guest typing into them whatever this says. With
+// control of the whole computer, a guest's new terminal is a locked one.
+const canType = (dev, pane = null) =>
+  !isGuest(dev) ||
+  ((pane === null || String(pane).startsWith('guest-')) && grantsOf(dev).some((g) => g.access === 'control' && (g.pane === null || g.pane === pane)))
 
 /** What you've shared, kept fresh while a page that shows it is open. */
 const sharing = {
@@ -1849,7 +1855,7 @@ function browserPage(dev, target) {
 // ------------------------------------------------------------------ sharing: invite, list, revoke, accept
 
 const describeShare = (x) =>
-  [x.pane ? (x.paneLabel ? `Terminal “${x.paneLabel}”` : 'One terminal') : 'The whole computer', x.access === 'control' ? 'can watch and type' : 'can watch']
+  [x.pane ? (String(x.pane).startsWith('guest-') ? `Locked terminal “${x.paneLabel ?? 'folder'}”` : x.paneLabel ? `Terminal “${x.paneLabel}”` : 'One terminal') : 'The whole computer', x.access === 'control' ? (x.pane && !String(x.pane).startsWith('guest-') ? 'can watch' : 'can watch and type') : 'can watch']
 
 /** The banner on a computer shared with you: whose it is, and what you may do. */
 function guestNotice(dev) {
@@ -1930,12 +1936,20 @@ function shareDialog(anchor, dev, one) {
       let access = 'watch'
       const who = h('input', { class: 'input', placeholder: 'GitHub username', autocomplete: 'off', autocapitalize: 'off', spellcheck: 'false', 'aria-label': 'GitHub username' })
       const seg = h('div', { class: 'segment', role: 'radiogroup', 'aria-label': 'What they can do' })
+      // One of your terminals is watch-only for anyone else: typing goes to a
+      // locked terminal (made in Eaon, Settings → Remote devices), never your
+      // own shell. The whole computer can come with control: their new
+      // terminals are locked ones.
+      const note = h('p', { class: 'share__fine', text: one ? 'They can watch it. To let someone type, share a locked terminal from Eaon on that computer: Settings → Remote devices.' : 'With “Watch and open terminals” they can open terminals of their own in your sessions, each locked to that folder. They can never type into yours.' })
       const drawSeg = () =>
         seg.replaceChildren(
-          ...[
-            ['watch', 'eye', 'Watch only'],
-            ['control', 'terminal', 'Watch and type']
-          ].map(([value, ic, label]) =>
+          ...(one
+            ? [['watch', 'eye', 'Watch only']]
+            : [
+                ['watch', 'eye', 'Watch only'],
+                ['control', 'terminal', 'Watch and open terminals']
+              ]
+          ).map(([value, ic, label]) =>
             h('button', { class: 'segment__item', type: 'button', role: 'radio', 'aria-checked': String(access === value), dataset: { active: String(access === value) }, onclick: () => ((access = value), drawSeg()) }, icon(ic, 13), label)
           )
         )
@@ -1981,6 +1995,7 @@ function shareDialog(anchor, dev, one) {
         },
         who,
         seg,
+        note,
         err,
         h('div', { class: 'share__actions' }, create)
       )
