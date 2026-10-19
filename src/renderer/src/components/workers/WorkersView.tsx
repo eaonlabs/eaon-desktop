@@ -196,10 +196,15 @@ function BackgroundHint(): JSX.Element | null {
       return false
     }
   })
+  // Workers on a worker computer don't depend on this one running at all.
+  const [elsewhere, setElsewhere] = useState(false)
   useEffect(() => {
     void window.api.app.background().then(setState)
+    const update = (host: { host: unknown; enabled: boolean }): void => setElsewhere(Boolean(host.host) && host.enabled)
+    void window.api.workerHost.state().then(update)
+    return window.api.workerHost.onState(update)
   }, [])
-  if (!state?.supported || state.enabled || dismissed) return null
+  if (!state?.supported || state.enabled || dismissed || elsewhere) return null
   return (
     <div className="team-hint">
       <Clock size={15} strokeWidth={1.9} />

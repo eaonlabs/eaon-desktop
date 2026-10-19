@@ -794,6 +794,27 @@ export class WorkersEngine {
     }
   }
 
+  /**
+   * Reads everything from storage again, for workers that have just come back
+   * from a worker computer (or left for one). Stopped first if it was
+   * running, and started again after.
+   */
+  reload(): void {
+    const wasStarted = this.started
+    if (wasStarted) this.stop()
+    this.threads.clear()
+    this.grants.clear()
+    this.wakes.clear()
+    this.turnLog.clear()
+    this.sentLog.clear()
+    this.roomChains.clear()
+    this.lastContent.clear()
+    this.load()
+    this.deps.onChange?.(clone(this.workers))
+    this.deps.onRoomsChange?.(this.rooms())
+    if (wasStarted) this.start()
+  }
+
   /** Resolves once every turn in progress has finished and been recorded. */
   async whenIdle(): Promise<void> {
     while (this.inflight.size > 0) await Promise.all([...this.inflight])

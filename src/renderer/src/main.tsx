@@ -28,6 +28,7 @@ import './styles/email.css'
 import './styles/connectApps.css'
 import './styles/usage.css'
 import './styles/cliAccounts.css'
+import './styles/workerHost.css'
 
 reportRendererErrors()
 

@@ -66,6 +66,8 @@ node scripts/fetch-tokn-cli.mjs
 
 echo "Building Eaon for macOS (notarizing as ${APPLE_ID%%@*}@…, publish=$PUBLISH)"
 npx electron-vite build
+# The worker host app the desktop installs on a worker computer (out/host/eaon-host.tgz).
+node scripts/build-host.mjs
 npx electron-builder --mac --publish "$PUBLISH"
 
 # electron-builder signs, notarizes and staples the .app, then builds the DMG

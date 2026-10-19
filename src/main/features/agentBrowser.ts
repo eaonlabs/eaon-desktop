@@ -75,6 +75,38 @@ const STEPS_KEPT = 60
 const recentSteps = new Map<BrowserTarget, AgentBrowserStep[]>()
 const stepListeners = new Set<(step: AgentBrowserStep) => void>()
 
+/**
+ * Workers' browsers on a worker computer (features/workerHost.ts): their
+ * live views go over the link instead, frames coming back through
+ * `remoteBrowserFrame`. Set while the workers run there.
+ */
+export interface RemoteBrowsers {
+  /** Starts pictures of `target` coming; the function stops them. */
+  watch: (target: BrowserTarget) => () => void
+  status: (target: BrowserTarget) => AgentBrowserStatus
+  /** Asks the worker computer, rather than going by what it last said. */
+  fetchStatus: (target: BrowserTarget) => Promise<AgentBrowserStatus>
+  control: (target: BrowserTarget, on: boolean) => Promise<AgentBrowserStatus>
+  input: (target: BrowserTarget, event: BrowserInput) => Promise<boolean>
+  navigate: (target: BrowserTarget, url: string) => Promise<boolean>
+}
+let remoteBrowsers: RemoteBrowsers | null = null
+
+export function setRemoteBrowsers(remote: RemoteBrowsers | null): void {
+  remoteBrowsers = remote
+}
+
+const remoteFor = (target: BrowserTarget): RemoteBrowsers | null => (remoteBrowsers && target.startsWith('worker:') ? remoteBrowsers : null)
+
+/** A picture from a worker computer, for the windows (and Eaon Remote) watching that browser here. */
+export function remoteBrowserFrame(frame: AgentBrowserFrame): void {
+  const watch = watches.get(frame.target)
+  if (!watch) return
+  watch.frame = frame
+  for (const viewer of watch.viewers.values()) if (!viewer.contents.isDestroyed()) viewer.contents.send('agent-browser:frame', frame)
+  for (const sink of watch.sinks) sink(frame)
+}
+
 /** The workers service hands over its browsers, so a worker's can be watched and taken over too. */
 export function setWorkerBrowsers(browsers: WorkerBrowsers): void {
   workerBrowsers = browsers
@@ -111,14 +143,15 @@ function sendFrame(target: BrowserTarget, image: NativeImage): void {
 
 /** The watch on a browser, started if nobody was watching it. */
 function watchOf(target: BrowserTarget): Watch | null {
-  const found = resolve(target)
-  if (!found) return null
+  const remote = remoteFor(target)
+  const found = remote ? null : resolve(target)
+  if (!remote && !found) return null
   let watch = watches.get(target)
   if (!watch) {
     watch = { viewers: new Map(), stop: () => undefined, frame: null, pixels: null, sinks: new Set() }
     watches.set(target, watch)
     // It sends what is there now, then pictures as things happen.
-    watch.stop = found.browsers.watchFrames(found.id, (image) => sendFrame(target, image))
+    watch.stop = remote ? remote.watch(target) : found!.browsers.watchFrames(found!.id, (image) => sendFrame(target, image))
   }
   return watch
 }
@@ -150,6 +183,8 @@ function stopWatching(target: BrowserTarget, senderId: number): void {
 function unwatch(target: BrowserTarget, watch: Watch): void {
   watch.stop()
   watches.delete(target)
+  // A worker computer hands its browser back itself when its last view closes.
+  if (remoteFor(target)) return
   // Nobody is looking any more: hand the browser back rather than leave the agent waiting.
   const found = resolve(target)
   if (found?.browsers.controlled(found.id)) {
@@ -227,6 +262,8 @@ export function browserStatus(target: BrowserTarget): AgentBrowserStatus {
 }
 
 function status(target: BrowserTarget): AgentBrowserStatus {
+  const remote = remoteFor(target)
+  if (remote) return remote.status(target)
   const found = resolve(target)
   if (!found?.browsers.window(found.id)) return { target, open: false, url: '', title: '', controlled: false }
   return { target, open: true, ...found.browsers.page(found.id), controlled: found.browsers.controlled(found.id) }
@@ -310,17 +347,21 @@ export const agentBrowserFeature: Feature = {
       const which = targetOf(target)
       if (on) startWatching(which, event.sender)
       else stopWatching(which, event.sender.id)
-      return status(which)
+      return remoteFor(which)?.fetchStatus(which) ?? status(which)
     })
-    ipcMain.handle('agent-browser:status', (_e, target?: string) => status(targetOf(target)))
+    ipcMain.handle('agent-browser:status', (_e, target?: string) => remoteFor(targetOf(target))?.fetchStatus(targetOf(target)) ?? status(targetOf(target)))
     // The real window, for a site that needs it. Closing it only hides it again.
     ipcMain.handle('agent-browser:show', (_e, target?: string) => {
+      // A worker computer's windows are on its own screen, which nobody here can see.
+      if (remoteFor(targetOf(target))) return false
       const found = resolve(targetOf(target))
       return found ? found.browsers.show(found.id) : false
     })
     // Take over in the view, or hand back.
     ipcMain.handle('agent-browser:control', (_e, on: boolean, target?: string) => {
       const which = targetOf(target)
+      const remote = remoteFor(which)
+      if (remote) return remote.control(which, on === true)
       const found = resolve(which)
       if (found) {
         if (on) found.browsers.takeControl(found.id)
@@ -330,11 +371,15 @@ export const agentBrowserFeature: Feature = {
       return status(which)
     })
     ipcMain.handle('agent-browser:input', (_e, event: BrowserInput, target?: string) => {
+      const remote = remoteFor(targetOf(target))
+      if (remote) return remote.input(targetOf(target), event)
       const found = resolve(targetOf(target))
       return found ? found.browsers.input(found.id, event) : false
     })
     ipcMain.handle('agent-browser:navigate', async (_e, url: string, target?: string) => {
       const which = targetOf(target)
+      const remote = remoteFor(which)
+      if (remote) return remote.navigate(which, String(url ?? ''))
       const found = resolve(which)
       const ok = found ? await found.browsers.navigate(found.id, String(url ?? '')) : false
       pushStatus(which)

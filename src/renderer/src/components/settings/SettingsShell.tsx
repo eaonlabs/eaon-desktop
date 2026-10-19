@@ -24,6 +24,7 @@ import {
   ShieldCheck,
   Lock,
   Smartphone,
+  HardDrive,
   SquarePlus,
   Sun,
   Wand2
@@ -45,6 +46,7 @@ import { ComputerUsePage } from './pages/ComputerUse'
 import { PluginsSettingsPage } from './pages/Plugins'
 import { LocalServerPage } from './pages/LocalServer'
 import { RemoteDevicesPage } from './pages/RemoteDevices'
+import { WorkerComputerPage } from './pages/WorkerComputer'
 import { SystemMonitorPage } from './pages/SystemMonitor'
 import { McpServersPage } from './pages/McpServers'
 import { ConnectAppsPage } from './pages/ConnectApps'
@@ -131,6 +133,7 @@ const NAV: NavEntry[] = [
 
   { id: 'local-server', label: 'Local API Server', icon: <Server size={size} strokeWidth={stroke} />, group: 'Advanced' },
   { id: 'remote-devices', label: 'Remote devices', icon: <Smartphone size={size} strokeWidth={stroke} />, group: 'Advanced' },
+  { id: 'worker-computer', label: 'Worker computer', icon: <HardDrive size={size} strokeWidth={stroke} />, group: 'Advanced' },
   { id: 'system', label: 'System Monitor', icon: <Activity size={size} strokeWidth={stroke} />, group: 'Advanced' },
   { id: 'security', label: 'Security', icon: <Lock size={size} strokeWidth={stroke} />, group: 'Advanced' },
 
@@ -178,6 +181,7 @@ const PAGES: Record<string, () => JSX.Element> = {
   'code-index': CodeIndexPage,
   'local-server': LocalServerPage,
   'remote-devices': RemoteDevicesPage,
+  'worker-computer': WorkerComputerPage,
   system: SystemMonitorPage,
   security: SecurityPage,
   archived: ArchivedPage

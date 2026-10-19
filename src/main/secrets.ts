@@ -118,6 +118,22 @@ export const secrets = {
     delete vault[fallbackKey(providerId)]
     persist(vault)
   },
+  /**
+   * Every saved key, for sending to a linked worker computer over its
+   * encrypted link (features/workerHost.ts). Never for the renderer.
+   */
+  entries(): Record<string, string> {
+    return { ...load() }
+  },
+  /** Saves several keys in one write; an empty value removes that key. */
+  setMany(entries: Record<string, string>): void {
+    const vault = loadForWrite()
+    for (const [id, key] of Object.entries(entries)) {
+      if (key) vault[id] = key
+      else delete vault[id]
+    }
+    persist(vault)
+  },
   /** Last 4 characters, for the "sk-…abcd" hint shown next to a saved key. */
   hint(providerId: string): string | null {
     const key = load()[providerId]

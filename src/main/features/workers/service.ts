@@ -83,6 +83,12 @@ export interface WorkersOverrides {
   startDelayMs?: number
   jobs?: JobHost
   look?: (worker: Worker, watch: WorkerWatch) => Promise<WatchReading>
+  /**
+   * Where a worker's news goes instead of a notification on this computer:
+   * the worker host sends it to the desktop that is watching (see
+   * `src/host/`).
+   */
+  notifier?: { notify: (worker: Worker, outcome: { ok: boolean; text: string }) => void; reachOut: (worker: Worker, message: { title: string; body: string }) => void }
 }
 
 export interface WorkersService {
@@ -92,8 +98,20 @@ export interface WorkersService {
   /** Forgets a worker and closes its browser, as the Remove button does. */
   remove: (id: string) => Promise<void>
   registerIpc: () => void
+  /** Every IPC channel `registerIpc` serves, so another backend can stand in for them (the worker computer). */
+  readonly channels: readonly string[]
+  /** Each worker's own browser. */
+  browsers: WorkerBrowsers
   start: () => void
   stop: () => void
+  /**
+   * Stops every turn, job and browser and keeps the engine from running,
+   * while the workers run on a linked computer instead. `resume` reads
+   * everything from storage again and starts.
+   */
+  suspend: () => void
+  resume: () => void
+  readonly suspended: boolean
   openWorker: (id: string) => void
 }
 
@@ -205,6 +223,7 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
   }
 
   const notify = (worker: Worker, outcome: { ok: boolean; text: string }): void => {
+    if (overrides.notifier) return overrides.notifier.notify(worker, outcome)
     if (!store.getSettings().notifications.taskComplete || !Notification.isSupported()) return
     // No banner for something already on screen.
     if (ctx.getWindow()?.isFocused()) return
@@ -228,6 +247,7 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
    * looking at that worker's page, and it is waiting on the user.
    */
   const reachOut = (worker: Worker, message: { title: string; body: string }): void => {
+    if (overrides.notifier) return overrides.notifier.reachOut(worker, message)
     if (!Notification.isSupported()) return
     const window = ctx.getWindow()
     if (window?.isFocused() && window.isVisible() && openWorkerId === worker.id) return
@@ -357,8 +377,14 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
     await browsers.forget(id)
   }
 
+  const channels: string[] = []
   const registerIpc = (): void => {
-    const { ipcMain } = ctx
+    const ipcMain = {
+      handle: (channel: string, handler: Parameters<FeatureContext['ipcMain']['handle']>[1]): void => {
+        if (!channels.includes(channel)) channels.push(channel)
+        ctx.ipcMain.handle(channel, handler)
+      }
+    }
     // Shows a worker's browser, to watch it or to sign it in somewhere; false when it has none yet.
     ipcMain.handle('workers:show-browser', (_e, id: string) => browsers.show(id))
     ipcMain.handle('workers:has-browser', (_e, id: string) => browsers.has(id))
@@ -468,11 +494,37 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
     ipcMain.handle('workers:teach-steps', (_e, id: unknown) => browsers.recordedSteps(idOf(id)))
   }
 
+  let suspended = false
+  const halt = (): void => {
+    if (startTimer) clearTimeout(startTimer)
+    startTimer = null
+    batch.flush()
+    engine.stop()
+    jobs.stopAll()
+    keepAwake(false)
+    void browsers.closeAll()
+  }
+
   return {
     engine,
     hub,
     remove,
     registerIpc,
+    channels,
+    browsers,
+    get suspended() {
+      return suspended
+    },
+    suspend: () => {
+      suspended = true
+      halt()
+    },
+    resume: () => {
+      if (!suspended) return
+      suspended = false
+      engine.reload()
+      engine.start()
+    },
     start: () => {
       engine.load()
       // The computer's one pointer is leased to a run at a time; its indicator names the worker.
@@ -487,19 +539,11 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
       powerMonitor.on('resume', () => engine.tick())
       startTimer = setTimeout(() => {
         startTimer = null
-        engine.start()
+        if (!suspended) engine.start()
       }, overrides.startDelayMs ?? START_DELAY_MS)
       startTimer.unref?.()
     },
-    stop: () => {
-      if (startTimer) clearTimeout(startTimer)
-      startTimer = null
-      batch.flush()
-      engine.stop()
-      jobs.stopAll()
-      keepAwake(false)
-      void browsers.closeAll()
-    },
+    stop: halt,
     openWorker
   }
 }

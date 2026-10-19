@@ -3,6 +3,22 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [2026.7.0-beta.2.2] — 2026-10-18
+
+### Added
+- **Worker computer.** Settings → Worker computer moves your workers to a
+  computer you leave on (a Raspberry Pi, a spare Mac, a home server),
+  installed over SSH or with a one-line command. They keep working, with
+  their own browsers, while this computer sleeps; the Workers tab still shows
+  them, you can watch and take over their browsers, and they move back when
+  you ask. Eaon keeps the worker computer updated and synced.
+- **Share a locked terminal.** Through Eaon Remote, a friend can get one
+  terminal of their own, kept inside a single folder by the operating
+  system's sandbox.
+
+### Security
+- Guests on Eaon Remote can no longer type into your own shells.
+
 ## [2026.7.0-beta.2.1] — 2026-10-18
 
 ### Added
