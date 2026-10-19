@@ -303,7 +303,7 @@ test('workers move in with their folders, run there, and move out again', async 
         unread: 0
       }
     ],
-    threads: { 'w-nova': { workerId: 'w-nova', messages: [{ id: 'm1', role: 'assistant', content: `I keep notes in ${desktopFolder}/notes.md`, createdAt: 1 }], summary: null } },
+    threads: { 'w-nova': { workerId: 'w-nova', messages: [{ id: 'm1', role: 'assistant', parts: [{ type: 'text', text: `I keep notes in ${desktopFolder}/notes.md` }], createdAt: 1 }], summary: null } },
     rooms: null
   }
   const { moves } = await desktop.call<{ moves: { id: string; from: string; to: string }[] }>('workers.import', { snapshot })
@@ -315,8 +315,8 @@ test('workers move in with their folders, run there, and move out again', async 
 
   const [nova] = await ipcCall<Worker[]>(desktop, 'workers:list')
   assert.equal(nova.folder, join(workRoot, 'Nova'))
-  const thread = await ipcCall<{ messages: { content: string }[] }>(desktop, 'workers:thread', 'w-nova')
-  assert.equal(thread.messages[0].content, `I keep notes in ${join(workRoot, 'Nova')}/notes.md`)
+  const thread = await ipcCall<{ messages: { parts: { text: string }[] }[] }>(desktop, 'workers:thread', 'w-nova')
+  assert.equal(thread.messages[0].parts[0].text, `I keep notes in ${join(workRoot, 'Nova')}/notes.md`)
 
   // It works there, in its new folder.
   replies = []
@@ -492,6 +492,17 @@ test('readSnapshot and writeSnapshot round-trip the workers’ files', () => {
   assert.deepEqual(back.workers, [{ id: 'x1', name: 'X', folder: '/f' }])
   assert.deepEqual(back.threads.x1, { workerId: 'x1', messages: [] })
   assert.deepEqual(back.rooms, { rooms: [], posts: {}, seen: {} })
+  writeSnapshot(store, { workers: [], threads: {}, rooms: null })
+})
+
+test('a worker’s side threads move with it, paths and all', () => {
+  const worker = { id: 'x2', name: 'Y', folder: '/old/Y', threads: [{ id: 'main' }, { id: 't-a1' }] }
+  const threads = { x2: { workerId: 'x2', messages: [] }, 'x2#t-a1': { workerId: 'x2', threadId: 't-a1', messages: ['see /old/Y/plan.md'] } }
+  writeSnapshot(store, { workers: [worker], threads, rooms: null })
+  const back = readSnapshot(store)
+  assert.deepEqual(Object.keys(back.threads).sort(), ['x2', 'x2#t-a1'])
+  const { snapshot } = relocate(back, '/new', {}, '/')
+  assert.deepEqual((snapshot.threads['x2#t-a1'] as { messages: string[] }).messages, ['see /new/Y/plan.md'])
   writeSnapshot(store, { workers: [], threads: {}, rooms: null })
 })
 

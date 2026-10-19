@@ -16,10 +16,12 @@ import { basename, dirname, join, relative, resolve, sep } from 'node:path'
 
 export const WORKERS_FILE = 'workers.json'
 export const ROOMS_FILE = 'worker-rooms.json'
-export const threadFile = (id: string): string => `worker-${id}.json`
+/** A thread's file, by its key (`id`, or `id#thread` for a side thread), as the workers service names it. */
+export const threadFile = (key: string): string => `worker-${key.replace('#', '.t-')}.json`
 
 export interface WorkersSnapshot {
   workers: unknown[]
+  /** Every thread's transcript, by thread key: the main one (`id`) and side threads (`id#thread`). */
   threads: Record<string, unknown>
   rooms: unknown | null
 }
@@ -33,6 +35,13 @@ const idOf = (worker: unknown): string | null => {
   const id = (worker as { id?: unknown })?.id
   return typeof id === 'string' && /^[\w-]+$/.test(id) ? id : null
 }
+/** The keys of a worker's threads: its main thread, then each side thread it lists. */
+const threadKeysOf = (worker: unknown, id: string): string[] => {
+  const listed = (worker as { threads?: unknown })?.threads
+  const side = Array.isArray(listed) ? listed.map((t) => (t as { id?: unknown })?.id).filter((t): t is string => typeof t === 'string' && t !== 'main' && /^[\w-]+$/.test(t)) : []
+  return [id, ...side.map((t) => `${id}#${t}`)]
+}
+const ownedBy = (key: string, id: string): boolean => key === id || key.startsWith(`${id}#`)
 const folderOf = (worker: unknown): string => {
   const folder = (worker as { folder?: unknown })?.folder
   return typeof folder === 'string' ? folder : ''
@@ -43,9 +52,10 @@ export function readSnapshot(store: StoreLike): WorkersSnapshot {
   const workers = Array.isArray(raw) ? raw.filter((w) => idOf(w)) : []
   const threads: Record<string, unknown> = {}
   for (const worker of workers) {
-    const id = idOf(worker)!
-    const thread = store.getJson<unknown>(threadFile(id), null)
-    if (thread) threads[id] = thread
+    for (const key of threadKeysOf(worker, idOf(worker)!)) {
+      const thread = store.getJson<unknown>(threadFile(key), null)
+      if (thread) threads[key] = thread
+    }
   }
   return { workers, threads, rooms: store.getJson<unknown>(ROOMS_FILE, null) }
 }
@@ -54,7 +64,8 @@ export function readSnapshot(store: StoreLike): WorkersSnapshot {
 export function writeSnapshot(store: StoreLike, snapshot: WorkersSnapshot): void {
   for (const worker of snapshot.workers) {
     const id = idOf(worker)
-    if (id && snapshot.threads[id]) store.setJson(threadFile(id), snapshot.threads[id])
+    if (!id) continue
+    for (const [key, thread] of Object.entries(snapshot.threads)) if (ownedBy(key, id) && thread) store.setJson(threadFile(key), thread)
   }
   store.setJson(ROOMS_FILE, snapshot.rooms ?? { rooms: [], posts: {}, seen: {} })
   store.setJson(WORKERS_FILE, snapshot.workers)
@@ -103,7 +114,7 @@ export function relocate(snapshot: WorkersSnapshot, root: string, keep: Record<s
     taken.add(to.toLowerCase())
     moves.push({ id, from, to })
     workers.push(rewritePaths(from ? worker : { ...(worker as object), folder: to }, from, to))
-    if (snapshot.threads[id]) threads[id] = rewritePaths(snapshot.threads[id], from, to)
+    for (const [key, thread] of Object.entries(snapshot.threads)) if (ownedBy(key, id)) threads[key] = rewritePaths(thread, from, to)
     rooms = rewritePaths(rooms, from, to)
   }
   return { snapshot: { workers, threads, rooms }, moves }
