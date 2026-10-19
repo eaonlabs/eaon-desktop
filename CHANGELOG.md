@@ -3,6 +3,34 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [2026.7.0-beta.2.1] — 2026-10-18
+
+### Added
+- **Dictation on this computer.** Settings → Model providers → Speech to text
+  → "On this computer — Whisper": download Whisper Base, Small or Large v3
+  Turbo once and dictate offline, with recordings never leaving the machine.
+  Downloads show progress, can be stopped and resumed, and are checksummed.
+- **ASCII see-through.** Settings → Appearance → Window → Style: Photo,
+  Halftone or ASCII, which redraws the wallpaper as coloured characters.
+
+### Changed
+- **Workers finish free checkouts.** When a promo code, pass or email brings
+  the total due to zero, a worker places the order itself, with no card or
+  approval. Anything still due, a trial that bills later, or a page with no
+  readable total still waits for you.
+- See-through text carries a faint halo and controls get clearer edges, so
+  both stay readable over busy wallpapers. The Speech to text icon matches
+  the provider logos.
+
+### Fixed
+- Frosted glass inside animated panels blurred nothing and showed the
+  wallpaper sharp.
+
+### Security
+- The in-app browser has its own session, so websites can no longer probe
+  local files through `eaon-file://`, and "Open Link in Default Browser" only
+  opens web and mail links.
+
 ## [2026.7.0-beta.2] — 2026-10-18
 
 ### Added
