@@ -101,6 +101,7 @@ jobs:
         shell: bash
         run: |
           npx electron-vite build
+          node scripts/build-host.mjs
           if [ "$SIGN" = "true" ]; then
             npx electron-builder --win --publish never \
               -c.win.signAndEditExecutable=true \

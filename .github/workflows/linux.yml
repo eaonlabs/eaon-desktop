@@ -79,6 +79,7 @@ jobs:
       - name: Build
         run: |
           npx electron-vite build
+          node scripts/build-host.mjs
           npx electron-builder --linux --${{ matrix.arch }} --publish never
 
       # Started under a virtual display for 25 seconds: still running at the
