@@ -1,5 +1,6 @@
 import { hostname } from 'node:os'
-import { shell } from 'electron'
+import path from 'node:path'
+import { app, dialog, shell } from 'electron'
 import type { Feature } from '../types'
 import { store } from '../../store'
 import { secrets } from '../../secrets'
@@ -7,7 +8,9 @@ import { computerNames, remoteApiDeps } from '../../remote'
 import { workersService } from '../workers'
 import { terminalsFeature } from '../terminals'
 import { adeForRemote } from '../ade'
-import { RC_DEFAULT_SERVER, type RcConnection, type RcInfo, type RcShare } from '@shared/rc'
+import { RC_DEFAULT_SERVER, type LockedSupport, type LockedTerminal, type LockedTerminalDraft, type RcConnection, type RcInfo, type RcShare } from '@shared/rc'
+import { onPath } from '../../shellEnv'
+import { createGuestTerminals, type GuestTerminals } from './guestTerminals'
 import { RelayClient } from './client'
 import { createRcHandler, type RcBrowsers } from './handler'
 import { agentBrowsersOpen, browserStatus, browserSteps, onBrowserStep, watchBrowserFrames } from '../agentBrowser'
@@ -49,6 +52,8 @@ const server = (): string => (process.env.EAON_RC_URL || RC_DEFAULT_SERVER).repl
 
 let client: RelayClient | null = null
 let handler: ReturnType<typeof createRcHandler> | null = null
+let guestTerminals: GuestTerminals | null = null
+let sweepTimer: NodeJS.Timeout | null = null
 let connection: RcConnection = 'off'
 let problem: string | null = null
 let linking: { code: string; url: string; expiresAt: number; poll: string } | null = null
@@ -66,6 +71,21 @@ export const rcFeature: Feature = {
   id: 'rc',
   register: (ctx) => {
     void computerNames().then((n) => (computerName = n.computerName), () => undefined)
+    const userData = app.getPath('userData')
+    const guestsOf = (): GuestTerminals =>
+      (guestTerminals ??= createGuestTerminals({
+        terminals: terminalsFeature.control,
+        store,
+        homesDir: path.join(userData, 'guest-homes'),
+        userData,
+        findBin: onPath
+      }))
+    // Expired locked terminals stop on time, not the next time someone looks.
+    sweepTimer = setInterval(() => {
+      const gone = guestTerminals?.prune(null) ?? []
+      const token = secrets.get(VAULT_KEY)
+      if (token) for (const id of gone) void api(`/api/device/shares/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } }).catch(() => undefined)
+    }, 60_000)
 
     const settings = (): ReturnType<typeof store.getSettings>['rc'] => store.getSettings().rc
     const patch = (change: Partial<ReturnType<typeof store.getSettings>['rc']>): void => {
@@ -112,6 +132,7 @@ export const rcFeature: Feature = {
         ade: adeForRemote,
         workers: workers ? remoteApiDeps(workers.engine, workers.remove, () => computerName) : null,
         browsers: remoteBrowsers(),
+        guests: guestsOf(),
         send: (message) => client?.send(message)
       })
       client = new RelayClient({
@@ -224,6 +245,52 @@ export const rcFeature: Feature = {
       const token = secrets.get(VAULT_KEY)
       if (!token || typeof id !== 'string' || !/^[\w-]{1,40}$/.test(id)) throw new Error('That share isn’t there any more.')
       await api(`/api/device/shares/${id}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } })
+      // A locked terminal behind it ends with it.
+      const locked = guestsOf().list().find((l) => l.shareId === id)
+      if (locked) guestsOf().remove(locked.id)
+      return true
+    })
+
+    // Locked terminals: a terminal for a friend, sandboxed to one folder (guestTerminals.ts).
+    ipcMain.handle('rc:locked-support', (): LockedSupport => guestsOf().support())
+    ipcMain.handle('rc:locked-pick-folder', async (): Promise<string | null> => {
+      const picked = await dialog.showOpenDialog({ title: 'Share a folder', buttonLabel: 'Share this folder', properties: ['openDirectory', 'createDirectory'] })
+      return picked.canceled ? null : (picked.filePaths[0] ?? null)
+    })
+    ipcMain.handle('rc:locked-list', async (): Promise<LockedTerminal[]> => {
+      const token = secrets.get(VAULT_KEY)
+      let remote: { id: string; pending: boolean }[] | null = null
+      if (token) {
+        try {
+          remote = (await api<{ shares: { id: string; pending: boolean }[] }>('/api/device/shares', { headers: { Authorization: `Bearer ${token}` } })).shares
+        } catch {
+          remote = null
+        }
+      }
+      // Revoked on the website (or unlinked): the locked terminal goes too.
+      guestsOf().prune(remote ? new Set(remote.map((r) => r.id)) : null)
+      const online = new Set(handler?.guestsOnline() ?? [])
+      return guestsOf()
+        .list()
+        .map((l) => ({ ...l, pending: remote?.find((r) => r.id === l.shareId)?.pending ?? false, online: online.has(l.login.toLowerCase()) }))
+    })
+    ipcMain.handle('rc:locked-create', async (_e, draft: LockedTerminalDraft): Promise<{ terminal: LockedTerminal; url: string }> => {
+      const token = secrets.get(VAULT_KEY)
+      if (!token || !settings().enabled) throw new Error('Link this computer to Eaon Remote first.')
+      const guests = guestsOf()
+      const { saved, paneId } = await guests.prepare(draft)
+      const made = await api<{ share: { id: string }; url: string }>('/api/device/shares', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ pane: paneId, paneLabel: saved.label, login: saved.login })
+      })
+      return { terminal: guests.commit(saved, made.share.id), url: made.url }
+    })
+    ipcMain.handle('rc:locked-revoke', async (_e, id: unknown) => {
+      if (typeof id !== 'string' || !/^[\w-]{1,40}$/.test(id)) throw new Error('That terminal isn’t shared any more.')
+      const shareId = guestsOf().remove(id)
+      const token = secrets.get(VAULT_KEY)
+      if (token && shareId) await api(`/api/device/shares/${shareId}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } }).catch(() => undefined)
       return true
     })
 
@@ -241,6 +308,8 @@ export const rcFeature: Feature = {
   },
   dispose: () => {
     if (pollTimer) clearTimeout(pollTimer)
+    if (sweepTimer) clearInterval(sweepTimer)
+    guestTerminals?.dispose()
     client?.stop()
     handler?.dispose()
   }

@@ -1,5 +1,5 @@
 import { ipcRenderer } from 'electron'
-import type { RcInfo, RcShare } from '@shared/rc'
+import type { LockedSupport, LockedTerminal, LockedTerminalDraft, RcInfo, RcShare } from '@shared/rc'
 
 /** Renderer bridge for Eaon Remote (rc.eaon.dev). Exposed as `window.api.rc`. */
 export const rcApi = {
@@ -14,6 +14,14 @@ export const rcApi = {
   shares: (): Promise<RcShare[]> => ipcRenderer.invoke('rc:shares'),
   /** Takes a share back: their connection ends now. */
   revokeShare: (id: string): Promise<boolean> => ipcRenderer.invoke('rc:revoke-share', id),
+  /** Locked terminals: a terminal for a friend, sandboxed to one folder. */
+  lockedSupport: (): Promise<LockedSupport> => ipcRenderer.invoke('rc:locked-support'),
+  lockedPickFolder: (): Promise<string | null> => ipcRenderer.invoke('rc:locked-pick-folder'),
+  lockedList: (): Promise<LockedTerminal[]> => ipcRenderer.invoke('rc:locked-list'),
+  /** Makes one and its invite link for the friend. */
+  lockedCreate: (draft: LockedTerminalDraft): Promise<{ terminal: LockedTerminal; url: string }> => ipcRenderer.invoke('rc:locked-create', draft),
+  /** Ends it: their terminal stops and its private home is deleted. */
+  lockedRevoke: (id: string): Promise<boolean> => ipcRenderer.invoke('rc:locked-revoke', id),
   onStatus: (handler: (info: RcInfo) => void): (() => void) => {
     const listener = (_e: unknown, info: RcInfo): void => handler(info)
     ipcRenderer.on('rc:status', listener)
