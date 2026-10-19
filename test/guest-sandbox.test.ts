@@ -201,3 +201,49 @@ test('on a Mac, one-CLI mode can’t start any other program', { skip: !onMac ||
     fs.rmSync(realRoot, { recursive: true, force: true })
   }
 })
+
+test('on a Mac, a CLI can sign in: its temp folder is in its home, and it may wait on a port', { skip: !onMac || !process.execPath }, () => {
+  const f = fixture()
+  const realRoot = fs.mkdtempSync(path.join(os.homedir(), '.eaon-guest-test-'))
+  try {
+    const root = fs.realpathSync(realRoot)
+    const pkg = path.join(f.base, 'lib', 'node_modules', 'signincli')
+    fs.mkdirSync(pkg, { recursive: true })
+    const cli = path.join(pkg, 'cli.js')
+    // What Claude Code does on start and at /login: make its temp folder, then
+    // wait for the OAuth callback on a localhost port.
+    fs.writeFileSync(
+      cli,
+      [
+        `#!${process.execPath}`,
+        "const fs = require('fs'); const net = require('net'); const path = require('path')",
+        "const tmp = process.env.CLAUDE_CODE_TMPDIR",
+        "try { fs.mkdirSync(path.join(tmp, 'claude-' + process.getuid()), { recursive: true }); console.log('TMP_OK', tmp) } catch (e) { console.log('TMP_FAIL', e.code) }",
+        "const local = net.createServer().on('error', (e) => console.log('LOCAL_FAIL', e.code)).listen(0, '127.0.0.1', () => { console.log('LOCAL_OK'); local.close() })"
+      ].join('\n')
+    )
+    fs.chmodSync(cli, 0o755)
+    const launch = buildGuestLaunch({ id: 'test-signin', root, mode: 'cli', program: cli, network: true, label: 'shared' }, { homesDir: f.homes, platform: 'darwin' })
+    assert.equal(launch.env.CLAUDE_CODE_TMPDIR, path.join(launch.home, 'tmp'))
+    const r = spawnSync(launch.bin, launch.argv, { cwd: launch.cwd, env: launch.env, encoding: 'utf8', timeout: 20_000 })
+    const out = `${r.stdout}\n${r.stderr}`
+    assert.match(out, /TMP_OK/)
+    assert.match(out, /LOCAL_OK/)
+  } finally {
+    fs.rmSync(realRoot, { recursive: true, force: true })
+  }
+})
+
+test('on a Mac, a guest shell can’t listen on a port, even with the internet on', { skip: !onMac }, () => {
+  const f = fixture()
+  const realRoot = fs.mkdtempSync(path.join(os.homedir(), '.eaon-guest-test-'))
+  try {
+    const g = { ...f, root: fs.realpathSync(realRoot) }
+    const listen = `/usr/bin/perl -MIO::Socket::INET -e 'print IO::Socket::INET->new(Listen => 1, LocalAddr => "127.0.0.1:0") ? "LISTEN_LEAK\\n" : "LISTEN_DENIED\\n"'`
+    const { out } = runShell(g, `${listen}\nexit`, true)
+    assert.match(out, /LISTEN_DENIED/)
+    assert.doesNotMatch(out, /LISTEN_LEAK/)
+  } finally {
+    fs.rmSync(realRoot, { recursive: true, force: true })
+  }
+})

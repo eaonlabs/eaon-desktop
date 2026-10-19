@@ -170,6 +170,8 @@ export interface MacProfileOptions {
    * Stat only: what a folder holds stays unreadable.
    */
   ancestors?: string[]
+  /** Let programs listen on a port. One-CLI mode only: in a shell, anything could. */
+  listen?: boolean
 }
 
 /** Every folder above each path, up to but not including the root: stat-only rules for seatbeltProfile. */
@@ -226,10 +228,18 @@ export function seatbeltProfile(opts: MacProfileOptions): string {
   if (opts.network) {
     lines.push(
       '',
-      '; network: outgoing connections and name lookups only; nothing listens',
+      '; network: outgoing connections and name lookups',
       '(allow network-outbound)',
       '(allow system-socket)',
       '(allow mach-lookup (global-name "com.apple.dnssd.service") (global-name "com.apple.trustd"))'
+    )
+  }
+  if (opts.network && opts.listen) {
+    lines.push(
+      '; listening, for a CLI\'s sign-in (it waits for its OAuth callback on a',
+      '; port). Seatbelt checks only the port, never the address, so this is',
+      '; given only where the one program that can run is that CLI',
+      '(allow network-bind network-inbound (local ip "*:*"))'
     )
   }
   return lines.join('\n') + '\n'
@@ -357,6 +367,10 @@ function scrubbedEnv(home: string, extra: Record<string, string>): Record<string
   return {
     HOME: home,
     TMPDIR: path.join(home, 'tmp'),
+    // Claude Code keeps its temp files in /tmp/claude-<uid>, not TMPDIR, and
+    // exits when it can't make that folder. That is your own Claude Code's
+    // folder, which the sandbox rightly hides, so point the guest's at its home.
+    CLAUDE_CODE_TMPDIR: path.join(home, 'tmp'),
     PATH: ['/usr/local/bin', '/opt/homebrew/bin', '/usr/bin', '/bin', '/usr/sbin', '/sbin'].join(':'),
     TERM: 'xterm-256color',
     COLORTERM: 'truecolor',
@@ -423,7 +437,7 @@ export function buildGuestLaunch(spec: GuestSpec, deps: { homesDir: string; plat
 
   if (platform === 'darwin') {
     const ancestors = ancestorsOf([root, home, program, ...readExtra])
-    const profile = seatbeltProfile({ network, exec, readExtra, ancestors })
+    const profile = seatbeltProfile({ network, exec, readExtra, ancestors, listen: spec.mode === 'cli' })
     return { bin: SANDBOX_EXEC, argv: ['-p', profile, '-D', `ROOT=${root}`, '-D', `HOME=${home}`, program, ...programArgs], cwd: root, env, home }
   }
 
