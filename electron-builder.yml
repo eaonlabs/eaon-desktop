@@ -15,6 +15,9 @@ files:
   - out/main/**
   - out/preload/**
   - out/renderer/**
+  # The worker host app, which the desktop sends to a worker computer (scripts/build-host.mjs).
+  - out/host/eaon-host.tgz
+  - out/host/eaon-host.json
   - package.json
   # BetterWright's optional extras that Eaon doesn't use: browser-cookie
   # import (a per-arch native module, which would also trip the universal

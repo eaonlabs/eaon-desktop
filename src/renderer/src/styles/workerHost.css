@@ -1,0 +1,158 @@
+/* Settings → Worker computer, and the Workers tab's "Running on …" row. */
+
+.wh-intro {
+  margin: -6px 0 18px;
+  max-width: 62ch;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  color: var(--text-2);
+}
+
+.wh-hint {
+  margin: 0;
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+  color: var(--text-3);
+}
+
+.wh-footnote {
+  margin: 8px 2px 0;
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+  color: var(--text-3);
+}
+
+.wh-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px 12px;
+  width: 100%;
+  margin-top: 10px;
+}
+.wh-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+}
+
+.wh-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+.wh-actions .btn,
+.wh-command .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.wh-command {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 10px 0 8px;
+}
+.wh-command code {
+  flex: 1;
+  min-width: 0;
+  padding: 9px 11px;
+  border-radius: var(--r-sm);
+  background: var(--sunken);
+  border: 1px solid var(--border);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  overflow-x: auto;
+  white-space: nowrap;
+  user-select: all;
+}
+
+.wh-log {
+  width: 100%;
+  max-height: 180px;
+  margin: 0;
+  padding: 8px 10px 8px 28px;
+  overflow-y: auto;
+  border-radius: var(--r-sm);
+  background: var(--sunken);
+  font-size: var(--fs-xs);
+  line-height: 1.6;
+  color: var(--text-2);
+}
+.wh-log li[data-error] {
+  color: var(--danger);
+}
+.wh-log li[data-done] {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.wh-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.wh-status {
+  --wh-tone: var(--text-3);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  color: var(--text-2);
+}
+.wh-status[data-tone='ok'] {
+  --wh-tone: #30a46c;
+}
+.wh-status[data-tone='wait'] {
+  --wh-tone: #d18b0f;
+}
+.wh-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--wh-tone);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--wh-tone), transparent 82%);
+}
+.wh-status[data-tone='wait'] .wh-dot {
+  animation: wh-pulse 1.2s ease-in-out infinite;
+}
+@keyframes wh-pulse {
+  50% {
+    opacity: 0.35;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wh-status[data-tone='wait'] .wh-dot {
+    animation: none;
+  }
+}
+
+.wh-moving {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+
+.wh-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font-size: var(--fs-sm);
+}
+
+/* The Workers sidebar: where they run. */
+.nav-item.wh-where {
+  color: var(--text-2);
+}
+.nav-item.wh-where .wh-dot {
+  margin: 0 4px;
+}

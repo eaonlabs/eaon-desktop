@@ -1,5 +1,5 @@
 {
-  "include": ["cli/src/**/*", "src/main/**/*", "src/shared/**/*"],
+  "include": ["cli/src/**/*", "src/host/**/*", "src/main/**/*", "src/shared/**/*"],
   "compilerOptions": {
     "composite": true,
     "module": "ESNext",

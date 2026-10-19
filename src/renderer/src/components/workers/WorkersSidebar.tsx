@@ -1,10 +1,12 @@
+import { useEffect, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { AtSign, Clock3, Loader2, MessagesSquare, Plus, Settings as SettingsIcon, Users, UsersRound } from 'lucide-react'
+import { AtSign, Clock3, HardDrive, Loader2, MessagesSquare, Plus, Settings as SettingsIcon, Users, UsersRound } from 'lucide-react'
 import { useApp } from '../../state/store'
 import { NavItem } from '../Sidebar'
 import { useWorkers } from './workersStore'
 import { WorkerFace } from './WorkerFace'
 import { MAX_WORKERS, describeWorker, workerMood, type Worker } from '@shared/workers'
+import type { WorkerHostState } from '@shared/workerHost'
 
 const ICON = { size: 16, strokeWidth: 1.9 } as const
 
@@ -68,6 +70,7 @@ export function WorkersNav(): JSX.Element {
         onClick={() => setView('plugins')}
       />
       <NavItem icon={<SettingsIcon {...ICON} />} label="Settings" onClick={() => setSettingsPage('general')} />
+      <WorkerHostRow onOpen={() => setSettingsPage('worker-computer')} />
 
       {(rooms.length > 0 || workers.length > 1) && (
         <>
@@ -151,6 +154,34 @@ export function WorkersNav(): JSX.Element {
         })
       )}
     </>
+  )
+}
+
+/** Where the workers run, while that's a linked worker computer: its name, and whether it's reachable. */
+function WorkerHostRow({ onOpen }: { onOpen: () => void }): JSX.Element | null {
+  const [state, setState] = useState<WorkerHostState | null>(null)
+  useEffect(() => {
+    void window.api.workerHost.state().then(setState)
+    return window.api.workerHost.onState(setState)
+  }, [])
+  if (!state?.host || !state.enabled) return null
+  const tone = state.connection === 'connected' ? 'ok' : state.connection === 'offline' ? 'off' : 'wait'
+  const title =
+    state.connection === 'connected'
+      ? `Your workers run on ${state.host.name}`
+      : state.connection === 'offline'
+        ? `${state.host.name} can’t be reached; showing your workers as last seen`
+        : `Connecting to ${state.host.name}`
+  return (
+    <button className="nav-item wh-where" onClick={onOpen} title={title}>
+      <span className="nav-item__icon">
+        <HardDrive {...ICON} />
+      </span>
+      <span className="nav-item__label">On {state.host.name}</span>
+      <span className="wh-status" data-tone={tone}>
+        <span className="wh-dot" aria-label={tone === 'ok' ? 'Online' : tone === 'off' ? 'Offline' : 'Connecting'} />
+      </span>
+    </button>
   )
 }
 

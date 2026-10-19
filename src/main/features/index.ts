@@ -14,6 +14,7 @@ import { adeFeature } from './ade'
 import { prReviewFeature } from './prReview'
 import { linearFeature } from './linear'
 import { workersFeature } from './workers'
+import { workerHostFeature } from './workerHost'
 import { remoteFeature } from './remote'
 import { rcFeature } from './rc'
 import { controlFeature } from './control'
@@ -61,6 +62,8 @@ export const FEATURES: Feature[] = [
   prReviewFeature,
   linearFeature,
   workersFeature,
+  // Decides where the workers run (here, or on a linked worker computer) before anything else uses them.
+  workerHostFeature,
   // Follows the workers engine, so right after it.
   remoteFeature,
   // After workers, terminals and the ADE, whose parts it serves.

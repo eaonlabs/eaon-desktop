@@ -42,7 +42,9 @@ const WORKER_GOAL_SPANS = [60, 180, 480, 720]
  * Goal belongs to the main thread only.
  */
 export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Worker; threadId?: string }): JSX.Element {
-  const { send, stop, save, workers } = useWorkers(useShallow((s) => ({ send: s.send, stop: s.stop, save: s.save, workers: s.workers })))
+  const { send, stop, save, workers, setBrowser } = useWorkers(
+    useShallow((s) => ({ send: s.send, stop: s.stop, save: s.save, workers: s.workers, setBrowser: s.setBrowser }))
+  )
   const { settings, mcpServers, saveMcpServers, setSettingsPage, setView } = useApp(
     useShallow((s) => ({
       settings: s.settings,
@@ -101,7 +103,8 @@ export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Wor
   const addFiles = (paths: string[]): void => setFiles((current) => [...new Set([...current, ...paths])].slice(0, 12))
   const pickFiles = (): void =>
     void window.api.app.openFiles({ properties: ['openFile', 'openDirectory', 'multiSelections'] }).then(addFiles)
-  const showBrowser = (): void => void window.api.workers.showBrowser(worker.id)
+  // A worker on a worker computer has its window on that computer's screen: the live view shows it here instead.
+  const showBrowser = (): void => void window.api.workers.showBrowser(worker.id).then((shown) => !shown && setBrowser(worker.id))
   const setAccess = (access: WorkerAccess): void => {
     if (access === worker.access) return
     void save({ id: worker.id, name: worker.name, color: worker.color, personality: worker.personality, purpose: worker.purpose, access })
