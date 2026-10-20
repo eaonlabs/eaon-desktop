@@ -1,0 +1,300 @@
+/* Settings → Usage & limits and the sidebar rings' cards (LimitsCard.tsx):
+   each provider's limits as bars of what's left, then its details. */
+
+.settings__title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.settings__title-row .settings__h1 {
+  margin-bottom: 0;
+}
+.limits-restore,
+.limits-head .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.limits-spin {
+  animation: limits-spin 900ms linear infinite;
+}
+@keyframes limits-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.limits-provider {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+}
+.limits-provider__mark {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r-sm);
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--border-soft);
+}
+
+.limits-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 28px 0 10px;
+}
+.limits-head .settings__section-label {
+  margin: 0;
+}
+.limits-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.limits-card {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+  animation: tool-in 240ms var(--ease) both;
+}
+.limits-card[data-flat] {
+  padding: 0;
+  border: 0;
+  background: none;
+  animation: none;
+}
+.limits-card__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.limits-card__mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-md);
+  background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--border-soft);
+}
+.limits-card__who {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.limits-card__name {
+  color: var(--text);
+  font-size: var(--fs-base);
+  font-weight: 600;
+}
+.limits-card__account {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+.limits-card__plan {
+  flex: none;
+  padding: 3px 10px;
+  border-radius: var(--r-pill);
+  background: var(--hover);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+.limits-card__limits {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.limits-card__note {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+}
+.limits-card__note > span:last-child {
+  text-align: right;
+}
+.limits-card__aside {
+  margin: -4px 0 0;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+
+.limit {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.limit__name {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text);
+  font-size: var(--fs-base);
+  font-weight: 500;
+}
+.limit__detail {
+  margin-left: auto;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+.limit__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--limit-good);
+}
+.limit__dot[data-tone='warn'] {
+  background: var(--limit-warn);
+}
+.limit__dot[data-tone='low'] {
+  background: var(--limit-low);
+}
+.limit__bar {
+  position: relative;
+  height: 8px;
+  border-radius: var(--r-pill);
+  background: var(--hover);
+}
+.limit__bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--limit-good);
+  transition: width 700ms var(--ease);
+  animation: limit-grow 800ms var(--ease) both;
+}
+.limit__bar > span[data-tone='warn'] {
+  background: var(--limit-warn);
+}
+.limit__bar > span[data-tone='low'] {
+  background: var(--limit-low);
+}
+@keyframes limit-grow {
+  from {
+    width: 0;
+  }
+}
+/* Where an even spend would have the bar by now. */
+.limit__bar > i {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 3px;
+  margin-left: -1.5px;
+  border-radius: 1px;
+  background: var(--canvas);
+  box-shadow: inset 0 0 0 1px var(--limit-good);
+}
+.limit__line {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+.limit__line--quiet {
+  margin-top: -2px;
+  color: var(--text-3);
+}
+.limit__line [data-over] {
+  color: var(--limit-warn);
+}
+
+.limits-card__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  align-self: flex-start;
+  height: 26px;
+  padding: 0 10px;
+  border-radius: var(--r-pill);
+  box-shadow: inset 0 0 0 1px var(--border);
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+}
+.limits-card__toggle:hover {
+  color: var(--text);
+}
+.limits-card__toggle svg {
+  transition: transform 200ms var(--ease);
+}
+.limits-card__toggle[aria-expanded='true'] svg {
+  transform: rotate(180deg);
+}
+.limits-card__details {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 14px;
+  border-top: 1px solid var(--border-soft);
+  animation: ide-pane-in 200ms var(--ease) both;
+}
+.limits-detail {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+}
+.limits-detail > div {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.limits-detail__label {
+  color: var(--text);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+}
+.limits-detail__sub {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.limits-detail__value {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.limits-card,
+.usage-card {
+  --limit-good: #3fb984;
+  --limit-warn: #f08c4a;
+  --limit-low: var(--danger);
+}
+[data-theme='light'] .limits-card,
+[data-theme='light'] .usage-card {
+  --limit-good: #1f9d63;
+  --limit-warn: #d0661c;
+}
+
+/* The ring's popover: the card, then refresh and the way to the page. */
+.usage-card__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-soft);
+}
+.usage-card__foot .usage-card__more {
+  margin: 0;
+}

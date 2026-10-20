@@ -446,6 +446,36 @@ export interface Settings {
     avatar: string | null
   }
   /** The ADE's usage meter for Claude Code and Codex plans (Settings → Accounts). */
+  /** Settings → Usage & limits. */
+  usageLimits: {
+    /** The providers the sidebar's rings show, in order, at most two. */
+    sidebar: string[]
+    /** Both limits as two rings, or one ring for the 5-hour or the weekly limit. */
+    ring: 'both' | '5h' | 'weekly'
+    /** A ring's card opens with its details (balances, token totals) showing. */
+    details: boolean
+    /** Codex's banked resets in the details. */
+    banked: boolean
+    /** Credit balances and recent token totals in the details. */
+    tokens: boolean
+  }
+  /** Settings → Agent providers. */
+  agentProviders: {
+    /** Coding CLIs left out of the ADE's "New terminal" picker. */
+    hidden: string[]
+    /** The picker's order, by agent id; ones not listed follow in their own order. */
+    order: string[]
+    /** Start agents' terminals at a lower CPU priority, so the computer stays quick while they work. */
+    lowPriority: boolean
+    /** Look for newer versions of installed CLIs in the background. */
+    updateChecks: boolean
+  }
+  /** Settings → Profile: how the activity profile and its share card name you. */
+  profile: {
+    name: string
+    handle: string
+    color: string
+  }
   cliUsage: {
     /** Show the plan usage meter at all. */
     meter: boolean

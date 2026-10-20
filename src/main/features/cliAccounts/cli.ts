@@ -217,7 +217,7 @@ export function codexRead(bin: string, dir: string | null): Promise<CodexAnswer>
     bin,
     ['app-server'],
     cliEnv('codex', dir),
-    (send) => send({ id: 1, method: 'initialize', params: { clientInfo: CLIENT, capabilities: null } }),
+    (send) => send({ id: 1, method: 'initialize', params: { clientInfo: CLIENT, capabilities: { experimentalApi: true } } }),
     (message, send) => {
       if (message.id === 1) {
         if (message.error) throw new Error(errorText(message.error) || 'Codex would not start')

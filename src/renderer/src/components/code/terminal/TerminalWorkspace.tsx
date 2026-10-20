@@ -43,6 +43,7 @@ import { AdeDictation } from './AdeDictation'
 import { shellQuote } from './input'
 import { isRemote } from '@shared/adeRemote'
 import { findTheme } from './themes'
+import { arrangeAgents } from '../../../lib/agentPrefs'
 import {
   DIVIDER_PX,
   MIN_COLUMN_PX,
@@ -80,6 +81,7 @@ export function TerminalWorkspace(): JSX.Element {
     }))
   )
   const appearance = useApp((s) => s.settings?.appearance)
+  const agentPrefs = useApp((s) => s.settings?.agentProviders)
   const session = useAdeSessions((s) => (cwd ? (s.sessions.find((x) => x.cwd === cwd) ?? null) : null))
   const look = useApp(useShallow((s) => ({ theme: s.settings?.ade?.theme ?? 'eaon', scenes: s.settings?.ade?.scenes ?? true })))
   const preview = useTerminals((s) => s.preview)
@@ -137,7 +139,7 @@ export function TerminalWorkspace(): JSX.Element {
         </p>
         {session && <PastConversations session={session} />}
         <div className="term-empty__agents">
-          {agents.filter(offered).map((agent) => (
+          {arrangeAgents(agents, agentPrefs).filter(offered).map((agent) => (
             <button
               key={agent.id}
               className="term-agent-card"
@@ -672,14 +674,16 @@ export function NewTerminalButton(): JSX.Element | null {
   const { agents, add, load, refreshAgents } = useTerminals(
     useShallow((s) => ({ agents: s.agents, add: s.add, load: s.load, refreshAgents: s.refreshAgents }))
   )
+  const agentPrefs = useApp((s) => s.settings?.agentProviders)
   const anchor = useRef<HTMLButtonElement>(null)
   const menu = useDisclosure()
   useEffect(() => {
     void load()
   }, [load])
   if (!cwd) return null
-  const installed = agents.filter((a) => a.installed)
-  const missing = agents.filter((a) => !a.installed && offered(a))
+  const arranged = arrangeAgents(agents, agentPrefs)
+  const installed = arranged.filter((a) => a.installed)
+  const missing = arranged.filter((a) => !a.installed && offered(a))
   return (
     <>
       <button

@@ -128,6 +128,12 @@ function eaonCodeCommand(pinned: string | null, kind: ShellKind): string | null 
   return onPath('eaon-code') ? 'eaon-code' : null
 }
 
+/** Every agent the ADE knows, with the command it runs as, for Settings → Agent providers. */
+export function terminalAgentList(): (TerminalAgent & { bin: string | null })[] {
+  const bins = new Map(AGENTS.map((a) => [a.id, a.bin]))
+  return agents().map((a) => ({ ...a, bin: bins.get(a.id) ?? null }))
+}
+
 function agents(): TerminalAgent[] {
   const eaonBinary = store.getSettings().eaonCode.binaryPath
   const copy = eaonBinary ? null : findInstallerCopy()

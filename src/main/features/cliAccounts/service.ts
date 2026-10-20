@@ -281,7 +281,7 @@ export class CliAccounts {
       return
     }
     const usage = codexUsage(answer.limits)
-    this.saved.usage[key] = { ok: true, at, plan: usage.plan ?? who.plan, windows: usage.windows }
+    this.saved.usage[key] = { ok: true, at, plan: usage.plan ?? who.plan, windows: usage.windows, ...(usage.banked ? { banked: usage.banked } : {}) }
   }
 
   /** Keeps what the CLI says about who an account is. */

@@ -191,6 +191,24 @@ export const defaultSettings: Settings = {
     login: null,
     avatar: null
   },
+  usageLimits: {
+    sidebar: ['codex', 'claude'],
+    ring: 'both',
+    details: false,
+    banked: true,
+    tokens: true
+  },
+  agentProviders: {
+    hidden: [],
+    order: [],
+    lowPriority: false,
+    updateChecks: true
+  },
+  profile: {
+    name: '',
+    handle: '',
+    color: '#5bbf6a'
+  },
   cliUsage: {
     meter: true,
     view: 'detailed',
