@@ -1,19 +1,25 @@
 import { app } from 'electron'
 import { join } from 'node:path'
-import type { ChannelKind, ChannelLevel, ChannelLinkPatch } from '@shared/channels'
+import type { ChannelKind, ChannelLevel, ChannelLink, ChannelLinkPatch } from '@shared/channels'
 import { registerToolSource } from '../agent/tools'
 import { secrets } from '../secrets'
 import { store } from '../store'
 import { DiscordConnector, verifyDiscordToken } from './channels/discord'
+import { MatrixConnector, verifyMatrixCredentials } from './channels/matrix'
+import { MattermostConnector, verifyMattermostCredentials } from './channels/mattermost'
+import { SlackConnector, verifySlackCredentials } from './channels/slack'
+import { ZulipConnector, verifyZulipCredentials } from './channels/zulip'
 import { ChannelsService } from './channels/service'
 import { TelegramConnector, verifyTelegramToken } from './channels/telegram'
 import { channelsToolSource } from './channels/tools'
+import type { Connector, ConnectorEvents } from './channels/types'
 import { WhatsAppConnector } from './channels/whatsapp'
 import type { Feature } from './types'
 import { workersService } from './workers'
 
 /**
- * Chat apps: a worker answering in Discord, Telegram and WhatsApp, controlled
+ * Chat apps: a worker answering in Discord, Telegram, WhatsApp, Slack,
+ * Matrix, Mattermost and Zulip, controlled
  * by the user from their phone and open to the friends and groups they let
  * in. The service (`channels/service.ts`) decides who may say what; the
  * connectors speak each app's protocol. Built on the workers engine, so it
@@ -30,6 +36,43 @@ let startTimer: ReturnType<typeof setTimeout> | null = null
 
 const tokenKey = (id: string): string => `channel:${id}`
 
+/** Checks what Settings sent for a bot app: a token, or (for the apps that need more) its credentials as JSON. */
+function verify(kind: Exclude<ChannelKind, 'whatsapp'>, token: string): Promise<{ account: string; id: string; token?: string }> {
+  switch (kind) {
+    case 'discord':
+      return verifyDiscordToken(token)
+    case 'telegram':
+      return verifyTelegramToken(token)
+    case 'slack':
+      return verifySlackCredentials(token)
+    case 'matrix':
+      return verifyMatrixCredentials(token)
+    case 'mattermost':
+      return verifyMattermostCredentials(token)
+    case 'zulip':
+      return verifyZulipCredentials(token)
+  }
+}
+
+function connectorFor(link: ChannelLink, token: string | null, events: ConnectorEvents): Connector {
+  switch (link.kind) {
+    case 'discord':
+      return new DiscordConnector(token ?? '', events)
+    case 'telegram':
+      return new TelegramConnector(token ?? '', events)
+    case 'whatsapp':
+      return new WhatsAppConnector(join(app.getPath('userData'), 'channels', `whatsapp-${link.id}`), events)
+    case 'slack':
+      return new SlackConnector(token ?? '', events)
+    case 'matrix':
+      return new MatrixConnector(token ?? '', events)
+    case 'mattermost':
+      return new MattermostConnector(token ?? '', events)
+    case 'zulip':
+      return new ZulipConnector(token ?? '', events)
+  }
+}
+
 export const channelsFeature: Feature = {
   id: 'channels',
   register: (ctx) => {
@@ -44,13 +87,8 @@ export const channelsFeature: Feature = {
       saveLinks: (links) => store.setJson(LINKS_FILE, links),
       getToken: (id) => secrets.get(tokenKey(id)),
       setToken: (id, token) => secrets.set(tokenKey(id), token ?? ''),
-      verifyToken: (kind, token) => (kind === 'discord' ? verifyDiscordToken(token) : verifyTelegramToken(token)),
-      createConnector: (link, token, events) =>
-        link.kind === 'discord'
-          ? new DiscordConnector(token ?? '', events)
-          : link.kind === 'telegram'
-            ? new TelegramConnector(token ?? '', events)
-            : new WhatsAppConnector(join(app.getPath('userData'), 'channels', `whatsapp-${link.id}`), events),
+      verifyToken: verify,
+      createConnector: connectorFor,
       onChange: (links) => ctx.send('channels:changed', links),
       onStatus: (statuses) => ctx.send('channels:status', statuses)
     })

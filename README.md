@@ -131,8 +131,8 @@ others, or a plain shell.
   the agents' browsers live, and share a terminal with a link that expires.
 - **Local models**: a curated model library, plus Ollama, LM Studio,
   llama.cpp, MLX, vLLM and Jan, found automatically.
-- **Chat apps and email**: talk to Eaon and your Workers from Discord, Telegram
-  or WhatsApp, and let them read and answer email.
+- **Chat apps and email**: talk to Eaon and your Workers from Discord, Telegram,
+  WhatsApp, Slack, Matrix, Mattermost or Zulip, and let them read and answer email.
 - **Enterprise controls**: a managed policy (MDM or GPO) and an audit log. See
   [docs/enterprise.md](docs/enterprise.md).
 

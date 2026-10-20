@@ -74,6 +74,10 @@ function loadForWrite(): Vault {
   return {}
 }
 
+/** Counts writes, so what caches a key (a sign-in's tokens) can tell it changed underneath. */
+let version = 0
+const listeners = new Set<() => void>()
+
 function persist(vault: Vault): void {
   const dir = app.getPath('userData')
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true, mode: 0o700 })
@@ -90,6 +94,14 @@ function persist(vault: Vault): void {
   // out an antivirus or indexer that briefly holds keys.dat open on Windows.
   writeFileDurable(tmp, payload)
   renameRetryingLocked(tmp, vaultPath())
+  version++
+  for (const listener of listeners) {
+    try {
+      listener()
+    } catch (error) {
+      console.error('[secrets] a change listener failed:', error)
+    }
+  }
 }
 
 export const secrets = {
@@ -133,6 +145,15 @@ export const secrets = {
       else delete vault[id]
     }
     persist(vault)
+  },
+  /** Goes up with every write: a cache of a key is stale once this moved. */
+  version(): number {
+    return version
+  },
+  /** Called after every write (a worker computer's sync, a sign-in refreshing). */
+  onChange(listener: () => void): () => void {
+    listeners.add(listener)
+    return () => listeners.delete(listener)
   },
   /** Last 4 characters, for the "sk-…abcd" hint shown next to a saved key. */
   hint(providerId: string): string | null {

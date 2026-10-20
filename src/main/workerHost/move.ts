@@ -71,10 +71,16 @@ export function writeSnapshot(store: StoreLike, snapshot: WorkersSnapshot): void
   store.setJson(WORKERS_FILE, snapshot.workers)
 }
 
-/** Replaces every string that starts with (or mentions) `from` with `to`, anywhere in a JSON value. */
+/**
+ * Replaces the folder `from` with `to` wherever a string names it or a path
+ * inside it, anywhere in a JSON value. Only where the path ends there:
+ * `…/Workers/Nova` is not the start of `…/Workers/Nova2`.
+ */
 export function rewritePaths<T>(value: T, from: string, to: string): T {
   if (!from || from === to) return value
-  const swap = (text: string): string => (text.includes(from) ? text.split(from).join(to) : text)
+  // Not where the name goes on (a letter, digit, - or _): that's another folder.
+  const pattern = new RegExp(`${from.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?![\\p{L}\\p{N}_-])`, 'gu')
+  const swap = (text: string): string => (text.includes(from) ? text.replace(pattern, () => to) : text)
   const walk = (node: unknown): unknown => {
     if (typeof node === 'string') return swap(node)
     if (Array.isArray(node)) return node.map(walk)

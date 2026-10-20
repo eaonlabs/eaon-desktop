@@ -3,6 +3,21 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [Unreleased]
+
+### Added
+- **Four more chat apps.** Workers can now answer in Slack (Socket Mode, set
+  up from a ready-made app manifest), Matrix (Element and every other Matrix
+  app), Mattermost and Zulip, alongside Discord, Telegram and WhatsApp. None
+  needs a public address. Where an app keeps `/` for its own commands, Eaon's
+  are written `!pair`, `!help`, `!allow`.
+
+### Fixed
+- **Worker computer.** A sign-in shared by both computers no longer breaks
+  when one of them refreshes it; a computer linked with a command can be
+  reinstalled without unlinking; the Workers tab keeps working while the
+  worker computer is briefly away; low disk space on it is shown.
+
 ## [2026.7.0-beta.2.2] — 2026-10-18
 
 ### Added

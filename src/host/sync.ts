@@ -1,4 +1,5 @@
 import type { McpServer, Settings } from '@shared/types'
+import { credentialExpiry } from '@shared/workerHost'
 import { secrets } from '@main/secrets'
 import { store } from '@main/store'
 import type { SyncPayload } from './host'
@@ -34,16 +35,26 @@ export function pickSettings(settings: Record<string, unknown>): Partial<Setting
 }
 
 export function applySync(payload: SyncPayload): void {
-  const incoming = payload.secrets && typeof payload.secrets === 'object' ? payload.secrets : {}
-  // The desktop's vault, exactly: a key removed there is removed here too.
-  const removed = Object.fromEntries(Object.keys(secrets.entries()).filter((id) => !(id in incoming)).map((id) => [id, '']))
-  secrets.setMany({ ...removed, ...incoming })
+  const sent = payload.secrets && typeof payload.secrets === 'object' ? payload.secrets : {}
+  const incoming = { ...sent }
+  const own = secrets.entries()
+  // A sign-in this computer refreshed since is newer than the desktop's copy, whose
+  // refresh token no longer works: it stays (and goes back to the desktop, host:tokens).
+  for (const [id, value] of Object.entries(incoming)) {
+    const mine = credentialExpiry(own[id])
+    const theirs = credentialExpiry(value)
+    if (mine !== null && theirs !== null && mine > theirs) delete incoming[id]
+  }
+  // The desktop's vault otherwise, exactly: a key removed there is removed here too.
+  const removed = Object.fromEntries(Object.keys(own).filter((id) => !(id in sent)).map((id) => [id, '']))
+  const changes = Object.fromEntries(Object.entries({ ...removed, ...incoming }).filter(([id, value]) => (own[id] ?? '') !== value))
+  if (Object.keys(changes).length > 0) secrets.setMany(changes)
   if (payload.providers && typeof payload.providers === 'object') store.saveProviderConfig(payload.providers)
   if (payload.settings && typeof payload.settings === 'object') store.patchSettings(pickSettings(payload.settings))
   if (Array.isArray(payload.mcpServers)) {
     // The built-in servers are this computer's own (Filesystem points at its home folder).
-    const own = store.getMcpServers().filter((server) => server.official)
+    const builtIn = store.getMcpServers().filter((server) => server.official)
     const incomingServers = (payload.mcpServers as McpServer[]).filter((server) => server && typeof server.id === 'string' && !server.official)
-    store.saveMcpServers([...own, ...incomingServers])
+    store.saveMcpServers([...builtIn, ...incomingServers])
   }
 }

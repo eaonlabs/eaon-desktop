@@ -109,7 +109,12 @@ writeFileSync(join(pkgDir, 'host-build.json'), `${JSON.stringify({ build: buildI
 const tgz = join(out, 'eaon-host.tgz')
 // No macOS extended attributes in the archive: GNU tar on the host warns about every one.
 // Relative paths, run from out/host: GNU tar (Git Bash on Windows) reads "C:" in a path as a remote host.
-execFileSync('tar', ['-czf', 'eaon-host.tgz', '-C', 'pkg', 'eaon-host'], { cwd: out, env: { ...process.env, COPYFILE_DISABLE: '1' } })
+// COPYFILE_DISABLE drops the ._ files; com.apple.provenance (macOS 13+) needs --no-xattrs too.
+const bsdtar = process.platform === 'darwin' || /bsdtar/.test(execFileSync('tar', ['--version'], { encoding: 'utf8' }))
+execFileSync('tar', [...(bsdtar ? ['--no-xattrs', '--no-mac-metadata'] : []), '-czf', 'eaon-host.tgz', '-C', 'pkg', 'eaon-host'], {
+  cwd: out,
+  env: { ...process.env, COPYFILE_DISABLE: '1' }
+})
 const sha256 = createHash('sha256').update(readFileSync(tgz)).digest('hex')
 writeFileSync(join(out, 'eaon-host.json'), `${JSON.stringify({ build: buildId, electron: electronVersion, appVersion: appPkg.version, sha256, size: statSync(tgz).size }, null, 2)}\n`)
 rmSync(join(out, 'pkg'), { recursive: true, force: true })

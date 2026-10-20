@@ -12,8 +12,8 @@ export const workerHostApi = {
   installSsh: (request: SshInstallRequest): Promise<WorkerHostState> => ipcRenderer.invoke('worker-host:install-ssh', request),
   /** Installs the host app again over SSH with the same link (a computer linked over SSH). */
   reinstall: (password?: string): Promise<WorkerHostState> => ipcRenderer.invoke('worker-host:reinstall', password),
-  /** Serves a one-line install for the other computer; it links when that finishes. */
-  pairStart: (): Promise<HostPairing> => ipcRenderer.invoke('worker-host:pair-start'),
+  /** Serves a one-line install for the other computer; it links when that finishes. `reinstall`: for the linked one, keeping its link and workers. */
+  pairStart: (options?: { reinstall?: boolean }): Promise<HostPairing> => ipcRenderer.invoke('worker-host:pair-start', options),
   pairCancel: (): Promise<void> => ipcRenderer.invoke('worker-host:pair-cancel'),
   /** Moves the workers to the linked computer (true) or back here (false). `fromBackup` restores the copy kept here, for a computer that's gone. */
   setEnabled: (enabled: boolean, options?: { fromBackup?: boolean }): Promise<WorkerHostState> => ipcRenderer.invoke('worker-host:set-enabled', enabled, options),

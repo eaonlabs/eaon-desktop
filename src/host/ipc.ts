@@ -63,16 +63,45 @@ export function hasHandler(channel: string): boolean {
   return handlers.has(channel)
 }
 
-/** A sender standing for one linked desktop: what it is sent goes only to it. */
-export function senderFor(id: number, send: (channel: string, args: unknown[]) => void): FakeEvent {
+/**
+ * A sender standing for one linked desktop: what it is sent goes only to it.
+ * `destroy` is that desktop's link closing, as a window closing would be: it
+ * reads as destroyed from then on, and what a feature hung on its
+ * 'destroyed' event (a subscription, a live view) is let go.
+ */
+export function senderFor(id: number, send: (channel: string, args: unknown[]) => void): FakeEvent & { destroy: () => void } {
+  let destroyed = false
+  const onDestroyed = new Set<() => void>()
+  const listen = (event: string, fn: () => void): void => {
+    if (event !== 'destroyed') return
+    if (destroyed) queueMicrotask(fn)
+    else onDestroyed.add(fn)
+  }
   return {
     sender: {
       id,
-      send: (channel, ...args) => send(channel, args),
-      isDestroyed: () => false,
-      once: () => {},
-      on: () => {},
-      removeListener: () => {}
+      send: (channel, ...args) => {
+        if (!destroyed) send(channel, args)
+      },
+      isDestroyed: () => destroyed,
+      once: listen,
+      on: listen,
+      removeListener: (event, fn) => {
+        if (event === 'destroyed') onDestroyed.delete(fn)
+      }
+    },
+    destroy: () => {
+      if (destroyed) return
+      destroyed = true
+      const fns = [...onDestroyed]
+      onDestroyed.clear()
+      for (const fn of fns) {
+        try {
+          fn()
+        } catch (error) {
+          console.error('[host] a destroyed listener failed:', error)
+        }
+      }
     }
   }
 }

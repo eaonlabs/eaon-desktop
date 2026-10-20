@@ -37,10 +37,11 @@ export function jwtClaims(token: string | undefined): Record<string, unknown> | 
  */
 export function tokenStore<T>(flowId: string): { get(): T | null; set(value: T | null): void } {
   const key = `oauth::${flowId}`
-  let cache: { value: T | null } | null = null
+  // Read again once the vault changed: a linked worker computer may have refreshed these tokens.
+  let cache: { value: T | null; version: number } | null = null
   return {
     get() {
-      if (!cache) {
+      if (!cache || cache.version !== secrets.version()) {
         const raw = secrets.get(key)
         let value: T | null = null
         try {
@@ -48,13 +49,13 @@ export function tokenStore<T>(flowId: string): { get(): T | null; set(value: T |
         } catch {
           value = null
         }
-        cache = { value }
+        cache = { value, version: secrets.version() }
       }
       return cache.value
     },
     set(value) {
-      cache = { value }
       secrets.set(key, value ? JSON.stringify(value) : '')
+      cache = { value, version: secrets.version() }
     }
   }
 }

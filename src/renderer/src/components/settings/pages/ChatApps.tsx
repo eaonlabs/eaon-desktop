@@ -2,7 +2,9 @@ import { useEffect, useMemo, useRef, useState, type JSX, type ReactNode } from '
 import QRCode from 'qrcode'
 import { Check, Copy, ExternalLink, Plus, Trash2, TriangleAlert, UserRound, UsersRound, X } from 'lucide-react'
 import {
+  CHANNEL_GROUP_WORD,
   CHANNEL_LABEL,
+  COMMAND_PREFIX,
   GUEST_ACCESS,
   discordInviteUrl,
   type ChannelKind,
@@ -20,10 +22,11 @@ import { useShallow } from 'zustand/react/shallow'
 import { useApp } from '../../../state/store'
 import { CLIPBOARD_FAILED, copyText } from '../../../lib/clipboard'
 import { notify } from '../../Notice'
+import { pairingHint, TokenSetup } from './ChatAppSetup'
 
 /**
- * Settings → Chat apps: connect a worker to a Discord bot, a Telegram bot or
- * a WhatsApp account, pair your own account with it, and decide who else may
+ * Settings → Chat apps: connect a worker to a bot in Discord, Telegram, Slack,
+ * Matrix, Mattermost or Zulip, or to a WhatsApp account; pair your own account with it, and decide who else may
  * talk to it and how much they may make it do. Main owns the connections
  * (features/channels); this page shows them and sends commands.
  */
@@ -31,7 +34,11 @@ import { notify } from '../../Notice'
 const APPS: { kind: ChannelKind; blurb: string }[] = [
   { kind: 'discord', blurb: 'A bot in your servers and DMs' },
   { kind: 'telegram', blurb: 'A bot to message, alone or in groups' },
-  { kind: 'whatsapp', blurb: 'Your number, linked like WhatsApp Web' }
+  { kind: 'whatsapp', blurb: 'Your number, linked like WhatsApp Web' },
+  { kind: 'slack', blurb: 'An app in your workspace’s channels and DMs' },
+  { kind: 'matrix', blurb: 'An account in Element and other Matrix apps' },
+  { kind: 'mattermost', blurb: 'A bot account on your Mattermost server' },
+  { kind: 'zulip', blurb: 'A bot in your Zulip channels and DMs' }
 ]
 
 const errorText = (error: unknown): string =>
@@ -69,7 +76,7 @@ export function ChatAppsPage(): JSX.Element {
     <>
       <h1 className="settings__h1">Chat apps</h1>
       <p className="settings__lede">
-        Talk to your workers from Discord, Telegram and WhatsApp, and let friends and groups talk to them too. Each connection
+        Talk to your workers from Discord, Telegram, WhatsApp, Slack, Matrix, Mattermost and Zulip, and let friends and groups talk to them too. Each connection
         speaks for one worker, and you decide how much anyone else can make it do.
       </p>
 
@@ -123,7 +130,7 @@ function audience(link: ChannelLink): string {
   if (!link.owner) return link.kind === 'whatsapp' ? 'Not linked yet' : link.account ? 'Waiting for you to pair your account' : 'Not set up yet'
   const people = link.people.length
   const chats = link.chats.length
-  const groupWord = link.kind === 'discord' ? 'channel' : 'group'
+  const groupWord = CHANNEL_GROUP_WORD[link.kind]
   const parts = [
     people ? `${people} ${people === 1 ? 'person' : 'people'}` : '',
     chats ? `${chats} ${groupWord}${chats === 1 ? '' : 's'}` : ''
@@ -209,7 +216,9 @@ function LinkSection({ link, status, autoFocus }: { link: ChannelLink; status: C
           />
         </Row>
 
-        {link.kind !== 'whatsapp' && (!link.account || status?.needsToken) && <TokenSetup link={link} autoFocus={autoFocus} onDone={put} />}
+        {link.kind !== 'whatsapp' && (!link.account || status?.needsToken) && (
+          <TokenSetup link={link} workerName={worker?.name ?? 'Eaon worker'} autoFocus={autoFocus} onDone={put} />
+        )}
         {link.kind === 'whatsapp' && <WhatsAppSetup link={link} status={status} onChange={update} />}
         {link.kind !== 'whatsapp' && link.account && <Pairing link={link} run={run} />}
         {link.kind === 'discord' && link.appId && (
@@ -259,102 +268,6 @@ function LinkSection({ link, status, autoFocus }: { link: ChannelLink; status: C
   )
 }
 
-/* ------------------------------------------------------------ bot tokens */
-
-function TokenSetup({ link, autoFocus, onDone }: { link: ChannelLink; autoFocus: boolean; onDone: (link: ChannelLink) => void }): JSX.Element {
-  const [token, setToken] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const discord = link.kind === 'discord'
-
-  const submit = async (): Promise<void> => {
-    if (!token.trim() || busy) return
-    setBusy(true)
-    setError(null)
-    try {
-      onDone(await window.api.channels.setToken(link.id, token))
-      setToken('')
-    } catch (e) {
-      setError(errorText(e))
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <div className="row row--stack">
-      <div className="row__body">
-        <div className="row__title">Make a bot</div>
-        <div className="row__desc">Eaon runs the bot from this computer. It only works while Eaon is open.</div>
-      </div>
-      <ol className="bx-steps">
-        {discord ? (
-          <>
-            <li>
-              <span>Open the Discord Developer Portal and create a New Application — its name is the bot’s name.</span>
-              <button className="btn btn--sm" onClick={() => void window.api.app.openExternal('https://discord.com/developers/applications')}>
-                <ExternalLink size={13} strokeWidth={1.9} />
-                Developer Portal
-              </button>
-            </li>
-            <li>
-              <span>
-                On the <strong>Bot</strong> page, click <strong>Reset Token</strong> and copy it. To have it read every message in a channel,
-                not just mentions, also turn on <strong>Message Content Intent</strong> there.
-              </span>
-            </li>
-            <li>
-              <span>Paste the token here.</span>
-            </li>
-          </>
-        ) : (
-          <>
-            <li>
-              <span>
-                In Telegram, open <strong>@BotFather</strong> and send <code>/newbot</code>.
-              </span>
-              <button className="btn btn--sm" onClick={() => void window.api.app.openExternal('https://t.me/BotFather')}>
-                <ExternalLink size={13} strokeWidth={1.9} />
-                Open BotFather
-              </button>
-            </li>
-            <li>
-              <span>Pick a name and a username ending in “bot”.</span>
-            </li>
-            <li>
-              <span>Paste the token BotFather sends you here.</span>
-            </li>
-          </>
-        )}
-      </ol>
-      <form
-        className="ch-token"
-        onSubmit={(e) => {
-          e.preventDefault()
-          void submit()
-        }}
-      >
-        <input
-          className="input"
-          type="password"
-          autoFocus={autoFocus}
-          spellCheck={false}
-          autoComplete="off"
-          placeholder={discord ? 'Bot token' : '123456789:ABC…'}
-          aria-label={`${CHANNEL_LABEL[link.kind]} bot token`}
-          value={token}
-          onChange={(e) => setToken(e.target.value)}
-        />
-        <button className="btn btn--primary" type="submit" disabled={!token.trim() || busy}>
-          {busy ? 'Checking…' : 'Connect'}
-        </button>
-      </form>
-      {error && <p className="ch-error">{error}</p>}
-      <p className="ch-note">The token is stored in your system keychain and never leaves this computer except to talk to {CHANNEL_LABEL[link.kind]}.</p>
-    </div>
-  )
-}
-
 /* --------------------------------------------------------------- pairing */
 
 function Pairing({ link, run }: { link: ChannelLink; run: (work: () => Promise<ChannelLink | void>) => Promise<void> }): JSX.Element {
@@ -373,7 +286,7 @@ function Pairing({ link, run }: { link: ChannelLink; run: (work: () => Promise<C
   }
   const username = link.kind === 'telegram' && link.account?.startsWith('@') ? link.account.slice(1) : null
   const copy = (): void => {
-    void copyText(`/pair ${link.pairCode}`).then((ok) => {
+    void copyText(`${COMMAND_PREFIX[link.kind]}pair ${link.pairCode}`).then((ok) => {
       if (!ok) return notify(CLIPBOARD_FAILED, 'error')
       setCopied(true)
       window.clearTimeout(timer.current)
@@ -384,17 +297,13 @@ function Pairing({ link, run }: { link: ChannelLink; run: (work: () => Promise<C
     <div className="row bx-pair">
       <div className="row__body">
         <div className="row__title">Pair your account</div>
-        <div className="row__desc">
-          {link.kind === 'telegram'
-            ? 'Open the bot in Telegram and tap Start, or send it the code. That makes you its owner.'
-            : 'Invite the bot to a server you’re in, then send it a direct message with the code. That makes you its owner.'}
-        </div>
+        <div className="row__desc">{pairingHint(link)}</div>
       </div>
       <div className="row__trail">
         <span className="bx-code" aria-label="Pairing code">
           {link.pairCode}
         </span>
-        <button className="icon-btn" aria-label="Copy the pairing message" title="Copy “/pair code”" onClick={copy}>
+        <button className="icon-btn" aria-label="Copy the pairing message" title={`Copy “${COMMAND_PREFIX[link.kind]}pair code”`} onClick={copy}>
           {copied ? <Check size={15} strokeWidth={2} /> : <Copy size={15} strokeWidth={1.9} />}
         </button>
         {username && (
@@ -562,7 +471,8 @@ function Access({
 }): JSX.Element {
   const put = useChannels((s) => s.put)
   const guest = GUEST_ACCESS.find((g) => g.id === link.guestAccess) ?? GUEST_ACCESS[0]
-  const groupWord = link.kind === 'discord' ? 'channels' : 'groups'
+  const groupWord = `${CHANNEL_GROUP_WORD[link.kind]}s`
+  const prefix = COMMAND_PREFIX[link.kind]
   const personalWhatsApp = link.kind === 'whatsapp' && link.whatsappMode === 'personal'
 
   return (
@@ -580,7 +490,7 @@ function Access({
                     {request.name}
                   </span>
                 }
-                description={`“${request.preview}”${request.kind === 'chat' ? ` — lets everyone in this ${link.kind === 'discord' ? 'channel' : 'group'} talk to it` : ''}`}
+                description={`“${request.preview}”${request.kind === 'chat' ? ` — lets everyone in this ${CHANNEL_GROUP_WORD[link.kind]} talk to it` : ''}`}
               >
                 <button className="btn btn--sm btn--ghost" onClick={() => void run(() => window.api.channels.dismiss(link.id, request.code))}>
                   Ignore
@@ -601,7 +511,7 @@ function Access({
             <div className="row__desc">
               {personalWhatsApp
                 ? 'People who start a message with the worker’s name show up above for you to allow. Everyone you let in talks to the same worker you do, and it remembers your conversations, so give a group its own worker if that matters.'
-                : `People who message the bot, and ${groupWord} where someone mentions it, show up above for you to allow — or send /allow and their code from your own account. Everyone you let in talks to the same worker you do, and it remembers your conversations, so give a group its own worker if that matters.`}
+                : `People who message the bot, and ${groupWord} where someone mentions it, show up above for you to allow — or send ${prefix}allow and their code from your own account. Everyone you let in talks to the same worker you do, and it remembers your conversations, so give a group its own worker if that matters.`}
             </div>
           </div>
           {link.people.map((person) => (
@@ -689,7 +599,7 @@ function Access({
               description="Telegram bots only see group messages meant for them. In @BotFather, send /setprivacy, pick this bot, choose Disable, then remove the bot from the group and add it again."
             />
           )}
-          <Row title="Send you its questions and alerts" description={`When it asks you something or has news, it tells you here too — reply with /answer, /approve or /decline.`}>
+          <Row title="Send you its questions and alerts" description={`When it asks you something or has news, it tells you here too — reply with ${prefix}answer, ${prefix}approve or ${prefix}decline.`}>
             <Switch label="Send you its questions and alerts" checked={link.forwardAlerts} onChange={(forwardAlerts) => void update({ forwardAlerts })} />
           </Row>
         </Card>

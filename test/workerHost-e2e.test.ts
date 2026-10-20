@@ -209,6 +209,20 @@ test('a worker moves to the worker computer, works there, survives the host rest
   // And the host runs none.
   await until(async () => (await state()).hello?.workers === 0 || ((await feature.link.call<{ workers: number }>('hello')).workers === 0), 10_000, 'the host to let go')
 
+  // A sign-in the host refreshed while this computer was away: this one's copy is spent, so it takes the host's.
+  const signIn = (refresh: string, expires: number): string => JSON.stringify({ access: `a-${refresh}`, refresh, expires })
+  secrets.set('oauth::openai-codex', signIn('r1', 1000))
+  await call('worker-host:sync')
+  const vaultFile = join(hostAppHome, 'data', 'keys.dat')
+  const hostVault2 = JSON.parse(readFileSync(vaultFile, 'utf8')) as Record<string, string>
+  assert.equal(JSON.parse(hostVault2['oauth::openai-codex']).refresh, 'r1')
+  writeFileSync(vaultFile, JSON.stringify({ ...hostVault2, 'oauth::openai-codex': signIn('r2', 2000) }))
+  await call('worker-host:sync')
+  assert.equal(JSON.parse(secrets.get('oauth::openai-codex')!).refresh, 'r2')
+  // And the host kept its own rather than taking back the spent one.
+  assert.equal(JSON.parse((JSON.parse(readFileSync(vaultFile, 'utf8')) as Record<string, string>)['oauth::openai-codex']).refresh, 'r2')
+  secrets.clear('oauth::openai-codex')
+
   const unlinked = await call<WorkerHostState>('worker-host:unlink', { removeApp: false })
   assert.equal(unlinked.host, null)
   assert.equal(secrets.get('worker-host:secret'), undefined)
