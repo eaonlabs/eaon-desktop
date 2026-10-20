@@ -153,7 +153,10 @@ export class Account extends DurableObject<Env> {
   }
 
   private socketsOf(tag: string): WebSocket[] {
-    return this.ctx.getWebSockets(tag)
+    // Open ones only. A socket we closed stays listed until the other end
+    // answers the close, and a computer that changed networks never will: a
+    // request sent to it is lost, and the computer looks online but silent.
+    return this.ctx.getWebSockets(tag).filter((ws) => ws.readyState === 1) // OPEN
   }
 
   private online(id: string): boolean {
