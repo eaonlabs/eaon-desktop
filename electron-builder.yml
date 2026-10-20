@@ -147,6 +147,11 @@ mac:
     # The agent icon, for the Dock when it's picked in Settings (main/appIcon.ts).
     - from: resources/icon-agent.png
       to: icons/agent.png
+    # The Disc E on its other backgrounds (scripts/make-icon.py, VARIANTS).
+    - from: resources/app-icons
+      to: icons
+      filter:
+        - '*.png'
   # The signing identity is deliberately NOT hardcoded here: this repo is public,
   # and the identity string contains the certificate holder's legal name.
   # electron-builder auto-selects the "Developer ID Application" certificate for
@@ -187,6 +192,10 @@ win:
       to: icons/default.ico
     - from: resources/icon-agent.ico
       to: icons/agent.ico
+    - from: resources/app-icons
+      to: icons
+      filter:
+        - '*.ico'
   # Off because rcedit needs an Intel wine that Apple silicon Macs can't run;
   # the afterPack hook above makes the same resource edits. Turn this back on
   # (and drop the hook) once these builds are Authenticode-signed on Windows.
@@ -242,6 +251,10 @@ linux:
       to: icons/default.png
     - from: resources/icon-agent.png
       to: icons/agent.png
+    - from: resources/app-icons
+      to: icons
+      filter:
+        - '*.png'
   target:
     - AppImage
     - deb

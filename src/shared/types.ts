@@ -292,10 +292,14 @@ export interface Workspace {
 export type ThemeMode = 'system' | 'light' | 'dark'
 /**
  * The icon Eaon shows in the Dock (macOS) or on its windows and taskbar button
- * (Windows, Linux): the Disc E, or the agent face on the same tile. The Finder
- * and the installer always show the Disc E; see main/appIcon.ts.
+ * (Windows, Linux): the Disc E, the agent face on the same tile, or the Disc E
+ * on another background (scripts/make-icon.py, VARIANTS). The Finder and the
+ * installer always show the Disc E; see main/appIcon.ts.
  */
-export type AppIcon = 'default' | 'agent'
+export type AppIcon = 'default' | 'agent' | AppIconBackground
+/** The Disc E on another background than the default dark tile. */
+export type AppIconBackground = 'light' | 'ocean' | 'sunset' | 'forest' | 'grape' | 'aurora' | 'peaks'
+export const APP_ICON_BACKGROUNDS: readonly AppIconBackground[] = ['light', 'ocean', 'sunset', 'forest', 'grape', 'aurora', 'peaks']
 export type LaunchMode = 'chat' | 'workers' | 'ade' | 'last'
 /**
  * How the chat agent asks before acting. `ask`: before every change. `auto`:
