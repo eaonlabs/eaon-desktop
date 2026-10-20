@@ -1,9 +1,14 @@
 import { useEffect, useMemo, useState, type JSX } from 'react'
-import { FolderSearch, Loader2 } from 'lucide-react'
+import { Download, FolderSearch, Loader2 } from 'lucide-react'
+import { useShallow } from 'zustand/react/shallow'
 import { useApp } from '../../../state/store'
 import { useAdeSessions } from '../../code/sessionsStore'
 import { AgentMark } from '../../code/terminal/TerminalWorkspace'
-import { Card, Row, Section, Switch } from '../../ui'
+import { Card, Row, Section, Select, Switch } from '../../ui'
+import { useLocalSpeech } from './SpeechToText'
+import { isMac } from '../../../lib/platform'
+import { DEFAULT_HOLD_KEY, holdKeyAllowed, holdKeyLabel } from '@shared/holdKey'
+import { LOCAL_SPEECH_ID, LOCAL_SPEECH_MODELS, SPEECH_PROVIDERS, localSpeechModel } from '@shared/speech'
 import { useTerminals } from '../../code/terminal/terminalStore'
 import { DEFAULT_THEME_ID, TERMINAL_THEMES, type TerminalTheme } from '../../code/terminal/themes'
 import { appTheme } from '../../code/terminal/registry'
@@ -205,6 +210,7 @@ export function AdePage(): JSX.Element {
         </Card>
       </Section>
 
+      <DictationSection />
       <TerminalThemeSection />
     </>
   )
@@ -265,5 +271,115 @@ function ThemeSwatch({ theme }: { theme: TerminalTheme }): JSX.Element {
         Aa
       </span>
     </span>
+  )
+}
+
+const SAME = '__same'
+const pickValue = (providerId: string, modelId: string | null): string => `${providerId}::${modelId ?? ''}`
+
+/**
+ * Settings → ADE → Speech to text: hold a key to dictate into a terminal
+ * (code/terminal/AdeDictation.tsx), with which key and which model — the
+ * one under Model providers, a hosted one, or one that runs on this computer.
+ */
+function DictationSection(): JSX.Element {
+  const { dictation, patchSettings, providers } = useApp(useShallow((s) => ({ dictation: s.settings?.ade?.dictation, patchSettings: s.patchSettings, providers: s.providers })))
+  const enabled = dictation?.enabled ?? true
+  const key = dictation?.key || DEFAULT_HOLD_KEY
+  const providerId = dictation?.speechProviderId ?? null
+  const modelId = dictation?.speechModelId ?? null
+  const local = useLocalSpeech()
+  const [listening, setListening] = useState(false)
+  const [failed, setFailed] = useState<string | null>(null)
+
+  const save = (patch: Partial<NonNullable<typeof dictation>>): void => void patchSettings({ ade: { dictation: patch } })
+
+  // Choosing the key: the next key pressed, if it can be held without typing anything.
+  useEffect(() => {
+    if (!listening) return
+    const onKey = (e: KeyboardEvent): void => {
+      e.preventDefault()
+      e.stopImmediatePropagation()
+      if (e.code === 'Escape') return setListening(false)
+      if (!holdKeyAllowed(e.code)) return
+      save({ key: e.code })
+      setListening(false)
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [listening])
+
+  const nameOf = (id: string): string => providers.find((p) => p.id === id)?.name ?? id
+  const options = [
+    { value: SAME, label: 'Same as Model providers → Speech to text' },
+    ...LOCAL_SPEECH_MODELS.map((m) => ({ value: pickValue(LOCAL_SPEECH_ID, m.id), label: `On this computer — ${m.label}` })),
+    ...SPEECH_PROVIDERS.filter((sp) => providers.some((p) => p.id === sp.providerId)).flatMap((sp) =>
+      sp.models.map((m) => ({ value: pickValue(sp.providerId, m.id), label: `${nameOf(sp.providerId)} — ${m.label}` }))
+    )
+  ]
+  const value = providerId ? pickValue(providerId, modelId) : SAME
+  const isLocal = providerId === LOCAL_SPEECH_ID
+  const model = isLocal ? localSpeechModel(modelId) : undefined
+  const downloaded = Boolean(model && local?.downloaded.includes(model.id))
+  const downloading = model && local?.downloading?.id === model.id ? local.downloading.progress : null
+  const hosted = providerId && !isLocal ? providers.find((p) => p.id === providerId) : undefined
+  const needsKey = Boolean(hosted && !hosted.local && hosted.auth !== 'none' && !hosted.hasKey)
+
+  const download = (): void => {
+    if (!model) return
+    setFailed(null)
+    window.api.voice.localDownload(model.id).catch((e: unknown) => {
+      const message = clean(e)
+      if (!/abort/i.test(message)) setFailed(message)
+    })
+  }
+
+  return (
+    <Section label="Speech to text">
+      <Card>
+        <Row
+          title="Hold to talk"
+          description="Hold the key below in the ADE and speak. When you let go, what you said goes into the terminal you last typed in, ready for you to press Enter."
+        >
+          <Switch label="Hold to talk" checked={enabled} onChange={(on) => save({ enabled: on })} />
+        </Row>
+        <Row title="Key" description="Hold it on its own: pressed with another key it stays a shortcut. Esc while holding cancels.">
+          <button type="button" className="btn btn--sm" disabled={!enabled} onClick={() => setListening((on) => !on)} aria-live="polite">
+            {listening ? 'Press a key…' : holdKeyLabel(key, isMac)}
+          </button>
+        </Row>
+        <Row title="Model" description="Online models send the recording to that provider. Models on this computer download once and never send anything.">
+          <Select
+            value={options.some((o) => o.value === value) ? value : SAME}
+            options={options}
+            width={300}
+            onChange={(next) => {
+              setFailed(null)
+              if (next === SAME) return save({ speechProviderId: null, speechModelId: null })
+              const [pid, mid] = next.split('::')
+              save({ speechProviderId: pid, speechModelId: mid || null })
+            }}
+          />
+        </Row>
+        {isLocal && model && !downloaded && (
+          <Row
+            title={downloading !== null ? `Downloading ${model.label}… ${Math.round(downloading * 100)}%` : `${model.label} isn’t downloaded yet`}
+            description={failed ?? (local && !local.available ? 'This build of Eaon has no local speech engine for this computer.' : `${Math.round(model.bytes / 1e6)} MB, from Hugging Face. It’s checked before it’s used.`)}
+          >
+            {downloading !== null ? (
+              <button type="button" className="btn btn--sm" onClick={() => void window.api.voice.localCancel()}>
+                Stop
+              </button>
+            ) : (
+              <button type="button" className="btn btn--sm" disabled={Boolean(local && (!local.available || local.downloading))} onClick={download}>
+                <Download size={13} strokeWidth={2} />
+                Download
+              </button>
+            )}
+          </Row>
+        )}
+        {needsKey && hosted && <Row title={`${hosted.name} needs an API key`} description="Add one in Settings → Model providers, or pick a model that runs on this computer." />}
+      </Card>
+    </Section>
   )
 }

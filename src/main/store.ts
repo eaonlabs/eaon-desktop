@@ -204,7 +204,13 @@ export const defaultSettings: Settings = {
     scenes: true,
     blur: false,
     blurAmount: 10,
-    appBefore: null
+    appBefore: null,
+    dictation: {
+      enabled: true,
+      key: 'AltRight',
+      speechProviderId: null,
+      speechModelId: null
+    }
   },
   starPrompt: {
     status: 'pending',

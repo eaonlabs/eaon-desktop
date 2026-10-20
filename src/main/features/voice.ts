@@ -3,7 +3,7 @@ import { secrets } from '../secrets'
 import { store } from '../store'
 import { getProvider } from '../providers'
 import { pickTranscriber, transcribe, type SpeechChoice } from './voice/transcribe'
-import { LOCAL_SPEECH_ID, localSpeechModel } from '@shared/speech'
+import { LOCAL_SPEECH_ID, localSpeechModel, type SpeechPick } from '@shared/speech'
 import {
   cancelLocalSpeechDownload,
   deleteLocalSpeechModel,
@@ -22,10 +22,12 @@ export const voiceFeature: Feature = {
   id: 'voice',
   register: ({ ipcMain, send }) => {
     // Which provider would transcribe, so the mic button can say what's missing before recording.
-    ipcMain.handle('voice:provider', async () => {
-      const local = localChoice()
+    // `pick` is a model chosen for one place (the ADE's hold-to-talk) instead of the one in Settings.
+    ipcMain.handle('voice:provider', async (_e, pick?: unknown) => {
+      const wanted = pickOf(pick)
+      const local = localChoice(wanted)
       if (local) return (await localSpeechState()).downloaded.includes(local) ? `${localSpeechModel(local)?.label ?? 'Whisper'} on this computer` : null
-      return pickTranscriber((id) => secrets.get(id), speechChoice())?.transcriber.label ?? null
+      return pickTranscriber((id) => secrets.get(id), speechChoice(wanted))?.transcriber.label ?? null
     })
 
     // Models that run on this computer (voice/localWhisper.ts).
@@ -45,16 +47,17 @@ export const voiceFeature: Feature = {
       return (await systemPreferences.askForMediaAccess('microphone')) ? 'granted' : 'denied'
     })
 
-    ipcMain.handle('voice:transcribe', async (_e, audio: Uint8Array, mimeType: string) => {
+    ipcMain.handle('voice:transcribe', async (_e, audio: Uint8Array, mimeType: string, pick?: unknown) => {
       try {
         const bytes = audio instanceof Uint8Array ? audio : new Uint8Array(audio as ArrayBuffer)
-        const local = localChoice()
+        const wanted = pickOf(pick)
+        const local = localChoice(wanted)
         if (local) {
           if (bytes.byteLength <= 44) throw new Error('Nothing was recorded.')
           const model = localSpeechModel(local)
           return { ok: true as const, text: await transcribeLocally(bytes, local), provider: `${model?.label ?? 'Whisper'} on this computer` }
         }
-        return { ok: true as const, ...(await transcribe(bytes, String(mimeType ?? ''), { getKey: (id) => secrets.get(id), choice: speechChoice() })) }
+        return { ok: true as const, ...(await transcribe(bytes, String(mimeType ?? ''), { getKey: (id) => secrets.get(id), choice: speechChoice(wanted) })) }
       } catch (error) {
         return { ok: false as const, error: (error as Error).message }
       }
@@ -62,15 +65,29 @@ export const voiceFeature: Feature = {
   }
 }
 
+/** A model picked for one place, from the renderer: a provider id and maybe a model, or nothing. */
+function pickOf(raw: unknown): SpeechPick | null {
+  const pick = raw as Partial<SpeechPick> | null | undefined
+  if (!pick || typeof pick.providerId !== 'string' || !pick.providerId) return null
+  return { providerId: pick.providerId, modelId: typeof pick.modelId === 'string' && pick.modelId ? pick.modelId : null }
+}
+
+/** The model to use: one picked for this place, else the one in Settings → Model providers → Speech to text. */
+function selected(pick: SpeechPick | null): { speechProviderId: string | null; speechModelId: string | null } {
+  if (pick) return { speechProviderId: pick.providerId, speechModelId: pick.modelId }
+  const { speechProviderId = null, speechModelId = null } = store.getSettings().voice ?? {}
+  return { speechProviderId, speechModelId }
+}
+
 /** The local model dictation is set to, or null when it uses a hosted provider. */
-function localChoice(): string | null {
-  const { speechProviderId, speechModelId } = store.getSettings().voice ?? {}
+function localChoice(pick: SpeechPick | null = null): string | null {
+  const { speechProviderId, speechModelId } = selected(pick)
   return speechProviderId === LOCAL_SPEECH_ID ? (speechModelId ?? 'base') : null
 }
 
-/** The speech-to-text model picked in Settings → Model providers, or null to pick automatically. */
-function speechChoice(): SpeechChoice | null {
-  const { speechProviderId, speechModelId } = store.getSettings().voice ?? {}
+/** The speech-to-text model picked (for this place, or in Settings → Model providers), or null to pick automatically. */
+function speechChoice(pick: SpeechPick | null = null): SpeechChoice | null {
+  const { speechProviderId, speechModelId } = selected(pick)
   if (!speechProviderId || !speechModelId || speechProviderId === LOCAL_SPEECH_ID) return null
   const provider = getProvider(speechProviderId)
   return {

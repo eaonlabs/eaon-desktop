@@ -171,7 +171,7 @@ export function SpeechToTextDetail({ onOpenProvider }: { onOpenProvider: (id: st
 }
 
 /** The local models' state from main, following downloads as they progress. */
-function useLocalSpeech(): LocalSpeechState | null {
+export function useLocalSpeech(): LocalSpeechState | null {
   const [state, setState] = useState<LocalSpeechState | null>(null)
   useEffect(() => {
     let live = true

@@ -39,6 +39,7 @@ import { terminals, type PaneStatus } from './registry'
 import { useTerminals } from './terminalStore'
 import { type TerminalAgent, type TerminalAgentId, type TerminalPaneSpec } from '@shared/terminals'
 import { ThemePicker } from './ThemePicker'
+import { AdeDictation } from './AdeDictation'
 import { shellQuote } from './input'
 import { isRemote } from '@shared/adeRemote'
 import { findTheme } from './themes'
@@ -160,6 +161,7 @@ export function TerminalWorkspace(): JSX.Element {
     <div className="term-workspace" data-themed={theme.colors ? '' : undefined} data-glass={theme.glass || undefined} style={themed}>
       <ThemePicker />
       <TerminalGrid cwd={cwd} panes={shown} agents={agents} maximized={maximized} />
+      <AdeDictation />
     </div>
   )
 }

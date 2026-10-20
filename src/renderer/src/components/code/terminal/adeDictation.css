@@ -1,0 +1,199 @@
+/* Hold-to-talk in the ADE (AdeDictation.tsx): a pill at the foot of the
+   terminals that listens, transcribes, then shows the words arriving. */
+
+.ade-dictation {
+  position: absolute;
+  left: 50%;
+  bottom: 22px;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 300px;
+  max-width: min(620px, calc(100% - 48px));
+  min-height: 44px;
+  padding: 7px 14px 7px 8px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--surface-2) 88%, transparent);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: var(--shadow-menu);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  transform: translateX(-50%);
+  transform-origin: 50% 100%;
+  animation: ade-dictation-in 380ms var(--spring-moderate) both;
+  pointer-events: auto;
+}
+
+@keyframes ade-dictation-in {
+  from {
+    opacity: 0;
+    filter: blur(6px);
+    transform: translateX(-50%) translateY(10px) scale(0.94);
+  }
+}
+
+/* Listening: a red mic that breathes with a ring going out from it. */
+.ade-dictation__rec {
+  position: relative;
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-pill);
+  background: #ef4444;
+  color: #ffffff;
+}
+.ade-dictation__rec::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: 0 0 0 0 color-mix(in srgb, #ef4444 55%, transparent);
+  animation: ade-dictation-ring 1.4s var(--ease) infinite;
+}
+@keyframes ade-dictation-ring {
+  to {
+    box-shadow: 0 0 0 9px color-mix(in srgb, #ef4444 0%, transparent);
+  }
+}
+
+.ade-dictation .voice-wave {
+  flex: 1;
+  min-width: 150px;
+  height: 26px;
+}
+
+.ade-dictation__time {
+  flex: none;
+  min-width: 34px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+}
+
+.ade-dictation__hint {
+  flex: none;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+/* Transcribing: the strip holds and a highlight sweeps it (VoiceWave); the
+   word shimmers beside it. */
+.ade-dictation[data-phase='transcribing'] {
+  padding-left: 14px;
+}
+.ade-dictation__working {
+  flex: none;
+  font-weight: 500;
+  background: linear-gradient(90deg, var(--text-3) 0%, var(--text) 45%, var(--text-3) 90%);
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: ade-dictation-shimmer 1.3s linear infinite;
+}
+.ade-dictation__working::after {
+  content: '…';
+}
+@keyframes ade-dictation-shimmer {
+  from {
+    background-position: 120% 0;
+  }
+  to {
+    background-position: -120% 0;
+  }
+}
+
+/* Spoken: each word rises out of a blur, one after another, then a glint
+   passes over the line as it goes into the terminal. */
+.ade-dictation[data-phase='spoken'] {
+  padding: 9px 18px;
+}
+.ade-dictation__words {
+  position: relative;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 0.3em;
+  line-height: 1.45;
+  overflow: hidden;
+}
+.ade-dictation__word {
+  display: inline-block;
+  animation: ade-dictation-word 420ms var(--spring-moderate) both;
+  animation-delay: calc(var(--i) * 45ms);
+}
+@keyframes ade-dictation-word {
+  from {
+    opacity: 0;
+    filter: blur(8px);
+    transform: translateY(8px);
+  }
+}
+.ade-dictation__words::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(100deg, transparent 30%, color-mix(in srgb, var(--accent) 35%, transparent) 50%, transparent 70%);
+  transform: translateX(-100%);
+  animation: ade-dictation-glint 900ms var(--ease) 750ms both;
+  pointer-events: none;
+}
+@keyframes ade-dictation-glint {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+.ade-dictation[data-phase='error'] {
+  padding-left: 16px;
+}
+.ade-dictation__error {
+  flex: 1;
+  color: var(--text-2);
+}
+.ade-dictation__close {
+  width: 24px;
+  height: 24px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-pill);
+  color: var(--text-3);
+}
+.ade-dictation__close:hover {
+  background: var(--surface-4);
+  color: var(--text);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ade-dictation,
+  .ade-dictation__word {
+    animation: ade-dictation-fade 160ms linear both;
+  }
+  .ade-dictation__rec::after,
+  .ade-dictation__words::after,
+  .ade-dictation__working {
+    animation: none;
+  }
+  .ade-dictation__working {
+    color: var(--text-2);
+  }
+}
+body[data-reduce-motion='on'] .ade-dictation,
+body[data-reduce-motion='on'] .ade-dictation__word {
+  animation: ade-dictation-fade 160ms linear both;
+}
+body[data-reduce-motion='on'] .ade-dictation__rec::after,
+body[data-reduce-motion='on'] .ade-dictation__words::after,
+body[data-reduce-motion='on'] .ade-dictation__working {
+  animation: none;
+}
+@keyframes ade-dictation-fade {
+  from {
+    opacity: 0;
+  }
+}

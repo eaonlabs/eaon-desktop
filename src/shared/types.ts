@@ -471,6 +471,15 @@ export interface Settings {
      * app follows the terminal theme), put back when `eaon` is picked again.
      */
     appBefore: { mode: ThemeMode; light: ThemePalette; dark: ThemePalette } | null
+    /** Hold a key to dictate into the terminal last typed in (code/terminal/AdeDictation.tsx). */
+    dictation: {
+      enabled: boolean
+      /** The key held to talk, as a `KeyboardEvent.code` (shared/holdKey.ts). */
+      key: string
+      /** The speech-to-text model for the ADE; both null uses the one picked under Settings → Model providers → Speech to text. */
+      speechProviderId: string | null
+      speechModelId: string | null
+    }
   }
   /** The popup that asks whether to star Eaon on GitHub (main/starPrompt.ts). */
   starPrompt: {

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { isMac, isWindows } from '../../lib/platform'
 import { useApp } from '../../state/store'
-import { LOCAL_SPEECH_ID } from '@shared/speech'
+import { LOCAL_SPEECH_ID, type SpeechPick } from '@shared/speech'
 import { toSpeechWav } from '../../lib/wav'
 
 export type DictationState = 'idle' | 'starting' | 'recording' | 'transcribing'
@@ -58,12 +58,19 @@ function pickMimeType(): string {
   return ''
 }
 
+export interface DictationOptions {
+  /** A model picked for this place (the ADE's hold-to-talk), read when recording starts; null uses the one in Settings. */
+  pick?: () => SpeechPick | null
+  /** What to say when no model can transcribe, in place of the composer's own words. */
+  missing?: (local: boolean) => string
+}
+
 /**
  * Dictation for a composer: records the microphone, shows its level, and
  * hands the transcript to `onText`. Text is never sent on its own; it lands
  * in the message box for the user to read first.
  */
-export function useDictation(onText: (text: string) => void): Dictation {
+export function useDictation(onText: (text: string) => void, options: DictationOptions = {}): Dictation {
   const [state, setState] = useState<DictationState>('idle')
   const [error, setError] = useState<string | null>(null)
   const [startedAt, setStartedAt] = useState(0)
@@ -71,6 +78,8 @@ export function useDictation(onText: (text: string) => void): Dictation {
   const session = useRef<Session | null>(null)
   const textHandler = useRef(onText)
   textHandler.current = onText
+  const optionsRef = useRef(options)
+  optionsRef.current = options
 
   const release = useCallback((current: Session): void => {
     clearTimeout(current.limit)
@@ -100,10 +109,12 @@ export function useDictation(onText: (text: string) => void): Dictation {
     if (session.current) return
     setError(null)
     setState('starting')
+    const pick = optionsRef.current.pick?.() ?? null
+    const local = (pick ? pick.providerId : useApp.getState().settings?.voice?.speechProviderId) === LOCAL_SPEECH_ID
     try {
       // Before recording, so nobody talks for a minute only to be told there's no key.
-      if (!(await window.api.voice.provider())) {
-        setError('Dictation needs an OpenAI or Groq API key. Add one in Settings → Model providers.')
+      if (!(await window.api.voice.provider(pick))) {
+        setError(optionsRef.current.missing?.(local) ?? 'Dictation needs an OpenAI or Groq API key. Add one in Settings → Model providers.')
         setState('idle')
         return
       }
@@ -143,10 +154,9 @@ export function useDictation(onText: (text: string) => void): Dictation {
           try {
             const recording = new Blob(current.chunks, { type: current.mimeType })
             // A model on this computer takes WAV; a hosted one the smaller recording as made.
-            const local = useApp.getState().settings?.voice?.speechProviderId === LOCAL_SPEECH_ID
             const result = local
-              ? await window.api.voice.transcribe(await toSpeechWav(recording), 'audio/wav')
-              : await window.api.voice.transcribe(new Uint8Array(await recording.arrayBuffer()), current.mimeType)
+              ? await window.api.voice.transcribe(await toSpeechWav(recording), 'audio/wav', pick)
+              : await window.api.voice.transcribe(new Uint8Array(await recording.arrayBuffer()), current.mimeType, pick)
             if (!result.ok) setError(result.error)
             else if (!result.text) setError('Didn’t catch anything. Try again a little closer to the mic.')
             else textHandler.current(result.text)
