@@ -292,10 +292,14 @@ export interface Workspace {
 export type ThemeMode = 'system' | 'light' | 'dark'
 /**
  * The icon Eaon shows in the Dock (macOS) or on its windows and taskbar button
- * (Windows, Linux): the Disc E, or the agent face on the same tile. The Finder
- * and the installer always show the Disc E; see main/appIcon.ts.
+ * (Windows, Linux): the Disc E, the agent face on the same tile, or the Disc E
+ * on another background (scripts/make-icon.py, VARIANTS). The Finder and the
+ * installer always show the Disc E; see main/appIcon.ts.
  */
-export type AppIcon = 'default' | 'agent'
+export type AppIcon = 'default' | 'agent' | AppIconBackground
+/** The Disc E on another background than the default dark tile. */
+export type AppIconBackground = 'light' | 'ocean' | 'sunset' | 'forest' | 'grape' | 'aurora' | 'peaks'
+export const APP_ICON_BACKGROUNDS: readonly AppIconBackground[] = ['light', 'ocean', 'sunset', 'forest', 'grape', 'aurora', 'peaks']
 export type LaunchMode = 'chat' | 'workers' | 'ade' | 'last'
 /**
  * How the chat agent asks before acting. `ask`: before every change. `auto`:
@@ -442,6 +446,36 @@ export interface Settings {
     avatar: string | null
   }
   /** The ADE's usage meter for Claude Code and Codex plans (Settings → Accounts). */
+  /** Settings → Usage & limits. */
+  usageLimits: {
+    /** The providers the sidebar's rings show, in order, at most two. */
+    sidebar: string[]
+    /** Both limits as two rings, or one ring for the 5-hour or the weekly limit. */
+    ring: 'both' | '5h' | 'weekly'
+    /** A ring's card opens with its details (balances, token totals) showing. */
+    details: boolean
+    /** Codex's banked resets in the details. */
+    banked: boolean
+    /** Credit balances and recent token totals in the details. */
+    tokens: boolean
+  }
+  /** Settings → Agent providers. */
+  agentProviders: {
+    /** Coding CLIs left out of the ADE's "New terminal" picker. */
+    hidden: string[]
+    /** The picker's order, by agent id; ones not listed follow in their own order. */
+    order: string[]
+    /** Start agents' terminals at a lower CPU priority, so the computer stays quick while they work. */
+    lowPriority: boolean
+    /** Look for newer versions of installed CLIs in the background. */
+    updateChecks: boolean
+  }
+  /** Settings → Profile: how the activity profile and its share card name you. */
+  profile: {
+    name: string
+    handle: string
+    color: string
+  }
   cliUsage: {
     /** Show the plan usage meter at all. */
     meter: boolean
@@ -471,6 +505,15 @@ export interface Settings {
      * app follows the terminal theme), put back when `eaon` is picked again.
      */
     appBefore: { mode: ThemeMode; light: ThemePalette; dark: ThemePalette } | null
+    /** Hold a key to dictate into the terminal last typed in (code/terminal/AdeDictation.tsx). */
+    dictation: {
+      enabled: boolean
+      /** The key held to talk, as a `KeyboardEvent.code` (shared/holdKey.ts). */
+      key: string
+      /** The speech-to-text model for the ADE; both null uses the one picked under Settings → Model providers → Speech to text. */
+      speechProviderId: string | null
+      speechModelId: string | null
+    }
   }
   /** The popup that asks whether to star Eaon on GitHub (main/starPrompt.ts). */
   starPrompt: {

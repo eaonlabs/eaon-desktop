@@ -1,10 +1,12 @@
 import type { WorkerAccess } from './workers'
 
 /**
- * Chat apps: a worker answering in Discord, Telegram or WhatsApp.
+ * Chat apps: a worker answering in Discord, Telegram, WhatsApp, Slack,
+ * Matrix, Mattermost or Zulip.
  *
- * Each connection ("link") is one bot — a Discord bot, a Telegram bot, or a
- * WhatsApp account linked as a device — pointed at one worker. The user
+ * Each connection ("link") is one bot — a Discord, Telegram, Slack,
+ * Mattermost or Zulip bot, a Matrix account, or a WhatsApp account linked as
+ * a device — pointed at one worker. The user
  * pairs their own account with it once and becomes its owner: they can talk
  * to the worker from their phone and control it with commands. Anyone else
  * — friends in a DM, everyone in a group the owner allowed — is a guest. A
@@ -15,12 +17,76 @@ import type { WorkerAccess } from './workers'
  * and never reach the renderer.
  */
 
-export type ChannelKind = 'discord' | 'telegram' | 'whatsapp'
+export type ChannelKind = 'discord' | 'telegram' | 'whatsapp' | 'slack' | 'matrix' | 'mattermost' | 'zulip'
+
+/** In the order Settings offers them. */
+export const CHANNEL_KINDS: ChannelKind[] = ['discord', 'telegram', 'whatsapp', 'slack', 'matrix', 'mattermost', 'zulip']
 
 export const CHANNEL_LABEL: Record<ChannelKind, string> = {
   discord: 'Discord',
   telegram: 'Telegram',
-  whatsapp: 'WhatsApp'
+  whatsapp: 'WhatsApp',
+  slack: 'Slack',
+  matrix: 'Matrix',
+  mattermost: 'Mattermost',
+  zulip: 'Zulip'
+}
+
+/** What a shared place to talk is called in each app. */
+export const CHANNEL_GROUP_WORD: Record<ChannelKind, string> = {
+  discord: 'channel',
+  telegram: 'group',
+  whatsapp: 'group',
+  slack: 'channel',
+  matrix: 'room',
+  mattermost: 'channel',
+  zulip: 'channel'
+}
+
+/**
+ * What starts a command. Slack, Mattermost and Element keep `/…` for their own
+ * commands and never send it on, so there it is `!pair`, `!help`. Either works
+ * everywhere.
+ */
+export const COMMAND_PREFIX: Record<ChannelKind, '/' | '!'> = {
+  discord: '/',
+  telegram: '/',
+  whatsapp: '/',
+  slack: '!',
+  matrix: '!',
+  mattermost: '!',
+  zulip: '!'
+}
+
+/**
+ * What a connection is set up with, for the apps that need more than one
+ * token: sent to main as JSON in place of a token, checked there, and kept in
+ * the vault. Matrix trades a password for an access token, and keeps only that.
+ */
+export interface SlackCredentials {
+  /** Bot User OAuth Token, `xoxb-…`. */
+  bot: string
+  /** App-Level Token with `connections:write`, `xapp-…`, for Socket Mode. */
+  app: string
+}
+export interface MatrixCredentials {
+  /** `matrix.org`, or a homeserver's URL. */
+  server: string
+  /** `@nova:matrix.org` or `nova`, with a password; or an access token instead. */
+  user?: string
+  password?: string
+  token?: string
+}
+export interface MattermostCredentials {
+  server: string
+  /** A bot account's access token (or a personal access token). */
+  token: string
+}
+export interface ZulipCredentials {
+  server: string
+  /** The bot's email, from its zuliprc. */
+  email: string
+  key: string
 }
 
 /**
@@ -128,7 +194,7 @@ export interface ChannelStatus {
   qr?: string
   /** Discord: false when "Message Content Intent" is off, so group messages that don't mention the bot arrive empty. */
   readsAllMessages?: boolean
-  /** A Discord or Telegram link that is on but has no token in the vault (a reset keychain): paste it again. */
+  /** A link with a bot token that is on but has none in the vault (a reset keychain): paste it again. */
   needsToken?: boolean
 }
 
@@ -147,7 +213,11 @@ export interface WhatsAppGroup {
 export const MAX_MESSAGE_CHARS: Record<ChannelKind, number> = {
   discord: 2000,
   telegram: 4096,
-  whatsapp: 4000
+  whatsapp: 4000,
+  slack: 3500,
+  matrix: 16000,
+  mattermost: 16000,
+  zulip: 10000
 }
 
 /** Files larger than this that someone sends the worker are skipped. */
@@ -183,3 +253,50 @@ export const CHANNEL_COMMANDS: { name: string; args?: string; description: strin
   { name: 'allow', args: 'code', description: 'Let someone (or a group) talk to it', who: 'owner' },
   { name: 'pair', args: 'code', description: 'Claim this bot as yours', who: 'anyone' }
 ]
+
+/**
+ * The Slack app manifest Settings offers for "Create an app → From a
+ * manifest": a bot named after the worker, Socket Mode on, and the scopes
+ * and events the Slack connection (features/channels/slack.ts) uses.
+ */
+export function slackManifest(name: string): string {
+  const botName = name.replace(/[^\w .-]/g, '').trim().slice(0, 35) || 'Eaon worker'
+  return JSON.stringify(
+    {
+      display_information: { name: botName, description: `${botName}, an Eaon worker`, background_color: '#1d1d1f' },
+      features: {
+        app_home: { home_tab_enabled: false, messages_tab_enabled: true, messages_tab_read_only_enabled: false },
+        bot_user: { display_name: botName, always_online: true }
+      },
+      oauth_config: {
+        scopes: {
+          bot: [
+            'app_mentions:read',
+            'channels:history',
+            'channels:read',
+            'chat:write',
+            'files:read',
+            'files:write',
+            'groups:history',
+            'groups:read',
+            'im:history',
+            'im:read',
+            'im:write',
+            'mpim:history',
+            'mpim:read',
+            'users:read'
+          ]
+        }
+      },
+      settings: {
+        event_subscriptions: { bot_events: ['app_mention', 'message.channels', 'message.groups', 'message.im', 'message.mpim'] },
+        interactivity: { is_enabled: false },
+        org_deploy_enabled: false,
+        socket_mode_enabled: true,
+        token_rotation_enabled: false
+      }
+    },
+    null,
+    2
+  )
+}

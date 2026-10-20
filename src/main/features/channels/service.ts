@@ -4,7 +4,9 @@ import { mkdir, realpath, writeFile } from 'node:fs/promises'
 import { basename, extname, isAbsolute, join, sep } from 'node:path'
 import {
   CHANNEL_COMMANDS,
+  CHANNEL_KINDS,
   CHANNEL_LABEL,
+  COMMAND_PREFIX,
   GUEST_ACCESS,
   GUEST_MESSAGES_PER_HOUR,
   MAX_CHATS,
@@ -24,7 +26,7 @@ import type { ChatMessage } from '@shared/types'
 import { approvalCode, describeWorker, type Worker, type WorkerAsk, type WorkerMail } from '@shared/workers'
 import { redactSecrets } from '../../redact'
 import type { WorkersEngine } from '../workers/engine'
-import { calledByName, parseCommand, replyText } from './format'
+import { calledByName, parseCommand, replyText, withCommandPrefix } from './format'
 import type { Connector, ConnectorEvents, IncomingMessage } from './types'
 
 /**
@@ -60,8 +62,12 @@ export interface ChannelsDeps {
   saveLinks: (links: ChannelLink[]) => void
   getToken: (linkId: string) => string | undefined
   setToken: (linkId: string, token: string | null) => void
-  /** Checks a bot token with the app; throws a sentence for the user. */
-  verifyToken: (kind: Exclude<ChannelKind, 'whatsapp'>, token: string) => Promise<{ account: string; id: string }>
+  /**
+   * Checks a bot token (or, for an app that needs more, its credentials as
+   * JSON) with the app; throws a sentence for the user. `token`, when given,
+   * is what to keep instead: a Matrix password is traded for an access token.
+   */
+  verifyToken: (kind: Exclude<ChannelKind, 'whatsapp'>, token: string) => Promise<{ account: string; id: string; token?: string }>
   createConnector: (link: ChannelLink, token: string | null, events: ConnectorEvents) => Connector
   onChange?: (links: ChannelLink[]) => void
   onStatus?: (statuses: ChannelStatus[]) => void
@@ -84,7 +90,7 @@ const MAX_FILES_PER_MESSAGE = 5
 /** Typing stops by itself after this, in case a turn never reports back. */
 const TYPING_LIMIT_MS = 15 * 60_000
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-const KINDS: ChannelKind[] = ['discord', 'telegram', 'whatsapp']
+const KINDS: ChannelKind[] = CHANNEL_KINDS
 const COMMANDS = new Set(CHANNEL_COMMANDS.map((c) => c.name))
 
 /**
@@ -237,7 +243,7 @@ export class ChannelsService {
 
   /* ---------------------------------------------------------------- commands */
 
-  /** A new connection for `workerId`. Discord and Telegram wait for a token; WhatsApp starts linking at once. */
+  /** A new connection for `workerId`. A bot waits for its token; WhatsApp starts linking at once. */
   create(kind: ChannelKind, workerId: string | null): ChannelLink {
     if (!KINDS.includes(kind)) throw new Error('Unknown chat app.')
     if (workerId && !this.deps.engine.has(workerId)) throw new Error('That worker no longer exists.')
@@ -256,7 +262,7 @@ export class ChannelsService {
     const who = await this.deps.verifyToken(link.kind, trimmed)
     // A different bot is a fresh start: nobody paired with it yet.
     if (link.account && link.account !== who.account) Object.assign(link, { owner: null, people: [], chats: [], requests: [], pairCode: code(6) })
-    this.deps.setToken(id, trimmed)
+    this.deps.setToken(id, who.token ?? trimmed)
     link.account = who.account
     if (link.kind === 'discord') link.appId = who.id
     link.enabled = true
@@ -523,7 +529,7 @@ export class ChannelsService {
     if (!text && message.files.length === 0 && !message.unsupported) return
 
     const isOwner = (link.owner !== null && message.senderId === link.owner.id) || (link.kind === 'whatsapp' && Boolean(message.fromSelf))
-    const reply = (body: string): Promise<void> => this.say(link, connector, message.chatId, body, message.isGroup ? message.messageId : undefined, worker?.name)
+    const reply = (body: string): Promise<void> => this.say(link, connector, message.chatId, this.notice(link, body), message.isGroup ? message.messageId : undefined, worker?.name)
 
     // Telegram's "Start" button sends `/start <payload>`: Settings links to the bot with the pairing code as that payload.
     if (command?.name === 'pair' || (command?.name === 'start' && command.args)) return this.pair(link, message, command.args, reply)
@@ -647,7 +653,7 @@ export class ChannelsService {
         : message.isGroup
           ? `${workerName} will answer here once ${owner} allows it. I’ve let them know.`
           : `Hi! ${workerName} only talks with people ${owner} lets in. I’ve let them know you’d like to.`
-      await this.say(link, connector, message.chatId, body, message.isGroup ? message.messageId : undefined, workerName)
+      await this.say(link, connector, message.chatId, this.notice(link, body), message.isGroup ? message.messageId : undefined, workerName)
     }
     if (fresh && link.owner && link.forwardAlerts) {
       const who = message.isGroup ? `${message.senderName} in ${message.chatName}` : message.senderName
@@ -948,10 +954,15 @@ export class ChannelsService {
     if (!link.owner || !connector || this.statuses.get(link.id)?.state !== 'connected') return
     const worker = link.workerId ? this.deps.engine.lookup(link.workerId) : undefined
     try {
-      await this.say(link, connector, await connector.directChat(link.owner.id), text, undefined, worker?.name)
+      await this.say(link, connector, await connector.directChat(link.owner.id), this.notice(link, text), undefined, worker?.name)
     } catch (error) {
       console.error(`[channels] could not reach the owner on ${link.kind}:`, errorText(error))
     }
+  }
+
+  /** Eaon's own words to a chat (not a worker's), with its commands as this app writes them: `!allow` where `/` is the app's own. */
+  private notice(link: ChannelLink, text: string): string {
+    return withCommandPrefix(text, COMMAND_PREFIX[link.kind], COMMANDS)
   }
 
   /**

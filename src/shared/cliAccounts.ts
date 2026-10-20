@@ -59,7 +59,14 @@ export interface UsageWindow {
 }
 
 export type AccountUsage =
-  | { ok: true; at: number; plan: string | null; windows: UsageWindow[] }
+  | {
+      ok: true
+      at: number
+      plan: string | null
+      windows: UsageWindow[]
+      /** Codex's banked resets: credits that clear its rate-limit windows. */
+      banked?: { available: number; nextExpiry: number | null }
+    }
   | {
       ok: false
       at: number

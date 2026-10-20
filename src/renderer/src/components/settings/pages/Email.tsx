@@ -939,7 +939,7 @@ function WorkerAddresses({ state, run, busy }: { state: EmailState; run: Run; bu
   const [editing, setEditing] = useState<string | null>(null)
   const [username, setUsername] = useState('')
   useEffect(() => {
-    void window.api.workers.list().then(setWorkers, () => setWorkers([]))
+    void window.api.workers.list().then((list) => setWorkers(list ?? []), () => setWorkers([]))
   }, [])
   const domain = state.cloudflare?.domain ?? state.inbox?.address.split('@')[1] ?? 'agentmail.to'
   // An older main process (updated while running) sends no workerAddresses.

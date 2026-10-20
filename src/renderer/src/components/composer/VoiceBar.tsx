@@ -31,7 +31,7 @@ function tokenColor(element: HTMLElement, token: string): string {
  * holds still and a soft highlight sweeps across it. With reduced motion it
  * doesn't scroll or sweep, and updates a few times a second.
  */
-function VoiceWave({ analyser, transcribing }: { analyser: AnalyserNode | null; transcribing: boolean }): JSX.Element {
+export function VoiceWave({ analyser, transcribing }: { analyser: AnalyserNode | null; transcribing: boolean }): JSX.Element {
   const canvas = useRef<HTMLCanvasElement>(null)
   const history = useRef<number[]>([])
   const level = useRef(0)

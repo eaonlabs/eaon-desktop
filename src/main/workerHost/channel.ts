@@ -342,7 +342,12 @@ export function connect(options: ConnectOptions): Promise<Peer> {
       socket.terminate()
       reject(new Error(message))
     }
-    const timer = setTimeout(() => fail('The worker computer didn’t answer.'), options.timeoutMs ?? HANDSHAKE_MS)
+    // A firewall that drops what it doesn't allow looks like this: the computer
+    // is there (SSH works, it pings) but the host's port never answers at all.
+    const silent = `Nothing answered on port ${options.port} at ${options.address}. If that computer is on, a firewall on it is probably blocking the port: run \`sudo ufw allow ${options.port}/tcp\` there, or install the host app again, which opens it.`
+    let opened = false
+    socket.once('open', () => (opened = true))
+    const timer = setTimeout(() => fail(opened ? 'The worker computer didn’t answer.' : silent), options.timeoutMs ?? HANDSHAKE_MS)
     let clientNonce: Buffer | null = null
     let serverNonce: Buffer | null = null
     socket.on('error', (error) => {
@@ -350,11 +355,13 @@ export function connect(options: ConnectOptions): Promise<Peer> {
       fail(
         code === 'ECONNREFUSED'
           ? 'Nothing is listening on the worker computer. Is the host app running?'
-          : code === 'EHOSTUNREACH' || code === 'ENETUNREACH' || code === 'ETIMEDOUT'
+          : code === 'EHOSTUNREACH' || code === 'ENETUNREACH'
             ? 'The worker computer can’t be reached. Is it on and on this network?'
-            : code === 'ENOTFOUND'
-              ? `No computer called ${options.address} was found.`
-              : error.message
+            : code === 'ETIMEDOUT' || (!opened && /timed out/i.test(error.message))
+              ? silent
+              : code === 'ENOTFOUND'
+                ? `No computer called ${options.address} was found.`
+                : error.message
       )
     })
     socket.on('close', (code) => fail(code === 1008 ? 'The worker computer turned the link down: the link key doesn’t match.' : 'The worker computer closed the connection.'))

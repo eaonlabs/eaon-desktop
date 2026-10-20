@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync, statfsSync, statSync } from 'node:fs'
 import { open, rm } from 'node:fs/promises'
 import { freemem, loadavg, totalmem } from 'node:os'
 import { join, resolve, sep } from 'node:path'
@@ -51,6 +51,8 @@ export interface HostDeps {
   applyUpdate: (file: string) => Promise<void>
   /** Removes the host app from this computer. */
   uninstall: () => Promise<void>
+  /** The sign-ins in this computer's vault (they refresh here), for the desktop to take the newer of. */
+  signIns?: () => Record<string, string>
   now?: () => number
 }
 
@@ -76,6 +78,16 @@ export function createHost(deps: HostDeps): Host {
     return full
   }
 
+  const disk = (): HostHello['disk'] => {
+    try {
+      const root = deps.workRoot()
+      const fs = statfsSync(existsSync(root) ? root : deps.home)
+      return { free: fs.bavail * fs.bsize, total: fs.blocks * fs.bsize }
+    } catch {
+      return undefined
+    }
+  }
+
   const hello = (): HostHello => {
     const workers = deps.service().engine.list()
     return {
@@ -92,7 +104,8 @@ export function createHost(deps: HostDeps): Host {
       running: workers.filter((w: Worker) => w.status === 'working').length,
       synced: deps.store.getJson<{ at?: number } | null>(SYNC_MARK, null) !== null,
       memory: { free: freemem(), total: totalmem() },
-      load: loadavg()[0]
+      load: loadavg()[0],
+      disk: disk()
     }
   }
 
@@ -112,6 +125,7 @@ export function createHost(deps: HostDeps): Host {
         for (let i = 0; i < count; i++) void invoke(event, 'agent-browser:watch', [false, target]).catch(() => undefined)
       }
       watching.clear()
+      event.destroy()
     })
 
     peer.handle(async (method, params) => {
@@ -125,6 +139,8 @@ export function createHost(deps: HostDeps): Host {
           deps.store.setJson(SYNC_MARK, { at: now() })
           return hello()
         }
+        case 'tokens':
+          return deps.signIns?.() ?? {}
 
         case 'ipc': {
           const channel = String(p.channel ?? '')

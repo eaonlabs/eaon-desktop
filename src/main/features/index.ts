@@ -29,6 +29,9 @@ import { tradingFeature } from './trading'
 import { pluginsFeature } from './plugins'
 import { providerAuthFeature } from './providerAuth'
 import { voiceFeature } from './voice'
+import { providerUsageFeature } from './providerUsage'
+import { agentProvidersFeature } from './agentProviders'
+import { profileCardFeature } from './profileCard'
 import { gatewayFeature } from './gateway'
 import { connectAppsFeature } from './connectApps'
 import { linkAccountsFeature } from './linkAccounts'
@@ -78,6 +81,9 @@ export const FEATURES: Feature[] = [
   emailFeature,
   tradingFeature,
   voiceFeature,
+  providerUsageFeature,
+  agentProvidersFeature,
+  profileCardFeature,
   gatewayFeature,
   connectAppsFeature,
   linkAccountsFeature,

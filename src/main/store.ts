@@ -191,6 +191,24 @@ export const defaultSettings: Settings = {
     login: null,
     avatar: null
   },
+  usageLimits: {
+    sidebar: ['codex', 'claude'],
+    ring: 'both',
+    details: false,
+    banked: true,
+    tokens: true
+  },
+  agentProviders: {
+    hidden: [],
+    order: [],
+    lowPriority: false,
+    updateChecks: true
+  },
+  profile: {
+    name: '',
+    handle: '',
+    color: '#5bbf6a'
+  },
   cliUsage: {
     meter: true,
     view: 'detailed',
@@ -204,7 +222,13 @@ export const defaultSettings: Settings = {
     scenes: true,
     blur: false,
     blurAmount: 10,
-    appBefore: null
+    appBefore: null,
+    dictation: {
+      enabled: true,
+      key: 'AltRight',
+      speechProviderId: null,
+      speechModelId: null
+    }
   },
   starPrompt: {
     status: 'pending',

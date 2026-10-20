@@ -2,10 +2,10 @@
    pill, pairing code and numbered steps are the Browser extension page's
    (extension.css); only what is new lives here. */
 
-/* The three "connect" tiles. */
+/* The "connect" tiles. */
 .ch-apps {
   display: grid;
-  /* Three across in a wide window, stacked when the settings column is narrow. */
+  /* As many across as fit, stacked when the settings column is narrow. */
   grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
   gap: 10px;
 }
@@ -85,6 +85,17 @@
   min-width: 0;
   font-family: var(--font-mono);
   font-size: var(--fs-sm);
+}
+/* Apps that need a server and a token, or two tokens: one field to a line, the button after them. */
+.ch-token--fields {
+  flex-direction: column;
+  align-items: stretch;
+}
+.ch-token--fields .input {
+  flex: none;
+}
+.ch-token--fields .btn {
+  align-self: flex-start;
 }
 
 .ch-error {
@@ -218,4 +229,9 @@
   align-self: flex-end;
   font-size: var(--fs-xs);
   color: var(--text-3);
+}
+
+/* Two buttons on one setup step ("Copy manifest", "Slack apps") keep apart. */
+.ch-card .bx-steps .btn + .btn {
+  margin-left: 6px;
 }

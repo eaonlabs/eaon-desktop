@@ -7,11 +7,25 @@ import { THEMES, type Palette, type Theme } from '../../../lib/themes'
 import { isMac } from '../../../lib/platform'
 import defaultIcon from '../../../assets/app-icons/default.png'
 import agentIcon from '../../../assets/app-icons/agent.png'
+import lightIcon from '../../../assets/app-icons/light.png'
+import oceanIcon from '../../../assets/app-icons/ocean.png'
+import sunsetIcon from '../../../assets/app-icons/sunset.png'
+import forestIcon from '../../../assets/app-icons/forest.png'
+import grapeIcon from '../../../assets/app-icons/grape.png'
+import auroraIcon from '../../../assets/app-icons/aurora.png'
+import peaksIcon from '../../../assets/app-icons/peaks.png'
 
-/** Built from resources/Eaon.icon and EaonAgent.icon by scripts/make-icon.py. */
+/** Built from resources/Eaon.icon and EaonAgent.icon by scripts/make-icon.py; the backgrounds are its VARIANTS. */
 const APP_ICONS: { id: AppIcon; label: string; image: string }[] = [
   { id: 'default', label: 'Eaon', image: defaultIcon },
-  { id: 'agent', label: 'Agent', image: agentIcon }
+  { id: 'agent', label: 'Agent', image: agentIcon },
+  { id: 'light', label: 'Light', image: lightIcon },
+  { id: 'ocean', label: 'Ocean', image: oceanIcon },
+  { id: 'sunset', label: 'Sunset', image: sunsetIcon },
+  { id: 'forest', label: 'Forest', image: forestIcon },
+  { id: 'grape', label: 'Grape', image: grapeIcon },
+  { id: 'aurora', label: 'Aurora', image: auroraIcon },
+  { id: 'peaks', label: 'Peaks', image: peaksIcon }
 ]
 
 const GROUPS: { id: Theme['group']; label: string }[] = [
@@ -134,23 +148,22 @@ export function AppearancePage(): JSX.Element {
                 ? 'Shown in the Dock while Eaon is running'
                 : "Shown on Eaon's windows and taskbar button"
             }
-          >
-            <div className="app-icon-picker" role="radiogroup" aria-label="App icon">
-              {APP_ICONS.map((icon) => (
-                <button
-                  key={icon.id}
-                  className="app-icon-choice"
-                  role="radio"
-                  aria-checked={a.appIcon === icon.id}
-                  data-active={a.appIcon === icon.id}
-                  onClick={() => void patchSettings({ appearance: { appIcon: icon.id } })}
-                >
-                  <img className="app-icon-choice__image" src={icon.image} alt="" width={56} height={56} />
-                  <span className="app-icon-choice__label">{icon.label}</span>
-                </button>
-              ))}
-            </div>
-          </Row>
+          />
+          <div className="app-icon-picker" role="radiogroup" aria-label="App icon">
+            {APP_ICONS.map((icon) => (
+              <button
+                key={icon.id}
+                className="app-icon-choice"
+                role="radio"
+                aria-checked={a.appIcon === icon.id}
+                data-active={a.appIcon === icon.id}
+                onClick={() => void patchSettings({ appearance: { appIcon: icon.id } })}
+              >
+                <img className="app-icon-choice__image" src={icon.image} alt="" width={56} height={56} />
+                <span className="app-icon-choice__label">{icon.label}</span>
+              </button>
+            ))}
+          </div>
           <Row title="Use pointer cursors" description="Change the cursor to a pointer when hovering over interactive elements">
             <Switch
               label="Use pointer cursors"

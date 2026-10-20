@@ -45,6 +45,9 @@ import { agentBrowserApi } from './features/agentBrowser'
 import { emailApi } from './features/email'
 import { tradingApi } from './features/trading'
 import { voiceApi } from './features/voice'
+import { providerUsageApi } from './features/providerUsage'
+import { agentProvidersApi } from './features/agentProviders'
+import { profileCardApi } from './features/profileCard'
 import { gatewayApi } from './features/gateway'
 import { connectAppsApi } from './features/connectApps'
 import { linkAccountsApi } from './features/linkAccounts'
@@ -337,6 +340,9 @@ const fullApi = {
   email: emailApi,
   trading: tradingApi,
   voice: voiceApi,
+  providerUsage: providerUsageApi,
+  agentProviders: agentProvidersApi,
+  profileCard: profileCardApi,
   gateway: gatewayApi,
   connectApps: connectAppsApi,
   linkAccounts: linkAccountsApi,

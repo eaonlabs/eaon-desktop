@@ -37,8 +37,14 @@ secret, name), `run.sh` and `host.log`. Workers' folders go in `~/Eaon/Workers`.
 - **Updates**: on every connect the desktop compares the host's build id with
   its own package and, if they differ, sends the package; the host runs the new
   `install.sh --update`, which swaps the app in and restarts the service. A host
-  that doesn't come back within five minutes shows an error and a Reinstall
-  button (SSH-linked hosts).
+  that doesn't come back within five minutes shows an error. Settings →
+  Worker computer reinstalls it, keeping the link key and the workers there:
+  over SSH for an SSH-linked host, or with a fresh one-line command for one
+  linked with a command.
+- **Firewall**: the installer opens the host's port in ufw or firewalld (and
+  lets the app through the macOS firewall) when sudo works, and says which
+  command to run when it doesn't. A port that never answers is reported as a
+  likely firewall, with that command.
 
 ## The link
 
@@ -51,12 +57,13 @@ one. The secret is made by the desktop, kept in its key vault
 one-line install command. Ten wrong secrets from one address in a minute and
 that address is turned away; requests with an `Origin` are refused.
 
-Calls: `hello`, `sync`, `ipc` (any `workers:*` channel, and the live-view
+Calls: `hello`, `sync`, `tokens`, `ipc` (any `workers:*` channel, and the live-view
 `agent-browser:*` channels for `worker:` targets only), `workers.import` /
 `.export` / `.release` / `.resume`, `files.*` (only inside the workers'
 folders, uploads and skills), `update.put` / `.apply`, `uninstall`. Events:
 everything the workers service sends its window, plus `host:notify`, which the
-desktop shows as its own notification.
+desktop shows as its own notification, and `host:tokens` (below). `hello`
+reports free memory and disk; Settings warns when the disk is nearly full.
 
 ## What moves, and what doesn't
 
@@ -71,9 +78,20 @@ connects.
 Synced to the host: every key in the vault except the link secret and chat-app
 bot tokens, provider settings, MCP servers you added, personal skills
 (`~/.eaon/skills`), and model and agent settings (never the desktop's folders).
+The vault goes over within seconds of a change, and every ten minutes anyway.
+
+Sign-ins (ChatGPT, Copilot, Hugging Face, MCP servers' OAuth) hand out a new
+refresh token each time they refresh, and the old one stops working, so the two
+computers keep the newer copy, by its expiry: a sync never replaces a sign-in
+the host refreshed since, the host sends one it refreshed to the desktop at once
+(`host:tokens`), and after each sync the desktop takes any newer ones it missed
+while asleep (`tokens`). Cached tokens are read again whenever the vault
+changes.
 
 Not on the host (yet): chat apps (Discord/Telegram/WhatsApp bots stay on the
 desktop and don't see workers that moved), agent email, the trading desk, and
 the phone remote (pair the phone with the desktop; it sees no workers while
-they are on the host). Two machines using one OAuth sign-in (ChatGPT, Claude)
-can sign each other out when tokens rotate; API keys are safest.
+they are on the host). The Workers tab hides "Open its folder" and "Connect a
+chat app" while workers are on the host. While the host can't be reached, the
+tab shows what it last saw: reading works, changes are refused with a message,
+and for the first seconds after this app starts a change waits for the link.

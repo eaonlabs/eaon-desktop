@@ -2,8 +2,9 @@ import type { ChatMessage } from '@shared/types'
 
 /**
  * Turning a worker's Markdown reply into something each chat app shows well.
- * Discord renders Markdown itself; Telegram gets its small HTML subset;
- * WhatsApp has its own *bold* _italic_ ~strike~ ```mono``` marks. Long replies
+ * Discord, Mattermost and Zulip render Markdown themselves; Telegram gets its
+ * small HTML subset, and Matrix much the same; WhatsApp and Slack have their
+ * own *bold* _italic_ ~strike~ ```mono``` marks. Long replies
  * are split on paragraph, then line, then word boundaries so no message goes
  * over the app's limit.
  */
@@ -109,6 +110,50 @@ export function toWhatsApp(markdown: string): string {
   return text.replace(/\u0000(\d+)\u0000/g, (_m, i: string) => stash[Number(i)])
 }
 
+/**
+ * Markdown to the HTML Matrix clients show (`formatted_body`): Telegram's
+ * subset, with line breaks made explicit outside code blocks, since HTML
+ * would otherwise run the lines together.
+ */
+export function toMatrixHtml(markdown: string): string {
+  return toTelegramHtml(markdown)
+    .split(/(<pre>[\s\S]*?<\/pre>)/)
+    .map((piece) => (piece.startsWith('<pre>') ? piece : piece.replace(/\n/g, '<br>')))
+    .join('')
+}
+
+const escapeSlack = (text: string): string => text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+
+/**
+ * Markdown to Slack's mrkdwn: WhatsApp's marks, `<url|label>` links, and
+ * `&`, `<` and `>` escaped (Slack reads `<…>` as a link or a mention).
+ */
+export function toSlackMrkdwn(markdown: string): string {
+  const stash: string[] = []
+  const keep = (text: string): string => `\u0000${stash.push(text) - 1}\u0000`
+  let text = markdown.replace(/```[^\n]*\n?([\s\S]*?)```/g, (_m, code: string) => keep(`\`\`\`${escapeSlack(code.replace(/\n$/, ''))}\`\`\``))
+  text = text.replace(/`([^`\n]+)`/g, (_m, code: string) => keep(`\`${escapeSlack(code)}\``))
+  text = text.replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g, (_m, label: string, url: string) => keep(`<${url}|${escapeSlack(label).replace(/\|/g, '¦')}>`))
+  text = text.replace(/https?:\/\/[^\s<>()]+/g, (url) => keep(url))
+  text = escapeSlack(text)
+  text = text.replace(/(^|[^*\w])\*([^*\n]+)\*(?!\w)/g, '$1_$2_')
+  text = text.replace(/^#{1,6}\s+(.+)$/gm, '*$1*')
+  text = text.replace(/\*\*([^*\n]+)\*\*/g, '*$1*').replace(/__([^_\n]+)__/g, '*$1*')
+  text = text.replace(/~~([^~\n]+)~~/g, '~$1~')
+  text = text.replace(/^(\s*)[-*]\s+/gm, '$1• ')
+  return text.replace(/\u0000(\d+)\u0000/g, (_m, i: string) => stash[Number(i)])
+}
+
+/**
+ * Rewrites the commands Eaon mentions in its own notices ("send /allow K3XP")
+ * for an app whose commands start with `!`. Never used on a worker's words.
+ */
+export function withCommandPrefix(text: string, prefix: '/' | '!', names: Iterable<string>): string {
+  if (prefix === '/') return text
+  const list = [...names].join('|')
+  return text.replace(new RegExp(`(^|[\\s(“"'])\\/(${list})(?![\\w/])`, 'g'), `$1${prefix}$2`)
+}
+
 /** Markdown with its marks taken off, for when an app refuses the formatted version. */
 export function plainText(markdown: string): string {
   return markdown
@@ -133,8 +178,12 @@ export function calledByName(text: string, name: string): string | null {
   return match ? text.slice(match[0].length).trim() : null
 }
 
-/** "/status@NovaBot extra" → { name: 'status', args: 'extra' }. Null for anything that isn't a command. */
+/**
+ * "/status@NovaBot extra" → { name: 'status', args: 'extra' }. `!status` too:
+ * Slack, Mattermost and Element keep `/` for themselves. Null for anything
+ * that isn't a command.
+ */
 export function parseCommand(text: string): { name: string; args: string } | null {
-  const match = /^\/([a-z]+)(?:@[\w.]+)?(?:\s+([\s\S]*))?$/i.exec(text.trim())
+  const match = /^[/!]([a-z]+)(?:@[\w.]+)?(?:\s+([\s\S]*))?$/i.exec(text.trim())
   return match ? { name: match[1].toLowerCase(), args: (match[2] ?? '').trim() } : null
 }

@@ -1,0 +1,194 @@
+/* Settings → Agent providers (pages/AgentProviders.tsx). */
+
+.agentp-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 18px 12px;
+}
+.agentp-head .btn,
+.agentp-update {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+.agentp-head__title {
+  color: var(--text);
+  font-size: var(--fs-base);
+  font-weight: 500;
+}
+.agentp-head__desc {
+  margin-top: 2px;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+}
+.agentp-head__count {
+  margin-top: 8px;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+.agentp-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 14px 6px;
+}
+.agentp-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px 12px 8px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+  transition:
+    border-color var(--dur) var(--ease),
+    opacity var(--dur) var(--ease);
+}
+.agentp-row[data-over] {
+  border-color: var(--accent);
+}
+.agentp-row[data-off] .agentp-row__mark,
+.agentp-row[data-off] .agentp-row__text {
+  opacity: 0.6;
+}
+.agentp-row__grip {
+  flex: none;
+  color: var(--text-4);
+  cursor: grab;
+}
+.agentp-row__mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 28px;
+}
+.agentp-row__text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.agentp-row__name {
+  color: var(--text);
+  font-size: var(--fs-base);
+  font-weight: 500;
+}
+.agentp-row__status {
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+.agentp-row__status[data-tone='on'] {
+  color: color-mix(in srgb, #3fb984 80%, var(--text));
+}
+.agentp-row__note {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.agentp-row__guide {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+.agentp-foot,
+.agentp-empty {
+  padding: 6px 18px 14px;
+  color: var(--text-4);
+  font-size: var(--fs-xs);
+}
+
+.agentp-updates {
+  padding: 14px 18px 16px;
+  border-top: 1px solid var(--border-soft);
+}
+.agentp-update-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+  padding: 12px 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-lg);
+}
+.agentp-error {
+  margin-top: 10px;
+  color: var(--danger);
+  font-size: var(--fs-sm);
+}
+
+.agentp-tools {
+  margin: 0 14px 14px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-lg);
+  overflow: hidden;
+}
+.agentp-tool {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  padding-right: 10px;
+}
+.agentp-tool + .agentp-tool {
+  border-top: 1px solid var(--border-soft);
+}
+.agentp-tool__row {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 50px;
+  padding: 0 8px 0 16px;
+  text-align: left;
+}
+.agentp-tool__name {
+  flex: 1;
+  color: var(--text);
+  font-size: var(--fs-base);
+  font-weight: 500;
+}
+.agentp-tool__version {
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  font-variant-numeric: tabular-nums;
+}
+.agentp-tool__chevron {
+  flex: none;
+  color: var(--text-3);
+  transition: transform 200ms var(--ease);
+}
+.agentp-tool[data-open] .agentp-tool__chevron {
+  transform: rotate(90deg);
+}
+.agentp-tool__more {
+  flex-basis: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 16px 14px;
+  animation: ide-pane-in 180ms var(--ease) both;
+}
+.agentp-tool__more > div {
+  display: flex;
+  gap: 10px;
+  font-size: var(--fs-sm);
+}
+.agentp-tool__more > div > span {
+  width: 52px;
+  flex: none;
+  color: var(--text-3);
+}
+.agentp-tool__more code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-2);
+}
+.agentp-tool__more .btn {
+  align-self: flex-start;
+}

@@ -39,7 +39,12 @@ export interface HostHello {
   /** The host's free memory and load, for the status line. */
   memory: { free: number; total: number }
   load: number
+  /** Space left where the workers' folders are (absent from older hosts). */
+  disk?: { free: number; total: number }
 }
+
+/** Below this, the workers' computer is short of room for their files and browsers. */
+export const HOST_DISK_LOW = 2 * 1024 ** 3
 
 /** A linked computer, as the desktop remembers it (the secret lives in the key vault, never here). */
 export interface LinkedHost {
@@ -117,6 +122,28 @@ export function hostServesChannel(channel: string, args: unknown[]): boolean {
     return typeof target === 'string' && target.startsWith('worker:')
   }
   return false
+}
+
+/**
+ * When a saved sign-in's access token runs out (`expires` in a provider's
+ * tokens, `expiresAt` in an MCP server's), or null for a plain key. Sign-ins
+ * hand out a new refresh token each time they refresh, and the old one stops
+ * working: of two copies, the one that expires later is the one still good.
+ */
+export function credentialExpiry(raw: string | undefined): number | null {
+  if (!raw || raw[0] !== '{') return null
+  try {
+    const parsed = JSON.parse(raw) as { expires?: unknown; expiresAt?: unknown }
+    const at = typeof parsed.expires === 'number' ? parsed.expires : parsed.expiresAt
+    return typeof at === 'number' && Number.isFinite(at) ? at : null
+  } catch {
+    return null
+  }
+}
+
+/** Of a vault's entries, the sign-ins (those that expire), for keeping two computers' in step. */
+export function signInEntries(vault: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(Object.entries(vault).filter(([, value]) => credentialExpiry(value) !== null))
 }
 
 /** Events the host forwards to the desktop. */

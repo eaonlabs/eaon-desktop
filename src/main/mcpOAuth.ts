@@ -68,8 +68,14 @@ const vaultKey = (serverId: string): string => `mcp-oauth:${serverId}`
 // The vault decrypts the whole file on every read, and the transport asks for
 // tokens on every request, so reads are served from memory after the first.
 const cache = new Map<string, StoredAuth>()
+/** The vault's version the cache was read at: a linked worker computer may have refreshed tokens since. */
+let cacheVersion = -1
 
 function read(serverId: string): StoredAuth {
+  if (cacheVersion !== secrets.version()) {
+    cache.clear()
+    cacheVersion = secrets.version()
+  }
   const cached = cache.get(serverId)
   if (cached) return cached
   let stored: StoredAuth = {}
@@ -86,8 +92,12 @@ function read(serverId: string): StoredAuth {
 function write(serverId: string, patch: Partial<StoredAuth>): void {
   const next = { ...read(serverId), ...patch }
   for (const key of Object.keys(next) as (keyof StoredAuth)[]) if (next[key] === undefined) delete next[key]
-  cache.set(serverId, next)
   secrets.set(vaultKey(serverId), Object.keys(next).length > 0 ? JSON.stringify(next) : '')
+  if (cacheVersion !== secrets.version()) {
+    cache.clear()
+    cacheVersion = secrets.version()
+  }
+  cache.set(serverId, next)
 }
 
 /** What is stored for this server and URL, or nothing if it was issued for another URL. */

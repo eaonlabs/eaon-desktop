@@ -6,7 +6,7 @@ import { toolSourceOf } from '../../agent/tools'
 
 /**
  * What a turn may do when a guest's message is in it — someone the user let
- * talk to a worker from Discord, Telegram or WhatsApp. The loop's unattended
+ * talk to a worker from a chat app (Discord, Slack, WhatsApp…). The loop's unattended
  * policy covers changes; this covers the rest:
  *
  * - Nothing a guest says may outlive the turn. Schedules, routines, goal,

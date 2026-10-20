@@ -18,6 +18,8 @@ import {
   type ProjectGroup
 } from '@shared/adeSessions'
 import type { TerminalAgentId } from '@shared/terminals'
+import { arrangeAgents } from '../../lib/agentPrefs'
+import { useApp } from '../../state/store'
 
 /** The agent a new session starts with, when it is installed: the first of these. */
 const PREFERRED: TerminalAgentId[] = ['claude', 'codex', 'eaon-code', 'opencode', 'antigravity']
@@ -69,7 +71,7 @@ export function NewSessionDialog(): JSX.Element | null {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
-  const installed = agents.filter((a) => a.installed && a.id !== 'shell')
+  const installed = arrangeAgents(agents, useApp.getState().settings?.agentProviders).filter((a) => a.installed && a.id !== 'shell')
   useEffect(() => {
     if (!open) return
     setAgent((current) => current ?? PREFERRED.find((id) => installed.some((a) => a.id === id)) ?? 'shell')

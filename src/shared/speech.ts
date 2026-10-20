@@ -59,6 +59,15 @@ export function speechUrl(providerId: string, baseUrl: string | undefined): stri
   return base ? `${base}/audio/transcriptions` : null
 }
 
+/**
+ * A speech-to-text model picked for one place (the ADE's hold-to-talk), in
+ * place of the one under Settings → Model providers → Speech to text.
+ */
+export interface SpeechPick {
+  providerId: string
+  modelId: string | null
+}
+
 /* ------------------------------------------------------- on this computer */
 
 /**

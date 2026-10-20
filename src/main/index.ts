@@ -153,11 +153,20 @@ function liveContents(window: BrowserWindow): Electron.WebContents | null {
   return window.webContents
 }
 
+/** Sends to one page. A page being torn down still looks alive but throws; it has no one left to tell. */
+function sendTo(contents: Electron.WebContents, channel: string, args: unknown[]): void {
+  try {
+    contents.send(channel, ...args)
+  } catch {
+    // Closed under us.
+  }
+}
+
 /** Sends to every window's page; `except` leaves out the page that made the change. */
 function broadcast(channel: string, payload?: unknown, except?: Electron.WebContents): void {
   for (const window of appWindows) {
     const contents = liveContents(window)
-    if (contents && contents !== except) contents.send(channel, ...(payload === undefined ? [] : [payload]))
+    if (contents && contents !== except) sendTo(contents, channel, payload === undefined ? [] : [payload])
   }
 }
 let capturing = false
@@ -905,7 +914,10 @@ const featureContext: FeatureContext = {
   getWindow: currentWindow,
   getWindows: openWindows,
   send: (channel, ...args) => {
-    for (const window of appWindows) liveContents(window)?.send(channel, ...args)
+    for (const window of appWindows) {
+      const contents = liveContents(window)
+      if (contents) sendTo(contents, channel, args)
+    }
   },
   emitStream: (event) => streamBatch.emit(event)
 }

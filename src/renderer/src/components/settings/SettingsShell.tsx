@@ -27,8 +27,7 @@ import {
   HardDrive,
   SquarePlus,
   Sun,
-  Wand2
-} from 'lucide-react'
+  Wand2, Gauge, Bot, CircleUser } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { useApp, useIsWork } from '../../state/store'
 import { SearchField } from '../ui'
@@ -58,6 +57,9 @@ import { DiscordPage } from './pages/Discord'
 import { ChatAppsPage } from './pages/ChatApps'
 import { EmailPage } from './pages/Email'
 import { UsagePage } from './pages/Usage'
+import { UsageLimitsPage } from './pages/UsageLimits'
+import { AgentProvidersPage } from './pages/AgentProviders'
+import { ProfilePage } from './pages/Profile'
 import { AccountsPage } from './pages/Accounts'
 import { PaymentsPage } from './pages/Payments'
 import { EnginesPage } from './pages/Engines'
@@ -79,14 +81,17 @@ const stroke = 1.9
  * Appearance and "api key" finds Model providers instead of a blank list.
  */
 const KEYWORDS: Record<string, string> = {
+  profile: 'profile avatar name handle share activity streak heatmap tokens insights model usage card',
   general: 'update beta version launch login startup sleep language suggested prompts contributors',
   appearance: 'theme dark light mode color colour font size text zoom accent icon motion contrast',
   configuration: 'approval autonomy sandbox permissions web search agent',
   shortcuts: 'keyboard hotkey keys',
   usage: 'tokens cost spend limits tokn activity streak',
+  'usage-limits': 'quota limit remaining reset codex claude cursor copilot grok opencode devin credits balance rings sidebar',
   accounts: 'claude code codex sign in login plan limit switch account',
   providers: 'api key keys openai anthropic claude gemini google openrouter ollama lm studio model free credits event code hackathon eaon free sign in',
   engines: 'claude code codex agent engine cli',
+  'agent-providers': 'cli coding agents claude codex cursor opencode droid grok antigravity gemini copilot install update version picker order hide priority',
   'computer-use': 'screen mouse keyboard accessibility screen recording permissions',
   payments: 'card purchase buy money spending limit',
   'browser-control': 'chrome extension browser',
@@ -108,14 +113,17 @@ const KEYWORDS: Record<string, string> = {
 }
 
 const NAV: NavEntry[] = [
+  { id: 'profile', label: 'Profile', icon: <CircleUser size={size} strokeWidth={stroke} />, group: 'Personal' },
   { id: 'general', label: 'General', icon: <SettingsIcon size={size} strokeWidth={stroke} />, group: 'Personal' },
   { id: 'appearance', label: 'Appearance', icon: <Sun size={size} strokeWidth={stroke} />, group: 'Personal' },
   { id: 'configuration', label: 'Configuration', icon: <ShieldCheck size={size} strokeWidth={stroke} />, group: 'Personal' },
   { id: 'shortcuts', label: 'Keyboard shortcuts', icon: <SquarePlus size={size} strokeWidth={stroke} />, group: 'Personal' },
   { id: 'usage', label: 'Usage', icon: <BarChart3 size={size} strokeWidth={stroke} />, group: 'Personal' },
+  { id: 'usage-limits', label: 'Usage & limits', icon: <Gauge size={size} strokeWidth={stroke} />, group: 'Personal' },
   { id: 'accounts', label: 'Accounts', icon: <Users size={size} strokeWidth={stroke} />, group: 'Personal' },
 
   { id: 'providers', label: 'Model providers', icon: <KeyRound size={size} strokeWidth={stroke} />, group: 'Integrations' },
+  { id: 'agent-providers', label: 'Agent providers', icon: <Bot size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'engines', label: 'Agent engines', icon: <Cpu size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'computer-use', label: 'Computer use', icon: <Wand2 size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'payments', label: 'Payments', icon: <CreditCard size={size} strokeWidth={stroke} />, group: 'Integrations' },
@@ -158,14 +166,17 @@ const POLICY_PAGES: Record<string, PolicyFeature> = {
 }
 
 const PAGES: Record<string, () => JSX.Element> = {
+  profile: ProfilePage,
   general: GeneralPage,
   appearance: AppearancePage,
   configuration: ConfigurationPage,
   shortcuts: ShortcutsPage,
   usage: UsagePage,
+  'usage-limits': UsageLimitsPage,
   accounts: AccountsPage,
   providers: ProvidersPage,
   engines: EnginesPage,
+  'agent-providers': AgentProvidersPage,
   'computer-use': ComputerUsePage,
   payments: PaymentsPage,
   'browser-control': BrowserControlPage,

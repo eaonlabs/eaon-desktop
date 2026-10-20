@@ -7,6 +7,7 @@ import type * as NodePty from 'node-pty'
 import type { TerminalSpawnRequest, TerminalSpawnResult } from '@shared/terminals'
 import { isMouseReport, shellInForeground, STRAY_MODES_OFF } from './strayModes'
 import type { GuestLaunch } from './guestSandbox'
+import { store } from '../../store'
 
 /**
  * Owns every pseudo-terminal behind the ADE's terminal view. Ported from Eaon
@@ -302,6 +303,15 @@ export class PtyManager {
         cwd,
         env: guest ? guest.env : this.buildEnv(req.paneId, extraEnv)
       })
+      // Settings → Agent providers: agents (and what they run) give way to
+      // the rest of the computer when it is busy. Children inherit it.
+      if (!remote && !guest && store.getSettings().agentProviders?.lowPriority) {
+        try {
+          os.setPriority(proc.pid, 10)
+        } catch {
+          /* Best effort: the pane runs at normal priority. */
+        }
+      }
       const session: Session = {
         proc,
         buffer: [],

@@ -14,7 +14,7 @@ export function channelsToolSource(service: ChannelsService): ToolSource {
   const tool: AgentTool = {
     name: 'send_chat_message',
     description:
-      'Post in one of your connected chats (Discord, Telegram, WhatsApp), optionally with files from your folder. Replies to chat messages are posted for you; use this to post on your own, like a routine’s results.',
+      'Post in one of your connected chats (Discord, Telegram, WhatsApp, Slack, Matrix, Mattermost, Zulip), optionally with files from your folder. Replies to chat messages are posted for you; use this to post on your own, like a routine’s results.',
     inputSchema: {
       type: 'object',
       properties: {

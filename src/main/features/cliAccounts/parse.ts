@@ -163,6 +163,7 @@ function codexWindowName(minutes: number | null): { id: string; label: string; s
 export interface CodexUsage {
   plan: string | null
   windows: UsageWindow[]
+  banked?: { available: number; nextExpiry: number | null }
 }
 
 /**
@@ -208,7 +209,16 @@ export function codexUsage(response: unknown): CodexUsage {
       })
     }
   }
-  return { plan, windows }
+  // Banked resets, when the account has any: how many, and the soonest to expire.
+  const credits = obj(r.rateLimitResetCredits)
+  let banked: CodexUsage['banked']
+  if (credits) {
+    const list = Array.isArray(credits.credits) ? credits.credits.map(obj).filter((c): c is Record<string, unknown> => c !== null) : []
+    const open = list.filter((c) => (str(c.status) ?? 'available') === 'available')
+    const expiries = open.map((c) => num(c.expiresAt)).filter((t): t is number => t !== null && t > 0).map((t) => (t < 1e11 ? t * 1000 : t))
+    banked = { available: num(credits.availableCount) ?? open.length, nextExpiry: expiries.length ? Math.min(...expiries) : null }
+  }
+  return { plan, windows, ...(banked ? { banked } : {}) }
 }
 
 /** Codex's `account/read`: who is signed in, if anyone. */

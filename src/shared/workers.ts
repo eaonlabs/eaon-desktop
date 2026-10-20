@@ -159,7 +159,7 @@ export interface WorkerMail {
   /** Absolute paths, already copied into the recipient's folder. */
   files: string[]
   at: number
-  /** Set when it came in through Discord, Telegram or WhatsApp — see shared/channels.ts. */
+  /** Set when it came in through a chat app (Discord, Slack, WhatsApp…) — see shared/channels.ts. */
   channel?: WorkerMailChannel
   /** The user made this message the worker's goal (Goal in the composer's + menu). */
   goal?: boolean

@@ -28,6 +28,17 @@ make:
     src/renderer/src/assets/app-icons/default.png, agent.png
                                256 px, the two choices in Settings
 
+and the other backgrounds the user can pick for the same Disc E (VARIANTS
+below: Light, Ocean, Sunset, Forest, Grape, and two painted scenes, Aurora
+and Peaks, drawn here rather than taken from photos), each made from
+resources/Eaon.icon with its fill, mark colour or a background layer
+swapped:
+
+    resources/app-icons/<id>.png, <id>.ico
+                               1024 px and Windows, shipped as icons/<id>.*
+    src/renderer/src/assets/app-icons/<id>.png
+                               256 px, its choice in Settings
+
 The PNGs and the icns follow macOS's icon grid: the tile is 824 of 1024 px,
 centred, with a soft shadow in the margin (none on the in-app tiles). The ico
 files are full bleed, as Windows draws icons.
@@ -39,16 +50,20 @@ is still rebuilt, and the script says so.
 Needs Python 3 with Pillow, and Xcode 26 or later.
 
     python3 scripts/make-icon.py
+    python3 scripts/make-icon.py --variants    only the background variants
 """
 
+import json
+import math
 import os
+import random
 import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
-from PIL import Image, ImageFilter
+from PIL import Image, ImageDraw, ImageFilter
 
 ROOT = Path(__file__).resolve().parent.parent
 RESOURCES = ROOT / 'resources'
@@ -148,7 +163,130 @@ def compile_car(tmp: Path) -> bool:
     return True
 
 
+# ------------------------------------------------------------ backgrounds
+
+def vertical(size: int, top: tuple, bottom: tuple) -> Image.Image:
+    """A top-to-bottom gradient."""
+    image = Image.new('RGB', (1, size))
+    for y in range(size):
+        t = y / (size - 1)
+        image.putpixel((0, y), tuple(round(a + (b - a) * t) for a, b in zip(top, bottom)))
+    return image.resize((size, size))
+
+
+def glow(base: Image.Image, at: tuple, radius: float, color: tuple, strength: float) -> None:
+    """A soft blob of light, added onto `base`."""
+    size = base.size[0]
+    layer = Image.new('RGB', base.size, (0, 0, 0))
+    mask = Image.new('L', base.size, 0)
+    d = ImageDraw.Draw(mask)
+    x, y = at[0] * size, at[1] * size
+    r = radius * size
+    d.ellipse((x - r, y - r, x + r, y + r), fill=round(255 * strength))
+    mask = mask.filter(ImageFilter.GaussianBlur(r * 0.55))
+    layer.paste(color, mask=mask)
+    base.paste(Image.composite(Image.blend(base, layer, 1), base, mask), (0, 0))
+
+
+def ridge(size: int, seed: int, base: float, height: float, waves: int) -> list:
+    """A mountain skyline: a few sine waves of falling size, summed, as a closed polygon."""
+    rng = random.Random(seed)
+    parts = [(rng.uniform(0, math.tau), rng.uniform(0.6, 1.4) * (k + 1), 1 / (k + 1) ** 1.3) for k in range(waves)]
+    points = []
+    for i in range(size + 1):
+        x = i / size
+        y = sum(a * math.sin(x * f * math.tau + p) for p, f, a in parts)
+        peak = abs(math.sin(x * math.pi * 1.6 + parts[0][0])) ** 3
+        points.append((i, (base - height * (0.55 * y / waves + 0.6 * peak)) * size))
+    return points + [(size, size), (0, size)]
+
+
+def aurora(size: int) -> Image.Image:
+    """A night sky: deep blue, curtains of green and violet light, a few stars, a dark horizon."""
+    image = vertical(size, (8, 14, 38), (16, 34, 52))
+    glow(image, (0.22, 0.34), 0.30, (60, 240, 160), 1.0)
+    glow(image, (0.50, 0.18), 0.30, (70, 225, 200), 0.9)
+    glow(image, (0.84, 0.36), 0.30, (175, 105, 255), 0.95)
+    glow(image, (0.12, 0.66), 0.22, (40, 205, 140), 0.7)
+    glow(image, (0.86, 0.72), 0.18, (120, 80, 230), 0.6)
+    rng = random.Random(7)
+    d = ImageDraw.Draw(image)
+    for _ in range(70):
+        x, y, r = rng.uniform(0, size), rng.uniform(0, size * 0.55), rng.choice((0.8, 1.1, 1.6))
+        tone = rng.randint(170, 255)
+        d.ellipse((x - r, y - r, x + r, y + r), fill=(tone, tone, 255))
+    d.polygon(ridge(size, 3, 0.86, 0.10, 4), fill=(6, 12, 22))
+    return image
+
+
+def peaks(size: int) -> Image.Image:
+    """Mountains at sunrise: a clear sky warming towards the horizon, a low sun, three ridges in haze."""
+    image = vertical(size, (86, 140, 214), (250, 196, 150))
+    glow(image, (0.68, 0.60), 0.20, (255, 236, 196), 0.9)
+    d = ImageDraw.Draw(image)
+    for seed, base, height, color in ((11, 0.66, 0.30, (150, 150, 186)), (5, 0.78, 0.26, (98, 96, 138)), (2, 0.92, 0.20, (52, 52, 84))):
+        d.polygon(ridge(size, seed, base, height, 5), fill=color)
+    return image
+
+
+# Each variant: an id (the AppIcon value), a fill, the mark's colour, and
+# optionally a painted background laid under the mark and grain.
+VARIANTS = [
+    {'id': 'light', 'fill': ((0.99, 0.99, 0.99), (0.90, 0.90, 0.92)), 'mark': (0.09, 0.09, 0.10)},
+    {'id': 'ocean', 'fill': ((0.24, 0.52, 0.99), (0.04, 0.17, 0.45))},
+    {'id': 'sunset', 'fill': ((1.00, 0.58, 0.26), (0.85, 0.18, 0.43))},
+    {'id': 'forest', 'fill': ((0.22, 0.64, 0.44), (0.04, 0.22, 0.16))},
+    {'id': 'grape', 'fill': ((0.58, 0.40, 0.98), (0.21, 0.08, 0.46))},
+    {'id': 'aurora', 'paint': aurora},
+    {'id': 'peaks', 'paint': peaks},
+]
+
+
+def srgb(color: tuple) -> str:
+    return 'srgb:' + ','.join(f'{c:.5f}' for c in (*color, 1.0))
+
+
+def variant_doc(spec: dict, tmp: Path) -> Path:
+    """resources/Eaon.icon with this variant's fill, mark colour and background."""
+    doc = tmp / f"{spec['id']}.icon"
+    shutil.copytree(APP_ICON, doc)
+    data = json.loads((doc / 'icon.json').read_text())
+    if 'fill' in spec:
+        data['fill']['linear-gradient'] = [srgb(spec['fill'][0]), srgb(spec['fill'][1])]
+    if 'mark' in spec:
+        for group in data['groups']:
+            for layer in group['layers']:
+                if layer.get('name') == 'Mark':
+                    for option in layer.get('fill-specializations', []):
+                        option['value'] = {'solid': srgb(spec['mark'])}
+    if 'paint' in spec:
+        spec['paint'](1024).save(doc / 'Assets' / 'background.png')
+        data['groups'].append({
+            'layers': [{'image-name': 'background.png', 'name': 'Background', 'glass': False}],
+            'shadow': {'kind': 'none', 'opacity': 0},
+            'translucency': {'enabled': False, 'value': 0},
+            'specular': False,
+        })
+    (doc / 'icon.json').write_text(json.dumps(data, indent=2))
+    return doc
+
+
+def build_variants(tmp: Path) -> None:
+    out = RESOURCES / 'app-icons'
+    out.mkdir(exist_ok=True)
+    for spec in VARIANTS:
+        doc = variant_doc(spec, tmp)
+        on_grid(doc, 1024, tmp).save(out / f"{spec['id']}.png")
+        save_ico(doc, out / f"{spec['id']}.ico", tmp)
+        on_grid(doc, 256, tmp, shadow=False).save(ASSETS / 'app-icons' / f"{spec['id']}.png")
+    print('wrote resources/app-icons/ and the Settings tiles for', ', '.join(v['id'] for v in VARIANTS))
+
+
 def main() -> None:
+    if '--variants' in sys.argv:
+        with tempfile.TemporaryDirectory() as t:
+            build_variants(Path(t))
+        return
     for doc in (APP_ICON, AGENT_ICON):
         if not (doc / 'icon.json').exists():
             sys.exit(f'error: {doc} is missing')
@@ -169,6 +307,7 @@ def main() -> None:
         on_grid(AGENT_ICON, 256, tmp, shadow=False).save(ASSETS / 'app-icons' / 'agent.png')
 
         car = compile_car(tmp)
+        build_variants(tmp)
     print('wrote resources/icon.png, icon.icns, icon.ico, icon-agent.png, icon-agent.ico'
           + (', Assets.car' if car else '') + ', the in-app eaon.png and the Settings app-icon tiles')
 

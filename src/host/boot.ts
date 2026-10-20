@@ -4,6 +4,8 @@ import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
 import type { Feature, FeatureContext } from '@main/features/types'
 import { store } from '@main/store'
+import { secrets } from '@main/secrets'
+import { signInEntries } from '@shared/workerHost'
 import '@main/agent/sources'
 import { killBackgroundProcesses } from '@main/localTools'
 import { shutdownMcp, syncMcpServers } from '@main/mcp'
@@ -110,10 +112,27 @@ export async function bootHost(options: BootOptions): Promise<{ stop: () => Prom
       const child = spawn('sh', ['-c', script, 'sh', file, home], { detached: true, stdio: ['ignore', 'ignore', 'ignore'], env: { ...process.env } })
       child.unref()
     },
+    signIns: () => signInEntries(secrets.entries()),
     uninstall: async () => {
       const child = spawn('sh', [join(appDir, 'install.sh'), '--uninstall'], { detached: true, stdio: 'ignore', env: { ...process.env, EAON_HOST_HOME: home } })
       child.unref()
     }
+  })
+
+  // A sign-in refreshed here (a worker thinking with it) goes to the desktop at once:
+  // its copy's refresh token stopped working the moment this one was used.
+  let lastSignIns = JSON.stringify(signInEntries(secrets.entries()))
+  let signInTimer: ReturnType<typeof setTimeout> | null = null
+  const offSecrets = secrets.onChange(() => {
+    if (signInTimer) return
+    signInTimer = setTimeout(() => {
+      signInTimer = null
+      const now = signInEntries(secrets.entries())
+      const json = JSON.stringify(now)
+      if (json === lastSignIns) return
+      lastSignIns = json
+      broadcast('host:tokens', now)
+    }, 500)
   })
 
   const server = await listen({ port: config.port, secret: () => config.secret, onPeer: (peer) => host.attach(peer) })
@@ -125,6 +144,8 @@ export async function bootHost(options: BootOptions): Promise<{ stop: () => Prom
   const stop = (): Promise<void> => {
     if (stopping) return stopping
     stopping = (async () => {
+      offSecrets()
+      if (signInTimer) clearTimeout(signInTimer)
       await server.close().catch(() => undefined)
       killBackgroundProcesses()
       service.stop()

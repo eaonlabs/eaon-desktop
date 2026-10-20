@@ -187,6 +187,17 @@ function TeamEmpty({ onCreate, onTeam }: { onCreate: () => void; onTeam: () => v
  * case on macOS, but after a quit or a restart they wait for the next launch —
  * unless background mode starts Eaon at login.
  */
+/** True while the workers run on a linked worker computer (Settings → Worker computer), not here. */
+function useWorkersElsewhere(): boolean {
+  const [elsewhere, setElsewhere] = useState(false)
+  useEffect(() => {
+    const update = (host: { host: unknown; enabled: boolean }): void => setElsewhere(Boolean(host.host) && host.enabled)
+    void window.api.workerHost.state().then(update)
+    return window.api.workerHost.onState(update)
+  }, [])
+  return elsewhere
+}
+
 function BackgroundHint(): JSX.Element | null {
   const [state, setState] = useState<{ supported: boolean; enabled: boolean } | null>(null)
   const [dismissed, setDismissed] = useState(() => {
@@ -197,12 +208,9 @@ function BackgroundHint(): JSX.Element | null {
     }
   })
   // Workers on a worker computer don't depend on this one running at all.
-  const [elsewhere, setElsewhere] = useState(false)
+  const elsewhere = useWorkersElsewhere()
   useEffect(() => {
     void window.api.app.background().then(setState)
-    const update = (host: { host: unknown; enabled: boolean }): void => setElsewhere(Boolean(host.host) && host.enabled)
-    void window.api.workerHost.state().then(update)
-    return window.api.workerHost.onState(update)
   }, [])
   if (!state?.supported || state.enabled || dismissed || elsewhere) return null
   return (
@@ -607,8 +615,10 @@ function ConnectedApps({ worker }: { worker: Worker }): JSX.Element | null {
   useEffect(() => {
     void init()
   }, [init])
+  // Chat apps run on this computer, with the workers here; a worker on the worker computer isn't reached by them.
+  const elsewhere = useWorkersElsewhere()
   const mine = links.filter((l) => l.workerId === worker.id && l.enabled)
-  if (mine.length === 0) return null
+  if (mine.length === 0 || elsewhere) return null
   return (
     <>
       {mine.map((link) => (
@@ -663,6 +673,7 @@ function WorkerActions({ worker }: { worker: Worker }): JSX.Element {
     }))
   )
   const viewing = openThread && openThread !== 'new' && worker.threads.some((t) => t.id === openThread) ? openThread : MAIN_THREAD
+  const elsewhere = useWorkersElsewhere()
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [confirm, setConfirm] = useState<'clear' | 'delete' | null>(null)
   const working = worker.status === 'working'
@@ -728,8 +739,13 @@ function WorkerActions({ worker }: { worker: Worker }): JSX.Element {
           onClose={() => setMenu(null)}
           items={[
             { icon: <PencilLine size={15} strokeWidth={1.9} />, label: 'Edit worker', action: () => openEditor(worker.id) },
-            { icon: <FolderOpen size={15} strokeWidth={1.9} />, label: 'Open its folder', action: () => void window.api.app.showItem(worker.folder) },
-            { icon: <MessagesSquare size={15} strokeWidth={1.9} />, label: 'Connect a chat app', action: () => connectApp(worker.id) },
+            // Its folder is on the worker computer, and chat apps only reach workers on this one.
+            ...(elsewhere
+              ? []
+              : [
+                  { icon: <FolderOpen size={15} strokeWidth={1.9} />, label: 'Open its folder', action: () => void window.api.app.showItem(worker.folder) },
+                  { icon: <MessagesSquare size={15} strokeWidth={1.9} />, label: 'Connect a chat app', action: () => connectApp(worker.id) }
+                ]),
             { icon: <Eraser size={15} strokeWidth={1.9} />, label: viewing === MAIN_THREAD ? 'Clear messages' : 'Clear this thread', action: () => setConfirm('clear') },
             { icon: <Trash2 size={15} strokeWidth={1.9} />, label: 'Delete worker', danger: true, action: () => setConfirm('delete') }
           ]}

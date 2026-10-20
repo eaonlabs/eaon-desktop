@@ -1,11 +1,12 @@
 import { app, Notification } from 'electron'
 import { createHash, randomUUID } from 'node:crypto'
-import { existsSync, readFileSync } from 'node:fs'
+import { existsSync, readFileSync, statSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { homedir } from 'node:os'
 import type { AgentBrowserStatus, BrowserTarget } from '@shared/agentBrowser'
 import type { Worker, WorkerRoom } from '@shared/workers'
 import {
+  credentialExpiry,
   WORKER_HOST_DEFAULT_PORT,
   WORKER_HOST_PROTOCOL,
   type HostHello,
@@ -56,6 +57,23 @@ const SECRET_KEY = 'worker-host:secret'
 const PRIVATE_SECRETS = /^(worker-host:|channel:)/
 const RESYNC_MS = 10 * 60_000
 const HELLO_MS = 30_000
+/** How long a change made while the link is still coming up waits for it. */
+const CONNECTING_WAIT_MS = 8000
+/** Channels the cache answers while the host is away, without waiting for it. */
+const READ_ONLY = new Set([
+  'workers:list',
+  'workers:rooms',
+  'workers:thread',
+  'workers:room-posts',
+  'workers:executions',
+  'workers:delegations',
+  'workers:job-log',
+  'workers:has-browser',
+  'workers:teach-steps',
+  'workers:viewing',
+  'workers:mark-read',
+  'workers:room-read'
+])
 
 interface Config {
   host: LinkedHost | null
@@ -193,6 +211,8 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService): 
     const out: string[] = []
     for (const file of files) {
       if (typeof file !== 'string' || !existsSync(file)) continue
+      // A worker here is handed a folder's path; one on the host couldn't reach it.
+      if (!statSync(file).isFile()) throw new Error(`${basename(file)} is a folder. Workers on ${config.host?.name ?? 'the worker computer'} can be sent files, not folders.`)
       const remote = await link.call<string>('files.upload-path', { name: basename(file) })
       await pushFile(file, remote)
       out.push(remote)
@@ -207,17 +227,23 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService): 
       case 'workers:rooms':
         return cache.rooms
       case 'workers:thread': {
-        const thread = cache.threads.get(String(args[0]))
+        const thread = cache.threads.get(threadKey(args))
         if (thread) return thread
         return { workerId: String(args[0]), messages: [], summary: null }
       }
       case 'workers:room-posts':
+      case 'workers:executions':
+      case 'workers:delegations':
         return []
+      case 'workers:job-log':
+        return ''
       case 'workers:has-browser':
       case 'workers:show-browser':
         return false
       case 'workers:teach-steps':
         return []
+      // Nothing to change on the host: what the tab is showing, and what was read.
+      case 'workers:viewing':
       case 'workers:mark-read':
       case 'workers:room-read':
         return undefined
@@ -226,7 +252,17 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService): 
     }
   }
 
+  /** The cache's key for a thread: the worker, and which of its threads (the main one when none is given). */
+  const threadKey = (args: unknown[]): string => `${String(args[0])}#${typeof args[1] === 'string' && args[1] ? args[1] : 'main'}`
+
   const proxy = async (channel: string, args: unknown[]): Promise<unknown> => {
+    // Just opened, or back from sleep: the link is a moment away, so a change waits for it
+    // rather than failing; what the tab only reads is shown from the cache meanwhile.
+    if (!READ_ONLY.has(channel)) {
+      for (const started = Date.now(); !link.connected && link.connection === 'connecting' && Date.now() - started < CONNECTING_WAIT_MS; ) {
+        await new Promise((r) => setTimeout(r, 100))
+      }
+    }
     if (!link.connected) return offlineAnswer(channel, args)
     // Its windows are on its own screen; the live view is how to see a worker's browser from here.
     if (channel === 'workers:show-browser') return false
@@ -240,7 +276,7 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService): 
       cache.rooms = value as WorkerRoom[]
       saveCache()
     } else if (channel === 'workers:thread') {
-      cache.threads.set(String(args[0]), value)
+      cache.threads.set(threadKey(args), value)
       // A few recent threads are enough for a short outage.
       if (cache.threads.size > 8) cache.threads.delete(cache.threads.keys().next().value as string)
     }
@@ -341,11 +377,38 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService): 
     saveConfig()
   }
 
+  /**
+   * Sign-ins the host refreshed: its copy is the good one now (the refresh
+   * token here was spent there), so this computer takes it. Only for sign-ins
+   * this computer still has; one signed out of here stays out.
+   */
+  let takingSignIns = false
+  const takeSignIns = (entries: unknown): void => {
+    if (!entries || typeof entries !== 'object') return
+    const own = secrets.entries()
+    const newer: Record<string, string> = {}
+    for (const [id, value] of Object.entries(entries as Record<string, unknown>)) {
+      if (typeof value !== 'string' || PRIVATE_SECRETS.test(id) || !own[id]) continue
+      const theirs = credentialExpiry(value)
+      const mine = credentialExpiry(own[id])
+      if (theirs !== null && mine !== null && theirs > mine) newer[id] = value
+    }
+    if (Object.keys(newer).length === 0) return
+    takingSignIns = true
+    try {
+      secrets.setMany(newer)
+    } finally {
+      takingSignIns = false
+    }
+  }
+
   let syncing: Promise<void> | null = null
   const sync = (): Promise<void> => {
     if (syncing) return syncing
     syncing = (async () => {
       link.hello = await link.call<HostHello>('sync', syncPayload())
+      // And back: what it refreshed while this computer was asleep (an older host has no `tokens`).
+      takeSignIns(await link.call('tokens', null, 15_000).catch(() => null))
       await syncSkills().catch((error) => console.error('[worker-host] skills didn’t sync:', errorText(error)))
       pushState()
     })().finally(() => {
@@ -417,6 +480,7 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService): 
     const { channel, args } = data as { channel: string; args: unknown[] }
     if (!Array.isArray(args)) return
     if (channel === 'host:notify') return showNotice(args[0] as Parameters<typeof showNotice>[0])
+    if (channel === 'host:tokens') return takeSignIns(args[0])
     if (!config.enabled || moving) return
     if (channel === 'agent-browser:frame') return remoteBrowserFrame(args[0] as Parameters<typeof remoteBrowserFrame>[0])
     if (channel === 'agent-browser:status') {
@@ -449,6 +513,17 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService): 
     if (link.connected && link.connection === 'connected') void sync().catch(() => undefined)
   }, RESYNC_MS)
   resync.unref?.()
+  // A key saved, or a sign-in refreshed, here goes over within seconds: the host's
+  // copy of a refreshed sign-in stops working as soon as this one is used.
+  let vaultTimer: ReturnType<typeof setTimeout> | null = null
+  const offVault = secrets.onChange(() => {
+    if (takingSignIns || vaultTimer) return
+    vaultTimer = setTimeout(() => {
+      vaultTimer = null
+      if (link.connected && link.connection === 'connected') void sync().catch(() => undefined)
+    }, 3000)
+    vaultTimer.unref?.()
+  })
   const hellos = setInterval(() => {
     if (!link.connected || link.connection !== 'connected') return
     void link
@@ -637,19 +712,27 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService): 
       return state()
     })
 
-  const startPairing = async (): Promise<HostPairing> => {
-    if (config.enabled) throw new Error('Bring your workers back from the current worker computer first.')
+  /**
+   * Serves a one-line install. With `reinstall`, for the computer already
+   * linked (with a command, so there is no SSH to reinstall over): the same
+   * link key and port, and the workers there stay where they are.
+   */
+  const startPairing = async (options: { reinstall?: boolean } = {}): Promise<HostPairing> => {
+    const linked = config.host
+    const linkedSecret = secrets.get(SECRET_KEY)
+    if (options.reinstall && (!linked || !linkedSecret)) throw new Error('No worker computer is linked.')
+    if (!options.reinstall && config.enabled) throw new Error('Bring your workers back from the current worker computer first.')
     const pkg = hostPackage()
     if (!pkg) throw new Error('This copy of Eaon doesn’t include the host app (npm run build:host).')
     await pairing?.close()
     const names = await computerNames()
     const address = lanAddresses()[0] ?? `${names.hostName}.local`
-    const secret = newHostSecret()
+    const secret = options.reinstall ? linkedSecret! : newHostSecret()
     pairing = await startPairingServer({
       packagePath: pkg.path,
       address,
       secret,
-      hostPort: WORKER_HOST_DEFAULT_PORT,
+      hostPort: options.reinstall ? linked!.port : WORKER_HOST_DEFAULT_PORT,
       computerName: names.computerName,
       onProgress: progress,
       onDone: (done) => {
@@ -657,6 +740,17 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService): 
           const server = pairing
           pairing = null
           void server?.close()
+          if (options.reinstall && config.host) {
+            // Same computer, same key: only where it is and what it runs can have changed.
+            config.host = { ...config.host, address: done.address, port: done.port, platform: done.platform, arch: done.arch }
+            saveConfig()
+            updatesTried.clear()
+            progress({ line: 'Reinstalled. Connecting to it' })
+            link.reconnect()
+            await link.ready(30_000)
+            progress({ line: link.connected ? `${config.host.name} is back` : `Reinstalled, but not connected yet: ${link.error ?? ''}`, done: true })
+            return
+          }
           const host: LinkedHost = {
             id: randomUUID(),
             name: done.name || done.address,
@@ -697,7 +791,7 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService): 
   ipcMain.handle('worker-host:state', () => state())
   ipcMain.handle('worker-host:install-ssh', (_e, request: SshInstallRequest) => installSsh(request))
   ipcMain.handle('worker-host:reinstall', (_e, password?: string) => reinstall(typeof password === 'string' ? password : undefined))
-  ipcMain.handle('worker-host:pair-start', () => startPairing())
+  ipcMain.handle('worker-host:pair-start', (_e, options?: { reinstall?: boolean }) => startPairing({ reinstall: options?.reinstall === true }))
   ipcMain.handle('worker-host:pair-cancel', async () => {
     await pairing?.close()
     pairing = null
@@ -746,6 +840,8 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService): 
     dispose: () => {
       clearInterval(resync)
       clearInterval(hellos)
+      offVault()
+      if (vaultTimer) clearTimeout(vaultTimer)
       void pairing?.close()
       link.stop()
     }

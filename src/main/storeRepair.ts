@@ -57,7 +57,7 @@ const SETTINGS_ENUMS: Record<string, readonly string[]> = {
   'general.launchMode': values<LaunchMode>({ chat: true, workers: true, ade: true, last: true }),
   'appearance.mode': values<ThemeMode>({ system: true, light: true, dark: true }),
   'appearance.reduceMotion': values<Settings['appearance']['reduceMotion']>({ system: true, on: true, off: true }),
-  'appearance.appIcon': values<AppIcon>({ default: true, agent: true }),
+  'appearance.appIcon': values<AppIcon>({ default: true, agent: true, light: true, ocean: true, sunset: true, forest: true, grape: true, aurora: true, peaks: true }),
   effort: values<EffortLevel>({ none: true, minimal: true, light: true, medium: true, high: true, 'extra-high': true, ultra: true }),
   approvalMode: values<ApprovalMode>({ ask: true, auto: true, full: true }),
   'computerUse.quality': values<Settings['computerUse']['quality']>({ balanced: true, sharp: true }),

@@ -98,12 +98,61 @@ remove_service() {
   rm -f "${HOST_HOME:?}/service"
 }
 
+# ------------------------------------------------------------ the firewall
+
+# Eaon Desktop connects in on the host's port, which a firewall that drops
+# everything not allowed (ufw on a Raspberry Pi, firewalld on Fedora, macOS's)
+# turns into a link that never answers. The link is encrypted and only opens
+# for the desktop holding its key, so the port is opened like SSH's would be.
+FIREWALL_HINT=""
+sbin() { PATH="$PATH:/usr/sbin:/sbin" command -v "$1" 2>/dev/null; }
+open_port() {
+  if [ "$PLAT" = linux ]; then
+    UFW=$(sbin ufw) || UFW=""
+    FWCMD=$(sbin firewall-cmd) || FWCMD=""
+    if [ -n "$UFW" ] && can_sudo && as_root "$UFW" status 2>/dev/null | grep -q '^Status: active'; then
+      if as_root "$UFW" allow "$1/tcp" comment 'Eaon worker host' >/dev/null 2>&1; then
+        say "Opened port $1 in this computer's firewall (ufw)"
+      else FIREWALL_HINT="sudo ufw allow $1/tcp"; fi
+    elif [ -n "$FWCMD" ] && can_sudo && [ "$(as_root "$FWCMD" --state 2>/dev/null)" = running ]; then
+      if as_root "$FWCMD" --permanent --add-port="$1/tcp" >/dev/null 2>&1 && as_root "$FWCMD" --reload >/dev/null 2>&1; then
+        say "Opened port $1 in this computer's firewall (firewalld)"
+      else FIREWALL_HINT="sudo firewall-cmd --permanent --add-port=$1/tcp && sudo firewall-cmd --reload"; fi
+    elif [ -n "$UFW$FWCMD" ] && ! can_sudo; then
+      # Can't look without root; if one is on, this is what lets the desktop in.
+      if [ -n "$UFW" ]; then FIREWALL_HINT="sudo ufw allow $1/tcp"; else FIREWALL_HINT="sudo firewall-cmd --permanent --add-port=$1/tcp && sudo firewall-cmd --reload"; fi
+    fi
+  elif [ "$PLAT" = darwin ]; then
+    FW=/usr/libexec/ApplicationFirewall/socketfilterfw
+    if [ -x "$FW" ] && "$FW" --getglobalstate 2>/dev/null | grep -q enabled; then
+      if can_sudo && as_root "$FW" --add "$EBIN" >/dev/null 2>&1 && as_root "$FW" --unblockapp "$EBIN" >/dev/null 2>&1; then
+        say "Let the host app through this Mac's firewall"
+      else FIREWALL_HINT="sudo $FW --add '$EBIN' && sudo $FW --unblockapp '$EBIN'"; fi
+    fi
+  fi
+  if [ -n "$FIREWALL_HINT" ]; then
+    say "This computer has a firewall that may block Eaon Desktop. If it can't connect, run here: $FIREWALL_HINT"
+  fi
+}
+close_port() {
+  [ "$PLAT" = linux ] || return 0
+  can_sudo || return 0
+  UFW=$(sbin ufw) || UFW=""
+  FWCMD=$(sbin firewall-cmd) || FWCMD=""
+  if [ -n "$UFW" ]; then as_root "$UFW" delete allow "$1/tcp" >/dev/null 2>&1 || true; fi
+  if [ -n "$FWCMD" ]; then
+    as_root "$FWCMD" --permanent --remove-port="$1/tcp" >/dev/null 2>&1 && as_root "$FWCMD" --reload >/dev/null 2>&1 || true
+  fi
+}
+
 if [ "$MODE" = uninstall ]; then
   # Unlinking in Eaon Desktop runs this from inside the service it removes, and
   # stopping the service ends this script too: so everything else goes first.
   say "Removing the worker host"
   KIND_WAS=$(service_kind)
   remove_service
+  OLD_PORT=$(sed -n 's/.*"port": *\([0-9]*\).*/\1/p' "$HOST_HOME/host.json" 2>/dev/null)
+  [ -z "$OLD_PORT" ] || close_port "$OLD_PORT"
   rm -rf "${HOST_HOME:?}/app" "${HOST_HOME:?}/app.next" "${HOST_HOME:?}/app.old" "${HOST_HOME:?}/runtime" "${HOST_HOME:?}/run.sh" "${HOST_HOME:?}/host.json" "${HOST_HOME:?}/incoming.tgz" "${HOST_HOME:?}/uploads"
   say "Removed. The workers' data stays in $HOST_HOME/data and their folders in ~/Eaon/Workers."
   echo "EAON_HOST_REMOVED"
@@ -347,6 +396,7 @@ if [ -z "$KIND" ]; then
   KIND=nohup
 fi
 echo "$KIND" >"$HOST_HOME/service"
+open_port "$PORT"
 
 probe() {
   if have curl; then curl -s -o /dev/null --max-time 2 "http://127.0.0.1:$PORT/"

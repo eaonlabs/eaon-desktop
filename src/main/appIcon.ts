@@ -4,9 +4,9 @@ import { fileURLToPath } from 'node:url'
 import type { AppIcon } from '@shared/types'
 
 /**
- * The app icon the user picked in Settings → Appearance: the Disc E, or the
- * agent face on the same tile. Both are built from Icon Composer documents
- * by scripts/make-icon.py.
+ * The app icon the user picked in Settings → Appearance: the Disc E, the
+ * agent face on the same tile, or the Disc E on another background. All are
+ * built from Icon Composer documents by scripts/make-icon.py.
  *
  * Only the running app changes: the Dock tile on macOS, the window and
  * taskbar icon on Windows and Linux. The Finder, Launchpad, the installer
@@ -33,12 +33,13 @@ interface Where {
  * (extraResources in electron-builder.yml); dev runs read resources/.
  */
 export function appIconFile(icon: AppIcon, where: Where): string | null {
-  const agent = icon === 'agent'
-  if (where.platform === 'darwin' && where.packaged && !agent) return null
+  if (where.platform === 'darwin' && where.packaged && icon === 'default') return null
   const ext = where.platform === 'win32' ? 'ico' : 'png'
-  return where.packaged
-    ? join(where.resourcesPath, 'icons', `${agent ? 'agent' : 'default'}.${ext}`)
-    : join(where.devResources, `${agent ? 'icon-agent' : 'icon'}.${ext}`)
+  if (where.packaged) return join(where.resourcesPath, 'icons', `${icon}.${ext}`)
+  // Dev runs: the Disc E and the agent beside the other icons in resources/, the backgrounds in resources/app-icons/.
+  if (icon === 'default') return join(where.devResources, `icon.${ext}`)
+  if (icon === 'agent') return join(where.devResources, `icon-agent.${ext}`)
+  return join(where.devResources, 'app-icons', `${icon}.${ext}`)
 }
 
 export function currentAppIconFile(icon: AppIcon): string | null {

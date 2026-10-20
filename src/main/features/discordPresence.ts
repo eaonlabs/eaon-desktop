@@ -199,7 +199,9 @@ export const discordPresenceFeature: Feature = {
       // closes (macOS keeps the app running), stop showing Eaon as in use.
       if (!watched.has(event.sender)) {
         watched.add(event.sender)
-        event.sender.once('destroyed', () => sync(null))
+        // After the page is gone: during 'destroyed' it still looks alive, and
+        // sending it the 'off' status throws "Object has been destroyed".
+        event.sender.once('destroyed', () => setImmediate(() => sync(null)))
       }
       sync(next)
     })

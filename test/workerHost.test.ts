@@ -2,6 +2,7 @@ import { after, afterEach, before, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync, spawn } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import WebSocket from 'ws'
@@ -15,9 +16,11 @@ import { createWorkersService, type WorkersService } from '../src/main/features/
 import type { RunAgent } from '../src/main/features/workers/runner'
 import type { FeatureContext } from '../src/main/features/types'
 import { createHost } from '../src/host/host'
-import { broadcast, ipc } from '../src/host/ipc'
+import { broadcast, ipc, senderFor } from '../src/host/ipc'
 import { applySync, pickSettings } from '../src/host/sync'
-import { hostServesChannel, WORKER_HOST_PATH } from '@shared/workerHost'
+import { tokenStore } from '../src/main/providers/oauth/shared'
+import { createWorkerHost } from '../src/main/features/workerHost'
+import { credentialExpiry, hostServesChannel, signInEntries, WORKER_HOST_PATH } from '@shared/workerHost'
 import type { Worker } from '@shared/workers'
 
 const usage = { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 }
@@ -105,6 +108,24 @@ test('the link turns an address away after ten wrong secrets, even with the righ
   server = await listen({ port: 0, host: '127.0.0.1', secret: () => secret, onPeer: (peer) => peers.push(peer) })
   for (let i = 0; i < 10; i++) await assert.rejects(connect({ address: '127.0.0.1', port: server.port, secret: newHostSecret() }))
   await assert.rejects(connect({ address: '127.0.0.1', port: server.port, secret }))
+})
+
+test('a port that never answers (a firewall dropping it) says so, and how to open it', async () => {
+  // Takes the connection and says nothing, as far as the desktop can tell like a dropped one.
+  const sockets: import('node:net').Socket[] = []
+  const silent = (await import('node:net')).createServer((socket) => sockets.push(socket))
+  await new Promise<void>((r) => silent.listen(0, '127.0.0.1', () => r()))
+  const port = (silent.address() as { port: number }).port
+  try {
+    await assert.rejects(connect({ address: '127.0.0.1', port, secret: newHostSecret(), timeoutMs: 500 }), (error: Error) => {
+      assert.match(error.message, new RegExp(`Nothing answered on port ${port}`))
+      assert.match(error.message, new RegExp(`sudo ufw allow ${port}/tcp`))
+      return true
+    })
+  } finally {
+    for (const socket of sockets) socket.destroy()
+    silent.close()
+  }
 })
 
 test('a frame that was changed, replayed or not sealed ends the link', async () => {
@@ -504,6 +525,125 @@ test('a worker’s side threads move with it, paths and all', () => {
   const { snapshot } = relocate(back, '/new', {}, '/')
   assert.deepEqual((snapshot.threads['x2#t-a1'] as { messages: string[] }).messages, ['see /new/Y/plan.md'])
   writeSnapshot(store, { workers: [], threads: {}, rooms: null })
+})
+
+test('a folder’s path is rewritten only where it ends: Nova is not the start of Nova2', () => {
+  const from = '/Users/me/Eaon/Workers/Nova (1)'
+  const to = '/home/pi/Eaon/Workers/Nova (1)'
+  const out = rewritePaths({ a: from, b: `${from}/notes.md`, c: `see ${from}.`, d: `${from}2/x`, e: `${from}-old`, f: `"${from}"` }, from, to)
+  assert.deepEqual(out, { a: to, b: `${to}/notes.md`, c: `see ${to}.`, d: `${from}2/x`, e: `${from}-old`, f: `"${to}"` })
+})
+
+/* ---------------------------------------------------------------- sign-ins */
+
+const signIn = (refresh: string, expires: number): string => JSON.stringify({ access: `a-${refresh}`, refresh, expires })
+
+test('a sign-in the worker computer refreshed survives a sync from the desktop’s older copy', () => {
+  assert.equal(credentialExpiry(signIn('r', 5)), 5)
+  assert.equal(credentialExpiry(JSON.stringify({ tokens: {}, expiresAt: 7 })), 7)
+  assert.equal(credentialExpiry('sk-plain-key'), null)
+  assert.deepEqual(Object.keys(signInEntries({ k: 'sk-1', 'oauth::x': signIn('r', 1) })), ['oauth::x'])
+
+  // The host used the sign-in and got a new refresh token; the desktop still has the spent one.
+  secrets.set('oauth::openai-codex', signIn('r2', 2000))
+  applySync({ secrets: { fake: 'key', 'oauth::openai-codex': signIn('r1', 1000) }, providers: {}, settings: {}, mcpServers: [] })
+  assert.equal(JSON.parse(secrets.get('oauth::openai-codex')!).refresh, 'r2')
+  // The desktop signing in again (a later expiry) does reach it.
+  applySync({ secrets: { fake: 'key', 'oauth::openai-codex': signIn('r3', 3000) }, providers: {}, settings: {}, mcpServers: [] })
+  assert.equal(JSON.parse(secrets.get('oauth::openai-codex')!).refresh, 'r3')
+  // Signed out on the desktop: signed out here.
+  applySync({ secrets: { fake: 'key' }, providers: {}, settings: {}, mcpServers: [] })
+  assert.equal(secrets.get('oauth::openai-codex'), undefined)
+})
+
+test('a cached sign-in is read again once the vault changed underneath it', () => {
+  const tokens = tokenStore<{ refresh: string }>('worker-host-test')
+  tokens.set({ refresh: 'old' })
+  assert.equal(tokens.get()?.refresh, 'old')
+  // A sync, or the other computer's refresh arriving.
+  secrets.set('oauth::worker-host-test', JSON.stringify({ refresh: 'new' }))
+  assert.equal(tokens.get()?.refresh, 'new')
+  tokens.set(null)
+})
+
+test('a desktop’s link closing reads as its window closing, for what was subscribed', async () => {
+  const sent: string[] = []
+  const event = senderFor(7, (channel) => sent.push(channel))
+  let gone = 0
+  const fn = (): void => void gone++
+  event.sender.once('destroyed', fn)
+  event.sender.send('workers:changed')
+  event.destroy()
+  event.sender.send('workers:changed')
+  assert.equal(gone, 1)
+  assert.equal(event.sender.isDestroyed(), true)
+  assert.deepEqual(sent, ['workers:changed'])
+  let late = 0
+  event.sender.once('destroyed', () => void late++)
+  await new Promise((r) => setTimeout(r, 0))
+  assert.equal(late, 1)
+})
+
+/* ---------------------------------------- the Workers tab, with the host away */
+
+test('with the worker computer away, the tab reads from the cache and only changes fail, at once', async () => {
+  const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>()
+  const ctx = {
+    ipcMain: {
+      handle: (channel: string, handler: (event: unknown, ...args: unknown[]) => unknown) => {
+        if (handlers.has(channel)) throw new Error(`second handler for ${channel}`)
+        handlers.set(channel, handler)
+      },
+      removeHandler: (channel: string) => handlers.delete(channel)
+    },
+    getWindow: () => null,
+    getWindows: () => [],
+    send: () => undefined,
+    emitStream: () => {}
+  } as unknown as FeatureContext
+  const call = (channel: string, ...args: unknown[]): Promise<unknown> => Promise.resolve().then(() => handlers.get(channel)!({ sender: { id: 1 } }, ...args))
+  const desk = createWorkersService(ctx, { startDelayMs: 60_000 })
+  desk.registerIpc()
+  // A port nothing listens on: refused at once.
+  const closed = await new Promise<number>((resolve) => {
+    const probe = createServer()
+    probe.listen(0, '127.0.0.1', () => {
+      const { port } = probe.address() as { port: number }
+      probe.close(() => resolve(port))
+    })
+  })
+  const cached: Partial<Worker> = { id: 'w-away', name: 'Away' }
+  store.setJson('worker-host-cache.json', { workers: [cached], rooms: [] })
+  store.setJson('worker-host.json', {
+    host: { id: 'h', name: 'Garage Pi', address: '127.0.0.1', port: closed, platform: 'linux', arch: 'arm64', linkedAt: 1, via: 'command' },
+    enabled: true,
+    origins: {},
+    backupAt: null,
+    skillsHash: null,
+    releasePending: false
+  })
+  secrets.set('worker-host:secret', newHostSecret())
+  const feature = createWorkerHost(ctx, desk)
+  try {
+    // What the tab only reads or reports: answered, never an error.
+    assert.deepEqual(await call('workers:list'), [cached])
+    assert.equal(await call('workers:viewing', 'w-away'), undefined)
+    assert.deepEqual(await call('workers:executions', 'w-away'), [])
+    assert.deepEqual(await call('workers:delegations'), [])
+    assert.equal(await call('workers:job-log', 'w-away', 'j'), '')
+    assert.equal((await call('workers:thread', 'w-away', 't-side')) && true, true)
+    // A change fails, as soon as the link has failed rather than after a long wait.
+    const started = Date.now()
+    await assert.rejects(call('workers:send', 'w-away', 'hi', [], {}), /Garage Pi can’t be reached/)
+    assert.ok(Date.now() - started < 6000, `took ${Date.now() - started} ms`)
+    assert.equal(feature.state().enabled, true)
+  } finally {
+    feature.dispose()
+    desk.stop()
+    secrets.clear('worker-host:secret')
+    store.setJson('worker-host.json', {})
+    store.setJson('worker-host-cache.json', {})
+  }
 })
 
 after(() => {

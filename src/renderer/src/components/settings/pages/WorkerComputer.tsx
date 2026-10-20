@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Check, Copy, Loader2, TriangleAlert } from 'lucide-react'
 import { Card, Modal, Row, Section, Segmented, Switch } from '../../ui'
-import type { HostInstallProgress, HostPairing, WorkerHostState } from '@shared/workerHost'
+import { HOST_DISK_LOW, type HostInstallProgress, type HostPairing, type WorkerHostState } from '@shared/workerHost'
 
 const errorText = (error: unknown): string => (error instanceof Error ? error.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(error))
 
@@ -25,7 +25,11 @@ function connectionText(state: WorkerHostState): { label: string; tone: 'ok' | '
 /** Install and move progress, newest last. */
 function ProgressLog({ lines }: { lines: HostInstallProgress[] }): JSX.Element | null {
   const end = useRef<HTMLLIElement | null>(null)
-  useEffect(() => end.current?.scrollIntoView({ block: 'nearest' }), [lines.length])
+  // Braces: newer Chromium's scrollIntoView returns a promise, and an effect
+  // that returns one makes React call it as a cleanup when it runs again.
+  useEffect(() => {
+    end.current?.scrollIntoView({ block: 'nearest' })
+  }, [lines.length])
   if (lines.length === 0) return null
   return (
     <ol className="wh-log" aria-live="polite">
@@ -213,6 +217,56 @@ function LinkComputer({ onLinked }: { onLinked: (state: WorkerHostState) => void
   )
 }
 
+/** For a computer linked with a command: a new one to run there, keeping the link and its workers. */
+function ReinstallCommand({ name, busy }: { name: string; busy: boolean }): JSX.Element {
+  const [pairing, setPairing] = useState<HostPairing | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
+  // A served command ends with the page.
+  useEffect(() => () => void window.api.workerHost.pairCancel(), [])
+  const copy = (): void => {
+    if (!pairing) return
+    void navigator.clipboard.writeText(pairing.command)
+    setCopied(true)
+    setTimeout(() => setCopied(false), 1500)
+  }
+  return (
+    <>
+      <Row title="Reinstall the host app" description={`Run a command on ${name} to install it afresh, keeping the link and the workers there. For when it stopped answering.`}>
+        {!pairing && (
+          <button
+            className="btn btn--ghost"
+            disabled={busy}
+            onClick={() => {
+              setError(null)
+              void window.api.workerHost.pairStart({ reinstall: true }).then(setPairing, (e) => setError(errorText(e)))
+            }}
+          >
+            Get a command
+          </button>
+        )}
+      </Row>
+      {(pairing || error) && (
+        <div className="row row--stack">
+          {pairing && (
+            <>
+              <div className="wh-command">
+                <code>{pairing.command}</code>
+                <button className="btn btn--ghost" onClick={copy} aria-label="Copy the command">
+                  {copied ? <Check size={14} /> : <Copy size={14} />}
+                  {copied ? 'Copied' : 'Copy'}
+                </button>
+              </div>
+              <p className="wh-hint">The command holds the link’s key, so don’t share it; it stops working after it’s used, or in 30 minutes.</p>
+            </>
+          )}
+          {error && <p className="ch-error">{error}</p>}
+        </div>
+      )}
+    </>
+  )
+}
+
 export function WorkerComputerPage(): JSX.Element {
   const [state, setState] = useState<WorkerHostState | null>(null)
   const [busy, setBusy] = useState(false)
@@ -328,8 +382,19 @@ export function WorkerComputerPage(): JSX.Element {
               <Card>
                 <Row
                   title="Workers"
-                  description={`${hello.workers} worker${hello.workers === 1 ? '' : 's'}${hello.running ? `, ${hello.running} working now` : ''} · ${bytes(hello.memory.free)} of ${bytes(hello.memory.total)} memory free · load ${hello.load.toFixed(2)}`}
+                  description={`${hello.workers} worker${hello.workers === 1 ? '' : 's'}${hello.running ? `, ${hello.running} working now` : ''} · ${bytes(hello.memory.free)} of ${bytes(hello.memory.total)} memory free${hello.disk ? ` · ${bytes(hello.disk.free)} of ${bytes(hello.disk.total)} disk free` : ''} · load ${hello.load.toFixed(2)}`}
                 />
+                {hello.disk && hello.disk.free < HOST_DISK_LOW && (
+                  <div className="row row--stack">
+                    <div className="ch-warn" role="note">
+                      <TriangleAlert size={15} strokeWidth={2} aria-hidden="true" />
+                      <span>
+                        {host.name} has only {bytes(hello.disk.free)} of space left. Workers’ files, their browsers and updates to the host app need room; free some
+                        up there.
+                      </span>
+                    </div>
+                  </div>
+                )}
                 <Row
                   title="Browsers"
                   description={
@@ -392,6 +457,7 @@ export function WorkerComputerPage(): JSX.Element {
                   </button>
                 </Row>
               )}
+              {!host.ssh && <ReinstallCommand name={host.name} busy={busy || Boolean(state.moving)} />}
               <div className="row row--stack">
                 <div className="ch-warn" role="note">
                   <TriangleAlert size={15} strokeWidth={2} aria-hidden="true" />
