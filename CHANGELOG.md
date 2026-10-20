@@ -3,20 +3,43 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
-## [Unreleased]
+## [2026.7.0-beta.2.3] — 2026-10-19
 
 ### Added
+- **Hold a key to dictate in the ADE.** Hold Right Option (Right Alt on
+  Windows and Linux) and speak; letting go types what you said at the prompt
+  of the terminal you last used, without sending it. The words appear one by
+  one first. Settings → ADE → Speech to text picks the key and the model,
+  online or one that runs on this computer. Escape cancels.
+- **Usage & limits.** Settings → Usage & limits shows each coding agent's
+  plan limits, how much is left and when it resets, read from the CLIs
+  signed in on this computer: Claude Code, Codex, Cursor, GitHub Copilot,
+  Grok, OpenCode Go and Devin, plus OpenRouter and DeepSeek balances. The
+  sidebar rings use the same cards.
+- **Agent providers.** Settings → Agent providers turns each coding CLI on or
+  off and orders them for the ADE's New terminal menu, checks for CLI
+  updates and can give agent terminals a lower CPU priority.
+- **Profile.** Your name, handle and avatar, lifetime stats, streaks and a
+  year heatmap, with a card you can share.
 - **Four more chat apps.** Workers can now answer in Slack (Socket Mode, set
   up from a ready-made app manifest), Matrix (Element and every other Matrix
   app), Mattermost and Zulip, alongside Discord, Telegram and WhatsApp. None
   needs a public address. Where an app keeps `/` for its own commands, Eaon's
   are written `!pair`, `!help`, `!allow`.
+- **Seven more app icons.** Settings → Appearance → App icon adds Light,
+  Ocean, Sunset, Forest, Grape, Aurora and Peaks.
 
 ### Fixed
 - **Worker computer.** A sign-in shared by both computers no longer breaks
   when one of them refreshes it; a computer linked with a command can be
   reinstalled without unlinking; the Workers tab keeps working while the
-  worker computer is briefly away; low disk space on it is shown.
+  worker computer is briefly away; low disk space on it is shown. The
+  installer opens its port in the firewall (ufw, firewalld, macOS), and a
+  port that never answers says how to open it.
+- The Worker computer page no longer crashes while an install is running.
+- Closing a window with Discord presence on no longer logs "Object has been
+  destroyed".
+- Locked terminals: Claude Code starts and signs in inside the sandbox.
 
 ## [2026.7.0-beta.2.2] — 2026-10-18
 
