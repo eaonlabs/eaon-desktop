@@ -2,7 +2,7 @@
 
 Control Eaon Desktop from any browser: ADE sessions, live terminals (watch and
 type), starting agents, and Workers. No App Store app: a website, signed in
-with GitHub.
+with GitHub (or with a password set for the GitHub account).
 
 ```
  browser ──wss /relay/web (cookie)──▶ ┌──────────────────────────┐ ◀──wss /relay/device (device token)── Eaon Desktop
@@ -16,6 +16,23 @@ with GitHub.
 - **Sign-in:** GitHub OAuth with no scopes (only who you are). The session is an
   HttpOnly, Secure, SameSite=Lax cookie signed with `SESSION_SECRET`. The GitHub
   token is thrown away after the first call.
+- **Password sign-in** (`src/passwords.ts`, `src/password.ts`): optional, added to
+  a GitHub account at `/security`; you then sign in with your GitHub username
+  and that password, optionally plus a 2-step code from an authenticator app.
+  - Hashing: PBKDF2-SHA256, 100,000 rounds (the Workers maximum), over an HMAC
+    keyed with the `PASSWORD_PEPPER` secret. 2-step secrets are sealed with
+    AES-GCM under a key from the same secret.
+  - New passwords: at least 12 characters, not the username, and not in Have I
+    Been Pwned's leaked list (k-anonymity: only 5 hex characters of a SHA-1
+    leave the Worker).
+  - Guessing: five wrong tries on a username, then it locks for 1, 2, 4… minutes,
+    up to a day; checks on one username run one at a time, so a burst can't slip
+    past. Separately, 20 tries per 15 minutes and 100 per day per IP (IPv6 /64).
+    An unknown username answers exactly like a wrong password, in the same time.
+    A locked-out owner can still sign in with GitHub.
+  - Changing the password or 2-step needs a GitHub sign-in from the last 10
+    minutes, so a stolen password can't take the account over. Each change
+    signs out every session that came from a password.
 - **Linking (the TV way):** Eaon → `POST /api/link/start` → shows a code and opens
   `/link?code=…`; you sign in and approve; Eaon, polling with a secret only it
   holds, collects its device token once (`eaonrc1.<github id>.<device>.<secret>`,
@@ -43,12 +60,14 @@ with GitHub.
    wrangler secret put GITHUB_CLIENT_ID
    wrangler secret put GITHUB_CLIENT_SECRET
    openssl rand -base64 32 | wrangler secret put SESSION_SECRET
+   openssl rand -base64 32 | wrangler secret put PASSWORD_PEPPER
    ```
 3. **Deploy**: `wrangler deploy`. The `rc.eaon.dev` custom domain in
    `wrangler.jsonc` makes Cloudflare create the DNS record and certificate
    itself, because `eaon.dev` is on the same account.
 
-Rotating `SESSION_SECRET` signs everyone out. Never set `DEV_LOGIN` in production.
+Rotating `SESSION_SECRET` signs everyone out. Never change `PASSWORD_PEPPER`:
+every password and 2-step secret stops working. Never set `DEV_LOGIN` in production.
 
 ## Develop
 

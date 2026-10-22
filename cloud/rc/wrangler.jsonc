@@ -16,10 +16,17 @@
   "durable_objects": {
     "bindings": [
       { "name": "ACCOUNTS", "class_name": "Account" },
-      { "name": "LINKS", "class_name": "Links" }
+      { "name": "LINKS", "class_name": "Links" },
+      // Password sign-in: one per username and one per account (passwords.ts)
+      { "name": "PASSWORDS", "class_name": "Passwords" },
+      // Sign-in tries per IP address
+      { "name": "THROTTLE", "class_name": "Throttle" }
     ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Account", "Links"] }],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["Account", "Links"] },
+    { "tag": "v2", "new_sqlite_classes": ["Passwords", "Throttle"] }
+  ],
   "vars": { "PUBLIC_URL": "https://rc.eaon.dev" },
   "observability": { "enabled": true }
 }

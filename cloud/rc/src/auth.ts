@@ -1,17 +1,26 @@
 /**
  * Who is signed in: a GitHub account, kept in an HttpOnly cookie signed with
- * SESSION_SECRET (HMAC-SHA256). Nothing about a session is stored server-side,
- * so signing out everywhere means rotating the secret.
+ * SESSION_SECRET (HMAC-SHA256). The account is always a GitHub one, signed in
+ * either through GitHub or with the password set for it (passwords.ts).
+ *
+ * Nothing about a GitHub session is stored server-side, so signing those out
+ * everywhere means rotating the secret. A password session also carries the
+ * account's session version, checked on every request: changing the password
+ * or 2-step signs out every password session at once.
  */
 
 export interface Env {
   ASSETS: Fetcher
   ACCOUNTS: DurableObjectNamespace
   LINKS: DurableObjectNamespace
+  PASSWORDS: DurableObjectNamespace
+  THROTTLE: DurableObjectNamespace
   PUBLIC_URL: string
   SESSION_SECRET: string
   GITHUB_CLIENT_ID: string
   GITHUB_CLIENT_SECRET: string
+  /** Keys password hashes and seals 2-step secrets (password.ts). Unset: no password sign-in. */
+  PASSWORD_PEPPER?: string
   /** "1" only in `wrangler dev`: /auth/dev signs in without GitHub. */
   DEV_LOGIN?: string
 }
@@ -26,17 +35,30 @@ export interface User {
 export const SESSION_COOKIE = 'rc_session'
 export const STATE_COOKIE = 'rc_oauth'
 const SESSION_DAYS = 30
+/** Changing how you sign in needs a GitHub sign-in this recent. */
+const FRESH_MS = 10 * 60_000
+
+export type Via = 'github' | 'password'
+
+interface Session extends User {
+  exp: number
+  /** When it was signed in (sessions from before this field count as not fresh). */
+  at?: number
+  via?: Via
+  /** A password session's account session version (passwords.ts). */
+  v?: number
+}
 
 const enc = new TextEncoder()
 
-function b64url(bytes: ArrayBuffer | Uint8Array): string {
+export function b64url(bytes: ArrayBuffer | Uint8Array): string {
   const arr = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes)
   let s = ''
   for (const b of arr) s += String.fromCharCode(b)
   return btoa(s).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
 }
 
-function fromB64url(text: string): Uint8Array {
+export function fromB64url(text: string): Uint8Array {
   const s = atob(text.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((text.length + 3) % 4))
   return Uint8Array.from(s, (c) => c.charCodeAt(0))
 }
@@ -96,15 +118,34 @@ export function setCookie(env: Env, name: string, value: string, maxAgeS: number
   return `${name}=${encodeURIComponent(value)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAgeS}${secure}`
 }
 
-export async function sessionCookie(env: Env, user: User): Promise<string> {
-  const exp = Date.now() + SESSION_DAYS * 86_400_000
-  return setCookie(env, SESSION_COOKIE, await sign(env.SESSION_SECRET, { ...user, exp }), SESSION_DAYS * 86_400)
+export async function sessionCookie(env: Env, user: User, via: Via = 'github', version?: number): Promise<string> {
+  const now = Date.now()
+  const value: Session = { ...user, exp: now + SESSION_DAYS * 86_400_000, at: now, via, ...(via === 'password' ? { v: version } : {}) }
+  return setCookie(env, SESSION_COOKIE, await sign(env.SESSION_SECRET, value), SESSION_DAYS * 86_400)
+}
+
+/** The account's password and 2-step state (passwords.ts). */
+export const passwordsOf = (env: Env, uid: string): DurableObjectStub => env.PASSWORDS.get(env.PASSWORDS.idFromName(`uid:${uid}`))
+
+async function session(env: Env, request: Request): Promise<Session | null> {
+  const value = await verify<Session>(env.SESSION_SECRET, cookie(request, SESSION_COOKIE))
+  if (!value || typeof value.exp !== 'number' || value.exp < Date.now()) return null
+  if (value.via === 'password') {
+    const owner = (await (await passwordsOf(env, value.uid).fetch('https://do/owner')).json()) as { version: number }
+    if (owner.version !== value.v) return null
+  }
+  return value
 }
 
 export async function currentUser(env: Env, request: Request): Promise<User | null> {
-  const value = await verify<User & { exp: number }>(env.SESSION_SECRET, cookie(request, SESSION_COOKIE))
-  if (!value || typeof value.exp !== 'number' || value.exp < Date.now()) return null
-  return { uid: value.uid, login: value.login, avatar: value.avatar }
+  const value = await session(env, request)
+  return value ? { uid: value.uid, login: value.login, avatar: value.avatar } : null
+}
+
+/** Signed in through GitHub in the last few minutes: what setting a password or 2-step needs. */
+export async function freshFromGitHub(env: Env, request: Request): Promise<boolean> {
+  const value = await session(env, request)
+  return !!value && value.via !== 'password' && typeof value.at === 'number' && Date.now() - value.at < FRESH_MS
 }
 
 /**
