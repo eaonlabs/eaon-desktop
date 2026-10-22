@@ -204,17 +204,11 @@ export const defaultSettings: Settings = {
     lowPriority: false,
     updateChecks: true
   },
-  profile: {
-    name: '',
-    handle: '',
-    color: '#5bbf6a'
-  },
   cliUsage: {
     meter: true,
     view: 'detailed',
     alerts: true,
     autoSwitchCodex: false,
-    placement: 'sidebar',
     style: 'rings'
   },
   ade: {

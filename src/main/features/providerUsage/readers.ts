@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { severityOf } from '@shared/cliAccounts'
 import type { ProviderUsage, ProviderWindow, UsageLine, UsageProviderId } from '@shared/providerUsage'
+import { secrets } from '../../secrets'
 
 /**
  * One reader per tool: where it keeps its sign-in on this computer, and the
@@ -280,12 +281,17 @@ function opencodeAuthFiles(): string[] {
   return files.filter((f): f is string => Boolean(f))
 }
 
-/** OpenCode Go's limits; signed in to OpenCode without Go, it says so. */
+/**
+ * OpenCode Go's limits, with the key OpenCode signed in with or the one saved
+ * in Eaon (Settings → Model providers → OpenCode Go); signed in to OpenCode
+ * without Go, it says so.
+ */
 export async function readOpencode(): Promise<ProviderUsage | null> {
   let auth: Json | null = null
   for (const file of opencodeAuthFiles()) if ((auth = await readJson(file))) break
-  if (!auth || Object.keys(auth).length === 0) return null
-  const key = str(obj(auth['opencode-go'])?.key) ?? str(obj(auth.opencode)?.key)
+  const saved = secrets.get('opencode-go')?.trim() || null
+  if ((!auth || Object.keys(auth).length === 0) && !saved) return null
+  const key = str(obj(auth?.['opencode-go'])?.key) ?? str(obj(auth?.opencode)?.key) ?? saved
   if (!key) return base('opencode', { status: 'unsupported', note: 'Signed in with other providers. Limits show for an OpenCode Go subscription: `opencode auth login`.' })
   try {
     const body = await request('https://opencode.ai/zen/go/v1/usage', { headers: { Authorization: `Bearer ${key}`, Accept: 'application/json' } })

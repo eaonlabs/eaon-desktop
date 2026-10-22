@@ -9,7 +9,7 @@ import { ProviderIssueError } from '../src/main/providers/errors'
 import { oauthFlow } from '../src/main/providers/oauth'
 import { secrets } from '../src/main/secrets'
 import '../src/main/providers/oauth/flows'
-import { FREE_PROVIDER_ID } from '@shared/freeCredits'
+import { FREE_PROVIDER_ID, GATEWAY_PROVIDER_ID } from '@shared/freeCredits'
 import { store } from '../src/main/store'
 
 /*
@@ -40,7 +40,7 @@ test('every built-in provider says how to set it up, and its auth kind matches',
       assert.equal(flow.isSignedIn(), false, `${seed.id}: signed out in a fresh profile`)
       assert.ok(meta.signInLabel, `${seed.id}: has a sign-in button`)
     } else if (provider.auth === 'none') {
-      assert.equal(seed.id, FREE_PROVIDER_ID, `${seed.id}: only Eaon's own gateway is remote and keyless`)
+      assert.ok([FREE_PROVIDER_ID, GATEWAY_PROVIDER_ID].includes(seed.id), `${seed.id}: only Eaon's own gateway is remote and keyless`)
     } else {
       assert.ok(https(provider.keyUrl), `${seed.id}: has an https page to get a key (${provider.keyUrl})`)
     }

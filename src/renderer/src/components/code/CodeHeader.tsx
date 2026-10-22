@@ -25,7 +25,7 @@ export function CodeHeader(): JSX.Element {
       left={cwd ? <FolderChip /> : null}
       right={
         <div className="chat-header__actions">
-          <UsagePlacement where="header" />
+          <UsagePlacement />
           <ReviewButton />
           {cwd && (
             <button

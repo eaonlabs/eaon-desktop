@@ -11,7 +11,6 @@ import { WorkersSearchButton } from './workers/WorkerThreads'
 import { useOnboarding } from './onboarding/onboardingStore'
 import { ConfirmDialog, MenuItem, MenuSearch, Modal, Popover, useDisclosure } from './ui'
 import type { Project } from '@shared/types'
-import { UsagePlacement } from './UsagePlacement'
 
 export function Sidebar(): JSX.Element {
   const { sidebarOpen, toggleSidebar, goForward } = useApp(
@@ -61,7 +60,6 @@ export function Sidebar(): JSX.Element {
       </div>
 
       <div className="sidebar__footer">
-        <UsagePlacement where="sidebar" />
         <HelpButton />
       </div>
       </div>

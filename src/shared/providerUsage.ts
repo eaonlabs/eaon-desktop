@@ -23,6 +23,11 @@ export type UsageProviderId =
   | 'antigravity'
   | 'gemini'
   | 'pi'
+  | 'kimi'
+  | 'glm'
+  | 'minimax'
+  | 'qwen'
+  | 'mimo'
   | 'openrouter'
   | 'deepseek'
 
@@ -35,7 +40,7 @@ export interface UsageProviderInfo {
   signIn: string
   /** Its CLI's token totals in Settings → Usage (`cli:<tool>`), if it keeps any. */
   logs?: string
-  /** A plan with limits (rings in the sidebar), or only a balance. */
+  /** A plan with limits (rings in the ADE header), or only a balance. */
   kind: 'plan' | 'credits'
 }
 
@@ -49,9 +54,14 @@ export const USAGE_PROVIDERS: UsageProviderInfo[] = [
   { id: 'gemini', name: 'Gemini CLI', mark: 'cli:gemini-cli', signIn: 'gemini', logs: 'gemini-cli', kind: 'plan' },
   { id: 'grok', name: 'Grok', mark: 'cli:grok', signIn: 'grok login', logs: 'grok', kind: 'plan' },
   { id: 'droid', name: 'Droid', mark: 'cli:droid', signIn: 'droid', logs: 'droid', kind: 'plan' },
-  { id: 'opencode', name: 'OpenCode', mark: 'opencode', signIn: 'opencode auth login', logs: 'opencode', kind: 'plan' },
+  { id: 'opencode', name: 'OpenCode Go', mark: 'opencode', signIn: 'Add an OpenCode Go key in Settings → Model providers, or run `opencode auth login`', logs: 'opencode', kind: 'plan' },
   { id: 'pi', name: 'Pi', mark: 'pi', signIn: 'pi', kind: 'plan' },
   { id: 'devin', name: 'Devin', mark: 'devin', signIn: 'devin auth login', kind: 'plan' },
+  { id: 'kimi', name: 'Kimi For Coding', mark: 'kimi-coding', signIn: 'Add a Kimi For Coding key in Settings → Model providers', kind: 'plan' },
+  { id: 'glm', name: 'GLM Coding Plan', mark: 'zai-coding', signIn: 'Add a GLM Coding Plan key in Settings → Model providers', kind: 'plan' },
+  { id: 'minimax', name: 'MiniMax Token Plan', mark: 'minimax', signIn: 'Add a MiniMax Token Plan key in Settings → Model providers', kind: 'plan' },
+  { id: 'qwen', name: 'Qwen Token Plan', mark: 'qwen-token-plan', signIn: 'Add a Qwen Token Plan key in Settings → Model providers', kind: 'plan' },
+  { id: 'mimo', name: 'MiMo Token Plan', mark: 'xiaomi-token-plan', signIn: 'Add a MiMo Token Plan key in Settings → Model providers', kind: 'plan' },
   { id: 'openrouter', name: 'OpenRouter', mark: 'openrouter', signIn: 'Add an OpenRouter key in Settings → Model providers', kind: 'credits' },
   { id: 'deepseek', name: 'DeepSeek', mark: 'deepseek', signIn: 'Add a DeepSeek key in Settings → Model providers', kind: 'credits' }
 ]

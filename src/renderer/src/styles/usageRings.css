@@ -1,4 +1,4 @@
-/* The sidebar's plan usage rings and their card (components/UsageRings.tsx).
+/* The ADE header's plan usage rings and their card (components/UsageRings.tsx).
    Each window has its colour — the session green, the week amber — until
    it runs low, when it turns to a warning and then to danger. */
 
@@ -20,15 +20,16 @@
   display: flex;
   align-items: center;
   gap: 2px;
-  margin-right: auto;
+  -webkit-app-region: no-drag;
 }
 
+/* They sit in the header's row of buttons: small, centred. */
 .usage-ring {
   position: relative;
   display: grid;
   place-items: center;
-  width: 36px;
-  height: 36px;
+  width: 28px;
+  height: 28px;
   border-radius: 50%;
   transition:
     background var(--dur) var(--ease),
@@ -47,9 +48,9 @@
 }
 .usage-ring__svg {
   position: absolute;
-  inset: 2px;
-  width: 32px;
-  height: 32px;
+  inset: 1px;
+  width: 26px;
+  height: 26px;
   overflow: visible;
 }
 .usage-ring__track {
@@ -87,6 +88,7 @@
   position: relative;
   display: grid;
   place-items: center;
+  transform: scale(0.82);
 }
 
 /* ---- card ---- */
@@ -285,30 +287,6 @@
   white-space: nowrap;
   color: var(--text-4);
   font-size: var(--fs-xs);
-}
-
-/* In the ADE's header the rings sit in a row of buttons: smaller, centred. */
-.usage-rings[data-where='header'] {
-  margin-right: 0;
-  -webkit-app-region: no-drag;
-}
-.usage-rings[data-where='header'] .usage-ring {
-  width: 28px;
-  height: 28px;
-}
-.usage-rings[data-where='header'] .usage-ring__svg {
-  inset: 1px;
-  width: 26px;
-  height: 26px;
-}
-.usage-rings[data-where='header'] .usage-ring__mark {
-  transform: scale(0.82);
-}
-
-/* The bar in the sidebar's foot: it takes the room the rings would. */
-.sidebar__footer .usage-pill[data-where='sidebar'] {
-  margin-right: auto;
-  min-width: 0;
 }
 
 @media (prefers-reduced-motion: reduce) {

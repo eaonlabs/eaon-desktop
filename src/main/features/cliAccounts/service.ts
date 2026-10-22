@@ -16,9 +16,10 @@ import {
   type CliAccountsState,
   type CliLogin,
   type CliTool,
-  type CliToolAccounts
+  type CliToolAccounts,
+  CLAUDE_LIMITS_NOTE
 } from '@shared/cliAccounts'
-import { claudeStatus, claudeUsage, codexAccount, codexUsage } from './parse'
+import { claudeStatus, codexAccount, codexUsage } from './parse'
 import { DIR_VARIABLE } from './cli'
 import { prepareFolder, removeFolder } from './folders'
 
@@ -42,7 +43,6 @@ export const SLOW_FRESH_MS = 30 * 60_000
 
 export interface CliRunner {
   find: (tool: CliTool) => string | null
-  claudeUsage: (bin: string, dir: string | null) => Promise<unknown>
   claudeStatus: (bin: string, dir: string | null) => Promise<unknown>
   codexRead: (bin: string, dir: string | null) => Promise<{ account: unknown; limits: unknown | null }>
   logout: (tool: CliTool, bin: string, dir: string) => Promise<void>
@@ -262,11 +262,9 @@ export class CliAccounts {
         this.saved.usage[key] = { ok: false, at, reason: 'no-limits', message: 'Signed in with an API key: billed per use, no plan limits' }
         return
       }
-      const usage = claudeUsage(await this.deps.runner.claudeUsage(bin, account.dir))
-      if (usage.plan) this.describe(tool, accountId, null, usage.plan)
-      this.saved.usage[key] = usage.available
-        ? { ok: true, at, plan: usage.plan, windows: usage.windows }
-        : { ok: false, at, reason: 'no-limits', message: 'No plan limits for this sign-in' }
+      // A Claude plan's limits are read only by Claude Code itself: Eaon doesn't
+      // start Claude Code to ask (Anthropic's terms for other apps), so it says where to look.
+      this.saved.usage[key] = { ok: false, at, reason: 'in-cli', message: CLAUDE_LIMITS_NOTE }
       return
     }
     const answer = await this.deps.runner.codexRead(bin, account.dir)

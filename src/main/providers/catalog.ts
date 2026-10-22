@@ -1,6 +1,6 @@
 import type { ModelInfo, Provider } from '@shared/types'
 import type { ProviderMeta } from '@shared/providers'
-import { FREE_BASE_URL, FREE_PROVIDER_ID } from '@shared/freeCredits'
+import { FREE_BASE_URL, FREE_PROVIDER_ID, GATEWAY_PROVIDER_ID } from '@shared/freeCredits'
 import generated from './catalog.generated.json'
 import type { CatalogModel } from './catalogSources'
 import { OPENAI_EFFORTS } from './models'
@@ -95,6 +95,26 @@ const PROVIDERS: SeedProvider[] = [
     models: [
       m(FREE_PROVIDER_ID, 'claude-haiku-5-5', 'Claude Haiku 5.5', { contextWindow: 200_000, maxOutput: 16_384, vision: true, reasoning: false, efforts: [] }),
       m(FREE_PROVIDER_ID, 'eaon-free', 'Eaon Free', { contextWindow: 128_000, maxOutput: 16_384, vision: false, reasoning: true, efforts: [] })
+    ]
+  },
+
+  // ---- Eaon Lite: Eaon Code's free models on the gateway, for everyone, no key (shared/freeCredits.ts).
+  // Not plain "Eaon": next to Eaon Free above, the two would read as one thing. ----
+  {
+    id: GATEWAY_PROVIDER_ID,
+    name: 'Eaon Lite',
+    kind: 'openai-compatible',
+    baseUrl: FREE_BASE_URL,
+    enabled: true,
+    builtIn: true,
+    auth: 'none',
+    category: 'eaon',
+    description: 'Free models with no sign-in and no end date',
+    // The gateway's /models lists exactly these; its list replaces this one once read.
+    models: [
+      m(GATEWAY_PROVIDER_ID, 'mimo-v2.6-flash-free', 'MiMo v2.6 Flash', { contextWindow: 64_000, maxOutput: 8_192, vision: false, reasoning: true, efforts: [] }),
+      m(GATEWAY_PROVIDER_ID, 'muse-spark-1.3-contributor-free', 'Muse Spark 1.3 Contributor', { contextWindow: 64_000, maxOutput: 8_192, vision: false, reasoning: true, efforts: [] }),
+      m(GATEWAY_PROVIDER_ID, 'gpt-6-luna-free', 'GPT-6-Luna', { contextWindow: 64_000, maxOutput: 8_192, vision: false, reasoning: true, efforts: [] })
     ]
   },
 
@@ -382,6 +402,7 @@ export const BUILT_IN: SeedProvider[] = PROVIDERS.map((provider) => {
 export const PROVIDER_META: Record<string, ProviderMeta> = {
   'eaon-local': { id: 'eaon-local', listsModels: false },
   [FREE_PROVIDER_ID]: { id: FREE_PROVIDER_ID, listsModels: true },
+  [GATEWAY_PROVIDER_ID]: { id: GATEWAY_PROVIDER_ID, listsModels: true },
   chatgpt: { id: 'chatgpt', listsModels: true, signInLabel: 'Sign in with ChatGPT' },
   'openai-codex': { id: 'openai-codex', listsModels: false, signInLabel: 'Sign in with ChatGPT (Codex)' },
   // Account sign-in next to the key field; both need a registered OAuth client (oauth/appClients.ts).

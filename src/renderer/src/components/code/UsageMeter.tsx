@@ -56,8 +56,9 @@ function useMeterTool(state: CliAccountsState | null): [CliTool, (tool: CliTool)
   }
   const installed = CLI_TOOLS.filter((t) => state?.tools[t].installed)
   if (picked && installed.includes(picked)) return [picked, pick]
-  if (agents.includes('codex') && !agents.includes('claude') && installed.includes('codex')) return ['codex', pick]
-  return [installed.includes('claude') ? 'claude' : (installed[0] ?? 'claude'), pick]
+  if (agents.includes('claude') && !agents.includes('codex') && installed.includes('claude')) return ['claude', pick]
+  // Codex's limits can be read; Claude Code shows its own (CLAUDE_LIMITS_NOTE), so Codex leads.
+  return [installed.includes('codex') ? 'codex' : (installed[0] ?? 'claude'), pick]
 }
 
 const usageOf = (state: CliAccountsState | null, tool: CliTool): AccountUsage | undefined =>
@@ -65,7 +66,7 @@ const usageOf = (state: CliAccountsState | null, tool: CliTool): AccountUsage | 
 
 const shortLabel = (w: UsageWindow): string => (w.id === 'session' ? '' : w.id === 'week' ? ' wk' : w.id === 'month' ? ' mo' : '')
 
-export function UsageMeter({ where = 'header' }: { where?: 'sidebar' | 'header' }): JSX.Element | null {
+export function UsageMeter(): JSX.Element | null {
   const { state, ensure, refresh } = useCliAccounts()
   const settings = useApp((s) => s.settings)
   const anchor = useRef<HTMLButtonElement>(null)
@@ -91,7 +92,6 @@ export function UsageMeter({ where = 'header' }: { where?: 'sidebar' | 'header' 
       <button
         ref={anchor}
         className="header-btn usage-pill"
-        data-where={where}
         data-active={panel.open || undefined}
         data-severity={first?.severity}
         title={`${CLI_TOOL_NAME[tool]} plan usage`}
@@ -111,7 +111,7 @@ export function UsageMeter({ where = 'header' }: { where?: 'sidebar' | 'header' 
         )}
         <span className="usage-pill__text">{pill}</span>
       </button>
-      <Popover anchor={anchor} open={panel.open} onClose={panel.close} placement={where === 'sidebar' ? 'top-start' : 'bottom-end'} width={320} className="usage-panel">
+      <Popover anchor={anchor} open={panel.open} onClose={panel.close} placement="bottom-end" width={320} className="usage-panel">
         <UsagePanel state={state} tool={tool} setTool={setTool} close={panel.close} />
       </Popover>
     </>
@@ -199,7 +199,7 @@ function UsagePanel({ state, tool, setTool, close }: { state: CliAccountsState; 
 /** "6% · 78% wk", or why there is nothing to show. */
 function summary(usage: AccountUsage | undefined, now: number): string {
   if (!usage) return '…'
-  if (!usage.ok) return usage.reason === 'signed-out' ? 'signed out' : usage.reason === 'no-limits' ? 'no plan limits' : 'unavailable'
+  if (!usage.ok) return usage.reason === 'signed-out' ? 'signed out' : usage.reason === 'no-limits' ? 'no plan limits' : usage.reason === 'in-cli' ? 'see /usage' : 'unavailable'
   return liveWindows(usage, now).slice(0, 2).map((w) => `${w.percent}%${shortLabel(w)}`).join(' · ') || 'no limits reported'
 }
 
