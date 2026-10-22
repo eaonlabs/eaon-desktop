@@ -64,6 +64,8 @@ export const FEATURES: Feature[] = [
   prReviewFeature,
   linearFeature,
   workersFeature,
+  // Built on the workers engine, so after it; before the worker computer, which may move them with the workers.
+  channelsFeature,
   // Decides where the workers run (here, or on a linked worker computer) before anything else uses them.
   workerHostFeature,
   // Follows the workers engine, so right after it.
@@ -72,8 +74,6 @@ export const FEATURES: Feature[] = [
   rcFeature,
   // Drives the app for Eaon CLI; needs the workers service, so after it.
   controlFeature,
-  // Built on the workers engine, so after it.
-  channelsFeature,
   agentBrowserFeature,
   // Types card details into the agent's browser, so after it.
   paymentsFeature,

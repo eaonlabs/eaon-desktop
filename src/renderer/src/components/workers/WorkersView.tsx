@@ -615,10 +615,8 @@ function ConnectedApps({ worker }: { worker: Worker }): JSX.Element | null {
   useEffect(() => {
     void init()
   }, [init])
-  // Chat apps run on this computer, with the workers here; a worker on the worker computer isn't reached by them.
-  const elsewhere = useWorkersElsewhere()
   const mine = links.filter((l) => l.workerId === worker.id && l.enabled)
-  if (mine.length === 0 || elsewhere) return null
+  if (mine.length === 0) return null
   return (
     <>
       {mine.map((link) => (
@@ -739,13 +737,9 @@ function WorkerActions({ worker }: { worker: Worker }): JSX.Element {
           onClose={() => setMenu(null)}
           items={[
             { icon: <PencilLine size={15} strokeWidth={1.9} />, label: 'Edit worker', action: () => openEditor(worker.id) },
-            // Its folder is on the worker computer, and chat apps only reach workers on this one.
-            ...(elsewhere
-              ? []
-              : [
-                  { icon: <FolderOpen size={15} strokeWidth={1.9} />, label: 'Open its folder', action: () => void window.api.app.showItem(worker.folder) },
-                  { icon: <MessagesSquare size={15} strokeWidth={1.9} />, label: 'Connect a chat app', action: () => connectApp(worker.id) }
-                ]),
+            // Its folder is on the worker computer; its chat apps went there with it.
+            ...(elsewhere ? [] : [{ icon: <FolderOpen size={15} strokeWidth={1.9} />, label: 'Open its folder', action: () => void window.api.app.showItem(worker.folder) }]),
+            { icon: <MessagesSquare size={15} strokeWidth={1.9} />, label: 'Connect a chat app', action: () => connectApp(worker.id) },
             { icon: <Eraser size={15} strokeWidth={1.9} />, label: viewing === MAIN_THREAD ? 'Clear messages' : 'Clear this thread', action: () => setConfirm('clear') },
             { icon: <Trash2 size={15} strokeWidth={1.9} />, label: 'Delete worker', danger: true, action: () => setConfirm('delete') }
           ]}

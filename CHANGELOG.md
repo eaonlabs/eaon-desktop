@@ -23,6 +23,12 @@ All notable changes to Eaon are documented here. Format loosely follows
   `/usage` in Claude Code.
 
 ### Fixed
+- **Chat apps with a worker computer.** Connecting a chat app to a worker on
+  the worker computer failed with "That worker no longer exists". Chat apps
+  now move there with the workers (bots, tokens and WhatsApp sessions), so a
+  worker keeps answering in them while this computer sleeps, and they come
+  back when the workers do. Chat apps set up before the workers moved follow
+  them the next time the worker computer connects.
 - **Closing the in-app browser's last tab closes the browser,** instead of
   leaving an empty tab.
 

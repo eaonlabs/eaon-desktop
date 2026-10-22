@@ -1,7 +1,7 @@
 import { after, afterEach, before, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync, spawn } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -20,6 +20,8 @@ import { broadcast, ipc, senderFor } from '../src/host/ipc'
 import { applySync, pickSettings } from '../src/host/sync'
 import { tokenStore } from '../src/main/providers/oauth/shared'
 import { createWorkerHost } from '../src/main/features/workerHost'
+import { createChannels, type ChannelsHandle } from '../src/main/features/channels'
+import type { ChannelLink, ChannelStatus } from '@shared/channels'
 import { credentialExpiry, hostServesChannel, signInEntries, WORKER_HOST_PATH } from '@shared/workerHost'
 import type { Worker } from '@shared/workers'
 
@@ -213,6 +215,7 @@ function hostContext(): FeatureContext {
 }
 
 let service: WorkersService | null = null
+let chats: ChannelsHandle | null = null
 let replies: string[] = []
 const runAgent: RunAgent = async (request, emit) => {
   const text = replies.shift() ?? `Done in ${request.cwd}`
@@ -237,6 +240,8 @@ async function startHost(): Promise<{ desktop: Peer; workRoot: string; home: str
   service.start()
   service.registerIpc()
   service.engine.start()
+  chats = createChannels(hostContext(), service)
+  chats.registerIpc()
   const updates: string[] = []
   let removed = false
   const host = createHost({
@@ -250,6 +255,7 @@ async function startHost(): Promise<{ desktop: Peer; workRoot: string; home: str
     name: () => 'Test Pi',
     store,
     service: () => service!,
+    channels: chats,
     applySync: async (payload) => applySync(payload),
     applyUpdate: async (file) => void updates.push(readFileSync(file, 'utf8')),
     uninstall: async () => void (removed = true)
@@ -262,6 +268,8 @@ async function startHost(): Promise<{ desktop: Peer; workRoot: string; home: str
 }
 
 afterEach(async () => {
+  await chats?.stop()
+  chats = null
   service?.stop()
   await service?.engine.whenIdle()
   service = null
@@ -366,6 +374,66 @@ test('workers move in with their folders, run there, and move out again', async 
   await desktop.call('workers.release')
   assert.deepEqual(await ipcCall<Worker[]>(desktop, 'workers:list'), [])
   assert.equal(service!.suspended, false)
+})
+
+test('chat apps move in with the workers, answer for them there, keep their tokens through a sync, and move out again', async () => {
+  const { desktop } = await startHost()
+  const nova = { id: 'w-nova', name: 'Nova', color: '#3E86C6', personality: '', purpose: 'Research', folder: '/Users/someone/Eaon/Workers/Nova', access: 'safe', model: null, createdAt: 1, createdBy: null, paused: false, status: 'idle', inbox: [], unread: 0 }
+  await desktop.call('workers.import', { snapshot: { workers: [nova], threads: {}, rooms: null } })
+  // Off, so no test talks to Telegram or WhatsApp; what moves is the same either way.
+  const data = {
+    links: [
+      { id: 'l-tg', kind: 'telegram', workerId: 'w-nova', enabled: false, account: 'nova_bot' },
+      { id: 'l-wa', kind: 'whatsapp', workerId: 'w-nova', enabled: false },
+      { id: '../escape', kind: 'telegram', workerId: 'w-nova', enabled: false }
+    ],
+    tokens: { 'l-tg': '123:telegram-token' },
+    whatsapp: { 'l-wa': { 'creds.dat': '{"me":"nova"}', 'pre-key-1.dat': '{"k":1}', '../../outside.dat': '{}' } }
+  }
+  await desktop.call('channels.import', { data })
+  // Mid-move: they start with the workers.
+  assert.equal(chats!.suspended, true)
+  await desktop.call('workers.resume')
+  assert.equal(chats!.suspended, false)
+
+  const listed = await ipcCall<{ links: ChannelLink[]; statuses: ChannelStatus[] }>(desktop, 'channels:list')
+  assert.deepEqual(
+    listed.links.map((l) => [l.id, l.workerId]),
+    [
+      ['l-tg', 'w-nova'],
+      ['l-wa', 'w-nova']
+    ]
+  )
+  assert.equal(secrets.get('channel:l-tg'), '123:telegram-token')
+  const waDir = join(process.env.EAON_TEST_USERDATA!, 'channels', 'whatsapp-l-wa')
+  assert.deepEqual(readdirSync(waDir).sort(), ['creds.dat', 'pre-key-1.dat'])
+  // What the desktop's Chat apps page asked for and was refused: a worker that lives here.
+  const discord = await ipcCall<ChannelLink>(desktop, 'channels:create', 'discord', 'w-nova')
+  assert.equal(discord.workerId, 'w-nova')
+  await ipcCall(desktop, 'channels:remove', discord.id)
+
+  // The desktop never sends its copies of the tokens, and a sync doesn't take the host's away.
+  applySync({ secrets: { fake: 'key' }, providers: {}, settings: {}, mcpServers: [] })
+  assert.equal(secrets.get('channel:l-tg'), '123:telegram-token')
+  applySync({ secrets: { fake: 'key', 'channel:l-tg': 'stale' }, providers: {}, settings: {}, mcpServers: [] })
+  assert.equal(secrets.get('channel:l-tg'), '123:telegram-token')
+
+  // Out again, everything they need to answer from the desktop.
+  await service!.engine.whenIdle()
+  await desktop.call('workers.export')
+  assert.equal(chats!.suspended, true)
+  const out = await desktop.call<{ links: ChannelLink[]; tokens: Record<string, string>; whatsapp: Record<string, Record<string, string>> }>('channels.export')
+  assert.deepEqual(
+    out.links.map((l) => l.id),
+    ['l-tg', 'l-wa']
+  )
+  assert.deepEqual(out.tokens, { 'l-tg': '123:telegram-token' })
+  assert.deepEqual(out.whatsapp, { 'l-wa': { 'creds.dat': '{"me":"nova"}', 'pre-key-1.dat': '{"k":1}' } })
+  // Released: no bot of theirs is left here to fight the desktop's.
+  await desktop.call('workers.release')
+  assert.deepEqual((await ipcCall<{ links: ChannelLink[] }>(desktop, 'channels:list')).links, [])
+  assert.equal(secrets.get('channel:l-tg'), undefined)
+  assert.equal(existsSync(waDir), false)
 })
 
 test('sync brings the desktop’s keys, providers, model and MCP servers, but not its folders', async () => {
@@ -604,6 +672,9 @@ test('with the worker computer away, the tab reads from the cache and only chang
   const call = (channel: string, ...args: unknown[]): Promise<unknown> => Promise.resolve().then(() => handlers.get(channel)!({ sender: { id: 1 } }, ...args))
   const desk = createWorkersService(ctx, { startDelayMs: 60_000 })
   desk.registerIpc()
+  const deskChats = createChannels(ctx, desk)
+  deskChats.registerIpc()
+  deskChats.start()
   // A port nothing listens on: refused at once.
   const closed = await new Promise<number>((resolve) => {
     const probe = createServer()
@@ -613,17 +684,19 @@ test('with the worker computer away, the tab reads from the cache and only chang
     })
   })
   const cached: Partial<Worker> = { id: 'w-away', name: 'Away' }
-  store.setJson('worker-host-cache.json', { workers: [cached], rooms: [] })
+  const cachedLink: Partial<ChannelLink> = { id: 'l-away', kind: 'telegram', workerId: 'w-away', enabled: true }
+  store.setJson('worker-host-cache.json', { workers: [cached], rooms: [], links: [cachedLink] })
   store.setJson('worker-host.json', {
     host: { id: 'h', name: 'Garage Pi', address: '127.0.0.1', port: closed, platform: 'linux', arch: 'arm64', linkedAt: 1, via: 'command' },
     enabled: true,
     origins: {},
     backupAt: null,
     skillsHash: null,
-    releasePending: false
+    releasePending: false,
+    channelsMoved: true
   })
   secrets.set('worker-host:secret', newHostSecret())
-  const feature = createWorkerHost(ctx, desk)
+  const feature = createWorkerHost(ctx, desk, deskChats)
   try {
     // What the tab only reads or reports: answered, never an error.
     assert.deepEqual(await call('workers:list'), [cached])
@@ -637,8 +710,20 @@ test('with the worker computer away, the tab reads from the cache and only chang
     await assert.rejects(call('workers:send', 'w-away', 'hi', [], {}), /Garage Pi can’t be reached/)
     assert.ok(Date.now() - started < 6000, `took ${Date.now() - started} ms`)
     assert.equal(feature.state().enabled, true)
+
+    // Chat apps went with the workers: none run here, and the page shows the host's as last seen.
+    assert.equal(deskChats.suspended, true)
+    const chatApps = (await call('channels:list')) as { links: ChannelLink[]; statuses: ChannelStatus[] }
+    assert.deepEqual(chatApps.links, [cachedLink])
+    assert.deepEqual(
+      chatApps.statuses.map((s) => [s.linkId, s.state, s.message]),
+      [['l-away', 'error', 'Garage Pi can’t be reached right now.']]
+    )
+    // Connecting one is the host's to do, never this computer's (where no worker is).
+    await assert.rejects(call('channels:create', 'telegram', 'w-away'), /Garage Pi can’t be reached/)
   } finally {
     feature.dispose()
+    await deskChats.stop()
     desk.stop()
     secrets.clear('worker-host:secret')
     store.setJson('worker-host.json', {})
