@@ -74,7 +74,8 @@ const ICONS = {
   minimize: [['path', { d: 'M8 3v3a2 2 0 0 1-2 2H3' }], ['path', { d: 'M21 8h-3a2 2 0 0 1-2-2V3' }], ['path', { d: 'M3 16h3a2 2 0 0 1 2 2v3' }], ['path', { d: 'M16 21v-3a2 2 0 0 1 2-2h3' }]],
   eye: [['path', { d: 'M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0' }], ['circle', { cx: 12, cy: 12, r: 3 }]],
   users: [['path', { d: 'M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2' }], ['circle', { cx: 9, cy: 7, r: 4 }], ['path', { d: 'M22 21v-2a4 4 0 0 0-3-3.87' }], ['path', { d: 'M16 3.13a4 4 0 0 1 0 7.75' }]],
-  copy: [['rect', { width: 14, height: 14, x: 8, y: 8, rx: 2, ry: 2 }], ['path', { d: 'M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2' }]]
+  copy: [['rect', { width: 14, height: 14, x: 8, y: 8, rx: 2, ry: 2 }], ['path', { d: 'M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2' }]],
+  lock: [['rect', { width: 18, height: 11, x: 3, y: 11, rx: 2, ry: 2 }], ['path', { d: 'M7 11V7a5 5 0 0 1 10 0v4' }]]
 }
 
 function icon(name, size = 16, stroke = 1.75) {
@@ -823,6 +824,10 @@ function render() {
     dropShell()
     return app.replaceChildren(solo(linkPage(params.get('code'))))
   }
+  if (path === '/security') {
+    dropShell()
+    return app.replaceChildren(solo(securityPage()))
+  }
   const invite = path.match(/^\/share\/([\w.-]+)\/?$/)
   if (invite) {
     dropShell()
@@ -1127,6 +1132,7 @@ function accountButton() {
         h('div', { class: 'menu__row' }, seg),
         h('div', { class: 'menu__sep' }),
         menuItem({ iconNode: icon('link', 16), title: 'Link a computer', onclick: () => (close(), go('/link')) }),
+        menuItem({ iconNode: icon('lock', 16), title: 'Password and 2-step', onclick: () => (close(), go('/security')) }),
         menuItem({ iconNode: icon('log-out', 16), title: 'Sign out', onclick: signOut })
       ]
     }, { width: Math.max(btn.offsetWidth, 240) })
@@ -2079,6 +2085,191 @@ function sharePage(token) {
   return box
 }
 
+/** The account's password and 2-step codes. Changing them needs a GitHub sign-in in the last 10 minutes. */
+function securityPage() {
+  const box = h('div', { style: { width: '100%', display: 'flex', justifyContent: 'center' } })
+  const card = (...children) => h('div', { class: 'link-card security' }, ...children)
+  const head = () => [
+    h('div', { class: 'link-card__icon' }, icon('lock', 22, 1.7)),
+    h('h1', { class: 'link-card__title', text: 'Password and 2-step' }),
+    h('p', { class: 'link-card__text', text: 'Sign in with your GitHub username and a password when GitHub isn’t handy. It’s the same account: your computers and shares don’t change.' })
+  ]
+  const confirm = () => h('a', { class: 'btn btn--primary', href: '/auth/github?next=/security' }, githubIcon(), 'Confirm with GitHub')
+  box.append(card(...head(), h('div', { class: 'security__loading' }, h('span', { class: 'spinner' }))))
+
+  const draw = async () => {
+    let st
+    try {
+      st = await api('/api/security')
+    } catch (error) {
+      return box.replaceChildren(card(...head(), h('div', { class: 'link-card__error' }, icon('alert', 14), error.message)))
+    }
+    if (!st.available) return box.replaceChildren(card(...head(), h('p', { class: 'security__note', text: 'Password sign-in isn’t switched on for this server yet.' })))
+    // Anything that fails because the GitHub sign-in got old asks for it again.
+    const act = async (button, path, init) => {
+      button.disabled = true
+      try {
+        await api(path, init)
+        return true
+      } catch (error) {
+        button.disabled = false
+        if (error.status === 403) draw()
+        toast(error.message)
+        return false
+      }
+    }
+
+    // ---- password
+    const pw = h('section', { class: 'security__section' })
+    const drawPassword = () => {
+      const status = st.password ? `On. Sign in as ${st.password.username}. Set ${ago(st.password.setAt)}.` : 'Off.'
+      const rows = [h('div', { class: 'security__head' }, h('h2', { class: 'security__title', text: 'Password' }), h('span', { class: 'security__status', dataset: { on: String(!!st.password) }, text: status }))]
+      if (st.fresh) {
+        const first = h('input', { class: 'input', type: 'password', autocomplete: 'new-password', required: true, minlength: 12, placeholder: st.password ? 'New password' : 'Password', 'aria-label': 'New password' })
+        const again = h('input', { class: 'input', type: 'password', autocomplete: 'new-password', required: true, placeholder: 'Type it again', 'aria-label': 'Type the password again' })
+        const save = h('button', { class: 'btn btn--primary', type: 'submit', text: st.password ? 'Change password' : 'Set password' })
+        const remove =
+          st.password &&
+          h('button', {
+            class: 'btn btn--ghost btn--danger',
+            type: 'button',
+            text: 'Remove password',
+            onclick: async (e) => {
+              if (await act(e.currentTarget, '/api/security/password', { method: 'DELETE' })) {
+                toast('Password removed. Sign in with GitHub from now on.')
+                draw()
+              }
+            }
+          })
+        rows.push(
+          h(
+            'form',
+            {
+              class: 'security__form',
+              onsubmit: async (e) => {
+                e.preventDefault()
+                if (first.value !== again.value) return toast('The two passwords don’t match.')
+                if (await act(save, '/api/security/password', { method: 'POST', body: JSON.stringify({ password: first.value }) })) {
+                  toast(st.password ? 'Password changed. Other password sign-ins were signed out.' : 'Password set.')
+                  draw()
+                }
+              }
+            },
+            // For password managers: the username this password goes with.
+            h('input', { class: 'input', autocomplete: 'username', readonly: true, value: me.login, 'aria-label': 'Username' }),
+            first,
+            again,
+            h('p', { class: 'security__fine', text: 'At least 12 characters. A few unrelated words work well. Passwords found in known data breaches aren’t accepted.' }),
+            h('div', { class: 'security__actions' }, remove, save)
+          )
+        )
+      }
+      pw.replaceChildren(...rows)
+    }
+    drawPassword()
+
+    // ---- 2-step
+    const two = h('section', { class: 'security__section' })
+    const drawTwo = () => {
+      const rows = [
+        h('div', { class: 'security__head' }, h('h2', { class: 'security__title', text: '2-step codes' }), h('span', { class: 'security__status', dataset: { on: String(st.totp) }, text: st.totp ? 'On.' : 'Off.' })),
+        h('p', { class: 'security__fine', text: 'After your password, ask for a code from an authenticator app, so a stolen password alone can’t get in. Lost your phone? Sign in with GitHub and turn it off here.' })
+      ]
+      if (st.fresh && st.password && !st.totp) {
+        const start = h('button', { class: 'btn btn--primary', type: 'button', text: 'Turn on 2-step codes' })
+        start.onclick = async () => {
+          start.disabled = true
+          let setup
+          try {
+            setup = await api('/api/security/totp/start', { method: 'POST', body: '{}' })
+          } catch (error) {
+            start.disabled = false
+            if (error.status === 403) draw()
+            return toast(error.message)
+          }
+          const code = h('input', { class: 'input', autocomplete: 'one-time-code', inputmode: 'numeric', maxlength: 7, required: true, placeholder: '6-digit code', 'aria-label': 'Code from the app' })
+          const on = h('button', { class: 'btn btn--primary', type: 'submit', text: 'Turn on' })
+          const qr = h('div', { class: 'security__qr', 'aria-label': 'QR code for your authenticator app', role: 'img' })
+          qrCode(setup.uri).then((svg) => svg && qr.append(svg))
+          two.replaceChildren(
+            ...rows.slice(0, 1),
+            h('p', { class: 'security__fine', text: 'Scan this with your authenticator app (1Password, Google Authenticator, Authy…), or on this phone, open it in the app. Then type the code it shows.' }),
+            qr,
+            h('div', { class: 'security__key' }, h('code', { text: setup.secret.replace(/(.{4})/g, '$1 ').trim() }), h('a', { class: 'btn btn--sm', href: setup.uri, text: 'Open in app' })),
+            h(
+              'form',
+              {
+                class: 'security__form security__form--row',
+                onsubmit: async (e) => {
+                  e.preventDefault()
+                  if (await act(on, '/api/security/totp/confirm', { method: 'POST', body: JSON.stringify({ code: code.value }) })) {
+                    toast('2-step codes are on.')
+                    draw()
+                  }
+                }
+              },
+              code,
+              on
+            )
+          )
+          requestAnimationFrame(() => code.focus())
+        }
+        rows.push(h('div', { class: 'security__actions' }, start))
+      }
+      if (st.fresh && st.totp) {
+        const off = h('button', { class: 'btn btn--ghost btn--danger', type: 'button', text: 'Turn off 2-step codes' })
+        off.onclick = async () => {
+          if (await act(off, '/api/security/totp', { method: 'DELETE' })) {
+            toast('2-step codes are off.')
+            draw()
+          }
+        }
+        rows.push(h('div', { class: 'security__actions' }, off))
+      }
+      two.replaceChildren(...rows)
+    }
+    drawTwo()
+
+    box.replaceChildren(
+      card(
+        ...head(),
+        !st.fresh &&
+          h(
+            'div',
+            { class: 'security__confirm' },
+            h('p', { class: 'security__fine', text: 'To change these, confirm it’s you with GitHub. It lasts 10 minutes.' }),
+            confirm()
+          ),
+        pw,
+        st.password && two
+      )
+    )
+  }
+  draw()
+  return box
+}
+
+/** A QR code drawn as SVG, from qrcode-generator (loaded the first time it's needed). */
+let qrLib = null
+function qrCode(text) {
+  qrLib ??= new Promise((resolve) => {
+    const tag = h('script', { src: 'https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js' })
+    tag.onload = () => resolve(globalThis.qrcode)
+    tag.onerror = () => resolve(null)
+    document.head.append(tag)
+  })
+  return qrLib.then((qrcode) => {
+    if (!qrcode) return null
+    const qr = qrcode(0, 'M')
+    qr.addData(text)
+    qr.make()
+    const n = qr.getModuleCount()
+    const cells = []
+    for (let r = 0; r < n; r++) for (let c = 0; c < n; c++) if (qr.isDark(r, c)) cells.push(`M${c + 2} ${r + 2}h1v1h-1z`)
+    return s('svg', { viewBox: `0 0 ${n + 4} ${n + 4}`, 'shape-rendering': 'crispEdges' }, s('rect', { width: n + 4, height: n + 4, fill: '#fff' }), s('path', { d: cells.join(''), fill: '#000' }))
+  })
+}
+
 // ------------------------------------------------------------------ signed out, linking
 
 /** A page with no sidebar: a brand bar and one thing in the middle. */
@@ -2115,11 +2306,63 @@ function signedOut() {
           h('h1', { class: 'hero__title', text: 'Your agents, wherever you are' }),
           h('p', { class: 'hero__lede', text: 'Watch the ADE’s terminals live, type into them, start new ones and answer your Workers, from your phone or any browser.' }),
           h('a', { class: 'btn btn--primary btn--lg', href: `/auth/github?next=${encodeURIComponent(next)}` }, githubIcon(), 'Sign in with GitHub'),
-          h('p', { class: 'hero__fine', text: 'Only your public GitHub profile is read, to know which computers are yours.' })
+          h('p', { class: 'hero__fine', text: 'Only your public GitHub profile is read, to know which computers are yours.' }),
+          passwordSignIn(next)
         ),
         demo()
       )
     )
+  )
+}
+
+/** Signing in with a password set at /security, behind a disclosure: GitHub is the way in for most. */
+function passwordSignIn(next) {
+  const user = h('input', { class: 'input', name: 'username', autocomplete: 'username', autocapitalize: 'none', spellcheck: 'false', required: true, placeholder: 'GitHub username', 'aria-label': 'GitHub username' })
+  const pass = h('input', { class: 'input', name: 'password', type: 'password', autocomplete: 'current-password', required: true, placeholder: 'Password', 'aria-label': 'Password' })
+  const code = h('input', { class: 'input', name: 'code', autocomplete: 'one-time-code', inputmode: 'numeric', pattern: '[0-9 ]*', maxlength: 7, placeholder: '6-digit code', 'aria-label': '2-step code' })
+  const codeRow = h('div', { class: 'signin__code', hidden: true }, h('p', { class: 'signin__hint', text: 'Type the code from your authenticator app.' }), code)
+  const error = h('p', { class: 'signin__error', role: 'alert', hidden: true })
+  const submit = h('button', { class: 'btn btn--lg', type: 'submit', text: 'Sign in' })
+  const fail = (message) => {
+    error.textContent = message
+    error.hidden = false
+  }
+  const form = h(
+    'form',
+    {
+      class: 'signin__form',
+      onsubmit: async (e) => {
+        e.preventDefault()
+        error.hidden = true
+        submit.disabled = true
+        try {
+          const out = await api('/auth/password', { method: 'POST', body: JSON.stringify({ login: user.value, password: pass.value, code: codeRow.hidden ? '' : code.value, next }) })
+          if (out.need === 'code') {
+            codeRow.hidden = false
+            submit.disabled = false
+            return requestAnimationFrame(() => code.focus())
+          }
+          location.href = out.next || '/'
+        } catch (err) {
+          submit.disabled = false
+          fail(err.message)
+          if (codeRow.hidden) pass.select()
+          else code.select()
+        }
+      }
+    },
+    user,
+    pass,
+    codeRow,
+    error,
+    submit
+  )
+  return h(
+    'details',
+    { class: 'signin' },
+    h('summary', { class: 'signin__summary' }, icon('chevron-right', 14), 'Sign in with a password'),
+    form,
+    h('p', { class: 'hero__fine', text: 'Set a password first: sign in with GitHub, then open your account menu → Password and 2-step.' })
   )
 }
 

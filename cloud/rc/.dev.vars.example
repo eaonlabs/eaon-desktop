@@ -3,5 +3,7 @@ PUBLIC_URL=http://localhost:8787
 SESSION_SECRET=dev-only-not-secret
 GITHUB_CLIENT_ID=
 GITHUB_CLIENT_SECRET=
+# Password sign-in (passwords.ts). Production: `openssl rand -base64 32 | wrangler secret put PASSWORD_PEPPER`.
+PASSWORD_PEPPER=dev-only-not-secret
 # Lets /auth/dev?login=<name> sign in without GitHub, for local testing only.
 DEV_LOGIN=1

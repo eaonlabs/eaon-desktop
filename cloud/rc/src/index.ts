@@ -1,14 +1,20 @@
-import { currentUser, randomToken, safeNext, sameOrigin, sessionCookie, setCookie, sign, verify, cookie, SESSION_COOKIE, STATE_COOKIE, type Env, type User } from './auth'
+import { currentUser, freshFromGitHub, passwordsOf, randomToken, safeNext, sameOrigin, sessionCookie, setCookie, sign, verify, cookie, SESSION_COOKIE, STATE_COOKIE, type Env, type User } from './auth'
 import { normalizeCode } from './links'
+import { leaked, newTotpSecret, otpauthUri, passwordProblem, seal, toBase32, totpStep, unseal } from './password'
+import { waitText, type Owner } from './passwords'
+import { isLogin } from './shares'
 
 export { Account } from './account'
 export { Links } from './links'
+export { Passwords, Throttle } from './passwords'
 
 /**
  * rc.eaon.dev: control Eaon Desktop from a browser, anywhere.
  *
- *   /auth/*   sign in with GitHub (and /auth/dev under `wrangler dev`)
- *   /api/*    the signed-in user, linking a computer, the computer list, sharing
+ *   /auth/*   sign in with GitHub, or with a password set for the GitHub
+ *             account (passwords.ts), and /auth/dev under `wrangler dev`
+ *   /api/*    the signed-in user, linking a computer, the computer list,
+ *             sharing, and the account's password and 2-step (/api/security)
  *   /relay/*  WebSockets: a computer's (device token), a browser tab's (cookie),
  *             and a tab joining another account's relay as a guest (shares.ts)
  *   anything else: the web app in ./public
@@ -22,6 +28,14 @@ const json = (body: unknown, status = 200, headers: Record<string, string> = {})
 
 const account = (env: Env, uid: string): DurableObjectStub => env.ACCOUNTS.get(env.ACCOUNTS.idFromName(`gh:${uid}`))
 const links = (env: Env): DurableObjectStub => env.LINKS.get(env.LINKS.idFromName('global'))
+/** A username's password, 2-step secret and failed tries. */
+const username = (env: Env, name: string): DurableObjectStub => env.PASSWORDS.get(env.PASSWORDS.idFromName(`name:${name}`))
+/** Sign-in tries from one address: an IPv4 address, or an IPv6 /64 (one home or phone gets a whole /64). */
+const throttle = (env: Env, request: Request): DurableObjectStub => {
+  const ip = request.headers.get('CF-Connecting-IP') ?? 'local'
+  const key = ip.includes(':') ? ip.split(':').slice(0, 4).join(':') : ip
+  return env.THROTTLE.get(env.THROTTLE.idFromName(key))
+}
 
 /** A call into a Durable Object, which only ever sees requests the Worker made. */
 const call = (stub: DurableObjectStub, path: string, init: RequestInit = {}): Promise<Response> => stub.fetch(`https://do${path}`, init)
@@ -92,6 +106,30 @@ async function github(env: Env, request: Request, url: URL): Promise<Response> {
     return new Response(null, { status: 302, headers })
   }
 
+  // Password sign-in (passwords.ts). Every answer for a wrong password or an
+  // unknown username is the same, and both count against the username and the address.
+  if (url.pathname === '/auth/password' && request.method === 'POST') {
+    if (!sameOrigin(env, request)) return json({ error: 'forbidden' }, 403)
+    if (!env.PASSWORD_PEPPER) return json({ error: 'Password sign-in isn’t set up on this server yet.' }, 500)
+    const body = (await request.json().catch(() => ({}))) as { login?: unknown; password?: unknown; code?: unknown; next?: unknown }
+    const typed = String(body.login ?? '').trim().replace(/^@/, '')
+    const password = String(body.password ?? '')
+    const from = throttle(env, request)
+    const take = (await (await call(from, '/take', { method: 'POST' })).json()) as { wait: number }
+    if (take.wait) return json({ error: `Too many sign-in tries from your network. Wait ${waitText(take.wait)}, or sign in with GitHub.` }, 429)
+    if (!isLogin(typed) || !password || password.length > 256) return json({ error: 'Wrong username or password.' }, 401)
+    const res = await call(username(env, typed.toLowerCase()), '/check', post({ password, code: typeof body.code === 'string' ? body.code : '' }))
+    const out = (await res.json()) as { user?: User; need?: string; error?: string; code?: boolean }
+    if (!res.ok) return json(out, res.status)
+    await call(from, '/give-back', { method: 'POST' })
+    if (out.need) return json({ need: out.need })
+    const user = out.user!
+    const owner = (await (await call(passwordsOf(env, user.uid), '/owner')).json()) as Owner
+    // A username whose GitHub login has since moved to another account signs nobody in.
+    if (owner.name !== typed.toLowerCase()) return json({ error: 'Wrong username or password.' }, 401)
+    return json({ ok: true, next: safeNext(typeof body.next === 'string' ? body.next : null) }, 200, { 'Set-Cookie': await sessionCookie(env, user, 'password', owner.version) })
+  }
+
   if (url.pathname === '/auth/dev' && env.DEV_LOGIN === '1') {
     const login = (url.searchParams.get('login') ?? 'dev').replace(/[^\w-]/g, '').slice(0, 39) || 'dev'
     const user: User = { uid: `dev-${login}`, login, avatar: '' }
@@ -159,6 +197,8 @@ async function api(env: Env, request: Request, url: URL): Promise<Response> {
   if (!user) return json({ error: 'Sign in first.' }, 401)
   if (request.method !== 'GET' && !sameOrigin(env, request)) return json({ error: 'forbidden' }, 403)
 
+  if (path === '/api/security' || path.startsWith('/api/security/')) return security(env, request, path, user)
+
   if (path === '/api/link/info') return call(links(env), `/info?code=${encodeURIComponent(url.searchParams.get('code') ?? '')}`)
 
   if (path === '/api/link/confirm' && request.method === 'POST') {
@@ -222,6 +262,78 @@ async function api(env: Env, request: Request, url: URL): Promise<Response> {
     return json(out)
   }
   if (path === '/api/shared' && request.method === 'GET') return call(account(env, user.uid), '/incoming')
+  return json({ error: 'not found' }, 404)
+}
+
+/**
+ * The account's password and 2-step codes (passwords.ts). Seeing them needs
+ * only a session; changing them needs a GitHub sign-in in the last few
+ * minutes, so a stolen password (or a session from one) can't change the
+ * password, turn 2-step off, or keep itself signed in after either changes.
+ */
+async function security(env: Env, request: Request, path: string, user: User): Promise<Response> {
+  const mine = passwordsOf(env, user.uid)
+  const owner = (await (await call(mine, '/owner')).json()) as Owner
+  const info = owner.name
+    ? ((await (await call(username(env, owner.name), `/info?uid=${encodeURIComponent(user.uid)}`)).json()) as { set: boolean; totp: boolean; setAt: number | null })
+    : { set: false, totp: false, setAt: null }
+
+  if (path === '/api/security' && request.method === 'GET') {
+    return json({
+      available: !!env.PASSWORD_PEPPER,
+      username: user.login,
+      password: info.set ? { username: owner.name, setAt: info.setAt } : null,
+      totp: info.set && info.totp,
+      fresh: await freshFromGitHub(env, request)
+    })
+  }
+  if (!env.PASSWORD_PEPPER) return json({ error: 'Password sign-in isn’t set up on this server yet.' }, 500)
+  if (!(await freshFromGitHub(env, request))) return json({ error: 'Confirm it’s you with GitHub first.', fresh: false }, 403)
+  const pepper = env.PASSWORD_PEPPER
+  const body = request.method === 'POST' ? ((await request.json().catch(() => ({}))) as Record<string, unknown>) : {}
+
+  if (path === '/api/security/password' && request.method === 'POST') {
+    const password = String(body.password ?? '')
+    const problem = passwordProblem(password, user.login)
+    if (problem) return json({ error: problem }, 400)
+    if (await leaked(password)) return json({ error: 'That password has shown up in a data breach, so it’s on attackers’ lists. Choose another.' }, 400)
+    const name = user.login.toLowerCase()
+    // Your GitHub username, as it is now: a rename moves the password with it.
+    if (owner.name && owner.name !== name) await call(username(env, owner.name), '/remove', post({ uid: user.uid }))
+    const set = await call(username(env, name), '/set', post({ uid: user.uid, login: user.login, avatar: user.avatar, password }))
+    const { replaced } = (await set.json()) as { replaced: string | null }
+    // That login belonged to an account that has since renamed: its password stops working.
+    if (replaced) await call(passwordsOf(env, replaced), '/owner', post({ name: null, bump: true }))
+    await call(mine, '/owner', post({ name, bump: true }))
+    return json({ ok: true })
+  }
+  if (path === '/api/security/password' && request.method === 'DELETE') {
+    if (owner.name) await call(username(env, owner.name), '/remove', post({ uid: user.uid }))
+    await call(mine, '/owner', post({ name: null, pending: null, bump: true }))
+    return json({ ok: true })
+  }
+
+  if (path === '/api/security/totp/start' && request.method === 'POST') {
+    if (!info.set) return json({ error: 'Set a password first. 2-step codes are asked for after it.' }, 409)
+    const secret = newTotpSecret()
+    await call(mine, '/owner', post({ pending: { sealed: await seal(pepper, secret), exp: Date.now() + 10 * 60_000 } }))
+    return json({ secret: toBase32(secret), uri: otpauthUri(secret, user.login) })
+  }
+  if (path === '/api/security/totp/confirm' && request.method === 'POST') {
+    if (!info.set || !owner.name) return json({ error: 'Set a password first.' }, 409)
+    if (!owner.pending || owner.pending.exp < Date.now()) return json({ error: 'That setup expired. Start again.' }, 409)
+    const step = await totpStep(await unseal(pepper, owner.pending.sealed), String(body.code ?? '').replace(/\s/g, ''), Date.now(), 0)
+    if (step === null) return json({ error: 'That code isn’t right. Check the app shows Eaon Remote, and type the newest code.' }, 400)
+    await call(username(env, owner.name), '/totp', post({ uid: user.uid, sealed: owner.pending.sealed, usedStep: step }))
+    // Turning 2-step on signs out every session that came from the password alone.
+    await call(mine, '/owner', post({ pending: null, bump: true }))
+    return json({ ok: true })
+  }
+  if (path === '/api/security/totp' && request.method === 'DELETE') {
+    if (owner.name) await call(username(env, owner.name), '/totp', post({ uid: user.uid, sealed: null }))
+    await call(mine, '/owner', post({ pending: null, bump: true }))
+    return json({ ok: true })
+  }
   return json({ error: 'not found' }, 404)
 }
 
