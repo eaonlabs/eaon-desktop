@@ -41,6 +41,8 @@ let root = ''
 beforeEach(() => {
   store.setJson(WORKERS, [])
   store.setJson('worker-rooms.json', null)
+  // Eaon Lite is on for everyone and would reach the real gateway.
+  store.saveProviderConfig({ 'eaon-gateway': { enabled: false } })
   root = mkdtempSync(join(tmpdir(), 'eaon-workers-'))
   const settings = store.getSettings()
   store.patchSettings({ work: { ...settings.work, defaultFolder: root } })

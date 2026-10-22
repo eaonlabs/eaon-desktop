@@ -27,7 +27,7 @@ import type { Worker } from '@shared/workers'
 
 const usage = { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 }
 const scratch = mkdtempSync(join(tmpdir(), 'eaon-worker-host-'))
-const quietLocals = { ollama: { enabled: false }, 'lm-studio': { enabled: false }, 'llama-cpp': { enabled: false }, mlx: { enabled: false }, vllm: { enabled: false }, jan: { enabled: false } }
+const quietLocals = { ollama: { enabled: false }, 'lm-studio': { enabled: false }, 'llama-cpp': { enabled: false }, mlx: { enabled: false }, vllm: { enabled: false }, jan: { enabled: false }, 'eaon-gateway': { enabled: false } }
 
 before(() => {
   store.setJson('workers.json', [])

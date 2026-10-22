@@ -54,7 +54,7 @@ let seen: string[] = []
 
 let upstream: Awaited<ReturnType<typeof sseServer>>
 let upstreamReply: (body: Record<string, unknown>) => string[] = () => [chunk({ content: 'ok' }, 'stop')]
-const quietLocals = { ollama: { enabled: false }, 'lm-studio': { enabled: false }, 'llama-cpp': { enabled: false }, mlx: { enabled: false }, vllm: { enabled: false }, jan: { enabled: false } }
+const quietLocals = { ollama: { enabled: false }, 'lm-studio': { enabled: false }, 'llama-cpp': { enabled: false }, mlx: { enabled: false }, vllm: { enabled: false }, jan: { enabled: false }, 'eaon-gateway': { enabled: false } }
 
 before(async () => {
   upstream = await sseServer((body) => upstreamReply(body))

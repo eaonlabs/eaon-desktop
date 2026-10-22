@@ -34,7 +34,7 @@ const built = existsSync(join(packageDir, 'eaon-host.tgz'))
 const scratch = mkdtempSync(join(tmpdir(), 'eaon-host-e2e-'))
 const hostHome = join(scratch, 'host-user')
 const hostAppHome = join(hostHome, '.eaon-host')
-const quietLocals = { ollama: { enabled: false }, 'lm-studio': { enabled: false }, 'llama-cpp': { enabled: false }, mlx: { enabled: false }, vllm: { enabled: false }, jan: { enabled: false } }
+const quietLocals = { ollama: { enabled: false }, 'lm-studio': { enabled: false }, 'llama-cpp': { enabled: false }, mlx: { enabled: false }, vllm: { enabled: false }, jan: { enabled: false }, 'eaon-gateway': { enabled: false } }
 
 async function until(check: () => boolean | Promise<boolean>, timeout = 20_000, what = 'condition'): Promise<void> {
   const started = Date.now()

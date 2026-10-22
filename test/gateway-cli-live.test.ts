@@ -83,6 +83,7 @@ before(async () => {
   store.saveProviderConfig({
     ollama: { enabled: false },
     'lm-studio': { enabled: false },
+    'eaon-gateway': { enabled: false },
     'llama-cpp': { enabled: false },
     mlx: { enabled: false },
     vllm: { enabled: false },
