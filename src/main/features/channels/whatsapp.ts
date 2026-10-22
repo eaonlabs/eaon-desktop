@@ -1,5 +1,5 @@
 import { safeStorage } from 'electron'
-import { mkdir, readFile, rename, rm, stat, unlink, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, rename, rm, stat, unlink, writeFile } from 'node:fs/promises'
 import { basename, extname, join } from 'node:path'
 import type { AuthenticationCreds, AuthenticationState, proto, WAMessage, WASocket } from 'baileys'
 import { MAX_MESSAGE_CHARS, type WhatsAppGroup } from '@shared/channels'
@@ -121,6 +121,31 @@ export async function vaultAuthState(dir: string): Promise<{ state: Authenticati
       }
     },
     saveCreds: () => write('creds', creds)
+  }
+}
+
+/**
+ * A WhatsApp session's files, decrypted, for moving it to a worker computer
+ * (each computer seals them with its own keychain). Empty when there is none.
+ */
+export async function readAuthFiles(dir: string): Promise<Record<string, string>> {
+  const files: Record<string, string> = {}
+  const names = await readdir(dir).catch(() => [] as string[])
+  for (const name of names) {
+    if (!name.endsWith('.dat')) continue
+    files[name] = await locked(join(dir, name), async () => unseal(await readFile(join(dir, name))))
+  }
+  return files
+}
+
+/** Replaces the session in `dir` with `files` (from `readAuthFiles` on another computer). */
+export async function writeAuthFiles(dir: string, files: Record<string, string>): Promise<void> {
+  await rm(dir, { recursive: true, force: true })
+  await mkdir(dir, { recursive: true, mode: 0o700 })
+  for (const [name, json] of Object.entries(files)) {
+    // Names come over the link: one file in this folder each, nothing else.
+    if (basename(name) !== name || !name.endsWith('.dat') || typeof json !== 'string') continue
+    await writeFile(join(dir, name), seal(json), { mode: 0o600 })
   }
 }
 

@@ -72,6 +72,7 @@ test('remote demo: the real remote server over a fake agent, until killed', { sk
   store.saveProviderConfig({
     ollama: { enabled: false },
     'lm-studio': { enabled: false },
+    'eaon-gateway': { enabled: false },
     'llama-cpp': { enabled: false },
     mlx: { enabled: false },
     vllm: { enabled: false },

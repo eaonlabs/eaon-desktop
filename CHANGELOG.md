@@ -3,6 +3,39 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [Unreleased]
+
+### Added
+- **Free models from Eaon.** The free models Eaon Code has, MiMo v2.6 Flash,
+  Muse Spark 1.3 Contributor and GPT-6-Luna, are in the model picker under
+  Eaon Lite for everyone, with no key, sign-in or week to claim.
+- **More plans in Usage & limits.** Kimi For Coding, the GLM Coding Plan,
+  MiniMax's Token Plan and OpenCode Go now show what's left, read with the
+  key saved in Settings → Model providers. Alibaba's Qwen Token Plan and
+  Xiaomi's MiMo Token Plan have no usage API, so their cards say where to
+  find the figures.
+
+### Changed
+- **The usage meter lives in the ADE's header.** It's no longer in the
+  sidebar, and the Placement choice is gone.
+- **Claude plan limits come from Claude Code itself.** Eaon no longer starts
+  Claude Code in the background to read them; the Claude card points to
+  `/usage` in Claude Code.
+
+### Fixed
+- **Chat apps with a worker computer.** Connecting a chat app to a worker on
+  the worker computer failed with "That worker no longer exists". Chat apps
+  now move there with the workers (bots, tokens and WhatsApp sessions), so a
+  worker keeps answering in them while this computer sleeps, and they come
+  back when the workers do. Chat apps set up before the workers moved follow
+  them the next time the worker computer connects.
+- **Closing the in-app browser's last tab closes the browser,** instead of
+  leaving an empty tab.
+
+### Removed
+- **Settings → Profile.** The activity profile page and its share card are
+  gone.
+
 ## [2026.7.0-beta.2.3] — 2026-10-19
 
 ### Added

@@ -46,6 +46,8 @@ export interface HostDeps {
   name: () => string
   store: StoreLike
   service: () => WorkersService
+  /** The chat apps, which move with the workers: their bots answer for them from here. */
+  channels?: HostChannels
   applySync: (payload: SyncPayload) => Promise<void>
   /** Replaces the host app with the package in `file` and restarts; resolves once the swap has been handed off. */
   applyUpdate: (file: string) => Promise<void>
@@ -54,6 +56,15 @@ export interface HostDeps {
   /** The sign-ins in this computer's vault (they refresh here), for the desktop to take the newer of. */
   signIns?: () => Record<string, string>
   now?: () => number
+}
+
+/** What the host does with its chat apps (features/channels.ts `createChannels`). */
+export interface HostChannels {
+  suspend: () => Promise<void>
+  resume: () => void
+  exportData: () => Promise<unknown>
+  importData: (data: never) => Promise<void>
+  clear: () => Promise<void>
 }
 
 const SYNC_MARK = 'host-synced.json'
@@ -159,6 +170,7 @@ export function createHost(deps: HostDeps): Host {
         case 'workers.import': {
           const service = deps.service()
           service.suspend()
+          await deps.channels?.suspend()
           await deps.store.flushWrites()
           const current = readSnapshot(deps.store)
           if (current.workers.length > 0) {
@@ -173,6 +185,7 @@ export function createHost(deps: HostDeps): Host {
         case 'workers.export': {
           const service = deps.service()
           service.suspend()
+          await deps.channels?.suspend()
           await deps.store.flushWrites()
           const snapshot = readSnapshot(deps.store)
           const folders = snapshot.workers.map((w) => {
@@ -189,13 +202,34 @@ export function createHost(deps: HostDeps): Host {
           const snapshot = readSnapshot(deps.store)
           if (snapshot.workers.length > 0) deps.store.setJson(`workers-released-${now()}.json`, snapshot)
           writeSnapshot(deps.store, { workers: [], threads: {}, rooms: null })
+          // Their bots too: the desktop answers on them now, and two of one bot fight over its messages.
+          await deps.channels?.clear()
           service.resume()
+          deps.channels?.resume()
           return hello()
         }
         case 'workers.resume': {
           const service = deps.service()
           if (service.suspended) service.resume()
+          deps.channels?.resume()
           return hello()
+        }
+
+        /* Chat apps, moving with the workers (or after them, from a desktop that moved them before they could). */
+        case 'channels.import': {
+          const channels = deps.channels
+          if (!channels) throw new Error('This worker computer can’t run chat apps.')
+          await channels.suspend()
+          await channels.importData(p.data as never)
+          // With the workers running already, so are their bots; mid-move, they start with the workers.
+          if (!deps.service().suspended) channels.resume()
+          return true
+        }
+        case 'channels.export': {
+          const channels = deps.channels
+          if (!channels) return { links: [], tokens: {}, whatsapp: {} }
+          await channels.suspend()
+          return channels.exportData()
         }
 
         /* Files: uploads for mail, workers' folders, skills. */

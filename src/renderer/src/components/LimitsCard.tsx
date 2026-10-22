@@ -9,7 +9,7 @@ import { ProviderMark } from './composer/ProviderMark'
  * One provider's limits: each window as a bar of what's left, with a tick
  * where an even spend would have it by now and whether the pace lasts until
  * it resets; then the details — balances, banked resets and recent token
- * totals. Settings → Usage & limits shows it whole; a sidebar ring's card
+ * totals. Settings → Usage & limits shows it whole; a header ring's card
  * keeps the details behind a toggle unless the setting opens them.
  */
 

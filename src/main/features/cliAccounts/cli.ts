@@ -134,55 +134,6 @@ const lastLine = (text: string): string =>
 
 /* --------------------------------------------------------------- Claude Code */
 
-/**
- * Claude Code's structured /usage, from its SDK control protocol: `print`
- * mode reading stream-json, asked `get_usage` with `skip_behaviors` (its
- * schema's own advice "for callers that need only the plan rate limits, such
- * as a usage meter"). Safe mode keeps the user's hooks, plugins and MCP
- * servers out of it, and the session is not saved. No prompt is ever sent.
- */
-export async function claudeGetUsage(bin: string, dir: string | null): Promise<unknown> {
-  const base = ['-p', '--no-session-persistence', '--input-format', 'stream-json', '--output-format', 'stream-json', '--verbose']
-  try {
-    return await askUsage(bin, dir, ['--safe-mode', ...base])
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    // A Claude Code from before safe mode: ask without it.
-    if (/unknown option.*safe-mode/i.test(message)) return askUsage(bin, dir, base).catch(tooOld)
-    return tooOld(error)
-  }
-}
-
-/** A Claude Code too old to have structured /usage says so in words. */
-function tooOld(error: unknown): never {
-  const message = error instanceof Error ? error.message : String(error)
-  if (/unknown option|unsupported|not supported|unknown (control|request|subtype)|get_usage/i.test(message)) {
-    throw new Error('This Claude Code can’t report usage yet; update it (claude update)')
-  }
-  throw error instanceof Error ? error : new Error(message)
-}
-
-function askUsage(bin: string, dir: string | null, args: string[]): Promise<unknown> {
-  return converse(
-    bin,
-    args,
-    cliEnv('claude', dir),
-    (send) => send({ type: 'control_request', request_id: 'init', request: { subtype: 'initialize' } }),
-    (message, send) => {
-      if (message.type !== 'control_response') return undefined
-      const response = message.response as { subtype?: string; request_id?: string; error?: string; response?: unknown } | undefined
-      if (response?.request_id === 'init') {
-        if (response.subtype === 'error') throw new Error(response.error || 'Claude Code would not start')
-        send({ type: 'control_request', request_id: 'usage', request: { subtype: 'get_usage', skip_behaviors: true } })
-        return undefined
-      }
-      if (response?.request_id !== 'usage') return undefined
-      if (response.subtype === 'error') throw new Error(response.error || 'Claude Code could not read usage')
-      return response.response ?? null
-    }
-  )
-}
-
 /** `claude auth status --json`: who is signed in. */
 export function claudeAuthStatus(bin: string, dir: string | null): Promise<unknown> {
   return new Promise((resolve, reject) => {

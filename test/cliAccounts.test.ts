@@ -4,6 +4,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import {
+  CLAUDE_LIMITS_NOTE,
   DEFAULT_ACCOUNT_ID,
   hasRoom,
   limitAlerts,
@@ -18,7 +19,7 @@ import {
   type LimitNotice,
   type UsageWindow
 } from '@shared/cliAccounts'
-import { claudeStatus, claudeUsage, codexAccount, codexUsage } from '../src/main/features/cliAccounts/parse'
+import { claudeStatus, codexAccount, codexUsage } from '../src/main/features/cliAccounts/parse'
 import { hasRollout, prepareFolder, removeFolder, SHARED } from '../src/main/features/cliAccounts/folders'
 import { findCli } from '../src/main/features/cliAccounts/cli'
 import { CliAccounts, firstUrl, SLOW_FRESH_MS, stripAnsi, type CliRunner, type LoginProcess } from '../src/main/features/cliAccounts/service'
@@ -26,27 +27,11 @@ import { CliAccounts, firstUrl, SLOW_FRESH_MS, stripAnsi, type CliRunner, type L
 /**
  * Claude Code and Codex accounts: reading what each CLI says about its plan,
  * the folders extra accounts live in, and switching between them. The CLIs
- * are scripted; the answers are shaped like the real ones (Claude Code
- * 2.1.289's `get_usage`, codex-cli 0.160's `account/rateLimits/read`).
+ * are scripted; the answers are shaped like the real ones (Claude Code's
+ * `auth status --json`, codex-cli 0.160's `account/rateLimits/read`).
  */
 
 /* -------------------------------------------------------------------- answers */
-
-const CLAUDE_USAGE = {
-  subscription_type: 'max',
-  rate_limits_available: true,
-  rate_limits: {
-    five_hour: { utilization: 7, resets_at: '2026-10-08T05:49:59.960876+00:00' },
-    seven_day: { utilization: 79, resets_at: '2026-10-10T22:59:59.960902+00:00' },
-    limits: [
-      { kind: 'session', group: 'session', percent: 7, severity: 'normal', resets_at: '2026-10-08T05:49:59.960876+00:00', scope: null },
-      { kind: 'weekly_all', group: 'weekly', percent: 79, severity: 'warning', resets_at: '2026-10-10T22:59:59.960902+00:00', scope: null },
-      { kind: 'weekly_scoped', group: 'weekly', percent: 0, severity: 'normal', resets_at: '2026-10-10T23:00:00+00:00', scope: { model: { id: null, display_name: 'Fable' } } },
-      { kind: 'weekly_scoped', group: 'weekly', percent: 12, severity: 'normal', resets_at: '2026-10-10T23:00:00+00:00', scope: { model: { id: null, display_name: 'Opus' } } },
-      { kind: 'spend_something_new', group: 'other', percent: 50 }
-    ]
-  }
-}
 
 const CODEX_LIMITS = {
   ordinaryUsageAllowed: true,
@@ -57,65 +42,9 @@ const CODEX_LIMITS = {
   }
 }
 
-test('Claude Code’s usage: its own rows, classified on kind — session, week, a model’s week once used', () => {
-  const usage = claudeUsage(CLAUDE_USAGE)
-  assert.equal(usage.available, true)
-  assert.equal(usage.plan, 'max')
-  assert.deepEqual(
-    usage.windows.map((w) => [w.id, w.label, w.percent, w.severity]),
-    [
-      ['session', 'Session', 7, 'normal'],
-      ['week', 'Week', 79, 'warning'],
-      ['week:Opus', 'Opus week', 12, 'normal'],
-      ['spend_something_new:', 'Spend something new', 50, 'normal']
-    ]
-  )
-  assert.equal(usage.windows[0].resetsAt, Date.parse('2026-10-08T05:49:59.960876+00:00'))
-})
-
-test('Claude Code on an Enterprise plan: no session or week, but the member’s monthly spend cap, in cents', () => {
-  const usage = claudeUsage({
-    subscription_type: 'enterprise',
-    rate_limits_available: true,
-    rate_limits: {
-      five_hour: null,
-      seven_day: null,
-      limits: [],
-      extra_usage: { is_enabled: true, monthly_limit: 5000, used_credits: 1240, utilization: 24.8, currency: 'USD' }
-    }
-  })
-  assert.equal(usage.available, true)
-  assert.equal(usage.plan, 'enterprise')
-  assert.deepEqual(
-    usage.windows.map((w) => [w.id, w.label, w.percent, w.severity, w.detail]),
-    [['spend', 'Monthly spend', 25, 'normal', '$12.40 of $50.00']]
-  )
-  // A meter of the plan's own that Eaon has no name for is shown, not dropped.
-  const surface = claudeUsage({
-    rate_limits_available: true,
-    rate_limits: { limits: [{ kind: 'monthly_member', group: 'monthly', percent: 92, severity: 'critical', resets_at: null, scope: { surface: { display_name: 'Claude Code' } } }] }
-  })
-  assert.deepEqual(
-    surface.windows.map((w) => [w.label, w.span, w.percent, w.severity]),
-    [['Claude Code', 'this month', 92, 'critical']]
-  )
-  // No cap set: nothing to measure against.
-  assert.deepEqual(claudeUsage({ rate_limits_available: true, rate_limits: { extra_usage: { is_enabled: false, monthly_limit: null, used_credits: null } } }).windows, [])
-})
-
-test('Claude Code: the named windows stand in when there is no list; no limits for an API key', () => {
-  const { rate_limits } = CLAUDE_USAGE
-  const older = claudeUsage({ rate_limits_available: true, rate_limits: { five_hour: rate_limits.five_hour, seven_day: { utilization: 93, resets_at: null } } })
-  assert.deepEqual(
-    older.windows.map((w) => [w.id, w.percent, w.severity, w.resetsAt === null]),
-    [
-      ['session', 7, 'normal', false],
-      ['week', 93, 'critical', true]
-    ]
-  )
-  assert.deepEqual(claudeUsage({ rate_limits_available: false, rate_limits: null }), { available: false, plan: null, windows: [] })
-  assert.deepEqual(claudeUsage('nonsense').windows, [], 'a reshaped answer costs rows, never the meter')
+test('Claude Code’s sign-in, as `claude auth status --json` reports it', () => {
   assert.deepEqual(claudeStatus({ loggedIn: true, authMethod: 'claude.ai', email: 'a@b.co', subscriptionType: 'max' }), { loggedIn: true, email: 'a@b.co', plan: 'max', method: 'claude.ai' })
+  assert.equal(claudeStatus('nonsense').loggedIn, false)
 })
 
 test('Codex’s rate limits: named by window length, the main limit first, a model’s own only once used', () => {
@@ -201,8 +130,8 @@ test('removing an account deletes its folder and nothing its links point at; onl
 /* -------------------------------------------------------------------- service */
 
 interface Script {
-  /** Per folder (null = default): who is signed in, and their figures. */
-  claude: Map<string | null, { status: unknown; usage: unknown }>
+  /** Per folder (null = default): who is signed in. */
+  claude: Map<string | null, { status: unknown }>
   codex: Map<string | null, { account: unknown; limits: unknown }>
   calls: string[]
   loggedOut: string[]
@@ -213,17 +142,13 @@ function harness(installed: CliTool[] = ['claude', 'codex'], options: { autoSwit
   let clock = Date.parse('2026-10-07T18:00:00Z')
   let saved: unknown = {}
   const script: Script = { claude: new Map(), codex: new Map(), calls: [], loggedOut: [] }
-  script.claude.set(null, { status: { loggedIn: true, authMethod: 'claude.ai', email: 'me@example.com', subscriptionType: 'max' }, usage: CLAUDE_USAGE })
+  script.claude.set(null, { status: { loggedIn: true, authMethod: 'claude.ai', email: 'me@example.com', subscriptionType: 'max' } })
   script.codex.set(null, { account: { account: { type: 'chatgpt', email: 'me@example.com', planType: 'free' } }, limits: CODEX_LIMITS })
   const runner: CliRunner = {
     find: (tool) => (installed.includes(tool) ? `/bin/${tool}` : null),
     claudeStatus: async (_bin, dir) => {
       script.calls.push(`claude status ${dir ?? 'default'}`)
       return script.claude.get(dir)?.status ?? { loggedIn: false }
-    },
-    claudeUsage: async (_bin, dir) => {
-      script.calls.push(`claude usage ${dir ?? 'default'}`)
-      return script.claude.get(dir)?.usage
     },
     codexRead: async (_bin, dir) => {
       script.calls.push(`codex read ${dir ?? 'default'}`)
@@ -281,8 +206,8 @@ test('the default accounts are read once, then not again until the figures go st
     await h.service.refresh()
     const state = h.service.state()
     const claude = state.usage[usageKey('claude', DEFAULT_ACCOUNT_ID)]
-    assert.ok(claude?.ok)
-    assert.deepEqual(claude.windows.map((w) => w.percent), [7, 79, 12, 50])
+    assert.ok(claude && !claude.ok && claude.reason === 'in-cli', 'a Claude plan’s limits are left to Claude Code')
+    assert.equal(claude.message, CLAUDE_LIMITS_NOTE)
     const codex = state.usage[usageKey('codex', DEFAULT_ACCOUNT_ID)]
     assert.ok(codex?.ok && codex.windows[0].label === 'Month')
     assert.equal(state.tools.claude.accounts[0].email, 'me@example.com', 'who it is, as the CLI says')
@@ -294,42 +219,39 @@ test('the default accounts are read once, then not again until the figures go st
     assert.equal(h.script.calls.length, calls, 'fresh figures are not read again, even when asked')
     h.tick(20_000)
     await h.service.refresh({ force: true })
-    assert.equal(h.script.calls.length, calls + 3, 'the refresh button reads them after 15 seconds')
+    assert.equal(h.script.calls.length, calls + 2, 'the refresh button reads them after 15 seconds')
     h.tick(30_000)
     await h.service.refresh()
-    assert.equal(h.script.calls.length, calls + 3, 'on its own, only after a minute')
+    assert.equal(h.script.calls.length, calls + 2, 'on its own, only after a minute')
     h.tick(31_000)
     await h.service.refresh()
-    assert.equal(h.script.calls.length, calls + 6)
+    assert.equal(h.script.calls.length, calls + 4)
     assert.deepEqual(h.service.terminalEnv(), {}, 'the default accounts need nothing set')
   } finally {
     h.cleanup()
   }
 })
 
-test('signed out, an API key, a failing CLI and a missing CLI each say so', async () => {
+test('signed out, an API key, a Claude plan and a missing CLI each say so; Claude Code is never started to read limits', async () => {
   const h = harness(['claude'])
   try {
-    h.script.claude.set(null, { status: { loggedIn: false }, usage: null })
+    h.script.claude.set(null, { status: { loggedIn: false } })
     await h.service.refresh()
     const signedOut = h.service.state().usage[usageKey('claude', DEFAULT_ACCOUNT_ID)]
     assert.ok(signedOut && !signedOut.ok && signedOut.reason === 'signed-out')
-    assert.ok(!h.script.calls.includes('claude usage default'), 'signed out: nothing more is asked')
 
     h.tick(61_000)
-    h.script.claude.set(null, { status: { loggedIn: true, authMethod: 'console_api_key' }, usage: null })
+    h.script.claude.set(null, { status: { loggedIn: true, authMethod: 'console_api_key' } })
     await h.service.refresh()
     const key = h.service.state().usage[usageKey('claude', DEFAULT_ACCOUNT_ID)]
     assert.ok(key && !key.ok && key.reason === 'no-limits')
 
     h.tick(61_000)
-    h.script.claude.set(null, { status: { loggedIn: true, authMethod: 'claude.ai' }, usage: undefined })
-    ;(h.service as unknown as { deps: { runner: CliRunner } }).deps.runner.claudeUsage = async () => {
-      throw new Error('Claude Code didn’t answer in time')
-    }
+    h.script.claude.set(null, { status: { loggedIn: true, authMethod: 'claude.ai' } })
     await h.service.refresh()
-    const failed = h.service.state().usage[usageKey('claude', DEFAULT_ACCOUNT_ID)]
-    assert.ok(failed && !failed.ok && failed.reason === 'failed' && /in time/.test(failed.message))
+    const plan = h.service.state().usage[usageKey('claude', DEFAULT_ACCOUNT_ID)]
+    assert.ok(plan && !plan.ok && plan.reason === 'in-cli')
+    assert.ok(h.script.calls.every((call) => call.startsWith('claude status')), 'only `claude auth status`, never a print-mode Claude Code')
 
     assert.equal(h.service.state().tools.codex.installed, false)
     assert.equal(h.service.state().usage[usageKey('codex', DEFAULT_ACCOUNT_ID)], undefined, 'no CLI, nothing asked')
@@ -358,7 +280,7 @@ test('adding an account: the CLI’s own sign-in in its own folder, which become
     h.service.loginInput('abc#def\n')
     assert.deepEqual(login.written, ['abc#def\r'], 'a pasted code goes to the CLI, once')
 
-    h.script.claude.set(login.dir, { status: { loggedIn: true, authMethod: 'claude.ai', email: 'work@company.com', subscriptionType: 'team' }, usage: CLAUDE_USAGE })
+    h.script.claude.set(login.dir, { status: { loggedIn: true, authMethod: 'claude.ai', email: 'work@company.com', subscriptionType: 'team' } })
     login.exit(0)
     await until(() => h.service.state().login.state === 'done')
     state = h.service.state()
@@ -463,7 +385,7 @@ test('signing an existing account in again: a failure keeps it; the default sign
   try {
     h.service.addAccount('claude')
     const first = h.logins[0]
-    h.script.claude.set(first.dir, { status: { loggedIn: true, authMethod: 'claude.ai', email: 'work@company.com' }, usage: CLAUDE_USAGE })
+    h.script.claude.set(first.dir, { status: { loggedIn: true, authMethod: 'claude.ai', email: 'work@company.com' } })
     first.exit(0)
     await until(() => h.service.state().login.state === 'done')
     h.service.dismissLogin()
@@ -471,7 +393,7 @@ test('signing an existing account in again: a failure keeps it; the default sign
     h.service.use('claude', DEFAULT_ACCOUNT_ID)
 
     // Its login lapses.
-    h.script.claude.set(first.dir, { status: { loggedIn: false }, usage: null })
+    h.script.claude.set(first.dir, { status: { loggedIn: false } })
     h.tick(61_000)
     await h.service.refresh({ tool: 'claude', all: true })
     h.service.signIn('claude', id)
@@ -489,12 +411,12 @@ test('signing an existing account in again: a failure keeps it; the default sign
     h.service.dismissLogin()
 
     h.service.signIn('claude', id)
-    h.script.claude.set(first.dir, { status: { loggedIn: true, authMethod: 'claude.ai', email: 'work@company.com' }, usage: CLAUDE_USAGE })
+    h.script.claude.set(first.dir, { status: { loggedIn: true, authMethod: 'claude.ai', email: 'work@company.com' } })
     h.logins[3].exit(0)
     await until(() => h.service.state().login.state === 'done')
     const state = h.service.state()
     assert.equal(state.tools.claude.active, DEFAULT_ACCOUNT_ID, 'signing in again doesn’t switch to it')
-    assert.ok(state.usage[usageKey('claude', id)]?.ok)
+    assert.equal(state.usage[usageKey('claude', id)]?.ok, false, 'read, and pointed at /usage')
     assert.throws(() => h.service.signIn('claude', DEFAULT_ACCOUNT_ID), /default account/)
   } finally {
     h.cleanup()

@@ -10,7 +10,7 @@ import '../styles/usageRings.css'
 import '../styles/limits.css'
 
 /**
- * The sidebar's plan usage: a ring for each provider picked in Settings →
+ * The ADE header's plan usage: a ring for each provider picked in Settings →
  * Usage & limits (at most two), its logo in the middle. Both limits draw
  * the week round the outside and the five-hour session inside, each arc the
  * share still left; or one ring for whichever the setting picks. A click
@@ -30,7 +30,7 @@ function pick(windows: ProviderWindow[], mode: 'both' | '5h' | 'weekly'): { oute
   return { inner: windows[0] }
 }
 
-export function UsageRings({ where = 'sidebar' }: { where?: 'sidebar' | 'header' }): JSX.Element | null {
+export function UsageRings(): JSX.Element | null {
   const { cli, provider } = useLimitsSources()
   const chosen = useApp((s) => s.settings?.usageLimits?.sidebar ?? ['codex', 'claude'])
   // One card at a time: opening one ring's card closes the other's.
@@ -49,15 +49,15 @@ export function UsageRings({ where = 'sidebar' }: { where?: 'sidebar' | 'header'
     .filter((v): v is LimitsView => v !== null)
   if (views.length === 0) return null
   return (
-    <div className="usage-rings" data-where={where} role="group" aria-label="Plan usage">
+    <div className="usage-rings" role="group" aria-label="Plan usage">
       {views.map((view) => (
-        <Ring key={view.id} view={view} where={where} open={opened === view.id} setOpen={(open) => setOpened(open ? view.id : null)} />
+        <Ring key={view.id} view={view} open={opened === view.id} setOpen={(open) => setOpened(open ? view.id : null)} />
       ))}
     </div>
   )
 }
 
-function Ring({ view, where, open, setOpen }: { view: LimitsView; where: 'sidebar' | 'header'; open: boolean; setOpen: (open: boolean) => void }): JSX.Element {
+function Ring({ view, open, setOpen }: { view: LimitsView; open: boolean; setOpen: (open: boolean) => void }): JSX.Element {
   const anchor = useRef<HTMLButtonElement>(null)
   const limits = useApp((s) => s.settings?.usageLimits)
   const patchSettings = useApp((s) => s.patchSettings)
@@ -101,8 +101,7 @@ function Ring({ view, where, open, setOpen }: { view: LimitsView; where: 'sideba
         anchor={anchor}
         open={open}
         onClose={() => setOpen(false)}
-        placement={where === 'sidebar' ? 'right-start' : 'bottom-end'}
-        against=".sidebar__panel"
+        placement="bottom-end"
         standalone
         offset={10}
         width={320}

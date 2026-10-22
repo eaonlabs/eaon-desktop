@@ -3,7 +3,7 @@ import type { ModelInfo, Provider, TokenUsage } from '@shared/types'
 import type { ModelSource } from '@shared/engines'
 import { isLastingIssue, type ModelEdit, type ModelEditFields, type ModelsRefresh, type ProviderHealth, type ProviderIssue } from '@shared/providers'
 import { describeModelsRefresh, foldDatedAliases } from '@shared/modelSelection'
-import { FREE_PROVIDER_ID } from '@shared/freeCredits'
+import { FREE_PROVIDER_ID, GATEWAY_PROVIDER_ID } from '@shared/freeCredits'
 import { freeBaseUrl, freeHeaders, freeWeekOver, withFreeLimits } from '../freeCredits'
 import { secrets } from '../secrets'
 import { store, type ProviderOverride } from '../store'
@@ -256,13 +256,17 @@ function builtInProvider(seed: (typeof BUILT_IN)[number], override: ProviderOver
     enabled: override.enabled ?? seed.enabled,
     models: [],
     // A key provider signed in with the account (Hugging Face) is usable without a key.
-    // Eaon Free needs no key: once claimed (it is only listed then) it is ready.
-    hasKey: auth === 'oauth' ? Boolean(signedIn) : seed.id === FREE_PROVIDER_ID || secrets.has(seed.id) || Boolean(accountFlow(seed.id)),
+    // Eaon Free needs no key: once claimed (it is only listed then) it is ready. Eaon Lite needs none either.
+    hasKey:
+      auth === 'oauth'
+        ? Boolean(signedIn)
+        : seed.id === FREE_PROVIDER_ID || seed.id === GATEWAY_PROVIDER_ID || secrets.has(seed.id) || Boolean(accountFlow(seed.id)),
     signedIn,
     fallbackCount: auth === 'oauth' ? 0 : secrets.getFallbacks(seed.id).length,
     ...(override.health ? { health: override.health } : {}),
     modelsListedAt: override.listedAt ?? null
   }
+  if (seed.id === GATEWAY_PROVIDER_ID) provider.baseUrl = freeBaseUrl()
   if (seed.id === FREE_PROVIDER_ID) {
     provider.baseUrl = freeBaseUrl()
     // With an event code: this install's random ID, so the gateway counts each device on its own.

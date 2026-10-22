@@ -2,11 +2,12 @@ import type { ProviderUsage, ProviderUsageState } from '@shared/providerUsage'
 import { onCliLogsChange } from '../usage/cliLogs'
 import type { Feature } from '../types'
 import { readCopilot, readDeepSeek, readOpenRouter } from './eaonKeys'
+import { readConsoleOnly, readGlm, readKimi, readMinimax } from './plans'
 import { readCursor, readDevin, readGrok, readOpencode, readSignedInOnly } from './readers'
 import { cliModelTokens, providerTokens } from './tokens'
 
 /**
- * Settings → Usage & limits, and the sidebar's rings: every signed-in coding
+ * Settings → Usage & limits, and the ADE header's rings: every signed-in coding
  * tool's limits but Claude Code's and Codex's (the cliAccounts feature reads
  * those), and recent token totals for all of them. Read on demand and kept
  * for a few minutes, so opening the page or a ring's card doesn't ask every
@@ -21,7 +22,20 @@ let notify: (state: ProviderUsageState) => void = () => {}
 
 /** Every reader at once; one that throws is dropped rather than failing the rest. */
 async function readAll(): Promise<ProviderUsage[]> {
-  const settled = await Promise.allSettled([readCursor(), readCopilot(), readGrok(), readOpencode(), readDevin(), readOpenRouter(), readDeepSeek(), readSignedInOnly()])
+  const settled = await Promise.allSettled([
+    readCursor(),
+    readCopilot(),
+    readGrok(),
+    readOpencode(),
+    readDevin(),
+    readKimi(),
+    readGlm(),
+    readMinimax(),
+    readOpenRouter(),
+    readDeepSeek(),
+    readSignedInOnly(),
+    Promise.resolve(readConsoleOnly())
+  ])
   const out: ProviderUsage[] = []
   for (const result of settled) {
     if (result.status !== 'fulfilled' || !result.value) continue

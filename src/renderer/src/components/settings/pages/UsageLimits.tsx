@@ -15,7 +15,7 @@ import '../../../styles/limits.css'
  * Settings → Usage & limits: what's left of every coding plan signed in on
  * this computer — Claude Code and Codex, Cursor, GitHub Copilot, Grok,
  * OpenCode Go, Devin, and the balances of OpenRouter and DeepSeek keys saved
- * in Eaon — which two the sidebar's rings show, and what their cards hold.
+ * in Eaon — which two the ADE header's rings show, and what their cards hold.
  */
 
 type Limits = Settings['usageLimits']
@@ -60,7 +60,7 @@ export function UsageLimitsPage(): JSX.Element {
       </div>
       <p className="settings__lede">See remaining quota and credits for every signed-in provider.</p>
 
-      <Section label={`Sidebar · up to ${MAX_SIDEBAR} accounts`}>
+      <Section label={`ADE header · up to ${MAX_SIDEBAR} accounts`}>
         <Card>
           {listed.map((p) => (
             <Row
@@ -74,7 +74,7 @@ export function UsageLimitsPage(): JSX.Element {
                 </span>
               }
             >
-              <Switch label={`Show ${p.name} in the sidebar`} checked={limits.sidebar.includes(p.id)} onChange={(on) => toggle(p.id, on)} />
+              <Switch label={`Show ${p.name} in the ADE header`} checked={limits.sidebar.includes(p.id)} onChange={(on) => toggle(p.id, on)} />
             </Row>
           ))}
           <Row title="Ring" description="Show both limits as two rings, or a single ring for one of them.">

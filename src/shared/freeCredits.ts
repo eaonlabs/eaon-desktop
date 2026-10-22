@@ -11,6 +11,12 @@
  */
 
 export const FREE_PROVIDER_ID = 'eaon-free'
+/**
+ * Eaon's always-free models on the same gateway (the ones Eaon Code offers):
+ * no claim, no week and no key. The gateway decides which they are and keeps
+ * its own limits.
+ */
+export const GATEWAY_PROVIDER_ID = 'eaon-gateway'
 export const FREE_BASE_URL = 'https://gateway.eaon.dev/v1'
 /** Where an event code is checked (the gateway's openai-gateway/codes.js). */
 export const FREE_REDEEM_PATH = '/codes/redeem'

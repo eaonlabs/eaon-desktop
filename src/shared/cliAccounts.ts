@@ -70,10 +70,20 @@ export type AccountUsage =
   | {
       ok: false
       at: number
-      /** Not signed in, an API key (no plan limits), or the CLI failed. */
-      reason: 'signed-out' | 'no-limits' | 'failed'
+      /**
+       * Not signed in, an API key (no plan limits), the CLI failed, or the
+       * limits are only in the CLI itself (Claude Code: see CLAUDE_LIMITS_NOTE).
+       */
+      reason: 'signed-out' | 'no-limits' | 'in-cli' | 'failed'
       message: string
     }
+
+/**
+ * What a Claude Code account shows in place of its plan's limits. Reading them
+ * means starting Claude Code in print mode, and Eaon starts no Claude Code
+ * work of its own; Claude Code shows them itself.
+ */
+export const CLAUDE_LIMITS_NOTE = 'Claude Code shows this plan’s limits itself: type /usage in it.'
 
 /** Signing in to a new account, run by the CLI's own login. */
 export type CliLogin =

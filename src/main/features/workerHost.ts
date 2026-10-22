@@ -4,6 +4,7 @@ import { existsSync, readFileSync, statSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { homedir } from 'node:os'
 import type { AgentBrowserStatus, BrowserTarget } from '@shared/agentBrowser'
+import type { ChannelLink, ChannelStatus } from '@shared/channels'
 import type { Worker, WorkerRoom } from '@shared/workers'
 import {
   credentialExpiry,
@@ -25,6 +26,7 @@ import { installOverSsh, startPairingServer, type PairingServer } from '../worke
 import { inside, listFolder, readChunks, readSnapshot, relocate, writeChunk, writeSnapshot, type FolderEntry, type WorkersSnapshot } from '../workerHost/move'
 import { personalSkillsDir } from './skills'
 import { remoteBrowserFrame, setRemoteBrowsers, type RemoteBrowsers } from './agentBrowser'
+import { channelsHandle, type ChannelsData, type ChannelsHandle } from './channels'
 import { workersService } from './workers'
 import type { WorkersService } from './workers/service'
 import type { Feature, FeatureContext } from './types'
@@ -43,7 +45,10 @@ import type { Feature, FeatureContext } from './types'
  *
  * Turning it on moves the workers: the engine here stops, everything that
  * makes them who they are (and their folders) goes to the host, and the
- * Workers tab's IPC is answered by the host from then on. Live views of
+ * Workers tab's IPC is answered by the host from then on. Their chat apps
+ * go with them (the bots, their tokens, a WhatsApp session), so a worker
+ * still answers on Telegram while this computer sleeps; Settings → Chat
+ * apps is answered by the host too. Live views of
  * their browsers come over the link too. Turning it off brings them back.
  * While it is on and the host can't be reached, the tab shows the workers
  * as last seen, read-only.
@@ -53,7 +58,7 @@ const CONFIG_FILE = 'worker-host.json'
 const BACKUP_FILE = 'worker-host-backup.json'
 const CACHE_FILE = 'worker-host-cache.json'
 const SECRET_KEY = 'worker-host:secret'
-/** Vault entries the host never gets: the link's own secret, and chat-app bot tokens (chat apps stay here). */
+/** Vault entries the host never gets on a sync: the link's own secret, and chat-app bot tokens (they move with the workers instead). */
 const PRIVATE_SECRETS = /^(worker-host:|channel:)/
 const RESYNC_MS = 10 * 60_000
 const HELLO_MS = 30_000
@@ -72,7 +77,8 @@ const READ_ONLY = new Set([
   'workers:teach-steps',
   'workers:viewing',
   'workers:mark-read',
-  'workers:room-read'
+  'workers:room-read',
+  'channels:list'
 ])
 
 interface Config {
@@ -88,9 +94,14 @@ interface Config {
    * it still runs its own, so the next time it connects it is told to stop.
    */
   releasePending: boolean
+  /**
+   * The chat apps went with the workers. False with `enabled` for workers
+   * moved before chat apps could go too: they follow once the host connects.
+   */
+  channelsMoved: boolean
 }
 
-const emptyConfig = (): Config => ({ host: null, enabled: false, origins: {}, backupAt: null, skillsHash: null, releasePending: false })
+const emptyConfig = (): Config => ({ host: null, enabled: false, origins: {}, backupAt: null, skillsHash: null, releasePending: false, channelsMoved: false })
 
 interface PackageInfo {
   path: string
@@ -125,7 +136,7 @@ export interface WorkerHostController {
 let controller: WorkerHostController | null = null
 export const workerHostController = (): WorkerHostController | null => controller
 
-export function createWorkerHost(ctx: FeatureContext, workers: WorkersService): WorkerHostController & { dispose: () => void } {
+export function createWorkerHost(ctx: FeatureContext, workers: WorkersService, chats: ChannelsHandle | null = null): WorkerHostController & { dispose: () => void } {
   let config: Config = { ...emptyConfig(), ...store.getJson<Partial<Config>>(CONFIG_FILE, {}) }
   const saveConfig = (): void => store.setJson(CONFIG_FILE, config)
   let moving: WorkerHostState['moving'] = null
@@ -133,10 +144,12 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService): 
   /** The host builds already sent this session, so a host that won't take one isn't sent it forever. */
   const updatesTried = new Set<string>()
 
-  /** The host's workers as last seen, for while it can't be reached. */
-  const cache: { workers: Worker[]; rooms: WorkerRoom[]; threads: Map<string, unknown> } = {
-    workers: store.getJson<{ workers?: Worker[] }>(CACHE_FILE, {}).workers ?? [],
-    rooms: store.getJson<{ rooms?: WorkerRoom[] }>(CACHE_FILE, {}).rooms ?? [],
+  /** The host's workers (and chat apps) as last seen, for while it can't be reached. */
+  const cached = store.getJson<{ workers?: Worker[]; rooms?: WorkerRoom[]; links?: ChannelLink[] }>(CACHE_FILE, {})
+  const cache: { workers: Worker[]; rooms: WorkerRoom[]; links: ChannelLink[]; threads: Map<string, unknown> } = {
+    workers: cached.workers ?? [],
+    rooms: cached.rooms ?? [],
+    links: cached.links ?? [],
     threads: new Map()
   }
   let cacheTimer: ReturnType<typeof setTimeout> | null = null
@@ -144,7 +157,7 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService): 
     if (cacheTimer) return
     cacheTimer = setTimeout(() => {
       cacheTimer = null
-      store.setJsonAsync(CACHE_FILE, { workers: cache.workers, rooms: cache.rooms })
+      store.setJsonAsync(CACHE_FILE, { workers: cache.workers, rooms: cache.rooms, links: cache.links })
     }, 2000)
     cacheTimer.unref?.()
   }
@@ -242,6 +255,12 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService): 
         return false
       case 'workers:teach-steps':
         return []
+      // Its chat apps as last seen, none of them answering from here.
+      case 'channels:list':
+        return {
+          links: cache.links,
+          statuses: cache.links.map((l): ChannelStatus => ({ linkId: l.id, state: 'error', message: `${config.host?.name ?? 'The worker computer'} can’t be reached right now.` }))
+        }
       // Nothing to change on the host: what the tab is showing, and what was read.
       case 'workers:viewing':
       case 'workers:mark-read':
@@ -275,6 +294,9 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService): 
     } else if (channel === 'workers:rooms') {
       cache.rooms = value as WorkerRoom[]
       saveCache()
+    } else if (channel === 'channels:list') {
+      cache.links = (value as { links: ChannelLink[] }).links
+      saveCache()
     } else if (channel === 'workers:thread') {
       cache.threads.set(threadKey(args), value)
       // A few recent threads are enough for a short outage.
@@ -283,10 +305,15 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService): 
     return value
   }
 
+  /** The IPC the host answers while the workers live there: the Workers tab's, and Chat apps'. */
+  const servedThere = (): string[] => [...workers.channels, ...(chats?.channels ?? [])]
+
   const takeOver = (): void => {
     if (proxied) return
     proxied = true
-    for (const channel of workers.channels) {
+    // Their bots answer from the host; here they would fight it for every message.
+    void chats?.suspend()
+    for (const channel of servedThere()) {
       ctx.ipcMain.removeHandler(channel)
       ctx.ipcMain.handle(channel, (_event, ...args: unknown[]) => proxy(channel, args))
     }
@@ -296,12 +323,14 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService): 
   const handBack = (): void => {
     if (!proxied) return
     proxied = false
-    for (const channel of workers.channels) ctx.ipcMain.removeHandler(channel)
+    for (const channel of servedThere()) ctx.ipcMain.removeHandler(channel)
     workers.registerIpc()
+    chats?.registerIpc()
+    chats?.resume()
     setRemoteBrowsers(null)
   }
 
-  /** The Workers tab shows what the host has now. */
+  /** The Workers tab (and Chat apps) show what the host has now. */
   const refreshTab = async (): Promise<void> => {
     try {
       const [list, rooms] = await Promise.all([hostIpc<Worker[]>('workers:list', []), hostIpc<WorkerRoom[]>('workers:rooms', [])])
@@ -310,9 +339,30 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService): 
       saveCache()
       ctx.send('workers:changed', list)
       ctx.send('workers:rooms-changed', rooms)
+      if (chats) {
+        const { links, statuses } = await hostIpc<{ links: ChannelLink[]; statuses: ChannelStatus[] }>('channels:list', [])
+        cache.links = links
+        saveCache()
+        ctx.send('channels:changed', links)
+        ctx.send('channels:status', statuses)
+      }
     } catch {
       /* the link went again; the next connect refreshes */
     }
+  }
+
+  /**
+   * Chat apps here → the host, to answer for workers already there: for
+   * workers moved before chat apps could go with them. The host keeps them
+   * from then on, as if they had moved together.
+   */
+  const moveChatsAfter = async (): Promise<void> => {
+    if (!chats || config.channelsMoved) return
+    await chats.suspend()
+    const data = await chats.exportData()
+    if (data.links.length > 0) await link.call('channels.import', { data }, 120_000)
+    config.channelsMoved = true
+    saveConfig()
   }
 
   /* -------------------------------------------------------- notifications */
@@ -466,6 +516,7 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService): 
         .catch(() => undefined)
     }
     if (config.enabled && !moving) {
+      await moveChatsAfter().catch((error) => console.error('[worker-host] chat apps didn’t move:', errorText(error)))
       // A move cut short leaves the host waiting; it should be running its workers.
       await link.call('workers.resume').catch(() => undefined)
       for (const [target, count] of watching) for (let i = 0; i < count; i++) void hostIpc('agent-browser:watch', [true, target]).catch(() => undefined)
@@ -493,6 +544,10 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService): 
     }
     if (channel === 'workers:rooms-changed') {
       cache.rooms = args[0] as WorkerRoom[]
+      saveCache()
+    }
+    if (channel === 'channels:changed') {
+      cache.links = args[0] as ChannelLink[]
       saveCache()
     }
     ctx.send(channel, ...args)
@@ -575,12 +630,19 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService): 
         config.origins[move.id] = move.from
       }
       if (skipped) progress({ line: `${skipped} large or rebuildable item${skipped === 1 ? ' was' : 's were'} left behind (node_modules, .git and the like).` })
+      if (chats) {
+        // Their bots stop here and answer from there; what's here stays as the copy, like the workers'.
+        step('to-host', 'Moving their chat apps')
+        await chats.suspend()
+        await link.call('channels.import', { data: await chats.exportData() }, 120_000)
+      }
       step('to-host', 'Starting them there')
       link.hello = await link.call<HostHello>('workers.resume')
     } catch (error) {
       // Nothing is lost: the host lets go of what it got, and they run here again.
       await link.call('workers.release').catch(() => undefined)
       workers.resume()
+      chats?.resume()
       moving = null
       pushState()
       throw error
@@ -589,6 +651,7 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService): 
     writeSnapshot(store, { workers: [], threads: {}, rooms: null })
     workers.engine.reload()
     config.enabled = true
+    config.channelsMoved = true
     saveConfig()
     takeOver()
     moving = null
@@ -600,6 +663,8 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService): 
   const moveHere = async (fromBackup: boolean): Promise<void> => {
     let snapshot: WorkersSnapshot
     let folders: { id: string; folder: string; files: FolderEntry[] }[] = []
+    /** The chat apps on the host; with the copy, those here are already the ones to run. */
+    let chatData: ChannelsData | null = null
     if (fromBackup) {
       const backup = store.getJson<{ snapshot?: WorkersSnapshot } | null>(BACKUP_FILE, null)
       if (!backup?.snapshot) throw new Error('There is no copy of the workers on this computer.')
@@ -611,6 +676,16 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService): 
       const exported = await link.call<{ snapshot: WorkersSnapshot; folders: { id: string; folder: string; files: FolderEntry[] }[] }>('workers.export', null, 120_000)
       snapshot = exported.snapshot
       folders = exported.folders
+      if (chats && config.channelsMoved) {
+        try {
+          chatData = await link.call<ChannelsData>('channels.export', null, 120_000)
+        } catch (error) {
+          await link.call('workers.resume').catch(() => undefined)
+          moving = null
+          pushState()
+          throw error
+        }
+      }
     }
     try {
       const root = join(store.getSettings().work.defaultFolder || join(homedir(), 'Eaon'), 'Workers')
@@ -623,6 +698,11 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService): 
         for (const file of folder.files) await pullFile(hostJoin(folder.folder, file.path), inside(move.to, file.path))
       }
       writeSnapshot(store, local.snapshot)
+      if (chatData) {
+        step('to-here', 'Bringing their chat apps back')
+        await chats?.suspend()
+        await chats?.importData(chatData)
+      }
       if (!fromBackup) link.hello = await link.call<HostHello>('workers.release')
     } catch (error) {
       if (!fromBackup) await link.call('workers.resume').catch(() => undefined)
@@ -631,6 +711,7 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService): 
       throw error
     }
     config.enabled = false
+    config.channelsMoved = false
     config.origins = {}
     config.releasePending = fromBackup
     saveConfig()
@@ -780,6 +861,7 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService): 
       saveConfig()
       cache.workers = []
       cache.rooms = []
+      cache.links = []
       saveCache()
       pushState()
       return state()
@@ -853,10 +935,10 @@ let instance: ReturnType<typeof createWorkerHost> | null = null
 export const workerHostFeature: Feature = {
   id: 'worker-host',
   register: (ctx) => {
-    // Right after the workers feature, before anything else starts its engine.
+    // Right after the workers feature and their chat apps, before anything else starts the engine.
     const workers = workersService()
     if (!workers) return
-    instance = createWorkerHost(ctx, workers)
+    instance = createWorkerHost(ctx, workers, channelsHandle())
     controller = instance
   },
   dispose: () => instance?.dispose()

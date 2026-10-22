@@ -1,5 +1,5 @@
 import type { McpServer, Settings } from '@shared/types'
-import { credentialExpiry } from '@shared/workerHost'
+import { credentialExpiry, hostOwnsSecret } from '@shared/workerHost'
 import { secrets } from '@main/secrets'
 import { store } from '@main/store'
 import type { SyncPayload } from './host'
@@ -45,8 +45,14 @@ export function applySync(payload: SyncPayload): void {
     const theirs = credentialExpiry(value)
     if (mine !== null && theirs !== null && mine > theirs) delete incoming[id]
   }
+  // Chat apps' tokens are this computer's own: they came with the workers, and the desktop doesn't send its copies.
+  for (const id of Object.keys(incoming)) if (hostOwnsSecret(id)) delete incoming[id]
   // The desktop's vault otherwise, exactly: a key removed there is removed here too.
-  const removed = Object.fromEntries(Object.keys(own).filter((id) => !(id in sent)).map((id) => [id, '']))
+  const removed = Object.fromEntries(
+    Object.keys(own)
+      .filter((id) => !(id in sent) && !hostOwnsSecret(id))
+      .map((id) => [id, ''])
+  )
   const changes = Object.fromEntries(Object.entries({ ...removed, ...incoming }).filter(([id, value]) => (own[id] ?? '') !== value))
   if (Object.keys(changes).length > 0) secrets.setMany(changes)
   if (payload.providers && typeof payload.providers === 'object') store.saveProviderConfig(payload.providers)

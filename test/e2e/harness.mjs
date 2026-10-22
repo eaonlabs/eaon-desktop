@@ -191,6 +191,8 @@ export async function launchApp(options) {
   const offlinePort = options.offlinePort ?? (await closedPort())
   if (fresh) {
     const isolated = Object.fromEntries(LOCAL_RUNTIME_IDS.map((id) => [id, { baseUrl: `http://127.0.0.1:${offlinePort}/v1` }]))
+    // Eaon Lite is on for everyone and talks to gateway.eaon.dev.
+    isolated['eaon-gateway'] = { enabled: false }
     seedStore(profileDir, { 'providers.json': isolated })
   }
   if (options.seed) seedStore(profileDir, options.seed)

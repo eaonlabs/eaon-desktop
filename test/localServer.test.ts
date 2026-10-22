@@ -52,7 +52,7 @@ test('local API server proxies chat completions, streaming and not', async () =>
 })
 
 /* Everything below points the other local runtimes away so discovery only sees Jan. */
-const quietLocals = { ollama: { enabled: false }, 'lm-studio': { enabled: false }, 'llama-cpp': { enabled: false }, mlx: { enabled: false }, vllm: { enabled: false } }
+const quietLocals = { ollama: { enabled: false }, 'lm-studio': { enabled: false }, 'llama-cpp': { enabled: false }, mlx: { enabled: false }, vllm: { enabled: false }, 'eaon-gateway': { enabled: false } }
 
 function post(url: string, body: unknown, headers: Record<string, string> = {}): Promise<{ status: number; headers: IncomingHttpHeaders; text: string }> {
   return new Promise((resolve, reject) => {

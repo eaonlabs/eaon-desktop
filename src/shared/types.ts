@@ -448,7 +448,7 @@ export interface Settings {
   /** The ADE's usage meter for Claude Code and Codex plans (Settings → Accounts). */
   /** Settings → Usage & limits. */
   usageLimits: {
-    /** The providers the sidebar's rings show, in order, at most two. */
+    /** The providers the ADE header's rings show, in order, at most two. */
     sidebar: string[]
     /** Both limits as two rings, or one ring for the 5-hour or the weekly limit. */
     ring: 'both' | '5h' | 'weekly'
@@ -470,12 +470,6 @@ export interface Settings {
     /** Look for newer versions of installed CLIs in the background. */
     updateChecks: boolean
   }
-  /** Settings → Profile: how the activity profile and its share card name you. */
-  profile: {
-    name: string
-    handle: string
-    color: string
-  }
   cliUsage: {
     /** Show the plan usage meter at all. */
     meter: boolean
@@ -485,8 +479,6 @@ export interface Settings {
     alerts: boolean
     /** Move new Codex sessions, and Eaon's Codex engine, to another signed-in account when the active one hits its limit. */
     autoSwitchCodex: boolean
-    /** Where it sits: the sidebar's foot, the ADE's header, or both. */
-    placement: 'sidebar' | 'header' | 'both'
     /** What it looks like: a ring per CLI, or a bar with the figures. */
     style: 'rings' | 'bar'
   }

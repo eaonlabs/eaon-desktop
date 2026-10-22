@@ -19,7 +19,7 @@ let reply: (body: Record<string, unknown>) => Reply = () => [chunk({ content: 'o
 let upstream: Awaited<ReturnType<typeof sseServer>>
 let base = ''
 
-const quietLocals = { ollama: { enabled: false }, 'lm-studio': { enabled: false }, 'llama-cpp': { enabled: false }, mlx: { enabled: false }, vllm: { enabled: false }, jan: { enabled: false } }
+const quietLocals = { ollama: { enabled: false }, 'lm-studio': { enabled: false }, 'llama-cpp': { enabled: false }, mlx: { enabled: false }, vllm: { enabled: false }, jan: { enabled: false }, 'eaon-gateway': { enabled: false } }
 
 before(async () => {
   upstream = await sseServer((body) => reply(body))

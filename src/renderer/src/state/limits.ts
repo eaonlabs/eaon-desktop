@@ -14,7 +14,7 @@ import { useCliAccounts } from './cliAccounts'
 
 /**
  * Every coding tool's limits as one shape, for Settings → Usage & limits and
- * the sidebar's rings: Claude Code's and Codex's from the CLI accounts
+ * the ADE header's rings: Claude Code's and Codex's from the CLI accounts
  * (cliAccounts), the rest from main's provider readers (providerUsage).
  */
 
@@ -78,7 +78,7 @@ export function limitsView(id: UsageProviderId, cli: CliAccountsState | null, pr
       mark: info.mark,
       account: account ? accountName(account) : null,
       plan: usage?.ok ? usage.plan : (account?.plan ?? null),
-      status: usage?.ok ? 'ok' : !usage ? 'loading' : usage.reason === 'no-limits' ? 'unsupported' : loading ? 'loading' : 'error',
+      status: usage?.ok ? 'ok' : !usage ? 'loading' : usage.reason === 'no-limits' || usage.reason === 'in-cli' ? 'unsupported' : loading ? 'loading' : 'error',
       windows: usage?.ok ? usage.windows.map((w) => liveWindow(w, now)) : [],
       lines: [],
       note: usage && !usage.ok ? usage.message : null,

@@ -88,10 +88,17 @@ the host refreshed since, the host sends one it refreshed to the desktop at once
 while asleep (`tokens`). Cached tokens are read again whenever the vault
 changes.
 
-Not on the host (yet): chat apps (Discord/Telegram/WhatsApp bots stay on the
-desktop and don't see workers that moved), agent email, the trading desk, and
-the phone remote (pair the phone with the desktop; it sees no workers while
-they are on the host). The Workers tab hides "Open its folder" and "Connect a
-chat app" while workers are on the host. While the host can't be reached, the
+Chat apps go with the workers: their links, bot tokens and WhatsApp sessions
+move to the host (`channels.import`; a WhatsApp session is decrypted here and
+sealed again with the host's own key), the bots stop here and answer from the
+host, and Settings → Chat apps is answered by the host. The tokens are the
+host's own from then on: a sync never sends or removes `channel:` entries.
+Moving the workers back brings the chat apps back the same way
+(`channels.export`). Workers moved before chat apps could go with them take
+theirs over the next time the host connects.
+
+Not on the host (yet): agent email, the trading desk, and the phone remote
+(pair the phone with the desktop; it sees no workers while they are on the
+host). The Workers tab hides "Open its folder" while workers are on the host. While the host can't be reached, the
 tab shows what it last saw: reading works, changes are refused with a message,
 and for the first seconds after this app starts a change waits for the link.

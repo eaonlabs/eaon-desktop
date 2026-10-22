@@ -179,13 +179,17 @@ export const useBrowser = create<BrowserState>((set, get) => {
     },
 
     closeTab(key, id) {
+      let last = false
       updateScope(key, (scope) => {
         const index = scope.tabs.findIndex((t) => t.id === id)
         const tabs = scope.tabs.filter((t) => t.id !== id)
-        if (tabs.length === 0) return blankScope()
+        last = tabs.length === 0
+        if (last) return blankScope()
         const activeId = scope.activeId === id ? tabs[Math.min(index, tabs.length - 1)].id : scope.activeId
         return { tabs, activeId }
       })
+      // Closing the last tab closes the browser, as it does in a browser window; it opens on a new tab next time.
+      if (last) useApp.getState().toggleBrowser(false)
     },
 
     activate(key, id) {

@@ -68,7 +68,7 @@ await build({
   }
 })
 
-/* BetterWright and everything it depends on, as installed here. */
+/* BetterWright and Baileys and everything they depend on, as installed here. */
 const copied = new Set()
 function copyModule(name, from) {
   let dir = null
@@ -90,6 +90,8 @@ function copyModule(name, from) {
   for (const dep of Object.keys(manifest.dependencies ?? {})) copyModule(dep, dir)
 }
 copyModule('betterwright', root)
+// WhatsApp, for the chat apps that move to the host with the workers.
+copyModule('baileys', root)
 
 copyFileSync(join(root, 'src/host/install.sh'), join(pkgDir, 'install.sh'))
 chmodSync(join(pkgDir, 'install.sh'), 0o755)

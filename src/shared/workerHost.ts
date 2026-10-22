@@ -115,7 +115,8 @@ export const HOST_BROWSER_CHANNELS = ['agent-browser:watch', 'agent-browser:stat
 
 /** Whether a channel may be called on the host over the link. */
 export function hostServesChannel(channel: string, args: unknown[]): boolean {
-  if (channel.startsWith('workers:')) return true
+  // Chat apps move with the workers: their bots run where the workers do.
+  if (channel.startsWith('workers:') || channel.startsWith('channels:')) return true
   if ((HOST_BROWSER_CHANNELS as readonly string[]).includes(channel)) {
     // The browser channels take the target last; only workers' browsers live there.
     const target = args[args.length - 1]
@@ -148,5 +149,14 @@ export function signInEntries(vault: Record<string, string>): Record<string, str
 
 /** Events the host forwards to the desktop. */
 export function hostForwardsEvent(channel: string): boolean {
-  return channel.startsWith('workers:') || channel.startsWith('agent-browser:') || channel.startsWith('host:')
+  return channel.startsWith('workers:') || channel.startsWith('channels:') || channel.startsWith('agent-browser:') || channel.startsWith('host:')
+}
+
+/**
+ * Vault entries a worker computer keeps as its own, whatever the desktop's
+ * vault says: chat apps' bot tokens, which move there with the workers
+ * rather than being copied on every sync.
+ */
+export function hostOwnsSecret(id: string): boolean {
+  return id.startsWith('channel:')
 }

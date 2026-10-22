@@ -17,6 +17,7 @@ import { pluginsFeature } from '@main/features/plugins'
 import { personalSkillsDir, skillsFeature } from '@main/features/skills'
 import { agentBrowserFeature } from '@main/features/agentBrowser'
 import { createWorkersService, type WorkersService } from '@main/features/workers/service'
+import { createChannels } from '@main/features/channels'
 import { listen } from '@main/workerHost/channel'
 import { broadcast, ipc } from './ipc'
 import { createHost, type SyncPayload } from './host'
@@ -75,6 +76,10 @@ export async function bootHost(options: BootOptions): Promise<{ stop: () => Prom
   })
   service.start()
   service.registerIpc()
+  // The workers' chat apps: their bots answer from here, so they keep answering while the desktop sleeps.
+  const channels = createChannels(context, service)
+  channels.registerIpc()
+  channels.start()
   if (options.runtime === 'electron') {
     // The live view and take-over of each worker's browser, served to the desktop.
     agentBrowserFeature.register(context)
@@ -101,6 +106,7 @@ export async function bootHost(options: BootOptions): Promise<{ stop: () => Prom
     name: () => config.name || hostname().replace(/\.local\.?$/i, ''),
     store,
     service: () => service,
+    channels,
     applySync: async (payload: SyncPayload) => {
       applySync(payload)
       void syncMcpServers()
@@ -148,6 +154,7 @@ export async function bootHost(options: BootOptions): Promise<{ stop: () => Prom
       if (signInTimer) clearTimeout(signInTimer)
       await server.close().catch(() => undefined)
       killBackgroundProcesses()
+      await channels.stop().catch(() => undefined)
       service.stop()
       for (const feature of features) {
         try {

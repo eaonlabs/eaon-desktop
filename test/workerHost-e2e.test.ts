@@ -4,7 +4,8 @@
  * process under Node with its own home folder, and the desktop's feature
  * links to it, moves a worker there with its folder, talks to it through
  * the Workers tab's IPC while it thinks with a model this test serves, rides
- * out the host going away and coming back, and brings the worker home.
+ * out the host going away and coming back, and brings the worker home. Its
+ * chat apps go there and come back with it.
  */
 import { after, before, test } from 'node:test'
 import assert from 'node:assert/strict'
@@ -19,6 +20,9 @@ import { secrets } from '../src/main/secrets'
 import { newHostSecret } from '../src/main/workerHost/channel'
 import { createWorkersService, type WorkersService } from '../src/main/features/workers/service'
 import { createWorkerHost } from '../src/main/features/workerHost'
+import { createChannels, type ChannelsHandle } from '../src/main/features/channels'
+import { readAuthFiles, writeAuthFiles } from '../src/main/features/channels/whatsapp'
+import type { ChannelLink } from '@shared/channels'
 import type { FeatureContext } from '../src/main/features/types'
 import type { WorkerHostState } from '@shared/workerHost'
 import type { Worker, WorkerThread } from '@shared/workers'
@@ -30,7 +34,7 @@ const built = existsSync(join(packageDir, 'eaon-host.tgz'))
 const scratch = mkdtempSync(join(tmpdir(), 'eaon-host-e2e-'))
 const hostHome = join(scratch, 'host-user')
 const hostAppHome = join(hostHome, '.eaon-host')
-const quietLocals = { ollama: { enabled: false }, 'lm-studio': { enabled: false }, 'llama-cpp': { enabled: false }, mlx: { enabled: false }, vllm: { enabled: false }, jan: { enabled: false } }
+const quietLocals = { ollama: { enabled: false }, 'lm-studio': { enabled: false }, 'llama-cpp': { enabled: false }, mlx: { enabled: false }, vllm: { enabled: false }, jan: { enabled: false }, 'eaon-gateway': { enabled: false } }
 
 async function until(check: () => boolean | Promise<boolean>, timeout = 20_000, what = 'condition'): Promise<void> {
   const started = Date.now()
@@ -93,6 +97,7 @@ const call = async <T>(channel: string, ...args: unknown[]): Promise<T> => {
 }
 
 let service: WorkersService
+let chats: ChannelsHandle
 let feature: ReturnType<typeof createWorkerHost>
 let model: Awaited<ReturnType<typeof sseServer>>
 const desktopWork = join(scratch, 'desktop-work')
@@ -121,6 +126,9 @@ before(async () => {
   service.start()
   service.registerIpc()
   service.engine.start()
+  chats = createChannels(ctx, service)
+  chats.registerIpc()
+  chats.start()
 
   // Linked earlier (as an install would leave it).
   secrets.set('worker-host:secret', secret)
@@ -132,11 +140,12 @@ before(async () => {
     skillsHash: null
   })
   process.env.EAON_HOST_PACKAGE_DIR = packageDir
-  feature = createWorkerHost(ctx, service)
+  feature = createWorkerHost(ctx, service, chats)
 })
 
 after(async () => {
   feature?.dispose()
+  await chats?.stop()
   service?.stop()
   await stopHostProcess()
   model?.server.close()
@@ -160,6 +169,13 @@ test('a worker moves to the worker computer, works there, survives the host rest
   const nova = await call<Worker>('workers:save', { name: 'Nova', purpose: 'Research', personality: '', model: null, access: 'safe' })
   assert.ok(nova.folder.startsWith(desktopWork))
   writeFileSync(join(nova.folder, 'plan.md'), '# The plan')
+  // And its chat apps: a Telegram bot and a WhatsApp number (off, so nothing here talks to either).
+  const telegram = await call<ChannelLink>('channels:create', 'telegram', nova.id)
+  secrets.set(`channel:${telegram.id}`, '123:telegram-token')
+  store.setJson('channels.json', [...store.getJson<unknown[]>('channels.json', []), { id: 'l-wa', kind: 'whatsapp', workerId: nova.id, enabled: false }])
+  chats.service.load()
+  const userData = process.env.EAON_TEST_USERDATA!
+  await writeAuthFiles(join(userData, 'channels', 'whatsapp-l-wa'), { 'creds.dat': '{"me":"nova"}' })
 
   // Move it.
   const moved = await call<WorkerHostState>('worker-host:set-enabled', true)
@@ -169,6 +185,29 @@ test('a worker moves to the worker computer, works there, survives the host rest
   assert.equal(there.length, 1)
   assert.equal(there[0].folder, join(hostHome, 'Eaon', 'Workers', 'Nova'))
   assert.equal(readFileSync(join(there[0].folder, 'plan.md'), 'utf8'), '# The plan')
+
+  // Its chat apps went too: none run here, Chat apps is answered there, and the host has the bot's token and the session.
+  assert.equal(chats.suspended, true)
+  const theirApps = await call<{ links: ChannelLink[] }>('channels:list')
+  assert.deepEqual(
+    theirApps.links.map((l) => [l.id, l.workerId]),
+    [
+      [telegram.id, nova.id],
+      ['l-wa', nova.id]
+    ]
+  )
+  const hostKeys = (): Record<string, string> => JSON.parse(readFileSync(join(hostAppHome, 'data', 'keys.dat'), 'utf8')) as Record<string, string>
+  assert.equal(hostKeys()[`channel:${telegram.id}`], '123:telegram-token')
+  assert.ok(existsSync(join(hostAppHome, 'data', 'channels', 'whatsapp-l-wa', 'creds.dat')))
+  // What Settings → Chat apps refused before ("That worker no longer exists"): connecting a worker that lives there.
+  sent.length = 0
+  const discord = await call<ChannelLink>('channels:create', 'discord', nova.id)
+  assert.equal(discord.workerId, nova.id)
+  await until(() => sent.some((e) => e.channel === 'channels:changed'), 10_000, 'the host to tell the page')
+  await call('channels:remove', discord.id)
+  // A sync sends this computer's vault, which has its own copy of the token; the host keeps its own.
+  await call('worker-host:sync')
+  assert.equal(hostKeys()[`channel:${telegram.id}`], '123:telegram-token')
 
   // Talk to it, with a file from this computer: it thinks on the host with the synced model.
   const note = join(scratch, 'notes.txt')
@@ -206,6 +245,16 @@ test('a worker moves to the worker computer, works there, survives the host rest
   const backThread = await call<WorkerThread>('workers:thread', nova.id)
   assert.equal(backThread.messages.length, 2)
   assert.equal(service.suspended, false)
+  // Its chat apps too, answering from here again; the host keeps no bot of theirs.
+  assert.equal(chats.suspended, false)
+  assert.deepEqual(
+    (await call<{ links: ChannelLink[] }>('channels:list')).links.map((l) => l.id),
+    [telegram.id, 'l-wa']
+  )
+  assert.equal(secrets.get(`channel:${telegram.id}`), '123:telegram-token')
+  assert.deepEqual(await readAuthFiles(join(userData, 'channels', 'whatsapp-l-wa')), { 'creds.dat': '{"me":"nova"}' })
+  assert.equal(hostKeys()[`channel:${telegram.id}`], undefined)
+  assert.equal(existsSync(join(hostAppHome, 'data', 'channels', 'whatsapp-l-wa')), false)
   // And the host runs none.
   await until(async () => (await state()).hello?.workers === 0 || ((await feature.link.call<{ workers: number }>('hello')).workers === 0), 10_000, 'the host to let go')
 
