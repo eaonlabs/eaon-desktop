@@ -1,4 +1,6 @@
 import type { JSX } from 'react'
+import { LogoMark } from '../../icons/customLogo'
+import { providerLogoNow, useProviderLogo } from '../../state/providerLogos'
 
 /**
  * A provider's bare mark, without the tile its logo is drawn on elsewhere:
@@ -110,10 +112,14 @@ const MARK: Record<string, string> = {
 
 /** Which mark file a provider uses, so two providers sharing one can be told apart. */
 export function markKey(providerId: string): string {
+  if (providerLogoNow(providerId)) return `logo:${providerId}`
   return MARK[providerId] ?? `monogram:${providerId}`
 }
 
 export function ProviderMark({ providerId, name, size = 16 }: { providerId: string; name?: string; size?: number }): JSX.Element {
+  // The person's own logo, or one found from a custom provider's base URL, comes first.
+  const custom = useProviderLogo(providerId)
+  if (custom) return <LogoMark logo={custom} size={size} />
   const file = MARK[providerId]
   const url = file ? URLS[file] : undefined
   if (url) {

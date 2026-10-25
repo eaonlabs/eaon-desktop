@@ -10,6 +10,7 @@ import { dismissProblem, onStoreHealth, problemFile, storeHealth } from './store
 import { secrets } from './secrets'
 import type { ModelEdit } from '@shared/providers'
 import { CLAUDE_LOGIN_TOKEN, isClaudeLoginToken } from '@shared/providers'
+import { forgetLogo, noteBaseUrlChanged } from './providers/logos'
 import { clearProviderHealth, editModels, getProvider, listProviders, refreshModels, refreshProviderModels, removeProvider, testProvider, updateProvider } from './providers'
 import { refreshLocalProviders } from './providers/localDiscovery'
 import { refreshCatalogInBackground } from './providers/modelCatalog'
@@ -675,9 +676,15 @@ function registerIpc(): void {
   ipcMain.handle('providers:update', (_e, id: string, patch: Partial<Provider>) => {
     if (patch.enabled && !providerAllowed(id)) throw new PolicyError(`The ${id} provider`)
     if (patch.baseUrl !== undefined || patch.enabled !== undefined) audit('provider.changed', { provider: id, enabled: patch.enabled, baseUrl: patch.baseUrl })
-    return updateProvider(id, patch)
+    const providers = updateProvider(id, patch)
+    // A custom provider's logo comes from its base URL (providers/logos.ts).
+    if (patch.baseUrl !== undefined) noteBaseUrlChanged(id)
+    return providers
   })
-  ipcMain.handle('providers:remove', (_e, id: string) => removeProvider(id))
+  ipcMain.handle('providers:remove', (_e, id: string) => {
+    forgetLogo(id)
+    return removeProvider(id)
+  })
   ipcMain.handle('providers:refresh-models', (_e, id: string) => refreshModels(id))
   ipcMain.handle('providers:refresh', (_e, id: string) => refreshProviderModels(id))
   ipcMain.handle('providers:edit-models', (_e, id: string, edit: ModelEdit) => editModels(id, edit))

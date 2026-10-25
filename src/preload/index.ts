@@ -50,6 +50,7 @@ import { agentProvidersApi } from './features/agentProviders'
 import { gatewayApi } from './features/gateway'
 import { connectAppsApi } from './features/connectApps'
 import { linkAccountsApi } from './features/linkAccounts'
+import { providerLogosApi } from './features/providerLogos'
 import { usageApi } from './features/usage'
 import { toknCliApi } from './features/toknCli'
 import { paymentsApi } from './features/payments'
@@ -344,6 +345,7 @@ const fullApi = {
   gateway: gatewayApi,
   connectApps: connectAppsApi,
   linkAccounts: linkAccountsApi,
+  providerLogos: providerLogosApi,
   usage: usageApi,
   toknCli: toknCliApi,
   payments: paymentsApi,

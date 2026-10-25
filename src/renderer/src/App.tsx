@@ -41,6 +41,7 @@ import { installControl } from './lib/control'
 import { StarPrompt } from './components/StarPrompt'
 import { Onboarding } from './components/onboarding/Onboarding'
 import { Tour } from './components/onboarding/Tour'
+import { startProviderLogos } from './state/providerLogos'
 import { FreeCreditsOffer } from './components/FreeCreditsOffer'
 import { PurchaseDialog } from './components/purchase/PurchaseDialog'
 
@@ -61,6 +62,7 @@ export default function App(): JSX.Element {
 
   useEffect(() => {
     void init()
+    startProviderLogos()
     void useWorkers.getState().init()
     useAgentBrowser.getState().init(() => useApp.getState().activeChatId)
   }, [init])

@@ -20,6 +20,13 @@ All notable changes to Eaon are documented here. Format loosely follows
   changed in Chat, Workers and the ADE. An install that already went through
   the setup in a 2026.7 beta gets only the tour. "What's new in 2026.7" is in
   the Help menu.
+- **Provider logos.** Give any model provider your own logo in Settings →
+  Model providers → Logo. A custom provider finds its own logo from its base
+  URL: from the provider's `/.well-known/eaon-provider.json` if it publishes
+  one, otherwise from its website's icons. Settings lists what was tried.
+  Any shape fits the tile, and one-colour logos stay visible in light and
+  dark mode. API providers can publish theirs:
+  [docs/provider-logos.md](docs/provider-logos.md).
 
 ### Changed
 - **The setup's Connect a model step, redrawn.** Each way to connect (sign

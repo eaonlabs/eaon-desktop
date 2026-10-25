@@ -34,6 +34,7 @@ import { agentProvidersFeature } from './agentProviders'
 import { gatewayFeature } from './gateway'
 import { connectAppsFeature } from './connectApps'
 import { linkAccountsFeature } from './linkAccounts'
+import { providerLogosFeature } from './providerLogos'
 import { usageFeature } from './usage'
 import { paymentsFeature } from './payments'
 import { enginesFeature } from './engines'
@@ -85,6 +86,7 @@ export const FEATURES: Feature[] = [
   gatewayFeature,
   connectAppsFeature,
   linkAccountsFeature,
+  providerLogosFeature,
   usageFeature,
   starRepoFeature,
   toknCliFeature,
