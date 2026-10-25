@@ -519,14 +519,21 @@ export interface Settings {
   }
   /**
    * First run (components/onboarding): the setup, then the tour of the app.
-   * A fresh install starts both `pending`; an install from before they
-   * existed starts them `done` (main/features/onboarding.ts).
+   * A fresh install starts both `pending`. An install updated from before
+   * 2026.7 goes through the setup too, then gets the tour of what's new
+   * instead (main/features/onboarding.ts).
    */
   onboarding: {
     setup: 'pending' | 'done' | 'skipped'
     tour: 'pending' | 'done' | 'skipped'
     /** When the setup was finished or skipped. */
     finishedAt: number | null
+    /**
+     * The release whose what's-new tour this install has been shown, or that
+     * it started on (shared/whatsNew.ts). Null: it updated from an earlier
+     * one and hasn't seen it yet.
+     */
+    whatsNew: string | null
   }
   /** The tokn command, which ships inside Eaon (main/features/toknCli.ts). */
   toknCli: {

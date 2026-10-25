@@ -233,7 +233,8 @@ export const defaultSettings: Settings = {
   onboarding: {
     setup: 'pending',
     tour: 'pending',
-    finishedAt: null
+    finishedAt: null,
+    whatsNew: null
   },
   toknCli: {
     install: true,

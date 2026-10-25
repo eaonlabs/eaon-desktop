@@ -109,7 +109,7 @@ function freshStore(files: Record<string, unknown> = {}): void {
   for (const [name, value] of Object.entries(files)) writeFileSync(join(storeDir(), name), JSON.stringify(value))
 }
 
-test('first run: a fresh install gets the setup; one from before it existed doesn’t', async () => {
+test('first run: a fresh install gets the setup, and so does one from before 2026.7 (test/onboarding.test.ts has the rest)', async () => {
   const env = process.env.EAON_ONBOARDING
   delete process.env.EAON_ONBOARDING
   try {
@@ -119,11 +119,11 @@ test('first run: a fresh install gets the setup; one from before it existed does
 
     freshStore({ 'settings.json': { appearance: { mode: 'dark' } } })
     noteFirstRun()
-    assert.deepEqual(store.getSettings().onboarding, { setup: 'done', tour: 'done', finishedAt: null }, 'settings from an older Eaon')
+    assert.deepEqual(store.getSettings().onboarding, { setup: 'pending', tour: 'done', finishedAt: null, whatsNew: null }, 'settings from an older Eaon: the setup, then what’s new')
 
     freshStore({ 'chats.json': [] })
     noteFirstRun()
-    assert.equal(store.getSettings().onboarding.setup, 'done', 'chats but no settings: still not new')
+    assert.equal(store.getSettings().onboarding.whatsNew, null, 'chats but no settings: not new, so what’s new is due')
 
     // Halfway through the setup when Eaon quit: it is offered again.
     freshStore({ 'settings.json': { onboarding: { setup: 'pending', tour: 'pending', finishedAt: null } } })

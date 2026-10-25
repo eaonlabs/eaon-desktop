@@ -565,8 +565,8 @@ function Stat({ label, value }: { label: string; value: string }): JSX.Element {
 /* ---- Models ---- */
 
 const MODEL_GROUPS: { label: string; rows: string[] }[] = [
-  { label: 'Accounts', rows: ['ChatGPT', 'Claude'] },
-  { label: 'API keys', rows: ['OpenAI', 'OpenRouter'] },
+  { label: 'Accounts', rows: ['ChatGPT', 'OpenRouter'] },
+  { label: 'API keys', rows: ['Anthropic', 'OpenAI'] },
   { label: 'On this computer', rows: ['Ollama'] }
 ]
 const MODEL_ROWS = MODEL_GROUPS.flatMap((g) => g.rows)

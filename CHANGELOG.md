@@ -14,8 +14,18 @@ All notable changes to Eaon are documented here. Format loosely follows
   key saved in Settings → Model providers. Alibaba's Qwen Token Plan and
   Xiaomi's MiMo Token Plan have no usage API, so their cards say where to
   find the figures.
+- **Updating from 2026.6 opens the setup, then a tour of what's new.** An
+  install from before 2026.7 goes through the setup once: sign in with Tokn,
+  connect models, pick light or dark. A ten-stop tour then shows what has
+  changed in Chat, Workers and the ADE. An install that already went through
+  the setup in a 2026.7 beta gets only the tour. "What's new in 2026.7" is in
+  the Help menu.
 
 ### Changed
+- **The setup's Connect a model step, redrawn.** Each way to connect (sign
+  in, an API key, models on this computer) is a row that opens just those
+  providers and shows which are connected; Eaon Lite shows as ready at the
+  top, and the event code field opens from a link.
 - **The usage meter lives in the ADE's header.** It's no longer in the
   sidebar, and the Placement choice is gone.
 - **Claude plan limits come from Claude Code itself.** Eaon no longer starts

@@ -519,9 +519,6 @@
   font-size: var(--fs-sm);
   color: var(--diff-add-fg);
 }
-.onboarding__ready {
-  margin: -8px 0 0;
-}
 .onboarding__note {
   margin: -12px 0 0;
   text-align: right;
@@ -1367,13 +1364,126 @@
   gap: 6px;
 }
 
-/* Connect a model: the event code box (components/RedeemCode.tsx) as its own card. */
+/*
+ * Connect a model: what's already on (Eaon's own models), then a row for each
+ * way in, laid out like the welcome's places. A row opens Link accounts on
+ * just its providers, and says which of them are connected.
+ */
+.onboarding__ways {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0 -10px;
+}
+.onboarding__way {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 56px;
+  padding: 8px 12px;
+  border-radius: var(--r-lg);
+  text-align: left;
+  transition: background var(--dur) var(--ease);
+}
+button.onboarding__way:hover {
+  background: var(--hover);
+}
+.onboarding__way-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--r-sm);
+  background: var(--surface-3);
+  /* A raised tile: in light mode --surface-3 is the page's own white, so the edge and shadow are what show it. */
+  box-shadow:
+    0 0 0 1px var(--border-soft),
+    0 1px 2px color-mix(in srgb, var(--shadow-ink) 8%, transparent);
+  color: var(--text-2);
+}
+.onboarding__way-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.onboarding__way-title {
+  font-size: var(--fs-base);
+  font-weight: 500;
+  color: var(--text);
+}
+.onboarding__way-text {
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.onboarding__way-chevron {
+  flex: none;
+  color: var(--text-4);
+  transition:
+    color var(--dur) var(--ease),
+    transform var(--dur) var(--ease);
+}
+button.onboarding__way:hover .onboarding__way-chevron {
+  color: var(--text-2);
+  transform: translateX(2px);
+}
+.onboarding__way-state {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 45%;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+.onboarding__way-state svg {
+  flex: none;
+  color: var(--diff-add-fg);
+}
+.onboarding__way-names {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.onboarding__ways-rule {
+  height: 1px;
+  margin: 3px 12px;
+  background: var(--border-soft);
+}
+
+/* The event code: a quiet link until it's asked for, then its field in the link's place. */
 .onboarding__code {
-  margin-top: 10px;
-  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+  margin-top: -6px;
+}
+.onboarding__link {
+  margin-left: -8px;
+  padding: 6px 8px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+  transition:
+    color var(--dur) var(--ease),
+    background var(--dur) var(--ease);
+}
+.onboarding__link:hover {
+  background: var(--hover);
+  color: var(--text);
 }
 .onboarding__code .free-code {
+  flex: 1;
   margin: 0;
   padding: 0;
   border: 0;
+  animation: fade 200ms var(--ease);
+}
+.onboarding__code .fallback-row .input {
+  flex: 1;
 }

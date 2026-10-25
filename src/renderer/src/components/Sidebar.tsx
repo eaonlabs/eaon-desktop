@@ -1,7 +1,8 @@
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { Archive, ArrowRight, AtSign, BookOpen, Boxes, CandlestickChart, ChevronRight, CircleAlert, Clock3, Compass, FolderClosed, GitPullRequest, ListTodo, HelpCircle, LibraryBig, Loader2, PanelLeft, PencilLine, Pin, Plus, ScrollText, Search, Settings as SettingsIcon, SquarePen, Trash2 } from 'lucide-react'
+import { Archive, ArrowRight, AtSign, BookOpen, Boxes, CandlestickChart, ChevronRight, CircleAlert, Clock3, Compass, FolderClosed, GitPullRequest, ListTodo, HelpCircle, LibraryBig, Loader2, PanelLeft, PencilLine, Pin, Plus, ScrollText, Search, Settings as SettingsIcon, Sparkles, SquarePen, Trash2 } from 'lucide-react'
 import { DOCS_URL } from '@shared/links'
+import { WHATS_NEW_RELEASE } from '@shared/whatsNew'
 import { useApp, useWorkspaceKind, type ChatListItem } from '../state/store'
 import { DownloadsButton } from './DownloadsPanel'
 import { CodeSidebar } from './code/CodeSidebar'
@@ -68,7 +69,7 @@ export function Sidebar(): JSX.Element {
   )
 }
 
-/** Help: the tour of the app (the same one the first-run setup offers), and the documentation. */
+/** Help: the tour of the app (the same one the first-run setup offers), what's new in this release, and the documentation. */
 function HelpButton(): JSX.Element {
   const anchor = useRef<HTMLButtonElement>(null)
   const menu = useDisclosure()
@@ -85,6 +86,14 @@ function HelpButton(): JSX.Element {
           onClick={() => {
             menu.close()
             startTour()
+          }}
+        />
+        <MenuItem
+          icon={<Sparkles size={14} strokeWidth={2} />}
+          title={`What’s new in ${WHATS_NEW_RELEASE}`}
+          onClick={() => {
+            menu.close()
+            startTour('whatsNew')
           }}
         />
         <MenuItem

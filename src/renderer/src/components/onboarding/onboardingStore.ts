@@ -1,14 +1,19 @@
 import { create } from 'zustand'
+import { WHATS_NEW_RELEASE } from '@shared/whatsNew'
 import { useApp } from '../../state/store'
 
+/** The tour of the app, or of what's new in this release (shared/whatsNew.ts). */
+export type TourKind = 'app' | 'whatsNew'
+
 /**
- * Whether the tour is showing. The setup's own state lives in settings
- * (`settings.onboarding`), so it survives a restart halfway through; the tour
- * is short enough to start again from the top.
+ * Whether a tour is showing, and which. The setup's own state lives in
+ * settings (`settings.onboarding`), so it survives a restart halfway through;
+ * the tours are short enough to start again from the top.
  */
 interface OnboardingState {
   tourOpen: boolean
-  startTour: () => void
+  tour: TourKind
+  startTour: (tour?: TourKind) => void
   /** `done`: reached the end. `skipped`: closed before it. Either way it isn't offered again on its own. */
   endTour: (how: 'done' | 'skipped') => void
 }
@@ -22,16 +27,21 @@ export function onboardingShowing(): boolean {
   return useApp.getState().settings?.onboarding.setup === 'pending' || useOnboarding.getState().tourOpen
 }
 
-export const useOnboarding = create<OnboardingState>((set) => ({
+export const useOnboarding = create<OnboardingState>((set, get) => ({
   tourOpen: false,
-  startTour: () => {
+  tour: 'app',
+  startTour: (tour = 'app') => {
+    if (get().tourOpen) return
     // The tour points at the app itself, so it starts from Chat rather than Settings or a page.
     const app = useApp.getState()
     if (app.view !== 'chat') app.setView('chat')
-    set({ tourOpen: true })
+    set({ tourOpen: true, tour })
+    // What's new is shown once on its own, whether or not it's watched to the end; after that it's in the Help menu.
+    if (tour === 'whatsNew' && app.settings?.onboarding.whatsNew !== WHATS_NEW_RELEASE) void app.patchSettings({ onboarding: { whatsNew: WHATS_NEW_RELEASE } })
   },
   endTour: (how) => {
+    const { tour } = get()
     set({ tourOpen: false })
-    void useApp.getState().patchSettings({ onboarding: { tour: how } })
+    if (tour === 'app') void useApp.getState().patchSettings({ onboarding: { tour: how } })
   }
 }))

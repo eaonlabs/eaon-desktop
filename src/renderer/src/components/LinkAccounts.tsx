@@ -3,7 +3,7 @@ import { Check, ExternalLink, Loader2, Sparkles } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import type { ModelInfo, Provider } from '@shared/types'
 import { checkKeyShape, isLastingIssue, type ProviderAuthStatus } from '@shared/providers'
-import { LINK_TARGETS, type DetectedApp, type LinkTarget } from '@shared/linkAccounts'
+import { LINK_TARGETS, type DetectedApp, type LinkMethod, type LinkTarget } from '@shared/linkAccounts'
 import { providerReadiness } from '@shared/modelSelection'
 import { useApp } from '../state/store'
 import { BrandIcon } from '../icons/brand'
@@ -30,11 +30,29 @@ const errorText = (error: unknown): string =>
 /** Linked: the provider has models Eaon can use right now (not merely a stored key a check found broken). */
 const isLinked = (p: Provider | undefined): boolean => Boolean(p && providerReadiness(p).state === 'ready')
 
+/** With `only`, the dialog's title and, where the usual one doesn't fit, its lede. */
+const ONLY: Record<LinkMethod, { title: string; lede?: string }> = {
+  signin: { title: 'Sign in with an account' },
+  key: { title: 'Add an API key', lede: 'Paste a key from the provider’s console. Providers whose apps are on this computer come first.' },
+  local: { title: 'Models on this computer', lede: 'Turn on Ollama or LM Studio while it’s running here with a model loaded. No account needed.' }
+}
+
 /**
  * `inSetup`: shown over first-run setup, where going to Settings or the ADE
  * would change the app hidden underneath and seem to do nothing.
+ * `only`: just the providers that link one way (the setup's rows open it so).
  */
-export function LinkAccounts({ open, onClose, inSetup = false }: { open: boolean; onClose: () => void; inSetup?: boolean }): JSX.Element | null {
+export function LinkAccounts({
+  open,
+  onClose,
+  inSetup = false,
+  only
+}: {
+  open: boolean
+  onClose: () => void
+  inSetup?: boolean
+  only?: LinkMethod
+}): JSX.Element | null {
   const { providers, refreshProviders } = useApp(useShallow((s) => ({ providers: s.providers, refreshProviders: s.refreshProviders })))
   const [apps, setApps] = useState<DetectedApp[]>([])
   const [auth, setAuth] = useState<Record<string, ProviderAuthStatus>>({})
@@ -58,9 +76,11 @@ export function LinkAccounts({ open, onClose, inSetup = false }: { open: boolean
   const byId = useMemo(() => new Map(providers.map((p) => [p.id, p])), [providers])
   const targets = useMemo(() => {
     const found = (t: LinkTarget): boolean => t.apps.some((a) => installed.has(a))
-    return LINK_TARGETS.filter((t) => byId.has(t.providerId)).sort((a, b) => Number(found(b)) - Number(found(a)))
-  }, [installed, byId])
+    return LINK_TARGETS.filter((t) => byId.has(t.providerId) && (!only || t.method === only)).sort((a, b) => Number(found(b)) - Number(found(a)))
+  }, [installed, byId, only])
   const foundApps = (t: LinkTarget): string[] => apps.filter((a) => a.installed && t.apps.includes(a.id)).map((a) => a.name)
+  // The apps found here that the providers shown link through.
+  const foundHere = apps.filter((a) => a.installed && (!only || targets.some((t) => t.apps.includes(a.id))))
 
   /** Signs in or turns on every provider whose app is installed here, one at a time. */
   const linkEverything = async (): Promise<void> => {
@@ -118,7 +138,7 @@ export function LinkAccounts({ open, onClose, inSetup = false }: { open: boolean
     <Modal
       open={open}
       onClose={onClose}
-      title="Link accounts"
+      title={only ? ONLY[only].title : 'Link accounts'}
       width={600}
       actions={
         <button className="btn btn--primary" onClick={onClose}>
@@ -128,22 +148,25 @@ export function LinkAccounts({ open, onClose, inSetup = false }: { open: boolean
     >
       <div className="la">
         <p className="la__lede">
-          Bring in the AI accounts you already have. Eaon signs in only the way each provider allows (its official sign-in or an
-          API key) and never takes a sign-in from another app, so your accounts stay safe.
+          {(only && ONLY[only].lede) ??
+            'Bring in the AI accounts you already have. Eaon signs in only the way each provider allows (its official sign-in or an API key) and never takes a sign-in from another app, so your accounts stay safe.'}
         </p>
-        <div className="la__all">
-          <button className="btn btn--primary" disabled={linkingAll || !anyFound} onClick={() => void linkEverything()}>
-            {linkingAll ? <Loader2 size={14} className="spinner" /> : <Sparkles size={14} strokeWidth={2} />}
-            {linkingAll ? 'Linking…' : 'Link everything found'}
-          </button>
-          <span className="la__fine">
-            {anyFound
-              ? `Found: ${apps.filter((a) => a.installed).map((a) => a.name).join(', ')}. Each sign-in opens in your browser for you to approve.`
-              : apps.some((a) => a.installed)
-                ? 'Everything found on this computer is linked.'
-                : 'No AI apps found on this computer. Link any account below.'}
-          </span>
-        </div>
+        {/* Keys can't be linked for you: each is pasted in its own row. */}
+        {only !== 'key' && (
+          <div className="la__all">
+            <button className="btn btn--primary" disabled={linkingAll || !anyFound} onClick={() => void linkEverything()}>
+              {linkingAll ? <Loader2 size={14} className="spinner" /> : <Sparkles size={14} strokeWidth={2} />}
+              {linkingAll ? 'Linking…' : 'Link everything found'}
+            </button>
+            <span className="la__fine">
+              {anyFound
+                ? `Found: ${foundHere.map((a) => a.name).join(', ')}.${only === 'local' ? '' : ' Each sign-in opens in your browser for you to approve.'}`
+                : foundHere.length > 0
+                  ? 'Everything found on this computer is linked.'
+                  : 'No AI apps found on this computer. Link any account below.'}
+            </span>
+          </div>
+        )}
         {note && <p className="la__note">{note}</p>}
 
         <div className="la__list">

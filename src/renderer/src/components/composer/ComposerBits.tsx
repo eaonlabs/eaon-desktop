@@ -35,7 +35,7 @@ export function PermissionPicker(): JSX.Element {
   const current = MODES.find((m) => m.id === mode) ?? MODES[0]
   return (
     <>
-      <button ref={anchor} className="composer-pill" data-tone={mode === 'full' ? 'warn' : undefined} data-open={menu.open || undefined} onClick={menu.toggle} title="What Eaon may do without asking">
+      <button ref={anchor} className="composer-pill composer-pill--permission" data-tone={mode === 'full' ? 'warn' : undefined} data-open={menu.open || undefined} onClick={menu.toggle} title="What Eaon may do without asking">
         <current.icon size={14} strokeWidth={1.9} />
         <span className="composer-pill__label">{current.title}</span>
         <ChevronDown size={13} strokeWidth={2} className="composer-pill__chevron" />
