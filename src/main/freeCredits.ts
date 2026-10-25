@@ -29,6 +29,11 @@ import { ProviderHttpError } from './providers/adapters/types'
 import { isCertificateError, ProviderIssueError } from './providers/errors'
 import { secrets } from './secrets'
 import { store } from './store'
+import { gatewayBaseUrl } from './eaonAddress'
+import { providerFetch } from './providers/safeFetch'
+
+/** How Eaon Free's own calls reach the gateway: signed, like every request to it (gatewaySignature.ts). */
+type GatewayRequest = (url: string, init: RequestInit) => Promise<Response>
 
 /**
  * Eaon Free's week, and its daily allowance on this computer
@@ -49,7 +54,7 @@ const DEVICE_FILE = 'free-credits-device.json'
 const EMPTY: FreeUsage = { day: '', requests: 0, tokens: 0, recent: [] }
 
 /** Where the gateway is; the end-to-end tests point it at a local copy of the gateway. */
-export const freeBaseUrl = (): string => process.env.EAON_FREE_GATEWAY_URL || FREE_BASE_URL
+export const freeBaseUrl = gatewayBaseUrl
 
 /** The event code in use, if any; one that has ended is forgotten here. */
 export function activeCode(now = Date.now()): FreeCode | null {
@@ -96,7 +101,7 @@ let served: { at: number; ok: boolean } | null = null
  * event code's key, when there is one). A gateway that can't be reached
  * counts as not serving it.
  */
-export async function freeModelServed(request: typeof fetch = fetch, now = Date.now()): Promise<boolean> {
+export async function freeModelServed(request: GatewayRequest = providerFetch, now = Date.now()): Promise<boolean> {
   if (served && now - served.at < SERVED_TTL_MS) return served.ok
   let ok = false
   try {
@@ -121,7 +126,7 @@ export const forgetFreeModelServed = (): void => {
   served = null
 }
 
-/** The headers Eaon Free's requests carry: none without a code (`X-Eaon-App` would make the gateway ask for a signature). */
+/** The headers Eaon Free's requests carry: none without a code. Their signature is added as they go (gatewaySignature.ts). */
 export const freeHeaders = (): Record<string, string> => (activeCode() ? { [FREE_DEVICE_HEADER]: freeDeviceId() } : {})
 
 const read = (now: number, utc = false): FreeUsage => usageAt(store.getJson<FreeUsage>(FILE, EMPTY), now, utc)
@@ -245,7 +250,7 @@ const formatStart = (at: number): string =>
  * Checks a code with the gateway and, when it works, keeps it: the key store
  * holds the code, `free-credits-code.json` what it gives.
  */
-export async function redeemFreeCode(typed: string, request: typeof fetch = fetch): Promise<RedeemResult> {
+export async function redeemFreeCode(typed: string, request: GatewayRequest = providerFetch): Promise<RedeemResult> {
   const code = normalizeCode(typed)
   if (!looksLikeCode(code)) return { ok: false, message: 'That doesn’t look like a code. Codes are 8 to 40 letters, digits and dashes.' }
   let response: Response

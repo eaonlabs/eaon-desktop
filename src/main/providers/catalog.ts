@@ -91,7 +91,7 @@ const PROVIDERS: SeedProvider[] = [
     auth: 'none',
     category: 'eaon',
     description: 'Free models from Eaon for a week, with a daily allowance',
-    // No X-Eaon-App header: with it, the gateway wants a full app signature, which Eaon Desktop doesn't make.
+    // Its requests carry Eaon's app signature, added as they go (gatewaySignature.ts).
     models: [
       m(FREE_PROVIDER_ID, 'claude-haiku-5-5', 'Claude Haiku 5.5', { contextWindow: 200_000, maxOutput: 16_384, vision: true, reasoning: false, efforts: [] }),
       m(FREE_PROVIDER_ID, 'eaon-free', 'Eaon Free', { contextWindow: 128_000, maxOutput: 16_384, vision: false, reasoning: true, efforts: [] })

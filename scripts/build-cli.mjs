@@ -22,6 +22,7 @@ import { build, context } from 'esbuild'
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { gatewayApp } from './gateway-app.mjs'
 
 const root = resolve(import.meta.dirname, '..')
 const pkg = JSON.parse(readFileSync(join(root, 'cli', 'package.json'), 'utf8'))
@@ -42,7 +43,7 @@ const options = {
     '@main': join(root, 'src/main')
   },
   external: ['node-pty', 'betterwright', 'betterwright/*', 'baileys', 'electron-updater', '@xterm/*', 'bufferutil', 'utf-8-validate'],
-  define: { __EAON_CLI_VERSION__: JSON.stringify(pkg.version), __EAON_CLI_PACKAGE__: JSON.stringify(pkg.name) },
+  define: { __EAON_CLI_VERSION__: JSON.stringify(pkg.version), __EAON_CLI_PACKAGE__: JSON.stringify(pkg.name), ...gatewayApp },
   banner: {
     js: "#!/usr/bin/env node\nimport { createRequire as __cr } from 'module'; const require = __cr(import.meta.url);"
   },

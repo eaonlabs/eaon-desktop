@@ -18,6 +18,19 @@ const SLUG = `https?-${escape(HOST.replace(/\./g, '-'))}[\\w-]*`
 /** The address with or without its scheme, port and path, and that id. */
 const MENTION = new RegExp(`(?:https?://)?${escape(HOST)}\\.?(?::\\d+)?(?:/[^\\s"'<>)\\]]*)?|\\b${SLUG}`, 'gi')
 
+/** Where Eaon Lite and Eaon Free send their requests: the gateway, or a stand-in for it in tests. */
+export const gatewayBaseUrl = (): string => process.env.EAON_FREE_GATEWAY_URL || FREE_BASE_URL
+
+/** Whether a request goes to the gateway (or its stand-in): those are signed (gatewaySignature.ts). */
+export function isGatewayRequest(url: string): boolean {
+  if (isEaonGateway(url)) return true
+  try {
+    return new URL(url).origin === new URL(gatewayBaseUrl()).origin
+  } catch {
+    return false
+  }
+}
+
 /** Whether a base URL is the gateway's, written any way the provider settings accept. */
 export function isEaonGateway(baseUrl: string): boolean {
   const value = baseUrl.trim()

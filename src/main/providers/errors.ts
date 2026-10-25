@@ -3,7 +3,7 @@ import type { ProviderIssue } from '@shared/providers'
 import { retryAfterFrom } from './adapters/types'
 import { redactSecrets } from './redact'
 import { RedirectRefusedError } from './safeFetch'
-import { hideEaonAddress } from '../eaonAddress'
+import { goesToEaonGateway, hideEaonAddress } from '../eaonAddress'
 
 /**
  * Provider failures as something a person can act on.
@@ -200,6 +200,14 @@ export function classifyProviderError(error: unknown, provider: ProviderLike, co
   }
   if (status === 402 || /insufficient_quota|exceeded your current quota|credit balance is too low|insufficient (credits|balance|funds)|payment required|out of credits|billing (hard )?limit|requires more credits/i.test(text)) {
     return issue(provider, 'quota', `${name} says the account is out of credit or over its quota. Add credit with ${name}, or use another key.`, 'fix-key', f)
+  }
+
+  // Eaon's gateway takes no key. Set to "Eaon apps only", it turns away a copy
+  // of Eaon whose requests it can't verify (one from before signing, or one
+  // whose app was switched off on its dashboard): updating is the fix.
+  if (goesToEaonGateway(provider) && /Eaon app|Eaon apps|signed request/i.test(text)) {
+    if (/can.t be verified right now/i.test(text)) return issue(provider, 'outage', `${name} couldn’t check this copy of Eaon just now. Try again in a moment.`, 'retry', f)
+    return issue(provider, 'insufficient-scope', `${name} only answers up-to-date copies of Eaon. Update Eaon in Settings → General, or choose another model.`, 'choose-model', f)
   }
 
   const keyWords = /invalid[_ ]api[_ ]key|incorrect api key|invalid x-api-key|api key not valid|API_KEY_INVALID|invalid authentication|authentication_error|invalid_api_key|no auth credentials|missing (api )?key|unauthenticated/i.test(text)

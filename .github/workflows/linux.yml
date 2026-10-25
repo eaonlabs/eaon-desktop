@@ -77,6 +77,10 @@ jobs:
         run: node scripts/fetch-tokn-cli.mjs
 
       - name: Build
+        # Eaon's gateway app: signs the app's requests to the gateway (scripts/gateway-app.mjs).
+        env:
+          EAON_GATEWAY_APP_ID: ${{ secrets.EAON_GATEWAY_APP_ID }}
+          EAON_GATEWAY_APP_SECRET: ${{ secrets.EAON_GATEWAY_APP_SECRET }}
         run: |
           npx electron-vite build
           node scripts/build-host.mjs
