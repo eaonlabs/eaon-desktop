@@ -452,11 +452,18 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
   // one custom property the veil's blur and wash are scaled by. Not its
   // opacity: a backdrop blur can't see past a parent that isn't fully
   // opaque, so fading the veil kept the blur off until the fade ended.
+  // The thread gets one too: under a translucent window it fades its own top
+  // instead of the blur (chat.css), and sooner, since a short scroll already
+  // takes the first message under the bar.
   const veil = useRef<HTMLDivElement>(null)
   const showVeil = (top: number): void => {
-    const t = Math.min(1, Math.max(0, top / 140))
     // Smoothstep: eases in from nothing and settles, rather than a straight ramp.
-    if (veil.current) veil.current.style.setProperty('--veil', (t * t * (3 - 2 * t)).toFixed(3))
+    const over = (distance: number): string => {
+      const t = Math.min(1, Math.max(0, top / distance))
+      return (t * t * (3 - 2 * t)).toFixed(3)
+    }
+    veil.current?.style.setProperty('--veil', over(140))
+    thread.current?.style.setProperty('--veil', over(48))
   }
   useEffect(() => {
     setAway(false)

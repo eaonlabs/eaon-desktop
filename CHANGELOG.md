@@ -48,6 +48,11 @@ All notable changes to Eaon are documented here. Format loosely follows
   them the next time the worker computer connects.
 - **Closing the in-app browser's last tab closes the browser,** instead of
   leaving an empty tab.
+- **No dark band under the top bar with a translucent sidebar.** Scrolling a
+  chat, a worker or a room on macOS with a translucent sidebar darkened the
+  top of the page, and the dark ended in a visible line. Messages now fade
+  out under the bar there, and the background stays the same colour all the
+  way up.
 
 ### Removed
 - **Settings → Profile.** The activity profile page and its share card are

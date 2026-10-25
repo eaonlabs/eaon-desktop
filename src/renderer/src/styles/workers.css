@@ -1425,6 +1425,8 @@ button.msg-attachment:hover {
 .main:has(> .chat-header--float) > .thread--worker {
   padding-top: calc(var(--titlebar-h) + var(--sidebar-gap) + 64px);
   scroll-padding-top: calc(var(--titlebar-h) + var(--sidebar-gap) + 52px);
+  /* The name pill's foot. */
+  --veil-fade-from: calc(var(--titlebar-h) + var(--sidebar-gap) + 42px);
 }
 .scroll-veil--worker {
   --veil-h: calc(var(--titlebar-h) + var(--sidebar-gap) + 92px + var(--veil-over));
@@ -1481,6 +1483,8 @@ button.msg-attachment:hover {
 }
 .main:has(> .chat-header--float):has(> .worker-threads) > .thread--worker {
   padding-top: calc(var(--titlebar-h) + var(--sidebar-gap) + 100px);
+  /* The switcher's foot. */
+  --veil-fade-from: calc(var(--titlebar-h) + var(--sidebar-gap) + 84px);
 }
 .main:has(> .worker-threads) > .scroll-veil--worker {
   --veil-h: calc(var(--titlebar-h) + var(--sidebar-gap) + 128px + var(--veil-over));

@@ -315,8 +315,12 @@ function WorkerPage({ worker }: { worker: Worker }): JSX.Element {
   // under the top bar and the name pill (see ChatView).
   const veil = useRef<HTMLDivElement>(null)
   const showVeil = (top: number): void => {
-    const t = Math.min(1, Math.max(0, top / 140))
-    veil.current?.style.setProperty('--veil', (t * t * (3 - 2 * t)).toFixed(3))
+    const over = (distance: number): string => {
+      const t = Math.min(1, Math.max(0, top / distance))
+      return (t * t * (3 - 2 * t)).toFixed(3)
+    }
+    veil.current?.style.setProperty('--veil', over(140))
+    scroller.current?.style.setProperty('--veil', over(48))
   }
   useLayoutEffect(() => {
     showVeil(scroller.current?.scrollTop ?? 0)
