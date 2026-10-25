@@ -578,26 +578,15 @@ body[data-reduce-motion='on'] .step-shimmer {
   color: var(--text-2);
 }
 
-/* File-type marks, shared by the edit cards and the files-changed card. */
+/* File-type marks, shared by the edit cards and the edited-files card. */
 .file-icon {
   display: block;
   flex: none;
-  color: var(--text-3);
+  color: var(--fi, var(--text-3));
 }
-.file-icon[data-ext='react'] {
-  color: #5cc3e8;
-}
-.file-icon[data-ext='css'] {
-  color: #a77bf3;
-}
-.file-icon[data-ext='data'] {
-  color: #d9a53a;
-}
-.file-icon[data-ext='markup'] {
-  color: #e8784e;
-}
-.file-icon[data-ext='code'] {
-  color: #6b9eff;
+/* On white the brighter colours (the yellows, the light blue) want a little more weight. */
+[data-theme='light'] .file-icon {
+  color: color-mix(in srgb, var(--fi, var(--text-3)), #000 16%);
 }
 
 /* ---------- Tool call ----------
@@ -648,7 +637,6 @@ body[data-reduce-motion='on'] .step-shimmer {
 }
 /* A thought being written: its brain breathes. */
 .tool__icon[data-pulse],
-.activity__orb[data-pulse],
 .loading-state__icon {
   animation: think-pulse 1.6s ease-in-out infinite;
 }
@@ -777,15 +765,6 @@ body[data-reduce-motion='on'] .step-shimmer {
   border-radius: var(--r-md);
   background: var(--code-bg);
 }
-/* A thought's reasoning hangs off a hairline instead: it is prose, not output. */
-.thought .tool__panel > div {
-  margin: 2px 0 6px 8px;
-  padding: 0 0 0 16px;
-  border: 0;
-  border-left: 1px solid var(--border-soft);
-  border-radius: 0;
-  background: none;
-}
 .tool__output {
   margin: 0;
   max-height: 240px;
@@ -806,131 +785,6 @@ body[data-reduce-motion='on'] .step-shimmer {
   font-size: var(--fs-xs);
 }
 
-/* ---------- Activity: a run of calls as one line ----------
-   The line says what the run did ("Thought, read 3 files and ran 2
-   searches"); while it is live it is the step in progress, with a clock. */
-
-.activity {
-  margin: 2px 0;
-  white-space: normal;
-}
-.activity__head {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  max-width: 100%;
-  min-height: 30px;
-  padding: 0 4px 0 1px;
-  text-align: left;
-  color: var(--text-2);
-  font-size: var(--fs-base);
-  transition: color var(--dur) var(--ease);
-}
-.activity__head:hover {
-  color: var(--text);
-}
-.activity__orb {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 16px;
-  height: 16px;
-  color: var(--text-3);
-}
-.activity__text {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.activity__detail {
-  min-width: 0;
-  color: var(--text-4);
-  font-family: var(--font-mono);
-  font-size: var(--fs-xs);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.activity__clock {
-  flex: none;
-  color: var(--text-4);
-  font-size: var(--fs-xs);
-  font-variant-numeric: tabular-nums;
-}
-.activity__flag {
-  flex: none;
-  color: color-mix(in srgb, var(--danger), var(--text-3) 35%);
-}
-.activity__flag::before {
-  content: '·';
-  margin-right: 8px;
-  color: var(--text-4);
-}
-.activity__chevron {
-  flex: none;
-  color: var(--text-4);
-  transform: rotate(-90deg);
-  transition:
-    transform 200ms var(--ease),
-    color var(--dur) var(--ease);
-}
-.activity__head:hover .activity__chevron {
-  color: var(--text-2);
-}
-.activity[data-open] .activity__chevron {
-  transform: none;
-}
-/* The steps, straight under the line in its own column: the line names
-   them, the list is them. */
-.activity__list {
-  margin: 0 0 2px;
-  overflow: hidden;
-  interpolate-size: allow-keywords;
-  transition:
-    height 240ms var(--ease),
-    opacity 160ms var(--ease);
-}
-@starting-style {
-  .activity__list {
-    height: 0;
-    opacity: 0;
-  }
-}
-/* A live run past a few steps: a window onto the newest, fading out at the
-   top, that follows each step as it lands. */
-.activity__list[data-window] {
-  max-height: 172px;
-  overflow-y: auto;
-  scrollbar-width: none;
-  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 40px);
-  mask-image: linear-gradient(to bottom, transparent 0, #000 40px);
-}
-.activity__list > .step {
-  animation: step-in 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
-  animation-delay: calc(var(--i, 0) * 45ms);
-}
-.activity__list .tool {
-  animation: none;
-}
-/* The line above already names the step in progress; its row in the list
-   keeps only the dots. */
-.activity__list .step-shimmer {
-  animation: none;
-  background: none;
-  color: inherit;
-}
-@keyframes step-in {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-}
-.activity__live {
-  margin: 2px 0 6px 25px;
-  max-height: 140px;
-}
-
 /* ---------- Step rows: an edit, a command ----------
    Adapted from MIT and Apache-2.0 components; see components/agent/LICENSES.txt.
    Lines like the rest of the turn's steps — "Edited index.html +329 −63",
@@ -938,14 +792,12 @@ body[data-reduce-motion='on'] .step-shimmer {
    command printed. A running command shows its output's tail there as it
    prints. */
 
-.step-card,
-.files-changed {
+.step-card {
   --card-line: var(--border);
   --card-head: color-mix(in srgb, var(--bg), var(--fg) 4%);
   --card-body: var(--code-bg);
 }
-[data-theme='light'] .step-card,
-[data-theme='light'] .files-changed {
+[data-theme='light'] .step-card {
   --card-head: color-mix(in srgb, var(--bg), var(--fg) 3%);
   --card-body: var(--bg);
 }
@@ -1096,16 +948,14 @@ body[data-reduce-motion='on'] .step-shimmer {
   max-height: 168px;
   overflow: hidden;
 }
-.step-card .diff,
-.files-changed .diff {
+.step-card .diff {
   margin: 0;
   padding: 0;
   border-radius: 0;
   background: transparent;
   box-shadow: none;
 }
-.step-card .diff__body,
-.files-changed .diff__body {
+.step-card .diff__body {
   max-height: 420px;
   margin: 0;
   padding: 5px 0;
@@ -1235,164 +1085,3 @@ body[data-reduce-motion='on'] .step-shimmer {
   overflow-wrap: anywhere;
 }
 
-/* ---------- Files changed: the turn's edits, once, at the end ---------- */
-
-.files-changed {
-  margin-top: 14px;
-  border: 1px solid var(--card-line);
-  border-radius: var(--r-md);
-  background: var(--card-body);
-  overflow: hidden;
-  white-space: normal;
-}
-.files-changed__head {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  height: 34px;
-  padding: 0 6px 0 12px;
-  border-bottom: 1px solid var(--card-line);
-  background: var(--card-head);
-  color: var(--text-2);
-  font-size: var(--fs-xs);
-}
-.files-changed__title {
-  font-weight: 500;
-}
-.files-changed__review {
-  height: 24px;
-  margin-left: auto;
-  padding: 0 9px;
-  border-radius: var(--r-xs);
-  color: var(--text-2);
-  font-size: var(--fs-xs);
-  transition:
-    color var(--dur) var(--ease),
-    background var(--dur) var(--ease);
-}
-.files-changed__review:hover {
-  color: var(--text);
-  background: var(--hover);
-}
-.files-changed__file + .files-changed__file {
-  border-top: 1px solid var(--border-soft);
-}
-/* A file's row, and beside it under the pointer, a button that opens it in Code. */
-.files-changed__bar {
-  display: flex;
-  align-items: center;
-  transition: background var(--dur) var(--ease);
-}
-.files-changed__bar:hover,
-.files-changed__file[data-open] .files-changed__bar {
-  background: var(--hover);
-}
-.files-changed__bar .files-changed__row {
-  flex: 1;
-  min-width: 0;
-}
-.files-changed__open {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 24px;
-  margin-right: 6px;
-  margin-left: -6px;
-  border-radius: var(--r-xs);
-  color: var(--text-4);
-  opacity: 0;
-  transition:
-    opacity var(--dur) var(--ease),
-    color var(--dur) var(--ease),
-    background var(--dur) var(--ease);
-}
-.files-changed__bar:hover .files-changed__open,
-.files-changed__open:focus-visible {
-  opacity: 1;
-}
-.files-changed__open:hover {
-  background: var(--hover);
-  color: var(--text);
-}
-/* The review's turn picker. */
-.ide__filter {
-  flex: none;
-}
-.ide__filter-btn {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  height: 24px;
-  padding: 0 8px 0 10px;
-  border-radius: var(--r-pill);
-  box-shadow: inset 0 0 0 1px var(--border-soft);
-  color: var(--text-2);
-  font-size: var(--fs-xs);
-  transition:
-    background var(--dur) var(--ease),
-    color var(--dur) var(--ease);
-}
-.ide__filter-btn:hover,
-.ide__filter-btn[data-open] {
-  background: var(--hover);
-  color: var(--text);
-}
-.files-changed__row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  width: 100%;
-  height: 32px;
-  padding: 0 12px 0 8px;
-  text-align: left;
-  font-size: var(--fs-sm);
-}
-.files-changed__chevron {
-  flex: none;
-  color: var(--text-4);
-  transition: transform var(--dur) var(--ease);
-}
-.files-changed__file[data-open] .files-changed__chevron {
-  transform: rotate(90deg);
-}
-.files-changed__icon {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 16px;
-}
-.files-changed__name {
-  flex: none;
-  max-width: 60%;
-  color: var(--text);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.files-changed__folder {
-  min-width: 0;
-  flex: 1;
-  color: var(--text-4);
-  font-size: var(--fs-xs);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.files-changed__stat {
-  flex: none;
-  display: flex;
-  gap: 8px;
-  font-family: var(--font-mono);
-  font-size: var(--fs-xxs);
-  font-variant-numeric: tabular-nums;
-}
-.files-changed__row .files-changed__stat {
-  margin-left: auto;
-}
-.files-changed__diffs {
-  border-top: 1px solid var(--border-soft);
-}
-.files-changed__diffs .diff + .diff {
-  border-top: 1px dashed var(--border-soft);
-}

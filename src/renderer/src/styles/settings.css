@@ -202,6 +202,75 @@
   margin: 10px 0 0;
 }
 
+/* A page in tabs (Workers): the row under the title, a bar under the open
+   tab that slides to the next, and the open tab's content below. */
+.settings-tabs {
+  position: relative;
+  display: flex;
+  gap: 22px;
+  margin-top: 18px;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+.settings-tabs::-webkit-scrollbar {
+  display: none;
+}
+.settings-tabs__tab {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 7px;
+  height: 38px;
+  padding: 0 1px;
+  font-size: var(--fs-base);
+  color: var(--text-3);
+  white-space: nowrap;
+  transition: color var(--dur) var(--ease);
+}
+.settings-tabs__tab:hover {
+  color: var(--text-2);
+}
+.settings-tabs__tab[aria-selected='true'] {
+  color: var(--text);
+}
+/* Inside the ring, which the row's scrolling would clip outside it. */
+.settings-tabs__tab:focus-visible {
+  outline: none;
+  border-radius: var(--r-sm);
+  box-shadow: inset 0 0 0 2px var(--focus-ring);
+}
+.settings-tabs__bar {
+  position: absolute;
+  bottom: -1px;
+  left: 0;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--text);
+  transition:
+    transform 280ms var(--spring-slow, var(--ease)),
+    width 280ms var(--spring-slow, var(--ease));
+}
+.settings-tabpanel {
+  padding-top: 8px;
+  animation: settings-page-in 320ms var(--spring-slow) both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .settings-tabs__bar {
+    transition: none;
+  }
+  .settings-tabpanel {
+    animation: none;
+  }
+}
+
+/* A tab found by a search, in the nav: the page it's on, after its name. */
+.nav-item__where {
+  flex: none;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+
 .settings__section {
   margin-top: 30px;
 }
@@ -402,6 +471,99 @@
   flex-direction: column;
   gap: 5px;
   min-height: 62px;
+}
+
+/* Appearance → Glass: a corner of a page with a project menu open over it.
+   The menu is frosted with the app's own tokens, so it moves with the
+   sliders exactly as the real menus do. */
+.glass-preview {
+  position: relative;
+  height: 148px;
+  margin: 14px 16px 2px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  overflow: hidden;
+  isolation: isolate;
+}
+.glass-preview__page {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 14px;
+  padding: 0 22px;
+  background: var(--canvas);
+}
+/* A patch of colour for the blur to soften, under where the menu sits. */
+.glass-preview__glow {
+  position: absolute;
+  top: -40px;
+  left: 44%;
+  width: 220px;
+  height: 150px;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--accent) 75%, transparent), transparent);
+}
+.glass-preview__title {
+  position: relative;
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text);
+  white-space: nowrap;
+}
+.glass-preview__chips {
+  position: relative;
+  display: flex;
+  gap: 8px;
+  white-space: nowrap;
+}
+.glass-preview__chips > span {
+  padding: 4px 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-pill);
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+.glass-preview__menu {
+  position: absolute;
+  top: 14px;
+  left: max(170px, 40%);
+  width: 196px;
+  padding: 4px;
+  background: var(--menu-bg);
+  -webkit-backdrop-filter: var(--frost);
+  backdrop-filter: var(--frost);
+  border: 0.5px solid var(--border-strong);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-menu);
+}
+body[data-see-through='on'] .glass-preview__menu {
+  background: var(--glass-float);
+  -webkit-backdrop-filter: var(--glass-blur-float);
+  backdrop-filter: var(--glass-blur-float);
+}
+.glass-preview__search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: -4px -4px 4px;
+  padding: 7px 12px;
+  border-bottom: 0.5px solid var(--border);
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+.glass-preview__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  font-size: var(--fs-sm);
+  color: var(--text);
+}
+.glass-preview__row > svg {
+  color: var(--text-2);
 }
 
 /* Diff preview under the theme picker */

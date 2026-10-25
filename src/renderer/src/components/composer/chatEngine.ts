@@ -1,18 +1,18 @@
 import { useMemo } from 'react'
 import type { EffortLevel } from '@shared/types'
-import { ENGINE_LABEL } from '@shared/engines'
+import { ENGINE_LABEL, type CliEngineId } from '@shared/engines'
 import { engineModelKey, engineReadiness, type SetupAction } from '@shared/modelSelection'
 import { useApp } from '../../state/store'
 import { useEngineModels } from './ModelSelect'
 
-/** Chat's model when it is an agent engine's (a Codex model) rather than a provider's. */
+/** Chat's model when it is an agent engine's (Codex, GitHub Copilot, Gemini CLI) rather than a provider's. */
 export interface ChatEngineChoice {
-  engine: 'codex'
+  engine: CliEngineId
   /** The engine's model id; '' for its own default. */
   modelId: string
   label: string
   efforts: EffortLevel[]
-  /** `engine:codex:<model>`, for marking the current row in a picker. */
+  /** `engine:<engine>:<model>`, for marking the current row in a picker. */
   key: string
   /** The engine can run a turn now (installed, recent enough, signed in). */
   ready: boolean
@@ -30,14 +30,16 @@ export function useChatEngine(): ChatEngineChoice | null {
     if (!engine) return null
     const readiness = engineReadiness(engine, status)
     const list = models?.models ?? []
-    const model = modelId ? list.find((m) => m.id === modelId) : list.find((m) => m.isDefault)
+    const byDefault = list.find((m) => m.isDefault)
+    // A list with a plan note (Copilot's "Auto only") leaves out the models the plan lacks; one chosen before runs on the default.
+    const model = modelId ? (list.find((m) => m.id === modelId) ?? (models?.note ? byDefault : undefined)) : byDefault
     const name = ENGINE_LABEL[engine]
     return {
       engine,
       modelId,
       label: `${name} · ${model?.label ?? (modelId || 'default')}`,
       efforts: model?.efforts ?? [],
-      key: engineModelKey(engine, modelId),
+      key: engineModelKey(engine, model?.id ?? modelId),
       ready: readiness.state === 'ready',
       reason: readiness.reason,
       action: readiness.action

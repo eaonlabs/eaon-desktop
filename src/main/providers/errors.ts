@@ -3,6 +3,7 @@ import type { ProviderIssue } from '@shared/providers'
 import { retryAfterFrom } from './adapters/types'
 import { redactSecrets } from './redact'
 import { RedirectRefusedError } from './safeFetch'
+import { goesToEaonGateway, hideEaonAddress } from '../eaonAddress'
 
 /**
  * Provider failures as something a person can act on.
@@ -111,10 +112,11 @@ const issue = (
   extra: Partial<ProviderIssue> = {}
 ): ProviderIssue => ({
   kind,
-  message,
+  // The gateway's address is never shown (eaonAddress.ts), even in the raw error.
+  message: hideEaonAddress(message),
   action,
   providerId: provider.id,
-  ...(f.text ? { detail: redactSecrets(f.text).slice(0, 600) } : {}),
+  ...(f.text ? { detail: hideEaonAddress(redactSecrets(f.text)).slice(0, 600) } : {}),
   ...extra
 })
 
@@ -200,6 +202,14 @@ export function classifyProviderError(error: unknown, provider: ProviderLike, co
     return issue(provider, 'quota', `${name} says the account is out of credit or over its quota. Add credit with ${name}, or use another key.`, 'fix-key', f)
   }
 
+  // Eaon's gateway takes no key. Set to "Eaon apps only", it turns away a copy
+  // of Eaon whose requests it can't verify (one from before signing, or one
+  // whose app was switched off on its dashboard): updating is the fix.
+  if (goesToEaonGateway(provider) && /Eaon app|Eaon apps|signed request/i.test(text)) {
+    if (/can.t be verified right now/i.test(text)) return issue(provider, 'outage', `${name} couldn’t check this copy of Eaon just now. Try again in a moment.`, 'retry', f)
+    return issue(provider, 'insufficient-scope', `${name} only answers up-to-date copies of Eaon. Update Eaon in Settings → General, or choose another model.`, 'choose-model', f)
+  }
+
   const keyWords = /invalid[_ ]api[_ ]key|incorrect api key|invalid x-api-key|api key not valid|API_KEY_INVALID|invalid authentication|authentication_error|invalid_api_key|no auth credentials|missing (api )?key|unauthenticated/i.test(text)
   if (!oauth && (status === 401 || keyWords)) {
     return issue(provider, 'key-invalid', `${name} rejected the API key. Check it, or paste a new one.`, 'fix-key', f)
@@ -244,7 +254,7 @@ export function classifyProviderError(error: unknown, provider: ProviderLike, co
 export function noModelsIssue(provider: ProviderLike): ProviderIssue {
   return {
     kind: 'no-models',
-    message: `${provider.name} answered, but offers no chat models this account can use.`,
+    message: hideEaonAddress(`${provider.name} answered, but offers no chat models this account can use.`),
     action: 'open-settings',
     providerId: provider.id
   }

@@ -47,6 +47,12 @@ export const MIGRATIONS: Migration[] = [
     name: 'scheduled-runs',
     files: ['scheduled-tasks.json', 'scheduled-runs.json'],
     run: () => migrateScheduledRuns()
+  },
+  {
+    version: 3,
+    name: 'folder-projects',
+    files: ['projects.json'],
+    run: () => store.projectForChatFolder()
   }
 ]
 

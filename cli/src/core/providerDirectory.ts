@@ -2,6 +2,7 @@ import type { ProviderUrlField } from '@shared/providers'
 import { customProviderId } from '@shared/providers'
 import type { Provider } from '@shared/types'
 import { getProvider, listProviders, removeProvider, testProvider, updateProvider } from '@main/providers'
+import { goesToEaonGateway } from '@main/eaonAddress'
 import { providerMeta } from '@main/providers/catalog'
 import { secrets } from '@main/secrets'
 import { events } from '../runtime/ipc'
@@ -144,8 +145,8 @@ const groupOf = (provider: Provider): ProviderGroup => {
 
 /** Every provider that takes a key or a sign-in, then the directory's not yet added; local runtimes need neither. */
 export function keyRows(): KeyRow[] {
-  // Local runtimes and Eaon Free take no key.
-  const providers = listProviders().filter((p) => !p.local && p.auth !== 'none')
+  // Local runtimes and Eaon Free take no key, and Eaon's gateway is never shown (src/main/eaonAddress.ts).
+  const providers = listProviders().filter((p) => !p.local && p.auth !== 'none' && !goesToEaonGateway(p))
   const rows: KeyRow[] = providers.map((p) => {
     const meta = providerMeta(p.id)
     const entry = directoryById.get(p.id)

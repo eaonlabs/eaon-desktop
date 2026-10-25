@@ -50,7 +50,10 @@ scenario('first run: the setup signs in with Tokn, links tokn, picks dark, and t
     await page.click('.onboarding .btn--primary', { text: 'Sign in with Tokn' })
     await page.find('.onboarding .btn', { text: 'Waiting for your browser' })
     await approveToknSignIn(page)
-    await page.find('.onboarding__done', { text: 'Signed in as @alex', timeout: 15_000 })
+    await page.find('.onboarding__account', { text: '@alex', timeout: 15_000 })
+    await page.waitFor(() => !document.querySelector('.onboarding__account')?.getAnimations().some((a) => a.playState === 'running'), {
+      message: 'the account to open in'
+    })
     await s.shot(page, 'setup-tokn-signed-in')
     await page.click('.onboarding .btn--primary', { text: 'Continue' })
 
@@ -99,7 +102,7 @@ scenario('first run: the setup signs in with Tokn, links tokn, picks dark, and t
         return card ? card.getAnimations().every((a) => a.playState !== 'running') : false
       }, { message: 'the card to settle' })
       titles.push(await page.eval(() => document.querySelector('.tour__title')?.textContent ?? ''))
-      // The plan meter shows only with a Claude Code or Codex account; without one its card sits in the middle.
+      // The plan meter can be turned off in Settings; then its card sits in the middle.
       const spot = await page.eval(() => Boolean(document.querySelector('.tour__spot')))
       if (titles.at(-1) !== 'Your plan’s limits') assert.ok(spot, `stop ${stop} (${titles.at(-1)}) points at something`)
       if (stop === 1 || stop >= 5) await s.shot(page, `tour-${stop}`)
@@ -107,7 +110,8 @@ scenario('first run: the setup signs in with Tokn, links tokn, picks dark, and t
     }
     assert.deepEqual(titles, ['Three places to work', 'Ask, or hand over a task', 'Pick a model', 'Your chats', 'Automations', 'The ADE', 'Your plan’s limits', 'Settings'])
     await page.waitFor(() => !document.querySelector('.tour'), { message: 'the tour to close' })
-    assert.deepEqual({ ...(await onboarding(page)), finishedAt: null }, { setup: 'done', tour: 'done', finishedAt: null })
+    // A fresh install starts on this release, so its what's new never shows on top of the tour.
+    assert.deepEqual({ ...(await onboarding(page)), finishedAt: null }, { setup: 'done', tour: 'done', finishedAt: null, whatsNew: '2026.7' })
     assert.equal(await page.eval(() => document.querySelector('.mode-switch__option[aria-selected="true"]')?.textContent?.trim()), 'Chat')
 
     // Not again on the next launch.
@@ -138,4 +142,87 @@ scenario('first run: skipping the setup, and the tour from the Help menu', { tim
   await page.press('Escape')
   await page.waitFor(() => !document.querySelector('.tour'), { message: 'Escape to end the tour' })
   assert.equal((await onboarding(page)).tour, 'skipped')
+})
+
+/** The what's-new tour's titles, stop by stop, pressing Next on each. */
+async function walkWhatsNew(s, page, shots) {
+  const titles = []
+  for (let stop = 1; stop <= 10; stop++) {
+    await page.waitFor((stop) => document.querySelector('.tour__count')?.textContent === `${stop} of 10`, { args: [stop], message: `stop ${stop}` })
+    await page.waitFor(() => {
+      const card = document.querySelector('.tour__card[data-settled]')
+      return card ? card.getAnimations().every((a) => a.playState !== 'running') : false
+    }, { message: 'the card to settle' })
+    titles.push(await page.eval(() => document.querySelector('.tour__title')?.textContent ?? ''))
+    if (shots) await s.shot(page, `whats-new-${stop}`)
+    await page.click('.tour__card .btn--primary')
+  }
+  await page.waitFor(() => !document.querySelector('.tour'), { message: 'the tour to close' })
+  return titles
+}
+
+const WHATS_NEW_TITLES = [
+  'What’s new in Eaon 2026.7',
+  'Free models with Eaon Lite',
+  'A new message box',
+  'Work in a project',
+  'Workers that keep going for hours',
+  'Automations',
+  'A worker computer, and more chat apps',
+  'A dock beside your agents',
+  'Plan limits, up top',
+  'And in Settings'
+]
+
+scenario('an update from 2026.6: the setup again, then the tour of what’s new', { timeout: 120_000 }, async (s) => {
+  // What 2026.6 left: settings with no word of the setup.
+  const app = await s.launch({ env: { EAON_ONBOARDING: 'on' }, seed: { 'settings.json': { activeWorkspaceId: 'work', appearance: { mode: 'light' } } } })
+  const page = app.page
+
+  await page.find('.onboarding .onboarding__title', { text: 'Eaon 2026.7 is here' })
+  assert.equal(await page.eval(() => document.querySelector('.onboarding__brand-name')?.textContent), 'Set up Eaon 2026.7')
+  await s.shot(page, 'update-welcome')
+  await page.click('.onboarding .btn--primary', { text: 'Get started' })
+  await page.find('.onboarding__title', { text: 'Track your usage with Tokn' })
+  await page.click('.onboarding .btn--ghost', { text: 'Not now' })
+  await page.find('.onboarding__title', { text: 'Connect a model' })
+  await page.click('.onboarding .btn--ghost', { text: 'Not now' })
+  await page.find('.onboarding__title', { text: 'Light or dark?' })
+  await page.click('.onboarding .btn--primary', { text: 'Continue' })
+  await page.find('.onboarding__title', { text: 'You’re all set' })
+  await s.shot(page, 'update-ready')
+  await page.click('.onboarding .btn--primary', { text: 'See what’s new' })
+
+  await page.waitFor(() => !document.querySelector('.onboarding'), { message: 'the setup to close' })
+  assert.deepEqual(await walkWhatsNew(s, page, true), WHATS_NEW_TITLES)
+  const done = await onboarding(page)
+  assert.equal(done.setup, 'done')
+  assert.equal(done.whatsNew, '2026.7')
+  assert.equal(done.tour, 'done', 'the tour of the app stays done: this install knows the app')
+
+  // Not again on the next launch.
+  await app.quit()
+  const again = await s.relaunch(app)
+  await again.page.find('.composer')
+  await sleep(1_200)
+  assert.equal(await again.page.eval(() => Boolean(document.querySelector('.onboarding, .tour'))), false)
+})
+
+scenario('an update from a 2026.7 beta that went through the setup: only what’s new, and it’s in the Help menu', { timeout: 90_000 }, async (s) => {
+  const app = await s.launch({
+    env: { EAON_ONBOARDING: 'on' },
+    seed: { 'settings.json': { onboarding: { setup: 'done', tour: 'skipped', finishedAt: Date.now() - 86_400_000 } } }
+  })
+  const page = app.page
+  await page.find('.tour__title', { text: 'What’s new in Eaon 2026.7' })
+  assert.equal(await page.eval(() => Boolean(document.querySelector('.onboarding'))), false, 'no setup again')
+  // Shown once, whether or not it's finished.
+  await page.waitFor(async () => (await window.api.settings.get()).onboarding.whatsNew === '2026.7', { message: 'what’s new to count as seen' })
+  await page.press('Escape')
+  await page.waitFor(() => !document.querySelector('.tour'), { message: 'Escape to end the tour' })
+  assert.equal((await onboarding(page)).tour, 'skipped', 'the tour of the app is left as it was')
+
+  await page.click('.sidebar__footer [aria-label="Help"]')
+  await page.click('.menu .menu__item', { text: 'What’s new in 2026.7' })
+  assert.deepEqual(await walkWhatsNew(s, page, false), WHATS_NEW_TITLES)
 })

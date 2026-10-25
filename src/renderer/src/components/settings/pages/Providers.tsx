@@ -19,7 +19,9 @@ import {
 } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { useApp } from '../../../state/store'
-import { BrandIcon } from '../../../icons/brand'
+import { BrandIcon, hasBrandLogo } from '../../../icons/brand'
+import { useProviderLogos } from '../../../state/providerLogos'
+import { PROVIDER_LOGO_DOCS_URL } from '@shared/providerLogos'
 import { RedeemCode } from '../../RedeemCode'
 import { CLIPBOARD_FAILED, copyText } from '../../../lib/clipboard'
 import { Modal, SearchField, Switch } from '../../ui'
@@ -147,6 +149,8 @@ export function ProvidersPage(): JSX.Element {
 
   useEffect(() => {
     void refreshProviders()
+    // A custom provider added from the Eaon CLI gets its logo looked up now (main/providers/logos.ts).
+    void window.api.providerLogos.sweep().catch(() => undefined)
     void window.api.freeCredits.status().then(setFree)
   }, [refreshProviders])
 
@@ -457,8 +461,135 @@ function ProviderDetail({
         <KeySection provider={provider} meta={meta} auth={auth} onStatus={setStatus} status={status} />
       )}
 
+      <LogoSection provider={provider} />
       <ModelsSection provider={provider} />
     </>
+  )
+}
+
+const hostOf = (url: string): string => {
+  try {
+    return new URL(url).host
+  } catch {
+    return url
+  }
+}
+
+/**
+ * The provider's logo and where it comes from: built in, found from a custom
+ * provider's base URL, or the person's own image, which shows over either
+ * until it's removed. For a custom provider, what the last look-up tried, so
+ * a provider setting up its logo (docs/provider-logos.md) can see why it
+ * didn't show.
+ */
+function LogoSection({ provider }: { provider: Provider }): JSX.Element {
+  const record = useProviderLogos((s) => s.logos[provider.id])
+  const [busy, setBusy] = useState<'choose' | 'look' | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const custom = !provider.builtIn
+  const lookup = record?.lookup
+  const lookable = custom && Boolean(provider.baseUrl.trim())
+  const looking = busy === 'look' || (lookable && !lookup)
+
+  const source = record?.user
+    ? 'Your image'
+    : record?.site
+      ? `From ${hostOf(record.site.from)}`
+      : hasBrandLogo(provider.id)
+        ? 'Built into Eaon'
+        : looking
+          ? 'Looking for one at its base URL…'
+          : custom && lookup
+            ? `None found at ${hostOf(lookup.baseUrl)}, so it shows initials`
+            : 'Eaon has none for it, so it shows initials'
+  const detail = record?.user
+    ? record.site || hasBrandLogo(provider.id)
+      ? 'Shown instead of its own logo until you remove it.'
+      : null
+    : record?.site
+      ? `${record.site.name ? `${record.site.name}’s logo, f` : 'F'}ound ${ago(record.site.foundAt)}.`
+      : null
+
+  const choose = async (): Promise<void> => {
+    setBusy('choose')
+    setError(null)
+    try {
+      const result = await window.api.providerLogos.choose(provider.id)
+      if (!result.ok && 'reason' in result) setError(result.reason)
+    } catch (e) {
+      setError(plainError(e))
+    } finally {
+      setBusy(null)
+    }
+  }
+  const lookAgain = async (): Promise<void> => {
+    setBusy('look')
+    setError(null)
+    try {
+      await window.api.providerLogos.lookUp(provider.id)
+    } catch (e) {
+      setError(plainError(e))
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  return (
+    <div className="provider-detail__section">
+      <div className="provider-detail__section-title">Logo</div>
+      <div className="provider-logo">
+        <BrandIcon id={provider.id} name={provider.name} size={40} />
+        <div className="provider-logo__body">
+          <span className="provider-logo__source">{source}</span>
+          {detail && <span className="provider-logo__detail">{detail}</span>}
+        </div>
+        <div className="provider-logo__actions">
+          {record?.user && (
+            <button className="btn btn--provider-ghost" disabled={busy !== null} onClick={() => void window.api.providerLogos.reset(provider.id)}>
+              Remove my image
+            </button>
+          )}
+          {lookable && (
+            <button className="btn btn--provider-ghost" disabled={busy !== null} onClick={() => void lookAgain()}>
+              {busy === 'look' ? <Loader2 size={14} className="spinner" /> : <RefreshCw size={14} strokeWidth={1.9} />}
+              {busy === 'look' ? 'Looking…' : 'Look again'}
+            </button>
+          )}
+          <button className="btn btn--provider" disabled={busy !== null} onClick={() => void choose()}>
+            {record?.user ? 'Change…' : 'Choose image…'}
+          </button>
+        </div>
+      </div>
+      {error && (
+        <div className="provider-status" data-tone="error">
+          {error}
+        </div>
+      )}
+      <p className="provider-logo__hint">
+        SVG, PNG, JPEG, WebP, GIF or ICO, up to 1 MB. Any shape works: Eaon trims the space around it and fits it to the tile.
+      </p>
+      {custom && lookup && lookup.steps.length > 0 && (
+        <details className="provider-logo__steps">
+          <summary>
+            What Eaon tried for {hostOf(lookup.baseUrl)}, {ago(lookup.at)}
+          </summary>
+          <ol>
+            {lookup.steps.map((step, i) => (
+              <li key={i} data-found={step.result === 'Found' || undefined}>
+                <span className="provider-logo__url">{step.url}</span>
+                <span className="provider-logo__result">{step.result}</span>
+              </li>
+            ))}
+          </ol>
+        </details>
+      )}
+      {custom && (
+        <button className="provider-link" onClick={() => void window.api.app.openExternal(PROVIDER_LOGO_DOCS_URL)}>
+          How a provider publishes its logo for Eaon
+          <ExternalLink size={12} strokeWidth={2} />
+        </button>
+      )}
+    </div>
   )
 }
 
@@ -1013,8 +1144,9 @@ function KeySection({
 
       {showAdvanced && (
         <div className="provider-detail__advanced">
-          {/* Providers with their own endpoint section (and custom ones, under Connection) already show this field up top. */}
-          {!meta.baseUrlLabel && provider.builtIn && (
+          {/* Providers with their own endpoint section (and custom ones, under Connection) already show this field up top.
+              Eaon's own have no address to show (main/eaonAddress.ts). */}
+          {!meta.baseUrlLabel && provider.builtIn && provider.category !== 'eaon' && (
             <div>
               <div className="field-label">Base URL</div>
               <input className="input" value={baseUrl} spellCheck={false} onChange={(e) => setBaseUrl(e.target.value)} onBlur={() => void saveBaseUrl()} />

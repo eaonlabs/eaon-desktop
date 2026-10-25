@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import type { ChatToolPart } from '@shared/types'
 import { useApp } from '../../state/store'
-import { diffStats } from '../agent/FileDiff'
+import { countChanges } from '../chatCode/diff/model'
 import type { FileChange } from '../agent/FilesChanged'
 import { toolPartChanges } from '../agent/ToolCall'
 
@@ -54,7 +54,7 @@ export function useChatChanges(): ChatChanges {
     let added = 0
     let removed = 0
     for (const change of changes) {
-      const stats = diffStats(change.before, change.after)
+      const stats = countChanges(change.before, change.after)
       added += stats.added
       removed += stats.removed
     }

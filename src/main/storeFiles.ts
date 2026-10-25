@@ -162,6 +162,7 @@ const LABELS: Record<string, string> = {
   'projects.json': 'Projects',
   'workspaces.json': 'Tabs',
   'providers.json': 'Model providers',
+  'provider-logos.json': 'Provider logos',
   'mcp.json': 'MCP servers',
   'scheduled-tasks.json': 'Scheduled tasks',
   'scheduled-runs.json': 'Scheduled task history',

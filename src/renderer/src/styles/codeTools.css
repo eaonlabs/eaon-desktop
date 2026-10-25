@@ -1,0 +1,951 @@
+/*
+ * Chat's coding controls (components/chatCode): the top bar's Open, scripts,
+ * terminal and Git; the branch pill above the message box; the terminal
+ * drawer under the conversation; find in the project; the code panel's Git
+ * pane. Colours come from the theme tokens, so both themes follow.
+ */
+
+/* ---------------- Split buttons (scripts, Open, Git) ----------------
+   Flat like the icon buttons beside them: nothing drawn at rest, a soft fill
+   under the pointer, and the menu half a narrow chevron that a hairline
+   parts from the button only while it is hovered. */
+
+.split-btn {
+  display: inline-flex;
+  flex: none;
+  align-items: stretch;
+  height: 28px;
+  border-radius: var(--r-sm);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  -webkit-app-region: no-drag;
+  transition: background-color var(--dur) var(--ease);
+}
+.split-btn:hover,
+.split-btn[data-open] {
+  background: var(--hover);
+}
+.split-btn__main,
+.split-btn__more {
+  display: inline-flex;
+  align-items: center;
+  color: inherit;
+  transition:
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+.split-btn__main {
+  gap: 6px;
+  padding: 0 7px;
+  border-radius: var(--r-sm) 0 0 var(--r-sm);
+  white-space: nowrap;
+}
+.split-btn--solo .split-btn__main {
+  border-radius: var(--r-sm);
+}
+/* The icon alone (the dock's file bar). */
+.split-btn[data-icon] .split-btn__main {
+  padding: 0 6px;
+}
+.split-btn__more {
+  justify-content: center;
+  width: 16px;
+  margin-left: -2px;
+  border-left: 1px solid transparent;
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  color: var(--text-4);
+}
+.split-btn:hover .split-btn__more,
+.split-btn[data-open] .split-btn__more {
+  border-left-color: var(--border-soft);
+  color: var(--text-2);
+}
+.split-btn__main:hover:not(:disabled),
+.split-btn__more:hover,
+.split-btn[data-open] .split-btn__more {
+  background: var(--hover);
+  color: var(--text);
+}
+.split-btn__main:disabled {
+  color: var(--text-3);
+  cursor: default;
+}
+.split-btn__main:focus-visible,
+.split-btn__more:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+.split-btn__label {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Git: the next step's label, what is uncommitted, what is waiting to push. */
+.git-actions__stat {
+  font-size: var(--fs-xxs);
+  font-weight: 500;
+}
+.git-actions__count {
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: var(--r-pill);
+  background: var(--hover-strong);
+  color: var(--text-2);
+  font-size: var(--fs-xxs);
+  font-variant-numeric: tabular-nums;
+  line-height: 16px;
+  text-align: center;
+}
+.git-actions__branch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.git-actions__upstream {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-4);
+  text-overflow: ellipsis;
+}
+
+.git-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.git-dialog__branch {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+.git-dialog__branch > span:first-of-type {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+.git-dialog__into {
+  color: var(--text-3);
+}
+.git-dialog__base {
+  width: auto;
+  height: 28px;
+  padding: 0 8px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+}
+.git-dialog__stat {
+  margin-left: auto;
+  font-size: var(--fs-xs);
+}
+.git-dialog__message {
+  min-height: 72px;
+  resize: vertical;
+}
+.git-dialog__files {
+  max-height: 180px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--border-soft);
+  border-radius: var(--r-md);
+}
+.git-dialog__file {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+  padding: 0 6px;
+  border-radius: var(--r-xs);
+  font-size: var(--fs-xs);
+}
+.git-dialog__file:hover {
+  background: var(--hover);
+}
+.git-dialog__mark {
+  flex: none;
+  width: 14px;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xxs);
+  font-weight: 600;
+  text-align: center;
+}
+.git-dialog__mark[data-status='added'] {
+  color: var(--diff-add-fg);
+}
+.git-dialog__mark[data-status='deleted'] {
+  color: var(--diff-del-fg);
+}
+.git-dialog__mark[data-status='renamed'] {
+  color: var(--accent);
+}
+.git-dialog__path {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.git-dialog__muted {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 6px;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.git-dialog__hint {
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--fs-xxs);
+}
+.git-dialog__warn {
+  margin: 0;
+  padding: 8px 10px;
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, #e3a008 14%, transparent);
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+}
+.git-dialog__push {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+
+/* An app's own icon, from the system. */
+.target-app {
+  display: block;
+  flex: none;
+  margin: -1.5px;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+}
+
+/* An editor's initials on a tile, where the system gives no icon. */
+.target-tile {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--tile, var(--text-3)) 22%, var(--surface-3));
+  color: color-mix(in srgb, var(--tile, var(--text)) 70%, var(--text));
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--tile, var(--text-3)) 45%, transparent);
+  font-size: 7.5px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1;
+}
+.target-tile[data-target^='vscode'],
+.target-tile[data-target='vscodium'] {
+  --tile: #3b8eea;
+}
+.target-tile[data-target='cursor'],
+.target-tile[data-target='nova'] {
+  --tile: #9a9aa3;
+}
+.target-tile[data-target='windsurf'] {
+  --tile: #2bb6a3;
+}
+.target-tile[data-target='zed'],
+.target-tile[data-target='xcode'] {
+  --tile: #4f7cff;
+}
+.target-tile[data-target='sublime'] {
+  --tile: #ff9800;
+}
+.target-tile[data-target='idea'],
+.target-tile[data-target='webstorm'],
+.target-tile[data-target='pycharm'],
+.target-tile[data-target='goland'],
+.target-tile[data-target='rustrover'],
+.target-tile[data-target='clion'],
+.target-tile[data-target='phpstorm'],
+.target-tile[data-target='rider'] {
+  --tile: #c45cff;
+}
+.target-tile[data-target='android-studio'] {
+  --tile: #3ddc84;
+}
+
+
+/* ---------------- Scripts ---------------- */
+
+.script-row {
+  position: relative;
+}
+.script-row .menu__item {
+  padding-right: 34px;
+}
+.script-row .menu__item-desc {
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.script-row__edit {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  translate: 0 -50%;
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+.script-row:hover .script-row__edit,
+.script-row__edit:focus-visible {
+  opacity: 1;
+}
+
+.script-form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.script-form__lede {
+  margin: 0;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+.script-form__lede code {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+.script-form__suggest {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.script-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 9px;
+  border-radius: var(--r-pill);
+  box-shadow: inset 0 0 0 0.5px var(--border);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  transition:
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+.script-chip:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.script-form__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.script-form__field > span {
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+.script-form__command {
+  font-family: var(--font-mono);
+}
+.script-form__icons {
+  display: flex;
+  gap: 6px;
+}
+.script-form__icon {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-sm);
+  box-shadow: inset 0 0 0 0.5px var(--border);
+  color: var(--text-2);
+}
+.script-form__icon:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.script-form__icon[aria-checked='true'] {
+  box-shadow: inset 0 0 0 1.5px var(--accent);
+  color: var(--text);
+}
+.script-form__tick {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  padding: 1px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--on-accent, #fff);
+}
+
+/* ---------------- Branch pill ---------------- */
+
+.composer-pill--branch .composer-pill__label {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+.composer__above .composer-pill--branch {
+  background: color-mix(in srgb, var(--surface-2) 70%, transparent);
+  box-shadow: inset 0 0 0 1px var(--border-soft);
+}
+.composer__above .composer-pill--branch:hover,
+.composer__above .composer-pill--branch[data-open] {
+  background: var(--surface-3);
+}
+.branch-sync {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  color: var(--text-3);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+.branch-menu__list {
+  max-height: 300px;
+  overflow-y: auto;
+}
+.branch-menu .menu__item-title {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+.menu__note {
+  margin: 2px 6px 6px;
+  padding: 7px 9px;
+  border-radius: var(--r-sm);
+  background: color-mix(in srgb, var(--warning, #f5a524) 12%, transparent);
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+}
+.menu__empty .spinner {
+  vertical-align: -2px;
+  margin-right: 4px;
+}
+
+/* The terminal drawer and the dock's terminals are in dock.css. */
+
+/* ---------------- Find in project ---------------- */
+
+.code-search__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 110;
+  display: flex;
+  justify-content: center;
+  padding: 12vh 16px 16px;
+  background: color-mix(in srgb, #000 22%, transparent);
+  animation: code-search-fade 160ms var(--ease) both;
+}
+@keyframes code-search-fade {
+  from {
+    opacity: 0;
+  }
+}
+.code-search {
+  display: flex;
+  flex-direction: column;
+  width: min(680px, 100%);
+  max-height: min(560px, 76vh);
+  border-radius: var(--r-lg);
+  /* Solid, not the menus' frosted glass: lines of code over a busy page don't read. */
+  background: var(--surface-2);
+  box-shadow:
+    0 0 0 0.5px var(--border-strong),
+    var(--shadow-menu, 0 24px 60px -20px rgb(0 0 0 / 0.5));
+  overflow: hidden;
+  animation: code-search-in 220ms var(--spring-moderate, var(--ease)) both;
+}
+@keyframes code-search-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.985);
+  }
+}
+.code-search__bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 46px;
+  padding: 0 8px 0 14px;
+  border-bottom: 0.5px solid var(--border);
+}
+.code-search__glyph {
+  flex: none;
+  color: var(--text-3);
+}
+.code-search__input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  margin-left: 6px;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font-size: var(--fs-base);
+  outline: none;
+}
+.code-search__input::placeholder {
+  color: var(--text-3);
+}
+.code-search__opt {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-sm);
+  color: var(--text-3);
+}
+.code-search__opt:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.code-search__opt[aria-pressed='true'] {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--text);
+  box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--accent) 60%, transparent);
+}
+.code-search__summary {
+  flex: none;
+  padding: 7px 16px 3px;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.code-search__results {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 6px 8px;
+}
+.code-search__results:empty {
+  display: none;
+}
+.code-search__file + .code-search__file {
+  margin-top: 6px;
+}
+.code-search__file-head {
+  position: sticky;
+  top: -4px;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 28px;
+  padding: 0 8px;
+  background: var(--surface-2);
+  font-size: var(--fs-sm);
+}
+.code-search__file-name {
+  color: var(--text);
+  font-weight: 500;
+}
+.code-search__file-dir {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-3);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl;
+  text-align: left;
+}
+.code-search__file-count {
+  margin-left: auto;
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: var(--r-pill);
+  background: var(--hover);
+  color: var(--text-2);
+  font-size: var(--fs-xxs);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+  line-height: 16px;
+}
+.code-search__hit {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 3px 8px 3px 10px;
+  border-radius: var(--r-sm);
+  color: var(--text-2);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-align: left;
+}
+.code-search__hit[data-current] {
+  background: var(--hover);
+  color: var(--text);
+}
+.code-search__ln {
+  flex: none;
+  min-width: 3ch;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+.code-search__text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre;
+}
+.code-search__text mark {
+  border-radius: 2px;
+  background: color-mix(in srgb, #f5c400 38%, transparent);
+  color: inherit;
+}
+.code-search__foot {
+  flex: none;
+  display: flex;
+  gap: 14px;
+  padding: 7px 14px;
+  border-top: 0.5px solid var(--border-soft);
+  color: var(--text-3);
+  font-size: var(--fs-xxs);
+}
+.code-search__foot kbd {
+  display: inline-grid;
+  place-items: center;
+  min-width: 16px;
+  height: 16px;
+  margin-right: 2px;
+  padding: 0 3px;
+  border-radius: 4px;
+  background: var(--hover);
+  font-family: inherit;
+  font-size: 10px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .code-search,
+  .code-search__scrim {
+    animation: none;
+  }
+}
+
+/* ---------------- Paths in replies ---------------- */
+
+/* A file in a reply: a chip with the file's mark, edged in the accent so it reads as something to open. */
+.md__code.md__file {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text);
+  cursor: pointer;
+  text-decoration: none;
+  vertical-align: bottom;
+  border-color: color-mix(in srgb, var(--accent) 40%, var(--border));
+  transition:
+    border-color var(--dur) var(--ease),
+    background-color var(--dur) var(--ease);
+}
+.md__code.md__file:hover {
+  background: color-mix(in srgb, var(--accent) 10%, var(--sunken));
+  border-color: color-mix(in srgb, var(--accent) 70%, var(--border));
+}
+.md__file-icon {
+  display: inline-flex;
+  margin-left: -1px;
+}
+.md__file--text {
+  color: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--text-3) 55%, transparent);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2.5px;
+  transition: text-decoration-color var(--dur) var(--ease);
+}
+.md__file--text:hover {
+  text-decoration-color: currentColor;
+}
+
+/* ---------------- HTML preview ---------------- */
+
+.code-block__tool--label {
+  display: inline-flex;
+  gap: 5px;
+  width: auto;
+  padding: 0 7px;
+  font-size: var(--fs-xs);
+}
+.html-preview__scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 115;
+  display: grid;
+  place-items: center;
+  padding: 28px;
+  background: color-mix(in srgb, #000 40%, transparent);
+  animation: code-search-fade 160ms var(--ease) both;
+}
+.html-preview {
+  display: flex;
+  flex-direction: column;
+  width: min(1180px, 100%);
+  height: min(820px, 100%);
+  border-radius: var(--r-lg);
+  background: var(--surface-2);
+  box-shadow:
+    0 0 0 0.5px var(--border-strong),
+    var(--shadow-menu, 0 24px 60px -20px rgb(0 0 0 / 0.5));
+  overflow: hidden;
+  animation: code-search-in 220ms var(--spring-moderate, var(--ease)) both;
+}
+.html-preview__bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 8px 0 16px;
+  border-bottom: 0.5px solid var(--border);
+}
+.html-preview__title {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+.html-preview__note {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.html-preview__sizes {
+  display: flex;
+  gap: 2px;
+  margin-left: auto;
+  padding: 2px;
+  border-radius: var(--r-sm);
+  background: var(--hover);
+}
+.html-preview__size {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 22px;
+  border-radius: calc(var(--r-sm) - 2px);
+  color: var(--text-3);
+}
+.html-preview__size[aria-checked='true'] {
+  background: var(--surface-4, var(--surface-3));
+  color: var(--text);
+}
+.html-preview__stage {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  justify-content: center;
+  padding: 0;
+  background: repeating-conic-gradient(var(--hover) 0 25%, transparent 0 50%) 0 0 / 16px 16px;
+  overflow: auto;
+}
+.html-preview__frame {
+  max-width: 100%;
+  height: 100%;
+  border: 0;
+  background: #fff;
+  transition: width 260ms var(--ease);
+}
+@media (prefers-reduced-motion: reduce) {
+  .html-preview,
+  .html-preview__scrim {
+    animation: none;
+  }
+}
+
+/* A narrow window: the scripts and Open buttons keep their icons and lose
+   their words first, then Git its counts, then its word, so the top bar's
+   tools fit beside the mode switch. */
+@container main (max-width: 1500px) {
+  .split-btn:not(.git-actions) .split-btn__main > span:not(.target-tile) {
+    display: none;
+  }
+  .split-btn:not(.git-actions) .split-btn__main {
+    padding: 0 7px;
+  }
+}
+@container main (max-width: 1240px) {
+  .git-actions__stat,
+  .git-actions__count {
+    display: none;
+  }
+}
+@container main (max-width: 1080px) {
+  .git-actions .split-btn__main > span {
+    display: none;
+  }
+  .git-actions .split-btn__main {
+    padding: 0 7px;
+  }
+}
+
+/* ---------------- The workspace card (chatCode/WorkspaceCard.tsx) ----------------
+   Beside a conversation where there is room, over it where there isn't: the
+   folder, Open, the scripts; then the branch, the next Git step, the changes.
+   Rows read like a menu's: an icon, the words, a split chevron. */
+
+.ws-card {
+  --ws-w: 252px;
+  position: absolute;
+  top: calc(var(--titlebar-h) + var(--sidebar-gap) + 6px);
+  right: 16px;
+  z-index: 5;
+  width: var(--ws-w);
+  padding: 4px;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--surface-2), transparent 6%);
+  -webkit-backdrop-filter: var(--frost);
+  backdrop-filter: var(--frost);
+  box-shadow: 0 10px 30px color-mix(in srgb, var(--shadow-ink) 18%, transparent);
+  animation: ws-card-in 220ms var(--ease) both;
+}
+[data-theme='light'] .ws-card {
+  background: color-mix(in srgb, var(--bg), transparent 4%);
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.08);
+}
+.ws-card[data-mode='over'] {
+  z-index: 30;
+  box-shadow: var(--shadow-menu);
+}
+@keyframes ws-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.985);
+  }
+}
+.ws-card__part {
+  display: flex;
+  flex-direction: column;
+  padding: 2px 0;
+}
+.ws-card__part + .ws-card__part {
+  margin-top: 4px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border-soft);
+}
+
+.ws-row,
+.ws-row__main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 14px;
+  color: var(--text);
+  font-size: var(--fs-base);
+  text-align: left;
+  transition: background-color var(--dur) var(--ease);
+}
+.ws-row {
+  width: 100%;
+}
+button.ws-row:hover,
+.ws-row[data-open],
+.ws-row__main:hover:not(:disabled) {
+  background: var(--hover);
+}
+.ws-row:focus-visible,
+.ws-row__main:focus-visible,
+.ws-row__more:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+.ws-row--split {
+  display: flex;
+  gap: 0;
+  padding: 0;
+}
+.ws-row--split:hover,
+.ws-row--split[data-open] {
+  background: none;
+}
+.ws-row--split .ws-row__main {
+  flex: 1;
+  border-radius: 14px 4px 4px 14px;
+}
+.ws-row__main:disabled {
+  color: var(--text-3);
+  cursor: default;
+}
+.ws-row__more {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 34px;
+  border-radius: 4px 14px 14px 4px;
+  color: var(--text-3);
+  transition:
+    background-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+.ws-row__more::before {
+  content: '';
+  position: absolute;
+  top: 10px;
+  bottom: 10px;
+  left: 0;
+  width: 1px;
+  background: color-mix(in srgb, var(--fg) 14%, transparent);
+}
+.ws-row__more:hover,
+.ws-row--split[data-open] .ws-row__more {
+  background: var(--hover);
+  color: var(--text);
+}
+.ws-row__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  color: var(--text-2);
+}
+.ws-row__label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ws-row__meta {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--fs-xs);
+}
+.ws-row__chev {
+  flex: none;
+  color: var(--text-3);
+}
+.ws-row-wrap {
+  display: flex;
+}
+
+/* Beside the conversation: the thread and the message box centre in what is left. */
+.thread[data-card],
+.composer-dock[data-card] {
+  padding-right: calc(252px + 32px);
+}
+.composer-dock[data-card] > .thread-jump {
+  margin-right: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ws-card {
+    animation: none;
+  }
+}

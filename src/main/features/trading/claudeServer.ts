@@ -31,7 +31,7 @@ export const TRADE_COMMAND = `/mcp__${CLAUDE_SERVER_NAME}__trade`
 const WAIT_MS = 4 * 60_000
 
 const INSTRUCTIONS =
-  'This server is Eaon’s trading desk, the app this session runs in. When the user hands you a trading session (the /mcp__eaon-trading__trade command), you are its trading agent: loop on eaon_wait_for_check, research with eaon_history, eaon_scan, eaon_news, eaon_quote and eaon_account, trade with eaon_order, protect holdings with eaon_set_exit, and end each check with eaon_log_decision, until the session ends. Every order passes the user’s limits and the kill switch inside Eaon.'
+  'This server is Eaon’s trading desk, the app this session runs in. When the user hands you a trading session (the /mcp__eaon-trading__trade command), you are its trading agent: loop on eaon_wait_for_check, research with eaon_history, eaon_scan, eaon_news, eaon_quote and eaon_account, trade with eaon_order, protect holdings with eaon_set_exit, and end each check with eaon_log_decision, until the session ends. Trade only through these tools, never through the shell or files. Every order passes the user’s limits and the kill switch inside Eaon.'
 
 export interface ClaudeServerDeps {
   engine: TradingEngine

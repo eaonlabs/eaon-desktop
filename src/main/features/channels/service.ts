@@ -542,7 +542,7 @@ export class ChannelsService {
 
     if (!worker) {
       if (this.once(`noworker|${link.id}|${message.chatId}`, HOUR)) {
-        await reply('This bot isn’t connected to a worker right now. Its owner can choose one in Eaon → Settings → Chat apps.')
+        await reply('This bot isn’t connected to a worker right now. Its owner can choose one in Eaon → Settings → Workers → Chat apps.')
       }
       return
     }
@@ -626,7 +626,7 @@ export class ChannelsService {
     if (failures.length >= 5) return
     if (attempt.trim().toUpperCase() !== link.pairCode) {
       this.pairFailures.set(key, [...failures, now])
-      await reply('That code doesn’t match. The pairing code is in Eaon → Settings → Chat apps.')
+      await reply('That code doesn’t match. The pairing code is in Eaon → Settings → Workers → Chat apps.')
       return
     }
     link.owner = { id: message.senderId, name: message.senderName }
@@ -649,7 +649,7 @@ export class ChannelsService {
     if (!quiet && this.once(`request|${link.id}|${request.id}`, 6 * HOUR)) {
       const owner = link.owner?.name ?? 'its owner'
       const body = !link.owner
-        ? 'This bot isn’t set up yet. If it’s yours, send /pair and the code shown in Eaon → Settings → Chat apps.'
+        ? 'This bot isn’t set up yet. If it’s yours, send /pair and the code shown in Eaon → Settings → Workers → Chat apps.'
         : message.isGroup
           ? `${workerName} will answer here once ${owner} allows it. I’ve let them know.`
           : `Hi! ${workerName} only talks with people ${owner} lets in. I’ve let them know you’d like to.`

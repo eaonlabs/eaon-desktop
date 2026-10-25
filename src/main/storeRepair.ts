@@ -74,6 +74,8 @@ const SETTINGS_RANGES: Record<string, [number, number]> = {
   'appearance.fontSize': [9, 32],
   'appearance.light.contrast': [0, 100],
   'appearance.dark.contrast': [0, 100],
+  'appearance.glass.blur': [0, 100],
+  'appearance.glass.transparency': [0, 100],
   'mcp.toolCallTimeoutSeconds': [1, 3_600],
   'codeIndex.maxToolRounds': [1, 1_000],
   'context.compactAt': [0.05, 0.99],
@@ -272,6 +274,10 @@ export function repairProjects(raw: unknown, now = Date.now()): Repaired<Project
       }
       if (!isFiniteNumber(project.createdAt) || project.createdAt > now + FUTURE_SLACK_MS) {
         project.createdAt = now
+        counts.fixed++
+      }
+      if (project.folder !== undefined && project.folder !== null && (typeof project.folder !== 'string' || !project.folder)) {
+        project.folder = null
         counts.fixed++
       }
       return project

@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js'
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js'
 import { CallToolRequestSchema, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js'
-import { controlToken, sameToken, sentToken } from '../gateway/models'
+import { claudeCodeToken, controlToken, sameToken, sentToken } from '../gateway/models'
 import { audit } from '../enterprise/audit'
 import { toolInfo, type ControlTool } from './tools'
 
@@ -26,13 +26,20 @@ export function setControlTools(next: ControlTool[]): void {
 
 export const CONTROL_PREFIX = '/control'
 
+/** Who a request comes from, by its key: Eaon CLI, or the user's Claude Code. */
+export type ControlClient = 'eaon-cli' | 'claude-code'
+
 /**
- * Only the control key (gateway/models.ts `controlToken`) opens these routes.
- * The model key Connect Apps hands to other apps does not: an app that may
- * spend tokens through Eaon may not also drive it.
+ * Only the control key (gateway/models.ts `controlToken`) and the key in
+ * Claude Code's MCP entry for Eaon (`claudeCodeToken`) open these routes. The
+ * model key Connect Apps hands to other apps does not: an app that may spend
+ * tokens through Eaon may not also drive it.
  */
-export function authorised(req: IncomingMessage): boolean {
-  return sameToken(sentToken(req.headers), controlToken())
+export function controlClient(req: IncomingMessage): ControlClient | null {
+  const sent = sentToken(req.headers)
+  if (sameToken(sent, controlToken())) return 'eaon-cli'
+  const claude = claudeCodeToken()
+  return claude && sameToken(sent, claude) ? 'claude-code' : null
 }
 
 function json(res: ServerResponse, status: number, body: unknown): void {
@@ -55,11 +62,15 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
 const asArgs = (value: unknown): Record<string, unknown> =>
   value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
 
-async function call(name: string, args: Record<string, unknown>): Promise<{ ok: true; result: unknown } | { ok: false; error: string; status: number }> {
+async function call(
+  name: string,
+  args: Record<string, unknown>,
+  client: ControlClient
+): Promise<{ ok: true; result: unknown } | { ok: false; error: string; status: number }> {
   const tool = tools.find((t) => t.name === name)
   if (!tool) return { ok: false, error: `No tool "${name}".`, status: 404 }
   const risk = toolInfo(tool).risk
-  if (risk !== 'read') audit('control.tool', { tool: name, risk }, { via: 'control-api' })
+  if (risk !== 'read') audit('control.tool', { tool: name, risk, client }, { via: 'control-api' })
   try {
     return { ok: true, result: await tool.run(args) }
   } catch (error) {
@@ -68,7 +79,7 @@ async function call(name: string, args: Record<string, unknown>): Promise<{ ok: 
 }
 
 /** One MCP server per request: stateless, so there is no session to lose when Eaon restarts. */
-function mcpServer(): Server {
+function mcpServer(client: ControlClient): Server {
   const server = new Server({ name: 'eaon', version: '1.0.0' }, { capabilities: { tools: {} }, instructions: 'Controls the Eaon desktop app: models, the ADE, workers and chats.' })
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
     tools: tools.map((tool) => {
@@ -82,7 +93,7 @@ function mcpServer(): Server {
     })
   }))
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
-    const outcome = await call(request.params.name, asArgs(request.params.arguments))
+    const outcome = await call(request.params.name, asArgs(request.params.arguments), client)
     if (!outcome.ok) return { isError: true, content: [{ type: 'text' as const, text: outcome.error }] }
     return { content: [{ type: 'text' as const, text: JSON.stringify(outcome.result ?? { done: true }, null, 2) }] }
   })
@@ -95,7 +106,8 @@ function mcpServer(): Server {
  */
 export async function handleControl(req: IncomingMessage, res: ServerResponse, pathname: string): Promise<boolean> {
   if (pathname !== CONTROL_PREFIX && !pathname.startsWith(`${CONTROL_PREFIX}/`)) return false
-  if (!authorised(req)) {
+  const client = controlClient(req)
+  if (!client) {
     audit('control.auth_failed', { path: pathname }, { via: 'control-api', outcome: 'failure' })
     json(res, 401, { error: { message: 'The control API needs this Eaon’s key: Eaon → Settings → Local API Server.' } })
     return true
@@ -116,7 +128,7 @@ export async function handleControl(req: IncomingMessage, res: ServerResponse, p
       json(res, 400, { jsonrpc: '2.0', error: { code: -32700, message: 'Parse error' }, id: null })
       return true
     }
-    const server = mcpServer()
+    const server = mcpServer(client)
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true })
     res.on('close', () => {
       void transport.close()
@@ -141,7 +153,7 @@ export async function handleControl(req: IncomingMessage, res: ServerResponse, p
       json(res, 400, { error: { message: 'Invalid JSON body' } })
       return true
     }
-    const outcome = await call(named[1], asArgs(body))
+    const outcome = await call(named[1], asArgs(body), client)
     if (outcome.ok) json(res, 200, { result: outcome.result ?? null })
     else json(res, outcome.status, { error: { message: outcome.error } })
     return true

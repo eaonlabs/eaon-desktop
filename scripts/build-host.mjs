@@ -22,6 +22,7 @@ import { execFileSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { chmodSync, copyFileSync, cpSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
+import { gatewayApp } from './gateway-app.mjs'
 
 const root = resolve(import.meta.dirname, '..')
 const out = join(root, 'out', 'host')
@@ -53,7 +54,7 @@ await build({
   outfile: join(pkgDir, 'eaon-host.mjs'),
   external: [...external, 'electron'],
   alias: { '@shared': join(root, 'src/shared'), '@main': join(root, 'src/main') },
-  define: { __EAON_HOST_RUNTIME__: '"electron"', __EAON_HOST_BUILD__: JSON.stringify(PLACEHOLDER), __EAON_APP_VERSION__: JSON.stringify(appPkg.version) }
+  define: { __EAON_HOST_RUNTIME__: '"electron"', __EAON_HOST_BUILD__: JSON.stringify(PLACEHOLDER), __EAON_APP_VERSION__: JSON.stringify(appPkg.version), ...gatewayApp }
 })
 await build({
   ...common,
@@ -64,7 +65,8 @@ await build({
     __EAON_HOST_BUILD__: JSON.stringify(PLACEHOLDER),
     __EAON_APP_VERSION__: JSON.stringify(appPkg.version),
     __EAON_CLI_VERSION__: JSON.stringify(appPkg.version),
-    __EAON_CLI_PACKAGE__: '"eaon-host"'
+    __EAON_CLI_PACKAGE__: '"eaon-host"',
+    ...gatewayApp
   }
 })
 

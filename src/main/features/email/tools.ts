@@ -201,13 +201,13 @@ export function emailToolSource(service: EmailService): ToolSource {
       return [
         `You have your own email address, ${inbox.address}${name ? ` (“${name}”)` : ''}: email_inbox, email_read, email_send, email_reply. It is yours, not the user's.`,
         s.status === 'verifying' && s.provider === 'agentmail'
-          ? '- It can’t send yet: the user has to enter the code AgentMail emailed them, in Settings → Email. Reading works.'
+          ? '- It can’t send yet: the user has to enter the code AgentMail emailed them, in Settings → Workers → Email. Reading works.'
           : null,
         s.provider === 'cloudflare' && s.cloudflare?.sendsTo === 'verified'
           ? `- It can email only addresses verified in the user’s Cloudflare account${s.cloudflare.verified?.length ? ` (${s.cloudflare.verified.join(', ')})` : ''}; anyone else fails until the user turns on Cloudflare Email Sending. Don’t try other recipients.`
           : null,
         s.provider === 'cloudflare' && s.cloudflare?.sendsTo === 'nobody'
-          ? '- It can’t send yet: Email Sending isn’t turned on in the user’s Cloudflare account (Settings → Email says how). Reading works; don’t try to send.'
+          ? '- It can’t send yet: Email Sending isn’t turned on in the user’s Cloudflare account (Settings → Workers → Email says how). Reading works; don’t try to send.'
           : null,
         '- Email reaches real people and can’t be unsent. Write carefully, and send only when the task calls for it.',
         `- Sign as yourself${name ? `, ${name}` : ''}, the user’s AI assistant — never as the user.`,

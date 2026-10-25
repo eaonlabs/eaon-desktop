@@ -14,7 +14,7 @@ import { Card, Modal, Row, Section, Segmented } from '../../ui'
 import '../../../styles/payments.css'
 
 /**
- * Settings → Payments: the card the agent pays with, how purchases are
+ * Settings → Workers → Payments: the card the agent pays with, how purchases are
  * allowed, the automatic limits and every purchase so far.
  *
  * "Automatic" never turns on from here directly: picking it opens the
@@ -313,10 +313,9 @@ export function PaymentsPage(): JSX.Element {
 
   return (
     <>
-      <h1 className="settings__h1">Payments</h1>
       <p className="settings__lede">
-        Let the agent pay for things with a card you save here, like a coffee order, tickets or a subscription. Approve each purchase, or let it buy on its own within
-        limits you set.
+        Let Eaon and your workers pay for things with a card you save here, like a coffee order, tickets or a subscription. Approve each purchase, or let them buy
+        on their own within limits you set.
       </p>
 
       <Section label="Card">

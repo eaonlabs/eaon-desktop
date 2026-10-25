@@ -616,3 +616,84 @@
 .speech-status:empty {
   display: none;
 }
+
+/* ---- Logo (Settings → a provider): where it comes from, and changing it ---- */
+
+.provider-logo {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.provider-logo__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.provider-logo__source {
+  font-size: var(--fs-base);
+  color: var(--text);
+}
+.provider-logo__detail {
+  font-size: var(--fs-sm);
+  color: var(--text-3);
+}
+.provider-logo__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.provider-logo__actions .btn {
+  gap: 6px;
+}
+.provider-logo__hint {
+  margin: 12px 0 0;
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.provider-logo__steps {
+  margin-top: 12px;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+}
+.provider-logo__steps summary {
+  cursor: pointer;
+  width: fit-content;
+  color: var(--text-2);
+}
+.provider-logo__steps summary:hover {
+  color: var(--text);
+}
+.provider-logo__steps ol {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 10px 0 0;
+  padding: 0 0 0 18px;
+}
+.provider-logo__steps li {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.provider-logo__url {
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+.provider-logo__result {
+  color: var(--text-3);
+}
+.provider-logo__steps li[data-found] .provider-logo__result {
+  color: var(--diff-add-fg);
+}
+.provider-logo + .provider-status {
+  margin-top: 10px;
+}
+.provider-logo__steps + .provider-link,
+.provider-logo__hint + .provider-link {
+  margin-top: 12px;
+}

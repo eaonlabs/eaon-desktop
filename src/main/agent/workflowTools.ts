@@ -39,6 +39,7 @@ const updatePlan: AgentTool = {
       }))
       .filter((item) => item.text)
       .slice(0, 30)
+    ctx.turn.todos = items
     ctx.emit({ type: 'todos', messageId: ctx.request.messageId, todos: items })
     // The model already knows what it sent; echoing the list back would only
     // cost tokens on every later round.

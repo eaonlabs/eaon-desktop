@@ -1,16 +1,242 @@
 // Adapted from MIT and Apache-2.0 components; see components/agent/LICENSES.txt.
-import type { JSX } from 'react'
-import { Atom, Braces, CodeXml, File, FileText, Hash, Image } from 'lucide-react'
+import type { CSSProperties, JSX } from 'react'
+import {
+  Atom,
+  Award,
+  Binary,
+  Bird,
+  Braces,
+  CodeXml,
+  Coffee,
+  Cog,
+  Container,
+  Database,
+  Droplet,
+  FileArchive,
+  FileText,
+  Film,
+  Gem,
+  Hammer,
+  Hash,
+  Hexagon,
+  History,
+  Image,
+  Info,
+  KeyRound,
+  Lock,
+  Moon,
+  Music,
+  NotebookPen,
+  Package,
+  Settings,
+  Settings2,
+  Sheet,
+  Terminal,
+  Triangle,
+  Type,
+  type LucideIcon
+} from 'lucide-react'
 
 /**
- * A small mark for a file's type, like an editor's tab icon: the language's
- * own mark for TypeScript, JavaScript and JSON, and a tinted glyph for the
- * rest. Shared by the edit cards and the files-changed card, so a file looks
- * the same wherever the transcript names it.
+ * A small mark for a file's type, like an editor's file tree shows: the
+ * language's own mark where it has one people know (Python, TypeScript,
+ * JavaScript, Markdown, Vue, git's files), and a glyph in the language's
+ * colour for the rest — CSS's #, HTML's angle brackets, a picture for an
+ * image, a gear for configuration. A file nothing matches is lines of text.
+ * Shared by every place Chat names a file: the code panel's tree and tabs,
+ * the edit cards, the changed-files card, the diffs and paths in replies.
  */
+
+export type Glyph = { icon: LucideIcon; color: string } | { text: string; color: string } | { mark: 'python' | 'markdown' | 'git' | 'vue' | 'lines' | 'ts' | 'js' | 'json'; color?: string }
+
+const BLUE = '#519aba'
+const YELLOW = '#cbcb41'
+const ORANGE = '#e37933'
+const RED = '#cc3e44'
+const PURPLE = '#a074c4'
+const GREEN = '#8dc149'
+const PINK = '#f55385'
+const GREY = '#7d8e94'
+
+const BY_EXT: Record<string, Glyph> = {
+  ts: { mark: 'ts' },
+  mts: { mark: 'ts' },
+  cts: { mark: 'ts' },
+  js: { mark: 'js' },
+  mjs: { mark: 'js' },
+  cjs: { mark: 'js' },
+  json: { mark: 'json' },
+  jsonc: { mark: 'json' },
+  json5: { mark: 'json' },
+  tsx: { icon: Atom, color: '#4fc1e9' },
+  jsx: { icon: Atom, color: '#4fc1e9' },
+  py: { mark: 'python' },
+  pyi: { mark: 'python' },
+  pyw: { mark: 'python' },
+  pyx: { mark: 'python' },
+  ipynb: { icon: NotebookPen, color: ORANGE },
+  html: { icon: CodeXml, color: ORANGE },
+  htm: { icon: CodeXml, color: ORANGE },
+  xhtml: { icon: CodeXml, color: ORANGE },
+  css: { icon: Hash, color: BLUE },
+  scss: { icon: Hash, color: PINK },
+  sass: { icon: Hash, color: PINK },
+  less: { icon: Hash, color: '#7a8fd6' },
+  styl: { icon: Hash, color: GREEN },
+  vue: { mark: 'vue' },
+  svelte: { text: 'S', color: '#ff5a1f' },
+  astro: { text: 'A', color: ORANGE },
+  md: { mark: 'markdown' },
+  mdx: { mark: 'markdown' },
+  markdown: { mark: 'markdown' },
+  svg: { icon: Image, color: '#e8b53a' },
+  png: { icon: Image, color: PURPLE },
+  jpg: { icon: Image, color: PURPLE },
+  jpeg: { icon: Image, color: PURPLE },
+  gif: { icon: Image, color: PURPLE },
+  webp: { icon: Image, color: PURPLE },
+  bmp: { icon: Image, color: PURPLE },
+  ico: { icon: Image, color: PURPLE },
+  avif: { icon: Image, color: PURPLE },
+  tiff: { icon: Image, color: PURPLE },
+  heic: { icon: Image, color: PURPLE },
+  yml: { icon: Braces, color: PURPLE },
+  yaml: { icon: Braces, color: PURPLE },
+  toml: { icon: Settings, color: GREY },
+  ini: { icon: Settings, color: GREY },
+  cfg: { icon: Settings, color: GREY },
+  conf: { icon: Settings, color: GREY },
+  properties: { icon: Settings, color: GREY },
+  plist: { icon: CodeXml, color: YELLOW },
+  xml: { icon: CodeXml, color: YELLOW },
+  sh: { icon: Terminal, color: GREEN },
+  bash: { icon: Terminal, color: GREEN },
+  zsh: { icon: Terminal, color: GREEN },
+  fish: { icon: Terminal, color: GREEN },
+  ps1: { icon: Terminal, color: BLUE },
+  bat: { icon: Terminal, color: YELLOW },
+  cmd: { icon: Terminal, color: YELLOW },
+  go: { text: 'GO', color: '#3fb3d9' },
+  rs: { icon: Cog, color: '#dea584' },
+  rb: { icon: Gem, color: RED },
+  erb: { icon: Gem, color: RED },
+  gemspec: { icon: Gem, color: RED },
+  java: { icon: Coffee, color: RED },
+  jar: { icon: Coffee, color: RED },
+  class: { icon: Coffee, color: RED },
+  kt: { text: 'K', color: PURPLE },
+  kts: { text: 'K', color: PURPLE },
+  swift: { icon: Bird, color: ORANGE },
+  c: { text: 'C', color: BLUE },
+  h: { text: 'H', color: PURPLE },
+  cpp: { text: 'C++', color: PINK },
+  cc: { text: 'C++', color: PINK },
+  cxx: { text: 'C++', color: PINK },
+  hpp: { text: 'H', color: PINK },
+  cs: { text: 'C#', color: GREEN },
+  m: { text: 'M', color: BLUE },
+  php: { text: 'php', color: '#8892bf' },
+  dart: { text: 'D', color: '#40c4ff' },
+  scala: { text: 'S', color: RED },
+  lua: { icon: Moon, color: BLUE },
+  r: { text: 'R', color: BLUE },
+  jl: { text: 'jl', color: PURPLE },
+  ex: { icon: Droplet, color: PURPLE },
+  exs: { icon: Droplet, color: PURPLE },
+  hs: { text: 'λ', color: PURPLE },
+  zig: { text: 'Z', color: ORANGE },
+  sql: { icon: Database, color: PINK },
+  db: { icon: Database, color: PINK },
+  sqlite: { icon: Database, color: PINK },
+  prisma: { icon: Triangle, color: '#9aa9b4' },
+  graphql: { icon: Hexagon, color: PINK },
+  gql: { icon: Hexagon, color: PINK },
+  proto: { text: 'PB', color: BLUE },
+  tf: { text: 'TF', color: PURPLE },
+  wasm: { text: 'WA', color: PURPLE },
+  pdf: { icon: FileText, color: RED },
+  zip: { icon: FileArchive, color: YELLOW },
+  tar: { icon: FileArchive, color: YELLOW },
+  gz: { icon: FileArchive, color: YELLOW },
+  tgz: { icon: FileArchive, color: YELLOW },
+  rar: { icon: FileArchive, color: YELLOW },
+  '7z': { icon: FileArchive, color: YELLOW },
+  mp4: { icon: Film, color: PINK },
+  mov: { icon: Film, color: PINK },
+  webm: { icon: Film, color: PINK },
+  mkv: { icon: Film, color: PINK },
+  avi: { icon: Film, color: PINK },
+  mp3: { icon: Music, color: PURPLE },
+  wav: { icon: Music, color: PURPLE },
+  flac: { icon: Music, color: PURPLE },
+  ogg: { icon: Music, color: PURPLE },
+  m4a: { icon: Music, color: PURPLE },
+  ttf: { icon: Type, color: RED },
+  otf: { icon: Type, color: RED },
+  woff: { icon: Type, color: RED },
+  woff2: { icon: Type, color: RED },
+  csv: { icon: Sheet, color: GREEN },
+  tsv: { icon: Sheet, color: GREEN },
+  xlsx: { icon: Sheet, color: GREEN },
+  lock: { icon: Lock, color: GREY },
+  exe: { icon: Binary, color: GREY },
+  dll: { icon: Binary, color: GREY },
+  so: { icon: Binary, color: GREY },
+  dylib: { icon: Binary, color: GREY },
+  mk: { icon: Hammer, color: ORANGE }
+}
+
+/** Whole names that say more than their extension. */
+function byName(name: string): Glyph | null {
+  const n = name.toLowerCase()
+  if (n === 'package.json' || n === 'package-lock.json') return { icon: Package, color: RED }
+  if (/^(ts|js)config(\..+)?\.json$/.test(n)) return { icon: Settings2, color: BLUE }
+  if (n === 'dockerfile' || n.startsWith('dockerfile.') || n === '.dockerignore' || /^(docker-)?compose(\..+)?\.ya?ml$/.test(n)) return { icon: Container, color: '#3b9ae1' }
+  if (n.startsWith('.git') || n === '.gitkeep') return { mark: 'git', color: GREY }
+  if (n === '.env' || n.startsWith('.env.')) return { icon: KeyRound, color: YELLOW }
+  if (/\.lock$|^bun\.lockb?$|^pnpm-lock\.yaml$/.test(n)) return { icon: Lock, color: GREY }
+  if (n === 'makefile' || n === 'gnumakefile' || n === 'cmakelists.txt') return { icon: Hammer, color: ORANGE }
+  if (n === 'gemfile' || n === 'rakefile') return { icon: Gem, color: RED }
+  if (/^readme(\.|$)/.test(n)) return { icon: Info, color: BLUE }
+  if (/^(license|licence|copying)(\.|$)/.test(n)) return { icon: Award, color: YELLOW }
+  if (/^changelog(\.|$)/.test(n)) return { icon: History, color: GREEN }
+  if (/^\.(editorconfig|npmrc|nvmrc|prettierrc|eslintrc|babelrc|stylelintrc|browserslistrc)/.test(n) || /^(eslint|prettier|vite|vitest|webpack|rollup|tailwind|postcss|babel|jest)\.config\./.test(n)) {
+    return { icon: Settings, color: n.includes('eslint') ? PURPLE : GREY }
+  }
+  return null
+}
+
+/** A file's mark, by its whole name first, then its extension; lines of text when nothing matches. */
+export function glyphFor(file: string): Glyph {
+  const name = file.split(/[\\/]/).pop() ?? file
+  const dot = name.lastIndexOf('.')
+  const ext = dot > 0 ? name.slice(dot + 1).toLowerCase() : ''
+  return byName(name) ?? BY_EXT[ext] ?? { mark: 'lines' }
+}
+
 export function FileIcon({ file, size = 14 }: { file: string; size?: number }): JSX.Element {
-  const ext = file.split('.').pop()?.toLowerCase() ?? ''
-  if (ext === 'ts' || ext === 'mts' || ext === 'cts') {
+  const glyph = glyphFor(file)
+  const tint = { '--fi': 'color' in glyph && glyph.color ? glyph.color : GREY } as CSSProperties
+  if ('icon' in glyph) {
+    const Icon = glyph.icon
+    return <Icon size={size} strokeWidth={1.8} className="file-icon" style={tint} aria-hidden />
+  }
+  if ('text' in glyph) {
+    // Short marks (GO, C#, php) as letters, set tight so they sit in the same square as the glyphs.
+    const fontSize = glyph.text.length >= 3 ? 6.4 : glyph.text.length === 2 ? 8 : 10.5
+    return (
+      <svg className="file-icon file-icon--text" viewBox="0 0 16 16" width={size} height={size} style={tint} aria-hidden>
+        <text x="8" y="8.6" textAnchor="middle" dominantBaseline="middle" fontSize={fontSize} fontWeight={800} fontFamily="ui-sans-serif, system-ui, -apple-system, sans-serif" fill="currentColor" letterSpacing="-0.3">
+          {glyph.text}
+        </text>
+      </svg>
+    )
+  }
+  return <Mark mark={glyph.mark} size={size} style={tint} />
+}
+
+function Mark({ mark, size, style }: { mark: Extract<Glyph, { mark: string }>['mark']; size: number; style: CSSProperties }): JSX.Element {
+  if (mark === 'ts') {
     return (
       <svg className="file-icon" viewBox="0 0 32 32" width={size} height={size} aria-hidden>
         <path
@@ -20,7 +246,7 @@ export function FileIcon({ file, size = 14 }: { file: string; size?: number }): 
       </svg>
     )
   }
-  if (ext === 'js' || ext === 'mjs' || ext === 'cjs') {
+  if (mark === 'js') {
     return (
       <svg className="file-icon" viewBox="0 0 32 32" width={size} height={size} aria-hidden>
         <rect x="2" y="2" width="28" height="28" rx="3" fill="#f5de19" />
@@ -31,7 +257,7 @@ export function FileIcon({ file, size = 14 }: { file: string; size?: number }): 
       </svg>
     )
   }
-  if (ext === 'json' || ext === 'jsonc') {
+  if (mark === 'json') {
     return (
       <svg className="file-icon" viewBox="0 0 32 32" width={size} height={size} aria-hidden>
         <path
@@ -45,17 +271,49 @@ export function FileIcon({ file, size = 14 }: { file: string; size?: number }): 
       </svg>
     )
   }
-  const props = { size, strokeWidth: 1.8, className: 'file-icon' }
-  if (ext === 'tsx' || ext === 'jsx') return <Atom {...props} data-ext="react" />
-  if (ext === 'css' || ext === 'scss' || ext === 'less') return <Hash {...props} data-ext="css" />
-  if (ext === 'yml' || ext === 'yaml' || ext === 'toml') return <Braces {...props} data-ext="data" />
-  if (ext === 'html' || ext === 'xml' || ext === 'svg' || ext === 'vue') return <CodeXml {...props} data-ext="markup" />
-  if (ext === 'py' || ext === 'go' || ext === 'rs' || ext === 'rb' || ext === 'swift' || ext === 'java' || ext === 'c' || ext === 'cpp' || ext === 'sh') {
-    return <CodeXml {...props} data-ext="code" />
+  if (mark === 'python') {
+    // Two rounded halves, blue over yellow, each with its eye.
+    return (
+      <svg className="file-icon" viewBox="0 0 16 16" width={size} height={size} aria-hidden>
+        <path d="M7.9 1.4c-2.5 0-3 1.1-3 2.1v1.4h3.2v.6H3.7c-1.2 0-2.2.9-2.2 2.6 0 1.8.9 2.7 2 2.7h1.4V9.3c0-1.1.9-2 2-2h2.7c.9 0 1.6-.7 1.6-1.6V3.5c0-1-.9-2.1-3.3-2.1Z" fill="#4b8bbe" />
+        <circle cx="6.3" cy="3.1" r="0.6" fill="#fff" />
+        <path d="M8.1 14.6c2.5 0 3-1.1 3-2.1v-1.4H7.9v-.6h4.4c1.2 0 2.2-.9 2.2-2.6 0-1.8-.9-2.7-2-2.7h-1.4v1.5c0 1.1-.9 2-2 2H6.4c-.9 0-1.6.7-1.6 1.6v2.2c0 1 .9 2.1 3.3 2.1Z" fill="#f7cf3d" />
+        <circle cx="9.7" cy="12.9" r="0.6" fill="#fff" />
+      </svg>
+    )
   }
-  if (ext === 'md' || ext === 'mdx' || ext === 'txt') return <FileText {...props} />
-  if (['png', 'jpg', 'jpeg', 'gif', 'webp'].includes(ext)) return <Image {...props} />
-  return <File {...props} />
+  if (mark === 'markdown') {
+    return (
+      <svg className="file-icon" viewBox="0 0 16 16" width={size} height={size} style={{ ...style, '--fi': BLUE } as CSSProperties} aria-hidden>
+        <rect x="1" y="3.5" width="14" height="9" rx="1.8" fill="none" stroke="currentColor" strokeWidth="1.3" />
+        <path d="M3.6 10.4V5.6l1.9 2.3 1.9-2.3v4.8M11.4 5.6v4.6M9.8 8.7l1.6 1.6 1.6-1.6" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    )
+  }
+  if (mark === 'git') {
+    return (
+      <svg className="file-icon" viewBox="0 0 16 16" width={size} height={size} style={style} aria-hidden>
+        <path d="M8 1.3 14.7 8 8 14.7 1.3 8Z" fill="currentColor" />
+        <path d="M6.2 4.8 8 6.6v3.5M8 6.6l2 2" fill="none" stroke="var(--fi-cut, var(--bg))" strokeWidth="1.2" strokeLinecap="round" />
+        <circle cx="8" cy="10.6" r="1" fill="var(--fi-cut, var(--bg))" />
+        <circle cx="10.3" cy="8.9" r="1" fill="var(--fi-cut, var(--bg))" />
+      </svg>
+    )
+  }
+  if (mark === 'vue') {
+    return (
+      <svg className="file-icon" viewBox="0 0 16 16" width={size} height={size} aria-hidden>
+        <path d="M1 2.5h3l4 6.9 4-6.9h3L8 14.5Z" fill="#41b883" />
+        <path d="M4 2.5h2.4L8 5.3l1.6-2.8H12L8 9.4Z" fill="#35495e" />
+      </svg>
+    )
+  }
+  // Lines of text: a file with no mark of its own.
+  return (
+    <svg className="file-icon" viewBox="0 0 16 16" width={size} height={size} style={style} aria-hidden>
+      <path d="M3 4h10M3 7h10M3 10h10M3 13h6" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  )
 }
 
 /** "src/state/store.ts" → { name: "store.ts", folder: "src/state" }. */

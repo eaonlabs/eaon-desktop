@@ -9,7 +9,13 @@
  * followed (a trailing-slash or path move), one to another origin is refused
  * with a message saying so, and the credentials never go anywhere the user
  * didn't point them.
+ *
+ * A request to Eaon's gateway is signed here too, on every hop
+ * (gatewaySignature.ts).
  */
+
+import { isGatewayRequest } from '../eaonAddress'
+import { noteGatewayClock, signatureExpired, signedRequest } from '../gatewaySignature'
 
 /** Thrown when a provider tries to send the request, and so the key, to another site. */
 export class RedirectRefusedError extends Error {
@@ -56,8 +62,20 @@ export async function providerFetch(url: string | URL, init: RequestInit = {}): 
   let target = String(url)
   let method = init.method ?? 'GET'
   let body = init.body
+  let resigned = false
   for (let hops = 0; ; hops++) {
-    const response = await fetch(target, { ...init, method, body, redirect: 'manual' })
+    const gateway = isGatewayRequest(target)
+    const signed = gateway ? await signedRequest(target, { method, body, headers: init.headers }) : null
+    const response = await fetch(target, { ...init, method, body: signed ? signed.body : body, ...(signed ? { headers: signed.headers } : {}), redirect: 'manual' })
+    if (gateway) {
+      noteGatewayClock(response)
+      // Signed by a clock more than five minutes out: once more, by the gateway's.
+      if (!resigned && (await signatureExpired(response))) {
+        resigned = true
+        await response.body?.cancel().catch(() => {})
+        continue
+      }
+    }
     if (fromLocalGateway(target, response)) {
       await response.body?.cancel().catch(() => {})
       throw new GatewayLoopError(target)

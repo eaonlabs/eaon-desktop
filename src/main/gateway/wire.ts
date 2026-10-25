@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto'
 import type { ServerResponse } from 'node:http'
 import type { EffortLevel } from '@shared/types'
 import type { NeutralImage, NeutralMessage, NeutralToolCall } from '../providers/adapters/types'
+import { hideEaonAddress } from '../eaonAddress'
 
 /** Pieces every wire format of the gateway shares. */
 
@@ -131,6 +132,7 @@ export function sseData(res: ServerResponse, data: unknown): void {
   if (!res.writableEnded) res.write(`data: ${typeof data === 'string' ? data : JSON.stringify(data)}\n\n`)
 }
 
+/** An error as the app that asked gets it, without the gateway's address (eaonAddress.ts). */
 export function errorMessage(error: unknown): string {
-  return (error instanceof Error ? error.message : String(error)).replace(/^\d{3}:\s*/, '')
+  return hideEaonAddress((error instanceof Error ? error.message : String(error)).replace(/^\d{3}:\s*/, ''))
 }

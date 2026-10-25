@@ -7,6 +7,7 @@ import { app, powerSaveBlocker } from 'electron'
 import type { GoalState, ModelInfo, Provider, Settings, StreamEvent, StreamRequest, TokenUsage } from '@shared/types'
 import { adapterFor, getProvider, noteProviderHealth } from '../providers'
 import { classifyProviderError } from '../providers/errors'
+import { hideEaonAddress } from '../eaonAddress'
 import { findModel } from '@shared/modelSelection'
 import { addUsage, emptyUsage, HEADERS_TIMEOUT_MESSAGE, isHeadersTimeout, ProviderHttpError, type Adapter, type Credentials, type NeutralImage, type NeutralMessage, type NeutralToolResult, type TurnRequest, type TurnResult } from '../providers/adapters/types'
 import { credentialAttempts, isAuthError } from '../providers/credentials'
@@ -16,6 +17,7 @@ import { cancelApprovals, requestApproval, type Approver } from './approvals'
 import { buildHistory, estimateMessages, estimateTokens, pruneImages, pruneInFlight, stripImages, transcriptText } from './context'
 import { chatSystemPrompt, COMPACTION_PROMPT, workSystemPrompt } from './prompts'
 import { CallGuard } from './guards'
+import { openSteps, PLAN_STALE_ROUNDS, planFinishNudge, planReminder } from './planNudge'
 import { callFacts, decide, USER_DENIED, type RunPolicy, type ToolGate, type TurnOrigin, type UnattendedPolicy } from './policy'
 import { capOutput, guidanceFor, isMutating, toolsFor, toSpec, WORKFLOW_TOOLS, type AgentTool, type ToolContext, type ToolQuery, type TurnState } from './tools'
 
@@ -492,6 +494,8 @@ export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
   let goalIterations = 0
   let emptyNudges = 0
   let announcedNudged = false
+  let planNudged = false
+  let roundsSincePlan = 0
   let goal = params.goal
   const startedAt = Date.now()
   // A goal with an end time is bounded by that time, not by how often it was sent back.
@@ -586,6 +590,14 @@ export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
       continue
     }
 
+    // Stopping with the checklist still showing open steps: once per turn, the
+    // agent marks what it finished, so the pinned plan matches the work.
+    if (result.calls.length === 0 && params.depth === 0 && params.request.mode === 'work' && !planNudged && !signal.aborted && openSteps(turn.todos).length > 0) {
+      planNudged = true
+      messages.push({ role: 'user', text: planFinishNudge(turn.todos!) })
+      continue
+    }
+
     if (result.calls.length === 0) {
       // Goal mode: stopping is not the same as finishing.
       if (goalActive() && goal) {
@@ -626,6 +638,13 @@ export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
       }
     }
     if (signal.aborted) throw new Error('aborted')
+    // A plan left untouched for several rounds while steps are open: a reminder rides on the round's last result.
+    roundsSincePlan = result.calls.some((c) => c.name === 'update_plan') ? 0 : roundsSincePlan + 1
+    if (params.depth === 0 && roundsSincePlan >= PLAN_STALE_ROUNDS && openSteps(turn.todos).length > 0 && results.length > 0) {
+      const last = results[results.length - 1]
+      results[results.length - 1] = { ...last, output: last.output + planReminder(turn.todos!) }
+      roundsSincePlan = 0
+    }
     messages.push({ role: 'tool', results })
     if (turn.extraUsage) {
       addUsage(usage, turn.extraUsage)
@@ -920,7 +939,7 @@ async function runOwnLoop(request: StreamRequest, emit: (event: StreamEvent) => 
     // an unrecognised failure (a context-length 400, say) still needs its
     // Copy details and Try again under the error.
     const issue = classifyProviderError(error, provider)
-    const message = issue.kind === 'other' ? redactSecrets(error instanceof Error ? error.message : String(error)) : issue.message
+    const message = issue.kind === 'other' ? hideEaonAddress(redactSecrets(error instanceof Error ? error.message : String(error))) : issue.message
     noteProviderHealth(provider.id, issue)
     emit({ type: 'error', messageId: request.messageId, error: message, issue })
     return { text, error: message, usage }

@@ -1,18 +1,21 @@
 import { useCallback, useEffect, useState, type JSX } from 'react'
 import { Check, Copy, ExternalLink, Loader2, LogIn, RefreshCw, X } from 'lucide-react'
-import type { EngineModel, EngineModels, EngineStatus } from '@shared/engines'
+import type { CliEngineId, EngineModel, EngineModels, EngineStatus } from '@shared/engines'
 import { EFFORT_LABEL } from '@shared/effort'
 import { useApp } from '../../../state/store'
 import { Card, Row, Section } from '../../ui'
 import codexLogo from '../../../assets/providers/codex.svg'
+import copilotLogo from '../../../assets/providers/githubcopilot.svg'
+import geminiCliLogo from '../../../assets/providers/geminicli.svg'
 import '../../../styles/engines.css'
 
 /**
  * Settings → Agent engines: what runs Eaon's agents besides Eaon's own loop.
- * Today that is Codex — the Codex the user installed (on its own, or inside
- * the ChatGPT app), with its own sign-in and model list. Main does the work
- * (src/main/engines); this page shows what it found and offers the next step
- * for each state: install, update, sign in, reconnect, refresh.
+ * Codex — the Codex the user installed (on its own, or inside the ChatGPT
+ * app) — and GitHub Copilot CLI and Gemini CLI, each with its own sign-in
+ * and model list. Main does the work (src/main/engines); this page shows
+ * what it found and offers the next step for each state: install, update,
+ * sign in, reconnect, refresh.
  */
 
 const CODEX_APP_PAGE = 'https://chatgpt.com/codex?app-landing-page=true'
@@ -181,7 +184,9 @@ export function EnginesPage(): JSX.Element {
       <h1 className="settings__h1">Agent engines</h1>
       <p className="settings__lede">
         An engine runs a whole agent: its own tools, sandbox, sign-in and models. Eaon&rsquo;s own engine runs on the
-        providers in Model providers. Codex runs on the Codex you have installed, signed in with your ChatGPT account.
+        providers in Model providers. Codex, GitHub Copilot and Gemini CLI run on the copy you have installed, each
+        signed in with your own account, so Chat and workers use your own plan with them. Eaon never sees those
+        sign-ins.
       </p>
 
       {loadError && (
@@ -305,6 +310,9 @@ export function EnginesPage(): JSX.Element {
           </p>
         </Section>
       )}
+
+      <AcpEngineSection id="copilot" status={statuses?.find((s) => s.id === 'copilot') ?? null} now={now} />
+      <AcpEngineSection id="gemini" status={statuses?.find((s) => s.id === 'gemini') ?? null} now={now} />
 
       <Section label="Eaon">
         <Card>
@@ -450,4 +458,183 @@ function Freshness({ models, now, checking }: { models: EngineModels | null; now
     return <span title={models.staleBecause}>Couldn&rsquo;t ask Codex for its models &mdash; showing the list built into Eaon, which may be out of date.</span>
   }
   return <>Updated {models.retrievedAt ? ago(models.retrievedAt, now) : 'just now'} &middot; from Codex itself</>
+}
+
+/** What sets each ACP engine apart on this page: the rest is the same for both. */
+const ACP_ENGINE: Record<Extract<CliEngineId, 'copilot' | 'gemini'>, { logo: string; blurb: string; plan: string; signingIn: string; docs: string }> = {
+  copilot: {
+    logo: copilotLogo,
+    blurb: 'GitHub’s coding agent, run by Eaon through the Copilot CLI you installed.',
+    plan: 'your GitHub Copilot plan',
+    signingIn: 'Finish signing in in the Terminal window Eaon opened (copilot login). This updates when you’re done.',
+    docs: 'https://docs.github.com/en/copilot/reference/copilot-cli-reference/acp-server'
+  },
+  gemini: {
+    logo: geminiCliLogo,
+    blurb: 'Google’s coding agent, run by Eaon through the Gemini CLI you installed.',
+    plan: 'your Google account',
+    signingIn: 'Finish signing in in your browser: Gemini CLI opened Google’s sign-in page. This updates when you’re done.',
+    docs: 'https://github.com/google-gemini/gemini-cli'
+  }
+}
+
+/**
+ * GitHub Copilot CLI or Gemini CLI: found on this computer or not, signed in
+ * or not, and its models. Eaon drives each through its own ACP mode
+ * (main/engines/acp); the CLI signs in and makes every request itself.
+ */
+function AcpEngineSection({ id, status, now }: { id: 'copilot' | 'gemini'; status: EngineStatus | null; now: number }): JSX.Element {
+  const meta = ACP_ENGINE[id]
+  const name = status?.name ?? (id === 'copilot' ? 'GitHub Copilot' : 'Gemini CLI')
+  const state = stateOf(status)
+  const [models, setModels] = useState<EngineModels | null>(null)
+  const [checking, setChecking] = useState(false)
+  const [signingIn, setSigningIn] = useState(false)
+  const [note, setNote] = useState<{ ok: boolean; text: string } | null>(null)
+
+  useEffect(() => {
+    let alive = true
+    const load = (): void => void window.api.engines.models(id).then((list) => alive && setModels(list), () => {})
+    load()
+    const off = window.api.engines.onChanged(load)
+    return () => {
+      alive = false
+      off()
+    }
+  }, [id])
+
+  const check = async (): Promise<void> => {
+    setChecking(true)
+    setNote(null)
+    try {
+      await window.api.engines.refresh(id, true)
+      setModels(await window.api.engines.models(id))
+    } catch (error) {
+      setNote({ ok: false, text: plainError(error) })
+    } finally {
+      setChecking(false)
+    }
+  }
+  const signIn = async (): Promise<void> => {
+    setSigningIn(true)
+    setNote(null)
+    try {
+      const next = await window.api.engines.login(id)
+      const after = next.find((s) => s.id === id)
+      setNote(after?.auth.state === 'signed-in' ? { ok: true, text: 'Signed in.' } : { ok: false, text: `${name} still isn’t signed in. Try again.` })
+      setModels(await window.api.engines.models(id))
+    } catch (error) {
+      setNote({ ok: false, text: plainError(error) })
+    } finally {
+      setSigningIn(false)
+    }
+  }
+
+  // The CLI's own default is a row in the pickers, not a model to count; nor is one the plan doesn't include.
+  const listed = models?.models.filter((m) => m.id && !m.unavailable) ?? []
+  const refused = models?.models.filter((m) => m.unavailable) ?? []
+  return (
+    <Section label={name}>
+      <Card>
+        <div className="eng-head">
+          <span className="ca-logo" style={{ width: 36, height: 36 }} aria-hidden="true">
+            <img src={meta.logo} alt="" draggable={false} />
+          </span>
+          <div className="eng-head__text">
+            <div className="eng-head__name">{name}</div>
+            <div className="eng-head__blurb">{meta.blurb}</div>
+          </div>
+          <span className="bx-status" data-state={state.tone === 'off' ? undefined : state.tone}>
+            <span className="bx-status__dot" />
+            {state.label}
+          </span>
+        </div>
+
+        {!status ? (
+          <Row title="Installation" description="Checking…" />
+        ) : !status.installed ? (
+          <div className="row row--stack">
+            <div className="row__body">
+              <div className="row__title">Not installed</div>
+              <div className="row__desc">Install it, sign in once in its own way, and Eaon finds it.</div>
+            </div>
+            <div className="eng-actions">
+              {status.updateHint && <CommandHint command={status.updateHint} />}
+              <button className="btn btn--ghost" onClick={() => void check()} disabled={checking}>
+                <RefreshCw size={14} strokeWidth={1.9} className={checking ? 'spinner' : undefined} />
+                {checking ? 'Checking…' : 'I’ve installed it'}
+              </button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <Row
+              title={status.version ? `${name} ${status.version}` : `${name} won’t start`}
+              description={status.version ? <span title={status.path ?? undefined}>Found on this computer.</span> : <span className="eng-danger">{status.error ?? `Found at ${status.path}, but it didn’t start.`}</span>}
+            />
+            {status.version && (
+              <Row
+                title="Account"
+                description={
+                  signingIn
+                    ? meta.signingIn
+                    : status.auth.state === 'signed-in'
+                      ? `Signed in. Turns use ${meta.plan}.`
+                      : status.auth.state === 'signed-out'
+                        ? `Not signed in. Sign in to use ${name} with ${meta.plan}.`
+                        : (status.error ?? `Eaon couldn’t tell whether ${name} is signed in.`)
+                }
+              >
+                {signingIn ? (
+                  <>
+                    <Loader2 size={15} strokeWidth={1.9} className="spinner eng-wait" aria-hidden="true" />
+                    <button className="btn btn--ghost" onClick={() => void window.api.engines.cancelLogin(id)}>
+                      <X size={14} strokeWidth={1.9} />
+                      Cancel
+                    </button>
+                  </>
+                ) : status.auth.state === 'signed-out' || status.auth.state === 'expired' ? (
+                  <button className="btn btn--primary" onClick={() => void signIn()} disabled={checking}>
+                    <LogIn size={14} strokeWidth={1.9} />
+                    Sign in
+                  </button>
+                ) : (
+                  <button className="btn btn--ghost" onClick={() => void check()} disabled={checking} aria-label={`Check ${name} again`}>
+                    <RefreshCw size={14} strokeWidth={1.9} className={checking ? 'spinner' : undefined} />
+                    {checking ? 'Checking…' : 'Check again'}
+                  </button>
+                )}
+              </Row>
+            )}
+            {status.version && status.auth.state === 'signed-in' && (
+              <Row
+                title={listed.length ? `${listed.length} ${listed.length === 1 ? 'model' : 'models'}` : 'Models'}
+                description={
+                  models?.note
+                    ? models.note
+                    : listed.length
+                      ? `${listed.map((m) => m.label).join(', ')}.${refused.length ? ` Not on your plan: ${refused.map((m) => m.label).join(', ')}.` : ''} Updated ${models?.retrievedAt ? ago(models.retrievedAt, now) : 'just now'}, from ${name} itself.`
+                      : `${name} picks its model itself; choose it in its own settings.`
+                }
+              />
+            )}
+          </>
+        )}
+      </Card>
+      {note && (
+        <p className="eng-note" data-ok={note.ok || undefined} role="status">
+          {note.text}
+        </p>
+      )}
+      {status?.installed && (
+        <p className="settings__lede eng-fine">
+          Eaon runs {name} the way code editors do, through the mode {name} offers for them, and {name} makes every request
+          itself with your sign-in. Eaon doesn&rsquo;t read your account or tokens, or change what {name} is told.{' '}
+          <button className="link-btn" onClick={() => void window.api.app.openExternal(meta.docs)}>
+            About it
+          </button>
+        </p>
+      )}
+    </Section>
+  )
 }

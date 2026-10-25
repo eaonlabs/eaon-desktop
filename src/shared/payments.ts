@@ -149,7 +149,7 @@ export const PAYMENTS_WAIVER = {
     'Eaon checks its limits against the amount the agent says it is about to pay. The merchant may charge a different amount (tax, tips, fees, currency conversion). Use a virtual card with its own spending limit from your bank or card issuer, so the issuer enforces a hard cap as well.',
     'To the fullest extent permitted by law, Eaon, its developers and affiliates are not liable for any purchase the agent makes, any money lost, any fees or chargebacks, or any other loss or damage that comes from automatic purchases. You will settle any dispute with the merchant or your card issuer yourself.',
     'Your card number and security code are stored encrypted on this computer. Eaon types them into checkout forms itself, so they are never part of the agent’s instructions, and page text the agent reads has them blanked out. A screenshot the agent takes of a filled-in checkout can still show them to the AI model.',
-    'You can turn automatic purchases off at any time in Settings → Payments, where every purchase is listed.'
+    'You can turn automatic purchases off at any time in Settings → Workers → Payments, where every purchase is listed.'
   ],
   checks: [
     'I have read and understand these terms.',

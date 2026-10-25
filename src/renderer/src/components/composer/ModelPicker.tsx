@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState, type JSX, type KeyboardEvent, type RefObject } from 'react'
-import { Check, CircleAlert, Plus, Search, Star } from 'lucide-react'
+import { Check, CircleAlert, Info, Plus, Search, Star } from 'lucide-react'
 import { FREE_PROVIDER_ID } from '@shared/freeCredits'
 import { useShallow } from 'zustand/react/shallow'
 import type { ModelInfo, Provider } from '@shared/types'
@@ -21,9 +21,9 @@ import { Popover } from '../ui'
 import { LinkAccounts } from '../LinkAccounts'
 import { ReasoningEffort } from './ReasoningEffort'
 import { modKey, modLabel } from '../../lib/platform'
-import { markKey, ProviderMark } from './ProviderMark'
+import { ENGINE_MARK, markKey, optionMark, ProviderMark } from './ProviderMark'
 import { useSetupAction } from './setupActions'
-import { useEngineModels } from './ModelSelect'
+import { useCliEngines } from './ModelSelect'
 import { useChatEngine } from './chatEngine'
 import { ENGINE_LABEL } from '@shared/engines'
 import './model-picker.css'
@@ -43,8 +43,8 @@ import './model-picker.css'
  */
 
 const STARRED = '__starred'
-/** The tab of Codex's own models: picking one runs Chat on Codex, with Codex's sign-in. */
-const CODEX_TAB = '__engine:codex'
+/** An agent CLI's tab (`__engine:codex`): picking one of its models runs Chat on that CLI, with its own sign-in. */
+const ENGINE_TAB = '__engine:'
 
 export function ModelPicker({
   anchor,
@@ -59,8 +59,8 @@ export function ModelPicker({
   onClose: () => void
   /**
    * Picking for something else than the app (a worker): its model, and what
-   * a pick does instead of changing the app's. The effort slider and Codex's
-   * tab are the app's, so they are left out then.
+   * a pick does instead of changing the app's. The effort slider and the
+   * agent CLIs' tabs are the app's, so they are left out then.
    */
   selected?: ModelInfo | null
   onPick?: (model: ModelInfo) => void
@@ -79,17 +79,34 @@ export function ModelPicker({
   )
   const selection = useApp((s) => s.modelSelection())
   const chatEngine = useChatEngine()
-  // Picking for a worker, the app's own choice (and Codex's tab) doesn't apply.
+  // Picking for a worker, the app's own choice (and the CLIs' tabs) doesn't apply.
   const engineChoice = onPick ? null : chatEngine
   const current = onPick ? (selected ?? null) : engineChoice ? null : selection.model
-  // Codex, when Eaon has checked for it: its own models, or why they can't be used yet.
-  const codex = useEngineModels('codex')
-  const codexOptions = useMemo(() => (onPick ? [] : engineOptions('codex', codex.models, codex.status)), [onPick, codex.models, codex.status])
-  const codexReadiness = codex.status ? engineReadiness('codex', codex.status) : null
-  const [codexBusy, setCodexBusy] = useState(false)
+  // The agent CLIs: Codex once Eaon has checked for it, the others once installed. Each tab holds the
+  // CLI's own models, or why they can't be used yet.
+  const cliEngines = useCliEngines()
+  const engineTabs = useMemo(
+    () =>
+      onPick
+        ? []
+        : cliEngines
+            .filter((e) => e.status && (e.id === 'codex' || e.status.installed))
+            .map((e) => ({
+              id: e.id,
+              tab: `${ENGINE_TAB}${e.id}`,
+              name: e.status?.name ?? ENGINE_LABEL[e.id],
+              options: engineOptions(e.id, e.models, e.status),
+              readiness: engineReadiness(e.id, e.status),
+              note: e.models?.note ?? null
+            })),
+    [onPick, cliEngines]
+  )
+  const engineOpts = useMemo(() => engineTabs.flatMap((e) => e.options), [engineTabs])
+  const [engineBusy, setEngineBusy] = useState<string | null>(null)
   const [linking, setLinking] = useState(false)
   const [query, setQuery] = useState('')
   const [tab, setTab] = useState<string>(STARRED)
+  const engineTab = engineTabs.find((e) => e.tab === tab) ?? null
   const [active, setActive] = useState(0)
   const list = useRef<HTMLDivElement>(null)
   const tabs = useRef<HTMLDivElement>(null)
@@ -111,11 +128,11 @@ export function ModelPicker({
 
   const q = query.trim()
   const shown: ModelOption[] = q
-    ? [...searchOptions(options, q, prefs), ...searchOptions(codexOptions, q, prefs)]
+    ? [...searchOptions(options, q, prefs), ...searchOptions(engineOpts, q, prefs)]
     : tab === STARRED
       ? [...starred, ...recent]
-      : tab === CODEX_TAB
-        ? codexOptions
+      : engineTab
+        ? engineTab.options
         : (groups.find((g) => g.kind === 'provider' && g.id === tab)?.options ?? [])
   const mixed = Boolean(q) || tab === STARRED
   // In the Starred tab, recent models follow the starred ones under their own label.
@@ -127,10 +144,11 @@ export function ModelPicker({
   useEffect(() => {
     if (!open) return
     setQuery('')
-    const start = engineChoice ? CODEX_TAB : (current?.providerId ?? selection.wanted?.providerId ?? linked[0]?.id ?? STARRED)
-    const startTab = start === CODEX_TAB || linked.some((p) => p.id === start) ? start : STARRED
+    const start = engineChoice ? `${ENGINE_TAB}${engineChoice.engine}` : (current?.providerId ?? selection.wanted?.providerId ?? linked[0]?.id ?? STARRED)
+    const startEngine = engineTabs.find((e) => e.tab === start)
+    const startTab = startEngine || linked.some((p) => p.id === start) ? start : STARRED
     setTab(startTab)
-    const inTab = startTab === STARRED ? [...starred, ...recent] : startTab === CODEX_TAB ? codexOptions : options.filter((o) => o.providerId === startTab)
+    const inTab = startTab === STARRED ? [...starred, ...recent] : startEngine ? startEngine.options : options.filter((o) => o.providerId === startTab)
     setActive(Math.max(0, currentKey ? inTab.findIndex((o) => o.key === currentKey) : 0))
   }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -263,27 +281,32 @@ export function ModelPicker({
                 </button>
               )
             })}
-            {codex.status && !onPick && (
+            {engineTabs.map((engine) => (
               <button
+                key={engine.tab}
                 role="tab"
                 className="mp__tab"
-                data-active={(!q && tab === CODEX_TAB) || undefined}
-                aria-selected={!q && tab === CODEX_TAB}
-                aria-label={codexReadiness?.state === 'ready' ? 'Codex' : `Codex, ${codexReadiness?.label ?? 'not ready'}`}
-                title={codexReadiness?.state === 'ready' ? 'Codex — Chat runs on Codex with your Codex sign-in' : `Codex — ${codexReadiness?.reason ?? ''}`}
+                data-active={(!q && tab === engine.tab) || undefined}
+                aria-selected={!q && tab === engine.tab}
+                aria-label={engine.readiness.state === 'ready' ? engine.name : `${engine.name}, ${engine.readiness.label}`}
+                title={
+                  engine.readiness.state === 'ready'
+                    ? `${engine.name} — Chat runs on ${engine.name} with your ${engine.name} sign-in`
+                    : `${engine.name} — ${engine.readiness.reason ?? ''}`
+                }
                 onClick={() => {
                   setQuery('')
-                  setTab(CODEX_TAB)
-                  setActive(Math.max(0, currentKey ? codexOptions.findIndex((o) => o.key === currentKey) : 0))
+                  setTab(engine.tab)
+                  setActive(Math.max(0, currentKey ? engine.options.findIndex((o) => o.key === currentKey) : 0))
                 }}
               >
                 <span className="mp__tab-mark">
-                  <ProviderMark providerId="codex" name="Codex" size={16} />
-                  {codexReadiness?.state !== 'ready' && <span className="mp__tab-badge" data-tone="warn" aria-hidden="true" />}
+                  <ProviderMark providerId={ENGINE_MARK[engine.id]} name={engine.name} size={16} />
+                  {engine.readiness.state !== 'ready' && <span className="mp__tab-badge" data-tone="warn" aria-hidden="true" />}
                 </span>
-                {!q && tab === CODEX_TAB && <span className="mp__tab-name">{ENGINE_LABEL.codex}</span>}
+                {!q && tab === engine.tab && <span className="mp__tab-name">{engine.name}</span>}
               </button>
-            )}
+            ))}
           </div>
           <button
             className="mp__add"
@@ -308,7 +331,7 @@ export function ModelPicker({
               setActive(0)
             }}
             onKeyDown={onKeyDown}
-            placeholder={options.length ? `Search ${options.length} models...` : 'Search models...'}
+            placeholder={options.length + engineOpts.length ? `Search ${options.length + engineOpts.length} models...` : 'Search models...'}
             aria-label="Search models"
             spellCheck={false}
           />
@@ -327,25 +350,33 @@ export function ModelPicker({
             )}
           </div>
         )}
-        {!q && tab === CODEX_TAB && codexReadiness && codexReadiness.state !== 'ready' && (
+        {!q && engineTab && engineTab.readiness.state !== 'ready' && (
           <div className="mp__notice" role="status">
             <CircleAlert size={13} strokeWidth={2} />
-            <span>{codexReadiness.reason ?? 'Codex can’t run right now.'} Chat on Codex uses your Codex sign-in and plan.</span>
-            {(codexReadiness.action === 'sign-in' || codexReadiness.action === 'reconnect') && (
+            <span>
+              {engineTab.readiness.reason ?? `${engineTab.name} can’t run right now.`} Chat on {engineTab.name} uses your {engineTab.name} sign-in and plan.
+            </span>
+            {(engineTab.readiness.action === 'sign-in' || engineTab.readiness.action === 'reconnect') && (
               <button
                 className="mp__notice-action"
-                disabled={codexBusy}
+                disabled={engineBusy !== null}
                 onClick={() => {
-                  setCodexBusy(true)
+                  setEngineBusy(engineTab.id)
                   window.api.engines
-                    .login('codex')
+                    .login(engineTab.id)
                     .catch(() => undefined)
-                    .finally(() => setCodexBusy(false))
+                    .finally(() => setEngineBusy(null))
                 }}
               >
-                {codexBusy ? 'Waiting for the browser…' : 'Sign in to Codex'}
+                {engineBusy === engineTab.id ? 'Waiting for you to sign in…' : `Sign in to ${engineTab.name}`}
               </button>
             )}
+          </div>
+        )}
+        {!q && engineTab?.note && engineTab.readiness.state === 'ready' && (
+          <div className="mp__notice mp__notice--info" role="status">
+            <Info size={13} strokeWidth={2} />
+            <span>{engineTab.note}</span>
           </div>
         )}
         {tabReadiness?.state === 'attention' && tabProvider && (
@@ -376,7 +407,7 @@ export function ModelPicker({
               {follow.on && <Check size={13} strokeWidth={2.2} className="mp__check" />}
             </div>
           )}
-          {options.length === 0 && codexOptions.length === 0 ? (
+          {options.length === 0 && engineOpts.length === 0 ? (
             <div className="mp__empty">
               <p>No usable model is connected. Sign in to a supported account, add an API key, or choose a local model.</p>
               <button
@@ -423,11 +454,11 @@ export function ModelPicker({
                     data-attention={option.availability !== 'ready' || undefined}
                     role="option"
                     aria-selected={isCurrent}
-                    title={option.reason ?? (option.label !== option.modelId ? option.modelId : undefined)}
+                    title={option.reason ?? option.model?.description ?? (option.label !== option.modelId ? option.modelId : undefined)}
                     onMouseMove={() => i !== active && setActive(i)}
                     onClick={() => pick(option)}
                   >
-                    {mixed && <ProviderMark providerId={option.groupId} name={option.groupLabel} size={13} />}
+                    {mixed && <ProviderMark providerId={optionMark(option)} name={option.groupLabel} size={13} />}
                     <span className="mp__row-name">{option.label}</span>
                     {option.availability !== 'ready' && <CircleAlert className="mp__row-warn" size={12} strokeWidth={2} aria-label="Needs attention" />}
                     {stage && <span className="mp__tag">{stage}</span>}

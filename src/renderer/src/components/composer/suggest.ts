@@ -16,12 +16,15 @@ export interface Trigger {
 
 /** Longer than any command or name; past this it's a sentence, not a lookup. */
 const MAX_QUERY = 40
+/** A file's path after "@" runs longer than a name. */
+const MAX_PATH_QUERY = 160
 
 /**
  * The trigger word the caret is in, if any. It must start a word (the start
  * of the text, or after whitespace), so "and/or", a URL's path and an email
  * address never open a menu, and the rest of the word may not hold another
- * trigger character (a path like "/usr/bin").
+ * trigger character (a path like "/usr/bin"), except that "@" takes a
+ * project path ("@src/app.ts").
  */
 export function findTrigger(text: string, caret: number, chars: readonly TriggerChar[] = ['/', '@']): Trigger | null {
   if (caret < 0 || caret > text.length) return null
@@ -32,7 +35,8 @@ export function findTrigger(text: string, caret: number, chars: readonly Trigger
   const char = text[start] as TriggerChar
   if (!chars.includes(char) || caret === start) return null
   const query = text.slice(start + 1, caret)
-  if (query.length > MAX_QUERY || query.includes('/') || query.includes('@')) return null
+  // "@" names files too, so a path ("@src/app.ts") is still a lookup there.
+  if (query.length > (char === '@' ? MAX_PATH_QUERY : MAX_QUERY) || (char === '/' && query.includes('/')) || query.includes('@')) return null
   return { char, query, start, end }
 }
 

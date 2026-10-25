@@ -477,6 +477,24 @@ test('the host takes an update only when it arrives whole', async () => {
 
 /* --------------------------------------------------------------- installing */
 
+test('uninstalling the host app deletes the desktop’s keys it had, and keeps the workers’ data', () => {
+  const home = mkdtempSync(join(scratch, 'uninstall-'))
+  for (const dir of ['app', 'runtime', 'uploads', join('data', 'store')]) mkdirSync(join(home, dir), { recursive: true })
+  writeFileSync(join(home, 'host.json'), '{"port": 47820, "secret": "x"}')
+  writeFileSync(join(home, 'data', 'keys.dat'), '{"openai":"sk-live"}')
+  writeFileSync(join(home, 'data', 'keys.dat.tmp'), '{"openai":"sk-live"}')
+  writeFileSync(join(home, 'data', 'keys.dat.broken-1'), 'x')
+  writeFileSync(join(home, 'data', 'store', 'workers.json'), '[]')
+  // No service file, and a HOME of its own: only files under the scratch folder are touched.
+  const out = execFileSync('sh', [join(process.cwd(), 'src/host/install.sh'), '--uninstall'], {
+    env: { ...process.env, EAON_HOST_HOME: home, HOME: mkdtempSync(join(scratch, 'uninstall-home-')) },
+    encoding: 'utf8'
+  })
+  assert.match(out, /EAON_HOST_REMOVED/)
+  for (const gone of ['app', 'runtime', 'uploads', 'host.json', join('data', 'keys.dat'), join('data', 'keys.dat.tmp'), join('data', 'keys.dat.broken-1')]) assert.equal(existsSync(join(home, gone)), false, gone)
+  assert.equal(readFileSync(join(home, 'data', 'store', 'workers.json'), 'utf8'), '[]', 'the workers’ data stays')
+})
+
 test('install output is read line by line, however it is split', () => {
   const lines: string[] = []
   const out = installOutput((p) => lines.push(p.line))

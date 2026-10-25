@@ -53,8 +53,12 @@ export function RoomPage({ room }: { room: WorkerRoom }): JSX.Element {
   // Chat's veil of graded blur over what scrolls under the top bar (see ChatView).
   const veil = useRef<HTMLDivElement>(null)
   const showVeil = (top: number): void => {
-    const t = Math.min(1, Math.max(0, top / 140))
-    veil.current?.style.setProperty('--veil', (t * t * (3 - 2 * t)).toFixed(3))
+    const over = (distance: number): string => {
+      const t = Math.min(1, Math.max(0, top / distance))
+      return (t * t * (3 - 2 * t)).toFixed(3)
+    }
+    veil.current?.style.setProperty('--veil', over(140))
+    scroller.current?.style.setProperty('--veil', over(48))
   }
   useLayoutEffect(() => {
     showVeil(scroller.current?.scrollTop ?? 0)

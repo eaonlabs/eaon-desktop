@@ -757,6 +757,19 @@ class TerminalRegistry {
     this.panes.get(paneId)?.term.clear()
   }
 
+  /** What is selected in a pane; empty when nothing is. */
+  selection(paneId: string): string {
+    return this.panes.get(paneId)?.term.getSelection() ?? ''
+  }
+
+  /** Called whenever the selection in a pane changes. */
+  onSelection(paneId: string, listener: () => void): () => void {
+    const rt = this.panes.get(paneId)
+    if (!rt) return () => undefined
+    const sub = rt.term.onSelectionChange(listener)
+    return () => sub.dispose()
+  }
+
   focus(paneId: string): void {
     this.panes.get(paneId)?.term.focus()
   }

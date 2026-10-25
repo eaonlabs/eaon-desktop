@@ -15,7 +15,7 @@ export function ArchivedPage(): JSX.Element {
   return (
     <>
       <h1 className="settings__h1">Archived chats</h1>
-      <p className="settings__lede">Archived chats are hidden from Recents but keep their full history.</p>
+      <p className="settings__lede">Archived chats are hidden from the sidebar but keep their full history.</p>
 
       <Section>
         {archived.length === 0 ? (

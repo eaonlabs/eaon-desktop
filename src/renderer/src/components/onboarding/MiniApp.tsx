@@ -222,7 +222,7 @@ function SideNav({ mode, scene }: { mode: 'chat' | 'workers' | 'ade'; scene: Sce
       <Nav icon={<LibraryBig {...ICON} />} label="Library" />
       <Nav icon={<AtSign {...ICON} />} label="Plugins" />
       <Nav icon={<SettingsIcon {...ICON} />} label="Settings" active={scene === 'tokn'} />
-      <span className="mini__group">Recents</span>
+      <span className="mini__group">Chats</span>
       {scene === 'chat' && <Recent />}
       <span className="mini__recent">Trip ideas for Lisbon</span>
       <span className="mini__recent">Why is CI flaky on Linux</span>
@@ -265,7 +265,7 @@ const CHAT_MARKS = [...CHAT.keys, CHAT.sent, CHAT.searching, CHAT.searched, ...C
 /** How long Chat takes to play through, for the welcome's cycle. */
 export const CHAT_LENGTH = CHAT.end + 1600
 
-/** The conversation's new row in Recents, sliding in once the answer is done. */
+/** The conversation's new row in Chats, sliding in once the answer is done. */
 function Recent(): JSX.Element | null {
   const passed = useTimeline(useMemo(() => [CHAT.recent], []))
   return passed ? <span className="mini__recent mini__recent--new">Quiet café with good Wi‑Fi</span> : null
@@ -565,8 +565,8 @@ function Stat({ label, value }: { label: string; value: string }): JSX.Element {
 /* ---- Models ---- */
 
 const MODEL_GROUPS: { label: string; rows: string[] }[] = [
-  { label: 'Accounts', rows: ['ChatGPT', 'Claude'] },
-  { label: 'API keys', rows: ['OpenAI', 'OpenRouter'] },
+  { label: 'Accounts', rows: ['ChatGPT', 'OpenRouter'] },
+  { label: 'API keys', rows: ['Anthropic', 'OpenAI'] },
   { label: 'On this computer', rows: ['Ollama'] }
 ]
 const MODEL_ROWS = MODEL_GROUPS.flatMap((g) => g.rows)

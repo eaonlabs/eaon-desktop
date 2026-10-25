@@ -4,7 +4,7 @@ import { mkdir, rm } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { basename, extname, isAbsolute, join, resolve } from 'node:path'
 import type { ChatMessage, GoalState, Settings, StreamEvent, TokenUsage } from '@shared/types'
-import type { EngineId } from '@shared/engines'
+import { isCliEngine, type EngineId } from '@shared/engines'
 import {
   DEFAULT_WATCH_MINUTES,
   FAILURES_BEFORE_PAUSE,
@@ -424,7 +424,7 @@ const pinned = (raw: unknown): { providerId: string; modelId: string } | null =>
 
 const session = (raw: unknown): WorkerThreadInfo['engineSession'] => {
   const v = raw as { engine?: unknown; sessionId?: unknown } | null
-  return v && v.engine === 'codex' && typeof v.sessionId === 'string' && v.sessionId ? { engine: 'codex', sessionId: v.sessionId } : null
+  return v && isCliEngine(v.engine) && typeof v.sessionId === 'string' && v.sessionId ? { engine: v.engine, sessionId: v.sessionId } : null
 }
 
 function normalizeThreadInfo(raw: unknown, now: number): WorkerThreadInfo | null {
@@ -480,7 +480,7 @@ function normalize(raw: Partial<Worker> & { id: string; name: string; handoffs?:
     createdAt: finite(raw.createdAt) ?? now,
     createdBy: typeof raw.createdBy === 'string' ? raw.createdBy : null,
     model: pinned(raw.model),
-    engine: raw.engine === 'codex' ? 'codex' : 'native',
+    engine: isCliEngine(raw.engine) ? raw.engine : 'native',
     effort: typeof raw.effort === 'string' ? raw.effort : null,
     folder: typeof raw.folder === 'string' ? raw.folder : '',
     paused: raw.paused === true,
@@ -881,7 +881,7 @@ export class WorkersEngine {
       throw new Error(`You can have up to ${MAX_WORKERS} workers. Remove one to make room for another.`)
     }
     const color = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(str(draft.color)) ? str(draft.color) : (existing?.color ?? this.freeColor())
-    const engine: EngineId = draft.engine === 'codex' || draft.engine === 'native' ? draft.engine : (existing?.engine ?? 'native')
+    const engine: EngineId = isCliEngine(draft.engine) || draft.engine === 'native' ? draft.engine : (existing?.engine ?? 'native')
     let model =
       draft.model === undefined
         ? (existing?.model ?? null)
@@ -890,8 +890,10 @@ export class WorkersEngine {
           : null
     // A model belongs to an engine: switching engine without picking a model
     // falls back to that engine's default instead of sending one engine's
-    // model name to the other.
-    if (model && (engine === 'codex') !== (model.providerId === 'codex')) model = null
+    // model name to the other. An agent CLI's models carry its id as their
+    // provider; Eaon's own loop never takes Codex's (and 'gemini' is also the
+    // Gemini API provider's id, so only an engine's own side is checked there).
+    if (model && (isCliEngine(engine) ? model.providerId !== engine : model.providerId === 'codex')) model = null
     const effort = draft.effort === undefined ? (existing?.effort ?? null) : draft.effort
     const access =
       draft.access === 'read-only' || draft.access === 'safe' || draft.access === 'autonomous' ? draft.access : (existing?.access ?? 'autonomous')

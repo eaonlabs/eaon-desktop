@@ -25,7 +25,7 @@ import { notify } from '../../Notice'
 import { pairingHint, TokenSetup } from './ChatAppSetup'
 
 /**
- * Settings → Chat apps: connect a worker to a bot in Discord, Telegram, Slack,
+ * Settings → Workers → Chat apps: connect a worker to a bot in Discord, Telegram, Slack,
  * Matrix, Mattermost or Zulip, or to a WhatsApp account; pair your own account with it, and decide who else may
  * talk to it and how much they may make it do. Main owns the connections
  * (features/channels); this page shows them and sends commands.
@@ -74,7 +74,6 @@ export function ChatAppsPage(): JSX.Element {
 
   return (
     <>
-      <h1 className="settings__h1">Chat apps</h1>
       <p className="settings__lede">
         Talk to your workers from Discord, Telegram, WhatsApp, Slack, Matrix, Mattermost and Zulip, and let friends and groups talk to them too. Each connection
         speaks for one worker, and you decide how much anyone else can make it do.

@@ -1,24 +1,27 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type JSX } from 'react'
 import { createPortal } from 'react-dom'
 import { ArrowLeft, ArrowRight, X } from 'lucide-react'
+import { WHATS_NEW_RELEASE } from '@shared/whatsNew'
+import { shortcutLabel } from '../../lib/platform'
 import { useApp } from '../../state/store'
-import { useOnboarding } from './onboardingStore'
+import { useOnboarding, type TourKind } from './onboardingStore'
 
 /**
- * The tour: a spotlight on one part of the app at a time, with a card that
- * says what it is. It moves between the tabs itself, so the person watches
- * rather than clicks. ← and → step through it, Esc ends it, and it can be
- * taken again from the sidebar’s ? (help) button.
+ * The tours: a spotlight on one part of the app at a time, with a card that
+ * says what it is. One shows the app to a fresh install; the other shows an
+ * updated install what's new in this release. Each moves between the tabs
+ * itself, so the person watches rather than clicks. ← and → step through it,
+ * Esc ends it, and both can be taken again from the sidebar’s ? (help) button.
  *
  * Each stop names its element by selector (and the text it must contain,
  * for one row of a list). One that isn't on screen, in a narrow window say,
- * shows its card in the middle instead of pointing at nothing.
+ * or one with no selector, shows its card in the middle instead.
  */
 
 interface Stop {
   /** The tab the stop is in: Chat, Workers or ADE (their workspace ids). */
   workspace: 'work' | 'workers' | 'eaon-code'
-  selector: string
+  selector?: string
   text?: string
   /** Where the card goes, if there's room. */
   side: 'top' | 'bottom' | 'left' | 'right'
@@ -63,7 +66,7 @@ const stops = (): Stop[] => [
     text: 'Automations',
     side: 'right',
     title: 'Automations',
-    body: 'Run a prompt on its own: every morning, every few minutes, or on any cron schedule. Each run lands in Recents.'
+    body: 'Run a prompt on its own: every morning, every few minutes, or on any cron schedule. Each run lands in the sidebar as a new chat.'
   },
   {
     workspace: 'eaon-code',
@@ -75,7 +78,8 @@ const stops = (): Stop[] => [
   },
   {
     workspace: 'eaon-code',
-    selector: '.usage-pill',
+    // Rings or a bar, whichever Settings → Usage & limits shows.
+    selector: '.usage-rings, .usage-pill',
     side: 'bottom',
     title: 'Your plan’s limits',
     body: 'How much of your Claude and Codex plans is left, and when it resets. Switch accounts from here when one runs low.'
@@ -90,8 +94,86 @@ const stops = (): Stop[] => [
   }
 ]
 
+/** What's new since 2026.6, for an install updated from it, tab by tab. */
+const whatsNewStops = (): Stop[] => [
+  {
+    workspace: 'work',
+    side: 'bottom',
+    title: `What’s new in Eaon ${WHATS_NEW_RELEASE}`,
+    body: 'A one-minute look at what has changed since 2026.6, tab by tab. You can take it again from the ? button at the bottom of the sidebar.'
+  },
+  {
+    workspace: 'work',
+    selector: '.main .chip--model',
+    side: 'top',
+    title: 'Free models with Eaon Lite',
+    body: 'MiMo v2.6 Flash and Muse Spark are in the model picker under Eaon Lite, free for everyone. No key, no sign-in.'
+  },
+  {
+    workspace: 'work',
+    selector: '.main .composer-pill--permission',
+    side: 'top',
+    title: 'A new message box',
+    body: 'Choose here how much Eaon may do without asking. Approvals now show just above the box, and you can paste a screenshot straight in.'
+  },
+  {
+    workspace: 'work',
+    selector: '.main .composer-pill--project, .main .ws-card',
+    side: 'top',
+    title: 'Work in a project',
+    body: 'Pick a folder and the chat becomes a coding session in that project, listed under Projects. The switches at the top right open a terminal under the chat, and a dock beside it with the files, a browser and what the agent changed.'
+  },
+  {
+    workspace: 'workers',
+    selector: '.sidebar .nav-item',
+    text: 'New worker',
+    side: 'right',
+    title: 'Workers that keep going for hours',
+    body: 'Give a worker a goal and an end time and it keeps at it, woken when a background job ends or a page it watches changes. Teach one a task by doing it in its browser.'
+  },
+  {
+    workspace: 'workers',
+    selector: '.sidebar .nav-item',
+    text: 'Automations',
+    side: 'right',
+    title: 'Automations',
+    body: 'Scheduled is now Automations, with cron schedules: @daily, every few minutes or any pattern, in your time zone, with the next runs spelled out.'
+  },
+  {
+    workspace: 'workers',
+    selector: '.sidebar .nav-item',
+    text: 'Settings',
+    side: 'right',
+    title: 'A worker computer, and more chat apps',
+    body: 'Settings → Workers → Worker computer moves your workers to a computer you leave on, like a Raspberry Pi, so they keep going while this one sleeps. They now answer in Slack, Matrix, Mattermost and Zulip too.'
+  },
+  {
+    workspace: 'eaon-code',
+    selector: '.main .code-header [aria-label="Dock"]',
+    side: 'bottom',
+    title: 'A dock beside your agents',
+    body: `With a project open, the dock at the top right shows a page in the browser (${shortcutLabel('⇧⌘B')}), the files, the diff and the pull request next to the terminals, and Design Mode sends what you point at to an agent. When one gets stuck, Hand off passes its work to another.`
+  },
+  {
+    workspace: 'eaon-code',
+    selector: '.usage-rings, .usage-pill',
+    side: 'bottom',
+    title: 'Plan limits, up top',
+    body: 'How much is left on your Claude Code, Codex, Cursor, Copilot and other plans, and when each resets. Settings → Usage & limits has the details.'
+  },
+  {
+    workspace: 'eaon-code',
+    selector: '.sidebar .nav-item',
+    text: 'Settings',
+    side: 'right',
+    title: 'And in Settings',
+    body: `See-through windows and seven new app icons in Appearance, Eaon Remote for using Eaon from a browser, and dictation: hold ${window.api.platform === 'darwin' ? 'Right Option' : 'Right Alt'} to speak into a terminal.`
+  }
+]
+
 /** The stop's element: the first of its comma-separated selectors that is on screen, in the order written. */
 function findTarget(stop: Stop): Element | null {
+  if (!stop.selector) return null
   for (const selector of stop.selector.split(',')) {
     for (const element of document.querySelectorAll(selector.trim())) {
       // The setup's little window draws the same parts; it may still be fading out.
@@ -154,12 +236,19 @@ function place(target: Element | null, side: Stop['side'], cardHeight: number): 
 
 export function Tour(): JSX.Element | null {
   const open = useOnboarding((s) => s.tourOpen)
-  return open ? <TourOverlay /> : null
+  const tour = useOnboarding((s) => s.tour)
+  const startTour = useOnboarding((s) => s.startTour)
+  // An install updated from an earlier release, past the setup: what's new, once, on its own.
+  const whatsNewDue = useApp((s) => Boolean(s.settings) && s.settings?.onboarding.setup !== 'pending' && s.settings?.onboarding.whatsNew === null)
+  useEffect(() => {
+    if (whatsNewDue) startTour('whatsNew')
+  }, [whatsNewDue, startTour])
+  return open ? <TourOverlay key={tour} tour={tour} /> : null
 }
 
-function TourOverlay(): JSX.Element {
+function TourOverlay({ tour }: { tour: TourKind }): JSX.Element {
   const endTour = useOnboarding((s) => s.endTour)
-  const [list] = useState(stops)
+  const [list] = useState(tour === 'whatsNew' ? whatsNewStops : stops)
   const [index, setIndex] = useState(0)
   const [layout, setLayout] = useState<Placement | null>(null)
   // The card glides from stop to stop, but lands at the first one without sliding in from nowhere.
@@ -208,7 +297,7 @@ function TourOverlay(): JSX.Element {
     let tries = 0
     // The tab may take a few frames to draw its element; keep looking briefly, then settle for the middle.
     const look = (): void => {
-      if (findTarget(stop) || tries++ > 40) measure()
+      if (!stop.selector || findTarget(stop) || tries++ > 40) measure()
       else frame = requestAnimationFrame(look)
     }
     look()
@@ -253,7 +342,7 @@ function TourOverlay(): JSX.Element {
 
   const spot = layout?.spot
   return createPortal(
-    <div className="tour" data-leaving={leaving || undefined} role="dialog" aria-modal="true" aria-label="Tour of Eaon">
+    <div className="tour" data-leaving={leaving || undefined} role="dialog" aria-modal="true" aria-label={tour === 'whatsNew' ? `What’s new in Eaon ${WHATS_NEW_RELEASE}` : 'Tour of Eaon'}>
       {/* Takes every click, so the tour can't be lost by clicking the app behind it. */}
       <div className="tour__catcher" data-dim={!spot || undefined} />
       {spot && (

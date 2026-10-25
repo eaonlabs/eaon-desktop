@@ -3,7 +3,10 @@ import { useShallow } from 'zustand/react/shallow'
 import { isAgentKind, useApp, useIsWork, useWorkspaceKind } from './state/store'
 import { Sidebar } from './components/Sidebar'
 import { ApprovalPrompt, ARCHIVE_REQUEST, ChatView } from './components/ChatView'
-import { CodePanel } from './components/ide/CodePanel'
+import { ImageViewer } from './components/chat/ImageViewer'
+import { AdeDock, ChatDock, useDockBridge } from './components/ide/Dock'
+import { useAdeDock } from './components/ide/adeDock'
+import { useCode } from './components/code/codeStore'
 import { useIde } from './components/ide/ideStore'
 import { BrowserKeys, BrowserPanel } from './components/browser/BrowserPanel'
 import { isLocalUrl, openInBrowser, useBrowser } from './components/browser/browserStore'
@@ -26,12 +29,12 @@ import { WorkerBrowserPanel } from './components/workers/WorkerAutonomy'
 import { WorkerActivityPanel } from './components/workers/WorkerThreads'
 import { useWorkers } from './components/workers/workersStore'
 import { DiscordPresence } from './components/discord/DiscordPresence'
-import { AgentBrowserPanel } from './components/agentBrowser/AgentBrowserPanel'
 import { TradingDesk } from './components/trading/TradingDesk'
 import { useAgentBrowser } from './components/agentBrowser/agentBrowserStore'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { CrashPage, PaneError, PanelError, SidebarError } from './components/CrashScreen'
 import { THEMES } from './lib/themes'
+import { GLASS_DEFAULT, glassFactors } from '@shared/glass'
 import { useRoomForSidePanel } from './state/sidePanel'
 import { Starting } from './components/Starting'
 import { modKey } from './lib/platform'
@@ -41,6 +44,7 @@ import { installControl } from './lib/control'
 import { StarPrompt } from './components/StarPrompt'
 import { Onboarding } from './components/onboarding/Onboarding'
 import { Tour } from './components/onboarding/Tour'
+import { startProviderLogos } from './state/providerLogos'
 import { FreeCreditsOffer } from './components/FreeCreditsOffer'
 import { PurchaseDialog } from './components/purchase/PurchaseDialog'
 
@@ -61,6 +65,7 @@ export default function App(): JSX.Element {
 
   useEffect(() => {
     void init()
+    startProviderLogos()
     void useWorkers.getState().init()
     useAgentBrowser.getState().init(() => useApp.getState().activeChatId)
   }, [init])
@@ -83,19 +88,27 @@ export default function App(): JSX.Element {
   const kind = useWorkspaceKind()
   // The browser sits beside Chat, and beside the ADE's terminals.
   const browserHere = isWork || (kind === 'code' && view === 'chat')
-  const browserExpanded = useBrowser((s) => s.expanded) && browserHere && browserOpen
-  const agentBrowserOpen = useAgentBrowser((s) => s.open)
-  const codeOpen = useIde((s) => s.open)
+  // Beside a Chat conversation, the browsers open in the dock rather than in panels of their own; beside the ADE's terminals, in its own dock.
+  const dockHere = isWork && view === 'chat'
+  const adeDockHere = kind === 'code' && view === 'chat'
+  const browserExpanded = useBrowser((s) => s.expanded) && browserHere && browserOpen && !dockHere && !adeDockHere
+  const dockOpen = useIde((s) => s.open)
+  const adeDockOpen = useAdeDock((s) => s.open)
+  const adeCwd = useCode((s) => s.cwd)
   // Kept a moment after it closes, so the panel slides away instead of vanishing.
-  const code = usePresence(isWork && view === 'chat' && kind === 'chat' && codeOpen, 260)
+  const dock = usePresence(dockHere && dockOpen, 260)
+  const adeDock = usePresence(adeDockHere && adeDockOpen, 260)
+  useDockBridge(dockHere, { store: useIde, browser: 'chat', agent: true })
+  useDockBridge(adeDockHere, { store: useAdeDock, browser: adeCwd ? `code:${adeCwd}` : 'chat', agent: false })
   // A worker's browser beside its page, while that page is the one open.
   const browserWorker = useWorkers((s) => (s.browserFor && s.selectedId === s.browserFor && !s.selectedRoomId ? s.workers.find((w) => w.id === s.browserFor) ?? null : null))
   // A worker's run history beside its page.
   const activityWorker = useWorkers((s) => (s.activityOpen && s.selectedId && !s.selectedRoomId ? s.workers.find((w) => w.id === s.selectedId) ?? null : null))
   // The same conditions that render the side panels below.
   useRoomForSidePanel(
-    (browserHere && browserOpen) ||
-      (isWork && view === 'chat' && kind === 'chat' && agentBrowserOpen) ||
+    (browserHere && browserOpen && !dockHere && !adeDockHere) ||
+      (dockHere && dockOpen) ||
+      (adeDockHere && adeDockOpen) ||
       (view === 'chat' && kind === 'workers' && (Boolean(browserWorker) || Boolean(activityWorker)))
   )
 
@@ -192,19 +205,19 @@ export default function App(): JSX.Element {
               {view === 'models' && <ModelsPage />}
             </ErrorBoundary>
           </div>
-          {code.mounted && (
-            <ErrorBoundary area="code panel" fallback={() => <PanelError onClose={() => useIde.getState().setOpen(false)} />}>
-              <CodePanel closing={code.closing} />
+          {dock.mounted && (
+            <ErrorBoundary area="dock" fallback={() => <PanelError onClose={() => useIde.getState().setOpen(false)} />}>
+              <ChatDock closing={dock.closing} />
             </ErrorBoundary>
           )}
-          {browserHere && browserOpen && (
+          {adeDock.mounted && (
+            <ErrorBoundary area="ADE dock" fallback={() => <PanelError onClose={() => useAdeDock.getState().setOpen(false)} />}>
+              <AdeDock closing={adeDock.closing} />
+            </ErrorBoundary>
+          )}
+          {browserHere && browserOpen && !dockHere && !adeDockHere && (
             <ErrorBoundary area="browser panel" fallback={() => <PanelError onClose={() => useApp.getState().toggleBrowser(false)} />}>
               <BrowserPanel />
-            </ErrorBoundary>
-          )}
-          {isWork && view === 'chat' && kind === 'chat' && agentBrowserOpen && !browserOpen && (
-            <ErrorBoundary area="agent browser" fallback={() => <PanelError onClose={() => useAgentBrowser.getState().setOpen(false, useApp.getState().activeChatId)} />}>
-              <AgentBrowserPanel />
             </ErrorBoundary>
           )}
           {view === 'chat' && kind === 'workers' && browserWorker && (
@@ -231,6 +244,8 @@ export default function App(): JSX.Element {
       <ErrorBoundary area="approval prompt" fallback={() => null}>
         <ApprovalPrompt />
       </ErrorBoundary>
+      {/* Pictures from any conversation, chats' and workers' alike. */}
+      <ImageViewer />
       <UpdateToast />
       <StoreNotice />
       <ComputerLeaseIndicator />
@@ -310,6 +325,10 @@ function useTheme(): void {
       root.style.setProperty('--fs-base', `${appearance.fontSize}px`)
       // The ADE's scenes, softened when the blur is on (terminal.css).
       root.style.setProperty('--ade-scene-blur', settings.ade?.blur ? `${Math.max(0, settings.ade.blurAmount ?? 10)}px` : '0px')
+      // Frosted glass (tokens.css), from Appearance → Glass.
+      const glass = glassFactors(appearance.glass ?? GLASS_DEFAULT, window.matchMedia('(prefers-reduced-transparency: reduce)').matches)
+      root.style.setProperty('--glass-blur-k', String(glass.blur))
+      root.style.setProperty('--glass-clear-k', String(glass.clear))
       // No --font-ui override: the typeface is always the system stack in
       // tokens.css. `palette.fontFamily` is still stored by older installs
       // (Inter, SF Mono, Georgia) and deliberately ignored.
@@ -337,13 +356,16 @@ function useTheme(): void {
     }
 
     apply()
-    // The system's light/dark and reduce-motion settings can change while Eaon is open.
+    // The system's light/dark, reduce-motion and reduce-transparency settings can change while Eaon is open.
     const motion = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const transparency = window.matchMedia('(prefers-reduced-transparency: reduce)')
     media.addEventListener('change', apply)
     motion.addEventListener('change', apply)
+    transparency.addEventListener('change', apply)
     return () => {
       media.removeEventListener('change', apply)
       motion.removeEventListener('change', apply)
+      transparency.removeEventListener('change', apply)
     }
   }, [settings, preview])
 }

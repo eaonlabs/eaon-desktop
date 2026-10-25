@@ -135,6 +135,9 @@ others, or a plain shell.
   WhatsApp, Slack, Matrix, Mattermost or Zulip, and let them read and answer email.
 - **Enterprise controls**: a managed policy (MDM or GPO) and an audit log. See
   [docs/enterprise.md](docs/enterprise.md).
+- **Provider logos**: give any provider your own logo. An API provider can
+  publish one that Eaon picks up from its base URL; see
+  [docs/provider-logos.md](docs/provider-logos.md).
 
 ## Install
 

@@ -174,12 +174,12 @@ test('the card reads the saved files and the provider back from the result', asy
 })
 
 test('a generated image keeps a row of its own in the turn, outside any folded run', async () => {
-  const { turnItems } = await import('../src/renderer/src/components/agent/turnItems')
+  const { workLog } = await import('../src/renderer/src/components/chat/workLog')
   const tool = (id: string, name: string) => ({ type: 'tool' as const, id, name, input: {}, output: null, status: 'done' as const })
-  const items = turnItems([tool('a', 'read_file'), tool('b', 'generate_image'), tool('c', 'read_file')])
+  const items = workLog([tool('a', 'read_file'), tool('b', 'generate_image'), tool('c', 'read_file')])
   assert.deepEqual(
-    items.map((item) => (item.kind === 'steps' ? item.steps.map((s) => (s.kind === 'tool' ? s.part.name : 'thought')) : item.kind)),
-    [['read_file'], ['generate_image'], ['read_file']]
+    items.map((item) => (item.kind === 'tools' ? item.parts.map((p) => p.name) : item.kind === 'own' ? item.part.name : item.kind)),
+    [['read_file'], 'generate_image', ['read_file']]
   )
 })
 

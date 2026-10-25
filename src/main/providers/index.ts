@@ -27,6 +27,7 @@ import { COPILOT_API_VERSION } from './oauth/copilot'
 import './oauth/flows'
 import { providerFetch, sdkFetch } from './safeFetch'
 import { providerAllowed } from '../enterprise/policy'
+import { GATEWAY_REFUSED, hideEaonAddress, isEaonGateway } from '../eaonAddress'
 
 /**
  * Bring-your-own-key (and sign-in) model access.
@@ -162,6 +163,15 @@ const LISTING_IS_ENTITLEMENT = new Set(['github-copilot', 'chatgpt'])
  */
 const MARKS_OUTSIDE_PLAN = new Set(['chatgpt'])
 
+/**
+ * Eaon Lite's list is set on gateway.eaon.dev: once the gateway has listed
+ * its models, that list is the whole of Eaon Lite (a model switched off there
+ * goes, one added there comes), and the gateway's name and description win
+ * over the shipped ones. The shipped three are only for a first launch that
+ * hasn't reached the gateway yet.
+ */
+const LISTING_IS_THE_LIST = new Set([GATEWAY_PROVIDER_ID])
+
 /** Saves from before overlays kept the whole list in `models`; it was the last listing. */
 const listedOf = (override: ProviderOverride): ModelInfo[] => override.listed ?? override.models ?? []
 
@@ -177,7 +187,8 @@ function composeModels(provider: Provider, seed: ModelInfo[], override: Provider
   const listed = listedOf(override)
   const catalog = hasCatalog(provider.id) ? catalogFor(provider.id) : seed.map((m) => ({ ...m, source: SHIPPED }))
   // A plan listing bounds the catalog once one was fetched, even an empty one: an account whose plan allows nothing has nothing.
-  const allowed = LISTING_IS_ENTITLEMENT.has(provider.id) && (listed.length > 0 || override.listedAt !== undefined) ? new Set(listed.map((m) => m.id)) : null
+  const theList = LISTING_IS_THE_LIST.has(provider.id) && override.listedAt !== undefined
+  const allowed = theList || (LISTING_IS_ENTITLEMENT.has(provider.id) && (listed.length > 0 || override.listedAt !== undefined)) ? new Set(listed.map((m) => m.id)) : null
   const listedSource = listingSource(override)
   const byId = new Map<string, ModelInfo>()
   for (const model of catalog) {
@@ -188,7 +199,7 @@ function composeModels(provider: Provider, seed: ModelInfo[], override: Provider
     const known = byId.get(model.id)
     // The catalog's limits and effort levels are corrected; the listing only fills gaps. The
     // listing is what says the provider serves it now, so its freshness is the model's.
-    byId.set(model.id, known ? { ...model, ...known, source: listedSource } : { ...model, source: listedSource })
+    byId.set(model.id, known ? { ...(theList ? { ...known, ...model } : { ...model, ...known }), source: listedSource } : { ...model, source: listedSource })
   }
   for (const model of override.custom ?? []) if (!byId.has(model.id)) byId.set(model.id, { ...model, custom: true, source: { kind: 'custom', retrievedAt: null } })
 
@@ -285,9 +296,11 @@ function builtInProvider(seed: (typeof BUILT_IN)[number], override: ProviderOver
 
 /** A custom OpenAI-compatible endpoint the user added themselves. */
 function customProvider(id: string, override: ProviderOverride): Provider {
+  const name = override.name ?? id
   const provider: Provider = {
     id,
-    name: override.name ?? id,
+    // Named after the gateway's address by default, which is never shown (eaonAddress.ts).
+    name: isEaonGateway(override.baseUrl ?? '') ? hideEaonAddress(name) : name,
     kind: (override.kind as Provider['kind']) ?? 'openai-compatible',
     baseUrl: override.baseUrl ?? '',
     hasKey: secrets.has(id),
@@ -331,6 +344,8 @@ export function getProvider(id: string): Provider | undefined {
 }
 
 export function updateProvider(id: string, patch: Partial<Pick<Provider, 'baseUrl' | 'enabled' | 'name' | 'kind'>>): Provider[] {
+  // Eaon's gateway is Eaon Lite's and Eaon Free's alone, and its address is never shown (eaonAddress.ts).
+  if (patch.baseUrl !== undefined && id !== GATEWAY_PROVIDER_ID && id !== FREE_PROVIDER_ID && isEaonGateway(patch.baseUrl)) throw new Error(GATEWAY_REFUSED)
   const config = store.getProviderConfig()
   const existing = config[id] ?? {}
   const current = BUILT_IN.find((p) => p.id === id) ?? { id, kind: (patch.kind ?? existing.kind ?? 'openai-compatible') as Provider['kind'], baseUrl: '' }
@@ -725,6 +740,6 @@ export async function testProvider(providerId: string): Promise<{ ok: boolean; m
     if (health && !health.ok && health.issue) return { ok: false, message: health.issue.message }
     return { ok: true, message: `Connected — ${models.length} model${models.length === 1 ? '' : 's'} available` }
   } catch (error) {
-    return { ok: false, message: provider ? classifyProviderError(error, provider, 'listing').message : error instanceof Error ? error.message : String(error) }
+    return { ok: false, message: provider ? classifyProviderError(error, provider, 'listing').message : hideEaonAddress(error instanceof Error ? error.message : String(error)) }
   }
 }

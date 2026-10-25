@@ -17,8 +17,11 @@ export interface SuggestItem extends Rankable {
   run?: () => void
 }
 
-/** Rows per trigger, built when the menu opens so they reflect the current settings. */
-export type SuggestSources = Partial<Record<TriggerChar, () => SuggestItem[]>>
+/** Rows per trigger, built when the menu opens so they reflect the current settings; given what was typed, for lists too long to build whole. */
+export type SuggestSources = Partial<Record<TriggerChar, (query: string) => SuggestItem[]>>
+
+/** More rows than this and the list is a wall: the best ones show, the rest wait for more typing. */
+const MAX_ROWS = 60
 
 export interface Suggest {
   /** The menu, to render inside the positioned composer stack; null when closed. */
@@ -60,8 +63,8 @@ export function useSuggest({
   const key = trigger ? `${trigger.char}${trigger.start}` : null
   const build = trigger ? sources[trigger.char] : undefined
   const query = trigger?.query ?? ''
-  // Built per keystroke while open; every list is short (commands, plugins, workers).
-  const items = useMemo(() => (build ? rankItems(build(), query) : []), [build, query])
+  // Built per keystroke while open; lists are short, and a long one (the project's files) is narrowed by its source.
+  const items = useMemo(() => (build ? rankItems(build(query), query).slice(0, MAX_ROWS) : []), [build, query])
   const open = Boolean(trigger) && key !== dismissed && items.length > 0
 
   useEffect(() => setActive(0), [key, query])

@@ -1,20 +1,8 @@
-import { useLayoutEffect, useRef, useState, type JSX, type ReactNode } from 'react'
-import { Brain, ChevronDown, Hammer } from 'lucide-react'
-import { Elapsed } from './Loaders'
-
 /**
- * A run of steps — thinking and tool calls, in the order they happened —
- * folded into one quiet line.
- *
- * An agent turn makes a dozen calls between two sentences — list this folder,
- * read that file, load a skill — and a bordered card per call buried the
- * sentences they were in service of. The run now reads as one line of what
- * happened ("Thought, read 3 files and used 2 skills") that opens into the
- * steps themselves. While the run is live it stays open, and its line is the
- * step in progress, so the turn shows what it is doing as it does it.
- *
- * Shared by Chat (`ChatView`) and the ADE's agent view (`code/Thread`), which
- * name their tools differently; both map onto the kinds below.
+ * What a run of calls did, as a clause per kind of call ("read 3 files,
+ * messaged Pixel and set a routine"): the words Chat's work log uses for the
+ * tools its own table doesn't name (chat/workLog.ts), a worker's tools among
+ * them.
  */
 
 export interface ActivityCall {
@@ -208,105 +196,4 @@ export function activitySummary(calls: ActivityCall[]): { text: string; failed: 
     text = `${clauses.slice(0, 2).join(', ')} and ${plural(rest, 'other step')}`
   }
   return { text: text.charAt(0).toUpperCase() + text.slice(1), failed, blocked }
-}
-
-/** A run's line: what its calls did, led by "Thought" when it also thought. */
-export function runSummary(calls: ActivityCall[], thoughts: number): { text: string; failed: number; blocked: number } {
-  if (calls.length === 0) return { text: 'Thought about this', failed: 0, blocked: 0 }
-  const summary = activitySummary(calls)
-  if (thoughts === 0) return summary
-  return { ...summary, text: `Thought, ${summary.text.charAt(0).toLowerCase()}${summary.text.slice(1)}` }
-}
-
-/** Past this many steps a live run shows a window onto its latest ones rather than growing. */
-const WINDOW_AFTER = 4
-
-export function ActivityGroup({
-  calls,
-  thoughts = 0,
-  active = false,
-  thinking = false,
-  live,
-  children
-}: {
-  calls: ActivityCall[]
-  /** How many thoughts the run holds besides its calls. */
-  thoughts?: number
-  /** The run is the turn's latest and the turn is still going: it opens itself until the user says otherwise. */
-  active?: boolean
-  /** The run's latest step is a thought being written now. */
-  thinking?: boolean
-  /** Shown under the line while folded and a call is running: a command's output as it arrives. */
-  live?: ReactNode
-  /** The steps' own rows, shown when opened. */
-  children: ReactNode
-}): JSX.Element {
-  // Null until the user picks: open while the run is live, folded once it is done.
-  const [chosen, setChosen] = useState<boolean | null>(null)
-  const open = chosen ?? active
-  // When the run started, as far as this window saw it: only a live run shows its clock.
-  const [since] = useState(() => Date.now())
-  let current: ActivityCall | undefined
-  for (let i = calls.length - 1; i >= 0 && !current; i--) {
-    if (calls[i].status === 'running' || calls[i].status === 'preparing') current = calls[i]
-  }
-  const working = active && !current
-  const summary = current || working ? null : runSummary(calls, thoughts)
-
-  // A live run past a few steps scrolls inside a window that follows the
-  // newest step, unless the reader has scrolled up in it to look back.
-  const windowed = active && open && calls.length + thoughts > WINDOW_AFTER
-  const list = useRef<HTMLDivElement>(null)
-  const pinned = useRef(true)
-  useLayoutEffect(() => {
-    if (windowed && pinned.current && list.current) list.current.scrollTop = list.current.scrollHeight
-  })
-
-  return (
-    <div className="activity" data-open={open || undefined} data-active={active || undefined}>
-      <button className="activity__head" onClick={() => setChosen(!open)} aria-expanded={open}>
-        {current ? (
-          <>
-            <span className="activity__orb">
-              <Hammer size={14} strokeWidth={1.8} />
-            </span>
-            <span className="activity__text step-shimmer">{current.label}</span>
-            {current.detail && <span className="activity__detail">{current.detail}</span>}
-          </>
-        ) : working ? (
-          <>
-            <span className="activity__orb" data-pulse>
-              <Brain size={14} strokeWidth={1.8} />
-            </span>
-            <span className="activity__text step-shimmer">{thinking ? 'Thinking' : 'Working'}</span>
-          </>
-        ) : (
-          <>
-            <span className="activity__orb">
-              <Hammer size={14} strokeWidth={1.8} />
-            </span>
-            <span className="activity__text">{summary!.text}</span>
-            {summary!.failed > 0 && <span className="activity__flag">{summary!.failed} failed</span>}
-            {summary!.blocked > 0 && <span className="activity__flag">{summary!.blocked} blocked</span>}
-          </>
-        )}
-        {active && <Elapsed since={since} className="activity__clock" />}
-        <ChevronDown size={13} strokeWidth={2} className="activity__chevron" />
-      </button>
-      {!open && current && live}
-      {open && (
-        <div
-          ref={list}
-          className="activity__list scroll"
-          data-window={windowed || undefined}
-          onScroll={(event) => {
-            const el = event.currentTarget
-            pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight < 24
-          }}
-        >
-          {children}
-        </div>
-      )}
-    </div>
-  )
 }

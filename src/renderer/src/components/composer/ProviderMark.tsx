@@ -1,4 +1,13 @@
 import type { JSX } from 'react'
+import { LogoMark } from '../../icons/customLogo'
+import { providerLogoNow, useProviderLogo } from '../../state/providerLogos'
+import type { CliEngineId, EngineId } from '@shared/engines'
+
+/** Each agent CLI's logo key for ProviderMark: plain `gemini` is the Gemini API provider's. */
+export const ENGINE_MARK: Record<CliEngineId, string> = { codex: 'codex', copilot: 'github-copilot', gemini: 'gemini-cli' }
+
+/** The logo key for a model picker row: its engine's own for an agent CLI's model, else its provider's. */
+export const optionMark = (option: { engine: EngineId; groupId: string }): string => (option.engine === 'native' ? option.groupId : ENGINE_MARK[option.engine])
 
 /**
  * A provider's bare mark, without the tile its logo is drawn on elsewhere:
@@ -40,9 +49,10 @@ const MARK: Record<string, string> = {
   openai: 'openai',
   'openai-codex': 'openai',
   chatgpt: 'openai',
-  // The Codex CLI as an engine: its tab in Chat's model picker.
+  // The agent CLIs as engines (ENGINE_MARK): their tabs in Chat's model picker.
   codex: 'codex',
   'github-copilot': 'githubcopilot',
+  'gemini-cli': 'geminicli',
   azure: 'azure',
   anthropic: 'anthropic',
   openrouter: 'openrouter',
@@ -93,6 +103,8 @@ const MARK: Record<string, string> = {
   jan: 'jan',
   eaon: 'eaon',
   'eaon-local': 'eaon',
+  // Pi, the coding agent (Usage & limits): its own mark from pi.dev.
+  pi: 'pi',
   // The coding CLIs whose own usage Settings → Usage counts (`cli:<tool>`, as the usage summary names them).
   'cli:claude-code': 'claudecode',
   'cli:claude-desktop': 'anthropic',
@@ -110,10 +122,14 @@ const MARK: Record<string, string> = {
 
 /** Which mark file a provider uses, so two providers sharing one can be told apart. */
 export function markKey(providerId: string): string {
+  if (providerLogoNow(providerId)) return `logo:${providerId}`
   return MARK[providerId] ?? `monogram:${providerId}`
 }
 
 export function ProviderMark({ providerId, name, size = 16 }: { providerId: string; name?: string; size?: number }): JSX.Element {
+  // The person's own logo, or one found from a custom provider's base URL, comes first.
+  const custom = useProviderLogo(providerId)
+  if (custom) return <LogoMark logo={custom} size={size} />
   const file = MARK[providerId]
   const url = file ? URLS[file] : undefined
   if (url) {

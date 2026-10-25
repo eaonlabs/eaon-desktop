@@ -71,7 +71,11 @@ const annotateBinding = (): string | null => {
   return bound === undefined ? ANNOTATE_SHORTCUT : bound
 }
 
-export function BrowserPanel(): JSX.Element {
+/**
+ * `embedded`: inside Chat's dock, which shows the pages as its own tabs and
+ * holds the panel's controls; only the toolbar and the pages are drawn here.
+ */
+export function BrowserPanel({ embedded = false }: { embedded?: boolean } = {}): JSX.Element {
   const key = useBrowserScope()
   const scope = useBrowser((s) => s.scopes[key])
   const { width, expanded, designMode } = useBrowser(useShallow((s) => ({ width: s.width, expanded: s.expanded, designMode: s.designMode })))
@@ -276,34 +280,36 @@ export function BrowserPanel(): JSX.Element {
   return (
     <aside
       ref={panel}
-      className="browser browser--web"
-      data-expanded={expanded || undefined}
-      style={expanded ? undefined : { width }}
+      className={`browser browser--web${embedded ? ' browser--embedded' : ''}`}
+      data-expanded={(!embedded && expanded) || undefined}
+      style={expanded || embedded ? undefined : { width }}
       aria-label="Browser"
       onKeyDown={onPanelKey}
     >
-      {!expanded && <ResizeHandle panel={panel} />}
-      <div className="browser__tabs" role="tablist">
-        <div className="browser__tab-strip">
-          {tabs.map((tab) => (
-            <TabButton key={tab.id} tab={tab} active={tab.id === activeId} scopeKey={key} />
-          ))}
-          <button className="icon-btn browser__new-tab" aria-label="New tab" title={`New tab (${shortcutLabel('⌘T')})`} onClick={() => run('new-tab')}>
-            <Plus size={15} strokeWidth={2} />
+      {!expanded && !embedded && <ResizeHandle panel={panel} />}
+      {!embedded && (
+        <div className="browser__tabs" role="tablist">
+          <div className="browser__tab-strip">
+            {tabs.map((tab) => (
+              <TabButton key={tab.id} tab={tab} active={tab.id === activeId} scopeKey={key} />
+            ))}
+            <button className="icon-btn browser__new-tab" aria-label="New tab" title={`New tab (${shortcutLabel('⌘T')})`} onClick={() => run('new-tab')}>
+              <Plus size={15} strokeWidth={2} />
+            </button>
+          </div>
+          <button
+            className="icon-btn"
+            aria-label={expanded ? 'Restore panel' : 'Expand browser'}
+            title={expanded ? 'Back beside the conversation' : 'Fill the window'}
+            onClick={() => useBrowser.getState().setExpanded(!expanded)}
+          >
+            {expanded ? <Minimize2 size={14} strokeWidth={1.9} /> : <Maximize2 size={14} strokeWidth={1.9} />}
+          </button>
+          <button className="icon-btn" data-active onClick={() => toggleBrowser(false)} aria-label="Close browser" title="Close browser">
+            <PanelRight size={16} strokeWidth={1.9} />
           </button>
         </div>
-        <button
-          className="icon-btn"
-          aria-label={expanded ? 'Restore panel' : 'Expand browser'}
-          title={expanded ? 'Back beside the conversation' : 'Fill the window'}
-          onClick={() => useBrowser.getState().setExpanded(!expanded)}
-        >
-          {expanded ? <Minimize2 size={14} strokeWidth={1.9} /> : <Maximize2 size={14} strokeWidth={1.9} />}
-        </button>
-        <button className="icon-btn" data-active onClick={() => toggleBrowser(false)} aria-label="Close browser" title="Close browser">
-          <PanelRight size={16} strokeWidth={1.9} />
-        </button>
-      </div>
+      )}
 
       {active && (
         <Toolbar

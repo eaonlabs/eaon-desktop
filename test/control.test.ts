@@ -8,7 +8,7 @@ import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/
 import type { ControlAction } from '@shared/control'
 import { setControlTools } from '../src/main/control/server'
 import { createControlTools } from '../src/main/control/tools'
-import { controlToken, gatewayToken } from '../src/main/gateway/models'
+import { claudeCodeToken, controlToken, forgetClaudeCodeToken, gatewayToken } from '../src/main/gateway/models'
 import { startLocalServer, stopLocalServer } from '../src/main/localServer'
 import { store } from '../src/main/store'
 
@@ -72,6 +72,22 @@ test('the model key that other apps hold does not open the control API; the cont
   assert.equal((await rest('/control/v1/tools', { key: modelKey })).status, 401)
   assert.equal((await rest('/v1/models', { key: modelKey })).status, 200)
   assert.equal((await rest('/v1/models')).status, 200, 'Eaon CLI uses one key for both')
+})
+
+test('the key in Claude Code’s entry for Eaon opens the control API but no model route, and stops working once forgotten', async () => {
+  assert.equal(claudeCodeToken(), null, 'there is none until Claude Code is connected')
+  const claude = claudeCodeToken(true)!
+  assert.notEqual(claude, key)
+  assert.equal(claudeCodeToken(), claude, 'it is kept')
+  assert.equal((await rest('/control/v1/tools', { key: claude })).status, 200)
+  const client = await connect(claude)
+  assert.ok((await client.listTools()).tools.some((t) => t.name === 'chats'))
+  await client.close()
+  assert.equal((await rest('/v1/models', { key: claude })).status, 401, 'it can’t spend tokens through Eaon')
+  forgetClaudeCodeToken()
+  assert.equal(claudeCodeToken(), null)
+  assert.equal((await rest('/control/v1/tools', { key: claude })).status, 401)
+  assert.equal((await rest('/control/v1/tools')).status, 200, 'Eaon CLI’s key is untouched')
 })
 
 test('a web page on another origin cannot reach it, even with the key', async () => {

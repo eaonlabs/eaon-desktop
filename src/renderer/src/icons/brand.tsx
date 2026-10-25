@@ -42,6 +42,8 @@ import claudecodeLogo from '../assets/providers/claude.webp'
 import codexLogo from '../assets/providers/codex.svg'
 import geminicliLogo from '../assets/providers/geminicli.svg'
 import eaonLogo from '../assets/providers/eaon.png'
+import { useProviderLogo } from '../state/providerLogos'
+import { LogoTile } from './customLogo'
 
 /**
  * Icons for the integrations and model providers shown in the directory.
@@ -422,8 +424,10 @@ export function monogram(name: string): string {
 
 /**
  * Fallback tile for providers without a logo. Drawn from theme tokens rather
- * than a brand colour we would have to guess at, and never fetched from the
- * provider's site — so it sits quietly next to the real logos in either theme.
+ * than a brand colour we would have to guess at, so it sits quietly next to
+ * the real logos in either theme. Built-in providers' logos are never fetched
+ * from their sites; a custom provider's can be, from the base URL the person
+ * gave it (main/providers/logos.ts), and then shows instead of this.
  */
 export function MonogramIcon({ size = 40, name }: TileProps & { name: string }): JSX.Element {
   const letters = monogram(name)
@@ -529,6 +533,8 @@ export const BRAND_ICONS: Record<string, (props: TileProps) => JSX.Element> = {
   codex: LOGOS.codex,
   chatgpt: OpenAiIcon,
   'github-copilot': LOGOS.copilot,
+  // Gemini CLI as an agent engine; plain `gemini` is the Gemini API provider.
+  'gemini-cli': LOGOS.geminiCli,
   azure: AzureIcon,
   anthropic: AnthropicIcon,
   openrouter: OpenRouterIcon,
@@ -589,7 +595,13 @@ export const BRAND_ICONS: Record<string, (props: TileProps) => JSX.Element> = {
  * A brand's tile, or a monogram of `name` when the app ships no logo for it.
  * Without a name the monogram falls back to the id's first letter.
  */
+/** Whether Eaon ships a logo for this id (otherwise it shows initials, or a custom logo). */
+export const hasBrandLogo = (id: string): boolean => id in BRAND_ICONS
+
 export function BrandIcon({ id, size = 40, name }: { id: string; size?: number; name?: string }): JSX.Element {
+  // The person's own logo, or one found from a custom provider's base URL, comes first.
+  const custom = useProviderLogo(id)
+  if (custom) return <LogoTile logo={custom} size={size} />
   const Component = BRAND_ICONS[id]
   if (Component) return <Component size={size} />
   if (name) return <MonogramIcon size={size} name={name} />

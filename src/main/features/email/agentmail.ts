@@ -446,7 +446,7 @@ export class AgentMailClient {
     const headers: Record<string, string> = { accept: 'application/json' }
     if (options.body !== undefined) headers['content-type'] = 'application/json'
     if (options.auth !== false) {
-      if (!this.key) throw new AgentMailError('Email isn’t set up yet. Sign up or paste an AgentMail API key in Settings → Email.', 401, 'missing_authorization')
+      if (!this.key) throw new AgentMailError('Email isn’t set up yet. Sign up or paste an AgentMail API key in Settings → Workers → Email.', 401, 'missing_authorization')
       headers.authorization = `Bearer ${this.key}`
     }
     if (options.idempotencyKey) headers['idempotency-key'] = options.idempotencyKey

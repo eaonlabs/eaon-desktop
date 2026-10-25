@@ -41,7 +41,7 @@
    picture can keep up with the window (SeeThrough.tsx). The system's own
    drag would swallow the press before the page saw it. */
 body[data-see-through='on'][data-platform='darwin']
-  :is(.chat-header, .titlebar, .drag, .ide__bar, .page__bar, .settings__titlebar, .settings__nav-top, .browser__tabs, .crash-screen__drag) {
+  :is(.chat-header, .titlebar, .drag, .dock__bar, .page__bar, .settings__titlebar, .settings__nav-top, .browser__tabs, .crash-screen__drag) {
   -webkit-app-region: no-drag;
 }
 
@@ -49,13 +49,20 @@ body[data-see-through='on'][data-platform='darwin']
 
 body[data-see-through='on'],
 body[data-see-through='on'][data-platform='darwin'][data-translucent='on'] {
-  /* Read from the theme's own surfaces before they turn translucent below. */
-  --glass: color-mix(in srgb, var(--canvas) 52%, transparent);
-  --glass-strong: color-mix(in srgb, var(--canvas) 62%, transparent);
+  /* Read from the theme's own surfaces before they turn translucent below.
+     How much of the picture each lets through, and how soft, follows
+     Appearance → Glass (--glass-clear-k and --glass-blur-k, tokens.css). */
+  --glass: color-mix(in srgb, var(--canvas) clamp(0%, 100% - 48% * var(--glass-clear-k), 100%), transparent);
+  --glass-strong: color-mix(in srgb, var(--canvas) clamp(0%, 100% - 38% * var(--glass-clear-k), 100%), transparent);
   /* What floats over everything — dialogs, menus, cards, toasts — stays
      near opaque: it is read, not looked through. */
-  --glass-float: color-mix(in srgb, var(--canvas) 84%, transparent);
-  --glass-blur: blur(26px) saturate(150%);
+  --glass-float: color-mix(in srgb, var(--canvas) clamp(0%, 100% - 16% * var(--glass-clear-k), 100%), transparent);
+  /* Lists and cards on a page, fields, and the boxes code sits in. */
+  --glass-card: color-mix(in srgb, var(--canvas) clamp(0%, 100% - 42% * var(--glass-clear-k), 100%), transparent);
+  --glass-field: color-mix(in srgb, var(--canvas) clamp(0%, 100% - 50% * var(--glass-clear-k), 100%), transparent);
+  --glass-code: color-mix(in srgb, var(--canvas) clamp(0%, 100% - 45% * var(--glass-clear-k), 100%), transparent);
+  --glass-blur: blur(calc(26px * var(--glass-blur-k))) saturate(150%);
+  --glass-blur-float: blur(calc(30px * var(--glass-blur-k))) saturate(160%);
   background: transparent;
 
   /* The app's solid surfaces become tints of the text colour, so a selected
@@ -153,8 +160,8 @@ body[data-see-through='on'] .mode-switch__option[data-active] {
 /* What floats over everything is read, not looked through: near opaque. */
 body[data-see-through='on'] :is(.modal, .approval, .usage-card, .update-toast, .peek, .menu, .star-card) {
   background: var(--glass-float);
-  -webkit-backdrop-filter: blur(30px) saturate(160%);
-  backdrop-filter: blur(30px) saturate(160%);
+  -webkit-backdrop-filter: var(--glass-blur-float);
+  backdrop-filter: var(--glass-blur-float);
 }
 body[data-see-through='on'] .menu.usage-card {
   background: var(--glass-float);
@@ -173,13 +180,13 @@ body[data-see-through='on']
     .template-card, .suggestion-card, .term-agent-card, .imggen__tile, .ch-app, .purchase__receipt,
     .browser__banner, .team-hint, .bx-status, .credits-hero, .credits-project, .model-notice
   ) {
-  background: color-mix(in srgb, var(--canvas) 58%, transparent);
+  background: var(--glass-card);
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
 }
 /* Fields sit on the picture too: a frosted well, so typed text and placeholders read. */
 body[data-see-through='on'] :is(.input, .select, .search-field input, .key-field input, .stepper input) {
-  background: color-mix(in srgb, var(--canvas) 50%, transparent);
+  background: var(--glass-field);
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
 }
@@ -192,7 +199,7 @@ body[data-see-through='on'] .search-field__icon {
 /* Panels that float: frosted, so the picture reads through them softly. */
 body[data-see-through='on'] .sidebar__panel,
 body[data-see-through='on'] .settings__nav-panel,
-body[data-see-through='on'] .ide__frame,
+body[data-see-through='on'] .dock,
 body[data-see-through='on'] .theme-card__preview {
   background: var(--glass);
   -webkit-backdrop-filter: var(--glass-blur);
@@ -224,9 +231,9 @@ body[data-see-through='on'] .ide {
 }
 body[data-see-through='on'] .code-block,
 body[data-see-through='on'] .step-card__box,
-body[data-see-through='on'] .files-changed,
+body[data-see-through='on'] .cfiles,
 body[data-see-through='on'] .tool__panel > div {
-  background: color-mix(in srgb, var(--canvas) 55%, transparent);
+  background: var(--glass-code);
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
 }

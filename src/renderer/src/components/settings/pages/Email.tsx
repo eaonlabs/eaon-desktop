@@ -16,7 +16,7 @@ import { CLIPBOARD_FAILED, copyText } from '../../../lib/clipboard'
 import { notify } from '../../Notice'
 
 /**
- * Settings → Email: the agent's own address. Either on the user's own domain,
+ * Settings → Workers → Email: the agent's own address. Either on the user's own domain,
  * run on their Cloudflare account (Eaon sets up the DNS records, Email Routing
  * and a small Worker itself, from an API token), or through AgentMail, an email
  * service made for agents: Eaon creates the inbox, AgentMail sends the user a
@@ -77,7 +77,6 @@ export function EmailPage(): JSX.Element {
 
   return (
     <>
-      <h1 className="settings__h1">Email</h1>
       <p className="settings__lede">
         Give Eaon an email address of its own, so it can write to people and read their replies for you. It can use its own domain, too. Eaon asks you
         before it sends anything, unless you’ve given a chat full autonomy. Workers always ask.

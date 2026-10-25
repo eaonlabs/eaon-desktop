@@ -103,15 +103,22 @@ function StepMark(): JSX.Element {
 
 const STEP_STATE: Record<TodoItem['status'], string> = { done: 'Done', in_progress: 'In progress', pending: 'To do' }
 
-/** The latest checklist in the chat, pinned above the composer while it has open items. */
+/**
+ * The checklist of the chat's latest reply, pinned above the composer while it
+ * has open items. A plan an earlier reply left behind is not pinned: it no
+ * longer says what the agent is doing. Once the reply has finished, a step
+ * still marked in progress stops spinning, since nothing is working on it.
+ */
 export function TodoPanel({ chat }: { chat: Chat }): JSX.Element | null {
   const todos = useMemo<TodoItem[] | null>(() => {
     for (let i = chat.messages.length - 1; i >= 0; i--) {
+      if (chat.messages[i].role !== 'assistant') continue
       const list = chat.messages[i].todos
-      if (list && list.length > 0) return list
+      return list && list.length > 0 ? list : null
     }
     return null
   }, [chat.messages])
+  const live = useApp((s) => s.streamingChatId === chat.id)
 
   const [open, setOpen] = useState(false)
 
@@ -124,7 +131,7 @@ export function TodoPanel({ chat }: { chat: Chat }): JSX.Element | null {
   const current = todos.find((t) => t.status === 'in_progress') ?? todos.find((t) => t.status === 'pending')
 
   return (
-    <div className="tasks" data-open={open || undefined}>
+    <div className="tasks" data-open={open || undefined} data-live={live || undefined}>
       <button className="tasks__head" onClick={() => setOpen(!open)} aria-expanded={open}>
         <PlanRing value={done / todos.length} />
         <span className="tasks__title">Plan</span>

@@ -10,6 +10,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   </head>
   <body>
+    <!-- Frosted glass in a translucent window lays the page on its own colour
+         before blurring it (app.css, --glass-ground). -->
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <filter id="glass-ground" filterUnits="userSpaceOnUse" x="-100000" y="-100000" width="200000" height="200000" color-interpolation-filters="sRGB">
+        <feFlood style="flood-color: var(--canvas)" result="ground" />
+        <feComposite in="SourceGraphic" in2="ground" operator="over" />
+      </filter>
+    </svg>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

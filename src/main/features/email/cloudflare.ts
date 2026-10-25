@@ -667,7 +667,7 @@ export class CloudflareMailClient {
 
   /** Not used: the domain is created by `setUp`. */
   async createDomain(): Promise<AgentMailDomain> {
-    throw new CloudflareError('Set up the domain from Settings → Email → Cloudflare.', 400)
+    throw new CloudflareError('Set up the domain from Settings → Workers → Email → Cloudflare.', 400)
   }
 
   /** "Check again": runs the setup once more, which fixes whatever is missing. */
@@ -685,7 +685,7 @@ export class CloudflareMailClient {
 
   private requireConfig(): CloudflareMailConfig {
     const config = this.getConfig()
-    if (!config) throw new CloudflareError('Your domain isn’t set up on Cloudflare yet. Set it up in Settings → Email.', 400)
+    if (!config) throw new CloudflareError('Your domain isn’t set up on Cloudflare yet. Set it up in Settings → Workers → Email.', 400)
     return config
   }
 
@@ -930,7 +930,7 @@ export class CloudflareMailClient {
         throw new CloudflareError(`Cloudflare didn’t send it: ${String(data.message ?? data.code ?? 'unknown error').replace(/\.$/, '')}.`, 502, String(data.code ?? '') || null)
       }
       if (attempt >= 3) {
-        throw new CloudflareError('Eaon’s mail Worker isn’t answering for sending yet. Press Check again in Settings → Email to update it.', 503, 'worker_unavailable')
+        throw new CloudflareError('Eaon’s mail Worker isn’t answering for sending yet. Press Check again in Settings → Workers → Email to update it.', 503, 'worker_unavailable')
       }
       await sleep(this.retryDelayMs * 2)
     }
@@ -1074,7 +1074,7 @@ function cloudflareError(status: number, data: Envelope<unknown> | null, globalK
  */
 /** The free route's refusal: who isn't verified, and the two ways out. */
 export const notVerified = (addresses: string[], domain: string): string =>
-  `Without Cloudflare Email Sending, ${domain} can only email addresses verified in your Cloudflare account, and ${addresses.join(', ')} ${addresses.length === 1 ? 'isn’t' : 'aren’t'}. Verify ${addresses.length === 1 ? 'it' : 'them'} in Settings → Email (Cloudflare emails a link to click), or turn on Email Sending to email anyone.`
+  `Without Cloudflare Email Sending, ${domain} can only email addresses verified in your Cloudflare account, and ${addresses.join(', ')} ${addresses.length === 1 ? 'isn’t' : 'aren’t'}. Verify ${addresses.length === 1 ? 'it' : 'them'} in Settings → Workers → Email (Cloudflare emails a link to click), or turn on Email Sending to email anyone.`
 
 export const SENDING_OFF = (domain: string): string =>
   `Receiving works; sending isn’t on yet. Email Sending isn’t turned on for this Cloudflare account: in the Cloudflare dashboard open Email Service → Email Sending and onboard ${domain} (it needs the Workers Paid plan, $5 a month). Then edit the token to give it Email Sending: Edit — Cloudflare only offers Read until sending is on — and press Check again.`

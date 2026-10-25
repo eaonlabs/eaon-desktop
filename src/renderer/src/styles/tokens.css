@@ -103,6 +103,22 @@
   --on-accent: oklch(
     from var(--accent) calc(1 - clamp(0, (l - 0.69) * 1000, 1) * 0.78) calc(clamp(0, (l - 0.69) * 1000, 1) * c * 0.6) h
   );
+
+  /* ---- Frosted glass ----
+     Settings → Appearance → Glass scales how much frosted glass blurs what
+     is behind it and how much of it shows through. useTheme() sets both
+     from the two sliders: 1 is the design's own, 0 is no blur or solid, 2
+     the most either goes. */
+  --glass-blur-k: 1;
+  --glass-clear-k: 1;
+}
+
+/* Declared on body, not :root: a translucent window's ground (app.css) is
+   set there, and a custom property takes the var()s it names from where it
+   is declared. Everything that floats over the page (menus, popovers,
+   toasts, the find bar) frosts with this. */
+body {
+  --frost: blur(calc(28px * var(--glass-blur-k))) saturate(180%) var(--glass-ground,);
 }
 
 /* ---------- Dark (default) ---------- */
@@ -153,8 +169,9 @@
   --border-soft: color-mix(in srgb, var(--fg) 6%, transparent);
   --border-strong: color-mix(in srgb, var(--fg) 14%, transparent);
 
-  /* Translucent so `.menu`'s backdrop-filter has something to frost. */
-  --menu-bg: color-mix(in srgb, var(--surface-3), transparent 24%);
+  /* Translucent so `.menu`'s backdrop-filter has something to frost; how
+     translucent follows Appearance → Glass. */
+  --menu-bg: color-mix(in srgb, var(--surface-3), transparent calc(24% * var(--glass-clear-k)));
 
   --text: var(--fg);
   --text-2: color-mix(in srgb, var(--fg), var(--bg) calc(38% * var(--text-fade)));
@@ -228,7 +245,7 @@
   --border-soft: color-mix(in srgb, var(--fg) 7.8%, transparent);
   --border-strong: color-mix(in srgb, var(--fg) 17.8%, transparent);
 
-  --menu-bg: color-mix(in srgb, var(--surface-3), transparent 18%);
+  --menu-bg: color-mix(in srgb, var(--surface-3), transparent calc(18% * var(--glass-clear-k)));
 
   --text: var(--fg);
   --text-2: color-mix(in srgb, var(--fg), var(--bg) calc(34% * var(--text-fade)));

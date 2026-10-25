@@ -3,9 +3,15 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
-## [Unreleased]
+## [2026.7.0-beta.3] — 2026-10-25
 
 ### Added
+- **Adjustable glass.** Settings → Appearance → Glass has Blur and
+  Transparency for everything frosted: menus, popovers, toasts and the
+  see-through panels, with a preview that follows the sliders. Glass with
+  little blur stays nearly solid, so text behind it never shows through
+  sharp, and the system's Reduce transparency makes it solid. Translucent
+  sidebar moved here too.
 - **Free models from Eaon.** The free models Eaon Code has, MiMo v2.6 Flash,
   Muse Spark 1.3 Contributor and GPT-6-Luna, are in the model picker under
   Eaon Lite for everyone, with no key, sign-in or week to claim.
@@ -14,15 +20,186 @@ All notable changes to Eaon are documented here. Format loosely follows
   key saved in Settings → Model providers. Alibaba's Qwen Token Plan and
   Xiaomi's MiMo Token Plan have no usage API, so their cards say where to
   find the figures.
+- **Updating from 2026.6 opens the setup, then a tour of what's new.** An
+  install from before 2026.7 goes through the setup once: sign in with Tokn,
+  connect models, pick light or dark. A ten-stop tour then shows what has
+  changed in Chat, Workers and the ADE. An install that already went through
+  the setup in a 2026.7 beta gets only the tour. "What's new in 2026.7" is in
+  the Help menu.
+- **Provider logos.** Give any model provider your own logo in Settings →
+  Model providers → Logo. A custom provider finds its own logo from its base
+  URL: from the provider's `/.well-known/eaon-provider.json` if it publishes
+  one, otherwise from its website's icons. Settings lists what was tried.
+  Any shape fits the tile, and one-colour logos stay visible in light and
+  dark mode. API providers can publish theirs:
+  [docs/provider-logos.md](docs/provider-logos.md).
+- **Queue messages while Eaon replies.** ⏎ during a reply queues what you
+  typed, and it goes as soon as the reply ends. Each queued message can be
+  sent now (which stops the reply), taken back into the box to change, or
+  removed. After Stop or a failed reply the queue waits for you to resume it.
+- **Edit from here.** Your messages have Copy and Edit on hover. Edit puts the
+  message back in the box; sending it replaces that message and the replies
+  after it.
+- **↑ for earlier messages.** In an empty message box, ↑ brings back what you
+  sent in the chat, and ↓ goes forward again to what you were typing.
+- **Find in chat.** ⌘F (Ctrl+F) finds text in the conversation, marks every
+  match and steps between them with ⏎ and ⇧⏎.
+- **A map of your messages.** Long chats get marks down the right edge, one
+  per message you sent; point at one to see it, click to go there.
+- **Context window meter.** A ring by the model shows about how much of the
+  model's context the chat fills, and when Eaon starts summarizing older
+  messages.
+- **Quote a passage.** Selecting part of a reply shows a Quote button that
+  puts the passage in your message as a quote.
+- **Picture viewer.** Pictures in a conversation open inside Eaon, full size,
+  with ← and → between them, instead of in another app.
+- **The dock.** The panel switch at the top right opens a dock beside the
+  conversation, and the work opens in it as tabs: the browser (and Eaon's own
+  browser while it browses), terminals, the folder's files, a file, the diff,
+  the branch's pull request, the pull requests the chat links to, and the
+  browser's page at phone or tablet size. An empty dock lists them, each with
+  its letter (B, T, F, D, P, L, M); + lists the same from anywhere. It can
+  fill the window, and its pages, terminals and files stay as they were when
+  you switch tabs.
+- **Files in the dock.** Search files by name, open folders as you go, and
+  open a file in a tab of its own: where it sits in the folder, Open in your
+  editor, long lines wrapped, the tree beside it, and ⌘S to save. Click a
+  line number to put that line in your message.
+- **File marks for every language.** Files show a mark for their type, as an
+  editor's file tree does: Python, TypeScript, JavaScript, React, HTML, CSS,
+  Sass, Markdown, JSON, YAML, Go, Rust, Ruby, Java, Swift, C and C++, C#,
+  PHP, Vue, Svelte, shell scripts, SQL, pictures, fonts, archives, git files,
+  `.env`, lock files, Dockerfiles, `package.json`, READMEs and licences among
+  them; a file with no mark of its own is lines of text.
+- **A terminal under the chat.** ⌘J (Ctrl+J) opens a real shell in the chat's
+  folder, edge to edge under the conversation. A small bar over its corner
+  splits it to the right or down, opens another, runs a project script, or
+  closes it (asking first: closing stops what runs in it); with more than
+  one, a list down the side picks between them. Select some output and Add
+  to message puts it in the box for Eaon to look at.
+- **Review changes in Chat.** The dock's Diff shows the chat's
+  work as diffs, one card per file: coloured code, real line numbers, the
+  words that changed marked inside a line, and unchanged stretches folded to
+  a line that opens in place. Choose the whole chat, one turn, or (in a git
+  repository) everything uncommitted; switch between one column and side by
+  side, wrap long lines, step from change to change, jump to a file or show
+  them as a tree. Click a line number to comment on it, and the comment goes
+  into your message.
+- **Git in Chat.** One button for the next step — Commit, Push or Publish,
+  Create PR, View PR — with Commit and push, Pull and Review uncommitted
+  changes in its menu, and a branch picker that switches branches, makes new
+  ones, pushes and pulls.
+- **Open in your editor.** Open puts the chat's folder in VS Code, Cursor,
+  Zed, a JetBrains IDE, a terminal app or Finder — whichever are installed —
+  and remembers the last one. On a Mac each app shows its own icon.
+- **Project scripts.** Save commands like `npm run dev` or `make test` (Eaon
+  offers the project's own) and run them in one click, each in its own
+  terminal tab.
+- **Find in project.** ⇧⌘F searches every file in the folder, with match
+  case, whole word and regular expressions; ⏎ opens a match at its line.
+- **@ a file.** Typing @ in the message box suggests the project's files.
+- **Paths in replies open the file.** `src/app.ts:42` in a reply opens that
+  line in the dock; ⌘-click opens it in your editor.
+- **HTML preview.** HTML code blocks have Preview, with desktop, tablet and
+  phone widths, and Open in browser.
+- **GitHub Copilot and Gemini CLI as engines.** If you have the Copilot CLI or
+  Gemini CLI installed and signed in, Eaon finds it, lists its models in the
+  model picker and Settings → Agent engines, and Chat and workers can run on it
+  with your own plan. Copilot's list is the models your Copilot plan includes:
+  Eaon asks Copilot itself, which costs nothing and leaves no history. A plan
+  that offers Auto only shows Auto, and a model your plan lacks is marked
+  rather than quietly run on another. Eaon drives each through the Agent Client Protocol mode its
+  maker documents for editors: the CLI signs in and makes every request itself,
+  and Eaon never reads its sign-in, calls its services or changes what it is
+  told. [docs/your-subscriptions.md](docs/your-subscriptions.md) explains which
+  plans work this way and why Claude plans don't.
+- **Eaon's tools in Claude Code.** Settings → Connect apps → Your Claude plan
+  adds Eaon to your own Claude Code as an MCP server, for every folder, so
+  Claude Code on your Claude plan can use your chats, workers, models and the
+  ADE. Eaon never signs in to your Claude account, starts Claude Code, types
+  into it or adds to its system prompt. The entry has a key of its own that
+  opens Eaon's controls but not its models, and turning the switch off
+  deletes it.
 
 ### Changed
+- **In Chat, projects are where you code.** A project is a folder, and its
+  chats are coding sessions in it, each with the workspace card, the
+  terminal, branch and Git, and the dock's files, diff and pull requests.
+  Work in a project (or + beside Projects) picks the folder; a chat can move
+  into a project, or out to Chats, from its menu. Chats outside a project
+  are ordinary conversations: the same agent, with web search, the browser
+  and plugins, and its files in ~/Eaon, but none of the coding tools. The
+  folder Chat used to work in becomes your first project. Edit project sets
+  a project's folder, and older projects without one can be given one there.
+- **Projects and Chats are separate sections in Chat's sidebar.** A line
+  divides them, and Recents is now called Chats. Hover a heading for its
+  tools: Projects can collapse all its projects, sort them (recent activity,
+  date created or name) and add one. Chats can fold away, sort (recent
+  activity or date created) and start a new chat. The sidebar remembers how
+  you left them.
+- **Claude Code runs without an Eaon system prompt.** The Trading tab and Eaon
+  CLI's Claude Code screen no longer start it with `--append-system-prompt`;
+  what it needs to know about Eaon comes from the MCP server's instructions.
+- **The setup's Connect a model step, redrawn.** Each way to connect (sign
+  in, an API key, models on this computer) is a row that opens just those
+  providers and shows which are connected; Eaon Lite shows as ready at the
+  top, and the event code field opens from a link.
 - **The usage meter lives in the ADE's header.** It's no longer in the
   sidebar, and the Placement choice is gone.
 - **Claude plan limits come from Claude Code itself.** Eaon no longer starts
   Claude Code in the background to read them; the Claude card points to
   `/usage` in Claude Code.
+- **Each reply that changes files ends with "N changed files"**: its line
+  counts, the files as a folder tree, and Open diff (the dock's Diff, on
+  that turn); a file's row opens it there.
+- **A reply's work reads as a log.** Between its sentences, each run of steps
+  is one quiet line of what it did ("Read 2 files and ran 1 command",
+  "Changed 1 file") that opens into the steps, and each thought is a line of
+  its own. A finished reply folds all of it under "Worked for 2m 4s", leaving
+  the answer; click to see it all. A reply you stop says so at its end.
+- **The workspace card.** Beside the conversation, a card holds the folder,
+  Open in your editor, the project's scripts, the branch, the next Git step
+  and the changes, instead of the top bar and the pills above the message
+  box. In a narrow window it opens from the top bar's card button.
+- **Files in replies** show as chips with the file's mark; click to open.
+- **Three switches in the top bar** of a conversation: the workspace card,
+  the terminal and the dock. Find in project is on ⇧⌘F, and the browser and
+  Eaon's browser open in the dock.
+- **The plan stays current.** Eaon now marks its checklist's steps done as it
+  works: it is reminded when the plan goes stale and, before finishing with
+  steps still open, asked to mark them. A finished reply's plan no longer
+  shows a step spinning, and an earlier reply's plan isn't pinned over a new
+  one.
+- **Code blocks** are coloured by language once finished, can wrap long
+  lines, and fold to their first lines past 30, with Show all.
+- **Long messages you send** fold to their first lines, with Show more.
+- **Callouts** written `> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]` or
+  `[!CAUTION]` show as callouts in replies.
+- **A dock beside the ADE's terminals.** The ADE's Browser button is now the
+  dock's switch, at the top right. The dock opens the browser, the session's
+  files and any file in them, what is uncommitted, the branch's pull request,
+  pull requests linked in the session's terminals, and the page on a phone,
+  each as a tab. A comment on a line of the diff, or a line of a file, goes to
+  the session's agent, typed at its prompt but not sent.
+- **Settings → Workers.** Payments, Chat apps, Email and Worker computer are
+  now tabs of one Workers page instead of four pages spread over Settings. A
+  search for any of them still finds it, and Workers opens on the tab you
+  used last.
 
 ### Fixed
+- **Menus stay clear of the window's buttons.** A menu too tall for the
+  room under its button flipped up and was pushed against the top of the
+  window, over the close, minimise and zoom buttons. A menu now opens on the
+  side with room and scrolls when neither side has enough, and nothing opens
+  over the window's top row.
+- **The Chat / Workers / ADE switch is centred.** With the sidebar hidden it
+  sat about 40 pixels right of the middle of the window, pushed over by the
+  room kept for the window buttons.
+- **Menus frost properly.** With a translucent sidebar on macOS, text behind
+  a menu or popover showed through it sharp, so the project menu read as two
+  lists on top of each other. Menus, popovers, toasts and the find bar now
+  blur what is behind them. A menu's search field no longer sits on a lighter
+  band; the list scrolls under it and fades out where there's more of it.
 - **Chat apps with a worker computer.** Connecting a chat app to a worker on
   the worker computer failed with "That worker no longer exists". Chat apps
   now move there with the workers (bots, tokens and WhatsApp sessions), so a
@@ -31,10 +208,31 @@ All notable changes to Eaon are documented here. Format loosely follows
   them the next time the worker computer connects.
 - **Closing the in-app browser's last tab closes the browser,** instead of
   leaving an empty tab.
+- **No dark band under the top bar with a translucent sidebar.** Scrolling a
+  chat, a worker or a room on macOS with a translucent sidebar darkened the
+  top of the page, and the dark ended in a visible line. Messages now fade
+  out under the bar there, and the background stays the same colour all the
+  way up.
+- Reviewing a chat's changes no longer squeezes the diffs into a narrow
+  column with the ends of lines cut off.
+- **Pages open with their glass already frosted.** With a wallpaper behind
+  the app, opening Settings or any page showed the wallpaper sharp under
+  every panel for a moment before the blur came in.
+- **Eaon Lite's models are the ones Eaon offers today.** Its list follows
+  what Eaon serves, with their names and descriptions, and is checked every
+  ten minutes, so a model that was taken away no longer stays in the picker.
+- **Eaon Free is only offered while it works.** The offer, and the switch to
+  it, wait until Eaon actually serves its model; a model you already use is
+  kept.
+- **Uninstalling the worker computer's app deletes the keys** this computer
+  had given it.
+- **The ADE's "Open a project" sits in the middle of the pane** again.
+- **Pi shows its own logo** in Usage & limits.
 
 ### Removed
 - **Settings → Profile.** The activity profile page and its share card are
   gone.
+
 
 ## [2026.7.0-beta.2.3] — 2026-10-19
 

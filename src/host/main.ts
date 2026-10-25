@@ -84,7 +84,7 @@ async function main(): Promise<void> {
     config = JSON.parse(readFileSync(join(home, 'host.json'), 'utf8'))
     if (!config.secret || !config.port) throw new Error('incomplete')
   } catch {
-    console.error(`[host] ${join(home, 'host.json')} is missing or incomplete. Link this computer from Eaon Desktop → Settings → Worker computer.`)
+    console.error(`[host] ${join(home, 'host.json')} is missing or incomplete. Link this computer from Eaon Desktop → Settings → Workers → Worker computer.`)
     process.exit(2)
   }
 

@@ -2,7 +2,9 @@ import { useEffect, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { useApp } from '../../../state/store'
 import { Card, Row, Section, Segmented, Select, Slider, Switch } from '../../ui'
-import type { AppIcon, SeeThroughStyle, Settings, ThemeMode } from '@shared/types'
+import { Folder, Search } from 'lucide-react'
+import type { AppIcon, Glass, SeeThroughStyle, Settings, ThemeMode } from '@shared/types'
+import { GLASS_CLEAR_BLUR, GLASS_DEFAULT } from '@shared/glass'
 import { THEMES, type Palette, type Theme } from '../../../lib/themes'
 import { isMac } from '../../../lib/platform'
 import defaultIcon from '../../../assets/app-icons/default.png'
@@ -137,6 +139,8 @@ export function AppearancePage(): JSX.Element {
 
       <SeeThroughSection />
 
+      <GlassSection />
+
       <AdeBackgroundSection />
 
       <Section label="Preferences">
@@ -205,30 +209,16 @@ export function AppearancePage(): JSX.Element {
               ]}
             />
           </Row>
-          {/* Both are macOS-only: the sidebar's blur is the window's vibrancy
-              material, and font smoothing is a WebKit switch only macOS
-              honours. Elsewhere the switches would do nothing. */}
+          {/* macOS-only: font smoothing is a WebKit switch only macOS
+              honours. Elsewhere the switch would do nothing. */}
           {isMac && (
-            <>
-              <Row title="Translucent sidebar" description="Blur the desktop through the sidebar">
-                <Switch
-                  label="Translucent sidebar"
-                  checked={a[tone].translucentSidebar}
-                  onChange={(on) =>
-                    void patchSettings({
-                      appearance: { light: { translucentSidebar: on }, dark: { translucentSidebar: on } }
-                    })
-                  }
-                />
-              </Row>
-              <Row title="Font smoothing" description="Use native macOS font anti-aliasing">
-                <Switch
-                  label="Font smoothing"
-                  checked={a.fontSmoothing}
-                  onChange={(on) => void patchSettings({ appearance: { fontSmoothing: on } })}
-                />
-              </Row>
-            </>
+            <Row title="Font smoothing" description="Use native macOS font anti-aliasing">
+              <Switch
+                label="Font smoothing"
+                checked={a.fontSmoothing}
+                onChange={(on) => void patchSettings({ appearance: { fontSmoothing: on } })}
+              />
+            </Row>
           )}
         </Card>
       </Section>
@@ -477,6 +467,103 @@ function SeeThroughSection(): JSX.Element | null {
         )}
       </Card>
     </Section>
+  )
+}
+
+/** Whether the system asks for less transparency (macOS: Accessibility → Display → Reduce transparency). */
+function useReducedTransparency(): boolean {
+  const [reduced, setReduced] = useState(() => window.matchMedia('(prefers-reduced-transparency: reduce)').matches)
+  useEffect(() => {
+    const media = window.matchMedia('(prefers-reduced-transparency: reduce)')
+    const onChange = (): void => setReduced(media.matches)
+    media.addEventListener('change', onChange)
+    return () => media.removeEventListener('change', onChange)
+  }, [])
+  return reduced
+}
+
+/**
+ * Frosted glass: how soft the page gets behind what floats over it (menus,
+ * popovers, toasts, the see-through panels) and how much of it shows
+ * through. The preview is drawn with the same tokens, so it moves with the
+ * sliders.
+ */
+function GlassSection(): JSX.Element | null {
+  const { settings, patchSettings } = useApp(useShallow((s) => ({ settings: s.settings, patchSettings: s.patchSettings })))
+  const reduced = useReducedTransparency()
+  const tone = useResolvedTone(settings?.appearance.mode ?? 'dark')
+  const a = settings?.appearance
+  if (!a) return null
+  const glass = a.glass ?? GLASS_DEFAULT
+  const set = (patch: Partial<Glass>): void => void patchSettings({ appearance: { glass: { ...glass, ...patch } } })
+  const changed = glass.blur !== GLASS_DEFAULT.blur || glass.transparency !== GLASS_DEFAULT.transparency
+  return (
+    <Section label="Glass">
+      <Card>
+        <GlassPreview />
+        <Row title="Blur" description="How soft the page gets behind menus, popovers and frosted panels">
+          <Slider value={glass.blur} onChange={(blur) => set({ blur })} />
+        </Row>
+        <Row
+          title="Transparency"
+          description={
+            reduced
+              ? 'Solid while your system’s Reduce transparency is on'
+              : glass.blur < GLASS_CLEAR_BLUR
+                ? 'With little blur, glass stays nearly solid so the page’s text never shows through sharp'
+                : 'How much of the page shows through them. Lower is easier to read'
+          }
+        >
+          <Slider value={glass.transparency} onChange={(transparency) => set({ transparency })} />
+        </Row>
+        {/* macOS-only: the window's vibrancy material. Elsewhere the switch would do nothing. */}
+        {isMac && (
+          <Row title="Translucent sidebar" description="Blur the desktop through the sidebar">
+            <Switch
+              label="Translucent sidebar"
+              checked={a[tone].translucentSidebar}
+              onChange={(on) => void patchSettings({ appearance: { light: { translucentSidebar: on }, dark: { translucentSidebar: on } } })}
+            />
+          </Row>
+        )}
+        {changed && (
+          <Row title="Default glass" description="Blur and transparency as Eaon comes">
+            <button className="btn btn--ghost" onClick={() => set(GLASS_DEFAULT)}>
+              Reset
+            </button>
+          </Row>
+        )}
+      </Card>
+    </Section>
+  )
+}
+
+/** A corner of a page with a project menu open over it, frosted the way the app frosts one. */
+function GlassPreview(): JSX.Element {
+  return (
+    <div className="glass-preview" aria-hidden="true">
+      <div className="glass-preview__page">
+        <span className="glass-preview__glow" />
+        <span className="glass-preview__title">What should we work on?</span>
+        <span className="glass-preview__chips">
+          <span>Research</span>
+          <span>Organize files</span>
+          <span>Build an app</span>
+        </span>
+      </div>
+      <div className="glass-preview__menu">
+        <span className="glass-preview__search">
+          <Search size={12} strokeWidth={2} />
+          Search projects
+        </span>
+        {['Desktop', 'Documents', 'Downloads'].map((name) => (
+          <span key={name} className="glass-preview__row">
+            <Folder size={13} strokeWidth={1.8} />
+            {name}
+          </span>
+        ))}
+      </div>
+    </div>
   )
 }
 

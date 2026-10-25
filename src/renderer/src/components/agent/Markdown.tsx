@@ -1,6 +1,7 @@
 import { memo, useMemo, useRef, type JSX, type ReactNode } from 'react'
 import { CodeBlock } from './CodeBlock'
 import { MarkdownTable } from './MarkdownTables'
+import { FileRef, parseFileRef } from './FileRef'
 import { parseMarkdown, type Block, type ListItem, type ParsedMarkdown } from './markdownBlocks'
 
 /**
@@ -38,6 +39,18 @@ const INLINE = new RegExp(
   'g'
 )
 
+/** `> [!WARNING]` and its kin: the first line of a quote that makes it a callout. */
+const ALERT = /^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*(.*)$/i
+const ALERT_TITLE = { note: 'Note', tip: 'Tip', important: 'Important', warning: 'Warning', caution: 'Caution' } as const
+
+const safeDecode = (text: string): string => {
+  try {
+    return decodeURI(text)
+  } catch {
+    return text
+  }
+}
+
 /** Links open in the user's browser; anything but the web and mail is shown as text. */
 const OPENABLE = /^(https?:|mailto:)/i
 
@@ -70,10 +83,16 @@ function renderInline(text: string, keyPrefix: string): ReactNode[] {
     const g = match.groups ?? {}
 
     if (g.code !== undefined) {
+      // A path in backticks opens the file, where the chat has a code panel to open it in.
+      const file = parseFileRef(g.code)
       out.push(
-        <code key={`${keyPrefix}-${key++}`} className="md__code">
-          {g.code}
-        </code>
+        file ? (
+          <FileRef key={`${keyPrefix}-${key++}`} text={g.code} path={file.path} line={file.line} />
+        ) : (
+          <code key={`${keyPrefix}-${key++}`} className="md__code">
+            {g.code}
+          </code>
+        )
       )
     } else if (g.bold !== undefined || g.boldU !== undefined) {
       out.push(<strong key={`${keyPrefix}-${key++}`}>{renderInline(g.bold ?? g.boldU, `${keyPrefix}-${key}`)}</strong>)
@@ -82,7 +101,17 @@ function renderInline(text: string, keyPrefix: string): ReactNode[] {
     } else if (g.italic !== undefined || g.italicU !== undefined) {
       out.push(<em key={`${keyPrefix}-${key++}`}>{renderInline(g.italic ?? g.italicU, `${keyPrefix}-${key}`)}</em>)
     } else if (g.href !== undefined) {
-      out.push(link(g.href, g.linkText ? renderInline(g.linkText, `${keyPrefix}-${key}`) : g.href))
+      const file = OPENABLE.test(g.href) ? null : parseFileRef(safeDecode(g.href.replace(/^file:\/\//, '')))
+      const label = g.linkText ? renderInline(g.linkText, `${keyPrefix}-${key}`) : g.href
+      out.push(
+        file ? (
+          <FileRef key={`${keyPrefix}-${key++}`} text={g.href} path={file.path} line={file.line} asCode={false}>
+            {label}
+          </FileRef>
+        ) : (
+          link(g.href, label)
+        )
+      )
     } else if (g.angle !== undefined || g.bare !== undefined) {
       const href = g.angle ?? g.bare
       out.push(link(href, href))
@@ -142,8 +171,21 @@ const MarkdownBlock = memo(function MarkdownBlock({ block, id }: { block: Block;
     case 'table':
       // A comparison or a data table, depending on what the cells hold (MarkdownTables.tsx).
       return <MarkdownTable header={block.header} rows={block.rows} align={block.align} renderCell={renderInline} id={id} />
-    case 'quote':
+    case 'quote': {
+      // GitHub's callouts: a quote that opens with [!NOTE], [!TIP] and the like.
+      const alert = ALERT.exec(block.lines[0] ?? '')
+      if (alert) {
+        const kind = alert[1].toLowerCase() as keyof typeof ALERT_TITLE
+        const rest = [alert[2], ...block.lines.slice(1)].filter((line, i) => i > 0 || line.trim()).join('\n')
+        return (
+          <div className="md__alert" data-kind={kind} role="note">
+            <div className="md__alert-title">{ALERT_TITLE[kind]}</div>
+            {rest.trim() && <div className="md__alert-body">{renderInline(rest, id)}</div>}
+          </div>
+        )
+      }
       return <blockquote className="md__quote">{renderInline(block.lines.join('\n'), id)}</blockquote>
+    }
     case 'rule':
       return <hr className="md__rule" />
     default:

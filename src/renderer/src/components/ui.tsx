@@ -1,5 +1,7 @@
 import {
+  Children,
   createContext,
+  isValidElement,
   useCallback,
   useContext,
   useEffect,
@@ -39,6 +41,12 @@ interface PopoverProps {
   standalone?: boolean
 }
 
+/** How far down the window's top row reaches, where its own buttons are: the title bar and the gap above the panels. */
+function windowTopRow(): number {
+  const css = getComputedStyle(document.documentElement)
+  return (parseFloat(css.getPropertyValue('--titlebar-h')) || 0) + (parseFloat(css.getPropertyValue('--sidebar-gap')) || 0)
+}
+
 /** Menu surface anchored to a trigger, kept inside the viewport. */
 export function Popover({
   anchor,
@@ -57,20 +65,30 @@ export function Popover({
 
   useLayoutEffect(() => {
     if (!open) return
+    const margin = 8
+    // The window's own buttons are in its top row (the traffic lights on a
+    // Mac, the caption buttons elsewhere), and a menu pushed up against the
+    // top edge covered them. Nothing opens over that row.
+    const ceiling = Math.max(margin, windowTopRow())
     const place = (): void => {
       const trigger = anchor.current?.getBoundingClientRect()
       const surface = ref.current
       if (!trigger || !surface) return
-      const margin = 8
       // offsetWidth/Height, not getBoundingClientRect: the open animation starts
       // at scale(0.94), and a client rect reports the *transformed* size — so
       // measuring mid-animation under-reported the height and the flip below
       // decided it fit when it did not. ResizeObserver cannot rescue this
       // either, since a transform never changes the border-box it observes.
+      // Measured without the height it was last limited to, so the choice of
+      // side is made on its whole height every time, never on its own clipping.
       const w = width ?? surface.offsetWidth
+      const limited = surface.style.maxHeight
+      surface.style.maxHeight = ''
       const h = surface.offsetHeight
+      surface.style.maxHeight = limited
       let top: number
       let left: number
+      let maxHeight: number | undefined
 
       // A side placement is a submenu: it sits against its parent menu's
       // edge, not the row's, and flips to the other side when this one has no
@@ -105,10 +123,24 @@ export function Popover({
           left = trigger.left
       }
 
-      // Flip vertically rather than run off the bottom edge.
-      if (top + h > window.innerHeight - margin) {
-        const flipped = placement.startsWith('bottom') ? trigger.top - h - offset : window.innerHeight - h - margin
-        top = Math.max(margin, flipped)
+      const floor = window.innerHeight - margin
+      if (side) {
+        // A submenu stays level with its row, moved up only as far as it has to, and scrolls when even the window is too short.
+        const room = floor - ceiling
+        if (h > room) maxHeight = room
+        top = Math.min(Math.max(ceiling, top), floor - Math.min(h, room))
+      } else {
+        // The side asked for if it fits there, else the side it fits on, else
+        // the roomier one, scrolling: never pushed off its trigger, over the
+        // window's buttons or off the bottom.
+        const below = floor - (trigger.bottom + offset)
+        const above = trigger.top - offset - ceiling
+        const fitsBelow = h <= below
+        const fitsAbove = h <= above
+        const down = placement.startsWith('top') ? !fitsAbove && (fitsBelow || below > above) : fitsBelow || (!fitsAbove && below >= above)
+        const room = down ? below : above
+        if (h > room) maxHeight = room
+        top = down ? trigger.bottom + offset : trigger.top - offset - Math.min(h, room)
       }
       if (side) {
         const roomRight = window.innerWidth - margin - (parent.right + offset)
@@ -120,14 +152,13 @@ export function Popover({
         left = Math.min(Math.max(margin, left), window.innerWidth - w - margin)
       } else if (left + w > window.innerWidth - margin) left = Math.max(margin, trigger.right - w)
       if (left < margin) left = margin
-      if (top < margin) top = margin
 
       // Runs on every scroll anywhere in the window — including the thread
       // following a streaming reply — so only a real move re-renders the menu.
       setStyle((prev) =>
-        prev.top === top && prev.left === left && prev.width === width && prev.opacity === 1
+        prev.top === top && prev.left === left && prev.width === width && prev.maxHeight === maxHeight && prev.opacity === 1
           ? prev
-          : { top, left, ...(width ? { width } : {}), opacity: 1 }
+          : { top, left, ...(width ? { width } : {}), ...(maxHeight !== undefined ? { maxHeight } : {}), opacity: 1 }
       )
     }
     place()
@@ -209,6 +240,10 @@ export function Popover({
   }
 
   if (!open) return null
+  // A search field stays where it is and the list scrolls under it in a body
+  // of its own (controls.css), rather than the whole menu scrolling.
+  const parts = Children.toArray(children)
+  const search = parts.filter((part) => isValidElement(part) && part.type === MenuSearch)
   return createPortal(
     <>
       {/* A submenu has no click-catcher of its own: the parent menu's layer
@@ -216,8 +251,23 @@ export function Popover({
           would cover the parent, so its other rows could not be hovered or
           clicked while the submenu was open. */}
       {!submenu && <div className="layer layer--transparent" onMouseDown={onClose} onContextMenu={onClose} />}
-      <div ref={ref} className={`menu ${className ?? ''}`} style={style} role="menu" tabIndex={-1} onKeyDown={onMenuKey}>
-        {children}
+      <div
+        ref={ref}
+        className={`menu ${className ?? ''}`}
+        style={style}
+        role="menu"
+        tabIndex={-1}
+        onKeyDown={onMenuKey}
+        data-search={search.length > 0 || undefined}
+      >
+        {search.length > 0 ? (
+          <>
+            {search}
+            <div className="menu__body">{parts.filter((part) => !search.includes(part))}</div>
+          </>
+        ) : (
+          children
+        )}
       </div>
     </>,
     document.body
@@ -286,11 +336,14 @@ export function MenuSeparator(): JSX.Element {
 export function MenuSearch({
   value,
   onChange,
-  placeholder
+  placeholder,
+  onKeyDown
 }: {
   value: string
   onChange: (value: string) => void
   placeholder: string
+  /** Runs first; a key it handles (preventDefault) skips the field's own ↓ and ⏎. */
+  onKeyDown?: (event: React.KeyboardEvent<HTMLInputElement>) => void
 }): JSX.Element {
   return (
     <div className="menu__search">
@@ -305,7 +358,8 @@ export function MenuSearch({
         // into the results and ⏎ picks the first one.
         onKeyDown={(e) => {
           if (e.nativeEvent.isComposing) return
-          if (e.key !== 'ArrowDown' && e.key !== 'Enter') return
+          onKeyDown?.(e)
+          if (e.defaultPrevented || (e.key !== 'ArrowDown' && e.key !== 'Enter')) return
           const first = e.currentTarget.closest('.menu')?.querySelector<HTMLElement>('[role="menuitem"]:not(:disabled)')
           if (!first) return
           e.preventDefault()

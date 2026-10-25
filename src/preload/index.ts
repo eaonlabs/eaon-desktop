@@ -36,6 +36,7 @@ import { discordApi } from './features/discordPresence'
 import { modelLibraryApi } from './features/modelLibrary'
 import { libraryApi } from './features/library'
 import { workspaceFilesApi } from './features/workspaceFiles'
+import { chatCodeApi } from './features/chatCode'
 import { wallpaperApi } from './features/wallpaper'
 import { terminalsApi } from './features/terminals'
 import { adeApi } from './features/ade'
@@ -50,6 +51,7 @@ import { agentProvidersApi } from './features/agentProviders'
 import { gatewayApi } from './features/gateway'
 import { connectAppsApi } from './features/connectApps'
 import { linkAccountsApi } from './features/linkAccounts'
+import { providerLogosApi } from './features/providerLogos'
 import { usageApi } from './features/usage'
 import { toknCliApi } from './features/toknCli'
 import { paymentsApi } from './features/payments'
@@ -330,6 +332,7 @@ const fullApi = {
   modelLibrary: modelLibraryApi,
   library: libraryApi,
   workspaceFiles: workspaceFilesApi,
+  chatCode: chatCodeApi,
   wallpaper: wallpaperApi,
   terminals: terminalsApi,
   ade: adeApi,
@@ -344,6 +347,7 @@ const fullApi = {
   gateway: gatewayApi,
   connectApps: connectAppsApi,
   linkAccounts: linkAccountsApi,
+  providerLogos: providerLogosApi,
   usage: usageApi,
   toknCli: toknCliApi,
   payments: paymentsApi,

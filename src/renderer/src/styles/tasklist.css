@@ -227,6 +227,12 @@
   background-size: 100% 1px;
 }
 
+/* The reply has finished: a step left in progress waits rather than spins. */
+.tasks:not([data-live]) .tasks__item[data-status='in_progress'] .tasks__mark-orbit {
+  animation: none;
+  opacity: 0;
+}
+
 @keyframes tasks-in {
   from {
     opacity: 0;

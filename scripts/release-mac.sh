@@ -16,6 +16,16 @@
 # Signing itself needs no configuration here: electron-builder selects the
 # "Developer ID Application" certificate from the keychain automatically.
 #
+# Eaon's gateway app, which signs the app's requests to the gateway
+# (src/main/gatewaySignature.ts), comes from the keychain the same way. Its ID
+# and secret are on the gateway dashboard under Access → Eaon apps:
+#
+#   security add-generic-password -U -s eaon-gateway-app \
+#     -a "<app-id>" -w "<app-secret>"
+#
+# A build without it can't reach a gateway set to "Eaon apps only", so the
+# script stops without one. EAON_GATEWAY_UNSIGNED=1 builds without it anyway.
+#
 # Usage:
 #   ./scripts/release-mac.sh            # build locally, do not publish
 #   ./scripts/release-mac.sh --publish  # build and publish to GitHub releases
@@ -43,6 +53,22 @@ if [ -z "$APPLE_ID" ] || [ -z "$APPLE_APP_SPECIFIC_PASSWORD" ]; then
 fi
 
 export APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
+
+GATEWAY_SERVICE="eaon-gateway-app"
+EAON_GATEWAY_APP_ID="$(security find-generic-password -s "$GATEWAY_SERVICE" 2>/dev/null | awk -F'"' '/"acct"/ {print $4}' || true)"
+EAON_GATEWAY_APP_SECRET="$(security find-generic-password -s "$GATEWAY_SERVICE" -w 2>/dev/null || true)"
+if [ -z "$EAON_GATEWAY_APP_ID" ] || [ -z "$EAON_GATEWAY_APP_SECRET" ]; then
+  if [ "${EAON_GATEWAY_UNSIGNED:-}" != "1" ]; then
+    echo "error: no '$GATEWAY_SERVICE' entry in the login keychain, so this build couldn't sign" >&2
+    echo "       its requests to Eaon's gateway. See the comment at the top of this script." >&2
+    echo "       EAON_GATEWAY_UNSIGNED=1 builds without it anyway." >&2
+    exit 1
+  fi
+  echo "warning: building without Eaon's gateway app (EAON_GATEWAY_UNSIGNED=1)." >&2
+  EAON_GATEWAY_APP_ID=""
+  EAON_GATEWAY_APP_SECRET=""
+fi
+export EAON_GATEWAY_APP_ID EAON_GATEWAY_APP_SECRET
 
 PUBLISH="never"
 if [ "${1:-}" = "--publish" ]; then

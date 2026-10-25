@@ -502,28 +502,26 @@ export function WorkersSearch({ anchor, open, onClose }: { anchor: React.RefObje
 
   return (
     <Popover anchor={anchor} open={open} onClose={onClose} placement="bottom-end" width={340}>
-      <div onKeyDown={onKeyDown}>
-        <MenuSearch value={query} onChange={setQuery} placeholder="Search workers, tasks and questions" />
-        {hits.length === 0 ? (
-          <div className="menu__empty">{query.trim() ? 'Nothing matches' : 'No workers yet'}</div>
-        ) : (
-          <div className="worker-search__results" role="listbox" aria-label="Results">
-            {hits.map((hit, index) => (
-              <div key={hit.key} role="option" aria-selected={index === active} data-active={index === active || undefined} onMouseEnter={() => setActive(index)}>
-                <MenuItem
-                  icon={hit.icon}
-                  title={hit.title}
-                  description={hit.description}
-                  onClick={() => {
-                    hit.open()
-                    onClose()
-                  }}
-                />
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      <MenuSearch value={query} onChange={setQuery} placeholder="Search workers, tasks and questions" onKeyDown={onKeyDown} />
+      {hits.length === 0 ? (
+        <div className="menu__empty">{query.trim() ? 'Nothing matches' : 'No workers yet'}</div>
+      ) : (
+        <div className="worker-search__results" role="listbox" aria-label="Results" onKeyDown={onKeyDown}>
+          {hits.map((hit, index) => (
+            <div key={hit.key} role="option" aria-selected={index === active} data-active={index === active || undefined} onMouseEnter={() => setActive(index)}>
+              <MenuItem
+                icon={hit.icon}
+                title={hit.title}
+                description={hit.description}
+                onClick={() => {
+                  hit.open()
+                  onClose()
+                }}
+              />
+            </div>
+          ))}
+        </div>
+      )}
     </Popover>
   )
 }

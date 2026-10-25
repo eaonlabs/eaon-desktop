@@ -5,8 +5,11 @@ import { useState, type JSX } from 'react'
  * Eaon Free and in first-run setup. A code gives each computer its own
  * allowance; without one, Eaon Free's gateway counts a whole venue on one
  * shared IP as a single user.
+ *
+ * `compact`: just the field and its button, for a place that has already
+ * asked "Have an event code?" (the setup opens it from a link).
  */
-export function RedeemCode({ onRedeemed }: { onRedeemed: () => void | Promise<void> }): JSX.Element {
+export function RedeemCode({ onRedeemed, compact = false }: { onRedeemed: () => void | Promise<void>; compact?: boolean }): JSX.Element {
   const [value, setValue] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -25,9 +28,13 @@ export function RedeemCode({ onRedeemed }: { onRedeemed: () => void | Promise<vo
     }
   }
   return (
-    <div className="free-code">
-      <div className="free-code__title">Have an event code?</div>
-      <p className="free-code__desc">From a hackathon or another event Eaon sponsors. It gives Eaon Free the event’s allowance until the code ends.</p>
+    <div className="free-code" data-compact={compact || undefined}>
+      {!compact && (
+        <>
+          <div className="free-code__title">Have an event code?</div>
+          <p className="free-code__desc">From a hackathon or another event Eaon sponsors. It gives Eaon Free the event’s allowance until the code ends.</p>
+        </>
+      )}
       <div className="fallback-row">
         <input
           className="input"
@@ -36,10 +43,11 @@ export function RedeemCode({ onRedeemed }: { onRedeemed: () => void | Promise<vo
           aria-label="Event code"
           spellCheck={false}
           autoCapitalize="characters"
+          autoFocus={compact}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => e.key === 'Enter' && value.trim() && !busy && void redeem()}
         />
-        <button className="btn btn--provider" disabled={!value.trim() || busy} onClick={() => void redeem()}>
+        <button className={compact ? 'btn' : 'btn btn--provider'} disabled={!value.trim() || busy} onClick={() => void redeem()}>
           {busy ? 'Checking…' : 'Redeem'}
         </button>
       </div>

@@ -6,17 +6,18 @@ import type { Feature } from './types'
 import { EDITABLE_LIMIT, type WorkspaceEntry, type WorkspaceFile } from '@shared/workspaceFiles'
 
 /**
- * Chat's code panel: the agent's folder as a file tree and an editor. The
- * renderer asks for folders and files by path; every path must sit inside a
- * folder the agent works in (a workspace's folder, or the default one), so
- * the panel cannot be pointed at the rest of the disk.
+ * The dock's files, in Chat and the ADE: a folder as a file tree and an
+ * editor. The renderer asks for folders and files by path; every path must
+ * sit inside a folder an agent works in (a workspace's folder, the default
+ * one, or an ADE session's), so the dock cannot be pointed at the rest of the
+ * disk.
  */
 
 /** Never listed: noise every project has, which no one opens from here. */
 const HIDDEN = new Set(['.DS_Store', 'Thumbs.db'])
 
 /** The folder Chat's agent runs in, as `ensureWorkFolder` in agent/loop.ts picks it. */
-async function chatFolder(): Promise<string> {
+export async function chatFolder(): Promise<string> {
   const workspaces = store.getWorkspaces()
   const chat = workspaces.find((w) => w.kind === 'chat') ?? workspaces.find((w) => w.kind === 'work')
   const folder = chat?.cwd || store.getSettings().work.defaultFolder || join(homedir(), 'Eaon')
@@ -24,13 +25,23 @@ async function chatFolder(): Promise<string> {
   return folder
 }
 
+/** Other features' folders the dock may look inside too (the ADE's sessions). */
+const moreRoots: (() => string[])[] = []
+
+/** Lets the dock into the folders `list` names, as they are at the time of asking. */
+export function allowFolders(list: () => string[]): void {
+  moreRoots.push(list)
+}
+
 /** Every folder the panel may look inside, symlinks resolved. */
 async function roots(): Promise<string[]> {
   const settings = store.getSettings()
   const candidates = [
     ...store.getWorkspaces().map((w) => w.cwd),
+    ...store.getProjects().map((p) => p.folder),
     settings.work.defaultFolder,
-    join(homedir(), 'Eaon')
+    join(homedir(), 'Eaon'),
+    ...moreRoots.flatMap((list) => list())
   ].filter((p): p is string => typeof p === 'string' && p.length > 0)
   const resolved = await Promise.all(candidates.map((p) => realpath(p).catch(() => null)))
   return [...new Set(resolved.filter((p): p is string => p !== null))]
@@ -42,7 +53,7 @@ const inside = (root: string, path: string): boolean => {
 }
 
 /** `path`, symlinks resolved, if it lies inside an allowed folder; otherwise it throws. */
-async function allowed(path: unknown): Promise<string> {
+export async function allowed(path: unknown): Promise<string> {
   if (typeof path !== 'string' || !isAbsolute(path)) throw new Error('Not an absolute path.')
   const real = await realpath(resolve(path))
   const ok = (await roots()).some((root) => inside(root, real))

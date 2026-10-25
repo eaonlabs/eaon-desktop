@@ -1,6 +1,6 @@
 import { useRef, type JSX } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { ChevronDown, Folder, FolderOpen, Globe } from 'lucide-react'
+import { ChevronDown, Folder, FolderOpen } from 'lucide-react'
 import { TopBar } from '../TopBar'
 import { MenuItem, MenuSeparator, Popover, useDisclosure } from '../ui'
 import { useCode } from './codeStore'
@@ -11,14 +11,16 @@ import { UsagePlacement } from '../UsagePlacement'
 import { ReviewButton } from './ReviewPanel'
 import { revealLabel } from '../../lib/files'
 import { shortcutLabel } from '../../lib/platform'
-import { useApp } from '../../state/store'
+import { DockToggle } from '../ide/Dock'
+import { useAdeDock } from '../ide/adeDock'
 
 export const folderName = (path: string): string => path.split(/[\\/]/).filter(Boolean).pop() ?? path
 
-/** The ADE's top bar: the project folder, plan usage, review, the browser and a new terminal. */
+/** The ADE's top bar: the project folder, plan usage, review, a new terminal and the dock's switch. */
 export function CodeHeader(): JSX.Element {
   const cwd = useCode((s) => s.cwd)
-  const browserOpen = useApp((s) => s.browserOpen)
+  // Open, the dock has its own switch in the same corner.
+  const dockOpen = useAdeDock((s) => s.open)
   return (
     <TopBar
       className="code-header"
@@ -27,20 +29,8 @@ export function CodeHeader(): JSX.Element {
         <div className="chat-header__actions">
           <UsagePlacement />
           <ReviewButton />
-          {cwd && (
-            <button
-              className="header-btn"
-              aria-label="Browser"
-              aria-pressed={browserOpen}
-              data-active={browserOpen || undefined}
-              title={`${browserOpen ? 'Close' : 'Open'} the browser, with Design Mode for pointing your agent at the page (${shortcutLabel('⇧⌘B')})`}
-              onClick={() => useApp.getState().toggleBrowser()}
-            >
-              <Globe size={14} strokeWidth={2} />
-              <span>Browser</span>
-            </button>
-          )}
           <NewTerminalButton />
+          {cwd && !dockOpen && <DockToggle store={useAdeDock} holds={`browser (${shortcutLabel('⇧⌘B')}), files, diff, pull request`} />}
         </div>
       }
     />

@@ -16,6 +16,7 @@ import {
 } from '@shared/usage'
 import type { AgentRunDays } from './agentRuns'
 import { emptyCounts, localDay, type LedgerDays, type LedgerSources } from './ledger'
+import { shownProviderId } from '../../eaonAddress'
 
 /**
  * Pricing and shaping the ledger, with no I/O: model names as Tokn writes
@@ -247,8 +248,10 @@ export function summarize(days: LedgerDays, range: UsageRange, pricing: ToknPric
 
   for (const day of span) {
     const entry = { day, costUsd: 0, planUsd: 0, tokens: 0, requests: 0 }
-    for (const [providerId, models] of Object.entries(days[day] ?? {})) {
-      const billing = billingOf(providerId)
+    for (const [ledgerId, models] of Object.entries(days[day] ?? {})) {
+      const billing = billingOf(ledgerId)
+      // A custom provider made from the gateway's address would show it: it counts as Eaon Lite.
+      const providerId = shownProviderId(ledgerId)
       for (const [modelId, counts] of Object.entries(models)) {
         const { priced, cost } = priceRow(modelId, counts, billing, pricing)
         if (billing === 'plan') entry.planUsd += cost ?? 0

@@ -154,7 +154,10 @@ if [ "$MODE" = uninstall ]; then
   OLD_PORT=$(sed -n 's/.*"port": *\([0-9]*\).*/\1/p' "$HOST_HOME/host.json" 2>/dev/null)
   [ -z "$OLD_PORT" ] || close_port "$OLD_PORT"
   rm -rf "${HOST_HOME:?}/app" "${HOST_HOME:?}/app.next" "${HOST_HOME:?}/app.old" "${HOST_HOME:?}/runtime" "${HOST_HOME:?}/run.sh" "${HOST_HOME:?}/host.json" "${HOST_HOME:?}/incoming.tgz" "${HOST_HOME:?}/uploads"
-  say "Removed. The workers' data stays in $HOST_HOME/data and their folders in ~/Eaon/Workers."
+  # The keys are the desktop's (API keys, sign-ins): with no host left to use them, none stays on this disk.
+  # A new install gets them from the desktop again.
+  rm -f "${HOST_HOME:?}/data/keys.dat" "${HOST_HOME:?}/data/keys.dat".*
+  say "Removed, with the keys it had from your desktop. The workers' data stays in $HOST_HOME/data and their folders in ~/Eaon/Workers."
   echo "EAON_HOST_REMOVED"
   stop_service
   exit 0

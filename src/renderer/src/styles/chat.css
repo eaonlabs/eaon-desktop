@@ -508,15 +508,6 @@
 .composer__above .composer-pill[data-open] {
   background: var(--surface-3);
 }
-.composer-pill--changes {
-  animation: chip-in var(--dur-spring) var(--spring-moderate) both;
-}
-.composer-pill--changes .diff__stat-add,
-.composer-pill--changes .diff__stat-del {
-  font-family: var(--font-mono);
-  font-size: var(--fs-xs);
-  font-variant-numeric: tabular-nums;
-}
 
 /* The project menu runs taller than a menu usually does: the folders, then its way out. */
 .menu.project-menu {
@@ -841,49 +832,6 @@
    via the global rule in app.css.
    ================================================================== */
 
-/* ---- Thoughts --------------------------------------------------- */
-
-/* A thought is a row among the turn's tool calls (agent.css `.tool`), in the
-   order it happened: "Thought" and its title, opening into the reasoning. The
-   title is prose, so it gets the reply's font rather than a call's mono. */
-.thought__title {
-  min-width: 0;
-  color: var(--text-3);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.thought .tool__head[data-static] {
-  cursor: default;
-}
-.thought .tool__head[data-static]:hover {
-  color: var(--text-3);
-}
-/* The reasoning itself, quieter than the reply it led to: a short window
-   under the row (agent.css .tool__panel) that follows it as it streams. */
-.thought__body {
-  max-height: 175px;
-  padding: 2px 4px 2px 0;
-  color: var(--text-3);
-  font-size: var(--fs-sm);
-  line-height: 1.55;
-  overflow-wrap: anywhere;
-}
-.thought__body strong {
-  color: var(--text-2);
-  font-weight: 600;
-}
-.thought__body .md__p {
-  margin-bottom: 6px;
-}
-.thought__body .md__p:last-child {
-  margin-bottom: 0;
-}
-.thought__body .md__heading {
-  margin: 8px 0 4px;
-  font-size: var(--fs-sm);
-}
-
 /* ---- Message entrances ------------------------------------------ */
 
 /* New turns rise into place so it's obvious where content appeared, rather
@@ -970,8 +918,8 @@ body[data-see-through='on'] .scroll-veil {
   position: absolute;
   inset: 0;
   /* 1, 2, 4, 8, 16, 32 px, each layer's band one sixth higher than the last. */
-  -webkit-backdrop-filter: blur(calc(1px * pow(2, var(--i)) * var(--veil)));
-  backdrop-filter: blur(calc(1px * pow(2, var(--i)) * var(--veil)));
+  -webkit-backdrop-filter: blur(calc(1px * pow(2, var(--i)) * var(--veil) * var(--glass-blur-k)));
+  backdrop-filter: blur(calc(1px * pow(2, var(--i)) * var(--veil) * var(--glass-blur-k)));
   -webkit-mask-image: linear-gradient(
     to top,
     transparent calc(var(--i) * 16.66%),
@@ -992,6 +940,42 @@ body[data-see-through='on'] .scroll-veil {
   -webkit-mask-image: linear-gradient(to top, transparent 66%, #000 92%);
   mask-image: linear-gradient(to top, transparent 66%, #000 92%);
 }
+/* A translucent window (macOS) paints the page at 82% so the system's
+   material shows through it. A backdrop blur can't keep that: it lays its
+   blurred copy over the page rather than in its place, so each layer hid
+   more of the material, the top of the page turned darker than the rest,
+   and the dark ended in a line where the veil did. There the thread fades
+   out under the bar instead, as it fades into the composer, and whatever is
+   behind the page shows through unchanged. A see-through window's picture
+   is part of the page, so the blur still works there. */
+body[data-platform='darwin'][data-translucent='on']:not([data-see-through='on']) .scroll-veil {
+  display: none;
+}
+body[data-platform='darwin'][data-translucent='on']:not([data-see-through='on'])
+  .main:has(> .chat-header--float)
+  > .thread {
+  /* Hidden down to the bar's foot, then shown along a smoothstep curve so the
+     fade has no line where it starts or ends. Scaled by --veil, so nothing
+     fades until the thread scrolls. */
+  --fade-len: 48px;
+  --thread-mask: linear-gradient(
+    to bottom,
+    rgb(0 0 0 / calc(1 - var(--veil))) var(--veil-fade-from),
+    rgb(0 0 0 / calc(1 - 0.957 * var(--veil))) calc(var(--veil-fade-from) + var(--fade-len) * 0.125),
+    rgb(0 0 0 / calc(1 - 0.844 * var(--veil))) calc(var(--veil-fade-from) + var(--fade-len) * 0.25),
+    rgb(0 0 0 / calc(1 - 0.684 * var(--veil))) calc(var(--veil-fade-from) + var(--fade-len) * 0.375),
+    rgb(0 0 0 / calc(1 - 0.5 * var(--veil))) calc(var(--veil-fade-from) + var(--fade-len) * 0.5),
+    rgb(0 0 0 / calc(1 - 0.316 * var(--veil))) calc(var(--veil-fade-from) + var(--fade-len) * 0.625),
+    rgb(0 0 0 / calc(1 - 0.156 * var(--veil))) calc(var(--veil-fade-from) + var(--fade-len) * 0.75),
+    rgb(0 0 0 / calc(1 - 0.043 * var(--veil))) calc(var(--veil-fade-from) + var(--fade-len) * 0.875),
+    #000 calc(var(--veil-fade-from) + var(--fade-len)),
+    #000 calc(100% - 24px),
+    transparent
+  );
+  -webkit-mask-image: var(--thread-mask);
+  mask-image: var(--thread-mask);
+  transition: --veil 320ms cubic-bezier(0.25, 0.8, 0.3, 1);
+}
 @media (prefers-reduced-transparency: reduce) {
   .scroll-veil > span {
     display: none;
@@ -1003,6 +987,8 @@ body[data-see-through='on'] .scroll-veil {
   margin-top: 0;
   padding-top: calc(var(--titlebar-h) + var(--sidebar-gap) + 24px);
   scroll-padding-top: calc(var(--titlebar-h) + var(--sidebar-gap) + 12px);
+  /* Where what floats over the thread ends: its fade under a translucent window starts here. */
+  --veil-fade-from: calc(var(--titlebar-h) + var(--sidebar-gap));
 }
 
 /* ---- Back to the latest ----------------------------------------- */

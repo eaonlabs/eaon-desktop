@@ -13,18 +13,14 @@ import {
   AtSign,
   BarChart3,
   Users,
-  CreditCard,
   Cpu,
   KeyRound,
-  Mail,
-  MessagesSquare,
   Plug,
   Server,
   Settings as SettingsIcon,
   ShieldCheck,
   Lock,
   Smartphone,
-  HardDrive,
   SquarePlus,
   Sun,
   Wand2, Gauge, Bot } from 'lucide-react'
@@ -34,6 +30,7 @@ import { SearchField } from '../ui'
 import { SignInPrompt } from '../account/ToknAccount'
 import { ErrorBoundary } from '../ErrorBoundary'
 import { SettingsPageError } from '../CrashScreen'
+import { WorkersGlyph } from '../ModeSwitch'
 import { GeneralPage } from './pages/General'
 import { AppearancePage } from './pages/Appearance'
 import { ConfigurationPage } from './pages/Configuration'
@@ -45,7 +42,6 @@ import { ComputerUsePage } from './pages/ComputerUse'
 import { PluginsSettingsPage } from './pages/Plugins'
 import { LocalServerPage } from './pages/LocalServer'
 import { RemoteDevicesPage } from './pages/RemoteDevices'
-import { WorkerComputerPage } from './pages/WorkerComputer'
 import { SystemMonitorPage } from './pages/SystemMonitor'
 import { McpServersPage } from './pages/McpServers'
 import { ConnectAppsPage } from './pages/ConnectApps'
@@ -54,13 +50,11 @@ import { BrowserControlPage } from './pages/BrowserControl'
 import { EaonCodePage } from './pages/EaonCode'
 import { AdePage } from './pages/Ade'
 import { DiscordPage } from './pages/Discord'
-import { ChatAppsPage } from './pages/ChatApps'
-import { EmailPage } from './pages/Email'
 import { UsagePage } from './pages/Usage'
 import { UsageLimitsPage } from './pages/UsageLimits'
 import { AgentProvidersPage } from './pages/AgentProviders'
 import { AccountsPage } from './pages/Accounts'
-import { PaymentsPage } from './pages/Payments'
+import { WORKER_TABS, WorkersPage } from './pages/Workers'
 import { EnginesPage } from './pages/Engines'
 import { SecurityPage } from './pages/Security'
 import type { PolicyFeature } from '@shared/enterprise'
@@ -70,6 +64,8 @@ interface NavEntry {
   label: string
   icon: ReactNode
   group: string
+  /** A tab of another page: listed only when a search finds it. */
+  parent?: string
 }
 
 const size = 16
@@ -96,6 +92,7 @@ const KEYWORDS: Record<string, string> = {
   plugins: 'skills mcp extensions',
   'eaon-code': 'coding agent cli terminal',
   ade: 'terminal theme shell worktree coding',
+  workers: 'background agents',
   'chat-apps': 'telegram slack whatsapp discord imessage messages bot',
   email: 'agentmail inbox mail',
   discord: 'rich presence status activity',
@@ -123,13 +120,12 @@ const NAV: NavEntry[] = [
   { id: 'agent-providers', label: 'Agent providers', icon: <Bot size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'engines', label: 'Agent engines', icon: <Cpu size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'computer-use', label: 'Computer use', icon: <Wand2 size={size} strokeWidth={stroke} />, group: 'Integrations' },
-  { id: 'payments', label: 'Payments', icon: <CreditCard size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'browser-control', label: 'Browser control', icon: <Chrome size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'plugins', label: 'Plugins', icon: <AtSign size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'eaon-code', label: 'Eaon Code', icon: <Code2 size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'ade', label: 'ADE', icon: <SquareTerminal size={size} strokeWidth={stroke} />, group: 'Integrations' },
-  { id: 'chat-apps', label: 'Chat apps', icon: <MessagesSquare size={size} strokeWidth={stroke} />, group: 'Integrations' },
-  { id: 'email', label: 'Email', icon: <Mail size={size} strokeWidth={stroke} />, group: 'Integrations' },
+  { id: 'workers', label: 'Workers', icon: <WorkersGlyph size={size} strokeWidth={stroke} />, group: 'Integrations' },
+  ...WORKER_TABS.map((tab) => ({ id: tab.id, label: tab.label, icon: <tab.icon size={size} strokeWidth={stroke} />, group: 'Integrations', parent: 'workers' })),
   { id: 'discord', label: 'Discord', icon: <Gamepad2 size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'browser', label: 'Browser', icon: <AppWindow size={size} strokeWidth={stroke} />, group: 'Integrations' },
   { id: 'mcp', label: 'MCP Servers', icon: <Plug size={size} strokeWidth={stroke} />, group: 'Integrations' },
@@ -138,7 +134,6 @@ const NAV: NavEntry[] = [
 
   { id: 'local-server', label: 'Local API Server', icon: <Server size={size} strokeWidth={stroke} />, group: 'Advanced' },
   { id: 'remote-devices', label: 'Remote devices', icon: <Smartphone size={size} strokeWidth={stroke} />, group: 'Advanced' },
-  { id: 'worker-computer', label: 'Worker computer', icon: <HardDrive size={size} strokeWidth={stroke} />, group: 'Advanced' },
   { id: 'system', label: 'System Monitor', icon: <Activity size={size} strokeWidth={stroke} />, group: 'Advanced' },
   { id: 'security', label: 'Security', icon: <Lock size={size} strokeWidth={stroke} />, group: 'Advanced' },
 
@@ -162,7 +157,10 @@ const POLICY_PAGES: Record<string, PolicyFeature> = {
   discord: 'discordPresence'
 }
 
-const PAGES: Record<string, () => JSX.Element> = {
+/** The page a tab belongs to, for the tabs that are part of a page. */
+const PARENT: Record<string, string> = Object.fromEntries(NAV.filter((entry) => entry.parent).map((entry) => [entry.id, entry.parent!]))
+
+const PAGES: Record<string, (props: { blocked: ReadonlySet<string> }) => JSX.Element> = {
   general: GeneralPage,
   appearance: AppearancePage,
   configuration: ConfigurationPage,
@@ -174,13 +172,11 @@ const PAGES: Record<string, () => JSX.Element> = {
   engines: EnginesPage,
   'agent-providers': AgentProvidersPage,
   'computer-use': ComputerUsePage,
-  payments: PaymentsPage,
   'browser-control': BrowserControlPage,
   'eaon-code': EaonCodePage,
   ade: AdePage,
   discord: DiscordPage,
-  'chat-apps': ChatAppsPage,
-  email: EmailPage,
+  workers: WorkersPage,
   plugins: PluginsSettingsPage,
   browser: BrowserSettingsPage,
   mcp: McpServersPage,
@@ -188,7 +184,6 @@ const PAGES: Record<string, () => JSX.Element> = {
   'code-index': CodeIndexPage,
   'local-server': LocalServerPage,
   'remote-devices': RemoteDevicesPage,
-  'worker-computer': WorkerComputerPage,
   system: SystemMonitorPage,
   security: SecurityPage,
   archived: ArchivedPage
@@ -227,10 +222,14 @@ export function SettingsShell(): JSX.Element {
     [isWork, blocked]
   )
 
+  // A page's tabs are only listed when a search finds them; otherwise the page stands for them.
   const entries = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return q ? visibleNav.filter((entry) => `${entry.label} ${KEYWORDS[entry.id] ?? ''}`.toLowerCase().includes(q)) : visibleNav
+    return q ? visibleNav.filter((entry) => `${entry.label} ${KEYWORDS[entry.id] ?? ''}`.toLowerCase().includes(q)) : visibleNav.filter((entry) => !entry.parent)
   }, [query, visibleNav])
+
+  // The open tab's own row when a search lists it, otherwise its page's.
+  const current = entries.some((entry) => entry.id === settingsPage) ? settingsPage : (PARENT[settingsPage] ?? settingsPage)
 
   const groups = useMemo(() => {
     const map = new Map<string, NavEntry[]>()
@@ -242,7 +241,9 @@ export function SettingsShell(): JSX.Element {
     return [...map.entries()]
   }, [entries])
 
-  const Page = PAGES[settingsPage] ?? GeneralPage
+  // A tab is drawn by its page, which stays in place (no replayed entrance) while its tabs change.
+  const page = PARENT[settingsPage] ?? settingsPage
+  const Page = PAGES[page] ?? GeneralPage
   const scroll = useRef<HTMLDivElement>(null)
 
   // Each settings page starts at the top rather than inheriting the last scroll.
@@ -273,14 +274,15 @@ export function SettingsShell(): JSX.Element {
                 <button
                   key={entry.id}
                   className="nav-item"
-                  data-active={entry.id === settingsPage || undefined}
-                  aria-current={entry.id === settingsPage ? 'page' : undefined}
-                  aria-label={entry.label}
+                  data-active={entry.id === current || undefined}
+                  aria-current={entry.id === current ? 'page' : undefined}
+                  aria-label={entry.parent ? `${entry.label}, in ${NAV.find((e) => e.id === entry.parent)?.label}` : entry.label}
                   title={entry.label}
                   onClick={() => setSettingsPage(entry.id)}
                 >
                   <span className="nav-item__icon">{entry.icon}</span>
                   <span className="nav-item__label">{entry.label}</span>
+                  {entry.parent && <span className="nav-item__where">{NAV.find((e) => e.id === entry.parent)?.label}</span>}
                 </button>
               ))}
             </div>
@@ -292,17 +294,17 @@ export function SettingsShell(): JSX.Element {
       <div className="settings__body">
         <div className="settings__titlebar" />
         {/* One page failing shows an error in its place; the navigation, and every other page, keep working. */}
-        {settingsPage === 'providers' ? (
-          <div key={settingsPage} className="settings__full settings__page">
-            <PageBoundary page={settingsPage}>
-              <Page />
+        {page === 'providers' ? (
+          <div key={page} className="settings__full settings__page">
+            <PageBoundary page={page}>
+              <Page blocked={blocked} />
             </PageBoundary>
           </div>
         ) : (
           <div ref={scroll} className="settings__scroll scroll">
-            <div key={settingsPage} className="settings__inner settings__page">
-              <PageBoundary page={settingsPage}>
-                <Page />
+            <div key={page} className="settings__inner settings__page">
+              <PageBoundary page={page}>
+                <Page blocked={blocked} />
               </PageBoundary>
             </div>
           </div>

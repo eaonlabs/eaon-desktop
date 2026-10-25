@@ -19,7 +19,8 @@ import {
   withTokens,
   type FreeUsage
 } from '@shared/freeCredits'
-import { activeCode, addFreeTokens, forgetCode, freeCreditsStatus, freeDeviceId, redeemFreeCode, takeFreeRequest, withFreeLimits } from '../src/main/freeCredits'
+import { activeCode, addFreeTokens, forgetCode, forgetFreeModelServed, freeCreditsStatus, freeDeviceId, freeModelServed, redeemFreeCode, takeFreeRequest, withFreeLimits } from '../src/main/freeCredits'
+import { claimFreeCredits } from '../src/main/features/freeCredits'
 import { credentialAttempts } from '../src/main/providers/credentials'
 import { secrets } from '../src/main/secrets'
 import { adapterFor, getProvider, listProviders } from '../src/main/providers'
@@ -350,4 +351,47 @@ test('a code the gateway turned off says so, and is dropped', async () => {
   })
   assert.equal(activeCode(), null)
   assert.equal(secrets.has(FREE_PROVIDER_ID), false)
+})
+
+test('Eaon Free counts as served only when the gateway lists its model', async () => {
+  const listing = (ids: string[]): typeof fetch => (async () => new Response(JSON.stringify({ data: ids.map((id) => ({ id })) }), { status: 200 })) as unknown as typeof fetch
+  forgetFreeModelServed()
+  assert.equal(await freeModelServed(listing(['mimo-v2.6-flash-free', 'muse-spark-1.3-contributor-free']), NOW), false, 'the gateway as it is today: only the always-free models')
+  forgetFreeModelServed()
+  assert.equal(await freeModelServed(listing(['claude-haiku-5-5', 'mimo-v2.6-flash-free']), NOW), true)
+  // One look holds for a while, then the gateway is asked again.
+  assert.equal(await freeModelServed(listing([]), NOW + 60_000), true)
+  assert.equal(await freeModelServed(listing([]), NOW + 11 * 60_000), false)
+  forgetFreeModelServed()
+  const offline = (async () => {
+    throw new Error('offline')
+  }) as unknown as typeof fetch
+  assert.equal(await freeModelServed(offline, NOW), false, 'a gateway that can’t be reached doesn’t serve it')
+  forgetFreeModelServed()
+})
+
+test('claiming keeps the model in use, the default included, and starts someone on Eaon Free only when nothing works and it is served', () => {
+  const unclaimed = { claimed: false, claimedAt: null, offered: 1, lastOfferedAt: NOW }
+  const choice = (s: ReturnType<typeof store.getSettings>): [string | null, string | null] => [s.selectedProviderId, s.selectedModelId]
+
+  // No choice saved, running on Eaon Lite's default: it stays, saved as the choice, though Eaon Free sorts first once listed.
+  store.saveProviderConfig({ 'eaon-gateway': { enabled: true } })
+  store.patchSettings({ freeCredits: unclaimed, selectedProviderId: null, selectedModelId: null, favoriteModels: [], recentModels: [] })
+  const kept = claimFreeCredits(true)
+  assert.equal(kept.freeCredits.claimed, true)
+  assert.deepEqual(choice(kept), ['eaon-gateway', 'mimo-v2.6-flash-free'])
+
+  // A choice that works is left alone.
+  store.patchSettings({ freeCredits: unclaimed, selectedProviderId: 'eaon-gateway', selectedModelId: 'muse-spark-1.3-contributor-free' })
+  assert.deepEqual(choice(claimFreeCredits(true)), ['eaon-gateway', 'muse-spark-1.3-contributor-free'])
+
+  // Nothing works (a model whose provider has no key): Eaon Free's model only if the gateway serves it.
+  store.saveProviderConfig({ 'eaon-gateway': { enabled: false } })
+  store.patchSettings({ freeCredits: unclaimed, selectedProviderId: 'anthropic', selectedModelId: 'claude-opus-5-5' })
+  assert.deepEqual(choice(claimFreeCredits(false)), ['anthropic', 'claude-opus-5-5'], 'not moved onto a model that would refuse every request')
+  store.patchSettings({ freeCredits: unclaimed })
+  assert.deepEqual(choice(claimFreeCredits(true)), [FREE_PROVIDER_ID, 'claude-haiku-5-5'])
+
+  store.saveProviderConfig({ 'eaon-gateway': { enabled: true } })
+  store.patchSettings({ freeCredits: { claimed: false, claimedAt: null, offered: 0, lastOfferedAt: null }, selectedProviderId: null, selectedModelId: null })
 })
