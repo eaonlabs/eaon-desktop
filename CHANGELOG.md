@@ -102,6 +102,24 @@ All notable changes to Eaon are documented here. Format loosely follows
   line in the dock; ⌘-click opens it in your editor.
 - **HTML preview.** HTML code blocks have Preview, with desktop, tablet and
   phone widths, and Open in browser.
+- **GitHub Copilot and Gemini CLI as engines.** If you have the Copilot CLI or
+  Gemini CLI installed and signed in, Eaon finds it, lists its models in the
+  model picker and Settings → Agent engines, and Chat and workers can run on it
+  with your own plan. Copilot's list is the models your Copilot plan includes:
+  Eaon asks Copilot itself, which costs nothing and leaves no history. A plan
+  that offers Auto only shows Auto, and a model your plan lacks is marked
+  rather than quietly run on another. Eaon drives each through the Agent Client Protocol mode its
+  maker documents for editors: the CLI signs in and makes every request itself,
+  and Eaon never reads its sign-in, calls its services or changes what it is
+  told. [docs/your-subscriptions.md](docs/your-subscriptions.md) explains which
+  plans work this way and why Claude plans don't.
+- **Eaon's tools in Claude Code.** Settings → Connect apps → Your Claude plan
+  adds Eaon to your own Claude Code as an MCP server, for every folder, so
+  Claude Code on your Claude plan can use your chats, workers, models and the
+  ADE. Eaon never signs in to your Claude account, starts Claude Code, types
+  into it or adds to its system prompt. The entry has a key of its own that
+  opens Eaon's controls but not its models, and turning the switch off
+  deletes it.
 
 ### Changed
 - **In Chat, projects are where you code.** A project is a folder, and its
@@ -119,6 +137,9 @@ All notable changes to Eaon are documented here. Format loosely follows
   date created or name) and add one. Chats can fold away, sort (recent
   activity or date created) and start a new chat. The sidebar remembers how
   you left them.
+- **Claude Code runs without an Eaon system prompt.** The Trading tab and Eaon
+  CLI's Claude Code screen no longer start it with `--append-system-prompt`;
+  what it needs to know about Eaon comes from the MCP server's instructions.
 - **The setup's Connect a model step, redrawn.** Each way to connect (sign
   in, an API key, models on this computer) is a row that opens just those
   providers and shows which are connected; Eaon Lite shows as ready at the

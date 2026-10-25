@@ -88,3 +88,24 @@ export type ConnectResult =
 
 /** Restarting a desktop app: `reopened` when it was open and Eaon quit it first, `opened` when it wasn't. */
 export type RestartResult = { ok: true; action: 'reopened' | 'opened' } | { ok: false; error: string }
+
+/**
+ * Eaon's tools in Claude Code (main/features/connectApps/claudeTools.ts): the
+ * user's own Claude Code, signed in with their own Claude plan, gets Eaon's
+ * control API as an MCP server. The other way round from the apps above,
+ * which run on Eaon's models.
+ */
+export interface ClaudeToolsStatus {
+  /** `claude` is on PATH, so Eaon can add the server with Claude Code's own command. */
+  installed: boolean
+  /** Claude Code has Eaon's MCP server. */
+  connected: boolean
+  /** It has, but with another address or key than Eaon's now: connect again. */
+  stale: boolean
+  /** What Claude Code lists the server as; its tools are `mcp__<name>__…`. */
+  name: string
+  /** Where Claude Code keeps it, as the user would type it. */
+  file: string
+}
+
+export type ClaudeToolsResult = { ok: true; status: ClaudeToolsStatus } | { ok: false; error: string; status: ClaudeToolsStatus }

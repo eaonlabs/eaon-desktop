@@ -1,8 +1,8 @@
 import { Fragment, useEffect, useId, useMemo, useRef, useState, type JSX, type KeyboardEvent } from 'react'
 import { Check, ChevronDown, CircleAlert, Search } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
-import type { EngineId, EngineModels, EngineStatus } from '@shared/engines'
-import { ENGINE_LABEL } from '@shared/engines'
+import type { CliEngineId, EngineId, EngineModels, EngineStatus } from '@shared/engines'
+import { CLI_ENGINES, ENGINE_LABEL } from '@shared/engines'
 import {
   engineOptions,
   groupOptions,
@@ -16,7 +16,7 @@ import {
 } from '@shared/modelSelection'
 import { useApp } from '../../state/store'
 import { Popover } from '../ui'
-import { ProviderMark } from './ProviderMark'
+import { optionMark, ProviderMark } from './ProviderMark'
 import './model-picker.css'
 
 /** A saved model choice: a provider's model, or (with `providerId` null) an engine's own model or an id from before provider ids. */
@@ -223,7 +223,7 @@ export function ModelSelect({
                     onMouseMove={() => i !== active && setActive(i)}
                     onClick={() => pick(option)}
                   >
-                    {option ? <ProviderMark providerId={option.groupId} name={option.groupLabel} size={13} /> : <span className="ms__mark-gap" />}
+                    {option ? <ProviderMark providerId={optionMark(option)} name={option.groupLabel} size={13} /> : <span className="ms__mark-gap" />}
                     <span className="ms__name">{option ? option.label : defaultLabel}</span>
                     {option?.isDefault && <span className="ms__tag">Default</span>}
                     {option?.stage && <span className="ms__tag">{STAGE_LABEL[option.stage]}</span>}
@@ -273,5 +273,39 @@ export function useEngineModels(engine: EngineId): { status: EngineStatus | null
       off()
     }
   }, [engine])
+  return state
+}
+
+export interface CliEngineState {
+  id: CliEngineId
+  status: EngineStatus | null
+  models: EngineModels | null
+}
+
+/** Every agent CLI's status and models (Codex, GitHub Copilot, Gemini CLI), for a picker with a tab for each. */
+export function useCliEngines(): CliEngineState[] {
+  const [state, setState] = useState<CliEngineState[]>(() => CLI_ENGINES.map((id) => ({ id, ...(engineCache.get(id) ?? { status: null, models: null }) })))
+  useEffect(() => {
+    if (!window.api.engines) return
+    let alive = true
+    const load = (): void =>
+      void Promise.all([window.api.engines.status(), ...CLI_ENGINES.map((id) => window.api.engines.models(id))]).then(
+        ([statuses, ...lists]) => {
+          const next = CLI_ENGINES.map((id, i) => {
+            const entry = { status: statuses.find((s) => s.id === id) ?? null, models: lists[i] ?? null }
+            engineCache.set(id, entry)
+            return { id, ...entry }
+          })
+          if (alive) setState(next)
+        },
+        () => {}
+      )
+    load()
+    const off = window.api.engines.onChanged(load)
+    return () => {
+      alive = false
+      off()
+    }
+  }, [])
   return state
 }

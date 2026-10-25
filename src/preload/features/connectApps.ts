@@ -1,5 +1,5 @@
 import { ipcRenderer } from 'electron'
-import type { ConnectAppId, ConnectAppStatus, ConnectChoice, ConnectResult, RestartResult } from '@shared/connectApps'
+import type { ClaudeToolsResult, ClaudeToolsStatus, ConnectAppId, ConnectAppStatus, ConnectChoice, ConnectResult, RestartResult } from '@shared/connectApps'
 
 /**
  * Renderer bridge for Settings → Connect apps (pointing other apps at Eaon's
@@ -20,5 +20,13 @@ export const connectAppsApi = {
   /** Whether the desktop app is open (ChatGPT on a Mac). */
   running: (id: ConnectAppId): Promise<boolean> => ipcRenderer.invoke('connect-apps:running', id),
   /** Quits the desktop app if it's open and opens it again, so it loads Eaon's settings (ChatGPT on a Mac). */
-  restart: (id: ConnectAppId): Promise<RestartResult> => ipcRenderer.invoke('connect-apps:restart', id)
+  restart: (id: ConnectAppId): Promise<RestartResult> => ipcRenderer.invoke('connect-apps:restart', id),
+  /** Whether the user's Claude Code has Eaon's tools (its MCP server). */
+  claudeTools: (): Promise<ClaudeToolsStatus> => ipcRenderer.invoke('connect-apps:claude-tools'),
+  /** Adds Eaon's MCP server to Claude Code, for every folder. Starts the gateway. */
+  claudeToolsConnect: (): Promise<ClaudeToolsResult> => ipcRenderer.invoke('connect-apps:claude-tools-connect'),
+  /** Takes it back out, and deletes the key it carried. */
+  claudeToolsDisconnect: (): Promise<ClaudeToolsResult> => ipcRenderer.invoke('connect-apps:claude-tools-disconnect'),
+  /** The `claude mcp add` command, to run by hand. */
+  claudeToolsCommand: (): Promise<string> => ipcRenderer.invoke('connect-apps:claude-tools-command')
 }

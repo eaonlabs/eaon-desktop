@@ -4,7 +4,7 @@ import { ENGINE_LABEL } from '@shared/engines'
 import type { ChatEngineChoice } from './chatEngine'
 
 /**
- * Above the composer when Chat is set to an agent engine's model (Codex) that
+ * Above the composer when Chat is set to an agent CLI's model (Codex, Copilot, Gemini CLI) that
  * can't run now: not installed, too old, or not signed in. Signing in happens
  * right here; the draft stays in the box meanwhile.
  */
@@ -35,7 +35,7 @@ export function EngineNotice({ choice, onChooseModel }: { choice: ChatEngineChoi
               .finally(() => setBusy(false))
           }}
         >
-          {busy ? 'Waiting for the browser…' : `Sign in to ${name}`}
+          {busy ? 'Waiting for you to sign in…' : `Sign in to ${name}`}
         </button>
       )}
       <button className="btn btn--sm btn--ghost" onClick={onChooseModel}>

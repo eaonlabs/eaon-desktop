@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { Check, ChevronDown, ChevronRight, Copy, FolderOpen, RotateCw, SquareTerminal } from 'lucide-react'
-import type { ConnectAppId, ConnectAppStatus, ConnectChoice, ConnectWritten } from '@shared/connectApps'
+import type { ClaudeToolsStatus, ConnectAppId, ConnectAppStatus, ConnectChoice, ConnectWritten } from '@shared/connectApps'
 import type { GatewayInfo, GatewayModel } from '@shared/gateway'
 import { useApp } from '../../../state/store'
 import { CLIPBOARD_FAILED, copyText } from '../../../lib/clipboard'
@@ -153,6 +153,8 @@ export function ConnectAppsPage(): JSX.Element {
         </div>
       </Section>
 
+      <ClaudeToolsSection onChanged={() => void refresh()} />
+
       <Section label="Other apps">
         <div className="ca-grid">
           {(apps ?? [])
@@ -205,6 +207,107 @@ export function ConnectAppsPage(): JSX.Element {
 }
 
 const isHermes = (id: ConnectAppId): boolean => id === 'hermes' || id === 'hermes-desktop'
+
+const reason = (e: unknown): string => (e instanceof Error ? e.message.replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '') : String(e))
+
+/**
+ * Eaon's tools in Claude Code (main/features/connectApps/claudeTools.ts): the
+ * other way round from the apps on this page. The user's own Claude Code, on
+ * their own Claude plan, gets Eaon as an MCP server; Eaon never signs in to
+ * Claude, which Anthropic doesn't allow other apps to do.
+ */
+function ClaudeToolsSection({ onChanged }: { onChanged: () => void }): JSX.Element {
+  const [status, setStatus] = useState<ClaudeToolsStatus | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
+
+  const refresh = useCallback(async (): Promise<void> => {
+    try {
+      setStatus(await window.api.connectApps.claudeTools())
+    } catch (e) {
+      setError(reason(e))
+    }
+  }, [])
+  useEffect(() => {
+    void refresh()
+    // `claude mcp` in a terminal changes this too.
+    const onFocus = (): void => void refresh()
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [refresh])
+
+  const apply = async (on: boolean): Promise<void> => {
+    setBusy(true)
+    setError(null)
+    try {
+      const result = on ? await window.api.connectApps.claudeToolsConnect() : await window.api.connectApps.claudeToolsDisconnect()
+      setStatus(result.status)
+      if (!result.ok) setError(result.error)
+      // Connecting starts the gateway.
+      onChanged()
+    } catch (e) {
+      setError(reason(e))
+    } finally {
+      setBusy(false)
+    }
+  }
+  const copyCommand = async (): Promise<void> => {
+    setError(null)
+    try {
+      if (!(await copyText(await window.api.connectApps.claudeToolsCommand()))) return setError(CLIPBOARD_FAILED)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 1500)
+      onChanged()
+    } catch (e) {
+      setError(reason(e))
+    }
+  }
+
+  const description = !status
+    ? null
+    : status.connected && status.stale
+      ? 'Claude Code has an old address or key for Eaon. Reconnect to update it.'
+      : status.connected
+        ? `Every new Claude Code session has them, as the ${status.name} MCP server (/mcp lists it). Eaon has to be open while Claude Code uses them.`
+        : !status.installed
+          ? 'Install Claude Code first (npm install -g @anthropic-ai/claude-code). If it is installed somewhere Eaon can’t see, copy the command and run it in your terminal.'
+          : 'Claude Code, signed in with your Claude plan, can use your chats, workers, models and the ADE. Eaon doesn’t sign in to your Claude account or add to what Claude Code is told.'
+
+  return (
+    <Section label="Your Claude plan">
+      <Card>
+        <Row
+          title="Eaon’s tools in Claude Code"
+          description={
+            <>
+              {description}
+              {error && <span className="ca-claude-tools__error">{error}</span>}
+            </>
+          }
+        >
+          {status?.connected && status.stale && (
+            <button className="btn" disabled={busy} onClick={() => void apply(true)}>
+              {busy ? 'Reconnecting…' : 'Reconnect'}
+            </button>
+          )}
+          {status && !status.installed && !status.connected && (
+            <button className="btn btn--ghost" onClick={() => void copyCommand()}>
+              {copied ? <Check size={14} strokeWidth={2.2} /> : <Copy size={14} strokeWidth={2} />}
+              {copied ? 'Copied' : 'Copy command'}
+            </button>
+          )}
+          <Switch
+            label="Eaon’s tools in Claude Code"
+            checked={Boolean(status?.connected)}
+            disabled={busy || !status || (!status.installed && !status.connected)}
+            onChange={(on) => void apply(on)}
+          />
+        </Row>
+      </Card>
+    </Section>
+  )
+}
 
 /** An install hint that's a command to run (shown as code, with a copy button) rather than a pointer to a website. */
 const isCommand = (hint: string): boolean => /^(npm|npx|curl|code|brew|pip|pipx|uv)\s/.test(hint)

@@ -43,12 +43,15 @@ function useEngines(): { statuses: EngineStatus[]; models: Partial<Record<Engine
 }
 
 /** One line on whether an engine can run turns right now, what to do if it can't, and whether signing in here fixes it. */
+/** The account each agent CLI signs in with. */
+const ACCOUNT: Partial<Record<EngineId, string>> = { codex: 'ChatGPT account', copilot: 'GitHub account', gemini: 'Google account' }
+
 function engineNote(status: EngineStatus | undefined, name: string): { text: string; ok: boolean; signIn?: boolean } {
   if (!status) return { text: `Checking ${name}…`, ok: true }
   if (!status.installed) return { text: `${name} isn't installed on this computer, so this worker can't run until it is. ${status.updateHint ?? ''}`.trim(), ok: false }
   if (status.outdated) return { text: `${name} ${status.version ?? ''} is too old for Eaon. ${status.updateHint ?? 'Update it'} first.`, ok: false }
   if (status.auth.state === 'expired') return { text: `${name}'s sign-in expired. Sign in again to use your plan.`, ok: false, signIn: true }
-  if (status.auth.state === 'signed-out') return { text: `${name} isn't signed in. Sign in with your ChatGPT account to use your plan.`, ok: false, signIn: true }
+  if (status.auth.state === 'signed-out') return { text: `${name} isn't signed in. Sign in with your ${ACCOUNT[status.id] ?? 'account'} to use your plan.`, ok: false, signIn: true }
   const plan = status.auth.plan ? ` (${status.auth.plan})` : ''
   return { text: `${name} ${status.version ?? ''}${status.foundIn ? ` from ${status.foundIn}` : ''} · signed in${plan}. It runs this worker with its own tools and models; Eaon still decides what it may do.`, ok: true }
 }

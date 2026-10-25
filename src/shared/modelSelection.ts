@@ -233,6 +233,8 @@ export interface ModelOption {
 
 /** The tag on a model the provider's list for this account leaves out (see ModelInfo.outsidePlan). */
 export const OUTSIDE_PLAN_NOTE = 'May not be on your plan'
+/** The tag on an engine's model its own plan check found the account's plan doesn't include (EngineModel.unavailable). */
+export const NOT_ON_PLAN_NOTE = 'Not on your plan'
 
 /** A provider model as a picker row. */
 export function providerOption(model: ModelInfo, provider: Provider, readiness: ProviderReadiness = providerReadiness(provider)): ModelOption {
@@ -308,28 +310,32 @@ export function engineOptions(engine: EngineId, list: EngineModels | null, statu
   const readiness = engineReadiness(engine, status)
   const availability: ModelAvailability = readiness.state === 'ready' ? 'ready' : readiness.state === 'attention' ? 'attention' : 'unavailable'
   const groupLabel = status?.name ?? ENGINE_LABEL[engine]
-  return list.models.map((model) => ({
-    key: engineModelKey(engine, model.id),
-    engine,
-    providerId: null,
-    modelId: model.id,
-    label: model.label || model.id,
-    groupId: engine,
-    groupLabel,
-    efforts: orderEfforts(model.efforts),
-    tools: null,
-    vision: model.vision,
-    reasoning: model.efforts.length > 0 ? true : null,
-    contextWindow: null,
-    stage: modelStage({ id: model.id }),
-    planNote: null,
-    source: model.source,
-    isDefault: model.isDefault,
-    availability,
-    reason: readiness.reason ?? (list.staleBecause ? `Showing the last list: ${list.staleBecause}` : null),
-    action: readiness.action,
-    model: null
-  }))
+  return list.models.map((model) => {
+    // A model the account's plan doesn't include still runs, on whatever the engine picks instead.
+    const refused = readiness.state === 'ready' && model.unavailable ? model.unavailable : null
+    return {
+      key: engineModelKey(engine, model.id),
+      engine,
+      providerId: null,
+      modelId: model.id,
+      label: model.label || model.id,
+      groupId: engine,
+      groupLabel,
+      efforts: orderEfforts(model.efforts),
+      tools: null,
+      vision: model.vision,
+      reasoning: model.efforts.length > 0 ? true : null,
+      contextWindow: null,
+      stage: modelStage({ id: model.id }),
+      planNote: refused ? NOT_ON_PLAN_NOTE : null,
+      source: model.source,
+      isDefault: model.isDefault,
+      availability: refused ? 'unavailable' : availability,
+      reason: refused ?? readiness.reason ?? (list.staleBecause ? `Showing the last list: ${list.staleBecause}` : null),
+      action: refused ? null : readiness.action,
+      model: null
+    }
+  })
 }
 
 /* -------------------------------------------------------------- resolving */

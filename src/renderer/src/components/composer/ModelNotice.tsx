@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 import { CircleAlert, KeyRound, Link2, Laptop, Ticket } from 'lucide-react'
 import type { DetectedApp } from '@shared/linkAccounts'
-import type { EngineStatus } from '@shared/engines'
+import { CLI_ENGINES, ENGINE_LABEL, type CliEngineId, type EngineStatus } from '@shared/engines'
 import type { ResolvedSelection } from '@shared/modelSelection'
 import { useApp } from '../../state/store'
 import { LinkAccounts } from '../LinkAccounts'
@@ -110,11 +110,11 @@ export function ModelNotice({ selection, onChooseModel }: { selection: ResolvedS
       <div className="model-notice__body">
         <span className="model-notice__title">No usable model is connected</span>
         <span className="model-notice__text">Sign in to a supported account, add an API key, or choose a local model. What you type stays here.</span>
-        {found.codexSignedIn && (
+        {found.signedIn && (
           <span className="model-notice__hint">
-            Codex is signed in on this computer, so Chat can run on it with your ChatGPT plan.{' '}
-            <button className="model-notice__link" onClick={() => void patchSettings({ selectedEngine: 'codex', selectedEngineModel: '' })}>
-              Use Codex in Chat
+            {ENGINE_LABEL[found.signedIn]} is signed in on this computer, so Chat can run on it with your {ENGINE_PLAN[found.signedIn]}.{' '}
+            <button className="model-notice__link" onClick={() => void patchSettings({ selectedEngine: found.signedIn, selectedEngineModel: '' })}>
+              Use {ENGINE_LABEL[found.signedIn]} in Chat
             </button>
           </span>
         )}
@@ -154,26 +154,29 @@ export function ModelNotice({ selection, onChooseModel }: { selection: ResolvedS
   )
 }
 
+/** Whose plan Chat runs on with each agent CLI. */
+const ENGINE_PLAN: Record<CliEngineId, string> = { codex: 'ChatGPT plan', copilot: 'GitHub Copilot plan', gemini: 'Google account' }
+
 /**
  * What can be found on this computer without asking anyone: a signed-in
- * Codex (from the engine check) and an installed Ollama (presence only).
+ * agent CLI, Codex first (from the engine check), and an installed Ollama (presence only).
  * Read when the notice first shows; a running Ollama and a downloaded local
  * model are picked up by provider discovery and make this notice go away.
  */
-function useDetected(active: boolean): { codexSignedIn: boolean; ollamaInstalled: boolean } {
-  const [state, setState] = useState({ codexSignedIn: false, ollamaInstalled: false })
+function useDetected(active: boolean): { signedIn: CliEngineId | null; ollamaInstalled: boolean } {
+  const [state, setState] = useState<{ signedIn: CliEngineId | null; ollamaInstalled: boolean }>({ signedIn: null, ollamaInstalled: false })
   useEffect(() => {
     if (!active) return
     let alive = true
-    const read = (statuses: EngineStatus[]): boolean =>
-      statuses.some((s) => s.id === 'codex' && s.installed && !s.outdated && s.auth.state === 'signed-in')
+    const read = (statuses: EngineStatus[]): CliEngineId | null =>
+      CLI_ENGINES.find((id) => statuses.some((s) => s.id === id && s.installed && !s.outdated && s.auth.state === 'signed-in')) ?? null
     void Promise.all([
       window.api.engines?.status().catch(() => [] as EngineStatus[]) ?? Promise.resolve([] as EngineStatus[]),
       window.api.linkAccounts.detect().catch(() => [] as DetectedApp[])
     ]).then(([statuses, apps]) => {
-      if (alive) setState({ codexSignedIn: read(statuses), ollamaInstalled: apps.some((a) => a.id === 'ollama' && a.installed) })
+      if (alive) setState({ signedIn: read(statuses), ollamaInstalled: apps.some((a) => a.id === 'ollama' && a.installed) })
     })
-    const off = window.api.engines?.onChanged(() => void window.api.engines.status().then((statuses) => alive && setState((s) => ({ ...s, codexSignedIn: read(statuses) }))))
+    const off = window.api.engines?.onChanged(() => void window.api.engines.status().then((statuses) => alive && setState((s) => ({ ...s, signedIn: read(statuses) }))))
     return () => {
       alive = false
       off?.()

@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { EngineId } from '@shared/engines'
+import { isCliEngine, type EngineId } from '@shared/engines'
 import type { TokenUsage } from '@shared/types'
 import { MAX_EXECUTIONS, type ExecutionState, type ExecutionTrigger, type WorkerExecution } from '@shared/workers'
 
@@ -44,7 +44,7 @@ function normalizeExecution(raw: unknown, workerId: string): WorkerExecution | n
     startedAt: num(v.startedAt),
     endedAt: num(v.endedAt),
     messageId: text(v.messageId),
-    engine: v.engine === 'codex' ? 'codex' : 'native',
+    engine: isCliEngine(v.engine) ? v.engine : 'native',
     providerId: text(v.providerId),
     modelId: text(v.modelId),
     usage,

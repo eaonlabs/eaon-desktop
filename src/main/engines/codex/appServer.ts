@@ -70,6 +70,14 @@ export interface AppServerOptions {
   clientVersion: string
   /** Notification methods this connection never needs; Codex skips sending them. */
   optOut?: string[]
+  /**
+   * Sends `"jsonrpc": "2.0"` on every message. Codex leaves it out; the Agent
+   * Client Protocol (engines/acp), which drives other agent CLIs over this
+   * same kind of process, requires it.
+   */
+  jsonrpc?: boolean
+  /** The program's name in messages about it ("Codex stopped unexpectedly"). */
+  label?: string
 }
 
 interface Pending {
@@ -128,6 +136,11 @@ export class AppServer {
       this.finish(null, null, resolveExit)
     })
     this.child.on('exit', (code, signal) => this.finish(code, signal, resolveExit))
+  }
+
+  /** Starts the process without a handshake, for a protocol with its own (engines/acp). */
+  static spawn(options: AppServerOptions): AppServer {
+    return new AppServer(options)
   }
 
   /**
@@ -244,7 +257,7 @@ export class AppServer {
 
   private write(message: RpcMessage): void {
     if (this.exitInfo || !this.child.stdin?.writable) return
-    this.child.stdin.write(`${JSON.stringify(message)}\n`)
+    this.child.stdin.write(`${JSON.stringify(this.options.jsonrpc ? { jsonrpc: '2.0', ...message } : message)}\n`)
   }
 
   private handleLine(line: string): void {
@@ -300,9 +313,10 @@ export class AppServer {
   }
 
   private exitMessage(exit: AppServerExit): string {
-    if (exit.expected) return 'Codex was stopped.'
+    const name = this.options.label ?? 'Codex'
+    if (exit.expected) return `${name} was stopped.`
     const how = exit.code !== null ? ` with code ${exit.code}` : exit.signal ? ` (${exit.signal})` : ''
-    return `Codex stopped unexpectedly${how}.`
+    return `${name} stopped unexpectedly${how}.`
   }
 
   private finish(code: number | null, signal: NodeJS.Signals | null, resolveExit: (exit: AppServerExit) => void): void {

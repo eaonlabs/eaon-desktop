@@ -533,6 +533,8 @@ export const BRAND_ICONS: Record<string, (props: TileProps) => JSX.Element> = {
   codex: LOGOS.codex,
   chatgpt: OpenAiIcon,
   'github-copilot': LOGOS.copilot,
+  // Gemini CLI as an agent engine; plain `gemini` is the Gemini API provider.
+  'gemini-cli': LOGOS.geminiCli,
   azure: AzureIcon,
   anthropic: AnthropicIcon,
   openrouter: OpenRouterIcon,

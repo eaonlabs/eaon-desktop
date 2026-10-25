@@ -15,12 +15,27 @@ import type { EffortLevel } from './types'
  * status and model lists defined here.
  */
 
-export type EngineId = 'native' | 'codex'
+export type EngineId = 'native' | 'codex' | 'copilot' | 'gemini'
+
+/** An installed agent CLI: every engine but Eaon's own loop. */
+export type CliEngineId = Exclude<EngineId, 'native'>
 
 export const ENGINE_LABEL: Record<EngineId, string> = {
   native: 'Eaon',
-  codex: 'Codex'
+  codex: 'Codex',
+  copilot: 'GitHub Copilot',
+  gemini: 'Gemini CLI'
 }
+
+/**
+ * The agent CLIs, in the order pickers and Settings list them. Each runs as
+ * the user's own install, signed in its own way, through the protocol its
+ * maker documents for other apps: Codex's app-server, and the Agent Client
+ * Protocol for GitHub Copilot CLI and Gemini CLI (main/engines/acp).
+ */
+export const CLI_ENGINES: CliEngineId[] = ['codex', 'copilot', 'gemini']
+
+export const isCliEngine = (value: unknown): value is CliEngineId => CLI_ENGINES.includes(value as CliEngineId)
 
 /** Where a model in a picker came from, freshest first. */
 export type ModelSourceKind =
@@ -61,6 +76,8 @@ export interface EngineModel {
   isDefault: boolean
   /** A newer model the engine recommends instead, if it names one. */
   upgrade?: string | null
+  /** Why this account can't use it (its plan doesn't include it); absent when it can, or no one asked. */
+  unavailable?: string
   source: ModelSource
 }
 
@@ -131,4 +148,6 @@ export interface EngineModels {
   retrievedAt: number | null
   /** Set when the latest refresh failed and an older list is shown instead. */
   staleBecause: string | null
+  /** A word about the whole list on this account ("Your plan offers Auto only…"); absent for none. */
+  note?: string
 }

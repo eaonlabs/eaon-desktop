@@ -52,7 +52,7 @@ const CONTROL_INSTRUCTIONS =
   'When the user hands you an Eaon trading session (the /mcp__eaon__trade command), you are its trading agent: loop on eaon_wait_for_check, research with eaon_history, eaon_scan and eaon_news, trade with eaon_order, and end each check with eaon_log_decision, until the session ends. ' +
   'Trade with eaon_order, eaon_cancel, eaon_close_position and eaon_set_exit (stops and targets). Run the trading agent with eaon_session: start it on a strategy for some hours, stop it, run a check now, or tell it something while it trades. ' +
   'Change the trading limits with eaon_limits, the account with eaon_broker, and stop everything with eaon_kill_switch. Message Eaon’s workers with eaon_worker_message, and other sessions with eaon_send. ' +
-  'Every order passes the user’s limits and the kill switch inside Eaon, and nothing trades until the user has accepted Eaon’s trading disclaimer in the app. Say what you are about to do before you trade.'
+  'Every order passes the user’s limits and the kill switch inside Eaon, and nothing trades until the user has accepted Eaon’s trading disclaimer in the app; you can’t accept it for them. Real-money orders are refused unless the user has allowed them for Claude Code in Eaon. Say what you are about to do before you trade.'
 
 /** Whether the user let Claude Code (and other `--control` hosts) trade real money, set in the TUI's mission control. */
 export function controlMayTradeLive(): boolean {

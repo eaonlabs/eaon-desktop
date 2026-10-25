@@ -38,11 +38,12 @@ import { useSuggest, type SuggestItem, type SuggestSources } from './composer/Su
 import { fileMentionItems, liveMentions, permissionItems, pluginItems, skillItems, toolMentionItems, type Mention } from './composer/sources'
 import { removeMention } from './composer/suggest'
 import { clampEffort, EFFORT_LABEL } from '@shared/effort'
+import { ENGINE_LABEL } from '@shared/engines'
 import { ModelPicker } from './composer/ModelPicker'
 import { ModelNotice } from './composer/ModelNotice'
 import { useChatEngine } from './composer/chatEngine'
 import { EngineNotice } from './composer/EngineNotice'
-import { ProviderMark } from './composer/ProviderMark'
+import { ENGINE_MARK, ProviderMark } from './composer/ProviderMark'
 import { joinTranscript, useDictation } from './composer/useDictation'
 import { VoiceBar } from './composer/VoiceBar'
 import { PermissionPicker, ProjectPicker } from './composer/ComposerBits'
@@ -546,14 +547,14 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       title={
         engineChoice
           ? engineChoice.ready
-            ? 'Runs on Codex, with your Codex sign-in'
+            ? `${engineChoice.label}. Runs on ${ENGINE_LABEL[engineChoice.engine]}, with your ${ENGINE_LABEL[engineChoice.engine]} sign-in and plan`
             : `Unavailable — ${engineChoice.reason ?? ''}`
           : selection.status === 'unavailable'
             ? `Unavailable — ${selection.reason ?? ''}`
             : undefined
       }
     >
-      {engineChoice ? <ProviderMark providerId={engineChoice.engine} size={15} /> : model && <ProviderMark providerId={model.providerId} size={15} />}
+      {engineChoice ? <ProviderMark providerId={ENGINE_MARK[engineChoice.engine]} size={15} /> : model && <ProviderMark providerId={model.providerId} size={15} />}
       <span className="chip__model">{engineChoice ? engineChoice.label : (model?.label ?? selection.wanted?.label ?? 'No model')}</span>
       {effort && <span className="chip__effort">{EFFORT_LABEL[effort]}</span>}
       <ChevronDown size={13} strokeWidth={2} className="chip__chevron" />

@@ -28,7 +28,8 @@ import { keyHints } from '../widgets'
  * `eaon mcp --control` — which gives it Eaon's tools: the session bus, the
  * trading desk with full control (orders, sessions, limits, the kill
  * switch), and the workers. Its own permission prompts still ask before it
- * uses them.
+ * uses them. Nothing is added to its system prompt: what it needs to know
+ * about Eaon comes from the server's instructions, as from any MCP server.
  *
  * While the pane has the keyboard every key goes to Claude Code untouched
  * (Esc, Tab, ⌃C included); ⌃] gives it back to Eaon. The wheel scrolls its
@@ -37,12 +38,6 @@ import { keyHints } from '../widgets'
 
 const require_ = createRequire(import.meta.url)
 const RELEASE = '\x1d' // ⌃]
-const SYSTEM_NOTE = [
-  'You are running inside Eaon, a terminal app for chat, workers and agentic stock trading. The `eaon` MCP server is Eaon itself.',
-  'Through its tools you can read and fully operate Eaon: the trading desk (eaon_trading for the account, positions, orders and the agent’s session; eaon_order, eaon_cancel, eaon_close_position and eaon_set_exit for trades; eaon_session to start, stop, check now or talk to the trading agent; eaon_limits, eaon_broker and eaon_kill_switch for its settings), the workers (eaon_workers, eaon_worker_message), and the other sessions on this computer (eaon_sessions, eaon_send, eaon_inbox).',
-  'Every order passes the user’s trading limits and the kill switch inside Eaon. Trading only starts after the user has accepted Eaon’s trading disclaimer in the app; you can’t accept it for them. Real-money orders are refused unless the user has allowed them for Claude Code in Eaon.',
-  'Treat real money with care: say what you are about to do before placing or changing anything that trades.'
-].join(' ')
 
 type Pty = { write(data: string): void; resize(cols: number, rows: number): void; kill(): void; onData(fn: (d: string) => void): void; onExit(fn: (e: { exitCode: number }) => void): void }
 type Term = {
@@ -209,7 +204,7 @@ export class ClaudeView implements View {
     }
     this.term = new Terminal({ cols, rows, scrollback: 5000, allowProposedApi: true })
     try {
-      this.pty = pty.spawn(claude, ['--append-system-prompt', SYSTEM_NOTE, '--mcp-config', mcpConfigFile()], {
+      this.pty = pty.spawn(claude, ['--mcp-config', mcpConfigFile()], {
         name: 'xterm-256color',
         cols,
         rows,

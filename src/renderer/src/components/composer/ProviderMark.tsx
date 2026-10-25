@@ -1,6 +1,13 @@
 import type { JSX } from 'react'
 import { LogoMark } from '../../icons/customLogo'
 import { providerLogoNow, useProviderLogo } from '../../state/providerLogos'
+import type { CliEngineId, EngineId } from '@shared/engines'
+
+/** Each agent CLI's logo key for ProviderMark: plain `gemini` is the Gemini API provider's. */
+export const ENGINE_MARK: Record<CliEngineId, string> = { codex: 'codex', copilot: 'github-copilot', gemini: 'gemini-cli' }
+
+/** The logo key for a model picker row: its engine's own for an agent CLI's model, else its provider's. */
+export const optionMark = (option: { engine: EngineId; groupId: string }): string => (option.engine === 'native' ? option.groupId : ENGINE_MARK[option.engine])
 
 /**
  * A provider's bare mark, without the tile its logo is drawn on elsewhere:
@@ -42,9 +49,10 @@ const MARK: Record<string, string> = {
   openai: 'openai',
   'openai-codex': 'openai',
   chatgpt: 'openai',
-  // The Codex CLI as an engine: its tab in Chat's model picker.
+  // The agent CLIs as engines (ENGINE_MARK): their tabs in Chat's model picker.
   codex: 'codex',
   'github-copilot': 'githubcopilot',
+  'gemini-cli': 'geminicli',
   azure: 'azure',
   anthropic: 'anthropic',
   openrouter: 'openrouter',

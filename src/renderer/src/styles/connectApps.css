@@ -177,6 +177,13 @@
   gap: 8px;
 }
 
+/* Under the row's description, on a line of its own. */
+.ca-claude-tools__error {
+  display: block;
+  margin-top: 4px;
+  color: var(--danger);
+}
+
 /* ---------------- Sheet ---------------- */
 
 .ca-sheet {

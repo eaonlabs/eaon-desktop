@@ -163,6 +163,28 @@ export function controlToken(): string {
   return token
 }
 
+const CLAUDE_CODE_VAULT_ID = 'local-api:claude-code'
+
+/**
+ * The key in Claude Code's MCP entry for Eaon (connectApps/claudeTools.ts).
+ * It opens the control API and nothing else: not the model routes, so Claude
+ * Code can't spend tokens through Eaon with it. It is its own key so that
+ * disconnecting can delete it, which shuts out a copy left in Claude Code's
+ * settings. Null when there is none; `create` makes one, and throws when the
+ * vault can't keep it (a key that changes every run would only go stale).
+ */
+export function claudeCodeToken(create = false): string | null {
+  const saved = secrets.get(CLAUDE_CODE_VAULT_ID)
+  if (saved || !create) return saved ?? null
+  const token = `eaoncc-${randomBytes(24).toString('base64url')}`
+  secrets.set(CLAUDE_CODE_VAULT_ID, token)
+  return token
+}
+
+export function forgetClaudeCodeToken(): void {
+  secrets.clear(CLAUDE_CODE_VAULT_ID)
+}
+
 /** Constant time, and the same for every length: both sides are hashed first. */
 export function sameToken(sent: string, expected: string): boolean {
   if (!sent || !expected) return false

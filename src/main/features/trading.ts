@@ -76,18 +76,6 @@ const CLAUDE_PANE = 'trading-claude'
 /** The newest steps kept for the desk's live feed. */
 const MAX_STEPS = 80
 
-/**
- * What Claude Code is told about where it runs, on top of its own system
- * prompt. It is passed on the command line, so it keeps clear of quotes and
- * dollar signs (shells read those).
- */
-const CLAUDE_CONTEXT = [
-  'You are running inside the Trading tab of Eaon, a desktop app.',
-  `The ${CLAUDE_SERVER_NAME} MCP server is the user's Eaon trading desk: its tools read the market and the account and place orders through Eaon, where the user's limits and kill switch apply.`,
-  `When the user runs ${TRADE_COMMAND} you become the trading agent for the session they set up in Eaon, and you keep its loop going until it ends.`,
-  'Trade only through those tools, never through the shell or files.'
-].join(' ')
-
 /** Whether the user let Claude Code trade real money, from the switch on the Trading tab. */
 function claudeLiveMoney(): boolean {
   return store.getJson<{ liveMoney?: boolean }>(FILES.claude, {}).liveMoney === true
@@ -225,7 +213,9 @@ export const tradingFeature: Feature = {
      * Sets up the Claude Code pane: Eaon's trading MCP server running, a
      * config file pointing Claude Code at it with this run's key, and the
      * command the pane types to start Claude Code. Nothing is typed into
-     * Claude Code itself — the user hands it the session (TRADE_COMMAND).
+     * Claude Code itself — the user hands it the session (TRADE_COMMAND) —
+     * and nothing is added to its system prompt: what it needs to know comes
+     * from the MCP server's instructions and that prompt, as from any server.
      */
     ipcMain.handle('trading:claude-launch', async (): Promise<ClaudeTradingLaunch> => {
       const settings = store.getSettings()
@@ -249,9 +239,7 @@ export const tradingFeature: Feature = {
         '.eaon/claude-mcp.json',
         // Eaon's trading tools run without asking each time: a session decides on its own, and the limits stand in front of every order.
         '--allowedTools',
-        `mcp__${CLAUDE_SERVER_NAME}`,
-        '--append-system-prompt',
-        `'${CLAUDE_CONTEXT}'`
+        `mcp__${CLAUDE_SERVER_NAME}`
       ].join(' ')
       return {
         paneId: CLAUDE_PANE,

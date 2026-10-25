@@ -4,8 +4,10 @@ import { join } from 'node:path'
 import { app } from 'electron'
 import type { ConnectAppId, ConnectChoice, RestartResult } from '@shared/connectApps'
 import { ensureGatewayRunning, gatewayInfo } from '../../gateway'
+import { claudeCodeToken, forgetClaudeCodeToken } from '../../gateway/models'
 import { onPath } from '../../shellEnv'
 import type { Feature } from '../types'
+import { ClaudeTools, claudeConfigFile, runClaude } from './claudeTools'
 import { openTerminal, writeLaunchScript } from './launch'
 import { ConnectApps } from './service'
 import { StateFile } from './state'
@@ -82,7 +84,25 @@ function connectApps(): ConnectApps {
   }))
 }
 
-/** Settings → Connect apps: pointing Claude Code, Codex, OpenCode… at Eaon's gateway. */
+let claude: ClaudeTools | null = null
+
+function claudeTools(): ClaudeTools {
+  const standIn = process.env['EAON_CONNECT_APPS_HOME'] || null
+  const home = standIn || homedir()
+  return (claude ??= new ClaudeTools({
+    home,
+    // A stand-in home has its own Claude Code settings; CLAUDE_CONFIG_DIR is the real one's.
+    configFile: standIn ? claudeConfigFile(home, {}) : claudeConfigFile(home),
+    which: onPath,
+    run: runClaude(standIn),
+    port: () => gatewayInfo().port,
+    ensureRunning: ensureGatewayRunning,
+    token: claudeCodeToken,
+    forgetToken: forgetClaudeCodeToken
+  }))
+}
+
+/** Settings → Connect apps: pointing Claude Code, Codex, OpenCode… at Eaon's gateway, and Eaon's tools in Claude Code. */
 export const connectAppsFeature: Feature = {
   id: 'connect-apps',
   register: ({ ipcMain }) => {
@@ -93,6 +113,10 @@ export const connectAppsFeature: Feature = {
     ipcMain.handle('connect-apps:manual', (_e, id: ConnectAppId, choice?: Partial<ConnectChoice>) => connectApps().manual(id, choice))
     ipcMain.handle('connect-apps:running', (_e, id: ConnectAppId) => connectApps().running(id))
     ipcMain.handle('connect-apps:restart', (_e, id: ConnectAppId) => connectApps().restart(id))
+    ipcMain.handle('connect-apps:claude-tools', () => claudeTools().status())
+    ipcMain.handle('connect-apps:claude-tools-connect', () => claudeTools().connect())
+    ipcMain.handle('connect-apps:claude-tools-disconnect', () => claudeTools().disconnect())
+    ipcMain.handle('connect-apps:claude-tools-command', () => claudeTools().command())
     // Connections an older Eaon made, or made before the gateway's port or key changed, are put
     // right on their own. A few seconds in, once providers (and so the models) have loaded.
     setTimeout(() => {
@@ -100,6 +124,11 @@ export const connectAppsFeature: Feature = {
         .refreshStale()
         .then((fixed) => {
           if (fixed.length) console.log(`[connect-apps] reconnected ${fixed.join(', ')}`)
+        })
+      void claudeTools()
+        .refreshStale()
+        .then((fixed) => {
+          if (fixed) console.log('[connect-apps] re-added Eaon’s tools to Claude Code')
         })
     }, 5_000).unref()
   }

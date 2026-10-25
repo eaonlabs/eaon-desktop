@@ -327,6 +327,9 @@
   margin-top: 1.5px;
   color: #d69a3a;
 }
+.mp__notice--info > svg {
+  color: var(--mp-text-3);
+}
 .mp__notice b {
   color: var(--mp-text);
   font-weight: 500;
