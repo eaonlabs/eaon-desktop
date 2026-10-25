@@ -1,12 +1,15 @@
 import type { ModelInfo, Provider } from '@shared/types'
 import { LOCAL_MODEL_PROVIDER, providerReadiness } from '@shared/modelSelection'
+import { GATEWAY_PROVIDER_ID } from '@shared/freeCredits'
 import { providerMeta } from './catalog'
 
 /**
  * Keeps connected providers' model lists fresh without anyone pressing
- * Refresh: shortly after launch and then every few hours, each provider that
- * is switched on, signed in or keyed, and has a listing endpoint asks for
- * its own `/models` again when its list is older than `MAX_AGE_MS`.
+ * Refresh: shortly after launch and then every ten minutes, each provider
+ * that is switched on, signed in or keyed, and has a listing endpoint asks
+ * for its own `/models` again when its list is older than `MAX_AGE_MS` (a few
+ * hours). Eaon Lite's list is changed on gateway.eaon.dev, so it is asked
+ * every ten minutes (`EAON_MAX_AGE_MS`).
  *
  * Local runtimes have their own, faster discovery (localDiscovery.ts); a
  * provider whose last check found its credentials broken is left alone until
@@ -17,8 +20,9 @@ import { providerMeta } from './catalog'
  */
 
 export const FIRST_CHECK_MS = 20_000
-export const EVERY_MS = 6 * 60 * 60_000
+export const EVERY_MS = 10 * 60_000
 export const MAX_AGE_MS = 6 * 60 * 60_000
+export const EAON_MAX_AGE_MS = 10 * 60_000
 /** Several providers at once, but not sixty: some hosts rate-limit `/models`. */
 const CONCURRENCY = 3
 
@@ -28,7 +32,8 @@ export function providersDue(providers: Provider[], now: number, maxAge = MAX_AG
     if (p.local || p.id === LOCAL_MODEL_PROVIDER || !providerMeta(p.id).listsModels) return false
     if (!p.enabled || !(p.hasKey || p.signedIn)) return false
     if (providerReadiness(p).state === 'attention' && p.health && !p.health.ok) return false
-    return !p.modelsListedAt || now - p.modelsListedAt >= maxAge
+    const age = p.id === GATEWAY_PROVIDER_ID ? Math.min(maxAge, EAON_MAX_AGE_MS) : maxAge
+    return !p.modelsListedAt || now - p.modelsListedAt >= age
   })
 }
 

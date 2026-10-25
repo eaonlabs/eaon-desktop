@@ -18,6 +18,8 @@ export interface ModelInfo {
   id: string
   /** Short display name shown in the model picker, e.g. "5.6 Sol". */
   label: string
+  /** One line about it from the provider's own listing: Eaon Lite's, as set on gateway.eaon.dev. */
+  description?: string
   providerId: string
   /** Reasoning-effort levels this model accepts, if any. */
   efforts?: EffortLevel[]

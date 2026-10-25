@@ -423,7 +423,7 @@ export function ModelPicker({
                     data-attention={option.availability !== 'ready' || undefined}
                     role="option"
                     aria-selected={isCurrent}
-                    title={option.reason ?? (option.label !== option.modelId ? option.modelId : undefined)}
+                    title={option.reason ?? option.model?.description ?? (option.label !== option.modelId ? option.modelId : undefined)}
                     onMouseMove={() => i !== active && setActive(i)}
                     onClick={() => pick(option)}
                   >

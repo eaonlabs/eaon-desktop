@@ -1,3 +1,4 @@
+import { FREE_PROVIDER_ID, GATEWAY_PROVIDER_ID } from '@shared/freeCredits'
 import type { ModelInfo } from '@shared/types'
 import { EFFORT_FROM_WIRE, orderEfforts } from '@shared/effort'
 import type { Vendor } from './compat'
@@ -24,6 +25,7 @@ import { isChatModelId, OPENAI_EFFORTS, prettyLabel } from './models'
 interface Row {
   id?: string
   name?: string
+  description?: string
   type?: string
   model_type?: string
   context_length?: number
@@ -59,7 +61,16 @@ const num = (...values: (number | null | undefined)[]): number | undefined => {
 /** "Anthropic: Claude Opus 5.5" → "Claude Opus 5.5". */
 const tidyName = (name: string): string => name.replace(/^[^:]{1,40}:\s+/, '').trim()
 
+/**
+ * Eaon's own gateway: what it lists, and each model's name and description,
+ * is set on gateway.eaon.dev, so the names are used as written there. (Other
+ * servers' `name` is often a file path or the id again, so theirs is tidied
+ * or left out.)
+ */
+const EAON_LISTINGS = new Set([GATEWAY_PROVIDER_ID, FREE_PROVIDER_ID])
+
 export function parseListing(body: unknown, providerId: string, vendor: Vendor): ModelInfo[] {
+  const eaon = EAON_LISTINGS.has(providerId)
   const root = body as { data?: Row[]; models?: Row[] } | Row[]
   const rows: Row[] = Array.isArray(root) ? root : (root.data ?? root.models ?? [])
   const out: ModelInfo[] = []
@@ -108,7 +119,8 @@ export function parseListing(body: unknown, providerId: string, vendor: Vendor):
 
     out.push({
       id,
-      label: row.name && row.name !== id && vendor !== 'other' ? tidyName(row.name) : prettyLabel(id),
+      label: row.name?.trim() && row.name !== id && (eaon || vendor !== 'other') ? (eaon ? row.name.trim().slice(0, 80) : tidyName(row.name)) : prettyLabel(id),
+      ...(eaon && typeof row.description === 'string' && row.description.trim() ? { description: row.description.trim().slice(0, 300) } : {}),
       providerId,
       ...(contextWindow ? { contextWindow } : {}),
       ...(maxOutput && (!contextWindow || maxOutput <= contextWindow) ? { maxOutput } : {}),
