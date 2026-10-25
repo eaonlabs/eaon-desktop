@@ -3,7 +3,7 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
-## [Unreleased]
+## [2026.7.0-beta.3] — 2026-10-25
 
 ### Added
 - **Adjustable glass.** Settings → Appearance → Glass has Blur and
@@ -215,6 +215,19 @@ All notable changes to Eaon are documented here. Format loosely follows
   way up.
 - Reviewing a chat's changes no longer squeezes the diffs into a narrow
   column with the ends of lines cut off.
+- **Pages open with their glass already frosted.** With a wallpaper behind
+  the app, opening Settings or any page showed the wallpaper sharp under
+  every panel for a moment before the blur came in.
+- **Eaon Lite's models are the ones Eaon offers today.** Its list follows
+  what Eaon serves, with their names and descriptions, and is checked every
+  ten minutes, so a model that was taken away no longer stays in the picker.
+- **Eaon Free is only offered while it works.** The offer, and the switch to
+  it, wait until Eaon actually serves its model; a model you already use is
+  kept.
+- **Uninstalling the worker computer's app deletes the keys** this computer
+  had given it.
+- **The ADE's "Open a project" sits in the middle of the pane** again.
+- **Pi shows its own logo** in Usage & limits.
 
 ### Removed
 - **Settings → Profile.** The activity profile page and its share card are
