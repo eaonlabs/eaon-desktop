@@ -110,6 +110,16 @@
   overflow-y: auto;
   padding-bottom: 24px;
 }
+/* Centred top to bottom in the pane (the shared .home stopped centring when
+   Chat's home moved its composer down). Auto margins rather than
+   justify-content, so a long Recent list scrolls from its top instead of
+   being cut off above the pane. */
+.code-home > :first-child {
+  margin-top: auto;
+}
+.code-home > :last-child {
+  margin-bottom: auto;
+}
 .code-home__stack {
   width: var(--composer-w);
   max-width: calc(100% - 48px);
