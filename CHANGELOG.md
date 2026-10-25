@@ -133,6 +133,10 @@ All notable changes to Eaon are documented here. Format loosely follows
 - **Long messages you send** fold to their first lines, with Show more.
 - **Callouts** written `> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]` or
   `[!CAUTION]` show as callouts in replies.
+- **Settings → Workers.** Payments, Chat apps, Email and Worker computer are
+  now tabs of one Workers page instead of four pages spread over Settings. A
+  search for any of them still finds it, and Workers opens on the tab you
+  used last.
 
 ### Fixed
 - **Chat apps with a worker computer.** Connecting a chat app to a worker on

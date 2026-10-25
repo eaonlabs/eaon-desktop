@@ -193,6 +193,6 @@ export function createPurchaseRoutines(deps: PurchaseRoutinesDeps) {
 /** Why a plan can't be bought by this worker, or null. */
 export function purchaseWorkerProblem(worker: Pick<Worker, 'engine' | 'name'>, plan: Pick<PurchasePlan, 'maxAmount'>, cardSaved: boolean): string | null {
   if (worker.engine && worker.engine !== 'native') return `${worker.name} runs on another agent engine, which can’t use Eaon’s browser and card. Pick a worker that runs on Eaon.`
-  if (!isFreePlan(plan) && !cardSaved) return 'Add a card in Settings → Payments first, or set the maximum to 0 for free orders.'
+  if (!isFreePlan(plan) && !cardSaved) return 'Add a card in Settings → Workers → Payments first, or set the maximum to 0 for free orders.'
   return null
 }

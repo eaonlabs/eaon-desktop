@@ -722,7 +722,7 @@ export class EmailService {
         // The state file was lost but the key wasn't: pick the inbox up again.
         const inboxes = (await client.listInboxes()).map(toInbox)
         if (generation !== this.generation) return
-        if (inboxes.length === 0) throw new Error('This AgentMail account has no inbox yet. Create one in Settings → Email.')
+        if (inboxes.length === 0) throw new Error('This AgentMail account has no inbox yet. Create one in Settings → Workers → Email.')
         this.saved.inboxes = inboxes
         this.saved.inbox = inbox = inboxes[0]
         this.resetInboxTracking()
@@ -904,8 +904,8 @@ export class EmailService {
     if (this.saved.sent.count >= max) {
       throw new Error(
         max === 0
-          ? 'Sending email is off: the daily limit is 0. Raise it in Settings → Email.'
-          : `The agent has sent ${max} email${max === 1 ? '' : 's'} today, the daily limit. It resets at midnight, or raise it in Settings → Email.`
+          ? 'Sending email is off: the daily limit is 0. Raise it in Settings → Workers → Email.'
+          : `The agent has sent ${max} email${max === 1 ? '' : 's'} today, the daily limit. It resets at midnight, or raise it in Settings → Workers → Email.`
       )
     }
     this.saved.sent.count += 1
@@ -985,7 +985,7 @@ export class EmailService {
   private ownDomain(): string {
     if (this.saved.provider === 'cloudflare') {
       const domain = this.saved.cloudflare?.domain
-      if (!domain) throw new Error('Set up your domain in Settings → Email first.')
+      if (!domain) throw new Error('Set up your domain in Settings → Workers → Email first.')
       return domain
     }
     return this.saved.inbox?.address.split('@')[1]?.toLowerCase() || 'agentmail.to'
@@ -1003,13 +1003,13 @@ export class EmailService {
   }
 
   private requireKey(): void {
-    if (!this.key) throw new Error('Email isn’t set up. Set it up in Settings → Email first.')
+    if (!this.key) throw new Error('Email isn’t set up. Set it up in Settings → Workers → Email first.')
   }
 
   private requireInbox(workerId?: string | null): EmailInbox {
     this.requireKey()
     const inbox = this.addressFor(workerId)
-    if (!inbox) throw new Error('Pick an inbox in Settings → Email first.')
+    if (!inbox) throw new Error('Pick an inbox in Settings → Workers → Email first.')
     return inbox
   }
 
@@ -1017,7 +1017,7 @@ export class EmailService {
     const inbox = this.requireInbox(workerId)
     if (!this.saved.verified) {
       throw new Error(
-        `The inbox can’t send yet: AgentMail emailed a six-digit code to ${this.saved.humanEmail ?? 'the user'}, and it has to be entered in Settings → Email first.`
+        `The inbox can’t send yet: AgentMail emailed a six-digit code to ${this.saved.humanEmail ?? 'the user'}, and it has to be entered in Settings → Workers → Email first.`
       )
     }
     return inbox

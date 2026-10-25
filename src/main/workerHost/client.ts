@@ -122,7 +122,7 @@ export class HostLink {
       // While updating, the host is restarting: not an error worth showing, unless it never comes back.
       if (this.connection === 'updating' && Date.now() - this.updatingSince > UPDATE_GRACE_MS) {
         this.connection = 'offline'
-        this.error = 'The host app didn’t come back after updating. Reinstall it from Settings → Worker computer.'
+        this.error = 'The host app didn’t come back after updating. Reinstall it from Settings → Workers → Worker computer.'
       } else if (this.connection !== 'updating') {
         this.connection = 'offline'
         this.error = error instanceof Error ? error.message : String(error)

@@ -311,7 +311,7 @@ test('without Email Sending, the Worker emails the account’s verified addresse
   assert.equal((await h.email.list())[0].subject, 'Acme: $20 due today', 'a copy is kept')
 
   // Anyone else is refused before anything is sent, with the way out.
-  await assert.rejects(h.email.send({ to: ['jo@gmail.com'], subject: 'Hi', text: 'Hello' }), /can only email addresses verified in your Cloudflare account, and jo@gmail\.com isn’t\. Verify it in Settings → Email/)
+  await assert.rejects(h.email.send({ to: ['jo@gmail.com'], subject: 'Hi', text: 'Hello' }), /can only email addresses verified in your Cloudflare account, and jo@gmail\.com isn’t\. Verify it in Settings → Workers → Email/)
   assert.equal(h.fake.workerSent.length, 1)
   // Verified from Eaon: Cloudflare emails a link; once clicked, it works.
   await h.email.addVerifiedAddress('Jo@Gmail.com')

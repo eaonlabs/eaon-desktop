@@ -319,8 +319,7 @@ export function WorkerComputerPage(): JSX.Element {
 
   return (
     <>
-      <h1 className="settings__h1">Worker computer</h1>
-      <p className="wh-intro">
+      <p className="settings__lede">
         Keep your workers on another computer you leave on, like a Raspberry Pi, a spare Mac or a home server, so they keep working while this one is closed.
         Their folders and their own browsers live there too. You still see them, talk to them and watch their browsers from here.
       </p>

@@ -359,7 +359,7 @@ test('sign-up stores the key in the vault, waits for the code, then verifies', a
   assert.ok(!JSON.stringify(h.email.state()).includes(key), 'the key never reaches the renderer')
 
   // Sending is refused until the code is in, with a sentence saying so.
-  await assert.rejects(h.email.send({ to: ['jo@x.com'], subject: 'Hi', text: 'Hello' }), /six-digit code to me@example\.com.*entered in Settings → Email first/)
+  await assert.rejects(h.email.send({ to: ['jo@x.com'], subject: 'Hi', text: 'Hello' }), /six-digit code to me@example\.com.*entered in Settings → Workers → Email first/)
   assert.equal(h.fake.requests.filter((r) => r.path.endsWith('/send')).length, 0)
 
   await h.email.resendCode()
@@ -578,7 +578,7 @@ test('send and reply carry an Idempotency-Key and count toward the daily cap', a
   assert.deepEqual(replyReq.body, { text: 'Yes.', reply_all: true })
   assert.equal(h.email.state().sentToday, 2)
 
-  await assert.rejects(h.email.send({ to: ['jo@x.com'], subject: 'Again', text: 'x' }), /sent 2 emails today, the daily limit.*Settings → Email/)
+  await assert.rejects(h.email.send({ to: ['jo@x.com'], subject: 'Again', text: 'x' }), /sent 2 emails today, the daily limit.*Settings → Workers → Email/)
   assert.equal(h.fake.requests.filter((r) => r.path.endsWith('/send')).length, 1, 'the refused send never reached AgentMail')
   assert.deepEqual(h.saved()?.sent, { day: '2026-09-30', count: 2 }, 'the count survives a restart')
 

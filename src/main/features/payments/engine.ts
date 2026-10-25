@@ -364,7 +364,7 @@ export class PaymentsEngine {
     // so none is needed, but it is recorded (and covers one press of the
     // order button) like any other, and its order number is tracked.
     const free = amount === 0 && how === 'scheduled'
-    if (mode === 'off' && !free) throw new Error('Payments are off. The user can turn them on in Settings → Payments.')
+    if (mode === 'off' && !free) throw new Error('Payments are off. The user can turn them on in Settings → Workers → Payments.')
     if (!(amount > 0) && !free) throw new Error('"amount" must be the total you are about to pay, more than 0.')
     const currency = text(request.currency, 3).toUpperCase() || this.config.currency
     if (!/^[A-Z]{3}$/.test(currency)) throw new Error('"currency" is a three-letter code, like USD.')
@@ -459,7 +459,7 @@ export class PaymentsEngine {
   /** The secret parts of the card, for typing only. Never returned to the model. */
   cardSecret(): CardSecret & { card: CardSummary } {
     const secret = this.secret()
-    if (!secret || !this.config.card) throw new Error('There is no card saved. The user can add one in Settings → Payments.')
+    if (!secret || !this.config.card) throw new Error('There is no card saved. The user can add one in Settings → Workers → Payments.')
     return { ...secret, card: this.config.card }
   }
 

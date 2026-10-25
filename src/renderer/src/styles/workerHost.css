@@ -1,12 +1,4 @@
-/* Settings → Worker computer, and the Workers tab's "Running on …" row. */
-
-.wh-intro {
-  margin: -6px 0 18px;
-  max-width: 62ch;
-  font-size: var(--fs-sm);
-  line-height: 1.5;
-  color: var(--text-2);
-}
+/* Settings → Workers → Worker computer, and the Workers tab's "Running on …" row. */
 
 .wh-hint {
   margin: 0;

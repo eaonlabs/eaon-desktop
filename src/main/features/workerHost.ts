@@ -491,7 +491,7 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService, c
           link.error = `The host app couldn’t be updated: ${errorText(error)}`
         }
       } else if (hello.protocol !== WORKER_HOST_PROTOCOL) {
-        link.error = 'The worker computer runs a host app this Eaon can’t use, and updating it didn’t work. Reinstall it from Settings → Worker computer.'
+        link.error = 'The worker computer runs a host app this Eaon can’t use, and updating it didn’t work. Reinstall it from Settings → Workers → Worker computer.'
         pushState()
         return
       }

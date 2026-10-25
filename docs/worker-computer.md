@@ -14,7 +14,7 @@ browsers.
 | `scripts/build-host.mjs` | Builds `out/host/eaon-host.tgz` (both bundles, BetterWright's `node_modules`, `install.sh`) and `out/host/eaon-host.json` (build id, Electron version, hash). Part of `npm run build` and every release script; the app ships both files. |
 | `src/main/workerHost/` | `channel.ts` (the encrypted link and its RPC), `client.ts` (the desktop's connection, reconnecting), `install.ts` (SSH install and the one-line install), `move.ts` (workers' files moving between computers). |
 | `src/main/features/workerHost.ts` | The desktop side: linking, keeping the host synced and updated, moving workers, and answering the Workers tab's IPC from the host while they run there. |
-| `src/renderer/.../settings/pages/WorkerComputer.tsx` | Settings → Worker computer. |
+| `src/renderer/.../settings/pages/WorkerComputer.tsx` | Settings → Workers → Worker computer. |
 
 ## The host
 
@@ -91,8 +91,9 @@ changes.
 Chat apps go with the workers: their links, bot tokens and WhatsApp sessions
 move to the host (`channels.import`; a WhatsApp session is decrypted here and
 sealed again with the host's own key), the bots stop here and answer from the
-host, and Settings → Chat apps is answered by the host. The tokens are the
-host's own from then on: a sync never sends or removes `channel:` entries.
+host, and Settings → Workers → Chat apps is answered by the host. The
+tokens are the host's own from then on: a sync never sends or removes
+`channel:` entries.
 Moving the workers back brings the chat apps back the same way
 (`channels.export`). Workers moved before chat apps could go with them take
 theirs over the next time the host connects.
