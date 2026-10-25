@@ -118,10 +118,10 @@ const whatsNewStops = (): Stop[] => [
   },
   {
     workspace: 'work',
-    selector: '.main .composer-pill--project',
+    selector: '.main .composer-pill--project, .main .ws-card',
     side: 'top',
     title: 'Work in a project',
-    body: 'Point a chat at a folder and Eaon works there. Code, at the top right, opens the folder beside the chat with a file tree, an editor and what the agent changed.'
+    body: 'Point a chat at a folder and Eaon works there. The switches at the top right open a terminal under the chat, and a dock beside it with the files, a browser and what the agent changed.'
   },
   {
     workspace: 'workers',
