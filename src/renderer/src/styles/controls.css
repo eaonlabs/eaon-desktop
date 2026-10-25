@@ -31,8 +31,8 @@
   max-height: min(340px, calc(100vh - 24px));
   overflow-y: auto;
   background: var(--menu-bg);
-  backdrop-filter: blur(28px) saturate(180%);
-  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  backdrop-filter: var(--frost);
+  -webkit-backdrop-filter: var(--frost);
   border: 0.5px solid var(--border-strong);
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-menu);
@@ -44,6 +44,62 @@
 }
 .menu::-webkit-scrollbar {
   display: none;
+}
+
+/* A menu with a search field (Popover in ui.tsx) holds the field still and
+   scrolls the list under it in a body of its own. The field used to stick
+   to the top of a menu that scrolled whole, and had to be painted solid so
+   the list didn't show through it: a lighter band across the top of a
+   frosted menu. Now nothing passes under it, so it is the menu's own glass. */
+.menu[data-search] {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+.menu__body {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 5px;
+  scrollbar-width: none;
+  /* An edge with more of the list beyond it fades out, so the row cut off
+     there reads as more to scroll to rather than as a clipped menu. The
+     fades follow the scroll position; a list that fits has none. */
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 var(--menu-fade-top), #000 calc(100% - var(--menu-fade-bottom)), transparent);
+  mask-image: linear-gradient(to bottom, transparent, #000 var(--menu-fade-top), #000 calc(100% - var(--menu-fade-bottom)), transparent);
+  animation: menu-edges linear both;
+  animation-timeline: scroll(self);
+}
+.menu__body::-webkit-scrollbar {
+  display: none;
+}
+@property --menu-fade-top {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+@property --menu-fade-bottom {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+@keyframes menu-edges {
+  0% {
+    --menu-fade-top: 0px;
+    --menu-fade-bottom: 22px;
+  }
+  10% {
+    --menu-fade-top: 22px;
+  }
+  90% {
+    --menu-fade-bottom: 22px;
+  }
+  100% {
+    --menu-fade-top: 22px;
+    --menu-fade-bottom: 0px;
+  }
 }
 @keyframes pop {
   from {
@@ -161,28 +217,13 @@
   width: 16px;
 }
 .menu__search {
+  flex: none;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 4px 9px 8px;
-  color: var(--text-3);
-  /* The menu itself is the scroll container, so without this the search field
-     scrolls away from a long list — exactly when it is most needed. */
-  position: sticky;
-  top: -5px;
-  z-index: 1;
-  margin: -5px -5px 0;
   padding: 9px 14px 8px;
-  /* Opaque on purpose. `--menu-bg` is deliberately translucent so `.menu`'s
-     backdrop-filter has something to frost — but that frosts what is behind
-     the *whole menu* and does nothing for the menu's own scrolling children,
-     so painting this header with it left the list legible through the search
-     field. Giving the header its own backdrop-filter does not fix it either:
-     Chromium will not sample same-stacking-context scrolled siblings into a
-     nested backdrop root, so the bleed only softened.
-     `--surface-3` is the solid colour `--menu-bg` is mixed from, so this reads
-     as the same material while actually blocking what scrolls beneath it. */
-  background: var(--surface-3);
+  color: var(--text-3);
+  border-bottom: 0.5px solid var(--border);
 }
 .menu__search input {
   flex: 1;
@@ -733,8 +774,8 @@ textarea.input {
   padding: 14px 14px 14px 16px;
   border-radius: var(--r-lg);
   background: var(--menu-bg);
-  backdrop-filter: blur(28px) saturate(180%);
-  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  backdrop-filter: var(--frost);
+  -webkit-backdrop-filter: var(--frost);
   border: 0.5px solid var(--border-strong);
   box-shadow: var(--shadow-menu);
   animation: pop var(--dur-spring-slow) var(--spring-slow);

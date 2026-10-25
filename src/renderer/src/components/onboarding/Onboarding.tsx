@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState, type CSSProperties, type JSX, type MouseEvent, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
-import { ArrowLeft, ArrowRight, Check, ChevronRight, CircleUserRound, KeyRound, Laptop, Loader2, MessagesSquare, Moon, SquareTerminal, Sun } from 'lucide-react'
+import { ArrowLeft, ArrowRight, ArrowUpRight, Check, ChevronRight, CircleUserRound, KeyRound, Laptop, Loader2, MessagesSquare, Moon, SquareTerminal, Sun } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import type { LinkMethod } from '@shared/linkAccounts'
 import { providerReadiness } from '@shared/modelSelection'
 import type { Provider, ThemeMode } from '@shared/types'
+import type { ToknAccount } from '@shared/usage'
 import { WHATS_NEW_RELEASE } from '@shared/whatsNew'
 import { useApp } from '../../state/store'
 import { ToknMark, useToknAccount } from '../account/ToknAccount'
@@ -348,6 +349,8 @@ function ToknStep({ onBack, onNext }: { onBack: () => void; onNext: () => void }
   const account = state?.account ?? null
   const pending = state?.signIn.state === 'pending'
   const failed = state?.signIn.state === 'error'
+  // Signed in while the step shows: the account opens into the card rather than being there from the start.
+  const [arrives] = useState(() => state !== null && !state.account)
 
   const proceed = (): void => {
     // The coding CLIs are tracked only with a Tokn account to publish to, and the person's yes.
@@ -362,6 +365,7 @@ function ToknStep({ onBack, onNext }: { onBack: () => void; onNext: () => void }
         code.
       </Header>
       <div className="card" style={stagger(2)}>
+        {account && <AccountRow account={account} arrives={arrives} />}
         <label className="card__row onboarding__option">
           <span className="card__row-body">
             <span className="card__row-title">Also track Claude Code, Codex and other coding CLIs</span>
@@ -372,16 +376,10 @@ function ToknStep({ onBack, onNext }: { onBack: () => void; onNext: () => void }
       </div>
       <Footer onBack={onBack} at={3}>
         {account ? (
-          <>
-            <span className="onboarding__done">
-              <Check size={14} strokeWidth={2.4} />
-              Signed in as @{account.handle}
-            </span>
-            <button type="button" className="btn btn--primary onboarding__btn" onClick={proceed} autoFocus>
-              Continue
-              <ArrowRight size={15} strokeWidth={2} />
-            </button>
-          </>
+          <button type="button" className="btn btn--primary onboarding__btn" onClick={proceed} autoFocus>
+            Continue
+            <ArrowRight size={15} strokeWidth={2} />
+          </button>
         ) : (
           <>
             <button type="button" className="btn btn--ghost onboarding__btn" onClick={proceed}>
@@ -404,6 +402,36 @@ function ToknStep({ onBack, onNext }: { onBack: () => void; onNext: () => void }
       {failed && state?.signIn.error && <p className="onboarding__note onboarding__note--error">{state.signIn.error}</p>}
       {pending && <p className="onboarding__note">Approve Eaon on toknhq.com. No account yet? You can make one there.</p>}
     </>
+  )
+}
+
+/** The Tokn account signed in to, as the card's first row: who it is, and their profile on toknhq.com. */
+function AccountRow({ account, arrives }: { account: ToknAccount; arrives: boolean }): JSX.Element {
+  const name = account.name?.trim()
+  return (
+    <div className="onboarding__account" data-arrives={arrives || undefined}>
+      <div className="card__row onboarding__account-row">
+        <span className="onboarding__avatar" aria-hidden="true">
+          {(name || account.handle).charAt(0).toUpperCase()}
+          <span className="onboarding__avatar-mark">
+            <ToknMark size={14} />
+          </span>
+        </span>
+        <span className="card__row-body">
+          <span className="card__row-title">{name || `@${account.handle}`}</span>
+          <span className="card__row-desc onboarding__account-status">{name ? `@${account.handle} · Signed in with Tokn` : 'Signed in with Tokn'}</span>
+        </span>
+        <button
+          type="button"
+          className="btn btn--ghost btn--sm onboarding__profile"
+          title={account.profileUrl.replace(/^https?:\/\//, '')}
+          onClick={() => void window.api.app.openExternal(account.profileUrl)}
+        >
+          Profile
+          <ArrowUpRight size={13} strokeWidth={2} />
+        </button>
+      </div>
+    </div>
   )
 }
 

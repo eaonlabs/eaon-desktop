@@ -3,7 +3,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { MCP_CATALOG, type McpCatalogEntry } from '@shared/mcpCatalog'
 import type { McpServer, McpServerStatus } from '@shared/types'
 import type { SkillInfo } from '@shared/skills'
-import { agentWorkspace, useApp } from '../../state/store'
+import { codeFolder, useApp } from '../../state/store'
 
 /** Live MCP server statuses, kept current by the main process's `mcp:status` events. */
 export function useMcpStatuses(): McpServerStatus[] {
@@ -45,9 +45,9 @@ export function useConnectedPlugins(): ConnectedPlugin[] {
 
 export const pluginServerId = (pluginId: string): string => `plugin-${pluginId}`
 
-/** Skills visible from the Work folder, re-read whenever `version` changes. */
+/** Skills visible from the folder of the chat's project, re-read whenever `version` changes. */
 export function useSkills(version = 0): { skills: SkillInfo[]; loaded: boolean; reload: () => void } {
-  const cwd = useApp((s) => agentWorkspace(s.workspaces)?.cwd ?? null)
+  const cwd = useApp((s) => codeFolder(s))
   const [skills, setSkills] = useState<SkillInfo[]>([])
   const [loaded, setLoaded] = useState(false)
   const [tick, setTick] = useState(0)

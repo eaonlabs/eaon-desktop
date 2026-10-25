@@ -2175,10 +2175,6 @@ body[data-idle] .ask-badge__icon {
 
 /* ---------------------------------------------------------------- search */
 
-.worker-search__results {
-  max-height: min(420px, 60vh);
-  overflow-y: auto;
-}
 .worker-search__results > [data-active] > .menu__item {
   background: var(--hover);
 }

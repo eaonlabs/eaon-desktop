@@ -3,19 +3,19 @@ import { useShallow } from 'zustand/react/shallow'
 import { ChevronRight, ChevronsDownUp, RotateCw, Search, X } from 'lucide-react'
 import { useApp } from '../../../state/store'
 import { FileIcon, splitPath } from '../../agent/FileIcon'
-import { useChatCode } from '../../chatCode/chatCodeStore'
-import { useIde } from '../ideStore'
+import { useDockPlace } from '../dockPlace'
 import { joinPath, touchedFiles } from '../paths'
 
 /**
  * The folder the agent works in, as a tree: "Search files" finds any file in
  * it by name, the folders open one at a time, and a file opens in a tab of
- * its own. Files the agent changed in this chat carry a dot. `compact` is
- * the tree beside an open file.
+ * its own. In Chat, files the agent changed in this chat carry a dot.
+ * `compact` is the tree beside an open file.
  */
 export function FilesView({ compact = false }: { compact?: boolean }): JSX.Element {
-  const { root, refresh } = useIde(useShallow((s) => ({ root: s.root, refresh: s.refresh })))
-  const touched = useTouched(root)
+  const place = useDockPlace()
+  const { root, refresh } = place.store(useShallow((s) => ({ root: s.root, refresh: s.refresh })))
+  const touched = useTouched(root, place.id === 'chat')
   const [query, setQuery] = useState('')
   const q = query.trim().toLowerCase()
 
@@ -39,14 +39,14 @@ export function FilesView({ compact = false }: { compact?: boolean }): JSX.Eleme
           className="files-view__tool"
           title="Collapse all folders"
           aria-label="Collapse all folders"
-          onClick={() => root && useIde.setState({ expanded: new Set([root]) })}
+          onClick={() => root && place.store.setState({ expanded: new Set([root]) })}
         >
           <ChevronsDownUp size={14} strokeWidth={1.9} />
         </button>
       </div>
       <nav className="files-view__tree scroll" aria-label="Files">
         {!root ? (
-          <div className="files-view__empty">Pick a folder for this chat to see its files.</div>
+          <div className="files-view__empty">{place.missing ? `${place.missing}.` : 'Reading the folder…'}</div>
         ) : q ? (
           <Found query={q} root={root} touched={touched} />
         ) : (
@@ -57,21 +57,25 @@ export function FilesView({ compact = false }: { compact?: boolean }): JSX.Eleme
   )
 }
 
-/** Paths the agent wrote or edited in the open chat, resolved against the folder. */
-function useTouched(root: string | null): Set<string> {
-  const paths = useApp(useShallow((s) => touchedFiles(s.activeChat()?.messages ?? [])))
+const NONE: string[] = []
+
+/** Paths the agent wrote or edited in the open chat, resolved against the folder; none outside Chat. */
+function useTouched(root: string | null, chat: boolean): Set<string> {
+  const paths = useApp(useShallow((s) => (chat ? touchedFiles(s.activeChat()?.messages ?? []) : NONE)))
   return useMemo(() => new Set(root ? paths.map((p) => joinPath(root, p)) : []), [paths, root])
 }
 
-const openFile = (path: string): void => {
-  useIde.getState().openSurface('file', { path })
+/** Opens a file in a tab of its own in this dock. */
+function useOpenFile(): (path: string) => void {
+  const { store } = useDockPlace()
+  return (path) => void store.getState().openSurface('file', { path })
 }
 
 /** Kept out of the tree, as an editor's explorer does. */
 const HIDDEN = new Set(['.git', '.DS_Store'])
 
 function Folder({ path, depth, touched }: { path: string; depth: number; touched: Set<string> }): JSX.Element | null {
-  const listed = useIde((s) => s.entries.get(path))
+  const listed = useDockPlace().store((s) => s.entries.get(path))
   const entries = useMemo(() => listed?.filter((e) => !HIDDEN.has(e.name)), [listed])
   if (!entries) return null
   if (entries.length === 0 && depth === 0) return <div className="files-view__empty">This folder is empty.</div>
@@ -89,8 +93,9 @@ function Folder({ path, depth, touched }: { path: string; depth: number; touched
 }
 
 function DirRow({ path, name, depth, touched }: { path: string; name: string; depth: number; touched: Set<string> }): JSX.Element {
-  const open = useIde((s) => s.expanded.has(path))
-  const toggleDir = useIde((s) => s.toggleDir)
+  const { store } = useDockPlace()
+  const open = store((s) => s.expanded.has(path))
+  const toggleDir = store((s) => s.toggleDir)
   return (
     <>
       <button type="button" className="files-view__row" style={{ '--depth': depth } as CSSProperties} onClick={() => void toggleDir(path)} aria-expanded={open} title={path}>
@@ -103,7 +108,8 @@ function DirRow({ path, name, depth, touched }: { path: string; name: string; de
 }
 
 function FileRow({ path, name, depth, touched }: { path: string; name: string; depth: number; touched: boolean }): JSX.Element {
-  const active = useIde((s) => s.surfaces.find((x) => x.id === s.activeSurface)?.path === path)
+  const active = useDockPlace().store((s) => s.surfaces.find((x) => x.id === s.activeSurface)?.path === path)
+  const openFile = useOpenFile()
   return (
     <button type="button" className="files-view__row" style={{ '--depth': depth } as CSSProperties} data-active={active || undefined} onClick={() => openFile(path)} title={path}>
       <span className="files-view__icon">
@@ -117,8 +123,9 @@ function FileRow({ path, name, depth, touched }: { path: string; name: string; d
 
 /** Files anywhere in the folder whose path has the words searched for, closest names first. */
 function Found({ query, root, touched }: { query: string; root: string; touched: Set<string> }): JSX.Element {
-  const files = useChatCode((s) => s.files)
-  useEffect(() => useChatCode.getState().loadFiles(), [])
+  const { files, loadFiles } = useDockPlace()
+  const openFile = useOpenFile()
+  useEffect(() => loadFiles(), [loadFiles])
   const shown = useMemo(() => {
     if (!files) return null
     const hits = files.filter((p) => p.toLowerCase().includes(query))

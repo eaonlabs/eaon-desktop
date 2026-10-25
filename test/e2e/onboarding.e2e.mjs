@@ -50,7 +50,10 @@ scenario('first run: the setup signs in with Tokn, links tokn, picks dark, and t
     await page.click('.onboarding .btn--primary', { text: 'Sign in with Tokn' })
     await page.find('.onboarding .btn', { text: 'Waiting for your browser' })
     await approveToknSignIn(page)
-    await page.find('.onboarding__done', { text: 'Signed in as @alex', timeout: 15_000 })
+    await page.find('.onboarding__account', { text: '@alex', timeout: 15_000 })
+    await page.waitFor(() => !document.querySelector('.onboarding__account')?.getAnimations().some((a) => a.playState === 'running'), {
+      message: 'the account to open in'
+    })
     await s.shot(page, 'setup-tokn-signed-in')
     await page.click('.onboarding .btn--primary', { text: 'Continue' })
 
@@ -107,7 +110,8 @@ scenario('first run: the setup signs in with Tokn, links tokn, picks dark, and t
     }
     assert.deepEqual(titles, ['Three places to work', 'Ask, or hand over a task', 'Pick a model', 'Your chats', 'Automations', 'The ADE', 'Your plan’s limits', 'Settings'])
     await page.waitFor(() => !document.querySelector('.tour'), { message: 'the tour to close' })
-    assert.deepEqual({ ...(await onboarding(page)), finishedAt: null }, { setup: 'done', tour: 'done', finishedAt: null })
+    // A fresh install starts on this release, so its what's new never shows on top of the tour.
+    assert.deepEqual({ ...(await onboarding(page)), finishedAt: null }, { setup: 'done', tour: 'done', finishedAt: null, whatsNew: '2026.7' })
     assert.equal(await page.eval(() => document.querySelector('.mode-switch__option[aria-selected="true"]')?.textContent?.trim()), 'Chat')
 
     // Not again on the next launch.
@@ -165,7 +169,7 @@ const WHATS_NEW_TITLES = [
   'Workers that keep going for hours',
   'Automations',
   'A worker computer, and more chat apps',
-  'A browser beside your agents',
+  'A dock beside your agents',
   'Plan limits, up top',
   'And in Settings'
 ]

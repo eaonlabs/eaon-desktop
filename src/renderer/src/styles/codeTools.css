@@ -804,8 +804,8 @@
   border: 1px solid var(--border);
   border-radius: 20px;
   background: color-mix(in srgb, var(--surface-2), transparent 6%);
-  -webkit-backdrop-filter: blur(24px) saturate(1.4);
-  backdrop-filter: blur(24px) saturate(1.4);
+  -webkit-backdrop-filter: var(--frost);
+  backdrop-filter: var(--frost);
   box-shadow: 0 10px 30px color-mix(in srgb, var(--shadow-ink) 18%, transparent);
   animation: ws-card-in 220ms var(--ease) both;
 }

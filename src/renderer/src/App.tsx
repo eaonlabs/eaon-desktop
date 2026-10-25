@@ -4,7 +4,9 @@ import { isAgentKind, useApp, useIsWork, useWorkspaceKind } from './state/store'
 import { Sidebar } from './components/Sidebar'
 import { ApprovalPrompt, ARCHIVE_REQUEST, ChatView } from './components/ChatView'
 import { ImageViewer } from './components/chat/ImageViewer'
-import { Dock, useDockBridge } from './components/ide/Dock'
+import { AdeDock, ChatDock, useDockBridge } from './components/ide/Dock'
+import { useAdeDock } from './components/ide/adeDock'
+import { useCode } from './components/code/codeStore'
 import { useIde } from './components/ide/ideStore'
 import { BrowserKeys, BrowserPanel } from './components/browser/BrowserPanel'
 import { isLocalUrl, openInBrowser, useBrowser } from './components/browser/browserStore'
@@ -32,6 +34,7 @@ import { useAgentBrowser } from './components/agentBrowser/agentBrowserStore'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { CrashPage, PaneError, PanelError, SidebarError } from './components/CrashScreen'
 import { THEMES } from './lib/themes'
+import { GLASS_DEFAULT, glassFactors } from '@shared/glass'
 import { useRoomForSidePanel } from './state/sidePanel'
 import { Starting } from './components/Starting'
 import { modKey } from './lib/platform'
@@ -85,21 +88,27 @@ export default function App(): JSX.Element {
   const kind = useWorkspaceKind()
   // The browser sits beside Chat, and beside the ADE's terminals.
   const browserHere = isWork || (kind === 'code' && view === 'chat')
-  // Beside a Chat conversation, the browsers open in the dock rather than in panels of their own.
+  // Beside a Chat conversation, the browsers open in the dock rather than in panels of their own; beside the ADE's terminals, in its own dock.
   const dockHere = isWork && view === 'chat'
-  const browserExpanded = useBrowser((s) => s.expanded) && browserHere && browserOpen && !dockHere
+  const adeDockHere = kind === 'code' && view === 'chat'
+  const browserExpanded = useBrowser((s) => s.expanded) && browserHere && browserOpen && !dockHere && !adeDockHere
   const dockOpen = useIde((s) => s.open)
+  const adeDockOpen = useAdeDock((s) => s.open)
+  const adeCwd = useCode((s) => s.cwd)
   // Kept a moment after it closes, so the panel slides away instead of vanishing.
   const dock = usePresence(dockHere && dockOpen, 260)
-  useDockBridge(dockHere)
+  const adeDock = usePresence(adeDockHere && adeDockOpen, 260)
+  useDockBridge(dockHere, { store: useIde, browser: 'chat', agent: true })
+  useDockBridge(adeDockHere, { store: useAdeDock, browser: adeCwd ? `code:${adeCwd}` : 'chat', agent: false })
   // A worker's browser beside its page, while that page is the one open.
   const browserWorker = useWorkers((s) => (s.browserFor && s.selectedId === s.browserFor && !s.selectedRoomId ? s.workers.find((w) => w.id === s.browserFor) ?? null : null))
   // A worker's run history beside its page.
   const activityWorker = useWorkers((s) => (s.activityOpen && s.selectedId && !s.selectedRoomId ? s.workers.find((w) => w.id === s.selectedId) ?? null : null))
   // The same conditions that render the side panels below.
   useRoomForSidePanel(
-    (browserHere && browserOpen && !dockHere) ||
+    (browserHere && browserOpen && !dockHere && !adeDockHere) ||
       (dockHere && dockOpen) ||
+      (adeDockHere && adeDockOpen) ||
       (view === 'chat' && kind === 'workers' && (Boolean(browserWorker) || Boolean(activityWorker)))
   )
 
@@ -198,10 +207,15 @@ export default function App(): JSX.Element {
           </div>
           {dock.mounted && (
             <ErrorBoundary area="dock" fallback={() => <PanelError onClose={() => useIde.getState().setOpen(false)} />}>
-              <Dock closing={dock.closing} />
+              <ChatDock closing={dock.closing} />
             </ErrorBoundary>
           )}
-          {browserHere && browserOpen && !dockHere && (
+          {adeDock.mounted && (
+            <ErrorBoundary area="ADE dock" fallback={() => <PanelError onClose={() => useAdeDock.getState().setOpen(false)} />}>
+              <AdeDock closing={adeDock.closing} />
+            </ErrorBoundary>
+          )}
+          {browserHere && browserOpen && !dockHere && !adeDockHere && (
             <ErrorBoundary area="browser panel" fallback={() => <PanelError onClose={() => useApp.getState().toggleBrowser(false)} />}>
               <BrowserPanel />
             </ErrorBoundary>
@@ -311,6 +325,10 @@ function useTheme(): void {
       root.style.setProperty('--fs-base', `${appearance.fontSize}px`)
       // The ADE's scenes, softened when the blur is on (terminal.css).
       root.style.setProperty('--ade-scene-blur', settings.ade?.blur ? `${Math.max(0, settings.ade.blurAmount ?? 10)}px` : '0px')
+      // Frosted glass (tokens.css), from Appearance → Glass.
+      const glass = glassFactors(appearance.glass ?? GLASS_DEFAULT, window.matchMedia('(prefers-reduced-transparency: reduce)').matches)
+      root.style.setProperty('--glass-blur-k', String(glass.blur))
+      root.style.setProperty('--glass-clear-k', String(glass.clear))
       // No --font-ui override: the typeface is always the system stack in
       // tokens.css. `palette.fontFamily` is still stored by older installs
       // (Inter, SF Mono, Georgia) and deliberately ignored.
@@ -338,13 +356,16 @@ function useTheme(): void {
     }
 
     apply()
-    // The system's light/dark and reduce-motion settings can change while Eaon is open.
+    // The system's light/dark, reduce-motion and reduce-transparency settings can change while Eaon is open.
     const motion = window.matchMedia('(prefers-reduced-motion: reduce)')
+    const transparency = window.matchMedia('(prefers-reduced-transparency: reduce)')
     media.addEventListener('change', apply)
     motion.addEventListener('change', apply)
+    transparency.addEventListener('change', apply)
     return () => {
       media.removeEventListener('change', apply)
       motion.removeEventListener('change', apply)
+      transparency.removeEventListener('change', apply)
     }
   }, [settings, preview])
 }

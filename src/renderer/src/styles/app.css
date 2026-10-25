@@ -38,6 +38,15 @@ body {
 body[data-platform='darwin'][data-translucent='on'] {
   background: color-mix(in srgb, var(--canvas) 82%, transparent);
 }
+/* A backdrop blur lays its blurred copy over the page rather than in its
+   place, so where the page lets the window's material through, the sharp
+   page shows through the frost too: text behind a menu stayed readable
+   through it. In a translucent window frosted glass first lays the page on
+   its own colour (#glass-ground, index.html), which makes the blurred copy
+   opaque and hides what it blurs. A see-through picture is opaque already. */
+body[data-platform='darwin'][data-translucent='on']:not([data-see-through='on']) {
+  --glass-ground: url(#glass-ground);
+}
 
 body[data-font-smoothing='off'] {
   -webkit-font-smoothing: auto;
@@ -320,12 +329,21 @@ a:hover {
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   column-gap: 12px;
 }
-.chat-header.topbar:not([data-collapsed]),
-.page__bar.topbar:not([data-collapsed]) {
-  /* Same inset on both sides and on both kinds of row, so the switch sits at
-     the true centre and does not shift a few pixels between screens. */
+/* Same inset on both sides, on both kinds of row and with the sidebar open
+   or closed, so the switch sits at the true centre and does not shift
+   between screens. The window controls' room is kept inside the side they
+   are on instead: as row padding, the traffic lights' 92px against 12px on
+   the right pushed the switch 40px right of centre with the sidebar closed. */
+.chat-header.topbar,
+.page__bar.topbar,
+.chat-header.topbar[data-collapsed],
+.page__bar.topbar[data-collapsed] {
   padding-left: 16px;
-  padding-right: calc(16px + var(--window-controls-right));
+  padding-right: 16px;
+}
+.topbar[data-collapsed] .topbar__side--left {
+  /* Starts where the row's own padding did: 3px past the traffic lights. */
+  padding-left: calc(2px + max(0px, var(--window-controls-left) - 13px));
 }
 .topbar__side {
   display: flex;
@@ -343,6 +361,8 @@ a:hover {
    the ADE's context meter ended up drawn over "Workers". */
 .topbar__side--right {
   justify-content: safe flex-end;
+  /* Windows' caption buttons, drawn over the page at the top right. */
+  padding-right: calc(2px + var(--window-controls-right));
 }
 .topbar .chat-header__title {
   max-width: none;
@@ -538,6 +558,120 @@ a:hover {
 .sidebar__section-btn:hover {
   background: var(--hover-strong);
   color: var(--text);
+}
+
+/* Chat's section headings, Projects and Chats: a row of their own between
+   the sections, the name on the left and the heading's tools on the right,
+   shown while the pointer is on it. Chats folds, so its whole row is the
+   button, banded on hover like the rows under it. */
+.sidebar-head {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  height: var(--nav-row-h);
+  margin: 14px 0 2px;
+  padding-right: 3px;
+  border-radius: var(--r-sm);
+  color: var(--text-3);
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+/* The rule between Projects and Chats, halfway across the gap above the
+   heading and inset to the rows' text. */
+.sidebar-head[data-divided] {
+  position: relative;
+  margin-top: 21px;
+}
+.sidebar-head[data-divided]::before {
+  content: '';
+  position: absolute;
+  top: -11px;
+  left: 8px;
+  right: 8px;
+  border-top: 1px solid var(--border-soft);
+  pointer-events: none;
+}
+.sidebar-head__label {
+  flex: 1;
+  min-width: 0;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 0 8px;
+  border-radius: inherit;
+  color: inherit;
+  font-size: var(--fs-xs);
+  letter-spacing: -0.005em;
+  text-align: left;
+}
+.sidebar-head[data-fold]:hover {
+  background: var(--hover);
+  color: var(--text-2);
+}
+.sidebar-head__chev {
+  flex: none;
+  transition: transform var(--dur-spring-fast) var(--spring-fast);
+}
+.sidebar-head__chev[data-folded] {
+  transform: rotate(-90deg);
+}
+.sidebar-head__tools {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+/* Shown with the pointer on the heading, while one of its tools has keyboard
+   focus (opacity keeps them in the tab order), and while a tool's menu is open. */
+.sidebar-head:hover .sidebar-head__tools,
+.sidebar-head:has(:focus-visible) .sidebar-head__tools,
+.sidebar-head__tools:has([data-open]) {
+  opacity: 1;
+}
+.sidebar-head__tool {
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--r-xs);
+  color: var(--text-3);
+  transition: background var(--dur) var(--ease), color var(--dur) var(--ease);
+}
+.sidebar-head__tool:hover,
+.sidebar-head__tool[data-open] {
+  background: var(--hover-strong);
+  color: var(--text);
+}
+
+/* A project's folder in its Edit dialog: the path, and Choose… */
+.project-folder {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 4px 0 11px;
+  border-radius: var(--r-sm);
+  background: var(--sunken);
+  border: 1px solid var(--border);
+  color: var(--text-3);
+}
+.project-folder__path {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-sm);
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* A long path loses its start, not the folder's own name at its end. */
+  direction: rtl;
+  text-align: left;
+}
+.field-error {
+  font-size: var(--fs-xs);
+  color: var(--danger);
 }
 
 /* A project row expands to its chats, indented under it. */

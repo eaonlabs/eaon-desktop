@@ -265,7 +265,7 @@ body[data-resizing='browser'] webview {
   padding: 8px 12px;
   border-radius: var(--r-md);
   background: var(--menu-bg);
-  backdrop-filter: blur(20px);
+  backdrop-filter: var(--frost);
   box-shadow: var(--shadow-menu);
   font-size: var(--fs-sm);
   color: var(--text);

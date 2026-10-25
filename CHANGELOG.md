@@ -6,6 +6,12 @@ All notable changes to Eaon are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Added
+- **Adjustable glass.** Settings → Appearance → Glass has Blur and
+  Transparency for everything frosted: menus, popovers, toasts and the
+  see-through panels, with a preview that follows the sliders. Glass with
+  little blur stays nearly solid, so text behind it never shows through
+  sharp, and the system's Reduce transparency makes it solid. Translucent
+  sidebar moved here too.
 - **Free models from Eaon.** The free models Eaon Code has, MiMo v2.6 Flash,
   Muse Spark 1.3 Contributor and GPT-6-Luna, are in the model picker under
   Eaon Lite for everyone, with no key, sign-in or week to claim.
@@ -98,6 +104,21 @@ All notable changes to Eaon are documented here. Format loosely follows
   phone widths, and Open in browser.
 
 ### Changed
+- **In Chat, projects are where you code.** A project is a folder, and its
+  chats are coding sessions in it, each with the workspace card, the
+  terminal, branch and Git, and the dock's files, diff and pull requests.
+  Work in a project (or + beside Projects) picks the folder; a chat can move
+  into a project, or out to Chats, from its menu. Chats outside a project
+  are ordinary conversations: the same agent, with web search, the browser
+  and plugins, and its files in ~/Eaon, but none of the coding tools. The
+  folder Chat used to work in becomes your first project. Edit project sets
+  a project's folder, and older projects without one can be given one there.
+- **Projects and Chats are separate sections in Chat's sidebar.** A line
+  divides them, and Recents is now called Chats. Hover a heading for its
+  tools: Projects can collapse all its projects, sort them (recent activity,
+  date created or name) and add one. Chats can fold away, sort (recent
+  activity or date created) and start a new chat. The sidebar remembers how
+  you left them.
 - **The setup's Connect a model step, redrawn.** Each way to connect (sign
   in, an API key, models on this computer) is a row that opens just those
   providers and shows which are connected; Eaon Lite shows as ready at the
@@ -133,12 +154,31 @@ All notable changes to Eaon are documented here. Format loosely follows
 - **Long messages you send** fold to their first lines, with Show more.
 - **Callouts** written `> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]` or
   `[!CAUTION]` show as callouts in replies.
+- **A dock beside the ADE's terminals.** The ADE's Browser button is now the
+  dock's switch, at the top right. The dock opens the browser, the session's
+  files and any file in them, what is uncommitted, the branch's pull request,
+  pull requests linked in the session's terminals, and the page on a phone,
+  each as a tab. A comment on a line of the diff, or a line of a file, goes to
+  the session's agent, typed at its prompt but not sent.
 - **Settings → Workers.** Payments, Chat apps, Email and Worker computer are
   now tabs of one Workers page instead of four pages spread over Settings. A
   search for any of them still finds it, and Workers opens on the tab you
   used last.
 
 ### Fixed
+- **Menus stay clear of the window's buttons.** A menu too tall for the
+  room under its button flipped up and was pushed against the top of the
+  window, over the close, minimise and zoom buttons. A menu now opens on the
+  side with room and scrolls when neither side has enough, and nothing opens
+  over the window's top row.
+- **The Chat / Workers / ADE switch is centred.** With the sidebar hidden it
+  sat about 40 pixels right of the middle of the window, pushed over by the
+  room kept for the window buttons.
+- **Menus frost properly.** With a translucent sidebar on macOS, text behind
+  a menu or popover showed through it sharp, so the project menu read as two
+  lists on top of each other. Menus, popovers, toasts and the find bar now
+  blur what is behind them. A menu's search field no longer sits on a lighter
+  band; the list scrolls under it and fades out where there's more of it.
 - **Chat apps with a worker computer.** Connecting a chat app to a worker on
   the worker computer failed with "That worker no longer exists". Chat apps
   now move there with the workers (bots, tokens and WhatsApp sessions), so a

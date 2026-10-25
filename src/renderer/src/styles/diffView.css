@@ -570,6 +570,13 @@ button.dv__fold-label:hover {
 .cpane__scope[data-open] {
   background: var(--hover-strong);
 }
+/* The ADE's Diff has only what is uncommitted to show: a label, not a menu. */
+.cpane__scope[data-static] {
+  cursor: default;
+}
+.cpane__scope[data-static]:hover {
+  background: var(--hover);
+}
 .cpane__scope-icon {
   display: inline-flex;
   color: var(--text-2);
@@ -712,10 +719,6 @@ button.dv__fold-label:hover {
   line-height: 1.5;
 }
 
-.cpane__jump {
-  max-height: 320px;
-  overflow-y: auto;
-}
 .cpane__jump-row {
   display: flex;
   align-items: baseline;

@@ -66,7 +66,7 @@ const stops = (): Stop[] => [
     text: 'Automations',
     side: 'right',
     title: 'Automations',
-    body: 'Run a prompt on its own: every morning, every few minutes, or on any cron schedule. Each run lands in Recents.'
+    body: 'Run a prompt on its own: every morning, every few minutes, or on any cron schedule. Each run lands in the sidebar as a new chat.'
   },
   {
     workspace: 'eaon-code',
@@ -121,7 +121,7 @@ const whatsNewStops = (): Stop[] => [
     selector: '.main .composer-pill--project, .main .ws-card',
     side: 'top',
     title: 'Work in a project',
-    body: 'Point a chat at a folder and Eaon works there. The switches at the top right open a terminal under the chat, and a dock beside it with the files, a browser and what the agent changed.'
+    body: 'Pick a folder and the chat becomes a coding session in that project, listed under Projects. The switches at the top right open a terminal under the chat, and a dock beside it with the files, a browser and what the agent changed.'
   },
   {
     workspace: 'workers',
@@ -145,14 +145,14 @@ const whatsNewStops = (): Stop[] => [
     text: 'Settings',
     side: 'right',
     title: 'A worker computer, and more chat apps',
-    body: 'Settings → Worker computer moves your workers to a computer you leave on, like a Raspberry Pi, so they keep going while this one sleeps. They now answer in Slack, Matrix, Mattermost and Zulip too.'
+    body: 'Settings → Workers → Worker computer moves your workers to a computer you leave on, like a Raspberry Pi, so they keep going while this one sleeps. They now answer in Slack, Matrix, Mattermost and Zulip too.'
   },
   {
     workspace: 'eaon-code',
-    selector: '.main .code-header [aria-label="Browser"]',
+    selector: '.main .code-header [aria-label="Dock"]',
     side: 'bottom',
-    title: 'A browser beside your agents',
-    body: `With a project open, Browser (${shortcutLabel('⇧⌘B')}) shows a page next to the terminals, and Design Mode sends what you point at to an agent. When one gets stuck, Hand off passes its work to another.`
+    title: 'A dock beside your agents',
+    body: `With a project open, the dock at the top right shows a page in the browser (${shortcutLabel('⇧⌘B')}), the files, the diff and the pull request next to the terminals, and Design Mode sends what you point at to an agent. When one gets stuck, Hand off passes its work to another.`
   },
   {
     workspace: 'eaon-code',

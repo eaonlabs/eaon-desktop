@@ -244,7 +244,7 @@ export class SchedulerEngine {
     return this.withHistory(task)
   }
 
-  /** Deletes a task and its run records; a run in progress is stopped. The chats runs wrote stay in Recents. */
+  /** Deletes a task and its run records; a run in progress is stopped. The chats runs wrote stay in the sidebar. */
   remove(taskId: string): void {
     this.running.get(taskId)?.controller.abort()
     this.tasks = this.tasks.filter((t) => t.id !== taskId)

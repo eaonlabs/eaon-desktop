@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type JSX } from 'react'
 import { RefreshCw, RotateCcwSquare, Smartphone, Tablet } from 'lucide-react'
 import { useBrowser, hostOf } from '../../browser/browserStore'
+import { useDockPlace } from '../dockPlace'
 
 /**
  * The browser's page as a phone or a tablet sees it: the same address at the
@@ -25,17 +26,17 @@ const DEVICES: Device[] = [
   { id: 'tablet', label: 'Tablet', width: 820, height: 1180, agent: TABLET_AGENT }
 ]
 
-/** The page the in-app browser shows in Chat, when it shows one. */
-export function useBrowserPage(): string | null {
+/** The page the in-app browser shows in `scope` (Chat's, or an ADE project's), when it shows one. */
+export function useBrowserPage(scope: string): string | null {
   return useBrowser((s) => {
-    const scope = s.scopes.chat
-    const tab = scope?.tabs.find((t) => t.id === scope.activeId)
+    const pages = s.scopes[scope]
+    const tab = pages?.tabs.find((t) => t.id === pages.activeId)
     return tab?.url || null
   })
 }
 
 export function DeviceSurface(): JSX.Element {
-  const url = useBrowserPage()
+  const url = useBrowserPage(useDockPlace().browser)
   const [device, setDevice] = useState(DEVICES[0])
   const [turned, setTurned] = useState(false)
   const [scale, setScale] = useState(1)

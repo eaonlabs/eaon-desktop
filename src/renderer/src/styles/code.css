@@ -308,7 +308,7 @@
   padding: 8px 8px 8px 14px;
   border-radius: var(--r-lg);
   background: var(--menu-bg);
-  backdrop-filter: blur(20px) saturate(1.4);
+  backdrop-filter: var(--frost);
   box-shadow: var(--shadow-menu);
   color: var(--text);
   font-size: var(--fs-sm);

@@ -128,6 +128,8 @@ interface AppState {
   restoreChat: (id: string) => void
   renameChat: (id: string, title: string) => void
   togglePin: (id: string) => void
+  /** Moves a chat into a project, where it codes in the project's folder, or out of one (null) to Chats. */
+  moveChat: (id: string, projectId: string | null) => void
   send: (text: string, options?: SendOptions) => Promise<void>
   stop: () => void
   /** Plan mode: the user accepted the plan in `messageId`; run it with plan mode off. */
@@ -154,13 +156,19 @@ interface AppState {
   resendFrom: (messageId: string, text: string, options?: SendOptions) => void
   reindex: (force?: boolean) => Promise<void>
 
-  createProject: (name: string) => Project
-  updateProject: (id: string, patch: Partial<Pick<Project, 'name' | 'instructions'>>) => void
-  /** Deletes the project; its chats stay, moved back to Recents. */
+  createProject: (name: string, folder?: string | null) => Project
+  updateProject: (id: string, patch: Partial<Pick<Project, 'name' | 'instructions' | 'folder'>>) => void
+  /** Deletes the project; its chats stay, moved back to Chats. */
   deleteProject: (id: string) => void
+  /** This tab's project for `folder`: the one that has it, or a new one named after it. */
+  projectForFolder: (folder: string) => Project
+  /**
+   * "Work in a project": the chat on screen codes in `folder` from now on,
+   * in that folder's project, or (null) becomes an ordinary chat. On the
+   * start page it is the chat about to be started.
+   */
+  workIn: (folder: string | null) => void
   setWorkspace: (id: string) => void
-  /** The chat agent's folder; null goes back to the default (~/Eaon). */
-  setWorkCwd: (cwd: string | null) => void
 
   selectModel: (modelId: string, providerId?: string) => void
   /** Stars or unstars a model; starred models head the model menu. */
@@ -567,9 +575,23 @@ export const useIsWork = (): boolean =>
 
 export const isAgentKind = (kind: WorkspaceKind | undefined): boolean => kind === 'chat' || kind === 'work'
 
-/** The workspace chat turns run in: its folder is where the agent works. */
+/** The workspace chat turns run in. Its own folder is for scheduled tasks; a chat works in its project's. */
 export const agentWorkspace = (workspaces: Workspace[]): Workspace | undefined =>
   workspaces.find((w) => w.kind === 'chat') ?? workspaces.find((w) => w.kind === 'work')
+
+type ProjectState = Pick<AppState, 'chats' | 'projects' | 'activeChatId' | 'pendingProjectId'>
+
+/** The project of the chat on screen, or of the one about to be started on the start page. */
+export const codeProject = (s: ProjectState): Project | null => {
+  const projectId = s.activeChatId ? (s.chats.find((c) => c.id === s.activeChatId)?.projectId ?? null) : s.pendingProjectId
+  return projectId ? (s.projects.find((p) => p.id === projectId) ?? null) : null
+}
+
+/** The folder the chat on screen codes in: its project's. Null for an ordinary chat, which has no coding tools. */
+export const codeFolder = (s: ProjectState): string | null => codeProject(s)?.folder ?? null
+
+/** Whether the chat on screen is a coding session: one in a project with a folder. */
+export const useCoding = (): boolean => useApp((s) => codeFolder(s) !== null)
 
 /** Which top-bar tab is active: Chat, Workers or ADE (`code`). */
 export const useWorkspaceKind = (): WorkspaceKind =>
@@ -697,9 +719,9 @@ export const useApp = create<AppState>((set, get) => ({
         set((state) => ({ modelDownloads: { ...state.modelDownloads, [key]: progress } }))
       })
 
-      // Pick up an existing index for the work folder, and refresh it in the
-      // background so the first codebase_search of the session is not stale.
-      const workCwd = agentWorkspace(workspaces)?.cwd ?? null
+      // Pick up an existing index for the folder on screen, and refresh it in
+      // the background so the first codebase_search of the session is not stale.
+      const workCwd = codeFolder(get())
       if (workCwd) {
         set({ indexStatus: await window.api.codeIndex.status(workCwd) })
         if (settings.codeIndex.autoIndex) void get().reindex()
@@ -828,6 +850,11 @@ export const useApp = create<AppState>((set, get) => ({
 
   togglePin: (id) => {
     set((s) => ({ chats: s.chats.map((c) => (c.id === id ? { ...c, pinned: !c.pinned } : c)) }))
+    persistChats()
+  },
+
+  moveChat: (id, projectId) => {
+    set((s) => ({ chats: s.chats.map((c) => (c.id === id ? { ...c, projectId } : c)) }))
     persistChats()
   },
 
@@ -965,7 +992,8 @@ export const useApp = create<AppState>((set, get) => ({
       history,
       summary: summary?.text ?? null,
       projectInstructions: project?.instructions ?? '',
-      cwd: mode === 'work' ? (workspace?.cwd ?? null) : null,
+      // A project's chats code in its folder; an ordinary chat's agent keeps to ~/Eaon.
+      cwd: mode === 'work' ? (project?.folder ?? null) : null,
       work: {
         swarm: settings.work.swarm,
         plan: options.plan ?? settings.planMode
@@ -1097,19 +1125,20 @@ export const useApp = create<AppState>((set, get) => ({
   },
 
   async reindex(force = false) {
-    const cwd = agentWorkspace(get().workspaces)?.cwd
+    const cwd = codeFolder(get())
     if (!cwd) return
     set({ indexStatus: await window.api.codeIndex.build(cwd, force) })
   },
 
-  createProject(name) {
+  createProject(name, folder = null) {
     const settings = get().settings
     const project: Project = {
       id: uid(),
       workspaceId: settings?.activeWorkspaceId ?? 'work',
       name,
       instructions: '',
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      folder
     }
     const projects = [...get().projects, project]
     set({ projects })
@@ -1135,19 +1164,26 @@ export const useApp = create<AppState>((set, get) => ({
     if (orphaned) persistChats()
   },
 
+  projectForFolder(folder) {
+    const workspaceId = get().settings?.activeWorkspaceId
+    const found = get().projects.find((p) => p.workspaceId === workspaceId && p.folder === folder)
+    return found ?? get().createProject(folder.split(/[\\/]/).filter(Boolean).pop() ?? folder, folder)
+  },
+
+  workIn(folder) {
+    const projectId = folder ? get().projectForFolder(folder).id : null
+    const chatId = get().activeChatId
+    if (chatId) get().moveChat(chatId, projectId)
+    else set({ pendingProjectId: projectId })
+    set({ indexStatus: null })
+    // A folder new to the agent has no index yet, and its search tools are
+    // useless until it does — so start building it now.
+    if (folder && get().settings?.codeIndex.autoIndex !== false) void get().reindex()
+  },
+
   setWorkspace(id) {
     void get().patchSettings({ activeWorkspaceId: id })
     set({ activeChatId: null })
-  },
-
-  setWorkCwd(cwd) {
-    const target = agentWorkspace(get().workspaces)
-    const workspaces = get().workspaces.map((w) => (w === target ? { ...w, cwd } : w))
-    set({ workspaces, indexStatus: null })
-    void window.api.workspaces.save(workspaces)
-    // A freshly chosen folder has no index yet, and the agent's search tools
-    // are useless until it does — so start building immediately.
-    if (cwd && get().settings?.codeIndex.autoIndex !== false) void get().reindex()
   },
 
   selectModel(modelId, providerId) {

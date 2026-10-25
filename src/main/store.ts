@@ -1,5 +1,7 @@
 import os from 'node:os'
+import { randomUUID } from 'node:crypto'
 import type { Chat, DownloadedModel, McpServer, ModelInfo, Project, Settings, Workspace } from '@shared/types'
+import { GLASS_DEFAULT } from '@shared/glass'
 import type { ModelEditFields, ProviderHealth } from '@shared/providers'
 import { REMOTE_DEFAULT_PORT } from '@shared/remote'
 import { logCrash } from './crashGuard'
@@ -148,7 +150,8 @@ export const defaultSettings: Settings = {
     fontSize: 14,
     fontSmoothing: true,
     appIcon: 'default',
-    seeThrough: { enabled: false, tint: 55, texture: true, source: 'desktop', custom: null }
+    seeThrough: { enabled: false, tint: 55, texture: true, source: 'desktop', custom: null },
+    glass: { ...GLASS_DEFAULT }
   },
   configuration: {
     configScope: 'User config',
@@ -457,7 +460,7 @@ export const store = {
     // point at a workspace or a project that is gone (a project deleted in
     // another window while this chat's save was lost, or a projects.json
     // that had to be started over), and such a chat is in no list at all —
-    // not under any project, and not in Recents either, which leaves out
+    // not under any project, and not under Chats either, which leaves out
     // every chat that has a project.
     const projects = readDoc('projects.json', PROJECTS_DOC)
     const projectIds = new Set(projects.map((p) => p.id))
@@ -510,6 +513,22 @@ export const store = {
 
   getProjects(): Project[] {
     return readDoc('projects.json', PROJECTS_DOC)
+  },
+
+  /**
+   * Chat had one folder for every chat; now each project has its own, and
+   * only a project's chats code. The folder chosen before becomes a project,
+   * so it is still there to pick. The workspace keeps its folder for what
+   * runs outside a chat (scheduled tasks, skills); Chat no longer reads it.
+   */
+  projectForChatFolder(now = Date.now()): void {
+    const chat = this.getWorkspaces().find((w) => w.id === CHAT_WORKSPACE_ID)
+    const folder = chat?.cwd
+    if (!chat || !folder) return
+    const projects = this.getProjects()
+    if (projects.some((p) => p.workspaceId === chat.id && p.folder === folder)) return
+    const name = folder.split(/[\\/]/).filter(Boolean).pop() ?? folder
+    this.saveProjects([...projects, { id: randomUUID(), workspaceId: chat.id, name, instructions: '', createdAt: now, folder }])
   },
   saveProjects(projects: Project[]): Project[] {
     writeJson('projects.json', projects)

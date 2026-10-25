@@ -1,8 +1,8 @@
-/* ---------- Chat's dock: tabs, the launcher and each surface ----------
+/* ---------- The dock (Chat's and the ADE's): tabs, the launcher and each surface ----------
    components/ide/Dock and ide/surfaces. The column itself (width, the edge
    to drag, opening and closing) is .ide in ide.css. Flush with the
-   conversation, a hairline between them; the bar on top lines up with the
-   conversation's top bar and drags the window the same way. */
+   conversation or the terminals, a hairline between them; the bar on top
+   lines up with their top bar and drags the window the same way. */
 
 .dock {
   --dock-bar-h: calc(var(--titlebar-h) + var(--sidebar-gap));

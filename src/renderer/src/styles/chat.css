@@ -918,8 +918,8 @@ body[data-see-through='on'] .scroll-veil {
   position: absolute;
   inset: 0;
   /* 1, 2, 4, 8, 16, 32 px, each layer's band one sixth higher than the last. */
-  -webkit-backdrop-filter: blur(calc(1px * pow(2, var(--i)) * var(--veil)));
-  backdrop-filter: blur(calc(1px * pow(2, var(--i)) * var(--veil)));
+  -webkit-backdrop-filter: blur(calc(1px * pow(2, var(--i)) * var(--veil) * var(--glass-blur-k)));
+  backdrop-filter: blur(calc(1px * pow(2, var(--i)) * var(--veil) * var(--glass-blur-k)));
   -webkit-mask-image: linear-gradient(
     to top,
     transparent calc(var(--i) * 16.66%),

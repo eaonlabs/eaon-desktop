@@ -77,12 +77,13 @@ export function TargetIcon({ target, size = 15 }: { target: OpenTarget; size?: n
 /**
  * `row`: a line of the workspace card. `icon`: the icon alone, for the dock's
  * file bar. `file`: the file to open rather than the folder (an editor opens
- * it in the folder's window).
+ * it in the folder's window). `folder`: another folder than Chat's (the ADE's).
  */
-export function OpenInButton({ row = false, icon = false, file }: { row?: boolean; icon?: boolean; file?: string } = {}): JSX.Element | null {
-  const { folder, targets, preferred, loadTargets, setPreferred } = useChatCode(
-    useShallow((s) => ({ folder: s.folder, targets: s.targets, preferred: s.preferred, loadTargets: s.loadTargets, setPreferred: s.setPreferred }))
+export function OpenInButton({ row = false, icon = false, file, folder: other }: { row?: boolean; icon?: boolean; file?: string; folder?: string | null } = {}): JSX.Element | null {
+  const { chatFolder, targets, preferred, loadTargets, setPreferred } = useChatCode(
+    useShallow((s) => ({ chatFolder: s.folder, targets: s.targets, preferred: s.preferred, loadTargets: s.loadTargets, setPreferred: s.setPreferred }))
   )
+  const folder = other === undefined ? chatFolder : other
   const anchor = useRef<HTMLDivElement>(null)
   const menu = useDisclosure()
   useEffect(() => {

@@ -3,10 +3,10 @@ import assert from 'node:assert/strict'
 import { Hash, Image, Settings, CodeXml, Package, KeyRound, Lock, Terminal } from 'lucide-react'
 import { glyphFor, type Glyph } from '../src/renderer/src/components/agent/FileIcon'
 import { colOf, columnsOf, groupOf, nextTitle, splitTabs, type PaneTab } from '../src/renderer/src/components/chatCode/terminalLayout'
-import { linkedPulls } from '../src/renderer/src/components/ide/surfaces/linkedPulls'
+import { linkedPulls, linkedPullsInText } from '../src/renderer/src/components/ide/surfaces/linkedPulls'
 import type { ChatMessage } from '../src/shared/types'
 
-/** Chat's dock: file marks, terminal splits, and the pull requests a chat links to. */
+/** The dock: file marks, terminal splits, and the pull requests a chat or the ADE's terminals link to. */
 
 const mark = (g: Glyph): string => ('mark' in g ? g.mark : 'text' in g ? `text:${g.text}` : 'icon')
 const icon = (g: Glyph): unknown => ('icon' in g ? g.icon : null)
@@ -87,4 +87,17 @@ test('linked pull requests: each once, newest mention first, from replies and to
   )
   assert.equal(pulls[0].url, 'https://github.com/acme/web/pull/12')
   assert.deepEqual(linkedPulls([message([{ type: 'text', text: 'no links here' }])]), [])
+})
+
+test('linked pull requests in the ADE: read from its terminals, the last one named first', () => {
+  const pulls = linkedPullsInText([
+    '$ gh pr create --fill\nhttps://github.com/acme/web/pull/40\n',
+    '⏺ Opened https://github.com/acme/api/pull/9 and updated\nhttps://github.com/acme/web/pull/40/files',
+    'https://github.com/acme/web/issues/2'
+  ])
+  assert.deepEqual(
+    pulls.map((p) => `${p.repo}#${p.number}`),
+    ['acme/web#40', 'acme/api#9']
+  )
+  assert.deepEqual(linkedPullsInText(['', 'nothing linked']), [])
 })

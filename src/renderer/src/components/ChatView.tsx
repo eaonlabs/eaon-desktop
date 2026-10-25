@@ -25,7 +25,7 @@ import {
   TriangleAlert,
   X
 } from 'lucide-react'
-import { agentWorkspace, messageText, useApp, useIsWork, type PendingApproval } from '../state/store'
+import { codeFolder, messageText, useApp, useCoding, useIsWork, type PendingApproval } from '../state/store'
 import { Composer } from './Composer'
 import { ContextMenu } from './Sidebar'
 import { ConfirmDialog, Modal } from './ui'
@@ -101,6 +101,8 @@ function Home(): JSX.Element {
   )
   const showSuggestions = settings?.general.suggestedPrompts !== false
   const isWork = useIsWork()
+  // A chat in a project codes; an ordinary one has none of the coding tools.
+  const coding = useCoding() && isWork
 
   return (
     <>
@@ -137,9 +139,9 @@ function Home(): JSX.Element {
           <Composer variant="home" />
         </div>
       </div>
-      {isWork && <WorkspaceCard over />}
-      {isWork && <TerminalDrawer />}
-      {isWork && <ProjectSearch />}
+      {coding && <WorkspaceCard over />}
+      {coding && <TerminalDrawer />}
+      {coding && <ProjectSearch />}
     </>
   )
 }
@@ -166,16 +168,18 @@ function EaonSymbol({ className }: { className?: string }): JSX.Element {
  * The top bar's panel switches in Chat: the workspace card, the terminal
  * under the conversation, and the dock. With the dock open the last two are
  * on the dock's own bar instead. `over`: the card opens over the page, never
- * beside it (the start page has no room kept for it).
+ * beside it (the start page has no room kept for it). An ordinary chat, in
+ * no project, has only the dock, for the browser.
  */
 function PanelToggles({ over = false }: { over?: boolean }): JSX.Element {
   const dockOpen = useIde((s) => s.open)
+  const coding = useCoding()
   return (
     <div className="panel-toggles">
-      <CodeKeys />
-      <WorkspaceToggle over={over} />
-      {!dockOpen && <DrawerToggle />}
-      {!dockOpen && <DockToggle />}
+      {coding && <CodeKeys />}
+      {coding && <WorkspaceToggle over={over} />}
+      {coding && !dockOpen && <DrawerToggle />}
+      {!dockOpen && <DockToggle holds={coding ? undefined : 'the browser'} />}
     </div>
   )
 }
@@ -558,12 +562,13 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
     return () => window.removeEventListener(ARCHIVE_REQUEST, onRequest)
   }, [])
 
-  const workFolder = useApp((s) => agentWorkspace(s.workspaces)?.cwd ?? s.settings?.work.defaultFolder ?? '~/Eaon')
+  const workFolder = useApp((s) => codeFolder(s) ?? s.settings?.work.defaultFolder ?? '~/Eaon')
+  const coding = useCoding() && isWork
   // The workspace card beside the conversation: the thread and the message box move over for it.
-  const cardInline = useCardInline() && isWork
+  const cardInline = useCardInline() && coding
 
   return (
-    <FileLinks.Provider value={isWork ? fileLinks : null}>
+    <FileLinks.Provider value={coding ? fileLinks : null}>
       <TopBar
         className="chat-header--float"
         left={
@@ -591,7 +596,7 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
           </div>
         }
       />
-      {isWork && <WorkspaceCard />}
+      {coding && <WorkspaceCard />}
 
       <FindBar open={finding} onClose={() => setFinding(false)} thread={thread} version={chat.messages} />
       <Minimap thread={thread} version={chat.messages.length} />
@@ -663,8 +668,8 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
             the user into the next. */}
         <Composer key={chat.id} variant="chat" />
       </div>
-      {isWork && <TerminalDrawer />}
-      {isWork && <ProjectSearch />}
+      {coding && <TerminalDrawer />}
+      {coding && <ProjectSearch />}
 
       {menu && (
         <ContextMenu

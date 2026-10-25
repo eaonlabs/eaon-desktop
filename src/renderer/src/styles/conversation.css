@@ -303,8 +303,8 @@
   padding: 0 4px 0 10px;
   border-radius: var(--r-lg);
   background: var(--menu-bg);
-  -webkit-backdrop-filter: blur(24px) saturate(1.4);
-  backdrop-filter: blur(24px) saturate(1.4);
+  -webkit-backdrop-filter: var(--frost);
+  backdrop-filter: var(--frost);
   box-shadow: var(--shadow-menu);
   animation: find-in var(--dur-spring) var(--spring-moderate);
 }
@@ -412,8 +412,8 @@
   padding: 6px 10px;
   border-radius: var(--r-md);
   background: var(--menu-bg);
-  -webkit-backdrop-filter: blur(24px);
-  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: var(--frost);
+  backdrop-filter: var(--frost);
   box-shadow: var(--shadow-menu);
   color: var(--text);
   font-size: var(--fs-xs);
@@ -436,8 +436,8 @@
   padding: 0 10px;
   border-radius: var(--r-pill);
   background: var(--menu-bg);
-  -webkit-backdrop-filter: blur(24px) saturate(1.4);
-  backdrop-filter: blur(24px) saturate(1.4);
+  -webkit-backdrop-filter: var(--frost);
+  backdrop-filter: var(--frost);
   box-shadow: var(--shadow-menu);
   color: var(--text);
   font-size: var(--fs-xs);

@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import type { ChatGitStatus, OpenTarget, ProjectScript, ScriptSuggestion } from '@shared/chatCode'
-import { agentWorkspace, useApp } from '../../state/store'
+import { codeFolder, useApp } from '../../state/store'
 import { terminals } from '../code/terminal/registry'
 import { groupOf, nextTitle, splitTabs, type PaneTab, type SplitDir } from './terminalLayout'
 
@@ -8,7 +8,8 @@ import { groupOf, nextTitle, splitTabs, type PaneTab, type SplitDir } from './te
  * Chat's coding controls: the folder the agent works in, where it stands in
  * git, the terminal drawer under the conversation and its tabs, the
  * project's scripts, and the app to open the folder in. The folder is the
- * chat workspace's, or Eaon's default work folder when it has none.
+ * project's of the chat on screen; an ordinary chat has none, and no coding
+ * tools.
  */
 
 export interface DrawerTab extends PaneTab {
@@ -29,7 +30,7 @@ interface ChatCodeState {
   status: ChatGitStatus | null
   /** Reads where the folder stands in git again. */
   refresh: () => Promise<void>
-  /** Picks up the folder from the chat workspace; reads it again when it moved. */
+  /** Picks up the folder of the chat on screen's project; reads it again when it moved. */
   syncFolder: () => Promise<void>
 
   drawerOpen: boolean
@@ -138,11 +139,11 @@ export const useChatCode = create<ChatCodeState>((set, get) => ({
   },
 
   syncFolder: async () => {
-    const cwd = agentWorkspace(useApp.getState().workspaces)?.cwd || (await window.api.workspaceFiles.root().catch(() => null))
-    if (!cwd || cwd === get().folder) return
+    const cwd = codeFolder(useApp.getState())
+    if (cwd === get().folder) return
     filesAt = 0
     set({ folder: cwd, status: null, scripts: [], suggestions: [], files: null })
-    await Promise.all([get().refresh(), get().loadScripts()])
+    if (cwd) await Promise.all([get().refresh(), get().loadScripts()])
   },
 
   cardOpen: read(CARD_KEY) !== '0',
@@ -290,16 +291,15 @@ let watching = false
 
 /**
  * Keeps the folder and its git state current, once for the window: when the
- * chat workspace moves to another folder, after each reply (the agent may
- * have changed files or branches), and back from another app.
+ * chat on screen is in another project (or none), after each reply (the
+ * agent may have changed files or branches), and back from another app.
  */
 export function watchChatCode(): void {
   if (watching) return
   watching = true
   void useChatCode.getState().syncFolder()
   useApp.subscribe((state, prev) => {
-    const cwd = agentWorkspace(state.workspaces)?.cwd
-    if (cwd !== agentWorkspace(prev.workspaces)?.cwd) void useChatCode.getState().syncFolder()
+    if (codeFolder(state) !== codeFolder(prev)) void useChatCode.getState().syncFolder()
     if (prev.streamingMessageId !== null && state.streamingMessageId === null) void useChatCode.getState().refresh()
   })
   window.addEventListener('focus', () => void useChatCode.getState().refresh())

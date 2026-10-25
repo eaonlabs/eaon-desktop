@@ -1,22 +1,26 @@
 import { useEffect, useMemo, useState, type JSX } from 'react'
-import { useShallow } from 'zustand/react/shallow'
 import { CircleCheck, CircleDashed, CircleX, ExternalLink, GitMerge, GitPullRequest, GitPullRequestClosed, GitPullRequestDraft, Loader2 } from 'lucide-react'
 import type { PullRequestInfo } from '@shared/adeReview'
 import { useApp } from '../../../state/store'
 import { openInBrowser } from '../../browser/browserStore'
-import { useChatCode } from '../../chatCode/chatCodeStore'
 import { GitActions } from '../../chatCode/GitActions'
+import { useReview } from '../../code/reviewStore'
+import { useTerminalPulls } from '../adeDock'
+import { useDockPlace } from '../dockPlace'
 import { linkedPulls, type LinkedPull } from './linkedPulls'
 
 /**
  * The dock's pull request surfaces. Pull request: the one open for the
  * folder's branch, its state, review and checks. Linked pull requests: the
- * pull requests this chat has named, by their links, newest first.
+ * pull requests this chat has named by their links, or in the ADE the ones
+ * its session's terminals show, newest first.
  */
 
 /** The branch's pull request: undefined while asking, null when there is none, or why it couldn't be asked. */
 export function useBranchPullRequest(): PullRequestInfo | null | undefined | { problem: string } {
-  const { folder, branch, remote } = useChatCode(useShallow((s) => ({ folder: s.folder, branch: s.status?.branch ?? null, remote: Boolean(s.status?.remote) })))
+  const { folder, status } = useDockPlace()
+  const branch = status?.branch ?? null
+  const remote = Boolean(status?.remote)
   const [pr, setPr] = useState<PullRequestInfo | null | undefined | { problem: string }>(undefined)
   useEffect(() => {
     if (!folder || !remote || !branch) return setPr(null)
@@ -55,7 +59,8 @@ const MERGE: Record<string, string> = {
 }
 
 export function PullRequestSurface(): JSX.Element {
-  const branch = useChatCode((s) => s.status?.branch ?? null)
+  const place = useDockPlace()
+  const branch = place.status?.branch ?? null
   const pr = useBranchPullRequest()
 
   if (pr === undefined) {
@@ -71,10 +76,20 @@ export function PullRequestSurface(): JSX.Element {
       <div className="dock-note">
         <GitPullRequest size={22} strokeWidth={1.5} />
         <p className="dock-note__title">{pr === null ? 'No pull request for this branch' : 'Couldn’t reach GitHub'}</p>
-        <p className="dock-note__hint">{pr === null ? `Push ${branch ?? 'the branch'} and open one to review it here.` : pr.problem}</p>
+        <p className="dock-note__hint">
+          {pr === null ? `Push ${branch ?? 'the branch'} and open one${place.id === 'ade' ? ' from Review' : ''} to review it here.` : pr.problem}
+        </p>
         {pr === null && (
           <div className="dock-note__action">
-            <GitActions row />
+            {/* Chat's Git button acts on Chat's folder; the ADE's is Review, in its top bar. */}
+            {place.id === 'chat' ? (
+              <GitActions row />
+            ) : (
+              <button type="button" className="btn btn--ghost btn--sm" onClick={() => !useReview.getState().open && useReview.getState().toggle()}>
+                <GitPullRequest size={14} strokeWidth={2} />
+                Open Review
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -144,19 +159,27 @@ export function PullRequestSurface(): JSX.Element {
   )
 }
 
+/** Pull requests linked in the chat, or in the ADE session's terminals. */
 export function useLinkedPulls(): LinkedPull[] {
-  const messages = useApp((s) => s.activeChat()?.messages)
-  return useMemo(() => linkedPulls(messages ?? []), [messages])
+  const place = useDockPlace()
+  const chat = place.id === 'chat'
+  const messages = useApp((s) => (chat ? s.activeChat()?.messages : undefined))
+  const inChat = useMemo(() => linkedPulls(messages ?? []), [messages])
+  const inTerminals = useTerminalPulls(chat ? null : place.folder)
+  return chat ? inChat : inTerminals
 }
 
 export function LinkedPullsSurface(): JSX.Element {
+  const chat = useDockPlace().id === 'chat'
   const pulls = useLinkedPulls()
   if (pulls.length === 0) {
     return (
       <div className="dock-note">
         <GitPullRequest size={22} strokeWidth={1.5} />
-        <p className="dock-note__title">No pull requests in this chat</p>
-        <p className="dock-note__hint">Pull requests this chat opens or links to are listed here.</p>
+        <p className="dock-note__title">{chat ? 'No pull requests in this chat' : 'No pull requests in this session'}</p>
+        <p className="dock-note__hint">
+          {chat ? 'Pull requests this chat opens or links to are listed here.' : 'Pull requests your agents open or link to in this session’s terminals are listed here.'}
+        </p>
       </div>
     )
   }

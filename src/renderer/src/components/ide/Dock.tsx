@@ -28,24 +28,31 @@ import { useChatCode } from '../chatCode/chatCodeStore'
 import { DockTerminal } from '../chatCode/TerminalPanes'
 import { Popover } from '../ui'
 import { useChatChanges } from './changes'
-import { isDirty, useIde, type Surface, type SurfaceKind } from './ideStore'
+import { useAdePlace } from './adeDock'
+import { DockPlaceProvider, useChatPlace, useDockPlace, type DockPlace } from './dockPlace'
+import { isDirty, useIde, type DockStore, type Surface, type SurfaceKind } from './ideStore'
 import { DeviceSurface, useBrowserPage } from './surfaces/DeviceSurface'
 import { FileSurface } from './surfaces/FileSurface'
 import { FilesView } from './surfaces/FilesView'
 import { LinkedPullsSurface, PullRequestSurface, useLinkedPulls } from './surfaces/PullRequests'
 
 /**
- * The dock to the right of a conversation. Everything about the work that
- * isn't the conversation opens in it as a tab, a "surface": a page in the
- * browser, a terminal, the folder's files, a file, the diff of what changed,
- * the branch's pull request, the pull requests the chat links to, the page
- * on a phone, and Eaon's own browser while it browses. Empty, it lists what
- * it can open, each with its letter; + lists the same from anywhere. Its top
- * right fills the window with it, shows the terminal under the conversation,
- * and puts it away.
+ * The dock to the right of a conversation, or of the ADE's terminals.
+ * Everything about the work that isn't the conversation opens in it as a
+ * tab, a "surface": a page in the browser, a terminal, the folder's files, a
+ * file, the diff of what changed, the branch's pull request, the pull
+ * requests linked to, the page on a phone, and Eaon's own browser while it
+ * browses. Empty, it lists what it can open, each with its letter; + lists
+ * the same from anywhere. Its top right fills the window with it, shows
+ * Chat's terminal under the conversation, and puts it away. In the ADE it
+ * has no terminal (the ADE is terminals) and no Eaon's browser (Chat's
+ * agent browses, not the ADE's). Where it is comes from dockPlace.
  */
 
 type Action = 'browser' | 'agent' | 'terminal' | 'files' | 'diff' | 'pr' | 'linked' | 'device'
+
+/** What only a coding chat's dock has: an ordinary chat, in no project, keeps the browser and the device. */
+const CODE_KINDS = new Set<string>(['terminal', 'files', 'file', 'diff', 'pr', 'linked'])
 
 interface Choice {
   action: Action
@@ -58,76 +65,81 @@ interface Choice {
 
 /** What the dock can open, and which of it can open now. */
 function useChoices(): Choice[] {
-  const { folder, repo, remote } = useChatCode(useShallow((s) => ({ folder: s.folder, repo: Boolean(s.status?.repo), remote: Boolean(s.status?.remote) })))
+  const place = useDockPlace()
+  const { missing } = place
+  const repo = Boolean(place.status?.repo)
+  const remote = Boolean(place.status?.remote)
   const linked = useLinkedPulls().length
-  const page = useBrowserPage()
-  const noFolder = 'Pick a folder for this chat first'
-  return [
+  const page = useBrowserPage(place.browser)
+  const choices: (Choice | false)[] = [
     { action: 'browser', label: 'Browser', letter: 'B', icon: <Globe size={15} strokeWidth={1.8} /> },
-    { action: 'terminal', label: 'Terminal', letter: 'T', icon: <SquareTerminal size={15} strokeWidth={1.8} />, unavailable: folder ? undefined : noFolder },
-    { action: 'files', label: 'Files', letter: 'F', icon: <FolderTree size={15} strokeWidth={1.8} />, unavailable: folder ? undefined : noFolder },
-    { action: 'diff', label: 'Diff', letter: 'D', icon: <FileDiff size={15} strokeWidth={1.8} />, unavailable: folder ? undefined : noFolder },
+    place.id === 'chat' && { action: 'terminal', label: 'Terminal', letter: 'T', icon: <SquareTerminal size={15} strokeWidth={1.8} />, unavailable: missing },
+    { action: 'files', label: 'Files', letter: 'F', icon: <FolderTree size={15} strokeWidth={1.8} />, unavailable: missing },
+    { action: 'diff', label: 'Diff', letter: 'D', icon: <FileDiff size={15} strokeWidth={1.8} />, unavailable: missing },
     {
       action: 'pr',
       label: 'Pull request',
       letter: 'P',
       icon: <GitPullRequest size={15} strokeWidth={1.8} />,
-      unavailable: !folder ? noFolder : !repo ? 'This folder isn’t a git repository' : !remote ? 'This repository has no GitHub remote' : undefined
+      unavailable: missing ?? (!repo ? 'This folder isn’t a git repository' : !remote ? 'This repository has no GitHub remote' : undefined)
     },
     {
       action: 'linked',
       label: 'Linked pull requests',
       letter: 'L',
       icon: <Link2 size={15} strokeWidth={1.8} />,
-      unavailable: linked ? undefined : 'No pull requests linked in this chat yet'
+      unavailable: linked ? undefined : place.id === 'chat' ? 'No pull requests linked in this chat yet' : 'No pull requests in this session’s terminals yet'
     },
     { action: 'device', label: 'Device', letter: 'M', icon: <Smartphone size={15} strokeWidth={1.8} />, unavailable: page ? undefined : 'Open a page in the browser first' }
   ]
+  return choices.filter((c): c is Choice => c !== false && (place.coding || !CODE_KINDS.has(c.action)))
 }
 
-/** The browser in the chat: opened, or a new tab when it is. */
-function openBrowser(): void {
+/** The browser in the dock: opened, or a new tab when it is. */
+function openBrowser(scope: string): void {
   const app = useApp.getState()
-  if (app.browserOpen) useBrowser.getState().newTab('chat')
+  if (app.browserOpen) useBrowser.getState().newTab(scope)
   else app.toggleBrowser(true)
-  window.dispatchEvent(new Event(BROWSER_REVEAL))
+  window.dispatchEvent(new CustomEvent(BROWSER_REVEAL, { detail: scope }))
 }
 
-function run(action: Action): void {
-  if (action === 'browser') return openBrowser()
+function run(action: Action, place: DockPlace): void {
+  if (action === 'browser') return openBrowser(place.browser)
   if (action === 'agent') {
     useAgentBrowser.getState().setOpen(true, useApp.getState().activeChatId)
-    useIde.getState().openSurface('agent')
+    place.store.getState().openSurface('agent')
     return
   }
-  useIde.getState().openSurface(action as SurfaceKind)
+  place.store.getState().openSurface(action as SurfaceKind)
 }
 
 /**
- * Keeps the dock and the browsers in step: the in-app browser's pages are
- * the dock's browser tabs while it is open, a page opened from anywhere
- * comes to the front, and Eaon's browser has a tab while it is showing.
+ * Keeps a dock and the browsers in step: the in-app browser's pages (in
+ * `browser`, its scope) are the dock's browser tabs while it is open, a page
+ * opened from anywhere comes to the front, and with `agent`, Eaon's browser
+ * has a tab while it is showing.
  */
-export function useDockBridge(on: boolean): void {
+export function useDockBridge(on: boolean, { store, browser, agent }: { store: DockStore; browser: string; agent: boolean }): void {
   const browserOpen = useApp((s) => s.browserOpen)
   const agentOpen = useAgentBrowser((s) => s.open)
-  const tabIds = useBrowser(useShallow((s) => (s.scopes.chat?.tabs ?? []).map((t) => t.id)))
-  const activeTab = useBrowser((s) => s.scopes.chat?.activeId ?? null)
+  const tabIds = useBrowser(useShallow((s) => (s.scopes[browser]?.tabs ?? []).map((t) => t.id)))
+  const activeTab = useBrowser((s) => s.scopes[browser]?.activeId ?? null)
   const reveal = useRef(false)
 
   useEffect(() => {
     if (!on) return
-    const onReveal = (): void => {
+    const onReveal = (event: Event): void => {
+      if ((event as CustomEvent<string>).detail !== browser) return
       reveal.current = true
       bringForward()
     }
     window.addEventListener(BROWSER_REVEAL, onReveal)
     return () => window.removeEventListener(BROWSER_REVEAL, onReveal)
-  }, [on])
+  }, [on, browser])
 
   const bringForward = (): void => {
-    const ide = useIde.getState()
-    const scope = useBrowser.getState().scopes.chat
+    const ide = store.getState()
+    const scope = useBrowser.getState().scopes[browser]
     const surface = ide.surfaces.find((s) => s.kind === 'browser' && s.tabId === scope?.activeId)
     if (!surface) return
     reveal.current = false
@@ -138,8 +150,8 @@ export function useDockBridge(on: boolean): void {
   // The pages as tabs, while the browser is open.
   useEffect(() => {
     if (!on) return
-    if (browserOpen) useBrowser.getState().ensure('chat')
-    useIde.getState().syncBrowserTabs(browserOpen ? tabIds : [])
+    if (browserOpen) useBrowser.getState().ensure(browser)
+    store.getState().syncBrowserTabs(browserOpen ? tabIds : [])
     if (reveal.current) bringForward()
   }, [on, browserOpen, tabIds])
 
@@ -150,16 +162,35 @@ export function useDockBridge(on: boolean): void {
 
   // Eaon's browser: a tab while it shows.
   useEffect(() => {
-    if (!on) return
-    const ide = useIde.getState()
+    if (!on || !agent) return
+    const ide = store.getState()
     const surface = ide.surfaces.find((s) => s.kind === 'agent')
     if (agentOpen && !surface) ide.openSurface('agent')
     else if (!agentOpen && surface) ide.closeSurface(surface.id)
-  }, [on, agentOpen])
+  }, [on, agent, agentOpen])
 }
 
-export function Dock({ closing = false }: { closing?: boolean }): JSX.Element {
-  const { surfaces, activeSurface, width, maximized, setOpen, setWidth, setMaximized, setActiveSurface } = useIde(
+/** Chat's dock, beside a conversation. */
+export function ChatDock({ closing = false }: { closing?: boolean }): JSX.Element {
+  return (
+    <DockPlaceProvider place={useChatPlace()}>
+      <Dock closing={closing} />
+    </DockPlaceProvider>
+  )
+}
+
+/** The ADE's dock, beside its terminals. */
+export function AdeDock({ closing = false }: { closing?: boolean }): JSX.Element {
+  return (
+    <DockPlaceProvider place={useAdePlace()}>
+      <Dock closing={closing} />
+    </DockPlaceProvider>
+  )
+}
+
+function Dock({ closing }: { closing: boolean }): JSX.Element {
+  const place = useDockPlace()
+  const { surfaces, activeSurface, width, maximized, setOpen, setWidth, setMaximized, setActiveSurface } = place.store(
     useShallow((s) => ({
       surfaces: s.surfaces,
       activeSurface: s.activeSurface,
@@ -173,27 +204,30 @@ export function Dock({ closing = false }: { closing?: boolean }): JSX.Element {
   )
   const browserOpen = useApp((s) => s.browserOpen)
   const panel = useRef<HTMLElement>(null)
-  useFollowAgent()
-  const active = surfaces.find((s) => s.id === activeSurface) ?? null
+  useFollowWork(place)
+  // An ordinary chat's dock keeps a coding chat's terminals and files open, out of sight, for going back to it.
+  const shown = place.coding ? surfaces : surfaces.filter((s) => !CODE_KINDS.has(s.kind))
+  const current = surfaces.find((s) => s.id === activeSurface) ?? null
+  const active = current && !shown.includes(current) ? (shown[0] ?? null) : current
 
   // Leaving the window full puts it back beside the conversation next time.
-  useEffect(() => () => useIde.getState().setMaximized(false), [])
+  useEffect(() => () => place.store.getState().setMaximized(false), [place.store])
 
   const select = (surface: Surface): void => {
     setActiveSurface(surface.id)
-    if (surface.kind === 'browser' && surface.tabId) useBrowser.getState().activate('chat', surface.tabId)
+    if (surface.kind === 'browser' && surface.tabId) useBrowser.getState().activate(place.browser, surface.tabId)
   }
 
   const close = (surface: Surface): void => {
     if (surface.kind === 'browser') {
       // The last page closes the browser; its tab goes with it.
-      const pages = useIde.getState().surfaces.filter((s) => s.kind === 'browser')
+      const pages = place.store.getState().surfaces.filter((s) => s.kind === 'browser')
       if (pages.length <= 1) useApp.getState().toggleBrowser(false)
-      else if (surface.tabId) useBrowser.getState().closeTab('chat', surface.tabId)
+      else if (surface.tabId) useBrowser.getState().closeTab(place.browser, surface.tabId)
       return
     }
     if (surface.kind === 'agent') useAgentBrowser.getState().setOpen(false, useApp.getState().activeChatId)
-    useIde.getState().closeSurface(surface.id)
+    place.store.getState().closeSurface(surface.id)
   }
 
   const startResize = (event: ReactPointerEvent<HTMLDivElement>): void => {
@@ -219,6 +253,7 @@ export function Dock({ closing = false }: { closing?: boolean }): JSX.Element {
     <aside
       ref={panel}
       className="ide dock"
+      data-place={place.id}
       style={{ '--ide-w': `${width}px` } as CSSProperties}
       data-closing={closing || undefined}
       data-max={maximized || undefined}
@@ -230,7 +265,7 @@ export function Dock({ closing = false }: { closing?: boolean }): JSX.Element {
         <div className="dock__bar">
           <AddMenu />
           <div className="dock__tabs" role="tablist" aria-label="Open in the dock">
-            {surfaces.map((surface) => (
+            {shown.map((surface) => (
               <SurfaceTab key={surface.id} surface={surface} active={surface.id === active?.id} onSelect={() => select(surface)} onClose={() => close(surface)} />
             ))}
           </div>
@@ -244,7 +279,7 @@ export function Dock({ closing = false }: { closing?: boolean }): JSX.Element {
             >
               {maximized ? <Minimize2 size={14} strokeWidth={1.9} /> : <Maximize2 size={14} strokeWidth={1.9} />}
             </button>
-            <DrawerToggle />
+            {place.id === 'chat' && place.coding && <DrawerToggle />}
             <button type="button" className="dock-tool" data-active aria-label="Close the dock" title="Close the dock" onClick={() => setOpen(false)}>
               <PanelRight size={15} strokeWidth={1.8} />
             </button>
@@ -265,10 +300,11 @@ export function Dock({ closing = false }: { closing?: boolean }): JSX.Element {
 }
 
 function SurfaceBody({ surface }: { surface: Surface }): JSX.Element {
+  const place = useDockPlace()
   return (
     <div className="dock__surface" data-kind={surface.kind}>
       {surface.kind === 'terminal' ? (
-        <DockTerminal surfaceId={surface.id} title={surface.title ?? 'Terminal'} onNew={() => run('terminal')} />
+        <DockTerminal surfaceId={surface.id} title={surface.title ?? 'Terminal'} onNew={() => run('terminal', place)} />
       ) : surface.kind === 'files' ? (
         <FilesView />
       ) : surface.kind === 'file' ? (
@@ -292,8 +328,9 @@ function SurfaceBody({ surface }: { surface: Surface }): JSX.Element {
 
 /** A tab's name and mark. */
 function useSurfaceLook(surface: Surface): { label: string; icon: ReactNode; dirty?: boolean; live?: boolean } {
-  const page = useBrowser((s) => (surface.kind === 'browser' ? s.scopes.chat?.tabs.find((t) => t.id === surface.tabId) : undefined))
-  const dirty = useIde((s) => (surface.kind === 'file' ? s.tabs.some((t) => t.path === surface.path && isDirty(t)) : false))
+  const place = useDockPlace()
+  const page = useBrowser((s) => (surface.kind === 'browser' ? s.scopes[place.browser]?.tabs.find((t) => t.id === surface.tabId) : undefined))
+  const dirty = place.store((s) => (surface.kind === 'file' ? s.tabs.some((t) => t.path === surface.path && isDirty(t)) : false))
   const agentWorking = useAgentBrowser((s) => surface.kind === 'agent' && s.open)
   switch (surface.kind) {
     case 'browser':
@@ -307,7 +344,7 @@ function useSurfaceLook(surface: Surface): { label: string; icon: ReactNode; dir
             width={14}
             height={14}
             // A page's icon the app can't load: the globe instead.
-            onError={() => surface.tabId && useBrowser.getState().patchTab('chat', surface.tabId, { favicon: null })}
+            onError={() => surface.tabId && useBrowser.getState().patchTab(place.browser, surface.tabId, { favicon: null })}
           />
         ) : (
           <Globe size={14} strokeWidth={1.8} />
@@ -357,9 +394,17 @@ function SurfaceTab({ surface, active, onSelect, onClose }: { surface: Surface; 
   )
 }
 
-/** How many files the chat changed, on the Diff tab. */
+/** How many files the chat changed, or how many are uncommitted in the ADE, on the Diff tab. */
 function DiffCount(): JSX.Element | null {
-  const files = useChatChanges().files
+  const place = useDockPlace()
+  return place.id === 'chat' ? <ChatDiffCount /> : <Count files={place.status?.changes?.files ?? 0} />
+}
+
+function ChatDiffCount(): JSX.Element | null {
+  return <Count files={useChatChanges().files} />
+}
+
+function Count({ files }: { files: number }): JSX.Element | null {
   return files > 0 ? <span className="dock-tab__count">{files}</span> : null
 }
 
@@ -382,9 +427,9 @@ export function DrawerToggle(): JSX.Element {
   )
 }
 
-/** The conversation's top bar switch for the dock. */
-export function DockToggle(): JSX.Element {
-  const { open, setOpen } = useIde(useShallow((s) => ({ open: s.open, setOpen: s.setOpen })))
+/** A top bar's switch for its dock: the conversation's, or the ADE's (`store`, and what it holds there). */
+export function DockToggle({ store = useIde, holds = 'browser, terminal, files, diff, pull request' }: { store?: DockStore; holds?: string }): JSX.Element {
+  const { open, setOpen } = store(useShallow((s) => ({ open: s.open, setOpen: s.setOpen })))
   return (
     <button
       type="button"
@@ -392,7 +437,7 @@ export function DockToggle(): JSX.Element {
       data-active={open || undefined}
       aria-pressed={open}
       aria-label="Dock"
-      title={open ? 'Close the dock' : 'Open the dock: browser, terminal, files, diff, pull request'}
+      title={open ? 'Close the dock' : `Open the dock: ${holds}`}
       onClick={() => setOpen(!open)}
     >
       <PanelRight size={15} strokeWidth={1.8} />
@@ -409,6 +454,7 @@ function byLetter(choices: Choice[], event: { key: string; metaKey: boolean; ctr
 
 /** An empty dock: what it can open. */
 function Launcher(): JSX.Element {
+  const place = useDockPlace()
   const choices = useChoices()
   const list = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -418,14 +464,14 @@ function Launcher(): JSX.Element {
     const choice = byLetter(choices, event)
     if (!choice) return
     event.preventDefault()
-    run(choice.action)
+    run(choice.action, place)
   }
   return (
     <div className="dock-launch">
       <div ref={list} className="dock-launch__card" tabIndex={-1} onKeyDown={onKey} aria-label="Open a surface">
         <div className="dock-launch__title">Open a surface</div>
         {choices.map((choice) => (
-          <ChoiceRow key={choice.action} choice={choice} onPick={() => run(choice.action)} />
+          <ChoiceRow key={choice.action} choice={choice} onPick={() => run(choice.action, place)} />
         ))}
       </div>
     </div>
@@ -433,10 +479,12 @@ function Launcher(): JSX.Element {
 }
 
 function ChoiceRow({ choice, onPick, menu = false }: { choice: Choice; onPick: () => void; menu?: boolean }): JSX.Element {
+  const place = useDockPlace()
   const [more, setMore] = useState(false)
   const anchor = useRef<HTMLDivElement>(null)
   const agentUsed = useAgentBrowserUsed()
-  const isBrowser = choice.action === 'browser'
+  // Chat's browser row also offers Eaon's browser; the ADE has only the one.
+  const isBrowser = choice.action === 'browser' && place.id === 'chat'
   return (
     <div ref={anchor} className="dock-choice" data-menu={menu || undefined}>
       <button
@@ -464,7 +512,7 @@ function ChoiceRow({ choice, onPick, menu = false }: { choice: Choice; onPick: (
               className="menu__item"
               onClick={() => {
                 setMore(false)
-                run('browser')
+                run('browser', place)
               }}
             >
               <span className="menu__item-icon">
@@ -481,7 +529,7 @@ function ChoiceRow({ choice, onPick, menu = false }: { choice: Choice; onPick: (
               disabled={!agentUsed}
               onClick={() => {
                 setMore(false)
-                run('agent')
+                run('agent', place)
               }}
             >
               <span className="menu__item-icon">
@@ -509,6 +557,7 @@ function useAgentBrowserUsed(): boolean {
 
 /** + at the start of the tabs: the launcher's list as a menu. */
 function AddMenu(): JSX.Element {
+  const place = useDockPlace()
   const [open, setOpen] = useState(false)
   const anchor = useRef<HTMLButtonElement>(null)
   const choices = useChoices()
@@ -519,11 +568,11 @@ function AddMenu(): JSX.Element {
       if (!choice) return
       event.preventDefault()
       setOpen(false)
-      run(choice.action)
+      run(choice.action, place)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [open, choices])
+  }, [open, choices, place])
   return (
     <>
       <button ref={anchor} type="button" className="dock-tool dock__add" aria-label="Open a surface" title="Open a surface" data-active={open || undefined} onClick={() => setOpen(!open)}>
@@ -538,7 +587,7 @@ function AddMenu(): JSX.Element {
             choice={choice}
             onPick={() => {
               setOpen(false)
-              run(choice.action)
+              run(choice.action, place)
             }}
           />
         ))}
@@ -550,15 +599,21 @@ function AddMenu(): JSX.Element {
 /** Calls that change files on disk; when one finishes, the tree reads again. */
 const CHANGES_FILES = new Set(['edit_file', 'write_file', 'delete_file', 'move_file', 'run_command', 'generate_image'])
 
-function useFollowAgent(): void {
+/** How often the ADE's dock reads its files again: its agents' edits come with no call to wait for. */
+const ADE_FILES_EVERY_MS = 4000
+
+/** Keeps the tree and the open files in step with the disk as the agent works. */
+function useFollowWork(place: DockPlace): void {
+  const chat = place.id === 'chat'
   const finished = useApp((s) => {
+    if (!chat) return 0
     let n = 0
     for (const message of s.activeChat()?.messages ?? []) {
       for (const part of message.parts) if (part.type === 'tool' && part.status !== 'running' && CHANGES_FILES.has(part.name)) n++
     }
     return n
   })
-  const refresh = useIde((s) => s.refresh)
+  const refresh = place.store((s) => s.refresh)
   const first = useRef(true)
   useEffect(() => {
     if (first.current) {
@@ -573,4 +628,10 @@ function useFollowAgent(): void {
     window.addEventListener('focus', onFocus)
     return () => window.removeEventListener('focus', onFocus)
   }, [refresh])
+  // The ADE's agents write in their terminals: a look every few seconds while the window is in view.
+  useEffect(() => {
+    if (chat) return
+    const timer = window.setInterval(() => document.visibilityState === 'visible' && void refresh(), ADE_FILES_EVERY_MS)
+    return () => window.clearInterval(timer)
+  }, [chat, refresh])
 }

@@ -26,7 +26,7 @@ import {
   X,
   Zap
 } from 'lucide-react'
-import { agentWorkspace, useApp, useIsWork } from '../state/store'
+import { codeFolder, useApp, useIsWork } from '../state/store'
 import { MenuItem, MenuSearch, MenuSeparator, Popover, useDisclosure } from './ui'
 import { mcpCatalogEntry } from '@shared/mcpCatalog'
 import { PluginLogo } from './plugins/PluginLogo'
@@ -82,7 +82,7 @@ const PASTED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'ima
  * of streamed tokens, and takes nothing from it but `variant`.
  */
 export const Composer = memo(function Composer({ variant = 'home' }: { variant?: 'home' | 'chat' }): JSX.Element {
-  const { settings, streamingChatId, activeChatId, send, stop, composerDraft, setComposerDraft, composerAppend, appendToComposer, setWorkCwd, patchSettings } = useApp(
+  const { settings, streamingChatId, activeChatId, send, stop, composerDraft, setComposerDraft, composerAppend, appendToComposer, workIn, patchSettings } = useApp(
     useShallow((s) => ({
       settings: s.settings,
       streamingChatId: s.streamingChatId,
@@ -93,7 +93,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       setComposerDraft: s.setComposerDraft,
       composerAppend: s.composerAppend,
       appendToComposer: s.appendToComposer,
-      setWorkCwd: s.setWorkCwd,
+      workIn: s.workIn,
       patchSettings: s.patchSettings
     }))
   )
@@ -114,7 +114,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
   const { skills } = useSkills()
   // Plugins pulled in with "@", shown as chips while their "@Name" is in the text.
   const [mentions, setMentions] = useState<Mention[]>([])
-  const cwd = useApp((s) => agentWorkspace(s.workspaces)?.cwd ?? null)
+  const cwd = useApp((s) => codeFolder(s))
   // The chat this box belongs to, fixed for its life (it is keyed on it); home has none.
   const [draftId] = useState(() => (variant === 'chat' ? activeChatId : null))
   const [text, setText] = useState(() => (draftId ? (drafts.get(draftId)?.text ?? '') : ''))
@@ -381,12 +381,12 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
         items.push(
           {
             id: 'folder',
-            title: 'Work in a folder',
-            keywords: 'folder directory project cwd',
+            title: 'Work in a project',
+            keywords: 'folder directory project cwd code',
             section: 'Add',
             icon: <Folder size={16} strokeWidth={1.8} />,
             hint: cwd ? fileName(cwd) : undefined,
-            run: () => void window.api.app.openFiles({ properties: ['openDirectory'] }).then((paths) => paths[0] && setWorkCwd(paths[0]))
+            run: () => void window.api.app.openFiles({ properties: ['openDirectory'] }).then((paths) => paths[0] && workIn(paths[0]))
           },
           { id: 'goal', title: 'Goal', keywords: 'goal until done', description: 'Keep working until it is done', section: 'Modes', icon: <Target size={16} strokeWidth={1.8} />, checked: goalArmed, run: () => setGoalArmed(!goalArmed) },
           { id: 'plan', title: 'Plan first', keywords: 'plan approve', description: 'Research, then ask you to approve a plan', section: 'Modes', icon: <Lightbulb size={16} strokeWidth={1.8} />, checked: Boolean(settings?.planMode), run: () => void patchSettings({ planMode: !settings?.planMode }) },
@@ -885,16 +885,16 @@ function AddMenu({
   goalArmed: boolean
   onGoal: () => void
 }): JSX.Element {
-  const { settings, patchSettings, setWorkCwd, setSettingsPage, toggleBrowser } = useApp(
+  const { settings, patchSettings, workIn, setSettingsPage, toggleBrowser } = useApp(
     useShallow((s) => ({
       settings: s.settings,
       patchSettings: s.patchSettings,
-      setWorkCwd: s.setWorkCwd,
+      workIn: s.workIn,
       setSettingsPage: s.setSettingsPage,
       toggleBrowser: s.toggleBrowser
     }))
   )
-  const cwd = useApp((s) => agentWorkspace(s.workspaces)?.cwd ?? null)
+  const cwd = useApp((s) => codeFolder(s))
   const isAgent = useIsWork()
   const pluginsRow = useRef<HTMLDivElement>(null)
   const [sub, setSub] = useState<'plugins' | null>(null)
@@ -922,12 +922,12 @@ function AddMenu({
         <>
           <MenuItem
             icon={<Folder size={16} strokeWidth={1.8} />}
-            title="Work in a folder"
-            hint={cwd ? fileName(cwd) : fileName(settings?.work.defaultFolder ?? '~/Eaon')}
+            title="Work in a project"
+            hint={cwd ? fileName(cwd) : undefined}
             onMouseEnter={() => setSub(null)}
             onClick={() => {
               close()
-              void window.api.app.openFiles({ properties: ['openDirectory'] }).then((paths) => paths[0] && setWorkCwd(paths[0]))
+              void window.api.app.openFiles({ properties: ['openDirectory'] }).then((paths) => paths[0] && workIn(paths[0]))
             }}
           />
 

@@ -131,7 +131,7 @@ test('unknown options go back to their default; unknown fields from a newer Eaon
   put(
     'settings.json',
     JSON.stringify({
-      appearance: { mode: 'purple', fontSize: 0, appIcon: 'agent', futureGlow: true },
+      appearance: { mode: 'purple', fontSize: 0, appIcon: 'agent', futureGlow: true, glass: { blur: 500, transparency: 30 } },
       effort: 'maximum',
       approvalMode: 'full',
       favoriteModels: ['a', 7, 'b'],
@@ -142,6 +142,7 @@ test('unknown options go back to their default; unknown fields from a newer Eaon
   assert.equal(settings.appearance.mode, defaultSettings.appearance.mode)
   assert.equal(settings.appearance.fontSize, defaultSettings.appearance.fontSize)
   assert.equal(settings.appearance.appIcon, 'agent', 'a valid value stays')
+  assert.deepEqual(settings.appearance.glass, { blur: defaultSettings.appearance.glass.blur, transparency: 30 }, 'a slider past its range goes back; the other stays')
   assert.equal(settings.effort, defaultSettings.effort)
   assert.equal(settings.approvalMode, 'full')
   assert.deepEqual(settings.favoriteModels, ['a', 'b'])
@@ -203,9 +204,23 @@ test('a chat pointing at a project or workspace that is gone comes back into vie
   store.migrateWorkspaces()
   const byId = new Map(store.getChats().map((c) => [c.id, c]))
   assert.equal(byId.get('in-kept')!.projectId, 'p1')
-  assert.equal(byId.get('orphan')!.projectId, null, 'shows in Recents again')
+  assert.equal(byId.get('orphan')!.projectId, null, 'shows under Chats again')
   assert.equal(byId.get('lost-tab')!.workspaceId, 'work')
   assert.ok(existsSync(join(dir(), 'backups')), 'rewriting chats backs them up first')
+})
+
+test('the folder Chat used to work in becomes a project, once; a broken project folder is cleared', () => {
+  store.saveWorkspaces(store.getWorkspaces().map((w) => (w.id === 'work' ? { ...w, cwd: '/Users/me/code/snake-game' } : w)))
+  store.saveProjects([{ id: 'p1', workspaceId: 'work', name: 'Trip', instructions: 'Be brief', createdAt: 1 }])
+  store.projectForChatFolder(5)
+  const made = store.getProjects().find((p) => p.id !== 'p1')!
+  assert.deepEqual({ ...made, id: 'id' }, { id: 'id', workspaceId: 'work', name: 'snake-game', instructions: '', createdAt: 5, folder: '/Users/me/code/snake-game' })
+  store.projectForChatFolder(6)
+  assert.equal(store.getProjects().length, 2, 'run again (back to an older Eaon and forward), it finds the project it made')
+  assert.equal(store.getWorkspaces().find((w) => w.id === 'work')!.cwd, '/Users/me/code/snake-game', 'scheduled tasks still fall back to it')
+
+  put('projects.json', JSON.stringify([{ id: 'p2', workspaceId: 'work', name: 'Odd', instructions: '', createdAt: 1, folder: 42 }]))
+  assert.equal(store.getProjects()[0].folder, null)
 })
 
 test('a feature document of the wrong shape is set aside, not handed over or saved over', () => {

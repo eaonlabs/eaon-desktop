@@ -22,13 +22,15 @@ import {
   SquareArrowOutUpRight,
   WrapText
 } from 'lucide-react'
+import type { ChatGitStatus } from '@shared/chatCode'
 import type { ChatToolPart } from '@shared/types'
 import { useApp } from '../../state/store'
 import { CLIPBOARD_FAILED, copyText } from '../../lib/clipboard'
 import { FileIcon } from '../agent/FileIcon'
 import { MenuItem, MenuSearch, MenuSeparator, Popover, Switch, useDisclosure } from '../ui'
 import { notify } from '../Notice'
-import { openInCode, useIde } from '../ide/ideStore'
+import { useDockPlace } from '../ide/dockPlace'
+import { openInCode } from '../ide/ideStore'
 import { joinPath } from '../ide/paths'
 import { preferredTarget, useChatCode } from './chatCodeStore'
 import { agentFiles, editTurns, fileTree, gitFile, partEdit, relativePath, sameScope, toPatch, type AgentEdit, type FileTreeNode, type ReviewScope } from './changes/build'
@@ -36,13 +38,15 @@ import { DiffCard, DiffStat, splitFilePath, type DiffLayout, type LineComments }
 import type { DiffFileModel, DiffRow } from './diff/model'
 
 /**
- * The code panel's Changes pane: a chat's work as a review. The scope picker
- * chooses what is compared — everything the agent changed in this chat, one
- * turn of it, or (in a git repository) everything not committed — and each
- * file is a card with its diff. A bar over them switches between one column
- * and side by side, wraps long lines, steps from change to change, finds a
- * file, and shows the files as a tree beside the diffs. A line's number opens
- * a comment on it that goes into the message box.
+ * The dock's Diff: a chat's work as a review. The scope picker chooses what
+ * is compared — everything the agent changed in this chat, one turn of it,
+ * or (in a git repository) everything not committed — and each file is a
+ * card with its diff. A bar over them switches between one column and side
+ * by side, wraps long lines, steps from change to change, finds a file, and
+ * shows the files as a tree beside the diffs. A line's number opens a
+ * comment on it that goes into the message box. In the ADE's dock, where no
+ * chat's edits are known, it shows what is uncommitted, and comments go to
+ * the session's agent.
  */
 
 const LAYOUT_KEY = 'eaon.diff.layout'
@@ -102,12 +106,12 @@ async function readText(path: string): Promise<string | null> {
 type Loaded = { files: DiffFileModel[]; error?: undefined } | { files: null; error: string }
 
 /** A scope's files, read again when the edits change, when asked, and when Eaon comes back to the front. */
-function useScopeFiles(scope: ReviewScope, edits: AgentEdit[], root: string | null, folder: string | null, nonce: number): Loaded | null {
+function useScopeFiles(scope: ReviewScope, edits: AgentEdit[], root: string | null, folder: string | null, gitStatus: ChatGitStatus | null, nonce: number): Loaded | null {
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [focusNonce, setFocusNonce] = useState(0)
   const streamEnded = useApp((s) => s.streamingMessageId === null)
-  // A commit, a pull or a branch switch is a new git status: the uncommitted changes are read again.
-  const gitStatus = useChatCode((s) => s.status)
+  const missing = useDockPlace().missing
+  // A commit, a pull or a branch switch is a new git status (`gitStatus`): the uncommitted changes are read again.
   useEffect(() => {
     const onFocus = (): void => setFocusNonce((n) => n + 1)
     window.addEventListener('focus', onFocus)
@@ -121,7 +125,7 @@ function useScopeFiles(scope: ReviewScope, edits: AgentEdit[], root: string | nu
     let live = true
     void (async () => {
       if (scope.kind === 'git') {
-        if (!folder) return live && setLoaded({ files: null, error: 'Pick a folder for this chat first.' })
+        if (!folder) return live && setLoaded({ files: null, error: `${missing ?? 'Pick a folder first'}.` })
         const res = await window.api.chatCode.diff(folder).catch((e: unknown) => ({ ok: false as const, error: e instanceof Error ? e.message : String(e) }))
         if (!res.ok) return live && setLoaded({ files: null, error: res.error })
         const files = await Promise.all(
@@ -143,15 +147,20 @@ function useScopeFiles(scope: ReviewScope, edits: AgentEdit[], root: string | nu
   return loaded
 }
 
+const NO_EDITS: AgentEdit[] = []
+
 export function ChangesPane(): JSX.Element {
-  const root = useIde((s) => s.root)
-  const review = useIde((s) => s.review)
-  const folder = useChatCode((s) => s.folder)
-  const isRepo = useChatCode((s) => Boolean(s.status?.repo))
-  const edits = useAgentEdits()
+  const place = useDockPlace()
+  const chat = place.id === 'chat'
+  const root = place.store((s) => s.root)
+  const review = place.store((s) => s.review)
+  const { folder, status } = place
+  const isRepo = Boolean(status?.repo)
+  const chatEdits = useAgentEdits()
+  const edits = chat ? chatEdits : NO_EDITS
   const turns = useMemo(() => editTurns(edits), [edits])
 
-  const [scope, setScope] = useState<ReviewScope>(() => review?.scope ?? { kind: 'chat' })
+  const [scope, setScope] = useState<ReviewScope>(() => (chat ? (review?.scope ?? { kind: 'chat' }) : { kind: 'git' }))
   const [nonce, setNonce] = useState(0)
   const [layout, setLayoutState] = useState<DiffLayout>(() => (stored(LAYOUT_KEY, 'unified') === 'split' ? 'split' : 'unified'))
   const [wrap, setWrapState] = useState(() => stored(WRAP_KEY, '0') === '1')
@@ -170,10 +179,10 @@ export function ChangesPane(): JSX.Element {
   }, [review])
   // A git scope with no repository (the folder changed) falls back to the chat.
   useEffect(() => {
-    if (scope.kind === 'git' && !isRepo && useChatCode.getState().status) setScope({ kind: 'chat' })
-  }, [scope, isRepo])
+    if (chat && scope.kind === 'git' && !isRepo && status) setScope({ kind: 'chat' })
+  }, [chat, scope, isRepo, status])
 
-  const loaded = useScopeFiles(scope, edits, root, folder, nonce)
+  const loaded = useScopeFiles(scope, edits, root, folder, status, nonce)
   const files = loaded?.files ?? null
   const added = files?.reduce((n, f) => n + f.added, 0) ?? 0
   const removed = files?.reduce((n, f) => n + f.removed, 0) ?? 0
@@ -239,7 +248,7 @@ export function ChangesPane(): JSX.Element {
   return (
     <div className="cpane">
       <div className="cpane__bar">
-        <ScopePicker scope={scope} turns={turns} isRepo={isRepo} count={files?.length ?? null} added={added} removed={removed} onChange={setScope} />
+        <ScopePicker scope={scope} turns={turns} isRepo={isRepo} gitOnly={!chat} count={files?.length ?? null} added={added} removed={removed} onChange={setScope} />
         <div className="cpane__tools" role="toolbar" aria-label="Changes">
           <button type="button" className="cpane__tool" onClick={() => setNonce((n) => n + 1)} title="Reload" aria-label="Reload">
             <RotateCw size={13} strokeWidth={2} className={loaded === null ? 'spinner' : undefined} />
@@ -336,11 +345,12 @@ const FileCard = memo(function FileCard({
 const scopeLabel = (scope: ReviewScope, last: number | undefined): string =>
   scope.kind === 'git' ? 'Uncommitted' : scope.kind === 'chat' ? 'All changes' : scope.turn === last ? 'Last turn' : `Turn ${scope.turn}`
 
-/** What the pane compares: the chat, a turn, or git's uncommitted changes. */
+/** What the pane compares: the chat, a turn, or git's uncommitted changes. `gitOnly`: there is only the last to show (the ADE). */
 function ScopePicker({
   scope,
   turns,
   isRepo,
+  gitOnly,
   count,
   added,
   removed,
@@ -349,6 +359,7 @@ function ScopePicker({
   scope: ReviewScope
   turns: number[]
   isRepo: boolean
+  gitOnly: boolean
   count: number | null
   added: number
   removed: number
@@ -362,6 +373,16 @@ function ScopePicker({
     menu.close()
   }
   const icon = scope.kind === 'git' ? <GitBranch size={13} strokeWidth={2} /> : scope.kind === 'turn' ? <History size={13} strokeWidth={2} /> : <GitCompareArrows size={13} strokeWidth={2} />
+  if (gitOnly) {
+    return (
+      <div className="cpane__scope" data-static>
+        <span className="cpane__scope-icon">{icon}</span>
+        <span className="cpane__scope-label">{scopeLabel(scope, last)}</span>
+        {count !== null && count > 0 && <span className="cpane__badge">{count}</span>}
+        <DiffStat added={added} removed={removed} className="cpane__stat" />
+      </div>
+    )
+  }
   return (
     <>
       <button ref={anchor} type="button" className="cpane__scope" data-open={menu.open || undefined} onClick={menu.toggle} aria-haspopup="menu" title="Choose what to compare">
@@ -486,7 +507,7 @@ function FileJump({ files, onPick }: { files: DiffFileModel[]; onPick: (path: st
         width={300}
       >
         <MenuSearch value={query} onChange={setQuery} placeholder="Go to a changed file" />
-        <div className="cpane__jump scroll">
+        <div className="cpane__jump">
           {shown.map((f) => {
             const { dir, name } = splitFilePath(f.path)
             return (
@@ -562,7 +583,7 @@ function FileTree({ files, onPick }: { files: DiffFileModel[]; onPick: (path: st
 function FileActions({ file }: { file: DiffFileModel }): JSX.Element {
   const anchor = useRef<HTMLButtonElement>(null)
   const menu = useDisclosure()
-  const folder = useChatCode((s) => s.folder)
+  const { id, folder, store } = useDockPlace()
   const target = useChatCode((s) => preferredTarget(s.targets, s.preferred))
   const abs = folder ? joinPath(folder, file.path) : file.path
   const firstLine = (): number | undefined => {
@@ -589,11 +610,11 @@ function FileActions({ file }: { file: DiffFileModel }): JSX.Element {
       <Popover anchor={anchor} open={menu.open} onClose={menu.close} placement="bottom-end" width={224}>
         <MenuItem
           icon={<Code2 size={15} strokeWidth={1.8} />}
-          title="Open in Code"
+          title={id === 'chat' ? 'Open in Code' : 'Open in the dock'}
           disabled={deleted}
           onClick={() => {
             menu.close()
-            void openInCode(file.path, firstLine())
+            void openInCode(file.path, firstLine(), store)
           }}
         />
         {target && folder && (
@@ -682,14 +703,14 @@ function CommentBox({
   onCancel: () => void
   onDone: () => void
 }): JSX.Element {
+  const place = useDockPlace()
   const line = row.kind === 'del' ? row.old : row.cur
   const where = `${file.path}:${line}`
   const add = (): void => {
     if (!text.trim()) return
     const lang = file.path.split('.').pop() ?? ''
     const quote = row.kind === 'del' ? `${where} (a removed line)` : where
-    useApp.getState().appendToComposer({ text: `\`${quote}\`\n\`\`\`${lang}\n${row.text}\n\`\`\`\n${text.trim()}\n\n`, attachments: [] })
-    notify('Added the comment to your message')
+    place.addToPrompt(`\`${quote}\`\n\`\`\`${lang}\n${row.text}\n\`\`\`\n${text.trim()}\n\n`, 'the comment')
     onDone()
   }
   return (
@@ -718,7 +739,7 @@ function CommentBox({
           Cancel
         </button>
         <button type="button" className="btn btn--primary btn--sm" disabled={!text.trim()} onClick={add}>
-          Add to message
+          Add to {place.prompt}
         </button>
       </div>
     </div>

@@ -4,7 +4,7 @@ import { mkdtempSync, mkdirSync, readFileSync, realpathSync, symlinkSync, writeF
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { store } from '../src/main/store'
-import { workspaceFilesFeature } from '../src/main/features/workspaceFiles'
+import { allowFolders, workspaceFilesFeature } from '../src/main/features/workspaceFiles'
 import type { FeatureContext } from '../src/main/features/types'
 import { joinPath, touchedFiles } from '../src/renderer/src/components/ide/paths'
 import type { ChatMessage } from '../src/shared/types'
@@ -63,6 +63,25 @@ test('the code panel refuses paths outside the work folder, including through a 
   // Saving never creates a file that is not there.
   await assert.rejects(() => call('workspace-files:write', join(work, 'new.txt'), 'x') as Promise<unknown>)
   assert.equal(readFileSync(secret, 'utf8'), 'nope')
+})
+
+test('the ADE dock reads the folders another feature lets it into, as they are when asked', async () => {
+  const { call, outside } = setup()
+  const session = realpathSync(mkdtempSync(join(tmpdir(), 'eaon-ide-session-')))
+  writeFileSync(join(session, 'main.go'), 'package main\n')
+  const sessions: string[] = []
+  allowFolders(() => sessions)
+
+  await assert.rejects(() => call('workspace-files:list', session) as Promise<unknown>, /outside the work folder/)
+  sessions.push(session)
+  const list = (await call('workspace-files:list', session)) as { name: string }[]
+  assert.deepEqual(
+    list.map((e) => e.name),
+    ['main.go']
+  )
+  assert.equal(((await call('workspace-files:read', join(session, 'main.go'))) as { text: string }).text, 'package main\n')
+  // Only those folders: the rest of the disk stays out.
+  await assert.rejects(() => call('workspace-files:list', outside) as Promise<unknown>, /outside the work folder/)
 })
 
 test('agent paths resolve against the folder the way the tree lists them', () => {

@@ -1,6 +1,6 @@
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { Archive, ArrowRight, AtSign, BookOpen, Boxes, CandlestickChart, ChevronRight, CircleAlert, Clock3, Compass, FolderClosed, GitPullRequest, ListTodo, HelpCircle, LibraryBig, Loader2, PanelLeft, PencilLine, Pin, Plus, ScrollText, Search, Settings as SettingsIcon, Sparkles, SquarePen, Trash2 } from 'lucide-react'
+import { Archive, ArrowDownWideNarrow, ArrowRight, AtSign, BookOpen, Boxes, CandlestickChart, ChevronDown, ChevronRight, ChevronsDownUp, CircleAlert, Clock3, Compass, FolderClosed, FolderInput, FolderOpen, GitPullRequest, ListTodo, HelpCircle, LibraryBig, Loader2, PanelLeft, PencilLine, Pin, Plus, ScrollText, Search, Settings as SettingsIcon, Sparkles, SquarePen, Trash2 } from 'lucide-react'
 import { DOCS_URL } from '@shared/links'
 import { WHATS_NEW_RELEASE } from '@shared/whatsNew'
 import { useApp, useWorkspaceKind, type ChatListItem } from '../state/store'
@@ -10,6 +10,9 @@ import { openNewSession } from './code/sessionsStore'
 import { WorkersNav } from './workers/WorkersSidebar'
 import { WorkersSearchButton } from './workers/WorkerThreads'
 import { useOnboarding } from './onboarding/onboardingStore'
+import { FolderMenu } from './composer/ComposerBits'
+import { notify } from './Notice'
+import { CHAT_SORTS, PROJECT_SORTS, sortChats, sortProjects, useChatSidebar, type ChatSort, type ProjectSort } from './chatSidebar'
 import { ConfirmDialog, MenuItem, MenuSearch, Modal, Popover, useDisclosure } from './ui'
 import type { Project } from '@shared/types'
 
@@ -136,8 +139,9 @@ const ICON = { size: 16, strokeWidth: 1.9 } as const
 
 /**
  * Chat mode, laid out like the design spec's sidebar: the five destinations,
- * then Projects, then Recents. Scheduled tasks moved to the Workers tab —
- * things that run on their own live together there.
+ * then Projects, then Chats, each under its own heading. Scheduled tasks
+ * moved to the Workers tab — things that run on their own live together
+ * there.
  */
 function ChatNav(): JSX.Element {
   const { view, activeChatId, streamingChatId, setView, setModelsRepo, newChat, setSettingsPage } = useApp(
@@ -153,12 +157,22 @@ function ChatNav(): JSX.Element {
   )
   // Keeps its identity while a reply streams (see `chatList`), so tokens do
   // not re-render the sidebar.
-  const chats = useApp((s) => s.chatList())
+  const chats = useSortedChats()
   const projectChatIds = useApp(useShallow((s) => s.chats.filter((c) => c.projectId && !c.archived).map((c) => c.id)))
   const loose = useMemo(() => {
     const inProject = new Set(projectChatIds)
     return chats.filter((c) => !inProject.has(c.id))
   }, [chats, projectChatIds])
+  const { folded, setFolded } = useChatSidebar(useShallow((s) => ({ folded: s.chatsFolded, setFolded: s.setChatsFolded })))
+  // A chat opened (or just started) outside a project must be visible, so
+  // Chats unfolds for it; folding it again is the user's call, and so is a
+  // fold kept from last time.
+  const activeLoose = loose.some((c) => c.id === activeChatId) ? activeChatId : null
+  const shownActive = useRef(activeLoose)
+  useEffect(() => {
+    if (activeLoose && activeLoose !== shownActive.current) setFolded(false)
+    shownActive.current = activeLoose
+  }, [activeLoose, setFolded])
 
   return (
     <>
@@ -184,22 +198,118 @@ function ChatNav(): JSX.Element {
 
       <Projects />
 
-      <div className="sidebar__section">Recents</div>
-      {loose.length === 0 ? (
-        <div className="sidebar__empty">No chats</div>
-      ) : (
-        loose.map((chat, index) => (
-          <ChatRow
-            key={chat.id}
-            chat={chat}
-            index={index}
-            active={chat.id === activeChatId && view === 'chat'}
-            streaming={chat.id === streamingChatId}
-          />
-        ))
+      <SidebarHead label="Chats" folded={folded} onFold={() => setFolded(!folded)} list="sidebar-chats" divided>
+        <ChatSortButton />
+        <button className="sidebar-head__tool" aria-label="New chat" title="New chat" onClick={() => newChat()}>
+          <SquarePen size={14} strokeWidth={1.9} />
+        </button>
+      </SidebarHead>
+      {!folded && (
+        <div id="sidebar-chats">
+          {loose.length === 0 ? (
+            <div className="sidebar__empty">No chats</div>
+          ) : (
+            loose.map((chat, index) => (
+              <ChatRow
+                key={chat.id}
+                chat={chat}
+                index={index}
+                active={chat.id === activeChatId && view === 'chat'}
+                streaming={chat.id === streamingChatId}
+              />
+            ))
+          )}
+        </div>
       )}
     </>
   )
+}
+
+/** The chat list in the order the sidebar is set to. Reading when each chat was made only while that order needs it. */
+function useSortedChats(): ChatListItem[] {
+  const sort = useChatSidebar((s) => s.chatSort)
+  const chats = useApp((s) => s.chatList())
+  const createdAt = useApp(
+    useShallow((s) => (sort === 'created' ? Object.fromEntries(s.visibleChats().map((c) => [c.id, c.createdAt])) : NO_TIMES))
+  )
+  return useMemo(() => sortChats(chats, sort, createdAt), [chats, sort, createdAt])
+}
+const NO_TIMES: Record<string, number> = {}
+
+/**
+ * A section's heading: its name, and its tools, shown while the pointer is
+ * on it. One that folds is a button across the row with a chevron after the
+ * name; one that is `divided` has a rule above it, the line between
+ * Projects and Chats.
+ */
+function SidebarHead({
+  label,
+  folded,
+  onFold,
+  list,
+  divided,
+  children
+}: {
+  label: string
+  folded?: boolean
+  onFold?: () => void
+  /** The id of the list the heading folds. */
+  list?: string
+  divided?: boolean
+  children?: ReactNode
+}): JSX.Element {
+  return (
+    <div className="sidebar-head" data-fold={onFold ? true : undefined} data-divided={divided || undefined}>
+      {onFold ? (
+        <button className="sidebar-head__label" aria-expanded={!folded} aria-controls={folded ? undefined : list} onClick={onFold}>
+          {label}
+          <ChevronDown size={12} strokeWidth={2.2} className="sidebar-head__chev" data-folded={folded || undefined} />
+        </button>
+      ) : (
+        <span className="sidebar-head__label">{label}</span>
+      )}
+      <span className="sidebar-head__tools">{children}</span>
+    </div>
+  )
+}
+
+/** A heading's sort menu: how its list is ordered, a check against the one in use. */
+function SortButton({ label, children }: { label: string; children: (close: () => void) => ReactNode }): JSX.Element {
+  const anchor = useRef<HTMLButtonElement>(null)
+  const menu = useDisclosure()
+  return (
+    <>
+      <button ref={anchor} className="sidebar-head__tool" aria-label={label} title={label} data-open={menu.open || undefined} onClick={menu.toggle}>
+        <ArrowDownWideNarrow size={14} strokeWidth={1.9} />
+      </button>
+      <Popover anchor={anchor} open={menu.open} onClose={menu.close} placement="bottom-end" width={200}>
+        {children(menu.close)}
+      </Popover>
+    </>
+  )
+}
+
+function ChatSortItems({ close }: { close: () => void }): JSX.Element {
+  const { sort, setSort } = useChatSidebar(useShallow((s) => ({ sort: s.chatSort, setSort: s.setChatSort })))
+  return (
+    <>
+      {(Object.entries(CHAT_SORTS) as [ChatSort, string][]).map(([value, title]) => (
+        <MenuItem
+          key={value}
+          title={title}
+          checked={value === sort}
+          onClick={() => {
+            setSort(value)
+            close()
+          }}
+        />
+      ))}
+    </>
+  )
+}
+
+function ChatSortButton(): JSX.Element {
+  return <SortButton label="Sort chats">{(close) => <ChatSortItems close={close} />}</SortButton>
 }
 
 /**
@@ -227,29 +337,83 @@ function AdeNav(): JSX.Element {
 }
 
 /**
- * Projects group chats and give them shared instructions. Until now the
- * section only ever said "No projects" — there was no way to make one.
- * A project expands to its chats; its menu starts a chat in it, edits its
- * instructions, renames or deletes it.
+ * Projects are where Chat codes: each is a folder, and its chats are coding
+ * sessions in it, with the workspace card, terminal, Git and the dock's
+ * files and diff. + picks a folder and starts a session there. A project
+ * expands to its chats; its menu starts a chat in it, edits its name,
+ * folder and instructions, shows the folder, or deletes it.
  */
 function Projects(): JSX.Element {
-  const projects = useApp(useShallow((s) => s.visibleProjects()))
-  const [editing, setEditing] = useState<Project | 'new' | null>(null)
+  const sort = useChatSidebar((s) => s.projectSort)
+  // Ids, not projects: a reply finishing moves a project only when the order really changes.
+  const order = useApp(useShallow((s) => sortProjects(s.visibleProjects(), s.chats, sort).map((p) => p.id)))
+  const all = useApp((s) => s.projects)
+  const projects = useMemo(() => order.map((id) => all.find((p) => p.id === id)).filter((p): p is Project => Boolean(p)), [order, all])
+  const anyOpen = useChatSidebar((s) => order.some((id) => s.open[id]))
+  const collapseProjects = useChatSidebar((s) => s.collapseProjects)
+  const [editing, setEditing] = useState<Project | null>(null)
+  const addAnchor = useRef<HTMLButtonElement>(null)
+  const adding = useDisclosure()
+  const start = (folder: string | null): void => {
+    if (!folder) return
+    const app = useApp.getState()
+    app.newChat(app.projectForFolder(folder).id)
+  }
   return (
     <>
-      <div className="sidebar__section sidebar__section--action">
-        <span>Projects</span>
-        <button className="sidebar__section-btn" aria-label="New project" title="New project" onClick={() => setEditing('new')}>
-          <Plus size={14} strokeWidth={2} />
+      <SidebarHead label="Projects">
+        {anyOpen && (
+          <button className="sidebar-head__tool" aria-label="Collapse all projects" title="Collapse all projects" onClick={collapseProjects}>
+            <ChevronsDownUp size={14} strokeWidth={1.9} />
+          </button>
+        )}
+        {projects.length > 1 && <ProjectSortButton />}
+        <button
+          ref={addAnchor}
+          className="sidebar-head__tool"
+          aria-label="New project"
+          title="New project: choose a folder to code in"
+          data-open={adding.open || undefined}
+          onClick={adding.toggle}
+        >
+          <Plus size={15} strokeWidth={1.9} />
         </button>
-      </div>
+      </SidebarHead>
+      <FolderMenu anchor={addAnchor} open={adding.open} onClose={adding.close} onChoose={start} />
       {projects.length === 0 ? (
         <div className="sidebar__empty">No projects</div>
       ) : (
         projects.map((project) => <ProjectRow key={project.id} project={project} onEdit={() => setEditing(project)} />)
       )}
-      {editing && <ProjectDialog project={editing === 'new' ? null : editing} onClose={() => setEditing(null)} />}
+      {editing && <ProjectDialog project={editing} onClose={() => setEditing(null)} />}
     </>
+  )
+}
+
+/** The Projects heading's sort menu: the projects' order, and their chats'. */
+function ProjectSortButton(): JSX.Element {
+  const { sort, setSort } = useChatSidebar(useShallow((s) => ({ sort: s.projectSort, setSort: s.setProjectSort })))
+  return (
+    <SortButton label="Sort projects">
+      {(close) => (
+        <>
+          <div className="menu__label">Projects</div>
+          {(Object.entries(PROJECT_SORTS) as [ProjectSort, string][]).map(([value, title]) => (
+            <MenuItem
+              key={value}
+              title={title}
+              checked={value === sort}
+              onClick={() => {
+                setSort(value)
+                close()
+              }}
+            />
+          ))}
+          <div className="menu__label">Chats</div>
+          <ChatSortItems close={close} />
+        </>
+      )}
+    </SortButton>
   )
 }
 
@@ -257,18 +421,20 @@ function ProjectRow({ project, onEdit }: { project: Project; onEdit: () => void 
   const { view, activeChatId, streamingChatId, newChat, deleteProject } = useApp(
     useShallow((s) => ({ view: s.view, activeChatId: s.activeChatId, streamingChatId: s.streamingChatId, newChat: s.newChat, deleteProject: s.deleteProject }))
   )
-  const chats = useApp((s) => s.chatList())
+  const chats = useSortedChats()
   const ids = useApp(useShallow((s) => s.chats.filter((c) => c.projectId === project.id && !c.archived).map((c) => c.id)))
   const inProject = useMemo(() => chats.filter((c) => ids.includes(c.id)), [chats, ids])
   const containsActive = inProject.some((c) => c.id === activeChatId)
-  const [open, setOpen] = useState(containsActive)
+  const open = useChatSidebar((s) => Boolean(s.open[project.id]))
+  const setProjectOpen = useChatSidebar((s) => s.setProjectOpen)
+  const setOpen = (next: boolean): void => setProjectOpen(project.id, next)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
   // A chat opened (or just started) in this project must be visible, so the
   // row opens itself; closing it again is the user's call.
   useEffect(() => {
-    if (containsActive) setOpen(true)
-  }, [containsActive])
+    if (containsActive) setProjectOpen(project.id, true)
+  }, [containsActive, project.id, setProjectOpen])
 
   return (
     <>
@@ -296,7 +462,9 @@ function ProjectRow({ project, onEdit }: { project: Project; onEdit: () => void 
         <span className="nav-item__icon">
           <FolderClosed size={15} strokeWidth={1.9} />
         </span>
-        <span className="nav-item__label">{project.name}</span>
+        <span className="nav-item__label" title={project.folder ?? 'No folder yet: Edit project to choose the one its chats code in'}>
+          {project.name}
+        </span>
         <ChevronRight size={13} strokeWidth={2} className="nav-item__chevron" data-open={open || undefined} />
         <button
           className="nav-item__action"
@@ -314,7 +482,7 @@ function ProjectRow({ project, onEdit }: { project: Project; onEdit: () => void 
         <div className="nav-group">
           {inProject.length === 0 ? (
             <button className="nav-item nav-item--sub nav-item--muted" onClick={() => newChat(project.id)}>
-              <span className="nav-item__label">Start a chat in this project</span>
+              <span className="nav-item__label">Start a session in this project</span>
             </button>
           ) : (
             inProject.map((chat, index) => (
@@ -324,6 +492,7 @@ function ProjectRow({ project, onEdit }: { project: Project; onEdit: () => void 
                 index={index}
                 active={chat.id === activeChatId && view === 'chat'}
                 streaming={chat.id === streamingChatId}
+                inProject
               />
             ))
           )}
@@ -337,6 +506,9 @@ function ProjectRow({ project, onEdit }: { project: Project; onEdit: () => void 
           items={[
             { icon: <SquarePen size={15} strokeWidth={1.9} />, label: 'New chat', action: () => newChat(project.id) },
             { icon: <ScrollText size={15} strokeWidth={1.9} />, label: 'Edit project', action: onEdit },
+            ...(project.folder
+              ? [{ icon: <FolderOpen size={15} strokeWidth={1.9} />, label: 'Show folder', action: () => void showFolder(project.folder!) }]
+              : []),
             { icon: <Trash2 size={15} strokeWidth={1.9} />, label: 'Delete project', danger: true, action: () => setConfirmDelete(true) }
           ]}
         />
@@ -348,57 +520,65 @@ function ProjectRow({ project, onEdit }: { project: Project; onEdit: () => void 
         confirmLabel="Delete project"
         onConfirm={() => deleteProject(project.id)}
       >
-        “{project.name}” and its instructions are deleted. Its chats are kept and move to Recents.
+        “{project.name}” and its instructions are removed from Eaon; the folder and its files stay where they are. Its chats are kept and move to Chats.
       </ConfirmDialog>
     </>
   )
 }
 
-/** Name and instructions for a project; the instructions ride along with every chat in it. */
-function ProjectDialog({ project, onClose }: { project: Project | null; onClose: () => void }): JSX.Element {
-  const { createProject, updateProject, newChat } = useApp(
-    useShallow((s) => ({ createProject: s.createProject, updateProject: s.updateProject, newChat: s.newChat }))
-  )
-  const [name, setName] = useState(project?.name ?? '')
-  const [instructions, setInstructions] = useState(project?.instructions ?? '')
+/** A project's name, its folder and its instructions; the instructions ride along with every chat in it. */
+function ProjectDialog({ project, onClose }: { project: Project; onClose: () => void }): JSX.Element {
+  const { projects, updateProject } = useApp(useShallow((s) => ({ projects: s.projects, updateProject: s.updateProject })))
+  const [name, setName] = useState(project.name)
+  const [folder, setFolder] = useState(project.folder ?? null)
+  const [instructions, setInstructions] = useState(project.instructions)
+  const clash = folder !== null && projects.some((p) => p.id !== project.id && p.workspaceId === project.workspaceId && p.folder === folder)
   const submit = (): void => {
-    if (!name.trim()) return
-    if (project) updateProject(project.id, { name: name.trim(), instructions })
-    else {
-      const created = createProject(name.trim())
-      if (instructions.trim()) updateProject(created.id, { instructions })
-      newChat(created.id)
-    }
+    if (!name.trim() || clash) return
+    updateProject(project.id, { name: name.trim(), folder, instructions })
     onClose()
   }
+  const choose = (): void =>
+    void window.api.app.openFiles({ properties: ['openDirectory'] }).then((paths) => {
+      if (!paths[0]) return
+      // Named after its folder until now: it follows the new one.
+      if (!project.folder || name.trim() === folderName(project.folder)) setName(folderName(paths[0]))
+      setFolder(paths[0])
+    })
   return (
     <Modal
       open
       onClose={onClose}
-      title={project ? 'Edit project' : 'New project'}
+      title="Edit project"
       width={480}
       actions={
         <>
           <button className="btn btn--ghost" onClick={onClose}>
             Cancel
           </button>
-          <button className="btn btn--primary" disabled={!name.trim()} onClick={submit}>
-            {project ? 'Save' : 'Create project'}
+          <button className="btn btn--primary" disabled={!name.trim() || clash} onClick={submit}>
+            Save
           </button>
         </>
       }
     >
       <label className="field">
         <span className="field-label">Name</span>
-        <input
-          autoFocus
-          className="input"
-          value={name}
-          placeholder="Trip to Japan"
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && submit()}
-        />
+        <input autoFocus className="input" value={name} placeholder="snake-game" onChange={(e) => setName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && submit()} />
       </label>
+      <div className="field">
+        <span className="field-label">Folder</span>
+        <div className="project-folder">
+          <FolderOpen size={15} strokeWidth={1.9} />
+          <span className="project-folder__path" title={folder ?? undefined}>
+            {folder ? `\u200e${folder}\u200e` : 'None yet. Its chats code once it has one'}
+          </span>
+          <button type="button" className="btn btn--sm" onClick={choose}>
+            {folder ? 'Change…' : 'Choose…'}
+          </button>
+        </div>
+        {clash && <span className="field-error">Another project already works in this folder.</span>}
+      </div>
       <label className="field">
         <span className="field-label">Instructions</span>
         <textarea
@@ -413,17 +593,29 @@ function ProjectDialog({ project, onClose }: { project: Project | null; onClose:
   )
 }
 
+/** The folder's name: its last part. */
+const folderName = (path: string): string => path.split(/[\\/]/).filter(Boolean).pop() ?? path
+
+/** Shows a project's folder in Finder (Explorer, Files), or says it is gone. */
+async function showFolder(folder: string): Promise<void> {
+  const shown = await window.api.app.showItem(folder)
+  if (!shown) notify(`${folder} isn’t there any more. Edit the project to choose its folder.`, 'error')
+}
+
 /** Memoised so a token arriving in one chat does not re-render the whole list. */
 const ChatRow = memo(function ChatRow({
   chat,
   index,
   active,
-  streaming
+  streaming,
+  inProject = false
 }: {
   chat: ChatListItem
   index: number
   active: boolean
   streaming: boolean
+  /** Under a project rather than in Chats: it can move back out. */
+  inProject?: boolean
 }): JSX.Element {
   // Read here rather than take an `onOpen` prop: `openChat` is a stable
   // reference from the store, so `chat`/`index`/`active`/`streaming` are now
@@ -443,6 +635,12 @@ const ChatRow = memo(function ChatRow({
   const [renaming, setRenaming] = useState(false)
   const [draft, setDraft] = useState(chat.title)
   const [confirm, setConfirm] = useState<'delete' | 'archive' | null>(null)
+  // Moving to a project picks its folder, from where the row is.
+  const [moving, setMoving] = useState(false)
+  const moveTo = (folder: string | null): void => {
+    const app = useApp.getState()
+    app.moveChat(chat.id, folder ? app.projectForFolder(folder).id : null)
+  }
 
   const { failed, pinned } = chat
 
@@ -535,6 +733,11 @@ const ChatRow = memo(function ChatRow({
               action: () => togglePin(chat.id)
             },
             {
+              icon: <FolderInput size={15} strokeWidth={1.9} />,
+              label: inProject ? 'Move to another project' : 'Move to a project',
+              action: () => setMoving(true)
+            },
+            {
               icon: <Archive size={15} strokeWidth={1.9} />,
               label: 'Archive',
               // A chat still replying asks first, as the chat's own menu does.
@@ -549,6 +752,8 @@ const ChatRow = memo(function ChatRow({
           ]}
         />
       )}
+      {/* Only while open: one per row would have every row watching the projects. */}
+      {moving && <FolderMenu anchor={anchor} open onClose={() => setMoving(false)} onChoose={moveTo} none={inProject ? 'Move to Chats' : undefined} />}
       <ConfirmDialog
         open={confirm === 'delete'}
         onClose={() => setConfirm(null)}

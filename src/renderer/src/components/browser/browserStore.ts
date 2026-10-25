@@ -276,7 +276,7 @@ export function useBrowserScope(): string {
   return kind === 'code' && cwd ? `code:${cwd}` : 'chat'
 }
 
-/** Told when a page is opened from elsewhere, so Chat's dock brings the browser to the front even when the page was already open. */
+/** Told when a page is opened from elsewhere, so the dock showing that scope (the event's `detail`) brings the browser to the front even when the page was already open. */
 export const BROWSER_REVEAL = 'eaon:browser-reveal'
 
 /** Opens a page in the in-app browser, showing the panel. From a terminal link in the ADE, among others. */
@@ -287,7 +287,7 @@ export function openInBrowser(url: string, scope?: string): void {
   const key = scope ?? (kind === 'code' && cwd ? `code:${cwd}` : 'chat')
   useBrowser.getState().open(key, url)
   if (!app.browserOpen) app.toggleBrowser(true)
-  if (key === 'chat') window.dispatchEvent(new Event(BROWSER_REVEAL))
+  window.dispatchEvent(new CustomEvent(BROWSER_REVEAL, { detail: key }))
 }
 
 function sameUrl(a: string, b: string): boolean {

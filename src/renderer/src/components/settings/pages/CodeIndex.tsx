@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { RefreshCw, Trash2 } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
-import { agentWorkspace, useApp } from '../../../state/store'
+import { codeFolder, useApp } from '../../../state/store'
 import { Card, Row, Section, Select, Switch } from '../../ui'
 
 type EmbeddingModel = { providerId: string; modelId: string; label: string; dimensions: number }
@@ -13,11 +13,10 @@ type EmbeddingModel = { providerId: string; modelId: string; label: string; dime
  * matching — because Anthropic-only users have no embeddings endpoint at all.
  */
 export function CodeIndexPage(): JSX.Element {
-  const { settings, patchSettings, workspaces, indexStatus, reindex } = useApp(
+  const { settings, patchSettings, indexStatus, reindex } = useApp(
     useShallow((s) => ({
       settings: s.settings,
       patchSettings: s.patchSettings,
-      workspaces: s.workspaces,
       indexStatus: s.indexStatus,
       reindex: s.reindex
     }))
@@ -25,7 +24,8 @@ export function CodeIndexPage(): JSX.Element {
   const [models, setModels] = useState<EmbeddingModel[]>([])
   const [state, setState] = useState('')
 
-  const cwd = agentWorkspace(workspaces)?.cwd ?? null
+  // The project of the chat behind Settings.
+  const cwd = useApp((s) => codeFolder(s))
 
   useEffect(() => {
     void window.api.codeIndex.embeddingModels().then((result) => {
@@ -66,7 +66,7 @@ export function CodeIndexPage(): JSX.Element {
         <Card>
           <Row
             title="Project folder"
-            description={cwd ?? 'No folder chosen yet — pick one from the + menu in Chat.'}
+            description={cwd ?? 'No project open — open a chat in a project, or pick one with Work in a project in Chat.'}
           />
           <Row
             title="Index"

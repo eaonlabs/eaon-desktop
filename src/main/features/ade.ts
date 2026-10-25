@@ -9,7 +9,7 @@ import { SessionBook, type SavedSessions } from './ade/sessions'
 import { allConversations, conversationsIn } from './ade/conversations'
 import { adeHistory } from './ade/history'
 import { changes, projectRepo } from './ade/git'
-import { allowed } from './workspaceFiles'
+import { allowFolders, allowed } from './workspaceFiles'
 import { HostBook } from './ade/hosts'
 import { makeRunner } from './ade/runner'
 import { resolveRemoteFolder } from './ade/ssh'
@@ -153,6 +153,9 @@ export const adeFeature: Feature = {
   id: 'ade-sessions',
   register: ({ ipcMain }) => {
     const recents = RecentFolders.at(app.getPath('userData'))
+
+    // The ADE's dock shows a session's files, diff and pull request: its folder and its project, on this computer.
+    allowFolders(() => [...sessions().list().map((s) => s.cwd), ...knownProjects()].filter((cwd) => !isRemote(cwd)))
 
     ipcMain.handle('ade:sessions', async () => {
       const book = sessions()

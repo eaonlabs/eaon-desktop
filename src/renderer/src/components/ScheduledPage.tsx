@@ -98,7 +98,7 @@ export function ScheduledPage(): JSX.Element {
           <h1 className="page__title">Automations</h1>
           <p className="page__subtitle">
             Prompts that run on their own while Eaon is running: daily, weekly, every few minutes, once, or on a cron schedule. Each run
-            lands in Recents as a new chat.
+            lands in the sidebar as a new chat.
           </p>
 
           {error && (
@@ -190,7 +190,7 @@ export function ScheduledPage(): JSX.Element {
           </>
         }
       >
-        It stops running. Chats from its earlier runs stay in Recents.
+        It stops running. Chats from its earlier runs stay in the sidebar.
       </Modal>
     </div>
   )

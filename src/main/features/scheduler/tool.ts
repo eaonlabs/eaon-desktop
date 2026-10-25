@@ -156,7 +156,7 @@ export function scheduleTool(engine: SchedulerEngine): AgentTool {
   return {
     name: 'schedule',
     description:
-      "Manage the user's scheduled tasks: prompts Eaon runs by itself on a cadence, each run producing a new chat in Recents. Use it when the user wants something done regularly or later (\"every weekday at 9 summarise my GitHub notifications\"). Times are the user's local time. The prompt runs later with no memory of this conversation, so write it as a complete, self-contained instruction. Work runs are read-only unless allow_changes is true — set it when the task must edit files or run shell commands (e.g. the gh CLI). Use action list to find ids before update, delete or run.",
+      "Manage the user's scheduled tasks: prompts Eaon runs by itself on a cadence, each run producing a new chat in the sidebar. Use it when the user wants something done regularly or later (\"every weekday at 9 summarise my GitHub notifications\"). Times are the user's local time. The prompt runs later with no memory of this conversation, so write it as a complete, self-contained instruction. Work runs are read-only unless allow_changes is true — set it when the task must edit files or run shell commands (e.g. the gh CLI). Use action list to find ids before update, delete or run.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -236,7 +236,7 @@ export function scheduleTool(engine: SchedulerEngine): AgentTool {
       if (action === 'run') {
         const task = find(input.id)
         engine.runNow(task.id)
-        return `Started “${task.name}” now. It runs in the background and appears in Recents as a new chat.`
+        return `Started “${task.name}” now. It runs in the background and appears in the sidebar as a new chat.`
       }
       throw new Error('action must be one of create, list, update, delete, run.')
     }

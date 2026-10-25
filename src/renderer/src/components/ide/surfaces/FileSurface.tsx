@@ -1,19 +1,19 @@
 import { useEffect, useState, type JSX } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import { ChevronRight, FileWarning, ListTree, WrapText } from 'lucide-react'
-import { useApp } from '../../../state/store'
-import { notify } from '../../Notice'
 import { OpenInButton } from '../../chatCode/CodeTools'
 import { languageOf } from '../../chatCode/diff/tokens'
 import { CodeEditor } from '../CodeEditor'
-import { isDirty, useIde, type IdeTab, type Surface } from '../ideStore'
+import { useDockPlace } from '../dockPlace'
+import { isDirty, type IdeTab, type Surface } from '../ideStore'
 import { FilesView } from './FilesView'
 
 /**
  * A file in a tab of its own: where it sits in the folder, Open in the
  * editor of choice, wrap long lines, and the folder's tree beside it. The
  * editor saves with ⌘S; a file changed on disk under unsaved edits asks
- * which to keep. A line's number, clicked, puts the line in the message.
+ * which to keep. A line's number, clicked, puts the line where the agent
+ * reads it: Chat's message box, or the ADE's agent's prompt.
  */
 
 const WRAP_KEY = 'eaon.dock.wrap'
@@ -36,7 +36,8 @@ const keep = (key: string, value: boolean): void => {
 
 export function FileSurface({ surface }: { surface: Surface }): JSX.Element {
   const path = surface.path ?? ''
-  const { root, tab, openFile } = useIde(useShallow((s) => ({ root: s.root, tab: s.tabs.find((t) => t.path === path), openFile: s.openFile })))
+  const place = useDockPlace()
+  const { root, tab, openFile } = place.store(useShallow((s) => ({ root: s.root, tab: s.tabs.find((t) => t.path === path), openFile: s.openFile })))
   const [wrap, setWrap] = useState(() => stored(WRAP_KEY, true))
   const [tree, setTree] = useState(() => stored(TREE_KEY, true))
   // Opened again after a reload: read the file back.
@@ -62,7 +63,7 @@ export function FileSurface({ surface }: { surface: Surface }): JSX.Element {
           {tab && isDirty(tab) && <span className="file-surface__dirty" title="Not saved yet" aria-label="Not saved yet" />}
         </nav>
         <div className="file-surface__tools">
-          <OpenInButton icon file={path} />
+          <OpenInButton icon file={path} folder={place.folder} />
           <button
             type="button"
             className="file-surface__tool"
@@ -105,15 +106,12 @@ export function FileSurface({ surface }: { surface: Surface }): JSX.Element {
   )
 }
 
-/** A line pointed at in the file, as a reference in the message box: the agent reads it as the place meant. */
-function addLine(rel: string, line: number): void {
-  useApp.getState().appendToComposer({ text: `\`${rel}:${line}\` `, attachments: [] })
-  notify(`Added ${rel}:${line} to your message`)
-}
-
 function TabBody({ tab, wrap, rel }: { tab: IdeTab; wrap: boolean; rel: string }): JSX.Element {
-  const { edit, save, reload, setCaret } = useIde(useShallow((s) => ({ edit: s.edit, save: s.save, reload: s.reload, setCaret: s.setCaret })))
-  const reveal = useIde((s) => s.reveal)
+  const place = useDockPlace()
+  const { edit, save, reload, setCaret } = place.store(useShallow((s) => ({ edit: s.edit, save: s.save, reload: s.reload, setCaret: s.setCaret })))
+  const reveal = place.store((s) => s.reveal)
+  // A line pointed at in the file, as a reference where the agent reads it as the place meant.
+  const addLine = (line: number): void => place.addToPrompt(`\`${rel}:${line}\` `, `${rel}:${line}`)
   if (tab.kind !== 'text') {
     const message =
       tab.kind === 'binary' ? 'This file isn’t text, so it can’t be edited here.' : tab.kind === 'too-large' ? 'This file is too large to edit here.' : (tab.error ?? 'This file couldn’t be opened.')
@@ -155,8 +153,8 @@ function TabBody({ tab, wrap, rel }: { tab: IdeTab; wrap: boolean; rel: string }
         onSave={() => void save(tab.path)}
         onCaret={setCaret}
         reveal={reveal?.path === tab.path ? reveal : null}
-        onLineAction={(line) => addLine(rel, line)}
-        lineActionLabel="Add to your message"
+        onLineAction={addLine}
+        lineActionLabel={place.id === 'chat' ? 'Add to your message' : 'Add to the agent’s prompt'}
       />
     </>
   )

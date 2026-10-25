@@ -268,12 +268,20 @@ export interface Chat {
   summary?: { text: string; throughMessageId: string } | null
 }
 
+/**
+ * A project in Chat is a coding project: a folder, and the chats that work
+ * in it. Those chats get the coding tools (the workspace card, the
+ * terminal, the branch and Git, the dock's files and diff); a chat outside
+ * any project is an ordinary conversation.
+ */
 export interface Project {
   id: string
   workspaceId: string
   name: string
   instructions: string
   createdAt: number
+  /** The folder its chats work in. Projects made before projects had folders have none until one is chosen. */
+  folder?: string | null
 }
 
 export interface Workspace {
@@ -340,6 +348,18 @@ export interface SeeThrough {
   custom: string | null
 }
 
+/**
+ * Frosted glass: what floats over the page (menus, popovers, toasts, the find
+ * bar) and the see-through panels blur what is behind them and let some of
+ * it through. Each is 0–100, and 50 is the design's own.
+ */
+export interface Glass {
+  /** How soft what is behind gets; 0 is no blur. */
+  blur: number
+  /** How much of it shows through; 0 is solid. */
+  transparency: number
+}
+
 /** What the window needs to draw the wallpaper behind it: the image, and where the screen and the window are. */
 export interface WallpaperFrame {
   /** The display the window is on: its id, and its bounds in screen points. */
@@ -378,6 +398,8 @@ export interface Settings {
      * `style` draws it as it is, as a halftone screen or as ASCII art.
      */
     seeThrough: SeeThrough
+    /** Frosted glass: how much it blurs, and how much shows through. */
+    glass: Glass
   }
   configuration: {
     configScope: string

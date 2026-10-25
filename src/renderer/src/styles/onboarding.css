@@ -511,13 +511,69 @@
   margin-left: -8px;
   padding: 0 10px 0 8px;
 }
-.onboarding__done {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0 6px 0 0;
-  font-size: var(--fs-sm);
-  color: var(--diff-add-fg);
+/* The Tokn account signed in to: the card's first row, over the option. */
+.onboarding__account {
+  display: grid;
+  grid-template-rows: 1fr;
+}
+.onboarding__account + .card__row {
+  border-top: 1px solid var(--border);
+}
+/* Signed in while the step shows: the row opens in, pushing the option down. */
+.onboarding__account[data-arrives] {
+  animation: onboarding-account-in 520ms var(--spring-slow) both;
+}
+@keyframes onboarding-account-in {
+  from {
+    grid-template-rows: 0fr;
+    opacity: 0;
+  }
+}
+.onboarding__account-row {
+  min-height: 0;
+  overflow: hidden;
+}
+.onboarding__avatar {
+  position: relative;
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: linear-gradient(160deg, var(--surface-4), var(--surface-2));
+  box-shadow: inset 0 0 0 1px var(--border);
+  color: var(--text);
+  font-size: var(--fs-base);
+  font-weight: 600;
+  line-height: 1;
+}
+/* Whose account: Tokn's mark on the avatar's corner, cut out of the card. */
+.onboarding__avatar-mark {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  display: grid;
+  border-radius: 5px;
+  box-shadow: 0 0 0 2px var(--surface-1);
+}
+.onboarding__account-status::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin: 0 7px 1px 0;
+  border-radius: 50%;
+  background: var(--diff-add-fg);
+  vertical-align: middle;
+}
+.onboarding__profile {
+  flex: none;
+  gap: 5px;
+  color: var(--text-2);
+}
+.onboarding__profile:hover {
+  color: var(--text);
 }
 .onboarding__note {
   margin: -12px 0 0;
@@ -886,8 +942,8 @@
   width: 240px;
   padding: 5px;
   background: var(--menu-bg);
-  backdrop-filter: blur(28px) saturate(180%);
-  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  backdrop-filter: var(--frost);
+  -webkit-backdrop-filter: var(--frost);
   border: 0.5px solid var(--border-strong);
   border-radius: var(--r-lg);
   box-shadow: var(--shadow-menu);
@@ -1272,8 +1328,8 @@
   padding: 14px 16px 14px;
   border-radius: var(--r-xl);
   background: var(--menu-bg);
-  backdrop-filter: blur(28px) saturate(180%);
-  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  backdrop-filter: var(--frost);
+  -webkit-backdrop-filter: var(--frost);
   border: 0.5px solid var(--border-strong);
   box-shadow: var(--shadow-modal);
   color: var(--text);
