@@ -1,18 +1,25 @@
-/* ---------- Chat's code panel (components/ide) ----------
-   The agent's folder beside the conversation, as a card floating in the
-   window's gutter the way the sidebar does on the other side: Files (a tree,
-   tabs, an editor and a status line) and Changes (the chat's edits, per file).
-   It takes the app's surfaces rather than an editor theme of its own, so it
-   reads as part of Chat.
+/* ---------- Chat's dock (components/ide/Dock) ----------
+   The column to the right of a conversation, flush against it the way the
+   conversation sits against the window: its tabs ("surfaces") along the top,
+   the one in front under them. The dock's own parts are in dock.css; this
+   file keeps the column, its edge to drag, the editor a file opens in, and
+   the notices the surfaces share.
 
-   Opening, the column grows from nothing and the card slides in from the
-   window's edge with it, so the conversation glides aside instead of jumping;
-   closing runs the same in reverse (`data-closing`, while App keeps it
-   mounted). The card keeps its full width throughout and is pinned to the
-   column's right edge, so its contents never reflow mid-slide. */
+   Opening, the column grows from nothing so the conversation glides aside
+   instead of jumping; closing runs the same in reverse (`data-closing`,
+   while App keeps it mounted). */
 
 .ide {
   --ide-line: 20px;
+  --tok-comment: #8b949e;
+  --tok-keyword: #ff7b72;
+  --tok-string: #a5d6ff;
+  --tok-number: #79c0ff;
+  --tok-func: #d2a8ff;
+  --tok-type: #ffa657;
+  --tok-tag: #7ee787;
+  --tok-attr: #79c0ff;
+  --tok-meta: #ffa657;
   --ide-tree-w: 208px;
   --ide-bg: var(--surface-1);
   /* The editor sits a step into the card, the open tab joined to it. */
@@ -65,34 +72,21 @@ body[data-resizing='ide'] .ide {
   transition: none;
 }
 [data-theme='light'] .ide {
+  --tok-comment: #6e7781;
+  --tok-keyword: #cf222e;
+  --tok-string: #0a3069;
+  --tok-number: #0550ae;
+  --tok-func: #8250df;
+  --tok-type: #953800;
+  --tok-tag: #116329;
+  --tok-attr: #0550ae;
+  --tok-meta: #953800;
   --ide-editor-bg: var(--bg);
   --ide-kw: #cf222e;
   --ide-str: #0a3069;
   --ide-fn: #8250df;
   --ide-num: #0550ae;
   --ide-cm: #6e7781;
-}
-
-.ide__frame {
-  flex: none;
-  display: flex;
-  flex-direction: column;
-  width: calc(var(--ide-span) - var(--sidebar-gap));
-  min-height: 0;
-  background: var(--ide-bg);
-  border: 1px solid var(--border-soft);
-  border-radius: var(--r-panel);
-  overflow: hidden;
-  box-shadow: 0 10px 30px -18px rgb(0 0 0 / 0.5);
-  transition: transform 300ms var(--ease);
-}
-@starting-style {
-  .ide__frame {
-    transform: translateX(24px);
-  }
-}
-.ide[data-closing] .ide__frame {
-  transform: translateX(24px);
 }
 
 .ide__resize {
@@ -125,293 +119,6 @@ body[data-resizing='ide'],
 body[data-resizing='ide'] * {
   cursor: col-resize !important;
   user-select: none;
-}
-
-/* ---- Title row: the pane switch and the panel's buttons ---- */
-
-.ide__bar {
-  height: calc(var(--titlebar-h) + 2px);
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 0 8px 0 8px;
-  border-bottom: 1px solid var(--border-soft);
-  -webkit-app-region: drag;
-}
-/* Clear of the caption buttons Windows and Linux draw over the top right. */
-body[data-platform='win32'] .ide__bar,
-body[data-platform='linux'] .ide__bar {
-  padding-right: calc(8px + var(--window-controls-right));
-}
-.ide__bar .icon-btn {
-  -webkit-app-region: no-drag;
-}
-
-/* Two equal segments and a thumb that slides between them. */
-.ide__seg {
-  position: relative;
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  padding: 2px;
-  border-radius: var(--r-sm);
-  background: var(--hover);
-  -webkit-app-region: no-drag;
-}
-.ide__seg-thumb {
-  position: absolute;
-  top: 2px;
-  bottom: 2px;
-  left: 2px;
-  width: calc(50% - 2px);
-  border-radius: calc(var(--r-sm) - 2px);
-  background: var(--surface-4);
-  box-shadow:
-    0 0 0 0.5px var(--border-soft),
-    0 1px 2px rgb(0 0 0 / 0.25);
-  transition: transform 260ms var(--ease);
-}
-[data-theme='light'] .ide__seg-thumb {
-  background: var(--surface-3);
-}
-.ide__seg[data-pane='changes'] .ide__seg-thumb {
-  transform: translateX(100%);
-}
-.ide__seg-btn {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  height: 24px;
-  padding: 0 11px;
-  border-radius: calc(var(--r-sm) - 2px);
-  color: var(--text-3);
-  font-size: var(--fs-xs);
-  font-weight: 500;
-  white-space: nowrap;
-  transition: color var(--dur) var(--ease);
-}
-.ide__seg-btn:hover,
-.ide__seg-btn[aria-selected='true'] {
-  color: var(--text);
-}
-.ide__seg-count {
-  min-width: 16px;
-  height: 16px;
-  padding: 0 4px;
-  border-radius: var(--r-pill);
-  background: color-mix(in srgb, var(--accent), transparent 80%);
-  color: color-mix(in srgb, var(--accent), var(--fg) 30%);
-  font-size: var(--fs-xxs);
-  font-variant-numeric: tabular-nums;
-  line-height: 16px;
-  text-align: center;
-}
-
-/* A pane switched to settles in, rather than swapping in a single frame. */
-.ide__pane {
-  animation: ide-pane-in 220ms var(--ease) both;
-}
-@keyframes ide-pane-in {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-}
-
-/* ---- Tree and editor, side by side ---- */
-
-.ide__body {
-  flex: 1;
-  min-height: 0;
-  display: grid;
-  grid-template-columns: var(--ide-tree-w) minmax(0, 1fr);
-}
-
-.ide__tree {
-  min-height: 0;
-  overflow: auto;
-  padding: 4px 6px 16px;
-  border-right: 1px solid var(--border-soft);
-}
-/* The folder's name over its tree, the way an explorer heads its list. */
-.ide__tree-root {
-  padding: 6px 6px 4px;
-  color: var(--text-4);
-  font-size: var(--fs-xxs);
-  font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.ide__tree-empty {
-  padding: 10px 8px;
-  color: var(--text-4);
-  font-size: var(--fs-xs);
-}
-.ide__row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  width: 100%;
-  height: 24px;
-  padding: 0 6px 0 calc(6px + var(--depth, 0) * 12px);
-  border-radius: var(--r-sm);
-  color: var(--text-2);
-  font-size: var(--fs-xs);
-  text-align: left;
-  white-space: nowrap;
-}
-.ide__row:hover {
-  background: var(--hover);
-  color: var(--text);
-}
-.ide__row[data-active] {
-  background: var(--active);
-  color: var(--text);
-}
-.ide__chevron {
-  flex: none;
-  color: var(--text-4);
-  transition: transform var(--dur) var(--ease);
-}
-.ide__row[aria-expanded='true'] .ide__chevron {
-  transform: rotate(90deg);
-}
-/* Files line their icon up under the folder name, past the chevron's column. */
-.ide__file-icon {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 12px;
-  margin-left: 0;
-}
-.ide__name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-/* Changed by the agent in this chat. */
-.ide__touched {
-  flex: none;
-  width: 5px;
-  height: 5px;
-  margin-left: auto;
-  border-radius: 50%;
-  background: var(--accent);
-}
-
-.ide__main {
-  min-width: 0;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-
-/* ---- Tabs ---- */
-
-.ide__tabs {
-  flex: none;
-  display: flex;
-  align-items: flex-end;
-  gap: 2px;
-  height: 36px;
-  padding: 0 6px;
-  overflow-x: auto;
-  overflow-y: hidden;
-  scrollbar-width: none;
-}
-/* Folder tabs: the open one takes the editor's colour and runs into it. */
-.ide__tab {
-  position: relative;
-  flex: none;
-  display: flex;
-  align-items: center;
-  max-width: 200px;
-  height: 30px;
-  border-radius: var(--r-sm) var(--r-sm) 0 0;
-  color: var(--text-3);
-  transition:
-    background var(--dur) var(--ease),
-    color var(--dur) var(--ease);
-  animation: ide-tab-in 200ms var(--ease) both;
-}
-@keyframes ide-tab-in {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-}
-.ide__tab:hover {
-  background: var(--hover);
-  color: var(--text-2);
-}
-.ide__tab[data-active] {
-  background: var(--ide-editor-bg);
-  color: var(--text);
-}
-.ide__tab-open {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  height: 100%;
-  padding: 0 4px 0 12px;
-  font-size: var(--fs-xs);
-}
-.ide__tab-open span:not(.ide__touched) {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.ide__tab-open .ide__touched {
-  margin-left: 2px;
-}
-.ide__tab-close {
-  position: relative;
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 20px;
-  height: 20px;
-  margin-right: 6px;
-  border-radius: var(--r-xs);
-  color: var(--text-4);
-  opacity: 0;
-  transition: opacity var(--dur) var(--ease);
-}
-.ide__tab:hover .ide__tab-close,
-.ide__tab[data-active] .ide__tab-close,
-.ide__tab-close:focus-visible {
-  opacity: 1;
-}
-.ide__tab-close:hover {
-  background: var(--hover);
-  color: var(--text);
-}
-/* Unsaved: a dot where the close button sits, the button under the pointer. */
-.ide__tab-close[data-dirty] {
-  opacity: 1;
-}
-.ide__tab-close[data-dirty]::after {
-  content: '';
-  position: absolute;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--text-2);
-}
-.ide__tab-close[data-dirty] svg {
-  opacity: 0;
-}
-.ide__tab-close[data-dirty]:hover::after {
-  opacity: 0;
-}
-.ide__tab-close[data-dirty]:hover svg {
-  opacity: 1;
 }
 
 /* ---- Editor ---- */
@@ -483,24 +190,101 @@ body[data-platform='linux'] .ide__bar {
   background: color-mix(in srgb, var(--accent) 32%, transparent);
   -webkit-text-fill-color: transparent;
 }
-.ide-editor .tk-kw {
-  color: var(--ide-kw);
+/* Wrapped: no gutter column; each line carries its number in its own left padding, and the
+   textarea has the same padding, so both wrap at the same point. */
+.ide-editor[data-wrap] .ide-editor__code {
+  min-width: 0;
 }
-.ide-editor .tk-str {
-  color: var(--ide-str);
+.ide-editor[data-wrap] .ide-editor__view,
+.ide-editor[data-wrap] .ide-editor__input {
+  padding-left: calc(var(--ide-digits, 2) * 1ch + 32px);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
-.ide-editor .tk-fn {
-  color: var(--ide-fn);
+.ide-editor[data-wrap] .ide-editor__line {
+  position: relative;
 }
-.ide-editor .tk-num {
-  color: var(--ide-num);
+/* Above the textarea, so a number can be pointed at; the rest of the view lets the pointer through. */
+.ide-editor[data-wrap] .ide-editor__view {
+  position: relative;
+  z-index: 1;
 }
-.ide-editor .tk-cm {
-  color: var(--ide-cm);
+.ide-editor[data-wrap] .ide-editor__num {
+  position: absolute;
+  top: 0;
+  left: calc(-1 * (var(--ide-digits, 2) * 1ch + 32px));
+  width: calc(var(--ide-digits, 2) * 1ch + 20px);
+  color: var(--text-4);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  user-select: none;
+}
+/* With something to do with a line: a + beside its number under the pointer. */
+.ide-editor[data-line-action] .ide-editor__num {
+  position: relative;
+  pointer-events: auto;
+  cursor: pointer;
+}
+.ide-editor[data-wrap][data-line-action] .ide-editor__num {
+  position: absolute;
+}
+.ide-editor[data-line-action] .ide-editor__num:hover {
+  color: var(--text);
+}
+.ide-editor[data-line-action] .ide-editor__num:hover::before {
+  content: '+';
+  position: absolute;
+  top: 50%;
+  left: -2px;
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  margin-top: -8px;
+  border-radius: 4px;
+  background: var(--accent);
+  color: var(--on-accent, #fff);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+}
+.ide-editor[data-wrap][data-line-action] .ide-editor__num:hover::before {
+  top: calc(var(--ide-line) / 2);
+  left: 4px;
+}
+/* Colours: the diffs' own (diffView.css), by language. */
+.ide-editor .tok-comment {
+  color: var(--tok-comment);
   font-style: italic;
 }
+.ide-editor .tok-keyword {
+  color: var(--tok-keyword);
+}
+.ide-editor .tok-string {
+  color: var(--tok-string);
+}
+.ide-editor .tok-number,
+.ide-editor .tok-literal {
+  color: var(--tok-number);
+}
+.ide-editor .tok-func {
+  color: var(--tok-func);
+}
+.ide-editor .tok-type {
+  color: var(--tok-type);
+}
+.ide-editor .tok-tag {
+  color: var(--tok-tag);
+}
+.ide-editor .tok-attr {
+  color: var(--tok-attr);
+}
+.ide-editor .tok-meta {
+  color: var(--tok-meta);
+}
 
-/* ---- Notices, banners and the status line ---- */
+/* ---- Notices and banners ---- */
 
 .ide__banner {
   flex: none;
@@ -534,8 +318,7 @@ body[data-platform='linux'] .ide__bar {
   background: var(--hover);
 }
 
-.ide__notice,
-.ide__empty {
+.ide__notice {
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -547,279 +330,12 @@ body[data-platform='linux'] .ide__bar {
   font-size: var(--fs-sm);
   text-align: center;
 }
-.ide__notice p,
-.ide__empty p {
+.ide__notice p {
   margin: 0;
-}
-.ide__empty-title {
-  color: var(--text-2);
-  font-weight: 500;
-}
-.ide__empty-hint {
-  color: var(--text-4);
-  font-size: var(--fs-xs);
-}
-.ide__recent {
-  width: min(260px, 100%);
-  margin-top: 14px;
-  text-align: left;
-}
-.ide__recent-label {
-  padding: 0 6px 4px;
-  color: var(--text-4);
-  font-size: var(--fs-xxs);
-  font-weight: 500;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-}
-
-.ide__status {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  height: 24px;
-  padding: 0 12px;
-  border-top: 1px solid var(--border-soft);
-  background: var(--ide-editor-bg);
-  color: var(--text-4);
-  font-size: var(--fs-xxs);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-.ide__status-path {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  font-family: var(--font-mono);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ide,
-  .ide__frame {
+  .ide {
     transition: none;
   }
-  .ide__pane {
-    animation: none;
-  }
-}
-
-/* ---- Changes: the chat's edits, a card per file (ChangesReview) ---- */
-
-.ide__changes {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-.review {
-  flex: 1;
-  min-height: 0;
-  display: flex;
-  flex-direction: column;
-}
-.review__bar {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 44px;
-  padding: 0 10px 0 12px;
-  border-bottom: 1px solid var(--border-soft);
-}
-.review__summary {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  height: 28px;
-  padding: 0 10px;
-  border-radius: var(--r-pill);
-  box-shadow: inset 0 0 0 1px var(--border-soft);
-  color: var(--text-2);
-  font-size: var(--fs-sm);
-  white-space: nowrap;
-}
-.review__summary svg {
-  color: var(--text-3);
-}
-.review__count {
-  color: var(--text);
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-}
-.review__summary .diff__stat-add,
-.review__summary .diff__stat-del {
-  font-family: var(--font-mono);
-  font-size: var(--fs-xs);
-}
-/* The toolbar: one rounded group of quiet buttons. */
-.review__tools {
-  display: flex;
-  align-items: center;
-  gap: 1px;
-  margin-left: auto;
-  padding: 2px;
-  border-radius: var(--r-pill);
-  box-shadow: inset 0 0 0 1px var(--border-soft);
-}
-.review__tool {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  border-radius: var(--r-pill);
-  color: var(--text-3);
-  transition:
-    background var(--dur) var(--ease),
-    color var(--dur) var(--ease);
-}
-.review__tool:hover:not(:disabled),
-.review__tool[data-active] {
-  background: var(--hover);
-  color: var(--text);
-}
-.review__tool:disabled {
-  opacity: 0.35;
-}
-
-.review__find {
-  flex: none;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 38px;
-  padding: 0 8px 0 14px;
-  border-bottom: 1px solid var(--border-soft);
-  color: var(--text-3);
-  animation: ide-pane-in 180ms var(--ease) both;
-}
-.review__find input {
-  flex: 1;
-  min-width: 0;
-  border: 0;
-  outline: none;
-  background: none;
-  color: var(--text);
-  font-size: var(--fs-sm);
-}
-.review__find input::placeholder {
-  color: var(--text-4);
-}
-.review__found {
-  color: var(--text-3);
-  font-size: var(--fs-xs);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.review__list {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  padding: 10px 10px 16px;
-  scroll-padding-top: 10px;
-}
-.review__none {
-  padding: 24px;
-  color: var(--text-3);
-  font-size: var(--fs-sm);
-  text-align: center;
-}
-
-.review-card {
-  margin-bottom: 10px;
-  border: 1px solid var(--border-soft);
-  border-radius: var(--r-lg);
-  background: var(--ide-editor-bg);
-  overflow: hidden;
-  animation: tool-in 240ms var(--ease) both;
-  transition: box-shadow 300ms var(--ease);
-}
-/* Stepped to with the toolbar: a moment's ring, so the eye lands on it. */
-.review-card[data-flash] {
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
-}
-.review-card[data-hit] {
-  border-color: color-mix(in srgb, var(--accent) 35%, var(--border-soft));
-}
-.review-card__head {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  height: 40px;
-  padding: 0 6px 0 2px;
-  background: var(--ide-bg);
-}
-.review-card[data-open] .review-card__head {
-  border-bottom: 1px solid var(--border-soft);
-}
-.review-card__toggle {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  height: 100%;
-  padding: 0 8px 0 10px;
-  text-align: left;
-}
-.review-card__icon {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 16px;
-}
-.review-card__name {
-  flex: none;
-  max-width: 55%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text);
-  font-size: var(--fs-sm);
-  font-weight: 500;
-}
-.review-card__folder {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--text-4);
-  font-size: var(--fs-xs);
-}
-.review-card__stat {
-  flex: none;
-  display: inline-flex;
-  gap: 7px;
-  margin-left: auto;
-  font-family: var(--font-mono);
-  font-size: var(--fs-xs);
-  font-variant-numeric: tabular-nums;
-}
-.review-card__chevron svg {
-  transition: transform 200ms var(--ease);
-}
-.review-card:not([data-open]) .review-card__chevron svg {
-  transform: rotate(-90deg);
-}
-.review-card__body {
-  animation: ide-pane-in 200ms var(--ease) both;
-}
-.review-card__body .diff {
-  margin: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-}
-.review-card__body .diff__body {
-  max-height: none;
-  margin: 0;
-  padding: 6px 0;
-}
-.review-card__body .diff + .diff {
-  border-top: 1px dashed var(--border-soft);
 }

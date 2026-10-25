@@ -27,7 +27,7 @@ import '../styles/seeThrough.css'
 const CELL = 5
 
 /** The title bars: where a press drags the window. Their buttons, fields and tabs don't. */
-const DRAG = '.chat-header, .titlebar, .drag, .ide__bar, .page__bar, .settings__titlebar, .settings__nav-top, .browser__tabs, .crash-screen__drag'
+const DRAG = '.chat-header, .titlebar, .drag, .dock__bar, .page__bar, .settings__titlebar, .settings__nav-top, .browser__tabs, .crash-screen__drag'
 const NO_DRAG = 'button, a, input, textarea, select, [role="button"], [role="tab"], [role="menuitem"], [contenteditable="true"], .no-drag'
 
 export function SeeThrough(): JSX.Element | null {

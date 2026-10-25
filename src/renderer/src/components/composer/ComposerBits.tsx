@@ -1,12 +1,10 @@
 import { useEffect, useRef, useState, type JSX } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { ChevronDown, CircleAlert, Folder, FolderOpen, FolderPlus, GitCompareArrows, Hand, ShieldCheck, X } from 'lucide-react'
+import { ChevronDown, CircleAlert, Folder, FolderOpen, FolderPlus, Hand, ShieldCheck, X } from 'lucide-react'
 import type { WorkspaceEntry } from '@shared/workspaceFiles'
 import { agentWorkspace, useApp } from '../../state/store'
 import { fileName } from '../../lib/files'
 import { MenuItem, MenuSearch, MenuSeparator, Popover, useDisclosure } from '../ui'
-import { useIde } from '../ide/ideStore'
-import { useChatChanges } from '../ide/changes'
 
 /* ------------------------------------------------------------ Permissions */
 
@@ -88,7 +86,11 @@ function rememberProject(path: string): void {
  * one is chosen, then its name. Opens onto recent projects and the folders in
  * the home folder, searchable, with the open dialog for anything else.
  */
-export function ProjectPicker(): JSX.Element {
+/**
+ * The folder the agent works in. Above the message box it is a pill; in the
+ * workspace card beside a conversation (`row`), the card's first row.
+ */
+export function ProjectPicker({ row = false }: { row?: boolean } = {}): JSX.Element {
   const { cwd, setWorkCwd } = useApp(useShallow((s) => ({ cwd: agentWorkspace(s.workspaces)?.cwd ?? null, setWorkCwd: s.setWorkCwd })))
   const anchor = useRef<HTMLButtonElement>(null)
   const menu = useDisclosure()
@@ -118,11 +120,19 @@ export function ProjectPicker(): JSX.Element {
 
   return (
     <>
-      <button ref={anchor} className="composer-pill composer-pill--project" data-set={cwd ? true : undefined} data-open={menu.open || undefined} onClick={menu.toggle} title={cwd ?? 'Choose the folder Eaon works in'}>
-        {cwd ? <FolderOpen size={14} strokeWidth={1.9} /> : <Folder size={14} strokeWidth={1.9} />}
-        <span className="composer-pill__label">{cwd ? fileName(cwd) : 'Work in a project'}</span>
-      </button>
-      <Popover anchor={anchor} open={menu.open} onClose={menu.close} placement="top-start" width={300} className="project-menu">
+      {row ? (
+        <button ref={anchor} className="ws-row" data-open={menu.open || undefined} onClick={menu.toggle} title={cwd ?? 'Choose the folder Eaon works in'}>
+          <span className="ws-row__icon">{cwd ? <FolderOpen size={15} strokeWidth={1.8} /> : <Folder size={15} strokeWidth={1.8} />}</span>
+          <span className="ws-row__label">{cwd ? fileName(cwd) : 'Work in a project'}</span>
+          <ChevronDown size={14} strokeWidth={2} className="ws-row__chev" />
+        </button>
+      ) : (
+        <button ref={anchor} className="composer-pill composer-pill--project" data-set={cwd ? true : undefined} data-open={menu.open || undefined} onClick={menu.toggle} title={cwd ?? 'Choose the folder Eaon works in'}>
+          {cwd ? <FolderOpen size={14} strokeWidth={1.9} /> : <Folder size={14} strokeWidth={1.9} />}
+          <span className="composer-pill__label">{cwd ? fileName(cwd) : 'Work in a project'}</span>
+        </button>
+      )}
+      <Popover anchor={anchor} open={menu.open} onClose={menu.close} placement={row ? 'bottom-end' : 'top-start'} width={300} className="project-menu">
         <MenuSearch value={query} onChange={setQuery} placeholder="Search projects" />
         {recents.length > 0 && (
           <>
@@ -165,34 +175,3 @@ export function ProjectPicker(): JSX.Element {
   )
 }
 
-/* ---------------------------------------------------------------- Changes */
-
-/**
- * What this chat has changed on disk, above the message box: its line counts,
- * opening the code panel's Changes pane to review them. Absent until there is
- * something to review.
- */
-export function ChangesPill(): JSX.Element | null {
-  const { files, added, removed } = useChatChanges()
-  const { open, pane } = useIde(useShallow((s) => ({ open: s.open, pane: s.pane })))
-  if (files === 0) return null
-  const showing = open && pane === 'changes'
-  return (
-    <button
-      className="composer-pill composer-pill--changes"
-      data-open={showing || undefined}
-      onClick={() => {
-        const ide = useIde.getState()
-        if (showing) return ide.setOpen(false)
-        ide.setPane('changes')
-        if (!ide.open) ide.setOpen(true)
-      }}
-      title={showing ? 'Hide changes' : 'Review what this chat changed'}
-    >
-      <GitCompareArrows size={14} strokeWidth={1.9} />
-      <span className="composer-pill__label">Changes</span>
-      {added > 0 && <span className="diff__stat-add">+{added}</span>}
-      {removed > 0 && <span className="diff__stat-del">−{removed}</span>}
-    </button>
-  )
-}

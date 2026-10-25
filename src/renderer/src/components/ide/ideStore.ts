@@ -2,12 +2,35 @@ import { create } from 'zustand'
 import type { WorkspaceEntry } from '@shared/workspaceFiles'
 import { joinPath } from './paths'
 import { toDisk, toEditor, type LineEnding } from './lineEndings'
+import type { ReviewScope } from '../chatCode/changes/build'
+import { useChatCode } from '../chatCode/chatCodeStore'
 
 /**
- * Chat's code panel: the agent's folder as a tree, the files open in it as
- * tabs, and each tab's text as edited and as last saved. The tree loads one
- * folder at a time, as it is opened.
+ * Chat's dock, the panel to the right of a conversation: the surfaces open in
+ * it as tabs (browser pages, terminals, the folder's files, a file, the diff,
+ * the pull request and the ones the chat links to, the page on a phone,
+ * Eaon's own browser), and for the files the folder as a
+ * tree and each open file's text as edited and as last saved. The tree loads
+ * one folder at a time, as it is opened.
  */
+
+export type SurfaceKind = 'browser' | 'agent' | 'terminal' | 'files' | 'file' | 'diff' | 'pr' | 'linked' | 'device'
+
+/** A tab in the dock. */
+export interface Surface {
+  id: string
+  kind: SurfaceKind
+  /** A file's path. */
+  path?: string
+  /** A browser page's tab in the browser's own store. */
+  tabId?: string
+  /** A terminal's name. */
+  title?: string
+}
+
+/** Kinds there is only ever one of: opening one again goes to it. */
+const SINGLE = new Set<SurfaceKind>(['files', 'diff', 'pr', 'linked', 'device', 'agent'])
+const SURFACES_KEY = 'eaon.dock.surfaces'
 
 export interface IdeTab {
   path: string
@@ -37,9 +60,25 @@ interface IdeState {
   /** Where the caret is in the active tab, for the status bar. */
   caret: { line: number; col: number }
   width: number
-  /** Which pane the card shows: the folder and editor, or the chat's changes. */
-  pane: 'files' | 'changes'
-  setPane: (pane: 'files' | 'changes') => void
+  /** The dock's tabs, in the order they were opened, and the one in front. */
+  surfaces: Surface[]
+  activeSurface: string | null
+  /** The dock fills the window, the conversation behind it. */
+  maximized: boolean
+  /**
+   * Opens a surface, or goes to the one already open: a file by its path,
+   * the kinds there is one of by kind. A terminal is always a new one.
+   * Returns its id.
+   */
+  openSurface: (kind: SurfaceKind, extra?: Pick<Surface, 'path' | 'tabId' | 'title'>) => string
+  closeSurface: (id: string) => void
+  setActiveSurface: (id: string) => void
+  setMaximized: (maximized: boolean) => void
+  /** Puts the dock's browser pages in step with the browser's own tabs: new ones added, closed ones gone. */
+  syncBrowserTabs: (tabIds: string[]) => void
+  /** Asked from elsewhere (a turn's Review button): the Diff shows this scope, scrolled to `file`. */
+  review: { scope: ReviewScope; file?: string; nonce: number } | null
+  reviewChanges: (scope: ReviewScope, file?: string) => void
   setOpen: (open: boolean) => void
   toggleDir: (path: string) => Promise<void>
   openFile: (path: string) => Promise<void>
@@ -50,10 +89,26 @@ interface IdeState {
   refresh: () => Promise<void>
   reload: (path: string) => Promise<void>
   setCaret: (caret: { line: number; col: number }) => void
+  /** A line to bring into view and select in a file, once it is open; `nonce` asks again for the same line. */
+  reveal: { path: string; line: number; nonce: number } | null
+  revealLine: (path: string, line: number) => void
   setWidth: (width: number) => void
 }
 
 const WIDTH_KEY = 'eaon.codePanel.width'
+
+/** The dock's tabs as this window left them; browser pages come back from the browser's own store. */
+function savedSurfaces(): { surfaces: Surface[]; active: string | null } {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(SURFACES_KEY) ?? 'null') as { surfaces?: Surface[]; active?: string | null } | null
+    const surfaces = (saved?.surfaces ?? []).filter((s) => s && typeof s.id === 'string' && s.kind !== 'browser')
+    return { surfaces, active: surfaces.some((s) => s.id === saved?.active) ? (saved?.active ?? null) : (surfaces[0]?.id ?? null) }
+  } catch {
+    return { surfaces: [], active: null }
+  }
+}
+
+const surfaceId = (): string => `s-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
 
 const storedWidth = (): number => {
   try {
@@ -82,16 +137,79 @@ export const isDirty = (tab: IdeTab): boolean => tab.kind === 'text' && tab.text
 export const useIde = create<IdeState>((set, get) => ({
   open: false,
   root: null,
+  reveal: null,
+  revealLine: (path, line) => set({ reveal: { path, line, nonce: Date.now() } }),
   expanded: new Set(),
   entries: new Map(),
   tabs: [],
   active: null,
   caret: { line: 1, col: 1 },
   width: storedWidth(),
-  pane: 'files',
+  surfaces: savedSurfaces().surfaces,
+  activeSurface: savedSurfaces().active,
+  maximized: false,
+  review: null,
 
-  setPane(pane) {
-    set({ pane })
+  openSurface(kind, extra) {
+    if (!get().open) get().setOpen(true)
+    const { surfaces } = get()
+    const existing =
+      kind === 'file'
+        ? surfaces.find((s) => s.kind === 'file' && s.path === extra?.path)
+        : kind === 'browser'
+          ? surfaces.find((s) => s.kind === 'browser' && s.tabId === extra?.tabId)
+          : SINGLE.has(kind)
+            ? surfaces.find((s) => s.kind === kind)
+            : undefined
+    if (existing) {
+      set({ activeSurface: existing.id })
+      return existing.id
+    }
+    const terminals = surfaces.filter((s) => s.kind === 'terminal').length
+    const surface: Surface = {
+      id: kind === 'terminal' ? `dock-term-${surfaceId()}` : surfaceId(),
+      kind,
+      ...extra,
+      ...(kind === 'terminal' && !extra?.title ? { title: `Terminal ${terminals + 1}` } : {})
+    }
+    set({ surfaces: [...surfaces, surface], activeSurface: surface.id })
+    if (kind === 'file' && surface.path) void get().openFile(surface.path)
+    return surface.id
+  },
+
+  closeSurface(id) {
+    const { surfaces, activeSurface } = get()
+    const index = surfaces.findIndex((s) => s.id === id)
+    if (index < 0) return
+    const surface = surfaces[index]
+    const rest = surfaces.filter((s) => s.id !== id)
+    const next = activeSurface === id ? (rest[Math.min(index, rest.length - 1)]?.id ?? null) : activeSurface
+    set({ surfaces: rest, activeSurface: next })
+    if (surface.kind === 'file' && surface.path) get().closeTab(surface.path)
+    if (surface.kind === 'terminal') useChatCode.getState().closeDockTerminal(surface.id)
+  },
+
+  setActiveSurface(id) {
+    if (get().surfaces.some((s) => s.id === id)) set({ activeSurface: id })
+  },
+
+  setMaximized(maximized) {
+    set({ maximized })
+  },
+
+  syncBrowserTabs(tabIds) {
+    const { surfaces, activeSurface } = get()
+    const keep = surfaces.filter((s) => s.kind !== 'browser' || (s.tabId && tabIds.includes(s.tabId)))
+    const known = new Set(keep.filter((s) => s.kind === 'browser').map((s) => s.tabId))
+    const added = tabIds.filter((id) => !known.has(id)).map((tabId): Surface => ({ id: surfaceId(), kind: 'browser', tabId }))
+    if (added.length === 0 && keep.length === surfaces.length) return
+    const next = [...keep, ...added]
+    set({ surfaces: next, activeSurface: next.some((s) => s.id === activeSurface) ? activeSurface : (added[added.length - 1]?.id ?? next[next.length - 1]?.id ?? null) })
+  },
+
+  reviewChanges(scope, file) {
+    get().openSurface('diff')
+    set({ review: { scope, ...(file ? { file } : {}), nonce: Date.now() } })
   },
 
   setOpen(open) {
@@ -204,12 +322,25 @@ export const useIde = create<IdeState>((set, get) => ({
 
 /**
  * Opens a file from elsewhere in the app (an edit card, the files-changed
- * list), where a path can be relative to the agent's folder.
+ * list, a path in a reply, a search result), where a path can be relative
+ * to the agent's folder, and at a line when one is given.
  */
-export async function openInCode(path: string): Promise<void> {
+export async function openInCode(path: string, line?: number): Promise<void> {
   const ide = useIde.getState()
   if (!ide.open) ide.setOpen(true)
-  ide.setPane('files')
   const root = ide.root ?? (await window.api.workspaceFiles.root())
-  await useIde.getState().openFile(joinPath(root, path))
+  const full = joinPath(root, path)
+  useIde.getState().openSurface('file', { path: full })
+  await useIde.getState().openFile(full)
+  if (line && line > 0) useIde.getState().revealLine(full, line)
 }
+
+// The dock's tabs live as long as the window: a reload brings the same terminals and files back.
+useIde.subscribe((state, prev) => {
+  if (state.surfaces === prev.surfaces && state.activeSurface === prev.activeSurface) return
+  try {
+    sessionStorage.setItem(SURFACES_KEY, JSON.stringify({ surfaces: state.surfaces.filter((s) => s.kind !== 'browser'), active: state.activeSurface }))
+  } catch {
+    /* kept for this window only */
+  }
+})

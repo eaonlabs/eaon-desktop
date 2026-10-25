@@ -1,0 +1,1015 @@
+/* Chat's diffs (chatCode/diff/DiffCard.tsx) and the code panel's Changes pane
+   (chatCode/ChangesPane.tsx). A file is a card: a header that sticks while its
+   file scrolls past, then the lines, a changed one tinted and barred in the
+   gutter, the words that changed inside it marked a step stronger. */
+
+/* ---------------------------------------------------------------- counts */
+
+.dstat {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.dstat__add {
+  color: var(--diff-add-fg);
+}
+.dstat__del {
+  color: var(--diff-del-fg);
+}
+
+/* ------------------------------------------------------------------ card */
+
+.dv {
+  --dv-bg: var(--ide-editor-bg, var(--code-bg));
+  --dv-head: var(--ide-bg, var(--surface-1));
+  --dv-border: color-mix(in srgb, var(--fg) 8%, transparent);
+  --dv-add: #3fb950;
+  --dv-del: #f85149;
+  --dv-add-row: color-mix(in srgb, var(--dv-bg) 89%, var(--dv-add));
+  --dv-add-num: color-mix(in srgb, var(--dv-bg) 82%, var(--dv-add));
+  --dv-add-em: color-mix(in srgb, var(--dv-bg) 70%, var(--dv-add));
+  --dv-del-row: color-mix(in srgb, var(--dv-bg) 89%, var(--dv-del));
+  --dv-del-num: color-mix(in srgb, var(--dv-bg) 82%, var(--dv-del));
+  --dv-del-em: color-mix(in srgb, var(--dv-bg) 70%, var(--dv-del));
+  --dv-hover: color-mix(in srgb, var(--dv-bg) 95%, var(--fg));
+  --dv-fold: color-mix(in srgb, var(--dv-bg) 94%, var(--fg));
+  --dv-fold-strong: color-mix(in srgb, var(--dv-bg) 89%, var(--fg));
+  --dv-num: color-mix(in srgb, var(--fg) 34%, var(--dv-bg));
+  --dv-line: 20px;
+  --tok-comment: #8b949e;
+  --tok-keyword: #ff7b72;
+  --tok-string: #a5d6ff;
+  --tok-number: #79c0ff;
+  --tok-func: #d2a8ff;
+  --tok-type: #ffa657;
+  --tok-tag: #7ee787;
+  --tok-attr: #79c0ff;
+  --tok-meta: #ffa657;
+  border: 1px solid var(--dv-border);
+  border-radius: 10px;
+  background: var(--dv-bg);
+  overflow: clip;
+  transition: box-shadow 260ms var(--ease);
+}
+[data-theme='light'] .dv {
+  --dv-add: #1f883d;
+  --dv-del: #cf222e;
+  --dv-add-row: color-mix(in srgb, var(--dv-bg) 91%, var(--dv-add));
+  --dv-add-num: color-mix(in srgb, var(--dv-bg) 84%, var(--dv-add));
+  --dv-add-em: color-mix(in srgb, var(--dv-bg) 76%, var(--dv-add));
+  --dv-del-row: color-mix(in srgb, var(--dv-bg) 92%, var(--dv-del));
+  --dv-del-num: color-mix(in srgb, var(--dv-bg) 85%, var(--dv-del));
+  --dv-del-em: color-mix(in srgb, var(--dv-bg) 78%, var(--dv-del));
+  --dv-hover: color-mix(in srgb, var(--dv-bg) 97%, var(--fg));
+  --dv-fold: color-mix(in srgb, var(--dv-bg) 95.5%, var(--fg));
+  --dv-fold-strong: color-mix(in srgb, var(--dv-bg) 92%, var(--fg));
+  --dv-num: color-mix(in srgb, var(--fg) 40%, var(--dv-bg));
+  --tok-comment: #6e7781;
+  --tok-keyword: #cf222e;
+  --tok-string: #0a3069;
+  --tok-number: #0550ae;
+  --tok-func: #8250df;
+  --tok-type: #953800;
+  --tok-tag: #116329;
+  --tok-attr: #0550ae;
+  --tok-meta: #953800;
+}
+.dv[data-flash] {
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.dv__head {
+  position: sticky;
+  top: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 36px;
+  padding: 0 6px 0 11px;
+  border-bottom: 1px solid var(--dv-border);
+  background: var(--dv-head);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+  user-select: none;
+}
+.dv[data-collapsed] .dv__head {
+  border-bottom-color: transparent;
+}
+.dv__head:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+.dv__icon {
+  flex: none;
+  display: inline-flex;
+  width: 16px;
+  justify-content: center;
+  color: var(--text-2);
+  opacity: 0.85;
+}
+.dv__title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.dv__name {
+  flex: none;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
+}
+.dv__name[data-status='deleted'] {
+  color: var(--text-3);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--text-3) 60%, transparent);
+}
+.dv__dir {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.dv__was {
+  flex: none;
+  color: var(--text-3);
+  text-decoration: line-through;
+}
+.dv__arrow {
+  flex: none;
+  color: var(--text-4);
+}
+.dv__tag {
+  flex: none;
+  padding: 0 6px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--dv-add) 16%, transparent);
+  color: var(--diff-add-fg);
+  font-size: var(--fs-xxs);
+  font-weight: 500;
+  line-height: 17px;
+}
+.dv__tag[data-tone='del'] {
+  background: color-mix(in srgb, var(--dv-del) 16%, transparent);
+  color: var(--diff-del-fg);
+}
+.dv__stat {
+  flex: none;
+  font-size: var(--fs-xs);
+}
+.dv__actions {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  cursor: default;
+}
+.dv__action {
+  display: inline-grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-xs);
+  color: var(--text-3);
+  transition:
+    background-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+.dv__action:hover,
+.dv__action[data-active] {
+  background: var(--hover);
+  color: var(--text);
+}
+.dv__chev {
+  flex: none;
+  margin: 0 4px 0 2px;
+  color: var(--text-3);
+  transition: transform 220ms var(--ease);
+}
+.dv[data-collapsed] .dv__chev {
+  transform: rotate(-90deg);
+}
+
+.dv__note {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 14px;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.dv__load {
+  padding: 2px 8px;
+  border-radius: var(--r-xs);
+  background: var(--hover);
+  color: var(--text);
+  font-size: var(--fs-xs);
+}
+.dv__load:hover {
+  background: var(--hover-strong);
+}
+
+/* ------------------------------------------------------------------ body */
+
+.dv__body {
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 4px 0;
+  font-family: var(--font-mono);
+  font-size: calc(var(--fs-base) - 1.5px);
+  line-height: var(--dv-line);
+  font-variant-ligatures: none;
+  tab-size: 4;
+  scrollbar-width: thin;
+  animation: dv-in 180ms var(--ease) both;
+}
+@keyframes dv-in {
+  from {
+    opacity: 0;
+  }
+}
+.dv__lines {
+  width: max-content;
+  min-width: 100%;
+}
+.dv__body[data-wrap] .dv__lines {
+  width: auto;
+}
+
+.dv__row,
+.dv__half {
+  position: relative;
+  display: flex;
+  min-height: var(--dv-line);
+}
+.dv__row:hover {
+  background: var(--dv-hover);
+}
+.dv__row[data-kind='add'],
+.dv__half[data-kind='add'] {
+  background: var(--dv-add-row);
+}
+.dv__row[data-kind='del'],
+.dv__half[data-kind='del'] {
+  background: var(--dv-del-row);
+}
+.dv__row[data-kind='add']:hover {
+  background: color-mix(in srgb, var(--dv-add-row) 90%, var(--dv-add));
+}
+.dv__row[data-kind='del']:hover {
+  background: color-mix(in srgb, var(--dv-del-row) 90%, var(--dv-del));
+}
+.dv__row[data-flash] {
+  animation: dv-flash 900ms var(--ease);
+}
+@keyframes dv-flash {
+  30% {
+    box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--accent) 16%, transparent);
+  }
+}
+
+/* The gutter: one line number (the new file's, or the old one's for a
+   removed line), sticking to the left while a long line scrolls. */
+.dv__num {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  flex: none;
+  display: block;
+  width: calc(var(--dv-digits, 3) * 1ch + 30px);
+  padding: 0 10px 0 0;
+  background: var(--dv-bg);
+  color: var(--dv-num);
+  font: inherit;
+  font-family: var(--font-ui);
+  font-size: var(--fs-xxs);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--dv-line);
+  text-align: right;
+  user-select: none;
+}
+.dv__row:hover .dv__num {
+  background: var(--dv-hover);
+}
+.dv__row[data-kind='add'] .dv__num,
+.dv__half[data-kind='add'] .dv__num {
+  background: var(--dv-add-num);
+  color: color-mix(in srgb, var(--diff-add-fg) 85%, var(--dv-bg));
+}
+.dv__row[data-kind='del'] .dv__num,
+.dv__half[data-kind='del'] .dv__num {
+  background: var(--dv-del-num);
+  color: color-mix(in srgb, var(--diff-del-fg) 85%, var(--dv-bg));
+}
+.dv__row[data-kind='add'] .dv__num::before,
+.dv__half[data-kind='add'] .dv__num::before,
+.dv__row[data-kind='del'] .dv__num::before,
+.dv__half[data-kind='del'] .dv__num::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 3px;
+}
+.dv__row[data-kind='add'] .dv__num::before,
+.dv__half[data-kind='add'] .dv__num::before {
+  background: var(--dv-add);
+}
+/* A removed line's bar is broken, so the two read apart without colour. */
+.dv__row[data-kind='del'] .dv__num::before,
+.dv__half[data-kind='del'] .dv__num::before {
+  background: repeating-linear-gradient(180deg, var(--dv-del) 0 2px, transparent 2px 4px);
+}
+button.dv__num {
+  cursor: pointer;
+}
+.dv__plus {
+  position: absolute;
+  top: 50%;
+  left: 8px;
+  color: var(--accent);
+  opacity: 0;
+  transform: translateY(-50%) scale(0.9);
+  transition:
+    opacity 120ms var(--ease),
+    transform 120ms var(--ease);
+}
+.dv__row:hover .dv__plus,
+.dv__half:hover .dv__plus,
+button.dv__num:focus-visible .dv__plus {
+  opacity: 1;
+  transform: translateY(-50%) scale(1);
+}
+button.dv__num:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
+.dv__code {
+  flex: 1;
+  min-width: 0;
+  padding: 0 18px 0 12px;
+  color: var(--text);
+  white-space: pre;
+}
+.dv__body[data-wrap] .dv__code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.dv__em {
+  border-radius: 3px;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+[data-kind='add'] .dv__em {
+  background: var(--dv-add-em);
+}
+[data-kind='del'] .dv__em {
+  background: var(--dv-del-em);
+}
+
+/* Side by side: the old file on the left, the new on the right. */
+.dv__body[data-layout='split'] .dv__lines {
+  width: 100%;
+}
+.dv__pair {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+}
+.dv__half {
+  min-width: 0;
+}
+.dv__half + .dv__half {
+  box-shadow: inset 1px 0 0 var(--dv-border);
+}
+.dv__half[data-empty] {
+  background: repeating-linear-gradient(-45deg, transparent 0 4px, color-mix(in srgb, var(--fg) 4%, transparent) 4px 5px);
+}
+.dv__pair:hover .dv__half[data-kind='ctx'],
+.dv__pair:hover .dv__half[data-kind='ctx'] .dv__num {
+  background: var(--dv-hover);
+}
+
+/* Unchanged lines folded away: "24 unmodified lines", opening in place. */
+.dv__fold {
+  position: sticky;
+  left: 8px;
+  display: flex;
+  align-items: stretch;
+  width: calc(var(--dv-view, 100%) - 16px);
+  height: 30px;
+  margin: 6px 8px;
+  overflow: hidden;
+  border-radius: 7px;
+  background: var(--dv-fold);
+  color: var(--text-3);
+  font-family: var(--font-ui);
+  font-size: var(--fs-xs);
+  line-height: 30px;
+}
+.dv__body[data-wrap] .dv__fold {
+  width: auto;
+}
+.dv__fold-btns {
+  display: flex;
+}
+.dv__fold-btn {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  border-right: 2px solid var(--dv-bg);
+  background: var(--dv-fold-strong);
+  color: var(--text-3);
+  transition:
+    color var(--dur) var(--ease),
+    background-color var(--dur) var(--ease);
+}
+.dv__fold-btn:hover {
+  background: color-mix(in srgb, var(--dv-fold-strong) 80%, var(--fg));
+  color: var(--text);
+}
+.dv__fold-label {
+  flex: 1;
+  min-width: 0;
+  padding: 0 12px;
+  overflow: hidden;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+button.dv__fold-label:hover {
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.dv__break {
+  position: sticky;
+  left: 0;
+  width: var(--dv-view, 100%);
+  height: 12px;
+  margin: 4px 0;
+  background: repeating-linear-gradient(-45deg, transparent 0 4px, color-mix(in srgb, var(--fg) 6%, transparent) 4px 5px);
+}
+.dv__body[data-wrap] .dv__break {
+  width: auto;
+}
+
+/* A comment on a line, under it, as wide as the card shows. */
+.dv__comment {
+  position: sticky;
+  left: 0;
+  width: var(--dv-view, 100%);
+  padding: 6px 10px 8px;
+  font-family: var(--font-ui);
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+  white-space: normal;
+}
+.dv__body[data-wrap] .dv__comment {
+  width: auto;
+}
+.dv-note {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--shadow-ink) 22%, transparent);
+  animation: dv-note-in 160ms var(--ease) both;
+}
+@keyframes dv-note-in {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+.dv-note__where {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.dv-note__input {
+  width: 100%;
+  min-height: 52px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  resize: vertical;
+}
+.dv-note__input:focus {
+  outline: none;
+  border-color: color-mix(in srgb, var(--accent) 60%, var(--border));
+}
+.dv-note__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+/* ---------------------------------------------------------- Changes pane */
+
+.cpane {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  container: cpane / inline-size;
+}
+/* Too narrow for a tree beside the diffs: the diffs keep the room. */
+@container cpane (max-width: 560px) {
+  .ctree {
+    display: none;
+  }
+}
+.cpane__bar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.cpane__scope {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+  max-width: min(70%, 320px);
+  height: 30px;
+  padding: 0 8px 0 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  background: var(--hover);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  transition:
+    background-color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
+}
+.cpane__scope:hover,
+.cpane__scope[data-open] {
+  background: var(--hover-strong);
+}
+.cpane__scope-icon {
+  display: inline-flex;
+  color: var(--text-2);
+}
+.cpane__scope-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cpane__badge {
+  flex: none;
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: var(--r-pill);
+  background: var(--hover-strong);
+  color: var(--text-2);
+  font-size: var(--fs-xxs);
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  line-height: 17px;
+  text-align: center;
+}
+.cpane__stat {
+  flex: none;
+  font-size: var(--fs-xs);
+  font-weight: 500;
+}
+.cpane__scope-chev {
+  flex: none;
+  color: var(--text-3);
+}
+.cpane__tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  margin-left: auto;
+  padding: 1px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-pill);
+  background: var(--hover);
+}
+.cpane__tool {
+  display: inline-grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--r-pill);
+  color: var(--text-3);
+  transition:
+    background-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+.cpane__tool:hover:not(:disabled) {
+  background: var(--hover-strong);
+  color: var(--text);
+}
+.cpane__tool[data-active] {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: color-mix(in srgb, var(--accent), var(--fg) 25%);
+}
+.cpane__tool:disabled {
+  opacity: 0.4;
+}
+.cpane__tool:focus-visible,
+.cpane__scope:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+.cpane__sep {
+  width: 1px;
+  height: 16px;
+  margin: 0 2px;
+  background: var(--border);
+}
+
+.cpane__body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.cpane__scroll {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.cpane__files {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px 8px 24px;
+}
+.cpane__state {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 120px;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+}
+.cpane__state--error {
+  padding: 0 20px;
+  color: var(--danger);
+  text-align: center;
+}
+.cpane__empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  height: 100%;
+  min-height: 220px;
+  padding: 24px;
+  text-align: center;
+}
+.cpane__empty-icon {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--hover);
+  color: var(--text-2);
+}
+.cpane__empty-title {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+}
+.cpane__empty-hint {
+  max-width: 260px;
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+}
+
+.cpane__jump {
+  max-height: 320px;
+  overflow-y: auto;
+}
+.cpane__jump-row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+}
+.cpane__jump-name {
+  flex: none;
+}
+.cpane__jump-dir {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-3);
+  font-size: var(--fs-xxs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The changed files as a tree, beside the diffs. */
+.ctree {
+  flex: none;
+  width: min(32%, 230px);
+  padding: 6px 4px 16px;
+  overflow-y: auto;
+  border-right: 1px solid var(--border-soft);
+  animation: ctree-in 200ms var(--ease) both;
+}
+@keyframes ctree-in {
+  from {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+}
+.ctree__row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  height: 26px;
+  padding-right: 8px;
+  border-radius: var(--r-xs);
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  text-align: left;
+  white-space: nowrap;
+}
+.ctree__row:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.ctree__row--dir {
+  color: var(--text-3);
+}
+.ctree__chev {
+  flex: none;
+  transition: transform 180ms var(--ease);
+}
+.ctree__row--dir[aria-expanded='true'] .ctree__chev {
+  transform: rotate(90deg);
+}
+.ctree__icon {
+  flex: none;
+  display: inline-flex;
+  opacity: 0.85;
+}
+.ctree__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ctree__name[data-status='deleted'] {
+  text-decoration: line-through;
+}
+.ctree__stat {
+  margin-left: auto;
+  padding-left: 6px;
+  font-size: var(--fs-xxs);
+}
+
+/* A switch as a menu row (the view menu's Wrap long lines). */
+.menu__switch-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 32px;
+  padding: 0 8px 0 10px;
+  border-radius: var(--r-sm);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  cursor: pointer;
+}
+.menu__switch-row > span {
+  flex: 1;
+}
+.menu__switch-row > svg {
+  color: var(--text-2);
+}
+.menu__switch-row:hover {
+  background: var(--hover);
+}
+.menu__switch-row[data-disabled] {
+  opacity: 0.5;
+  cursor: default;
+}
+.menu__switch-row[data-disabled]:hover {
+  background: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .dv__body,
+  .dv-note,
+  .ctree {
+    animation: none;
+  }
+}
+
+/* ------------------------------------- a reply's "3 changed files" card */
+
+.cfiles {
+  margin-top: 16px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--fg) 4%, transparent);
+  white-space: normal;
+}
+[data-theme='light'] .cfiles {
+  background: color-mix(in srgb, var(--fg) 3.5%, transparent);
+}
+.cfiles__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 38px;
+  padding: 6px 8px 6px 12px;
+}
+.cfiles__title {
+  color: var(--text);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+}
+.cfiles__total {
+  font-size: var(--fs-xs);
+  font-weight: 500;
+}
+.cfiles__tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+.cfiles__tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  min-width: 24px;
+  height: 24px;
+  padding: 0 6px;
+  border-radius: var(--r-xs);
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  transition:
+    background-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+.cfiles__tool:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+/* A narrow column keeps the icon and drops the words. */
+@container (max-width: 380px) {
+  .cfiles__tool--label span {
+    display: none;
+  }
+}
+.cfiles__body {
+  padding: 0 8px 8px;
+}
+.cfiles__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  height: 28px;
+  padding-right: 8px;
+  border-radius: var(--r-xs);
+  color: var(--text-2);
+  text-align: left;
+  transition: background-color var(--dur) var(--ease);
+}
+.cfiles__row:hover {
+  background: var(--hover);
+}
+.cfiles__row:hover .cfiles__name {
+  color: var(--text);
+}
+.cfiles__row:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+.cfiles__chev {
+  flex: none;
+  color: var(--text-4);
+  transition: transform 180ms var(--ease);
+}
+.cfiles__row--dir[aria-expanded='true'] .cfiles__chev {
+  transform: rotate(90deg);
+}
+.cfiles__gap {
+  flex: none;
+  width: 14px;
+}
+.cfiles__icon {
+  flex: none;
+  display: inline-flex;
+  color: var(--text-3);
+  opacity: 0.85;
+}
+.cfiles__name {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-3);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xxs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cfiles__name--file {
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+}
+.cfiles__new {
+  flex: none;
+  padding: 0 6px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--diff-add-fg) 15%, transparent);
+  color: var(--diff-add-fg);
+  font-size: var(--fs-xxs);
+  font-weight: 500;
+  line-height: 16px;
+}
+.cfiles__stat {
+  margin-left: auto;
+  padding-left: 8px;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xxs);
+}
+.cfiles__diff {
+  padding: 4px 0 6px 22px;
+}
+.dv[data-bare] {
+  border-radius: 8px;
+}
+
+/* A diff inside a transcript card: flush with the card, its colours the card's. */
+.step-card .dv[data-bare],
+.cfiles__diff .dv[data-bare] {
+  --dv-bg: var(--card-body, var(--code-bg));
+}
+.step-card .dv[data-bare] {
+  border: 0;
+  border-radius: 0;
+}
+.step-card .dv__body {
+  max-height: 420px;
+  overflow-y: auto;
+}
+.edit-card__body[data-clipped] .dv__body {
+  max-height: none;
+  overflow: hidden;
+}
+
+/* "Worked for 2m 4s": a finished turn's work folds under it. */
+.turn-head__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: -2px -4px;
+  padding: 2px 4px;
+  border-radius: var(--r-xs);
+  color: inherit;
+  font: inherit;
+  transition: color var(--dur) var(--ease);
+}
+.turn-head__toggle:hover {
+  color: var(--text);
+}
+.turn-head__toggle:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+.turn-head__chevron {
+  color: var(--text-4);
+  transition: transform 200ms var(--ease);
+}
+.turn-head__toggle[aria-expanded='true'] .turn-head__chevron {
+  transform: rotate(90deg);
+}

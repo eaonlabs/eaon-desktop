@@ -1,4 +1,4 @@
-import type { AgentMode, GoalState, PlanProposal, Settings, StreamEvent, StreamRequest, TokenUsage } from '@shared/types'
+import type { AgentMode, GoalState, PlanProposal, Settings, StreamEvent, StreamRequest, TodoItem, TokenUsage } from '@shared/types'
 import type { NeutralImage, ToolSpec } from '../providers/adapters/types'
 import type { RunPolicy } from './policy'
 
@@ -35,6 +35,8 @@ export interface TurnState {
    * to work meanwhile; it resumes when the worker wakes.
    */
   yielded?: { until: number }
+  /** The checklist as update_plan last set it this turn (agent/planNudge.ts keeps it current). */
+  todos?: TodoItem[]
   /** Anything a tool wants to hand back to the loop that the loop does not interpret. */
   notes: string[]
   /** Tokens spent inside a tool (sub-agents), folded into the turn's usage by the loop. */

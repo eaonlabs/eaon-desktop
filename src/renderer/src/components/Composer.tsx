@@ -10,9 +10,11 @@ import {
   Hand,
   Laptop,
   Lightbulb,
+  ListPlus,
   Mic,
   Network,
   Paperclip,
+  PencilLine,
   Plus,
   ShieldCheck,
   Square,
@@ -33,7 +35,7 @@ import { useSkills } from './plugins/usePlugins'
 import { fileName, fileUrl, isImagePath } from '../lib/files'
 import type { McpServer } from '@shared/types'
 import { useSuggest, type SuggestItem, type SuggestSources } from './composer/SuggestMenu'
-import { liveMentions, permissionItems, pluginItems, skillItems, toolMentionItems, type Mention } from './composer/sources'
+import { fileMentionItems, liveMentions, permissionItems, pluginItems, skillItems, toolMentionItems, type Mention } from './composer/sources'
 import { removeMention } from './composer/suggest'
 import { clampEffort, EFFORT_LABEL } from '@shared/effort'
 import { ModelPicker } from './composer/ModelPicker'
@@ -43,9 +45,19 @@ import { EngineNotice } from './composer/EngineNotice'
 import { ProviderMark } from './composer/ProviderMark'
 import { joinTranscript, useDictation } from './composer/useDictation'
 import { VoiceBar } from './composer/VoiceBar'
-import { ChangesPill, PermissionPicker, ProjectPicker } from './composer/ComposerBits'
+import { PermissionPicker, ProjectPicker } from './composer/ComposerBits'
+import { BranchPicker } from './chatCode/BranchPicker'
+import { useChatCode, watchChatCode } from './chatCode/chatCodeStore'
 import { notify } from './Notice'
 import { errorText } from '../lib/errors'
+import { sentPrompts } from '../state/chatEdits'
+import { enqueue, holdQueue, watchQueue } from '../state/queue'
+import { QueuedMessages } from './chat/QueuedMessages'
+import { ContextMeter } from './chat/ContextMeter'
+
+// Queued follow-ups go out as each reply ends (state/queue.ts).
+watchQueue()
+watchChatCode()
 
 /**
  * What was typed in each chat's box and not sent yet, by chat id. The box is
@@ -85,14 +97,17 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       patchSettings: s.patchSettings
     }))
   )
-  const { mcpServers, saveMcpServers, toggleBrowser, setSettingsPage, setView, newChat } = useApp(
+  const { mcpServers, saveMcpServers, toggleBrowser, setSettingsPage, setView, newChat, composerEdit, editMessage, resendFrom } = useApp(
     useShallow((s) => ({
       mcpServers: s.mcpServers,
       saveMcpServers: s.saveMcpServers,
       toggleBrowser: s.toggleBrowser,
       setSettingsPage: s.setSettingsPage,
       setView: s.setView,
-      newChat: s.newChat
+      newChat: s.newChat,
+      composerEdit: s.composerEdit,
+      editMessage: s.editMessage,
+      resendFrom: s.resendFrom
     }))
   )
   const statuses = useMcpStatuses()
@@ -110,6 +125,13 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
   // How long a goal may run: until it is done, or until a time the user picks.
   const [goalUntil, setGoalUntil] = useState<GoalEnd>({ kind: 'none' })
   const [dragging, setDragging] = useState(false)
+  // Edit from here: the user message being rewritten. Sending puts the new
+  // text in its place and drops everything after it.
+  const [editing, setEditing] = useState<string | null>(null)
+  // ↑ and ↓ through what was sent in this chat. `draft` is what was in the
+  // box before the first ↑, put back after the newest; `recalled` is what ↑
+  // put there, so typing over it ends the walk.
+  const history = useRef<{ index: number; draft: string; recalled: string } | null>(null)
   const textarea = useRef<HTMLTextAreaElement>(null)
   const isAgent = useIsWork()
   // Dictation: what is said lands at the end of the message, ready to edit, never sent by itself.
@@ -191,6 +213,31 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
     requestAnimationFrame(() => node?.setSelectionRange(composerDraft.length, composerDraft.length))
   }, [composerDraft, setComposerDraft])
 
+  // Edit from here, on one of the user's messages: its text and files come back here to change.
+  useEffect(() => {
+    if (composerEdit === null || variant !== 'chat') return
+    editMessage(null)
+    setText(composerEdit.text)
+    setAttachments(composerEdit.attachments)
+    setEditing(composerEdit.messageId)
+    history.current = null
+    const node = textarea.current
+    node?.focus()
+    requestAnimationFrame(() => node?.setSelectionRange(composerEdit.text.length, composerEdit.text.length))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [composerEdit])
+
+  /** A queued message taken back to change: in the box, after anything already typed. */
+  const takeBack = (queuedText: string, queuedFiles: string[]): void => {
+    setText((current) => (current.trim() ? `${current.trimEnd()}\n\n${queuedText}` : queuedText))
+    setAttachments((current) => [...new Set([...current, ...queuedFiles])].slice(0, 12))
+    requestAnimationFrame(() => {
+      const node = textarea.current
+      node?.focus()
+      node?.setSelectionRange(node.value.length, node.value.length)
+    })
+  }
+
   const addAttachments = (paths: string[]): void => {
     if (paths.length === 0) return
     setAttachments((current) => [...new Set([...current, ...paths])].slice(0, 12))
@@ -211,11 +258,28 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
 
   const submit = (): void => {
     if (streaming) {
+      // Stopping is a moment to look again: whatever is queued waits.
+      if (activeChatId) holdQueue(activeChatId)
       stop()
       return
     }
     if (busyElsewhere || noModel || (!text.trim() && attachments.length === 0)) return
-    void send(text, { attachments, goal: isAgent && goalArmed, until: isAgent && goalArmed ? goalEndAt(goalUntil) : null })
+    const options = { attachments, goal: isAgent && goalArmed, until: isAgent && goalArmed ? goalEndAt(goalUntil) : null }
+    if (editing) resendFrom(editing, text, options)
+    else void send(text, options)
+    clearBox()
+  }
+
+  /** While a reply is being written: the message waits, under the conversation, to go after it. */
+  const queueMessage = (): void => {
+    if (!activeChatId || noModel || editing || (!text.trim() && attachments.length === 0)) return
+    enqueue(activeChatId, text, attachments)
+    clearBox()
+  }
+
+  const clearBox = (): void => {
+    history.current = null
+    setEditing(null)
     setText('')
     setAttachments([])
     setMentions([])
@@ -259,10 +323,55 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       .then(addAttachments)
 
   /**
+   * ↑ on the first line of an empty box brings back the last message sent in
+   * this chat, and again the one before; ↓ on the last line goes the other
+   * way, back to what was being typed. Typing over a recalled message makes
+   * it a draft like any other. True when the key was used.
+   */
+  const recall = (step: -1 | 1, event: React.KeyboardEvent<HTMLTextAreaElement>): boolean => {
+    if (variant !== 'chat' || editing || event.shiftKey || event.altKey || event.metaKey || event.ctrlKey) return false
+    const node = event.currentTarget
+    if (node.selectionStart !== node.selectionEnd) return false
+    const walking = history.current !== null && history.current.recalled === text
+    if (!walking) history.current = null
+    if (step === -1) {
+      if (text && !walking) return false
+      if (text.slice(0, node.selectionStart).includes('\n')) return false
+    } else {
+      if (!walking || text.slice(node.selectionEnd).includes('\n')) return false
+    }
+    const prompts = sentPrompts(useApp.getState().activeChat())
+    const at = history.current ? history.current.index + step : step === -1 ? prompts.length - 1 : -1
+    if (step === 1 && at >= prompts.length) {
+      setText(history.current?.draft ?? '')
+      history.current = null
+    } else {
+      const prompt = prompts[at]
+      if (prompt === undefined) return false
+      history.current = { index: at, draft: history.current?.draft ?? text, recalled: prompt }
+      setText(prompt)
+    }
+    event.preventDefault()
+    requestAnimationFrame(() => {
+      const box = textarea.current
+      if (box) box.setSelectionRange(box.value.length, box.value.length)
+    })
+    return true
+  }
+
+  const cancelEdit = (): void => {
+    setEditing(null)
+    setText('')
+    setAttachments([])
+  }
+
+  /**
    * The "/" and "@" menus. "/" runs what the + menu offers, plus skills; "@"
    * pulls in a plugin, the browser or the computer. Chat has no "@worker":
    * workers are their own tab with their own composer.
    */
+  // The project's files for "@": read when the menu first asks (loadFiles only reads, then sets later).
+  const projectFiles = useChatCode((s) => (isAgent ? s.files : null))
   const sources: SuggestSources = {
     '/': () => {
       const items: SuggestItem[] = [
@@ -308,22 +417,26 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
     },
     ...(isAgent
       ? {
-          '@': () => [
-            ...pluginItems(mcpServers, statuses, (server: McpServer) => {
-              // The + menu's toggle: on everywhere, which is how plugins work.
-              if (!server.enabled) void saveMcpServers(mcpServers.map((m) => (m.id === server.id ? { ...m, enabled: true } : m)))
-              setMentions((current) => (current.some((m) => m.id === server.id) ? current : [...current, { id: server.id, name: server.name, pluginId: server.pluginId }]))
-            }),
-            ...toolMentionItems({
-              computerOn: Boolean(settings?.computerUse.enabled),
-              onBrowser: () => toggleBrowser(true),
-              onComputerSettings: () => setSettingsPage('computer-use')
-            })
-          ]
+          '@': (query: string) => {
+            useChatCode.getState().loadFiles()
+            return [
+              ...pluginItems(mcpServers, statuses, (server: McpServer) => {
+                // The + menu's toggle: on everywhere, which is how plugins work.
+                if (!server.enabled) void saveMcpServers(mcpServers.map((m) => (m.id === server.id ? { ...m, enabled: true } : m)))
+                setMentions((current) => (current.some((m) => m.id === server.id) ? current : [...current, { id: server.id, name: server.name, pluginId: server.pluginId }]))
+              }),
+              ...toolMentionItems({
+                computerOn: Boolean(settings?.computerUse.enabled),
+                onBrowser: () => toggleBrowser(true),
+                onComputerSettings: () => setSettingsPage('computer-use')
+              }),
+              ...fileMentionItems(projectFiles ?? [], query)
+            ]
+          }
         }
       : {})
   }
-  const suggest = useSuggest({ text, setText, textarea, sources, label: { '/': 'Commands', '@': 'Plugins and tools' } })
+  const suggest = useSuggest({ text, setText, textarea, sources, label: { '/': 'Commands', '@': 'Files, plugins and tools' } })
   const shownMentions = liveMentions(mentions, text)
 
   const planOn = isAgent && Boolean(settings?.planMode)
@@ -340,7 +453,9 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       ref={textarea}
       className="composer__input"
       placeholder={
-        goalArmed
+        editing
+          ? 'Edit your message'
+          : goalArmed
           ? 'Describe the goal — Eaon keeps working until it is done'
           : planOn
             ? 'Describe the task — Eaon researches and proposes a plan first'
@@ -360,9 +475,15 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       onPaste={onPaste}
       onKeyDown={(e) => {
         if (suggest.onKeyDown(e)) return
+        if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && recall(e.key === 'ArrowUp' ? -1 : 1, e)) return
+        if (e.key === 'Escape' && editing) {
+          e.preventDefault()
+          cancelEdit()
+          return
+        }
         if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
           e.preventDefault()
-          // While a reply streams, ⏎ in the message box does nothing. It
+          // While a reply streams, ⏎ queues the message to go after it. It
           // used to press Stop, so a follow-up typed during a reply ended
           // the run, and so did the ⏎ meant for an approval card. Kept
           // from the card's own ⏎ handler too (ChatView, on document): a
@@ -370,6 +491,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
           // Stop is the button; the card has its own focused buttons.
           if (streaming) {
             e.stopPropagation()
+            queueMessage()
             return
           }
           submit()
@@ -454,6 +576,18 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       <Mic size={16} strokeWidth={1.9} />
     </button>
   )
+  // During a reply, with something typed: queue it, beside Stop.
+  const queueButton = streaming && !editing && (text.trim() || attachments.length > 0) && (
+    <button
+      className="composer__round composer__queue"
+      onClick={queueMessage}
+      disabled={noModel}
+      aria-label="Queue message"
+      title="Queue — sent when Eaon finishes (⏎)"
+    >
+      <ListPlus size={17} strokeWidth={1.9} />
+    </button>
+  )
   const sendButton = (
     <button
       className={`send ${streaming ? 'send--stop' : ''}`}
@@ -494,13 +628,24 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       ) : (
         <ModelNotice selection={selection} onChooseModel={() => modelMenu.setOpen(true)} />
       )}
-      {isAgent && (
+      {/* In a conversation the folder, branch and changes are in the workspace card beside it. */}
+      {isAgent && variant !== 'chat' && (
         <div className="composer__above">
           <ProjectPicker />
-          {variant === 'chat' && <ChangesPill />}
+          <BranchPicker />
         </div>
       )}
-      <div className="composer" data-variant={variant} data-goal={goalArmed || undefined}>
+      {variant === 'chat' && draftId && <QueuedMessages chatId={draftId} onEdit={takeBack} />}
+      {editing && (
+        <div className="composer-editing" role="status">
+          <PencilLine size={13} strokeWidth={2} />
+          <span>Editing a message — sending it replaces that message and everything after it</span>
+          <button type="button" className="composer-editing__cancel" onClick={cancelEdit}>
+            Cancel
+          </button>
+        </div>
+      )}
+      <div className="composer" data-variant={variant} data-goal={goalArmed || undefined} data-editing={editing ? true : undefined}>
         {attachments.length > 0 && (
           <div className="composer__attachments">
             {attachments.map((path) => (
@@ -536,6 +681,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
             {plusButton}
             {input}
             {micButton}
+            {queueButton}
             {sendButton}
           </div>
         ) : (
@@ -559,6 +705,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
           {isAgent && <PermissionPicker />}
           {chips}
           <div className="composer__spacer" />
+          {!engineChoice && <ContextMeter contextWindow={model?.contextWindow} />}
           {modelButton}
         </div>
       )}

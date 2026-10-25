@@ -215,6 +215,8 @@ export interface ChatMessage {
    * quit or crashed before the reply finished.
    */
   interrupted?: boolean
+  /** The user stopped this reply before it finished. */
+  stopped?: boolean
   /** Set when a request failed so the UI can show an inline error. */
   error?: string
   /** What kind of provider failure `error` is, with the fix to offer (Reconnect, Add a key…). */

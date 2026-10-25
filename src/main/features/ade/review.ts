@@ -47,7 +47,7 @@ async function defaultBranch(run: Runner, cwd: string): Promise<{ ref: string; n
   return null
 }
 
-async function untrackedDiffs(run: Runner, cwd: string): Promise<ReviewFile[]> {
+export async function untrackedDiffs(run: Runner, cwd: string): Promise<ReviewFile[]> {
   const list = await run(cwd, 'git', ['ls-files', '--others', '--exclude-standard', '-z'])
   if (!list.ok) return []
   const paths = list.stdout.split('\0').filter(Boolean)
@@ -73,7 +73,7 @@ async function branchRuns(run: Runner, cwd: string, branch: string | null): Prom
   }
 }
 
-async function github(run: Runner, cwd: string, branch: string | null): Promise<Pick<ReviewState, 'github' | 'githubProblem'>> {
+export async function github(run: Runner, cwd: string, branch: string | null): Promise<Pick<ReviewState, 'github' | 'githubProblem'>> {
   const res = await run(cwd, 'gh', ['pr', 'view', '--json', PR_FIELDS], 20_000)
   if (res.ok) {
     let pr = null

@@ -41,7 +41,7 @@
    picture can keep up with the window (SeeThrough.tsx). The system's own
    drag would swallow the press before the page saw it. */
 body[data-see-through='on'][data-platform='darwin']
-  :is(.chat-header, .titlebar, .drag, .ide__bar, .page__bar, .settings__titlebar, .settings__nav-top, .browser__tabs, .crash-screen__drag) {
+  :is(.chat-header, .titlebar, .drag, .dock__bar, .page__bar, .settings__titlebar, .settings__nav-top, .browser__tabs, .crash-screen__drag) {
   -webkit-app-region: no-drag;
 }
 
@@ -192,7 +192,7 @@ body[data-see-through='on'] .search-field__icon {
 /* Panels that float: frosted, so the picture reads through them softly. */
 body[data-see-through='on'] .sidebar__panel,
 body[data-see-through='on'] .settings__nav-panel,
-body[data-see-through='on'] .ide__frame,
+body[data-see-through='on'] .dock,
 body[data-see-through='on'] .theme-card__preview {
   background: var(--glass);
   -webkit-backdrop-filter: var(--glass-blur);
@@ -224,7 +224,7 @@ body[data-see-through='on'] .ide {
 }
 body[data-see-through='on'] .code-block,
 body[data-see-through='on'] .step-card__box,
-body[data-see-through='on'] .files-changed,
+body[data-see-through='on'] .cfiles,
 body[data-see-through='on'] .tool__panel > div {
   background: color-mix(in srgb, var(--canvas) 55%, transparent);
   -webkit-backdrop-filter: var(--glass-blur);

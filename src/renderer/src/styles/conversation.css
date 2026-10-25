@@ -1,0 +1,857 @@
+/*
+ * The conversation's working parts: queued follow-ups, the context meter,
+ * editing a message, find, the minimap of the user's messages, quoting a
+ * selection, the picture viewer, and code blocks' colours and folds.
+ */
+
+/* ---- Context meter ------------------------------------------------ */
+
+.context-meter {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-pill);
+  color: var(--text-3);
+  flex: none;
+  transition: background var(--dur) var(--ease);
+}
+.context-meter:hover,
+.context-meter[data-open] {
+  background: var(--hover);
+}
+.context-meter svg {
+  width: 16px;
+  height: 16px;
+  transform: rotate(-90deg);
+}
+.context-meter circle {
+  fill: none;
+  stroke-width: 2.4;
+}
+.context-meter__track {
+  stroke: var(--border);
+}
+.context-meter__fill {
+  stroke: var(--text-2);
+  stroke-linecap: round;
+  transition: stroke-dashoffset 500ms var(--ease), stroke var(--dur) var(--ease);
+}
+.context-meter[data-full] .context-meter__fill {
+  stroke: var(--warn, #f0883e);
+}
+@media (prefers-reduced-motion: reduce) {
+  .context-meter__fill {
+    transition: none;
+  }
+}
+
+.context-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 12px;
+}
+.context-panel__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  font-weight: 500;
+}
+.context-panel__numbers {
+  color: var(--text-3);
+  font-weight: 400;
+  font-variant-numeric: tabular-nums;
+}
+.context-panel__bar {
+  position: relative;
+  height: 5px;
+  border-radius: var(--r-pill);
+  background: var(--hover-strong);
+}
+.context-panel__bar > span {
+  position: absolute;
+  inset: 0 auto 0 0;
+  border-radius: inherit;
+  background: var(--text-2);
+}
+.context-panel__bar > span[data-full] {
+  background: var(--warn, #f0883e);
+}
+/* Where summarizing starts. */
+.context-panel__bar > i {
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 1.5px;
+  border-radius: 1px;
+  background: var(--text-2);
+}
+.context-panel__note {
+  margin: 0;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  line-height: 1.45;
+}
+
+/* ---- Queued follow-ups -------------------------------------------- */
+
+.queued {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+  padding: 6px;
+  animation: queued-in var(--dur-spring) var(--spring-moderate);
+}
+@keyframes queued-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+}
+.queued__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 2px 6px 4px;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.queued__resume {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: var(--r-pill);
+  background: var(--hover-strong);
+  color: var(--text);
+  font-size: var(--fs-xs);
+}
+.queued__resume:hover {
+  background: var(--active);
+}
+.queued__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 168px;
+  overflow-y: auto;
+}
+.queued__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  padding: 0 4px 0 8px;
+  border-radius: var(--r-sm);
+  font-size: var(--fs-sm);
+}
+.queued__row:hover {
+  background: var(--hover);
+}
+.queued__icon {
+  flex: none;
+  color: var(--text-3);
+}
+.queued__text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.queued__files {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+.queued__actions {
+  display: flex;
+  gap: 1px;
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+.queued__row:hover .queued__actions,
+.queued__row:focus-within .queued__actions {
+  opacity: 1;
+}
+.queued__btn {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-xs);
+  color: var(--text-2);
+}
+.queued__btn:hover {
+  background: var(--hover-strong);
+  color: var(--text);
+}
+
+.composer__queue {
+  color: var(--text);
+}
+
+/* ---- Editing a message -------------------------------------------- */
+
+.composer-editing {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 0 4px 0 10px;
+  min-height: 30px;
+  border-radius: var(--r-md);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+}
+.composer-editing > svg {
+  flex: none;
+  color: var(--accent);
+}
+.composer-editing > span {
+  flex: 1;
+  min-width: 0;
+}
+.composer-editing__cancel {
+  height: 24px;
+  padding: 0 9px;
+  border-radius: var(--r-pill);
+  color: var(--text);
+  font-size: var(--fs-xs);
+}
+.composer-editing__cancel:hover {
+  background: var(--hover-strong);
+}
+.composer[data-editing] {
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+/* ---- The user's messages ------------------------------------------ */
+
+.msg--user[data-folded] .msg-user__body {
+  max-height: calc(1.5em * 9);
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 2.2em), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 2.2em), transparent);
+}
+.thread[data-finding] .msg--user[data-folded] .msg-user__body {
+  max-height: none;
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+.msg-user__more {
+  display: block;
+  margin: 4px 0 0 auto;
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+}
+.msg-user__more:hover {
+  color: var(--text);
+}
+
+.msg-user__actions {
+  display: flex;
+  gap: 2px;
+  margin-top: -2px;
+  opacity: 0;
+  transition: opacity var(--dur) var(--ease);
+}
+.msg-row:hover .msg-user__actions,
+.msg-user__actions:focus-within {
+  opacity: 1;
+}
+.msg-user__action {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-sm);
+  color: var(--text-3);
+}
+.msg-user__action:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+
+/* ---- Find in chat ------------------------------------------------- */
+
+.find-bar {
+  position: absolute;
+  top: calc(var(--titlebar-h) + var(--sidebar-gap) + 8px);
+  /* Clear of the minimap down the right edge. */
+  right: 32px;
+  z-index: 6;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  width: min(340px, calc(100% - 32px));
+  height: 36px;
+  padding: 0 4px 0 10px;
+  border-radius: var(--r-lg);
+  background: var(--menu-bg);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  backdrop-filter: blur(24px) saturate(1.4);
+  box-shadow: var(--shadow-menu);
+  animation: find-in var(--dur-spring) var(--spring-moderate);
+}
+@keyframes find-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+}
+.find-bar__icon {
+  flex: none;
+  color: var(--text-3);
+}
+.find-bar__input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  padding: 0 6px;
+  background: none;
+  border: 0;
+  outline: none;
+  color: var(--text);
+  font-size: var(--fs-sm);
+}
+.find-bar__count {
+  flex: none;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  padding-right: 4px;
+}
+.find-bar__btn {
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-sm);
+  color: var(--text-2);
+}
+.find-bar__btn:hover:not(:disabled) {
+  background: var(--hover-strong);
+  color: var(--text);
+}
+.find-bar__btn:disabled {
+  opacity: 0.4;
+}
+
+::highlight(chat-find) {
+  background-color: color-mix(in srgb, #f5c400 34%, transparent);
+  color: inherit;
+}
+::highlight(chat-find-current) {
+  background-color: #f5c400;
+  color: #111111;
+}
+/* Rows off screen skip layout (chat.css); a match in one must still have a place to scroll to. */
+.thread[data-finding] .thread__inner > .msg-row {
+  content-visibility: visible;
+}
+
+/* ---- Minimap of the user's messages ------------------------------- */
+
+.minimap {
+  position: absolute;
+  right: 6px;
+  z-index: 2;
+  width: 18px;
+}
+.minimap__mark {
+  position: absolute;
+  right: 3px;
+  width: 10px;
+  height: 3px;
+  margin-top: -1.5px;
+  border-radius: 2px;
+  background: var(--text-4);
+  opacity: 0.55;
+  transition:
+    width var(--dur) var(--ease),
+    opacity var(--dur) var(--ease),
+    background var(--dur) var(--ease);
+}
+/* A taller target than the mark itself. */
+.minimap__mark::before {
+  content: '';
+  position: absolute;
+  inset: -4px -4px;
+}
+.minimap__mark:hover,
+.minimap__mark:focus-visible {
+  width: 14px;
+  opacity: 1;
+  background: var(--text-2);
+}
+.minimap__mark[data-active] {
+  width: 14px;
+  opacity: 1;
+  background: var(--text);
+}
+.minimap__peek {
+  position: absolute;
+  right: 24px;
+  width: max-content;
+  max-width: 260px;
+  padding: 6px 10px;
+  border-radius: var(--r-md);
+  background: var(--menu-bg);
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+  box-shadow: var(--shadow-menu);
+  color: var(--text);
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+  transform: translateY(-50%);
+  pointer-events: none;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ---- Quote a selection -------------------------------------------- */
+
+.quote-pop {
+  position: fixed;
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 28px;
+  padding: 0 10px;
+  border-radius: var(--r-pill);
+  background: var(--menu-bg);
+  -webkit-backdrop-filter: blur(24px) saturate(1.4);
+  backdrop-filter: blur(24px) saturate(1.4);
+  box-shadow: var(--shadow-menu);
+  color: var(--text);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+  transform: translate(-50%, calc(-100% - 8px));
+  animation: quote-in var(--dur-spring-fast) var(--spring-fast);
+}
+.quote-pop:hover:not(:disabled) {
+  background: var(--surface-4);
+}
+.quote-pop:disabled {
+  color: var(--text-3);
+}
+@keyframes quote-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, calc(-100% - 4px)) scale(0.96);
+  }
+}
+
+/* ---- Picture viewer ----------------------------------------------- */
+
+.image-viewer {
+  position: fixed;
+  inset: 0;
+  /* Over popovers and menus (controls.css, 100–101). */
+  z-index: 120;
+  display: grid;
+  place-items: center;
+  padding: 64px 72px 40px;
+  background: color-mix(in srgb, #000 82%, transparent);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  animation: viewer-in var(--dur-spring) var(--spring-moderate);
+}
+@keyframes viewer-in {
+  from {
+    opacity: 0;
+  }
+}
+.image-viewer__img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: var(--r-md);
+  box-shadow: 0 24px 64px rgb(0 0 0 / 0.5);
+  cursor: zoom-in;
+}
+/* Clicked: its own size, scrolling if it's bigger than the window. */
+.image-viewer__img[data-zoomed] {
+  max-width: none;
+  max-height: none;
+  cursor: zoom-out;
+}
+.image-viewer:has(.image-viewer__img[data-zoomed]) {
+  overflow: auto;
+  place-items: start center;
+}
+.image-viewer__bar {
+  position: fixed;
+  top: 0;
+  right: 0;
+  left: 0;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 52px;
+  padding: 0 12px 0 calc(var(--window-controls-left) + 8px);
+  color: #f5f5f5;
+}
+.image-viewer__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-size: var(--fs-sm);
+}
+.image-viewer__count {
+  margin-left: 10px;
+  color: rgb(255 255 255 / 0.55);
+  font-variant-numeric: tabular-nums;
+}
+.image-viewer__btn {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-pill);
+  color: rgb(255 255 255 / 0.8);
+}
+.image-viewer__btn:hover {
+  background: rgb(255 255 255 / 0.12);
+  color: #fff;
+}
+.image-viewer__step {
+  position: fixed;
+  top: 50%;
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-pill);
+  background: rgb(255 255 255 / 0.1);
+  color: #fff;
+  transform: translateY(-50%);
+}
+.image-viewer__step:hover {
+  background: rgb(255 255 255 / 0.2);
+}
+.image-viewer__step--prev {
+  left: 16px;
+}
+.image-viewer__step--next {
+  right: 16px;
+}
+
+/* ---- Code blocks: tools, folding, colours -------------------------- */
+
+.code-block__tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+.code-block__tool {
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-xs);
+  color: var(--text-3);
+  transition:
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+.code-block__tool:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.code-block__tool[data-on] {
+  background: var(--hover-strong);
+  color: var(--text);
+}
+.code-block__body[data-wrapped] {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.code-block[data-folded] .code-block__body {
+  overflow-y: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 3em), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 3em), transparent);
+}
+.code-block__fold {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  width: 100%;
+  height: 30px;
+  border-top: 1px solid var(--border-soft);
+  color: var(--text-3);
+  font-size: var(--fs-xxs);
+  transition:
+    background var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+.code-block__fold:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.code-block__fold svg[data-up] {
+  transform: rotate(180deg);
+}
+
+/* Dark by default; light below. */
+.code-block {
+  --tok-comment: #8b949e;
+  --tok-keyword: #ff7b72;
+  --tok-string: #a5d6ff;
+  --tok-number: #79c0ff;
+  --tok-func: #d2a8ff;
+  --tok-type: #ffa657;
+  --tok-tag: #7ee787;
+  --tok-attr: #79c0ff;
+  --tok-meta: #ffa657;
+}
+[data-theme='light'] .code-block {
+  --tok-comment: #6e7781;
+  --tok-keyword: #cf222e;
+  --tok-string: #0a3069;
+  --tok-number: #0550ae;
+  --tok-func: #8250df;
+  --tok-type: #953800;
+  --tok-tag: #116329;
+  --tok-attr: #0550ae;
+  --tok-meta: #953800;
+}
+.tok-comment {
+  color: var(--tok-comment);
+  font-style: italic;
+}
+.tok-keyword {
+  color: var(--tok-keyword);
+}
+.tok-string {
+  color: var(--tok-string);
+}
+.tok-number,
+.tok-literal {
+  color: var(--tok-number);
+}
+.tok-func {
+  color: var(--tok-func);
+}
+.tok-type {
+  color: var(--tok-type);
+}
+.tok-tag {
+  color: var(--tok-tag);
+}
+.tok-attr {
+  color: var(--tok-attr);
+}
+.tok-meta {
+  color: var(--tok-meta);
+}
+.tok-add {
+  color: var(--diff-add-fg);
+  background: var(--diff-add-bg);
+}
+.tok-del {
+  color: var(--diff-del-fg);
+  background: var(--diff-del-bg);
+}
+
+/* ---- Callouts: > [!NOTE] and kin ---------------------------------- */
+
+.md__alert {
+  --alert: var(--accent);
+  margin: 0 0 10px;
+  padding: 8px 12px 9px;
+  border-left: 3px solid var(--alert);
+  border-radius: 0 var(--r-sm) var(--r-sm) 0;
+  background: color-mix(in srgb, var(--alert) 9%, transparent);
+}
+.md__alert[data-kind='tip'] {
+  --alert: var(--diff-add-fg);
+}
+.md__alert[data-kind='important'] {
+  --alert: #a371f7;
+}
+.md__alert[data-kind='warning'] {
+  --alert: #d29922;
+}
+.md__alert[data-kind='caution'] {
+  --alert: var(--danger);
+}
+.md__alert-title {
+  color: var(--alert);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+.md__alert-body {
+  margin-top: 2px;
+}
+
+/* ---------------- The work log (chat/WorkRows.tsx) ----------------
+   Between a reply's sentences, what the agent did: each run of calls a quiet
+   line ("Read 2 files and ran 1 command") that opens into the calls, and
+   each thought a line of its own. Muted, one size with the reply, an icon in
+   a column of its own so the words line up down the turn. */
+
+.wl {
+  margin: 6px 0;
+  white-space: normal;
+}
+.wl + .wl {
+  margin-top: -2px;
+}
+.wl-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  min-height: 26px;
+  margin-left: -3px;
+  padding: 0 6px 0 3px;
+  border-radius: var(--r-xs);
+  color: var(--text-3);
+  font-size: var(--fs-base);
+  line-height: 1.6;
+  text-align: left;
+  transition: color var(--dur) var(--ease);
+}
+button.wl-row:not([data-static]):hover,
+.wl-row[aria-expanded='true'] {
+  color: var(--text-2);
+}
+.wl-row[data-static] {
+  cursor: default;
+}
+.wl-row:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 1px;
+}
+.wl-row__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  color: var(--text-4);
+}
+.wl-row__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wl-row__failed {
+  flex: none;
+  color: color-mix(in srgb, var(--danger), var(--text-3) 30%);
+}
+.wl-row__failed::before {
+  content: '·';
+  margin-right: 6px;
+  color: var(--text-4);
+}
+.wl-row__chev {
+  flex: none;
+  color: var(--text-4);
+  opacity: 0;
+  transition:
+    opacity var(--dur) var(--ease),
+    transform 200ms var(--ease);
+}
+.wl-row:hover .wl-row__chev,
+.wl-row:focus-visible .wl-row__chev,
+.wl-row[aria-expanded='true'] .wl-row__chev {
+  opacity: 1;
+}
+.wl-row[aria-expanded='true'] .wl-row__chev {
+  transform: rotate(90deg);
+}
+/* A thought's line is a sentence: it wraps (four lines at most) under its icon. */
+.wl-row--wrap {
+  align-items: flex-start;
+}
+.wl-row--wrap .wl-row__icon {
+  height: calc(var(--fs-base) * 1.6);
+}
+.wl-row--wrap .wl-row__label {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 4;
+  white-space: normal;
+}
+.wl-row--wrap .wl-row__chev {
+  margin-top: calc((var(--fs-base) * 1.6 - 14px) / 2);
+}
+/* What a line opens into: the calls' own rows, or the reasoning, under the words. */
+.wl__calls {
+  display: flex;
+  flex-direction: column;
+  margin: 2px 0 4px 23px;
+  animation: wl-open 200ms var(--ease) both;
+}
+.wl__thought {
+  margin: 2px 0 6px 9px;
+  padding: 0 0 0 15px;
+  border-left: 1px solid var(--border-soft);
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+  animation: wl-open 200ms var(--ease) both;
+}
+.wl__thought strong {
+  color: var(--text-2);
+}
+@keyframes wl-open {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wl__calls,
+  .wl__thought {
+    animation: none;
+  }
+}
+
+/* A reply the user stopped: said once, quietly, on a hairline across the turn. */
+.msg__stopped {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 18px;
+  color: color-mix(in srgb, var(--danger), var(--text-2) 25%);
+  font-size: var(--fs-sm);
+}
+.msg__stopped::before,
+.msg__stopped::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border-soft);
+}
+.msg__stopped::before {
+  margin-right: 6px;
+}
+.msg__stopped::after {
+  margin-left: 6px;
+}
+.msg__stopped-why {
+  color: var(--text-3);
+}

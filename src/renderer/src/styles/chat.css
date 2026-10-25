@@ -508,15 +508,6 @@
 .composer__above .composer-pill[data-open] {
   background: var(--surface-3);
 }
-.composer-pill--changes {
-  animation: chip-in var(--dur-spring) var(--spring-moderate) both;
-}
-.composer-pill--changes .diff__stat-add,
-.composer-pill--changes .diff__stat-del {
-  font-family: var(--font-mono);
-  font-size: var(--fs-xs);
-  font-variant-numeric: tabular-nums;
-}
 
 /* The project menu runs taller than a menu usually does: the folders, then its way out. */
 .menu.project-menu {
@@ -840,49 +831,6 @@
    in what order. All of it collapses to nothing under reduce-motion
    via the global rule in app.css.
    ================================================================== */
-
-/* ---- Thoughts --------------------------------------------------- */
-
-/* A thought is a row among the turn's tool calls (agent.css `.tool`), in the
-   order it happened: "Thought" and its title, opening into the reasoning. The
-   title is prose, so it gets the reply's font rather than a call's mono. */
-.thought__title {
-  min-width: 0;
-  color: var(--text-3);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.thought .tool__head[data-static] {
-  cursor: default;
-}
-.thought .tool__head[data-static]:hover {
-  color: var(--text-3);
-}
-/* The reasoning itself, quieter than the reply it led to: a short window
-   under the row (agent.css .tool__panel) that follows it as it streams. */
-.thought__body {
-  max-height: 175px;
-  padding: 2px 4px 2px 0;
-  color: var(--text-3);
-  font-size: var(--fs-sm);
-  line-height: 1.55;
-  overflow-wrap: anywhere;
-}
-.thought__body strong {
-  color: var(--text-2);
-  font-weight: 600;
-}
-.thought__body .md__p {
-  margin-bottom: 6px;
-}
-.thought__body .md__p:last-child {
-  margin-bottom: 0;
-}
-.thought__body .md__heading {
-  margin: 8px 0 4px;
-  font-size: var(--fs-sm);
-}
 
 /* ---- Message entrances ------------------------------------------ */
 

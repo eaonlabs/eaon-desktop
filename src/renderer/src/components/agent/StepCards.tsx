@@ -5,7 +5,8 @@ import type { ChatToolPart } from '@shared/types'
 import { useApp, useIsWork } from '../../state/store'
 import { openInCode } from '../ide/ideStore'
 import { commandSummary, splitCommandOutput } from './commandText'
-import { FileDiff, diffStats } from './FileDiff'
+import { countChanges } from '../chatCode/diff/model'
+import { SnippetDiff } from '../chatCode/diff/SnippetDiff'
 import { splitPath } from './FileIcon'
 import { PeekLine } from './ToolPeek'
 
@@ -51,7 +52,7 @@ export const EditCard = memo(function EditCard({ part }: { part: ChatToolPart })
   const before = write ? '' : text(part.input.old_text)
   const after = write ? text(part.input.content) : text(part.input.new_text)
   const hasDiff = before.length > 0 || after.length > 0
-  const stats = useMemo(() => diffStats(before, after), [before, after])
+  const stats = useMemo(() => countChanges(before, after), [before, after])
   const waiting = useAwaitingApproval(part)
   // Chat's code panel opens the file; a worker's transcript has no panel.
   const canOpen = useIsWork() && part.status === 'done'
@@ -126,7 +127,7 @@ export const EditCard = memo(function EditCard({ part }: { part: ChatToolPart })
               <pre className="step-card__message">{part.output}</pre>
             ) : hasDiff ? (
               <div className="edit-card__body" ref={body} data-clipped={(overflows && !more) || undefined}>
-                <FileDiff file={path} before={before} after={after} bare />
+                <SnippetDiff path={path} changes={[{ before, after }]} />
                 {overflows && (
                   <button className="step-card__more" onClick={() => setMore(!more)} aria-expanded={more}>
                     {more ? 'Show less' : 'Show more'}

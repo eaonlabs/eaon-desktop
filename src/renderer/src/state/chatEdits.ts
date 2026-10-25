@@ -82,3 +82,38 @@ export function forkedChat(chat: Chat, messageId: string, id: string, now: numbe
   if (!keepSummary) delete fork.summary
   return fork
 }
+
+/**
+ * What editing one of the user's own messages takes: its text and files to
+ * put back in the message box, and the chat as it stood before it, so sending
+ * the edit puts the new message (and a fresh reply) where the old one was.
+ * Everything after it goes, and so does a summary of messages that no longer
+ * exist. Null for a message that isn't the user's own typing, or while a tool
+ * call in the chat is still running.
+ */
+export function editPlan(chat: Chat, messageId: string): { text: string; attachments: string[]; chat: Chat } | null {
+  const at = chat.messages.findIndex((message) => message.id === messageId)
+  if (at === -1) return null
+  const message = chat.messages[at]
+  if (message.role !== 'user' || message.mail || message.heartbeat) return null
+  if (chat.messages.some((m) => m.parts.some((part) => part.type === 'tool' && part.status === 'running'))) return null
+  const messages = chat.messages.slice(0, at)
+  const edited: Chat = { ...chat, messages }
+  if (chat.summary && !messages.some((m) => m.id === chat.summary!.throughMessageId)) delete edited.summary
+  return { text: userText(message), attachments: message.attachments ?? [], chat: edited }
+}
+
+/**
+ * What the user has sent in this chat, oldest first, for ↑ in the message
+ * box. Only what they typed: not a worker's mail, a heartbeat or a scheduled
+ * run. The same message sent twice in a row is one entry.
+ */
+export function sentPrompts(chat: Chat | null): string[] {
+  const prompts: string[] = []
+  for (const message of chat?.messages ?? []) {
+    if (message.role !== 'user' || message.mail || message.heartbeat || message.scheduledTaskId) continue
+    const text = userText(message).trim()
+    if (text && prompts[prompts.length - 1] !== text) prompts.push(text)
+  }
+  return prompts
+}

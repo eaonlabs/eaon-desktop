@@ -3,7 +3,8 @@ import { useShallow } from 'zustand/react/shallow'
 import { isAgentKind, useApp, useIsWork, useWorkspaceKind } from './state/store'
 import { Sidebar } from './components/Sidebar'
 import { ApprovalPrompt, ARCHIVE_REQUEST, ChatView } from './components/ChatView'
-import { CodePanel } from './components/ide/CodePanel'
+import { ImageViewer } from './components/chat/ImageViewer'
+import { Dock, useDockBridge } from './components/ide/Dock'
 import { useIde } from './components/ide/ideStore'
 import { BrowserKeys, BrowserPanel } from './components/browser/BrowserPanel'
 import { isLocalUrl, openInBrowser, useBrowser } from './components/browser/browserStore'
@@ -26,7 +27,6 @@ import { WorkerBrowserPanel } from './components/workers/WorkerAutonomy'
 import { WorkerActivityPanel } from './components/workers/WorkerThreads'
 import { useWorkers } from './components/workers/workersStore'
 import { DiscordPresence } from './components/discord/DiscordPresence'
-import { AgentBrowserPanel } from './components/agentBrowser/AgentBrowserPanel'
 import { TradingDesk } from './components/trading/TradingDesk'
 import { useAgentBrowser } from './components/agentBrowser/agentBrowserStore'
 import { ErrorBoundary } from './components/ErrorBoundary'
@@ -85,19 +85,21 @@ export default function App(): JSX.Element {
   const kind = useWorkspaceKind()
   // The browser sits beside Chat, and beside the ADE's terminals.
   const browserHere = isWork || (kind === 'code' && view === 'chat')
-  const browserExpanded = useBrowser((s) => s.expanded) && browserHere && browserOpen
-  const agentBrowserOpen = useAgentBrowser((s) => s.open)
-  const codeOpen = useIde((s) => s.open)
+  // Beside a Chat conversation, the browsers open in the dock rather than in panels of their own.
+  const dockHere = isWork && view === 'chat'
+  const browserExpanded = useBrowser((s) => s.expanded) && browserHere && browserOpen && !dockHere
+  const dockOpen = useIde((s) => s.open)
   // Kept a moment after it closes, so the panel slides away instead of vanishing.
-  const code = usePresence(isWork && view === 'chat' && kind === 'chat' && codeOpen, 260)
+  const dock = usePresence(dockHere && dockOpen, 260)
+  useDockBridge(dockHere)
   // A worker's browser beside its page, while that page is the one open.
   const browserWorker = useWorkers((s) => (s.browserFor && s.selectedId === s.browserFor && !s.selectedRoomId ? s.workers.find((w) => w.id === s.browserFor) ?? null : null))
   // A worker's run history beside its page.
   const activityWorker = useWorkers((s) => (s.activityOpen && s.selectedId && !s.selectedRoomId ? s.workers.find((w) => w.id === s.selectedId) ?? null : null))
   // The same conditions that render the side panels below.
   useRoomForSidePanel(
-    (browserHere && browserOpen) ||
-      (isWork && view === 'chat' && kind === 'chat' && agentBrowserOpen) ||
+    (browserHere && browserOpen && !dockHere) ||
+      (dockHere && dockOpen) ||
       (view === 'chat' && kind === 'workers' && (Boolean(browserWorker) || Boolean(activityWorker)))
   )
 
@@ -194,19 +196,14 @@ export default function App(): JSX.Element {
               {view === 'models' && <ModelsPage />}
             </ErrorBoundary>
           </div>
-          {code.mounted && (
-            <ErrorBoundary area="code panel" fallback={() => <PanelError onClose={() => useIde.getState().setOpen(false)} />}>
-              <CodePanel closing={code.closing} />
+          {dock.mounted && (
+            <ErrorBoundary area="dock" fallback={() => <PanelError onClose={() => useIde.getState().setOpen(false)} />}>
+              <Dock closing={dock.closing} />
             </ErrorBoundary>
           )}
-          {browserHere && browserOpen && (
+          {browserHere && browserOpen && !dockHere && (
             <ErrorBoundary area="browser panel" fallback={() => <PanelError onClose={() => useApp.getState().toggleBrowser(false)} />}>
               <BrowserPanel />
-            </ErrorBoundary>
-          )}
-          {isWork && view === 'chat' && kind === 'chat' && agentBrowserOpen && !browserOpen && (
-            <ErrorBoundary area="agent browser" fallback={() => <PanelError onClose={() => useAgentBrowser.getState().setOpen(false, useApp.getState().activeChatId)} />}>
-              <AgentBrowserPanel />
             </ErrorBoundary>
           )}
           {view === 'chat' && kind === 'workers' && browserWorker && (
@@ -233,6 +230,8 @@ export default function App(): JSX.Element {
       <ErrorBoundary area="approval prompt" fallback={() => null}>
         <ApprovalPrompt />
       </ErrorBoundary>
+      {/* Pictures from any conversation, chats' and workers' alike. */}
+      <ImageViewer />
       <UpdateToast />
       <StoreNotice />
       <ComputerLeaseIndicator />

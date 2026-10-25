@@ -1,7 +1,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { Chat, ChatMessage } from '@shared/types'
-import { forkedChat, retryPlan, withFeedback } from '../src/renderer/src/state/chatEdits'
+import { editPlan, forkedChat, retryPlan, sentPrompts, withFeedback } from '../src/renderer/src/state/chatEdits'
 
 /** A reply's action bar: thumbs and emoji kept on the message, retry, and fork. */
 
@@ -91,4 +91,52 @@ test('forking keeps the conversation up to the reply, without the goal or a summ
   const covered = forkedChat({ ...base, summary: { text: 'early', throughMessageId: 'u1' } }, 'a2', 'c3', 1)
   assert.deepEqual(covered?.summary, { text: 'early', throughMessageId: 'u1' })
   assert.equal(forkedChat(base, 'missing', 'c4', 1), null)
+})
+
+test('editing a message brings back its text and files, and the chat as it was before it', () => {
+  const base = chat(
+    [
+      text('u1', 'user', 'Free up space'),
+      text('a1', 'assistant', 'Deleted caches'),
+      text('u2', 'user', 'Now the photos', { attachments: ['/tmp/a.png'] }),
+      text('a2', 'assistant', 'Moved 3 GB'),
+      text('u3', 'user', 'Thanks')
+    ],
+    { summary: { text: 'Cleaned caches', throughMessageId: 'a2' } }
+  )
+  const plan = editPlan(base, 'u2')
+  assert.ok(plan)
+  assert.equal(plan.text, 'Now the photos')
+  assert.deepEqual(plan.attachments, ['/tmp/a.png'])
+  assert.deepEqual(plan.chat.messages.map((m) => m.id), ['u1', 'a1'])
+  assert.equal(plan.chat.summary, undefined, 'a summary of messages that are gone goes too')
+  assert.equal(base.messages.length, 5, 'the chat itself is untouched until the edit is sent')
+
+  const early = chat(base.messages, { summary: { text: 'Cleaned caches', throughMessageId: 'a1' } })
+  assert.deepEqual(editPlan(early, 'u3')?.chat.summary, { text: 'Cleaned caches', throughMessageId: 'a1' })
+
+  assert.equal(editPlan(base, 'a1'), null, 'only the user’s own messages')
+  assert.equal(editPlan(base, 'nope'), null)
+  const mail = chat([text('u1', 'user', 'Hi', { mail: [{ id: 'm', from: 'user', fromName: 'You', text: 'Hi' }] as ChatMessage['mail'] })])
+  assert.equal(editPlan(mail, 'u1'), null, 'not a worker’s mail')
+  const running = chat([
+    text('u1', 'user', 'Go'),
+    { id: 'a1', role: 'assistant', createdAt: 1, parts: [{ type: 'tool', id: 't', name: 'run_command', input: {}, output: null, status: 'running' }] }
+  ])
+  assert.equal(editPlan(running, 'u1'), null, 'not while a tool call is still running')
+})
+
+test('↑ in the message box walks back through what the user sent here, once each in a row', () => {
+  const base = chat([
+    text('u1', 'user', 'first'),
+    text('a1', 'assistant', 'ok'),
+    text('u2', 'user', '  second  '),
+    text('u3', 'user', 'second'),
+    text('u4', 'user', 'from a schedule', { scheduledTaskId: 's1' }),
+    text('u5', 'user', 'heartbeat', { heartbeat: '9:00' }),
+    text('u6', 'user', '   '),
+    text('u7', 'user', 'third')
+  ])
+  assert.deepEqual(sentPrompts(base), ['first', 'second', 'third'])
+  assert.deepEqual(sentPrompts(null), [])
 })

@@ -4,6 +4,7 @@ import type { McpServer, McpServerStatus } from '@shared/types'
 import type { SkillInfo } from '@shared/skills'
 import { mcpCatalogEntry } from '@shared/mcpCatalog'
 import { PluginLogo } from '../plugins/PluginLogo'
+import { FileIcon, splitPath } from '../agent/FileIcon'
 import type { SuggestItem } from './SuggestMenu'
 
 /**
@@ -135,4 +136,49 @@ export function permissionItems<L extends string>(
     checked: current === level.id,
     run: () => onPick(level.id)
   }))
+}
+
+/** At most this many of the project's files go to the menu's ranking per keystroke. */
+const FILE_CANDIDATES = 200
+
+/**
+ * The project's files as "@" rows: picking one puts "@path/to/file" in the
+ * message for the agent to read. Narrowed here first, since a project can
+ * have thousands: by the name, then anywhere in the path; with nothing typed
+ * yet, the files nearest the top of the project.
+ */
+export function fileMentionItems(files: readonly string[], query: string): SuggestItem[] {
+  const q = query.trim().toLowerCase()
+  let picked: string[]
+  if (!q) {
+    picked = files
+      .filter((f) => !/\s/.test(f))
+      .slice()
+      .sort((a, b) => a.split('/').length - b.split('/').length || a.localeCompare(b))
+      .slice(0, 30)
+  } else {
+    const byName: string[] = []
+    const byPath: string[] = []
+    for (const file of files) {
+      if (/\s/.test(file)) continue
+      const lower = file.toLowerCase()
+      const name = lower.slice(lower.lastIndexOf('/') + 1)
+      if (name.includes(q)) byName.push(file)
+      else if (lower.includes(q)) byPath.push(file)
+      if (byName.length >= FILE_CANDIDATES) break
+    }
+    picked = [...byName, ...byPath].slice(0, FILE_CANDIDATES)
+  }
+  return picked.map((path) => {
+    const { name, folder } = splitPath(path)
+    return {
+      id: `file:${path}`,
+      title: name,
+      description: folder || undefined,
+      keywords: path,
+      section: 'Files',
+      icon: <FileIcon file={name} size={15} />,
+      insert: `@${path}`
+    }
+  })
 }

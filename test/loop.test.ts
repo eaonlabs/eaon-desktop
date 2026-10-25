@@ -259,6 +259,38 @@ test('a Work reply that only announces its plan is sent back to act, once', asyn
   assert.equal(requests.length, 3)
 })
 
+test('a Work turn that stops with its checklist still open is asked once to mark it, and the panel gets the update', async () => {
+  const req = request()
+  const plan = (a: string, b: string): string[] => toolCall('update_plan', { items: [{ text: 'Read', status: a }, { text: 'Write', status: b }] })
+  const { server, requests } = await setup((_b, i) => (i === 0 ? plan('in_progress', 'pending') : i === 1 ? say('Done.') : i === 2 ? plan('done', 'done') : say('Marked.')))
+  const todos: string[] = []
+  await runAgent(req, (e: StreamEvent) => e.type === 'todos' && todos.push(e.todos.map((t) => t.status).join(',')), { approver: async () => true })
+  server.close()
+  assert.equal(requests.length, 4)
+  assert.match(JSON.stringify((requests[2] as unknown as Body).messages), /checklist still shows open steps/)
+  assert.deepEqual(todos, ['in_progress,pending', 'done,done'])
+})
+
+test('a checklist left alone for several rounds is brought up in a tool result', async () => {
+  const req = request()
+  const { server, requests } = await setup((_b, i) =>
+    i === 0
+      ? toolCall('update_plan', { items: [{ text: 'Write files', status: 'in_progress' }] })
+      : i <= 6
+        ? toolCall('write_file', { path: `f${i}.txt`, content: 'x' })
+        : i === 7
+          ? toolCall('update_plan', { items: [{ text: 'Write files', status: 'done' }] })
+          : say('Done.')
+  )
+  await runAgent(req, () => {}, { approver: async () => true })
+  server.close()
+  const sent = (n: number): string => JSON.stringify((requests[n] as unknown as Body).messages)
+  assert.doesNotMatch(sent(6), /hasn't been updated/)
+  assert.match(sent(7), /hasn't been updated for a while/)
+  // Marked done: no nudge at the end.
+  assert.equal(requests.length, 9)
+})
+
 test('intent detection leaves real answers and questions alone', () => {
   assert.equal(announcesIntent("I'll create the file now."), true)
   assert.equal(announcesIntent('Steps:\n1. Create notes/'), true)

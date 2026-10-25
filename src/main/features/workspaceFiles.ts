@@ -16,7 +16,7 @@ import { EDITABLE_LIMIT, type WorkspaceEntry, type WorkspaceFile } from '@shared
 const HIDDEN = new Set(['.DS_Store', 'Thumbs.db'])
 
 /** The folder Chat's agent runs in, as `ensureWorkFolder` in agent/loop.ts picks it. */
-async function chatFolder(): Promise<string> {
+export async function chatFolder(): Promise<string> {
   const workspaces = store.getWorkspaces()
   const chat = workspaces.find((w) => w.kind === 'chat') ?? workspaces.find((w) => w.kind === 'work')
   const folder = chat?.cwd || store.getSettings().work.defaultFolder || join(homedir(), 'Eaon')
@@ -42,7 +42,7 @@ const inside = (root: string, path: string): boolean => {
 }
 
 /** `path`, symlinks resolved, if it lies inside an allowed folder; otherwise it throws. */
-async function allowed(path: unknown): Promise<string> {
+export async function allowed(path: unknown): Promise<string> {
   if (typeof path !== 'string' || !isAbsolute(path)) throw new Error('Not an absolute path.')
   const real = await realpath(resolve(path))
   const ok = (await roots()).some((root) => inside(root, real))

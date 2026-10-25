@@ -27,6 +27,75 @@ All notable changes to Eaon are documented here. Format loosely follows
   Any shape fits the tile, and one-colour logos stay visible in light and
   dark mode. API providers can publish theirs:
   [docs/provider-logos.md](docs/provider-logos.md).
+- **Queue messages while Eaon replies.** ⏎ during a reply queues what you
+  typed, and it goes as soon as the reply ends. Each queued message can be
+  sent now (which stops the reply), taken back into the box to change, or
+  removed. After Stop or a failed reply the queue waits for you to resume it.
+- **Edit from here.** Your messages have Copy and Edit on hover. Edit puts the
+  message back in the box; sending it replaces that message and the replies
+  after it.
+- **↑ for earlier messages.** In an empty message box, ↑ brings back what you
+  sent in the chat, and ↓ goes forward again to what you were typing.
+- **Find in chat.** ⌘F (Ctrl+F) finds text in the conversation, marks every
+  match and steps between them with ⏎ and ⇧⏎.
+- **A map of your messages.** Long chats get marks down the right edge, one
+  per message you sent; point at one to see it, click to go there.
+- **Context window meter.** A ring by the model shows about how much of the
+  model's context the chat fills, and when Eaon starts summarizing older
+  messages.
+- **Quote a passage.** Selecting part of a reply shows a Quote button that
+  puts the passage in your message as a quote.
+- **Picture viewer.** Pictures in a conversation open inside Eaon, full size,
+  with ← and → between them, instead of in another app.
+- **The dock.** The panel switch at the top right opens a dock beside the
+  conversation, and the work opens in it as tabs: the browser (and Eaon's own
+  browser while it browses), terminals, the folder's files, a file, the diff,
+  the branch's pull request, the pull requests the chat links to, and the
+  browser's page at phone or tablet size. An empty dock lists them, each with
+  its letter (B, T, F, D, P, L, M); + lists the same from anywhere. It can
+  fill the window, and its pages, terminals and files stay as they were when
+  you switch tabs.
+- **Files in the dock.** Search files by name, open folders as you go, and
+  open a file in a tab of its own: where it sits in the folder, Open in your
+  editor, long lines wrapped, the tree beside it, and ⌘S to save. Click a
+  line number to put that line in your message.
+- **File marks for every language.** Files show a mark for their type, as an
+  editor's file tree does: Python, TypeScript, JavaScript, React, HTML, CSS,
+  Sass, Markdown, JSON, YAML, Go, Rust, Ruby, Java, Swift, C and C++, C#,
+  PHP, Vue, Svelte, shell scripts, SQL, pictures, fonts, archives, git files,
+  `.env`, lock files, Dockerfiles, `package.json`, READMEs and licences among
+  them; a file with no mark of its own is lines of text.
+- **A terminal under the chat.** ⌘J (Ctrl+J) opens a real shell in the chat's
+  folder, edge to edge under the conversation. A small bar over its corner
+  splits it to the right or down, opens another, runs a project script, or
+  closes it (asking first: closing stops what runs in it); with more than
+  one, a list down the side picks between them. Select some output and Add
+  to message puts it in the box for Eaon to look at.
+- **Review changes in Chat.** The dock's Diff shows the chat's
+  work as diffs, one card per file: coloured code, real line numbers, the
+  words that changed marked inside a line, and unchanged stretches folded to
+  a line that opens in place. Choose the whole chat, one turn, or (in a git
+  repository) everything uncommitted; switch between one column and side by
+  side, wrap long lines, step from change to change, jump to a file or show
+  them as a tree. Click a line number to comment on it, and the comment goes
+  into your message.
+- **Git in Chat.** One button for the next step — Commit, Push or Publish,
+  Create PR, View PR — with Commit and push, Pull and Review uncommitted
+  changes in its menu, and a branch picker that switches branches, makes new
+  ones, pushes and pulls.
+- **Open in your editor.** Open puts the chat's folder in VS Code, Cursor,
+  Zed, a JetBrains IDE, a terminal app or Finder — whichever are installed —
+  and remembers the last one. On a Mac each app shows its own icon.
+- **Project scripts.** Save commands like `npm run dev` or `make test` (Eaon
+  offers the project's own) and run them in one click, each in its own
+  terminal tab.
+- **Find in project.** ⇧⌘F searches every file in the folder, with match
+  case, whole word and regular expressions; ⏎ opens a match at its line.
+- **@ a file.** Typing @ in the message box suggests the project's files.
+- **Paths in replies open the file.** `src/app.ts:42` in a reply opens that
+  line in the dock; ⌘-click opens it in your editor.
+- **HTML preview.** HTML code blocks have Preview, with desktop, tablet and
+  phone widths, and Open in browser.
 
 ### Changed
 - **The setup's Connect a model step, redrawn.** Each way to connect (sign
@@ -38,6 +107,32 @@ All notable changes to Eaon are documented here. Format loosely follows
 - **Claude plan limits come from Claude Code itself.** Eaon no longer starts
   Claude Code in the background to read them; the Claude card points to
   `/usage` in Claude Code.
+- **Each reply that changes files ends with "N changed files"**: its line
+  counts, the files as a folder tree, and Open diff (the dock's Diff, on
+  that turn); a file's row opens it there.
+- **A reply's work reads as a log.** Between its sentences, each run of steps
+  is one quiet line of what it did ("Read 2 files and ran 1 command",
+  "Changed 1 file") that opens into the steps, and each thought is a line of
+  its own. A finished reply folds all of it under "Worked for 2m 4s", leaving
+  the answer; click to see it all. A reply you stop says so at its end.
+- **The workspace card.** Beside the conversation, a card holds the folder,
+  Open in your editor, the project's scripts, the branch, the next Git step
+  and the changes, instead of the top bar and the pills above the message
+  box. In a narrow window it opens from the top bar's card button.
+- **Files in replies** show as chips with the file's mark; click to open.
+- **Three switches in the top bar** of a conversation: the workspace card,
+  the terminal and the dock. Find in project is on ⇧⌘F, and the browser and
+  Eaon's browser open in the dock.
+- **The plan stays current.** Eaon now marks its checklist's steps done as it
+  works: it is reminded when the plan goes stale and, before finishing with
+  steps still open, asked to mark them. A finished reply's plan no longer
+  shows a step spinning, and an earlier reply's plan isn't pinned over a new
+  one.
+- **Code blocks** are coloured by language once finished, can wrap long
+  lines, and fold to their first lines past 30, with Show all.
+- **Long messages you send** fold to their first lines, with Show more.
+- **Callouts** written `> [!NOTE]`, `[!TIP]`, `[!IMPORTANT]`, `[!WARNING]` or
+  `[!CAUTION]` show as callouts in replies.
 
 ### Fixed
 - **Chat apps with a worker computer.** Connecting a chat app to a worker on
@@ -53,10 +148,13 @@ All notable changes to Eaon are documented here. Format loosely follows
   top of the page, and the dark ended in a visible line. Messages now fade
   out under the bar there, and the background stays the same colour all the
   way up.
+- Reviewing a chat's changes no longer squeezes the diffs into a narrow
+  column with the ends of lines cut off.
 
 ### Removed
 - **Settings → Profile.** The activity profile page and its share card are
   gone.
+
 
 ## [2026.7.0-beta.2.3] — 2026-10-19
 

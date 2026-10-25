@@ -24,7 +24,7 @@ import { isLastingIssue, type ProviderIssue } from '@shared/providers'
 import { isProviderUsable, modelKey, resolveSelection, toggleFavorite, withRecent, type ResolvedSelection } from '@shared/modelSelection'
 import { lastTurnFailed } from './chatStatus'
 import { chatChanges, Checkpoint } from './chatSync'
-import { forkedChat, retryPlan, withFeedback } from './chatEdits'
+import { editPlan, forkedChat, retryPlan, withFeedback } from './chatEdits'
 import { migrateLegacySchedules } from '../components/scheduled/legacy'
 import { notify } from '../components/Notice'
 import { reportError } from '../components/ErrorBoundary'
@@ -85,6 +85,8 @@ interface AppState {
   modelMenuRequest: number
   /** Text and files added to whatever is in the composer (Design Mode's notes), consumed once. */
   composerAppend: { text: string; attachments: string[] } | null
+  /** One of the user's messages to edit, waiting for the composer to take it in (Edit from here), consumed once. */
+  composerEdit: { messageId: string; text: string; attachments: string[] } | null
   /** Code-index progress for the chat agent's project folder. */
   indexStatus: IndexStatus | null
   /** In-flight Hugging Face model downloads, keyed by `repoId::filename`. Lives
@@ -146,6 +148,10 @@ interface AppState {
   releaseApprovals: () => void
   setComposerDraft: (text: string | null) => void
   appendToComposer: (append: { text: string; attachments: string[] } | null) => void
+  /** Puts one of the user's messages back in the composer to change and send again; null clears the request. */
+  editMessage: (messageId: string | null) => void
+  /** Sends `text` in place of the user's message `messageId`, dropping it and everything after it. */
+  resendFrom: (messageId: string, text: string, options?: SendOptions) => void
   reindex: (force?: boolean) => Promise<void>
 
   createProject: (name: string) => Project
@@ -605,6 +611,7 @@ export const useApp = create<AppState>((set, get) => ({
   providerFocus: null,
   modelMenuRequest: 0,
   composerAppend: null,
+  composerEdit: null,
   indexStatus: null,
   modelDownloads: {},
   updateStatus: { state: 'idle' },
@@ -980,7 +987,12 @@ export const useApp = create<AppState>((set, get) => ({
     const id = get().streamingMessageId
     if (!id) return
     void window.api.chat.cancel(id)
-    set((s) => ({ ...IDLE, ...withoutApprovals(s, id) }))
+    // Marked, so the reply says it was stopped rather than looking finished.
+    set((s) => ({
+      ...IDLE,
+      ...withoutApprovals(s, id),
+      chats: s.chats.map((c) => (c.id === s.streamingChatId ? { ...c, messages: c.messages.map((m) => (m.id === id ? { ...m, stopped: true } : m)) } : c))
+    }))
     // What was said so far is saved now, not only when the run reports back.
     persistChats()
   },
@@ -1067,6 +1079,21 @@ export const useApp = create<AppState>((set, get) => ({
 
   appendToComposer(append) {
     set({ composerAppend: append })
+  },
+
+  editMessage(messageId) {
+    const chat = get().activeChat()
+    const plan = chat && messageId ? editPlan(chat, messageId) : null
+    set({ composerEdit: plan && messageId ? { messageId, text: plan.text, attachments: plan.attachments } : null })
+  },
+
+  resendFrom(messageId, text, options = {}) {
+    const chat = get().activeChat()
+    if (!chat || get().streamingMessageId) return
+    const plan = editPlan(chat, messageId)
+    if (!plan) return
+    set({ chats: get().chats.map((c) => (c.id === chat.id ? plan.chat : c)) })
+    void get().send(text, options)
   },
 
   async reindex(force = false) {

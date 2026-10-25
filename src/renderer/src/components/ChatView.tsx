@@ -5,6 +5,7 @@ import {
   Archive,
   ArrowDown,
   CalendarClock,
+  Check,
   ChevronDown,
   Compass,
   Copy,
@@ -21,7 +22,8 @@ import {
   Target,
   Terminal,
   Trash2,
-  TriangleAlert
+  TriangleAlert,
+  X
 } from 'lucide-react'
 import { agentWorkspace, messageText, useApp, useIsWork, type PendingApproval } from '../state/store'
 import { Composer } from './Composer'
@@ -30,12 +32,14 @@ import { ConfirmDialog, Modal } from './ui'
 import { notify } from './Notice'
 import { errorText } from '../lib/errors'
 import { Markdown } from './agent/Markdown'
-import { FilesChanged } from './agent/FilesChanged'
+import { EditedFiles } from './chatCode/EditedFiles'
 import { LoadingState } from './agent/Loaders'
 import { toolPartChanges } from './agent/ToolCall'
 import { TurnLive } from './agent/StepCards'
-import { StepRun, TurnHeader } from './agent/TurnSteps'
-import { turnItems } from './agent/turnItems'
+import { TurnHeader } from './agent/TurnSteps'
+import { ToolCall } from './agent/ToolCall'
+import { ThoughtRow, ToolRun } from './chat/WorkRows'
+import { workLog } from './chat/workLog'
 import { TopBar } from './TopBar'
 import { AsciiField } from './AsciiField'
 import { RowBoundary } from './ErrorBoundary'
@@ -46,12 +50,24 @@ import { ProviderErrorActions } from './composer/ProviderErrorActions'
 import { ApprovalCard, approvalRisk, CallPreview, CommandPreview, enterApproves } from './agent/ApprovalCard'
 import { WorkerFace } from './workers/WorkerFace'
 import { ChannelLogo } from './channels/ChannelLogo'
-import { AgentBrowserToggle } from './agentBrowser/AgentBrowserPanel'
-import { CodeToggle } from './ide/CodePanel'
+import { DockToggle, DrawerToggle } from './ide/Dock'
+import { useIde } from './ide/ideStore'
+import { CodeKeys } from './chatCode/CodeTools'
+import { useCardInline, WorkspaceCard, WorkspaceToggle } from './chatCode/WorkspaceCard'
+import { TerminalDrawer } from './chatCode/TerminalDrawer'
+import { ProjectSearch } from './chatCode/ProjectSearch'
+import { FileLinks, type FileLinkHandler } from './agent/FileRef'
+import { joinPath } from './ide/paths'
+import { preferredTarget, useChatCode } from './chatCode/chatCodeStore'
 import { openInCode } from './ide/ideStore'
 import { CHANNEL_LABEL } from '@shared/channels'
 import type { WorkerMail } from '@shared/workers'
 import { fileUrl, isImagePath, isVideoPath } from '../lib/files'
+import { CLIPBOARD_FAILED, copyText } from '../lib/clipboard'
+import { FindBar } from './chat/FindBar'
+import { Minimap } from './chat/Minimap'
+import { QuoteSelection } from './chat/QuoteSelection'
+import { viewImage } from './chat/ImageViewer'
 import type { Chat, ChatMessage, ChatToolPart } from '@shared/types'
 
 /** Window event: the app menu's Archive Chat, for the conversation on screen to handle like its own Archive. */
@@ -91,8 +107,7 @@ function Home(): JSX.Element {
       <TopBar
         right={
           <div className="chat-header__actions">
-            {isWork && <CodeToggle />}
-            {!browserOpen && <BrowserToggle onClick={() => toggleBrowser()} />}
+            {isWork ? <PanelToggles over /> : !browserOpen && <BrowserToggle onClick={() => toggleBrowser()} />}
           </div>
         }
       />
@@ -122,6 +137,9 @@ function Home(): JSX.Element {
           <Composer variant="home" />
         </div>
       </div>
+      {isWork && <WorkspaceCard over />}
+      {isWork && <TerminalDrawer />}
+      {isWork && <ProjectSearch />}
     </>
   )
 }
@@ -144,6 +162,24 @@ function EaonSymbol({ className }: { className?: string }): JSX.Element {
  * in this chat, or on the home screen once the panel has been opened before —
  * otherwise it lives in the + menu, where it does not crowd the top bar.
  */
+/**
+ * The top bar's panel switches in Chat: the workspace card, the terminal
+ * under the conversation, and the dock. With the dock open the last two are
+ * on the dock's own bar instead. `over`: the card opens over the page, never
+ * beside it (the start page has no room kept for it).
+ */
+function PanelToggles({ over = false }: { over?: boolean }): JSX.Element {
+  const dockOpen = useIde((s) => s.open)
+  return (
+    <div className="panel-toggles">
+      <CodeKeys />
+      <WorkspaceToggle over={over} />
+      {!dockOpen && <DrawerToggle />}
+      {!dockOpen && <DockToggle />}
+    </div>
+  )
+}
+
 function BrowserToggle({ onClick }: { onClick: () => void }): JSX.Element | null {
   const used = useApp((s) => s.activeChat()?.messages.some((m) => m.parts.some((p) => p.type === 'tool' && p.name === 'browser')) ?? false)
   if (!used) return null
@@ -155,6 +191,19 @@ function BrowserToggle({ onClick }: { onClick: () => void }): JSX.Element | null
 }
 
 /** Dialog titles per tool; anything unlisted asks generically. */
+/** A path in a reply opens in the code panel at its line; ⌘-click opens it in the editor the Open button uses. */
+const fileLinks: FileLinkHandler = {
+  open: (path, line, external) => {
+    const code = useChatCode.getState()
+    const target = external ? preferredTarget(code.targets, code.preferred) : null
+    if (target && target.kind === 'editor' && code.folder) {
+      void window.api.chatCode.openIn(code.folder, target.id, joinPath(code.folder, path), line).catch(() => openInCode(path, line ?? undefined))
+      return
+    }
+    void openInCode(path, line ?? undefined)
+  }
+}
+
 const APPROVAL_TITLES: Record<string, string> = {
   run_command: 'Run this command?',
   write_file: 'Write this file?',
@@ -387,7 +436,26 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
   const [confirmArchive, setConfirmArchive] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [renaming, setRenaming] = useState(false)
+  const [finding, setFinding] = useState(false)
   const moreButton = useRef<HTMLButtonElement>(null)
+
+  // ⌘F finds in the conversation. Not from the browser panel, a terminal or
+  // the code editor, which have their own find; not over a dialog.
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key.toLowerCase() !== 'f' || !(event.metaKey || event.ctrlKey) || event.shiftKey || event.altKey) return
+      const target = event.target instanceof Element ? event.target : null
+      if (target?.closest('.browser, .term-pane, .xterm, .cm-editor, .monaco-editor, .ide')) return
+      if (document.querySelector('[role="dialog"][aria-modal="true"]')) return
+      event.preventDefault()
+      // A reader looking something up isn't following the reply any more.
+      following.current = false
+      setFinding(true)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
+  useEffect(() => setFinding(false), [chat.id])
 
   const streaming = streamingChatId === chat.id
   // Only the last reply can be asked again; see retryPlan.
@@ -491,9 +559,11 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
   }, [])
 
   const workFolder = useApp((s) => agentWorkspace(s.workspaces)?.cwd ?? s.settings?.work.defaultFolder ?? '~/Eaon')
+  // The workspace card beside the conversation: the thread and the message box move over for it.
+  const cardInline = useCardInline() && isWork
 
   return (
-    <>
+    <FileLinks.Provider value={isWork ? fileLinks : null}>
       <TopBar
         className="chat-header--float"
         left={
@@ -517,13 +587,15 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
         }
         right={
           <div className="chat-header__actions">
-            {isWork && <CodeToggle />}
-            {isWork && <AgentBrowserToggle />}
-            {isWork && !browserOpen && <BrowserToggle onClick={() => toggleBrowser()} />}
+            {isWork && <PanelToggles />}
           </div>
         }
       />
+      {isWork && <WorkspaceCard />}
 
+      <FindBar open={finding} onClose={() => setFinding(false)} thread={thread} version={chat.messages} />
+      <Minimap thread={thread} version={chat.messages.length} />
+      <QuoteSelection thread={thread} />
       <div ref={veil} className="scroll-veil" aria-hidden="true">
         {[0, 1, 2, 3, 4, 5].map((i) => (
           <span key={i} style={{ '--i': i } as React.CSSProperties} />
@@ -532,6 +604,7 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
       <div
         ref={thread}
         className="thread scroll"
+        data-card={cardInline || undefined}
         onScroll={(e) => {
           // Reaching the end follows again. Leaving it is only ever the
           // reader's doing (below): layout moves the scroll position too — a
@@ -566,6 +639,7 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
                 chatActions
                 last={message.id === lastReplyId}
                 canRetry={message.id === lastReplyId && !streamingChatId}
+                canEdit={!streamingChatId}
                 fresh={!opened.current.ids.has(message.id)}
               />
             </RowBoundary>
@@ -573,7 +647,7 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
         </div>
       </div>
 
-      <div className="composer-dock">
+      <div className="composer-dock" data-card={cardInline || undefined}>
         <ApprovalPrompt placement="dock" />
         <button className="thread-jump" data-shown={away || undefined} onClick={toEnd} tabIndex={away ? 0 : -1} aria-hidden={!away} aria-label="Scroll to latest" title="Scroll to latest">
           <ArrowDown size={15} strokeWidth={2} />
@@ -589,6 +663,8 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
             the user into the next. */}
         <Composer key={chat.id} variant="chat" />
       </div>
+      {isWork && <TerminalDrawer />}
+      {isWork && <ProjectSearch />}
 
       {menu && (
         <ContextMenu
@@ -659,7 +735,7 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
       </ConfirmDialog>
 
       {renaming && <RenameChat title={chat.title} onClose={() => setRenaming(false)} onRename={(title) => renameChat(chat.id, title)} />}
-    </>
+    </FileLinks.Provider>
   )
 }
 
@@ -714,11 +790,14 @@ export const MessageRow = memo(function MessageRow({
   chatActions = false,
   last = false,
   canRetry = false,
+  canEdit = false,
   fresh = true,
   bubbles = false
 }: {
   message: ChatMessage
   streaming: boolean
+  /** A chat's own message, with nothing running: Edit from here is offered. */
+  canEdit?: boolean
   /**
    * A worker's thread: each run of the reply's text is its own bubble, and a
    * turn that has said nothing yet shows nothing — the thread's "is working"
@@ -747,13 +826,13 @@ export const MessageRow = memo(function MessageRow({
   // Joining the parts is O(total length); recomputing it on unrelated renders
   // is what made a long reply quadratic.
   const body = useMemo(() => messageText(message), [message])
-  // Thinking, calls and sentences in the order they happened; see turnItems.ts.
-  const items = useMemo(() => turnItems(message.parts), [message.parts])
+  // Sentences, thoughts and runs of calls in the order they happened; see chat/workLog.ts.
+  const items = useMemo(() => workLog(message.parts), [message.parts])
   // A turn that only thought or called tools and said nothing still has
   // content to show; testing the joined text alone would render it as "No response".
   const hasContent = items.length > 0
   // A turn that did work — thought, read, ran — gets the "Worked for" line over it; a plain answer doesn't.
-  const didWork = useMemo(() => items.some((item) => item.kind === 'steps'), [items])
+  const didWork = useMemo(() => items.some((item) => item.kind !== 'text'), [items])
   const changes = useMemo(
     () => toolPartChanges(message.parts.filter((part): part is ChatToolPart => part.type === 'tool')),
     [message.parts]
@@ -766,6 +845,16 @@ export const MessageRow = memo(function MessageRow({
   // something in it; one cut off before it said anything gets its own button.
   const actionBar = Boolean(body || message.usage) && !unfinished
   const retryReply = useApp((s) => s.retryReply)
+  // A finished turn folds its work — thoughts, calls, what it said along the
+  // way — under "Worked for 2m 4s", leaving its answer and what it changed.
+  const [workOpen, setWorkOpen] = useState(false)
+  const foldable = didWork && !unfinished && !bubbles && Boolean(message.finishedAt) && !message.error && !message.stopped
+  const folded = foldable && !workOpen
+  // The answer: the sentences after the turn's last run of steps.
+  const answerFrom = useMemo(() => {
+    for (let i = items.length - 1; i >= 0; i--) if (items[i].kind !== 'text') return i + 1
+    return 0
+  }, [items])
 
   if (message.role === 'user') {
     // A worker's turn: each piece of mail is its own bubble, and a heartbeat
@@ -818,7 +907,7 @@ export const MessageRow = memo(function MessageRow({
       )
     }
     return (
-      <div className="msg-row msg-user-block" data-fresh={fresh || undefined}>
+      <div className="msg-row msg-user-block" data-fresh={fresh || undefined} data-user-message={message.id}>
         {message.scheduledTaskId && (
           <span className="msg__scheduled">
             <CalendarClock size={12} strokeWidth={2} />
@@ -826,7 +915,8 @@ export const MessageRow = memo(function MessageRow({
           </span>
         )}
         <Attachments paths={message.attachments} />
-        {body && <div className="msg--user">{body}</div>}
+        {body && <UserText text={body} />}
+        {chatActions && body && <UserActions message={message} text={body} canEdit={canEdit && !message.scheduledTaskId} />}
       </div>
     )
   }
@@ -837,7 +927,14 @@ export const MessageRow = memo(function MessageRow({
   return (
     <TurnLive.Provider value={unfinished}>
       <div className="msg-row" ref={row} data-fresh={fresh || undefined}>
-        {(didWork || (streaming && !hasContent)) && <TurnHeader startedAt={message.createdAt} finishedAt={message.finishedAt} live={unfinished} />}
+        {(didWork || (streaming && !hasContent)) && (
+          <TurnHeader
+            startedAt={message.createdAt}
+            finishedAt={message.finishedAt}
+            live={unfinished}
+            {...(foldable ? { open: workOpen, onToggle: () => setWorkOpen(!workOpen) } : {})}
+          />
+        )}
         {/* An error no longer replaces what the turn already did: a Work turn
             that failed on its twentieth call used to hide the nineteen edits and
             commands before it, which still happened. */}
@@ -846,7 +943,7 @@ export const MessageRow = memo(function MessageRow({
           // or a tool call stays where the model made it — between the sentence
           // that led to it and the one that follows from its result.
           <div className="msg--assistant" data-streaming={streaming || undefined}>
-            {items.map((item, index) =>
+            {(folded ? items.slice(answerFrom) : items).map((item, index) =>
               item.kind === 'text' ? (
                 bubbles ? (
                   <div key={item.key} className="msg-bubble">
@@ -855,8 +952,13 @@ export const MessageRow = memo(function MessageRow({
                 ) : (
                   <Markdown key={item.key} text={item.text} />
                 )
+              ) : item.kind === 'thought' ? (
+                // Only the turn's newest thought, while it streams, is still being written.
+                <ThoughtRow key={item.key} text={item.text} live={streaming && (folded ? answerFrom : 0) + index === items.length - 1} />
+              ) : item.kind === 'tools' ? (
+                <ToolRun key={item.key} parts={item.parts} />
               ) : (
-                <StepRun key={item.key} steps={item.steps} active={streaming && index === items.length - 1} />
+                <ToolCall key={item.key} part={item.part} />
               )
             )}
           </div>
@@ -890,7 +992,15 @@ export const MessageRow = memo(function MessageRow({
 
         {message.plan && <PlanCard message={message} plan={message.plan} />}
 
-        {!streaming && changes.length > 0 && <FilesChanged changes={changes} onOpen={isWork ? (file) => void openInCode(file) : undefined} />}
+        {!streaming && changes.length > 0 && <EditedFiles messageId={message.id} changes={changes} work={isWork} />}
+
+        {message.stopped && !streaming && (
+          <div className="msg__stopped" role="status">
+            <X size={13} strokeWidth={2.2} />
+            <span>Stopped</span>
+            <span className="msg__stopped-why">· You stopped this reply</span>
+          </div>
+        )}
 
         {actionBar && (
           <div className="msg__actions" data-pinned={last || Boolean(message.feedback) || undefined}>
@@ -968,7 +1078,7 @@ function Attachments({ paths, align = 'end' }: { paths?: string[]; align?: 'star
         const name = path.split(/[\\/]/).pop() ?? path
         if (isImagePath(path)) {
           return (
-            <button key={path} className="msg-attachment msg-attachment--media" title={name} onClick={() => open(path)}>
+            <button key={path} className="msg-attachment msg-attachment--media" title={name} onClick={() => viewImage(path, chatImages())}>
               <img src={fileUrl(path)} alt={name} loading="lazy" />
             </button>
           )
@@ -987,6 +1097,72 @@ function Attachments({ paths, align = 'end' }: { paths?: string[]; align?: 'star
           </button>
         )
       })}
+    </div>
+  )
+}
+
+/** Every picture attached in the open chat, in order: what the image viewer steps through. */
+function chatImages(): string[] {
+  const chat = useApp.getState().activeChat()
+  return (chat?.messages ?? []).flatMap((m) => [...(m.attachments ?? []), ...(m.mail?.flatMap((mail) => mail.files ?? []) ?? [])]).filter(isImagePath)
+}
+
+/** Past this, a message of the user's folds to its first lines, with a way to open it. */
+const FOLD_LINES = 12
+const FOLD_CHARS = 900
+
+/**
+ * What the user wrote. A long paste — a log, a file, a spec — folds to its
+ * first lines with a fade and a Show more, so it doesn't push the reply a
+ * screen away. Find opens folded messages while it's up (chat.css).
+ */
+function UserText({ text }: { text: string }): JSX.Element {
+  const [open, setOpen] = useState(false)
+  const long = text.length > FOLD_CHARS || text.split('\n').length > FOLD_LINES
+  return (
+    <div className="msg--user" data-folded={(long && !open) || undefined}>
+      <div className="msg-user__body">{text}</div>
+      {long && (
+        <button type="button" className="msg-user__more" onClick={() => setOpen(!open)} aria-expanded={open}>
+          {open ? 'Show less' : 'Show more'}
+        </button>
+      )}
+    </div>
+  )
+}
+
+/** Under one of the user's messages, on hover: copy it, or edit it and go again from there. */
+function UserActions({ message, text, canEdit }: { message: ChatMessage; text: string; canEdit: boolean }): JSX.Element {
+  const editMessage = useApp((s) => s.editMessage)
+  const [copied, setCopied] = useState(false)
+  return (
+    <div className="msg-user__actions">
+      <button
+        type="button"
+        className="msg-user__action"
+        aria-label={copied ? 'Copied' : 'Copy message'}
+        title={copied ? 'Copied' : 'Copy'}
+        onClick={() =>
+          void copyText(text).then((ok) => {
+            if (!ok) return notify(CLIPBOARD_FAILED, 'error')
+            setCopied(true)
+            setTimeout(() => setCopied(false), 1400)
+          })
+        }
+      >
+        {copied ? <Check size={13} strokeWidth={2.2} /> : <Copy size={13} strokeWidth={1.9} />}
+      </button>
+      {canEdit && (
+        <button
+          type="button"
+          className="msg-user__action"
+          aria-label="Edit from here"
+          title="Edit from here — the replies after it are replaced"
+          onClick={() => editMessage(message.id)}
+        >
+          <PencilLine size={13} strokeWidth={1.9} />
+        </button>
+      )}
     </div>
   )
 }

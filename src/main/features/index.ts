@@ -8,6 +8,7 @@ import { skillsFeature } from './skills'
 import { modelLibraryFeature } from './modelLibrary'
 import { libraryFeature } from './library'
 import { workspaceFilesFeature } from './workspaceFiles'
+import { chatCodeFeature } from './chatCode'
 import { wallpaperFeature } from './wallpaper'
 import { terminalsFeature } from './terminals'
 import { adeFeature } from './ade'
@@ -58,6 +59,7 @@ export const FEATURES: Feature[] = [
   eaonCodeFeature,
   libraryFeature,
   workspaceFilesFeature,
+  chatCodeFeature,
   wallpaperFeature,
   terminalsFeature,
   adeFeature,
