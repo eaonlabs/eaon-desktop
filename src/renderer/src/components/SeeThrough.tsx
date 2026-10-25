@@ -179,6 +179,63 @@ export function SeeThrough(): JSX.Element | null {
     return () => document.removeEventListener('animationend', onEnd, true)
   }, [ready])
 
+  // While a part of the page fades, Chromium blurs only what lies inside it,
+  // so frosted glass in it showed the picture sharp until the fade was over:
+  // every page and settings pane opened with clear panels for a moment. Its
+  // motion alone doesn't do that, so an entrance with glass inside keeps its
+  // motion and drops the fade. That happens as the page's new parts go in,
+  // before the first frame: the fade runs on the compositor, and by the time
+  // `animationstart` reaches a page busy opening, much of it has played.
+  // Glass that arrives during a fade (a pane's cards once their data is in)
+  // drops it then.
+  useEffect(() => {
+    if (!ready) return
+    const seen = new WeakSet<Animation>()
+    const fading = new Set<CSSAnimation>()
+    const unfade = (animation: CSSAnimation): void => {
+      fading.delete(animation)
+      const effect = animation.effect as KeyframeEffect
+      effect.setKeyframes(effect.getKeyframes().map((frame) => Object.fromEntries(Object.entries(frame).filter(([p]) => !FADES.has(p)))))
+    }
+    const consider = (animation: Animation): void => {
+      if (seen.has(animation)) return
+      seen.add(animation)
+      const effect = animation.effect
+      if (!(animation instanceof CSSAnimation) || animation.playState === 'finished' || !(effect instanceof KeyframeEffect)) return
+      const target = effect.target
+      if (!(target instanceof Element) || effect.pseudoElement || effect.getTiming().iterations === Infinity) return
+      if (!effect.getKeyframes().some((frame) => Object.keys(frame).some((p) => FADES.has(p)))) return
+      if (glassIn(target)) unfade(animation)
+      else fading.add(animation)
+    }
+    // An entrance started some other way than by new elements (a class put on one).
+    const onStart = (event: AnimationEvent): void => {
+      const target = event.target as Element | null
+      target?.getAnimations().forEach(consider)
+    }
+    const observer = new MutationObserver((records) => {
+      // Asking for them brings the page's style up to date, which starts the new parts' entrances.
+      document.getAnimations().forEach(consider)
+      if (fading.size === 0) return
+      for (const animation of fading) if (animation.playState === 'finished' || animation.playState === 'idle') fading.delete(animation)
+      for (const record of records) {
+        for (const node of record.addedNodes) {
+          if (!(node instanceof Element)) continue
+          for (const animation of fading) {
+            if ((animation.effect as KeyframeEffect).target?.contains(node) && (frosted(node) || glassIn(node))) unfade(animation)
+          }
+        }
+      }
+    })
+    document.getAnimations().forEach(consider)
+    document.addEventListener('animationstart', onStart, true)
+    observer.observe(document.body, { childList: true, subtree: true })
+    return () => {
+      document.removeEventListener('animationstart', onStart, true)
+      observer.disconnect()
+    }
+  }, [ready])
+
   // macOS: the title bars drag through main, so the picture keeps up (see above).
   useEffect(() => {
     if (!ready || window.api.platform !== 'darwin') return
@@ -216,6 +273,23 @@ export function SeeThrough(): JSX.Element | null {
 
 /** What getKeyframes() reports beside the animated properties. */
 const KEYFRAME_META = new Set(['offset', 'computedOffset', 'easing', 'composite'])
+
+/** Animated properties that keep frosted glass inside an element from blurring the picture while they run. */
+const FADES = new Set(['opacity', 'filter', 'clipPath'])
+
+/** Past this many elements, a part of the page is taken to have glass in it rather than searched. */
+const GLASS_SEARCH = 4000
+
+/** Whether this element is frosted glass itself. */
+const frosted = (el: Element): boolean => getComputedStyle(el).backdropFilter !== 'none'
+
+/** Whether any frosted glass lies inside this element. */
+function glassIn(root: Element): boolean {
+  const inside = root.getElementsByTagName('*')
+  if (inside.length > GLASS_SEARCH) return true
+  for (let i = 0; i < inside.length; i++) if (frosted(inside[i])) return true
+  return false
+}
 
 /** `cssFloat`, `backgroundColor` → `float`, `background-color`. */
 function cssName(prop: string): string {
