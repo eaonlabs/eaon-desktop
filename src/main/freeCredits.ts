@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import {
   dayLimitMessage,
   FREE_BASE_URL,
+  FREE_DEFAULT_MODEL,
   FREE_DEVICE_HEADER,
   FREE_LIMITS,
   FREE_PROVIDER_ID,
@@ -81,6 +82,43 @@ export function freeDeviceId(): string {
   const id = `eaon-${randomUUID()}`
   store.setJson(DEVICE_FILE, { id })
   return id
+}
+
+/** How long one look at the gateway's model list holds, so the offer doesn't ask it every time. */
+const SERVED_TTL_MS = 10 * 60_000
+let served: { at: number; ok: boolean } | null = null
+
+/**
+ * Whether the gateway serves Eaon Free's model now. The gateway decides which
+ * models it serves, and it has stopped serving this one before: offering it
+ * then set people up on a model that refused every request. So the offer and
+ * the claim ask first, the way Eaon Free's own model list does (with the
+ * event code's key, when there is one). A gateway that can't be reached
+ * counts as not serving it.
+ */
+export async function freeModelServed(request: typeof fetch = fetch, now = Date.now()): Promise<boolean> {
+  if (served && now - served.at < SERVED_TTL_MS) return served.ok
+  let ok = false
+  try {
+    const key = secrets.get(FREE_PROVIDER_ID)
+    const response = await request(`${freeBaseUrl()}/models`, {
+      headers: { ...freeHeaders(), ...(key ? { Authorization: `Bearer ${key}` } : {}) },
+      signal: AbortSignal.timeout(8000)
+    })
+    if (response.ok) {
+      const body = (await response.json()) as { data?: { id?: unknown }[] }
+      ok = Array.isArray(body.data) && body.data.some((model) => model?.id === FREE_DEFAULT_MODEL)
+    }
+  } catch {
+    ok = false
+  }
+  served = { at: now, ok }
+  return ok
+}
+
+/** Forgets the last look, for after a code is redeemed (and for tests). */
+export const forgetFreeModelServed = (): void => {
+  served = null
 }
 
 /** The headers Eaon Free's requests carry: none without a code (`X-Eaon-App` would make the gateway ask for a signature). */
