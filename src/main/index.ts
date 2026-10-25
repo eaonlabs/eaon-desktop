@@ -18,6 +18,7 @@ import { startModelFreshness } from './providers/freshness'
 import { resolveApproval } from './agent/approvals'
 import { hardenAppWindow, openExternalSafely } from './externalLinks'
 import { catalogRowsPinned, providerKeyId } from './ipcGuards'
+import { forScreens, hideEaonAddress } from './eaonAddress'
 import { activeRunIds, cancelRun, pauseGoal, runAgent } from './agent/loop'
 import './agent/sources'
 import { killBackgroundProcesses } from './localTools'
@@ -672,22 +673,25 @@ function registerIpc(): void {
     })
   )
 
-  ipcMain.handle('providers:list', (): Provider[] => listProviders())
+  ipcMain.handle('providers:list', (): Provider[] => forScreens(listProviders()))
   ipcMain.handle('providers:update', (_e, id: string, patch: Partial<Provider>) => {
     if (patch.enabled && !providerAllowed(id)) throw new PolicyError(`The ${id} provider`)
     if (patch.baseUrl !== undefined || patch.enabled !== undefined) audit('provider.changed', { provider: id, enabled: patch.enabled, baseUrl: patch.baseUrl })
     const providers = updateProvider(id, patch)
     // A custom provider's logo comes from its base URL (providers/logos.ts).
     if (patch.baseUrl !== undefined) noteBaseUrlChanged(id)
-    return providers
+    return forScreens(providers)
   })
   ipcMain.handle('providers:remove', (_e, id: string) => {
     forgetLogo(id)
-    return removeProvider(id)
+    return forScreens(removeProvider(id))
   })
   ipcMain.handle('providers:refresh-models', (_e, id: string) => refreshModels(id))
-  ipcMain.handle('providers:refresh', (_e, id: string) => refreshProviderModels(id))
-  ipcMain.handle('providers:edit-models', (_e, id: string, edit: ModelEdit) => editModels(id, edit))
+  ipcMain.handle('providers:refresh', async (_e, id: string) => {
+    const result = await refreshProviderModels(id)
+    return { ...result, message: hideEaonAddress(result.message) }
+  })
+  ipcMain.handle('providers:edit-models', (_e, id: string, edit: ModelEdit) => forScreens(editModels(id, edit)))
   ipcMain.handle('providers:test', (_e, id: string) => testProvider(id))
 
   // Model-provider keys only: the vault's namespaced entries (plugin and
@@ -704,14 +708,14 @@ function registerIpc(): void {
     secrets.set(keyId, key)
     clearProviderHealth(keyId)
     audit(key ? 'credential.set' : 'credential.cleared', { provider: keyId })
-    return listProviders()
+    return forScreens(listProviders())
   })
   ipcMain.handle('keys:clear', (_e, id: string) => {
     const keyId = providerKey(id)
     secrets.clear(keyId)
     clearProviderHealth(keyId)
     audit('credential.cleared', { provider: keyId })
-    return listProviders()
+    return forScreens(listProviders())
   })
   ipcMain.handle('keys:hint', (_e, id: string) => secrets.hint(providerKey(id)))
   // Decrypts on demand for the user's own reveal/copy click — never held in
@@ -737,7 +741,7 @@ function registerIpc(): void {
       audit('credential.fallbacks_set', { provider: keyId, count: secrets.getFallbacks(keyId).length })
     }
     clearProviderHealth(keyId)
-    return listProviders()
+    return forScreens(listProviders())
   })
   ipcMain.handle('keys:remove-fallback', (_e, id: string, index: number) => {
     const keyId = providerKey(id)
@@ -746,13 +750,13 @@ function registerIpc(): void {
       secrets.getFallbacks(keyId).filter((_, i) => i !== index)
     )
     audit('credential.fallbacks_set', { provider: keyId, count: secrets.getFallbacks(keyId).length })
-    return listProviders()
+    return forScreens(listProviders())
   })
   ipcMain.handle('keys:set-fallbacks', (_e, id: string, keys: string[]) => {
     if (!Array.isArray(keys) || !keys.every((key) => typeof key === 'string')) throw new Error('Fallback keys are a list of text.')
     secrets.setFallbacks(providerKey(id), keys)
     audit('credential.fallbacks_set', { provider: providerKey(id), count: keys.filter((k) => k.trim()).length })
-    return listProviders()
+    return forScreens(listProviders())
   })
 
   /** Chat runs a window asked for, from the request until the run ends, so Stop reaches one that hasn't started yet. */

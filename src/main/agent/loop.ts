@@ -7,6 +7,7 @@ import { app, powerSaveBlocker } from 'electron'
 import type { GoalState, ModelInfo, Provider, Settings, StreamEvent, StreamRequest, TokenUsage } from '@shared/types'
 import { adapterFor, getProvider, noteProviderHealth } from '../providers'
 import { classifyProviderError } from '../providers/errors'
+import { hideEaonAddress } from '../eaonAddress'
 import { findModel } from '@shared/modelSelection'
 import { addUsage, emptyUsage, HEADERS_TIMEOUT_MESSAGE, isHeadersTimeout, ProviderHttpError, type Adapter, type Credentials, type NeutralImage, type NeutralMessage, type NeutralToolResult, type TurnRequest, type TurnResult } from '../providers/adapters/types'
 import { credentialAttempts, isAuthError } from '../providers/credentials'
@@ -938,7 +939,7 @@ async function runOwnLoop(request: StreamRequest, emit: (event: StreamEvent) => 
     // an unrecognised failure (a context-length 400, say) still needs its
     // Copy details and Try again under the error.
     const issue = classifyProviderError(error, provider)
-    const message = issue.kind === 'other' ? redactSecrets(error instanceof Error ? error.message : String(error)) : issue.message
+    const message = issue.kind === 'other' ? hideEaonAddress(redactSecrets(error instanceof Error ? error.message : String(error))) : issue.message
     noteProviderHealth(provider.id, issue)
     emit({ type: 'error', messageId: request.messageId, error: message, issue })
     return { text, error: message, usage }

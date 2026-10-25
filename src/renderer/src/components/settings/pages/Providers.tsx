@@ -1144,8 +1144,9 @@ function KeySection({
 
       {showAdvanced && (
         <div className="provider-detail__advanced">
-          {/* Providers with their own endpoint section (and custom ones, under Connection) already show this field up top. */}
-          {!meta.baseUrlLabel && provider.builtIn && (
+          {/* Providers with their own endpoint section (and custom ones, under Connection) already show this field up top.
+              Eaon's own have no address to show (main/eaonAddress.ts). */}
+          {!meta.baseUrlLabel && provider.builtIn && provider.category !== 'eaon' && (
             <div>
               <div className="field-label">Base URL</div>
               <input className="input" value={baseUrl} spellCheck={false} onChange={(e) => setBaseUrl(e.target.value)} onBlur={() => void saveBaseUrl()} />

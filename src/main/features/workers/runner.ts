@@ -11,6 +11,7 @@ import { isCatastrophicCommand, isRiskyCommand } from '@shared/commandRisk'
 import { resolveModel, STALL_MS } from '../scheduler/runner'
 import { applyStreamEvent } from '../scheduler/transcript'
 import { guestGate, guestNote, guestPolicy } from './guests'
+import { hideEaonAddress } from '../../eaonAddress'
 
 /**
  * One worker turn: turn the mail (and heartbeat) that woke it into a single
@@ -359,7 +360,7 @@ export async function runWorkerTurn(input: TurnInput): Promise<TurnOutcome> {
           }
         )
   } catch (error) {
-    outcome = { text: '', usage: EMPTY_USAGE, error: error instanceof Error ? error.message : String(error) }
+    outcome = { text: '', usage: EMPTY_USAGE, error: hideEaonAddress(error instanceof Error ? error.message : String(error)) }
   } finally {
     dog.dispose()
   }
@@ -449,7 +450,7 @@ async function runOnEngine(input: TurnInput): Promise<TurnOutcome> {
           }
         })
   } catch (error) {
-    result = { sessionId: input.engineSession?.sessionId ?? null, text: '', usage: EMPTY_USAGE, cancelled: false, sideEffects: false, error: error instanceof Error ? error.message : String(error) }
+    result = { sessionId: input.engineSession?.sessionId ?? null, text: '', usage: EMPTY_USAGE, cancelled: false, sideEffects: false, error: hideEaonAddress(error instanceof Error ? error.message : String(error)) }
   } finally {
     dog.dispose()
   }

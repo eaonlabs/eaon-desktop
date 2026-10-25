@@ -3,6 +3,7 @@ import type { ProviderIssue } from '@shared/providers'
 import { retryAfterFrom } from './adapters/types'
 import { redactSecrets } from './redact'
 import { RedirectRefusedError } from './safeFetch'
+import { hideEaonAddress } from '../eaonAddress'
 
 /**
  * Provider failures as something a person can act on.
@@ -111,10 +112,11 @@ const issue = (
   extra: Partial<ProviderIssue> = {}
 ): ProviderIssue => ({
   kind,
-  message,
+  // The gateway's address is never shown (eaonAddress.ts), even in the raw error.
+  message: hideEaonAddress(message),
   action,
   providerId: provider.id,
-  ...(f.text ? { detail: redactSecrets(f.text).slice(0, 600) } : {}),
+  ...(f.text ? { detail: hideEaonAddress(redactSecrets(f.text)).slice(0, 600) } : {}),
   ...extra
 })
 
@@ -244,7 +246,7 @@ export function classifyProviderError(error: unknown, provider: ProviderLike, co
 export function noModelsIssue(provider: ProviderLike): ProviderIssue {
   return {
     kind: 'no-models',
-    message: `${provider.name} answered, but offers no chat models this account can use.`,
+    message: hideEaonAddress(`${provider.name} answered, but offers no chat models this account can use.`),
     action: 'open-settings',
     providerId: provider.id
   }

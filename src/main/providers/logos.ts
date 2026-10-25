@@ -12,6 +12,7 @@ import {
 import { isPrivateHostname, privateAddressOf, resolveAll, type Resolver } from '../netGuard'
 import { store } from '../store'
 import { getProvider, listProviders } from '.'
+import { isEaonGateway } from '../eaonAddress'
 
 /**
  * Logos for providers Eaon doesn't ship one for (docs/provider-logos.md).
@@ -539,7 +540,8 @@ export function readLogos(): ProviderLogos {
     const record = value as ProviderLogo
     const clean: ProviderLogo = {}
     if (record.user && isDataImage(record.user.src)) clean.user = { src: record.user.src, setAt: Number(record.user.setAt) || 0 }
-    if (record.site && isDataImage(record.site.src) && typeof record.site.baseUrl === 'string') {
+    // What was found at Eaon's gateway would name its address, which is never shown (eaonAddress.ts).
+    if (record.site && isDataImage(record.site.src) && typeof record.site.baseUrl === 'string' && !isEaonGateway(record.site.baseUrl)) {
       clean.site = {
         src: record.site.src,
         ...(isDataImage(record.site.dark) ? { dark: record.site.dark } : {}),
@@ -549,7 +551,7 @@ export function readLogos(): ProviderLogos {
         foundAt: Number(record.site.foundAt) || 0
       }
     }
-    if (record.lookup && typeof record.lookup.baseUrl === 'string' && Array.isArray(record.lookup.steps)) {
+    if (record.lookup && typeof record.lookup.baseUrl === 'string' && Array.isArray(record.lookup.steps) && !isEaonGateway(record.lookup.baseUrl)) {
       clean.lookup = {
         baseUrl: record.lookup.baseUrl,
         at: Number(record.lookup.at) || 0,
@@ -610,7 +612,7 @@ export function lookUpLogo(providerId: string, deps?: LookupDeps): Promise<Provi
   if (pending) return pending
   const work = (async () => {
     const provider = getProvider(providerId)
-    if (!provider) return readLogos()
+    if (!provider || isEaonGateway(provider.baseUrl)) return readLogos()
     const baseUrl = provider.baseUrl.trim()
     const { logo, steps } = baseUrl ? await discoverLogo(baseUrl, deps) : { logo: null, steps: [{ url: '(none)', result: 'The provider has no base URL' }] }
     const at = (deps ?? defaultDeps()).now()
@@ -659,7 +661,7 @@ export function sweepLogos(): Promise<void> {
     const logos = readLogos()
     const now = Date.now()
     for (const provider of listProviders()) {
-      if (provider.builtIn || !provider.baseUrl.trim()) continue
+      if (provider.builtIn || !provider.baseUrl.trim() || isEaonGateway(provider.baseUrl)) continue
       if (lookupDue(logos[provider.id], provider.baseUrl.trim(), now)) await lookUpLogo(provider.id).catch(() => undefined)
     }
   })().finally(() => {

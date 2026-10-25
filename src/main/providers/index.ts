@@ -27,6 +27,7 @@ import { COPILOT_API_VERSION } from './oauth/copilot'
 import './oauth/flows'
 import { providerFetch, sdkFetch } from './safeFetch'
 import { providerAllowed } from '../enterprise/policy'
+import { GATEWAY_REFUSED, hideEaonAddress, isEaonGateway } from '../eaonAddress'
 
 /**
  * Bring-your-own-key (and sign-in) model access.
@@ -295,9 +296,11 @@ function builtInProvider(seed: (typeof BUILT_IN)[number], override: ProviderOver
 
 /** A custom OpenAI-compatible endpoint the user added themselves. */
 function customProvider(id: string, override: ProviderOverride): Provider {
+  const name = override.name ?? id
   const provider: Provider = {
     id,
-    name: override.name ?? id,
+    // Named after the gateway's address by default, which is never shown (eaonAddress.ts).
+    name: isEaonGateway(override.baseUrl ?? '') ? hideEaonAddress(name) : name,
     kind: (override.kind as Provider['kind']) ?? 'openai-compatible',
     baseUrl: override.baseUrl ?? '',
     hasKey: secrets.has(id),
@@ -341,6 +344,8 @@ export function getProvider(id: string): Provider | undefined {
 }
 
 export function updateProvider(id: string, patch: Partial<Pick<Provider, 'baseUrl' | 'enabled' | 'name' | 'kind'>>): Provider[] {
+  // Eaon's gateway is Eaon Lite's and Eaon Free's alone, and its address is never shown (eaonAddress.ts).
+  if (patch.baseUrl !== undefined && id !== GATEWAY_PROVIDER_ID && id !== FREE_PROVIDER_ID && isEaonGateway(patch.baseUrl)) throw new Error(GATEWAY_REFUSED)
   const config = store.getProviderConfig()
   const existing = config[id] ?? {}
   const current = BUILT_IN.find((p) => p.id === id) ?? { id, kind: (patch.kind ?? existing.kind ?? 'openai-compatible') as Provider['kind'], baseUrl: '' }
@@ -735,6 +740,6 @@ export async function testProvider(providerId: string): Promise<{ ok: boolean; m
     if (health && !health.ok && health.issue) return { ok: false, message: health.issue.message }
     return { ok: true, message: `Connected — ${models.length} model${models.length === 1 ? '' : 's'} available` }
   } catch (error) {
-    return { ok: false, message: provider ? classifyProviderError(error, provider, 'listing').message : error instanceof Error ? error.message : String(error) }
+    return { ok: false, message: provider ? classifyProviderError(error, provider, 'listing').message : hideEaonAddress(error instanceof Error ? error.message : String(error)) }
   }
 }
