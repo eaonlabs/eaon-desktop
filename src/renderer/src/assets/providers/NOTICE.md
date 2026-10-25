@@ -49,3 +49,7 @@ on a tile like the others (Kiro's has its own). `droid.svg` is the mark in
 `codebuddy.svg`, `qoder.svg`, `trae.svg`, `hermes.svg` and `openclaw.svg`
 are Lobe Icons' `codebuddy-color`, `qoder-color`, `trae-color`, `hermesagent`
 and `openclaw-color`, on the same black tile.
+
+`marks/pi.svg` is Pi's own logo (https://pi.dev/logo-auto.svg, as Pi's README
+shows it), cropped to the mark. It belongs to Pi's owners and identifies the
+coding agent in Usage & limits.

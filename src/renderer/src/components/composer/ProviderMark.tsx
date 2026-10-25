@@ -95,6 +95,8 @@ const MARK: Record<string, string> = {
   jan: 'jan',
   eaon: 'eaon',
   'eaon-local': 'eaon',
+  // Pi, the coding agent (Usage & limits): its own mark from pi.dev.
+  pi: 'pi',
   // The coding CLIs whose own usage Settings → Usage counts (`cli:<tool>`, as the usage summary names them).
   'cli:claude-code': 'claudecode',
   'cli:claude-desktop': 'anthropic',
