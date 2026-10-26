@@ -44,6 +44,7 @@ import { ModelNotice } from './composer/ModelNotice'
 import { useChatEngine } from './composer/chatEngine'
 import { EngineNotice } from './composer/EngineNotice'
 import { ENGINE_MARK, ProviderMark } from './composer/ProviderMark'
+import { ElsewhereAsk } from './agent/ElsewhereAsk'
 import { joinTranscript, useDictation } from './composer/useDictation'
 import { VoiceBar } from './composer/VoiceBar'
 import { PermissionPicker, ProjectPicker } from './composer/ComposerBits'
@@ -630,6 +631,8 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       ) : (
         <ModelNotice selection={selection} onChooseModel={() => modelMenu.setOpen(true)} />
       )}
+      {/* Another chat stopped to ask: here, not in a dialog over this one. */}
+      <ElsewhereAsk />
       {/* In a conversation the folder, branch and changes are in the workspace card beside it. */}
       {isAgent && variant !== 'chat' && (
         <div className="composer__above">

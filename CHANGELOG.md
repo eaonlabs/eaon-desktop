@@ -12,8 +12,12 @@ All notable changes to Eaon are documented here. Format loosely follows
   A spinner in the sidebar marks each chat still working, and a dot marks
   one that finished while you were elsewhere. A queued follow-up goes when
   its own chat's reply ends, even with another chat open. Each chat asks
-  for approval in its own conversation; another chat's question waits as a
-  card naming that chat, and ⏎ answers the one in front of you.
+  for approval in its own conversation. Another chat's question waits above
+  the message box, in the place the queued follow-ups use: which chat is
+  asking, what it would run (the whole command a click away), and Open,
+  Deny and Allow. It never takes the keyboard from what you're typing. The
+  dialog over the page is now only for places with no message box, such as
+  Settings.
 - **Eaon Free is now Eaon Event, for events only.** It opens with the code
   from an event Eaon sponsors (a hackathon, a workshop), and nothing else:
   the free week, the "Free AI credits" card and Settings' "Get free credits"

@@ -50,6 +50,7 @@ import { MessageActions } from './agent/MessageActions'
 import { ProviderErrorActions } from './composer/ProviderErrorActions'
 import { ApprovalCard } from './agent/ApprovalCard'
 import { ApprovalPreview, ApprovalRow, useApprovalKeys } from './agent/ApprovalRow'
+import { elsewhereShown, subscribeElsewhere } from './agent/ElsewhereAsk'
 import { approvalDetail, approvalTitle, askerName } from './agent/approvalText'
 import { WorkerFace } from './workers/WorkerFace'
 import { ChannelLogo } from './channels/ChannelLogo'
@@ -244,8 +245,11 @@ function registerConversation(): () => void {
  */
 export function ApprovalPrompt(): JSX.Element | null {
   const open = useSyncExternalStore(subscribeConversation, isConversationOpen)
+  // With a message box on screen, other chats ask above it (agent/ElsewhereAsk.tsx), not in a dialog over the page.
+  const boxShown = useSyncExternalStore(subscribeElsewhere, elsewhereShown)
   const { asked, waiting, respondApproval, askingChat } = useApp(
     useShallow((s) => {
+      if (boxShown) return { asked: null, waiting: 0, respondApproval: s.respondApproval, askingChat: null }
       // The first question not asked in the open conversation, which asks
       // about its own turns in its transcript. Several chats can be asking.
       const all = s.pendingApproval ? [s.pendingApproval, ...s.approvalQueue] : s.approvalQueue

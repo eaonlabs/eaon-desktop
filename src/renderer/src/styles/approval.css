@@ -558,12 +558,194 @@
   }
 }
 
+/* ---- another chat's question, above the message box (ElsewhereAsk) ----
+   The queued follow-ups' panel, with the conversation row's colours and
+   buttons: one family of things waiting above the box. */
+
+.elsewhere-ask {
+  --risk: #e9b949;
+  --allow: color-mix(in srgb, var(--link), #ffffff 28%);
+  --allow-ink: color-mix(in srgb, var(--accent), #000000 64%);
+  width: 100%;
+  margin-bottom: 8px;
+  padding: 10px 10px 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--surface-1);
+  animation: ask-row-in 220ms var(--ease) both;
+}
+[data-theme='light'] .elsewhere-ask {
+  --risk: #c88a00;
+  --allow: var(--accent-fill);
+  --allow-ink: var(--on-accent);
+}
+.elsewhere-ask[data-risk='low'] {
+  --risk: var(--link);
+}
+.elsewhere-ask[data-risk='high'] {
+  --risk: var(--danger);
+  --allow: var(--danger);
+  --allow-ink: #ffffff;
+}
+.elsewhere-ask__line {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.elsewhere-ask__dot {
+  flex: none;
+  align-self: flex-start;
+  width: 7px;
+  height: 7px;
+  /* On the first line's centre: (line height − dot) / 2. */
+  margin-top: calc((var(--fs-sm) * 1.5 - 7px) / 2);
+  border-radius: 50%;
+  background: var(--risk);
+  animation: approval-breathe 2.4s ease-in-out infinite;
+}
+.elsewhere-ask__words {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+.elsewhere-ask__head,
+.elsewhere-ask__what {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.elsewhere-ask__chat {
+  min-width: 0;
+  color: var(--text);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.elsewhere-ask__who {
+  flex: none;
+  color: var(--text-3);
+}
+.elsewhere-ask__more {
+  flex: none;
+  padding: 0 6px;
+  border-radius: var(--r-pill);
+  background: var(--hover-strong);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 18px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.elsewhere-ask__title {
+  flex: none;
+  color: var(--text-2);
+}
+.elsewhere-ask__link {
+  min-width: 0;
+  margin-left: -4px;
+  padding: 0 4px;
+  border-radius: var(--r-xs);
+  color: var(--link);
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.elsewhere-ask__link[data-code] {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+.elsewhere-ask__link:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.elsewhere-ask__warn {
+  color: var(--danger);
+  font-size: var(--fs-xs);
+}
+.elsewhere-ask__answers {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.elsewhere-ask__open,
+.elsewhere-ask__deny,
+.elsewhere-ask__allow {
+  height: 28px;
+  padding: 0 12px;
+  border-radius: var(--r-pill);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  transition:
+    background-color var(--dur) var(--ease),
+    color var(--dur) var(--ease),
+    transform 120ms var(--ease);
+}
+.elsewhere-ask__open {
+  color: var(--text-2);
+}
+.elsewhere-ask__open:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.elsewhere-ask__deny {
+  background: var(--hover-strong);
+  color: var(--text);
+}
+.elsewhere-ask__deny:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--hover-strong), var(--text) 8%);
+}
+.elsewhere-ask__allow {
+  background: var(--allow);
+  color: var(--allow-ink);
+}
+.elsewhere-ask__allow:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--allow), #000000 10%);
+}
+.elsewhere-ask__open:active,
+.elsewhere-ask__deny:active:not(:disabled),
+.elsewhere-ask__allow:active:not(:disabled) {
+  transform: scale(0.96);
+}
+.elsewhere-ask__deny:disabled,
+.elsewhere-ask__allow:disabled {
+  opacity: 0.6;
+}
+.elsewhere-ask__link:focus-visible,
+.elsewhere-ask__open:focus-visible,
+.elsewhere-ask__deny:focus-visible,
+.elsewhere-ask__allow:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+/* What it would do, under the words it opened from, lined up with them. */
+.elsewhere-ask__preview {
+  margin: 10px 0 2px 17px;
+  min-width: 0;
+  animation: approval-reveal 200ms ease both;
+}
+.elsewhere-ask__preview .approval__diff {
+  overflow: hidden;
+  border-radius: 10px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .approval-layer,
   .approval-layer .approval,
   .ask-row,
   .ask-row__dot,
   .ask-row__preview,
+  .elsewhere-ask,
+  .elsewhere-ask__dot,
+  .elsewhere-ask__preview,
   .approval[data-variant='inline'],
   .approval__dot,
   .approval__json,
