@@ -484,7 +484,8 @@ export function TeamDialog(): JSX.Element {
   const [saving, setSaving] = useState(false)
   const room = MAX_WORKERS - workers.length
   const total = picked.length + existing.length
-  const valid = total > 0 && total <= MAX_ROOM_MEMBERS && picked.length <= room
+  // A name, as a group chat needs one: a blank one was quietly called "Team".
+  const valid = total > 0 && total <= MAX_ROOM_MEMBERS && picked.length <= room && name.trim().length > 0
   // Said beside the greyed-out button, so it's clear what to change.
   const why =
     total === 0
@@ -495,7 +496,9 @@ export function TeamDialog(): JSX.Element {
           ? room > 0
             ? `You can have ${MAX_WORKERS} workers in all; there’s room for ${room} more specialist${room === 1 ? '' : 's'}.`
             : `You have the most workers you can (${MAX_WORKERS}). Add existing ones instead.`
-          : null
+          : !name.trim()
+            ? 'Give the team a name.'
+            : null
   const close = (): void => openTeamDialog(false)
   const templates = useMemo(() => WORKER_TEMPLATES, [])
 
@@ -505,7 +508,7 @@ export function TeamDialog(): JSX.Element {
     setError(null)
     try {
       const roles = picked.map((id) => templates.find((t) => t.id === id)!).map((t) => ({ role: t.role, purpose: t.purpose, personality: t.personality, color: t.color }))
-      const created = await createTeam({ name: name.trim() || 'Team', roles, memberIds: existing, kickoff: kickoff.trim() })
+      const created = await createTeam({ name: name.trim(), roles, memberIds: existing, kickoff: kickoff.trim() })
       close()
       selectRoom(created.id)
     } catch (e) {

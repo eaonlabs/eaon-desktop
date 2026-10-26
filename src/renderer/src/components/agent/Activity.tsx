@@ -45,6 +45,7 @@ type Kind =
   | 'notify'
   | 'browse'
   | 'wait'
+  | 'sleep'
   | 'mail'
   | 'mailsend'
   | 'market'
@@ -101,6 +102,7 @@ const KIND: Record<string, Kind> = {
   notify_user: 'notify',
   web_browser: 'browse',
   wait: 'wait',
+  sleep: 'sleep',
   email_inbox: 'mail',
   email_read: 'mail',
   email_send: 'mailsend',
@@ -150,6 +152,8 @@ const PHRASE: Record<Kind, (n: number, targets: string[]) => string> = {
   notify: () => 'let you know',
   browse: (n) => (n === 1 ? 'used its browser' : `took ${n} steps in its browser`),
   wait: (n) => (n === 1 ? 'waited' : `waited ${n} times`),
+  // It set its own wake-up and stopped: not "used 1 tool".
+  sleep: (n) => (n === 1 ? 'went to sleep until later' : `went to sleep ${n} times`),
   mail: (n) => (n === 1 ? 'checked its email' : `read ${n} emails`),
   mailsend: (n) => (n === 1 ? 'sent an email' : `sent ${n} emails`),
   market: () => 'looked at the market',

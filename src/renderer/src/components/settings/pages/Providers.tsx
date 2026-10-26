@@ -27,7 +27,7 @@ import { CLIPBOARD_FAILED, copyText } from '../../../lib/clipboard'
 import { Modal, SearchField, Switch } from '../../ui'
 import type { ModelInfo, Provider } from '@shared/types'
 import { checkKeyShape, customProviderId, type ModelEdit, type ModelEditFields, type ModelsRefresh, type ProviderAuthStatus, type ProviderMeta } from '@shared/providers'
-import { ago, describeSource, hasCredentials, modelCapabilities, providerReadiness, STAGE_LABEL, modelStage, OUTSIDE_PLAN_NOTE } from '@shared/modelSelection'
+import { ago, describeSource, hasCredentials, LOCAL_MODEL_PROVIDER, modelCapabilities, providerReadiness, STAGE_LABEL, modelStage, OUTSIDE_PLAN_NOTE } from '@shared/modelSelection'
 import { CodexEngineDetail, CodexEngineRow, CODEX_ROW_ID, useCodexEngine } from './ProviderCodexEntry'
 import '../../../styles/providers.css'
 import { openInAde } from '../../code/terminal/terminalStore'
@@ -453,7 +453,8 @@ function ProviderDetail({
       {(provider.auth === 'oauth' || meta.accountSignIn) && <AccountSection provider={provider} meta={meta} auth={auth} />}
       {meta.fields && meta.baseUrlTemplate && <UrlFieldsSection provider={provider} meta={meta} />}
       {meta.baseUrlLabel && <EndpointSection provider={provider} meta={meta} />}
-      {provider.local && <LocalUrlSection provider={provider} />}
+      {/* Eaon's own models on this computer run in Eaon itself: no server, so no address to point anywhere. */}
+      {provider.local && provider.id !== LOCAL_MODEL_PROVIDER && <LocalUrlSection provider={provider} />}
       {!provider.builtIn && <CustomConnectionSection provider={provider} />}
       {provider.id === FREE_PROVIDER_ID && <EventCodeSection />}
       {/* A custom provider on the local network works without a key, and can still be given one. */}

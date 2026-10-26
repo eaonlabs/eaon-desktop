@@ -68,3 +68,8 @@ test('an opened thought leaves out the title its line shows', async () => {
   assert.equal(thoughtRest('**Checking**\n\nThe disk is full.'), 'The disk is full.')
   assert.equal(thoughtRest('Plain reasoning.'), 'Plain reasoning.')
 })
+
+test('a worker going to sleep says so, not "used 1 tool"', () => {
+  assert.equal(stepSummary([call('sleep', '')]).text, 'Went to sleep until later')
+  assert.equal(stepSummary([call('sleep', ''), call('sleep', '')]).text, 'Went to sleep 2 times')
+})

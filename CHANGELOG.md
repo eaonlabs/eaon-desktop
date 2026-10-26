@@ -69,6 +69,15 @@ All notable changes to Eaon are documented here. Format loosely follows
   in front still gets the card over the page.
 
 ### Fixed
+- **Small things from the last look.** Settings → Security links to how to
+  set up an organization policy, instead of naming a file in the repository.
+  A Local API Server port that can't be used says why (below 1024, past
+  65535, not a whole number) and keeps the one you had; the range is in the
+  description. Codex's provider page shows its error once, and calls a
+  failed check "Couldn't check" rather than "Not checked". "On this
+  computer" no longer shows a Base URL field it doesn't use. A worker's
+  sleep step reads "Went to sleep until later", not "Used 1 tool". New team
+  asks for a name, as New group chat does, instead of calling it "Team".
 - **No dark bands in the sidebars over a wallpaper.** With see-through on,
   the ends of the sidebars' lists (Chat's, Workers', the ADE's) showed as
   dark bars over a bright picture: their edge blur could only see the

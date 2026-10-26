@@ -302,7 +302,8 @@ export function engineReadiness(engine: EngineId, status: EngineStatus | null): 
     case 'signed-out':
       return { state: 'setup', label: 'Not signed in', reason: `Sign in to ${name} to use its models.`, action: 'sign-in' }
     default:
-      return { state: 'attention', label: 'Not checked', reason: status.error ?? `Eaon couldn’t tell whether ${name} is signed in.`, action: 'retry' }
+      // A check that failed isn't one still to come: "Couldn't check", as Settings → Agent engines says it.
+      return { state: 'attention', label: status.error ? 'Couldn’t check' : 'Not checked', reason: status.error ?? `Eaon couldn’t tell whether ${name} is signed in.`, action: 'retry' }
   }
 }
 

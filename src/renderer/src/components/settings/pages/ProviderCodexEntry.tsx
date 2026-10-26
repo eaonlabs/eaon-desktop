@@ -88,6 +88,7 @@ export function CodexEngineRow({ status, active, onClick }: { status: EngineStat
 export function CodexEngineDetail({ engine, onOpenProvider }: { engine: CodexEngineState; onOpenProvider: (providerId: string) => void }): JSX.Element {
   const { status, models } = engine
   const entry = status ? engineEntry(status) : null
+  const failure = engine.error ?? status?.error ?? null
   const auth = status?.auth
   return (
     <>
@@ -139,10 +140,11 @@ export function CodexEngineDetail({ engine, onOpenProvider }: { engine: CodexEng
             )}
           </>
         )}
-        {(engine.error || status?.error) && (
+        {/* The check's own error, unless the note above already says it: it showed twice. */}
+        {failure && failure !== entry?.note && (
           <div className="provider-status" data-tone="error">
             <TriangleAlert size={14} strokeWidth={1.9} />
-            {engine.error ?? status?.error}
+            {failure}
           </div>
         )}
         <p className="provider-detail__section-desc" style={{ marginTop: 14, marginBottom: 0 }}>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { AuditStatus, PolicyFeature, PolicyStatus } from '@shared/enterprise'
 import { Card, Row, Section } from '../../ui'
+import { ENTERPRISE_DOCS_URL } from '@shared/links'
 
 /** How each policy switch reads on this page. */
 const FEATURE_LABELS: Record<PolicyFeature, string> = {
@@ -75,7 +76,15 @@ export function SecurityPage(): JSX.Element {
             description={
               managed.managed
                 ? `Settings marked below are set by your IT team and can't be changed here. Policy: ${managed.source}`
-                : 'No organization policy is installed on this computer. Your IT team can deploy one; see docs/enterprise.md.'
+                : (
+                    <>
+                      No organization policy is installed on this computer. Your IT team can deploy one; see{' '}
+                      <button type="button" className="link-btn" onClick={() => void window.api.app.openExternal(ENTERPRISE_DOCS_URL)}>
+                        how to set up a policy
+                      </button>
+                      .
+                    </>
+                  )
             }
           />
           {managed.failedClosed && (

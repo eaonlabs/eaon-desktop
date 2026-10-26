@@ -7,6 +7,7 @@ import { ModelSelect, type ModelRef } from '../../composer/ModelSelect'
 import type { ModelOption } from '@shared/modelSelection'
 import type { LocalServerStatus } from '@shared/types'
 import type { GatewayInfo } from '@shared/gateway'
+import { portProblem } from '../../../lib/port'
 
 export function LocalServerPage(): JSX.Element {
   const { settings, patchSettings } = useApp()
@@ -14,6 +15,8 @@ export function LocalServerPage(): JSX.Element {
   const [busy, setBusy] = useState(false)
   const [gateway, setGateway] = useState<GatewayInfo | null>(null)
   const [copied, setCopied] = useState(false)
+  /** Why the port typed last wasn't kept; cleared by the next one that is. */
+  const [portError, setPortError] = useState<string | null>(null)
 
   useEffect(() => {
     void window.api.localServer.status().then(setStatus)
@@ -57,8 +60,19 @@ export function LocalServerPage(): JSX.Element {
               onChange={(on) => void patchSettings({ localServer: { autoStart: on } })}
             />
           </Row>
-          <Row title="Port" description="The loopback port the server listens on. Restart the server to apply.">
-            <PortField value={local.port} onChange={(port) => void patchSettings({ localServer: { port } })} />
+          <Row
+            title="Port"
+            description={
+              portError ? (
+                <span className="field-error" role="alert">
+                  {portError}
+                </span>
+              ) : (
+                'The loopback port the server listens on, from 1024 to 65535. Restart the server to apply.'
+              )
+            }
+          >
+            <PortField value={local.port} onChange={(port) => void patchSettings({ localServer: { port } })} onError={setPortError} />
           </Row>
           <Row
             title="Default model"
@@ -163,19 +177,26 @@ function gatewayRef(id: string | null | undefined): ModelRef | null {
 }
 
 /**
- * Saved on Enter or leaving the field, within 1024–65535. Saving each
- * keystroke put 1337 back the moment the field was cleared to type a new
- * port, and saved "8" and "80" on the way to 8080.
+ * Saved on Enter or leaving the field: a whole number from 1024 to 65535.
+ * Saving each keystroke put 1337 back the moment the field was cleared to
+ * type a new port, and saved "8" and "80" on the way to 8080. Anything else
+ * puts the saved port back and says why (lib/port.ts): it used to snap back
+ * with nothing said, and 4242.6 was quietly saved as 4243.
  */
-function PortField({ value, onChange }: { value: number; onChange: (port: number) => void }): JSX.Element {
+function PortField({ value, onChange, onError }: { value: number; onChange: (port: number) => void; onError: (message: string | null) => void }): JSX.Element {
   const [draft, setDraft] = useState(String(value))
   useEffect(() => setDraft(String(value)), [value])
   const commit = (): void => {
-    const port = Math.round(Number(draft))
-    if (Number.isFinite(port) && port >= 1024 && port <= 65535) {
-      if (port !== value) onChange(port)
-      setDraft(String(port))
-    } else setDraft(String(value))
+    const problem = portProblem(draft)
+    if (problem) {
+      onError(`${problem} Kept ${value}.`)
+      setDraft(String(value))
+      return
+    }
+    onError(null)
+    const port = Number(draft.trim())
+    if (port !== value) onChange(port)
+    setDraft(String(port))
   }
   return (
     <input
