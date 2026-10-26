@@ -6,6 +6,10 @@ All notable changes to Eaon are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Changed
+- **Setting up signed gateway requests.** `scripts/gateway-app-setup.sh`
+  stores the gateway app from gateway.eaon.dev (Access → Eaon apps) in the
+  keychain for Mac releases and in the repository's GitHub secrets for the
+  Windows and Linux builds. It asks for the secret without showing it.
 - **Eaon Event offers only what the event's code gets.** Once the gateway
   has listed a code's models, that list is all of Eaon Event, as it is for
   Eaon Lite. It no longer offers the old free week's Claude Haiku 5.5 and

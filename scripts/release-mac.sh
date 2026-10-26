@@ -18,10 +18,9 @@
 #
 # Eaon's gateway app, which signs the app's requests to the gateway
 # (src/main/gatewaySignature.ts), comes from the keychain the same way. Its ID
-# and secret are on the gateway dashboard under Access → Eaon apps:
-#
-#   security add-generic-password -U -s eaon-gateway-app \
-#     -a "<app-id>" -w "<app-secret>"
+# and secret are on the gateway dashboard under Access → Eaon apps; put them
+# in the keychain (and the GitHub secrets the Windows and Linux builds read)
+# with ./scripts/gateway-app-setup.sh, run in your own terminal.
 #
 # A build without it can't reach a gateway set to "Eaon apps only", so the
 # script stops without one. EAON_GATEWAY_UNSIGNED=1 builds without it anyway.
