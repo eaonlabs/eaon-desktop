@@ -6,6 +6,14 @@ All notable changes to Eaon are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Changed
+- **Hold to talk everywhere.** The ADE's hold-to-talk key now works in
+  Chat's and a worker's message box too: hold it, speak, and let go to put
+  what you said into the box, ready to edit before you send it (in the ADE,
+  into the terminal you last typed in, as before). A quick tap or a shortcut
+  with the key never records, and Esc while holding cancels. The key (Right
+  Option on a Mac, Right Alt elsewhere, or a function key, Shift, Control…)
+  and the switch are in Settings → General → Speech to text and Settings →
+  ADE, and Keyboard shortcuts lists it; the mic button's tooltip names it.
 - **A video can be the wallpaper.** Settings → Appearance → Wallpaper →
   Custom takes a video (MP4, MOV, WebM) as well as a picture. It plays muted
   and on a loop behind the glass, and holds still while Eaon is hidden, with

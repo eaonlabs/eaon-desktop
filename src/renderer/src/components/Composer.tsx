@@ -56,6 +56,9 @@ import { sentPrompts } from '../state/chatEdits'
 import { enqueue, holdQueue, watchQueue } from '../state/queue'
 import { QueuedMessages } from './chat/QueuedMessages'
 import { ContextMeter } from './chat/ContextMeter'
+import { typingElsewhere, useHoldToTalk } from './composer/useHoldToTalk'
+import { holdKeyLabel } from '@shared/holdKey'
+import { isMac } from '../lib/platform'
 
 // Queued follow-ups go out as each reply ends (state/queue.ts).
 watchQueue()
@@ -150,6 +153,13 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
     })
   })
   const dictating = dictation.state !== 'idle'
+  // Hold to talk, as in the ADE: while this box is on screen and nobody is typing in another field.
+  const hold = useHoldToTalk(dictation, {
+    ready: () => {
+      const box = textarea.current
+      return Boolean(box && box.offsetParent !== null) && !typingElsewhere(box)
+    }
+  })
 
   const plusAnchor = useRef<HTMLButtonElement>(null)
   const modelAnchor = useRef<HTMLButtonElement>(null)
@@ -574,7 +584,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       }
       disabled={dictation.state === 'transcribing'}
       aria-label={dictating ? 'Stop dictating' : 'Dictate'}
-      title={dictating ? 'Stop dictating' : 'Dictate a message'}
+      title={dictating ? 'Stop dictating' : hold.enabled ? `Dictate a message (or hold ${holdKeyLabel(hold.key, isMac)})` : 'Dictate a message'}
     >
       <Mic size={16} strokeWidth={1.9} />
     </button>

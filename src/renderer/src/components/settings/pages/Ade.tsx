@@ -6,13 +6,12 @@ import { useAdeSessions } from '../../code/sessionsStore'
 import { AgentMark } from '../../code/terminal/TerminalWorkspace'
 import { Card, Row, Section, Select, Switch } from '../../ui'
 import { useLocalSpeech } from './SpeechToText'
-import { isMac } from '../../../lib/platform'
-import { DEFAULT_HOLD_KEY, holdKeyAllowed, holdKeyLabel } from '@shared/holdKey'
 import { LOCAL_SPEECH_ID, LOCAL_SPEECH_MODELS, SPEECH_PROVIDERS, localSpeechModel } from '@shared/speech'
 import { useTerminals } from '../../code/terminal/terminalStore'
 import { DEFAULT_THEME_ID, TERMINAL_THEMES, type TerminalTheme } from '../../code/terminal/themes'
 import { appTheme } from '../../code/terminal/registry'
 import { ageLabel, folderName, homeRelative, type AdeImportCandidate } from '@shared/adeSessions'
+import { HoldToTalkRows } from './HoldToTalk'
 
 const clean = (error: unknown): string =>
   (error instanceof Error ? error.message : String(error)).replace(/^Error invoking remote method '[^']+': (?:Error: )?/, '')
@@ -278,36 +277,19 @@ const SAME = '__same'
 const pickValue = (providerId: string, modelId: string | null): string => `${providerId}::${modelId ?? ''}`
 
 /**
- * Settings → ADE → Speech to text: hold a key to dictate into a terminal
- * (code/terminal/AdeDictation.tsx), with which key and which model — the
- * one under Model providers, a hosted one, or one that runs on this computer.
+ * Settings → ADE → Speech to text: hold a key to dictate (into a terminal
+ * here, code/terminal/AdeDictation.tsx; the key is the app's, HoldToTalk.tsx),
+ * and which model the ADE uses — the one under Model providers, a hosted
+ * one, or one that runs on this computer.
  */
 function DictationSection(): JSX.Element {
   const { dictation, patchSettings, providers } = useApp(useShallow((s) => ({ dictation: s.settings?.ade?.dictation, patchSettings: s.patchSettings, providers: s.providers })))
-  const enabled = dictation?.enabled ?? true
-  const key = dictation?.key || DEFAULT_HOLD_KEY
   const providerId = dictation?.speechProviderId ?? null
   const modelId = dictation?.speechModelId ?? null
   const local = useLocalSpeech()
-  const [listening, setListening] = useState(false)
   const [failed, setFailed] = useState<string | null>(null)
 
   const save = (patch: Partial<NonNullable<typeof dictation>>): void => void patchSettings({ ade: { dictation: patch } })
-
-  // Choosing the key: the next key pressed, if it can be held without typing anything.
-  useEffect(() => {
-    if (!listening) return
-    const onKey = (e: KeyboardEvent): void => {
-      e.preventDefault()
-      e.stopImmediatePropagation()
-      if (e.code === 'Escape') return setListening(false)
-      if (!holdKeyAllowed(e.code)) return
-      save({ key: e.code })
-      setListening(false)
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [listening])
 
   const nameOf = (id: string): string => providers.find((p) => p.id === id)?.name ?? id
   const options = [
@@ -337,18 +319,8 @@ function DictationSection(): JSX.Element {
   return (
     <Section label="Speech to text">
       <Card>
-        <Row
-          title="Hold to talk"
-          description="Hold the key below in the ADE and speak. When you let go, what you said goes into the terminal you last typed in, ready for you to press Enter."
-        >
-          <Switch label="Hold to talk" checked={enabled} onChange={(on) => save({ enabled: on })} />
-        </Row>
-        <Row title="Key" description="Hold it on its own: pressed with another key it stays a shortcut. Esc while holding cancels.">
-          <button type="button" className="btn btn--sm" disabled={!enabled} onClick={() => setListening((on) => !on)} aria-live="polite">
-            {listening ? 'Press a key…' : holdKeyLabel(key, isMac)}
-          </button>
-        </Row>
-        <Row title="Model" description="Online models send the recording to that provider. Models on this computer download once and never send anything.">
+        <HoldToTalkRows description="Hold the key and speak. In the ADE, what you said goes into the terminal you last typed in, ready for you to press Enter; in Chat and Workers, into the message box. The same key everywhere." />
+        <Row title="Model in the ADE" description="Online models send the recording to that provider. Models on this computer download once and never send anything.">
           <Select
             value={options.some((o) => o.value === value) ? value : SAME}
             options={options}

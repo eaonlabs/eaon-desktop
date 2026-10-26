@@ -82,7 +82,7 @@ const stroke = 1.9
  */
 const KEYWORDS: Record<string, string> = {
   general:
-    'update updates beta stable version launch login startup open on launch sleep prevent awake suggested prompts full access permissions approval approvals approve without asking tour take the tour what’s new whats new documentation docs help resources release notes license star github report issue bug other ai apps',
+    'speech to text dictation voice hold to talk push to talk microphone update updates beta stable version launch login startup open on launch sleep prevent awake suggested prompts full access permissions approval approvals approve without asking tour take the tour what’s new whats new documentation docs help resources release notes license star github report issue bug other ai apps',
   appearance: `theme themes dark light mode system color colour font size text zoom accent icon app icon motion reduce contrast glass blur transparency transparent frosted translucent sidebar see-through see through wallpaper picture background tint ${THEMES.map((t) => t.name).join(' ')}`.toLowerCase(),
   configuration: 'web search search engine internet',
   shortcuts: 'keyboard hotkey hotkeys keys key bindings',

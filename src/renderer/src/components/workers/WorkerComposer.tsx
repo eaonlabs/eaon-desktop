@@ -21,6 +21,9 @@ import { GOAL_MAX_TURNS, MAIN_THREAD, mentionedWorkers, WORKER_ACCESS, type Work
 import type { McpServer } from '@shared/types'
 import { usePurchaseDialog } from '../purchase/purchaseStore'
 import { ElsewhereAsk } from '../agent/ElsewhereAsk'
+import { typingElsewhere, useHoldToTalk } from '../composer/useHoldToTalk'
+import { holdKeyLabel } from '@shared/holdKey'
+import { isMac } from '../../lib/platform'
 
 const ACCESS_ICON: Record<WorkerAccess, typeof Zap> = { autonomous: Zap, safe: ShieldCheck, 'read-only': Eye }
 
@@ -79,6 +82,13 @@ export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Wor
     })
   })
   const dictating = dictation.state !== 'idle'
+  // Hold to talk, as in Chat and the ADE: while this box is on screen and nobody is typing in another field.
+  const hold = useHoldToTalk(dictation, {
+    ready: () => {
+      const node = box.current
+      return Boolean(node && node.offsetParent !== null) && !typingElsewhere(node)
+    }
+  })
   const plusAnchor = useRef<HTMLButtonElement>(null)
   const plusMenu = useDisclosure()
   const info = worker.threads.find((t) => t.id === threadId)
@@ -351,7 +361,13 @@ export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Wor
               <Square size={11} strokeWidth={0} fill="currentColor" />
             </button>
           ) : (
-            <button key="mic" className="send send--mic" onClick={() => void dictation.start()} aria-label="Dictate" title="Dictate a message">
+            <button
+              key="mic"
+              className="send send--mic"
+              onClick={() => void dictation.start()}
+              aria-label="Dictate"
+              title={hold.enabled ? `Dictate a message (or hold ${holdKeyLabel(hold.key, isMac)})` : 'Dictate a message'}
+            >
               <Mic size={16} strokeWidth={2} />
             </button>
           )}
