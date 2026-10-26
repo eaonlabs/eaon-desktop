@@ -29,6 +29,8 @@ export const MAX_RECORDING_MS = 10 * 60 * 1000
 export interface Dictation {
   state: DictationState
   error: string | null
+  /** Nothing can turn speech into text yet: show SpeechSetup (a model to download here, or a key) rather than `error`. */
+  needsSetup: boolean
   /** When recording started, for the timer. */
   startedAt: number
   /** Live input for the waveform while recording; null otherwise. */
@@ -73,6 +75,7 @@ export interface DictationOptions {
 export function useDictation(onText: (text: string) => void, options: DictationOptions = {}): Dictation {
   const [state, setState] = useState<DictationState>('idle')
   const [error, setError] = useState<string | null>(null)
+  const [needsSetup, setNeedsSetup] = useState(false)
   const [startedAt, setStartedAt] = useState(0)
   const [analyser, setAnalyser] = useState<AnalyserNode | null>(null)
   const session = useRef<Session | null>(null)
@@ -108,6 +111,7 @@ export function useDictation(onText: (text: string) => void, options: DictationO
   const start = useCallback(async (): Promise<void> => {
     if (session.current) return
     setError(null)
+    setNeedsSetup(false)
     setState('starting')
     const pick = optionsRef.current.pick?.() ?? null
     const local = (pick ? pick.providerId : useApp.getState().settings?.voice?.speechProviderId) === LOCAL_SPEECH_ID
@@ -115,6 +119,7 @@ export function useDictation(onText: (text: string) => void, options: DictationO
       // Before recording, so nobody talks for a minute only to be told there's no key.
       if (!(await window.api.voice.provider(pick))) {
         setError(optionsRef.current.missing?.(local) ?? 'Dictation needs an OpenAI or Groq API key. Add one in Settings → Model providers.')
+        setNeedsSetup(true)
         setState('idle')
         return
       }
@@ -191,5 +196,10 @@ export function useDictation(onText: (text: string) => void, options: DictationO
   // Leaving the view stops the microphone; a recording nobody finished is dropped.
   useEffect(() => () => session.current?.recorder && cancel(), [cancel])
 
-  return { state, error, startedAt, analyser, start, finish, cancel, dismissError: () => setError(null) }
+  const dismissError = useCallback((): void => {
+    setError(null)
+    setNeedsSetup(false)
+  }, [])
+
+  return { state, error, needsSetup, startedAt, analyser, start, finish, cancel, dismissError }
 }

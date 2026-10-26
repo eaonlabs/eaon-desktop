@@ -119,6 +119,15 @@ export const LOCAL_SPEECH_MODELS: LocalSpeechModel[] = [
 
 export const localSpeechModel = (id: string | null | undefined): LocalSpeechModel | undefined => LOCAL_SPEECH_MODELS.find((m) => m.id === id)
 
+/**
+ * The model on this computer to offer where dictation isn't set up: the one
+ * picked (`pickedId`, when a local model is), else one already downloaded,
+ * else the quickest to download.
+ */
+export function offeredSpeechModel(pickedId: string | null, downloaded: readonly string[] = []): LocalSpeechModel {
+  return localSpeechModel(pickedId) ?? localSpeechModel(downloaded[0]) ?? LOCAL_SPEECH_MODELS[0]
+}
+
 /** Where a model downloads from. */
 export const localSpeechUrl = (model: LocalSpeechModel): string => `https://huggingface.co/ggerganov/whisper.cpp/resolve/main/${model.file}`
 

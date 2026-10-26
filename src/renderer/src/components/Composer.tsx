@@ -57,6 +57,7 @@ import { enqueue, holdQueue, watchQueue } from '../state/queue'
 import { QueuedMessages } from './chat/QueuedMessages'
 import { ContextMeter } from './chat/ContextMeter'
 import { typingElsewhere, useHoldToTalk } from './composer/useHoldToTalk'
+import { SpeechSetup } from './composer/SpeechSetup'
 import { holdKeyLabel } from '@shared/holdKey'
 import { isMac } from '../lib/platform'
 
@@ -641,6 +642,8 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       ) : (
         <ModelNotice selection={selection} onChooseModel={() => modelMenu.setOpen(true)} />
       )}
+      {/* Dictation with nothing to turn speech into text: a model to download, right here. */}
+      {dictation.needsSetup && <SpeechSetup holdKey={hold.enabled ? hold.key : null} onClose={dictation.dismissError} />}
       {/* Another chat stopped to ask: here, not in a dialog over this one. */}
       <ElsewhereAsk />
       {/* In a conversation the folder, branch and changes are in the workspace card beside it. */}
@@ -682,7 +685,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
             ))}
           </div>
         )}
-        {dictation.error && (
+        {dictation.error && !dictation.needsSetup && (
           <div className="voice-error" role="alert">
             <span className="voice-error__text">{dictation.error}</span>
             <button onClick={dictation.dismissError} aria-label="Dismiss">

@@ -4,6 +4,7 @@ import { useApp } from '../../../state/store'
 import { useDictation } from '../../composer/useDictation'
 import { typingElsewhere, useHoldToTalk } from '../../composer/useHoldToTalk'
 import { VoiceWave } from '../../composer/VoiceBar'
+import { SpeechSetup } from '../../composer/SpeechSetup'
 import { formatElapsed } from '../../composer/voiceLevel'
 import { isMac } from '../../../lib/platform'
 import { holdKeyLabel } from '@shared/holdKey'
@@ -66,7 +67,7 @@ export function AdeDictation(): JSX.Element | null {
     missing: (local) =>
       local ? 'Download the speech model first, in Settings → ADE → Speech to text.' : 'Pick a speech-to-text model in Settings → ADE → Speech to text, or add an OpenAI or Groq key.'
   })
-  const { state, error, startedAt, analyser, dismissError } = dictation
+  const { state, error, needsSetup, startedAt, analyser, dismissError } = dictation
 
   const { enabled, key } = useHoldToTalk(dictation, {
     // Typing in a text field outside the terminals isn't dictation.
@@ -90,6 +91,8 @@ export function AdeDictation(): JSX.Element | null {
   const phase = state === 'recording' || state === 'starting' ? 'listening' : state === 'transcribing' ? 'transcribing' : spoken ? 'spoken' : message ? 'error' : null
   if (!enabled || !phase) return null
   const keyName = holdKeyLabel(key, isMac)
+  // No model to listen with yet: one to download, right here.
+  if (needsSetup && phase === 'error') return <SpeechSetup floating pick={pick.current} holdKey={key} onClose={dismissError} />
 
   return (
     <div className="ade-dictation" data-phase={phase} role="status" aria-live="polite">

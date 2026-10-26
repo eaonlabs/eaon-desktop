@@ -11,7 +11,7 @@ import { useOnboarding } from '../../onboarding/onboardingStore'
 import { errorText, explainUpdateError } from '../../../lib/errors'
 import { CreditsSection } from './Credits'
 import { HoldToTalkRows } from './HoldToTalk'
-import { SPEECH } from './Providers'
+import { SpeechModelRow } from './SpeechModelRow'
 
 export function GeneralPage(): JSX.Element {
   const { settings, patchSettings } = useApp(useShallow((s) => ({ settings: s.settings, patchSettings: s.patchSettings })))
@@ -130,11 +130,7 @@ export function GeneralPage(): JSX.Element {
       <Section label="Speech to text">
         <Card>
           <HoldToTalkRows description="Hold the key and speak, in Chat, Workers or the ADE. When you let go, what you said goes into the message box (in the ADE, the terminal you last typed in), ready to edit before you send it." />
-          <Row title="Model" description="Which model listens: one online, or one that runs on this computer and never sends anything.">
-            <button type="button" className="btn btn--sm" onClick={() => useApp.getState().openProviderSettings(SPEECH)}>
-              Choose…
-            </button>
-          </Row>
+          <SpeechModelRow />
         </Card>
       </Section>
 

@@ -6,6 +6,15 @@ All notable changes to Eaon are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Changed
+- **Download speech models right from the app.** Dictating with nothing set
+  up now offers a Whisper model that runs on this computer, with a Download
+  button right there in Chat, Workers and the ADE. It shows its progress,
+  can be stopped and picks up where it stopped, and the model is switched on
+  as soon as it's in. Settings → Model providers → Speech to text now lists
+  the models on this computer first, each with its download, and the online
+  providers below, rather than hiding the downloads behind a dropdown and
+  opening on an error. Settings → General → Speech to text shows what
+  dictation uses, with a one-click download when it's nothing yet.
 - **Hold to talk everywhere.** The ADE's hold-to-talk key now works in
   Chat's and a worker's message box too: hold it, speak, and let go to put
   what you said into the box, ready to edit before you send it (in the ADE,

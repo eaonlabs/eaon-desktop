@@ -607,6 +607,64 @@
 .speech-status:empty {
   display: none;
 }
+.speech-status .provider-status {
+  margin: 0 0 10px;
+}
+.provider-status[data-tone='ok'] svg {
+  color: #30a46c;
+}
+/* "In use", beside the local model dictation runs on. */
+.local-speech__tag {
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 500;
+  vertical-align: 1px;
+}
+.local-speech__row[data-busy] .local-speech__blurb {
+  font-variant-numeric: tabular-nums;
+}
+/* A downloaded model's delete stays quiet until its row is pointed at. */
+.local-speech__delete {
+  opacity: 0.55;
+  transition: opacity var(--dur) var(--ease);
+}
+.local-speech__row:hover .local-speech__delete,
+.local-speech__delete:focus-visible {
+  opacity: 1;
+}
+/* Online, while dictation runs on this computer: what would change it back. */
+.speech-online-off {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: var(--r-lg);
+  background: var(--hover);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+.speech-online-model {
+  margin-top: 8px;
+}
+/* Settings → General → Speech to text → Model: its download, or what to press. */
+.speech-row-progress,
+.speech-row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.speech-row-actions .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  white-space: nowrap;
+}
 
 /* ---- Logo (Settings → a provider): where it comes from, and changing it ---- */
 

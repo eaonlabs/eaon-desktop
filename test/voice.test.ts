@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { MAX_AUDIO_BYTES, NO_KEY_MESSAGE, pickTranscriber, transcribe } from '../src/main/features/voice/transcribe'
 import { followLevel, formatElapsed, levelFromSamples } from '../src/renderer/src/components/composer/voiceLevel'
 import { joinTranscript } from '../src/renderer/src/components/composer/useDictation'
+import { offeredSpeechModel } from '../src/shared/speech'
 
 /**
  * Dictation turns a recording into text with the user's own OpenAI or Groq
@@ -150,4 +151,11 @@ test('when the first provider can’t transcribe (key refused, quota, unreachabl
   // Both failing reports the first provider's problem.
   const down = fakeFetch([{ status: 401, body: { error: { message: 'bad key' } } }])
   await assert.rejects(transcribe(audio, 'audio/webm', { getKey: keys({ openai: 'sk', groq: 'gsk' }), fetch: down.fetch }), /OpenAI didn't accept the API key/)
+})
+
+test('where dictation isn’t set up, the model offered is the local one picked, else one already downloaded, else the quickest download', () => {
+  assert.equal(offeredSpeechModel('large-v3-turbo', ['small']).id, 'large-v3-turbo')
+  assert.equal(offeredSpeechModel(null, ['small']).id, 'small')
+  assert.equal(offeredSpeechModel(null, []).id, 'base')
+  assert.equal(offeredSpeechModel('no-such-model').id, 'base')
 })

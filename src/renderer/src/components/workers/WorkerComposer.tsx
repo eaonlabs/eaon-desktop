@@ -22,6 +22,7 @@ import type { McpServer } from '@shared/types'
 import { usePurchaseDialog } from '../purchase/purchaseStore'
 import { ElsewhereAsk } from '../agent/ElsewhereAsk'
 import { typingElsewhere, useHoldToTalk } from '../composer/useHoldToTalk'
+import { SpeechSetup } from '../composer/SpeechSetup'
 import { holdKeyLabel } from '@shared/holdKey'
 import { isMac } from '../../lib/platform'
 
@@ -241,6 +242,8 @@ export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Wor
       }}
     >
       {/* A chat stopped to ask while a worker is on screen: here, above its box, not over it. */}
+      {/* Dictation with nothing to turn speech into text: a model to download, right here. */}
+      {dictation.needsSetup && <SpeechSetup holdKey={hold.enabled ? hold.key : null} onClose={dictation.dismissError} />}
       <ElsewhereAsk everyChat />
       <div className="composer composer--worker" data-variant="chat" data-goal={goalArmed || undefined}>
         {files.length > 0 && (
@@ -264,7 +267,7 @@ export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Wor
             </button>
           </div>
         )}
-        {dictation.error && (
+        {dictation.error && !dictation.needsSetup && (
           <div className="voice-error" role="alert">
             <span className="voice-error__text">{dictation.error}</span>
             <button onClick={dictation.dismissError} aria-label="Dismiss">

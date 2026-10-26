@@ -35,10 +35,11 @@ import { LinkAccounts } from '../../LinkAccounts'
 import { matchesSearch } from '@shared/searchWords'
 import { formatAllowance, formatEndDay, FREE_PROVIDER_ID, type FreeCreditsStatus } from '@shared/freeCredits'
 import { SpeechMark, SpeechToTextDetail } from './SpeechToText'
+import { SPEECH_SETTINGS } from '../../../lib/localSpeech'
 
 /** The list's Speech to text row, which isn't a provider: it picks one for dictation. */
-/** Speech to text's row: not a provider, but where the speech model is picked (Settings → General links to it). */
-export const SPEECH = '__speech'
+/** Speech to text's row: not a provider, but where the speech model is picked. */
+const SPEECH = SPEECH_SETTINGS
 
 /** The plan's own CLI, named for the button that opens it in the ADE. */
 const PLAN_CLI = { claude: 'Claude Code', antigravity: 'Antigravity', codex: 'Codex' } as const
