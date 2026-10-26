@@ -164,6 +164,14 @@ body[data-see-through='on'] .mode-switch__option[data-active] {
   box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--fg) 14%, transparent);
 }
 
+/* The sidebars' graded edge blur (app.css .edge-veil) sits inside the
+   frosted sidebar, and a blur inside frosted glass sees only the glass's own
+   tint, not the wallpaper under it: over a bright picture it showed as a dark
+   band at both ends of the list. Here the list's own fade is the whole effect. */
+body[data-see-through='on'] .edge-veil {
+  display: none;
+}
+
 /* What floats over everything is read, not looked through: near opaque. */
 body[data-see-through='on'] :is(.modal, .approval, .usage-card, .update-toast, .peek, .menu, .star-card) {
   background: var(--glass-float);

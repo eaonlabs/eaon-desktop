@@ -69,6 +69,10 @@ All notable changes to Eaon are documented here. Format loosely follows
   in front still gets the card over the page.
 
 ### Fixed
+- **No dark bands in the sidebars over a wallpaper.** With see-through on,
+  the ends of the sidebars' lists (Chat's, Workers', the ADE's) showed as
+  dark bars over a bright picture: their edge blur could only see the
+  frosted sidebar's own tint. Over a wallpaper the lists now just fade.
 - **Videos play from any file.** Pictures and videos the app shows from your
   disk (attachments, the Library) are served with byte ranges, so an MP4
   with its index at the end, or a QuickTime screen recording, plays instead
