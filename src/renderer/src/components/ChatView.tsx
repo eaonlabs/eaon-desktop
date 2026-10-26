@@ -26,7 +26,7 @@ import {
   TriangleAlert,
   X
 } from 'lucide-react'
-import { codeFolder, messageText, useApp, useCoding, useIsWork, type PendingApproval } from '../state/store'
+import { codeFolder, messageText, runIn, useApp, useCoding, useIsWork, type PendingApproval } from '../state/store'
 import { Composer } from './Composer'
 import { FolderMenu } from './composer/ComposerBits'
 import { ContextMenu } from './Sidebar'
@@ -244,17 +244,26 @@ function registerConversation(): () => void {
  */
 export function ApprovalPrompt(): JSX.Element | null {
   const open = useSyncExternalStore(subscribeConversation, isConversationOpen)
-  const { asked, waiting, respondApproval, here, askingChat } = useApp(
+  const { asked, waiting, respondApproval, askingChat } = useApp(
     useShallow((s) => {
-      const ask = s.pendingApproval
+      // The first question not asked in the open conversation, which asks
+      // about its own turns in its transcript. Several chats can be asking.
+      const all = s.pendingApproval ? [s.pendingApproval, ...s.approvalQueue] : s.approvalQueue
+      const onScreen = new Set(open ? (s.activeChat()?.messages.map((m) => m.id) ?? []) : [])
+      const ask = all.find((a) => !onScreen.has(a.messageId)) ?? null
       const here = Boolean(ask && s.activeChat()?.messages.some((m) => m.id === ask.messageId))
       // Over another chat, the card says which chat is asking: "Eaon is waiting" read as the one on screen.
       const askingChat = ask && !here ? (s.chats.find((c) => c.messages.some((m) => m.id === ask.messageId))?.title ?? null) : null
-      return { asked: ask, waiting: s.approvalQueue.length, respondApproval: s.respondApproval, here, askingChat }
+      return { asked: ask, waiting: all.filter((a) => !onScreen.has(a.messageId)).length - (ask ? 1 : 0), respondApproval: s.respondApproval, askingChat }
     })
   )
-  // The open conversation asks about its own turns, in its transcript.
-  const pending = asked && !(here && open) ? asked : null
+  // The open conversation's own question, as a row in it, has the keyboard; this card waits its turn for ⏎ and esc.
+  const rowAsking = useApp((s) => {
+    if (!open) return false
+    const ids = new Set(s.activeChat()?.messages.map((m) => m.id) ?? [])
+    return [s.pendingApproval, ...s.approvalQueue].some((a) => a && ids.has(a.messageId))
+  })
+  const pending = asked
   const [shown, setShown] = useState<PendingApproval | null>(pending)
   const [answer, setAnswer] = useState<'approve' | 'deny' | null>(null)
   const [swap, setSwap] = useState(false)
@@ -280,10 +289,10 @@ export function ApprovalPrompt(): JSX.Element | null {
   const respond = (approved: boolean): void => {
     if (!pending) return
     setAnswer(approved ? 'approve' : 'deny')
-    respondApproval(approved)
+    respondApproval(approved, pending.requestId)
   }
 
-  useApprovalKeys(pending, respond)
+  useApprovalKeys(rowAsking ? null : pending, respond)
 
   if (!shown) return null
   const edit = shown.tool === 'write_file' || shown.tool === 'edit_file'
@@ -291,6 +300,7 @@ export function ApprovalPrompt(): JSX.Element | null {
     <ApprovalCard
       key={shown.requestId}
       variant="dialog"
+      takesKeys={!rowAsking}
       tool={shown.tool}
       input={shown.input}
       title={approvalTitle(shown.tool, shown.input, shown.before)}
@@ -315,7 +325,7 @@ export function ApprovalPrompt(): JSX.Element | null {
 }
 
 function Conversation({ chat }: { chat: Chat }): JSX.Element {
-  const { streamingMessageId, remoteStreaming, streamingChatId, browserOpen, toggleBrowser, archiveChat, deleteChat, renameChat, stop } = useApp(useShallow((s) => ({ streamingMessageId: s.streamingMessageId, remoteStreaming: s.remoteStreaming, streamingChatId: s.streamingChatId, browserOpen: s.browserOpen, toggleBrowser: s.toggleBrowser, archiveChat: s.archiveChat, deleteChat: s.deleteChat, renameChat: s.renameChat, stop: s.stop })))
+  const { streamingMessageId, remoteStreaming, browserOpen, toggleBrowser, archiveChat, deleteChat, renameChat, stop } = useApp(useShallow((s) => ({ streamingMessageId: runIn(s, chat.id), remoteStreaming: s.remoteStreaming, browserOpen: s.browserOpen, toggleBrowser: s.toggleBrowser, archiveChat: s.archiveChat, deleteChat: s.deleteChat, renameChat: s.renameChat, stop: s.stop })))
   const isWork = useIsWork()
   const thread = useRef<HTMLDivElement>(null)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
@@ -347,7 +357,7 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
   }, [])
   useEffect(() => setFinding(false), [chat.id])
 
-  const streaming = streamingChatId === chat.id
+  const streaming = streamingMessageId !== null
   // Only the last reply can be asked again; see retryPlan.
   const lastReplyId = useMemo(() => {
     for (let i = chat.messages.length - 1; i >= 0; i--) {
@@ -529,8 +539,8 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
                 streaming={message.id === streamingMessageId || remoteStreaming.includes(message.id)}
                 chatActions
                 last={message.id === lastReplyId}
-                canRetry={message.id === lastReplyId && !streamingChatId}
-                canEdit={!streamingChatId}
+                canRetry={message.id === lastReplyId && !streaming}
+                canEdit={!streaming}
                 fresh={!opened.current.ids.has(message.id)}
               />
             </RowBoundary>
@@ -741,8 +751,11 @@ export const MessageRow = memo(function MessageRow({
   const didWork = useMemo(() => items.some((item) => item.kind !== 'text'), [items])
   // What this turn is asking the user, in the conversation (a chat's own
   // replies only: a worker asks through its own card), and how many more wait.
-  const ask = useApp((s) => (chatActions && s.pendingApproval?.messageId === message.id ? s.pendingApproval : null))
-  const askWaiting = useApp((s) => (ask ? s.approvalQueue.length : 0))
+  const ask = useApp((s) =>
+    chatActions ? ((s.pendingApproval?.messageId === message.id ? s.pendingApproval : s.approvalQueue.find((a) => a.messageId === message.id)) ?? null) : null
+  )
+  // More questions from this same turn (a swarm's sub-agents), after this one.
+  const askWaiting = useApp((s) => (ask ? [s.pendingApproval, ...s.approvalQueue].filter((a) => a && a.messageId === message.id).length - 1 : 0))
   // The call it asks about. The loop announces a call before it asks, so it
   // is in a run already, reading as running; the question stands in for it
   // until it is answered. A sub-agent's calls aren't in the transcript.

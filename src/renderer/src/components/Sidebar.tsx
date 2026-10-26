@@ -197,11 +197,11 @@ function ChatMenu(): JSX.Element {
 
 /** Chat's projects, then its chats outside them: the part of the sidebar that scrolls. */
 function ChatNav(): JSX.Element {
-  const { view, activeChatId, streamingChatId, newChat } = useApp(
+  const { view, activeChatId, runs, newChat } = useApp(
     useShallow((s) => ({
       view: s.view,
       activeChatId: s.activeChatId,
-      streamingChatId: s.streamingChatId,
+      runs: s.runs,
       newChat: s.newChat
     }))
   )
@@ -255,7 +255,7 @@ function ChatNav(): JSX.Element {
                 chat={chat}
                 index={index}
                 active={chat.id === activeChatId && view === 'chat'}
-                streaming={chat.id === streamingChatId}
+                streaming={chat.id in runs}
               />
             ))
           )}
@@ -458,8 +458,8 @@ function ProjectSortButton(): JSX.Element {
 }
 
 function ProjectRow({ project, onEdit }: { project: Project; onEdit: () => void }): JSX.Element {
-  const { view, activeChatId, streamingChatId, newChat, deleteProject } = useApp(
-    useShallow((s) => ({ view: s.view, activeChatId: s.activeChatId, streamingChatId: s.streamingChatId, newChat: s.newChat, deleteProject: s.deleteProject }))
+  const { view, activeChatId, runs, newChat, deleteProject } = useApp(
+    useShallow((s) => ({ view: s.view, activeChatId: s.activeChatId, runs: s.runs, newChat: s.newChat, deleteProject: s.deleteProject }))
   )
   const chats = useSortedChats()
   const ids = useApp(useShallow((s) => s.chats.filter((c) => c.projectId === project.id && !c.archived).map((c) => c.id)))
@@ -531,7 +531,7 @@ function ProjectRow({ project, onEdit }: { project: Project; onEdit: () => void 
                 chat={chat}
                 index={index}
                 active={chat.id === activeChatId && view === 'chat'}
-                streaming={chat.id === streamingChatId}
+                streaming={chat.id in runs}
                 inProject
               />
             ))
@@ -690,6 +690,8 @@ const ChatRow = memo(function ChatRow({
   }
 
   const { failed, pinned } = chat
+  // Finished while another chat was on screen: a dot until it's opened.
+  const unread = chat.unread && !active && !streaming
 
   const commitRename = (): void => {
     setRenaming(false)
@@ -747,9 +749,11 @@ const ChatRow = memo(function ChatRow({
         ) : (
           <span className="nav-item__label">{chat.title}</span>
         )}
-        <span className="nav-item__trail" data-always={streaming || failed || pinned ? 'true' : undefined}>
+        <span className="nav-item__trail" data-always={streaming || failed || pinned || unread ? 'true' : undefined}>
           {streaming ? (
             <Loader2 size={14} strokeWidth={2} className="spinner" role="img" aria-label="Replying" />
+          ) : unread && !failed ? (
+            <span className="nav-item__unread" role="img" aria-label="New reply" />
           ) : failed ? (
             <CircleAlert size={14} strokeWidth={2} color="var(--danger)" role="img" aria-label="The last reply failed">
               <title>The last reply failed</title>

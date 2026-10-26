@@ -26,7 +26,7 @@ import {
   X,
   Zap
 } from 'lucide-react'
-import { codeFolder, useApp, useCoding, useIsWork } from '../state/store'
+import { codeFolder, runIn, useApp, useCoding, useIsWork } from '../state/store'
 import { MenuItem, MenuSearch, MenuSeparator, Popover, useDisclosure } from './ui'
 import { mcpCatalogEntry } from '@shared/mcpCatalog'
 import { PluginLogo } from './plugins/PluginLogo'
@@ -83,10 +83,12 @@ const PASTED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'ima
  * of streamed tokens, and takes nothing from it but `variant`.
  */
 export const Composer = memo(function Composer({ variant = 'home' }: { variant?: 'home' | 'chat' }): JSX.Element {
-  const { settings, streamingChatId, activeChatId, send, stop, composerDraft, setComposerDraft, composerAppend, appendToComposer, workIn, patchSettings } = useApp(
+  const { settings, streaming, activeChatId, send, stop, composerDraft, setComposerDraft, composerAppend, appendToComposer, workIn, patchSettings } = useApp(
     useShallow((s) => ({
       settings: s.settings,
-      streamingChatId: s.streamingChatId,
+      // Stop belongs to the open chat's own reply. Other chats can be running
+      // too: this one still sends, and each keeps its own Stop.
+      streaming: runIn(s, s.activeChatId) !== null,
       activeChatId: s.activeChatId,
       send: s.send,
       stop: s.stop,
@@ -162,11 +164,6 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
   const noModel = engineChoice ? !engineChoice.ready : selection.status === 'none' || selection.status === 'unavailable'
   // What the request will actually use: the chosen effort, clamped to the model.
   const effort = clampEffort(settings?.effort, engineChoice ? engineChoice.efforts : model?.efforts)
-  // Stop belongs to the chat whose reply is streaming. Anywhere else — another
-  // chat, a new one — it stopped a reply the user could not see, and Enter
-  // with a message typed did the same; there, sending waits instead.
-  const streaming = streamingChatId !== null && streamingChatId === activeChatId
-  const busyElsewhere = streamingChatId !== null && !streaming
 
   useEffect(() => {
     const node = textarea.current
@@ -266,7 +263,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       stop()
       return
     }
-    if (busyElsewhere || noModel || (!text.trim() && attachments.length === 0)) return
+    if (noModel || (!text.trim() && attachments.length === 0)) return
     const options = { attachments, goal: isAgent && goalArmed, until: isAgent && goalArmed ? goalEndAt(goalUntil) : null }
     if (editing) resendFrom(editing, text, options)
     else void send(text, options)
@@ -596,10 +593,10 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
   const sendButton = (
     <button
       className={`send ${streaming ? 'send--stop' : ''}`}
-      disabled={busyElsewhere || (!streaming && (noModel || dictating || (!text.trim() && attachments.length === 0)))}
+      disabled={!streaming && (noModel || dictating || (!text.trim() && attachments.length === 0))}
       onClick={submit}
       aria-label={streaming ? 'Stop' : 'Send'}
-      title={busyElsewhere ? 'Eaon is still replying in another chat' : !streaming && noModel ? 'Connect a model first — see above' : undefined}
+      title={!streaming && noModel ? 'Connect a model first — see above' : undefined}
     >
       {streaming ? (
         <Square size={11} strokeWidth={0} fill="currentColor" />

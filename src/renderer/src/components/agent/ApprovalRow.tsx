@@ -91,10 +91,11 @@ export function ApprovalRow({ ask, waiting }: { ask: PendingApproval; waiting: n
     if (answered) return
     setAnswered(true)
     const hadFocus = Boolean(row.current?.contains(document.activeElement))
-    respondApproval(approved)
+    respondApproval(approved, ask.requestId)
     // Answered from the row: the keyboard goes back to the message box, not
-    // to the page, unless another question is next (its row takes it).
-    if (hadFocus && !useApp.getState().pendingApproval) {
+    // to the page, unless this turn has another question next (its row takes it).
+    const s = useApp.getState()
+    if (hadFocus && ![s.pendingApproval, ...s.approvalQueue].some((a) => a && a.messageId === ask.messageId)) {
       requestAnimationFrame(() => document.querySelector<HTMLTextAreaElement>('.main .composer textarea')?.focus())
     }
   }

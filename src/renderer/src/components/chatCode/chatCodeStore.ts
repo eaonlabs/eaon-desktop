@@ -317,7 +317,8 @@ export function watchChatCode(): void {
   void useChatCode.getState().syncFolder()
   useApp.subscribe((state, prev) => {
     if (codeFolder(state) !== codeFolder(prev)) void useChatCode.getState().syncFolder()
-    if (prev.streamingMessageId !== null && state.streamingMessageId === null) void useChatCode.getState().refresh()
+    // A reply ended: what it changed shows.
+    if (state.runs !== prev.runs && Object.keys(prev.runs).some((chatId) => !(chatId in state.runs))) void useChatCode.getState().refresh()
   })
   window.addEventListener('focus', () => void useChatCode.getState().refresh())
 }

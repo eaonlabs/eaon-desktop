@@ -65,9 +65,12 @@ interface AppState {
   navFuture: NavEntry[]
   sidebarOpen: boolean
   browserOpen: boolean
-  streamingMessageId: string | null
-  /** The chat `streamingMessageId` belongs to. */
-  streamingChatId: string | null
+  /**
+   * The replies this window is writing, by the chat they're in. Each chat
+   * runs one at a time, but any number of chats can run at once: start one,
+   * go to another and ask there too.
+   */
+  runs: Record<string, string>
   /**
    * Replies being written right now by something else — another window, a
    * scheduled task — so this window shows them as unfinished too. An id drops
@@ -131,7 +134,8 @@ interface AppState {
   /** Moves a chat into a project, where it codes in the project's folder, or out of one (null) to Chats. */
   moveChat: (id: string, projectId: string | null) => void
   send: (text: string, options?: SendOptions) => Promise<void>
-  stop: () => void
+  /** Stops the open chat's reply, or `chatId`'s. */
+  stop: (chatId?: string) => void
   /** Plan mode: the user accepted the plan in `messageId`; run it with plan mode off. */
   approvePlan: (messageId: string) => void
   /** A reply's thumbs and emoji, from its action bar. */
@@ -142,7 +146,8 @@ interface AppState {
   forkChat: (messageId: string) => void
   /** Clears or pauses the active chat's goal. */
   setGoalStatus: (status: 'paused' | 'active' | null) => void
-  respondApproval: (approved: boolean) => void
+  /** Answers the first waiting question, or the one with `requestId`. */
+  respondApproval: (approved: boolean, requestId?: string) => void
   /**
    * Switching to full access mid-turn: approves everything waiting that full
    * access would have run without asking. What can't be undone keeps waiting.
@@ -208,12 +213,32 @@ export interface PendingApproval {
   agent?: string
 }
 
+/** The reply running in `chatId` in this window, if there is one. */
+export const runIn = (s: Pick<AppState, 'runs'>, chatId: string | null | undefined): string | null => (chatId ? (s.runs[chatId] ?? null) : null)
+
+/** Whether any chat in this window has a reply running. */
+export const anyRun = (s: Pick<AppState, 'runs'>): boolean => Object.keys(s.runs).length > 0
+
+/** `runs` without `chatId`'s. */
+function withoutRun(runs: Record<string, string>, chatId: string): Record<string, string> {
+  if (!(chatId in runs)) return runs
+  const next = { ...runs }
+  delete next[chatId]
+  return next
+}
+
+/** The chat whose run `messageId` is, in this window. */
+const runChat = (runs: Record<string, string>, messageId: string): string | null =>
+  Object.keys(runs).find((chatId) => runs[chatId] === messageId) ?? null
+
 /** What the sidebar shows for a chat. */
 export interface ChatListItem {
   id: string
   title: string
   pinned: boolean
   failed: boolean
+  /** A reply finished there while it wasn't on screen. */
+  unread: boolean
 }
 
 type DeepPartial<T> = { [K in keyof T]?: T[K] extends object ? DeepPartial<T[K]> : T[K] }
@@ -227,6 +252,8 @@ export interface SendOptions {
   until?: number | null
   /** Overrides the plan-mode setting for this one turn (approving a plan runs it with plan mode off). */
   plan?: boolean
+  /** Sends into this chat rather than the open one (a queued message, once its chat's reply ends), without opening it. */
+  chatId?: string
 }
 
 export type WorkspaceKind = 'chat' | 'work' | 'code' | 'workers'
@@ -312,15 +339,15 @@ let saveFailing = false
 const checkpoints = new Checkpoint(() => saveChatsNow(true))
 
 /**
- * Takes in chats another window changed. The chat this window is writing a
- * reply into is left alone: this window's copy is the one being written, and
- * it is saved when the reply ends.
+ * Takes in chats another window changed. The chats this window is writing
+ * replies into are left alone: this window's copies are the ones being
+ * written, and each is saved when its reply ends.
  */
 function receiveChats(change: { upserts: Chat[]; removed: string[] }): void {
   const { getState: get, setState: set } = useApp
-  const mine = get().streamingChatId
-  const upserts = change.upserts.filter((chat) => chat.id !== mine)
-  const removed = new Set(change.removed.filter((id) => id !== mine))
+  const mine = get().runs
+  const upserts = change.upserts.filter((chat) => !(chat.id in mine))
+  const removed = new Set(change.removed.filter((id) => !(id in mine)))
   for (const chat of upserts) synced.set(chat.id, chat)
   for (const id of removed) synced.delete(id)
   set((state) => {
@@ -331,8 +358,6 @@ function receiveChats(change: { upserts: Chat[]; removed: string[] }): void {
     return { chats, ...(state.activeChatId && removed.has(state.activeChatId) ? { activeChatId: null } : {}) }
   })
 }
-
-const IDLE = { streamingMessageId: null, streamingChatId: null }
 
 /**
  * The approval state without `messageId`'s requests. Main answers them itself
@@ -495,8 +520,9 @@ function applyStreamEvent(event: StreamEvent): void {
   const state = get()
   const finished = event.type === 'done' || event.type === 'error'
   // A headless run (a scheduled task) streams into a chat the renderer did
-  // not start, so only clear the streaming marker for the run it owns.
-  const ownsStream = state.streamingMessageId === event.messageId
+  // not start, so only a run this window started is cleared from `runs`.
+  const owner = runChat(state.runs, event.messageId)
+  const ownsStream = owner !== null
   // Still this window's to save after Stop, until the run reports its end.
   const mine = ownsStream || ownedRuns.has(event.messageId)
   const found = locateMessage(state.chats, event.messageId)
@@ -510,7 +536,7 @@ function applyStreamEvent(event: StreamEvent): void {
   if (!found) {
     // The chat is gone (deleted mid-run), but the run still has to release
     // the stop button and any prompt it left open.
-    if (finished) set((s) => ({ ...(ownsStream ? IDLE : {}), ...withoutApprovals(s, event.messageId) }))
+    if (finished) set((s) => ({ ...(owner ? { runs: withoutRun(s.runs, owner) } : {}), ...withoutApprovals(s, event.messageId) }))
     return
   }
   const { chatIndex, msgIndex } = found
@@ -591,10 +617,13 @@ function applyStreamEvent(event: StreamEvent): void {
     messages
   }
 
-  set({ chats, ...(finished ? { ...(ownsStream ? IDLE : {}), ...withoutApprovals(state, event.messageId) } : {}) })
+  // A reply that ends in a chat that isn't on screen marks it, so the sidebar shows there's something new to read.
+  const unseen = finished && owner !== null && (state.activeChatId !== target.id || state.view !== 'chat')
+  const ended = unseen ? chats.map((c, i) => (i === chatIndex ? { ...c, unread: true } : c)) : chats
+  set({ chats: ended, ...(finished ? { ...(owner ? { runs: withoutRun(get().runs, owner) } : {}), ...withoutApprovals(state, event.messageId) } : {}) })
   // Another window's reply (or a scheduled run's) is shown as it comes, but
   // saved by whoever is writing it; here it only becomes the synced copy.
-  if (!mine) synced.set(target.id, chats[chatIndex])
+  if (!mine) synced.set(target.id, ended[chatIndex])
   else if (finished || nextChat) persistChats()
   else checkpoints.touch()
 }
@@ -661,8 +690,7 @@ export const useApp = create<AppState>((set, get) => ({
   navFuture: [],
   sidebarOpen: true,
   browserOpen: false,
-  streamingMessageId: null,
-  streamingChatId: null,
+  runs: {},
   remoteStreaming: [],
   pendingApproval: null,
   approvalQueue: [],
@@ -720,13 +748,14 @@ export const useApp = create<AppState>((set, get) => ({
       // stop it — nothing could show, approve or save what it does from here —
       // and save what has arrived so far.
       window.addEventListener('pagehide', () => {
-        const streaming = get().streamingMessageId
-        if (streaming) {
+        const running = Object.values(get().runs)
+        for (const streaming of running) {
           void window.api.chat.cancel(streaming)
           // Cut off by this window closing: what was said stays, marked as unfinished.
-          set((s) => ({ chats: sealInterrupted(s.chats, streaming).map(markUnfinished), ...IDLE, ...withoutApprovals(s, streaming) }))
+          set((s) => ({ chats: sealInterrupted(s.chats, streaming).map(markUnfinished), ...withoutApprovals(s, streaming) }))
         }
-        if (saveTimer || streaming) saveChatsNow()
+        if (running.length) set({ runs: {} })
+        if (saveTimer || running.length) saveChatsNow()
       })
 
       // Scheduled tasks (features/scheduler): main starts those runs, so their
@@ -862,14 +891,14 @@ export const useApp = create<AppState>((set, get) => ({
   // run otherwise kept going with nowhere to write, and — for a deleted chat —
   // its end never found the message, so every composer stayed on "Stop".
   deleteChat: (id) => {
-    if (get().streamingChatId === id) get().stop()
+    if (get().runs[id]) get().stop(id)
     const chats = get().chats.filter((c) => c.id !== id)
     set({ chats, activeChatId: get().activeChatId === id ? null : get().activeChatId })
     persistChats()
   },
 
   archiveChat: (id) => {
-    if (get().streamingChatId === id) get().stop()
+    if (get().runs[id]) get().stop(id)
     const chats = get().chats.map((c) => (c.id === id ? { ...c, archived: true } : c))
     set({ chats, activeChatId: get().activeChatId === id ? null : get().activeChatId })
     persistChats()
@@ -899,10 +928,15 @@ export const useApp = create<AppState>((set, get) => ({
     const state = get()
     const settings = state.settings
     if (!settings || (!text.trim() && !options.attachments?.length)) return
-    // One reply streams at a time: the stop button, the streaming marker and
-    // the approval prompt all follow a single message. A second send would
-    // orphan the first — still running, with nothing left to stop it.
-    if (state.streamingMessageId) return
+    // Into the open chat, or the one asked for (a queued message, sent once its chat's reply ends).
+    const into = options.chatId ? (state.chats.find((c) => c.id === options.chatId) ?? null) : state.activeChat()
+    if (options.chatId && !into) return
+    // One reply at a time in a chat: its Stop, its streaming marker and its
+    // questions follow a single message, and a second would be orphaned,
+    // still running with nothing left to stop it. Other chats can run.
+    if (into && state.runs[into.id]) return
+    // Sent into a chat that isn't on screen: it runs there, and the screen stays where it is.
+    const background = Boolean(options.chatId && options.chatId !== state.activeChatId)
 
     const selection = state.modelSelection()
     // Chat on an agent engine (a Codex model): the engine's own model, not a provider's.
@@ -939,7 +973,7 @@ export const useApp = create<AppState>((set, get) => ({
       ? { text: text.trim(), status: 'active' as const, iterations: 0, ...(options.until && options.until > now ? { until: options.until } : {}) }
       : undefined
 
-    let chat = state.activeChat()
+    let chat = into
     let chats: Chat[]
     if (!chat) {
       chat = {
@@ -968,7 +1002,8 @@ export const useApp = create<AppState>((set, get) => ({
     }
 
     ownedRuns.add(assistantMessage.id)
-    set({ chats, activeChatId: chat.id, streamingMessageId: assistantMessage.id, streamingChatId: chat.id, view: 'chat' })
+    const runningIn = chat.id
+    set((s) => ({ chats, runs: { ...s.runs, [runningIn]: assistantMessage.id }, ...(background ? {} : { activeChatId: runningIn, view: 'chat' as const }) }))
     // Saved straight away rather than debounced: other windows need the new
     // messages before the reply's first words reach them.
     saveChatsNow()
@@ -994,7 +1029,7 @@ export const useApp = create<AppState>((set, get) => ({
             }
           : c
       )
-      set({ chats: failed, ...IDLE })
+      set((s) => ({ chats: failed, runs: withoutRun(s.runs, runningIn) }))
       persistChats()
       return
     }
@@ -1045,21 +1080,22 @@ export const useApp = create<AppState>((set, get) => ({
     } catch (error) {
       // The run never started, or main failed before its loop could report
       // back. Without this the reply sat on "Thinking" with Stop showing.
-      if (get().streamingMessageId !== assistantMessage.id) return
+      if (get().runs[runningIn] !== assistantMessage.id) return
       const reason = error instanceof Error ? error.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(error)
       applyStreamEvent({ type: 'error', messageId: assistantMessage.id, error: reason })
     }
   },
 
-  stop() {
-    const id = get().streamingMessageId
-    if (!id) return
+  stop(chatId) {
+    const chat = chatId ?? get().activeChatId
+    const id = runIn(get(), chat)
+    if (!chat || !id) return
     void window.api.chat.cancel(id)
     // Marked, so the reply says it was stopped rather than looking finished.
     set((s) => ({
-      ...IDLE,
+      runs: withoutRun(s.runs, chat),
       ...withoutApprovals(s, id),
-      chats: s.chats.map((c) => (c.id === s.streamingChatId ? { ...c, messages: c.messages.map((m) => (m.id === id ? { ...m, stopped: true } : m)) } : c))
+      chats: s.chats.map((c) => (c.id === chat ? { ...c, messages: c.messages.map((m) => (m.id === id ? { ...m, stopped: true } : m)) } : c))
     }))
     // What was said so far is saved now, not only when the run reports back.
     persistChats()
@@ -1076,7 +1112,7 @@ export const useApp = create<AppState>((set, get) => ({
 
   retryReply(messageId) {
     const chat = get().activeChat()
-    if (!chat || get().streamingMessageId) return
+    if (!chat || get().runs[chat.id]) return
     const plan = retryPlan(chat, messageId)
     if (!plan) return
     set({ chats: get().chats.map((c) => (c.id === chat.id ? { ...c, messages: plan.messages } : c)) })
@@ -1116,8 +1152,8 @@ export const useApp = create<AppState>((set, get) => ({
     if (!chat) return
     // A goal pursued right now lives in the main process too; pausing only
     // here would be overwritten by the loop's next "still working" event.
-    const streaming = get().streamingMessageId
-    if (status !== 'active' && streaming && chat.messages.some((m) => m.id === streaming)) void window.api.chat.pauseGoal(streaming)
+    const streaming = get().runs[chat.id]
+    if (status !== 'active' && streaming) void window.api.chat.pauseGoal(streaming)
     const chats = get().chats.map((c) =>
       c.id === chat.id ? { ...c, goal: status && c.goal ? { ...c.goal, status, ...(status === 'active' ? { summary: undefined } : {}) } : null } : c
     )
@@ -1125,11 +1161,15 @@ export const useApp = create<AppState>((set, get) => ({
     persistChats()
   },
 
-  respondApproval(approved) {
-    const pending = get().pendingApproval
-    if (!pending) return
-    void window.api.chat.approve(pending.requestId, approved)
-    set((s) => ({ pendingApproval: s.approvalQueue[0] ?? null, approvalQueue: s.approvalQueue.slice(1) }))
+  respondApproval(approved, requestId) {
+    const { pendingApproval, approvalQueue } = get()
+    const waiting = pendingApproval ? [pendingApproval, ...approvalQueue] : approvalQueue
+    // Several chats can each be asking; each answers its own.
+    const asked = requestId ? waiting.find((a) => a.requestId === requestId) : waiting[0]
+    if (!asked) return
+    void window.api.chat.approve(asked.requestId, approved)
+    const rest = waiting.filter((a) => a !== asked)
+    set({ pendingApproval: rest[0] ?? null, approvalQueue: rest.slice(1) })
   },
 
   releaseApprovals() {
@@ -1157,7 +1197,7 @@ export const useApp = create<AppState>((set, get) => ({
 
   resendFrom(messageId, text, options = {}) {
     const chat = get().activeChat()
-    if (!chat || get().streamingMessageId) return
+    if (!chat || get().runs[chat.id]) return
     const plan = editPlan(chat, messageId)
     if (!plan) return
     set({ chats: get().chats.map((c) => (c.id === chat.id ? plan.chat : c)) })
@@ -1338,9 +1378,9 @@ export const useApp = create<AppState>((set, get) => ({
       const failed = lastTurnFailed(chat.messages)
       const before = previous[index]
       const item =
-        before && before.id === chat.id && before.title === chat.title && before.pinned === chat.pinned && before.failed === failed
+        before && before.id === chat.id && before.title === chat.title && before.pinned === chat.pinned && before.failed === failed && before.unread === Boolean(chat.unread)
           ? before
-          : { id: chat.id, title: chat.title, pinned: chat.pinned, failed }
+          : { id: chat.id, title: chat.title, pinned: chat.pinned, failed, unread: Boolean(chat.unread) }
       listItems.set(chat, item)
       return item
     })

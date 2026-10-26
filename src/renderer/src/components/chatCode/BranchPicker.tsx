@@ -3,7 +3,7 @@ import { ArrowDown, ArrowUp, ChevronDown, Cloud, GitBranch, GitBranchPlus, Loade
 import type { ChatBranch, ChatGitResult } from '@shared/chatCode'
 import { MenuItem, MenuSearch, MenuSeparator, Popover, useDisclosure } from '../ui'
 import { notify } from '../Notice'
-import { useApp } from '../../state/store'
+import { codeProject, useApp } from '../../state/store'
 import { useChatCode } from './chatCodeStore'
 
 /** "3 days ago", short. */
@@ -29,7 +29,8 @@ const validName = (name: string): boolean =>
 export function BranchPicker({ row = false }: { row?: boolean } = {}): JSX.Element | null {
   const folder = useChatCode((s) => s.folder)
   const status = useChatCode((s) => s.status)
-  const streaming = useApp((s) => s.streamingMessageId !== null)
+  // Not while a chat in this project is writing a reply: switching branches under it would move its work.
+  const streaming = useApp((s) => s.chats.some((c) => c.id in s.runs && c.projectId === codeProject(s)?.id))
   const anchor = useRef<HTMLButtonElement>(null)
   const menu = useDisclosure()
   const [query, setQuery] = useState('')

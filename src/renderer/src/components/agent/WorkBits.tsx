@@ -27,7 +27,8 @@ import '../../styles/tasklist.css'
 
 export function PlanCard({ message, plan }: { message: ChatMessage; plan: PlanProposal }): JSX.Element {
   const approvePlan = useApp((s) => s.approvePlan)
-  const streaming = useApp((s) => s.streamingMessageId !== null)
+  // Approving waits until this chat's reply is done.
+  const streaming = useApp((s) => s.chats.some((c) => c.id in s.runs && c.messages.some((m) => m.id === message.id)))
   const setComposerDraft = useApp((s) => s.setComposerDraft)
   const pending = plan.status === 'pending'
 
@@ -118,7 +119,7 @@ export function TodoPanel({ chat }: { chat: Chat }): JSX.Element | null {
     }
     return null
   }, [chat.messages])
-  const live = useApp((s) => s.streamingChatId === chat.id)
+  const live = useApp((s) => chat.id in s.runs)
 
   const [open, setOpen] = useState(false)
 
@@ -183,7 +184,7 @@ const GOAL_LABEL: Record<GoalState['status'], string> = {
 export function GoalBanner({ chat }: { chat: Chat }): JSX.Element | null {
   const setGoalStatus = useApp((s) => s.setGoalStatus)
   // Paused while a reply is still being written: the step in hand finishes first.
-  const running = useApp((s) => s.streamingMessageId !== null && chat.messages.some((m) => m.id === s.streamingMessageId))
+  const running = useApp((s) => chat.id in s.runs)
   const goal = chat.goal
   if (!goal) return null
   const pausing = goal.status === 'paused' && running

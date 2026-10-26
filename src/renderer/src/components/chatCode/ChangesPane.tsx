@@ -24,7 +24,7 @@ import {
 } from 'lucide-react'
 import type { ChatGitStatus } from '@shared/chatCode'
 import type { ChatToolPart } from '@shared/types'
-import { codeFolder, useApp } from '../../state/store'
+import { anyRun, codeFolder, useApp } from '../../state/store'
 import { CLIPBOARD_FAILED, copyText } from '../../lib/clipboard'
 import { FileIcon } from '../agent/FileIcon'
 import { MenuItem, MenuSearch, MenuSeparator, Popover, Switch, useDisclosure } from '../ui'
@@ -148,7 +148,7 @@ function useScopeFiles(
 ): Loaded | null {
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [focusNonce, setFocusNonce] = useState(0)
-  const streamEnded = useApp((s) => s.streamingMessageId === null)
+  const streamEnded = useApp((s) => !anyRun(s))
   const missing = useDockPlace().missing
   // A commit, a pull or a branch switch is a new git status (`gitStatus`): the uncommitted changes are read again.
   useEffect(() => {

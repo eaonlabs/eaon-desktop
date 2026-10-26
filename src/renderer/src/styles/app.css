@@ -814,6 +814,14 @@ a:hover {
   width: 18px;
 }
 
+/* A chat's reply that finished while another was on screen (Sidebar ChatRow). */
+.nav-item__unread {
+  width: 7px;
+  height: 7px;
+  margin: 0 3px;
+  border-radius: 50%;
+  background: var(--accent);
+}
 .unread-badge {
   min-width: 17px;
   height: 17px;

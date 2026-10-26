@@ -6,6 +6,14 @@ All notable changes to Eaon are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Changed
+- **Several chats work at once.** Start a reply in one chat, go to another
+  (in a project or in Chats) and ask there too: each runs on its own, with
+  its own Stop and its own queue of follow-ups, and none waits for another.
+  A spinner in the sidebar marks each chat still working, and a dot marks
+  one that finished while you were elsewhere. A queued follow-up goes when
+  its own chat's reply ends, even with another chat open. Each chat asks
+  for approval in its own conversation; another chat's question waits as a
+  card naming that chat, and ⏎ answers the one in front of you.
 - **Eaon Free is now Eaon Event, for events only.** It opens with the code
   from an event Eaon sponsors (a hackathon, a workshop), and nothing else:
   the free week, the "Free AI credits" card and Settings' "Get free credits"
@@ -44,6 +52,9 @@ All notable changes to Eaon are documented here. Format loosely follows
   in front still gets the card over the page.
 
 ### Fixed
+- **Eaon's logo in the model picker.** Eaon Lite and Eaon Event showed a
+  plain "E" in a ring on the picker's tab and the message box's model chip,
+  and Eaon's own mark there was another logo. They show Eaon's mark now.
 - **The plan's scrollbar.** A long plan above the message box scrolled with
   a square grey scrollbar down its whole side, and its Plan line scrolled
   away with the steps. Now the Plan line stays put and only the steps
