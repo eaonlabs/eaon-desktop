@@ -179,6 +179,40 @@ All notable changes to Eaon are documented here. Format loosely follows
   first time the sidebar shows with nothing under Chats (after the 2026.6
   update), the projects holding chats open. The chat's own menu has Move to
   another project.
+- **A worker's browser closes.** With its Activity open, turning a worker's
+  Browser off left the browser on screen, over Automations, Chat and the
+  ADE, and its Close did nothing. Activity and the browser now take turns
+  beside a worker, so its conversation keeps its width.
+- **A closed dock stays closed in a new place.** Going somewhere with no
+  pages of its own yet (a new ADE session, Chat after browsing in the ADE)
+  opened the closed dock on a blank tab and put Review away.
+- **⌘1–⌘9 in every model menu pick a model.** In a worker's, Edit worker's
+  and New automation's model menu they switched to Chat, Workers or the ADE,
+  and a half-filled automation was lost. ⌘1–⌘3 also wait while a dialog or
+  an open list has the keyboard.
+- **Pausing or clearing a worker's goal cancels its wake-up.** A worker that
+  went to sleep while working on its goal woke at the time it set and
+  carried on anyway.
+- **Every provider address says why it wasn't saved.** OpenAI's,
+  Anthropic's and other providers' Base URL under Advanced, LM Studio's,
+  Ollama's and the other local servers', Azure's endpoint and Cloudflare's
+  fields refused Eaon's own service's address with nothing said, and kept
+  showing it. The reason now shows under the field.
+- **A custom provider on this computer or your network works without a
+  key** (a llama.cpp or vLLM server, a LiteLLM proxy): its models are listed
+  as soon as it's added. It can still be given a key if it asks for one.
+- **Running and Not running keep up.** While Model providers is open, local
+  servers are looked at every ten seconds, so one that starts or stops shows
+  it without Refresh.
+- **A server that isn't running says so at once.** A custom provider on
+  this computer or the network that refused the connection showed "The
+  provider is busy" through three retries, about 22 seconds, before the
+  error. A provider elsewhere that refuses still gets its retries, as
+  "Couldn't connect".
+- **Settings search.** Each word has to begin a word, so "port" no longer
+  finds General (report) or Connect apps (import). Plurals find their
+  singular ("goals", "tours"), and "chat gpt" and "open ai" find ChatGPT and
+  OpenAI. In Model providers, "local" finds the servers on this computer.
 - **End-to-end tests.** The scenarios brought up to date with folded replies
   and Eaon Lite. The Eaon Free ones use a stand-in for Eaon's gateway that
   serves the free model, since the real one answers only signed builds.

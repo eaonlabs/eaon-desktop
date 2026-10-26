@@ -157,13 +157,19 @@ export function useDockBridge(on: boolean, { store, browser, agent }: { store: D
 
   // Opened, or another page in front: the dock shows it. Coming back to this
   // view, or to another session's pages, isn't either, so a dock closed
-  // with a page open stays closed.
+  // with a page open stays closed. Nor is the blank tab a place gets when the
+  // browser is open and it has no pages yet (a new ADE session, Chat after
+  // browsing in the ADE): from no tab to a tab is that, not a page brought
+  // to the front. The browser just opened waits here for its first tab.
   const shown = useRef<{ open: boolean; tab: string | null; scope: string } | null>(null)
   useEffect(() => {
     const last = shown.current
     shown.current = { open: browserOpen, tab: activeTab, scope: browser }
-    if (!on || !browserOpen) return
-    if (!last || (last.scope === browser && (!last.open || last.tab !== activeTab))) bringForward()
+    if (!on || !browserOpen || !last || last.scope !== browser) return
+    if (!last.open || (last.tab !== null && last.tab !== activeTab)) {
+      reveal.current = true
+      bringForward()
+    }
   }, [on, browserOpen, activeTab, browser])
 
   // Eaon's browser: a tab while it shows.

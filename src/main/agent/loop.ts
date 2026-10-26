@@ -7,6 +7,7 @@ import { app, powerSaveBlocker } from 'electron'
 import type { GoalState, ModelInfo, Provider, Settings, StreamEvent, StreamRequest, TokenUsage } from '@shared/types'
 import { adapterFor, getProvider, noteProviderHealth } from '../providers'
 import { classifyProviderError } from '../providers/errors'
+import { targetsPrivateNetwork } from '../netGuard'
 import { hideEaonAddress } from '../eaonAddress'
 import { findModel } from '@shared/modelSelection'
 import { addUsage, emptyUsage, HEADERS_TIMEOUT_MESSAGE, isHeadersTimeout, ProviderHttpError, type Adapter, type Credentials, type NeutralImage, type NeutralMessage, type NeutralToolResult, type TurnRequest, type TurnResult } from '../providers/adapters/types'
@@ -202,6 +203,17 @@ function isRetryable(error: unknown): boolean {
   return /fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket hang up|terminated|network|overloaded|Connection error|stream ended before/i.test(message)
 }
 
+/** Nothing listening at the address: the connection was refused, wherever in the error's causes that's said. */
+function isRefused(error: unknown): boolean {
+  let current: unknown = error
+  for (let depth = 0; depth < 5 && current; depth++) {
+    const { message, code } = (current ?? {}) as { message?: unknown; code?: unknown }
+    if (/ECONNREFUSED/.test(`${String(code ?? '')} ${String(message ?? current)}`)) return true
+    current = (current as { cause?: unknown }).cause
+  }
+  return false
+}
+
 /** "2 h 10 min" until `until`, for a goal with an end time. */
 export function timeLeft(until: number, now = Date.now()): string {
   const minutes = Math.max(0, Math.round((until - now) / 60_000))
@@ -311,10 +323,15 @@ async function callModel(
         if (params.provider.local && isHeadersTimeout(error)) throw new Error(HEADERS_TIMEOUT_MESSAGE)
         // A local runtime that is not running will not start by itself while
         // we wait; say so now instead of after three backoffs.
-        if (params.provider.local && /ECONNREFUSED|fetch failed/i.test(`${error instanceof Error ? error.message : ''} ${String((error as { cause?: unknown })?.cause ?? '')}`)) {
+        if (params.provider.local && (isRefused(error) || /ECONNREFUSED|fetch failed/i.test(`${error instanceof Error ? error.message : ''} ${String((error as { cause?: unknown })?.cause ?? '')}`))) {
           const where = params.provider.baseUrl.replace(/\/v1\/?$/, '')
           throw new Error(`Couldn't reach ${params.provider.name} at ${where}. Start it and try again.`)
         }
+        // The same for a server of the user's own on this computer or the
+        // network (a custom provider): it said "The provider is busy" through
+        // three retries, about 22 seconds, before saying it wasn't there.
+        const refused = isRefused(error)
+        if (refused && targetsPrivateNetwork(attempts[k].baseUrl ?? params.provider.baseUrl)) throw error
         if (isAuthError(error) && k < attempts.length - 1) {
           note('That key was rejected — trying the next saved key.')
           break
@@ -334,7 +351,8 @@ async function callModel(
           )
           const status = error instanceof ProviderHttpError ? ` (${error.status})` : ''
           const cutOff = error instanceof Error && /stream ended before/.test(error.message)
-          note(`${cutOff ? 'The reply was cut off' : `The provider is busy${status}`} — retrying in ${Math.round(wait / 1000)}s.`)
+          const why = cutOff ? 'The reply was cut off' : refused ? `Couldn't connect to ${params.provider.name}` : `The provider is busy${status}`
+          note(`${why} — retrying in ${Math.round(wait / 1000)}s.`)
           await sleep(wait, params.signal)
           continue
         }

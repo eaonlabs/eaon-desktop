@@ -30,7 +30,7 @@ const CONCURRENCY = 3
 export function providersDue(providers: Provider[], now: number, maxAge = MAX_AGE_MS): Provider[] {
   return providers.filter((p) => {
     if (p.local || p.id === LOCAL_MODEL_PROVIDER || !providerMeta(p.id).listsModels) return false
-    if (!p.enabled || !(p.hasKey || p.signedIn)) return false
+    if (!p.enabled || !(p.hasKey || p.signedIn || p.auth === 'none')) return false
     if (providerReadiness(p).state === 'attention' && p.health && !p.health.ok) return false
     const age = p.id === GATEWAY_PROVIDER_ID ? Math.min(maxAge, EAON_MAX_AGE_MS) : maxAge
     return !p.modelsListedAt || now - p.modelsListedAt >= age

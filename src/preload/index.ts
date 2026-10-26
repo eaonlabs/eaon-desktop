@@ -197,6 +197,7 @@ const api = {
       ipcRenderer.invoke('providers:update', id, patch),
     remove: (id: string): Promise<Provider[]> => ipcRenderer.invoke('providers:remove', id),
     refreshModels: (id: string) => ipcRenderer.invoke('providers:refresh-models', id),
+    refreshLocal: (): Promise<boolean> => ipcRenderer.invoke('providers:refresh-local'),
     /** Re-reads models.dev and, when usable, the provider's own listing; says what changed. */
     refresh: (id: string): Promise<ModelsRefresh> => ipcRenderer.invoke('providers:refresh', id),
     /** Remove, restore, add or rename a model; returns the updated providers. */

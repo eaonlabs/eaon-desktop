@@ -194,6 +194,40 @@ test('the computer is kept awake while a timed goal is active, and resuming keep
   await engine.whenIdle()
 })
 
+test('pausing or clearing a goal cancels the wake-up the worker set for it, and leaves a steady heartbeat alone', async () => {
+  const clock = Date.parse('2026-10-13T09:00:00Z')
+  let engine: ReturnType<typeof start> | null = null
+  const agent = fakeAgent((request, emit) => {
+    engine!.sleep(request.workerId!, 20, 'check the build')
+    emit({ type: 'delta', messageId: request.messageId, text: 'Sleeping on it.' })
+    return { text: 'Sleeping on it.', usage }
+  })
+  engine = start(agent.runAgent, { now: () => clock })
+  const nova = engine.save(draft('Nova'))
+  const pip = engine.save(draft('Pip'))
+
+  for (const [worker, status] of [[nova, 'paused'], [pip, null]] as const) {
+    engine.send(worker.id, 'Keep the build green', [], { goal: true })
+    await until(() => agent.requests.some((r) => r.workerId === worker.id))
+    await engine.whenIdle()
+    const asleep = engine.list().find((w) => w.id === worker.id)!
+    assert.equal(asleep.heartbeat.nextAt, clock + 20 * 60_000, 'the goal’s sleep is set')
+    assert.equal(asleep.goalRun?.wakeAt, clock + 20 * 60_000)
+    engine.setGoal(worker.id, status)
+    const after = engine.list().find((w) => w.id === worker.id)!
+    assert.equal(after.heartbeat.nextAt, null, `${status ?? 'cleared'}: no wake-up left to carry on the goal`)
+    assert.equal(after.goalRun?.wakeAt, undefined)
+  }
+
+  // A steady heartbeat the worker keeps isn't the goal's to cancel.
+  engine.setHeartbeat(nova.id, { everyMinutes: 60, note: 'check the inbox' })
+  engine.setGoal(nova.id, 'active')
+  await engine.whenIdle()
+  engine.setHeartbeat(nova.id, { everyMinutes: 60, note: 'check the inbox' })
+  engine.setGoal(nova.id, 'paused')
+  assert.equal(engine.list().find((w) => w.id === nova.id)!.heartbeat.everyMs, 60 * 60_000)
+})
+
 test('an end time is clamped to the longest a run may be, and one in the past is ignored', () => {
   const clock = Date.parse('2026-10-13T09:00:00Z')
   const engine = start(fakeAgent().runAgent, { now: () => clock })

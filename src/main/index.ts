@@ -697,6 +697,12 @@ function registerIpc(): void {
     return forScreens(removeProvider(id))
   })
   ipcMain.handle('providers:refresh-models', (_e, id: string) => refreshModels(id))
+  // Model providers, while it's open: local servers' Running / Not running as they start and stop.
+  ipcMain.handle('providers:refresh-local', async () => {
+    const changed = await refreshLocalProviders(true)
+    if (changed) broadcast('providers:changed')
+    return changed
+  })
   ipcMain.handle('providers:refresh', async (_e, id: string) => {
     const result = await refreshProviderModels(id)
     return { ...result, message: hideEaonAddress(result.message) }

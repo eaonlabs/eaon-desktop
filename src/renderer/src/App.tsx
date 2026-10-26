@@ -233,7 +233,10 @@ export default function App(): JSX.Element {
           )}
           {view === 'chat' && kind === 'workers' && browserWorker && (
             <ErrorBoundary
-              key={browserWorker.id}
+              // Its own key, not the worker's id alone: the Activity panel beside it
+              // had the same one, and React lost track of which was which, leaving
+              // a closed browser on screen over every view.
+              key={`browser-${browserWorker.id}`}
               area="worker browser"
               fallback={() => <PanelError onClose={() => useWorkers.getState().setBrowser(null, browserWorker.id)} />}
             >
@@ -241,7 +244,7 @@ export default function App(): JSX.Element {
             </ErrorBoundary>
           )}
           {view === 'chat' && kind === 'workers' && activityWorker && (
-            <ErrorBoundary key={activityWorker.id} area="worker activity" fallback={() => <PanelError onClose={() => useWorkers.getState().setActivityOpen(false)} />}>
+            <ErrorBoundary key={`activity-${activityWorker.id}`} area="worker activity" fallback={() => <PanelError onClose={() => useWorkers.getState().setActivityOpen(false)} />}>
               <WorkerActivityPanel worker={activityWorker} />
             </ErrorBoundary>
           )}
@@ -296,8 +299,11 @@ function GlobalKeys({ onSettings, onPlugins }: { onSettings: () => void; onPlugi
       }
       // ⌘1 / ⌘2 / ⌘3 (Ctrl elsewhere): Chat, Workers, ADE — the top bar's switch, from the keyboard.
       const kind = ({ '1': 'chat', '2': 'workers', '3': 'code' } as const)[event.key as '1' | '2' | '3']
-      // Not when what has the keyboard took it already (the model picker's ⌘1–⌘9).
-      if (kind && !event.shiftKey && !event.altKey && !event.defaultPrevented) {
+      // Not when what has the keyboard took it already (the model pickers'
+      // ⌘1–⌘9), nor from inside a dialog or an open list, where switching
+      // views would throw away what's being filled in.
+      const inside = document.activeElement instanceof Element && document.activeElement.closest('[role="dialog"], [aria-modal="true"], [role="listbox"], [role="menu"]')
+      if (kind && !event.shiftKey && !event.altKey && !event.defaultPrevented && !inside) {
         const app = useApp.getState()
         const target = app.workspaces.find((w) => w.kind === kind)
         if (!target) return

@@ -59,6 +59,7 @@ import { WORKER_TABS, WorkersPage } from './pages/Workers'
 import { EnginesPage } from './pages/Engines'
 import { SecurityPage } from './pages/Security'
 import type { PolicyFeature } from '@shared/enterprise'
+import { matchesSearch } from '@shared/searchWords'
 
 interface NavEntry {
   id: string
@@ -75,8 +76,8 @@ const stroke = 1.9
 /**
  * What people search for that isn't a page's name, so "dark mode" finds
  * Appearance and "api key" finds Model providers instead of a blank list.
- * Each word searched for has to be somewhere in a page's name or its words,
- * in any order. Keep these to what the page really has: a word that leads
+ * Each word searched for has to begin a word in a page's name or its words,
+ * in any order (shared/searchWords.ts). Keep these to what the page really has: a word that leads
  * to a page without it is worse than no match.
  */
 const KEYWORDS: Record<string, string> = {
@@ -89,7 +90,7 @@ const KEYWORDS: Record<string, string> = {
   'usage-limits': 'quota limit remaining reset codex claude cursor copilot grok opencode devin credits balance rings header meter',
   accounts: 'claude code codex sign in login plan limit limits switch account usage meter alerts',
   providers:
-    'api key keys openai anthropic claude gemini google openrouter ollama lm studio model models free credits event code hackathon eaon free eaon lite sign in custom provider base url endpoint logo fallback speech to text voice dictation whisper transcribe',
+    'api key keys openai chatgpt anthropic claude gemini google openrouter ollama lm studio llama.cpp mlx vllm local server model models free credits event code hackathon eaon free eaon lite sign in custom provider base url endpoint logo fallback speech to text voice dictation whisper transcribe',
   engines: 'claude code codex copilot gemini cli agent engine sandbox subscription',
   'agent-providers': 'cli coding agents claude codex cursor opencode droid grok antigravity gemini copilot install update version picker order hide priority',
   'computer-use': 'screen mouse keyboard accessibility screen recording permissions emergency stop screenshot',
@@ -111,13 +112,6 @@ const KEYWORDS: Record<string, string> = {
   system: 'cpu memory ram gpu performance monitor',
   security: 'audit log policy enterprise organization verify integrity records',
   archived: 'archive restore deleted chats history'
-}
-
-/** Whether every word of `query` is in `haystack`. */
-const matchesAll = (query: string, haystack: string): boolean => {
-  const words = query.toLowerCase().split(/\s+/).filter(Boolean)
-  const text = haystack.toLowerCase().replace(/[’']/g, '')
-  return words.every((word) => text.includes(word.replace(/[’']/g, '')))
 }
 
 const NAV: NavEntry[] = [
@@ -261,7 +255,7 @@ export function SettingsShell(): JSX.Element {
   // A page's tabs are only listed when a search finds them; otherwise the page stands for them.
   const entries = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return q ? visibleNav.filter((entry) => matchesAll(q, `${entry.label} ${KEYWORDS[entry.id] ?? ''}`)) : visibleNav.filter((entry) => !entry.parent)
+    return q ? visibleNav.filter((entry) => matchesSearch(q, `${entry.label} ${KEYWORDS[entry.id] ?? ''}`)) : visibleNav.filter((entry) => !entry.parent)
   }, [query, visibleNav])
 
   // The open tab's own row when a search lists it, otherwise its page's.

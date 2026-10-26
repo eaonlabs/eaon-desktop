@@ -27,12 +27,13 @@ import { CLIPBOARD_FAILED, copyText } from '../../../lib/clipboard'
 import { Modal, SearchField, Switch } from '../../ui'
 import type { ModelInfo, Provider } from '@shared/types'
 import { checkKeyShape, customProviderId, type ModelEdit, type ModelEditFields, type ModelsRefresh, type ProviderAuthStatus, type ProviderMeta } from '@shared/providers'
-import { ago, describeSource, modelCapabilities, providerReadiness, STAGE_LABEL, modelStage, OUTSIDE_PLAN_NOTE } from '@shared/modelSelection'
+import { ago, describeSource, hasCredentials, modelCapabilities, providerReadiness, STAGE_LABEL, modelStage, OUTSIDE_PLAN_NOTE } from '@shared/modelSelection'
 import { CodexEngineDetail, CodexEngineRow, CODEX_ROW_ID, useCodexEngine } from './ProviderCodexEntry'
 import '../../../styles/providers.css'
 import { openInAde } from '../../code/terminal/terminalStore'
 import { LinkAccounts } from '../../LinkAccounts'
 import { FREE_ALLOWANCE, FREE_UNAVAILABLE } from '../../FreeCreditsOffer'
+import { matchesSearch } from '@shared/searchWords'
 import { formatAllowance, formatEndDay, FREE_DAYS, FREE_PROVIDER_ID, type FreeCreditsStatus } from '@shared/freeCredits'
 import { SpeechMark, SpeechToTextDetail } from './SpeechToText'
 
@@ -56,11 +57,6 @@ const GROUPS: { id: Category; label: string }[] = [
   { id: 'custom', label: 'Custom' }
 ]
 
-/** Whether every word searched for is in `keywords`: "openai codex" finds the Codex row as "codex" does. */
-const matchesWords = (query: string, keywords: string): boolean => {
-  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean)
-  return words.every((word) => keywords.includes(word))
-}
 
 const categoryOf = (provider: Provider): Category =>
   provider.category ?? (provider.local ? 'local' : provider.builtIn ? 'frontier' : 'custom')
@@ -157,6 +153,16 @@ export function ProvidersPage(): JSX.Element {
   // Whether Eaon serves Eaon Free's model now: the row's "Free" badge promises it only then.
   const [freeServed, setFreeServed] = useState(false)
 
+  // Local servers start and stop on their own: while this page is open, a
+  // look every ten seconds keeps their Running / Not running true without
+  // Refresh. Only what changed comes back (as providers:changed).
+  useEffect(() => {
+    const look = (): void => void window.api.providers.refreshLocal().catch(() => {})
+    look()
+    const timer = window.setInterval(look, 10_000)
+    return () => window.clearInterval(timer)
+  }, [])
+
   useEffect(() => {
     void refreshProviders()
     // A custom provider added from the Eaon CLI gets its logo looked up now (main/providers/logos.ts).
@@ -177,9 +183,8 @@ export function ProvidersPage(): JSX.Element {
   }, [providerFocus, setProviderFocus])
 
   const groups = useMemo(() => {
-    const needle = query.trim().toLowerCase()
-    const matches = (p: Provider): boolean =>
-      !needle || [p.name, p.id, p.description ?? ''].some((field) => field.toLowerCase().includes(needle))
+    // Every word, in any order, against the name, id, description and group: "local" finds the servers on this computer.
+    const matches = (p: Provider): boolean => matchesSearch(query, [p.name, p.id, p.description ?? '', categoryOf(p)].join(' '))
     return GROUPS.map((group) => ({
       ...group,
       // The old ChatGPT sign-in borrows the Codex CLI's client id; the official
@@ -191,15 +196,15 @@ export function ProvidersPage(): JSX.Element {
   const selected = providers.find((p) => p.id === selectedId) ?? providers.find((p) => p.id === 'openai') ?? providers[0] ?? null
   const eaonGroup = groups.find((group) => group.id === 'eaon')
   // Codex runs as its own engine, not a provider: listed with the subscriptions once Eaon has checked for it.
-  const codexMatches = Boolean(codex.status) && matchesWords(query, 'codex openai chatgpt subscription engine')
+  const codexMatches = Boolean(codex.status) && matchesSearch(query, 'codex openai chatgpt subscription engine')
   const showingCodex = selectedId === CODEX_ROW_ID && Boolean(codex.status)
   // Eaon Free before it is claimed: a row of its own that offers it (claimed, it is a provider like the rest).
-  const offeringFree = Boolean(free && !free.claimed) && matchesWords(query, 'eaon free credits')
+  const offeringFree = Boolean(free && !free.claimed) && matchesSearch(query, 'eaon free credits')
   // Sent to Eaon Free before it is claimed (the offer card's "Have an event code?"): its offer row.
   const showingFree =
     offeringFree && (selectedId === FREE_OFFER_ROW || (selectedId === FREE_PROVIDER_ID && !providers.some((p) => p.id === FREE_PROVIDER_ID)))
   // Speech to text isn't a provider: a row of its own that picks one for dictation.
-  const speechMatches = matchesWords(query, 'speech to text dictation voice whisper transcribe')
+  const speechMatches = matchesSearch(query, 'speech to text dictation voice whisper transcribe')
   // The Codex row sits with the subscriptions, so their heading stays for it when no subscription matches.
   const listed = groups.filter((group) => group !== eaonGroup)
   if (codexMatches && !listed.some((group) => group.id === 'subscription'))
@@ -522,7 +527,8 @@ function ProviderDetail({
       {provider.local && <LocalUrlSection provider={provider} />}
       {!provider.builtIn && <CustomConnectionSection provider={provider} />}
       {provider.id === FREE_PROVIDER_ID && <FreeCreditsSection />}
-      {provider.auth !== 'oauth' && provider.auth !== 'none' && !provider.local && (
+      {/* A custom provider on the local network works without a key, and can still be given one. */}
+      {provider.auth !== 'oauth' && (provider.auth !== 'none' || !provider.builtIn) && !provider.local && (
         <KeySection provider={provider} meta={meta} auth={auth} onStatus={setStatus} status={status} />
       )}
 
@@ -922,9 +928,49 @@ function SignInProgress({ provider, auth }: { provider: Provider; auth: Provider
   )
 }
 
+/**
+ * Saving a provider's address, with the reason when it's refused (Eaon's own
+ * service's address, a managed policy). The built-in providers' fields saved
+ * on blur with nothing said, and kept showing an address that was never kept.
+ */
+function useAddressSave(provider: Provider): {
+  error: string | null
+  clear: () => void
+  save: (baseUrl: string) => Promise<Provider[] | null>
+  fieldProps: { 'aria-invalid'?: true; 'aria-describedby'?: string }
+  message: JSX.Element | null
+} {
+  const refreshProviders = useApp((s) => s.refreshProviders)
+  const [error, setError] = useState<string | null>(null)
+  const id = `${provider.id}-address-error`
+  const save = async (baseUrl: string): Promise<Provider[] | null> => {
+    let next: Provider[]
+    try {
+      next = await window.api.providers.update(provider.id, { baseUrl })
+    } catch (e) {
+      setError(plainError(e))
+      return null
+    }
+    setError(null)
+    await refreshProviders()
+    return next
+  }
+  return {
+    error,
+    clear: () => setError(null),
+    save,
+    fieldProps: error ? { 'aria-invalid': true, 'aria-describedby': id } : {},
+    message: error ? (
+      <p className="field-error" id={id} role="alert" style={{ marginTop: 6 }}>
+        {error} Nothing was saved.
+      </p>
+    ) : null
+  }
+}
+
 /** One field per `{placeholder}` in a templated URL — Cloudflare's account and gateway ids, a region. */
 function UrlFieldsSection({ provider, meta }: { provider: Provider; meta: ProviderMeta }): JSX.Element {
-  const refreshProviders = useApp((s) => s.refreshProviders)
+  const address = useAddressSave(provider)
   const template = meta.baseUrlTemplate!
   const [values, setValues] = useState<Record<string, string>>(() => {
     const read = readTemplate(template, provider.baseUrl)
@@ -935,8 +981,7 @@ function UrlFieldsSection({ provider, meta }: { provider: Provider; meta: Provid
 
   const save = async (): Promise<void> => {
     if (url === provider.baseUrl) return
-    await window.api.providers.update(provider.id, { baseUrl: url })
-    await refreshProviders()
+    await address.save(url)
   }
 
   return (
@@ -952,7 +997,11 @@ function UrlFieldsSection({ provider, meta }: { provider: Provider; meta: Provid
               value={values[field.key] ?? ''}
               placeholder={field.placeholder}
               spellCheck={false}
-              onChange={(e) => setValues((current) => ({ ...current, [field.key]: e.target.value }))}
+              {...address.fieldProps}
+              onChange={(e) => {
+                setValues((current) => ({ ...current, [field.key]: e.target.value }))
+                address.clear()
+              }}
               onBlur={() => void save()}
               onKeyDown={(e) => e.key === 'Enter' && void save()}
             />
@@ -960,20 +1009,20 @@ function UrlFieldsSection({ provider, meta }: { provider: Provider; meta: Provid
         ))}
       </div>
       <div className="provider-url-preview">{url}</div>
+      {address.message}
     </div>
   )
 }
 
 /** Providers whose endpoint is the user's own resource (Azure). */
 function EndpointSection({ provider, meta }: { provider: Provider; meta: ProviderMeta }): JSX.Element {
-  const refreshProviders = useApp((s) => s.refreshProviders)
+  const address = useAddressSave(provider)
   const [baseUrl, setBaseUrl] = useState(provider.baseUrl)
   const save = async (): Promise<void> => {
     if (baseUrl.trim() === provider.baseUrl) return
-    const next = await window.api.providers.update(provider.id, { baseUrl: baseUrl.trim() })
+    const next = await address.save(baseUrl.trim())
     // The main process normalises resource URLs to …/openai/v1; show what it kept.
-    setBaseUrl(next.find((p) => p.id === provider.id)?.baseUrl ?? baseUrl)
-    await refreshProviders()
+    if (next) setBaseUrl(next.find((p) => p.id === provider.id)?.baseUrl ?? baseUrl)
   }
   return (
     <div className="provider-detail__section">
@@ -986,21 +1035,25 @@ function EndpointSection({ provider, meta }: { provider: Provider; meta: Provide
         value={baseUrl}
         placeholder={meta.baseUrlPlaceholder}
         spellCheck={false}
-        onChange={(e) => setBaseUrl(e.target.value)}
+        {...address.fieldProps}
+        onChange={(e) => {
+          setBaseUrl(e.target.value)
+          address.clear()
+        }}
         onBlur={() => void save()}
         onKeyDown={(e) => e.key === 'Enter' && void save()}
       />
+      {address.message}
     </div>
   )
 }
 
 function LocalUrlSection({ provider }: { provider: Provider }): JSX.Element {
-  const refreshProviders = useApp((s) => s.refreshProviders)
+  const address = useAddressSave(provider)
   const [baseUrl, setBaseUrl] = useState(provider.baseUrl)
   const save = async (): Promise<void> => {
     if (baseUrl === provider.baseUrl) return
-    await window.api.providers.update(provider.id, { baseUrl })
-    await refreshProviders()
+    await address.save(baseUrl)
   }
   return (
     <div className="provider-detail__section">
@@ -1010,10 +1063,16 @@ function LocalUrlSection({ provider }: { provider: Provider }): JSX.Element {
         className="input"
         value={baseUrl}
         spellCheck={false}
-        onChange={(e) => setBaseUrl(e.target.value)}
+        {...address.fieldProps}
+        onChange={(e) => {
+          setBaseUrl(e.target.value)
+          address.clear()
+        }}
         onBlur={() => void save()}
+        onKeyDown={(e) => e.key === 'Enter' && void save()}
         placeholder="http://127.0.0.1:8080/v1"
       />
+      {address.message}
     </div>
   )
 }
@@ -1088,10 +1147,10 @@ function KeySection({
     if (value && !(await copyText(value))) onStatus({ ok: false, message: CLIPBOARD_FAILED })
   }
 
+  const address = useAddressSave(provider)
   const saveBaseUrl = async (): Promise<void> => {
     if (baseUrl === provider.baseUrl) return
-    await window.api.providers.update(provider.id, { baseUrl })
-    await refreshProviders()
+    await address.save(baseUrl)
   }
 
   // The fallback keys themselves stay in main; this page holds a masked hint per key.
@@ -1138,7 +1197,9 @@ function KeySection({
         )}
       </div>
       <p className="provider-detail__section-desc">
-        Enter your API key. You can add extra keys in Advanced, and Eaon will try the next one automatically if a key fails.
+        {provider.auth === 'none'
+          ? 'Optional. A server on this computer or your network is used without a key; enter one here if it asks for it.'
+          : 'Enter your API key. You can add extra keys in Advanced, and Eaon will try the next one automatically if a key fails.'}
       </p>
       {meta.noSignInReason && (
         <div className="provider-no-signin">
@@ -1214,7 +1275,20 @@ function KeySection({
           {!meta.baseUrlLabel && provider.builtIn && provider.category !== 'eaon' && (
             <div>
               <div className="field-label">Base URL</div>
-              <input aria-label="Base URL" className="input" value={baseUrl} spellCheck={false} onChange={(e) => setBaseUrl(e.target.value)} onBlur={() => void saveBaseUrl()} />
+              <input
+                aria-label="Base URL"
+                className="input"
+                value={baseUrl}
+                spellCheck={false}
+                {...address.fieldProps}
+                onChange={(e) => {
+                  setBaseUrl(e.target.value)
+                  address.clear()
+                }}
+                onBlur={() => void saveBaseUrl()}
+                onKeyDown={(e) => e.key === 'Enter' && void saveBaseUrl()}
+              />
+              {address.message}
             </div>
           )}
           <div>
@@ -1304,7 +1378,7 @@ function ModelsSection({ provider, listNow = false }: { provider: Provider; list
   const [query, setQuery] = useState('')
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState<ModelsRefresh | null>(null)
-  const ready = provider.local || provider.hasKey
+  const ready = hasCredentials(provider)
   const hidden = provider.hiddenModels ?? []
   const starred = new Set(favorites ?? [])
 

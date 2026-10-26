@@ -377,7 +377,8 @@ function normalizeGoalRun(raw: unknown): WorkerGoalRun | null {
     ...(typeof g.until === 'number' ? { until: g.until } : {}),
     ...(typeof g.failures === 'number' && g.failures > 0 ? { failures: g.failures } : {}),
     ...(typeof g.summary === 'string' ? { summary: g.summary } : {}),
-    ...(g.pausedByUser === true ? { pausedByUser: true } : {})
+    ...(g.pausedByUser === true ? { pausedByUser: true } : {}),
+    ...(typeof g.wakeAt === 'number' ? { wakeAt: g.wakeAt } : {})
   }
 }
 
@@ -1928,6 +1929,7 @@ export class WorkersEngine {
       )
     }
     slot.heartbeat = { nextAt: now + first, everyMs: every, note: str(input.note).slice(0, 300) }
+    if (threadId === MAIN_THREAD && !every && worker.goalRun?.status === 'active') worker.goalRun = { ...worker.goalRun, wakeAt: now + first }
     if (worker.status === 'asleep') worker.status = 'idle'
     // A new schedule starts a new count towards STALE_WAKEUPS.
     this.unattendedWakes.delete(slotKey(id, threadId))
@@ -1956,7 +1958,20 @@ export class WorkersEngine {
       worker.goalRun = { ...rest, ...keep, status: 'active', turns: 0, nextAt: run ? null : this.now() }
     } else {
       if (run) this.deps.pauseGoal?.(run.messageId)
-      worker.goalRun = status === 'paused' ? { ...goal, status: 'paused', pausedByUser: true, nextAt: null } : null
+      // The wake-up it set for the goal goes with it: paused or cleared, the
+      // worker woke anyway and carried on ("You scheduled this wake-up").
+      if (typeof goal.wakeAt === 'number' && worker.heartbeat.nextAt === goal.wakeAt && worker.heartbeat.everyMs === null) {
+        worker.heartbeat = { nextAt: null, everyMs: null, note: '' }
+        const key = slotKey(id, MAIN_THREAD)
+        this.watches.get(key)?.()
+        this.watches.delete(key)
+        const line = status === 'paused' ? 'Goal paused' : 'Goal cleared'
+        worker.activity = line
+        const info = this.info(worker, MAIN_THREAD)
+        if (info) info.activity = line
+      }
+      const { wakeAt: _wakeAt, ...rest } = goal
+      worker.goalRun = status === 'paused' ? { ...rest, status: 'paused', pausedByUser: true, nextAt: null } : null
     }
     this.commit()
     this.tick()
@@ -1981,6 +1996,7 @@ export class WorkersEngine {
       run.activitySet = true
     }
     slot.heartbeat = { nextAt: wakeAt, everyMs: null, note: why || 'Wake up from your sleep and carry on' }
+    if (threadId === MAIN_THREAD && worker.goalRun?.status === 'active') worker.goalRun = { ...worker.goalRun, wakeAt }
     const time = new Date(wakeAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
     // Woken by the event itself when there is one: the minutes are only the
     // longest it waits. A restart forgets the watch, and the clock wakes it.

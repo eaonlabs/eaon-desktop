@@ -1,6 +1,6 @@
 import { LOCAL_PROVIDER_ID } from '../llama/models'
 import { isOwnServerUrl } from './compat'
-import { clearListed, listProviders, refreshModels } from './index'
+import { clearListed, getProvider, listProviders, refreshModels } from './index'
 
 /**
  * Keeps local runtimes' model lists current without the user asking.
@@ -36,17 +36,21 @@ export function refreshLocalProviders(force = false): Promise<boolean> {
           }
           return
         }
-        const before = provider.models.map((m) => m.id).join('\n')
+        // The models and whether each is live or the kept copy: a server
+        // that stopped or started again keeps the same ids, and Settings
+        // went on saying "Ready" (or "Not running") until Refresh.
+        const state = (models: typeof provider.models): string => models.map((m) => `${m.id}\u0000${m.source?.kind ?? ''}`).join('\n')
+        const before = state(provider.models)
         try {
-          const models = await Promise.race([
+          await Promise.race([
             refreshModels(provider.id),
             new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 2500))
           ])
-          if (models.map((m) => m.id).join('\n') !== before) changed = true
         } catch {
           // Not running is the normal state for most local runtimes; keep the
           // last known list rather than emptying the picker.
         }
+        if (state(getProvider(provider.id)?.models ?? []) !== before) changed = true
       })
     )
     return changed

@@ -2,7 +2,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import type { ModelInfo, Provider, TokenUsage } from '@shared/types'
 import type { ModelSource } from '@shared/engines'
 import { isLastingIssue, type ModelEdit, type ModelEditFields, type ModelsRefresh, type ProviderHealth, type ProviderIssue } from '@shared/providers'
-import { describeModelsRefresh, foldDatedAliases } from '@shared/modelSelection'
+import { describeModelsRefresh, foldDatedAliases, hasCredentials } from '@shared/modelSelection'
 import { FREE_PROVIDER_ID, GATEWAY_PROVIDER_ID } from '@shared/freeCredits'
 import { freeBaseUrl, freeHeaders, freeWeekOver, withFreeLimits } from '../freeCredits'
 import { secrets } from '../secrets'
@@ -28,6 +28,7 @@ import './oauth/flows'
 import { providerFetch, sdkFetch } from './safeFetch'
 import { providerAllowed } from '../enterprise/policy'
 import { GATEWAY_REFUSED, hideEaonAddress, isEaonGateway } from '../eaonAddress'
+import { targetsPrivateNetwork } from '../netGuard'
 
 /**
  * Bring-your-own-key (and sign-in) model access.
@@ -297,17 +298,22 @@ function builtInProvider(seed: (typeof BUILT_IN)[number], override: ProviderOver
 /** A custom OpenAI-compatible endpoint the user added themselves. */
 function customProvider(id: string, override: ProviderOverride): Provider {
   const name = override.name ?? id
+  const hasKey = secrets.has(id)
+  // One on this computer or the local network (a llama.cpp or vLLM server,
+  // a LiteLLM proxy) is used without a key until it's given one: it was
+  // created needing a key and couldn't list its models without one.
+  const keyless = !hasKey && targetsPrivateNetwork(override.baseUrl)
   const provider: Provider = {
     id,
     // Named after the gateway's address by default, which is never shown (eaonAddress.ts).
     name: isEaonGateway(override.baseUrl ?? '') ? hideEaonAddress(name) : name,
     kind: (override.kind as Provider['kind']) ?? 'openai-compatible',
     baseUrl: override.baseUrl ?? '',
-    hasKey: secrets.has(id),
+    hasKey,
     enabled: override.enabled ?? true,
     builtIn: false,
     local: false,
-    auth: 'key',
+    auth: keyless ? 'none' : 'key',
     category: 'custom',
     fallbackCount: secrets.getFallbacks(id).length,
     models: [],
@@ -668,7 +674,7 @@ export async function refreshProviderModels(providerId: string, now = (): number
       catalogFailed = true
     }
   }
-  const usable = provider.local || provider.hasKey
+  const usable = hasCredentials(provider)
   const lists = providerMeta(providerId).listsModels && provider.id !== LOCAL_PROVIDER_ID
   let issue: ProviderIssue | null = null
   if (usable && lists) {
@@ -725,7 +731,7 @@ export async function testProvider(providerId: string): Promise<{ ok: boolean; m
   const provider = getProvider(providerId)
   if (provider && !providerMeta(providerId).listsModels) {
     // Nothing to list; saying so beats a 404 from an endpoint that never existed.
-    if (!provider.hasKey && !provider.local) return { ok: false, message: 'Add an API key first.' }
+    if (!hasCredentials(provider)) return { ok: false, message: 'Add an API key first.' }
     return {
       ok: true,
       message:

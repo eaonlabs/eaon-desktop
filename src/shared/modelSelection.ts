@@ -76,9 +76,9 @@ export interface ProviderReadiness {
   action: SetupAction | null
 }
 
-/** Signed in, keyed, or local: something to send requests with. */
+/** Signed in, keyed, local, or needing no key: something to send requests with. */
 export function hasCredentials(provider: Provider): boolean {
-  return provider.local || provider.hasKey || Boolean(provider.signedIn)
+  return provider.local || provider.hasKey || Boolean(provider.signedIn) || provider.auth === 'none'
 }
 
 /**

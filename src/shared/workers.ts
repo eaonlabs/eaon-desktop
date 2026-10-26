@@ -515,6 +515,12 @@ export interface WorkerGoalRun extends GoalState {
    * (sleep or a heartbeat): that turn runs in goal mode too.
    */
   nextAt?: number | null
+  /**
+   * The one-off wake-up the worker set for itself while working on the goal
+   * (sleep, or a heartbeat with no repeat): pausing or clearing the goal
+   * cancels it, so the worker doesn't wake to carry on a goal that's off.
+   */
+  wakeAt?: number
 }
 
 export interface WorkerSendOptions {
