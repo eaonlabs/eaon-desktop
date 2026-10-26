@@ -434,3 +434,20 @@ test('ACP tool kinds become Eaon’s own tool names', () => {
   assert.deepEqual(toolOf({ toolCallId: 'c', kind: 'search', rawInput: { pattern: 'TODO' } }), { name: 'grep', input: { pattern: 'TODO' }, mutating: false })
   assert.deepEqual(toolOf({ toolCallId: 'd', kind: 'other', title: 'Searching the web' }), { name: 'Searching the web', input: {}, mutating: false })
 })
+
+test('quitting stops a check still under way, not only the chats', async () => {
+  const h = harness()
+  try {
+    // The check starts its CLI straight away; Eaon quits before it's done.
+    const checking = h.engine.detect({ force: true })
+    const running = (h.engine as unknown as { running: Set<{ child: { pid: number } }> }).running
+    const pids = [...running].map((server) => server.child.pid)
+    assert.equal(pids.length, 1, 'the check’s CLI is running')
+    await h.engine.dispose()
+    await checking
+    for (const pid of pids) assert.throws(() => process.kill(pid, 0), /ESRCH/, `process ${pid} outlived Eaon`)
+    assert.equal(running.size, 0)
+  } finally {
+    await h.done()
+  }
+})

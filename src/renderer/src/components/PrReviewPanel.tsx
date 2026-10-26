@@ -170,7 +170,7 @@ export function PrReviewPanel({ pr }: { pr: PullRequestSummary }): JSX.Element |
                   <Trash2 size={13} strokeWidth={1.9} />
                 </button>
               </div>
-              <textarea
+              <textarea aria-label="Comment"
                 className="input"
                 value={c.body}
                 onChange={(e) => {

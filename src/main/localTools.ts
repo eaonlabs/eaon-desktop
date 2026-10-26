@@ -727,6 +727,18 @@ async function editFile(cwd: string, target: string, oldTextIn: string, newTextI
 
 /* ------------------------------------------------------------ the tools */
 
+/** Past this, a replaced file's old text isn't kept for its diff: the transcript would carry it. */
+const KEEP_REPLACED_BYTES = 256 * 1024
+
+/** A file's text before a write replaces it: null when there is none, undefined when it's too big, not text, or unreadable. */
+async function textBefore(path: string): Promise<string | null | undefined> {
+  const info = await stat(path).catch((error: NodeJS.ErrnoException) => (error.code === 'ENOENT' ? null : undefined))
+  if (info === null) return null
+  if (!info?.isFile() || info.size > KEEP_REPLACED_BYTES) return undefined
+  const text = await readFile(path, 'utf8').catch(() => undefined)
+  return text === undefined || text.includes('\u0000') ? undefined : text
+}
+
 const str = (value: unknown): string => (typeof value === 'string' ? value : value === undefined || value === null ? '' : String(value))
 
 /**
@@ -844,11 +856,22 @@ function fileTools(settings: Settings, indexed: boolean): AgentTool[] {
       async (input, ctx) => {
         const { path } = resolveWorkPath(ctx.cwd, str(input.path))
         const content = str(input.content)
+        const before = await textBefore(path)
         await mkdir(dirname(path), { recursive: true })
         await writeFile(path, content, 'utf8')
-        return `Wrote ${content.split('\n').length} lines to ${display(ctx.cwd, path)}.`
+        // A final newline ends the last line; it does not start another.
+        const lines = content === '' ? 0 : content.replace(/\n$/, '').split('\n').length
+        return {
+          text: before === null ? `Wrote ${lines} lines to ${display(ctx.cwd, path)}.` : `Replaced ${display(ctx.cwd, path)} with ${lines} lines.`,
+          ...(before !== undefined ? { before } : {})
+        }
       },
-      { mutating: true, risky: riskyPath(settings), describe: (input) => `Write ${str(input.path)}` }
+      {
+        mutating: true,
+        risky: riskyPath(settings),
+        describe: (input) => `Write ${str(input.path)}`,
+        replaces: async (input, ctx) => textBefore(resolveWorkPath(ctx.cwd, str(input.path)).path)
+      }
     ),
     tool(
       'delete_file',

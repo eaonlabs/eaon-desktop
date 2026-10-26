@@ -380,6 +380,8 @@ export interface EditStep {
   before: string
   after: string
   replaceAll?: boolean
+  /** A write whose `before` is the file as it really was, recorded when it ran. */
+  seen?: boolean
 }
 
 /**
@@ -387,8 +389,9 @@ export interface EditStep {
  * text now: `states[i]` is the file just before step i, `states[n]` is now.
  * A step that can't be undone exactly (its new text isn't there once, or a
  * write whose old content was never seen) leaves every earlier state null.
- * A write's old content is taken as empty when it is the file's first step:
- * the file was new.
+ * A write's old content is what it recorded; one from before that was
+ * recorded is taken as empty when it is the file's first step (the file was
+ * new).
  */
 export function unwindEdits(now: string, steps: EditStep[]): (string | null)[] {
   const states: (string | null)[] = new Array(steps.length + 1).fill(null)
@@ -398,7 +401,7 @@ export function unwindEdits(now: string, steps: EditStep[]): (string | null)[] {
     const step = steps[i]
     if (text === null) break
     if (step.kind === 'write') {
-      text = i === 0 ? '' : null
+      text = step.seen ? step.before : i === 0 ? '' : null
     } else if (!step.after) {
       text = null
     } else if (step.replaceAll) {

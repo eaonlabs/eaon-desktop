@@ -158,6 +158,12 @@ export class AcpEngine implements EngineAdapter {
   private sessionModels: { options: AcpSelectOption[]; current: string | null } | null = null
   private models: EngineModels | null = null
   private readonly live = new Map<string, Live>()
+  /**
+   * Every CLI process this engine started and hasn't seen exit: a chat's, and
+   * the short-lived ones that check sign-in, models and plan. All are stopped
+   * when Eaon quits; a check still running then was left behind before.
+   */
+  private readonly running = new Set<AppServer>()
   private readonly listeners = new Set<(status: EngineStatus) => void>()
   private login_: { cancelled: boolean } | null = null
   /** A session-opening check found it signed in, this run. */
@@ -195,6 +201,8 @@ export class AcpEngine implements EngineAdapter {
       jsonrpc: true,
       label: this.spec.name
     })
+    this.running.add(server)
+    void server.whenExited().then(() => this.running.delete(server))
     try {
       const info = await server.request<AcpInitializeResponse>(
         'initialize',
@@ -562,11 +570,9 @@ export class AcpEngine implements EngineAdapter {
   }
 
   async dispose(): Promise<void> {
-    await Promise.allSettled([...this.live.values()].map((live) => {
-      if (live.idle) clearTimeout(live.idle)
-      return live.server.stop(1500)
-    }))
+    for (const live of this.live.values()) if (live.idle) clearTimeout(live.idle)
     this.live.clear()
+    await Promise.allSettled([...this.running].map((server) => server.stop(1500)))
   }
 }
 

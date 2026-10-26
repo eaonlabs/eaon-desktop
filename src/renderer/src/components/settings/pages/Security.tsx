@@ -89,7 +89,7 @@ export function SecurityPage(): JSX.Element {
             <Row title="Most agent autonomy allowed" description={APPROVAL_LABELS[policy.agent.maxApprovalMode]} />
           )}
           {policy?.agent?.allowFullDiskAccess === false && (
-            <Row title="File access" description="Agents can only change files inside the work folder." />
+            <Row title="File access" description="Agents can only change files inside the folder they work in: a chat’s project, or Eaon’s folder." />
           )}
           {policy?.providers?.allow && <Row title="Allowed model providers" description={policy.providers.allow.join(', ')} />}
           {policy?.providers?.deny && <Row title="Blocked model providers" description={policy.providers.deny.join(', ')} />}

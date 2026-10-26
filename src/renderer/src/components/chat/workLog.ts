@@ -103,6 +103,12 @@ const LABEL: Record<Exclude<StepKind, 'other'>, (count: number) => string> = {
   agent: (c) => `Ran ${n(c, 'agent')}`
 }
 
+/** A change none of whose calls went through. */
+const TRIED: Record<'edit' | 'command', (count: number) => string> = {
+  edit: (c) => `Tried to change ${n(c, 'file')}`,
+  command: (c) => `Tried to run ${n(c, 'command')}`
+}
+
 /** A call as the line counts it: its tool, how it ended, and what it touched. */
 export interface StepCall {
   name: string
@@ -115,8 +121,10 @@ export interface StepCall {
 
 export interface StepSummary {
   text: string
-  /** Calls that failed or were refused. */
+  /** Calls that failed. */
   failed: number
+  /** Calls that were stopped or refused: nothing went wrong, they just didn't run. */
+  skipped: number
   /** One kind for an icon, or 'mixed'. */
   kind: StepKind | 'mixed'
 }
@@ -128,7 +136,8 @@ export interface StepSummary {
  * way a worker's thread says "Messaged Pixel".
  */
 export function stepSummary(calls: StepCall[]): StepSummary {
-  const failed = calls.filter((c) => c.status === 'error' || c.status === 'denied').length
+  const failed = calls.filter((c) => c.status === 'error').length
+  const skipped = calls.filter((c) => c.status === 'denied').length
   const kinds = new Set(calls.map((c) => stepKind(c.name)))
   const kind: StepSummary['kind'] = kinds.size === 1 ? [...kinds][0] : 'mixed'
   const groups: { kind: StepKind; first: number; calls: StepCall[] }[] = []
@@ -142,8 +151,12 @@ export function stepSummary(calls: StepCall[]): StepSummary {
   const other = groups.find((g) => g.kind === 'other')
   const chosen = [...named].sort((a, b) => Number(FIRST.has(b.kind)) - Number(FIRST.has(a.kind)) || a.first - b.first).slice(0, 2).sort((a, b) => a.first - b.first)
   const clauses = chosen.map((g) => {
-    const targets = new Set(g.calls.map((c) => c.target).filter(Boolean))
-    const count = BY_TARGET.has(g.kind) && targets.size > 0 ? targets.size : g.calls.length
+    // A change refused (a read-only automation) or that failed didn't happen: it isn't "Changed 1 file".
+    const happened = FIRST.has(g.kind) ? g.calls.filter((c) => c.status !== 'denied' && !(g.kind === 'edit' && c.status === 'error')) : g.calls
+    const counted = happened.length > 0 ? happened : g.calls
+    const targets = new Set(counted.map((c) => c.target).filter(Boolean))
+    const count = BY_TARGET.has(g.kind) && targets.size > 0 ? targets.size : counted.length
+    if (happened.length === 0) return TRIED[g.kind as keyof typeof TRIED](count)
     return LABEL[g.kind as Exclude<StepKind, 'other'>](count)
   })
   const leftOver = named.filter((g) => !chosen.includes(g)).reduce((sum, g) => sum + g.calls.length, 0)
@@ -153,7 +166,7 @@ export function stepSummary(calls: StepCall[]): StepSummary {
     else clauses.push(n(other.calls.length + leftOver, 'other step'))
   } else if (leftOver > 0) clauses.push(n(leftOver, 'other step'))
   const text = clauses.map((c, i) => (i === 0 ? c : c.charAt(0).toLowerCase() + c.slice(1))).join(clauses.length > 2 ? ', ' : ' and ')
-  return { text: clauses.length > 2 ? text.replace(/, ([^,]*)$/, ', and $1') : text, failed, kind }
+  return { text: clauses.length > 2 ? text.replace(/, ([^,]*)$/, ', and $1') : text, failed, skipped, kind }
 }
 
 const LIVE: Partial<Record<StepKind, string>> = {

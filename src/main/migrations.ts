@@ -51,7 +51,7 @@ export const MIGRATIONS: Migration[] = [
   {
     version: 3,
     name: 'folder-projects',
-    files: ['projects.json'],
+    files: ['projects.json', 'chats.json'],
     run: () => store.projectForChatFolder()
   }
 ]

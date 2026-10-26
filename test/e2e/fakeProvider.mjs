@@ -15,7 +15,7 @@ const MODEL_RESPONSE_BASE = { object: 'chat.completion.chunk', created: 0 }
 
 /**
  * What a route returns. Build them with the helpers on `reply`.
- * @typedef {{ kind: 'text', chunks: string[], delayMs: number }
+ * @typedef {{ kind: 'text', chunks: string[], delayMs: number, usage?: { input: number, output: number } }
  *   | { kind: 'hold', first: string, label: string }
  *   | { kind: 'tool', name: string, args: Record<string, unknown>, text: string }
  *   | { kind: 'status', status: number, message: string, headers: Record<string, string> }
@@ -40,8 +40,13 @@ const MODEL_RESPONSE_BASE = { object: 'chat.completion.chunk', created: 0 }
  */
 
 export const reply = {
-  /** A streamed reply, split into a few chunks. @param {string} text */
-  text: (text, { delayMs = 15 } = {}) => /** @type {Reply} */ ({ kind: 'text', chunks: splitChunks(text), delayMs }),
+  /**
+   * A streamed reply, split into a few chunks; with `usage`, a last chunk
+   * reports the tokens it took, as a provider does when asked.
+   * @param {string} text
+   * @param {{ delayMs?: number, usage?: { input: number, output: number } }} [options]
+   */
+  text: (text, { delayMs = 15, usage } = {}) => /** @type {Reply} */ ({ kind: 'text', chunks: splitChunks(text), delayMs, ...(usage ? { usage } : {}) }),
   /**
    * Sends `first`, then keeps the stream open until the test calls
    * `finish()` on the handle from `fake.nextHeld()`. `label` names it in
@@ -203,6 +208,10 @@ export async function startFakeProvider({ models = ['fake-model'] } = {}) {
           if (answer.delayMs) await new Promise((resolve) => setTimeout(resolve, answer.delayMs))
         }
         res.write(chunk(model, {}, 'stop'))
+        if (answer.usage) {
+          const usage = { prompt_tokens: answer.usage.input, completion_tokens: answer.usage.output, total_tokens: answer.usage.input + answer.usage.output }
+          res.write(`data: ${JSON.stringify({ ...MODEL_RESPONSE_BASE, id: 'fake', model, choices: [], usage })}\n\n`)
+        }
         res.end('data: [DONE]\n\n')
         return
       }

@@ -182,16 +182,19 @@ const GOAL_LABEL: Record<GoalState['status'], string> = {
 
 export function GoalBanner({ chat }: { chat: Chat }): JSX.Element | null {
   const setGoalStatus = useApp((s) => s.setGoalStatus)
+  // Paused while a reply is still being written: the step in hand finishes first.
+  const running = useApp((s) => s.streamingMessageId !== null && chat.messages.some((m) => m.id === s.streamingMessageId))
   const goal = chat.goal
   if (!goal) return null
+  const pausing = goal.status === 'paused' && running
   return (
-    <div className="goal-banner" data-status={goal.status}>
+    <div className="goal-banner" data-status={goal.status} data-pausing={pausing || undefined}>
       <span className="goal-banner__icon">
         {goal.status === 'blocked' ? <TriangleAlert size={14} strokeWidth={2} /> : goal.status === 'achieved' ? <Check size={14} strokeWidth={2.4} /> : <Target size={14} strokeWidth={2} />}
       </span>
       <span className="goal-banner__body">
         <span className="goal-banner__label">
-          {GOAL_LABEL[goal.status]}
+          {pausing ? 'Pausing after this step' : GOAL_LABEL[goal.status]}
           {goal.until && goal.status === 'active'
             ? ` · until ${new Date(goal.until).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`
             : goal.iterations > 0 && goal.status === 'active'
@@ -208,7 +211,7 @@ export function GoalBanner({ chat }: { chat: Chat }): JSX.Element | null {
           <Pause size={14} strokeWidth={2} />
         </button>
       )}
-      {goal.status === 'paused' && (
+      {goal.status === 'paused' && !pausing && (
         <button className="icon-btn" aria-label="Resume goal" title="Resume goal on the next message" onClick={() => setGoalStatus('active')}>
           <Play size={14} strokeWidth={2} />
         </button>
@@ -242,7 +245,7 @@ export const SwarmCard = memo(function SwarmCard({ agents }: { agents: SubagentR
           <span className="swarm__task" title={agent.task}>
             {agent.status === 'running' && agent.activity ? agent.activity : agent.task}
           </span>
-          {agent.toolCalls > 0 && <span className="swarm__calls">{agent.toolCalls} steps</span>}
+          {agent.toolCalls > 0 && <span className="swarm__calls">{agent.toolCalls} {agent.toolCalls === 1 ? 'step' : 'steps'}</span>}
         </div>
       ))}
     </div>

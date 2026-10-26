@@ -2,7 +2,7 @@ import { useMemo } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import type { ChatToolPart } from '@shared/types'
 import { useApp } from '../../state/store'
-import { countChanges } from '../chatCode/diff/model'
+import { changeCounts } from '../chatCode/changes/build'
 import type { FileChange } from '../agent/FilesChanged'
 import { toolPartChanges } from '../agent/ToolCall'
 
@@ -51,13 +51,16 @@ export function useChatChanges(): ChatChanges {
         turns.push(turn)
       }
     }
+    // Each file counted once, however many times it was written.
+    const byFile = new Map<string, FileChange[]>()
+    for (const change of changes) byFile.set(change.file, [...(byFile.get(change.file) ?? []), change])
     let added = 0
     let removed = 0
-    for (const change of changes) {
-      const stats = countChanges(change.before, change.after)
+    for (const list of byFile.values()) {
+      const stats = changeCounts(list)
       added += stats.added
       removed += stats.removed
     }
-    return { changes, turns, files: new Set(changes.map((c) => c.file)).size, added, removed }
+    return { changes, turns, files: byFile.size, added, removed }
   }, [pairs])
 }

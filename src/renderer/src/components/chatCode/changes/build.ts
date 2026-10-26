@@ -1,6 +1,7 @@
 import type { ChatMessage, ChatToolPart } from '@shared/types'
 import type { ReviewFile } from '@shared/adeReview'
-import { blocksFromHunks, diffLines, splitLines, toBlocks, unwindEdits, type DiffBlock, type DiffFileModel, type DiffRow, type EditStep } from '../diff/model'
+import type { FileChange } from '../../agent/FilesChanged'
+import { blocksFromHunks, countChanges, diffLines, splitLines, toBlocks, unwindEdits, type DiffBlock, type DiffFileModel, type DiffRow, type EditStep } from '../diff/model'
 
 /**
  * The Changes pane's files, kept free of React so the test harness can run
@@ -16,16 +17,56 @@ export const sameScope = (a: ReviewScope, b: ReviewScope): boolean => a.kind ===
 export interface AgentEdit extends EditStep {
   path: string
   turn: number
+  /** When its reply started, to put it in order with other chats' edits to the same file. */
+  at?: number
+  /** Another chat's edit in the same project: it is undone to work back from disk, but never shown. */
+  other?: boolean
 }
 
 /** A finished edit or write call as an edit; null for any other call, or one that didn't finish. */
-export function partEdit(part: ChatToolPart, turn: number): AgentEdit | null {
+export function partEdit(part: ChatToolPart, turn: number, at?: number): AgentEdit | null {
   if (part.status !== 'done' || typeof part.input.path !== 'string') return null
   const path = part.input.path
+  const when = at === undefined ? {} : { at }
   if (part.name === 'edit_file' && typeof part.input.old_text === 'string' && typeof part.input.new_text === 'string')
-    return { path, turn, kind: 'edit', before: part.input.old_text, after: part.input.new_text, replaceAll: part.input.replace_all === true }
-  if (part.name === 'write_file' && typeof part.input.content === 'string') return { path, turn, kind: 'write', before: '', after: part.input.content }
+    return { path, turn, ...when, kind: 'edit', before: part.input.old_text, after: part.input.new_text, replaceAll: part.input.replace_all === true }
+  if (part.name === 'write_file' && typeof part.input.content === 'string')
+    return { path, turn, ...when, kind: 'write', before: part.before ?? '', after: part.input.content, ...(part.before !== undefined ? { seen: true } : {}) }
   return null
+}
+
+/**
+ * One file's changes in order, as few as they can be told as: from its
+ * first write on they play forward into one whole-file change (before that
+ * write to after the last change), so a file written twice counts once.
+ * Edits before any write, or that no longer find their text, stay their own.
+ */
+export function foldChanges(changes: FileChange[]): FileChange[] {
+  const start = changes.findIndex((c) => c.write)
+  if (start < 0) return changes
+  let text = changes[start].after
+  for (const change of changes.slice(start + 1)) {
+    if (change.write) {
+      text = change.after
+      continue
+    }
+    const at = change.before ? text.indexOf(change.before) : -1
+    if (at < 0) return changes
+    text = change.replaceAll ? text.split(change.before).join(change.after) : text.slice(0, at) + change.after + text.slice(at + change.before.length)
+  }
+  return [...changes.slice(0, start), { ...changes[start], after: text }]
+}
+
+/** Lines one file's changes added and removed, each counted once (see foldChanges). */
+export function changeCounts(changes: FileChange[]): { added: number; removed: number } {
+  let added = 0
+  let removed = 0
+  for (const change of foldChanges(changes)) {
+    const stats = countChanges(change.before, change.after)
+    added += stats.added
+    removed += stats.removed
+  }
+  return { added, removed }
 }
 
 /** Every finished edit and write in a chat, in the order they ran. */
@@ -91,34 +132,49 @@ function snippetBlocks(steps: EditStep[]): DiffBlock[] {
  * real line numbers, when the edits can be undone back to there; otherwise
  * each edit is shown on its own. A file the scope left as it found it is left
  * out.
+ *
+ * `others` are other chats' edits in the same project. Disk holds their
+ * changes too, so a shared file is worked back through them in the order
+ * their replies ran, and only this chat's own runs of edits are diffed: an
+ * edit another chat made after this one's isn't counted as this chat's.
  */
-export function agentFiles(edits: AgentEdit[], root: string | null, disk: Map<string, string | null>, scope: ReviewScope): DiffFileModel[] {
+export function agentFiles(edits: AgentEdit[], root: string | null, disk: Map<string, string | null>, scope: ReviewScope, others: AgentEdit[] = []): DiffFileModel[] {
   const byPath = new Map<string, AgentEdit[]>()
-  for (const edit of edits) {
+  const add = (edit: AgentEdit): void => {
     const path = relativePath(root, edit.path)
     const list = byPath.get(path)
     if (list) list.push(edit)
     else byPath.set(path, [edit])
   }
+  for (const edit of edits) add(edit)
+  const own = new Set(byPath.keys())
+  for (const edit of others) if (own.has(relativePath(root, edit.path))) add({ ...edit, other: true })
   const files: DiffFileModel[] = []
-  for (const [path, steps] of byPath) {
-    const inScope = steps.map((s, i) => (scope.kind === 'turn' ? (s.turn === scope.turn ? i : -1) : i)).filter((i) => i >= 0)
+  for (const [path, list] of byPath) {
+    // A stable sort: one reply's edits keep their order.
+    const steps = list.some((s) => s.other) ? [...list].sort((a, b) => (a.at ?? 0) - (b.at ?? 0)) : list
+    const inScope = steps.map((s, i) => (!s.other && (scope.kind !== 'turn' || s.turn === scope.turn) ? i : -1)).filter((i) => i >= 0)
     if (inScope.length === 0) continue
-    const first = inScope[0]
-    const last = inScope[inScope.length - 1]
+    // This chat's edits in the scope, split wherever another chat's edit came between them.
+    const runs: number[][] = []
+    for (const i of inScope) {
+      const run = runs[runs.length - 1]
+      if (run && !steps.slice(run[run.length - 1] + 1, i).some((s) => s.other)) run.push(i)
+      else runs.push([i])
+    }
     const now = disk.get(path)
     const states = typeof now === 'string' ? unwindEdits(now, steps) : null
-    const before = states?.[first] ?? null
-    const after = states?.[last + 1] ?? null
+    const ends = runs.map((run) => ({ before: states?.[run[0]] ?? null, after: states?.[run[run.length - 1] + 1] ?? null }))
     let blocks: DiffBlock[]
     let status: DiffFileModel['status'] = 'modified'
-    if (before !== null && after !== null) {
-      if (before === after) continue
-      blocks = toBlocks(diffLines(splitLines(before), splitLines(after)))
-      if (before === '') status = 'added'
+    if (ends.every((e) => e.before !== null && e.after !== null)) {
+      const changed = ends.filter((e) => e.before !== e.after)
+      if (changed.length === 0) continue
+      blocks = changed.flatMap((e, i) => [...(i > 0 ? [{ type: 'break' } as DiffBlock] : []), ...toBlocks(diffLines(splitLines(e.before!), splitLines(e.after!)))])
+      if (ends[0].before === '') status = 'added'
     } else {
       blocks = snippetBlocks(inScope.map((i) => steps[i]))
-      if (first === 0 && steps[0].kind === 'write') status = 'added'
+      if (inScope[0] === 0 && steps[0].kind === 'write' && steps[0].before === '') status = 'added'
     }
     files.push({ key: `agent:${path}`, path, status, ...counts(blocks), blocks })
   }

@@ -5,9 +5,8 @@ import type { FileChange } from '../agent/FilesChanged'
 import { useApp } from '../../state/store'
 import { useIde } from '../ide/ideStore'
 import { useChatCode } from './chatCodeStore'
-import { fileTree, relativePath, type FileTreeNode } from './changes/build'
+import { changeCounts, fileTree, foldChanges, relativePath, type FileTreeNode } from './changes/build'
 import { DiffStat } from './diff/DiffCard'
-import { countChanges } from './diff/model'
 import { SnippetDiff } from './diff/SnippetDiff'
 
 /**
@@ -44,17 +43,18 @@ export const EditedFiles = memo(function EditedFiles({ messageId, changes, work 
   const root = useIde((s) => s.root)
   const folder = useChatCode((s) => s.folder)
   const files = useMemo(() => {
-    const byFile = new Map<string, EditedFile>()
+    const byFile = new Map<string, FileChange[]>()
     for (const change of changes) {
       const path = relativePath(folder ?? root, change.file)
-      let entry = byFile.get(path)
-      if (!entry) byFile.set(path, (entry = { path, changes: [], added: 0, removed: 0, created: change.before === '' }))
-      const stats = countChanges(change.before, change.after)
-      entry.changes.push(change)
-      entry.added += stats.added
-      entry.removed += stats.removed
+      byFile.set(path, [...(byFile.get(path) ?? []), change])
     }
-    return [...byFile.values()]
+    // A file's changes count once: written twice, it's one change from how it was to how it ended.
+    return [...byFile].map(([path, list]): EditedFile => ({
+      path,
+      changes: foldChanges(list),
+      ...changeCounts(list),
+      created: list[0].write === true && list[0].created === true
+    }))
   }, [changes, folder, root])
   const tree = useMemo(() => fileTree(files), [files])
   const hasFolders = tree.some((n) => !n.file)

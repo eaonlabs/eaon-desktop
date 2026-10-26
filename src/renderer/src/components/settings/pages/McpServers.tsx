@@ -322,7 +322,7 @@ function ServerDialog({
       }
     >
       <div className="field-label">Name</div>
-      <input
+      <input aria-label="Name"
         className="input"
         style={{ marginBottom: 16 }}
         value={draft.name}
@@ -347,7 +347,7 @@ function ServerDialog({
       {draft.transport === 'stdio' ? (
         <>
           <div className="field-label">Command</div>
-          <input
+          <input aria-label="Command"
             className="input"
             style={{ marginBottom: 16, fontFamily: 'var(--font-mono)' }}
             value={draft.command}
@@ -356,7 +356,7 @@ function ServerDialog({
             onChange={(e) => setDraft({ ...draft, command: e.target.value })}
           />
           <div className="field-label">Arguments</div>
-          <input
+          <input aria-label="Arguments"
             className="input"
             style={{ marginBottom: 16, fontFamily: 'var(--font-mono)' }}
             value={argsText}
@@ -365,7 +365,7 @@ function ServerDialog({
             onChange={(e) => setArgsText(e.target.value)}
           />
           <div className="field-label">Environment variables (KEY=value, one per line)</div>
-          <textarea
+          <textarea aria-label="Environment variables"
             className="input"
             style={{ minHeight: 76, fontFamily: 'var(--font-mono)', fontSize: 13 }}
             value={envText}
@@ -377,7 +377,7 @@ function ServerDialog({
       ) : (
         <>
           <div className="field-label">Server URL</div>
-          <input
+          <input aria-label="Server URL"
             className="input"
             style={{ fontFamily: 'var(--font-mono)' }}
             value={draft.url}

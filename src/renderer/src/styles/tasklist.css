@@ -13,9 +13,6 @@
   border-radius: var(--r-lg);
   background: var(--surface-1);
   box-shadow: inset 0 0 0 1px var(--border-soft);
-  max-height: 220px;
-  overflow: auto;
-  overscroll-behavior: contain;
 }
 
 /* ---- the folded line ---- */
@@ -99,10 +96,33 @@
 
 /* ---- the open list ---- */
 
+/* A long plan scrolls under its line, which stays put, and its scrollbar is
+   the app's own: a thin rounded thumb inside the card's edge, shown while the
+   pointer is over the plan, rather than a square grey track down its side. */
 .tasks__list {
   list-style: none;
   margin: 0;
   padding: 2px 12px 10px;
+  max-height: 186px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.tasks__list::-webkit-scrollbar {
+  width: 10px;
+}
+.tasks__list::-webkit-scrollbar-thumb {
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background: transparent;
+  background-clip: padding-box;
+}
+.tasks:hover .tasks__list::-webkit-scrollbar-thumb {
+  background: var(--scrollbar);
+  background-clip: padding-box;
+}
+.tasks__list::-webkit-scrollbar-track {
+  margin-bottom: 8px;
+  background: transparent;
 }
 
 .tasks__item {

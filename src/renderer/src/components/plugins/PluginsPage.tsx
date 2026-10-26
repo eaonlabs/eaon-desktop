@@ -212,7 +212,7 @@ function SkillsTab({
       {loaded && skills.length === 0 && (
         <div className="skills__list">
           <div className="plugin-empty">
-            No skills yet. A skill is a folder with a SKILL.md in ~/.eaon/skills, ~/.claude/skills, or your Work folder’s
+            No skills yet. A skill is a folder with a SKILL.md in ~/.eaon/skills, ~/.claude/skills, or a project folder’s
             .eaon/skills.
             <div className="plugin-row__actions" style={{ justifyContent: 'center', marginTop: 14 }}>
               <button className="btn btn--primary" onClick={onCreate}>
@@ -345,16 +345,16 @@ function CreateSkillDialog({ open, onClose, onDone }: { open: boolean; onClose: 
     >
       <div className="skill-form">
         <div className="field-label">Name</div>
-        <input className="input" value={name} autoFocus placeholder="release-notes" onChange={(e) => setName(e.target.value)} />
+        <input aria-label="Name" className="input" value={name} autoFocus placeholder="release-notes" onChange={(e) => setName(e.target.value)} />
         <div className="field-label">When should it be used?</div>
-        <input
+        <input aria-label="When should it be used?"
           className="input"
           value={description}
           placeholder="Use when writing release notes from merged pull requests"
           onChange={(e) => setDescription(e.target.value)}
         />
         <div className="field-label">Instructions</div>
-        <textarea
+        <textarea aria-label="Instructions"
           className="input"
           value={body}
           spellCheck={false}
@@ -411,7 +411,7 @@ function InstallSkillDialog({ open, onClose, onDone }: { open: boolean; onClose:
     >
       <div className="skill-form">
         <div className="field-label">Link to the skill’s folder</div>
-        <input
+        <input aria-label="Link to the skill’s folder"
           className="input"
           value={url}
           autoFocus

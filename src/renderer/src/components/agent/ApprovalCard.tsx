@@ -18,8 +18,9 @@ import { isCatastrophicCommand, isRiskyCommand } from '@shared/commandRisk'
 import '../../styles/approval.css'
 
 /**
- * Asking before the agent acts: the dialog over Chat and the card above a
- * worker's composer are the same card.
+ * Asking before the agent acts: the dialog over the app and the card above a
+ * worker's composer are the same card. The open chat asks in its transcript
+ * instead (ApprovalRow.tsx).
  *
  * It leads with what kind of thing is about to happen and how much it
  * matters (the tile's colour and the line under the title), then shows
@@ -102,6 +103,11 @@ const DOES: Record<string, string> = {
   schedule: 'Changes your schedules'
 }
 
+/** What the action does, in a few words: a command that could delete or change the system says so, not just "runs". */
+export function approvalDoes(tool: string, input?: Record<string, unknown>): string {
+  return tool === 'run_command' && approvalRisk(tool, input) === 'high' ? 'Could delete files or change your system' : (DOES[tool] ?? 'Needs your OK')
+}
+
 const ICON: Record<string, typeof ShieldAlert> = {
   run_command: SquareTerminal,
   write_file: FilePen,
@@ -160,11 +166,10 @@ export function ApprovalCard({
   denyLabel?: string
   busy?: boolean
   /**
-   * `dialog` takes ⏎ and esc (it's all that's on screen); `dock` sits over
-   * Chat's message box and takes them too, outside the text box; `inline`
-   * sits next to a worker's composer, where those keys belong to the text box.
+   * `dialog` takes ⏎ and esc (it's all that's on screen); `inline` sits next
+   * to a worker's composer, where those keys belong to the text box.
    */
-  variant: 'dialog' | 'dock' | 'inline'
+  variant: 'dialog' | 'inline'
   /** The next one in a queue, arriving where the last one was. */
   swap?: boolean
   /** Exactly what will happen: the command, the diff, the call. */
@@ -173,8 +178,7 @@ export function ApprovalCard({
   onDeny: () => void
 }): JSX.Element {
   const risk = approvalRisk(tool, input)
-  // A command that could delete or change the system says so, not just "runs".
-  const does = tool === 'run_command' && risk === 'high' ? 'Could delete files or change your system' : (DOES[tool] ?? 'Needs your OK')
+  const does = approvalDoes(tool, input)
   const Icon = ICON[tool] ?? ShieldAlert
   const titleId = useId()
   const approve = useRef<HTMLButtonElement>(null)
@@ -253,7 +257,8 @@ export function ApprovalCard({
         </button>
         <button ref={approve} type="button" className="btn approval__approve" disabled={busy} onClick={onApprove}>
           {approveLabel}
-          {keys && <kbd className="approval__kbd">⏎</kbd>}
+          {/* Not for what could delete or change the system: it starts on Deny, and ⏎ never approves it. */}
+          {keys && !startsOnDeny(risk) && <kbd className="approval__kbd">⏎</kbd>}
         </button>
       </footer>
     </section>

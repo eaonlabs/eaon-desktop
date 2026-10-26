@@ -1,7 +1,7 @@
 import { FREE_DEFAULT_MODEL, FREE_PROVIDER_ID, shouldOffer, type FreeCreditsStatus, type OfferPlan, type RedeemResult } from '@shared/freeCredits'
 import { resolveSelection } from '@shared/modelSelection'
 import type { Settings } from '@shared/types'
-import { forgetFreeModelServed, freeCreditsStatus, freeModelServed, noteOffered, redeemFreeCode } from '../freeCredits'
+import { forgetFreeModelServed, freeCreditsStatus, freeModelServed, freeModelServedNow, noteOffered, redeemFreeCode } from '../freeCredits'
 import { clearProviderHealth, listProviders } from '../providers'
 import { alreadyStarred, shouldAsk } from '../starPrompt'
 import { store } from '../store'
@@ -78,8 +78,13 @@ export const freeCreditsFeature: Feature = {
       send('settings:changed', claimFreeCredits(await freeModelServed()))
     }
 
+    /** Whether the gateway serves Eaon Free's model now: Settings offers the week only then. */
+    ipcMain.handle('free-credits:served', (): Promise<boolean> => freeModelServed())
+
+    // The week starts only when the gateway can honour it, from Settings as from the card;
+    // otherwise nothing is claimed, and the status that comes back says so.
     ipcMain.handle('free-credits:claim', async (): Promise<FreeCreditsStatus> => {
-      if (!state().claimed) await claim()
+      if (!state().claimed && (await freeModelServedNow())) await claim()
       return freeCreditsStatus()
     })
 

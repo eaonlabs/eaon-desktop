@@ -258,7 +258,7 @@ function ConnectLinear({ onConnected, error }: { onConnected: (s: LinearStatus) 
           Security &amp; access, and paste it here. It’s kept in Eaon’s encrypted vault.
         </p>
         <div className="linear-connect__row">
-          <input
+          <input aria-label="Linear API key"
             className="input"
             type="password"
             placeholder="lin_api_…"

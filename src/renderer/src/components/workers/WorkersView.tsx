@@ -332,7 +332,7 @@ function WorkerPage({ worker }: { worker: Worker }): JSX.Element {
         className="chat-header--float"
         left={
           <>
-            <button className="header-btn worker-back" onClick={() => select(null)} title="Back to the team">
+            <button className="header-btn worker-back" onClick={() => select(null)} title="Back to the team" aria-label="Back to the team">
               <ArrowLeft size={14} strokeWidth={2} />
               <span>Team</span>
             </button>

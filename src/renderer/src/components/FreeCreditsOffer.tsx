@@ -2,14 +2,17 @@ import { useEffect, useRef, useState } from 'react'
 import { Gift, X } from 'lucide-react'
 import { FREE_DAYS, FREE_LIMITS, formatAllowance, formatEndDay, OFFER_AFTER_MS } from '@shared/freeCredits'
 import { useApp } from '../state/store'
-import { StarCard } from './StarPrompt'
+import { StarCard, useCornerClear } from './StarPrompt'
 import { RedeemCode } from './RedeemCode'
-import { onboardingShowing } from './onboarding/onboardingStore'
+import { onboardingShowing, useOnboardingShowing } from './onboarding/onboardingStore'
 
 /** How often time in front of the app is counted. */
 const TICK_MS = 15_000
 /** The pause between the star popup closing and the offer coming up. */
 const NEXT_CARD_MS = 1_200
+
+/** Why the week can't start now: the gateway isn't serving Eaon Free's model. */
+export const FREE_UNAVAILABLE = 'Eaon Free isn’t available right now. Try again later.'
 
 /** One line for the allowance, as the card and Settings say it. */
 export const FREE_ALLOWANCE = `${FREE_LIMITS.requestsPerDay} requests and ${formatAllowance(FREE_LIMITS.tokensPerDay)} tokens a day`
@@ -36,18 +39,26 @@ export function FreeCreditsOffer(): JSX.Element | null {
   const next = useRef<number | null>(null)
   /** Whether the offer follows the star popup; not when the credits were claimed already. */
   const offerNext = useRef(false)
+  const aside = useOnboardingShowing()
+  // "Welcome to Eaon" is for a fresh install; someone who updated has been here before.
+  const fresh = useApp((s) => s.settings?.onboarding.fresh === true)
+  useCornerClear((card === 'offer' || card === 'claimed') && !aside)
 
   useEffect(() => {
     let used = 0
     let last = Date.now()
+    let wasShowing = true
     const timer = window.setInterval(() => {
       const now = Date.now()
       const step = now - last
       last = now
       // Time with the window on screen counts, focused or not (a minimised or
       // covered window is hidden); a long gap is the computer asleep, not use.
-      // Time in the first-run setup or the tour doesn't.
-      if (document.visibilityState === 'visible' && step < 3 * TICK_MS && !onboardingShowing()) used += step
+      // Time in the first-run setup or the tour doesn't: a stretch either was
+      // up for, at either end, is left out.
+      const showing = onboardingShowing()
+      if (document.visibilityState === 'visible' && step < 3 * TICK_MS && !showing && !wasShowing) used += step
+      wasShowing = showing
       if (used < OFFER_AFTER_MS) return
       window.clearInterval(timer)
       void window.api.freeCredits
@@ -64,13 +75,14 @@ export function FreeCreditsOffer(): JSX.Element | null {
     }
   }, [])
 
-  if (card === 'none') return null
+  // A tour started from Help while a card is up: the card waits under it, and comes back after.
+  if (card === 'none' || aside) return null
   if (card === 'star') {
     const closed = (): void => {
       if (!offerNext.current) return setCard('none')
       next.current = window.setTimeout(() => setCard('offer'), NEXT_CARD_MS)
     }
-    return <StarCard intro onClosed={closed} />
+    return <StarCard intro={fresh} onClosed={closed} />
   }
 
   const close = (): void => setCard('none')
@@ -81,6 +93,8 @@ export function FreeCreditsOffer(): JSX.Element | null {
     void window.api.freeCredits
       .claim()
       .then(async (status) => {
+        // The gateway stopped serving its model since the card came up.
+        if (!status.claimed) return setError(FREE_UNAVAILABLE)
         setEndsAt(status.endsAt)
         await refreshProviders()
         setCard('claimed')

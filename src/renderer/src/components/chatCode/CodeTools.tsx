@@ -186,7 +186,7 @@ export function ScriptGlyph({ icon, size = 14 }: { icon: ScriptIcon; size?: numb
 /** Runs a script in its own tab of the terminal drawer; again, in the same tab. */
 export function runScript(script: ProjectScript): void {
   const code = useChatCode.getState()
-  const existing = code.tabs.find((t) => t.scriptId === script.id && !t.dock)
+  const existing = code.tabs.find((t) => t.scriptId === script.id && !t.dock && t.cwd === code.folder)
   if (existing) code.closeTab(existing.id)
   code.newTab({ title: script.name, command: script.command, scriptId: script.id })
 }
@@ -380,7 +380,7 @@ function ScriptDialog({ script, onClose }: { script: ProjectScript | null; onClo
           save()
         }}
       >
-        <p className="script-form__lede">Runs in the terminal under the chat, in {folder ? <code>{folder.split(/[\\/]/).pop()}</code> : 'the work folder'}.</p>
+        <p className="script-form__lede">Runs in the terminal under the chat, in {folder ? <code>{folder.split(/[\\/]/).pop()}</code> : 'the project’s folder'}.</p>
         {!script && offered.length > 0 && (
           <div className="script-form__suggest" role="group" aria-label="From this project">
             {offered.map((s) => (

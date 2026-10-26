@@ -264,9 +264,10 @@ export function toolPartChanges(parts: ChatToolPart[]): FileChange[] {
   for (const part of parts) {
     if (part.status !== 'done' || typeof part.input.path !== 'string') continue
     if (part.name === 'edit_file' && typeof part.input.old_text === 'string' && typeof part.input.new_text === 'string') {
-      changes.push({ file: part.input.path, before: part.input.old_text, after: part.input.new_text })
+      changes.push({ file: part.input.path, before: part.input.old_text, after: part.input.new_text, ...(part.input.replace_all === true ? { replaceAll: true } : {}) })
     } else if (part.name === 'write_file' && typeof part.input.content === 'string') {
-      changes.push({ file: part.input.path, before: '', after: part.input.content })
+      // What it replaced, when that was recorded; an older call's is unknown and reads as a new file.
+      changes.push({ file: part.input.path, before: part.before ?? '', after: part.input.content, write: true, created: typeof part.before !== 'string' })
     }
   }
   return changes

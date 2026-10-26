@@ -3,9 +3,11 @@ import { useShallow } from 'zustand/react/shallow'
 import { useApp, useIsWork } from '../../../state/store'
 import { Card, ErrorDetails, Modal, Row, Section, Select, Switch } from '../../ui'
 import { LinkAccounts } from '../../LinkAccounts'
-import { ExternalLink, Github, Star } from 'lucide-react'
+import { Compass, ExternalLink, Github, Sparkles, Star } from 'lucide-react'
 import type { LaunchMode } from '@shared/types'
 import { DOCS_URL, ISSUES_URL, RELEASES_URL, REPO_URL } from '@shared/links'
+import { WHATS_NEW_RELEASE } from '@shared/whatsNew'
+import { useOnboarding } from '../../onboarding/onboardingStore'
 import { errorText, explainUpdateError } from '../../../lib/errors'
 import { CreditsSection } from './Credits'
 
@@ -52,7 +54,7 @@ export function GeneralPage(): JSX.Element {
               "Default permissions" switch beside it only mirrored this one. */}
           <Row
             title="Full access"
-            description="Off: changing anything outside the assistant's work folder always asks you first. On: it can change files anywhere on your computer, following your usual approval setting. Risky commands always ask."
+            description="Off: changing anything outside the folder the assistant works in (a chat's project, or Eaon's folder) always asks you first. On: it can change files anywhere on your computer, following your usual approval setting. Risky commands always ask."
           >
             <Switch
               label="Full access"
@@ -196,6 +198,19 @@ export function GeneralPage(): JSX.Element {
 
       <Section label="Resources">
         <Card>
+          {/* The tours: here on every platform (on a Mac they're in the Help menu too). */}
+          <Row title="Tour" description="A one-minute look at where everything is">
+            <button type="button" className="btn btn--ghost btn--sm" onClick={() => useOnboarding.getState().startTour()}>
+              <Compass size={13} strokeWidth={1.9} aria-hidden />
+              Take the tour
+            </button>
+          </Row>
+          <Row title={`What’s new in ${WHATS_NEW_RELEASE}`} description="What has changed in Chat, Workers and the ADE, tab by tab">
+            <button type="button" className="btn btn--ghost btn--sm" onClick={() => useOnboarding.getState().startTour('whatsNew')}>
+              <Sparkles size={13} strokeWidth={1.9} aria-hidden />
+              Show me
+            </button>
+          </Row>
           <Row title="Documentation" description="How to install Eaon, pick models, and use Chat, Workers and the ADE">
             <button type="button" className="btn btn--ghost btn--sm" onClick={() => void window.api.app.openExternal(DOCS_URL)}>
               View docs

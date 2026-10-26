@@ -17,6 +17,12 @@ export interface ToolResult {
   /** Screenshots and other images; saved to disk by the loop and shown in the transcript. */
   images?: NeutralImage[]
   isError?: boolean
+  /**
+   * What a call that replaces a whole file found there: the file's text, or
+   * null when there was none. Kept on the transcript's call so its diff
+   * shows what went, not only what came.
+   */
+  before?: string | null
 }
 
 /**
@@ -72,7 +78,7 @@ export interface ToolContext {
    * standard gate the loop already applied — e.g. computer use confirming a
    * single click. Resolves false when denied.
    */
-  confirm: (title: string, detail: Record<string, unknown>, summary?: string, critical?: boolean) => Promise<boolean>
+  confirm: (title: string, detail: Record<string, unknown>, summary?: string, critical?: boolean, before?: string | null, agent?: string) => Promise<boolean>
   /**
    * The user's settings as they are now, not as the turn began: what may run
    * without asking follows the composer's permission picker mid-turn.
@@ -123,6 +129,13 @@ export interface AgentTool {
   delegates?: (input: Record<string, unknown>, ctx: ToolContext) => boolean
   /** One-line summary for the approval dialog and the thinking trace. */
   describe?: (input: Record<string, unknown>) => string
+  /**
+   * For a call that replaces a whole file: what is there now, read before
+   * asking so the approval shows what the call takes away. The file's text,
+   * null when there is no file, undefined when it can't be told (too big,
+   * not text, unreadable).
+   */
+  replaces?: (input: Record<string, unknown>, ctx: ToolContext) => Promise<string | null | undefined>
   run: (input: Record<string, unknown>, ctx: ToolContext) => Promise<ToolResult | string>
 }
 

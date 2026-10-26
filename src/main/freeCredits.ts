@@ -126,6 +126,16 @@ export const forgetFreeModelServed = (): void => {
   served = null
 }
 
+/**
+ * Asks the gateway now, whatever it said a moment ago. Claiming starts the
+ * free week, so it goes by whether the model is served now, not by a look
+ * from before the gateway stopped serving it.
+ */
+export const freeModelServedNow = (request: GatewayRequest = providerFetch, now = Date.now()): Promise<boolean> => {
+  forgetFreeModelServed()
+  return freeModelServed(request, now)
+}
+
 /** The headers Eaon Free's requests carry: none without a code. Their signature is added as they go (gatewaySignature.ts). */
 export const freeHeaders = (): Record<string, string> => (activeCode() ? { [FREE_DEVICE_HEADER]: freeDeviceId() } : {})
 
@@ -250,6 +260,9 @@ const formatStart = (at: number): string =>
  * Checks a code with the gateway and, when it works, keeps it: the key store
  * holds the code, `free-credits-code.json` what it gives.
  */
+/** The gateway's answers about a code itself, whose words are shown as they come. */
+const CODE_ERRORS = new Set(['invalid_code', 'code_ended', 'code_not_started', 'rate_limit_exceeded'])
+
 export async function redeemFreeCode(typed: string, request: GatewayRequest = providerFetch): Promise<RedeemResult> {
   const code = normalizeCode(typed)
   if (!looksLikeCode(code)) return { ok: false, message: 'That doesn’t look like a code. Codes are 8 to 40 letters, digits and dashes.' }
@@ -276,8 +289,11 @@ export async function redeemFreeCode(typed: string, request: GatewayRequest = pr
     // Too early (an event's code before its first day): the start in this computer's time.
     const startsAt = body?.error?.code === 'code_not_started' ? body.error.starts_at : null
     if (typeof startsAt === 'number') return { ok: false, message: `That code isn’t active yet. It works from ${formatStart(startsAt)}.` }
-    const said = typeof body?.error?.message === 'string' ? body.error.message : null
-    return { ok: false, message: said ?? `Eaon couldn’t check the code (HTTP ${response.status}). Try again in a minute.` }
+    // Only the code's own errors are worded for this box. Anything else (a
+    // gateway without the codes route answers "Send a model ID") is no
+    // answer about the code at all.
+    const said = typeof body?.error?.message === 'string' && CODE_ERRORS.has(String(body.error.code)) ? body.error.message : null
+    return { ok: false, message: said ?? `Eaon couldn’t check the code right now (HTTP ${response.status}). Try again later.` }
   }
   const limits = body.code.limits ?? {}
   const whole = (value: unknown, fallback: number): number => (typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback)

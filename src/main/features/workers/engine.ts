@@ -907,7 +907,19 @@ export class WorkersEngine {
         existing.engineSession = null
         for (const t of existing.threads) t.engineSession = null
       }
+      const rewired = existing.engine !== engine || existing.model?.providerId !== model?.providerId || existing.model?.modelId !== model?.modelId
       Object.assign(existing, { name, color, personality, purpose, model, engine, effort, access, trading })
+      // Another model or engine is a fresh start: the old one's error ("Couldn't
+      // reach LM Studio") no longer says how the worker is, so it stops showing
+      // it, and its X eyes, until a turn on the new one says otherwise.
+      if (rewired && existing.status !== 'working') {
+        if (existing.status === 'failed') existing.status = 'idle'
+        if (existing.lastError) {
+          existing.lastError = null
+          existing.lastOutcome = null
+        }
+        for (const t of existing.threads) if (!t.runningMessageId && t.lastError) t.lastError = null
+      }
       this.syncTradingRoutine(existing)
       this.commit()
       return clone(existing)
@@ -3319,7 +3331,7 @@ export class WorkersEngine {
       reason: outcome.cancelled && !outcome.error ? (run.stoppedByUser ? 'Stopped.' : 'Cut short before it finished.') : (execution.reason ?? outcome.notice ?? null),
       billing: outcome.billing === 'plan' ? ('plan' as const) : outcome.billing === 'api-key' ? ('api' as const) : null,
       error: outcome.error ?? null,
-      result: outcome.text ? clip(summariseReply(outcome.text) || outcome.text, 300) : null,
+      result: outcome.text ? clip(summariseReply(outcome.answer || outcome.text) || summariseReply(outcome.text) || outcome.text, 300) : null,
       usage: outcome.usage ?? execution.usage,
       providerId: outcome.providerId ?? null,
       modelId: outcome.modelId ?? null,
@@ -3409,7 +3421,8 @@ export class WorkersEngine {
     }
 
     // How it went, on the thread and (for the main thread) the worker.
-    const summary = outcome.text ? summariseReply(outcome.text) : ''
+    // What it ended on, not what it said before its work ("Writing it.").
+    const summary = outcome.text ? summariseReply(outcome.answer || outcome.text) || summariseReply(outcome.text) : ''
     if (info) {
       if (outcome.error) {
         info.lastError = outcome.error
@@ -3480,7 +3493,7 @@ export class WorkersEngine {
     if (run.userTriggered && !outcome.cancelled) {
       this.deps.notify?.(clone(worker), {
         ok: !outcome.error,
-        text: outcome.error ?? (summariseReply(outcome.text) || 'Finished.')
+        text: outcome.error ?? (summariseReply(outcome.answer || outcome.text) || summariseReply(outcome.text) || 'Finished.')
       })
     } else if (run.routineId && outcome.error) {
       const routine = worker.routines.find((r) => r.id === run.routineId)

@@ -449,7 +449,7 @@ function SeeThroughSection(): JSX.Element | null {
         {see.enabled && usable && (
           <>
             <Row title="Tint" description="How much of the theme’s colour lies over the wallpaper. Higher is easier to read">
-              <Slider value={see.tint} min={0} max={100} onChange={(tint) => set({ tint })} />
+              <Slider label="Tint" value={see.tint} min={0} max={100} onChange={(tint) => set({ tint })} />
             </Row>
             <Row title="Style" description={STYLE_HINTS[style]}>
               <Segmented
@@ -502,7 +502,7 @@ function GlassSection(): JSX.Element | null {
       <Card>
         <GlassPreview />
         <Row title="Blur" description="How soft the page gets behind menus, popovers and frosted panels">
-          <Slider value={glass.blur} onChange={(blur) => set({ blur })} />
+          <Slider label="Blur" value={glass.blur} onChange={(blur) => set({ blur })} />
         </Row>
         <Row
           title="Transparency"
@@ -514,7 +514,7 @@ function GlassSection(): JSX.Element | null {
                 : 'How much of the page shows through them. Lower is easier to read'
           }
         >
-          <Slider value={glass.transparency} onChange={(transparency) => set({ transparency })} />
+          <Slider label="Transparency" value={glass.transparency} onChange={(transparency) => set({ transparency })} />
         </Row>
         {/* macOS-only: the window's vibrancy material. Elsewhere the switch would do nothing. */}
         {isMac && (
@@ -586,7 +586,7 @@ function AdeBackgroundSection(): JSX.Element | null {
         )}
         {ade.scenes && ade.blur && (
           <Row title="Blur strength" description="How soft the scene gets">
-            <Slider value={ade.blurAmount} min={2} max={30} onChange={(blurAmount) => set({ blurAmount })} />
+            <Slider label="Blur strength" value={ade.blurAmount} min={2} max={30} onChange={(blurAmount) => set({ blurAmount })} />
           </Row>
         )}
       </Card>

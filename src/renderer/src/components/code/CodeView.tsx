@@ -5,6 +5,7 @@ import { CodeHeader, folderName } from './CodeHeader'
 import { useCode } from './codeStore'
 import { TerminalWorkspace } from './terminal/TerminalWorkspace'
 import { ReviewPanel, useReview } from './ReviewPanel'
+import { useAdeDock } from '../ide/adeDock'
 
 /**
  * The ADE: a grid of real terminals in one project folder, each running a
@@ -16,6 +17,21 @@ export function CodeView(): JSX.Element {
 
   useEffect(() => {
     void useCode.getState().init()
+  }, [])
+
+  // Review and the dock take turns beside the terminals: both at once left
+  // them about 90px wide, and their shells kept the prompts that width broke.
+  useEffect(() => {
+    const offReview = useReview.subscribe((state, prev) => {
+      if (state.open && !prev.open && useAdeDock.getState().open) useAdeDock.getState().setOpen(false)
+    })
+    const offDock = useAdeDock.subscribe((state, prev) => {
+      if (state.open && !prev.open && useReview.getState().open) useReview.getState().close()
+    })
+    return () => {
+      offReview()
+      offDock()
+    }
   }, [])
 
   return (

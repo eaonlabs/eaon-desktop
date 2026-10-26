@@ -77,17 +77,17 @@ scenario('two windows on one chat: the reply streams in both, settings and appro
     req.toolResultsSinceUser === 0 ? reply.tool('write_file', { path: 'two-windows.txt', content: 'ok\n' }) : reply.text('Wrote it from the first window.')
   )
   await sendMessage(a, 'Write two-windows.txt')
-  await a.find('.approval-dock[data-state="in"] .approval__approve')
+  await a.find('.ask-row .ask-row__allow')
   // B follows the run: the call shows in its transcript too.
   await b.waitFor(() => /two-windows\.txt/.test(document.querySelector('.thread, .main')?.textContent ?? ''), { message: 'window B to show the pending call' })
-  const bPrompt = await b.eval(() => Boolean(document.querySelector('.approval-dock[data-state="in"]')))
+  const bPrompt = await b.eval(() => Boolean(document.querySelector('.ask-row')))
   s.t.diagnostic(`window B ${bPrompt ? 'also shows' : 'does not show'} the approval prompt (only the window that started a reply answers its approvals)`)
   await s.shot(b, 'window-b-while-a-is-asked')
-  await a.click('.approval-dock[data-state="in"] .approval__approve')
+  await a.click('.ask-row__allow')
   await waitForReply(a, { text: 'Wrote it from the first window', streaming: false })
   await waitForReply(b, { text: 'Wrote it from the first window', streaming: false })
   for (const [name, page] of [['A', a], ['B', b]]) {
-    await page.waitFor(() => !document.querySelector('.approval-dock[data-state="in"]'), { message: `window ${name}'s approval prompt to close` })
+    await page.waitFor(() => !document.querySelector('.ask-row'), { message: `window ${name}'s approval prompt to close` })
     const waiting = await page.eval(() => /Waiting for approval/i.test(document.querySelector('.main')?.textContent ?? ''))
     assert.equal(waiting, false, `window ${name} still says "Waiting for approval" after it was answered`)
   }

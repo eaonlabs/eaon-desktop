@@ -590,28 +590,37 @@ export function Segmented<T extends string>({
   )
 }
 
+/** A settings row's title, so the control in it is named after it for screen readers. */
+const RowTitle = createContext<string | null>(null)
+
 export function Select<T extends string>({
   value,
   options,
   onChange,
   icon,
-  width
+  width,
+  label
 }: {
   value: T
   options: { value: T; label: string; icon?: ReactNode }[]
   onChange: (value: T) => void
   icon?: ReactNode
   width?: number
+  /** What it picks, read out with the choice; a settings row's title when left out. */
+  label?: string
 }): JSX.Element {
   const anchor = useRef<HTMLButtonElement>(null)
   const [open, setOpen] = useState(false)
   const current = options.find((o) => o.value === value)
+  const rowTitle = useContext(RowTitle)
+  const name = label ?? rowTitle
   return (
     <>
       <button
         ref={anchor}
         type="button"
         className="select"
+        aria-label={name ? `${name}: ${current?.label ?? value}` : undefined}
         aria-haspopup="menu"
         aria-expanded={open}
         data-open={open || undefined}
@@ -654,11 +663,14 @@ export function Slider({
   value,
   min = 0,
   max = 100,
+  label,
   onChange
 }: {
   value: number
   min?: number
   max?: number
+  /** Its name for screen readers: the row's title. */
+  label: string
   onChange: (value: number) => void
 }): JSX.Element {
   const fill = ((value - min) / (max - min)) * 100
@@ -666,6 +678,7 @@ export function Slider({
     <div className="slider">
       <input
         type="range"
+        aria-label={label}
         min={min}
         max={max}
         value={value}
@@ -733,7 +746,11 @@ export function Row({
         <div className="row__title">{title}</div>
         {description && <div className="row__desc">{description}</div>}
       </div>
-      {children && <div className="row__trail">{children}</div>}
+      {children && (
+        <div className="row__trail">
+          <RowTitle.Provider value={typeof title === 'string' ? title : null}>{children}</RowTitle.Provider>
+        </div>
+      )}
     </div>
   )
 }

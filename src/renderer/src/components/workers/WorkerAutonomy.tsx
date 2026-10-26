@@ -259,7 +259,7 @@ function AskApproval({ worker, ask }: { worker: Worker; ask: WorkerAsk }): JSX.E
           <p className="ask-card__tool">
             <code>{tool}</code>
           </p>
-          <input className="input ask-card__note" value={note} placeholder={`Add a note for ${worker.name} (optional)`} onChange={(e) => setNote(e.target.value)} />
+          <input aria-label={`Note for ${worker.name}`} className="input ask-card__note" value={note} placeholder={`Add a note for ${worker.name} (optional)`} onChange={(e) => setNote(e.target.value)} />
         </div>
       )}
       <footer className="ask-card__foot ask-card__foot--start">
@@ -320,7 +320,8 @@ export function WorkerGoalBanner({ worker, now }: { worker: Worker; now: number 
       </span>
       <span className="goal-banner__body">
         <span className="goal-banner__label">
-          {GOAL_LABEL[goal.status]}
+          {/* Paused mid-turn: the step in hand finishes first. */}
+          {goal.status === 'paused' && worker.status === 'working' ? 'Pausing after this step' : GOAL_LABEL[goal.status]}
           {progress}
         </span>
         <span className="goal-banner__text" title={goal.text}>

@@ -73,7 +73,7 @@ function on<T>(channel: string, handler: (payload: T) => void): () => void {
   return () => ipcRenderer.removeListener(channel, listener)
 }
 
-const MENU_CHANNELS = ['menu:settings', 'menu:new-chat', 'menu:archive-chat', 'menu:toggle-sidebar', 'menu:toggle-panel']
+const MENU_CHANNELS = ['menu:settings', 'menu:new-chat', 'menu:archive-chat', 'menu:toggle-sidebar', 'menu:toggle-panel', 'menu:whats-new', 'menu:tour']
 let menuHandler: ((command: string) => void) | null = null
 const menuQueue: string[] = []
 for (const channel of MENU_CHANNELS) {

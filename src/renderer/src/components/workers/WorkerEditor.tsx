@@ -197,7 +197,7 @@ export function WorkerEditor({ workerId }: { workerId: string | null }): JSX.Ele
               </button>
             ))}
           </div>
-          <textarea
+          <textarea aria-label="Personality"
             className="input"
             rows={2}
             value={personality}

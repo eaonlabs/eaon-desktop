@@ -575,6 +575,25 @@ body[data-reduce-motion='on'] .status-dot {
 .worker-back {
   padding-left: 6px;
 }
+/* A narrow window: "← Team" keeps its arrow (and its name for screen
+   readers) rather than being cut off at the edge of the bar's left side,
+   which the collapsed sidebar's buttons and the traffic lights share. */
+@container topbar-left (max-width: 280px) {
+  .topbar[data-collapsed] .worker-back > span {
+    display: none;
+  }
+  .topbar[data-collapsed] .worker-back {
+    padding: 0 7px;
+  }
+}
+@container topbar-left (max-width: 110px) {
+  .worker-back > span {
+    display: none;
+  }
+  .worker-back {
+    padding: 0 7px;
+  }
+}
 .worker-title {
   display: inline-flex;
   align-items: center;

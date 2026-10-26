@@ -19,7 +19,7 @@ import {
   withTokens,
   type FreeUsage
 } from '@shared/freeCredits'
-import { activeCode, addFreeTokens, forgetCode, forgetFreeModelServed, freeCreditsStatus, freeDeviceId, freeModelServed, redeemFreeCode, takeFreeRequest, withFreeLimits } from '../src/main/freeCredits'
+import { activeCode, addFreeTokens, forgetCode, forgetFreeModelServed, freeCreditsStatus, freeDeviceId, freeModelServed, freeModelServedNow, redeemFreeCode, takeFreeRequest, withFreeLimits } from '../src/main/freeCredits'
 import { claimFreeCredits } from '../src/main/features/freeCredits'
 import { credentialAttempts } from '../src/main/providers/credentials'
 import { secrets } from '../src/main/secrets'
@@ -277,8 +277,14 @@ test('redeeming checks the code with the gateway and keeps it in the key store',
 
 test('the gateway’s own words come back when a code doesn’t work', async () => {
   forgetCode()
-  const bad = await redeemFreeCode('EAON-AAAA-BBBB-CCCC', fakeGateway(404, { error: { message: "That code isn't valid. Check it and try again." } }))
+  const bad = await redeemFreeCode('EAON-AAAA-BBBB-CCCC', fakeGateway(404, { error: { message: "That code isn't valid. Check it and try again.", code: 'invalid_code' } }))
   assert.deepEqual(bad, { ok: false, message: "That code isn't valid. Check it and try again." })
+  // A gateway without the codes route answers as if it were a model call: none of that is about the code.
+  const unrouted = await redeemFreeCode(
+    'EAON-AAAA-BBBB-CCCC',
+    fakeGateway(400, { error: { message: 'Send a model ID. Call GET /v1/models to see the models you can use.', code: 'model_not_found' } })
+  )
+  assert.deepEqual(unrouted, { ok: false, message: 'Eaon couldn’t check the code right now (HTTP 400). Try again later.' })
   const offline = await redeemFreeCode('EAON-AAAA-BBBB-CCCC', async () => {
     throw new TypeError('fetch failed')
   })
@@ -362,6 +368,10 @@ test('Eaon Free counts as served only when the gateway lists its model', async (
   // One look holds for a while, then the gateway is asked again.
   assert.equal(await freeModelServed(listing([]), NOW + 60_000), true)
   assert.equal(await freeModelServed(listing([]), NOW + 11 * 60_000), false)
+  // A claim asks again at once: the gateway stopped serving it a minute after a look that said yes.
+  forgetFreeModelServed()
+  assert.equal(await freeModelServed(listing(['claude-haiku-5-5']), NOW), true)
+  assert.equal(await freeModelServedNow(listing([]), NOW + 60_000), false)
   forgetFreeModelServed()
   const offline = (async () => {
     throw new Error('offline')

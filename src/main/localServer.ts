@@ -304,7 +304,7 @@ async function listen(): Promise<LocalServerStatus> {
       if (server === null || server === next) {
         server = null
         setOwnServerPort(null)
-        publish({ running: false, port, url: null, error: error.message })
+        publish({ running: false, port, url: null, error: listenError(error, port) })
       }
       resolve(status)
     }
@@ -329,6 +329,14 @@ async function listen(): Promise<LocalServerStatus> {
       fail(error instanceof Error ? error : new Error(String(error)))
     }
   })
+}
+
+/** Why the server couldn't listen, in words: the system's code (EADDRINUSE) means nothing to most people. */
+function listenError(error: Error, port: number): string {
+  const code = (error as NodeJS.ErrnoException).code
+  if (code === 'EADDRINUSE') return `Another app is using port ${port}. Quit it, or pick another port in Settings → Local API Server.`
+  if (code === 'EACCES') return `Eaon isn’t allowed to use port ${port}. Pick another port in Settings → Local API Server.`
+  return error.message
 }
 
 export async function stopLocalServer(): Promise<LocalServerStatus> {

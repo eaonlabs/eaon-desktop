@@ -215,6 +215,8 @@ export interface TurnInput {
 
 export interface TurnOutcome {
   text: string
+  /** The turn's last words, when Eaon's own loop ran it: what its status and a run's result sum up. */
+  answer?: string
   error?: string
   cancelled: boolean
   usage?: TokenUsage
@@ -368,7 +370,15 @@ export async function runWorkerTurn(input: TurnInput): Promise<TurnOutcome> {
   const error = outcome.error ?? (dog.stalled() ? stallError(stallMs) : undefined)
   if (error && !assistant.error) assistant.error = error
   const cancelled = !error && (input.signal.aborted || outcome.cancelled === true)
-  return { text: outcome.text, ...(error ? { error } : {}), cancelled, usage: outcome.usage, providerId: target.providerId, modelId: target.modelId }
+  return {
+    text: outcome.text,
+    ...(outcome.answer ? { answer: outcome.answer } : {}),
+    ...(error ? { error } : {}),
+    cancelled,
+    usage: outcome.usage,
+    providerId: target.providerId,
+    modelId: target.modelId
+  }
 }
 
 /** What to tell the user when an agent engine's turn fails, by why it failed. */

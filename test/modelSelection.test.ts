@@ -358,3 +358,12 @@ test('provider setup: Codex signed in reads "Codex · Signed in"; signed out off
   assert.equal(old.label, 'Update needed')
   assert.notEqual(old.state, 'ready')
 })
+
+test('a local server whose latest check failed is not running, even with the models it listed before', () => {
+  const kept = { kind: 'cache' as const, retrievedAt: 1 }
+  const live = { kind: 'provider-live' as const, retrievedAt: 2 }
+  const lm = (source: ModelInfo['source']): Provider =>
+    provider('lm-studio', { name: 'LM Studio', local: true, hasKey: false, auth: 'none', models: [model('lm-studio', 'mimo', { source }), model('lm-studio', 'qwen', { source })] })
+  assert.deepEqual([providerReadiness(lm(kept)).state, providerReadiness(lm(kept)).label], ['unavailable', 'Not running'])
+  assert.deepEqual([providerReadiness(lm(live)).state, providerReadiness(lm(live)).label], ['ready', 'Running'])
+})

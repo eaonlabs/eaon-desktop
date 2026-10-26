@@ -145,7 +145,7 @@ function NoteCard({
         </div>
         {editing ? (
           <>
-            <textarea
+            <textarea aria-label="What should change"
               ref={field}
               className="design-note__field"
               value={draft}

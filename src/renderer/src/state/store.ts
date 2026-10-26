@@ -202,6 +202,10 @@ export interface PendingApproval {
   summary?: string
   /** Can't be undone: asked in every mode, and never released by switching to full access. */
   critical?: boolean
+  /** A whole-file write: what is there now (null: nothing), so the approval shows what goes. */
+  before?: string | null
+  /** A swarm sub-agent's role, when it is the one asking. */
+  agent?: string
 }
 
 /** What the sidebar shows for a chat. */
@@ -449,7 +453,9 @@ function applyStreamEvent(event: StreamEvent): void {
       tool: event.tool,
       input: event.input,
       summary: event.summary,
-      ...(event.critical ? { critical: true } : {})
+      ...(event.critical ? { critical: true } : {}),
+      ...(event.before !== undefined ? { before: event.before } : {}),
+      ...(event.agent ? { agent: event.agent } : {})
     }
     // Several can be waiting at once: swarm sub-agents run in parallel and
     // each may stop to ask. Replacing the open one left it unanswered, and
@@ -529,7 +535,8 @@ function applyStreamEvent(event: StreamEvent): void {
         output: event.output,
         status: event.status,
         progress: undefined,
-        ...(event.images ? { images: event.images } : {})
+        ...(event.images ? { images: event.images } : {}),
+        ...(event.before !== undefined ? { before: event.before } : {})
       }
       nextMessage = { ...message, parts }
     }

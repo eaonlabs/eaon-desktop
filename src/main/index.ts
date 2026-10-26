@@ -24,6 +24,7 @@ import './agent/sources'
 import { killBackgroundProcesses } from './localTools'
 import { adoptLoginShellPath } from './shellEnv'
 import { noteFirstRun } from './features/onboarding'
+import { userTookLocalServer } from './features/connectApps'
 import { FEATURES } from './features'
 import type { FeatureContext } from './features/types'
 import { getStatuses, getTools, setMcpStatusListener, shutdownMcp, syncMcpServers } from './mcp'
@@ -49,6 +50,7 @@ import { applyRunAtLogin, backgroundSupported, launchedInBackground, syncTray } 
 import { crashLogPath, installCrashGuard, logCrash } from './crashGuard'
 import { applyAppIcon, currentAppIconFile } from './appIcon'
 import { DOCS_URL, ISSUES_URL, releaseNotesUrl } from '@shared/links'
+import { WHATS_NEW_RELEASE } from '@shared/whatsNew'
 import { audit } from './enterprise/audit'
 import { assertFeature, featureAllowed, providerAllowed, PolicyError } from './enterprise/policy'
 import { POLICY_GATED_FEATURES } from './features/enterprise'
@@ -450,6 +452,10 @@ function buildMenu(): void {
     {
       role: 'help',
       submenu: [
+        // The tours the sidebar's ? menu has, here too.
+        { label: `What’s New in ${WHATS_NEW_RELEASE}`, click: () => sendOrOpen('menu:whats-new') },
+        { label: 'Take the Tour', click: () => sendOrOpen('menu:tour') },
+        { type: 'separator' },
         { label: 'Eaon Documentation', click: () => void shell.openExternal(DOCS_URL) },
         { label: 'Release Notes', click: () => void openReleaseNotes() },
         { label: 'Report an Issue…', click: () => void shell.openExternal(ISSUES_URL) },
@@ -574,6 +580,7 @@ function registerIpc(): void {
     const patch = withoutKeys(raw)
     const next = store.patchSettings(patch)
     auditSettingsChange(patch, next)
+    if (patch.localServer?.autoStart !== undefined) userTookLocalServer()
     if (patch.appearance) applyWindowAppearance(next)
     if (patch.appearance?.appIcon) applyAppIcon(next.appearance.appIcon, appWindows)
     broadcast('settings:changed', forRenderer(next), e.sender)
@@ -638,10 +645,12 @@ function registerIpc(): void {
   ipcMain.handle('local-server:start', () => {
     assertFeature('localApiServer', 'The Local API Server')
     audit('local_server.start_requested')
+    userTookLocalServer()
     return startLocalServer()
   })
   ipcMain.handle('local-server:stop', () => {
     audit('local_server.stop_requested')
+    userTookLocalServer()
     return stopLocalServer()
   })
 

@@ -196,12 +196,12 @@ export function ModelPicker({
   }
 
   const onKeyDown = (event: KeyboardEvent): void => {
+    // ⌘1–⌘9 pick from the list while it's open, and nothing else: not the top bar's Chat / Workers / ADE.
     if (modKey(event) && /^[1-9]$/.test(event.key)) {
+      event.preventDefault()
+      event.stopPropagation()
       const option = shown[Number(event.key) - 1]
-      if (option) {
-        event.preventDefault()
-        pick(option)
-      }
+      if (option) pick(option)
       return
     }
     const next = moveActive(active, event.key, shown.length)

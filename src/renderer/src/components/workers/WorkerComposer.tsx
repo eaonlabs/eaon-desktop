@@ -275,7 +275,7 @@ export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Wor
           {dictating ? (
             <VoiceBar dictation={dictation} />
           ) : (
-            <textarea
+            <textarea aria-label={`Message ${worker.name}`}
               ref={box}
               className="composer__input"
               rows={1}

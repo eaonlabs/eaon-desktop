@@ -184,7 +184,7 @@ function SignedOut({ summary }: { summary: UsageSummary }): JSX.Element {
             )}
             {pending && showPaste && (
               <div className="usage-paste">
-                <input
+                <input aria-label="Address the browser ended on"
                   className="input"
                   placeholder="Browser didn’t come back? Paste the address it ended on"
                   value={paste}

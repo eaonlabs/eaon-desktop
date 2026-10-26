@@ -24,7 +24,16 @@ interface OnboardingState {
  * after the setup, not on top of it.
  */
 export function onboardingShowing(): boolean {
-  return useApp.getState().settings?.onboarding.setup === 'pending' || useOnboarding.getState().tourOpen
+  // Before settings load, whether the setup is coming isn't known yet: counted as showing.
+  const setup = useApp.getState().settings?.onboarding.setup
+  return setup === undefined || setup === 'pending' || useOnboarding.getState().tourOpen
+}
+
+/** onboardingShowing as a hook: a corner card steps aside while the setup or a tour is up, and comes back after. */
+export function useOnboardingShowing(): boolean {
+  const setup = useApp((s) => s.settings?.onboarding.setup)
+  const tour = useOnboarding((s) => s.tourOpen)
+  return setup === undefined || setup === 'pending' || tour
 }
 
 export const useOnboarding = create<OnboardingState>((set, get) => ({

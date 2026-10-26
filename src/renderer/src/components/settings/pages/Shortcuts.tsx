@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { Card, SearchField, Section } from '../../ui'
-import { COMPOSER_SHORTCUTS, SHORTCUTS, formatShortcut, isMacPlatform, type Shortcut } from '../../../lib/keys'
+import { CHAT_SHORTCUTS, COMPOSER_SHORTCUTS, SHORTCUTS, formatShortcut, isMacPlatform, type Shortcut } from '../../../lib/keys'
 
 /**
  * The shortcuts Eaon has, written for this platform. This page used to offer
@@ -20,6 +20,7 @@ export function ShortcutsPage(): JSX.Element {
   }, [query, mac])
 
   const app = match(SHORTCUTS)
+  const chat = match(CHAT_SHORTCUTS)
   const composer = match(COMPOSER_SHORTCUTS)
 
   return (
@@ -36,12 +37,17 @@ export function ShortcutsPage(): JSX.Element {
           <ShortcutList shortcuts={app} mac={mac} />
         </Section>
       )}
+      {chat.length > 0 && (
+        <Section label="Chat">
+          <ShortcutList shortcuts={chat} mac={mac} />
+        </Section>
+      )}
       {composer.length > 0 && (
         <Section label="Message box">
           <ShortcutList shortcuts={composer} mac={mac} />
         </Section>
       )}
-      {app.length === 0 && composer.length === 0 && <p className="settings__lede">No shortcut matches “{query.trim()}”.</p>}
+      {app.length === 0 && chat.length === 0 && composer.length === 0 && <p className="settings__lede">No shortcut matches “{query.trim()}”.</p>}
     </>
   )
 }

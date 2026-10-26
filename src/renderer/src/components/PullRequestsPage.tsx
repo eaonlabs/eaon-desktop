@@ -518,7 +518,7 @@ function PrMerge({ detail, after }: { detail: PullRequestDetail; after: (result:
                 <span className="pr-merge__label">Commit message</span>
                 <input className="input" value={subject} onChange={(e) => setSubject(e.target.value)} />
               </label>
-              <textarea className="input pr-merge__body" rows={3} placeholder="Extended description (optional)" value={body} onChange={(e) => setBody(e.target.value)} />
+              <textarea aria-label="Extended description" className="input pr-merge__body" rows={3} placeholder="Extended description (optional)" value={body} onChange={(e) => setBody(e.target.value)} />
             </>
           )}
           <label className="pr-merge__check">

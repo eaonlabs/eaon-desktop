@@ -18,7 +18,10 @@ scenario('fresh install with no model: a setup hint, and no reply that can never
   await checkIsolated(app)
   const page = app.page
   await page.find('.composer__input')
-  const providers = await page.eval(async () => (await window.api.providers.list()).filter((p) => p.models.length > 0 && (p.local ? true : p.hasKey)).map((p) => p.id))
+  // Eaon Lite is ready for everyone; the harness turns it off here, as someone can in Settings.
+  const providers = await page.eval(async () =>
+    (await window.api.providers.list()).filter((p) => p.enabled && p.models.length > 0 && (p.local ? true : p.hasKey)).map((p) => p.id)
+  )
   assert.deepEqual(providers, [], 'a fresh profile should have no usable provider')
 
   const home = await page.eval(() => ({

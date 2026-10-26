@@ -119,8 +119,9 @@ export function AccountsPage(): JSX.Element {
           </Row>
         </Card>
         <p className="accounts__fine">
-          Figures come from Claude Code and Codex themselves — the same numbers their <code>/usage</code> shows. The accounts in use are read
-          every few minutes while Eaon is on screen, the others every half hour. Nothing is sent to a model to read them.
+          Codex&rsquo;s figures come from Codex itself, the same numbers its <code>/usage</code> shows: the account in use is read every few
+          minutes while Eaon is on screen, the others every half hour. A Claude plan&rsquo;s limits are shown only in Claude Code (its{' '}
+          <code>/usage</code>); Eaon only checks which account each one is signed in to. Nothing is sent to a model to read them.
         </p>
       </Section>
     </>
@@ -241,7 +242,7 @@ function AccountRow({
       </button>
       <div className="account-row__body">
         {editing ? (
-          <input
+          <input aria-label="Account name"
             className="input account-row__name-input"
             autoFocus
             value={label}
@@ -365,7 +366,7 @@ function LoginCard({ state }: { state: CliAccountsState }): JSX.Element | null {
               setCode('')
             }}
           >
-            <input className="input" value={code} placeholder="If the page gives you a code, paste it here" onChange={(e) => setCode(e.target.value)} />
+            <input aria-label="Code from the sign-in page" className="input" value={code} placeholder="If the page gives you a code, paste it here" onChange={(e) => setCode(e.target.value)} />
             <button className="btn btn--ghost btn--sm" type="submit" disabled={!code.trim()}>
               Send
             </button>

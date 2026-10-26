@@ -1279,7 +1279,9 @@
 .tour {
   position: fixed;
   inset: 0;
-  z-index: 95;
+  /* Over the corner cards and the update toast (96), which would cover its
+     Next button; under dialogs and menus (100, 101). */
+  z-index: 97;
   --dim: color-mix(in srgb, var(--shadow-ink) 62%, transparent);
 }
 .tour[data-leaving] {

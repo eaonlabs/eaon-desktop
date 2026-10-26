@@ -83,12 +83,16 @@ scenario('Chat runs on Codex: picked in the model picker, a reply, the same conv
   await waitForReply(page, { text: /I remember 1 earlier message/, streaming: false, timeout: 30_000 })
   await s.shot(page, 'codex-replies')
 
-  // A command Codex wants to run is asked in Chat's own approval dialog.
+  // A command Codex wants to run is asked in Chat's own transcript.
   await sendMessage(page, 'run the tests')
-  await page.find('.approval-dock[data-state="in"] .approval', { timeout: 30_000 })
+  await page.find('.ask-row .ask-row__allow', { timeout: 30_000 })
   await s.shot(page, 'codex-approval')
-  await page.click('.approval-dock[data-state="in"] .approval__approve')
+  await page.click('.ask-row__allow')
   await waitForReply(page, { text: /Hello there\./, streaming: false, timeout: 30_000 })
+  // A finished turn folds its work under "Worked for …": open it, then its run of calls.
+  await page.eval(() => [...document.querySelectorAll('.msg-row')].at(-1)?.querySelector('.turn-head__toggle[aria-expanded="false"]')?.click())
+  await page.waitFor(() => Boolean([...document.querySelectorAll('.msg-row')].at(-1)?.querySelector('.wl-row')), { message: 'the reply’s work to unfold' })
+  await page.eval(() => [...document.querySelectorAll('.msg-row')].at(-1)?.querySelectorAll('.wl-row[aria-expanded="false"]').forEach((row) => row.click()))
   const ran = await page.eval(() => [...document.querySelectorAll('.msg-row')].at(-1)?.textContent ?? '')
   assert.match(ran, /npm test|3 passed|tests/i, 'the command it ran shows in the reply')
   assert.deepEqual(app.pageErrors().filter((e) => /exception/i.test(e)), [])

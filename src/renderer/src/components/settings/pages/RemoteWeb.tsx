@@ -305,7 +305,7 @@ function LockedTerminals({ site }: { site: string }): JSX.Element | null {
             </Row>
           )}
           <Row title="Their GitHub username" description="The invite link only works for this account.">
-            <input className="input" placeholder="octocat" value={login} onChange={(e) => setLogin(e.target.value)} spellCheck={false} autoCapitalize="off" />
+            <input aria-label="Their GitHub username" className="input" placeholder="octocat" value={login} onChange={(e) => setLogin(e.target.value)} spellCheck={false} autoCapitalize="off" />
           </Row>
           <Row title="How long">
             <Select value={hours} options={EXPIRY} onChange={setHours} />

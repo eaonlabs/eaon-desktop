@@ -455,7 +455,7 @@ const TerminalPane = memo(function TerminalPane({
         <span className="term-pane__dot" role="img" aria-label={STATUS_LABEL[status]} title={STATUS_LABEL[status]} />
         <AgentMark agent={pane.agent} program={program} size={14} />
         {renaming ? (
-          <input
+          <input aria-label="Terminal name"
             autoFocus
             className="term-pane__rename"
             value={draft}

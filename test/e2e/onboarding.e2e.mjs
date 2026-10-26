@@ -15,7 +15,7 @@ import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { approveToknSignIn, startFakeTokn } from './fakeTokn.mjs'
 import { repo } from './harness.mjs'
-import { scenario } from './fixtures.mjs'
+import { openSettings, scenario } from './fixtures.mjs'
 
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms))
 const bundled = existsSync(join(repo, 'resources', 'tokn-cli', 'dist', 'index.js'))
@@ -125,7 +125,7 @@ scenario('first run: the setup signs in with Tokn, links tokn, picks dark, and t
   }
 })
 
-scenario('first run: skipping the setup, and the tour from the Help menu', { timeout: 90_000 }, async (s) => {
+scenario('first run: skipping the setup, and the tour from Settings', { timeout: 90_000 }, async (s) => {
   const app = await s.launch({ env: { EAON_ONBOARDING: 'on' } })
   const page = app.page
   await page.find('.onboarding__title', { text: 'Welcome to Eaon' })
@@ -134,8 +134,8 @@ scenario('first run: skipping the setup, and the tour from the Help menu', { tim
   assert.equal((await onboarding(page)).setup, 'skipped')
   assert.equal(await page.eval(() => Boolean(document.querySelector('.tour'))), false, 'skipping the setup skips the tour')
 
-  await page.click('.sidebar__footer [aria-label="Help"]')
-  await page.click('.menu .menu__item', { text: 'Take the tour' })
+  await openSettings(page, 'General')
+  await page.click('.settings button', { text: /^Take the tour$/ })
   await page.find('.tour__title', { text: 'Three places to work' })
   await page.press('ArrowRight')
   await page.find('.tour__title', { text: 'Ask, or hand over a task' })
@@ -166,10 +166,10 @@ const WHATS_NEW_TITLES = [
   'Free models with Eaon Lite',
   'A new message box',
   'Work in a project',
+  'A dock beside your agents',
   'Workers that keep going for hours',
   'Automations',
   'A worker computer, and more chat apps',
-  'A dock beside your agents',
   'Plan limits, up top',
   'And in Settings'
 ]
@@ -208,7 +208,7 @@ scenario('an update from 2026.6: the setup again, then the tour of what’s new'
   assert.equal(await again.page.eval(() => Boolean(document.querySelector('.onboarding, .tour'))), false)
 })
 
-scenario('an update from a 2026.7 beta that went through the setup: only what’s new, and it’s in the Help menu', { timeout: 90_000 }, async (s) => {
+scenario('an update from a 2026.7 beta that went through the setup: only what’s new, and it’s in Settings', { timeout: 90_000 }, async (s) => {
   const app = await s.launch({
     env: { EAON_ONBOARDING: 'on' },
     seed: { 'settings.json': { onboarding: { setup: 'done', tour: 'skipped', finishedAt: Date.now() - 86_400_000 } } }
@@ -222,7 +222,7 @@ scenario('an update from a 2026.7 beta that went through the setup: only what’
   await page.waitFor(() => !document.querySelector('.tour'), { message: 'Escape to end the tour' })
   assert.equal((await onboarding(page)).tour, 'skipped', 'the tour of the app is left as it was')
 
-  await page.click('.sidebar__footer [aria-label="Help"]')
-  await page.click('.menu .menu__item', { text: 'What’s new in 2026.7' })
+  await openSettings(page, 'General')
+  await page.click('.settings button', { text: /^Show me$/ })
   assert.deepEqual(await walkWhatsNew(s, page, false), WHATS_NEW_TITLES)
 })

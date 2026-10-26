@@ -76,8 +76,10 @@ export function LinkAccounts({
   const byId = useMemo(() => new Map(providers.map((p) => [p.id, p])), [providers])
   const targets = useMemo(() => {
     const found = (t: LinkTarget): boolean => t.apps.some((a) => installed.has(a))
-    return LINK_TARGETS.filter((t) => byId.has(t.providerId) && (!only || t.method === only)).sort((a, b) => Number(found(b)) - Number(found(a)))
-  }, [installed, byId, only])
+    // Over the setup, a sign-in that needs a client set up in Settings first can't be done: it isn't listed.
+    const doable = (t: LinkTarget): boolean => !(inSetup && t.method === 'signin' && auth[t.providerId]?.needsClientId)
+    return LINK_TARGETS.filter((t) => byId.has(t.providerId) && (!only || t.method === only) && doable(t)).sort((a, b) => Number(found(b)) - Number(found(a)))
+  }, [installed, byId, only, inSetup, auth])
   const foundApps = (t: LinkTarget): string[] => apps.filter((a) => a.installed && t.apps.includes(a.id)).map((a) => a.name)
   // The apps found here that the providers shown link through.
   const foundHere = apps.filter((a) => a.installed && (!only || targets.some((t) => t.apps.includes(a.id))))
@@ -343,7 +345,7 @@ function LinkRow({
 
       {!linked && target.method === 'key' && keyOpen && (
         <div className="la-row__key">
-          <input
+          <input aria-label={`${provider.name} API key`}
             ref={input}
             className="input"
             type="password"

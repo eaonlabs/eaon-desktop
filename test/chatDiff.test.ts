@@ -2,7 +2,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { blocksFromHunks, countChanges, diffLines, splitLines, splitPairs, toBlocks, unwindEdits, wordDiff, wordMarks, type DiffRow } from '../src/renderer/src/components/chatCode/diff/model'
 import { lineTokens, pieces } from '../src/renderer/src/components/chatCode/diff/tokens'
-import { agentFiles, collectEdits, editTurns, relativePath, toPatch, type AgentEdit } from '../src/renderer/src/components/chatCode/changes/build'
+import { agentFiles, changeCounts, collectEdits, editTurns, foldChanges, relativePath, toPatch, type AgentEdit } from '../src/renderer/src/components/chatCode/changes/build'
 import type { ChatMessage } from '../src/shared/types'
 
 /** Chat's diff viewer: the line diff, its folds and word marks, and the agent's edits worked back from disk. */
@@ -152,6 +152,37 @@ test('the agent’s changes per file: the whole chat, one turn, and edits that c
   assert.match(patch, /\n-three\n\+THREE\n/)
 })
 
+test('a write over a file diffs against what it replaced, and a file written twice counts once', () => {
+  // QA's case: a 3-line file rewritten as 2 lines (one kept): git says +1 −2.
+  const replaced = tool('write_file', { path: 'qa-note.txt', content: 'one\nTWO\n' })
+  ;(replaced as { before?: string }).before = 'one\ntwo\nthree\n'
+  const [edit] = collectEdits([message('assistant', [replaced])])
+  assert.equal(edit.before, 'one\ntwo\nthree\n')
+  const files = agentFiles([edit], null, new Map([['qa-note.txt', 'one\nTWO\n']]), { kind: 'chat' })
+  assert.deepEqual(files.map((f) => `${f.path} ${f.status} +${f.added} -${f.removed}`), ['qa-note.txt modified +1 -2'])
+
+  // Written twice in one chat: one change, from how it was to how it ended.
+  const steps: AgentEdit[] = [
+    { path: 'n.txt', turn: 1, kind: 'write', before: 'a\nb\nc\n', after: 'a\nx\n', seen: true },
+    { path: 'n.txt', turn: 2, kind: 'write', before: 'a\nx\n', after: 'a\nb\nc\nd\n', seen: true }
+  ]
+  assert.deepEqual(unwindEdits('a\nb\nc\nd\n', steps), ['a\nb\nc\n', 'a\nx\n', 'a\nb\nc\nd\n'])
+  const twice = agentFiles(steps, null, new Map([['n.txt', 'a\nb\nc\nd\n']]), { kind: 'chat' })
+  assert.deepEqual(twice.map((f) => `${f.status} +${f.added} -${f.removed}`), ['modified +1 -0'])
+
+  // The changed-files card and the workspace card count the same way.
+  const changes = [
+    { file: 'n.txt', before: 'a\nb\nc\n', after: 'a\nx\n', write: true },
+    { file: 'n.txt', before: '', after: 'a\nb\nc\nd\n', write: true, created: true },
+    { file: 'n.txt', before: 'd', after: 'D' }
+  ]
+  assert.equal(foldChanges(changes).length, 1)
+  assert.deepEqual(changeCounts(changes), { added: 1, removed: 0 })
+  // An edit before any write stays its own; one that can't be played forward leaves them all as they were.
+  assert.equal(foldChanges([{ file: 'n.txt', before: 'q', after: 'Q' }, ...changes]).length, 2)
+  assert.equal(foldChanges([changes[0], { file: 'n.txt', before: 'zzz', after: 'y' }]).length, 2)
+})
+
 test('an edit undone by a later one leaves the file out', () => {
   const edits: AgentEdit[] = [
     { path: 'a.ts', turn: 1, kind: 'edit', before: 'x', after: 'y' },
@@ -159,6 +190,28 @@ test('an edit undone by a later one leaves the file out', () => {
   ]
   assert.deepEqual(agentFiles(edits, null, new Map([['a.ts', 'x\n']]), { kind: 'chat' }), [])
   assert.equal(agentFiles(edits, null, new Map([['a.ts', 'x\n']]), { kind: 'turn', turn: 1 }).length, 1)
+})
+
+test('two chats editing one file: each chat’s diff holds only its own edits', () => {
+  // Chat A wrote the file, then chat B changed one line, then A changed another.
+  const a: AgentEdit[] = [
+    { path: 'n.txt', turn: 1, at: 10, kind: 'write', before: 'a\nb\nc\n', after: 'a\nb\nc\nd\n', seen: true },
+    { path: 'n.txt', turn: 2, at: 30, kind: 'edit', before: 'c', after: 'C' }
+  ]
+  const b: AgentEdit[] = [{ path: 'n.txt', turn: 1, at: 20, kind: 'edit', before: 'a', after: 'A' }]
+  const disk = new Map([['n.txt', 'A\nb\nC\nd\n']])
+  const changed = (files: ReturnType<typeof agentFiles>): string[] =>
+    files.flatMap((f) => f.blocks.flatMap((bl) => (bl.type === 'rows' ? bl.rows.filter((r) => r.kind !== 'ctx').map((r) => `${r.kind} ${r.text}`) : [])))
+  // A's whole diff: its write and its edit, never B's "A".
+  const chatA = agentFiles(a, null, disk, { kind: 'chat' }, b)
+  assert.deepEqual(changed(chatA), ['add d', 'del c', 'add C'])
+  assert.deepEqual(chatA.map((f) => `+${f.added} -${f.removed}`), ['+2 -1'])
+  // A's last turn is its own edit, not "No changes".
+  assert.deepEqual(changed(agentFiles(a, null, disk, { kind: 'turn', turn: 2 }, b)), ['del c', 'add C'])
+  // B's diff: only its line.
+  assert.deepEqual(changed(agentFiles(b, null, disk, { kind: 'chat' }, a)), ['del a', 'add A'])
+  // Another chat's edits to files this chat never touched are no part of its diff.
+  assert.deepEqual(agentFiles(a, null, disk, { kind: 'chat' }, [{ path: 'other.txt', turn: 1, at: 5, kind: 'edit', before: 'x', after: 'y' }]).length, 1)
 })
 
 test('colouring follows a comment across lines, and word marks cut tokens at their edges', () => {

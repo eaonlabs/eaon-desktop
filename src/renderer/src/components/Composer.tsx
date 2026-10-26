@@ -26,7 +26,7 @@ import {
   X,
   Zap
 } from 'lucide-react'
-import { codeFolder, useApp, useIsWork } from '../state/store'
+import { codeFolder, useApp, useCoding, useIsWork } from '../state/store'
 import { MenuItem, MenuSearch, MenuSeparator, Popover, useDisclosure } from './ui'
 import { mcpCatalogEntry } from '@shared/mcpCatalog'
 import { PluginLogo } from './plugins/PluginLogo'
@@ -135,6 +135,8 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
   const history = useRef<{ index: number; draft: string; recalled: string } | null>(null)
   const textarea = useRef<HTMLTextAreaElement>(null)
   const isAgent = useIsWork()
+  // Follow-up "changes" are a coding chat's; an ordinary chat just carries on.
+  const coding = useCoding()
   // Dictation: what is said lands at the end of the message, ready to edit, never sent by itself.
   const dictation = useDictation((spoken) => {
     setText((current) => joinTranscript(current, spoken))
@@ -450,7 +452,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
   const input = dictating ? (
     <VoiceBar dictation={dictation} />
   ) : (
-    <textarea
+    <textarea aria-label="Message"
       ref={textarea}
       className="composer__input"
       placeholder={
@@ -461,7 +463,9 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
           : planOn
             ? 'Describe the task — Eaon researches and proposes a plan first'
             : variant === 'chat'
-              ? 'Ask for follow-up changes'
+              ? coding && isAgent
+                ? 'Ask for follow-up changes'
+                : 'Ask a follow-up'
               : isAgent
                 ? 'Ask Eaon to do anything'
                 : 'Ask anything'

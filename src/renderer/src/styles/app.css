@@ -313,8 +313,102 @@ a:hover {
 .sidebar__body {
   flex: 1;
   min-height: 0;
-  padding: 0 7px;
+  /* The list runs to the bottom of the panel; the last row keeps a little room from its edge. */
+  padding: 0 7px 10px;
   overflow-y: auto;
+}
+
+/* Chat's menu (New chat … Settings) stays put above its projects and chats. */
+.sidebar__menu {
+  flex: none;
+  padding: 0 7px 2px;
+}
+
+/* The list under it fades out at an edge with more of it past that edge,
+   under a graded blur. Sidebar.tsx's FadingBody sets --fade-top and
+   --fade-bottom: 0 at the very end of the list, 1 once a row's worth is
+   beyond it. */
+.sidebar__fade {
+  --fade-top: 0;
+  --fade-bottom: 0;
+  --fade-top-h: 44px;
+  --fade-bottom-h: 72px;
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.sidebar__fade > .sidebar__body {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    rgb(0 0 0 / calc(1 - 0.92 * var(--fade-top))) 0,
+    rgb(0 0 0 / calc(1 - 0.5 * var(--fade-top))) calc(var(--fade-top) * var(--fade-top-h) * 0.4),
+    #000 calc(var(--fade-top) * var(--fade-top-h)),
+    #000 calc(100% - var(--fade-bottom) * var(--fade-bottom-h)),
+    rgb(0 0 0 / calc(1 - 0.5 * var(--fade-bottom))) calc(100% - var(--fade-bottom) * var(--fade-bottom-h) * 0.4),
+    rgb(0 0 0 / calc(1 - 0.92 * var(--fade-bottom))) 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    rgb(0 0 0 / calc(1 - 0.92 * var(--fade-top))) 0,
+    rgb(0 0 0 / calc(1 - 0.5 * var(--fade-top))) calc(var(--fade-top) * var(--fade-top-h) * 0.4),
+    #000 calc(var(--fade-top) * var(--fade-top-h)),
+    #000 calc(100% - var(--fade-bottom) * var(--fade-bottom-h)),
+    rgb(0 0 0 / calc(1 - 0.5 * var(--fade-bottom))) calc(100% - var(--fade-bottom) * var(--fade-bottom-h) * 0.4),
+    rgb(0 0 0 / calc(1 - 0.92 * var(--fade-bottom))) 100%
+  );
+}
+.edge-veil {
+  position: absolute;
+  right: 0;
+  left: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+.edge-veil[data-edge='top'] {
+  --fade: var(--fade-top);
+  --edge: to top;
+  top: 0;
+  height: var(--fade-top-h);
+}
+.edge-veil[data-edge='bottom'] {
+  --fade: var(--fade-bottom);
+  --edge: to bottom;
+  bottom: 0;
+  height: var(--fade-bottom-h);
+}
+.edge-veil > span {
+  position: absolute;
+  inset: 0;
+  /* 0.4, 0.8, 1.6, 3.2 px (scaled by Settings → Appearance → Glass → Blur),
+     each layer's band a quarter nearer the edge than the last. */
+  -webkit-backdrop-filter: blur(calc(0.4px * pow(2, var(--i)) * var(--fade) * var(--glass-blur-k, 1)));
+  backdrop-filter: blur(calc(0.4px * pow(2, var(--i)) * var(--fade) * var(--glass-blur-k, 1)));
+  -webkit-mask-image: linear-gradient(
+    var(--edge),
+    transparent calc(var(--i) * 25%),
+    #000 calc((var(--i) + 1) * 25%),
+    #000 calc((var(--i) + 2) * 25%),
+    transparent calc((var(--i) + 3) * 25%)
+  );
+  mask-image: linear-gradient(
+    var(--edge),
+    transparent calc(var(--i) * 25%),
+    #000 calc((var(--i) + 1) * 25%),
+    #000 calc((var(--i) + 2) * 25%),
+    transparent calc((var(--i) + 3) * 25%)
+  );
+}
+/* The strongest layer runs right to the edge rather than fading out there. */
+.edge-veil > span:last-child {
+  -webkit-mask-image: linear-gradient(var(--edge), transparent 50%, #000 90%);
+  mask-image: linear-gradient(var(--edge), transparent 50%, #000 90%);
+}
+@media (prefers-reduced-transparency: reduce) {
+  .edge-veil {
+    display: none;
+  }
 }
 
 /* ---------------- Top bar ----------------
@@ -344,6 +438,10 @@ a:hover {
 .topbar[data-collapsed] .topbar__side--left {
   /* Starts where the row's own padding did: 3px past the traffic lights. */
   padding-left: calc(2px + max(0px, var(--window-controls-left) - 13px));
+}
+/* Its width is the grid's to give (minmax(0, 1fr)), so it can be asked about. */
+.topbar__side--left {
+  container: topbar-left / inline-size;
 }
 .topbar__side {
   display: flex;
@@ -738,18 +836,6 @@ a:hover {
   color: var(--text-4);
 }
 
-/* With the usage meter elsewhere (or off), the foot has nothing to hold. */
-.sidebar__footer:empty {
-  display: none;
-}
-.sidebar__footer {
-  flex: none;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 4px;
-  padding: 6px 8px 10px 7px;
-}
 .footer-item {
   display: flex;
   align-items: center;

@@ -350,6 +350,23 @@ test('a worker with no usable model fails its turn with a reason, instead of han
   assert.match(engine.list()[0].lastError!, /This worker's model provider/)
 })
 
+test('picking another model clears the old one’s error and the dead face', async () => {
+  const agent = fakeAgent()
+  const { engine } = start(agent.runAgent)
+  const nova = engine.save(draft('Nova', { model: { providerId: 'no-such-provider', modelId: 'x' } }))
+  engine.send(nova.id, 'Hello')
+  await until(() => engine.list()[0].status === 'failed')
+  await engine.whenIdle()
+  // A rename alone says nothing about the model: the error stays.
+  engine.save({ ...draft('Nova B', { model: { providerId: 'no-such-provider', modelId: 'x' } }), id: nova.id })
+  assert.equal(engine.list()[0].status, 'failed')
+  engine.save({ ...draft('Nova B', { model: MODEL }), id: nova.id })
+  const now = engine.list()[0]
+  assert.equal(now.lastError, null)
+  assert.notEqual(now.status, 'failed')
+  assert.notEqual(workerMood(now), 'dead')
+})
+
 /* ---------------------------------------------------------- heartbeats */
 
 test('heartbeats: a worker schedules its own wake-ups, a steady beat repeats, and it can stop', async () => {

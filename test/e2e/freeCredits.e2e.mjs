@@ -2,14 +2,26 @@
  * Eaon Free: on a fresh install, after half a minute of use, the star popup
  * comes up first and the free-credits offer follows it whatever the answer
  * (here "Later"). The offer asks for nothing; claimed, it lasts a week, the
- * free model is selected, answers a real message through gateway.eaon.dev
- * (the one request this sends), and Settings shows the day's use. A used-up
- * day, and a finished week, are refused before sending.
+ * free model is selected, answers a message, and Settings shows the day's
+ * use. A used-up day, and a finished week, are refused before sending.
+ *
+ * Eaon offers the week only while its gateway serves the free model, so the
+ * gateway here is the fake model server standing in for it: the real one
+ * answers only builds that carry the app's signing secret, which a test
+ * build doesn't.
  *
  * The Open GitHub button is never pressed here: it would star a real account.
  */
 import assert from 'node:assert/strict'
 import { openSettings, scenario, sendMessage, waitForReply } from './fixtures.mjs'
+import { reply as answer } from './fakeProvider.mjs'
+
+/** The environment for a gateway that serves Eaon Free's model: the scenario's fake model server. */
+async function servedGateway(s) {
+  const fake = await s.fake()
+  fake.setModels(['claude-haiku-5-5'])
+  return { EAON_FREE_GATEWAY_URL: fake.url }
+}
 
 const today = () => {
   const d = new Date()
@@ -19,7 +31,8 @@ const WEEK_MS = 7 * 24 * 3_600_000
 
 scenario('Eaon Free: a fresh install gets the star popup, then the offer; claiming needs no star; a live reply', { timeout: 240_000 }, async (s) => {
   // No GitHub token from this shell: "already starred" must not be read from a real account.
-  const app = await s.launch({ env: { EAON_OFFERS: 'on', GH_TOKEN: '', GITHUB_TOKEN: '' } })
+  const app = await s.launch({ env: { EAON_OFFERS: 'on', GH_TOKEN: '', GITHUB_TOKEN: '', ...(await servedGateway(s)) } })
+  ;(await s.fake()).route(() => answer.text('free credits work', { usage: { input: 40, output: 4 } }))
   const page = app.page
   const listed = async () => page.eval(async () => (await window.api.providers.list()).some((p) => p.id === 'eaon-free'))
   assert.equal(await listed(), false, 'not offered as a provider before it is claimed')
@@ -58,7 +71,7 @@ scenario('Eaon Free: a fresh install gets the star popup, then the offer; claimi
   assert.equal(await page.eval(() => window.api.star.shouldAsk()), false, 'no second star popup this run')
   assert.deepEqual([settings.selectedProviderId, settings.selectedModelId], ['eaon-free', 'claude-haiku-5-5'], 'a fresh install starts on the free model')
 
-  // A real reply through the gateway.
+  // A reply through the gateway (its stand-in).
   await page.waitFor(() => document.querySelector('.chip__model')?.textContent === 'Claude Haiku 5.5', { message: 'the composer to show the free model' })
   await sendMessage(page, 'Reply with exactly these words and nothing else: free credits work')
   const reply = await waitForReply(page, { text: /free credits work/i, streaming: false, timeout: 90_000 })
@@ -132,7 +145,7 @@ scenario('Eaon Free: after its week a message is refused, nothing is sent, and S
 })
 
 scenario('Eaon Free: claimed from Settings before the cards come up, the star popup still shows once, and no offer follows', { timeout: 120_000 }, async (s) => {
-  const app = await s.launch({ env: { EAON_OFFERS: 'on', GH_TOKEN: '', GITHUB_TOKEN: '' } })
+  const app = await s.launch({ env: { EAON_OFFERS: 'on', GH_TOKEN: '', GITHUB_TOKEN: '', ...(await servedGateway(s)) } })
   const page = app.page
   await openSettings(page)
   await page.click('.settings__nav .nav-item', { text: /^Model providers$/ })
@@ -151,8 +164,24 @@ scenario('Eaon Free: claimed from Settings before the cards come up, the star po
   assert.equal(settings.freeCredits.offered, 0)
 })
 
+scenario('Eaon Free: while the gateway doesn’t serve its model, Settings doesn’t start the week', { timeout: 60_000 }, async (s) => {
+  const fake = await s.fake()
+  fake.setModels(['some-other-model'])
+  const app = await s.launch({ env: { EAON_FREE_GATEWAY_URL: fake.url } })
+  const page = app.page
+  await openSettings(page)
+  await page.click('.settings__nav .nav-item', { text: /^Model providers$/ })
+  await page.click('.provider-row', { text: /^Eaon Free/ })
+  await page.find('.provider-credits', { text: /isn’t available right now/ })
+  assert.equal(await page.eval(() => [...document.querySelectorAll('.provider-credits button')].some((b) => /Get free credits/.test(b.textContent ?? ''))), false, 'no button to claim it')
+  // Asked directly, the claim is refused too, and nothing changes.
+  assert.equal((await page.eval(() => window.api.freeCredits.claim())).claimed, false)
+  assert.equal((await page.eval(() => window.api.settings.get())).freeCredits.claimed, false)
+  await s.shot(page, 'not-served')
+})
+
 scenario('Eaon Free: the offer card’s “Have an event code?” opens the code box in the card, claiming nothing', { timeout: 150_000 }, async (s) => {
-  const app = await s.launch({ env: { EAON_OFFERS: 'on', GH_TOKEN: '', GITHUB_TOKEN: '' } })
+  const app = await s.launch({ env: { EAON_OFFERS: 'on', GH_TOKEN: '', GITHUB_TOKEN: '', ...(await servedGateway(s)) } })
   const page = app.page
   await page.find('.star-card', { text: /Welcome to Eaon/, timeout: 90_000 })
   await page.click('.star-card button', { text: /^Later$/ })

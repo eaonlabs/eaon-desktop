@@ -4,6 +4,7 @@ import { joinPath } from './paths'
 import { toDisk, toEditor, type LineEnding } from './lineEndings'
 import type { ReviewScope } from '../chatCode/changes/build'
 import { useChatCode } from '../chatCode/chatCodeStore'
+import { useApp } from '../../state/store'
 
 /**
  * A dock, the panel to the right of a Chat conversation or of the ADE's
@@ -76,8 +77,12 @@ interface IdeState {
   setMaximized: (maximized: boolean) => void
   /** Puts the dock's browser pages in step with the browser's own tabs: new ones added, closed ones gone. */
   syncBrowserTabs: (tabIds: string[]) => void
-  /** Asked from elsewhere (a turn's Review button): the Diff shows this scope, scrolled to `file`. */
-  review: { scope: ReviewScope; file?: string; nonce: number } | null
+  /**
+   * Asked from elsewhere (a turn's Review button): the Diff shows this scope,
+   * scrolled to `file`. `owner` is the chat it was asked from, since one dock
+   * serves every chat.
+   */
+  review: { scope: ReviewScope; file?: string; nonce: number; owner?: string | null } | null
   reviewChanges: (scope: ReviewScope, file?: string) => void
   setOpen: (open: boolean) => void
   /** Reads the dock's folder again; a new one starts the tree afresh and closes the files outside it. */
@@ -105,6 +110,8 @@ interface DockOptions {
   widthKey: string
   /** The folder its files are in. */
   root: () => Promise<string | null>
+  /** Who a review is asked for, when the dock is shared (the chat on screen). */
+  owner?: () => string | null
 }
 
 /** The dock's tabs as this window left them; browser pages come back from the browser's own store. */
@@ -146,7 +153,7 @@ export const isDirty = (tab: IdeTab): boolean => tab.kind === 'text' && tab.text
 
 const inside = (root: string, path: string): boolean => path === root || path.startsWith(`${root}/`) || path.startsWith(`${root}\\`)
 
-export function createDock({ surfacesKey, widthKey, root: rootOf }: DockOptions): DockStore {
+export function createDock({ surfacesKey, widthKey, root: rootOf, owner }: DockOptions): DockStore {
   const saved = savedSurfaces(surfacesKey)
   const store = create<IdeState>((set, get) => ({
     open: false,
@@ -223,7 +230,7 @@ export function createDock({ surfacesKey, widthKey, root: rootOf }: DockOptions)
 
     reviewChanges(scope, file) {
       get().openSurface('diff')
-      set({ review: { scope, ...(file ? { file } : {}), nonce: Date.now() } })
+      set({ review: { scope, ...(file ? { file } : {}), nonce: Date.now(), ...(owner ? { owner: owner() } : {}) } })
     },
 
     setOpen(open) {
@@ -353,7 +360,12 @@ export function createDock({ surfacesKey, widthKey, root: rootOf }: DockOptions)
 }
 
 /** Chat's dock, beside a conversation, on the folder of the chat's project. */
-export const useIde = createDock({ surfacesKey: 'eaon.dock.surfaces', widthKey: 'eaon.codePanel.width', root: async () => useChatCode.getState().folder })
+export const useIde = createDock({
+  surfacesKey: 'eaon.dock.surfaces',
+  widthKey: 'eaon.codePanel.width',
+  root: async () => useChatCode.getState().folder,
+  owner: () => useApp.getState().activeChatId
+})
 
 // Another project on screen, or an ordinary chat: the open dock's files follow.
 useChatCode.subscribe((state, prev) => {

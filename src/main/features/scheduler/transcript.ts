@@ -80,6 +80,7 @@ export function applyStreamEvent(chat: TranscriptTarget, event: StreamEvent): vo
         part.status = event.status
         delete part.progress
         if (event.images) part.images = event.images
+        if (event.before !== undefined) part.before = event.before
       }
       break
     }

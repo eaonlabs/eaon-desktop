@@ -40,6 +40,18 @@
   max-width: 420px;
   color: var(--text);
 }
+/* A narrow window: the chip gives way and its names ellipsise, the session's
+   first, rather than running on under the Chat / Workers / ADE switch. */
+.code-header .header-btn.code-folder {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+.code-folder > svg {
+  flex: none;
+}
+.code-folder__name + .code-folder__sep + .code-folder__name {
+  flex-shrink: 4;
+}
 .code-folder[data-open='true'] {
   background: var(--hover-strong);
 }

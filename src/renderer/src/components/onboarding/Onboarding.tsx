@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type CSSProperties, type JSX, type MouseEv
 import { createPortal } from 'react-dom'
 import { ArrowLeft, ArrowRight, ArrowUpRight, Check, ChevronRight, CircleUserRound, KeyRound, Laptop, Loader2, MessagesSquare, Moon, SquareTerminal, Sun } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
-import type { LinkMethod } from '@shared/linkAccounts'
+import { LINK_TARGETS, type LinkMethod } from '@shared/linkAccounts'
 import { providerReadiness } from '@shared/modelSelection'
 import type { Provider, ThemeMode } from '@shared/types'
 import type { ToknAccount } from '@shared/usage'
@@ -437,7 +437,8 @@ function AccountRow({ account, arrives }: { account: ToknAccount; arrives: boole
 
 /** The ways to connect a model, each opening Link accounts on just the providers that link that way. */
 const WAYS: { method: LinkMethod; title: string; text: string; icon: JSX.Element }[] = [
-  { method: 'signin', title: 'Sign in with an account', text: 'ChatGPT, OpenRouter, Hugging Face or Poe', icon: <CircleUserRound size={16} strokeWidth={1.9} /> },
+  // Its text is the accounts that can sign in now (useSigninNames); this is for when none can.
+  { method: 'signin', title: 'Sign in with an account', text: 'Accounts are set up in Settings → Model providers', icon: <CircleUserRound size={16} strokeWidth={1.9} /> },
   { method: 'key', title: 'Paste an API key', text: 'Anthropic, OpenAI, Gemini, Grok and more', icon: <KeyRound size={16} strokeWidth={1.9} /> },
   { method: 'local', title: 'Run models on this computer', text: 'Ollama or LM Studio, no account needed', icon: <Laptop size={16} strokeWidth={1.9} /> }
 ]
@@ -446,8 +447,33 @@ const WAYS: { method: LinkMethod; title: string; text: string; icon: JSX.Element
 const wayOf = (provider: Provider): LinkMethod | 'eaon' =>
   provider.category === 'eaon' ? 'eaon' : provider.local ? 'local' : provider.auth === 'oauth' ? 'signin' : 'key'
 
+/** "A, B or C". */
+const orList = (names: string[]): string => (names.length < 2 ? (names[0] ?? '') : `${names.slice(0, -1).join(', ')} or ${names[names.length - 1]}`)
+
+/**
+ * The accounts the setup can sign in to now. One whose sign-in needs a
+ * client of the user's own first (Hugging Face, Poe until Eaon's are
+ * registered) is set up in Settings, not offered here.
+ */
+function useSigninNames(): string | null {
+  const providers = useApp((s) => s.providers)
+  const [needsSetup, setNeedsSetup] = useState<Set<string> | null>(null)
+  useEffect(() => {
+    void window.api.providerAuth
+      .status()
+      .then((list) => setNeedsSetup(new Set(list.filter((s) => s.needsClientId).map((s) => s.providerId))))
+      .catch(() => setNeedsSetup(new Set()))
+  }, [])
+  if (!needsSetup) return null
+  const names = LINK_TARGETS.filter((t) => t.method === 'signin' && !needsSetup.has(t.providerId))
+    .map((t) => providers.find((p) => p.id === t.providerId)?.name)
+    .filter((name): name is string => Boolean(name))
+  return orList(names)
+}
+
 function ModelsStep({ ready, refresh, onBack, onNext }: { ready: Provider[]; refresh: () => void; onBack: () => void; onNext: () => void }): JSX.Element {
   const [linking, setLinking] = useState(false)
+  const signinNames = useSigninNames()
   // Kept while the dialog closes, so its list doesn't change on the way out.
   const [method, setMethod] = useState<LinkMethod>('signin')
   const [codeOpen, setCodeOpen] = useState(false)
@@ -490,7 +516,7 @@ function ModelsStep({ ready, refresh, onBack, onNext }: { ready: Provider[]; ref
               <span className="onboarding__way-icon">{way.icon}</span>
               <span className="onboarding__way-body">
                 <span className="onboarding__way-title">{way.title}</span>
-                <span className="onboarding__way-text">{way.text}</span>
+                <span className="onboarding__way-text">{way.method === 'signin' ? (signinNames ?? '\u00a0') || way.text : way.text}</span>
               </span>
               {linked ? (
                 <span className="onboarding__way-state" title={linked}>
@@ -639,11 +665,11 @@ function Ready({ updated, onBack, onTour, onStart }: { updated: boolean; onBack:
     <>
       {updated ? (
         <Header title="You’re all set">
-          Take a one-minute tour of what’s new in {WHATS_NEW_RELEASE}, or start right away. It’s under the ? button at the bottom of the sidebar whenever you want it.
+          Take a one-minute tour of what’s new in {WHATS_NEW_RELEASE}, or start right away. It’s in Settings → General whenever you want it.
         </Header>
       ) : (
         <Header title="You’re all set">
-          Take a one-minute tour of where everything is, or start right away. The tour is under the ? button at the bottom of the sidebar whenever you want it.
+          Take a one-minute tour of where everything is, or start right away. The tour is in Settings → General whenever you want it.
         </Header>
       )}
       <div className="card onboarding__keys" style={stagger(2)}>

@@ -212,9 +212,15 @@ test('a chat pointing at a project or workspace that is gone comes back into vie
 test('the folder Chat used to work in becomes a project, once; a broken project folder is cleared', () => {
   store.saveWorkspaces(store.getWorkspaces().map((w) => (w.id === 'work' ? { ...w, cwd: '/Users/me/code/snake-game' } : w)))
   store.saveProjects([{ id: 'p1', workspaceId: 'work', name: 'Trip', instructions: 'Be brief', createdAt: 1 }])
+  put('chats.json', JSON.stringify([chat('coded'), chat('in-trip', { projectId: 'p1' }), chat('elsewhere', { workspaceId: 'old-tab' })]))
   store.projectForChatFolder(5)
   const made = store.getProjects().find((p) => p.id !== 'p1')!
   assert.deepEqual({ ...made, id: 'id' }, { id: 'id', workspaceId: 'work', name: 'snake-game', instructions: '', createdAt: 5, folder: '/Users/me/code/snake-game' })
+  // The chats that worked in that folder go into its project; a project's own chats stay where they are.
+  const byId = new Map(store.getChats().map((c) => [c.id, c]))
+  assert.equal(byId.get('coded')!.projectId, made.id)
+  assert.equal(byId.get('in-trip')!.projectId, 'p1')
+  assert.equal(byId.get('elsewhere')!.projectId, null)
   store.projectForChatFolder(6)
   assert.equal(store.getProjects().length, 2, 'run again (back to an older Eaon and forward), it finds the project it made')
   assert.equal(store.getWorkspaces().find((w) => w.id === 'work')!.cwd, '/Users/me/code/snake-game', 'scheduled tasks still fall back to it')

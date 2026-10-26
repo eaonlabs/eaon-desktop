@@ -326,7 +326,7 @@ function CommitDialog({ folder, status, push: pushFirst, onClose, onDone }: { fo
             status.changes && <DiffStat added={status.changes.added} removed={status.changes.removed} className="git-dialog__stat" />
           )}
         </div>
-        <textarea
+        <textarea aria-label="Commit message"
           className="input git-dialog__message"
           autoFocus
           rows={3}
@@ -445,7 +445,7 @@ function PullRequestDialog({ folder, status, onClose, onDone }: { folder: string
           <span>{status.branch}</span>
           <span className="git-dialog__into">into</span>
           {bases.length > 0 ? (
-            <select className="input git-dialog__base" value={base} onChange={(e) => setBase(e.target.value)}>
+            <select aria-label="Base branch" className="input git-dialog__base" value={base} onChange={(e) => setBase(e.target.value)}>
               {bases.map((b) => (
                 <option key={b} value={b}>
                   {b}
@@ -458,8 +458,8 @@ function PullRequestDialog({ folder, status, onClose, onDone }: { folder: string
         </div>
         {onDefault && <p className="git-dialog__warn">This is the default branch. Make a branch for the work first (the branch pill under the conversation).</p>}
         {dirty && <p className="git-dialog__warn">There are uncommitted changes. Only what is committed goes into the pull request.</p>}
-        <input className="input" placeholder="Title" value={title} autoFocus onChange={(e) => setTitle(e.target.value)} />
-        <textarea className="input git-dialog__message" rows={6} placeholder="What it changes and why" value={body} onChange={(e) => setBody(e.target.value)} />
+        <input aria-label="Title" className="input" placeholder="Title" value={title} autoFocus onChange={(e) => setTitle(e.target.value)} />
+        <textarea aria-label="Description" className="input git-dialog__message" rows={6} placeholder="What it changes and why" value={body} onChange={(e) => setBody(e.target.value)} />
       </div>
     </Modal>
   )

@@ -761,6 +761,9 @@ button.wl-row:not([data-static]):hover,
   flex: none;
   color: color-mix(in srgb, var(--danger), var(--text-3) 30%);
 }
+.wl-row__failed[data-skipped] {
+  color: var(--text-3);
+}
 .wl-row__failed::before {
   content: '·';
   margin-right: 6px;
@@ -817,6 +820,34 @@ button.wl-row:not([data-static]):hover,
 .wl__thought strong {
   color: var(--text-2);
 }
+/* A plan's steps, under its line. */
+.wl__plan {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin: 2px 0 6px 9px;
+  padding: 0 0 0 15px;
+  border-left: 1px solid var(--border-soft);
+  list-style: none;
+  color: var(--text-3);
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+  animation: wl-open 200ms var(--ease) both;
+}
+.wl__plan li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+.wl__plan li > svg {
+  flex: none;
+  position: relative;
+  top: 2px;
+  color: var(--text-4);
+}
+.wl__plan li[data-status='done'] > svg {
+  color: var(--text-3);
+}
 @keyframes wl-open {
   from {
     opacity: 0;
@@ -825,6 +856,7 @@ button.wl-row:not([data-static]):hover,
 }
 @media (prefers-reduced-motion: reduce) {
   .wl__calls,
+  .wl__plan,
   .wl__thought {
     animation: none;
   }

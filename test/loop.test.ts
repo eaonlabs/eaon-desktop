@@ -105,6 +105,57 @@ test('goal mode stops at its continuation limit instead of looping forever', asy
   assert.equal(last.goal.status, 'paused')
 })
 
+test('a worker’s goal turn at its continuation limit ends the turn, not the goal', async () => {
+  store.patchSettings({ work: { goalMaxIterations: 1 } })
+  const { server } = await setup(() => say('still thinking'))
+  const events: StreamEvent[] = []
+  await runAgent(request({ workerId: 'w1', goal: { text: 'keep at it', status: 'active', iterations: 0 } }), (e) => events.push(e))
+  server.close()
+  store.patchSettings({ work: { goalMaxIterations: 8 } })
+  // The worker engine starts its next turn on the goal; saying "Goal paused" here was wrong.
+  const last = events.filter((e) => e.type === 'goal').at(-1) as Extract<StreamEvent, { type: 'goal' }>
+  assert.equal(last.goal.status, 'active')
+  const said = events.filter((e) => e.type === 'reasoning').map((e) => (e as Extract<StreamEvent, { type: 'reasoning' }>).text).join('')
+  assert.match(said, /Ending this turn: continuation limit of 1 reached/)
+  assert.doesNotMatch(said, /Goal paused/)
+})
+
+test('a turn’s answer is what it said last, not what it said before its work', async () => {
+  const { server } = await setup((_body, i) =>
+    i === 0 ? [chunk({ content: 'Writing it.' }), ...toolCall('update_plan', { steps: [{ text: 'write', status: 'done' }] })] : say('Wrote qa-note.txt.')
+  )
+  const outcome = await runAgent(request(), () => undefined)
+  server.close()
+  assert.equal(outcome.answer, 'Wrote qa-note.txt.')
+  assert.match(outcome.text, /^Writing it\.\n\nWrote qa-note\.txt\.$/)
+})
+
+test('a swarm tester runs its commands (asking first), and still gets no file tools', async () => {
+  let main = 0
+  const asked: { tool: string; agent?: string }[] = []
+  const { server, requests } = await setup((body) => {
+    if (isSubagent(body)) {
+      const done = body.messages.some((m) => m.role === 'tool')
+      return done ? say('Tests ran: 1 passed.') : toolCall('run_command', { command: 'touch ran-by-tester.txt' })
+    }
+    return main++ === 0 ? toolCall('spawn_agents', { agents: [{ role: 'tester', task: 'run the tests' }] }) : say('Done.')
+  })
+  const req = request({ work: { swarm: true, plan: false } })
+  await runAgent(req, () => undefined, {
+    approver: async (tool, _input, _summary, _critical, _before, agent) => {
+      asked.push({ tool, agent })
+      return true
+    }
+  })
+  server.close()
+  const tester = (requests as unknown as Body[]).find((b) => isSubagent(b))!
+  assert.ok(toolNames(tester).includes('run_command'))
+  assert.ok(!toolNames(tester).includes('write_file') && !toolNames(tester).includes('edit_file'), 'a tester edits nothing')
+  // Refused as "Plan mode is on" before: the command never ran, and nobody was asked.
+  assert.ok(existsSync(join(req.cwd!, 'ran-by-tester.txt')), 'the command ran')
+  assert.deepEqual(asked, [{ tool: 'run_command', agent: 'tester' }])
+})
+
 test('swarm runs sub-agents with role-scoped tools and returns their reports', async () => {
   let main = 0
   const { server, requests } = await setup((body) => {
@@ -131,6 +182,24 @@ test('swarm runs sub-agents with role-scoped tools and returns their reports', a
   const result = events.find((e) => e.type === 'tool-result') as Extract<StreamEvent, { type: 'tool-result' }>
   assert.match(result.output, /report for: find A/)
   assert.match(result.output, /report for: change B/)
+})
+
+test('a sub-agent asks in the lead\'s chat under its own role', async () => {
+  let main = 0
+  let sub = 0
+  const { server } = await setup((body) => {
+    if (isSubagent(body)) return sub++ === 0 ? toolCall('write_file', { path: 'from-sub.txt', content: 'hi' }) : say('Left it.')
+    return main++ === 0 ? toolCall('spawn_agents', { agents: [{ role: 'implementer', task: 'write from-sub.txt' }] }) : say('ok')
+  })
+  const asked: { tool: string; agent?: string }[] = []
+  await runAgent(request({ work: { swarm: true, plan: false } }), () => {}, {
+    approver: async (tool, _input, _summary, _critical, _before, agent) => {
+      asked.push({ tool, agent })
+      return false
+    }
+  })
+  server.close()
+  assert.deepEqual(asked, [{ tool: 'write_file', agent: 'implementer' }])
 })
 
 test('a denied write is not performed and the model is told', async () => {

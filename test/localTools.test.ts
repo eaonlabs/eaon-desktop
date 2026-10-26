@@ -273,3 +273,22 @@ test('a link inside the Work folder is no way around the credential folders or t
     rmSync(elsewhere, { recursive: true, force: true })
   }
 })
+
+test('write_file keeps what it replaced, and shows it to the approval first', async () => {
+  const cwd = mkdtempSync(join(tmpdir(), 'eaon-write-'))
+  try {
+    const { get, ctx } = tools(cwd)
+    const write = get('write_file')
+    writeFileSync(join(cwd, 'qa-note.txt'), 'one\ntwo\nthree\n')
+    assert.equal(await write.replaces?.({ path: 'qa-note.txt', content: 'x' }, ctx), 'one\ntwo\nthree\n')
+    assert.equal(await write.replaces?.({ path: 'new.txt', content: 'x' }, ctx), null, 'nothing there yet')
+    const replaced = (await write.run({ path: 'qa-note.txt', content: 'one\nTWO\n' }, ctx)) as { text: string; before?: string | null }
+    assert.equal(replaced.before, 'one\ntwo\nthree\n')
+    assert.match(replaced.text, /Replaced qa-note\.txt/)
+    const created = (await write.run({ path: 'new.txt', content: 'x' }, ctx)) as { text: string; before?: string | null }
+    assert.equal(created.before, null)
+    assert.equal(readFileSync(join(cwd, 'qa-note.txt'), 'utf8'), 'one\nTWO\n')
+  } finally {
+    rmSync(cwd, { recursive: true, force: true })
+  }
+})

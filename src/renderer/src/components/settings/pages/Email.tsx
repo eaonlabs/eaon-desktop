@@ -414,7 +414,7 @@ function AgentMailSetUp({ run, busy }: { run: Run; busy: boolean }): JSX.Element
               <div className="row__title">Use your AgentMail account</div>
               <div className="row__desc">Paste an API key from the AgentMail console. Eaon uses your first inbox, or makes one.</div>
             </div>
-            <input className="input em-mono" type="password" value={key} placeholder="am_…" onChange={(e) => setKey(e.target.value)} autoComplete="off" />
+            <input aria-label="AgentMail API key" className="input em-mono" type="password" value={key} placeholder="am_…" onChange={(e) => setKey(e.target.value)} autoComplete="off" />
             <div className="em-actions">
               <button className="btn btn--primary" type="submit" disabled={busy || key.trim().length < 8}>
                 {busy ? 'Checking…' : 'Connect'}
@@ -788,7 +788,7 @@ function Domains({ state, run, busy, apply }: { state: EmailState; run: Run; bus
             </div>
           </div>
           <div className="em-actions">
-            <input className="input" value={domain} placeholder="yourdomain.com" onChange={(e) => setDomain(e.target.value)} spellCheck={false} />
+            <input aria-label="Domain" className="input" value={domain} placeholder="yourdomain.com" onChange={(e) => setDomain(e.target.value)} spellCheck={false} />
             <button className="btn" type="submit" disabled={busy || !/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(clean)}>
               Add domain
             </button>

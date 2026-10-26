@@ -28,12 +28,13 @@ export function gatewayInfo(): GatewayInfo {
 
 /** Starts the server if it is off, and keeps it starting with Eaon from then on. */
 export async function ensureGatewayRunning(): Promise<GatewayInfo> {
-  if (!store.getSettings().localServer.autoStart) {
-    store.patchSettings({ localServer: { ...store.getSettings().localServer, autoStart: true } })
-  }
   if (!getLocalServerStatus().running) {
     const status = await startLocalServer()
-    if (!status.running) throw new Error(status.error ? `The Local API Server could not start: ${status.error}` : 'The Local API Server could not start.')
+    if (!status.running) throw new Error(status.error ? `The Local API Server couldn’t start. ${status.error}` : 'The Local API Server couldn’t start.')
+  }
+  // Starts with Eaon from now on, once it has started: a server that couldn't leaves the setting as it was.
+  if (!store.getSettings().localServer.autoStart) {
+    store.patchSettings({ localServer: { ...store.getSettings().localServer, autoStart: true } })
   }
   return gatewayInfo()
 }

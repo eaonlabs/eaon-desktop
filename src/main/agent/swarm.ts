@@ -87,6 +87,11 @@ async function runSubagent(
   // In a read-only role, mutating tools are withheld outright rather than
   // offered and then refused — cheaper, and the model does not try them.
   if (readOnly) tools = tools.filter((tool) => tool.mutating === false || role.allow?.includes(tool.name))
+  // The role is kept by its tools, above. The loop itself is read-only only
+  // when nothing it holds may change anything: a tester's run_command (npm
+  // test) was refused as if Plan mode were on, so it could never run tests,
+  // nor ask to. Its commands go through approval like the lead's.
+  const loopReadOnly = ctx.readOnly || (role.readOnly && !role.allow?.length)
 
   const usage = emptyUsage()
   try {
@@ -109,7 +114,7 @@ async function runSubagent(
       messages: [{ role: 'user', text: spec.task }],
       cwd: ctx.cwd,
       depth: 1,
-      readOnly,
+      readOnly: loopReadOnly,
       settings: ctx.settings,
       liveSettings: ctx.liveSettings,
       signal: ctx.signal,
@@ -122,7 +127,8 @@ async function runSubagent(
           publish({ ...run, activity: `${event.name}${detail ? ` ${detail.slice(0, 80)}` : ''}` })
         }
       },
-      approver: (tool, input, summary, critical) => ctx.confirm(tool, input, summary, critical ?? false),
+      // Asked in the lead's chat, under the sub-agent's role, so the user knows which one wants it.
+      approver: (tool, input, summary, critical, before) => ctx.confirm(tool, input, summary, critical ?? false, before, roleName),
       // The run's own limits, unchanged: a sub-agent of a scheduled task, a
       // worker or a guest's turn is held to exactly what its lead is. Without
       // them its calls went through the interactive approval path, where an

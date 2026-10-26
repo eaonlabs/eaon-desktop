@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { CLAUDE_TOOLS_NAME, ClaudeTools, claudeConfigFile, type ClaudeToolsDeps } from '../src/main/features/connectApps/claudeTools'
+import { CLAUDE_TOOLS_NAME, ClaudeTools, claudeConfigFile, type ClaudeToolsDeps, type ServerChange } from '../src/main/features/connectApps/claudeTools'
 
 /**
  * Eaon's tools in Claude Code (Settings → Connect apps): Eaon adds its MCP
@@ -187,4 +187,59 @@ test('an entry the user removed in Claude Code reads as not connected; an unread
 test('Claude Code’s settings file follows CLAUDE_CONFIG_DIR', () => {
   assert.equal(claudeConfigFile('/Users/me', {}), join('/Users/me', '.claude.json'))
   assert.equal(claudeConfigFile('/Users/me', { CLAUDE_CONFIG_DIR: '/tmp/cc' }), join('/tmp/cc', '.claude.json'))
+})
+
+test('turning it off turns the Local API Server off again when turning it on is what started it', async () => {
+  const f = fake()
+  const server = { autoStart: false, running: false, change: null as ServerChange | null, released: 0 }
+  const deps = (f.tools as unknown as { deps: ClaudeToolsDeps }).deps
+  deps.ensureRunning = async () => {
+    const changed = { started: !server.running, autoStart: !server.autoStart }
+    server.running = true
+    server.autoStart = true
+    return { port: f.port.value, changed }
+  }
+  deps.serverChange = { get: () => server.change, set: (change) => void (server.change = change) }
+  deps.release = async (change) => {
+    server.released++
+    if (change.autoStart) server.autoStart = false
+    if (change.started) server.running = false
+  }
+  try {
+    assert.equal((await f.tools.connect()).ok, true)
+    assert.deepEqual(server.change, { started: true, autoStart: true })
+    assert.equal((await f.tools.disconnect()).ok, true)
+    assert.deepEqual(server, { autoStart: false, running: false, change: null, released: 1 })
+
+    // On already (the user's own Local API Server): left on.
+    server.autoStart = true
+    server.running = true
+    await f.tools.connect()
+    await f.tools.disconnect()
+    assert.equal(server.running, true)
+    assert.equal(server.released, 1)
+
+    // Started by the user for this session only: still running after, and not set to start with Eaon.
+    server.autoStart = false
+    server.running = true
+    await f.tools.connect()
+    assert.deepEqual(server.change, { started: false, autoStart: true })
+    await f.tools.disconnect()
+    assert.deepEqual({ running: server.running, autoStart: server.autoStart }, { running: true, autoStart: false })
+
+    // A port another app holds: nothing turned on, so nothing to take back, and the reason in words.
+    server.autoStart = false
+    server.running = false
+    server.change = null
+    deps.ensureRunning = async () => {
+      throw new Error('The Local API Server couldn’t start. Another app is using port 1337.')
+    }
+    const refused = await f.tools.connect()
+    assert.equal(refused.ok, false)
+    assert.match(refused.ok ? '' : refused.error, /Another app is using port 1337/)
+    assert.equal(server.change, null)
+    assert.equal(server.autoStart, false)
+  } finally {
+    f.cleanup()
+  }
 })

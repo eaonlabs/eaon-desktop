@@ -100,13 +100,14 @@
   background: color-mix(in srgb, var(--diff-add-fg) 16%, transparent);
   color: var(--diff-add-fg);
 }
-/* The icon rail (settings.css): the avatar alone, its name in the tooltip. */
-@media (max-width: 639px) {
-  .settings__account .account-entry {
+/* The icon rail (settings.css, below 860px): the avatar alone, its name in
+   the tooltip, until the rail opens out to search. */
+@media (max-width: 859px) {
+  .settings__nav:not([data-expanded]) .settings__account .account-entry {
     justify-content: center;
     padding: 0;
   }
-  .settings__account .account-entry__text {
+  .settings__nav:not([data-expanded]) .settings__account .account-entry__text {
     display: none;
   }
 }

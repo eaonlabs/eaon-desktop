@@ -7,7 +7,7 @@ import { countChanges, diffLines, splitLines, toBlocks, type DiffBlock, type Dif
  * the last with a break between. Where an edit landed in the file isn't
  * known, so its lines carry no numbers; a written file's are its own.
  */
-export const SnippetDiff = memo(function SnippetDiff({ path, changes }: { path: string; changes: { before: string; after: string }[] }): JSX.Element {
+export const SnippetDiff = memo(function SnippetDiff({ path, changes }: { path: string; changes: { before: string; after: string; write?: boolean }[] }): JSX.Element {
   const model = useMemo<DiffFileModel>(() => {
     const blocks: DiffBlock[] = []
     let added = 0
@@ -15,7 +15,8 @@ export const SnippetDiff = memo(function SnippetDiff({ path, changes }: { path: 
     changes.forEach((change, i) => {
       if (i > 0) blocks.push({ type: 'break' })
       const rows = diffLines(splitLines(change.before), splitLines(change.after))
-      const numbered = change.before === '' ? rows : rows.map((r) => ({ ...r, old: null, cur: null }))
+      // A write's texts are the whole file, so its numbers are the file's own.
+      const numbered = change.before === '' || change.write ? rows : rows.map((r) => ({ ...r, old: null, cur: null }))
       // Every line of a snippet is drawn: it is already only what changed and a little around it.
       blocks.push(...toBlocks(numbered).map((b): DiffBlock => (b.type === 'gap' ? { type: 'rows', rows: b.rows ?? [] } : b)))
       const stats = countChanges(change.before, change.after)

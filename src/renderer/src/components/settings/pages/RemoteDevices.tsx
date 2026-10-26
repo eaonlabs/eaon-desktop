@@ -124,7 +124,7 @@ export function RemoteDevicesPage(): JSX.Element {
                 }
               />
               <Row title="Port" description="The port the phone connects to. Phones that are already paired will need the new link.">
-                <input
+                <input aria-label="Port"
                   className="input"
                   style={{ width: 110 }}
                   type="number"

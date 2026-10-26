@@ -180,10 +180,14 @@ const STATE_LABEL: Record<SessionState, string> = {
   missing: 'Its folder is gone'
 }
 
+/** How often an idle session's count is read again while Eaon is on screen: a commit or an edit elsewhere tells nobody. */
+const CHANGES_EVERY_MS = 15_000
+
 /**
  * What a session's agents have changed and not committed. Counted again when
- * its agents stop working (not while they type) and when Eaon comes back to
- * the front, since the files may have been edited elsewhere.
+ * its agents stop working (not while they type), when Eaon comes back to the
+ * front, and every quarter minute while it is on screen, since the files may
+ * have been edited, or committed from Review, without a word to the sidebar.
  */
 function useChanges(session: AdeSession, state: SessionState): AdeChanges | null {
   const [changes, setChanges] = useState<AdeChanges | null>(null)
@@ -192,14 +196,18 @@ function useChanges(session: AdeSession, state: SessionState): AdeChanges | null
     let live = true
     const look = (): void => {
       window.api.ade.changes(session.cwd).then(
-        (c) => live && setChanges(c),
+        (c) => live && setChanges((now) => (now && c && now.added === c.added && now.removed === c.removed && now.files === c.files ? now : c)),
         () => undefined
       )
     }
     look()
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'visible') look()
+    }, CHANGES_EVERY_MS)
     window.addEventListener('focus', look)
     return () => {
       live = false
+      window.clearInterval(timer)
       window.removeEventListener('focus', look)
     }
   }, [session.cwd, session.repo, session.missing, state])
@@ -360,13 +368,20 @@ function AgentList({ session }: { session: AdeSession }): JSX.Element | null {
   const items = live
   const total = items.length
   if (total === 0) return null
+  // A shell is a terminal, whatever runs in it (top, vim, a dev server). One
+  // running an agent's CLI isn't a shell any more: its pane takes that agent.
+  const shells = items.filter((item) => item.agent === 'shell').length
+  const count = [
+    total - shells > 0 && `${total - shells} ${total - shells === 1 ? 'agent' : 'agents'}`,
+    shells > 0 && `${shells} ${shells === 1 ? 'terminal' : 'terminals'}`
+  ]
+    .filter(Boolean)
+    .join(' · ')
 
   return (
     <div className="ade-agents">
       <button type="button" className="ade-agents__head" aria-expanded={!folded} onClick={() => setFolded(!folded)}>
-        <span>
-          {total} {total === 1 ? 'agent' : 'agents'}
-        </span>
+        <span>{count}</span>
         <ChevronDown size={14} strokeWidth={2} className="ade-agents__chevron" />
       </button>
       {!folded && (

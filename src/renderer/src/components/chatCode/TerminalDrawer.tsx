@@ -3,7 +3,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { SquareTerminal, X } from 'lucide-react'
 import { terminals } from '../code/terminal/registry'
 import { ScriptGlyph, ScriptsButton } from './CodeTools'
-import { drawerTabs, groupOf, useChatCode, type DrawerTab } from './chatCodeStore'
+import { folderTabs, groupOf, useChatCode, type DrawerTab } from './chatCodeStore'
 import { TerminalGroup, TerminalToolbar, useTerminalLook } from './TerminalPanes'
 
 /**
@@ -31,10 +31,11 @@ export function TerminalDrawer(): JSX.Element | null {
   )
   const folder = useChatCode((s) => s.folder)
   const drawer = useRef<HTMLDivElement>(null)
-  const tabs = drawerTabs(all)
+  // This project's shells only: another's stay in its folder, out of sight.
+  const tabs = folderTabs(all, folder)
   const themed = useTerminalLook(open)
 
-  // Opened before the folder was known: the first shell once it is.
+  // Opened before the folder was known, or open on coming to a project with none yet: the first shell.
   useEffect(() => {
     if (open && folder && tabs.length === 0) newTab()
   }, [open, folder, tabs.length, newTab])

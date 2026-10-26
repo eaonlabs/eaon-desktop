@@ -115,7 +115,7 @@ export function SpeechToTextDetail({ onOpenProvider }: { onOpenProvider: (id: st
             />
           )}
           {(other || suggested.length === 0) && (
-            <input
+            <input aria-label="Model id"
               className="input speech-model-input"
               value={typing}
               spellCheck={false}

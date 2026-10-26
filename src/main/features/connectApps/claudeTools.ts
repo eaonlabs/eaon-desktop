@@ -22,6 +22,12 @@ import { tilde } from './files'
 
 export const CLAUDE_TOOLS_NAME = 'eaon-app'
 
+/** What connecting did to the Local API Server: started it (it was off), and set it to start with Eaon. */
+export interface ServerChange {
+  started: boolean
+  autoStart: boolean
+}
+
 export interface ClaudeToolsDeps {
   home: string
   /** Where Claude Code keeps its user settings, MCP servers among them. */
@@ -31,8 +37,16 @@ export interface ClaudeToolsDeps {
   run: (bin: string, args: string[]) => Promise<{ ok: boolean; output: string }>
   /** The gateway's port now, running or not. */
   port: () => number
-  /** Starts the gateway if it's off (and from then on with Eaon). */
-  ensureRunning: () => Promise<{ port: number }>
+  /** Starts the gateway if it's off (and from then on with Eaon), and says what that changed. */
+  ensureRunning: () => Promise<{ port: number; changed?: ServerChange }>
+  /**
+   * What connecting changed about the gateway, kept across restarts: turning
+   * this off puts back only that, and leaves a server the user started alone.
+   * Forgotten once the user starts, stops or sets up the server themselves.
+   */
+  serverChange?: { get: () => ServerChange | null; set: (change: ServerChange | null) => void }
+  /** Puts the gateway back as `change` found it, unless something else uses it now. */
+  release?: (change: ServerChange) => Promise<void>
   token: (create: boolean) => string | null
   forgetToken: () => void
 }
@@ -76,7 +90,9 @@ export class ClaudeTools {
 
   /** The arguments that add Eaon to Claude Code. The header goes last: `--header` takes every value after it. */
   private async addArgs(): Promise<string[]> {
-    const { port } = await this.deps.ensureRunning()
+    const { port, changed } = await this.deps.ensureRunning()
+    // A reconnect that changed nothing keeps what the first connect did.
+    if (changed && (changed.started || changed.autoStart)) this.deps.serverChange?.set(changed)
     const token = this.deps.token(true)
     if (!token) throw new Error('Eaon couldn’t make a key for Claude Code.')
     return ['mcp', 'add', '--transport', 'http', '--scope', 'user', CLAUDE_TOOLS_NAME, this.url(port), '--header', `Authorization: Bearer ${token}`]
@@ -94,13 +110,27 @@ export class ClaudeTools {
     // `mcp add` won't replace an entry, so one from an earlier connect (another port) goes first.
     if (this.entry()) await this.deps.run(bin, ['mcp', 'remove', '--scope', 'user', CLAUDE_TOOLS_NAME])
     const added = await this.deps.run(bin, args)
-    if (!added.ok) return this.failed(`\`claude mcp add\` failed: ${tail(added.output)}`)
+    if (!added.ok) {
+      // Nothing uses the gateway this turned on, then.
+      await this.releaseServer()
+      return this.failed(`\`claude mcp add\` failed: ${tail(added.output)}`)
+    }
     return { ok: true, status: this.status() }
   }
 
+  /** The gateway back as it was before connecting changed it. */
+  private async releaseServer(): Promise<void> {
+    const change = this.deps.serverChange?.get()
+    if (!change) return
+    this.deps.serverChange?.set(null)
+    await this.deps.release?.(change)
+  }
+
   async disconnect(): Promise<ClaudeToolsResult> {
-    // The key goes first: whatever happens to the entry, it no longer opens anything.
+    // The key goes first: whatever happens to the entry, it no longer opens anything,
+    // so the gateway this turned on goes off again.
     this.deps.forgetToken()
+    await this.releaseServer()
     if (!this.entry()) return { ok: true, status: this.status() }
     const bin = this.deps.which('claude')
     const removed = bin ? await this.deps.run(bin, ['mcp', 'remove', '--scope', 'user', CLAUDE_TOOLS_NAME]) : null

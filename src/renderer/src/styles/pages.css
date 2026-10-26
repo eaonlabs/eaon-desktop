@@ -1287,11 +1287,11 @@ body[data-platform='linux'] .browser__tabs {
   outline: none;
 }
 .header-btn--primary {
-  background: var(--accent);
+  background: var(--accent-fill);
   color: var(--on-accent, #fff);
 }
 .header-btn--primary:hover {
-  background: color-mix(in srgb, var(--accent), #000 10%);
+  background: color-mix(in srgb, var(--accent-fill), #000 10%);
   color: var(--on-accent, #fff);
 }
 .header-btn:disabled,

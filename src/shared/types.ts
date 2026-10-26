@@ -142,6 +142,12 @@ export interface ChatToolPart {
   progress?: string
   /** Sub-agents a swarm call started, in the order they were launched. */
   agents?: SubagentRun[]
+  /**
+   * A `write_file` call: what was at the path before it, so its diff shows
+   * what went: the file's text, or null when there was no file. Absent when
+   * it was too big to keep, or for a call from before this was recorded.
+   */
+  before?: string | null
 }
 
 /** One sub-agent inside a swarm tool call. */
@@ -560,6 +566,12 @@ export interface Settings {
      * one and hasn't seen it yet.
      */
     whatsNew: string | null
+    /**
+     * Set on a fresh install's first launch (main/features/onboarding.ts): the
+     * star card says "Welcome to Eaon" only then. An install updated from an
+     * earlier version never has it.
+     */
+    fresh?: boolean
   }
   /** The tokn command, which ships inside Eaon (main/features/toknCli.ts). */
   toknCli: {
@@ -824,6 +836,10 @@ export type StreamEvent =
        * waiting approvals, never these.
        */
       critical?: boolean
+      /** A whole-file write: what is there now (the file's text, null when there is none), so the approval shows what goes. */
+      before?: string | null
+      /** Who is asking when it isn't the agent itself: a swarm sub-agent's role, as "tester". */
+      agent?: string
     }
   // A tool started and finished, as two events, so the transcript can show the
   // call the moment it is made rather than only once its output lands — a
@@ -836,6 +852,8 @@ export type StreamEvent =
       output: string
       status: 'done' | 'denied' | 'error'
       images?: string[]
+      /** A whole-file write: what it replaced (the file's text, null when there was none). */
+      before?: string | null
     }
   // Live output from a tool that is still running (a build, a test run).
   | { type: 'tool-progress'; messageId: string; toolId: string; output: string }

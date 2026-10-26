@@ -14,7 +14,12 @@ const ICON = { size: 16, strokeWidth: 1.9 } as const
  * The Workers tab's sidebar: the team, one row per worker with its face, plus
  * Scheduled — the other thing in the app that runs on its own.
  */
-export function WorkersNav(): JSX.Element {
+/**
+ * The Workers tab's sidebar, in two parts: `menu` (New worker … Settings and
+ * the worker computer), which stays put, and `list` (group chats and the
+ * workers), which scrolls under it.
+ */
+export function WorkersNav({ part }: { part: 'menu' | 'list' }): JSX.Element {
   const { view, setView, setSettingsPage } = useApp(
     useShallow((s) => ({ view: s.view, setView: s.setView, setSettingsPage: s.setSettingsPage }))
   )
@@ -43,35 +48,40 @@ export function WorkersNav(): JSX.Element {
     if (view !== 'chat') setView('chat')
   }
 
+  if (part === 'menu')
+    return (
+      <>
+        <NavItem
+          icon={<Plus {...ICON} />}
+          label="New worker"
+          onClick={() => {
+            if (view !== 'chat') setView('chat')
+            openEditor(null)
+          }}
+        />
+        <NavItem
+          icon={<UsersRound {...ICON} />}
+          label="New team"
+          onClick={() => {
+            if (view !== 'chat') setView('chat')
+            openTeamDialog(true)
+          }}
+        />
+        <NavItem icon={<Users {...ICON} />} label="Team" active={view === 'chat' && selectedId === null && selectedRoomId === null} onClick={() => show(null)} />
+        <NavItem icon={<Clock3 {...ICON} />} label="Automations" active={view === 'scheduled'} onClick={() => setView('scheduled')} />
+        <NavItem
+          icon={<AtSign {...ICON} />}
+          label="Plugins"
+          active={view === 'plugins' || view === 'integrations'}
+          onClick={() => setView('plugins')}
+        />
+        <NavItem icon={<SettingsIcon {...ICON} />} label="Settings" onClick={() => setSettingsPage('general')} />
+        <WorkerHostRow onOpen={() => setSettingsPage('worker-computer')} />
+      </>
+    )
+
   return (
     <>
-      <NavItem
-        icon={<Plus {...ICON} />}
-        label="New worker"
-        onClick={() => {
-          if (view !== 'chat') setView('chat')
-          openEditor(null)
-        }}
-      />
-      <NavItem
-        icon={<UsersRound {...ICON} />}
-        label="New team"
-        onClick={() => {
-          if (view !== 'chat') setView('chat')
-          openTeamDialog(true)
-        }}
-      />
-      <NavItem icon={<Users {...ICON} />} label="Team" active={view === 'chat' && selectedId === null && selectedRoomId === null} onClick={() => show(null)} />
-      <NavItem icon={<Clock3 {...ICON} />} label="Automations" active={view === 'scheduled'} onClick={() => setView('scheduled')} />
-      <NavItem
-        icon={<AtSign {...ICON} />}
-        label="Plugins"
-        active={view === 'plugins' || view === 'integrations'}
-        onClick={() => setView('plugins')}
-      />
-      <NavItem icon={<SettingsIcon {...ICON} />} label="Settings" onClick={() => setSettingsPage('general')} />
-      <WorkerHostRow onOpen={() => setSettingsPage('worker-computer')} />
-
       {(rooms.length > 0 || workers.length > 1) && (
         <>
           <div className="sidebar__section sidebar__section--action">

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ExternalLink, Star, X } from 'lucide-react'
 import { askAfterMs, type StarResult } from '@shared/star'
-import { onboardingShowing } from './onboarding/onboardingStore'
+import { onboardingShowing, useOnboardingShowing } from './onboarding/onboardingStore'
 
 /** How often time in front of the app is counted. */
 const TICK_MS = 15_000
@@ -18,17 +18,22 @@ const THANKS_MS = 5_000
  */
 export function StarPrompt(): JSX.Element | null {
   const [open, setOpen] = useState(false)
+  const aside = useOnboardingShowing()
 
   useEffect(() => {
     const target = askAfterMs(Math.random())
     let used = 0
     let last = Date.now()
+    let wasShowing = true
     const timer = window.setInterval(() => {
       const now = Date.now()
       const step = now - last
       last = now
-      // A long gap is the computer asleep, not use.
-      if (document.visibilityState === 'visible' && document.hasFocus() && step < 3 * TICK_MS && !onboardingShowing()) used += step
+      // A long gap is the computer asleep, not use. A stretch the setup or a tour
+      // was up for, at either end, isn't counted: time in them isn't time in the app.
+      const showing = onboardingShowing()
+      if (document.visibilityState === 'visible' && document.hasFocus() && step < 3 * TICK_MS && !showing && !wasShowing) used += step
+      wasShowing = showing
       if (used < target) return
       window.clearInterval(timer)
       void window.api.star
@@ -39,7 +44,48 @@ export function StarPrompt(): JSX.Element | null {
     return () => window.clearInterval(timer)
   }, [])
 
-  return open ? <StarCard onClosed={() => setOpen(false)} /> : null
+  return open && !aside ? <StarCard onClosed={() => setOpen(false)} /> : null
+}
+
+/** The corner cards' width and inset (settings.css .star-card). */
+const CARD_W = 360
+const CARD_INSET = 20
+
+/**
+ * Lifts the corner cards (this one, the Eaon Free offer) above the message
+ * box while they would sit on it: in an ordinary window the box's model
+ * chip, mic and send button were under the card. What stacks above the box
+ * counts too (an unavailable model's notice and its buttons, queued
+ * messages, the pinned goal and plan). Elsewhere they stay in the corner.
+ * The card reads `--corner-card-bottom`.
+ */
+export function useCornerClear(active: boolean): void {
+  useEffect(() => {
+    if (!active) return
+    const root = document.documentElement
+    const place = (): void => {
+      let bottom = CARD_INSET
+      const cardLeft = window.innerWidth - CARD_INSET - Math.min(CARD_W, window.innerWidth - 2 * CARD_INSET)
+      const parts = [...document.querySelectorAll<HTMLElement>('.composer-stack, .composer-dock__pinned')].filter(
+        (el) => el.getClientRects().length > 0 && !el.closest('.onboarding')
+      )
+      for (const part of parts) {
+        const rect = part.getBoundingClientRect()
+        if (rect.height === 0 || rect.right <= cardLeft || rect.bottom < window.innerHeight - 320) continue
+        bottom = Math.max(bottom, window.innerHeight - rect.top + 12)
+      }
+      root.style.setProperty('--corner-card-bottom', `${Math.round(bottom)}px`)
+    }
+    place()
+    // The box grows as text is typed, and comes and goes with the page.
+    const timer = window.setInterval(place, 800)
+    window.addEventListener('resize', place)
+    return () => {
+      window.clearInterval(timer)
+      window.removeEventListener('resize', place)
+      root.style.removeProperty('--corner-card-bottom')
+    }
+  }, [active])
 }
 
 /**
@@ -48,6 +94,7 @@ export function StarPrompt(): JSX.Element | null {
  * first launch: "If it helped today" says nothing to someone who just started.
  */
 export function StarCard({ intro = false, onClosed }: { intro?: boolean; onClosed: () => void }): JSX.Element {
+  useCornerClear(true)
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<StarResult | null>(null)
   const closing = useRef<number | null>(null)

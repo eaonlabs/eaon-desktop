@@ -25,6 +25,12 @@ export { colOf, groupOf, type SplitDir } from './terminalLayout'
 /** The drawer's panes, without the dock's. */
 export const drawerTabs = (tabs: DrawerTab[]): DrawerTab[] => tabs.filter((t) => !t.dock)
 
+/**
+ * The drawer's panes in `folder`. Shells belong to the project they started
+ * in: another project's keep running out of sight until its chat is back.
+ */
+export const folderTabs = (tabs: DrawerTab[], folder: string | null): DrawerTab[] => drawerTabs(tabs).filter((t) => t.cwd === folder)
+
 interface ChatCodeState {
   folder: string | null
   status: ChatGitStatus | null
@@ -44,7 +50,7 @@ interface ChatCodeState {
   splitTab: (id: string, dir: SplitDir) => string | null
   closeTab: (id: string) => void
   setActiveTab: (id: string) => void
-  /** The first shell of a dock terminal surface, its id the surface's own. */
+  /** The first shell of a dock terminal surface in the chat's folder (the surface's first anywhere takes its id). */
   openDockTerminal: (surfaceId: string, title: string) => void
   /** A dock terminal surface closed: its shells stop. */
   closeDockTerminal: (surfaceId: string) => void
@@ -119,6 +125,9 @@ function savedTabs(): { tabs: DrawerTab[]; active: string | null } {
   }
 }
 
+/** The shell last in front in each project's drawer, for going back to it. */
+const frontBy = new Map<string, string>()
+
 const newId = (): string => `chat-term-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`
 export const folderName = (path: string): string => path.split(/[\\/]/).filter(Boolean).pop() ?? path
 
@@ -140,9 +149,15 @@ export const useChatCode = create<ChatCodeState>((set, get) => ({
 
   syncFolder: async () => {
     const cwd = codeFolder(useApp.getState())
-    if (cwd === get().folder) return
+    const was = get().folder
+    if (cwd === was) return
+    const front = get().activeTab
+    if (was && front) frontBy.set(was, front)
+    // The drawer shows this project's shells, the one last in front first.
+    const here = folderTabs(get().tabs, cwd)
+    const back = (cwd && frontBy.get(cwd)) || front
     filesAt = 0
-    set({ folder: cwd, status: null, scripts: [], suggestions: [], files: null })
+    set({ folder: cwd, status: null, scripts: [], suggestions: [], files: null, activeTab: here.find((t) => t.id === back)?.id ?? here[0]?.id ?? null })
     if (cwd) await Promise.all([get().refresh(), get().loadScripts()])
   },
 
@@ -166,7 +181,7 @@ export const useChatCode = create<ChatCodeState>((set, get) => ({
     write(OPEN_KEY, next ? '1' : '0')
     set({ drawerOpen: next })
     // Opened with nothing in it: a shell to type in.
-    if (next && drawerTabs(get().tabs).length === 0) get().newTab()
+    if (next && folderTabs(get().tabs, get().folder).length === 0) get().newTab()
   },
 
   setDrawerHeight: (height) => {
@@ -180,7 +195,7 @@ export const useChatCode = create<ChatCodeState>((set, get) => ({
     if (!cwd) return null
     const tab: DrawerTab = {
       id: newId(),
-      title: spec?.title ?? nextTitle(drawerTabs(get().tabs)),
+      title: spec?.title ?? nextTitle(folderTabs(get().tabs, cwd)),
       cwd,
       command: spec?.command ?? null,
       ...(spec?.scriptId ? { scriptId: spec.scriptId } : {})
@@ -195,7 +210,7 @@ export const useChatCode = create<ChatCodeState>((set, get) => ({
     if (!from) return null
     const tab: DrawerTab = {
       id: newId(),
-      title: nextTitle(from.dock ? get().tabs.filter((t) => t.dock === from.dock) : drawerTabs(get().tabs)),
+      title: nextTitle(from.dock ? get().tabs.filter((t) => t.dock === from.dock && t.cwd === from.cwd) : folderTabs(get().tabs, from.cwd)),
       cwd: from.cwd,
       command: null,
       ...(from.dock ? { dock: from.dock } : {})
@@ -211,8 +226,8 @@ export const useChatCode = create<ChatCodeState>((set, get) => ({
     terminals.dispose(id)
     const rest = tabs.filter((t) => t.id !== id)
     if (closing.dock) return set({ tabs: rest })
-    const drawer = drawerTabs(tabs)
-    const left = drawerTabs(rest)
+    const drawer = folderTabs(tabs, closing.cwd)
+    const left = folderTabs(rest, closing.cwd)
     const index = drawer.findIndex((t) => t.id === id)
     // Next in front: a pane left in its group, or else the group beside it.
     const sibling = left.find((t) => groupOf(t) === groupOf(closing))
@@ -225,8 +240,10 @@ export const useChatCode = create<ChatCodeState>((set, get) => ({
 
   openDockTerminal: (surfaceId, title) => {
     const cwd = get().folder
-    if (!cwd || get().tabs.some((t) => t.dock === surfaceId)) return
-    set({ tabs: [...get().tabs, { id: surfaceId, title, cwd, command: null, dock: surfaceId }] })
+    if (!cwd || get().tabs.some((t) => t.dock === surfaceId && t.cwd === cwd)) return
+    // The surface's first shell takes its id; one in another project after that, its own.
+    const id = get().tabs.some((t) => t.id === surfaceId) ? newId() : surfaceId
+    set({ tabs: [...get().tabs, { id, title, cwd, command: null, dock: surfaceId }] })
   },
 
   closeDockTerminal: (surfaceId) => {
