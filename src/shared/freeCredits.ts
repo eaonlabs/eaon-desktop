@@ -22,8 +22,8 @@ export const FREE_BASE_URL = 'https://gateway.eaon.dev/v1'
 export const FREE_REDEEM_PATH = '/codes/redeem'
 /** A random ID per install, sent with a code so each device gets its own allowance at a venue that shares one IP. */
 export const FREE_DEVICE_HEADER = 'X-Eaon-Device'
-/** The model a code sets up when nothing else is chosen, if the code's gateway list has it. */
-export const FREE_DEFAULT_MODEL = 'claude-haiku-5-5'
+/** The model a code sets up when nothing else is chosen, if the code's gateway list has it: the gateway's first named model. */
+export const FREE_DEFAULT_MODEL = 'mimo-v2.6-flash-free'
 
 /** A code's allowance per computer, when the gateway's answer leaves one out. */
 export const FREE_LIMITS = {

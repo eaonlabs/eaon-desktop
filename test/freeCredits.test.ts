@@ -303,10 +303,17 @@ test('a code keeps the model in use, the default included, and starts someone on
   store.patchSettings({ selectedProviderId: 'eaon-gateway', selectedModelId: 'muse-spark-1.3-contributor-free' })
   assert.deepEqual(choice(chooseEventModel()), ['eaon-gateway', 'muse-spark-1.3-contributor-free'])
 
-  // Nothing works (a model whose provider has no key): Eaon Event's Claude Haiku.
+  // Nothing works (a model whose provider has no key): Eaon Event's first named model.
   store.saveProviderConfig({ 'eaon-gateway': { enabled: false } })
   store.patchSettings({ selectedProviderId: 'anthropic', selectedModelId: 'claude-opus-5-5' })
-  assert.deepEqual(choice(chooseEventModel()), [FREE_PROVIDER_ID, 'claude-haiku-5-5'])
+  assert.deepEqual(choice(chooseEventModel()), [FREE_PROVIDER_ID, 'mimo-v2.6-flash-free'])
+
+  // Once the gateway has listed the code's models, those are all of Eaon Event: nothing it doesn't serve is offered or picked.
+  store.saveProviderConfig({ 'eaon-gateway': { enabled: false }, [FREE_PROVIDER_ID]: { listed: [{ id: 'muse-spark-1.3-contributor-free', label: 'Muse Spark', providerId: FREE_PROVIDER_ID }], listedAt: Date.now() } })
+  assert.deepEqual(getProvider(FREE_PROVIDER_ID)?.models.map((m) => m.id), ['muse-spark-1.3-contributor-free'])
+  store.patchSettings({ selectedProviderId: 'anthropic', selectedModelId: 'claude-opus-5-5' })
+  assert.deepEqual(choice(chooseEventModel()), [FREE_PROVIDER_ID, 'muse-spark-1.3-contributor-free'])
+  store.saveProviderConfig({ [FREE_PROVIDER_ID]: {} })
 
   store.saveProviderConfig({ 'eaon-gateway': { enabled: true } })
   store.patchSettings({ selectedProviderId: null, selectedModelId: null })

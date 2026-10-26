@@ -6,6 +6,11 @@ All notable changes to Eaon are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Changed
+- **Eaon Event offers only what the event's code gets.** Once the gateway
+  has listed a code's models, that list is all of Eaon Event, as it is for
+  Eaon Lite. It no longer offers the old free week's Claude Haiku 5.5 and
+  "Eaon Event" models, which the gateway doesn't serve, and a code that sets
+  up a model picks one the gateway does (MiMo v2.6 Flash first).
 - **Any Whisper model from Hugging Face, for dictation on this computer.**
   Settings → Model providers → Speech to text → Find more on Hugging Face
   searches every whisper.cpp model there, by language or name (Uzbek,

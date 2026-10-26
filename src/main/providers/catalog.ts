@@ -92,9 +92,12 @@ const PROVIDERS: SeedProvider[] = [
     category: 'eaon',
     description: 'Models from Eaon for an event, with the event’s code',
     // Its requests carry Eaon's app signature, added as they go (gatewaySignature.ts).
+    // A code gets the gateway's named models, the same as Eaon Lite's; the list the
+    // gateway gives for the code replaces these once read (providers/index.ts).
     models: [
-      m(FREE_PROVIDER_ID, 'claude-haiku-5-5', 'Claude Haiku 5.5', { contextWindow: 200_000, maxOutput: 16_384, vision: true, reasoning: false, efforts: [] }),
-      m(FREE_PROVIDER_ID, 'eaon-free', 'Eaon Event', { contextWindow: 128_000, maxOutput: 16_384, vision: false, reasoning: true, efforts: [] })
+      m(FREE_PROVIDER_ID, 'mimo-v2.6-flash-free', 'MiMo v2.6 Flash', { contextWindow: 64_000, maxOutput: 8_192, vision: false, reasoning: true, efforts: [] }),
+      m(FREE_PROVIDER_ID, 'muse-spark-1.3-contributor-free', 'Muse Spark 1.3 Contributor', { contextWindow: 64_000, maxOutput: 8_192, vision: false, reasoning: true, efforts: [] }),
+      m(FREE_PROVIDER_ID, 'gpt-6-luna-free', 'GPT-6-Luna', { contextWindow: 64_000, maxOutput: 8_192, vision: false, reasoning: true, efforts: [] })
     ]
   },
 

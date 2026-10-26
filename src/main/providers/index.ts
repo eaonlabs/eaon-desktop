@@ -165,13 +165,13 @@ const LISTING_IS_ENTITLEMENT = new Set(['github-copilot', 'chatgpt'])
 const MARKS_OUTSIDE_PLAN = new Set(['chatgpt'])
 
 /**
- * Eaon Lite's list is set on gateway.eaon.dev: once the gateway has listed
- * its models, that list is the whole of Eaon Lite (a model switched off there
- * goes, one added there comes), and the gateway's name and description win
- * over the shipped ones. The shipped three are only for a first launch that
- * hasn't reached the gateway yet.
+ * Eaon Lite's and Eaon Event's lists are set on gateway.eaon.dev: once the
+ * gateway has listed their models (Eaon Event's for its code), that list is
+ * the whole of it (a model switched off there goes, one added there comes),
+ * and the gateway's name and description win over the shipped ones. The
+ * shipped ones are only for before the gateway has been reached.
  */
-const LISTING_IS_THE_LIST = new Set([GATEWAY_PROVIDER_ID])
+const LISTING_IS_THE_LIST = new Set([GATEWAY_PROVIDER_ID, FREE_PROVIDER_ID])
 
 /** Saves from before overlays kept the whole list in `models`; it was the last listing. */
 const listedOf = (override: ProviderOverride): ModelInfo[] => override.listed ?? override.models ?? []
