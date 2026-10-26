@@ -7,6 +7,7 @@ import { pipeline } from 'node:stream/promises'
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web'
 import { app } from 'electron'
 import { diskShortfall } from '@shared/modelLibrary'
+import { isSpeechRepo } from '@shared/speech'
 import type { DownloadedModel, ModelDetail, ModelSearchResult, ModelVariant } from '@shared/types'
 import { store } from './store'
 import { checkHfFile } from './ipcGuards'
@@ -51,7 +52,7 @@ interface HfTreeEntry {
  * Searches and file listings are short requests: a stalled connection used to
  * leave "Searching Hugging Face…" spinning for undici's five-minute default.
  */
-async function hfJson<T>(url: string): Promise<T> {
+export async function hfJson<T>(url: string): Promise<T> {
   let response: Response
   try {
     response = await fetch(url, { headers: { Accept: 'application/json' }, signal: AbortSignal.timeout(20_000) })
@@ -157,7 +158,8 @@ export async function searchModels(query: string, sort: 'downloads' | 'newest'):
           tags: item.tags ?? [],
           capabilities: capabilitiesOf(item),
           fileCount: files.length,
-          defaultVariant
+          defaultVariant,
+          speech: isSpeechRepo(item)
         })
       }
     })
@@ -190,7 +192,8 @@ export async function getModelDetail(repoId: string): Promise<ModelDetail> {
     downloads: info.downloads ?? 0,
     description,
     parameterSize: paramMatch ? `${paramMatch[1]}b` : null,
-    variants
+    variants,
+    speech: isSpeechRepo({ ...info, id: repoId })
   }
 }
 

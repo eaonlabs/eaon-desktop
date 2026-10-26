@@ -294,14 +294,14 @@ function DictationSection(): JSX.Element {
   const nameOf = (id: string): string => providers.find((p) => p.id === id)?.name ?? id
   const options = [
     { value: SAME, label: 'Same as Model providers → Speech to text' },
-    ...LOCAL_SPEECH_MODELS.map((m) => ({ value: pickValue(LOCAL_SPEECH_ID, m.id), label: `On this computer — ${m.label}` })),
+    ...[...LOCAL_SPEECH_MODELS, ...(local?.hub ?? [])].map((m) => ({ value: pickValue(LOCAL_SPEECH_ID, m.id), label: `On this computer — ${m.label}` })),
     ...SPEECH_PROVIDERS.filter((sp) => providers.some((p) => p.id === sp.providerId)).flatMap((sp) =>
       sp.models.map((m) => ({ value: pickValue(sp.providerId, m.id), label: `${nameOf(sp.providerId)} — ${m.label}` }))
     )
   ]
   const value = providerId ? pickValue(providerId, modelId) : SAME
   const isLocal = providerId === LOCAL_SPEECH_ID
-  const model = isLocal ? localSpeechModel(modelId) : undefined
+  const model = isLocal ? localSpeechModel(modelId, local?.hub) : undefined
   const downloaded = Boolean(model && local?.downloaded.includes(model.id))
   const downloading = model && local?.downloading?.id === model.id ? local.downloading.progress : null
   const hosted = providerId && !isLocal ? providers.find((p) => p.id === providerId) : undefined

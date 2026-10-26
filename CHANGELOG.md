@@ -6,6 +6,23 @@ All notable changes to Eaon are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Changed
+- **Any Whisper model from Hugging Face, for dictation on this computer.**
+  Settings → Model providers → Speech to text → Find more on Hugging Face
+  searches every whisper.cpp model there, by language or name (Uzbek,
+  Japanese, German, turbo…). A language search also lists Whisper's own
+  multilingual models, which understand it too. One click downloads a model
+  and puts it to use. Before downloading, Eaon reads the file's first bytes
+  and turns away any it can't run (a GGUF, say), and after it checks the
+  SHA-256 Hugging Face keeps for the file.
+- **Speech models no longer end up with chat models.** Searching Settings →
+  Models → Browse Hugging Face for Whisper now marks speech models and sends
+  you to Speech to text instead of downloading something llama.cpp can't
+  run. Chat-only engines (On this computer's chat models, Ollama, LM Studio,
+  llama.cpp, MLX, Jan) are no longer offered as speech providers, and a
+  dictation setting that pointed at one is reset, with a note saying why.
+- **Pick models, don't type them.** An online speech provider's models come
+  from its own list, speech models first, with one chosen for you; typing an
+  id is only a fallback under "Another model…".
 - **Download speech models right from the app.** Dictating with nothing set
   up now offers a Whisper model that runs on this computer, with a Download
   button right there in Chat, Workers and the ADE. It shows its progress,

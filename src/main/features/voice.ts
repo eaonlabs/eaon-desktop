@@ -1,17 +1,21 @@
-import { systemPreferences } from 'electron'
+import { app, systemPreferences } from 'electron'
 import { secrets } from '../secrets'
 import { store } from '../store'
 import { getProvider } from '../providers'
 import { pickTranscriber, transcribe, type SpeechChoice } from './voice/transcribe'
-import { LOCAL_SPEECH_ID, localSpeechModel, type SpeechPick } from '@shared/speech'
+import { LOCAL_SPEECH_ID, canTranscribe, type SpeechPick } from '@shared/speech'
+import { checkHfFile } from '../ipcGuards'
 import {
   cancelLocalSpeechDownload,
   deleteLocalSpeechModel,
+  downloadHubSpeechModel,
   downloadLocalSpeechModel,
+  localSpeechLabel,
   localSpeechState,
   onLocalSpeechChange,
   transcribeLocally
 } from './voice/localWhisper'
+import { searchSpeechHub } from './voice/speechHub'
 import type { Feature } from './types'
 
 /**
@@ -26,7 +30,7 @@ export const voiceFeature: Feature = {
     ipcMain.handle('voice:provider', async (_e, pick?: unknown) => {
       const wanted = pickOf(pick)
       const local = localChoice(wanted)
-      if (local) return (await localSpeechState()).downloaded.includes(local) ? `${localSpeechModel(local)?.label ?? 'Whisper'} on this computer` : null
+      if (local) return (await localSpeechState()).downloaded.includes(local) ? `${localSpeechLabel(local)} on this computer` : null
       return pickTranscriber((id) => secrets.get(id), speechChoice(wanted))?.transcriber.label ?? null
     })
 
@@ -36,6 +40,12 @@ export const voiceFeature: Feature = {
     ipcMain.handle('voice:local-download', (_e, id: unknown) => downloadLocalSpeechModel(String(id)))
     ipcMain.handle('voice:local-cancel', () => cancelLocalSpeechDownload())
     ipcMain.handle('voice:local-delete', (_e, id: unknown) => deleteLocalSpeechModel(String(id)))
+    // More whisper.cpp models, from anywhere on Hugging Face (voice/speechHub.ts).
+    ipcMain.handle('voice:hub-search', (_e, query: unknown) => searchSpeechHub(typeof query === 'string' ? query.slice(0, 200) : ''))
+    ipcMain.handle('voice:hub-download', (_e, repoId: unknown, filename: unknown) => {
+      const file = checkHfFile(repoId, filename, app.getPath('userData'))
+      return downloadHubSpeechModel(file.repoId, file.filename)
+    })
 
     // macOS asks once; after that the answer stands until changed in System
     // Settings → Privacy & Security → Microphone. Elsewhere there is no prompt.
@@ -54,8 +64,7 @@ export const voiceFeature: Feature = {
         const local = localChoice(wanted)
         if (local) {
           if (bytes.byteLength <= 44) throw new Error('Nothing was recorded.')
-          const model = localSpeechModel(local)
-          return { ok: true as const, text: await transcribeLocally(bytes, local), provider: `${model?.label ?? 'Whisper'} on this computer` }
+          return { ok: true as const, text: await transcribeLocally(bytes, local), provider: `${localSpeechLabel(local)} on this computer` }
         }
         return { ok: true as const, ...(await transcribe(bytes, String(mimeType ?? ''), { getKey: (id) => secrets.get(id), choice: speechChoice(wanted) })) }
       } catch (error) {
@@ -72,10 +81,16 @@ function pickOf(raw: unknown): SpeechPick | null {
   return { providerId: pick.providerId, modelId: typeof pick.modelId === 'string' && pick.modelId ? pick.modelId : null }
 }
 
-/** The model to use: one picked for this place, else the one in Settings → Model providers → Speech to text. */
+/**
+ * The model to use: one picked for this place, else the one in Settings →
+ * Model providers → Speech to text. A chat-only runtime (Eaon's "On this
+ * computer" for chat models, Ollama…) can't transcribe, so one picked before
+ * they were left out of that list counts as nothing picked.
+ */
 function selected(pick: SpeechPick | null): { speechProviderId: string | null; speechModelId: string | null } {
-  if (pick) return { speechProviderId: pick.providerId, speechModelId: pick.modelId }
-  const { speechProviderId = null, speechModelId = null } = store.getSettings().voice ?? {}
+  const chosen = pick ? { speechProviderId: pick.providerId, speechModelId: pick.modelId } : (store.getSettings().voice ?? {})
+  const { speechProviderId = null, speechModelId = null } = chosen
+  if (speechProviderId && !canTranscribe({ id: speechProviderId })) return { speechProviderId: null, speechModelId: null }
   return { speechProviderId, speechModelId }
 }
 

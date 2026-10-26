@@ -66,6 +66,17 @@ export async function downloadSpeechModel(id: string): Promise<boolean> {
   }
 }
 
+/** Downloads a model from Hugging Face (Find more): its id once it's on this computer, null when stopped; throws why it failed. */
+export async function downloadHubModel(repoId: string, filename: string): Promise<string | null> {
+  try {
+    return await window.api.voice.hubDownload(repoId, filename)
+  } catch (error) {
+    const message = (error as Error).message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')
+    if (/abort/i.test(message)) return null
+    throw new Error(message)
+  }
+}
+
 /**
  * Makes a model on this computer the one dictation uses: in the ADE alone
  * when the ADE has a model of its own (Settings → ADE), else everywhere.

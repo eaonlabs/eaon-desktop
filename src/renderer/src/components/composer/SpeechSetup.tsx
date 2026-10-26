@@ -40,8 +40,8 @@ export function SpeechSetup({
 
   // The model this place is set to if it's a local one, else one already here, else the quickest to download.
   const wanted = pick ?? (voice?.speechProviderId ? { providerId: voice.speechProviderId, modelId: voice.speechModelId } : null)
-  const model = offeredSpeechModel(wanted?.providerId === LOCAL_SPEECH_ID ? (wanted.modelId ?? LOCAL_SPEECH_MODELS[0].id) : null, local?.downloaded)
-  const downloading = local?.downloading ? (localSpeechModel(local.downloading.id) ?? null) : null
+  const model = offeredSpeechModel(wanted?.providerId === LOCAL_SPEECH_ID ? (wanted.modelId ?? LOCAL_SPEECH_MODELS[0].id) : null, local)
+  const downloading = local?.downloading ?? null
   const progress = local?.downloading?.progress ?? 0
   const have = Boolean(local?.downloaded.includes(model.id))
 
@@ -53,7 +53,7 @@ export function SpeechSetup({
 
   const use = (id: string): void => {
     chooseLocalSpeech(id, { ade: Boolean(pick) })
-    setReady(localSpeechModel(id)?.label ?? 'The model')
+    setReady(localSpeechModel(id, local?.hub)?.label ?? 'The model')
   }
   const download = (): void => {
     setFailed(null)

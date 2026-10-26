@@ -1,6 +1,6 @@
 import { useState, type JSX } from 'react'
 import { Download, X } from 'lucide-react'
-import { LOCAL_SPEECH_ID, LOCAL_SPEECH_MODELS, localSpeechModel, offeredSpeechModel } from '@shared/speech'
+import { LOCAL_SPEECH_ID, LOCAL_SPEECH_MODELS, offeredSpeechModel } from '@shared/speech'
 import { useApp } from '../../../state/store'
 import { SPEECH_SETTINGS, chooseLocalSpeech, downloadSpeechModel, downloadedOf, megabytes, useLocalSpeech, useSpeechInUse } from '../../../lib/localSpeech'
 import { Row } from '../../ui'
@@ -18,10 +18,10 @@ export function SpeechModelRow(): JSX.Element {
   const using = useSpeechInUse(local)
   const [failed, setFailed] = useState<string | null>(null)
   // The one to offer: the local model picked if there is one, else one already here, else the quickest to download.
-  const model = offeredSpeechModel(voice?.speechProviderId === LOCAL_SPEECH_ID ? (voice.speechModelId ?? LOCAL_SPEECH_MODELS[0].id) : null, local?.downloaded)
+  const model = offeredSpeechModel(voice?.speechProviderId === LOCAL_SPEECH_ID ? (voice.speechModelId ?? LOCAL_SPEECH_MODELS[0].id) : null, local)
   const have = Boolean(local?.downloaded.includes(model.id))
   const progress = local?.downloading ? local.downloading.progress : null
-  const downloading = local?.downloading ? (localSpeechModel(local.downloading.id) ?? model) : null
+  const downloading = local?.downloading ?? null
   const offer = using === null && Boolean(local?.available)
 
   const choose = (): void => useApp.getState().openProviderSettings(SPEECH_SETTINGS)

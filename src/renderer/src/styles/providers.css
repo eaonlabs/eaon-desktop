@@ -746,3 +746,195 @@
 .provider-logo__hint + .provider-link {
   margin-top: 12px;
 }
+
+/* Speech to text → On this computer → Find more on Hugging Face (SpeechHub.tsx). */
+.speech-hub__open {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  width: 100%;
+  margin-top: 10px;
+  padding: 11px 12px;
+  border-radius: var(--r-lg);
+  box-shadow: inset 0 0 0 1px var(--border);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  text-align: left;
+  transition: background-color var(--dur) var(--ease);
+}
+.speech-hub__open:hover {
+  background: var(--hover);
+}
+.speech-hub__open svg {
+  color: var(--text-2);
+}
+.speech-hub__open-hint {
+  margin-left: auto;
+  color: var(--text-3);
+  font-weight: 400;
+}
+.speech-hub {
+  margin-top: 10px;
+  padding: 12px;
+  border-radius: var(--r-lg);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.speech-hub__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.speech-hub__title {
+  color: var(--text);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+.speech-hub__note {
+  margin: 8px 2px 4px;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+}
+.speech-hub__empty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 18px 4px 8px;
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+.speech-hub__results {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-height: 460px;
+  margin-top: 10px;
+  overflow-y: auto;
+  transition: opacity var(--dur) var(--ease);
+}
+.speech-hub__results[data-busy] {
+  opacity: 0.55;
+}
+.speech-hub__repo-head {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 8px;
+  padding: 0 2px 6px;
+}
+.speech-hub__repo-name {
+  color: var(--text);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  text-decoration: none;
+}
+.speech-hub__repo-name:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.speech-hub__tag {
+  padding: 1px 7px;
+  border-radius: var(--r-pill);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 500;
+}
+.speech-hub__repo-meta {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+}
+.speech-hub__files {
+  border-radius: var(--r-md);
+  background: var(--hover);
+  overflow: hidden;
+}
+.speech-hub__file {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  padding: 7px 10px 7px 12px;
+}
+.speech-hub__file + .speech-hub__file {
+  border-top: 1px solid var(--border-soft);
+}
+.speech-hub__file-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.speech-hub__file-name {
+  color: var(--text);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+}
+.speech-hub__file-meta {
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.speech-hub__file-meta[data-tone='error'] {
+  color: var(--danger);
+  white-space: normal;
+}
+.speech-hub__file .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+}
+.speech-hub__in-use {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  padding: 0 4px;
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  font-weight: 500;
+}
+.speech-hub__in-use svg {
+  color: #30a46c;
+}
+.speech-hub__more {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 6px 2px 0;
+  color: var(--link);
+  font-size: var(--fs-xs);
+}
+/* Online: a provider that hasn't listed its models yet, and the way to ask it. */
+.speech-online-empty {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 8px;
+  padding: 10px 12px;
+  border-radius: var(--r-lg);
+  background: var(--hover);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+}
+.speech-online-empty .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.speech-hub__repo-note {
+  margin: -2px 2px 8px;
+  color: var(--text-2);
+  font-size: var(--fs-xs);
+  line-height: 1.5;
+}

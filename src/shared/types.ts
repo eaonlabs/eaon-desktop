@@ -975,6 +975,8 @@ export interface ModelSearchResult {
   fileCount: number
   /** The variant shown on the card itself — Q4_K_M when available, else the first file. */
   defaultVariant: ModelVariant | null
+  /** A speech-to-text model (Whisper…): chat can't run it; Speech to text has its own. */
+  speech?: boolean
 }
 
 export interface ModelDetail {
@@ -985,6 +987,8 @@ export interface ModelDetail {
   description: string
   parameterSize: string | null
   variants: ModelVariant[]
+  /** A speech-to-text model (Whisper…): chat can't run it; Speech to text has its own. */
+  speech?: boolean
 }
 
 /**
