@@ -11,7 +11,8 @@ import { useOnboarding, type TourKind } from './onboardingStore'
  * says what it is. One shows the app to a fresh install; the other shows an
  * updated install what's new in this release. Each moves between the tabs
  * itself, so the person watches rather than clicks. ← and → step through it,
- * Esc ends it, and both can be taken again from the sidebar’s ? (help) button.
+ * Esc ends it, and both can be taken again from Settings → General (and, on
+ * a Mac, the Help menu).
  *
  * Each stop names its element by selector (and the text it must contain,
  * for one row of a list). One that isn't on screen, in a narrow window say,
@@ -55,7 +56,8 @@ const stops = (): Stop[] => [
   },
   {
     workspace: 'work',
-    selector: '.sidebar__body',
+    // The whole panel: New chat and search above, projects and chats in the list under them.
+    selector: '.sidebar__panel',
     side: 'right',
     title: 'Your chats',
     body: `New chats, projects and everything recent live here. Search sits at the top, and ${mod()}B hides the sidebar.`
@@ -100,7 +102,7 @@ const whatsNewStops = (): Stop[] => [
     workspace: 'work',
     side: 'bottom',
     title: `What’s new in Eaon ${WHATS_NEW_RELEASE}`,
-    body: 'A one-minute look at what has changed since 2026.6, tab by tab. You can take it again from the ? button at the bottom of the sidebar.'
+    body: 'A one-minute look at what has changed since 2026.6, tab by tab. You can take it again from Settings → General.'
   },
   {
     workspace: 'work',
@@ -122,6 +124,14 @@ const whatsNewStops = (): Stop[] => [
     side: 'top',
     title: 'Work in a project',
     body: 'Pick a folder and the chat becomes a coding session in that project, listed under Projects. The switches at the top right open a terminal under the chat, and a dock beside it with the files, a browser and what the agent changed.'
+  },
+  {
+    // In Chat, where its switch is always at the top right: the ADE's shows only with a project open.
+    workspace: 'work',
+    selector: '.main .panel-toggles [aria-label="Dock"], .dock',
+    side: 'bottom',
+    title: 'A dock beside your agents',
+    body: `The dock at the top right, beside a chat and beside an ADE session's terminals, shows a page in the browser (${shortcutLabel('⇧⌘B')}), the files, the diff and the pull request. Design Mode sends what you point at to an agent, and in the ADE, Hand off passes a stuck agent's work to another.`
   },
   {
     workspace: 'workers',
@@ -146,13 +156,6 @@ const whatsNewStops = (): Stop[] => [
     side: 'right',
     title: 'A worker computer, and more chat apps',
     body: 'Settings → Workers → Worker computer moves your workers to a computer you leave on, like a Raspberry Pi, so they keep going while this one sleeps. They now answer in Slack, Matrix, Mattermost and Zulip too.'
-  },
-  {
-    workspace: 'eaon-code',
-    selector: '.main .code-header [aria-label="Dock"]',
-    side: 'bottom',
-    title: 'A dock beside your agents',
-    body: `With a project open, the dock at the top right shows a page in the browser (${shortcutLabel('⇧⌘B')}), the files, the diff and the pull request next to the terminals, and Design Mode sends what you point at to an agent. When one gets stuck, Hand off passes its work to another.`
   },
   {
     workspace: 'eaon-code',

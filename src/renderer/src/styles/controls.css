@@ -299,6 +299,13 @@
   justify-content: flex-end;
   gap: 8px;
 }
+/* Why the main button is greyed out, at the start of the row. */
+.modal__why {
+  margin-right: auto;
+  font-size: var(--fs-xs);
+  line-height: 1.35;
+  color: var(--text-3);
+}
 .modal__field {
   width: 100%;
   margin-bottom: 20px;
@@ -335,11 +342,11 @@
   background: color-mix(in srgb, var(--fg), var(--bg) 14%);
 }
 .btn--accent {
-  background: var(--toggle-on);
+  background: var(--accent-fill);
   color: var(--on-accent);
 }
 .btn--accent:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--toggle-on), #000 12%);
+  background: color-mix(in srgb, var(--accent-fill), #000 12%);
 }
 .btn--ghost {
   background: none;

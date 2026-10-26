@@ -142,6 +142,12 @@ export interface ChatToolPart {
   progress?: string
   /** Sub-agents a swarm call started, in the order they were launched. */
   agents?: SubagentRun[]
+  /**
+   * A `write_file` call: what was at the path before it, so its diff shows
+   * what went: the file's text, or null when there was no file. Absent when
+   * it was too big to keep, or for a call from before this was recorded.
+   */
+  before?: string | null
 }
 
 /** One sub-agent inside a swarm tool call. */
@@ -332,8 +338,26 @@ export interface ThemePalette {
   contrast: number
 }
 
-/** How the wallpaper is drawn: as it is, as a halftone dot screen, or as ASCII art. */
-export type SeeThroughStyle = 'photo' | 'halftone' | 'ascii'
+/** How the wallpaper is drawn: as it is, or redrawn in one of the styles (renderer components/seeThrough/styles.ts). */
+export type SeeThroughStyle =
+  | 'photo'
+  | 'halftone'
+  | 'ascii'
+  | 'tiles'
+  | 'blocks'
+  | 'braille'
+  | 'dither'
+  | 'pixel'
+  | 'mosaic'
+  | 'lego'
+  | 'dots'
+  | 'cross'
+  | 'diagonal'
+  | 'diamond'
+  | 'lines'
+
+/** A chosen wallpaper that is a video rather than a picture, by its file's type. */
+export const isVideoWallpaper = (path: string | null | undefined): boolean => Boolean(path && /\.(mp4|m4v|mov|webm)$/i.test(path))
 
 export interface SeeThrough {
   enabled: boolean
@@ -342,10 +366,12 @@ export interface SeeThrough {
   texture: boolean
   /** Unset on installs from before it, which follow `texture` instead. */
   style?: SeeThroughStyle
-  /** The desktop's own wallpaper, or a picture the user chose. */
+  /** The desktop's own wallpaper, or a picture or video the user chose. */
   source: 'desktop' | 'custom'
-  /** The chosen picture, as Eaon's own copy of it (see main/features/wallpaper.ts). */
+  /** The chosen picture or video, as Eaon's own copy of it (see main/features/wallpaper.ts). */
   custom: string | null
+  /** A video wallpaper plays (muted, looping); off, it holds still on a frame. Unset is on. */
+  videoPlays?: boolean
 }
 
 /**
@@ -560,6 +586,12 @@ export interface Settings {
      * one and hasn't seen it yet.
      */
     whatsNew: string | null
+    /**
+     * Set on a fresh install's first launch (main/features/onboarding.ts): the
+     * star card says "Welcome to Eaon" only then. An install updated from an
+     * earlier version never has it.
+     */
+    fresh?: boolean
   }
   /** The tokn command, which ships inside Eaon (main/features/toknCli.ts). */
   toknCli: {
@@ -572,7 +604,11 @@ export interface Settings {
      */
     sync: boolean
   }
-  /** Eaon Free: the free models on Eaon's gateway, and the card that offers them (shared/freeCredits.ts). */
+  /**
+   * Left from Eaon Free's free week, which Eaon Event (a code only) replaced:
+   * nothing reads it now. Kept so an older Eaon opened on this profile finds
+   * the shape it expects.
+   */
   freeCredits: {
     /** Claimed from the offer or Settings → Model providers: the provider is listed and usable. */
     claimed: boolean
@@ -824,6 +860,10 @@ export type StreamEvent =
        * waiting approvals, never these.
        */
       critical?: boolean
+      /** A whole-file write: what is there now (the file's text, null when there is none), so the approval shows what goes. */
+      before?: string | null
+      /** Who is asking when it isn't the agent itself: a swarm sub-agent's role, as "tester". */
+      agent?: string
     }
   // A tool started and finished, as two events, so the transcript can show the
   // call the moment it is made rather than only once its output lands — a
@@ -836,6 +876,8 @@ export type StreamEvent =
       output: string
       status: 'done' | 'denied' | 'error'
       images?: string[]
+      /** A whole-file write: what it replaced (the file's text, null when there was none). */
+      before?: string | null
     }
   // Live output from a tool that is still running (a build, a test run).
   | { type: 'tool-progress'; messageId: string; toolId: string; output: string }
@@ -933,6 +975,8 @@ export interface ModelSearchResult {
   fileCount: number
   /** The variant shown on the card itself — Q4_K_M when available, else the first file. */
   defaultVariant: ModelVariant | null
+  /** A speech-to-text model (Whisper…): chat can't run it; Speech to text has its own. */
+  speech?: boolean
 }
 
 export interface ModelDetail {
@@ -943,6 +987,8 @@ export interface ModelDetail {
   description: string
   parameterSize: string | null
   variants: ModelVariant[]
+  /** A speech-to-text model (Whisper…): chat can't run it; Speech to text has its own. */
+  speech?: boolean
 }
 
 /**

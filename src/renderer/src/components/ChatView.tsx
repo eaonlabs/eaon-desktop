@@ -11,6 +11,7 @@ import {
   Copy,
   Eye,
   FileText,
+  FolderInput,
   FolderOpen,
   FolderTree,
   Globe,
@@ -25,8 +26,9 @@ import {
   TriangleAlert,
   X
 } from 'lucide-react'
-import { codeFolder, messageText, useApp, useCoding, useIsWork, type PendingApproval } from '../state/store'
+import { codeFolder, messageText, runIn, useApp, useCoding, useIsWork } from '../state/store'
 import { Composer } from './Composer'
+import { FolderMenu } from './composer/ComposerBits'
 import { ContextMenu } from './Sidebar'
 import { ConfirmDialog, Modal } from './ui'
 import { notify } from './Notice'
@@ -38,16 +40,16 @@ import { toolPartChanges } from './agent/ToolCall'
 import { TurnLive } from './agent/StepCards'
 import { TurnHeader } from './agent/TurnSteps'
 import { ToolCall } from './agent/ToolCall'
-import { ThoughtRow, ToolRun } from './chat/WorkRows'
+import { PlanRow, ThoughtRow, ToolRun } from './chat/WorkRows'
 import { workLog } from './chat/workLog'
 import { TopBar } from './TopBar'
 import { AsciiField } from './AsciiField'
 import { RowBoundary } from './ErrorBoundary'
 import { GoalBanner, PlanCard, TodoPanel, UsageLine } from './agent/WorkBits'
-import { FileDiff } from './agent/FileDiff'
 import { MessageActions } from './agent/MessageActions'
 import { ProviderErrorActions } from './composer/ProviderErrorActions'
-import { ApprovalCard, approvalRisk, CallPreview, CommandPreview, enterApproves } from './agent/ApprovalCard'
+import { ApprovalRow } from './agent/ApprovalRow'
+import { ElsewhereAsk, elsewhereShown, subscribeElsewhere } from './agent/ElsewhereAsk'
 import { WorkerFace } from './workers/WorkerFace'
 import { ChannelLogo } from './channels/ChannelLogo'
 import { DockToggle, DrawerToggle } from './ide/Dock'
@@ -77,8 +79,8 @@ export function ChatView(): JSX.Element {
   const chat = useApp((s) => s.activeChat())
   // The overlay approval card is mounted once, at the app's root (App.tsx),
   // not here: a run that asked while Settings or another tab was open waited
-  // on a card nobody could see. The open conversation docks its own over the
-  // message box (see ApprovalPrompt).
+  // on a card nobody could see. The open conversation asks in its transcript
+  // (see ApprovalPrompt and MessageRow).
   return chat ? <Conversation chat={chat} /> : <Home />
 }
 
@@ -208,232 +210,21 @@ const fileLinks: FileLinkHandler = {
   }
 }
 
-const APPROVAL_TITLES: Record<string, string> = {
-  run_command: 'Run this command?',
-  write_file: 'Write this file?',
-  edit_file: 'Make this edit?',
-  delete_file: 'Move this to the Trash?',
-  move_file: 'Move this file?',
-  computer: 'Let Eaon use your computer?',
-  browser: 'Let Eaon do this in your browser?',
-  web_browser: 'Let Eaon do this in its browser?',
-  email_send: 'Send this email?',
-  email_reply: 'Send this reply?',
-  trading_order: 'Place this order?',
-  trading_session: 'Let Eaon trade?',
-  use_plugin_tool: 'Use this plugin?',
-  schedule: 'Change your schedules?'
-}
-
-/** "Write index.html?": the title names the file when the call is about one. */
-function approvalTitle(tool: string, input: Record<string, unknown>): string {
-  const path = typeof input.path === 'string' ? input.path : ''
-  const name = path.split(/[\\/]/).pop() ?? ''
-  if (name && tool === 'write_file') return `Write ${name}?`
-  if (name && tool === 'edit_file') return `Edit ${name}?`
-  if (name && tool === 'delete_file') return `Move ${name} to the Trash?`
-  if (APPROVAL_TITLES[tool]) return APPROVAL_TITLES[tool]
-  // Browser Use and desktop control name each action as its own tool.
-  if (tool.startsWith('desktop_')) return APPROVAL_TITLES.computer
-  if (tool.startsWith('browser_')) return APPROVAL_TITLES.browser
-  return `Allow ${tool.replace(/_/g, ' ')}?`
-}
-
-/** Where a file call acts: its folder, beside what it does. */
-function approvalDetail(tool: string, input: Record<string, unknown>): string | undefined {
-  if (!['write_file', 'edit_file', 'delete_file', 'move_file'].includes(tool)) return undefined
-  const path = typeof input.path === 'string' ? input.path : typeof input.from === 'string' ? input.from : ''
-  const folder = path.split(/[\\/]/).slice(0, -1).join('/')
-  return folder || undefined
-}
-
-/** The one line that says what is about to happen, for tools without a bespoke preview. */
-function approvalSummary(tool: string, input: Record<string, unknown>): string {
-  const pick = (key: string): string => (typeof input[key] === 'string' ? (input[key] as string) : '')
-  if (tool === 'move_file') return `${pick('from')} → ${pick('to')}`
-  if (tool === 'use_plugin_tool') return pick('name')
-  if (tool === 'computer' || tool === 'browser') {
-    const detail = pick('text') || pick('keys') || pick('key') || pick('url') || pick('ref') || pick('app')
-    const point = typeof input.x === 'number' ? ` at ${input.x}, ${input.y}` : ''
-    return `${pick('action')}${point}${detail ? ` — ${detail}` : ''}`
-  }
-  return pick('path') || pick('name') || pick('action') || ''
-}
 
 /**
- * How many docked approval prompts are on screen: one while a conversation is
- * open. With none, the app-wide overlay answers for the open chat's turns too,
- * since Settings or another page is in front of it.
+ * A chat's question on a page with no message box (Settings, Workers, the
+ * ADE): the same strip that asks above the message box (agent/ElsewhereAsk),
+ * floating at the foot of the window. Where a message box is on screen it
+ * asks there instead, and this stays away.
  */
-let docks = 0
-const dockListeners = new Set<() => void>()
-const isDocked = (): boolean => docks > 0
-function subscribeDock(listener: () => void): () => void {
-  dockListeners.add(listener)
-  return () => {
-    dockListeners.delete(listener)
-  }
-}
-function registerDock(): () => void {
-  docks++
-  dockListeners.forEach((listener) => listener())
-  return () => {
-    docks--
-    dockListeners.forEach((listener) => listener())
-  }
-}
-
-/**
- * Asking before a tool runs (agent/ApprovalCard.tsx). For the chat on screen
- * it docks over the message box, where the answer is given, with the
- * conversation still in view; for a turn anywhere else, or while another page
- * covers the chat, it is a card over the page (mounted once, in App.tsx). It
- * stays a moment after it's answered so it can leave the way it was answered,
- * and the next approval in the queue slides in where it was.
- */
-export function ApprovalPrompt({ placement = 'overlay' }: { placement?: 'dock' | 'overlay' }): JSX.Element | null {
-  const docked = useSyncExternalStore(subscribeDock, isDocked)
-  const { asked, waiting, respondApproval, here } = useApp(
-    useShallow((s) => {
-      const ask = s.pendingApproval
-      const here = Boolean(ask && s.activeChat()?.messages.some((m) => m.id === ask.messageId))
-      return { asked: ask, waiting: s.approvalQueue.length, respondApproval: s.respondApproval, here }
-    })
-  )
-  // Before paint, so the overlay never flashes a card the dock has taken.
-  useLayoutEffect(() => (placement === 'dock' ? registerDock() : undefined), [placement])
-  // Each placement answers for its own: the dock for the open chat's turns,
-  // the overlay for the rest, and for those too while no dock is on screen.
-  const pending = asked && (placement === 'dock' ? here : !(here && docked)) ? asked : null
-  const [shown, setShown] = useState<PendingApproval | null>(pending)
-  const [answer, setAnswer] = useState<'approve' | 'deny' | null>(null)
-  const [swap, setSwap] = useState(false)
-
-  useEffect(() => {
-    if (pending) {
-      setSwap((current) => current || (shown !== null && shown.requestId !== pending.requestId))
-      setShown(pending)
-      setAnswer(null)
-      return
-    }
-    if (!shown) return
-    const timer = setTimeout(() => {
-      setShown(null)
-      setAnswer(null)
-      setSwap(false)
-    }, 200)
-    return () => clearTimeout(timer)
-    // `shown` is what the card shows now; only a change in what's pending moves it on.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pending])
-
-  const respond = (approved: boolean): void => {
-    if (!pending) return
-    setAnswer(approved ? 'approve' : 'deny')
-    respondApproval(approved)
-  }
-
-  // The listener below is added once per request and reads the latest answer
-  // function from here, rather than being torn down and added on every render.
-  const respondLatest = useRef(respond)
-  respondLatest.current = respond
-
-  // esc denies. ⏎ approves only from the card itself, or with nothing focused:
-  // never from a text box (the message box sits right by the card, and ⏎
-  // there means "send"), never when a button has focus (it answers ⏎ itself),
-  // and never for a call that could delete or change the system, which needs
-  // a click.
-  useEffect(() => {
-    if (!pending) return
-    const onKey = (event: KeyboardEvent): void => {
-      const target = event.target as HTMLElement | null
-      if (target?.closest('textarea, input, [contenteditable="true"]')) return
-      if (event.key === 'Escape') {
-        // An Escape meant for something else — a menu, a dialog, the "/"
-        // suggestions, the dictation bar — closes that and leaves the
-        // question open. Denying on it threw away an answer nobody gave.
-        if (event.defaultPrevented || document.querySelector('[role="menu"], [role="dialog"][aria-modal="true"], .voice-bar')) return
-        event.preventDefault()
-        respondLatest.current(false)
-        return
-      }
-      if (event.key !== 'Enter' || event.isComposing || event.defaultPrevented) return
-      const el = event.target instanceof HTMLElement ? event.target : null
-      const allowed = enterApproves(
-        {
-          button: el instanceof HTMLButtonElement,
-          field: el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || Boolean(el?.isContentEditable),
-          inCard: Boolean(el?.closest('.approval')),
-          nothingFocused: !el || el === document.body
-        },
-        approvalRisk(pending.tool, pending.input)
-      )
-      if (!allowed) return
-      event.preventDefault()
-      respondLatest.current(true)
-    }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [pending])
-
-  if (!shown) return null
-  const tool = shown.tool
-  const input = shown.input
-  const text = (key: string): string => String(input[key] ?? '')
-  const edit = tool === 'write_file' || tool === 'edit_file'
-
-  let body: JSX.Element
-  if (tool === 'run_command') {
-    body = <CommandPreview command={text('command')} />
-  } else if (edit) {
-    body = (
-      <div className="approval__diff">
-        <FileDiff
-          file={text('path')}
-          before={tool === 'edit_file' ? text('old_text') : ''}
-          after={tool === 'edit_file' ? text('new_text') : text('content').slice(0, 6000)}
-        />
-      </div>
-    )
-  } else {
-    body = <CallPreview summary={shown.summary || approvalSummary(tool, input)} args={tool === 'use_plugin_tool' ? input.arguments : input} />
-  }
-
-  const card = (
-    <ApprovalCard
-      key={shown.requestId}
-      variant={placement === 'dock' ? 'dock' : 'dialog'}
-      tool={tool}
-      input={shown.input}
-      title={approvalTitle(tool, input)}
-      detail={approvalDetail(tool, input)}
-      waiting={pending ? waiting : 0}
-      busy={!pending}
-      onApprove={() => respond(true)}
-      onDeny={() => respond(false)}
-      swap={swap}
-    >
-      {body}
-    </ApprovalCard>
-  )
-
-  if (placement === 'dock') {
-    return (
-      <div className="approval-dock" data-state={pending ? 'in' : 'out'} data-answer={answer ?? undefined}>
-        {card}
-      </div>
-    )
-  }
-  return createPortal(
-    <div className="approval-layer" data-state={pending ? 'in' : 'out'} data-answer={answer ?? undefined} data-wide={edit || undefined}>
-      {card}
-    </div>,
-    document.body
-  )
+export function ApprovalPrompt(): JSX.Element | null {
+  const boxShown = useSyncExternalStore(subscribeElsewhere, elsewhereShown)
+  if (boxShown) return null
+  return createPortal(<ElsewhereAsk floating />, document.body)
 }
 
 function Conversation({ chat }: { chat: Chat }): JSX.Element {
-  const { streamingMessageId, remoteStreaming, streamingChatId, browserOpen, toggleBrowser, archiveChat, deleteChat, renameChat, stop } = useApp(useShallow((s) => ({ streamingMessageId: s.streamingMessageId, remoteStreaming: s.remoteStreaming, streamingChatId: s.streamingChatId, browserOpen: s.browserOpen, toggleBrowser: s.toggleBrowser, archiveChat: s.archiveChat, deleteChat: s.deleteChat, renameChat: s.renameChat, stop: s.stop })))
+  const { streamingMessageId, remoteStreaming, browserOpen, toggleBrowser, archiveChat, deleteChat, renameChat, stop } = useApp(useShallow((s) => ({ streamingMessageId: runIn(s, chat.id), remoteStreaming: s.remoteStreaming, browserOpen: s.browserOpen, toggleBrowser: s.toggleBrowser, archiveChat: s.archiveChat, deleteChat: s.deleteChat, renameChat: s.renameChat, stop: s.stop })))
   const isWork = useIsWork()
   const thread = useRef<HTMLDivElement>(null)
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
@@ -441,7 +232,10 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [renaming, setRenaming] = useState(false)
   const [finding, setFinding] = useState(false)
+  // Move to a project from the top bar's menu, as from the sidebar's.
+  const [moving, setMoving] = useState(false)
   const moreButton = useRef<HTMLButtonElement>(null)
+  // Before paint, so the app-wide dialog never flashes a question the transcript has taken.
 
   // ⌘F finds in the conversation. Not from the browser panel, a terminal or
   // the code editor, which have their own find; not over a dialog.
@@ -461,7 +255,7 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
   }, [])
   useEffect(() => setFinding(false), [chat.id])
 
-  const streaming = streamingChatId === chat.id
+  const streaming = streamingMessageId !== null
   // Only the last reply can be asked again; see retryPlan.
   const lastReplyId = useMemo(() => {
     for (let i = chat.messages.length - 1; i >= 0; i--) {
@@ -643,8 +437,8 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
                 streaming={message.id === streamingMessageId || remoteStreaming.includes(message.id)}
                 chatActions
                 last={message.id === lastReplyId}
-                canRetry={message.id === lastReplyId && !streamingChatId}
-                canEdit={!streamingChatId}
+                canRetry={message.id === lastReplyId && !streaming}
+                canEdit={!streaming}
                 fresh={!opened.current.ids.has(message.id)}
               />
             </RowBoundary>
@@ -653,7 +447,6 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
       </div>
 
       <div className="composer-dock" data-card={cardInline || undefined}>
-        <ApprovalPrompt placement="dock" />
         <button className="thread-jump" data-shown={away || undefined} onClick={toEnd} tabIndex={away ? 0 : -1} aria-hidden={!away} aria-label="Scroll to latest" title="Scroll to latest">
           <ArrowDown size={15} strokeWidth={2} />
         </button>
@@ -690,16 +483,32 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
             },
             {
               icon: <FolderOpen size={15} strokeWidth={1.9} />,
-              label: 'Open work folder',
+              label: coding ? 'Open project folder' : 'Open Eaon’s folder',
               action: () =>
                 void window.api.app.showItem(workFolder).then((shown) => {
                   if (!shown) notify(`${workFolder} doesn't exist yet. Eaon makes it the first time it works with files.`, 'error')
                 })
             },
+            { icon: <FolderInput size={15} strokeWidth={1.9} />, label: chat.projectId ? 'Move to another project' : 'Move to a project', action: () => setMoving(true) },
             { icon: <Archive size={15} strokeWidth={1.9} />, label: 'Archive', action: requestArchive },
             // Deleting can't be undone, so it asks; Archive is the way to put a chat away.
             { icon: <Trash2 size={15} strokeWidth={1.9} />, label: 'Delete', danger: true, action: () => setConfirmDelete(true) }
           ]}
+        />
+      )}
+
+      {moving && (
+        <FolderMenu
+          anchor={moreButton}
+          open
+          onClose={() => setMoving(false)}
+          onChoose={(folder) => {
+            const app = useApp.getState()
+            app.moveChat(chat.id, folder ? app.projectForFolder(folder).id : null)
+          }}
+          // Its own project isn't somewhere to move it to.
+          current={chat.projectId ? (useApp.getState().projects.find((p) => p.id === chat.projectId)?.folder ?? null) : null}
+          none={chat.projectId ? 'Move to Chats' : undefined}
         />
       )}
 
@@ -838,6 +647,25 @@ export const MessageRow = memo(function MessageRow({
   const hasContent = items.length > 0
   // A turn that did work — thought, read, ran — gets the "Worked for" line over it; a plain answer doesn't.
   const didWork = useMemo(() => items.some((item) => item.kind !== 'text'), [items])
+  // What this turn is asking the user, in the conversation (a chat's own
+  // replies only: a worker asks through its own card), and how many more wait.
+  const ask = useApp((s) =>
+    chatActions ? ((s.pendingApproval?.messageId === message.id ? s.pendingApproval : s.approvalQueue.find((a) => a.messageId === message.id)) ?? null) : null
+  )
+  // More questions from this same turn (a swarm's sub-agents), after this one.
+  const askWaiting = useApp((s) => (ask ? [s.pendingApproval, ...s.approvalQueue].filter((a) => a && a.messageId === message.id).length - 1 : 0))
+  // The call it asks about. The loop announces a call before it asks, so it
+  // is in a run already, reading as running; the question stands in for it
+  // until it is answered. A sub-agent's calls aren't in the transcript.
+  const askedPart = useMemo(() => {
+    if (!ask || ask.agent) return null
+    const input = JSON.stringify(ask.input)
+    for (let i = message.parts.length - 1; i >= 0; i--) {
+      const part = message.parts[i]
+      if (part.type === 'tool' && part.status === 'running' && part.name === ask.tool && JSON.stringify(part.input) === input) return part.id
+    }
+    return null
+  }, [ask, message.parts])
   const changes = useMemo(
     () => toolPartChanges(message.parts.filter((part): part is ChatToolPart => part.type === 'tool')),
     [message.parts]
@@ -961,7 +789,11 @@ export const MessageRow = memo(function MessageRow({
                 // Only the turn's newest thought, while it streams, is still being written.
                 <ThoughtRow key={item.key} text={item.text} live={streaming && (folded ? answerFrom : 0) + index === items.length - 1} />
               ) : item.kind === 'tools' ? (
-                <ToolRun key={item.key} parts={item.parts} />
+                item.parts.some((part) => part.id === askedPart) ? (
+                  item.parts.length > 1 && <ToolRun key={item.key} parts={item.parts.filter((part) => part.id !== askedPart)} />
+                ) : (
+                  <ToolRun key={item.key} parts={item.parts} />
+                )
               ) : (
                 <ToolCall key={item.key} part={item.part} />
               )
@@ -974,6 +806,8 @@ export const MessageRow = memo(function MessageRow({
             No response
           </div>
         )}
+
+        {ask && <ApprovalRow key={ask.requestId} ask={ask} waiting={askWaiting} />}
 
         {message.interrupted && !streaming && (
           <div className="msg__status" style={{ color: 'var(--text-3)' }} role="status">
@@ -996,6 +830,11 @@ export const MessageRow = memo(function MessageRow({
         )}
 
         {message.plan && <PlanCard message={message} plan={message.plan} />}
+
+        {/* The plan is pinned above the composer while the latest reply works through it; after that it lives here. */}
+        {!unfinished && message.todos && message.todos.length > 0 && (!last || message.todos.every((t) => t.status === 'done')) && (
+          <PlanRow todos={message.todos} />
+        )}
 
         {!streaming && changes.length > 0 && <EditedFiles messageId={message.id} changes={changes} work={isWork} />}
 

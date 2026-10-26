@@ -268,7 +268,7 @@ function TokenPanel({ entry, connected }: { entry: McpCatalogEntry; connected: b
     <>
       <div className="plugin-row__form">
         {!connected && (
-          <input
+          <input aria-label={entry.tokenFieldPlaceholder || "Token"}
             className="input"
             type="password"
             value={token}

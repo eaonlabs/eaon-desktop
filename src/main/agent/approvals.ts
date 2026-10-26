@@ -20,7 +20,15 @@ interface PendingApproval {
 const pending = new Map<string, PendingApproval>()
 
 /** Headless runs (scheduled tasks) have nobody to ask; they decide with this instead. */
-export type Approver = (tool: string, input: Record<string, unknown>, summary?: string, critical?: boolean) => Promise<boolean>
+export type Approver = (
+  tool: string,
+  input: Record<string, unknown>,
+  summary?: string,
+  critical?: boolean,
+  before?: string | null,
+  /** A swarm sub-agent's role, when it is the one asking. */
+  agent?: string
+) => Promise<boolean>
 
 export function requestApproval(
   messageId: string,
@@ -28,12 +36,24 @@ export function requestApproval(
   input: Record<string, unknown>,
   emit: (event: StreamEvent) => void,
   summary?: string,
-  critical?: boolean
+  critical?: boolean,
+  before?: string | null,
+  agent?: string
 ): Promise<boolean> {
   const requestId = randomUUID()
   return new Promise((resolve) => {
     pending.set(requestId, { messageId, resolve })
-    emit({ type: 'approval-request', messageId, requestId, tool, input, ...(summary ? { summary } : {}), ...(critical ? { critical } : {}) })
+    emit({
+      type: 'approval-request',
+      messageId,
+      requestId,
+      tool,
+      input,
+      ...(summary ? { summary } : {}),
+      ...(critical ? { critical } : {}),
+      ...(before !== undefined ? { before } : {}),
+      ...(agent ? { agent } : {})
+    })
   })
 }
 

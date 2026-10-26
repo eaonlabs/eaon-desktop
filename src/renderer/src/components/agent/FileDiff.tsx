@@ -1,5 +1,6 @@
 // Adapted from AICSS (MIT, Copyright (c) 2026 AICSS); see components/aicss/LICENSE.
 import { memo, useMemo, type JSX } from 'react'
+import { diffLines as longDiff, splitLines } from '../chatCode/diff/model'
 
 /**
  * The change an `edit_file` or `write_file` call made, as a unified diff: a
@@ -34,12 +35,8 @@ interface NumberedRow extends Row {
 const MAX_LINES = 600
 
 function diffLines(before: string[], after: string[]): Row[] {
-  if (before.length > MAX_LINES || after.length > MAX_LINES) {
-    return [
-      ...before.map((text): Row => ({ kind: 'del', text })),
-      ...after.map((text): Row => ({ kind: 'add', text }))
-    ]
-  }
+  // A long file (a write over one) goes to the diff that doesn't build a table.
+  if (before.length > MAX_LINES || after.length > MAX_LINES) return longDiff(before, after).map(({ kind, text }): Row => ({ kind, text }))
 
   const n = before.length
   const m = after.length
@@ -75,10 +72,10 @@ function diffLines(before: string[], after: string[]): Row[] {
 
 /** Lines added and removed by one change, counted the way the diff draws them. */
 export function diffStats(before: string, after: string): { added: number; removed: number } {
-  if (before.length === 0) return { added: after.length === 0 ? 0 : after.split('\n').length, removed: 0 }
+  if (before.length === 0) return { added: splitLines(after).length, removed: 0 }
   let added = 0
   let removed = 0
-  for (const row of diffLines(before.split('\n'), after.split('\n'))) {
+  for (const row of diffLines(splitLines(before), splitLines(after))) {
     if (row.kind === 'add') added++
     else if (row.kind === 'del') removed++
   }
@@ -195,7 +192,8 @@ export const FileDiff = memo(function FileDiff({
     // A brand-new file has no "before": every line reads as an addition rather
     // than as a diff against an empty string, which would look the same but
     // costs a table. Its lines are numbered from 1, since that is the file.
-    const plain = created ? after.split('\n').map((text): Row => ({ kind: 'add', text })) : diffLines(before.split('\n'), after.split('\n'))
+    // A final newline ends the last line; it isn't a line of its own.
+    const plain = created ? splitLines(after).map((text): Row => ({ kind: 'add', text })) : diffLines(splitLines(before), splitLines(after))
     return numberRows(plain, created ? null : (oldStart ?? null), created ? 1 : (newStart ?? null))
   }, [before, after, created, oldStart, newStart])
 

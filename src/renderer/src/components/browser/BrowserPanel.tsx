@@ -300,7 +300,7 @@ export function BrowserPanel({ embedded = false }: { embedded?: boolean } = {}):
           <button
             className="icon-btn"
             aria-label={expanded ? 'Restore panel' : 'Expand browser'}
-            title={expanded ? 'Back beside the conversation' : 'Fill the window'}
+            title={expanded ? 'Back to the side' : 'Fill the window'}
             onClick={() => useBrowser.getState().setExpanded(!expanded)}
           >
             {expanded ? <Minimize2 size={14} strokeWidth={1.9} /> : <Maximize2 size={14} strokeWidth={1.9} />}
@@ -681,7 +681,7 @@ function FindBar({ view, onClose }: { view: () => Electron.WebviewTag | null; on
 
   return (
     <div className="browser__find">
-      <input
+      <input aria-label="Find in page"
         ref={input}
         value={query}
         placeholder="Find in page"

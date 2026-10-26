@@ -518,8 +518,10 @@ export const store = {
   /**
    * Chat had one folder for every chat; now each project has its own, and
    * only a project's chats code. The folder chosen before becomes a project,
-   * so it is still there to pick. The workspace keeps its folder for what
-   * runs outside a chat (scheduled tasks, skills); Chat no longer reads it.
+   * so it is still there to pick, and the chats that worked in it (every chat
+   * in Chat that wasn't in a project) go into it, so they keep coding there
+   * instead of becoming ordinary chats. The workspace keeps its folder for
+   * what runs outside a chat (scheduled tasks, skills); Chat no longer reads it.
    */
   projectForChatFolder(now = Date.now()): void {
     const chat = this.getWorkspaces().find((w) => w.id === CHAT_WORKSPACE_ID)
@@ -528,7 +530,12 @@ export const store = {
     const projects = this.getProjects()
     if (projects.some((p) => p.workspaceId === chat.id && p.folder === folder)) return
     const name = folder.split(/[\\/]/).filter(Boolean).pop() ?? folder
-    this.saveProjects([...projects, { id: randomUUID(), workspaceId: chat.id, name, instructions: '', createdAt: now, folder }])
+    const project = { id: randomUUID(), workspaceId: chat.id, name, instructions: '', createdAt: now, folder }
+    this.saveProjects([...projects, project])
+    const chats = readDoc('chats.json', CHATS_DOC)
+    if (!chats.some((c) => c.workspaceId === chat.id && !c.projectId)) return
+    chatsCache = chats.map((c) => (c.workspaceId === chat.id && !c.projectId ? { ...c, projectId: project.id } : c))
+    writeJsonAsync('chats.json', chatsCache)
   },
   saveProjects(projects: Project[]): Project[] {
     writeJson('projects.json', projects)

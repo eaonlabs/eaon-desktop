@@ -70,7 +70,7 @@ export function RoomPage({ room }: { room: WorkerRoom }): JSX.Element {
         className="chat-header--float"
         left={
           <>
-            <button className="header-btn worker-back" onClick={() => selectRoom(null)} title="Back to the team">
+            <button className="header-btn worker-back" onClick={() => selectRoom(null)} title="Back to the team" aria-label="Back to the team">
               <ArrowLeft size={14} strokeWidth={2} />
               <span>Team</span>
             </button>
@@ -252,7 +252,7 @@ function RoomComposer({ room, members }: { room: WorkerRoom; members: Worker[] }
             ))}
           </div>
         )}
-        <textarea
+        <textarea aria-label={`Message ${room.name}`}
           ref={box}
           className="composer__input"
           rows={1}
@@ -403,6 +403,15 @@ export function RoomEditor({ roomId }: { roomId: string | null }): JSX.Element {
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const valid = name.trim().length > 0 && members.length > 0 && members.length <= MAX_ROOM_MEMBERS
+  // Said beside the greyed-out button, so it's clear what to change.
+  const why =
+    members.length > MAX_ROOM_MEMBERS
+      ? `A group chat can have up to ${MAX_ROOM_MEMBERS} workers. Take out ${members.length - MAX_ROOM_MEMBERS}.`
+      : members.length === 0 && workers.length > 0
+        ? 'Pick at least one worker.'
+        : !name.trim()
+          ? 'Give it a name.'
+          : null
 
   const submit = async (): Promise<void> => {
     if (!valid || saving) return
@@ -426,10 +435,15 @@ export function RoomEditor({ roomId }: { roomId: string | null }): JSX.Element {
       width={520}
       actions={
         <>
+          {why && (
+            <span className="modal__why" role="status">
+              {why}
+            </span>
+          )}
           <button className="btn btn--ghost" onClick={closeRoomEditor}>
             Cancel
           </button>
-          <button className="btn btn--primary" disabled={!valid || saving} onClick={() => void submit()}>
+          <button className="btn btn--primary" disabled={!valid || saving} title={why ?? undefined} onClick={() => void submit()}>
             {existing ? 'Save' : 'Create group chat'}
           </button>
         </>
@@ -470,7 +484,21 @@ export function TeamDialog(): JSX.Element {
   const [saving, setSaving] = useState(false)
   const room = MAX_WORKERS - workers.length
   const total = picked.length + existing.length
-  const valid = total > 0 && total <= MAX_ROOM_MEMBERS && picked.length <= room
+  // A name, as a group chat needs one: a blank one was quietly called "Team".
+  const valid = total > 0 && total <= MAX_ROOM_MEMBERS && picked.length <= room && name.trim().length > 0
+  // Said beside the greyed-out button, so it's clear what to change.
+  const why =
+    total === 0
+      ? 'Pick at least one specialist or worker.'
+      : total > MAX_ROOM_MEMBERS
+        ? `A team can have up to ${MAX_ROOM_MEMBERS} workers, and ${total} are picked. Take out ${total - MAX_ROOM_MEMBERS}.`
+        : picked.length > room
+          ? room > 0
+            ? `You can have ${MAX_WORKERS} workers in all; there’s room for ${room} more specialist${room === 1 ? '' : 's'}.`
+            : `You have the most workers you can (${MAX_WORKERS}). Add existing ones instead.`
+          : !name.trim()
+            ? 'Give the team a name.'
+            : null
   const close = (): void => openTeamDialog(false)
   const templates = useMemo(() => WORKER_TEMPLATES, [])
 
@@ -480,7 +508,7 @@ export function TeamDialog(): JSX.Element {
     setError(null)
     try {
       const roles = picked.map((id) => templates.find((t) => t.id === id)!).map((t) => ({ role: t.role, purpose: t.purpose, personality: t.personality, color: t.color }))
-      const created = await createTeam({ name: name.trim() || 'Team', roles, memberIds: existing, kickoff: kickoff.trim() })
+      const created = await createTeam({ name: name.trim(), roles, memberIds: existing, kickoff: kickoff.trim() })
       close()
       selectRoom(created.id)
     } catch (e) {
@@ -497,10 +525,15 @@ export function TeamDialog(): JSX.Element {
       width={600}
       actions={
         <>
+          {why && (
+            <span className="modal__why" role="status">
+              {why}
+            </span>
+          )}
           <button className="btn btn--ghost" onClick={close}>
             Cancel
           </button>
-          <button className="btn btn--primary" disabled={!valid || saving} onClick={() => void submit()}>
+          <button className="btn btn--primary" disabled={!valid || saving} title={why ?? undefined} onClick={() => void submit()}>
             {saving ? 'Creating…' : kickoff.trim() ? 'Create team and start' : 'Create team'}
           </button>
         </>
@@ -555,7 +588,6 @@ export function TeamDialog(): JSX.Element {
             onChange={(e) => setKickoff(e.target.value)}
           />
         </label>
-        {total > MAX_ROOM_MEMBERS && <p className="worker-editor__hint">A team can have up to {MAX_ROOM_MEMBERS} workers.</p>}
         {error && <div className="msg__error">{error}</div>}
       </div>
     </Modal>

@@ -120,7 +120,7 @@ export function EaonCodePage(): JSX.Element {
                   : (status?.binaryPath ?? 'Leave empty to use the installed copy, or eaon-code on your PATH.')
             }
           >
-            <input
+            <input aria-label="Path to Eaon Code"
               className="input code-settings__path"
               value={draftPath}
               placeholder="Auto-detect"

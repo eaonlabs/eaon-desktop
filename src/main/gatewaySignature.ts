@@ -6,7 +6,7 @@ import { app } from 'electron'
  * (Access), the gateway answers nothing but requests signed with an Eaon
  * app's secret; open, it still checks a signature that comes with one. Every
  * request main makes to it is signed here, through providerFetch: Eaon Lite,
- * Eaon Free, their model lists and code redemption, from the app, the Eaon
+ * Eaon Event, their model lists and code redemption, from the app, the Eaon
  * CLI and the worker computer alike.
  *
  * The scheme is the gateway's own (openai-gateway/app-auth.js): an

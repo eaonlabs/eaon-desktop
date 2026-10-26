@@ -1287,11 +1287,11 @@ body[data-platform='linux'] .browser__tabs {
   outline: none;
 }
 .header-btn--primary {
-  background: var(--accent);
+  background: var(--accent-fill);
   color: var(--on-accent, #fff);
 }
 .header-btn--primary:hover {
-  background: color-mix(in srgb, var(--accent), #000 10%);
+  background: color-mix(in srgb, var(--accent-fill), #000 10%);
   color: var(--on-accent, #fff);
 }
 .header-btn:disabled,
@@ -1641,4 +1641,31 @@ body[data-platform='linux'] .browser__tabs {
 }
 .pr-merge__close {
   color: var(--danger);
+}
+
+/* Settings → Models → Hugging Face: a speech-to-text model, which chat can't run (HubBrowser.tsx). */
+.model-speech-note {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: var(--r-lg);
+  background: var(--hover);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+}
+.model-speech-note > svg {
+  flex: none;
+  color: var(--text-3);
+}
+.model-speech-note > span {
+  flex: 1 1 260px;
+  min-width: 0;
+}
+.model-speech-note .btn {
+  flex: none;
+  margin-left: auto;
 }

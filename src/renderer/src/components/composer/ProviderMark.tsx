@@ -31,6 +31,7 @@ const MONO = new Set([
   'baseten',
   'cursor',
   'droid',
+  'eaon',
   'grok',
   'githubcopilot',
   'groq',
@@ -101,7 +102,10 @@ const MARK: Record<string, string> = {
   'lm-studio': 'lmstudio',
   vllm: 'vllm',
   jan: 'jan',
+  // Eaon's own: Eaon Lite, Eaon Event and the models on this computer share its mark.
   eaon: 'eaon',
+  'eaon-gateway': 'eaon',
+  'eaon-free': 'eaon',
   'eaon-local': 'eaon',
   // Pi, the coding agent (Usage & limits): its own mark from pi.dev.
   pi: 'pi',

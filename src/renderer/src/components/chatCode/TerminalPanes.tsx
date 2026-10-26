@@ -87,9 +87,9 @@ function TerminalHost({ tab, focused, split, onFocus }: { tab: DrawerTab; focuse
 }
 
 /**
- * The bar over a terminal's corner: split right, split down, a new one,
- * close (after asking; closing stops what runs in it). `extra` goes first:
- * the drawer's scripts.
+ * The terminal's buttons, down its right edge beside the output: split
+ * right, split down, a new one, close (after asking; closing stops what runs
+ * in it). `extra` goes first: the drawer's scripts.
  */
 export function TerminalToolbar({
   pane,
@@ -106,7 +106,7 @@ export function TerminalToolbar({
 }): JSX.Element {
   const [confirm, setConfirm] = useState(false)
   return (
-    <div className="term-tools" role="toolbar" aria-label="Terminal">
+    <div className="term-tools" role="toolbar" aria-orientation="vertical" aria-label="Terminal">
       <SelectionToChat paneId={pane.id} />
       {extra}
       <button type="button" className="term-tools__btn" title="Split right" aria-label="Split right" onClick={() => onSplit('right')}>
@@ -162,9 +162,15 @@ function SelectionToChat({ paneId }: { paneId: string }): JSX.Element | null {
     notify(lines.length > MAX_LINES ? `Added the last ${MAX_LINES} lines to your message` : 'Added to your message')
   }
   return (
-    <button type="button" className="term-tools__btn term-tools__btn--text" title="Put the selected output in your message" onMouseDown={(e) => e.preventDefault()} onClick={add}>
-      <MessageSquareQuote size={13} strokeWidth={1.9} />
-      Add to message
+    <button
+      type="button"
+      className="term-tools__btn"
+      aria-label="Add to message"
+      title="Put the selected output in your message"
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={add}
+    >
+      <MessageSquareQuote size={14} strokeWidth={1.9} />
     </button>
   )
 }
@@ -172,14 +178,27 @@ function SelectionToChat({ paneId }: { paneId: string }): JSX.Element | null {
 /** The dock's Terminal surface: its own shells, split as it likes. */
 export function DockTerminal({ surfaceId, title, onNew }: { surfaceId: string; title: string; onNew: () => void }): JSX.Element {
   const folder = useChatCode((s) => s.folder)
-  const panes = useChatCode(useShallow((s) => s.tabs.filter((t) => t.dock === surfaceId)))
+  // This project's shells in the surface; another project's wait for its chat.
+  const panes = useChatCode(useShallow((s) => s.tabs.filter((t) => t.dock === surfaceId && t.cwd === s.folder)))
   const [active, setActive] = useState<string | null>(null)
   const themed = useTerminalLook(true)
   useEffect(() => {
     if (folder) useChatCode.getState().openDockTerminal(surfaceId, title)
   }, [folder, surfaceId, title])
   const current = panes.find((p) => p.id === active) ?? panes[0]
-  if (!current) return <div className="dock-term dock-term--empty">{folder ? null : 'Pick a folder for this chat to open a terminal in it.'}</div>
+  if (!current)
+    return (
+      <div className="dock-term dock-term--empty">
+        {folder ? (
+          <button type="button" className="btn btn--sm" onClick={() => useChatCode.getState().openDockTerminal(surfaceId, title)}>
+            <Plus size={14} strokeWidth={1.9} />
+            New terminal
+          </button>
+        ) : (
+          'Move this chat to a project to open a terminal in its folder.'
+        )}
+      </div>
+    )
   return (
     <div className="dock-term" style={themed}>
       <TerminalGroup panes={panes} active={current.id} onFocus={setActive} />
@@ -191,8 +210,9 @@ export function DockTerminal({ surfaceId, title, onNew }: { surfaceId: string; t
         }}
         onNew={onNew}
         onClose={() => {
-          // The surface goes with its last shell.
-          if (panes.length === 1) return useIde.getState().closeSurface(surfaceId)
+          // The surface goes with its last shell, unless another project still has one in it.
+          const elsewhere = useChatCode.getState().tabs.some((t) => t.dock === surfaceId && t.cwd !== folder)
+          if (panes.length === 1 && !elsewhere) return useIde.getState().closeSurface(surfaceId)
           const index = panes.findIndex((p) => p.id === current.id)
           useChatCode.getState().closeTab(current.id)
           setActive(panes[index + 1]?.id ?? panes[index - 1]?.id ?? null)

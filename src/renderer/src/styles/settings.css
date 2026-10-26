@@ -98,30 +98,53 @@
   flex-direction: column;
 }
 
+/* The rail's Search button (below): only in a narrow window. */
+.settings__search-btn {
+  display: none;
+}
+
 /* Narrow windows (a split screen, a small laptop, or zoomed in): at the
    window's 720px minimum, 252px of navigation left Model providers' key
    panel about 90px, one word per line. The nav becomes an icon rail; each
-   item keeps its name as a tooltip and an accessible label (SettingsShell). */
+   item keeps its name as a tooltip and an accessible label (SettingsShell).
+   The rail is as wide as the window's buttons need (the traffic lights end
+   at x 79), and its Search button opens the whole panel over the page,
+   names and search field included, until a page is picked. */
 @media (max-width: 859px) {
   .settings__nav {
-    width: 68px;
-    flex-basis: 68px;
+    position: relative;
+    z-index: 20;
+    width: max(68px, calc(var(--window-controls-left) + var(--sidebar-gap)));
+    flex-basis: max(68px, calc(var(--window-controls-left) + var(--sidebar-gap)));
   }
-  .settings__search,
-  .settings__back span,
-  .settings__nav .nav-item__label {
+  .settings__nav[data-expanded] .settings__nav-panel {
+    position: absolute;
+    top: var(--sidebar-gap);
+    bottom: var(--sidebar-gap);
+    left: var(--sidebar-gap);
+    width: calc(var(--sidebar-w) - 2 * var(--sidebar-gap));
+    background: var(--menu-bg);
+    -webkit-backdrop-filter: var(--frost);
+    backdrop-filter: var(--frost);
+    box-shadow: var(--shadow-menu);
+  }
+  .settings__nav:not([data-expanded]) :is(.settings__search, .settings__back span, .nav-item__label, .nav-item__where) {
     display: none;
   }
-  .settings__back {
+  .settings__nav:not([data-expanded]) .settings__search-btn {
+    display: flex;
+  }
+  .settings__nav:not([data-expanded]) .settings__back,
+  .settings__search-btn {
     justify-content: center;
     padding: 0;
   }
-  .settings__nav .nav-item {
+  .settings__nav:not([data-expanded]) .nav-item {
     justify-content: center;
     padding: 0;
   }
   /* The group names are hidden; a hairline keeps the groups apart. */
-  .settings__group {
+  .settings__nav:not([data-expanded]) .settings__group {
     height: 1px;
     margin: 8px 12px;
     padding: 0;
@@ -129,12 +152,24 @@
     font-size: 0;
     background: var(--border-soft);
   }
-  .settings__group:first-child {
+  .settings__nav:not([data-expanded]) .settings__group:first-child {
     display: none;
   }
   .settings__scroll {
     padding: 0 16px 90px;
   }
+}
+.settings__search-btn {
+  align-items: center;
+  height: 30px;
+  margin: 0 7px 4px;
+  width: calc(100% - 14px);
+  border-radius: var(--r-sm);
+  color: var(--text-2);
+}
+.settings__search-btn:hover {
+  background: var(--hover);
+  color: var(--text);
 }
 .settings__titlebar {
   /* Matches the nav panel's inset row so both columns start together. */
@@ -1136,11 +1171,11 @@ body[data-see-through='on'] .glass-preview__menu {
 /* ---- Provider-accent button variants (used only in this area) ---- */
 
 .btn--provider {
-  background: var(--provider-accent);
+  background: var(--accent-fill);
   color: var(--on-accent);
 }
 .btn--provider:hover:not(:disabled) {
-  background: var(--provider-accent-strong);
+  background: color-mix(in srgb, var(--accent-fill), #000 12%);
 }
 .btn--provider-ghost {
   background: none;
@@ -1510,7 +1545,8 @@ body[data-reduce-motion='on'] .credits-heart {
 .star-card {
   position: fixed;
   right: 20px;
-  bottom: 20px;
+  /* Above the message box when it would cover it (useCornerClear, StarPrompt.tsx). */
+  bottom: var(--corner-card-bottom, 20px);
   z-index: 96;
   width: min(360px, calc(100vw - 40px));
   padding: 14px 16px 16px;
@@ -1593,40 +1629,6 @@ body[data-reduce-motion='on'] .star-card {
 }
 .star-card__btn:disabled {
   opacity: 0.6;
-}
-
-/* The Eaon Free offer (components/FreeCreditsOffer.tsx), in the star card's shape. */
-.free-card__icon {
-  flex: none;
-  color: var(--accent);
-}
-.free-card__btn--claim {
-  flex: 1;
-  background: color-mix(in srgb, var(--accent) 16%, var(--surface-2));
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 24%, transparent);
-}
-.free-card__btn--claim:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--accent) 24%, var(--surface-2));
-}
-.free-card__code {
-  margin-top: 10px;
-  font-size: var(--fs-xs);
-  color: var(--text-3);
-}
-.free-card__code:hover:not(:disabled) {
-  color: var(--text);
-  text-decoration: underline;
-  text-underline-offset: 2px;
-}
-/* The event code box, opened in the card. */
-.free-card__redeem .free-code {
-  margin-top: 10px;
-  padding-top: 10px;
-}
-.free-card__error {
-  margin: 8px 0 0;
-  font-size: var(--fs-xs);
-  color: var(--danger);
 }
 
 /* ---------------- Settings → ADE: terminal theme ---------------- */

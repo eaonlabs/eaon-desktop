@@ -943,6 +943,18 @@ button.ws-row:hover,
 .composer-dock[data-card] > .thread-jump {
   margin-right: 0;
 }
+/* What floats over the thread's right edge keeps to the left of the card:
+   the find bar sat on the card's folder row. */
+.main:has(> .thread[data-card]) > .find-bar {
+  right: calc(16px + var(--ws-card-w) + 12px);
+  width: min(340px, calc(100% - var(--ws-card-w) - 60px));
+}
+.main:has(> .thread[data-card]) > .minimap {
+  right: calc(16px + var(--ws-card-w) + 6px);
+}
+.main:has(> .thread[data-card]) {
+  --ws-card-w: 252px;
+}
 
 @media (prefers-reduced-motion: reduce) {
   .ws-card {

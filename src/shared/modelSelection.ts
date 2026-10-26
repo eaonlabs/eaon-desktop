@@ -76,9 +76,9 @@ export interface ProviderReadiness {
   action: SetupAction | null
 }
 
-/** Signed in, keyed, or local: something to send requests with. */
+/** Signed in, keyed, local, or needing no key: something to send requests with. */
 export function hasCredentials(provider: Provider): boolean {
-  return provider.local || provider.hasKey || Boolean(provider.signedIn)
+  return provider.local || provider.hasKey || Boolean(provider.signedIn) || provider.auth === 'none'
 }
 
 /**
@@ -122,6 +122,12 @@ export function providerReadiness(provider: Provider): ProviderReadiness {
         ? `${provider.name} has no models yet. Refresh its list or add a model id.`
         : `${provider.name} offers no models Eaon can use on this account.`
     return { state: 'attention', label: 'No models', reason, action: 'open-settings' }
+  }
+  // A local server keeps the list it last gave; when the latest look at it
+  // failed (every model is that kept copy), it isn't running now, whatever
+  // the list says. The setup's "✓ LM Studio" and Settings' green dot said so.
+  if (provider.local && provider.id !== LOCAL_MODEL_PROVIDER && provider.models.every((m) => m.source?.kind === 'cache')) {
+    return { state: 'unavailable', label: 'Not running', reason: `${provider.name} isn’t running.`, action: 'start-local' }
   }
   return { state: 'ready', label: provider.local ? 'Running' : provider.auth === 'oauth' ? 'Signed in' : 'Ready', reason: null, action: null }
 }
@@ -296,7 +302,8 @@ export function engineReadiness(engine: EngineId, status: EngineStatus | null): 
     case 'signed-out':
       return { state: 'setup', label: 'Not signed in', reason: `Sign in to ${name} to use its models.`, action: 'sign-in' }
     default:
-      return { state: 'attention', label: 'Not checked', reason: status.error ?? `Eaon couldn’t tell whether ${name} is signed in.`, action: 'retry' }
+      // A check that failed isn't one still to come: "Couldn't check", as Settings → Agent engines says it.
+      return { state: 'attention', label: status.error ? 'Couldn’t check' : 'Not checked', reason: status.error ?? `Eaon couldn’t tell whether ${name} is signed in.`, action: 'retry' }
   }
 }
 

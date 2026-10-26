@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { MAX_AUDIO_BYTES, NO_KEY_MESSAGE, pickTranscriber, transcribe } from '../src/main/features/voice/transcribe'
 import { followLevel, formatElapsed, levelFromSamples } from '../src/renderer/src/components/composer/voiceLevel'
 import { joinTranscript } from '../src/renderer/src/components/composer/useDictation'
+import { canTranscribe, hubSpeechEnglishOnly, hubSpeechId, hubSpeechLabel, isSpeechRepo, offeredSpeechModel, whisperModelFiles } from '../src/shared/speech'
 
 /**
  * Dictation turns a recording into text with the user's own OpenAI or Groq
@@ -150,4 +151,41 @@ test('when the first provider can’t transcribe (key refused, quota, unreachabl
   // Both failing reports the first provider's problem.
   const down = fakeFetch([{ status: 401, body: { error: { message: 'bad key' } } }])
   await assert.rejects(transcribe(audio, 'audio/webm', { getKey: keys({ openai: 'sk', groq: 'gsk' }), fetch: down.fetch }), /OpenAI didn't accept the API key/)
+})
+
+test('where dictation isn’t set up, the model offered is the local one picked, else one already downloaded, else the quickest download', () => {
+  const kotoba = { id: hubSpeechId('kotoba-tech/kotoba-whisper-v2.0-ggml', 'ggml-kotoba-whisper-v2.0-q5_0.bin'), label: 'Kotoba Whisper v2.0 · Q5_0', blurb: '', file: 'k', bytes: 1, sha256: '', repoId: 'kotoba-tech/kotoba-whisper-v2.0-ggml' }
+  assert.equal(offeredSpeechModel('large-v3-turbo', { downloaded: ['small'], hub: [] }).id, 'large-v3-turbo')
+  assert.equal(offeredSpeechModel(null, { downloaded: ['small'], hub: [] }).id, 'small')
+  assert.equal(offeredSpeechModel(null, { downloaded: [kotoba.id], hub: [kotoba] }).label, 'Kotoba Whisper v2.0 · Q5_0')
+  assert.equal(offeredSpeechModel(null).id, 'base')
+  assert.equal(offeredSpeechModel('no-such-model').id, 'base')
+})
+
+test('from a Hugging Face repo, only whisper.cpp model files are offered: never GGUF, training state, CTranslate2 or Core ML files', () => {
+  assert.deepEqual(whisperModelFiles('royshilkrot/whisper-medium-korean-ggml', ['training_args.bin', 'whisper-medium-korean.bin', 'model.safetensors']), ['whisper-medium-korean.bin'])
+  assert.deepEqual(whisperModelFiles('BricksDisplay/whisper-ggml', ['ggml-base-encoder.mlmodelc/weights/weight.bin', 'ggml-base-q5_1.bin']), ['ggml-base-q5_1.bin'])
+  assert.deepEqual(whisperModelFiles('maleo-ai/whisper-small-id', ['ct2-int8/model.bin', 'ggml-small-id-q8_0.bin', 'pytorch_model.bin']), ['ggml-small-id-q8_0.bin'])
+  assert.deepEqual(whisperModelFiles('nizom333/whisper-medium-uzbek-gguf', ['whisper-medium-uzbek-Q8_0.gguf']), [])
+  // A .bin in a repo that says nothing of ggml could be anything.
+  assert.deepEqual(whisperModelFiles('someone/whisper-small-fr', ['model-weights.bin']), [])
+})
+
+test('Hugging Face model files get readable names', () => {
+  assert.equal(hubSpeechLabel('ggerganov/whisper.cpp', 'ggml-base.en-q5_1.bin'), 'Whisper Base English · Q5_1')
+  assert.equal(hubSpeechLabel('ggerganov/whisper.cpp', 'ggml-large-v3-turbo.bin'), 'Whisper Large v3 Turbo')
+  assert.equal(hubSpeechLabel('kotoba-tech/kotoba-whisper-v2.0-ggml', 'ggml-kotoba-whisper-v2.0-q5_0.bin'), 'Kotoba Whisper v2.0 · Q5_0')
+  assert.equal(hubSpeechLabel('Limtech/whisper-large-v3-russian-ggml', 'ggml-model.bin'), 'Whisper Large v3 Russian')
+  assert.equal(hubSpeechLabel('cstr/whisper-large-v3-turbo-german-ggml', 'ggml-model-q5_0.bin'), 'Whisper Large v3 Turbo German · Q5_0')
+  assert.equal(hubSpeechEnglishOnly('ggml-small.en-q8_0.bin'), true)
+  assert.equal(hubSpeechEnglishOnly('ggml-small-q8_0.bin'), false)
+})
+
+test('chat-only runtimes are never offered for speech, and speech repos are told apart from chat models', () => {
+  for (const id of ['eaon-local', 'ollama', 'lm-studio', 'llama-cpp', 'mlx', 'jan']) assert.equal(canTranscribe({ id }), false, id)
+  for (const id of ['openai', 'groq', 'vllm', 'custom-whisper']) assert.equal(canTranscribe({ id }), true, id)
+  assert.equal(isSpeechRepo({ id: 'nizom333/whisper-medium-uzbek-gguf' }), true)
+  assert.equal(isSpeechRepo({ id: 'someone/voxtral-gguf', pipeline_tag: 'automatic-speech-recognition' }), true)
+  assert.equal(isSpeechRepo({ id: 'unsloth/Qwen3-8B-GGUF', pipeline_tag: 'text-generation', tags: ['gguf'] }), false)
+  assert.equal(isSpeechRepo({ id: 'bartowski/Mistral-Small-Instruct-GGUF' }), false)
 })

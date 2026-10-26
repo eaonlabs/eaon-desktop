@@ -29,6 +29,10 @@
   width: 100%;
   height: 100%;
 }
+/* A video wallpaper shown as it is: filling the display, cropped like a cover. */
+.see-through__video {
+  object-fit: cover;
+}
 .see-through__tint {
   position: absolute;
   inset: 0;
@@ -139,14 +143,17 @@ body[data-see-through='on'] :is(.mode-switch, .thread-jump, .review__summary, .r
 }
 /* A plain button is a light tint of the text colour, which reads on a panel
    but leaves it nearly clear on the picture: a frosted pill instead, lifted
-   a step off the theme's colour so it still reads as a button on a panel. */
-body[data-see-through='on'] .btn:not(.btn--primary, .btn--accent, .btn--ghost, .btn--danger) {
+   a step off the theme's colour so it still reads as a button on a panel.
+   Buttons with a fill and ink of their own (a provider's accent, whose ink
+   turns dark on a light accent) keep both: the pill under their ink was
+   dark text on dark glass. */
+body[data-see-through='on'] .btn:not(.btn--primary, .btn--accent, .btn--ghost, .btn--danger, .btn--provider, .btn--provider-ghost) {
   background: color-mix(in srgb, color-mix(in srgb, var(--canvas), var(--fg) 14%) 62%, transparent);
   box-shadow: inset 0 0 0 0.5px var(--border);
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
 }
-body[data-see-through='on'] .btn:not(.btn--primary, .btn--accent, .btn--ghost, .btn--danger):hover:not(:disabled) {
+body[data-see-through='on'] .btn:not(.btn--primary, .btn--accent, .btn--ghost, .btn--danger, .btn--provider, .btn--provider-ghost):hover:not(:disabled) {
   background: color-mix(in srgb, color-mix(in srgb, var(--canvas), var(--fg) 22%) 70%, transparent);
 }
 body[data-see-through='on'] .switch:not([data-on='true']) {
@@ -157,6 +164,14 @@ body[data-see-through='on'] .mode-switch__option[data-active] {
   box-shadow: inset 0 0 0 0.5px color-mix(in srgb, var(--fg) 14%, transparent);
 }
 
+/* The sidebars' graded edge blur (app.css .edge-veil) sits inside the
+   frosted sidebar, and a blur inside frosted glass sees only the glass's own
+   tint, not the wallpaper under it: over a bright picture it showed as a dark
+   band at both ends of the list. Here the list's own fade is the whole effect. */
+body[data-see-through='on'] .edge-veil {
+  display: none;
+}
+
 /* What floats over everything is read, not looked through: near opaque. */
 body[data-see-through='on'] :is(.modal, .approval, .usage-card, .update-toast, .peek, .menu, .star-card) {
   background: var(--glass-float);
@@ -165,6 +180,12 @@ body[data-see-through='on'] :is(.modal, .approval, .usage-card, .update-toast, .
 }
 body[data-see-through='on'] .menu.usage-card {
   background: var(--glass-float);
+}
+/* Another chat's question floating over a page (agent/ElsewhereAsk.tsx). */
+body[data-see-through='on'] .elsewhere-float .elsewhere-ask {
+  background: var(--glass-float);
+  -webkit-backdrop-filter: var(--glass-blur-float);
+  backdrop-filter: var(--glass-blur-float);
 }
 
 /* Lists, cards and tiles on every page: frosted glass like the sidebar's,
@@ -214,6 +235,8 @@ body[data-see-through='on'] .msg--user {
   backdrop-filter: none;
 }
 body[data-see-through='on'] .composer,
+body[data-see-through='on'] .queued,
+body[data-see-through='on'] .elsewhere-ask,
 body[data-see-through='on'] .approval[data-variant='dock'],
 body[data-see-through='on'] .composer__above .composer-pill,
 body[data-see-through='on'] .suggestion-chip {
@@ -264,6 +287,83 @@ body[data-see-through='on'] .home__field {
   border-radius: var(--r-sm);
   box-shadow: 0 0 0 1px var(--border-soft);
   animation: chip-in 220ms var(--ease) both;
+}
+
+/* Settings → Appearance → Style: each style as a preview of the wallpaper itself. */
+.wallpaper-styles {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(108px, 1fr));
+  gap: 14px 10px;
+  padding: 2px 16px 16px;
+}
+.wallpaper-styles__item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  text-align: left;
+  cursor: pointer;
+}
+.wallpaper-styles__frame {
+  position: relative;
+  display: block;
+  aspect-ratio: 232 / 145;
+  border-radius: var(--r-md);
+  overflow: hidden;
+  background: var(--surface-2);
+  box-shadow: 0 0 0 1px oklch(1 0 0 / 0.1);
+  transition:
+    box-shadow var(--dur) var(--ease),
+    transform 120ms var(--ease);
+}
+[data-theme='light'] .wallpaper-styles__frame {
+  box-shadow: 0 0 0 1px oklch(0 0 0 / 0.1);
+}
+.wallpaper-styles__item:hover .wallpaper-styles__frame {
+  box-shadow: 0 0 0 1px var(--border-strong, var(--text-4));
+}
+.wallpaper-styles__item[aria-checked='true'] .wallpaper-styles__frame {
+  box-shadow:
+    0 0 0 2px var(--surface-1),
+    0 0 0 4px var(--accent);
+}
+.wallpaper-styles__item:active .wallpaper-styles__frame {
+  transform: scale(0.96);
+}
+.wallpaper-styles__item:focus-visible {
+  outline: none;
+}
+.wallpaper-styles__item:focus-visible .wallpaper-styles__frame {
+  box-shadow:
+    0 0 0 2px var(--surface-1),
+    0 0 0 4px var(--focus-ring);
+}
+.wallpaper-styles__canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+/* Waiting on the picture: the frame's own colour, not a black box. */
+.wallpaper-styles__canvas[data-empty] {
+  visibility: hidden;
+}
+.wallpaper-styles__tint {
+  position: absolute;
+  inset: 0;
+  background: var(--canvas);
+  pointer-events: none;
+}
+.wallpaper-styles__label {
+  padding-left: 2px;
+  font-size: var(--fs-xs);
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wallpaper-styles__item[aria-checked='true'] .wallpaper-styles__label {
+  color: var(--text);
+  font-weight: 500;
 }
 
 /* A question or approval card sits in the thread, whose fade-out mask keeps

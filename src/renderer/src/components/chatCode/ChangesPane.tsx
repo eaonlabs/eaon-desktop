@@ -24,7 +24,7 @@ import {
 } from 'lucide-react'
 import type { ChatGitStatus } from '@shared/chatCode'
 import type { ChatToolPart } from '@shared/types'
-import { useApp } from '../../state/store'
+import { anyRun, codeFolder, useApp } from '../../state/store'
 import { CLIPBOARD_FAILED, copyText } from '../../lib/clipboard'
 import { FileIcon } from '../agent/FileIcon'
 import { MenuItem, MenuSearch, MenuSeparator, Popover, Switch, useDisclosure } from '../ui'
@@ -70,6 +70,18 @@ const store = (key: string, value: string): void => {
   }
 }
 
+const isEdit = (p: ChatToolPart): boolean => p.status === 'done' && (p.name === 'edit_file' || p.name === 'write_file')
+
+/** Flat [part, turn, at, …] triples back into edits, made again only when the list changes. */
+const toEdits = (flat: (ChatToolPart | number)[]): AgentEdit[] => {
+  const edits: AgentEdit[] = []
+  for (let i = 0; i < flat.length; i += 3) {
+    const edit = partEdit(flat[i] as ChatToolPart, flat[i + 1] as number, flat[i + 2] as number)
+    if (edit) edits.push(edit)
+  }
+  return edits
+}
+
 /** The open chat's finished edits, re-made only when a call finishes, not on every streamed token. */
 function useAgentEdits(): AgentEdit[] {
   const parts = useApp(
@@ -79,19 +91,38 @@ function useAgentEdits(): AgentEdit[] {
       for (const m of s.activeChat()?.messages ?? []) {
         if (m.role !== 'assistant') continue
         turn++
-        for (const p of m.parts) if (p.type === 'tool' && p.status === 'done' && (p.name === 'edit_file' || p.name === 'write_file')) out.push(p, turn)
+        for (const p of m.parts) if (p.type === 'tool' && isEdit(p)) out.push(p, turn, m.createdAt)
       }
       return out
     })
   )
-  return useMemo(() => {
-    const edits: AgentEdit[] = []
-    for (let i = 0; i < parts.length; i += 2) {
-      const edit = partEdit(parts[i] as ChatToolPart, parts[i + 1] as number)
-      if (edit) edits.push(edit)
-    }
-    return edits
-  }, [parts])
+  return useMemo(() => toEdits(parts), [parts])
+}
+
+/**
+ * The finished edits of the other chats coding in the same folder. A file two
+ * chats changed holds both chats' work on disk, and the diff needs theirs to
+ * tell this chat's apart.
+ */
+function useProjectEdits(): AgentEdit[] {
+  const parts = useApp(
+    useShallow((s) => {
+      const out: (ChatToolPart | number)[] = []
+      const folder = codeFolder(s)
+      const active = s.activeChatId
+      if (!folder || !active) return out
+      const projects = new Set(s.projects.filter((p) => p.folder === folder).map((p) => p.id))
+      for (const c of s.chats) {
+        if (c.id === active || !c.projectId || !projects.has(c.projectId)) continue
+        for (const m of c.messages) {
+          if (m.role !== 'assistant') continue
+          for (const p of m.parts) if (p.type === 'tool' && isEdit(p)) out.push(p, 0, m.createdAt)
+        }
+      }
+      return out
+    })
+  )
+  return useMemo(() => toEdits(parts), [parts])
 }
 
 async function readText(path: string): Promise<string | null> {
@@ -106,10 +137,18 @@ async function readText(path: string): Promise<string | null> {
 type Loaded = { files: DiffFileModel[]; error?: undefined } | { files: null; error: string }
 
 /** A scope's files, read again when the edits change, when asked, and when Eaon comes back to the front. */
-function useScopeFiles(scope: ReviewScope, edits: AgentEdit[], root: string | null, folder: string | null, gitStatus: ChatGitStatus | null, nonce: number): Loaded | null {
+function useScopeFiles(
+  scope: ReviewScope,
+  edits: AgentEdit[],
+  others: AgentEdit[],
+  root: string | null,
+  folder: string | null,
+  gitStatus: ChatGitStatus | null,
+  nonce: number
+): Loaded | null {
   const [loaded, setLoaded] = useState<Loaded | null>(null)
   const [focusNonce, setFocusNonce] = useState(0)
-  const streamEnded = useApp((s) => s.streamingMessageId === null)
+  const streamEnded = useApp((s) => !anyRun(s))
   const missing = useDockPlace().missing
   // A commit, a pull or a branch switch is a new git status (`gitStatus`): the uncommitted changes are read again.
   useEffect(() => {
@@ -136,14 +175,14 @@ function useScopeFiles(scope: ReviewScope, edits: AgentEdit[], root: string | nu
       }
       const paths = [...new Set(edits.map((e) => relativePath(root, e.path)))]
       const texts = await Promise.all(paths.map((p) => readText(root ? joinPath(root, p) : p)))
-      if (live) setLoaded({ files: agentFiles(edits, root, new Map(paths.map((p, i) => [p, texts[i]])), scope) })
+      if (live) setLoaded({ files: agentFiles(edits, root, new Map(paths.map((p, i) => [p, texts[i]])), scope, others) })
     })()
     return () => {
       live = false
     }
     // A scope is compared by value; the edits and folder by identity.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scopeKey, edits, root, folder, nonce, focusNonce, scope.kind === 'git' && streamEnded, scope.kind === 'git' ? gitStatus : null])
+  }, [scopeKey, edits, others, root, folder, nonce, focusNonce, scope.kind === 'git' && streamEnded, scope.kind === 'git' ? gitStatus : null])
   return loaded
 }
 
@@ -157,10 +196,15 @@ export function ChangesPane(): JSX.Element {
   const { folder, status } = place
   const isRepo = Boolean(status?.repo)
   const chatEdits = useAgentEdits()
+  const projectEdits = useProjectEdits()
   const edits = chat ? chatEdits : NO_EDITS
+  const others = chat ? projectEdits : NO_EDITS
   const turns = useMemo(() => editTurns(edits), [edits])
 
-  const [scope, setScope] = useState<ReviewScope>(() => (chat ? (review?.scope ?? { kind: 'chat' }) : { kind: 'git' }))
+  const chatId = useApp((s) => s.activeChatId)
+  // One dock serves every chat: a review asked from another chat isn't this one's.
+  const ownReview = review && (!chat || review.owner === undefined || review.owner === chatId) ? review : null
+  const [scope, setScope] = useState<ReviewScope>(() => (chat ? (ownReview?.scope ?? { kind: 'chat' }) : { kind: 'git' }))
   const [nonce, setNonce] = useState(0)
   const [layout, setLayoutState] = useState<DiffLayout>(() => (stored(LAYOUT_KEY, 'unified') === 'split' ? 'split' : 'unified'))
   const [wrap, setWrapState] = useState(() => stored(WRAP_KEY, '0') === '1')
@@ -171,18 +215,29 @@ export function ChangesPane(): JSX.Element {
   const setWrap = (v: boolean): void => (setWrapState(v), store(WRAP_KEY, v ? '1' : '0'))
   const setTree = (v: boolean): void => (setTreeState(v), store(TREE_KEY, v ? '1' : '0'))
 
-  // A turn's Review button: that turn, scrolled to its file.
+  // Another chat on screen starts on its own whole diff, not on the last chat's turn.
+  const shownChat = useRef(chatId)
   useEffect(() => {
-    if (!review) return
-    setScope(review.scope)
-    setFocusFile(review.file ?? null)
-  }, [review])
+    if (shownChat.current === chatId) return
+    shownChat.current = chatId
+    if (!chat) return
+    setScope((now) => (now.kind === 'git' ? now : { kind: 'chat' }))
+    setFocusFile(null)
+  }, [chat, chatId])
+  // A turn's Review button: that turn, scrolled to its file.
+  const applied = useRef<number | null>(null)
+  useEffect(() => {
+    if (!ownReview || applied.current === ownReview.nonce) return
+    applied.current = ownReview.nonce
+    setScope(ownReview.scope)
+    setFocusFile(ownReview.file ?? null)
+  }, [ownReview])
   // A git scope with no repository (the folder changed) falls back to the chat.
   useEffect(() => {
     if (chat && scope.kind === 'git' && !isRepo && status) setScope({ kind: 'chat' })
   }, [chat, scope, isRepo, status])
 
-  const loaded = useScopeFiles(scope, edits, root, folder, status, nonce)
+  const loaded = useScopeFiles(scope, edits, others, root, folder, status, nonce)
   const files = loaded?.files ?? null
   const added = files?.reduce((n, f) => n + f.added, 0) ?? 0
   const removed = files?.reduce((n, f) => n + f.removed, 0) ?? 0
@@ -448,8 +503,25 @@ function ViewMenu({
       </button>
       <Popover anchor={anchor} open={menu.open} onClose={menu.close} placement="bottom-end" width={236}>
         <div className="menu__label">View</div>
-        <MenuItem icon={<Rows3 size={15} strokeWidth={1.8} />} title="One column" checked={layout === 'unified'} onClick={() => onLayout('unified')} />
-        <MenuItem icon={<Columns2 size={15} strokeWidth={1.8} />} title="Side by side" checked={layout === 'split'} onClick={() => onLayout('split')} />
+        {/* A layout is a choice made: the menu closes on it. The wrap switch can be flipped and seen in place. */}
+        <MenuItem
+          icon={<Rows3 size={15} strokeWidth={1.8} />}
+          title="One column"
+          checked={layout === 'unified'}
+          onClick={() => {
+            onLayout('unified')
+            menu.close()
+          }}
+        />
+        <MenuItem
+          icon={<Columns2 size={15} strokeWidth={1.8} />}
+          title="Side by side"
+          checked={layout === 'split'}
+          onClick={() => {
+            onLayout('split')
+            menu.close()
+          }}
+        />
         <div
           className="menu__switch-row"
           data-disabled={layout === 'split' || undefined}
@@ -719,7 +791,7 @@ function CommentBox({
         <MessageSquarePlus size={12} strokeWidth={2} />
         {row.kind === 'del' ? `Removed line ${line}` : `Line ${line}`}
       </div>
-      <textarea
+      <textarea aria-label="Comment"
         autoFocus
         className="dv-note__input"
         rows={2}

@@ -39,3 +39,6 @@ export async function releaseNotesUrl(version: string, exists: (url: string) => 
     return RELEASES_URL
   }
 }
+
+/** How an IT team deploys an organization policy (Settings → Security). */
+export const ENTERPRISE_DOCS_URL = `${REPO_URL}/blob/main/docs/enterprise.md`

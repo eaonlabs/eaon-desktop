@@ -4,7 +4,7 @@ import { createServer, type IncomingMessage, type ServerResponse } from 'node:ht
 import type { AddressInfo } from 'node:net'
 import type { Provider } from '@shared/types'
 import { checkKeyShape } from '@shared/providers'
-import { providerReadiness } from '@shared/modelSelection'
+import { providerReadiness, resolveSelection } from '@shared/modelSelection'
 import { clearProviderHealth, getProvider, noteProviderHealth, refreshModels, refreshProviderModels, removeProvider, updateProvider } from '../src/main/providers'
 import { anthropicAdapter } from '../src/main/providers/adapters/anthropic'
 import { ollamaAdapter } from '../src/main/providers/adapters/ollama'
@@ -233,8 +233,11 @@ test('ollama: not running is "start it", never a generic failure; its last list 
     updateProvider('ollama', { baseUrl: `${await deadPort()}/v1` })
     await assert.rejects(refreshModels('ollama'), (error: unknown) => error instanceof ProviderIssueError && error.issue.kind === 'network' && /Start it and try again/.test(error.issue.message))
     assert.equal(getProvider('ollama')!.models[0]?.id, 'qwen3:8b')
-    // Not running is a passing state for a local runtime, not "Needs attention".
-    assert.equal(providerReadiness(getProvider('ollama')!).state, 'ready')
+    // Not running is a passing state for a local runtime, not "Needs attention": it says
+    // so (the setup's ✓ and the green dot did not), and a chosen model stays chosen.
+    const readiness = providerReadiness(getProvider('ollama')!)
+    assert.deepEqual([readiness.state, readiness.label], ['unavailable', 'Not running'])
+    assert.equal(resolveSelection({ providerId: 'ollama', modelId: 'qwen3:8b' }, [getProvider('ollama')!]).status, 'selected')
   } finally {
     fake.close()
     updateProvider('ollama', { baseUrl: before })

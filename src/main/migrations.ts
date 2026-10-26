@@ -2,6 +2,7 @@ import { app } from 'electron'
 import { store } from './store'
 import { backupDocs, readDoc, shapeOf, sweepTempFiles, writeDocSync } from './storeFiles'
 import { migrateScheduledRuns } from './features/scheduler/migrate'
+import { leaveFreeWeek } from './freeCredits'
 
 /**
  * Versioned changes to the shape of saved data, run once each, in order, at
@@ -51,8 +52,15 @@ export const MIGRATIONS: Migration[] = [
   {
     version: 3,
     name: 'folder-projects',
-    files: ['projects.json'],
+    files: ['projects.json', 'chats.json'],
     run: () => store.projectForChatFolder()
+  },
+  {
+    // Eaon Free's week is gone (Eaon Event takes only a code): what was set to it goes back to the default.
+    version: 4,
+    name: 'eaon-event',
+    files: ['settings.json', 'workers.json', 'scheduled-tasks.json'],
+    run: () => leaveFreeWeek()
   }
 ]
 

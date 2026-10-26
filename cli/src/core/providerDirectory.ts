@@ -139,13 +139,13 @@ const groupOf = (provider: Provider): ProviderGroup => {
   const entry = directoryById.get(provider.id)
   if (entry) return entry.group
   const category = provider.category ?? 'custom'
-  // Eaon Free takes no key, so it never gets here; the type still has to say where it would go.
+  // Eaon Event's key is its code, redeemed in the app, so it never gets here; the type still has to say where it would go.
   return category === 'local' || category === 'eaon' ? 'custom' : category
 }
 
 /** Every provider that takes a key or a sign-in, then the directory's not yet added; local runtimes need neither. */
 export function keyRows(): KeyRow[] {
-  // Local runtimes and Eaon Free take no key, and Eaon's gateway is never shown (src/main/eaonAddress.ts).
+  // Local runtimes and Eaon Event take no key here, and Eaon's gateway is never shown (src/main/eaonAddress.ts).
   const providers = listProviders().filter((p) => !p.local && p.auth !== 'none' && !goesToEaonGateway(p))
   const rows: KeyRow[] = providers.map((p) => {
     const meta = providerMeta(p.id)

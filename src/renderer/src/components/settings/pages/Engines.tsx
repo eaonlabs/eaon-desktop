@@ -304,9 +304,13 @@ export function EnginesPage(): JSX.Element {
             </p>
           )}
           <p className="settings__lede eng-fine">
-            These are the models your Codex offers right now — with a ChatGPT sign-in, the ones your plan includes; if you
-            set Codex up with another provider, that provider&rsquo;s. They&rsquo;re separate from the ChatGPT providers in
-            Model providers, which run Eaon&rsquo;s own agent on ChatGPT&rsquo;s models instead.
+            {/* Only a list Codex gave is "what your Codex offers": the fallback is Eaon's own. */}
+            {models?.staleBecause && !models.retrievedAt
+              ? 'Until Codex answers, these are the models Eaon knows Codex for. Yours may differ: with a ChatGPT sign-in, it offers the ones your plan includes; set up with another provider, that provider’s.'
+              : models?.staleBecause
+                ? 'These are the models your Codex offered when Eaon last asked. With a ChatGPT sign-in, they’re the ones your plan includes; if you set Codex up with another provider, that provider’s.'
+                : 'These are the models your Codex offers right now. With a ChatGPT sign-in, they’re the ones your plan includes; if you set Codex up with another provider, that provider’s.'}{' '}
+            They&rsquo;re separate from the ChatGPT providers in Model providers, which run Eaon&rsquo;s own agent on ChatGPT&rsquo;s models instead.
           </p>
         </Section>
       )}

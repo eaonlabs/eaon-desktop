@@ -1,5 +1,5 @@
 import { ipcRenderer } from 'electron'
-import type { LocalSpeechState, SpeechPick } from '@shared/speech'
+import type { LocalSpeechState, SpeechHubResult, SpeechPick } from '@shared/speech'
 
 /** Renderer bridge for dictation. Exposed as `window.api.voice`. */
 export const voiceApi = {
@@ -13,6 +13,10 @@ export const voiceApi = {
   localDownload: (id: string): Promise<void> => ipcRenderer.invoke('voice:local-download', id),
   localCancel: (): Promise<void> => ipcRenderer.invoke('voice:local-cancel'),
   localDelete: (id: string): Promise<void> => ipcRenderer.invoke('voice:local-delete', id),
+  /** whisper.cpp models on Hugging Face matching `query` (a language, a model), or the official and most downloaded with none. */
+  hubSearch: (query: string): Promise<SpeechHubResult[]> => ipcRenderer.invoke('voice:hub-search', query),
+  /** Downloads a model from Hugging Face; resolves with its id once it's ready, rejects with why it isn't. */
+  hubDownload: (repoId: string, filename: string): Promise<string> => ipcRenderer.invoke('voice:hub-download', repoId, filename),
   onLocalChanged: (listener: (state: LocalSpeechState) => void): (() => void) => {
     const handler = (_e: unknown, state: LocalSpeechState): void => listener(state)
     ipcRenderer.on('voice:local-changed', handler)

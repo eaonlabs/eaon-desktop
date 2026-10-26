@@ -49,7 +49,8 @@ export const EditCard = memo(function EditCard({ part }: { part: ChatToolPart })
   const path = text(part.input.path) || 'file'
   const { name } = splitPath(path)
   const write = part.name === 'write_file'
-  const before = write ? '' : text(part.input.old_text)
+  // A write shows what it replaced, when that was recorded.
+  const before = write ? (part.before ?? '') : text(part.input.old_text)
   const after = write ? text(part.input.content) : text(part.input.new_text)
   const hasDiff = before.length > 0 || after.length > 0
   const stats = useMemo(() => countChanges(before, after), [before, after])
@@ -105,6 +106,7 @@ export const EditCard = memo(function EditCard({ part }: { part: ChatToolPart })
           ) : (
             hasDiff &&
             !failed &&
+            !skipped &&
             !running && (
               <span className="step-card__stat">
                 <span className="diff__stat-add">+{stats.added}</span>
@@ -127,7 +129,7 @@ export const EditCard = memo(function EditCard({ part }: { part: ChatToolPart })
               <pre className="step-card__message">{part.output}</pre>
             ) : hasDiff ? (
               <div className="edit-card__body" ref={body} data-clipped={(overflows && !more) || undefined}>
-                <SnippetDiff path={path} changes={[{ before, after }]} />
+                <SnippetDiff path={path} changes={[{ before, after, write }]} />
                 {overflows && (
                   <button className="step-card__more" onClick={() => setMore(!more)} aria-expanded={more}>
                     {more ? 'Show less' : 'Show more'}

@@ -161,8 +161,10 @@ export const useWorkers = create<WorkersState>((set, get) => ({
       return { threads, openThread: s.openThread[id] === threadId ? { ...s.openThread, [id]: MAIN_THREAD } : s.openThread }
     })
   },
+  // Activity and the browser take turns beside a worker: both at once left
+  // its conversation a few dozen pixels wide.
   setActivityOpen(open) {
-    set({ activityOpen: open })
+    set(open ? { activityOpen: true, browserFor: null } : { activityOpen: false })
   },
   selectRoom(id) {
     set({ selectedRoomId: id, ...(id ? { selectedId: null } : {}) })
@@ -194,6 +196,7 @@ export const useWorkers = create<WorkersState>((set, get) => ({
   setBrowser(workerId, dismiss) {
     set((s) => ({
       browserFor: workerId,
+      ...(workerId ? { activityOpen: false } : {}),
       ...(dismiss ? { browserDismissed: new Set([...s.browserDismissed, dismiss]) } : {}),
       // Opening it on purpose lets it pop open again later.
       ...(workerId && s.browserDismissed.has(workerId) ? { browserDismissed: new Set([...s.browserDismissed].filter((id) => id !== workerId)) } : {})
@@ -392,12 +395,13 @@ function listen(): void {
     })
   })
   // The browser panel opens by itself when the worker on screen starts using
-  // its browser, as Chat's does — unless the user closed it for that worker.
+  // its browser, as Chat's does — unless the user closed it for that worker,
+  // or has its Activity open, which the browser would push aside.
   window.api.agentBrowser.onStep((step) => {
     const match = /^worker:(.+)$/.exec(step.target)
     if (!match || step.done) return
     const state = get()
-    if (state.selectedId === match[1] && state.browserFor !== match[1] && !state.browserDismissed.has(match[1])) set({ browserFor: match[1] })
+    if (state.selectedId === match[1] && state.browserFor !== match[1] && !state.browserDismissed.has(match[1]) && !state.activityOpen) set({ browserFor: match[1] })
   })
 }
 

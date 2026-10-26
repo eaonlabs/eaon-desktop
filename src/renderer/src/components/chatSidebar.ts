@@ -45,6 +45,19 @@ interface ChatSidebarState {
 }
 
 const KEY = 'eaon.chatSidebar'
+
+/**
+ * This sidebar has never been shown on this computer: a fresh install, or an
+ * update from 2026.6, whose chats went into the project made from Chat's old
+ * folder (store.ts projectForChatFolder). Read once, before anything is saved.
+ */
+export const SIDEBAR_IS_NEW = ((): boolean => {
+  try {
+    return localStorage.getItem(KEY) === null
+  } catch {
+    return false
+  }
+})()
 type Saved = Pick<ChatSidebarState, 'projectSort' | 'chatSort' | 'open' | 'chatsFolded'>
 const DEFAULTS: Saved = { projectSort: 'recent', chatSort: 'recent', open: {}, chatsFolded: false }
 

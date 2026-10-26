@@ -7,6 +7,7 @@ import { app, powerSaveBlocker } from 'electron'
 import type { GoalState, ModelInfo, Provider, Settings, StreamEvent, StreamRequest, TokenUsage } from '@shared/types'
 import { adapterFor, getProvider, noteProviderHealth } from '../providers'
 import { classifyProviderError } from '../providers/errors'
+import { targetsPrivateNetwork } from '../netGuard'
 import { hideEaonAddress } from '../eaonAddress'
 import { findModel } from '@shared/modelSelection'
 import { addUsage, emptyUsage, HEADERS_TIMEOUT_MESSAGE, isHeadersTimeout, ProviderHttpError, type Adapter, type Credentials, type NeutralImage, type NeutralMessage, type NeutralToolResult, type TurnRequest, type TurnResult } from '../providers/adapters/types'
@@ -31,6 +32,7 @@ import { runEngineChat } from './engineChat'
 import type { EngineId } from '@shared/engines'
 import { audit, auditIncludesToolInputs } from '../enterprise/audit'
 import { clampUnattended } from '../enterprise/policy'
+import { forgetGoalPause, markGoalPaused } from './goalPause'
 
 /**
  * The agent loop — one implementation for every provider and both modes.
@@ -63,7 +65,9 @@ export function cancelRun(messageId: string): void {
  * it off would lose work — and the loop stops at its next continuation point.
  */
 export function pauseGoal(messageId: string): void {
-  if (activeRuns.has(messageId)) pausedGoals.add(messageId)
+  if (!activeRuns.has(messageId)) return
+  pausedGoals.add(messageId)
+  markGoalPaused(messageId)
 }
 
 /** Why a goal run must stop before continuing again, or null to keep going. */
@@ -199,6 +203,17 @@ function isRetryable(error: unknown): boolean {
   return /fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket hang up|terminated|network|overloaded|Connection error|stream ended before/i.test(message)
 }
 
+/** Nothing listening at the address: the connection was refused, wherever in the error's causes that's said. */
+function isRefused(error: unknown): boolean {
+  let current: unknown = error
+  for (let depth = 0; depth < 5 && current; depth++) {
+    const { message, code } = (current ?? {}) as { message?: unknown; code?: unknown }
+    if (/ECONNREFUSED/.test(`${String(code ?? '')} ${String(message ?? current)}`)) return true
+    current = (current as { cause?: unknown }).cause
+  }
+  return false
+}
+
 /** "2 h 10 min" until `until`, for a goal with an end time. */
 export function timeLeft(until: number, now = Date.now()): string {
   const minutes = Math.max(0, Math.round((until - now) / 60_000))
@@ -254,6 +269,8 @@ export interface LoopParams {
 export interface LoopOutcome {
   /** Everything the model said, across rounds. */
   text: string
+  /** What it said in its last round that said anything: the turn's answer, without "Writing it." from before its work. */
+  answer: string
   usage: TokenUsage
   turn: TurnState
   stopped: 'done' | 'plan' | 'rounds' | 'goal-limit'
@@ -306,10 +323,15 @@ async function callModel(
         if (params.provider.local && isHeadersTimeout(error)) throw new Error(HEADERS_TIMEOUT_MESSAGE)
         // A local runtime that is not running will not start by itself while
         // we wait; say so now instead of after three backoffs.
-        if (params.provider.local && /ECONNREFUSED|fetch failed/i.test(`${error instanceof Error ? error.message : ''} ${String((error as { cause?: unknown })?.cause ?? '')}`)) {
+        if (params.provider.local && (isRefused(error) || /ECONNREFUSED|fetch failed/i.test(`${error instanceof Error ? error.message : ''} ${String((error as { cause?: unknown })?.cause ?? '')}`))) {
           const where = params.provider.baseUrl.replace(/\/v1\/?$/, '')
           throw new Error(`Couldn't reach ${params.provider.name} at ${where}. Start it and try again.`)
         }
+        // The same for a server of the user's own on this computer or the
+        // network (a custom provider): it said "The provider is busy" through
+        // three retries, about 22 seconds, before saying it wasn't there.
+        const refused = isRefused(error)
+        if (refused && targetsPrivateNetwork(attempts[k].baseUrl ?? params.provider.baseUrl)) throw error
         if (isAuthError(error) && k < attempts.length - 1) {
           note('That key was rejected — trying the next saved key.')
           break
@@ -329,7 +351,8 @@ async function callModel(
           )
           const status = error instanceof ProviderHttpError ? ` (${error.status})` : ''
           const cutOff = error instanceof Error && /stream ended before/.test(error.message)
-          note(`${cutOff ? 'The reply was cut off' : `The provider is busy${status}`} — retrying in ${Math.round(wait / 1000)}s.`)
+          const why = cutOff ? 'The reply was cut off' : refused ? `Couldn't connect to ${params.provider.name}` : `The provider is busy${status}`
+          note(`${why} — retrying in ${Math.round(wait / 1000)}s.`)
           await sleep(wait, params.signal)
           continue
         }
@@ -352,6 +375,8 @@ async function runTool(
 
   /** Set once the call is known to change something; those, and every refusal, go to the audit log. */
   let changes = false
+  /** What a whole-file write found at its path, for the transcript's diff. */
+  let replaced: string | null | undefined
   /** `forModel` replaces what the model is sent; the user always sees `output`. */
   const finish = (
     output: string,
@@ -372,7 +397,15 @@ async function runTool(
       )
     }
     const paths = images.map(saveImage)
-    emit({ type: 'tool-result', messageId: request.messageId, toolId: call.id, output, status, ...(paths.length ? { images: paths } : {}) })
+    emit({
+      type: 'tool-result',
+      messageId: request.messageId,
+      toolId: call.id,
+      output,
+      status,
+      ...(paths.length ? { images: paths } : {}),
+      ...(replaced !== undefined ? { before: replaced } : {})
+    })
     return { id: call.id, name: call.name, output: forModel, status, ...(images.length ? { images } : {}), ...(status === 'error' ? { isError: true } : {}) }
   }
 
@@ -408,7 +441,7 @@ async function runTool(
     progress: (output) => emit({ type: 'tool-progress', messageId: request.messageId, toolId: call.id, output }),
     // A tool's own confirmation is for something it judged serious: unless it
     // says otherwise, full access never answers it on the user's behalf.
-    confirm: (title, detail, summary, critical = true) => params.approver(title, detail, summary, critical),
+    confirm: (title, detail, summary, critical = true, before, agent) => params.approver(title, detail, summary, critical, before, agent),
     policy
   }
 
@@ -424,8 +457,10 @@ async function runTool(
   if (decision.kind === 'deny') return finish(decision.reason, 'denied')
   // What can't be undone is asked about as critical: full access never
   // answers it on the user's behalf.
-  if (decision.kind === 'ask' && !(await params.approver(call.name, call.input, tool.describe?.(call.input), facts.catastrophic))) {
-    return finish(USER_DENIED, 'denied')
+  if (decision.kind === 'ask') {
+    // A write that replaces a file shows what it takes away, not only what it puts there.
+    const before = tool.replaces ? await tool.replaces(call.input, ctx).catch(() => undefined) : undefined
+    if (!(await params.approver(call.name, call.input, tool.describe?.(call.input), facts.catastrophic, before))) return finish(USER_DENIED, 'denied')
   }
 
   const mutating = decision.mutating
@@ -439,6 +474,7 @@ async function runTool(
     output = capOutput(normalized.text || '(no output)')
     status = normalized.isError ? 'error' : 'done'
     images = normalized.images
+    replaced = normalized.before
   } catch (error) {
     if (params.signal.aborted) return finish('Stopped by the user.', 'error')
     // Reported to the model rather than failing the turn: models routinely
@@ -491,6 +527,7 @@ export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
   const callIds = new Set(messages.flatMap((m) => (m.role === 'assistant' ? m.calls.map((c) => c.id) : [])))
   const note = (text: string): void => params.onReasoning(`\n${text}\n`)
   let text = ''
+  let answer = ''
   let goalIterations = 0
   let emptyNudges = 0
   let announcedNudged = false
@@ -509,14 +546,17 @@ export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
         : goalBudgetExceeded(params.settings, startedAt, usage, Date.now(), goal?.until ?? null)
   const pauseGoalRun = (reason: string): LoopOutcome => {
     const byUser = pausedGoals.has(request.messageId)
-    note(byUser ? 'Goal paused.' : `Goal paused: ${reason}. Resume it to keep going.`)
+    // A worker's goal outlives the turn: its engine starts the next one (or
+    // pauses it there), so only this turn ends, and the goal stays active.
+    const turnOnly = Boolean(request.workerId) && !byUser
+    note(byUser ? 'Goal paused.' : turnOnly ? `Ending this turn: ${reason}.` : `Goal paused: ${reason}. Resume it to keep going.`)
     emit({
       type: 'goal',
       messageId: request.messageId,
       chatId: request.chatId,
-      goal: { ...goal!, status: 'paused', ...(byUser ? {} : { summary: reason }) }
+      goal: { ...goal!, status: turnOnly ? 'active' : 'paused', ...(byUser || turnOnly ? {} : { summary: reason }) }
     })
-    return { text, usage, turn, stopped: 'goal-limit' }
+    return { text, answer, usage, turn, stopped: 'goal-limit' }
   }
   const goalActive = (): boolean => params.depth === 0 && goal?.status === 'active' && !turn.goalResolution && !turn.yielded && !signal.aborted
 
@@ -541,13 +581,14 @@ export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
     // Each call's reply is its own paragraph, so a turn that spoke, used a
     // tool and spoke again does not read as one run-on sentence.
     text = text && result.text ? `${text}\n\n${result.text}` : text + result.text
+    if (result.text.trim()) answer = result.text
 
     if (result.stop === 'max_tokens') {
       // A call cut off mid-way may have truncated arguments; never run it.
       messages.push({ role: 'assistant', text: result.text || '(output cut off)', calls: [] })
       // A final answer cut off after tool work stands as the answer; breaking
       // out of the loop here used to report it as the round limit.
-      if (result.calls.length === 0 && round > 0) return { text, usage, turn, stopped: 'done' }
+      if (result.calls.length === 0 && round > 0) return { text, answer, usage, turn, stopped: 'done' }
       messages.push({
         role: 'user',
         text: 'Your last reply hit the output limit and was cut off, so any tool call in it was not run. Continue, and split large files into several smaller write_file/edit_file calls.'
@@ -621,7 +662,7 @@ export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
         }
         return pauseGoalRun(stopReason)
       }
-      return { text, usage, turn, stopped: 'done' }
+      return { text, answer, usage, turn, stopped: 'done' }
     }
 
     // Read-only calls run together; anything that changes state runs in the
@@ -657,9 +698,9 @@ export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
       emit({ type: 'goal', messageId: request.messageId, chatId: request.chatId, goal })
     }
     // A presented plan ends the turn: the user decides what happens next.
-    if (turn.plan) return { text, usage, turn, stopped: 'plan' }
+    if (turn.plan) return { text, answer, usage, turn, stopped: 'plan' }
     // So does a worker going to sleep: it wakes when it scheduled.
-    if (turn.yielded) return { text, usage, turn, stopped: 'done' }
+    if (turn.yielded) return { text, answer, usage, turn, stopped: 'done' }
   }
 
   if (params.depth === 0) {
@@ -667,7 +708,7 @@ export async function runLoop(params: LoopParams): Promise<LoopOutcome> {
     params.onText(tail)
     text += tail
   }
-  return { text, usage, turn, stopped: 'rounds' }
+  return { text, answer, usage, turn, stopped: 'rounds' }
 }
 
 /* -------------------------------------------------------------- compaction */
@@ -744,6 +785,8 @@ export interface RunOptions {
 
 export interface RunOutcome {
   text: string
+  /** The last round's words, when Eaon's own loop ran: what a status line should sum up. */
+  answer?: string
   error?: string
   usage: TokenUsage
   /** Stopped before it finished — Stop, Emergency Stop, or the caller's own signal. */
@@ -883,8 +926,8 @@ async function runOwnLoop(request: StreamRequest, emit: (event: StreamEvent) => 
       ...(options.unattended ? {} : { liveSettings: () => store.getSettings() }),
       approver:
         options.approver ??
-        ((tool: string, input: Record<string, unknown>, summary?: string, critical?: boolean) =>
-          controller.signal.aborted ? Promise.resolve(false) : requestApproval(request.messageId, tool, input, emit, summary, critical)),
+        ((tool: string, input: Record<string, unknown>, summary?: string, critical?: boolean, before?: string | null, agent?: string) =>
+          controller.signal.aborted ? Promise.resolve(false) : requestApproval(request.messageId, tool, input, emit, summary, critical, before, agent)),
       unattended: options.unattended,
       allowOnce: options.allowOnce,
       onToolRun: options.onToolRun,
@@ -927,7 +970,7 @@ async function runOwnLoop(request: StreamRequest, emit: (event: StreamEvent) => 
     // The provider answered: a failed check from before (a key since fixed) no longer applies.
     if (provider.health && !provider.health.ok) noteProviderHealth(provider.id, null)
     emit({ type: 'done', messageId: request.messageId })
-    return { text: outcome.text || text, usage, ...(controller.signal.aborted ? { cancelled: true } : {}) }
+    return { text: outcome.text || text, ...(outcome.answer ? { answer: outcome.answer } : {}), usage, ...(controller.signal.aborted ? { cancelled: true } : {}) }
   } catch (error) {
     if (controller.signal.aborted) {
       emit({ type: 'done', messageId: request.messageId })
@@ -948,6 +991,7 @@ async function runOwnLoop(request: StreamRequest, emit: (event: StreamEvent) => 
     activeRuns.delete(request.messageId)
     untilRuns.delete(request.messageId)
     pausedGoals.delete(request.messageId)
+    forgetGoalPause(request.messageId)
     holdAwake()
   }
 }

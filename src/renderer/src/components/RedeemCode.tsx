@@ -2,9 +2,8 @@ import { useState, type JSX } from 'react'
 
 /**
  * The box for an event code (a hackathon's), in Settings → Model providers →
- * Eaon Free and in first-run setup. A code gives each computer its own
- * allowance; without one, Eaon Free's gateway counts a whole venue on one
- * shared IP as a single user.
+ * Eaon Event, the model picker's notice and first-run setup. The code is what
+ * opens Eaon Event, with an allowance for each computer at the venue.
  *
  * `compact`: just the field and its button, for a place that has already
  * asked "Have an event code?" (the setup opens it from a link).
@@ -32,7 +31,7 @@ export function RedeemCode({ onRedeemed, compact = false }: { onRedeemed: () => 
       {!compact && (
         <>
           <div className="free-code__title">Have an event code?</div>
-          <p className="free-code__desc">From a hackathon or another event Eaon sponsors. It gives Eaon Free the event’s allowance until the code ends.</p>
+          <p className="free-code__desc">From a hackathon or another event Eaon sponsors. It opens Eaon Event, with the event’s allowance, until the code ends.</p>
         </>
       )}
       <div className="fallback-row">

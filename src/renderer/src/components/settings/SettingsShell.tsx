@@ -23,9 +23,10 @@ import {
   Smartphone,
   SquarePlus,
   Sun,
-  Wand2, Gauge, Bot } from 'lucide-react'
+  Wand2, Gauge, Bot, Search } from 'lucide-react'
 import { useShallow } from 'zustand/react/shallow'
 import { useApp, useIsWork } from '../../state/store'
+import { THEMES } from '../../lib/themes'
 import { SearchField } from '../ui'
 import { SignInPrompt } from '../account/ToknAccount'
 import { ErrorBoundary } from '../ErrorBoundary'
@@ -58,6 +59,7 @@ import { WORKER_TABS, WorkersPage } from './pages/Workers'
 import { EnginesPage } from './pages/Engines'
 import { SecurityPage } from './pages/Security'
 import type { PolicyFeature } from '@shared/enterprise'
+import { matchesSearch } from '@shared/searchWords'
 
 interface NavEntry {
   id: string
@@ -74,36 +76,41 @@ const stroke = 1.9
 /**
  * What people search for that isn't a page's name, so "dark mode" finds
  * Appearance and "api key" finds Model providers instead of a blank list.
+ * Each word searched for has to begin a word in a page's name or its words,
+ * in any order (shared/searchWords.ts). Keep these to what the page really has: a word that leads
+ * to a page without it is worse than no match.
  */
 const KEYWORDS: Record<string, string> = {
-  general: 'update beta version launch login startup sleep language suggested prompts contributors',
-  appearance: 'theme dark light mode color colour font size text zoom accent icon motion contrast',
-  configuration: 'approval autonomy sandbox permissions web search agent',
-  shortcuts: 'keyboard hotkey keys',
+  general:
+    'speech to text dictation voice hold to talk push to talk microphone update updates beta stable version launch login startup open on launch sleep prevent awake suggested prompts full access permissions approval approvals approve without asking tour take the tour what’s new whats new documentation docs help resources release notes license star github report issue bug other ai apps',
+  appearance: `theme themes dark light mode system color colour font size text zoom accent icon app icon motion reduce contrast glass blur transparency transparent frosted translucent sidebar see-through see through wallpaper picture background tint ${THEMES.map((t) => t.name).join(' ')}`.toLowerCase(),
+  configuration: 'web search search engine internet',
+  shortcuts: 'keyboard hotkey hotkeys keys key bindings',
   usage: 'tokens cost spend limits tokn activity streak',
-  'usage-limits': 'quota limit remaining reset codex claude cursor copilot grok opencode devin credits balance rings header',
-  accounts: 'claude code codex sign in login plan limit switch account',
-  providers: 'api key keys openai anthropic claude gemini google openrouter ollama lm studio model free credits event code hackathon eaon free sign in',
-  engines: 'claude code codex agent engine cli',
+  'usage-limits': 'quota limit remaining reset codex claude cursor copilot grok opencode devin credits balance rings header meter',
+  accounts: 'claude code codex sign in login plan limit limits switch account usage meter alerts',
+  providers:
+    'api key keys openai chatgpt anthropic claude gemini google openrouter ollama lm studio llama.cpp mlx vllm local server model models free event code hackathon workshop eaon event eaon lite sign in custom provider base url endpoint logo fallback speech to text voice dictation whisper transcribe',
+  engines: 'claude code codex copilot gemini cli agent engine sandbox subscription',
   'agent-providers': 'cli coding agents claude codex cursor opencode droid grok antigravity gemini copilot install update version picker order hide priority',
-  'computer-use': 'screen mouse keyboard accessibility screen recording permissions',
+  'computer-use': 'screen mouse keyboard accessibility screen recording permissions emergency stop screenshot',
   payments: 'card purchase buy money spending limit',
   'browser-control': 'chrome extension browser',
   plugins: 'skills mcp extensions',
-  'eaon-code': 'coding agent cli terminal',
-  ade: 'terminal theme shell worktree coding',
+  'eaon-code': 'coding agent cli terminal binary path',
+  ade: 'terminal theme shell worktree worktrees coding scenes hold to talk dictation voice push to talk sessions',
   workers: 'background agents',
   'chat-apps': 'telegram slack whatsapp discord imessage messages bot',
-  email: 'agentmail inbox mail',
+  email: 'agentmail inbox mail domain',
   discord: 'rich presence status activity',
   browser: 'homepage search engine tabs',
   mcp: 'model context protocol tools servers timeout',
-  'connect-apps': 'import openclaw hermes cline apps',
-  'code-index': 'embedding semantic search index repository',
+  'connect-apps': 'import openclaw hermes cline apps claude plan claude code tools mcp',
+  'code-index': 'embedding semantic search index repository goal goal mode continuations time limit token limit',
   'local-server': 'port api server openai compatible gateway key',
   'remote-devices': 'phone mobile remote web rc github',
-  system: 'cpu memory gpu performance monitor',
-  security: 'audit log policy enterprise organization',
+  system: 'cpu memory ram gpu performance monitor',
+  security: 'audit log policy enterprise organization verify integrity records',
   archived: 'archive restore deleted chats history'
 }
 
@@ -195,6 +202,29 @@ export function SettingsShell(): JSX.Element {
   )
   const isWork = useIsWork()
   const [query, setQuery] = useState('')
+  // A narrow window's icon rail opened into the whole panel, to search (settings.css).
+  const [expanded, setExpanded] = useState(false)
+  const nav = useRef<HTMLElement>(null)
+  const collapse = (): void => {
+    setExpanded(false)
+    setQuery('')
+  }
+  useEffect(() => {
+    if (!expanded) return
+    nav.current?.querySelector<HTMLInputElement>('.settings__search input')?.focus()
+    const onDown = (event: PointerEvent): void => {
+      if (!nav.current?.contains(event.target as Node)) collapse()
+    }
+    const onKey = (event: KeyboardEvent): void => {
+      if (event.key === 'Escape') collapse()
+    }
+    window.addEventListener('pointerdown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => {
+      window.removeEventListener('pointerdown', onDown)
+      window.removeEventListener('keydown', onKey)
+    }
+  }, [expanded])
 
   // A page can be open from before Eaon Work was last disabled; send it
   // somewhere real rather than rendering a page with no matching nav item.
@@ -225,7 +255,7 @@ export function SettingsShell(): JSX.Element {
   // A page's tabs are only listed when a search finds them; otherwise the page stands for them.
   const entries = useMemo(() => {
     const q = query.trim().toLowerCase()
-    return q ? visibleNav.filter((entry) => `${entry.label} ${KEYWORDS[entry.id] ?? ''}`.toLowerCase().includes(q)) : visibleNav.filter((entry) => !entry.parent)
+    return q ? visibleNav.filter((entry) => matchesSearch(q, `${entry.label} ${KEYWORDS[entry.id] ?? ''}`)) : visibleNav.filter((entry) => !entry.parent)
   }, [query, visibleNav])
 
   // The open tab's own row when a search lists it, otherwise its page's.
@@ -253,7 +283,7 @@ export function SettingsShell(): JSX.Element {
 
   return (
     <div className="settings">
-      <nav className="settings__nav">
+      <nav ref={nav} className="settings__nav" data-expanded={expanded || undefined}>
         <div className="settings__nav-panel">
         <div className="settings__nav-top" />
         <button className="settings__back" onClick={() => setView('chat')} aria-label="Back to app" title="Back to app">
@@ -262,6 +292,9 @@ export function SettingsShell(): JSX.Element {
         </button>
         {/* Signed out: Tokn's sign-in, first thing in Settings. Signed in, the account is under Usage. */}
         <SignInPrompt />
+        <button className="settings__search-btn" onClick={() => setExpanded(true)} aria-label="Search settings" title="Search settings">
+          <Search size={16} strokeWidth={1.9} />
+        </button>
         <div className="settings__search">
           <SearchField value={query} onChange={setQuery} placeholder="Search settings..." variant="sm" />
         </div>
@@ -278,7 +311,10 @@ export function SettingsShell(): JSX.Element {
                   aria-current={entry.id === current ? 'page' : undefined}
                   aria-label={entry.parent ? `${entry.label}, in ${NAV.find((e) => e.id === entry.parent)?.label}` : entry.label}
                   title={entry.label}
-                  onClick={() => setSettingsPage(entry.id)}
+                  onClick={() => {
+                    setSettingsPage(entry.id)
+                    if (expanded) collapse()
+                  }}
                 >
                   <span className="nav-item__icon">{entry.icon}</span>
                   <span className="nav-item__label">{entry.label}</span>

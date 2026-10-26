@@ -377,7 +377,8 @@ function normalizeGoalRun(raw: unknown): WorkerGoalRun | null {
     ...(typeof g.until === 'number' ? { until: g.until } : {}),
     ...(typeof g.failures === 'number' && g.failures > 0 ? { failures: g.failures } : {}),
     ...(typeof g.summary === 'string' ? { summary: g.summary } : {}),
-    ...(g.pausedByUser === true ? { pausedByUser: true } : {})
+    ...(g.pausedByUser === true ? { pausedByUser: true } : {}),
+    ...(typeof g.wakeAt === 'number' ? { wakeAt: g.wakeAt } : {})
   }
 }
 
@@ -907,7 +908,19 @@ export class WorkersEngine {
         existing.engineSession = null
         for (const t of existing.threads) t.engineSession = null
       }
+      const rewired = existing.engine !== engine || existing.model?.providerId !== model?.providerId || existing.model?.modelId !== model?.modelId
       Object.assign(existing, { name, color, personality, purpose, model, engine, effort, access, trading })
+      // Another model or engine is a fresh start: the old one's error ("Couldn't
+      // reach LM Studio") no longer says how the worker is, so it stops showing
+      // it, and its X eyes, until a turn on the new one says otherwise.
+      if (rewired && existing.status !== 'working') {
+        if (existing.status === 'failed') existing.status = 'idle'
+        if (existing.lastError) {
+          existing.lastError = null
+          existing.lastOutcome = null
+        }
+        for (const t of existing.threads) if (!t.runningMessageId && t.lastError) t.lastError = null
+      }
       this.syncTradingRoutine(existing)
       this.commit()
       return clone(existing)
@@ -1916,6 +1929,7 @@ export class WorkersEngine {
       )
     }
     slot.heartbeat = { nextAt: now + first, everyMs: every, note: str(input.note).slice(0, 300) }
+    if (threadId === MAIN_THREAD && !every && worker.goalRun?.status === 'active') worker.goalRun = { ...worker.goalRun, wakeAt: now + first }
     if (worker.status === 'asleep') worker.status = 'idle'
     // A new schedule starts a new count towards STALE_WAKEUPS.
     this.unattendedWakes.delete(slotKey(id, threadId))
@@ -1944,7 +1958,20 @@ export class WorkersEngine {
       worker.goalRun = { ...rest, ...keep, status: 'active', turns: 0, nextAt: run ? null : this.now() }
     } else {
       if (run) this.deps.pauseGoal?.(run.messageId)
-      worker.goalRun = status === 'paused' ? { ...goal, status: 'paused', pausedByUser: true, nextAt: null } : null
+      // The wake-up it set for the goal goes with it: paused or cleared, the
+      // worker woke anyway and carried on ("You scheduled this wake-up").
+      if (typeof goal.wakeAt === 'number' && worker.heartbeat.nextAt === goal.wakeAt && worker.heartbeat.everyMs === null) {
+        worker.heartbeat = { nextAt: null, everyMs: null, note: '' }
+        const key = slotKey(id, MAIN_THREAD)
+        this.watches.get(key)?.()
+        this.watches.delete(key)
+        const line = status === 'paused' ? 'Goal paused' : 'Goal cleared'
+        worker.activity = line
+        const info = this.info(worker, MAIN_THREAD)
+        if (info) info.activity = line
+      }
+      const { wakeAt: _wakeAt, ...rest } = goal
+      worker.goalRun = status === 'paused' ? { ...rest, status: 'paused', pausedByUser: true, nextAt: null } : null
     }
     this.commit()
     this.tick()
@@ -1969,6 +1996,7 @@ export class WorkersEngine {
       run.activitySet = true
     }
     slot.heartbeat = { nextAt: wakeAt, everyMs: null, note: why || 'Wake up from your sleep and carry on' }
+    if (threadId === MAIN_THREAD && worker.goalRun?.status === 'active') worker.goalRun = { ...worker.goalRun, wakeAt }
     const time = new Date(wakeAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
     // Woken by the event itself when there is one: the minutes are only the
     // longest it waits. A restart forgets the watch, and the clock wakes it.
@@ -3319,7 +3347,7 @@ export class WorkersEngine {
       reason: outcome.cancelled && !outcome.error ? (run.stoppedByUser ? 'Stopped.' : 'Cut short before it finished.') : (execution.reason ?? outcome.notice ?? null),
       billing: outcome.billing === 'plan' ? ('plan' as const) : outcome.billing === 'api-key' ? ('api' as const) : null,
       error: outcome.error ?? null,
-      result: outcome.text ? clip(summariseReply(outcome.text) || outcome.text, 300) : null,
+      result: outcome.text ? clip(summariseReply(outcome.answer || outcome.text) || summariseReply(outcome.text) || outcome.text, 300) : null,
       usage: outcome.usage ?? execution.usage,
       providerId: outcome.providerId ?? null,
       modelId: outcome.modelId ?? null,
@@ -3409,7 +3437,8 @@ export class WorkersEngine {
     }
 
     // How it went, on the thread and (for the main thread) the worker.
-    const summary = outcome.text ? summariseReply(outcome.text) : ''
+    // What it ended on, not what it said before its work ("Writing it.").
+    const summary = outcome.text ? summariseReply(outcome.answer || outcome.text) || summariseReply(outcome.text) : ''
     if (info) {
       if (outcome.error) {
         info.lastError = outcome.error
@@ -3480,7 +3509,7 @@ export class WorkersEngine {
     if (run.userTriggered && !outcome.cancelled) {
       this.deps.notify?.(clone(worker), {
         ok: !outcome.error,
-        text: outcome.error ?? (summariseReply(outcome.text) || 'Finished.')
+        text: outcome.error ?? (summariseReply(outcome.answer || outcome.text) || summariseReply(outcome.text) || 'Finished.')
       })
     } else if (run.routineId && outcome.error) {
       const routine = worker.routines.find((r) => r.id === run.routineId)

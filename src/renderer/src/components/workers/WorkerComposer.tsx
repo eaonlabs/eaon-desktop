@@ -20,6 +20,11 @@ import { mcpCatalogEntry } from '@shared/mcpCatalog'
 import { GOAL_MAX_TURNS, MAIN_THREAD, mentionedWorkers, WORKER_ACCESS, type Worker, type WorkerAccess } from '@shared/workers'
 import type { McpServer } from '@shared/types'
 import { usePurchaseDialog } from '../purchase/purchaseStore'
+import { ElsewhereAsk } from '../agent/ElsewhereAsk'
+import { typingElsewhere, useHoldToTalk } from '../composer/useHoldToTalk'
+import { SpeechSetup } from '../composer/SpeechSetup'
+import { holdKeyLabel } from '@shared/holdKey'
+import { isMac } from '../../lib/platform'
 
 const ACCESS_ICON: Record<WorkerAccess, typeof Zap> = { autonomous: Zap, safe: ShieldCheck, 'read-only': Eye }
 
@@ -78,6 +83,13 @@ export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Wor
     })
   })
   const dictating = dictation.state !== 'idle'
+  // Hold to talk, as in Chat and the ADE: while this box is on screen and nobody is typing in another field.
+  const hold = useHoldToTalk(dictation, {
+    ready: () => {
+      const node = box.current
+      return Boolean(node && node.offsetParent !== null) && !typingElsewhere(node)
+    }
+  })
   const plusAnchor = useRef<HTMLButtonElement>(null)
   const plusMenu = useDisclosure()
   const info = worker.threads.find((t) => t.id === threadId)
@@ -229,6 +241,10 @@ export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Wor
         addFiles([...e.dataTransfer.files].map((file) => window.api.app.pathForFile(file)).filter(Boolean))
       }}
     >
+      {/* A chat stopped to ask while a worker is on screen: here, above its box, not over it. */}
+      {/* Dictation with nothing to turn speech into text: a model to download, right here. */}
+      {dictation.needsSetup && <SpeechSetup holdKey={hold.enabled ? hold.key : null} onClose={dictation.dismissError} />}
+      <ElsewhereAsk everyChat />
       <div className="composer composer--worker" data-variant="chat" data-goal={goalArmed || undefined}>
         {files.length > 0 && (
           <div className="composer__attachments">
@@ -251,7 +267,7 @@ export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Wor
             </button>
           </div>
         )}
-        {dictation.error && (
+        {dictation.error && !dictation.needsSetup && (
           <div className="voice-error" role="alert">
             <span className="voice-error__text">{dictation.error}</span>
             <button onClick={dictation.dismissError} aria-label="Dismiss">
@@ -275,7 +291,7 @@ export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Wor
           {dictating ? (
             <VoiceBar dictation={dictation} />
           ) : (
-            <textarea
+            <textarea aria-label={`Message ${worker.name}`}
               ref={box}
               className="composer__input"
               rows={1}
@@ -348,7 +364,13 @@ export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Wor
               <Square size={11} strokeWidth={0} fill="currentColor" />
             </button>
           ) : (
-            <button key="mic" className="send send--mic" onClick={() => void dictation.start()} aria-label="Dictate" title="Dictate a message">
+            <button
+              key="mic"
+              className="send send--mic"
+              onClick={() => void dictation.start()}
+              aria-label="Dictate"
+              title={hold.enabled ? `Dictate a message (or hold ${holdKeyLabel(hold.key, isMac)})` : 'Dictate a message'}
+            >
               <Mic size={16} strokeWidth={2} />
             </button>
           )}

@@ -81,11 +81,46 @@ function osVersion(): Promise<string> {
   return cachedVersion
 }
 
+/**
+ * Memory free for use on a Mac, as Activity Monitor counts it: all of it but
+ * what apps hold (anonymous pages less purgeable ones), what is wired, and
+ * what the compressor occupies. os.freemem() there is only the pages nobody
+ * has touched, which macOS keeps near zero by filling the rest with cache it
+ * gives back on demand, so a 24 GB Mac read "0.23 GB available, 99%".
+ */
+export function macAvailableBytes(vmStat: string, totalBytes: number): number | null {
+  const pageSize = Number(/page size of (\d+) bytes/.exec(vmStat)?.[1])
+  const pages = (label: string): number | null => {
+    const match = new RegExp(`^${label}:\\s+(\\d+)`, 'm').exec(vmStat)
+    return match ? Number(match[1]) : null
+  }
+  const anonymous = pages('Anonymous pages')
+  const purgeable = pages('Pages purgeable') ?? 0
+  const wired = pages('Pages wired down')
+  const compressed = pages('Pages occupied by compressor') ?? 0
+  if (!pageSize || anonymous === null || wired === null) return null
+  const used = (Math.max(0, anonymous - purgeable) + wired + compressed) * pageSize
+  return Math.min(totalBytes, Math.max(0, totalBytes - used))
+}
+
+async function availableMemory(totalBytes: number): Promise<number> {
+  if (process.platform === 'darwin') {
+    try {
+      const { stdout } = await run('vm_stat', [], { encoding: 'utf8', timeout: 3000 })
+      const available = macAvailableBytes(stdout, totalBytes)
+      if (available !== null) return available
+    } catch {
+      /* fall through to what Node reports */
+    }
+  }
+  return os.freemem()
+}
+
 export async function getSystemInfo(): Promise<SystemInfo> {
   const version = await osVersion()
   const cpus = os.cpus()
   const totalBytes = os.totalmem()
-  const availableBytes = os.freemem()
+  const availableBytes = await availableMemory(totalBytes)
 
   return {
     os: {

@@ -155,10 +155,22 @@ export function useDockBridge(on: boolean, { store, browser, agent }: { store: D
     if (reveal.current) bringForward()
   }, [on, browserOpen, tabIds])
 
-  // Opened, or another page in front: the dock shows it.
+  // Opened, or another page in front: the dock shows it. Coming back to this
+  // view, or to another session's pages, isn't either, so a dock closed
+  // with a page open stays closed. Nor is the blank tab a place gets when the
+  // browser is open and it has no pages yet (a new ADE session, Chat after
+  // browsing in the ADE): from no tab to a tab is that, not a page brought
+  // to the front. The browser just opened waits here for its first tab.
+  const shown = useRef<{ open: boolean; tab: string | null; scope: string } | null>(null)
   useEffect(() => {
-    if (on && browserOpen) bringForward()
-  }, [on, browserOpen, activeTab])
+    const last = shown.current
+    shown.current = { open: browserOpen, tab: activeTab, scope: browser }
+    if (!on || !browserOpen || !last || last.scope !== browser) return
+    if (!last.open || (last.tab !== null && last.tab !== activeTab)) {
+      reveal.current = true
+      bringForward()
+    }
+  }, [on, browserOpen, activeTab, browser])
 
   // Eaon's browser: a tab while it shows.
   useEffect(() => {
@@ -190,6 +202,8 @@ export function AdeDock({ closing = false }: { closing?: boolean }): JSX.Element
 
 function Dock({ closing }: { closing: boolean }): JSX.Element {
   const place = useDockPlace()
+  // In the ADE it sits beside the terminals, not a conversation.
+  const beside = place.id === 'chat' ? 'Back beside the chat' : 'Back beside the terminals'
   const { surfaces, activeSurface, width, maximized, setOpen, setWidth, setMaximized, setActiveSurface } = place.store(
     useShallow((s) => ({
       surfaces: s.surfaces,
@@ -273,8 +287,8 @@ function Dock({ closing }: { closing: boolean }): JSX.Element {
             <button
               type="button"
               className="dock-tool"
-              aria-label={maximized ? 'Back beside the conversation' : 'Fill the window'}
-              title={maximized ? 'Back beside the conversation' : 'Fill the window'}
+              aria-label={maximized ? beside : 'Fill the window'}
+              title={maximized ? beside : 'Fill the window'}
               onClick={() => setMaximized(!maximized)}
             >
               {maximized ? <Minimize2 size={14} strokeWidth={1.9} /> : <Maximize2 size={14} strokeWidth={1.9} />}

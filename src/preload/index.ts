@@ -73,7 +73,7 @@ function on<T>(channel: string, handler: (payload: T) => void): () => void {
   return () => ipcRenderer.removeListener(channel, listener)
 }
 
-const MENU_CHANNELS = ['menu:settings', 'menu:new-chat', 'menu:archive-chat', 'menu:toggle-sidebar', 'menu:toggle-panel']
+const MENU_CHANNELS = ['menu:settings', 'menu:new-chat', 'menu:archive-chat', 'menu:toggle-sidebar', 'menu:toggle-panel', 'menu:whats-new', 'menu:tour']
 let menuHandler: ((command: string) => void) | null = null
 const menuQueue: string[] = []
 for (const channel of MENU_CHANNELS) {
@@ -197,6 +197,7 @@ const api = {
       ipcRenderer.invoke('providers:update', id, patch),
     remove: (id: string): Promise<Provider[]> => ipcRenderer.invoke('providers:remove', id),
     refreshModels: (id: string) => ipcRenderer.invoke('providers:refresh-models', id),
+    refreshLocal: (): Promise<boolean> => ipcRenderer.invoke('providers:refresh-local'),
     /** Re-reads models.dev and, when usable, the provider's own listing; says what changed. */
     refresh: (id: string): Promise<ModelsRefresh> => ipcRenderer.invoke('providers:refresh', id),
     /** Remove, restore, add or rename a model; returns the updated providers. */
@@ -227,6 +228,8 @@ const api = {
     pauseGoal: (messageId: string): Promise<void> => ipcRenderer.invoke('chat:pause-goal', messageId),
     approve: (requestId: string, approved: boolean): Promise<void> =>
       ipcRenderer.invoke('chat:approve', requestId, approved),
+    title: (request: { providerId: string; modelId: string; message: string; reply: string }): Promise<string | null> =>
+      ipcRenderer.invoke('chat:title', request),
     onEvent: (handler: (event: StreamEvent) => void): (() => void) => {
       const listener = (_e: unknown, payload: StreamEvent): void => handler(payload)
       ipcRenderer.on('chat:event', listener)

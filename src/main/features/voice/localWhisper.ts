@@ -1,15 +1,26 @@
 import { app } from 'electron'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { accessSync, constants, createReadStream, createWriteStream, existsSync } from 'node:fs'
-import { mkdir, rename, rm, stat } from 'node:fs/promises'
+import { accessSync, constants, createReadStream, createWriteStream, existsSync, readFileSync } from 'node:fs'
+import { mkdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { availableParallelism } from 'node:os'
 import { join } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { fileURLToPath } from 'node:url'
-import { LOCAL_SPEECH_MODELS, localSpeechModel, localSpeechUrl, type LocalSpeechModel, type LocalSpeechState } from '@shared/speech'
+import {
+  LOCAL_SPEECH_MODELS,
+  hubSpeechEnglishOnly,
+  hubSpeechId,
+  hubSpeechLabel,
+  localSpeechModel,
+  localSpeechUrl,
+  speechIdFor,
+  type LocalSpeechModel,
+  type LocalSpeechState
+} from '@shared/speech'
+import { hubFileInfo, hubFileUrl } from './speechHub'
 
 /**
  * Dictation on this computer: whisper.cpp's `whisper-server`, bundled with
@@ -19,7 +30,11 @@ import { LOCAL_SPEECH_MODELS, localSpeechModel, localSpeechUrl, type LocalSpeech
  * The server starts on the first dictation and keeps the model loaded, so the
  * next one is quick; after a few idle minutes it is stopped and the memory
  * given back. Models live in <userData>/speech-models, checked against their
- * SHA-256 before they are used.
+ * SHA-256 before they are used. Beside the three listed in @shared/speech,
+ * any whisper.cpp model on Hugging Face can be downloaded (speechHub.ts):
+ * those live in speech-models/hub, listed in its library.json, checked
+ * against the SHA-256 Hugging Face keeps for the file and, before a byte
+ * more is fetched, against whisper.cpp's own file signature.
  */
 
 const IDLE_MS = 5 * 60_000
@@ -48,11 +63,37 @@ export function whisperBinary(): string | null {
 }
 
 const modelsDir = (): string => join(app.getPath('userData'), 'speech-models')
-const modelPath = (model: LocalSpeechModel): string => join(modelsDir(), model.file)
+const hubDir = (): string => join(modelsDir(), 'hub')
+const libraryPath = (): string => join(hubDir(), 'library.json')
+const modelPath = (model: LocalSpeechModel): string => (model.repoId ? join(hubDir(), model.file) : join(modelsDir(), model.file))
+
+/** What whisper.cpp's model files start with: "ggml" as a little-endian number. GGUF and the rest don't. */
+const GGML_MAGIC = Buffer.from('lmgg', 'latin1')
+
+/** The models downloaded from Hugging Face, as library.json lists them. */
+function hubModels(): LocalSpeechModel[] {
+  try {
+    const list = JSON.parse(readFileSync(libraryPath(), 'utf8')) as LocalSpeechModel[]
+    return Array.isArray(list) ? list.filter((m) => m && typeof m.id === 'string' && typeof m.file === 'string' && m.repoId) : []
+  } catch {
+    return []
+  }
+}
+
+async function saveHubModels(list: LocalSpeechModel[]): Promise<void> {
+  await mkdir(hubDir(), { recursive: true })
+  await writeFile(libraryPath(), JSON.stringify(list, null, 2))
+}
+
+/** A model by id: one of the listed ones, or one downloaded from Hugging Face. */
+const modelById = (id: string): LocalSpeechModel | undefined => localSpeechModel(id, hubModels())
+
+/** What to call a model in messages: "Whisper Base", or a Hugging Face model's name. */
+export const localSpeechLabel = (id: string): string => modelById(id)?.label ?? 'Whisper'
 
 /* ----------------------------------------------------------------- downloads */
 
-let downloading: { id: string; progress: number; abort: AbortController } | null = null
+let downloading: { id: string; label: string; bytes: number; progress: number; abort: AbortController } | null = null
 let lastError: string | null = null
 let notify: () => void = () => {}
 
@@ -64,11 +105,14 @@ export function onLocalSpeechChange(listener: () => void): void {
 export async function localSpeechState(): Promise<LocalSpeechState> {
   const downloaded: string[] = []
   for (const model of LOCAL_SPEECH_MODELS) if (existsSync(modelPath(model))) downloaded.push(model.id)
+  const hub = hubModels().filter((model) => existsSync(modelPath(model)))
+  downloaded.push(...hub.map((model) => model.id))
   return {
     available: whisperBinary() !== null,
     downloaded,
-    downloading: downloading ? { id: downloading.id, progress: downloading.progress } : null,
-    error: lastError
+    downloading: downloading ? { id: downloading.id, label: downloading.label, bytes: downloading.bytes, progress: downloading.progress } : null,
+    error: lastError,
+    hub
   }
 }
 
@@ -78,25 +122,86 @@ async function sha256Of(path: string): Promise<string> {
   return hash.digest('hex')
 }
 
+/** One of the listed models, downloaded from whisper.cpp's own repo. */
+export async function downloadLocalSpeechModel(id: string): Promise<void> {
+  const model = localSpeechModel(id)
+  if (!model) throw new Error('Unknown speech model.')
+  await downloadModel(model, localSpeechUrl(model))
+}
+
+/**
+ * A whisper.cpp model from any Hugging Face repo (Settings → Speech to text →
+ * Find more). Its size and SHA-256 come from Hugging Face's own listing of
+ * the repo; its first bytes are read before the rest, so a file whisper.cpp
+ * can't load (a GGUF, say) is turned away without downloading it.
+ */
+export async function downloadHubSpeechModel(repoId: string, filename: string): Promise<string> {
+  // One of the listed models, found on Hugging Face: the same file, kept once.
+  const listed = speechIdFor(repoId, filename)
+  if (localSpeechModel(listed)) {
+    await downloadLocalSpeechModel(listed)
+    return listed
+  }
+  const id = hubSpeechId(repoId, filename)
+  if (downloading) throw new Error('Another speech model is downloading.')
+  const known = hubModels().find((m) => m.id === id)
+  if (known && existsSync(modelPath(known))) return id
+  const info = await hubFileInfo(repoId, filename)
+  const url = hubFileUrl(repoId, filename)
+  if (!(await startsLikeWhisperModel(url))) {
+    throw new Error(`${hubSpeechLabel(repoId, filename)} isn’t a whisper.cpp model, so it can’t run here. Pick another file.`)
+  }
+  const model: LocalSpeechModel = {
+    id,
+    label: hubSpeechLabel(repoId, filename),
+    blurb: repoId,
+    file: `${repoId.replace(/[^\w.-]+/g, '__')}__${filename.replace(/[^\w.-]+/g, '_')}`,
+    bytes: info.bytes,
+    sha256: info.sha256,
+    englishOnly: hubSpeechEnglishOnly(filename),
+    repoId
+  }
+  await downloadModel(model, url)
+  await saveHubModels([...hubModels().filter((m) => m.id !== id), model])
+  notify()
+  return id
+}
+
+/** Whether a file on Hugging Face begins as whisper.cpp's models do: its first four bytes, and no more. */
+async function startsLikeWhisperModel(url: string): Promise<boolean> {
+  const response = await fetch(url, { headers: { Range: 'bytes=0-3' }, signal: AbortSignal.timeout(20_000) }).catch(() => null)
+  if (!response?.ok || !response.body) throw new Error('Couldn’t reach Hugging Face. Check your connection and try again.')
+  const reader = response.body.getReader()
+  const chunks: Uint8Array[] = []
+  let length = 0
+  while (length < 4) {
+    const { done, value } = await reader.read()
+    if (done || !value) break
+    chunks.push(value)
+    length += value.length
+  }
+  // A server that ignores the range sends the whole file: stop it there.
+  await reader.cancel().catch(() => {})
+  return Buffer.concat(chunks).subarray(0, 4).equals(GGML_MAGIC)
+}
+
 /**
  * Downloads a model, picking up where an interrupted download left off. The
  * file only takes its real name once its checksum matches, so a half or
  * damaged download is never loaded.
  */
-export async function downloadLocalSpeechModel(id: string): Promise<void> {
-  const model = localSpeechModel(id)
-  if (!model) throw new Error('Unknown speech model.')
+async function downloadModel(model: LocalSpeechModel, url: string): Promise<void> {
   if (downloading) throw new Error('Another speech model is downloading.')
   if (existsSync(modelPath(model))) return
-  await mkdir(modelsDir(), { recursive: true })
+  await mkdir(model.repoId ? hubDir() : modelsDir(), { recursive: true })
   const part = `${modelPath(model)}.part`
   const abort = new AbortController()
-  downloading = { id, progress: 0, abort }
+  downloading = { id: model.id, label: model.label, bytes: model.bytes, progress: 0, abort }
   lastError = null
   notify()
   try {
     const have = await stat(part).then((s) => s.size).catch(() => 0)
-    const response = await fetch(localSpeechUrl(model), { headers: have > 0 ? { Range: `bytes=${have}-` } : {}, signal: abort.signal })
+    const response = await fetch(url, { headers: have > 0 ? { Range: `bytes=${have}-` } : {}, signal: abort.signal })
     if (!response.ok || !response.body) throw new Error(`Hugging Face answered ${response.status}.`)
     // A server that ignores the range sends the whole file again: start over.
     const resumed = response.status === 206
@@ -136,11 +241,12 @@ export function cancelLocalSpeechDownload(): void {
 }
 
 export async function deleteLocalSpeechModel(id: string): Promise<void> {
-  const model = localSpeechModel(id)
+  const model = modelById(id)
   if (!model) return
   if (server?.modelId === id) stopServer()
   await rm(modelPath(model), { force: true })
   await rm(`${modelPath(model)}.part`, { force: true })
+  if (model.repoId) await saveHubModels(hubModels().filter((m) => m.id !== id))
   notify()
 }
 
@@ -227,7 +333,7 @@ async function serverFor(model: LocalSpeechModel): Promise<Server> {
 
 /** Turns a 16 kHz mono WAV recording into text with the chosen local model. */
 export async function transcribeLocally(wav: Uint8Array, modelId: string): Promise<string> {
-  const model = localSpeechModel(modelId)
+  const model = modelById(modelId)
   if (!model) throw new Error('Pick a speech model in Settings → Model providers → Speech to text.')
   const running = await serverFor(model)
   if (running.idle) clearTimeout(running.idle)

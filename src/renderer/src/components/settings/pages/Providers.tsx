@@ -27,17 +27,19 @@ import { CLIPBOARD_FAILED, copyText } from '../../../lib/clipboard'
 import { Modal, SearchField, Switch } from '../../ui'
 import type { ModelInfo, Provider } from '@shared/types'
 import { checkKeyShape, customProviderId, type ModelEdit, type ModelEditFields, type ModelsRefresh, type ProviderAuthStatus, type ProviderMeta } from '@shared/providers'
-import { ago, describeSource, modelCapabilities, providerReadiness, STAGE_LABEL, modelStage, OUTSIDE_PLAN_NOTE } from '@shared/modelSelection'
+import { ago, describeSource, hasCredentials, LOCAL_MODEL_PROVIDER, modelCapabilities, providerReadiness, STAGE_LABEL, modelStage, OUTSIDE_PLAN_NOTE } from '@shared/modelSelection'
 import { CodexEngineDetail, CodexEngineRow, CODEX_ROW_ID, useCodexEngine } from './ProviderCodexEntry'
 import '../../../styles/providers.css'
 import { openInAde } from '../../code/terminal/terminalStore'
 import { LinkAccounts } from '../../LinkAccounts'
-import { FREE_ALLOWANCE } from '../../FreeCreditsOffer'
-import { formatAllowance, formatEndDay, FREE_DAYS, FREE_PROVIDER_ID, type FreeCreditsStatus } from '@shared/freeCredits'
+import { matchesSearch } from '@shared/searchWords'
+import { formatAllowance, formatEndDay, FREE_PROVIDER_ID, type FreeCreditsStatus } from '@shared/freeCredits'
 import { SpeechMark, SpeechToTextDetail } from './SpeechToText'
+import { SPEECH_SETTINGS } from '../../../lib/localSpeech'
 
 /** The list's Speech to text row, which isn't a provider: it picks one for dictation. */
-const SPEECH = '__speech'
+/** Speech to text's row: not a provider, but where the speech model is picked. */
+const SPEECH = SPEECH_SETTINGS
 
 /** The plan's own CLI, named for the button that opens it in the ADE. */
 const PLAN_CLI = { claude: 'Claude Code', antigravity: 'Antigravity', codex: 'Codex' } as const
@@ -55,6 +57,7 @@ const GROUPS: { id: Category; label: string }[] = [
   { id: 'regional', label: 'Regional' },
   { id: 'custom', label: 'Custom' }
 ]
+
 
 const categoryOf = (provider: Provider): Category =>
   provider.category ?? (provider.local ? 'local' : provider.builtIn ? 'frontier' : 'custom')
@@ -143,15 +146,25 @@ export function ProvidersPage(): JSX.Element {
   const codex = useCodexEngine()
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [addingCustom, setAddingCustom] = useState(false)
+  /** The custom provider added last, whose models are listed when its page first opens. */
+  const [added, setAdded] = useState<string | null>(null)
   const [linking, setLinking] = useState(false)
   const [query, setQuery] = useState('')
-  const [free, setFree] = useState<FreeCreditsStatus | null>(null)
+
+  // Local servers start and stop on their own: while this page is open, a
+  // look every ten seconds keeps their Running / Not running true without
+  // Refresh. Only what changed comes back (as providers:changed).
+  useEffect(() => {
+    const look = (): void => void window.api.providers.refreshLocal().catch(() => {})
+    look()
+    const timer = window.setInterval(look, 10_000)
+    return () => window.clearInterval(timer)
+  }, [])
 
   useEffect(() => {
     void refreshProviders()
     // A custom provider added from the Eaon CLI gets its logo looked up now (main/providers/logos.ts).
     void window.api.providerLogos.sweep().catch(() => undefined)
-    void window.api.freeCredits.status().then(setFree)
   }, [refreshProviders])
 
   // Sent here to fix one provider (a reply's "Fix key", the composer's "Sign in again"): open on it.
@@ -163,9 +176,8 @@ export function ProvidersPage(): JSX.Element {
   }, [providerFocus, setProviderFocus])
 
   const groups = useMemo(() => {
-    const needle = query.trim().toLowerCase()
-    const matches = (p: Provider): boolean =>
-      !needle || [p.name, p.id, p.description ?? ''].some((field) => field.toLowerCase().includes(needle))
+    // Every word, in any order, against the name, id, description and group: "local" finds the servers on this computer.
+    const matches = (p: Provider): boolean => matchesSearch(query, [p.name, p.id, p.description ?? '', categoryOf(p)].join(' '))
     return GROUPS.map((group) => ({
       ...group,
       // The old ChatGPT sign-in borrows the Codex CLI's client id; the official
@@ -175,16 +187,21 @@ export function ProvidersPage(): JSX.Element {
   }, [providers, query])
 
   const selected = providers.find((p) => p.id === selectedId) ?? providers.find((p) => p.id === 'openai') ?? providers[0] ?? null
+  const eaonGroup = groups.find((group) => group.id === 'eaon')
   // Codex runs as its own engine, not a provider: listed with the subscriptions once Eaon has checked for it.
-  const codexMatches = Boolean(codex.status) && (!query.trim() || 'codex openai chatgpt'.includes(query.trim().toLowerCase()))
+  const codexMatches = Boolean(codex.status) && matchesSearch(query, 'codex openai chatgpt subscription engine')
   const showingCodex = selectedId === CODEX_ROW_ID && Boolean(codex.status)
-  // Eaon Free before it is claimed: a row of its own that offers it (claimed, it is a provider like the rest).
-  const offeringFree = Boolean(free && !free.claimed) && (!query.trim() || 'eaon free credits'.includes(query.trim().toLowerCase()))
-  // Sent to Eaon Free before it is claimed (the offer card's "Have an event code?"): its offer row.
-  const showingFree =
-    offeringFree && (selectedId === FREE_OFFER_ROW || (selectedId === FREE_PROVIDER_ID && !providers.some((p) => p.id === FREE_PROVIDER_ID)))
+  // Eaon Event without a code: a row of its own with the box for one (with a code, it is a provider like the rest).
+  const eventListed = providers.some((p) => p.id === FREE_PROVIDER_ID)
+  const offeringEvent = !eventListed && matchesSearch(query, 'eaon event code hackathon workshop')
+  // Sent to Eaon Event without a code (the picker's or the setup's "Have an event code?"): its code row.
+  const showingEvent = offeringEvent && (selectedId === EVENT_ROW || selectedId === FREE_PROVIDER_ID)
   // Speech to text isn't a provider: a row of its own that picks one for dictation.
-  const speechMatches = !query.trim() || 'speech to text dictation voice whisper transcribe'.includes(query.trim().toLowerCase())
+  const speechMatches = matchesSearch(query, 'speech to text dictation voice whisper transcribe')
+  // The Codex row sits with the subscriptions, so their heading stays for it when no subscription matches.
+  const listed = groups.filter((group) => group !== eaonGroup)
+  if (codexMatches && !listed.some((group) => group.id === 'subscription'))
+    listed.splice(0, 0, { ...GROUPS.find((group) => group.id === 'subscription')!, providers: [] })
   const showingSpeech = selectedId === SPEECH
 
   return (
@@ -204,14 +221,25 @@ export function ProvidersPage(): JSX.Element {
         </div>
 
         <div className="providers-list__scroll scroll">
-          {offeringFree && (
+          {/* Eaon Event's code row sits under the one Eaon heading, with Eaon Lite. */}
+          {(offeringEvent || eaonGroup) && (
             <div>
               <div className="providers-list__group">Eaon</div>
-              <button className="provider-row" data-active={showingFree || undefined} onClick={() => setSelectedId(FREE_OFFER_ROW)}>
-                <BrandIcon id={FREE_PROVIDER_ID} name="Eaon Free" size={24} />
-                <span className="provider-row__label">Eaon Free</span>
-                <span className="provider-row__free">Free</span>
-              </button>
+              {offeringEvent && (
+                <button className="provider-row" data-active={showingEvent || undefined} onClick={() => setSelectedId(EVENT_ROW)}>
+                  <BrandIcon id={FREE_PROVIDER_ID} name="Eaon Event" size={24} />
+                  <span className="provider-row__label">Eaon Event</span>
+                </button>
+              )}
+              {eaonGroup?.providers.map((provider) => (
+                <ProviderRow
+                  key={provider.id}
+                  provider={provider}
+                  pending={auth[provider.id]?.state === 'pending'}
+                  active={!showingCodex && !showingSpeech && !showingEvent && provider.id === selected?.id}
+                  onClick={() => setSelectedId(provider.id)}
+                />
+              ))}
             </div>
           )}
           {speechMatches && (
@@ -223,7 +251,7 @@ export function ProvidersPage(): JSX.Element {
               </button>
             </div>
           )}
-          {groups.map((group) => (
+          {listed.map((group) => (
             <div key={group.id}>
               <div className="providers-list__group">{group.label}</div>
               {group.id === 'subscription' && codexMatches && (
@@ -234,24 +262,19 @@ export function ProvidersPage(): JSX.Element {
                   key={provider.id}
                   provider={provider}
                   pending={auth[provider.id]?.state === 'pending'}
-                  active={!showingCodex && !showingSpeech && provider.id === selected?.id}
+                  active={!showingCodex && !showingSpeech && !showingEvent && provider.id === selected?.id}
                   onClick={() => setSelectedId(provider.id)}
                 />
               ))}
             </div>
           ))}
-          {groups.length === 0 && !offeringFree && !speechMatches && <div className="providers-list__empty">No providers match “{query.trim()}”.</div>}
+          {groups.length === 0 && !offeringEvent && !speechMatches && !codexMatches && <div className="providers-list__empty">No providers match “{query.trim()}”.</div>}
         </div>
       </nav>
 
       <div className="providers-detail scroll">
-        {showingFree ? (
-          <FreeCreditsOfferDetail
-            onClaimed={(status) => {
-              setFree(status)
-              setSelectedId(FREE_PROVIDER_ID)
-            }}
-          />
+        {showingEvent ? (
+          <EventCodeDetail onRedeemed={() => setSelectedId(FREE_PROVIDER_ID)} />
         ) : showingCodex ? (
           <CodexEngineDetail engine={codex} onOpenProvider={(id) => setSelectedId(id)} />
         ) : showingSpeech ? (
@@ -262,6 +285,7 @@ export function ProvidersPage(): JSX.Element {
             provider={selected}
             meta={meta[selected.id] ?? { id: selected.id, listsModels: true }}
             auth={auth[selected.id]}
+            justAdded={selected.id === added}
           />
         )}
       </div>
@@ -271,6 +295,7 @@ export function ProvidersPage(): JSX.Element {
         onClose={() => setAddingCustom(false)}
         onCreated={(id) => {
           setSelectedId(id)
+          setAdded(id)
           setAddingCustom(false)
         }}
       />
@@ -279,49 +304,32 @@ export function ProvidersPage(): JSX.Element {
   )
 }
 
-/** The list's row for Eaon Free while it is still on offer. */
-const FREE_OFFER_ROW = 'eaon-free:offer'
+/** The list's row for Eaon Event while there is no code. */
+const EVENT_ROW = 'eaon-free:code'
 
-/** Eaon Free, not claimed yet: what it is, and the button that turns it on. */
-function FreeCreditsOfferDetail({ onClaimed }: { onClaimed: (status: FreeCreditsStatus) => void }): JSX.Element {
+/** Eaon Event without a code: what it is, and the box for one. */
+function EventCodeDetail({ onRedeemed }: { onRedeemed: () => void }): JSX.Element {
   const refreshProviders = useApp((s) => s.refreshProviders)
-  const [busy, setBusy] = useState(false)
-  const claim = async (): Promise<void> => {
-    setBusy(true)
-    try {
-      const status = await window.api.freeCredits.claim()
-      await refreshProviders()
-      onClaimed(status)
-    } finally {
-      setBusy(false)
-    }
-  }
   return (
     <>
       <div className="provider-detail__header">
-        <BrandIcon id={FREE_PROVIDER_ID} name="Eaon Free" size={40} />
+        <BrandIcon id={FREE_PROVIDER_ID} name="Eaon Event" size={40} />
         <div className="provider-detail__heading">
-          <span className="provider-detail__name">Eaon Free</span>
-          <span className="provider-detail__tagline">Free models from Eaon for a week, with a daily allowance</span>
+          <span className="provider-detail__name">Eaon Event</span>
+          <span className="provider-detail__tagline">Models from Eaon for an event, with the event’s code</span>
         </div>
       </div>
       <div className="provider-detail__section">
-        <div className="provider-credits">
-          <div className="provider-credits__title">Free AI credits</div>
-          <p className="provider-credits__detail">
-            Claude Haiku 5.5 and Eaon’s own model, free for {FREE_DAYS} days from when you start, with no API key or account: {FREE_ALLOWANCE} on this computer,
-            starting over at midnight.
-          </p>
-          <div className="provider-credits__links">
-            <button className="btn btn--accent" disabled={busy} onClick={() => void claim()}>
-              {busy ? 'Setting up…' : 'Get free credits'}
-            </button>
-          </div>
-        </div>
+        <div className="provider-detail__section-title">Event code</div>
+        <p className="provider-detail__section-desc">
+          For hackathons, workshops and other events Eaon sponsors. Enter the code you were given and Eaon Event joins your model picker, with the event’s
+          daily allowance on this computer, until the code ends. For free models any time, use Eaon Lite.
+        </p>
         <RedeemCode
+          compact
           onRedeemed={async () => {
             await refreshProviders()
-            onClaimed(await window.api.freeCredits.status())
+            onRedeemed()
           }}
         />
       </div>
@@ -329,14 +337,8 @@ function FreeCreditsOfferDetail({ onClaimed }: { onClaimed: (status: FreeCredits
   )
 }
 
-/**
- * "Have an event code?": a code from an event Eaon sponsors, such as a
- * hackathon. The gateway checks it, and Eaon Free then runs on the code's
- * limits until it ends, past the free week.
- */
-/** Eaon Free's allowance, how much of today's is used, when the free week (or the event code) ends, and a box for a code. */
-function FreeCreditsSection(): JSX.Element {
-  const refreshProviders = useApp((s) => s.refreshProviders)
+/** Eaon Event with a code: whose code it is, until when, and how much of today's allowance is used. */
+function EventCodeSection(): JSX.Element {
   const [status, setStatus] = useState<FreeCreditsStatus | null>(null)
   const load = (): void => void window.api.freeCredits.status().then(setStatus)
   useEffect(() => {
@@ -344,33 +346,21 @@ function FreeCreditsSection(): JSX.Element {
     const timer = window.setInterval(load, 10_000)
     return () => window.clearInterval(timer)
   }, [])
-  const resets = status ? new Date(status.resetsAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : ''
-  const allowance = status
-    ? `${status.limits.requestsPerDay.toLocaleString('en-US')} requests and ${formatAllowance(status.limits.tokensPerDay)} tokens a day`
-    : FREE_ALLOWANCE
-  let desc: string
-  if (status?.code) desc = `The code “${status.code.name}” gives this computer ${allowance}, and up to ${status.limits.requestsPerMinute} requests a minute, until ${formatEndDay(status.code.endsAt)}.`
-  else if (status?.ended && status.endsAt) desc = `Your free week ended on ${formatEndDay(status.endsAt)}. Pick another model, add an API key to another provider, or redeem an event code below.`
-  else desc = `No API key needed. Each computer gets ${allowance}, and up to ${status?.limits.requestsPerMinute ?? 20} requests a minute${status?.endsAt ? `, until ${formatEndDay(status.endsAt)}` : ''}.`
+  if (!status?.code) return <div className="provider-detail__section" />
+  const resets = new Date(status.resetsAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+  const allowance = `${status.limits.requestsPerDay.toLocaleString('en-US')} requests and ${formatAllowance(status.limits.tokensPerDay)} tokens a day`
   return (
     <div className="provider-detail__section">
-      <div className="provider-detail__section-title">{status?.ended ? 'Free credits' : 'Today’s free credits'}</div>
-      <p className="provider-detail__section-desc">{desc}</p>
-      {status && !status.ended && (
-        <div className="free-usage">
-          <FreeMeter label="Requests" used={status.requests} limit={status.limits.requestsPerDay} format={(n) => n.toLocaleString('en-US')} />
-          <FreeMeter label="Tokens" used={status.tokens} limit={status.limits.tokensPerDay} format={formatAllowance} />
-          <div className="free-usage__note">Starts over at {status.code ? `${resets} (midnight UTC)` : `midnight (${resets})`}.</div>
-        </div>
-      )}
-      {status && !status.code && (
-        <RedeemCode
-          onRedeemed={async () => {
-            await refreshProviders()
-            load()
-          }}
-        />
-      )}
+      <div className="provider-detail__section-title">Event code</div>
+      <p className="provider-detail__section-desc">
+        The code “{status.code.name}” gives this computer {allowance}, and up to {status.limits.requestsPerMinute} requests a minute, until{' '}
+        {formatEndDay(status.code.endsAt)}.
+      </p>
+      <div className="free-usage">
+        <FreeMeter label="Requests" used={status.requests} limit={status.limits.requestsPerDay} format={(n) => n.toLocaleString('en-US')} />
+        <FreeMeter label="Tokens" used={status.tokens} limit={status.limits.tokensPerDay} format={formatAllowance} />
+        <div className="free-usage__note">Starts over at {resets} (midnight UTC).</div>
+      </div>
     </div>
   )
 }
@@ -406,10 +396,18 @@ function ProviderRow({
   // and a local runtime counts once it has served a model list.
   const readiness = providerReadiness(provider)
   const state = pending ? 'pending' : readiness.state === 'ready' ? 'ready' : readiness.state === 'attention' ? 'attention' : null
+  // A local server used before (it listed models) that isn't answering now says so, quietly.
+  const notRunning = provider.local && readiness.state === 'unavailable' && readiness.action === 'start-local' && provider.models.length > 0
   return (
-    <button className="provider-row" data-active={active || undefined} onClick={onClick} title={readiness.state === 'attention' ? `Needs attention — ${readiness.reason}` : undefined}>
+    <button
+      className="provider-row"
+      data-active={active || undefined}
+      onClick={onClick}
+      title={readiness.state === 'attention' ? `Needs attention — ${readiness.reason}` : notRunning ? (readiness.reason ?? undefined) : undefined}
+    >
       <BrandIcon id={provider.id} name={provider.name} size={24} />
       <span className="provider-row__label">{provider.name}</span>
+      {notRunning && <span className="provider-row__sub">Not running</span>}
       {state && <span className="provider-row__badge" data-state={state} aria-label={state === 'attention' ? 'Needs attention' : state === 'ready' ? 'Ready' : 'Signing in'} />}
     </button>
   )
@@ -420,10 +418,13 @@ function ProviderRow({
 function ProviderDetail({
   provider,
   meta,
-  auth
+  auth,
+  justAdded = false
 }: {
   provider: Provider
   meta: ProviderMeta
+  /** Added a moment ago: its models are asked for at once, rather than "no models yet" until Refresh. */
+  justAdded?: boolean
   auth: ProviderAuthStatus | undefined
 }): JSX.Element {
   const refreshProviders = useApp((s) => s.refreshProviders)
@@ -454,15 +455,17 @@ function ProviderDetail({
       {(provider.auth === 'oauth' || meta.accountSignIn) && <AccountSection provider={provider} meta={meta} auth={auth} />}
       {meta.fields && meta.baseUrlTemplate && <UrlFieldsSection provider={provider} meta={meta} />}
       {meta.baseUrlLabel && <EndpointSection provider={provider} meta={meta} />}
-      {provider.local && <LocalUrlSection provider={provider} />}
+      {/* Eaon's own models on this computer run in Eaon itself: no server, so no address to point anywhere. */}
+      {provider.local && provider.id !== LOCAL_MODEL_PROVIDER && <LocalUrlSection provider={provider} />}
       {!provider.builtIn && <CustomConnectionSection provider={provider} />}
-      {provider.id === FREE_PROVIDER_ID && <FreeCreditsSection />}
-      {provider.auth !== 'oauth' && provider.auth !== 'none' && !provider.local && (
+      {provider.id === FREE_PROVIDER_ID && <EventCodeSection />}
+      {/* A custom provider on the local network works without a key, and can still be given one. */}
+      {provider.auth !== 'oauth' && (provider.auth !== 'none' || !provider.builtIn) && !provider.local && (
         <KeySection provider={provider} meta={meta} auth={auth} onStatus={setStatus} status={status} />
       )}
 
       <LogoSection provider={provider} />
-      <ModelsSection provider={provider} />
+      <ModelsSection provider={provider} listNow={justAdded} />
     </>
   )
 }
@@ -741,7 +744,7 @@ function ClientSetup({ provider, auth }: { provider: Provider; auth: ProviderAut
         <li>Paste the Client ID it gives you:</li>
       </ol>
       <div className="fallback-row">
-        <input
+        <input aria-label="Client ID"
           className="input"
           value={value}
           placeholder="Client ID"
@@ -834,7 +837,7 @@ function SignInProgress({ provider, auth }: { provider: Provider; auth: Provider
           </button>
           {manual && (
             <div className="provider-signin__manual">
-              <input
+              <input aria-label="Redirect URL"
                 className="input"
                 value={pasted}
                 placeholder="http://localhost:1455/auth/callback?code=…"
@@ -857,9 +860,49 @@ function SignInProgress({ provider, auth }: { provider: Provider; auth: Provider
   )
 }
 
+/**
+ * Saving a provider's address, with the reason when it's refused (Eaon's own
+ * service's address, a managed policy). The built-in providers' fields saved
+ * on blur with nothing said, and kept showing an address that was never kept.
+ */
+function useAddressSave(provider: Provider): {
+  error: string | null
+  clear: () => void
+  save: (baseUrl: string) => Promise<Provider[] | null>
+  fieldProps: { 'aria-invalid'?: true; 'aria-describedby'?: string }
+  message: JSX.Element | null
+} {
+  const refreshProviders = useApp((s) => s.refreshProviders)
+  const [error, setError] = useState<string | null>(null)
+  const id = `${provider.id}-address-error`
+  const save = async (baseUrl: string): Promise<Provider[] | null> => {
+    let next: Provider[]
+    try {
+      next = await window.api.providers.update(provider.id, { baseUrl })
+    } catch (e) {
+      setError(plainError(e))
+      return null
+    }
+    setError(null)
+    await refreshProviders()
+    return next
+  }
+  return {
+    error,
+    clear: () => setError(null),
+    save,
+    fieldProps: error ? { 'aria-invalid': true, 'aria-describedby': id } : {},
+    message: error ? (
+      <p className="field-error" id={id} role="alert" style={{ marginTop: 6 }}>
+        {error} Nothing was saved.
+      </p>
+    ) : null
+  }
+}
+
 /** One field per `{placeholder}` in a templated URL — Cloudflare's account and gateway ids, a region. */
 function UrlFieldsSection({ provider, meta }: { provider: Provider; meta: ProviderMeta }): JSX.Element {
-  const refreshProviders = useApp((s) => s.refreshProviders)
+  const address = useAddressSave(provider)
   const template = meta.baseUrlTemplate!
   const [values, setValues] = useState<Record<string, string>>(() => {
     const read = readTemplate(template, provider.baseUrl)
@@ -870,8 +913,7 @@ function UrlFieldsSection({ provider, meta }: { provider: Provider; meta: Provid
 
   const save = async (): Promise<void> => {
     if (url === provider.baseUrl) return
-    await window.api.providers.update(provider.id, { baseUrl: url })
-    await refreshProviders()
+    await address.save(url)
   }
 
   return (
@@ -882,12 +924,16 @@ function UrlFieldsSection({ provider, meta }: { provider: Provider; meta: Provid
         {(meta.fields ?? []).map((field) => (
           <div key={field.key}>
             <div className="field-label">{field.label}</div>
-            <input
+            <input aria-label={field.label}
               className="input"
               value={values[field.key] ?? ''}
               placeholder={field.placeholder}
               spellCheck={false}
-              onChange={(e) => setValues((current) => ({ ...current, [field.key]: e.target.value }))}
+              {...address.fieldProps}
+              onChange={(e) => {
+                setValues((current) => ({ ...current, [field.key]: e.target.value }))
+                address.clear()
+              }}
               onBlur={() => void save()}
               onKeyDown={(e) => e.key === 'Enter' && void save()}
             />
@@ -895,20 +941,20 @@ function UrlFieldsSection({ provider, meta }: { provider: Provider; meta: Provid
         ))}
       </div>
       <div className="provider-url-preview">{url}</div>
+      {address.message}
     </div>
   )
 }
 
 /** Providers whose endpoint is the user's own resource (Azure). */
 function EndpointSection({ provider, meta }: { provider: Provider; meta: ProviderMeta }): JSX.Element {
-  const refreshProviders = useApp((s) => s.refreshProviders)
+  const address = useAddressSave(provider)
   const [baseUrl, setBaseUrl] = useState(provider.baseUrl)
   const save = async (): Promise<void> => {
     if (baseUrl.trim() === provider.baseUrl) return
-    const next = await window.api.providers.update(provider.id, { baseUrl: baseUrl.trim() })
+    const next = await address.save(baseUrl.trim())
     // The main process normalises resource URLs to …/openai/v1; show what it kept.
-    setBaseUrl(next.find((p) => p.id === provider.id)?.baseUrl ?? baseUrl)
-    await refreshProviders()
+    if (next) setBaseUrl(next.find((p) => p.id === provider.id)?.baseUrl ?? baseUrl)
   }
   return (
     <div className="provider-detail__section">
@@ -916,39 +962,49 @@ function EndpointSection({ provider, meta }: { provider: Provider; meta: Provide
       <p className="provider-detail__section-desc">
         Paste your resource’s endpoint in any form — it’s normalised to the <code>/openai/v1</code> API. Use each deployment’s name as its model id.
       </p>
-      <input
+      <input aria-label={meta.baseUrlLabel}
         className="input"
         value={baseUrl}
         placeholder={meta.baseUrlPlaceholder}
         spellCheck={false}
-        onChange={(e) => setBaseUrl(e.target.value)}
+        {...address.fieldProps}
+        onChange={(e) => {
+          setBaseUrl(e.target.value)
+          address.clear()
+        }}
         onBlur={() => void save()}
         onKeyDown={(e) => e.key === 'Enter' && void save()}
       />
+      {address.message}
     </div>
   )
 }
 
 function LocalUrlSection({ provider }: { provider: Provider }): JSX.Element {
-  const refreshProviders = useApp((s) => s.refreshProviders)
+  const address = useAddressSave(provider)
   const [baseUrl, setBaseUrl] = useState(provider.baseUrl)
   const save = async (): Promise<void> => {
     if (baseUrl === provider.baseUrl) return
-    await window.api.providers.update(provider.id, { baseUrl })
-    await refreshProviders()
+    await address.save(baseUrl)
   }
   return (
     <div className="provider-detail__section">
       <div className="provider-detail__section-title">Base URL</div>
       <div className="provider-detail__section-desc">Point this at your local {provider.name} server.</div>
-      <input
+      <input aria-label="Base URL"
         className="input"
         value={baseUrl}
         spellCheck={false}
-        onChange={(e) => setBaseUrl(e.target.value)}
+        {...address.fieldProps}
+        onChange={(e) => {
+          setBaseUrl(e.target.value)
+          address.clear()
+        }}
         onBlur={() => void save()}
+        onKeyDown={(e) => e.key === 'Enter' && void save()}
         placeholder="http://127.0.0.1:8080/v1"
       />
+      {address.message}
     </div>
   )
 }
@@ -1023,10 +1079,10 @@ function KeySection({
     if (value && !(await copyText(value))) onStatus({ ok: false, message: CLIPBOARD_FAILED })
   }
 
+  const address = useAddressSave(provider)
   const saveBaseUrl = async (): Promise<void> => {
     if (baseUrl === provider.baseUrl) return
-    await window.api.providers.update(provider.id, { baseUrl })
-    await refreshProviders()
+    await address.save(baseUrl)
   }
 
   // The fallback keys themselves stay in main; this page holds a masked hint per key.
@@ -1073,7 +1129,9 @@ function KeySection({
         )}
       </div>
       <p className="provider-detail__section-desc">
-        Enter your API key. You can add extra keys in Advanced, and Eaon will try the next one automatically if a key fails.
+        {provider.auth === 'none'
+          ? 'Optional. A server on this computer or your network is used without a key; enter one here if it asks for it.'
+          : 'Enter your API key. You can add extra keys in Advanced, and Eaon will try the next one automatically if a key fails.'}
       </p>
       {meta.noSignInReason && (
         <div className="provider-no-signin">
@@ -1107,7 +1165,7 @@ function KeySection({
         </div>
       )}
       <div className="key-field">
-        <input
+        <input aria-label="API key"
           type={reveal ? 'text' : 'password'}
           value={keyFieldValue}
           placeholder="sk-…"
@@ -1149,7 +1207,20 @@ function KeySection({
           {!meta.baseUrlLabel && provider.builtIn && provider.category !== 'eaon' && (
             <div>
               <div className="field-label">Base URL</div>
-              <input className="input" value={baseUrl} spellCheck={false} onChange={(e) => setBaseUrl(e.target.value)} onBlur={() => void saveBaseUrl()} />
+              <input
+                aria-label="Base URL"
+                className="input"
+                value={baseUrl}
+                spellCheck={false}
+                {...address.fieldProps}
+                onChange={(e) => {
+                  setBaseUrl(e.target.value)
+                  address.clear()
+                }}
+                onBlur={() => void saveBaseUrl()}
+                onKeyDown={(e) => e.key === 'Enter' && void saveBaseUrl()}
+              />
+              {address.message}
             </div>
           )}
           <div>
@@ -1163,7 +1234,7 @@ function KeySection({
               </div>
             ))}
             <div className="fallback-row">
-              <input
+              <input aria-label="Another API key"
                 className="input"
                 type="password"
                 value={newFallback}
@@ -1227,7 +1298,7 @@ function KeySection({
  * than deleting it, so "Hidden" can always bring it back, and Refresh checks
  * models.dev even before a key is added.
  */
-function ModelsSection({ provider }: { provider: Provider }): JSX.Element {
+function ModelsSection({ provider, listNow = false }: { provider: Provider; listNow?: boolean }): JSX.Element {
   // Narrow: a whole-store subscription re-renders this (and every model row) per streamed token.
   const { refreshProviders, toggleFavorite, favorites } = useApp(
     useShallow((s) => ({ refreshProviders: s.refreshProviders, toggleFavorite: s.toggleFavorite, favorites: s.settings?.favoriteModels }))
@@ -1239,7 +1310,7 @@ function ModelsSection({ provider }: { provider: Provider }): JSX.Element {
   const [query, setQuery] = useState('')
   const [busy, setBusy] = useState(false)
   const [status, setStatus] = useState<ModelsRefresh | null>(null)
-  const ready = provider.local || provider.hasKey
+  const ready = hasCredentials(provider)
   const hidden = provider.hiddenModels ?? []
   const starred = new Set(favorites ?? [])
 
@@ -1267,6 +1338,14 @@ function ModelsSection({ provider }: { provider: Provider }): JSX.Element {
       setBusy(false)
     }
   }
+
+  // A provider just added asks its endpoint for its models straight away.
+  useEffect(() => {
+    if (listNow) void refresh()
+    // Once, when it opens.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
 
   const addModel = async (): Promise<void> => {
     const id = newModelId.trim()
@@ -1309,7 +1388,7 @@ function ModelsSection({ provider }: { provider: Provider }): JSX.Element {
 
       {addingModel && (
         <div className="add-model-row">
-          <input
+          <input aria-label="Model id"
             autoFocus
             className="input"
             value={newModelId}
@@ -1602,6 +1681,8 @@ function CustomConnectionSection({ provider }: { provider: Provider }): JSX.Elem
   const [baseUrl, setBaseUrl] = useState(provider.baseUrl)
   const [confirming, setConfirming] = useState(false)
   const [saved, setSaved] = useState(false)
+  // Why the last save was refused (a Base URL pointing at Eaon's own service), until the fields change.
+  const [error, setError] = useState<string | null>(null)
   const dirty = name.trim() !== provider.name || format !== provider.kind || baseUrl.trim() !== provider.baseUrl
 
   useEffect(() => {
@@ -1610,8 +1691,18 @@ function CustomConnectionSection({ provider }: { provider: Provider }): JSX.Elem
     return () => clearTimeout(timer)
   }, [confirming])
 
+  const pickFormat = (next: Provider['kind']): void => {
+    setFormat(next)
+    setError(null)
+  }
   const save = async (): Promise<void> => {
-    await window.api.providers.update(provider.id, { name: name.trim() || provider.name, kind: format, baseUrl: baseUrl.trim() })
+    try {
+      await window.api.providers.update(provider.id, { name: name.trim() || provider.name, kind: format, baseUrl: baseUrl.trim() })
+    } catch (e) {
+      setError(plainError(e))
+      return
+    }
+    setError(null)
     await refreshProviders()
     setSaved(true)
     setTimeout(() => setSaved(false), 1800)
@@ -1629,24 +1720,43 @@ function CustomConnectionSection({ provider }: { provider: Provider }): JSX.Elem
     <div className="provider-detail__section">
       <div className="provider-detail__section-title">Connection</div>
       <div className="field-label">Name</div>
-      <input className="input" style={{ marginBottom: 14 }} value={name} spellCheck={false} onChange={(e) => setName(e.target.value)} />
-      <div className="field-label">API format</div>
-      <div className="radio-row" style={{ marginBottom: 14 }}>
-        <RadioOption label="OpenAI chat" checked={format === 'openai-compatible'} onSelect={() => setFormat('openai-compatible')} />
-        <RadioOption label="OpenAI Responses" checked={format === 'openai-responses'} onSelect={() => setFormat('openai-responses')} />
-        <RadioOption label="Anthropic" checked={format === 'anthropic'} onSelect={() => setFormat('anthropic')} />
-      </div>
-      <div className="field-label">Base URL</div>
-      <input
+      <input aria-label="Name"
         className="input"
         style={{ marginBottom: 14 }}
+        value={name}
+        spellCheck={false}
+        onChange={(e) => {
+          setName(e.target.value)
+          setError(null)
+        }}
+      />
+      <div className="field-label">API format</div>
+      <div className="radio-row" style={{ marginBottom: 14 }}>
+        <RadioOption label="OpenAI chat" checked={format === 'openai-compatible'} onSelect={() => pickFormat('openai-compatible')} />
+        <RadioOption label="OpenAI Responses" checked={format === 'openai-responses'} onSelect={() => pickFormat('openai-responses')} />
+        <RadioOption label="Anthropic" checked={format === 'anthropic'} onSelect={() => pickFormat('anthropic')} />
+      </div>
+      <div className="field-label">Base URL</div>
+      <input aria-label="Base URL"
+        className="input"
+        style={{ marginBottom: error ? 6 : 14 }}
         value={baseUrl}
         placeholder="https://your-endpoint/v1"
         spellCheck={false}
-        onChange={(e) => setBaseUrl(e.target.value)}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? `${provider.id}-connection-error` : undefined}
+        onChange={(e) => {
+          setBaseUrl(e.target.value)
+          setError(null)
+        }}
       />
+      {error && (
+        <p className="field-error" id={`${provider.id}-connection-error`} role="alert" style={{ marginBottom: 14 }}>
+          {error}
+        </p>
+      )}
       <div className="provider-connection__actions">
-        <button className="btn btn--provider" disabled={!dirty || !baseUrl.trim()} onClick={() => void save()}>
+        <button className="btn btn--provider" disabled={!dirty || !baseUrl.trim() || error !== null} onClick={() => void save()}>
           {saved ? 'Saved' : 'Save'}
         </button>
         <span className="model-row__spacer" />
@@ -1737,7 +1847,7 @@ function AddCustomProviderModal({
         </>
       }
     >
-      <input
+      <input aria-label="Provider name"
         className="input"
         style={{ marginBottom: 20 }}
         value={name}
@@ -1755,7 +1865,7 @@ function AddCustomProviderModal({
       </div>
 
       <div className="field-label">Base URL</div>
-      <input
+      <input aria-label="Base URL"
         className="input"
         style={{ marginBottom: 20 }}
         value={baseUrl}
@@ -1765,7 +1875,7 @@ function AddCustomProviderModal({
       />
 
       <div className="field-label">API key</div>
-      <input className="input" type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder="Paste your API key" spellCheck={false} />
+      <input aria-label="API key" className="input" type="password" value={key} onChange={(e) => setKey(e.target.value)} placeholder="Paste your API key" spellCheck={false} />
       {error && (
         <div className="provider-status" data-tone="error" style={{ marginTop: 12 }}>
           {error}

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import type { AuditStatus, PolicyFeature, PolicyStatus } from '@shared/enterprise'
 import { Card, Row, Section } from '../../ui'
+import { ENTERPRISE_DOCS_URL } from '@shared/links'
 
 /** How each policy switch reads on this page. */
 const FEATURE_LABELS: Record<PolicyFeature, string> = {
@@ -75,7 +76,15 @@ export function SecurityPage(): JSX.Element {
             description={
               managed.managed
                 ? `Settings marked below are set by your IT team and can't be changed here. Policy: ${managed.source}`
-                : 'No organization policy is installed on this computer. Your IT team can deploy one; see docs/enterprise.md.'
+                : (
+                    <>
+                      No organization policy is installed on this computer. Your IT team can deploy one; see{' '}
+                      <button type="button" className="link-btn" onClick={() => void window.api.app.openExternal(ENTERPRISE_DOCS_URL)}>
+                        how to set up a policy
+                      </button>
+                      .
+                    </>
+                  )
             }
           />
           {managed.failedClosed && (
@@ -89,7 +98,7 @@ export function SecurityPage(): JSX.Element {
             <Row title="Most agent autonomy allowed" description={APPROVAL_LABELS[policy.agent.maxApprovalMode]} />
           )}
           {policy?.agent?.allowFullDiskAccess === false && (
-            <Row title="File access" description="Agents can only change files inside the work folder." />
+            <Row title="File access" description="Agents can only change files inside the folder they work in: a chat’s project, or Eaon’s folder." />
           )}
           {policy?.providers?.allow && <Row title="Allowed model providers" description={policy.providers.allow.join(', ')} />}
           {policy?.providers?.deny && <Row title="Blocked model providers" description={policy.providers.deny.join(', ')} />}

@@ -52,29 +52,6 @@ const SKIP_DIRS = new Set(['node_modules', '.git', 'dist', 'build', 'out', '.nex
 
 /* ---------------------------------------------------------------- git */
 
-/** Past these, new files are counted as files but not read for their lines. */
-const MAX_UNTRACKED_READ = 60
-const MAX_UNTRACKED_BYTES = 1_000_000
-
-/** Lines in the files git doesn't track yet, as a diff would count them added. */
-async function untrackedLines(cwd: string): Promise<number> {
-  const list = await run(cwd, 'git', ['ls-files', '--others', '--exclude-standard', '-z'], 5000)
-  if (!list.ok) return 0
-  let lines = 0
-  for (const file of list.stdout.split('\0').filter(Boolean).slice(0, MAX_UNTRACKED_READ)) {
-    try {
-      const path = join(cwd, file)
-      if ((await stat(path)).size > MAX_UNTRACKED_BYTES) continue
-      const text = await readFile(path, 'utf8')
-      if (text.includes('\0')) continue
-      lines += text === '' ? 0 : text.split('\n').length - (text.endsWith('\n') ? 1 : 0)
-    } catch {
-      /* gone, or not readable: not counted */
-    }
-  }
-  return lines
-}
-
 async function gitStatus(cwd: string): Promise<ChatGitStatus> {
   const inside = await run(cwd, 'git', ['rev-parse', '--is-inside-work-tree'], 5000)
   if (!inside.ok) return { repo: false, branch: null, detached: null, upstream: null, ahead: 0, behind: 0, remote: false, changes: null }
@@ -93,8 +70,6 @@ async function gitStatus(cwd: string): Promise<ChatGitStatus> {
     ahead = a || 0
   }
   const detached = branch.ok ? null : (await run(cwd, 'git', ['rev-parse', '--short', 'HEAD'], 5000)).stdout.trim() || null
-  // New files count their lines too, as the Changes pane's diff does (git's numstat leaves them out).
-  if (uncommitted) uncommitted.added += await untrackedLines(cwd)
   return {
     repo: true,
     branch: branch.ok ? branch.stdout.trim() || null : null,

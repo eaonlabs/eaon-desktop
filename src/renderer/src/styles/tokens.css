@@ -103,6 +103,12 @@
   --on-accent: oklch(
     from var(--accent) calc(1 - clamp(0, (l - 0.69) * 1000, 1) * 0.78) calc(clamp(0, (l - 0.69) * 1000, 1) * c * 0.6) h
   );
+  /* The accent as a fill under --on-accent (a button, a badge). With white
+     text, a mid-tone accent such as Cobalt's #0A84FF gives only 3.6:1; the
+     fill is taken down to OKLCH lightness 0.56 (Cobalt becomes #006FE8,
+     4.7:1), the same hue. An accent dark enough already, or one bright
+     enough to get dark ink, is used as it is. */
+  --accent-fill: oklch(from var(--accent) calc(l - (1 - clamp(0, (l - 0.69) * 1000, 1)) * max(0, l - 0.56)) c h);
 
   /* ---- Frosted glass ----
      Settings → Appearance → Glass scales how much frosted glass blurs what

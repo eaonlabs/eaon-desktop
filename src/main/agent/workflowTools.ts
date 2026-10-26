@@ -1,5 +1,6 @@
 import type { TodoItem } from '@shared/types'
 import { registerToolSource, type AgentTool } from './tools'
+import { isGoalPaused, onGoalPause } from './goalPause'
 
 /**
  * Tools that shape how a Work turn runs rather than acting on the computer:
@@ -146,20 +147,25 @@ const wait: AgentTool = {
   mutating: false,
   describe: (input) => `${Number(input.minutes) || 1} min${str(input.reason) ? ` · ${str(input.reason)}` : ''}`,
   run: async (input, ctx) => {
+    const id = ctx.request.messageId
+    if (isGoalPaused(id)) return 'The user paused the goal. Don’t wait; stop here.'
     const until = ctx.request.goal?.until ?? Date.now()
     const asked = Math.min(Math.max(Number(input.minutes) || 1, 1), MAX_WAIT_MINUTES) * 60_000
     const ms = Math.max(0, Math.min(asked, until - Date.now()))
+    const started = Date.now()
     await new Promise<void>((resolve) => {
-      const timer = setTimeout(resolve, ms)
-      ctx.signal?.addEventListener(
-        'abort',
-        () => {
-          clearTimeout(timer)
-          resolve()
-        },
-        { once: true }
-      )
+      let unpause = (): void => undefined
+      const done = (): void => {
+        clearTimeout(timer)
+        unpause()
+        resolve()
+      }
+      const timer = setTimeout(done, ms)
+      // A pause ends the wait now, not when it would have.
+      unpause = onGoalPause(id, done)
+      ctx.signal?.addEventListener('abort', done, { once: true })
     })
+    if (isGoalPaused(id)) return `The user paused the goal after ${Math.round((Date.now() - started) / 60_000)} min of waiting. Stop here.`
     const now = new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
     const left = Math.max(0, Math.round((until - Date.now()) / 60_000))
     return left > 0 ? `Waited ${Math.round(ms / 60_000)} min. It is ${now}; ${left} min left.` : `Waited until the end time (${now}). Wrap up now.`

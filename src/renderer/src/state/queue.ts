@@ -78,12 +78,11 @@ function release(chatId: string): void {
 export function sendQueuedNow(chatId: string, id: string): void {
   const app = useApp.getState()
   if (app.activeChatId !== chatId) return
-  if (app.streamingChatId && app.streamingChatId !== chatId) return
   const message = unqueue(chatId, id)
   if (!message) return
   release(chatId)
-  if (app.streamingChatId === chatId) app.stop()
-  void useApp.getState().send(message.text, { attachments: message.attachments })
+  if (app.runs[chatId]) app.stop(chatId)
+  void useApp.getState().send(message.text, { attachments: message.attachments, chatId })
 }
 
 /** A held queue's Resume: it goes on from the next message. */
@@ -92,31 +91,38 @@ export function resumeQueue(chatId: string): void {
   drain()
 }
 
-/** Sends the open chat's next queued message, when nothing is running and the queue isn't held. */
+/**
+ * Sends each chat's next queued message once its own reply is done and its
+ * queue isn't held. Other chats running don't hold it up, and neither does
+ * the chat being somewhere else on screen: it goes on in the background.
+ */
 function drain(): void {
   const app = useApp.getState()
-  if (app.streamingMessageId || app.pendingApproval) return
-  const chatId = app.activeChatId
-  if (!chatId || useQueue.getState().held[chatId]) return
-  const next = useQueue.getState().byChat[chatId]?.[0]
-  if (!next) return
-  unqueue(chatId, next.id)
-  void app.send(next.text, { attachments: next.attachments })
+  const { byChat, held } = useQueue.getState()
+  for (const chatId of Object.keys(byChat)) {
+    if (held[chatId] || app.runs[chatId] || !app.chats.some((c) => c.id === chatId)) continue
+    const next = byChat[chatId]?.[0]
+    if (!next) continue
+    unqueue(chatId, next.id)
+    void app.send(next.text, { attachments: next.attachments, chatId })
+  }
 }
 
 let watching = false
 
-/** Sends the next message whenever a reply ends, or its chat is opened again with nothing running. */
+/** Sends a chat's next message whenever its reply ends. */
 export function watchQueue(): void {
   if (watching) return
   watching = true
   useApp.subscribe((state, previous) => {
-    const finished = previous.streamingChatId && !state.streamingChatId ? previous.streamingChatId : null
-    if (finished) {
-      const chat = state.chats.find((c) => c.id === finished)
+    if (state.runs === previous.runs) return
+    const finished = Object.keys(previous.runs).filter((chatId) => !state.runs[chatId])
+    if (finished.length === 0) return
+    for (const chatId of finished) {
+      const chat = state.chats.find((c) => c.id === chatId)
       const last = chat?.messages[chat.messages.length - 1]
-      if (last?.role === 'assistant' && last.error) holdQueue(finished)
+      if (last?.role === 'assistant' && last.error) holdQueue(chatId)
     }
-    if (finished || state.activeChatId !== previous.activeChatId) setTimeout(drain, 0)
+    setTimeout(drain, 0)
   })
 }

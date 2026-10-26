@@ -1,0 +1,188 @@
+/* Setting up dictation (SpeechSetup.tsx): a card above the message box, like
+   the model notice beside it, with the download and its progress in place. */
+
+.speech-setup {
+  --go: color-mix(in srgb, var(--link), #ffffff 28%);
+  --go-ink: color-mix(in srgb, var(--accent), #000000 64%);
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px 12px;
+  margin: 0 0 8px;
+  padding: 10px 10px 10px 11px;
+  border-radius: 14px;
+  background: var(--surface-1);
+  box-shadow: 0 0 0 1px var(--border-soft);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  line-height: 1.45;
+  animation: speech-setup-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+[data-theme='light'] .speech-setup {
+  --go: var(--accent-fill);
+  --go-ink: var(--on-accent);
+}
+
+@keyframes speech-setup-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+}
+
+/* A round mark: the mic, or a check once the model is in. */
+.speech-setup__mark {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--link) 14%, transparent);
+  color: var(--link);
+}
+.speech-setup[data-state='ready'] .speech-setup__mark {
+  background: color-mix(in srgb, #30a46c 16%, transparent);
+  color: #30a46c;
+}
+
+.speech-setup__words {
+  flex: 1 1 240px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.speech-setup__title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+  color: var(--text);
+  font-weight: 500;
+}
+.speech-setup__count {
+  margin-left: auto;
+  color: var(--text-3);
+  font-weight: 400;
+  font-size: var(--fs-xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.speech-setup__desc {
+  color: var(--text-2);
+  text-wrap: pretty;
+}
+.speech-setup__desc[data-tone='error'] {
+  color: var(--danger);
+}
+
+/* The download's progress, under its name. */
+.speech-setup__bar {
+  display: block;
+  height: 4px;
+  margin-top: 6px;
+  border-radius: var(--r-pill);
+  background: var(--hover-strong);
+  overflow: hidden;
+}
+.speech-setup__bar > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--link);
+  transition: width 240ms var(--ease);
+}
+
+.speech-setup__actions {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+}
+.speech-setup__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 12px;
+  border-radius: var(--r-pill);
+  background: var(--hover-strong);
+  color: var(--text);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  white-space: nowrap;
+  transition:
+    background-color var(--dur) var(--ease),
+    color var(--dur) var(--ease),
+    transform 120ms var(--ease);
+}
+.speech-setup__btn:hover {
+  background: color-mix(in srgb, var(--hover-strong), var(--text) 8%);
+}
+.speech-setup__btn--go {
+  background: var(--go);
+  color: var(--go-ink);
+}
+.speech-setup__btn--go:hover {
+  background: color-mix(in srgb, var(--go), #000000 10%);
+}
+.speech-setup__btn:active {
+  transform: scale(0.96);
+}
+.speech-setup__close {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  color: var(--text-3);
+  transition:
+    background-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+.speech-setup__close:hover {
+  background: var(--hover);
+  color: var(--text);
+}
+.speech-setup__btn:focus-visible,
+.speech-setup__close:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Over the ADE's terminals: the same card, floating at the foot of the
+   workspace where the hold-to-talk pill shows, lifted with a shadow. */
+.speech-setup--floating {
+  position: absolute;
+  left: 50%;
+  bottom: 22px;
+  z-index: 30;
+  width: min(600px, calc(100% - 48px));
+  margin: 0;
+  background: var(--menu-bg);
+  -webkit-backdrop-filter: var(--frost);
+  backdrop-filter: var(--frost);
+  box-shadow:
+    0 0 0 1px var(--border),
+    var(--shadow-menu);
+  transform: translateX(-50%);
+  animation-name: speech-setup-float-in;
+}
+@keyframes speech-setup-float-in {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(6px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .speech-setup,
+  .speech-setup--floating {
+    animation: none;
+  }
+  .speech-setup__bar > span {
+    transition: none;
+  }
+}

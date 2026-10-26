@@ -24,6 +24,15 @@ scenario('chat streams a reply, Stop ends one mid-stream, and both survive quit 
   const done = await waitForReply(page, { text: 'over the lazy dog', streaming: false })
   assert.equal(done.error, '')
   assert.equal(fake.chats.at(-1)?.lastUser, 'Tell me about the fox')
+  // The chat's model is asked to name it once the first reply is in (the fake leaves the name alone).
+  await within(
+    (async () => {
+      while (fake.titles.length === 0) await new Promise((r) => setTimeout(r, 100))
+    })(),
+    10_000,
+    'the model was not asked to name the chat within 10 s'
+  )
+  assert.match(fake.titles[0].lastUser, /^The user wrote:\nTell me about the fox/)
   await s.shot(page, 'streamed-reply')
 
   // A reply held open by the server, stopped by the user part way through.

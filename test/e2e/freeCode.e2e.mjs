@@ -1,20 +1,19 @@
 /**
- * Eaon Free with an event code (a hackathon's), against a local copy of the
+ * Eaon Event with an event code (a hackathon's), against a local copy of the
  * gateway (`npm run dev:cf:gateway` in the gateway's repo, with a fake
  * upstream), never the real one:
  *
  *   EAON_E2E_GATEWAY=http://127.0.0.1:18902 EAON_E2E_GATEWAY_PASSWORD=… npm run test:e2e -- freeCode
  *
- * The code is made on that gateway's admin API, redeemed in Settings after
- * the free week has ended, and a message then goes through it, counted by
- * the gateway against this device.
+ * The code is made on that gateway's admin API, redeemed in Settings →
+ * Model providers → Eaon Event, and a message then goes through it, counted
+ * by the gateway against this device.
  */
 import assert from 'node:assert/strict'
 import { openSettings, scenario, sendMessage, waitForReply } from './fixtures.mjs'
 
 const gateway = process.env.EAON_E2E_GATEWAY
 const password = process.env.EAON_E2E_GATEWAY_PASSWORD
-const WEEK_MS = 7 * 24 * 3_600_000
 
 async function adminSession() {
   const login = await fetch(`${gateway}/_admin/login`, { method: 'POST', headers: { origin: gateway, 'content-type': 'application/json' }, body: JSON.stringify({ password }) })
@@ -27,7 +26,7 @@ async function adminSession() {
 }
 
 scenario(
-  'Eaon Free event code: redeemed in Settings after the free week, a reply through it, counted per device',
+  'Eaon Event code: redeemed in Settings, a reply through it, counted per device',
   { timeout: 120_000, skip: gateway && password ? false : 'needs a local gateway: set EAON_E2E_GATEWAY and EAON_E2E_GATEWAY_PASSWORD' },
   async (s) => {
     const admin = await adminSession()
@@ -35,16 +34,15 @@ scenario(
     const code = made.code.token
     assert.match(code, /^EAON-/)
 
-    const claimedAt = Date.now() - WEEK_MS - 3_600_000
     const app = await s.launch({
       env: { EAON_FREE_GATEWAY_URL: `${gateway}/v1` },
-      seed: { 'settings.json': { freeCredits: { claimed: true, claimedAt, offered: 1, lastOfferedAt: claimedAt }, selectedProviderId: 'eaon-free', selectedModelId: 'claude-haiku-5-5' } }
+      seed: { 'settings.json': { selectedProviderId: 'eaon-free', selectedModelId: 'claude-haiku-5-5' }, 'store-meta.json': { schema: 4 } }
     })
     const page = app.page
     await openSettings(page)
     await page.click('.settings__nav .nav-item', { text: /^Model providers$/ })
-    await page.click('.provider-row', { text: /^Eaon Free/ })
-    await page.find('.provider-detail__section-desc', { text: /Your free week ended on .*redeem an event code below/ })
+    await page.click('.provider-row', { text: /^Eaon Event/ })
+    await page.find('.provider-detail__section-title', { text: /^Event code$/ })
 
     // A wrong code first: the gateway's own words.
     await page.fill('.free-code input', 'EAON-AAAA-BBBB-CCCC')
@@ -60,11 +58,10 @@ scenario(
     await s.shot(page, 'code-redeemed')
 
     const status = await page.eval(() => window.api.freeCredits.status())
-    assert.equal(status.ended, false)
     assert.equal(status.code.name, 'Eaon Hack e2e')
 
     await page.click('.settings__back')
-    await page.waitFor(() => document.querySelector('.chip__model')?.textContent === 'Claude Haiku 5.5', { message: 'the composer on the free model' })
+    await page.waitFor(() => document.querySelector('.chip__model')?.textContent === 'Claude Haiku 5.5', { message: 'the composer on the event’s model' })
     await sendMessage(page, 'Hello from the hackathon')
     const reply = await waitForReply(page, { streaming: false, timeout: 60_000 })
     assert.equal(reply.error, '', 'the code got the message through')

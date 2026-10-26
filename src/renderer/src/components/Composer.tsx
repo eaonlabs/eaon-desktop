@@ -26,7 +26,7 @@ import {
   X,
   Zap
 } from 'lucide-react'
-import { codeFolder, useApp, useIsWork } from '../state/store'
+import { codeFolder, runIn, useApp, useCoding, useIsWork } from '../state/store'
 import { MenuItem, MenuSearch, MenuSeparator, Popover, useDisclosure } from './ui'
 import { mcpCatalogEntry } from '@shared/mcpCatalog'
 import { PluginLogo } from './plugins/PluginLogo'
@@ -44,6 +44,7 @@ import { ModelNotice } from './composer/ModelNotice'
 import { useChatEngine } from './composer/chatEngine'
 import { EngineNotice } from './composer/EngineNotice'
 import { ENGINE_MARK, ProviderMark } from './composer/ProviderMark'
+import { ElsewhereAsk } from './agent/ElsewhereAsk'
 import { joinTranscript, useDictation } from './composer/useDictation'
 import { VoiceBar } from './composer/VoiceBar'
 import { PermissionPicker, ProjectPicker } from './composer/ComposerBits'
@@ -55,6 +56,10 @@ import { sentPrompts } from '../state/chatEdits'
 import { enqueue, holdQueue, watchQueue } from '../state/queue'
 import { QueuedMessages } from './chat/QueuedMessages'
 import { ContextMeter } from './chat/ContextMeter'
+import { typingElsewhere, useHoldToTalk } from './composer/useHoldToTalk'
+import { SpeechSetup } from './composer/SpeechSetup'
+import { holdKeyLabel } from '@shared/holdKey'
+import { isMac } from '../lib/platform'
 
 // Queued follow-ups go out as each reply ends (state/queue.ts).
 watchQueue()
@@ -83,10 +88,12 @@ const PASTED_IMAGE_TYPES = new Set(['image/png', 'image/jpeg', 'image/gif', 'ima
  * of streamed tokens, and takes nothing from it but `variant`.
  */
 export const Composer = memo(function Composer({ variant = 'home' }: { variant?: 'home' | 'chat' }): JSX.Element {
-  const { settings, streamingChatId, activeChatId, send, stop, composerDraft, setComposerDraft, composerAppend, appendToComposer, workIn, patchSettings } = useApp(
+  const { settings, streaming, activeChatId, send, stop, composerDraft, setComposerDraft, composerAppend, appendToComposer, workIn, patchSettings } = useApp(
     useShallow((s) => ({
       settings: s.settings,
-      streamingChatId: s.streamingChatId,
+      // Stop belongs to the open chat's own reply. Other chats can be running
+      // too: this one still sends, and each keeps its own Stop.
+      streaming: runIn(s, s.activeChatId) !== null,
       activeChatId: s.activeChatId,
       send: s.send,
       stop: s.stop,
@@ -135,6 +142,8 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
   const history = useRef<{ index: number; draft: string; recalled: string } | null>(null)
   const textarea = useRef<HTMLTextAreaElement>(null)
   const isAgent = useIsWork()
+  // Follow-up "changes" are a coding chat's; an ordinary chat just carries on.
+  const coding = useCoding()
   // Dictation: what is said lands at the end of the message, ready to edit, never sent by itself.
   const dictation = useDictation((spoken) => {
     setText((current) => joinTranscript(current, spoken))
@@ -145,6 +154,13 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
     })
   })
   const dictating = dictation.state !== 'idle'
+  // Hold to talk, as in the ADE: while this box is on screen and nobody is typing in another field.
+  const hold = useHoldToTalk(dictation, {
+    ready: () => {
+      const box = textarea.current
+      return Boolean(box && box.offsetParent !== null) && !typingElsewhere(box)
+    }
+  })
 
   const plusAnchor = useRef<HTMLButtonElement>(null)
   const modelAnchor = useRef<HTMLButtonElement>(null)
@@ -160,11 +176,6 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
   const noModel = engineChoice ? !engineChoice.ready : selection.status === 'none' || selection.status === 'unavailable'
   // What the request will actually use: the chosen effort, clamped to the model.
   const effort = clampEffort(settings?.effort, engineChoice ? engineChoice.efforts : model?.efforts)
-  // Stop belongs to the chat whose reply is streaming. Anywhere else — another
-  // chat, a new one — it stopped a reply the user could not see, and Enter
-  // with a message typed did the same; there, sending waits instead.
-  const streaming = streamingChatId !== null && streamingChatId === activeChatId
-  const busyElsewhere = streamingChatId !== null && !streaming
 
   useEffect(() => {
     const node = textarea.current
@@ -264,7 +275,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       stop()
       return
     }
-    if (busyElsewhere || noModel || (!text.trim() && attachments.length === 0)) return
+    if (noModel || (!text.trim() && attachments.length === 0)) return
     const options = { attachments, goal: isAgent && goalArmed, until: isAgent && goalArmed ? goalEndAt(goalUntil) : null }
     if (editing) resendFrom(editing, text, options)
     else void send(text, options)
@@ -450,7 +461,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
   const input = dictating ? (
     <VoiceBar dictation={dictation} />
   ) : (
-    <textarea
+    <textarea aria-label="Message"
       ref={textarea}
       className="composer__input"
       placeholder={
@@ -461,7 +472,9 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
           : planOn
             ? 'Describe the task — Eaon researches and proposes a plan first'
             : variant === 'chat'
-              ? 'Ask for follow-up changes'
+              ? coding && isAgent
+                ? 'Ask for follow-up changes'
+                : 'Ask a follow-up'
               : isAgent
                 ? 'Ask Eaon to do anything'
                 : 'Ask anything'
@@ -572,7 +585,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       }
       disabled={dictation.state === 'transcribing'}
       aria-label={dictating ? 'Stop dictating' : 'Dictate'}
-      title={dictating ? 'Stop dictating' : 'Dictate a message'}
+      title={dictating ? 'Stop dictating' : hold.enabled ? `Dictate a message (or hold ${holdKeyLabel(hold.key, isMac)})` : 'Dictate a message'}
     >
       <Mic size={16} strokeWidth={1.9} />
     </button>
@@ -592,10 +605,10 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
   const sendButton = (
     <button
       className={`send ${streaming ? 'send--stop' : ''}`}
-      disabled={busyElsewhere || (!streaming && (noModel || dictating || (!text.trim() && attachments.length === 0)))}
+      disabled={!streaming && (noModel || dictating || (!text.trim() && attachments.length === 0))}
       onClick={submit}
       aria-label={streaming ? 'Stop' : 'Send'}
-      title={busyElsewhere ? 'Eaon is still replying in another chat' : !streaming && noModel ? 'Connect a model first — see above' : undefined}
+      title={!streaming && noModel ? 'Connect a model first — see above' : undefined}
     >
       {streaming ? (
         <Square size={11} strokeWidth={0} fill="currentColor" />
@@ -629,6 +642,10 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       ) : (
         <ModelNotice selection={selection} onChooseModel={() => modelMenu.setOpen(true)} />
       )}
+      {/* Dictation with nothing to turn speech into text: a model to download, right here. */}
+      {dictation.needsSetup && <SpeechSetup holdKey={hold.enabled ? hold.key : null} onClose={dictation.dismissError} />}
+      {/* Another chat stopped to ask: here, not in a dialog over this one. */}
+      <ElsewhereAsk />
       {/* In a conversation the folder, branch and changes are in the workspace card beside it. */}
       {isAgent && variant !== 'chat' && (
         <div className="composer__above">
@@ -668,7 +685,7 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
             ))}
           </div>
         )}
-        {dictation.error && (
+        {dictation.error && !dictation.needsSetup && (
           <div className="voice-error" role="alert">
             <span className="voice-error__text">{dictation.error}</span>
             <button onClick={dictation.dismissError} aria-label="Dismiss">

@@ -149,7 +149,7 @@ export function HandoffDialog({
       <div className="field-label">
         Note <span className="handoff__optional">(optional)</span>
       </div>
-      <textarea
+      <textarea aria-label="Note"
         className="input handoff__note"
         rows={3}
         value={note}

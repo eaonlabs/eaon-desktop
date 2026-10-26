@@ -91,12 +91,18 @@ export const inAppBrowserFeature: Feature = {
   }
 }
 
-/** Pages get no Node and no preload, whatever the tag asks for. */
+/**
+ * Pages get no Node and no preload, whatever the tag asks for. They are
+ * opaque, as in a browser: a page that sets no background is white (or dark,
+ * when it asks for a dark colour scheme), not see-through to Eaon's panel,
+ * where black text on a dark theme couldn't be read.
+ */
 function guardWindow(contents: WebContents): void {
   contents.on('will-attach-webview', (_e, preferences) => {
     delete preferences.preload
     preferences.nodeIntegration = false
     preferences.contextIsolation = true
+    preferences.transparent = false
   })
 }
 

@@ -18,8 +18,9 @@ import { store } from '../src/main/store'
  * checked against fake servers. No real keys and no network.
  */
 
-// Eaon Free is listed once claimed; claimed here, so it is checked like the rest.
-store.patchSettings({ freeCredits: { claimed: true, claimedAt: Date.now(), offered: 1, lastOfferedAt: Date.now() } })
+// Eaon Event is listed while an event code lasts; one is kept here, so it is checked like the rest.
+store.setJson('free-credits-code.json', { name: 'Matrix', endsAt: Date.now() + 86_400_000, limits: { requestsPerDay: 150, tokensPerDay: 2_000_000, requestsPerMinute: 20 } })
+secrets.set(FREE_PROVIDER_ID, 'EAON-MATRIX-CODE')
 
 const https = (url: string | undefined): boolean => Boolean(url && /^https:\/\/[^\s/]+\.[^\s/]+/.test(url))
 

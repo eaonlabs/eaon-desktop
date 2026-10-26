@@ -2,9 +2,9 @@ import Anthropic from '@anthropic-ai/sdk'
 import type { ModelInfo, Provider, TokenUsage } from '@shared/types'
 import type { ModelSource } from '@shared/engines'
 import { isLastingIssue, type ModelEdit, type ModelEditFields, type ModelsRefresh, type ProviderHealth, type ProviderIssue } from '@shared/providers'
-import { describeModelsRefresh, foldDatedAliases } from '@shared/modelSelection'
+import { describeModelsRefresh, foldDatedAliases, hasCredentials } from '@shared/modelSelection'
 import { FREE_PROVIDER_ID, GATEWAY_PROVIDER_ID } from '@shared/freeCredits'
-import { freeBaseUrl, freeHeaders, freeWeekOver, withFreeLimits } from '../freeCredits'
+import { activeCode, freeBaseUrl, freeHeaders, withFreeLimits } from '../freeCredits'
 import { secrets } from '../secrets'
 import { store, type ProviderOverride } from '../store'
 import { anthropicAdapter } from './adapters/anthropic'
@@ -28,6 +28,7 @@ import './oauth/flows'
 import { providerFetch, sdkFetch } from './safeFetch'
 import { providerAllowed } from '../enterprise/policy'
 import { GATEWAY_REFUSED, hideEaonAddress, isEaonGateway } from '../eaonAddress'
+import { targetsPrivateNetwork } from '../netGuard'
 
 /**
  * Bring-your-own-key (and sign-in) model access.
@@ -142,7 +143,7 @@ export function adapterFor(provider: Provider, options: { track?: boolean } = {}
   } else if (isMixedApiProvider(provider)) adapter = routerAdapter
   else adapter = openaiChatAdapter
   if (provider.auth === 'oauth') adapter = withFreshCredentials(adapter)
-  // Eaon Free's daily allowance, for Eaon's own requests and other apps' through its local server alike.
+  // Eaon Event's daily allowance, for Eaon's own requests and other apps' through its local server alike.
   if (provider.id === FREE_PROVIDER_ID) adapter = withFreeLimits(adapter)
   return options.track === false ? adapter : tracked(adapter, provider)
 }
@@ -164,13 +165,13 @@ const LISTING_IS_ENTITLEMENT = new Set(['github-copilot', 'chatgpt'])
 const MARKS_OUTSIDE_PLAN = new Set(['chatgpt'])
 
 /**
- * Eaon Lite's list is set on gateway.eaon.dev: once the gateway has listed
- * its models, that list is the whole of Eaon Lite (a model switched off there
- * goes, one added there comes), and the gateway's name and description win
- * over the shipped ones. The shipped three are only for a first launch that
- * hasn't reached the gateway yet.
+ * Eaon Lite's and Eaon Event's lists are set on gateway.eaon.dev: once the
+ * gateway has listed their models (Eaon Event's for its code), that list is
+ * the whole of it (a model switched off there goes, one added there comes),
+ * and the gateway's name and description win over the shipped ones. The
+ * shipped ones are only for before the gateway has been reached.
  */
-const LISTING_IS_THE_LIST = new Set([GATEWAY_PROVIDER_ID])
+const LISTING_IS_THE_LIST = new Set([GATEWAY_PROVIDER_ID, FREE_PROVIDER_ID])
 
 /** Saves from before overlays kept the whole list in `models`; it was the last listing. */
 const listedOf = (override: ProviderOverride): ModelInfo[] => override.listed ?? override.models ?? []
@@ -267,7 +268,7 @@ function builtInProvider(seed: (typeof BUILT_IN)[number], override: ProviderOver
     enabled: override.enabled ?? seed.enabled,
     models: [],
     // A key provider signed in with the account (Hugging Face) is usable without a key.
-    // Eaon Free needs no key: once claimed (it is only listed then) it is ready. Eaon Lite needs none either.
+    // Eaon Event's key is its code, and it is only listed while the code lasts, so it is ready then. Eaon Lite needs no key.
     hasKey:
       auth === 'oauth'
         ? Boolean(signedIn)
@@ -280,12 +281,9 @@ function builtInProvider(seed: (typeof BUILT_IN)[number], override: ProviderOver
   if (seed.id === GATEWAY_PROVIDER_ID) provider.baseUrl = freeBaseUrl()
   if (seed.id === FREE_PROVIDER_ID) {
     provider.baseUrl = freeBaseUrl()
-    // With an event code: this install's random ID, so the gateway counts each device on its own.
+    // This install's random ID, so the gateway counts each device on its own.
     const headers = freeHeaders()
     if (Object.keys(headers).length) provider.headers = { ...provider.headers, ...headers }
-    // After its week (and without a code): still listed, so the picker and Settings can say why it stopped.
-    const over = freeWeekOver()
-    if (over) provider.health = { ok: false, issue: over, checkedAt: Date.now() }
   }
   if (seed.id === LOCAL_PROVIDER_ID) {
     provider.models = localModels().filter((m) => !isEmbeddingModel(m)).map(localModelInfo)
@@ -297,17 +295,22 @@ function builtInProvider(seed: (typeof BUILT_IN)[number], override: ProviderOver
 /** A custom OpenAI-compatible endpoint the user added themselves. */
 function customProvider(id: string, override: ProviderOverride): Provider {
   const name = override.name ?? id
+  const hasKey = secrets.has(id)
+  // One on this computer or the local network (a llama.cpp or vLLM server,
+  // a LiteLLM proxy) is used without a key until it's given one: it was
+  // created needing a key and couldn't list its models without one.
+  const keyless = !hasKey && targetsPrivateNetwork(override.baseUrl)
   const provider: Provider = {
     id,
     // Named after the gateway's address by default, which is never shown (eaonAddress.ts).
     name: isEaonGateway(override.baseUrl ?? '') ? hideEaonAddress(name) : name,
     kind: (override.kind as Provider['kind']) ?? 'openai-compatible',
     baseUrl: override.baseUrl ?? '',
-    hasKey: secrets.has(id),
+    hasKey,
     enabled: override.enabled ?? true,
     builtIn: false,
     local: false,
-    auth: 'key',
+    auth: keyless ? 'none' : 'key',
     category: 'custom',
     fallbackCount: secrets.getFallbacks(id).length,
     models: [],
@@ -317,8 +320,8 @@ function customProvider(id: string, override: ProviderOverride): Provider {
   return { ...provider, ...composeModels(provider, [], override) }
 }
 
-/** Eaon Free is there once claimed from its offer (shared/freeCredits.ts), and not before. */
-const offered = (id: string): boolean => id !== FREE_PROVIDER_ID || store.getSettings().freeCredits.claimed
+/** Eaon Event is there while an event code lasts (shared/freeCredits.ts), and not otherwise. */
+const offered = (id: string): boolean => id !== FREE_PROVIDER_ID || activeCode() !== null
 
 /**
  * Providers an organization's policy forbids (enterprise/policy.ts) are not
@@ -344,7 +347,7 @@ export function getProvider(id: string): Provider | undefined {
 }
 
 export function updateProvider(id: string, patch: Partial<Pick<Provider, 'baseUrl' | 'enabled' | 'name' | 'kind'>>): Provider[] {
-  // Eaon's gateway is Eaon Lite's and Eaon Free's alone, and its address is never shown (eaonAddress.ts).
+  // Eaon's gateway is Eaon Lite's and Eaon Event's alone, and its address is never shown (eaonAddress.ts).
   if (patch.baseUrl !== undefined && id !== GATEWAY_PROVIDER_ID && id !== FREE_PROVIDER_ID && isEaonGateway(patch.baseUrl)) throw new Error(GATEWAY_REFUSED)
   const config = store.getProviderConfig()
   const existing = config[id] ?? {}
@@ -668,7 +671,7 @@ export async function refreshProviderModels(providerId: string, now = (): number
       catalogFailed = true
     }
   }
-  const usable = provider.local || provider.hasKey
+  const usable = hasCredentials(provider)
   const lists = providerMeta(providerId).listsModels && provider.id !== LOCAL_PROVIDER_ID
   let issue: ProviderIssue | null = null
   if (usable && lists) {
@@ -725,7 +728,7 @@ export async function testProvider(providerId: string): Promise<{ ok: boolean; m
   const provider = getProvider(providerId)
   if (provider && !providerMeta(providerId).listsModels) {
     // Nothing to list; saying so beats a 404 from an endpoint that never existed.
-    if (!provider.hasKey && !provider.local) return { ok: false, message: 'Add an API key first.' }
+    if (!hasCredentials(provider)) return { ok: false, message: 'Add an API key first.' }
     return {
       ok: true,
       message:

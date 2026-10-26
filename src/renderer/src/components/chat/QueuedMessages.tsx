@@ -12,7 +12,7 @@ import { resumeQueue, sendQueuedNow, unqueue, useQueue, useQueued } from '../../
 export function QueuedMessages({ chatId, onEdit }: { chatId: string; onEdit: (text: string, attachments: string[]) => void }): JSX.Element | null {
   const queued = useQueued(chatId)
   const held = useQueue((s) => Boolean(s.held[chatId]))
-  const replying = useApp((s) => s.streamingChatId === chatId)
+  const replying = useApp((s) => chatId in s.runs)
   if (queued.length === 0) return null
 
   return (

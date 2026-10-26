@@ -22,8 +22,9 @@ const MIN_MARKS = 3
 const READ_LINE = 120
 
 export function Minimap({ thread, version }: { thread: RefObject<HTMLDivElement>; version: unknown }): JSX.Element | null {
-  const strip = useRef<HTMLDivElement>(null)
   const [marks, setMarks] = useState<Mark[]>([])
+  /** Where the strip sits: kept with the marks, since it is drawn only once there are some. */
+  const [box, setBox] = useState<{ top: number; height: number } | null>(null)
   const [active, setActive] = useState<string | null>(null)
   const [hover, setHover] = useState<Mark | null>(null)
 
@@ -43,11 +44,13 @@ export function Minimap({ thread, version }: { thread: RefObject<HTMLDivElement>
       text: row.querySelector('.msg--user')?.textContent?.trim() || 'Files'
     }))
     setMarks(next.length >= MIN_MARKS ? next : [])
-    // The strip runs the thread's own height, wherever the thread sits.
-    if (strip.current) {
-      strip.current.style.top = `${node.offsetTop + 12}px`
-      strip.current.style.height = `${node.clientHeight - 24}px`
-    }
+    // The strip runs the thread's own height, wherever the thread sits, from
+    // below what floats over its top (the top bar, which the thread's scroll
+    // padding clears) to just above its foot.
+    const clear = Math.max(12, parseFloat(getComputedStyle(node).scrollPaddingTop) || 0)
+    const stripTop = node.offsetTop + clear
+    const height = Math.max(0, node.clientHeight - clear - 24)
+    setBox((current) => (current && current.top === stripTop && current.height === height ? current : { top: stripTop, height }))
   }, [thread])
 
   useLayoutEffect(measure, [measure, version])
@@ -90,7 +93,7 @@ export function Minimap({ thread, version }: { thread: RefObject<HTMLDivElement>
     return () => node.removeEventListener('scroll', onScroll)
   }, [thread, marks])
 
-  if (marks.length === 0) return null
+  if (marks.length === 0 || !box) return null
 
   const go = (mark: Mark): void => {
     const node = thread.current
@@ -101,7 +104,7 @@ export function Minimap({ thread, version }: { thread: RefObject<HTMLDivElement>
   }
 
   return (
-    <div ref={strip} className="minimap" aria-label="Your messages in this chat" role="navigation" onMouseLeave={() => setHover(null)}>
+    <div className="minimap" style={box} aria-label="Your messages in this chat" role="navigation" onMouseLeave={() => setHover(null)}>
       {marks.map((mark) => (
         <button
           key={mark.id}

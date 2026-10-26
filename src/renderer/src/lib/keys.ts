@@ -28,10 +28,25 @@ export const SHORTCUTS: Shortcut[] = [
   { id: 'settings', label: 'Open Settings', modifiers: ['mod'], key: ',' }
 ]
 
+/**
+ * In a chat, handled where they act (ChatView's find, chatCode/CodeTools'
+ * terminal and project search, the model picker); listed here so the
+ * Shortcuts page is complete.
+ */
+export const CHAT_SHORTCUTS: Shortcut[] = [
+  { id: 'find-chat', label: 'Find in the conversation', modifiers: ['mod'], key: 'F' },
+  { id: 'find-project', label: 'Find in the project (a project’s chats)', modifiers: ['shift', 'mod'], key: 'F' },
+  { id: 'toggle-terminal', label: 'Show or hide the terminal (a project’s chats)', modifiers: ['mod'], key: 'J' },
+  { id: 'pick-model', label: 'Pick a model, with the model menu open', modifiers: ['mod'], key: '1–9' }
+]
+
 /** In the message box; listed with the others so the page is complete. */
 export const COMPOSER_SHORTCUTS: Shortcut[] = [
   { id: 'send', label: 'Send the message', modifiers: [], key: 'Enter' },
-  { id: 'newline', label: 'New line', modifiers: ['shift'], key: 'Enter' }
+  { id: 'queue', label: 'Queue a follow-up, while a reply is being written', modifiers: [], key: 'Enter' },
+  { id: 'newline', label: 'New line', modifiers: ['shift'], key: 'Enter' },
+  { id: 'history', label: 'Your earlier messages, from an empty message box', modifiers: [], key: '↑ ↓' },
+  { id: 'cancel-edit', label: 'Stop editing a message you sent', modifiers: [], key: 'Esc' }
 ]
 
 /** How a shortcut is written on this platform: ⇧⌘A on a Mac, Ctrl+Shift+A elsewhere. */

@@ -298,7 +298,7 @@ export function ReviewPanel({ cwd }: { cwd: string }): JSX.Element {
           <span className="review-comment__where">{commenting?.side === 'old' ? `Removed ${where}` : where[0].toUpperCase() + where.slice(1)}</span>
         </div>
         {preview === 'write' ? (
-          <textarea
+          <textarea aria-label="Comment"
             autoFocus
             className="input"
             rows={3}
@@ -463,8 +463,8 @@ export function ReviewPanel({ cwd }: { cwd: string }): JSX.Element {
                       </span>
                     )}
                   </div>
-                  <input className="input" placeholder="Title" value={pr.title} onChange={(e) => setPr({ ...pr, title: e.target.value })} />
-                  <textarea className="input review-form__body" placeholder="What it changes and why (optional)" rows={3} value={pr.body} onChange={(e) => setPr({ ...pr, body: e.target.value })} />
+                  <input aria-label="Title" className="input" placeholder="Title" value={pr.title} onChange={(e) => setPr({ ...pr, title: e.target.value })} />
+                  <textarea aria-label="Description" className="input review-form__body" placeholder="What it changes and why (optional)" rows={3} value={pr.body} onChange={(e) => setPr({ ...pr, body: e.target.value })} />
                   <div className="review__actions">
                     <label className="review__check">
                       <input type="checkbox" checked={pr.draft} onChange={(e) => setPr({ ...pr, draft: e.target.checked })} /> Draft
@@ -519,7 +519,7 @@ export function ReviewPanel({ cwd }: { cwd: string }): JSX.Element {
                 <div className="review__label">
                   {state.uncommitted} {state.uncommitted === 1 ? 'file' : 'files'} not committed
                 </div>
-                <textarea
+                <textarea aria-label="Commit message"
                   className="input review-form__body"
                   placeholder="Commit message"
                   rows={2}

@@ -22,3 +22,6 @@ export const ASK_AFTER_MAX_MS = 20 * 60_000
 
 /** This session's wait, from a random number in [0, 1). */
 export const askAfterMs = (random: number): number => ASK_AFTER_MIN_MS + Math.floor(Math.min(Math.max(random, 0), 0.999999) * (ASK_AFTER_MAX_MS - ASK_AFTER_MIN_MS))
+
+/** The very first ask comes sooner, as a welcome: after half a minute of use. */
+export const FIRST_ASK_AFTER_MS = 30_000

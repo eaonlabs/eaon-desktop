@@ -41,6 +41,13 @@ test('a run reads as what it did, changes first, two kinds at most', () => {
   const failing = stepSummary([call('run_command', 'npm test', 'error'), call('run_command', 'ls')])
   assert.deepEqual([failing.text, failing.failed, failing.kind], ['Ran 2 commands', 1, 'command'])
   assert.equal(stepSummary([call('read_file', 'x'), call('run_command')]).kind, 'mixed')
+  // A read-only automation's refused write changed nothing.
+  const refused = stepSummary([call('read_file', 'a.ts'), call('write_file', 'notes.md', 'denied')])
+  // Skipped, not failed: nothing went wrong, it didn't run.
+  assert.deepEqual([refused.text, refused.failed, refused.skipped], ['Read 1 file and tried to change 1 file', 0, 1])
+  assert.equal(stepSummary([call('run_command', 'rm x', 'denied')]).text, 'Tried to run 1 command')
+  // One edit went through, one was refused: what went through is counted.
+  assert.equal(stepSummary([call('edit_file', 'a.ts'), call('edit_file', 'b.ts', 'denied')]).text, 'Changed 1 file')
 })
 
 test('a running call says what it is doing now', () => {
@@ -60,4 +67,9 @@ test('an opened thought leaves out the title its line shows', async () => {
   const { thoughtRest } = await import('../src/renderer/src/components/chat/workLog')
   assert.equal(thoughtRest('**Checking**\n\nThe disk is full.'), 'The disk is full.')
   assert.equal(thoughtRest('Plain reasoning.'), 'Plain reasoning.')
+})
+
+test('a worker going to sleep says so, not "used 1 tool"', () => {
+  assert.equal(stepSummary([call('sleep', '')]).text, 'Went to sleep until later')
+  assert.equal(stepSummary([call('sleep', ''), call('sleep', '')]).text, 'Went to sleep 2 times')
 })

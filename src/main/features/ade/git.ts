@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { parseChanges, type AdeChanges } from '@shared/adeSessions'
@@ -58,14 +59,41 @@ export async function repoInfo(dir: string): Promise<RepoInfo | null> {
   return { top: path.resolve(top), root: path.resolve(root), branch: branch || null }
 }
 
-/** Uncommitted changes in a working tree, against its last commit; null outside git or before the first commit. */
+/** Past these, new files are counted as files but not read for their lines. */
+const MAX_UNTRACKED_READ = 60
+const MAX_UNTRACKED_BYTES = 1_000_000
+
+/** Lines in the files git doesn't track yet, as a diff would count them added (git's numstat leaves them out). */
+async function untrackedLines(dir: string, files: string[]): Promise<number> {
+  let lines = 0
+  for (const file of files.slice(0, MAX_UNTRACKED_READ)) {
+    try {
+      const full = path.join(dir, file)
+      if ((await stat(full)).size > MAX_UNTRACKED_BYTES) continue
+      const text = await readFile(full, 'utf8')
+      if (text.includes('\0')) continue
+      lines += text === '' ? 0 : text.split('\n').length - (text.endsWith('\n') ? 1 : 0)
+    } catch {
+      /* gone, or not readable: not counted */
+    }
+  }
+  return lines
+}
+
+/**
+ * Uncommitted changes in a working tree, against its last commit, new files'
+ * lines included, as the Diff counts them; null outside git or before the
+ * first commit.
+ */
 export async function changes(dir: string): Promise<AdeChanges | null> {
   try {
     const [numstat, untracked] = await Promise.all([
       git(dir, ['diff', 'HEAD', '--numstat', '--no-renames'], 5000),
       git(dir, ['ls-files', '--others', '--exclude-standard'], 5000)
     ])
-    return parseChanges(numstat, untracked)
+    const counted = parseChanges(numstat, untracked)
+    counted.added += await untrackedLines(dir, untracked.split('\n').filter(Boolean))
+    return counted
   } catch {
     return null
   }

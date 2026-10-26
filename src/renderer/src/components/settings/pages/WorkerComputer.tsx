@@ -418,7 +418,7 @@ export function WorkerComputerPage(): JSX.Element {
           <Section label="Connection">
             <Card>
               <Row title="Address" description="Where Eaon finds it. Change this if its address on your network changed.">
-                <input className="input" style={{ width: 200 }} value={address} disabled={busy} onChange={(e) => setAddress(e.target.value)} spellCheck={false} />
+                <input aria-label="Address" className="input" style={{ width: 200 }} value={address} disabled={busy} onChange={(e) => setAddress(e.target.value)} spellCheck={false} />
                 <button
                   className="btn btn--ghost"
                   disabled={busy || !address.trim() || address.trim() === host.address}
@@ -432,7 +432,7 @@ export function WorkerComputerPage(): JSX.Element {
                   title="Reinstall the host app"
                   description={`Signs in to ${host.ssh.user}@${host.address} again and installs it afresh, keeping the link and the workers there. For when it stopped answering.`}
                 >
-                  <input
+                  <input aria-label="Password"
                     className="input"
                     style={{ width: 150 }}
                     type="password"

@@ -236,7 +236,7 @@ export function ThemePicker(): JSX.Element | null {
         {look.scenes && (
           <footer className="theme-picker__foot theme-picker__foot--blur">
             <span>Blur the scene</span>
-            {look.blur && <Slider value={look.blurAmount} min={2} max={30} onChange={(blurAmount) => saveLook({ blurAmount })} />}
+            {look.blur && <Slider label="Blur strength" value={look.blurAmount} min={2} max={30} onChange={(blurAmount) => saveLook({ blurAmount })} />}
             <Switch label="Blur the scene" checked={look.blur} onChange={(on) => saveLook({ blur: on })} />
           </footer>
         )}

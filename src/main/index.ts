@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell, nativeTheme, dialog, Menu, Notification, net, protocol, screen } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, nativeTheme, dialog, Menu, Notification, protocol, screen } from 'electron'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { extname, join } from 'node:path'
@@ -13,6 +13,8 @@ import { CLAUDE_LOGIN_TOKEN, isClaudeLoginToken } from '@shared/providers'
 import { forgetLogo, noteBaseUrlChanged } from './providers/logos'
 import { clearProviderHealth, editModels, getProvider, listProviders, refreshModels, refreshProviderModels, removeProvider, testProvider, updateProvider } from './providers'
 import { refreshLocalProviders } from './providers/localDiscovery'
+import { fileResponse } from './fileResponse'
+import { WALLPAPER_SCHEME } from '@shared/wallpaper'
 import { refreshCatalogInBackground } from './providers/modelCatalog'
 import { startModelFreshness } from './providers/freshness'
 import { resolveApproval } from './agent/approvals'
@@ -20,10 +22,12 @@ import { hardenAppWindow, openExternalSafely } from './externalLinks'
 import { catalogRowsPinned, providerKeyId } from './ipcGuards'
 import { forScreens, hideEaonAddress } from './eaonAddress'
 import { activeRunIds, cancelRun, pauseGoal, runAgent } from './agent/loop'
+import { writeChatTitle, type ChatTitleRequest } from './agent/chatTitle'
 import './agent/sources'
 import { killBackgroundProcesses } from './localTools'
 import { adoptLoginShellPath } from './shellEnv'
 import { noteFirstRun } from './features/onboarding'
+import { userTookLocalServer } from './features/connectApps'
 import { FEATURES } from './features'
 import type { FeatureContext } from './features/types'
 import { getStatuses, getTools, setMcpStatusListener, shutdownMcp, syncMcpServers } from './mcp'
@@ -49,6 +53,7 @@ import { applyRunAtLogin, backgroundSupported, launchedInBackground, syncTray } 
 import { crashLogPath, installCrashGuard, logCrash } from './crashGuard'
 import { applyAppIcon, currentAppIconFile } from './appIcon'
 import { DOCS_URL, ISSUES_URL, releaseNotesUrl } from '@shared/links'
+import { WHATS_NEW_RELEASE } from '@shared/whatsNew'
 import { audit } from './enterprise/audit'
 import { assertFeature, featureAllowed, providerAllowed, PolicyError } from './enterprise/policy'
 import { POLICY_GATED_FEATURES } from './features/enterprise'
@@ -91,7 +96,11 @@ trustSystemNetwork()
  * image rather than exposing the filesystem.
  */
 protocol.registerSchemesAsPrivileged([
-  { scheme: 'eaon-file', privileges: { secure: true, supportFetchAPI: true, stream: true, bypassCSP: true } }
+  { scheme: 'eaon-file', privileges: { secure: true, supportFetchAPI: true, stream: true, bypassCSP: true } },
+  // A video wallpaper (features/wallpaper.ts): a standard scheme, which is what
+  // lets a video seek and loop by byte ranges, with CORS so the page can draw
+  // its frames into the wallpaper's styles. It serves only Eaon's own copies.
+  { scheme: WALLPAPER_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true, bypassCSP: true } }
 ])
 // Media only — images, and videos so the Library and attachments can preview them.
 const SERVABLE_IMAGES = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.heic', '.avif', '.mp4', '.m4v', '.mov', '.webm'])
@@ -450,6 +459,10 @@ function buildMenu(): void {
     {
       role: 'help',
       submenu: [
+        // The tours the sidebar's ? menu has, here too.
+        { label: `What’s New in ${WHATS_NEW_RELEASE}`, click: () => sendOrOpen('menu:whats-new') },
+        { label: 'Take the Tour', click: () => sendOrOpen('menu:tour') },
+        { type: 'separator' },
         { label: 'Eaon Documentation', click: () => void shell.openExternal(DOCS_URL) },
         { label: 'Release Notes', click: () => void openReleaseNotes() },
         { label: 'Report an Issue…', click: () => void shell.openExternal(ISSUES_URL) },
@@ -574,6 +587,7 @@ function registerIpc(): void {
     const patch = withoutKeys(raw)
     const next = store.patchSettings(patch)
     auditSettingsChange(patch, next)
+    if (patch.localServer?.autoStart !== undefined) userTookLocalServer()
     if (patch.appearance) applyWindowAppearance(next)
     if (patch.appearance?.appIcon) applyAppIcon(next.appearance.appIcon, appWindows)
     broadcast('settings:changed', forRenderer(next), e.sender)
@@ -638,10 +652,12 @@ function registerIpc(): void {
   ipcMain.handle('local-server:start', () => {
     assertFeature('localApiServer', 'The Local API Server')
     audit('local_server.start_requested')
+    userTookLocalServer()
     return startLocalServer()
   })
   ipcMain.handle('local-server:stop', () => {
     audit('local_server.stop_requested')
+    userTookLocalServer()
     return stopLocalServer()
   })
 
@@ -687,6 +703,12 @@ function registerIpc(): void {
     return forScreens(removeProvider(id))
   })
   ipcMain.handle('providers:refresh-models', (_e, id: string) => refreshModels(id))
+  // Model providers, while it's open: local servers' Running / Not running as they start and stop.
+  ipcMain.handle('providers:refresh-local', async () => {
+    const changed = await refreshLocalProviders(true)
+    if (changed) broadcast('providers:changed')
+    return changed
+  })
   ipcMain.handle('providers:refresh', async (_e, id: string) => {
     const result = await refreshProviderModels(id)
     return { ...result, message: hideEaonAddress(result.message) }
@@ -813,6 +835,8 @@ function registerIpc(): void {
   })
   ipcMain.handle('chat:pause-goal', (_e, messageId: string) => pauseGoal(messageId))
   ipcMain.handle('chat:approve', (_e, requestId: string, approved: boolean) => resolveApproval(requestId, approved))
+  // A new chat's name, from the model it runs on, once its first reply is in.
+  ipcMain.handle('chat:title', (_e, request: ChatTitleRequest) => writeChatTitle(request))
 
   ipcMain.handle('app:open-external', (_e, url: string) => openExternalSafely(url))
   // Privacy & Security → Files and Folders, where Eaon is let into Downloads, Documents and Desktop.
@@ -979,7 +1003,8 @@ app.whenReady().then(async () => {
     // hands the user's NTLM hash to whatever host it names. Only local files.
     if (/^[\\/]{2}/.test(path)) return new Response('Not found', { status: 404 })
     if (!SERVABLE_IMAGES.has(extname(path).toLowerCase())) return new Response('Not found', { status: 404 })
-    return net.fetch(pathToFileURL(path).toString())
+    // With byte ranges, which a video needs (fileResponse.ts).
+    return fileResponse(path, request.headers.get('range'))
   })
   // Everything up to the window is a step that may fail on its own (a store
   // file Windows won't let us rewrite, say). Each failure is logged and

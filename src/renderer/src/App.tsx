@@ -44,8 +44,8 @@ import { installControl } from './lib/control'
 import { StarPrompt } from './components/StarPrompt'
 import { Onboarding } from './components/onboarding/Onboarding'
 import { Tour } from './components/onboarding/Tour'
+import { onboardingShowing, useOnboarding } from './components/onboarding/onboardingStore'
 import { startProviderLogos } from './state/providerLogos'
-import { FreeCreditsOffer } from './components/FreeCreditsOffer'
 import { PurchaseDialog } from './components/purchase/PurchaseDialog'
 
 export default function App(): JSX.Element {
@@ -123,6 +123,9 @@ export default function App(): JSX.Element {
     if (!ready) return
     return window.api.app.onMenu((command) => {
       const app = useApp.getState()
+      // The setup and the tours cover the app: commands that change it
+      // underneath (another page, the sidebar, a new chat) wait until they're done.
+      if (onboardingShowing() && command !== 'whats-new' && command !== 'tour') return
       switch (command) {
         case 'settings':
           app.setSettingsPage('general')
@@ -145,6 +148,13 @@ export default function App(): JSX.Element {
           if (isAgentKind(kind) || kind === 'code') app.toggleBrowser()
           break
         }
+        // Not over the setup, which ends in its own tour.
+        case 'whats-new':
+          if (app.settings?.onboarding.setup !== 'pending') useOnboarding.getState().startTour('whatsNew')
+          break
+        case 'tour':
+          if (app.settings?.onboarding.setup !== 'pending') useOnboarding.getState().startTour()
+          break
       }
     })
   }, [ready])
@@ -222,7 +232,10 @@ export default function App(): JSX.Element {
           )}
           {view === 'chat' && kind === 'workers' && browserWorker && (
             <ErrorBoundary
-              key={browserWorker.id}
+              // Its own key, not the worker's id alone: the Activity panel beside it
+              // had the same one, and React lost track of which was which, leaving
+              // a closed browser on screen over every view.
+              key={`browser-${browserWorker.id}`}
               area="worker browser"
               fallback={() => <PanelError onClose={() => useWorkers.getState().setBrowser(null, browserWorker.id)} />}
             >
@@ -230,7 +243,7 @@ export default function App(): JSX.Element {
             </ErrorBoundary>
           )}
           {view === 'chat' && kind === 'workers' && activityWorker && (
-            <ErrorBoundary key={activityWorker.id} area="worker activity" fallback={() => <PanelError onClose={() => useWorkers.getState().setActivityOpen(false)} />}>
+            <ErrorBoundary key={`activity-${activityWorker.id}`} area="worker activity" fallback={() => <PanelError onClose={() => useWorkers.getState().setActivityOpen(false)} />}>
               <WorkerActivityPanel worker={activityWorker} />
             </ErrorBoundary>
           )}
@@ -250,7 +263,6 @@ export default function App(): JSX.Element {
       <StoreNotice />
       <ComputerLeaseIndicator />
       <Notice />
-      <FreeCreditsOffer />
       <StarPrompt />
       <ErrorBoundary area="purchase schedule" fallback={() => null}>
         <PurchaseDialog />
@@ -268,6 +280,9 @@ function GlobalKeys({ onSettings, onPlugins }: { onSettings: () => void; onPlugi
       // ⌘ on macOS, Ctrl on Windows and Linux (but never AltGr; see modKey).
       // A held key repeats; toggling the sidebar ten times a second helps nobody.
       if (!modKey(event) || event.repeat) return
+      // Not under the setup or a tour: ⌘3 moved the app out from under the
+      // tour's highlight, and the setup ended on whatever page ⌘, opened.
+      if (onboardingShowing()) return
       if (event.key === ',') {
         event.preventDefault()
         onSettings()
@@ -282,7 +297,11 @@ function GlobalKeys({ onSettings, onPlugins }: { onSettings: () => void; onPlugi
       }
       // ⌘1 / ⌘2 / ⌘3 (Ctrl elsewhere): Chat, Workers, ADE — the top bar's switch, from the keyboard.
       const kind = ({ '1': 'chat', '2': 'workers', '3': 'code' } as const)[event.key as '1' | '2' | '3']
-      if (kind && !event.shiftKey && !event.altKey) {
+      // Not when what has the keyboard took it already (the model pickers'
+      // ⌘1–⌘9), nor from inside a dialog or an open list, where switching
+      // views would throw away what's being filled in.
+      const inside = document.activeElement instanceof Element && document.activeElement.closest('[role="dialog"], [aria-modal="true"], [role="listbox"], [role="menu"]')
+      if (kind && !event.shiftKey && !event.altKey && !event.defaultPrevented && !inside) {
         const app = useApp.getState()
         const target = app.workspaces.find((w) => w.kind === kind)
         if (!target) return

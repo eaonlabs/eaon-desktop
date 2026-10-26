@@ -35,6 +35,12 @@
 .app:has(> .dock[data-max]) > .main {
   display: none;
 }
+/* Filling the window with the sidebar hidden, its bar is the window's top
+   left: it starts past the window's controls (macOS's traffic lights), as
+   the top bars do. */
+.app:has(> .sidebar[data-open='false']) > .dock[data-max] .dock__bar {
+  padding-left: max(8px, calc(var(--window-controls-left) + 3px));
+}
 
 /* ---- Bar: + and the tabs, then the dock's own switches ---- */
 
@@ -59,6 +65,39 @@
   gap: 2px;
   overflow-x: auto;
   scrollbar-width: none;
+  /* More tabs than fit: the end with more past it fades out, so a tab cut
+     off there reads as more to scroll to. The fades follow the scroll
+     position (as menus' do); a strip that fits has none. */
+  -webkit-mask-image: linear-gradient(to right, transparent, #000 var(--tabs-fade-start), #000 calc(100% - var(--tabs-fade-end)), transparent);
+  mask-image: linear-gradient(to right, transparent, #000 var(--tabs-fade-start), #000 calc(100% - var(--tabs-fade-end)), transparent);
+  animation: dock-tab-edges linear both;
+  animation-timeline: scroll(self inline);
+}
+@property --tabs-fade-start {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+@property --tabs-fade-end {
+  syntax: '<length>';
+  inherits: false;
+  initial-value: 0px;
+}
+@keyframes dock-tab-edges {
+  0% {
+    --tabs-fade-start: 0px;
+    --tabs-fade-end: 28px;
+  }
+  8% {
+    --tabs-fade-start: 28px;
+  }
+  92% {
+    --tabs-fade-end: 28px;
+  }
+  100% {
+    --tabs-fade-start: 28px;
+    --tabs-fade-end: 0px;
+  }
 }
 .dock__tabs::-webkit-scrollbar {
   display: none;
@@ -1015,11 +1054,13 @@ body[data-resizing='drawer'] .cterm-pane__screen {
 body[data-resizing='drawer'] .term-drawer__resize::after {
   opacity: 0.6;
 }
+/* The right edge is kept for the terminal's buttons (.term-tools), so they never sit over its output. */
 .term-drawer__main {
   position: relative;
   flex: 1;
   min-width: 0;
   display: flex;
+  padding-right: var(--term-rail);
 }
 
 .dock-term {
@@ -1027,9 +1068,15 @@ body[data-resizing='drawer'] .term-drawer__resize::after {
   flex: 1;
   min-height: 0;
   display: flex;
+  padding-right: var(--term-rail);
   background: var(--term-bg);
 }
+.term-drawer,
+.dock-term {
+  --term-rail: 38px;
+}
 .dock-term--empty {
+  padding-right: 0;
   align-items: center;
   justify-content: center;
   color: var(--text-4);
@@ -1104,12 +1151,16 @@ body[data-resizing='drawer'] .term-drawer__resize::after {
 
 .term-tools {
   position: absolute;
-  top: 8px;
-  right: 10px;
+  top: 6px;
+  right: 5px;
   z-index: 2;
   display: flex;
+  flex-direction: column;
   align-items: center;
   gap: 1px;
+  max-height: calc(100% - 12px);
+  overflow-y: auto;
+  scrollbar-width: none;
   padding: 2px;
   border: 1px solid var(--border-soft);
   border-radius: var(--r-md);
@@ -1150,10 +1201,6 @@ body[data-resizing='drawer'] .term-drawer__resize::after {
 .term-tools__btn[data-tone='danger']:hover {
   background: color-mix(in srgb, var(--danger) 16%, transparent);
   color: var(--danger);
-}
-.term-tools__btn--text {
-  padding: 0 8px;
-  color: var(--text-2);
 }
 
 /* More than one group: picked from a list down the right side. */

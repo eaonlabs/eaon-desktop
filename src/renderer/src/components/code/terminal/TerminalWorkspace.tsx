@@ -9,6 +9,7 @@ import eaonLogo from '../../../assets/providers/eaon.png'
 import cursorLogo from '../../../assets/providers/cursor.svg'
 import geminiCliLogo from '../../../assets/providers/geminicli.svg'
 import grokLogo from '../../../assets/providers/grok.svg'
+import warpLogo from '../../../assets/providers/warp.png'
 import qwenLogo from '../../../assets/providers/qwen.svg'
 import copilotLogo from '../../../assets/providers/githubcopilot.svg'
 import ampLogo from '../../../assets/providers/amp.svg'
@@ -455,7 +456,7 @@ const TerminalPane = memo(function TerminalPane({
         <span className="term-pane__dot" role="img" aria-label={STATUS_LABEL[status]} title={STATUS_LABEL[status]} />
         <AgentMark agent={pane.agent} program={program} size={14} />
         {renaming ? (
-          <input
+          <input aria-label="Terminal name"
             autoFocus
             className="term-pane__rename"
             value={draft}
@@ -645,7 +646,7 @@ const AGENT_LOGOS: Record<Exclude<TerminalAgentId, 'shell'>, string | { letter: 
   openhands: openHandsLogo,
   aider: { letter: 'A' },
   crush: { letter: 'C' },
-  warp: { letter: 'W' },
+  warp: warpLogo,
   codebuddy: codeBuddyLogo,
   qoder: qoderLogo,
   trae: traeLogo,

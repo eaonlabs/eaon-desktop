@@ -1,13 +1,16 @@
 import { spawn } from 'node:child_process'
+import { readFileSync, writeFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { app } from 'electron'
 import type { ConnectAppId, ConnectChoice, RestartResult } from '@shared/connectApps'
 import { ensureGatewayRunning, gatewayInfo } from '../../gateway'
+import { getLocalServerStatus, stopLocalServer } from '../../localServer'
+import { store } from '../../store'
 import { claudeCodeToken, forgetClaudeCodeToken } from '../../gateway/models'
 import { onPath } from '../../shellEnv'
 import type { Feature } from '../types'
-import { ClaudeTools, claudeConfigFile, runClaude } from './claudeTools'
+import { ClaudeTools, claudeConfigFile, runClaude, type ServerChange } from './claudeTools'
 import { openTerminal, writeLaunchScript } from './launch'
 import { ConnectApps } from './service'
 import { StateFile } from './state'
@@ -96,10 +99,56 @@ function claudeTools(): ClaudeTools {
     which: onPath,
     run: runClaude(standIn),
     port: () => gatewayInfo().port,
-    ensureRunning: ensureGatewayRunning,
+    ensureRunning: async () => {
+      const running = getLocalServerStatus().running
+      const autoStart = store.getSettings().localServer.autoStart
+      const { port } = await ensureGatewayRunning()
+      return { port, changed: { started: !running, autoStart: !autoStart } }
+    },
+    serverChange: {
+      get: () => readClaudeToolsState().server ?? null,
+      set: (change) => writeClaudeToolsState(change ? { server: change } : {})
+    },
+    release: async (change) => {
+      // Kept for an app connected through it since.
+      if (connectApps().list().some((a) => a.connected)) return
+      if (change.autoStart) store.patchSettings({ localServer: { ...store.getSettings().localServer, autoStart: false } })
+      if (change.started) await stopLocalServer()
+    },
     token: claudeCodeToken,
     forgetToken: forgetClaudeCodeToken
   }))
+}
+
+/** What Eaon's tools in Claude Code remember: what connecting changed about the Local API Server. */
+const claudeToolsFile = (): string => join(app.getPath('userData'), 'claude-tools.json')
+interface ClaudeToolsState {
+  server?: ServerChange
+}
+function readClaudeToolsState(): ClaudeToolsState {
+  try {
+    const state = JSON.parse(readFileSync(claudeToolsFile(), 'utf8')) as ClaudeToolsState & { startedServer?: boolean }
+    // The first Beta 3 fixes kept a yes or no: yes meant both.
+    if (state.startedServer === true && !state.server) return { server: { started: true, autoStart: true } }
+    return state.server && typeof state.server === 'object' ? { server: { started: state.server.started === true, autoStart: state.server.autoStart === true } } : {}
+  } catch {
+    return {}
+  }
+}
+function writeClaudeToolsState(state: ClaudeToolsState): void {
+  try {
+    writeFileSync(claudeToolsFile(), `${JSON.stringify(state)}\n`, 'utf8')
+  } catch (error) {
+    console.error('[claude-tools] could not save its state:', error)
+  }
+}
+
+/**
+ * The user started, stopped or set up the Local API Server themselves: it is
+ * theirs now, and turning off Eaon's tools in Claude Code leaves it as it is.
+ */
+export function userTookLocalServer(): void {
+  if (readClaudeToolsState().server) writeClaudeToolsState({})
 }
 
 /** Settings → Connect apps: pointing Claude Code, Codex, OpenCode… at Eaon's gateway, and Eaon's tools in Claude Code. */

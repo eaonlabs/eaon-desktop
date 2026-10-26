@@ -49,8 +49,9 @@ function modeLabel(task: ScheduledTask): string {
     return `Up to ${formatMoney(maxAmount, currency)} on ${site}${orders && orders > 1 ? ` · ${orders} orders` : ''}`
   }
   if (task.watch) return 'Order tracking · stops when delivered'
-  if (task.mode === 'chat') return 'Chat'
-  return task.allowChanges ? 'Work · can make changes' : 'Work · read-only'
+  // As the form names them: Answer, or Agent.
+  if (task.mode === 'chat') return 'Answer'
+  return task.allowChanges ? 'Agent · can make changes' : 'Agent · read-only'
 }
 
 function nextRunText(task: ScheduledTask, now: number): string {

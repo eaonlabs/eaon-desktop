@@ -142,7 +142,7 @@ export function ModelNotice({ selection, onChooseModel }: { selection: ResolvedS
           )}
         </div>
         {redeeming && (
-          // Redeeming makes Eaon Free usable and main selects its model, so
+          // Redeeming lists Eaon Event and main selects its model, so
           // refreshing the providers is what makes this notice go away.
           <div ref={codeBox} className="model-notice__code">
             <RedeemCode onRedeemed={refreshProviders} />

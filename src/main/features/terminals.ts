@@ -40,12 +40,20 @@ const LAYOUT_FILE = 'ade-terminals.json'
 /**
  * The other coding CLIs a pane recognises (agentSessions.ts), and how each is
  * started. A full record, so one added to OTHER_AGENT_IDS without a line here
- * doesn't build.
+ * doesn't build. They're offered once installed, except those marked
+ * `featured`: offered always, like the ADE's own, greyed with how to get them
+ * until they're installed.
  */
-const OTHER_AGENTS: Record<OtherAgentId, { label: string; bin: string }> = {
+const OTHER_AGENTS: Record<OtherAgentId, { label: string; bin: string; featured?: boolean; installHint?: string }> = {
   cursor: { label: 'Cursor CLI', bin: 'cursor-agent' },
   gemini: { label: 'Gemini CLI', bin: 'gemini' },
-  grok: { label: 'Grok', bin: 'grok' },
+  // xAI's Grok Build (docs.x.ai/build), whose command is `grok`.
+  grok: {
+    label: 'Grok CLI',
+    bin: 'grok',
+    featured: true,
+    installHint: process.platform === 'win32' ? 'See x.ai/cli' : 'curl -fsSL https://x.ai/cli/install.sh | bash'
+  },
   qwen: { label: 'Qwen Code', bin: 'qwen' },
   copilot: { label: 'GitHub Copilot', bin: 'copilot' },
   amp: { label: 'Amp', bin: 'amp' },
@@ -90,7 +98,10 @@ const AGENTS: { id: TerminalAgentId; label: string; bin: string | null; installH
         : 'curl -fsSL https://antigravity.google/cli/install.sh | bash'
   },
   { id: 'opencode', label: 'OpenCode', bin: 'opencode', installHint: 'npm install -g opencode-ai' },
-  ...OTHER_AGENT_IDS.map((id) => ({ id, ...OTHER_AGENTS[id], other: true })),
+  ...OTHER_AGENT_IDS.map((id) => {
+    const { featured, ...agent } = OTHER_AGENTS[id]
+    return { id, ...agent, other: !featured }
+  }),
   { id: 'shell', label: 'Shell', bin: null }
 ]
 

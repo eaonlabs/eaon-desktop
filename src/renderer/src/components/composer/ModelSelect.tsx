@@ -15,6 +15,7 @@ import {
   type ModelOption
 } from '@shared/modelSelection'
 import { useApp } from '../../state/store'
+import { modKey } from '../../lib/platform'
 import { Popover } from '../ui'
 import { optionMark, ProviderMark } from './ProviderMark'
 import './model-picker.css'
@@ -123,6 +124,16 @@ export function ModelSelect({
   }
 
   const onKeyDown = (event: KeyboardEvent): void => {
+    // ⌘1–⌘9 pick from the list while it's open, as in Chat's picker, and
+    // nothing else: not the top bar's Chat / Workers / ADE, which took a
+    // half-filled automation form with it.
+    if (modKey(event) && /^[1-9]$/.test(event.key)) {
+      event.preventDefault()
+      event.stopPropagation()
+      const row = rows[Number(event.key) - 1]
+      if (row) pick(row.option)
+      return
+    }
     const next = moveActive(active, event.key, rows.length)
     if (next !== null) {
       event.preventDefault()

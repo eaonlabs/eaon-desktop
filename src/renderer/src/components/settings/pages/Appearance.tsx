@@ -3,10 +3,13 @@ import { useShallow } from 'zustand/react/shallow'
 import { useApp } from '../../../state/store'
 import { Card, Row, Section, Segmented, Select, Slider, Switch } from '../../ui'
 import { Folder, Search } from 'lucide-react'
-import type { AppIcon, Glass, SeeThroughStyle, Settings, ThemeMode } from '@shared/types'
+import { isVideoWallpaper, type AppIcon, type Glass, type Settings, type ThemeMode } from '@shared/types'
 import { GLASS_CLEAR_BLUR, GLASS_DEFAULT } from '@shared/glass'
 import { THEMES, type Palette, type Theme } from '../../../lib/themes'
 import { isMac } from '../../../lib/platform'
+import { wallpaperVideoUrl } from '@shared/wallpaper'
+import { styleInfo } from '../../seeThrough/styles'
+import { WallpaperStyles } from './WallpaperStyles'
 import defaultIcon from '../../../assets/app-icons/default.png'
 import agentIcon from '../../../assets/app-icons/agent.png'
 import lightIcon from '../../../assets/app-icons/light.png'
@@ -354,18 +357,11 @@ function ThemeSwatch({ palette, tone }: { palette: Palette; tone: 'light' | 'dar
   )
 }
 
-/** What each wallpaper style looks like, under the Style control. */
-const STYLE_HINTS: Record<SeeThroughStyle, string> = {
-  photo: 'The wallpaper as it is',
-  halftone: 'A print-style dot screen made from the wallpaper itself',
-  ascii: 'The wallpaper redrawn as ASCII art, in its own colours'
-}
-
 /**
  * See-through: a picture behind the app (components/SeeThrough) — the
- * desktop's own wallpaper, or one the user picks. The OS only says which
- * picture the desktop shows on macOS and Windows; anywhere, a chosen picture
- * works.
+ * desktop's own wallpaper, or a picture or video the user picks. The OS only
+ * says which picture the desktop shows on macOS and Windows; anywhere, a
+ * chosen one works.
  */
 function SeeThroughSection(): JSX.Element | null {
   const { settings, patchSettings } = useApp(useShallow((s) => ({ settings: s.settings, patchSettings: s.patchSettings })))
@@ -374,16 +370,17 @@ function SeeThroughSection(): JSX.Element | null {
   const [error, setError] = useState<string | null>(null)
   const [choosing, setChoosing] = useState(false)
   const hasCustom = see?.source === 'custom' && Boolean(see.custom)
+  const video = hasCustom && isVideoWallpaper(see?.custom) ? (see?.custom ?? null) : null
 
-  // The chosen picture's thumbnail, once, when the page opens on it.
+  // The chosen picture's thumbnail, once, when the page opens on it. A video plays instead.
   useEffect(() => {
-    if (!hasCustom) return
+    if (!hasCustom || video) return
     let live = true
     void window.api.wallpaper.preview().then((url) => live && setPreview(url))
     return () => {
       live = false
     }
-  }, [hasCustom])
+  }, [hasCustom, video])
 
   if (!see) return null
   const style = see.style ?? (see.texture ? 'halftone' : 'photo')
@@ -421,7 +418,12 @@ function SeeThroughSection(): JSX.Element | null {
           <Switch label="See-through" checked={see.enabled && usable} disabled={!usable} onChange={(enabled) => set({ enabled })} />
         </Row>
         {(see.enabled || !desktopKnown) && (
-          <Row title="Wallpaper" description={see.source === 'custom' ? 'A picture of your own, filling the screen' : 'Your desktop’s wallpaper, lined up with the screen'}>
+          <Row
+            title="Wallpaper"
+            description={
+              see.source === 'custom' ? (video ? 'A video of your own, filling the screen' : 'A picture of your own, filling the screen') : 'Your desktop’s wallpaper, lined up with the screen'
+            }
+          >
             <Segmented
               value={see.source}
               onChange={(source) => {
@@ -437,32 +439,37 @@ function SeeThroughSection(): JSX.Element | null {
           </Row>
         )}
         {see.source === 'custom' && (see.enabled || !desktopKnown) && (
-          <Row title="Picture" description={error ?? 'JPEG, PNG, HEIC, WebP and more. Eaon keeps its own copy'}>
+          <Row title={video ? 'Video' : 'Picture'} description={error ?? 'A picture (JPEG, PNG, HEIC, WebP…) or a video (MP4, MOV, WebM). Eaon keeps its own copy'}>
             <div className="wallpaper-pick">
-              {preview && <img className="wallpaper-pick__thumb" src={preview} alt="Chosen wallpaper" />}
+              {video ? (
+                <video className="wallpaper-pick__thumb" src={wallpaperVideoUrl(video)} muted loop autoPlay playsInline aria-label="Chosen wallpaper video" />
+              ) : (
+                preview && <img className="wallpaper-pick__thumb" src={preview} alt="Chosen wallpaper" />
+              )}
               <button className="btn btn--ghost" disabled={choosing} onClick={() => void choose()}>
-                {see.custom ? 'Change…' : 'Choose image…'}
+                {see.custom ? 'Change…' : 'Choose…'}
               </button>
             </div>
+          </Row>
+        )}
+        {video && see.enabled && (
+          <Row title="Play the video" description="Muted, on a loop. It holds still while Eaon is hidden, and with Reduce motion on">
+            <Switch label="Play the video" checked={see.videoPlays !== false} onChange={(videoPlays) => set({ videoPlays })} />
           </Row>
         )}
         {see.enabled && usable && (
           <>
             <Row title="Tint" description="How much of the theme’s colour lies over the wallpaper. Higher is easier to read">
-              <Slider value={see.tint} min={0} max={100} onChange={(tint) => set({ tint })} />
+              <Slider label="Tint" value={see.tint} min={0} max={100} onChange={(tint) => set({ tint })} />
             </Row>
-            <Row title="Style" description={STYLE_HINTS[style]}>
-              <Segmented
-                value={style}
-                // `texture` follows along for builds from before `style`.
-                onChange={(next) => set({ style: next, texture: next === 'halftone' })}
-                options={[
-                  { value: 'photo' as const, label: 'Photo' },
-                  { value: 'halftone' as const, label: 'Halftone' },
-                  { value: 'ascii' as const, label: 'ASCII' }
-                ]}
-              />
-            </Row>
+            <Row title="Style" description={styleInfo(style).hint} />
+            <WallpaperStyles
+              value={style}
+              tint={see.tint}
+              video={video}
+              // `texture` follows along for builds from before `style`.
+              onChange={(next) => set({ style: next, texture: next === 'halftone' })}
+            />
           </>
         )}
       </Card>
@@ -502,7 +509,7 @@ function GlassSection(): JSX.Element | null {
       <Card>
         <GlassPreview />
         <Row title="Blur" description="How soft the page gets behind menus, popovers and frosted panels">
-          <Slider value={glass.blur} onChange={(blur) => set({ blur })} />
+          <Slider label="Blur" value={glass.blur} onChange={(blur) => set({ blur })} />
         </Row>
         <Row
           title="Transparency"
@@ -514,7 +521,7 @@ function GlassSection(): JSX.Element | null {
                 : 'How much of the page shows through them. Lower is easier to read'
           }
         >
-          <Slider value={glass.transparency} onChange={(transparency) => set({ transparency })} />
+          <Slider label="Transparency" value={glass.transparency} onChange={(transparency) => set({ transparency })} />
         </Row>
         {/* macOS-only: the window's vibrancy material. Elsewhere the switch would do nothing. */}
         {isMac && (
@@ -586,7 +593,7 @@ function AdeBackgroundSection(): JSX.Element | null {
         )}
         {ade.scenes && ade.blur && (
           <Row title="Blur strength" description="How soft the scene gets">
-            <Slider value={ade.blurAmount} min={2} max={30} onChange={(blurAmount) => set({ blurAmount })} />
+            <Slider label="Blur strength" value={ade.blurAmount} min={2} max={30} onChange={(blurAmount) => set({ blurAmount })} />
           </Row>
         )}
       </Card>

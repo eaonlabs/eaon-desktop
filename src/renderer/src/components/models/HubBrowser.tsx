@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowLeft, Check, ChevronDown, Download, Eye, Files, Loader2, Trash2, Wrench } from 'lucide-react'
+import { ArrowLeft, Check, ChevronDown, Download, Eye, Files, Loader2, Mic, Trash2, Wrench } from 'lucide-react'
 import { useApp } from '../../state/store'
 import { SearchField, Select } from '../ui'
 import { downloadPercent, formatBytes as formatSize } from '../../lib/format'
 import { useLibrary } from './libraryStore'
 import type { ModelDetail, ModelDownloadProgress, ModelSearchResult } from '@shared/types'
+import { SPEECH_SETTINGS } from '../../lib/localSpeech'
 
 /**
  * "Browse Hugging Face": search any GGUF repo, pick a file, download it to
@@ -20,6 +21,23 @@ function formatCount(n: number): string {
 }
 
 const key = (repoId: string, filename: string): string => `${repoId}::${filename}`
+
+/**
+ * In place of Download on a speech-to-text model (Whisper…): llama.cpp only
+ * runs chat models, so it would download and never work. Speech to text has
+ * models that do, from Hugging Face too.
+ */
+function SpeechModelNote(): JSX.Element {
+  return (
+    <div className="model-speech-note" role="note">
+      <Mic size={14} strokeWidth={2} />
+      <span>This is a speech-to-text model, and chat can’t run it. Dictation’s models are in Speech to text, which can download them from Hugging Face too.</span>
+      <button type="button" className="btn btn--sm" onClick={() => useApp.getState().openProviderSettings(SPEECH_SETTINGS)}>
+        Open Speech to text
+      </button>
+    </div>
+  )
+}
 
 function useDownloadedKeys(): Set<string> {
   const downloaded = useLibrary((s) => s.downloaded)
@@ -156,6 +174,10 @@ function ModelCard({
                   <Trash2 size={14} strokeWidth={1.9} />
                 </button>
               </div>
+            ) : model.speech ? (
+              <span className="model-tag">
+                <Mic size={12} strokeWidth={1.9} /> Speech model
+              </span>
             ) : (
               <button className="model-dl-btn" disabled={downloading} onClick={onDownload}>
                 {downloading
@@ -170,6 +192,7 @@ function ModelCard({
       </div>
 
       {error && <div className="model-card__error">{error}</div>}
+      {model.speech && !downloaded && <SpeechModelNote />}
       {model.description && <p className="model-card__desc">{model.description}</p>}
 
       <div className="model-card__meta">
@@ -264,6 +287,7 @@ export function HubDetail({ repoId, onBack }: { repoId: string; onBack: () => vo
           </div>
           {detail.description && <p className="model-detail__desc">{detail.description}</p>}
           {detail.parameterSize && <span className="model-detail__tag">{detail.parameterSize}</span>}
+          {detail.speech && <SpeechModelNote />}
 
           <div className="section-head section-head--ruled" style={{ marginTop: 30 }}>
             <span className="section-head__title">
@@ -306,6 +330,8 @@ export function HubDetail({ repoId, onBack }: { repoId: string; onBack: () => vo
                       </div>
                     ) : p ? (
                       <span className="variants-table__pct">{downloadPercent(p)}%</span>
+                    ) : detail.speech ? (
+                      <span className="variants-table__no-fit">Speech model</span>
                     ) : (
                       <button className="btn btn--sm" onClick={() => void downloadFile(repoId, variant.filename)}>
                         Download

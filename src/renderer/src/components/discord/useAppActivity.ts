@@ -13,25 +13,21 @@ const CONCERNED_MS = 7000
  * What the streaming reply is doing right now: 'working' while any tool call
  * in it is still running, 'thinking' otherwise, null when nothing streams.
  *
- * Runs on every store update (every streamed token), so it looks in the active
- * chat first — where the reply almost always is — and only walks the rest if
- * it has to. Returns a string, so the selector result is stable.
+ * Runs on every store update (every streamed token), so it only looks at the
+ * chats with a reply running (the last message is the reply). Working when
+ * any of them is running a tool or asking. Returns a string, so the selector
+ * result is stable.
  */
 function streamPhase(state: ReturnType<typeof useApp.getState>): 'thinking' | 'working' | null {
-  const id = state.streamingMessageId
-  if (!id) return null
+  const running = Object.keys(state.runs)
+  if (running.length === 0) return null
   if (state.pendingApproval) return 'working'
-  const active = state.chats.find((c) => c.id === state.activeChatId)
-  let message = active?.messages[active.messages.length - 1]
-  if (message?.id !== id) {
-    message = undefined
-    for (const chat of state.chats) {
-      message = chat.messages.find((m) => m.id === id)
-      if (message) break
-    }
+  for (const chatId of running) {
+    const chat = state.chats.find((c) => c.id === chatId)
+    const message = chat?.messages[chat.messages.length - 1]
+    if (message?.parts.some((p) => p.type === 'tool' && p.status === 'running')) return 'working'
   }
-  const running = message?.parts.some((p) => p.type === 'tool' && p.status === 'running')
-  return running ? 'working' : 'thinking'
+  return 'thinking'
 }
 
 /**
@@ -46,13 +42,14 @@ export function useAppActivity(): AppActivity {
   const [asleep, setAsleep] = useState(false)
   const lastInput = useRef(Date.now())
 
-  // A turn ending is the moment streamingMessageId goes back to null; the
-  // message it pointed at says whether that ending was good news.
+  // A turn ending is the moment its chat leaves `runs`; the message it ran
+  // says whether that ending was good news.
   useEffect(
     () =>
       useApp.subscribe((state, prev) => {
-        const ended = prev.streamingMessageId
-        if (!ended || state.streamingMessageId) return
+        if (state.runs === prev.runs) return
+        const ended = Object.keys(prev.runs).filter((chatId) => !(chatId in state.runs)).map((chatId) => prev.runs[chatId])[0]
+        if (!ended) return
         let failed = false
         for (const chat of state.chats) {
           const message = chat.messages.find((m) => m.id === ended)

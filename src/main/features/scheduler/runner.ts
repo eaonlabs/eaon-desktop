@@ -273,7 +273,8 @@ export async function runScheduledTask(task: ScheduledTask, handle: RunHandle, d
     if (error && !assistant.error) assistant.error = error
     chat.updatedAt = Date.now()
     await deps.sink.put(chat, true)
-    const summary = summariseReply(outcome.text)
+    // What the run ended on, not what it said before its work.
+    const summary = summariseReply(outcome.answer || outcome.text) || summariseReply(outcome.text)
     const used = outcome.usage
     result = {
       status: error ? 'failed' : cancelled ? 'cancelled' : 'succeeded',

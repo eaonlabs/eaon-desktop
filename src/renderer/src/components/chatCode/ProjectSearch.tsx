@@ -164,7 +164,7 @@ function SearchDialog(): JSX.Element {
       <div className="code-search" role="dialog" aria-modal="true" aria-label="Find in project" onKeyDown={onKey}>
         <div className="code-search__bar">
           {loading ? <Loader2 size={15} className="spinner code-search__glyph" /> : <Search size={15} strokeWidth={2} className="code-search__glyph" />}
-          <input
+          <input aria-label="Find in project"
             ref={input}
             className="code-search__input"
             value={query}

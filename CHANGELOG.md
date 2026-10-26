@@ -3,6 +3,321 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [Unreleased]
+
+### Changed
+- **Warp's logo, and Grok CLI in the ADE.** Warp's terminal tile shows
+  Warp's own logo instead of a "W". Grok CLI (xAI's Grok Build, `grok`) is
+  always offered in the ADE, greyed with how to install it until it's on
+  the computer, like Codex and Antigravity.
+- **Setting up signed gateway requests.** `scripts/gateway-app-setup.sh`
+  stores the gateway app from gateway.eaon.dev (Access → Eaon apps) in the
+  keychain for Mac releases and in the repository's GitHub secrets for the
+  Windows and Linux builds. It asks for the secret without showing it.
+- **Eaon Event offers only what the event's code gets.** Once the gateway
+  has listed a code's models, that list is all of Eaon Event, as it is for
+  Eaon Lite. It no longer offers the old free week's Claude Haiku 5.5 and
+  "Eaon Event" models, which the gateway doesn't serve, and a code that sets
+  up a model picks one the gateway does (MiMo v2.6 Flash first).
+- **Any Whisper model from Hugging Face, for dictation on this computer.**
+  Settings → Model providers → Speech to text → Find more on Hugging Face
+  searches every whisper.cpp model there, by language or name (Uzbek,
+  Japanese, German, turbo…). A language search also lists Whisper's own
+  multilingual models, which understand it too. One click downloads a model
+  and puts it to use. Before downloading, Eaon reads the file's first bytes
+  and turns away any it can't run (a GGUF, say), and after it checks the
+  SHA-256 Hugging Face keeps for the file.
+- **Speech models no longer end up with chat models.** Searching Settings →
+  Models → Browse Hugging Face for Whisper now marks speech models and sends
+  you to Speech to text instead of downloading something llama.cpp can't
+  run. Chat-only engines (On this computer's chat models, Ollama, LM Studio,
+  llama.cpp, MLX, Jan) are no longer offered as speech providers, and a
+  dictation setting that pointed at one is reset, with a note saying why.
+- **Pick models, don't type them.** An online speech provider's models come
+  from its own list, speech models first, with one chosen for you; typing an
+  id is only a fallback under "Another model…".
+- **Download speech models right from the app.** Dictating with nothing set
+  up now offers a Whisper model that runs on this computer, with a Download
+  button right there in Chat, Workers and the ADE. It shows its progress,
+  can be stopped and picks up where it stopped, and the model is switched on
+  as soon as it's in. Settings → Model providers → Speech to text now lists
+  the models on this computer first, each with its download, and the online
+  providers below, rather than hiding the downloads behind a dropdown and
+  opening on an error. Settings → General → Speech to text shows what
+  dictation uses, with a one-click download when it's nothing yet.
+- **Hold to talk everywhere.** The ADE's hold-to-talk key now works in
+  Chat's and a worker's message box too: hold it, speak, and let go to put
+  what you said into the box, ready to edit before you send it (in the ADE,
+  into the terminal you last typed in, as before). A quick tap or a shortcut
+  with the key never records, and Esc while holding cancels. The key (Right
+  Option on a Mac, Right Alt elsewhere, or a function key, Shift, Control…)
+  and the switch are in Settings → General → Speech to text and Settings →
+  ADE, and Keyboard shortcuts lists it; the mic button's tooltip names it.
+- **A video can be the wallpaper.** Settings → Appearance → Wallpaper →
+  Custom takes a video (MP4, MOV, WebM) as well as a picture. It plays muted
+  and on a loop behind the glass, and holds still while Eaon is hidden, with
+  Reduce motion on, or with Play the video off.
+- **Fifteen wallpaper styles.** Besides Photo, Halftone and Characters
+  (ASCII): Tiles, Blocks, Braille, Dither, Pixel art, Mosaic, Bricks, Dots,
+  Cross, Diagonal, Diamond and Lines. Each works on a picture or a video,
+  and Settings shows them as small previews of your own wallpaper, under
+  the tint as it is.
+- **Every approval asks the same way.** On a page with no message box
+  (Settings, the ADE), a chat's question floats at the foot of the window in
+  the strip it uses above a message box, instead of a dialog in the middle
+  of the page; above a worker's message box, it sits over the box.
+- **Several chats work at once.** Start a reply in one chat, go to another
+  (in a project or in Chats) and ask there too: each runs on its own, with
+  its own Stop and its own queue of follow-ups, and none waits for another.
+  A spinner in the sidebar marks each chat still working, and a dot marks
+  one that finished while you were elsewhere. A queued follow-up goes when
+  its own chat's reply ends, even with another chat open. Each chat asks
+  for approval in its own conversation. Another chat's question waits above
+  the message box, in the place the queued follow-ups use: which chat is
+  asking, what it would run (the whole command a click away), and Open,
+  Deny and Allow. It never takes the keyboard from what you're typing. The
+  dialog over the page is now only for places with no message box, such as
+  Settings.
+- **Eaon Free is now Eaon Event, for events only.** It opens with the code
+  from an event Eaon sponsors (a hackathon, a workshop), and nothing else:
+  the free week, the "Free AI credits" card and Settings' "Get free credits"
+  are gone. Settings → Model providers → Eaon Event is the box for a code;
+  with one, Eaon Event joins the model picker with the event's daily
+  allowance until the code ends. Eaon's free models for everyone are Eaon
+  Lite, as before. Updating moves a model, worker or automation that was set
+  to Eaon Free, with no code, back to the default. The star popup still
+  comes half a minute in the first time, now on its own.
+- **New chats are named by their model.** When a chat's first reply is in,
+  the model the chat runs on gives it a short name ("Plan a weekend at the
+  coast") in place of the first line of the first message. A chat you
+  rename before then keeps your name, and a reply that fails leaves the name
+  as it was. Chats on an agent engine (Codex, Claude Code, Copilot, Gemini)
+  keep the first line.
+- **The sidebars' lists fade at their edges.** In Chat, Workers and the
+  ADE, the places at the top (New chat … Settings, New worker … Settings,
+  New session … Settings) stay put. Projects and chats, group chats and
+  workers, and the ADE's sessions scroll under them and fade out under a
+  soft blur at whichever edge has more past it, instead of being cut off. A
+  list that fits has no fade. The blur follows Settings → Appearance →
+  Glass → Blur.
+- **No ? button in the sidebars.** Chat's, Workers' and the ADE's lists run
+  to the bottom of the sidebar. The tour, What's new and the documentation
+  are in Settings → General, and on a Mac in the Help menu too.
+- **The open chat asks for approval in the conversation.** With
+  Permissions on Ask for approval, a call that needs your OK is a row under
+  the work so far, not a card over the message box. The row shows what it
+  wants to do ("Run npm, git", "Replace index.html") and who is asking
+  (Eaon, or a sub-agent such as Tester). Under that is the command as typed,
+  or the change's size and folder, which you click to see the full command
+  or diff. Allow and Stop are on the right. Stop says no to that one call,
+  and the reply carries on without it. ⏎ and esc still answer, except that
+  ⏎ never allows a call that could delete files or change your system; that
+  one shows its command straight away. A turn asking while another page is
+  in front still gets the card over the page.
+
+### Fixed
+- **Small things from the last look.** Settings → Security links to how to
+  set up an organization policy, instead of naming a file in the repository.
+  A Local API Server port that can't be used says why (below 1024, past
+  65535, not a whole number) and keeps the one you had; the range is in the
+  description. Codex's provider page shows its error once, and calls a
+  failed check "Couldn't check" rather than "Not checked". "On this
+  computer" no longer shows a Base URL field it doesn't use. A worker's
+  sleep step reads "Went to sleep until later", not "Used 1 tool". New team
+  asks for a name, as New group chat does, instead of calling it "Team".
+- **No dark bands in the sidebars over a wallpaper.** With see-through on,
+  the ends of the sidebars' lists (Chat's, Workers', the ADE's) showed as
+  dark bars over a bright picture: their edge blur could only see the
+  frosted sidebar's own tint. Over a wallpaper the lists now just fade.
+- **Videos play from any file.** Pictures and videos the app shows from your
+  disk (attachments, the Library) are served with byte ranges, so an MP4
+  with its index at the end, or a QuickTime screen recording, plays instead
+  of failing as "format not supported".
+- **Eaon's logo in the model picker.** Eaon Lite and Eaon Event showed a
+  plain "E" in a ring on the picker's tab and the message box's model chip,
+  and Eaon's own mark there was another logo. They show Eaon's mark now.
+- **The plan's scrollbar.** A long plan above the message box scrolled with
+  a square grey scrollbar down its whole side, and its Plan line scrolled
+  away with the steps. Now the Plan line stays put and only the steps
+  scroll. Their scrollbar is the thin rounded one the rest of the app uses,
+  shown while the pointer is over the plan.
+- **A project's terminal stays in its project.** The terminal under a chat
+  (⌘J) and the dock's Terminal stayed on the last project's shells when you
+  moved to a chat in another project, with nothing saying so, so commands ran
+  in the wrong repository. Each project now has its own shells: going to
+  another project shows its own, and the first ones come back when you go
+  back.
+- **Replacing a file shows what goes.** An approval to rewrite a file that
+  already exists showed only the new lines, as if the file were new ("+2 −0").
+  It is now titled "Replace", and shows what is removed as well as what is
+  added. The changed-files card, the diff and the workspace card count a
+  replaced file as changed, not new, with its removed lines. A file written
+  twice counts once, from how it was to how it ended.
+- **⌘1–⌘9 in the model picker only pick a model.** ⌘1, ⌘2 and ⌘3 picked a
+  model and then also switched to Chat, Workers or the ADE.
+- **Eaon Free is offered only while Eaon serves it.** Settings → Model
+  providers offered "Get free credits" when Eaon's free model wasn't
+  available, and claiming started the free week anyway. It now says the free
+  model isn't available right now, and a claim, from Settings or the card,
+  starts nothing until it is. An event code still works.
+- **The corner cards wait for the setup and the tour.** The star popup could
+  sit over a tour and cover its Next button, so the tour couldn't go on, and
+  its half-minute timer counted time spent in the setup. The cards now step
+  aside while the setup or a tour is up and come back after, and the tour
+  sits above them.
+- **Help → What's New in 2026.7 and Take the Tour** are in the menu bar's
+  Help menu, and in Settings → General.
+- **Provider buttons read with see-through on.** With see-through on and most
+  colour themes, Save, Start server and Choose image… were dark text on dark
+  glass. They keep their own colour now.
+- **A refused Base URL says why.** Saving a custom provider's Base URL that
+  Eaon refuses (its own service's address) did nothing you could see. The
+  reason now shows under the field.
+- **A new custom provider lists its models straight away,** instead of
+  saying it had none until you pressed Refresh models.
+- **Eaon's tools in Claude Code with the port taken.** With another app on
+  port 1337, turning this on showed a raw EADDRINUSE error and still set the
+  Local API Server to start with Eaon. It now says another app is using the
+  port, and changes nothing. Turning it off also turns the Local API Server
+  off again when turning it on is what started it, and nothing else uses it.
+- **The dock's buttons clear the window's.** Filling the window with the
+  sidebar hidden put the dock's first buttons under the traffic lights.
+- **The ADE's folder name gives way in a narrow window,** ending in "…"
+  instead of running on under the Chat / Workers / ADE switch.
+- **Review and the dock take turns in the ADE.** With both open the
+  terminals were squeezed to about 90 pixels wide, and their prompts stayed
+  broken afterwards. Opening one now puts the other away.
+- **Quitting stops the Copilot and Gemini CLIs.** The quick check of a CLI's
+  sign-in and models, run as Eaon starts, kept going after a quit that came
+  while it ran, leaving `copilot --acp` running on its own.
+- **Wording.** The providers list has one Eaon heading. An ordinary chat's
+  message box says "Ask a follow-up" ("Ask for follow-up changes" is for
+  coding chats). Leftover mentions of "the work folder" now name the
+  project's folder or Eaon's folder. An automation's card calls its mode
+  Answer or Agent, as its form does. Plain shells in an ADE session count as
+  terminals, not agents.
+- **The dock's Diff keeps each chat's own edits.** With two chats editing
+  the same file in one project, a chat's Diff counted the other chat's
+  changes as its own and could show its own last change as "No changes".
+  It now works back through both chats' edits and shows only its own. The
+  Diff also starts on the chat on screen: a turn picked in another chat no
+  longer carries over.
+- **A closed dock stays closed.** With a page open in the dock's browser,
+  switching views, chats or ADE sessions opened the dock again and put an
+  open Review away. It now opens only when a page is opened or brought to
+  the front.
+- **Web pages are white in dark mode.** A page with no background of its own
+  (a local dev server's, say) showed black text on Eaon's dark panel. Pages
+  in the in-app browser are opaque now, as in any browser.
+- **Turning off Eaon's tools in Claude Code leaves your server alone.** It
+  stopped a Local API Server you had started yourself. It now puts back only
+  what turning it on changed (started the server, set it to start with
+  Eaon), and nothing once you start, stop or set up the server yourself.
+- **An Eaon Free claim asks the gateway first, every time.** For ten minutes
+  after the gateway stopped serving the free model, a claim could still start
+  the week, from an earlier answer.
+- **A wrong event code says so plainly.** The box showed whatever the gateway
+  answered, such as "Send a model ID". Only its answers about the code are
+  shown now. (gateway.eaon.dev doesn't have the codes route yet, so for now
+  every code gets "Eaon couldn't check the code right now".)
+- **Goals.** A worker's goal turn that reached its continuation limit said
+  "Goal paused" while the worker carried on in its next turn; it now says
+  the turn is ending. Pausing a goal mid-step reads "Pausing after this
+  step" until the step is done, and a goal's wait ends as soon as you pause.
+- **The terminal's buttons sit beside its output,** in a column of their own
+  down the right edge, instead of over the end of the first lines.
+- **Smaller fixes.** A new file's approval no longer counts its final
+  newline as a line. A shell running top or a dev server counts as a
+  terminal, not an agent. "← Team" keeps its arrow in a narrow window
+  instead of being cut off. New team and New group chat say why the button
+  is greyed out. A read-only automation's refused write reads "Tried to
+  change 1 file", and a worker's status and an automation's result sum up
+  what the turn ended on, not what it said before its work. Searching
+  providers for "codex" finds the Codex row. Accent buttons in Cobalt (and
+  other mid-tone accents) are a shade deeper, so white text on them reads
+  at 4.5:1. The message boxes, Glass sliders, settings fields, dropdowns and
+  dialog fields have names for screen readers.
+- **Setup and tours.** The corner cards move up when they would cover the
+  message box. "Welcome to Eaon" is for fresh installs; an updated one gets
+  "Enjoying Eaon?". The setup shows a local server that isn't running as not
+  running, not "✓ LM Studio". What's new points at the dock's switch in Chat.
+  "Sign in with an account" lists only the accounts the setup can sign in to.
+  ⌘1–3, ⌘, and ⌘B wait until the setup or a tour is done. Chats from 2026.6
+  go into the project made from Chat's old folder, so they keep coding there.
+- **Chat.** The message map sits below the top bar, with its marks in place
+  from launch. A plan whose steps are all done stays in the reply as one
+  line that opens into its steps. The find bar and the message map keep
+  clear of the workspace card. The Diff's View menu closes when a layout is
+  picked. The dock's tabs fade at an edge with more tabs past it. Move to
+  another project no longer lists the chat's own.
+- **Settings.** Search matches each word, in any order, and knows Glass,
+  speech to text, goals, tours, theme names and more. Keyboard shortcuts
+  lists ⌘F, ⇧⌘F, ⌘J, ⌘1–9 in the model menu, queueing, ↑/↓ history and esc.
+  The Accounts and Agent engines footnotes say what the page shows. In a
+  narrow window the icon rail clears the window's buttons and has a Search
+  button. System Monitor counts memory macOS can give back as available.
+  Computer use's setup steps put their buttons under their text.
+- **ADE and workers.** The ADE's search finds sessions by name, branch or
+  folder, and their agents' conversations. A session's change count includes
+  new files and stays current. Picking another model for a worker clears the
+  old one's error.
+- **Swarm's tester runs tests.** A tester sub-agent's commands were refused
+  as if Plan mode were on, so it could neither run `npm test` nor ask to. It
+  now asks like the lead does, with its row saying Tester, and still gets no
+  tools to edit files.
+- **Approvals don't take the message box.** A question arriving while you
+  typed took the keyboard, so the rest of what you typed was lost and the ⏎
+  meant to send allowed the call. It now comes into view without taking
+  focus from a text box, and answering it puts you back in the message box.
+  A stopped call reads "1 skipped", not a red "1 failed", and shows no size.
+  At a narrow width the warning gives way before the title. A high-risk card
+  no longer shows "⏎" on Approve, since ⏎ never approves it. The card over
+  another page says which chat is asking. The swarm card says "1 step".
+- **More after the second look.** The corner cards also clear the notice
+  above the message box (an unavailable model's Choose another model). Eaon
+  Free's "Free" badge shows only while it's served. A local server used
+  before that isn't running says "Not running" in Model providers. The
+  first time the sidebar shows with nothing under Chats (after the 2026.6
+  update), the projects holding chats open. The chat's own menu has Move to
+  another project.
+- **A worker's browser closes.** With its Activity open, turning a worker's
+  Browser off left the browser on screen, over Automations, Chat and the
+  ADE, and its Close did nothing. Activity and the browser now take turns
+  beside a worker, so its conversation keeps its width.
+- **A closed dock stays closed in a new place.** Going somewhere with no
+  pages of its own yet (a new ADE session, Chat after browsing in the ADE)
+  opened the closed dock on a blank tab and put Review away.
+- **⌘1–⌘9 in every model menu pick a model.** In a worker's, Edit worker's
+  and New automation's model menu they switched to Chat, Workers or the ADE,
+  and a half-filled automation was lost. ⌘1–⌘3 also wait while a dialog or
+  an open list has the keyboard.
+- **Pausing or clearing a worker's goal cancels its wake-up.** A worker that
+  went to sleep while working on its goal woke at the time it set and
+  carried on anyway.
+- **Every provider address says why it wasn't saved.** OpenAI's,
+  Anthropic's and other providers' Base URL under Advanced, LM Studio's,
+  Ollama's and the other local servers', Azure's endpoint and Cloudflare's
+  fields refused Eaon's own service's address with nothing said, and kept
+  showing it. The reason now shows under the field.
+- **A custom provider on this computer or your network works without a
+  key** (a llama.cpp or vLLM server, a LiteLLM proxy): its models are listed
+  as soon as it's added. It can still be given a key if it asks for one.
+- **Running and Not running keep up.** While Model providers is open, local
+  servers are looked at every ten seconds, so one that starts or stops shows
+  it without Refresh.
+- **A server that isn't running says so at once.** A custom provider on
+  this computer or the network that refused the connection showed "The
+  provider is busy" through three retries, about 22 seconds, before the
+  error. A provider elsewhere that refuses still gets its retries, as
+  "Couldn't connect".
+- **Settings search.** Each word has to begin a word, so "port" no longer
+  finds General (report) or Connect apps (import). Plurals find their
+  singular ("goals", "tours"), and "chat gpt" and "open ai" find ChatGPT and
+  OpenAI. In Model providers, "local" finds the servers on this computer.
+- **End-to-end tests.** The scenarios brought up to date with folded replies
+  and Eaon Lite. The Eaon Free ones use a stand-in for Eaon's gateway that
+  serves the free model, since the real one answers only signed builds.
+
 ## [2026.7.0-beta.3] — 2026-10-25
 
 ### Added

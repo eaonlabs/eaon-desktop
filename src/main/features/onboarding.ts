@@ -30,7 +30,7 @@ export function noteFirstRun(): void {
     return
   }
   if (!existsSync(docPath('settings.json')) && !existsSync(docPath('chats.json'))) {
-    store.patchSettings({ onboarding: { ...current, whatsNew: WHATS_NEW_RELEASE } })
+    store.patchSettings({ onboarding: { ...current, whatsNew: WHATS_NEW_RELEASE, fresh: true } })
     return
   }
   const saved = savedOnboarding()

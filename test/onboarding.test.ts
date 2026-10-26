@@ -29,10 +29,11 @@ test('a fresh install gets the setup and the tour of the app, and nothing is new
   delete process.env.EAON_ONBOARDING
   await profile({})
   noteFirstRun()
-  assert.deepEqual(onboarding(), { setup: 'pending', tour: 'pending', whatsNew: WHATS_NEW_RELEASE, finished: false })
+  // `fresh`: the star card may welcome it to Eaon; an updated install is never marked.
+  assert.deepEqual(onboarding(), { setup: 'pending', tour: 'pending', whatsNew: WHATS_NEW_RELEASE, fresh: true, finished: false })
   // Quitting halfway: the next launch sees its own settings, and changes nothing.
   noteFirstRun()
-  assert.deepEqual(onboarding(), { setup: 'pending', tour: 'pending', whatsNew: WHATS_NEW_RELEASE, finished: false })
+  assert.deepEqual(onboarding(), { setup: 'pending', tour: 'pending', whatsNew: WHATS_NEW_RELEASE, fresh: true, finished: false })
 })
 
 test('an install updated from 2026.6 gets the setup, then what’s new', async () => {
