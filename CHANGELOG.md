@@ -3,7 +3,9 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
-## [Unreleased]
+## [2026.7.0] — 2026-10-26
+
+The 2026.7 release: everything in the 2026.7.0 betas below, and this.
 
 ### Changed
 - **Warp's logo, and Grok CLI in the ADE.** Warp's terminal tile shows
