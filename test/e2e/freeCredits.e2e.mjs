@@ -21,7 +21,8 @@ const CODE = 'EAON-TEST-EVNT-0001'
 /** The fake model server as Eaon's gateway, with the event's code. */
 async function eventGateway(s, limits = { requestsPerDay: 150, tokensPerDay: 2_000_000, requestsPerMinute: 20 }) {
   const fake = await s.fake()
-  fake.setModels(['claude-haiku-5-5'])
+  // Named, as the gateway names its models: Eaon Event shows the gateway's list as it is.
+  fake.setModels([{ id: 'claude-haiku-5-5', name: 'Claude Haiku 5.5' }])
   fake.addCode(CODE, { name: 'Eaon Hack e2e', endsAt: Date.now() + 2 * 86_400_000, limits })
   return { fake, env: { EAON_FREE_GATEWAY_URL: fake.url } }
 }
@@ -41,8 +42,9 @@ scenario('Eaon Event: a fresh install gets the star popup and nothing after it, 
   const listed = async () => page.eval(async () => (await window.api.providers.list()).some((p) => p.id === 'eaon-free'))
   assert.equal(await listed(), false, 'no Eaon Event without a code')
 
-  // No focus faked: the first ask counts time with the window on screen, focused or not.
-  await page.find('.star-card', { text: /Welcome to Eaon/, timeout: 90_000 })
+  // No focus faked: the first ask counts time with the window on screen, focused or not. With the
+  // setup off (as every scenario has it) the install isn't marked fresh, so it asks "Enjoying Eaon?".
+  await page.find('.star-card', { text: /Welcome to Eaon|Enjoying Eaon\?/, timeout: 90_000 })
   const star = await page.eval(() => document.querySelector('.star-card')?.textContent ?? '')
   assert.ok(!/credit|free AI|Haiku/i.test(star), 'the star popup promises nothing')
   await page.click('.star-card button', { text: /^Later$/ })
@@ -136,5 +138,7 @@ scenario('Eaon Event: updating from Eaon Free’s week moves its choice back to 
   const settings = await page.eval(() => window.api.settings.get())
   assert.deepEqual([settings.selectedProviderId, settings.selectedModelId], [null, null], 'back to the default')
   assert.equal(await page.eval(async () => (await window.api.providers.list()).some((p) => p.id === 'eaon-free')), false)
-  assert.equal(await page.eval(() => Boolean(document.querySelector('.model-notice'))), false, 'no "unavailable" notice')
+  // Eaon Lite is off in these scenarios, so a setup hint for a model is right; a notice that the old model is unavailable isn't.
+  const notice = await page.eval(() => document.querySelector('.model-notice')?.textContent ?? '')
+  assert.doesNotMatch(notice, /unavailable|Eaon Free|Eaon Event|doesn’t offer/i, `no "unavailable" notice: ${notice}`)
 })

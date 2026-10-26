@@ -75,7 +75,8 @@ scenario('Settings → General: every control does something', { timeout: 150_00
           const text = (candidate.getAttribute('aria-label') || candidate.textContent || candidate.getAttribute('title') || '').trim()
           return `${title ? `${title} › ` : ''}${text}`.slice(0, 80) === label
         })
-        if (!el) return 'gone'
+        // Gone, or switched off by an earlier click (Hold to talk off greys its Key): nothing to try.
+        if (!el || el.disabled) return 'gone'
         el.scrollIntoView({ block: 'center' })
         const rect = el.getBoundingClientRect()
         return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }

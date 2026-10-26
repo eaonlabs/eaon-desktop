@@ -111,7 +111,7 @@ scenario('first run: the setup signs in with Tokn, links tokn, picks dark, and t
     assert.deepEqual(titles, ['Three places to work', 'Ask, or hand over a task', 'Pick a model', 'Your chats', 'Automations', 'The ADE', 'Your plan’s limits', 'Settings'])
     await page.waitFor(() => !document.querySelector('.tour'), { message: 'the tour to close' })
     // A fresh install starts on this release, so its what's new never shows on top of the tour.
-    assert.deepEqual({ ...(await onboarding(page)), finishedAt: null }, { setup: 'done', tour: 'done', finishedAt: null, whatsNew: '2026.7' })
+    assert.deepEqual({ ...(await onboarding(page)), finishedAt: null }, { setup: 'done', tour: 'done', finishedAt: null, whatsNew: '2026.7', fresh: true })
     assert.equal(await page.eval(() => document.querySelector('.mode-switch__option[aria-selected="true"]')?.textContent?.trim()), 'Chat')
 
     // Not again on the next launch.

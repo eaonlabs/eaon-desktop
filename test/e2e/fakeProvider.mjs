@@ -121,6 +121,15 @@ export async function startFakeProvider({ models = ['fake-model'] } = {}) {
   let route = () => reply.text('Hello from the fake model.')
   /** @type {ChatRequest[]} */
   const chats = []
+  /**
+   * The app's requests to name a new chat (src/main/agent/chatTitle.ts), kept
+   * out of `chats` so a test's last chat request is still the conversation's.
+   * Answered with `titleReply`: nothing by default, so a chat keeps its first
+   * message as its name, as scenarios that find it by that name expect.
+   * @type {ChatRequest[]}
+   */
+  const titles = []
+  let titleReply = ''
   /** @type {{ method: string, url: string }[]} */
   const requests = []
   /** @type {HeldStream[]} */
@@ -144,7 +153,8 @@ export async function startFakeProvider({ models = ['fake-model'] } = {}) {
     for await (const part of req) parts.push(part)
     if (req.method === 'GET' && /\/models\/?(\?.*)?$/.test(req.url ?? '')) {
       res.writeHead(200, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({ object: 'list', data: modelList.map((id) => ({ id, object: 'model', owned_by: 'fake' })) }))
+      // A model can come with a name, as Eaon's gateway gives its models one.
+      res.end(JSON.stringify({ object: 'list', data: modelList.map((m) => (typeof m === 'string' ? { id: m, object: 'model', owned_by: 'fake' } : { object: 'model', owned_by: 'fake', ...m })) }))
       return
     }
     if (req.method === 'POST' && /\/codes\/redeem\/?$/.test(req.url ?? '')) {
@@ -171,15 +181,19 @@ export async function startFakeProvider({ models = ['fake-model'] } = {}) {
       body = {}
     }
     const request = describe(body, chats.length)
-    chats.push(request)
-    for (const wake of requestWaiters) wake()
+    const naming = request.system.startsWith('You name conversations')
+    if (naming) titles.push(request)
+    else {
+      chats.push(request)
+      for (const wake of requestWaiters) wake()
+    }
     let answer
     try {
-      answer = route(request)
+      answer = naming ? reply.text(titleReply) : route(request)
     } catch (error) {
       answer = reply.status(500, `The fake provider's route threw: ${error instanceof Error ? error.message : error}`)
     }
-    const model = request.model || modelList[0]
+    const model = request.model || (typeof modelList[0] === 'string' ? modelList[0] : modelList[0]?.id)
     switch (answer.kind) {
       case 'status': {
         res.writeHead(answer.status, { 'Content-Type': 'application/json', ...answer.headers })
@@ -277,8 +291,14 @@ export async function startFakeProvider({ models = ['fake-model'] } = {}) {
   return {
     url: `http://127.0.0.1:${address.port}/v1`,
     port: address.port,
-    /** Every chat completion request, oldest first. */
+    /** Every chat completion request, oldest first, but for the ones naming a chat. */
     chats,
+    /** The requests naming a new chat, oldest first. */
+    titles,
+    /** What a request to name a chat gets back: '' (the default) leaves the chat's name alone. */
+    nameChats(title) {
+      titleReply = title
+    },
     /** Every HTTP request (method and URL), including model listings. */
     requests,
     /** Held streams, oldest first. */
@@ -287,7 +307,7 @@ export async function startFakeProvider({ models = ['fake-model'] } = {}) {
     route(fn) {
       route = fn
     },
-    /** @param {string[]} ids */
+    /** @param {(string | { id: string, name?: string, description?: string })[]} ids */
     setModels(ids) {
       modelList = ids
     },
