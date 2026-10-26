@@ -20,6 +20,7 @@ import { hardenAppWindow, openExternalSafely } from './externalLinks'
 import { catalogRowsPinned, providerKeyId } from './ipcGuards'
 import { forScreens, hideEaonAddress } from './eaonAddress'
 import { activeRunIds, cancelRun, pauseGoal, runAgent } from './agent/loop'
+import { writeChatTitle, type ChatTitleRequest } from './agent/chatTitle'
 import './agent/sources'
 import { killBackgroundProcesses } from './localTools'
 import { adoptLoginShellPath } from './shellEnv'
@@ -822,6 +823,8 @@ function registerIpc(): void {
   })
   ipcMain.handle('chat:pause-goal', (_e, messageId: string) => pauseGoal(messageId))
   ipcMain.handle('chat:approve', (_e, requestId: string, approved: boolean) => resolveApproval(requestId, approved))
+  // A new chat's name, from the model it runs on, once its first reply is in.
+  ipcMain.handle('chat:title', (_e, request: ChatTitleRequest) => writeChatTitle(request))
 
   ipcMain.handle('app:open-external', (_e, url: string) => openExternalSafely(url))
   // Privacy & Security → Files and Folders, where Eaon is let into Downloads, Documents and Desktop.

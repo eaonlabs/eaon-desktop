@@ -227,6 +227,8 @@ const api = {
     pauseGoal: (messageId: string): Promise<void> => ipcRenderer.invoke('chat:pause-goal', messageId),
     approve: (requestId: string, approved: boolean): Promise<void> =>
       ipcRenderer.invoke('chat:approve', requestId, approved),
+    title: (request: { providerId: string; modelId: string; message: string; reply: string }): Promise<string | null> =>
+      ipcRenderer.invoke('chat:title', request),
     onEvent: (handler: (event: StreamEvent) => void): (() => void) => {
       const listener = (_e: unknown, payload: StreamEvent): void => handler(payload)
       ipcRenderer.on('chat:event', listener)

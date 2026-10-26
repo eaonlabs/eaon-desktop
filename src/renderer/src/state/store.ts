@@ -413,6 +413,34 @@ function sealInterrupted(chats: Chat[], only?: string): Chat[] {
  * window's" run that someone else will write.
  */
 const ownedRuns = new Set<string>()
+
+/**
+ * New chats waiting on their first reply, by its message id, to be named by
+ * the model they run on once it's in. The name replaces the first line of
+ * the first message only while the chat still has that name: a chat renamed
+ * meanwhile keeps the user's.
+ */
+const toName = new Map<string, { chatId: string; title: string; providerId: string; modelId: string; message: string }>()
+
+function nameChat(messageId: string): void {
+  const wanted = toName.get(messageId)
+  toName.delete(messageId)
+  if (!wanted) return
+  const found = locateMessage(useApp.getState().chats, messageId)
+  if (!found) return
+  const chat = useApp.getState().chats[found.chatIndex]
+  const reply = chat.messages[found.msgIndex]
+  // Renamed during the reply, or the reply failed: nothing to ask for.
+  if (reply.error || chat.title !== wanted.title) return
+  void window.api.chat
+    .title({ providerId: wanted.providerId, modelId: wanted.modelId, message: wanted.message, reply: messageText(reply) })
+    .then((title) => {
+      const now = useApp.getState().chats.find((c) => c.id === wanted.chatId)
+      if (title && now && now.title === wanted.title && title !== now.title) useApp.getState().renameChat(now.id, title)
+    })
+    .catch(() => {})
+}
+
 const remoteTimers = new Map<string, ReturnType<typeof setTimeout>>()
 const REMOTE_SILENCE_MS = 60_000
 
@@ -475,6 +503,8 @@ function applyStreamEvent(event: StreamEvent): void {
   if (finished) {
     streamTargets.delete(event.messageId)
     ownedRuns.delete(event.messageId)
+    if (event.type === 'error') toName.delete(event.messageId)
+    else nameChat(event.messageId)
   }
   if (!mine) noteRemoteRun(event.messageId, finished)
   if (!found) {
@@ -1007,6 +1037,9 @@ export const useApp = create<AppState>((set, get) => ({
       },
       goal: current.goal?.status === 'active' ? current.goal : null
     }
+    // A chat's first turn on Eaon's own loop: its model names it once the reply is in.
+    if (!engine && current.messages.length === 2 && text.trim())
+      toName.set(assistantMessage.id, { chatId: current.id, title: current.title, providerId: model!.providerId, modelId: model!.id, message: text })
     try {
       await window.api.chat.stream(request)
     } catch (error) {

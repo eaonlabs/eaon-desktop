@@ -6,6 +6,12 @@ All notable changes to Eaon are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Changed
+- **New chats are named by their model.** When a chat's first reply is in,
+  the model the chat runs on gives it a short name ("Plan a weekend at the
+  coast") in place of the first line of the first message. A chat you
+  rename before then keeps your name, and a reply that fails leaves the name
+  as it was. Chats on an agent engine (Codex, Claude Code, Copilot, Gemini)
+  keep the first line.
 - **The sidebars' lists fade at their edges.** In Chat, Workers and the
   ADE, the places at the top (New chat … Settings, New worker … Settings,
   New session … Settings) stay put. Projects and chats, group chats and
