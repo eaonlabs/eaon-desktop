@@ -9,6 +9,7 @@ import eaonLogo from '../../../assets/providers/eaon.png'
 import cursorLogo from '../../../assets/providers/cursor.svg'
 import geminiCliLogo from '../../../assets/providers/geminicli.svg'
 import grokLogo from '../../../assets/providers/grok.svg'
+import warpLogo from '../../../assets/providers/warp.png'
 import qwenLogo from '../../../assets/providers/qwen.svg'
 import copilotLogo from '../../../assets/providers/githubcopilot.svg'
 import ampLogo from '../../../assets/providers/amp.svg'
@@ -645,7 +646,7 @@ const AGENT_LOGOS: Record<Exclude<TerminalAgentId, 'shell'>, string | { letter: 
   openhands: openHandsLogo,
   aider: { letter: 'A' },
   crush: { letter: 'C' },
-  warp: { letter: 'W' },
+  warp: warpLogo,
   codebuddy: codeBuddyLogo,
   qoder: qoderLogo,
   trae: traeLogo,

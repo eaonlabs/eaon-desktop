@@ -6,6 +6,10 @@ All notable changes to Eaon are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Changed
+- **Warp's logo, and Grok CLI in the ADE.** Warp's terminal tile shows
+  Warp's own logo instead of a "W". Grok CLI (xAI's Grok Build, `grok`) is
+  always offered in the ADE, greyed with how to install it until it's on
+  the computer, like Codex and Antigravity.
 - **Setting up signed gateway requests.** `scripts/gateway-app-setup.sh`
   stores the gateway app from gateway.eaon.dev (Access → Eaon apps) in the
   keychain for Mac releases and in the repository's GitHub secrets for the
