@@ -1,9 +1,11 @@
-import { app, BrowserWindow, dialog, nativeImage, screen, systemPreferences, type Display, type WebContents } from 'electron'
+import { app, BrowserWindow, dialog, nativeImage, protocol, screen, systemPreferences, type Display, type WebContents } from 'electron'
 import { execFile } from 'node:child_process'
 import { copyFile, mkdir, mkdtemp, readdir, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { extname, join, relative, isAbsolute } from 'node:path'
-import type { WallpaperFrame } from '@shared/types'
+import { basename, extname, join, relative, isAbsolute } from 'node:path'
+import { isVideoWallpaper, type WallpaperFrame } from '@shared/types'
+import { WALLPAPER_SCHEME } from '@shared/wallpaper'
+import { fileResponse } from '../fileResponse'
 import { store } from '../store'
 import type { Feature } from './types'
 
@@ -17,9 +19,10 @@ import type { Feature } from './types'
  * NSWorkspace (asked with a JavaScript-for-Automation one-liner, which talks
  * to AppKit directly rather than to another app, so it needs no permission),
  * Windows through the registry. Only that file is read — never the screen.
- * Or the user picks a picture of their own: Eaon keeps a copy of it in its
- * own folder, and that copy is the only custom file it will ever read, so the
- * page can't point it anywhere else on the disk.
+ * Or the user picks a picture or a video of their own: Eaon keeps a copy of
+ * it in its own folder, and that copy is the only custom file it will ever
+ * read, so the page can't point it anywhere else on the disk. A video is
+ * played by the page itself (components/SeeThrough.tsx, through eaon-file://).
  *
  * A window that has the effect on asks to be told where it is; it then hears
  * its position as it moves and resizes, and which display it is on, since
@@ -63,23 +66,38 @@ async function customPath(path: string | null): Promise<string | null> {
 }
 
 const IMAGE_TYPES = ['jpg', 'jpeg', 'png', 'heic', 'heif', 'webp', 'gif', 'bmp', 'tif', 'tiff']
+/** Videos the page can play: the eaon-file:// scheme serves these (main/index.ts). */
+const VIDEO_TYPES = ['mp4', 'm4v', 'mov', 'webm']
+/** A video kept in the profile is a copy of it: past this, choosing it says so instead. */
+const VIDEO_MAX_BYTES = 1024 ** 3
 
 /**
- * Asks for a picture, keeps a copy of it, and drops the one it replaces.
- * Resolves to the copy and a small preview of it, or null if nothing was
- * picked; rejects when the file isn't a picture Eaon can open.
+ * Asks for a picture or a video, keeps a copy of it, and drops the one it
+ * replaces. Resolves to the copy and, for a picture, a small preview of it
+ * (Settings shows a video by playing it), or null if nothing was picked;
+ * rejects when the file isn't one Eaon can show.
  */
-async function chooseCustom(window: BrowserWindow | null): Promise<{ path: string; preview: string } | null> {
-  const options = { title: 'Choose a wallpaper', properties: ['openFile' as const], filters: [{ name: 'Images', extensions: IMAGE_TYPES }] }
+async function chooseCustom(window: BrowserWindow | null): Promise<{ path: string; preview: string | null } | null> {
+  const options = {
+    title: 'Choose a wallpaper',
+    properties: ['openFile' as const],
+    filters: [
+      { name: 'Pictures and videos', extensions: [...IMAGE_TYPES, ...VIDEO_TYPES] },
+      { name: 'Pictures', extensions: IMAGE_TYPES },
+      { name: 'Videos', extensions: VIDEO_TYPES }
+    ]
+  }
   const picked = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options)
   const source = picked.filePaths[0]
   if (picked.canceled || !source) return null
+  const video = isVideoWallpaper(source)
+  if (video && (await stat(source)).size > VIDEO_MAX_BYTES) throw new Error('That video is over 1 GB. Choose a shorter or smaller one.')
   const dir = customDir()
   await mkdir(dir, { recursive: true })
   const path = join(dir, `wallpaper-${Date.now()}${extname(source).toLowerCase() || '.jpg'}`)
   await copyFile(source, path)
-  const preview = await previewOf(path)
-  if (!preview) {
+  const preview = video ? null : await previewOf(path)
+  if (!video && !preview) {
     await rm(path, { force: true })
     throw new Error('That file isn’t a picture Eaon can open.')
   }
@@ -112,6 +130,8 @@ async function wallpaperPath(display: Display): Promise<string | null> {
   const see = store.getSettings().appearance.seeThrough
   if (see.source === 'custom') {
     const own = await customPath(see.custom)
+    // A video is the page's to play; there is no picture to make of it here.
+    if (own && isVideoWallpaper(own)) return null
     if (own) return own
   }
   return desktopPath(display)
@@ -249,6 +269,14 @@ function track(window: BrowserWindow): void {
 export const wallpaperFeature: Feature = {
   id: 'wallpaper',
   register: ({ ipcMain, getWindows }) => {
+    // A video wallpaper, for the page to play: only the chosen copy, by name, from Eaon's own folder.
+    protocol.handle(WALLPAPER_SCHEME, async (request) => {
+      const name = basename(decodeURIComponent(new URL(request.url).pathname))
+      const own = await customPath(join(customDir(), name))
+      if (!own || !isVideoWallpaper(own)) return new Response('Not found', { status: 404 })
+      return fileResponse(own, request.headers.get('range'), { cors: true })
+    })
+
     for (const window of getWindows()) track(window)
     app.on('browser-window-created', (_e, window) => track(window))
     // Displays rearranged, or a picture changed on one: every watching window looks again.
@@ -298,7 +326,14 @@ export const wallpaperFeature: Feature = {
     ipcMain.handle('wallpaper:choose', (event) => chooseCustom(BrowserWindow.fromWebContents(event.sender)))
     ipcMain.handle('wallpaper:preview', async (): Promise<string | null> => {
       const own = await customPath(store.getSettings().appearance.seeThrough.custom)
-      return own ? previewOf(own) : null
+      return own && !isVideoWallpaper(own) ? previewOf(own) : null
+    })
+    // The picture behind the window now, small: what Settings' style previews are drawn from.
+    ipcMain.handle('wallpaper:thumbnail', async (event): Promise<string | null> => {
+      const window = BrowserWindow.fromWebContents(event.sender)
+      const display = window ? screen.getDisplayMatching(window.getContentBounds()) : screen.getPrimaryDisplay()
+      const path = await wallpaperPath(display).catch(() => null)
+      return path ? previewOf(path) : null
     })
 
     ipcMain.handle('wallpaper:picture', async (_event, displayId: unknown): Promise<string | null> => {

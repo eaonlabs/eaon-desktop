@@ -7,10 +7,12 @@ export const wallpaperApi = {
   watch: (on: boolean): Promise<WallpaperFrame | null> => ipcRenderer.invoke('wallpaper:watch', on),
   /** The picture on a display, as a data URL, or null when the OS won't say. */
   picture: (displayId: number): Promise<string | null> => ipcRenderer.invoke('wallpaper:picture', displayId),
-  /** Asks for a picture of the user's own; resolves to Eaon's copy of it and a preview, or null if none was picked. */
-  choose: (): Promise<{ path: string; preview: string } | null> => ipcRenderer.invoke('wallpaper:choose'),
-  /** A thumbnail of the chosen picture, for Settings. */
+  /** Asks for a picture or video of the user's own; resolves to Eaon's copy of it and a picture's preview, or null if none was picked. */
+  choose: (): Promise<{ path: string; preview: string | null } | null> => ipcRenderer.invoke('wallpaper:choose'),
+  /** A thumbnail of the chosen picture, for Settings (null for a video, which Settings plays). */
   preview: (): Promise<string | null> => ipcRenderer.invoke('wallpaper:preview'),
+  /** The picture behind this window now, small: Settings draws its style previews from it. Null for a video. */
+  thumbnail: (): Promise<string | null> => ipcRenderer.invoke('wallpaper:thumbnail'),
   /** Hands a title-bar drag to main, which moves the window under the pointer until `end`. */
   drag: (phase: 'start' | 'end'): void => ipcRenderer.send('wallpaper:drag', phase),
   titleDoubleClick: (): void => ipcRenderer.send('wallpaper:title-double-click'),

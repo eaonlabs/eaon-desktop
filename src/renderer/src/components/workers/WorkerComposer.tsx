@@ -20,6 +20,7 @@ import { mcpCatalogEntry } from '@shared/mcpCatalog'
 import { GOAL_MAX_TURNS, MAIN_THREAD, mentionedWorkers, WORKER_ACCESS, type Worker, type WorkerAccess } from '@shared/workers'
 import type { McpServer } from '@shared/types'
 import { usePurchaseDialog } from '../purchase/purchaseStore'
+import { ElsewhereAsk } from '../agent/ElsewhereAsk'
 
 const ACCESS_ICON: Record<WorkerAccess, typeof Zap> = { autonomous: Zap, safe: ShieldCheck, 'read-only': Eye }
 
@@ -229,6 +230,8 @@ export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Wor
         addFiles([...e.dataTransfer.files].map((file) => window.api.app.pathForFile(file)).filter(Boolean))
       }}
     >
+      {/* A chat stopped to ask while a worker is on screen: here, above its box, not over it. */}
+      <ElsewhereAsk everyChat />
       <div className="composer composer--worker" data-variant="chat" data-goal={goalArmed || undefined}>
         {files.length > 0 && (
           <div className="composer__attachments">

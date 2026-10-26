@@ -1,21 +1,23 @@
 import { useEffect, useId, useMemo, useState, type JSX } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { useApp, type PendingApproval } from '../../state/store'
+import { agentWorkspace, useApp, type PendingApproval } from '../../state/store'
 import { approvalDoes, approvalRisk } from './ApprovalCard'
 import { ApprovalPreview } from './ApprovalRow'
 import { approvalRow, askerName } from './approvalText'
 
 /**
- * Another chat's question, above the message box of the chat on screen (or
- * of a new one). Several chats run at once, and one of them stopping to ask
- * used to put a dialog in the middle of whatever was open. This sits where
- * the queued follow-ups do, says which chat is asking and what it would do,
- * and is answered from here or opened in its chat. It never takes the
- * keyboard: ⏎ and esc belong to what's being typed, and to the open chat's
- * own question.
+ * A chat's question while that chat isn't on screen. Several chats run at
+ * once, and one of them stopping to ask used to put a dialog in the middle of
+ * whatever was open. This says which chat is asking and what it would do,
+ * shows exactly that a click away, and is answered here or opened in its
+ * chat. It never takes the keyboard: ⏎ and esc belong to what's being typed,
+ * and to the open chat's own question.
  *
- * While one is mounted, the dialog over the page (ChatView ApprovalPrompt)
- * stays away: it is for pages with no message box, such as Settings.
+ * Above Chat's message box, where the queued follow-ups go, it is for the
+ * other chats; above a worker's (`everyChat`), for every chat, since none is
+ * on screen. Floating at the foot of a page with no message box (Settings,
+ * the ADE: ChatView ApprovalPrompt), it is for every chat too; it only floats
+ * while no message box shows one.
  */
 
 let hosts = 0
@@ -29,31 +31,42 @@ export function subscribeElsewhere(listener: () => void): () => void {
   return () => listeners.delete(listener)
 }
 
-export function ElsewhereAsk(): JSX.Element | null {
+export function ElsewhereAsk({ floating = false, everyChat = floating }: { floating?: boolean; everyChat?: boolean }): JSX.Element | null {
   useEffect(() => {
+    if (floating) return
     hosts++
     notify()
     return () => {
       hosts--
       notify()
     }
-  }, [])
+  }, [floating])
 
-  // The questions from chats other than the one on screen, oldest first.
+  // The questions not asked in a conversation on screen, oldest first.
   const asks = useApp(
     useShallow((s) => {
       const all = s.pendingApproval ? [s.pendingApproval, ...s.approvalQueue] : s.approvalQueue
+      if (everyChat) return all
       const here = new Set(s.activeChat()?.messages.map((m) => m.id) ?? [])
       return all.filter((a) => !here.has(a.messageId))
     })
   )
   const ask = asks[0]
   if (!ask) return null
-  return <Ask key={ask.requestId} ask={ask} more={asks.length - 1} />
+  const strip = <Ask key={ask.requestId} ask={ask} more={asks.length - 1} />
+  return floating ? <div className="elsewhere-float">{strip}</div> : strip
+}
+
+/** Opens the chat that is asking, from wherever the app is: Chat's tab, then the chat. */
+function openAsking(chatId: string): void {
+  const app = useApp.getState()
+  const chat = agentWorkspace(app.workspaces)
+  if (chat && chat.id !== app.settings?.activeWorkspaceId) app.setWorkspace(chat.id)
+  app.openChat(chatId)
 }
 
 function Ask({ ask, more }: { ask: PendingApproval; more: number }): JSX.Element {
-  const { respondApproval, openChat } = useApp(useShallow((s) => ({ respondApproval: s.respondApproval, openChat: s.openChat })))
+  const respondApproval = useApp((s) => s.respondApproval)
   const chat = useApp((s) => s.chats.find((c) => c.messages.some((m) => m.id === ask.messageId)) ?? null)
   const risk = approvalRisk(ask.tool, ask.input)
   const words = useMemo(() => approvalRow(ask), [ask])
@@ -103,7 +116,7 @@ function Ask({ ask, more }: { ask: PendingApproval; more: number }): JSX.Element
         </div>
         <div className="elsewhere-ask__answers">
           {chat && (
-            <button type="button" className="elsewhere-ask__open" onClick={() => openChat(chat.id)}>
+            <button type="button" className="elsewhere-ask__open" onClick={() => openAsking(chat.id)}>
               Open
             </button>
           )}

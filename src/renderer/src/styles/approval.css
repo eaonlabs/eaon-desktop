@@ -726,6 +726,31 @@
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
+/* On a page with no message box: the same strip, floating at the window's
+   foot over the page, so it lifts off it with a shadow rather than a border. */
+.elsewhere-float {
+  position: fixed;
+  left: 50%;
+  bottom: 20px;
+  z-index: 60;
+  width: min(680px, calc(100vw - 48px));
+  transform: translateX(-50%);
+}
+.elsewhere-float .elsewhere-ask {
+  margin: 0;
+  border-color: transparent;
+  background: var(--menu-bg);
+  -webkit-backdrop-filter: var(--frost);
+  backdrop-filter: var(--frost);
+  box-shadow:
+    0 0 0 1px var(--border),
+    var(--shadow-menu);
+}
+.elsewhere-float .elsewhere-ask__preview {
+  max-height: min(46vh, 420px);
+  overflow: auto;
+}
+
 /* What it would do, under the words it opened from, lined up with them. */
 .elsewhere-ask__preview {
   margin: 10px 0 2px 17px;

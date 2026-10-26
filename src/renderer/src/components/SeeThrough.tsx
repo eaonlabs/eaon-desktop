@@ -1,16 +1,22 @@
 import { useEffect, useRef, useState, type CSSProperties, type JSX } from 'react'
-import type { SeeThroughStyle, WallpaperFrame } from '@shared/types'
+import { isVideoWallpaper, type SeeThroughStyle, type WallpaperFrame } from '@shared/types'
 import { useApp } from '../state/store'
+import { wallpaperVideoUrl } from '@shared/wallpaper'
+import { renderStyle, styleInfo, type Paint } from './seeThrough/styles'
 import '../styles/seeThrough.css'
 
 /**
  * See-through (Settings → Appearance): the desktop's picture drawn behind the
  * whole app, lined up with the screen as the window moves, so the window
  * reads as glass over the desktop. Over it lies the theme's own colour, as
- * strongly as the tint setting says. The picture can be drawn as it is, as
- * a halftone screen made from it — dots that grow where it is darker — or as
- * ASCII art, a character per cell in the cell's own colour. The app's panels
- * frost over all of it (seeThrough.css).
+ * strongly as the tint setting says. The picture can be drawn as it is or in
+ * one of the styles (seeThrough/styles.ts): halftone, characters, dither,
+ * mosaic and the rest. The app's panels frost over all of it (seeThrough.css).
+ *
+ * A wallpaper of the user's own can be a video. It plays muted and looping,
+ * as it is or redrawn in the style a few times a second, and holds still
+ * while the window is hidden, with Reduce motion on, or when its Play switch
+ * is off.
  *
  * The picture is drawn once, at the display's size, into a layer that only
  * ever slides: a move is one transform on the compositor, never a redraw and
@@ -23,8 +29,8 @@ import '../styles/seeThrough.css'
  * here can see other windows.
  */
 
-/** The halftone's cell, in screen points. */
-const CELL = 5
+/** A video's styles are drawn at one device pixel a point: a frame is redrawn many times a second. */
+const VIDEO_SCALE = 1
 
 /** The title bars: where a press drags the window. Their buttons, fields and tabs don't. */
 const DRAG = '.chat-header, .titlebar, .drag, .dock__bar, .page__bar, .settings__titlebar, .settings__nav-top, .browser__tabs, .crash-screen__drag'
@@ -37,15 +43,20 @@ export function SeeThrough(): JSX.Element | null {
   const on = Boolean(options?.enabled) && (custom || window.api.platform === 'darwin' || window.api.platform === 'win32')
   /** Which picture: a new choice reloads it. */
   const source = custom ? options?.custom : 'desktop'
+  const video = custom && isVideoWallpaper(options?.custom) ? (options?.custom ?? null) : null
   const style: SeeThroughStyle = options?.style ?? (options?.texture === false ? 'photo' : 'halftone')
   const tint = Math.min(100, Math.max(0, options?.tint ?? 55))
   const light = useLightTheme()
+  const stillness = useReducedMotion()
+  const plays = options?.videoPlays !== false && !stillness
 
   /** The display the window is on: only a change of display reloads the picture. */
   const [display, setDisplay] = useState<WallpaperFrame['display'] | null>(null)
   const [picture, setPicture] = useState<string | null>(null)
-  /** The picture with its halftone, at the picture's own size. */
-  const [plate, setPlate] = useState<HTMLCanvasElement | null>(null)
+  /** The video wallpaper, once it has a frame to show. */
+  const [clip, setClip] = useState<HTMLVideoElement | null>(null)
+  /** What the layer shows: the picture in its style, or the video (as it is, or a canvas it is redrawn into). */
+  const [plate, setPlate] = useState<HTMLCanvasElement | HTMLVideoElement | null>(null)
   const layer = useRef<HTMLDivElement>(null)
   const latest = useRef<WallpaperFrame | null>(null)
 
@@ -86,10 +97,11 @@ export function SeeThrough(): JSX.Element | null {
   }, [on])
 
   // The display's picture: again when the window changes display, and on
-  // coming back to the app, in case the wallpaper changed meanwhile.
+  // coming back to the app, in case the wallpaper changed meanwhile. A video
+  // has no picture to ask main for.
   const displayId = display?.id
   useEffect(() => {
-    if (!on || displayId === undefined) return
+    if (!on || video || displayId === undefined) return
     let live = true
     const load = (): void => {
       void window.api.wallpaper.picture(displayId).then((url) => live && setPicture((current) => (current === url ? current : url)))
@@ -100,11 +112,11 @@ export function SeeThrough(): JSX.Element | null {
       live = false
       window.removeEventListener('focus', load)
     }
-  }, [on, displayId, source])
+  }, [on, video, displayId, source])
 
-  // The plate: the picture, and over it the halftone.
+  // A picture's plate: drawn once, in its style.
   useEffect(() => {
-    if (!on || !picture || !display) return
+    if (!on || video || !picture || !display) return
     let live = true
     const image = new Image()
     image.onload = () => {
@@ -115,17 +127,96 @@ export function SeeThrough(): JSX.Element | null {
       next.className = 'see-through__picture'
       const ctx = next.getContext('2d')
       if (!ctx) return
-      ctx.drawImage(image, 0, 0)
-      const scale = next.width / display.width
-      if (style === 'halftone') halftone(ctx, image, scale, light)
-      else if (style === 'ascii') ascii(ctx, image, scale, light)
+      renderStyle(style, ctx, (c, w, h) => c.drawImage(image, 0, 0, w, h), next.width / display.width, light)
       setPlate(next)
     }
     image.src = picture
     return () => {
       live = false
     }
-  }, [on, picture, style, light, display])
+  }, [on, video, picture, style, light, display])
+
+  // A video wallpaper: one element per file, ready once its first frame is in.
+  useEffect(() => {
+    if (!on || !video) return
+    const el = document.createElement('video')
+    el.muted = true
+    el.loop = true
+    el.playsInline = true
+    el.preload = 'auto'
+    // Its frames are drawn into the styles' canvas and read back, so it comes with CORS.
+    el.crossOrigin = 'anonymous'
+    el.className = 'see-through__picture see-through__video'
+    const ready = (): void => setClip(el)
+    el.addEventListener('loadeddata', ready, { once: true })
+    el.src = wallpaperVideoUrl(video)
+    return () => {
+      el.removeEventListener('loadeddata', ready)
+      el.pause()
+      el.removeAttribute('src')
+      el.load()
+      setClip(null)
+      setPlate(null)
+    }
+  }, [on, video])
+
+  // The video as it is, or redrawn in its style as it plays: a few times a
+  // second, at most each new frame, and once more whenever it stops on one.
+  useEffect(() => {
+    if (!clip || !display) return
+    if (style === 'photo') {
+      setPlate(clip)
+      return
+    }
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.round(display.width * VIDEO_SCALE)
+    canvas.height = Math.round(display.height * VIDEO_SCALE)
+    canvas.className = 'see-through__picture'
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    const paint = coverOf(clip)
+    const every = 1000 / styleInfo(style).fps
+    let last = -Infinity
+    let stopped = false
+    let handle = 0
+    const draw = (): void => renderStyle(style, ctx, paint, VIDEO_SCALE, light)
+    const tick = (now: number): void => {
+      if (stopped) return
+      if (now - last >= every - 4) {
+        last = now
+        draw()
+      }
+      schedule()
+    }
+    const schedule = (): void => {
+      handle = 'requestVideoFrameCallback' in clip ? clip.requestVideoFrameCallback(tick) : requestAnimationFrame(tick)
+    }
+    draw()
+    setPlate(canvas)
+    schedule()
+    // Paused on a frame (or moved to one): that frame, in the style.
+    clip.addEventListener('seeked', draw)
+    clip.addEventListener('pause', draw)
+    return () => {
+      stopped = true
+      if ('cancelVideoFrameCallback' in clip) clip.cancelVideoFrameCallback(handle)
+      else cancelAnimationFrame(handle)
+      clip.removeEventListener('seeked', draw)
+      clip.removeEventListener('pause', draw)
+    }
+  }, [clip, style, light, display])
+
+  // It plays while the window is on screen, unless it's meant to hold still.
+  useEffect(() => {
+    if (!clip) return
+    const sync = (): void => {
+      if (plays && document.visibilityState === 'visible') void clip.play().catch(() => undefined)
+      else clip.pause()
+    }
+    sync()
+    document.addEventListener('visibilitychange', sync)
+    return () => document.removeEventListener('visibilitychange', sync)
+  }, [clip, plays])
 
   // The plate goes into the layer once; from then on only the layer moves.
   useEffect(() => {
@@ -317,13 +408,13 @@ function settled(prop: string, value: string): string {
  * starts higher in light mode, so the quiet greys stay readable over a busy
  * wallpaper, and still reaches fully opaque at 100.
  */
-function washOf(tint: number, light: boolean): number {
+export function washOf(tint: number, light: boolean): number {
   const t = tint / 100
   return light ? 0.3 + 0.7 * t : t
 }
 
 /** Whether the app is painted light right now, following theme changes. */
-function useLightTheme(): boolean {
+export function useLightTheme(): boolean {
   const [light, setLight] = useState(() => document.documentElement.dataset.theme === 'light')
   useEffect(() => {
     const observer = new MutationObserver(() => setLight(document.documentElement.dataset.theme === 'light'))
@@ -333,99 +424,28 @@ function useLightTheme(): boolean {
   return light
 }
 
-/**
- * A halftone screen over the picture: one dot per cell, larger where the
- * picture is darker, so its shapes come through as print does. Light cells
- * get no dot, which keeps the bright parts of the picture clean.
- */
-function halftone(ctx: CanvasRenderingContext2D, image: HTMLImageElement, scale: number, light: boolean): void {
-  const cell = Math.max(2, Math.round(CELL * scale))
-  const cols = Math.ceil(ctx.canvas.width / cell)
-  const rows = Math.ceil(ctx.canvas.height / cell)
-  // One pixel per cell: the browser's downscale averages each cell for us.
-  const sample = document.createElement('canvas')
-  sample.width = cols
-  sample.height = rows
-  const sctx = sample.getContext('2d', { willReadFrequently: true })
-  if (!sctx) return
-  sctx.drawImage(image, 0, 0, cols, rows)
-  const pixels = sctx.getImageData(0, 0, cols, rows).data
-  // Softer ink under a light theme, where dark dots compete with dark text.
-  ctx.fillStyle = light ? 'rgba(8, 6, 10, 0.34)' : 'rgba(8, 6, 10, 0.62)'
-  ctx.beginPath()
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const i = (r * cols + c) * 4
-      const luminance = (0.2126 * pixels[i] + 0.7152 * pixels[i + 1] + 0.0722 * pixels[i + 2]) / 255
-      const darkness = 1 - luminance
-      // Mid-tones and highlights stay clean; the dots gather in the darker
-      // shapes and swell with them, so the picture's forms come through.
-      if (darkness < 0.42) continue
-      const radius = cell * 0.52 * Math.pow(Math.min(1, (darkness - 0.36) / 0.5), 0.8)
-      if (radius < 0.5) continue
-      const x = c * cell + cell / 2
-      const y = r * cell + cell / 2
-      ctx.moveTo(x + radius, y)
-      ctx.arc(x, y, radius, 0, Math.PI * 2)
-    }
+/** Draws a video's current frame to fill a display-shaped area, cropped like a cover, centred. */
+function coverOf(clip: HTMLVideoElement): Paint {
+  return (ctx, width, height) => {
+    const vw = clip.videoWidth
+    const vh = clip.videoHeight
+    if (!vw || !vh) return
+    const want = width / height
+    let sw = vw
+    let sh = vh
+    if (vw / vh > want) sw = vh * want
+    else sh = vw / want
+    ctx.drawImage(clip, (vw - sw) / 2, (vh - sh) / 2, sw, sh, 0, 0, width, height)
   }
-  ctx.fill()
 }
 
-/** ASCII art's cell, in screen points: about a monospace character's shape. */
-const ASCII_CELL = { width: 7, height: 13 }
-
-/** From empty to full, in how much of its cell each character covers. */
-const ASCII_RAMP = ' .:-=+*#%@'
-
-/**
- * The picture as ASCII art: one character per cell, denser where the cell
- * stands out from the page (brighter on a dark theme, darker on a light
- * one), drawn in the cell's own colour on the theme's ground. The shapes and
- * colours of the wallpaper come through, built from text.
- */
-function ascii(ctx: CanvasRenderingContext2D, image: HTMLImageElement, scale: number, light: boolean): void {
-  const cellW = Math.max(3, Math.round(ASCII_CELL.width * scale))
-  const cellH = Math.max(5, Math.round(ASCII_CELL.height * scale))
-  const cols = Math.ceil(ctx.canvas.width / cellW)
-  const rows = Math.ceil(ctx.canvas.height / cellH)
-  // One pixel per cell: the browser's downscale averages each cell for us.
-  const sample = document.createElement('canvas')
-  sample.width = cols
-  sample.height = rows
-  const sctx = sample.getContext('2d', { willReadFrequently: true })
-  if (!sctx) return
-  sctx.drawImage(image, 0, 0, cols, rows)
-  const pixels = sctx.getImageData(0, 0, cols, rows).data
-
-  ctx.fillStyle = light ? '#f4f3f1' : '#050505'
-  ctx.fillRect(0, 0, ctx.canvas.width, ctx.canvas.height)
-  ctx.font = `${Math.round(cellH * 0.92)}px ui-monospace, "SF Mono", Menlo, Consolas, monospace`
-  ctx.textAlign = 'center'
-  ctx.textBaseline = 'middle'
-  // The picture's own range of brightness, ignoring the extreme few cells,
-  // is stretched over the whole ramp: a dark or a pale wallpaper still uses
-  // every character instead of a handful at one end.
-  const levels: number[] = []
-  for (let i = 0; i < pixels.length; i += 4) levels.push((0.2126 * pixels[i] + 0.7152 * pixels[i + 1] + 0.0722 * pixels[i + 2]) / 255)
-  const sorted = [...levels].sort((x, y) => x - y)
-  const low = sorted[Math.floor(sorted.length * 0.02)] ?? 0
-  const high = sorted[Math.floor(sorted.length * 0.98)] ?? 1
-  const span = Math.max(0.05, high - low)
-  const last = ASCII_RAMP.length - 1
-  // A cell's colour, pushed away from the ground so it reads as ink.
-  const ink = (v: number): number => Math.round(light ? v * 0.72 : Math.min(255, v * 1.25 + 18))
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const i = (r * cols + c) * 4
-      const red = pixels[i]
-      const green = pixels[i + 1]
-      const blue = pixels[i + 2]
-      const level = Math.min(1, Math.max(0, (levels[i / 4] - low) / span))
-      const char = ASCII_RAMP[Math.round((light ? 1 - level : level) * last)]
-      if (char === ' ') continue
-      ctx.fillStyle = `rgb(${ink(red)}, ${ink(green)}, ${ink(blue)})`
-      ctx.fillText(char, c * cellW + cellW / 2, r * cellH + cellH / 2)
-    }
-  }
+/** Whether motion is turned down: Settings → Appearance → Reduce motion, or the system's when it follows that. */
+function useReducedMotion(): boolean {
+  const [reduced, setReduced] = useState(() => document.body.dataset.reduceMotion === 'on')
+  useEffect(() => {
+    const observer = new MutationObserver(() => setReduced(document.body.dataset.reduceMotion === 'on'))
+    observer.observe(document.body, { attributes: true, attributeFilter: ['data-reduce-motion'] })
+    return () => observer.disconnect()
+  }, [])
+  return reduced
 }

@@ -338,8 +338,26 @@ export interface ThemePalette {
   contrast: number
 }
 
-/** How the wallpaper is drawn: as it is, as a halftone dot screen, or as ASCII art. */
-export type SeeThroughStyle = 'photo' | 'halftone' | 'ascii'
+/** How the wallpaper is drawn: as it is, or redrawn in one of the styles (renderer components/seeThrough/styles.ts). */
+export type SeeThroughStyle =
+  | 'photo'
+  | 'halftone'
+  | 'ascii'
+  | 'tiles'
+  | 'blocks'
+  | 'braille'
+  | 'dither'
+  | 'pixel'
+  | 'mosaic'
+  | 'lego'
+  | 'dots'
+  | 'cross'
+  | 'diagonal'
+  | 'diamond'
+  | 'lines'
+
+/** A chosen wallpaper that is a video rather than a picture, by its file's type. */
+export const isVideoWallpaper = (path: string | null | undefined): boolean => Boolean(path && /\.(mp4|m4v|mov|webm)$/i.test(path))
 
 export interface SeeThrough {
   enabled: boolean
@@ -348,10 +366,12 @@ export interface SeeThrough {
   texture: boolean
   /** Unset on installs from before it, which follow `texture` instead. */
   style?: SeeThroughStyle
-  /** The desktop's own wallpaper, or a picture the user chose. */
+  /** The desktop's own wallpaper, or a picture or video the user chose. */
   source: 'desktop' | 'custom'
-  /** The chosen picture, as Eaon's own copy of it (see main/features/wallpaper.ts). */
+  /** The chosen picture or video, as Eaon's own copy of it (see main/features/wallpaper.ts). */
   custom: string | null
+  /** A video wallpaper plays (muted, looping); off, it holds still on a frame. Unset is on. */
+  videoPlays?: boolean
 }
 
 /**

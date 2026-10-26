@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell, nativeTheme, dialog, Menu, Notification, net, protocol, screen } from 'electron'
+import { app, BrowserWindow, ipcMain, shell, nativeTheme, dialog, Menu, Notification, protocol, screen } from 'electron'
 import { existsSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { extname, join } from 'node:path'
@@ -13,6 +13,8 @@ import { CLAUDE_LOGIN_TOKEN, isClaudeLoginToken } from '@shared/providers'
 import { forgetLogo, noteBaseUrlChanged } from './providers/logos'
 import { clearProviderHealth, editModels, getProvider, listProviders, refreshModels, refreshProviderModels, removeProvider, testProvider, updateProvider } from './providers'
 import { refreshLocalProviders } from './providers/localDiscovery'
+import { fileResponse } from './fileResponse'
+import { WALLPAPER_SCHEME } from '@shared/wallpaper'
 import { refreshCatalogInBackground } from './providers/modelCatalog'
 import { startModelFreshness } from './providers/freshness'
 import { resolveApproval } from './agent/approvals'
@@ -94,7 +96,11 @@ trustSystemNetwork()
  * image rather than exposing the filesystem.
  */
 protocol.registerSchemesAsPrivileged([
-  { scheme: 'eaon-file', privileges: { secure: true, supportFetchAPI: true, stream: true, bypassCSP: true } }
+  { scheme: 'eaon-file', privileges: { secure: true, supportFetchAPI: true, stream: true, bypassCSP: true } },
+  // A video wallpaper (features/wallpaper.ts): a standard scheme, which is what
+  // lets a video seek and loop by byte ranges, with CORS so the page can draw
+  // its frames into the wallpaper's styles. It serves only Eaon's own copies.
+  { scheme: WALLPAPER_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true, bypassCSP: true } }
 ])
 // Media only — images, and videos so the Library and attachments can preview them.
 const SERVABLE_IMAGES = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.heic', '.avif', '.mp4', '.m4v', '.mov', '.webm'])
@@ -997,7 +1003,8 @@ app.whenReady().then(async () => {
     // hands the user's NTLM hash to whatever host it names. Only local files.
     if (/^[\\/]{2}/.test(path)) return new Response('Not found', { status: 404 })
     if (!SERVABLE_IMAGES.has(extname(path).toLowerCase())) return new Response('Not found', { status: 404 })
-    return net.fetch(pathToFileURL(path).toString())
+    // With byte ranges, which a video needs (fileResponse.ts).
+    return fileResponse(path, request.headers.get('range'))
   })
   // Everything up to the window is a step that may fail on its own (a store
   // file Windows won't let us rewrite, say). Each failure is logged and

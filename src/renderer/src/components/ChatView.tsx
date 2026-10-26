@@ -26,7 +26,7 @@ import {
   TriangleAlert,
   X
 } from 'lucide-react'
-import { codeFolder, messageText, runIn, useApp, useCoding, useIsWork, type PendingApproval } from '../state/store'
+import { codeFolder, messageText, runIn, useApp, useCoding, useIsWork } from '../state/store'
 import { Composer } from './Composer'
 import { FolderMenu } from './composer/ComposerBits'
 import { ContextMenu } from './Sidebar'
@@ -48,10 +48,8 @@ import { RowBoundary } from './ErrorBoundary'
 import { GoalBanner, PlanCard, TodoPanel, UsageLine } from './agent/WorkBits'
 import { MessageActions } from './agent/MessageActions'
 import { ProviderErrorActions } from './composer/ProviderErrorActions'
-import { ApprovalCard } from './agent/ApprovalCard'
-import { ApprovalPreview, ApprovalRow, useApprovalKeys } from './agent/ApprovalRow'
-import { elsewhereShown, subscribeElsewhere } from './agent/ElsewhereAsk'
-import { approvalDetail, approvalTitle, askerName } from './agent/approvalText'
+import { ApprovalRow } from './agent/ApprovalRow'
+import { ElsewhereAsk, elsewhereShown, subscribeElsewhere } from './agent/ElsewhereAsk'
 import { WorkerFace } from './workers/WorkerFace'
 import { ChannelLogo } from './channels/ChannelLogo'
 import { DockToggle, DrawerToggle } from './ide/Dock'
@@ -212,120 +210,17 @@ const fileLinks: FileLinkHandler = {
   }
 }
 
-/**
- * How many conversations are on screen: one while a chat is open. Its
- * transcript asks about its own turns (agent/ApprovalRow.tsx); with none,
- * the app-wide dialog asks about the open chat's turns too, since Settings
- * or another page is in front of it.
- */
-let conversations = 0
-const conversationListeners = new Set<() => void>()
-const isConversationOpen = (): boolean => conversations > 0
-function subscribeConversation(listener: () => void): () => void {
-  conversationListeners.add(listener)
-  return () => {
-    conversationListeners.delete(listener)
-  }
-}
-function registerConversation(): () => void {
-  conversations++
-  conversationListeners.forEach((listener) => listener())
-  return () => {
-    conversations--
-    conversationListeners.forEach((listener) => listener())
-  }
-}
 
 /**
- * Asking before a tool runs (agent/ApprovalCard.tsx) about a turn that isn't
- * on screen — another chat's, or the open one's while another page covers
- * it — as a card over the page (mounted once, in App.tsx). It stays a moment
- * after it's answered so it can leave the way it was answered, and the next
- * approval in the queue slides in where it was.
+ * A chat's question on a page with no message box (Settings, Workers, the
+ * ADE): the same strip that asks above the message box (agent/ElsewhereAsk),
+ * floating at the foot of the window. Where a message box is on screen it
+ * asks there instead, and this stays away.
  */
 export function ApprovalPrompt(): JSX.Element | null {
-  const open = useSyncExternalStore(subscribeConversation, isConversationOpen)
-  // With a message box on screen, other chats ask above it (agent/ElsewhereAsk.tsx), not in a dialog over the page.
   const boxShown = useSyncExternalStore(subscribeElsewhere, elsewhereShown)
-  const { asked, waiting, respondApproval, askingChat } = useApp(
-    useShallow((s) => {
-      if (boxShown) return { asked: null, waiting: 0, respondApproval: s.respondApproval, askingChat: null }
-      // The first question not asked in the open conversation, which asks
-      // about its own turns in its transcript. Several chats can be asking.
-      const all = s.pendingApproval ? [s.pendingApproval, ...s.approvalQueue] : s.approvalQueue
-      const onScreen = new Set(open ? (s.activeChat()?.messages.map((m) => m.id) ?? []) : [])
-      const ask = all.find((a) => !onScreen.has(a.messageId)) ?? null
-      const here = Boolean(ask && s.activeChat()?.messages.some((m) => m.id === ask.messageId))
-      // Over another chat, the card says which chat is asking: "Eaon is waiting" read as the one on screen.
-      const askingChat = ask && !here ? (s.chats.find((c) => c.messages.some((m) => m.id === ask.messageId))?.title ?? null) : null
-      return { asked: ask, waiting: all.filter((a) => !onScreen.has(a.messageId)).length - (ask ? 1 : 0), respondApproval: s.respondApproval, askingChat }
-    })
-  )
-  // The open conversation's own question, as a row in it, has the keyboard; this card waits its turn for ⏎ and esc.
-  const rowAsking = useApp((s) => {
-    if (!open) return false
-    const ids = new Set(s.activeChat()?.messages.map((m) => m.id) ?? [])
-    return [s.pendingApproval, ...s.approvalQueue].some((a) => a && ids.has(a.messageId))
-  })
-  const pending = asked
-  const [shown, setShown] = useState<PendingApproval | null>(pending)
-  const [answer, setAnswer] = useState<'approve' | 'deny' | null>(null)
-  const [swap, setSwap] = useState(false)
-
-  useEffect(() => {
-    if (pending) {
-      setSwap((current) => current || (shown !== null && shown.requestId !== pending.requestId))
-      setShown(pending)
-      setAnswer(null)
-      return
-    }
-    if (!shown) return
-    const timer = setTimeout(() => {
-      setShown(null)
-      setAnswer(null)
-      setSwap(false)
-    }, 200)
-    return () => clearTimeout(timer)
-    // `shown` is what the card shows now; only a change in what's pending moves it on.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pending])
-
-  const respond = (approved: boolean): void => {
-    if (!pending) return
-    setAnswer(approved ? 'approve' : 'deny')
-    respondApproval(approved, pending.requestId)
-  }
-
-  useApprovalKeys(rowAsking ? null : pending, respond)
-
-  if (!shown) return null
-  const edit = shown.tool === 'write_file' || shown.tool === 'edit_file'
-  const card = (
-    <ApprovalCard
-      key={shown.requestId}
-      variant="dialog"
-      takesKeys={!rowAsking}
-      tool={shown.tool}
-      input={shown.input}
-      title={approvalTitle(shown.tool, shown.input, shown.before)}
-      detail={approvalDetail(shown.tool, shown.input)}
-      asker={`${askerName(shown.agent)}${askingChat ? ` in “${askingChat}”` : ''}`}
-      waiting={pending ? waiting : 0}
-      busy={!pending}
-      onApprove={() => respond(true)}
-      onDeny={() => respond(false)}
-      swap={swap}
-    >
-      <ApprovalPreview ask={shown} />
-    </ApprovalCard>
-  )
-
-  return createPortal(
-    <div className="approval-layer" data-state={pending ? 'in' : 'out'} data-answer={answer ?? undefined} data-wide={edit || undefined}>
-      {card}
-    </div>,
-    document.body
-  )
+  if (boxShown) return null
+  return createPortal(<ElsewhereAsk floating />, document.body)
 }
 
 function Conversation({ chat }: { chat: Chat }): JSX.Element {
@@ -341,7 +236,6 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
   const [moving, setMoving] = useState(false)
   const moreButton = useRef<HTMLButtonElement>(null)
   // Before paint, so the app-wide dialog never flashes a question the transcript has taken.
-  useLayoutEffect(registerConversation, [])
 
   // ⌘F finds in the conversation. Not from the browser panel, a terminal or
   // the code editor, which have their own find; not over a dialog.

@@ -141,7 +141,6 @@ export function ApprovalCard({
   denyLabel = 'Deny',
   busy = false,
   variant,
-  takesKeys = true,
   swap = false,
   children,
   onApprove,
@@ -171,12 +170,6 @@ export function ApprovalCard({
    * to a worker's composer, where those keys belong to the text box.
    */
   variant: 'dialog' | 'inline'
-  /**
-   * False: a dialog that leaves the keyboard where it is, with no ⏎ or esc,
-   * while the open chat's own question (its row) has it. Another chat's card
-   * that took focus would have taken the ⏎ meant for that row.
-   */
-  takesKeys?: boolean
   /** The next one in a queue, arriving where the last one was. */
   swap?: boolean
   /** Exactly what will happen: the command, the diff, the call. */
@@ -192,7 +185,7 @@ export function ApprovalCard({
   const deny = useRef<HTMLButtonElement>(null)
   const card = useRef<HTMLElement>(null)
 
-  const keys = variant !== 'inline' && takesKeys
+  const keys = variant !== 'inline'
   useEffect(() => {
     // A card that takes keys starts on a button: Approve, or Deny for a call
     // that could delete or change the system (see startsOnDeny).

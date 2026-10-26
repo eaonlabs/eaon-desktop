@@ -6,6 +6,19 @@ All notable changes to Eaon are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Changed
+- **A video can be the wallpaper.** Settings → Appearance → Wallpaper →
+  Custom takes a video (MP4, MOV, WebM) as well as a picture. It plays muted
+  and on a loop behind the glass, and holds still while Eaon is hidden, with
+  Reduce motion on, or with Play the video off.
+- **Fifteen wallpaper styles.** Besides Photo, Halftone and Characters
+  (ASCII): Tiles, Blocks, Braille, Dither, Pixel art, Mosaic, Bricks, Dots,
+  Cross, Diagonal, Diamond and Lines. Each works on a picture or a video,
+  and Settings shows them as small previews of your own wallpaper, under
+  the tint as it is.
+- **Every approval asks the same way.** On a page with no message box
+  (Settings, the ADE), a chat's question floats at the foot of the window in
+  the strip it uses above a message box, instead of a dialog in the middle
+  of the page; above a worker's message box, it sits over the box.
 - **Several chats work at once.** Start a reply in one chat, go to another
   (in a project or in Chats) and ask there too: each runs on its own, with
   its own Stop and its own queue of follow-ups, and none waits for another.
@@ -56,6 +69,10 @@ All notable changes to Eaon are documented here. Format loosely follows
   in front still gets the card over the page.
 
 ### Fixed
+- **Videos play from any file.** Pictures and videos the app shows from your
+  disk (attachments, the Library) are served with byte ranges, so an MP4
+  with its index at the end, or a QuickTime screen recording, plays instead
+  of failing as "format not supported".
 - **Eaon's logo in the model picker.** Eaon Lite and Eaon Event showed a
   plain "E" in a ring on the picker's tab and the message box's model chip,
   and Eaon's own mark there was another logo. They show Eaon's mark now.
