@@ -584,7 +584,11 @@ export interface Settings {
      */
     sync: boolean
   }
-  /** Eaon Free: the free models on Eaon's gateway, and the card that offers them (shared/freeCredits.ts). */
+  /**
+   * Left from Eaon Free's free week, which Eaon Event (a code only) replaced:
+   * nothing reads it now. Kept so an older Eaon opened on this profile finds
+   * the shape it expects.
+   */
   freeCredits: {
     /** Claimed from the offer or Settings → Model providers: the provider is listed and usable. */
     claimed: boolean

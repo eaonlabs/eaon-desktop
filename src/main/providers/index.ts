@@ -4,7 +4,7 @@ import type { ModelSource } from '@shared/engines'
 import { isLastingIssue, type ModelEdit, type ModelEditFields, type ModelsRefresh, type ProviderHealth, type ProviderIssue } from '@shared/providers'
 import { describeModelsRefresh, foldDatedAliases, hasCredentials } from '@shared/modelSelection'
 import { FREE_PROVIDER_ID, GATEWAY_PROVIDER_ID } from '@shared/freeCredits'
-import { freeBaseUrl, freeHeaders, freeWeekOver, withFreeLimits } from '../freeCredits'
+import { activeCode, freeBaseUrl, freeHeaders, withFreeLimits } from '../freeCredits'
 import { secrets } from '../secrets'
 import { store, type ProviderOverride } from '../store'
 import { anthropicAdapter } from './adapters/anthropic'
@@ -143,7 +143,7 @@ export function adapterFor(provider: Provider, options: { track?: boolean } = {}
   } else if (isMixedApiProvider(provider)) adapter = routerAdapter
   else adapter = openaiChatAdapter
   if (provider.auth === 'oauth') adapter = withFreshCredentials(adapter)
-  // Eaon Free's daily allowance, for Eaon's own requests and other apps' through its local server alike.
+  // Eaon Event's daily allowance, for Eaon's own requests and other apps' through its local server alike.
   if (provider.id === FREE_PROVIDER_ID) adapter = withFreeLimits(adapter)
   return options.track === false ? adapter : tracked(adapter, provider)
 }
@@ -268,7 +268,7 @@ function builtInProvider(seed: (typeof BUILT_IN)[number], override: ProviderOver
     enabled: override.enabled ?? seed.enabled,
     models: [],
     // A key provider signed in with the account (Hugging Face) is usable without a key.
-    // Eaon Free needs no key: once claimed (it is only listed then) it is ready. Eaon Lite needs none either.
+    // Eaon Event's key is its code, and it is only listed while the code lasts, so it is ready then. Eaon Lite needs no key.
     hasKey:
       auth === 'oauth'
         ? Boolean(signedIn)
@@ -281,12 +281,9 @@ function builtInProvider(seed: (typeof BUILT_IN)[number], override: ProviderOver
   if (seed.id === GATEWAY_PROVIDER_ID) provider.baseUrl = freeBaseUrl()
   if (seed.id === FREE_PROVIDER_ID) {
     provider.baseUrl = freeBaseUrl()
-    // With an event code: this install's random ID, so the gateway counts each device on its own.
+    // This install's random ID, so the gateway counts each device on its own.
     const headers = freeHeaders()
     if (Object.keys(headers).length) provider.headers = { ...provider.headers, ...headers }
-    // After its week (and without a code): still listed, so the picker and Settings can say why it stopped.
-    const over = freeWeekOver()
-    if (over) provider.health = { ok: false, issue: over, checkedAt: Date.now() }
   }
   if (seed.id === LOCAL_PROVIDER_ID) {
     provider.models = localModels().filter((m) => !isEmbeddingModel(m)).map(localModelInfo)
@@ -323,8 +320,8 @@ function customProvider(id: string, override: ProviderOverride): Provider {
   return { ...provider, ...composeModels(provider, [], override) }
 }
 
-/** Eaon Free is there once claimed from its offer (shared/freeCredits.ts), and not before. */
-const offered = (id: string): boolean => id !== FREE_PROVIDER_ID || store.getSettings().freeCredits.claimed
+/** Eaon Event is there while an event code lasts (shared/freeCredits.ts), and not otherwise. */
+const offered = (id: string): boolean => id !== FREE_PROVIDER_ID || activeCode() !== null
 
 /**
  * Providers an organization's policy forbids (enterprise/policy.ts) are not
@@ -350,7 +347,7 @@ export function getProvider(id: string): Provider | undefined {
 }
 
 export function updateProvider(id: string, patch: Partial<Pick<Provider, 'baseUrl' | 'enabled' | 'name' | 'kind'>>): Provider[] {
-  // Eaon's gateway is Eaon Lite's and Eaon Free's alone, and its address is never shown (eaonAddress.ts).
+  // Eaon's gateway is Eaon Lite's and Eaon Event's alone, and its address is never shown (eaonAddress.ts).
   if (patch.baseUrl !== undefined && id !== GATEWAY_PROVIDER_ID && id !== FREE_PROVIDER_ID && isEaonGateway(patch.baseUrl)) throw new Error(GATEWAY_REFUSED)
   const config = store.getProviderConfig()
   const existing = config[id] ?? {}

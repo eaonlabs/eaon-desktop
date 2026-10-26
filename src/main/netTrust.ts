@@ -3,7 +3,7 @@ import * as tls from 'node:tls'
 
 /**
  * Makes the main process's own requests (Node's `fetch`: providers, the
- * Anthropic SDK, Eaon Free, the model catalog) trust what the computer trusts
+ * Anthropic SDK, Eaon Event, the model catalog) trust what the computer trusts
  * and go where the computer's proxy says, as the browser windows already do.
  *
  * Certificates: Node ships its own list of root certificates and ignores the

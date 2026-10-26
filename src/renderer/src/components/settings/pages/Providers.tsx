@@ -32,9 +32,8 @@ import { CodexEngineDetail, CodexEngineRow, CODEX_ROW_ID, useCodexEngine } from 
 import '../../../styles/providers.css'
 import { openInAde } from '../../code/terminal/terminalStore'
 import { LinkAccounts } from '../../LinkAccounts'
-import { FREE_ALLOWANCE, FREE_UNAVAILABLE } from '../../FreeCreditsOffer'
 import { matchesSearch } from '@shared/searchWords'
-import { formatAllowance, formatEndDay, FREE_DAYS, FREE_PROVIDER_ID, type FreeCreditsStatus } from '@shared/freeCredits'
+import { formatAllowance, formatEndDay, FREE_PROVIDER_ID, type FreeCreditsStatus } from '@shared/freeCredits'
 import { SpeechMark, SpeechToTextDetail } from './SpeechToText'
 
 /** The list's Speech to text row, which isn't a provider: it picks one for dictation. */
@@ -149,9 +148,6 @@ export function ProvidersPage(): JSX.Element {
   const [added, setAdded] = useState<string | null>(null)
   const [linking, setLinking] = useState(false)
   const [query, setQuery] = useState('')
-  const [free, setFree] = useState<FreeCreditsStatus | null>(null)
-  // Whether Eaon serves Eaon Free's model now: the row's "Free" badge promises it only then.
-  const [freeServed, setFreeServed] = useState(false)
 
   // Local servers start and stop on their own: while this page is open, a
   // look every ten seconds keeps their Running / Not running true without
@@ -167,11 +163,6 @@ export function ProvidersPage(): JSX.Element {
     void refreshProviders()
     // A custom provider added from the Eaon CLI gets its logo looked up now (main/providers/logos.ts).
     void window.api.providerLogos.sweep().catch(() => undefined)
-    void window.api.freeCredits.status().then(setFree)
-    void window.api.freeCredits
-      .served()
-      .then(setFreeServed)
-      .catch(() => setFreeServed(false))
   }, [refreshProviders])
 
   // Sent here to fix one provider (a reply's "Fix key", the composer's "Sign in again"): open on it.
@@ -198,11 +189,11 @@ export function ProvidersPage(): JSX.Element {
   // Codex runs as its own engine, not a provider: listed with the subscriptions once Eaon has checked for it.
   const codexMatches = Boolean(codex.status) && matchesSearch(query, 'codex openai chatgpt subscription engine')
   const showingCodex = selectedId === CODEX_ROW_ID && Boolean(codex.status)
-  // Eaon Free before it is claimed: a row of its own that offers it (claimed, it is a provider like the rest).
-  const offeringFree = Boolean(free && !free.claimed) && matchesSearch(query, 'eaon free credits')
-  // Sent to Eaon Free before it is claimed (the offer card's "Have an event code?"): its offer row.
-  const showingFree =
-    offeringFree && (selectedId === FREE_OFFER_ROW || (selectedId === FREE_PROVIDER_ID && !providers.some((p) => p.id === FREE_PROVIDER_ID)))
+  // Eaon Event without a code: a row of its own with the box for one (with a code, it is a provider like the rest).
+  const eventListed = providers.some((p) => p.id === FREE_PROVIDER_ID)
+  const offeringEvent = !eventListed && matchesSearch(query, 'eaon event code hackathon workshop')
+  // Sent to Eaon Event without a code (the picker's or the setup's "Have an event code?"): its code row.
+  const showingEvent = offeringEvent && (selectedId === EVENT_ROW || selectedId === FREE_PROVIDER_ID)
   // Speech to text isn't a provider: a row of its own that picks one for dictation.
   const speechMatches = matchesSearch(query, 'speech to text dictation voice whisper transcribe')
   // The Codex row sits with the subscriptions, so their heading stays for it when no subscription matches.
@@ -228,15 +219,14 @@ export function ProvidersPage(): JSX.Element {
         </div>
 
         <div className="providers-list__scroll scroll">
-          {/* Eaon Free's offer row sits under the one Eaon heading, with Eaon Lite. */}
-          {(offeringFree || eaonGroup) && (
+          {/* Eaon Event's code row sits under the one Eaon heading, with Eaon Lite. */}
+          {(offeringEvent || eaonGroup) && (
             <div>
               <div className="providers-list__group">Eaon</div>
-              {offeringFree && (
-                <button className="provider-row" data-active={showingFree || undefined} onClick={() => setSelectedId(FREE_OFFER_ROW)}>
-                  <BrandIcon id={FREE_PROVIDER_ID} name="Eaon Free" size={24} />
-                  <span className="provider-row__label">Eaon Free</span>
-                  {freeServed && <span className="provider-row__free">Free</span>}
+              {offeringEvent && (
+                <button className="provider-row" data-active={showingEvent || undefined} onClick={() => setSelectedId(EVENT_ROW)}>
+                  <BrandIcon id={FREE_PROVIDER_ID} name="Eaon Event" size={24} />
+                  <span className="provider-row__label">Eaon Event</span>
                 </button>
               )}
               {eaonGroup?.providers.map((provider) => (
@@ -244,7 +234,7 @@ export function ProvidersPage(): JSX.Element {
                   key={provider.id}
                   provider={provider}
                   pending={auth[provider.id]?.state === 'pending'}
-                  active={!showingCodex && !showingSpeech && !showingFree && provider.id === selected?.id}
+                  active={!showingCodex && !showingSpeech && !showingEvent && provider.id === selected?.id}
                   onClick={() => setSelectedId(provider.id)}
                 />
               ))}
@@ -270,24 +260,19 @@ export function ProvidersPage(): JSX.Element {
                   key={provider.id}
                   provider={provider}
                   pending={auth[provider.id]?.state === 'pending'}
-                  active={!showingCodex && !showingSpeech && !showingFree && provider.id === selected?.id}
+                  active={!showingCodex && !showingSpeech && !showingEvent && provider.id === selected?.id}
                   onClick={() => setSelectedId(provider.id)}
                 />
               ))}
             </div>
           ))}
-          {groups.length === 0 && !offeringFree && !speechMatches && !codexMatches && <div className="providers-list__empty">No providers match “{query.trim()}”.</div>}
+          {groups.length === 0 && !offeringEvent && !speechMatches && !codexMatches && <div className="providers-list__empty">No providers match “{query.trim()}”.</div>}
         </div>
       </nav>
 
       <div className="providers-detail scroll">
-        {showingFree ? (
-          <FreeCreditsOfferDetail
-            onClaimed={(status) => {
-              setFree(status)
-              setSelectedId(FREE_PROVIDER_ID)
-            }}
-          />
+        {showingEvent ? (
+          <EventCodeDetail onRedeemed={() => setSelectedId(FREE_PROVIDER_ID)} />
         ) : showingCodex ? (
           <CodexEngineDetail engine={codex} onOpenProvider={(id) => setSelectedId(id)} />
         ) : showingSpeech ? (
@@ -317,70 +302,32 @@ export function ProvidersPage(): JSX.Element {
   )
 }
 
-/** The list's row for Eaon Free while it is still on offer. */
-const FREE_OFFER_ROW = 'eaon-free:offer'
+/** The list's row for Eaon Event while there is no code. */
+const EVENT_ROW = 'eaon-free:code'
 
-/** Eaon Free, not claimed yet: what it is, and the button that turns it on. */
-function FreeCreditsOfferDetail({ onClaimed }: { onClaimed: (status: FreeCreditsStatus) => void }): JSX.Element {
+/** Eaon Event without a code: what it is, and the box for one. */
+function EventCodeDetail({ onRedeemed }: { onRedeemed: () => void }): JSX.Element {
   const refreshProviders = useApp((s) => s.refreshProviders)
-  const [busy, setBusy] = useState(false)
-  // The week is offered only while Eaon serves its model, as the corner card is; an event code works either way.
-  const [served, setServed] = useState<boolean | null>(null)
-  useEffect(() => {
-    let live = true
-    void window.api.freeCredits
-      .served()
-      .catch(() => false)
-      .then((ok) => live && setServed(ok))
-    return () => {
-      live = false
-    }
-  }, [])
-  const claim = async (): Promise<void> => {
-    setBusy(true)
-    try {
-      const status = await window.api.freeCredits.claim()
-      if (!status.claimed) return setServed(false)
-      await refreshProviders()
-      onClaimed(status)
-    } catch {
-      setServed(false)
-    } finally {
-      setBusy(false)
-    }
-  }
   return (
     <>
       <div className="provider-detail__header">
-        <BrandIcon id={FREE_PROVIDER_ID} name="Eaon Free" size={40} />
+        <BrandIcon id={FREE_PROVIDER_ID} name="Eaon Event" size={40} />
         <div className="provider-detail__heading">
-          <span className="provider-detail__name">Eaon Free</span>
-          <span className="provider-detail__tagline">Free models from Eaon for a week, with a daily allowance</span>
+          <span className="provider-detail__name">Eaon Event</span>
+          <span className="provider-detail__tagline">Models from Eaon for an event, with the event’s code</span>
         </div>
       </div>
       <div className="provider-detail__section">
-        <div className="provider-credits">
-          <div className="provider-credits__title">Free AI credits</div>
-          <p className="provider-credits__detail">
-            Claude Haiku 5.5 and Eaon’s own model, free for {FREE_DAYS} days from when you start, with no API key or account: {FREE_ALLOWANCE} on this computer,
-            starting over at midnight.
-          </p>
-          {served === false ? (
-            <p className="provider-credits__detail" role="status">
-              {FREE_UNAVAILABLE}
-            </p>
-          ) : (
-            <div className="provider-credits__links">
-              <button className="btn btn--accent" disabled={busy || served === null} onClick={() => void claim()}>
-                {busy ? 'Setting up…' : 'Get free credits'}
-              </button>
-            </div>
-          )}
-        </div>
+        <div className="provider-detail__section-title">Event code</div>
+        <p className="provider-detail__section-desc">
+          For hackathons, workshops and other events Eaon sponsors. Enter the code you were given and Eaon Event joins your model picker, with the event’s
+          daily allowance on this computer, until the code ends. For free models any time, use Eaon Lite.
+        </p>
         <RedeemCode
+          compact
           onRedeemed={async () => {
             await refreshProviders()
-            onClaimed(await window.api.freeCredits.status())
+            onRedeemed()
           }}
         />
       </div>
@@ -388,14 +335,8 @@ function FreeCreditsOfferDetail({ onClaimed }: { onClaimed: (status: FreeCredits
   )
 }
 
-/**
- * "Have an event code?": a code from an event Eaon sponsors, such as a
- * hackathon. The gateway checks it, and Eaon Free then runs on the code's
- * limits until it ends, past the free week.
- */
-/** Eaon Free's allowance, how much of today's is used, when the free week (or the event code) ends, and a box for a code. */
-function FreeCreditsSection(): JSX.Element {
-  const refreshProviders = useApp((s) => s.refreshProviders)
+/** Eaon Event with a code: whose code it is, until when, and how much of today's allowance is used. */
+function EventCodeSection(): JSX.Element {
   const [status, setStatus] = useState<FreeCreditsStatus | null>(null)
   const load = (): void => void window.api.freeCredits.status().then(setStatus)
   useEffect(() => {
@@ -403,33 +344,21 @@ function FreeCreditsSection(): JSX.Element {
     const timer = window.setInterval(load, 10_000)
     return () => window.clearInterval(timer)
   }, [])
-  const resets = status ? new Date(status.resetsAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : ''
-  const allowance = status
-    ? `${status.limits.requestsPerDay.toLocaleString('en-US')} requests and ${formatAllowance(status.limits.tokensPerDay)} tokens a day`
-    : FREE_ALLOWANCE
-  let desc: string
-  if (status?.code) desc = `The code “${status.code.name}” gives this computer ${allowance}, and up to ${status.limits.requestsPerMinute} requests a minute, until ${formatEndDay(status.code.endsAt)}.`
-  else if (status?.ended && status.endsAt) desc = `Your free week ended on ${formatEndDay(status.endsAt)}. Pick another model, add an API key to another provider, or redeem an event code below.`
-  else desc = `No API key needed. Each computer gets ${allowance}, and up to ${status?.limits.requestsPerMinute ?? 20} requests a minute${status?.endsAt ? `, until ${formatEndDay(status.endsAt)}` : ''}.`
+  if (!status?.code) return <div className="provider-detail__section" />
+  const resets = new Date(status.resetsAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+  const allowance = `${status.limits.requestsPerDay.toLocaleString('en-US')} requests and ${formatAllowance(status.limits.tokensPerDay)} tokens a day`
   return (
     <div className="provider-detail__section">
-      <div className="provider-detail__section-title">{status?.ended ? 'Free credits' : 'Today’s free credits'}</div>
-      <p className="provider-detail__section-desc">{desc}</p>
-      {status && !status.ended && (
-        <div className="free-usage">
-          <FreeMeter label="Requests" used={status.requests} limit={status.limits.requestsPerDay} format={(n) => n.toLocaleString('en-US')} />
-          <FreeMeter label="Tokens" used={status.tokens} limit={status.limits.tokensPerDay} format={formatAllowance} />
-          <div className="free-usage__note">Starts over at {status.code ? `${resets} (midnight UTC)` : `midnight (${resets})`}.</div>
-        </div>
-      )}
-      {status && !status.code && (
-        <RedeemCode
-          onRedeemed={async () => {
-            await refreshProviders()
-            load()
-          }}
-        />
-      )}
+      <div className="provider-detail__section-title">Event code</div>
+      <p className="provider-detail__section-desc">
+        The code “{status.code.name}” gives this computer {allowance}, and up to {status.limits.requestsPerMinute} requests a minute, until{' '}
+        {formatEndDay(status.code.endsAt)}.
+      </p>
+      <div className="free-usage">
+        <FreeMeter label="Requests" used={status.requests} limit={status.limits.requestsPerDay} format={(n) => n.toLocaleString('en-US')} />
+        <FreeMeter label="Tokens" used={status.tokens} limit={status.limits.tokensPerDay} format={formatAllowance} />
+        <div className="free-usage__note">Starts over at {resets} (midnight UTC).</div>
+      </div>
     </div>
   )
 }
@@ -526,7 +455,7 @@ function ProviderDetail({
       {meta.baseUrlLabel && <EndpointSection provider={provider} meta={meta} />}
       {provider.local && <LocalUrlSection provider={provider} />}
       {!provider.builtIn && <CustomConnectionSection provider={provider} />}
-      {provider.id === FREE_PROVIDER_ID && <FreeCreditsSection />}
+      {provider.id === FREE_PROVIDER_ID && <EventCodeSection />}
       {/* A custom provider on the local network works without a key, and can still be given one. */}
       {provider.auth !== 'oauth' && (provider.auth !== 'none' || !provider.builtIn) && !provider.local && (
         <KeySection provider={provider} meta={meta} auth={auth} onStatus={setStatus} status={status} />

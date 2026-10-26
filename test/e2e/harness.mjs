@@ -199,7 +199,7 @@ export async function launchApp(options) {
 
   // Off unless a scenario turns them on, since every scenario starts from a
   // fresh profile: the first-run setup and tour (EAON_ONBOARDING=on), putting
-  // `tokn` on PATH (EAON_TOKN_CLI=on), and the star popup and Eaon Free card
+  // `tokn` on PATH (EAON_TOKN_CLI=on), and the star popup's early first ask
   // that would come up in the corner of any scenario over half a minute long
   // (EAON_OFFERS).
   const childEnv = { ...process.env, HOME: homeDir, EAON_ONBOARDING: 'off', EAON_TOKN_CLI: 'off', EAON_OFFERS: 'off', ...env }

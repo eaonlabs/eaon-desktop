@@ -131,6 +131,9 @@ export async function startFakeProvider({ models = ['fake-model'] } = {}) {
   const requestWaiters = new Set()
   const sockets = new Set()
   let modelList = models
+  /** Event codes it accepts, as Eaon's gateway would (Eaon Event): the code, and what it gives. */
+  /** @type {Map<string, { name: string, endsAt: number, limits: { requestsPerDay: number, tokensPerDay: number, requestsPerMinute: number } }>} */
+  const codes = new Map()
 
   const chunk = (model, delta, finish = null) =>
     `data: ${JSON.stringify({ ...MODEL_RESPONSE_BASE, id: 'fake', model, choices: [{ index: 0, delta, finish_reason: finish }] })}\n\n`
@@ -142,6 +145,18 @@ export async function startFakeProvider({ models = ['fake-model'] } = {}) {
     if (req.method === 'GET' && /\/models\/?(\?.*)?$/.test(req.url ?? '')) {
       res.writeHead(200, { 'Content-Type': 'application/json' })
       res.end(JSON.stringify({ object: 'list', data: modelList.map((id) => ({ id, object: 'model', owned_by: 'fake' })) }))
+      return
+    }
+    if (req.method === 'POST' && /\/codes\/redeem\/?$/.test(req.url ?? '')) {
+      let asked = ''
+      try {
+        asked = String(JSON.parse(Buffer.concat(parts).toString() || '{}').code ?? '')
+      } catch {
+        asked = ''
+      }
+      const code = codes.get(asked)
+      res.writeHead(code ? 200 : 404, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify(code ? { code } : { error: { message: "That code isn't valid. Check it and try again.", code: 'invalid_code' } }))
       return
     }
     if (req.method !== 'POST' || !/\/chat\/completions\/?$/.test(req.url ?? '')) {
@@ -275,6 +290,10 @@ export async function startFakeProvider({ models = ['fake-model'] } = {}) {
     /** @param {string[]} ids */
     setModels(ids) {
       modelList = ids
+    },
+    /** An event code it accepts at /codes/redeem, as Eaon's gateway would. */
+    addCode(token, code) {
+      codes.set(token, code)
     },
     /**
      * Resolves with the next held stream that matches (one already open counts).

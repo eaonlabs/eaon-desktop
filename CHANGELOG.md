@@ -6,6 +6,15 @@ All notable changes to Eaon are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Changed
+- **Eaon Free is now Eaon Event, for events only.** It opens with the code
+  from an event Eaon sponsors (a hackathon, a workshop), and nothing else:
+  the free week, the "Free AI credits" card and Settings' "Get free credits"
+  are gone. Settings → Model providers → Eaon Event is the box for a code;
+  with one, Eaon Event joins the model picker with the event's daily
+  allowance until the code ends. Eaon's free models for everyone are Eaon
+  Lite, as before. Updating moves a model, worker or automation that was set
+  to Eaon Free, with no code, back to the default. The star popup still
+  comes half a minute in the first time, now on its own.
 - **New chats are named by their model.** When a chat's first reply is in,
   the model the chat runs on gives it a short name ("Plan a weekend at the
   coast") in place of the first line of the first message. A chat you

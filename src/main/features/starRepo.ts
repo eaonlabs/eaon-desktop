@@ -1,6 +1,5 @@
 import { shell } from 'electron'
 import type { StarAnswer, StarResult } from '@shared/star'
-import { wasOfferedThisRun } from '../freeCredits'
 import { alreadyStarred, shouldAsk, starRepository } from '../starPrompt'
 import { store } from '../store'
 import type { Feature } from './types'
@@ -19,18 +18,31 @@ export const starRepoFeature: Feature = {
     // One more launch, counted once per run.
     patch({ launches: state().launches + 1 })
 
-    /** Whether to show the popup now. Showing it counts as an ask, however it is closed. */
-    ipcMain.handle('star:should-ask', async (): Promise<boolean> => {
-      if (!shouldAsk(state(), Date.now())) return false
-      // The Eaon Free offer came up this run, with the star popup before it when that was due.
-      if (wasOfferedThisRun()) return false
+    /** Whether the popup came up this run already: once a run is enough. */
+    let askedThisRun = false
+    const ask = async (): Promise<boolean> => {
+      if (askedThisRun || !shouldAsk(state(), Date.now())) return false
       // Someone who starred it long ago, on their own, is not asked.
       if (await alreadyStarred()) {
         patch({ status: 'starred' })
         return false
       }
       patch({ asked: state().asked + 1, lastAskedAt: Date.now() })
+      askedThisRun = true
       return true
+    }
+
+    /** Whether to show the popup now. Showing it counts as an ask, however it is closed. */
+    ipcMain.handle('star:should-ask', (): Promise<boolean> => ask())
+
+    /**
+     * The first time ever, it comes early: after half a minute of use, as a
+     * welcome (an update's "Enjoying Eaon?"). After that, only the usual
+     * 10 to 20 minutes in. The end-to-end tests turn it off.
+     */
+    ipcMain.handle('star:should-ask-first', async (): Promise<boolean> => {
+      if (process.env.EAON_OFFERS === 'off' || state().asked > 0) return false
+      return ask()
     })
 
     ipcMain.handle('star:answer', async (_e, answer: StarAnswer): Promise<StarResult | null> => {

@@ -80,26 +80,26 @@ const COPILOT_HEADERS: Record<string, string> = {
 }
 
 const PROVIDERS: SeedProvider[] = [
-  // ---- Eaon Free: Eaon's own gateway, no key. Listed once claimed (shared/freeCredits.ts) ----
+  // ---- Eaon Event: Eaon's own gateway for an event, on its code. Listed while a code lasts (shared/freeCredits.ts) ----
   {
     id: FREE_PROVIDER_ID,
-    name: 'Eaon Free',
+    name: 'Eaon Event',
     kind: 'openai-compatible',
     baseUrl: FREE_BASE_URL,
     enabled: true,
     builtIn: true,
     auth: 'none',
     category: 'eaon',
-    description: 'Free models from Eaon for a week, with a daily allowance',
+    description: 'Models from Eaon for an event, with the event’s code',
     // Its requests carry Eaon's app signature, added as they go (gatewaySignature.ts).
     models: [
       m(FREE_PROVIDER_ID, 'claude-haiku-5-5', 'Claude Haiku 5.5', { contextWindow: 200_000, maxOutput: 16_384, vision: true, reasoning: false, efforts: [] }),
-      m(FREE_PROVIDER_ID, 'eaon-free', 'Eaon Free', { contextWindow: 128_000, maxOutput: 16_384, vision: false, reasoning: true, efforts: [] })
+      m(FREE_PROVIDER_ID, 'eaon-free', 'Eaon Event', { contextWindow: 128_000, maxOutput: 16_384, vision: false, reasoning: true, efforts: [] })
     ]
   },
 
   // ---- Eaon Lite: Eaon Code's free models on the gateway, for everyone, no key (shared/freeCredits.ts).
-  // Not plain "Eaon": next to Eaon Free above, the two would read as one thing. ----
+  // Not plain "Eaon": next to Eaon Event above, the two would read as one thing. ----
   {
     id: GATEWAY_PROVIDER_ID,
     name: 'Eaon Lite',

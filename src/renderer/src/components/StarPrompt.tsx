@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { ExternalLink, Star, X } from 'lucide-react'
-import { askAfterMs, type StarResult } from '@shared/star'
+import { askAfterMs, FIRST_ASK_AFTER_MS, type StarResult } from '@shared/star'
+import { useApp } from '../state/store'
 import { onboardingShowing, useOnboardingShowing } from './onboarding/onboardingStore'
 
 /** How often time in front of the app is counted. */
@@ -11,20 +12,26 @@ const THANKS_MS = 5_000
 /**
  * "Enjoying Eaon?" — a small card in the corner after 10 to 20 minutes of
  * using the app in a session (only time with the window in front counts).
- * Main decides whether it may ask at all (main/starPrompt.ts): never once the
- * person's GitHub account has starred the repository or they went to it from
- * here, and rarely otherwise. Open GitHub stars it through the GitHub CLI
- * when that is signed in, and opens the repository either way.
+ * The very first time it comes after half a minute, as a welcome ("Welcome to
+ * Eaon" on a fresh install). Main decides whether it may ask at all
+ * (main/starPrompt.ts): never once the person's GitHub account has starred
+ * the repository or they went to it from here, and rarely otherwise. Open
+ * GitHub stars it through the GitHub CLI when that is signed in, and opens
+ * the repository either way.
  */
 export function StarPrompt(): JSX.Element | null {
-  const [open, setOpen] = useState(false)
+  const [card, setCard] = useState<'none' | 'first' | 'later'>('none')
   const aside = useOnboardingShowing()
-
+  // "Welcome to Eaon" is for a fresh install; someone who updated has been here before.
+  const fresh = useApp((s) => s.settings?.onboarding.fresh === true)
   useEffect(() => {
     const target = askAfterMs(Math.random())
     let used = 0
+    /** Time with the window on screen, focused or not, for the first ask. */
+    let seen = 0
     let last = Date.now()
     let wasShowing = true
+    let triedFirst = false
     const timer = window.setInterval(() => {
       const now = Date.now()
       const step = now - last
@@ -32,19 +39,32 @@ export function StarPrompt(): JSX.Element | null {
       // A long gap is the computer asleep, not use. A stretch the setup or a tour
       // was up for, at either end, isn't counted: time in them isn't time in the app.
       const showing = onboardingShowing()
-      if (document.visibilityState === 'visible' && document.hasFocus() && step < 3 * TICK_MS && !showing && !wasShowing) used += step
+      const counts = document.visibilityState === 'visible' && step < 3 * TICK_MS && !showing && !wasShowing
+      if (counts) seen += step
+      if (counts && document.hasFocus()) used += step
       wasShowing = showing
+      if (!triedFirst && seen >= FIRST_ASK_AFTER_MS) {
+        triedFirst = true
+        void window.api.star
+          .shouldAskFirst()
+          .then((ask) => {
+            if (!ask) return
+            window.clearInterval(timer)
+            setCard('first')
+          })
+          .catch(() => undefined)
+      }
       if (used < target) return
       window.clearInterval(timer)
       void window.api.star
         .shouldAsk()
-        .then((ask) => setOpen(ask))
+        .then((ask) => ask && setCard('later'))
         .catch(() => undefined)
     }, TICK_MS)
     return () => window.clearInterval(timer)
   }, [])
-
-  return open && !aside ? <StarCard onClosed={() => setOpen(false)} /> : null
+  // A tour started from Help while the card is up: the card waits under it, and comes back after.
+  return card !== 'none' && !aside ? <StarCard intro={card === 'first' && fresh} onClosed={() => setCard('none')} /> : null
 }
 
 /** The corner cards' width and inset (settings.css .star-card). */
@@ -52,8 +72,7 @@ const CARD_W = 360
 const CARD_INSET = 20
 
 /**
- * Lifts the corner cards (this one, the Eaon Free offer) above the message
- * box while they would sit on it: in an ordinary window the box's model
+ * Lifts the corner card above the message box while it would sit on it: in an ordinary window the box's model
  * chip, mic and send button were under the card. What stacks above the box
  * counts too (an unavailable model's notice and its buttons, queued
  * messages, the pinned goal and plan). Elsewhere they stay in the corner.
@@ -89,9 +108,8 @@ export function useCornerClear(active: boolean): void {
 }
 
 /**
- * The card itself, once main has said it may ask. The Eaon Free offer shows
- * it too, just before its own card (FreeCreditsOffer.tsx), with `intro` for a
- * first launch: "If it helped today" says nothing to someone who just started.
+ * The card itself, once main has said it may ask, with `intro` for a first
+ * launch: "If it helped today" says nothing to someone who just started.
  */
 export function StarCard({ intro = false, onClosed }: { intro?: boolean; onClosed: () => void }): JSX.Element {
   useCornerClear(true)

@@ -7,6 +7,8 @@ import type { StarAnswer, StarResult } from '@shared/star'
 export const starApi = {
   /** Whether to show the popup now (and it counts as shown). */
   shouldAsk: (): Promise<boolean> => ipcRenderer.invoke('star:should-ask'),
+  /** The first time ever: whether to show it early, half a minute in (and it counts as shown). */
+  shouldAskFirst: (): Promise<boolean> => ipcRenderer.invoke('star:should-ask-first'),
   /** `star` opens the repository and stars it if the GitHub CLI is signed in. */
   answer: (answer: StarAnswer): Promise<StarResult | null> => ipcRenderer.invoke('star:answer', answer)
 }

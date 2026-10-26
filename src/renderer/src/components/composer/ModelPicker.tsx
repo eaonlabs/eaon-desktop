@@ -419,7 +419,7 @@ export function ModelPicker({
               >
                 Link accounts
               </button>
-              {/* No account or key, at an event: Eaon Free's settings take the event code. */}
+              {/* No account or key, at an event: Eaon Event's settings take the event code. */}
               <button
                 className="btn btn--ghost btn--sm"
                 onClick={() => {

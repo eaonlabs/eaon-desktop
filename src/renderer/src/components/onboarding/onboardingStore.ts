@@ -19,9 +19,9 @@ interface OnboardingState {
 }
 
 /**
- * The setup or the tour is on screen. The corner cards (the star popup, the
- * Eaon Free offer) don't count that time, so a fresh install meets them
- * after the setup, not on top of it.
+ * The setup or the tour is on screen. The star popup in the corner doesn't
+ * count that time, so a fresh install meets it after the setup, not on top
+ * of it.
  */
 export function onboardingShowing(): boolean {
   // Before settings load, whether the setup is coming isn't known yet: counted as showing.

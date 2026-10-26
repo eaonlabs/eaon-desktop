@@ -5,7 +5,7 @@ import { createServer, type IncomingMessage } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { gatewaySignature, setGatewayAppForTests, signsGatewayRequests } from '../src/main/gatewaySignature'
 import { providerFetch } from '../src/main/providers/safeFetch'
-import { forgetFreeModelServed, freeModelServed } from '../src/main/freeCredits'
+import { forgetCode, redeemFreeCode } from '../src/main/freeCredits'
 
 /**
  * Every request main makes to Eaon's gateway carries the app signature the
@@ -123,13 +123,13 @@ test('nothing else is signed: the app’s secret only ever goes to the gateway',
   }
 })
 
-test('Eaon Free’s own look at the gateway is signed too', async () => {
+test('Eaon Event’s code check with the gateway is signed too', async () => {
   setGatewayAppForTests(APP)
-  forgetFreeModelServed()
   seen.length = 0
-  assert.equal(await freeModelServed(), true)
+  // The stand-in answers with a model list, not a code: what matters here is that the request was signed.
+  await redeemFreeCode('EAON-ABCD-EFGH-JKMN')
   assert.deepEqual(seen, ['ok'])
-  forgetFreeModelServed()
+  forgetCode()
 })
 
 test('turned away by an "Eaon apps only" gateway, the advice is to update, never to fix a key Eaon’s models don’t have', async () => {

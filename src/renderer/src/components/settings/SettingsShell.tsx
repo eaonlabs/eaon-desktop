@@ -90,7 +90,7 @@ const KEYWORDS: Record<string, string> = {
   'usage-limits': 'quota limit remaining reset codex claude cursor copilot grok opencode devin credits balance rings header meter',
   accounts: 'claude code codex sign in login plan limit limits switch account usage meter alerts',
   providers:
-    'api key keys openai chatgpt anthropic claude gemini google openrouter ollama lm studio llama.cpp mlx vllm local server model models free credits event code hackathon eaon free eaon lite sign in custom provider base url endpoint logo fallback speech to text voice dictation whisper transcribe',
+    'api key keys openai chatgpt anthropic claude gemini google openrouter ollama lm studio llama.cpp mlx vllm local server model models free event code hackathon workshop eaon event eaon lite sign in custom provider base url endpoint logo fallback speech to text voice dictation whisper transcribe',
   engines: 'claude code codex copilot gemini cli agent engine sandbox subscription',
   'agent-providers': 'cli coding agents claude codex cursor opencode droid grok antigravity gemini copilot install update version picker order hide priority',
   'computer-use': 'screen mouse keyboard accessibility screen recording permissions emergency stop screenshot',

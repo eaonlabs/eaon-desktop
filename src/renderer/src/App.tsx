@@ -46,7 +46,6 @@ import { Onboarding } from './components/onboarding/Onboarding'
 import { Tour } from './components/onboarding/Tour'
 import { onboardingShowing, useOnboarding } from './components/onboarding/onboardingStore'
 import { startProviderLogos } from './state/providerLogos'
-import { FreeCreditsOffer } from './components/FreeCreditsOffer'
 import { PurchaseDialog } from './components/purchase/PurchaseDialog'
 
 export default function App(): JSX.Element {
@@ -264,7 +263,6 @@ export default function App(): JSX.Element {
       <StoreNotice />
       <ComputerLeaseIndicator />
       <Notice />
-      <FreeCreditsOffer />
       <StarPrompt />
       <ErrorBoundary area="purchase schedule" fallback={() => null}>
         <PurchaseDialog />

@@ -443,7 +443,7 @@ const WAYS: { method: LinkMethod; title: string; text: string; icon: JSX.Element
   { method: 'local', title: 'Run models on this computer', text: 'Ollama or LM Studio, no account needed', icon: <Laptop size={16} strokeWidth={1.9} /> }
 ]
 
-/** Which of the ways a ready provider came in by; Eaon's own (Eaon Lite, Eaon Free) need none. */
+/** Which of the ways a ready provider came in by; Eaon's own (Eaon Lite, Eaon Event) need none. */
 const wayOf = (provider: Provider): LinkMethod | 'eaon' =>
   provider.category === 'eaon' ? 'eaon' : provider.local ? 'local' : provider.auth === 'oauth' ? 'signin' : 'key'
 

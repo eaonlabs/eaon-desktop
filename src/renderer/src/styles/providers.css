@@ -421,16 +421,7 @@
   gap: 4px 14px;
 }
 
-/* Eaon Free: the offer row's tag, and today's allowance (Providers.tsx). */
-.provider-row__free {
-  margin-left: auto;
-  padding: 1px 7px;
-  border-radius: 999px;
-  font-size: var(--fs-xs);
-  font-weight: 600;
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 14%, transparent);
-}
+/* Eaon Event: today's allowance from the code (Providers.tsx). */
 .free-usage {
   display: flex;
   flex-direction: column;
@@ -471,13 +462,13 @@
   color: var(--text-3);
 }
 
-/* Eaon Free: "Have an event code?" (Providers.tsx RedeemCode). */
+/* An event code's box (RedeemCode): set apart where it follows something else, plain where it is the point. */
 .free-code {
   margin-top: 14px;
   padding-top: 14px;
   border-top: 1px solid var(--border-soft);
 }
-.provider-credits + .free-code {
+.provider-detail__section-desc + .free-code[data-compact] {
   margin-top: 0;
   border-top: 0;
   padding-top: 4px;
