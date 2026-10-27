@@ -19,7 +19,7 @@ import {
   type CliToolAccounts,
   CLAUDE_LIMITS_NOTE
 } from '@shared/cliAccounts'
-import { claudeStatus, codexAccount, codexUsage } from './parse'
+import { claudeCachedUsage, claudeStatus, codexAccount, codexUsage } from './parse'
 import { DIR_VARIABLE } from './cli'
 import { prepareFolder, removeFolder } from './folders'
 
@@ -44,6 +44,8 @@ export const SLOW_FRESH_MS = 30 * 60_000
 export interface CliRunner {
   find: (tool: CliTool) => string | null
   claudeStatus: (bin: string, dir: string | null) => Promise<unknown>
+  /** Claude Code's settings file for an account (cli.ts, claudeConfig): only read, for the limits it keeps there. */
+  claudeConfig?: (dir: string | null) => Promise<unknown>
   codexRead: (bin: string, dir: string | null) => Promise<{ account: unknown; limits: unknown | null }>
   logout: (tool: CliTool, bin: string, dir: string) => Promise<void>
 }
@@ -262,9 +264,13 @@ export class CliAccounts {
         this.saved.usage[key] = { ok: false, at, reason: 'no-limits', message: 'Signed in with an API key: billed per use, no plan limits' }
         return
       }
-      // A Claude plan's limits are read only by Claude Code itself: Eaon doesn't
-      // start Claude Code to ask (Anthropic's terms for other apps), so it says where to look.
-      this.saved.usage[key] = { ok: false, at, reason: 'in-cli', message: CLAUDE_LIMITS_NOTE }
+      // A Claude plan's limits come only from Claude Code: Eaon doesn't start it to
+      // ask (Anthropic's terms for other apps), but reads what it last saw from the
+      // settings file it keeps them in. With none there yet, it says where to look.
+      const cached = claudeCachedUsage(await this.deps.runner.claudeConfig?.(account.dir).catch(() => null))
+      this.saved.usage[key] = cached
+        ? { ok: true, at, asOf: cached.asOf, plan: status.plan, windows: cached.windows }
+        : { ok: false, at, reason: 'in-cli', message: CLAUDE_LIMITS_NOTE }
       return
     }
     const answer = await this.deps.runner.codexRead(bin, account.dir)

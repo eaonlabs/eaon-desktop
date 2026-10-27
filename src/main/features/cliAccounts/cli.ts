@@ -1,5 +1,6 @@
 import { spawn, execFile } from 'node:child_process'
 import fs from 'node:fs'
+import { readFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import type { CliTool } from '@shared/cliAccounts'
@@ -133,6 +134,22 @@ const lastLine = (text: string): string =>
     .pop() ?? ''
 
 /* --------------------------------------------------------------- Claude Code */
+
+/**
+ * Claude Code's settings file for an account: `.claude.json` in its folder
+ * (CLAUDE_CONFIG_DIR), or in the home folder for the default one. Only read,
+ * for the limits Claude Code keeps there (parse.ts, claudeCachedUsage); null
+ * when there's none.
+ */
+export async function claudeConfig(dir: string | null): Promise<unknown> {
+  const folder = dir ?? process.env.CLAUDE_CONFIG_DIR ?? null
+  const file = folder ? path.join(folder, '.claude.json') : path.join(os.homedir(), '.claude.json')
+  try {
+    return JSON.parse(await readFile(file, 'utf8'))
+  } catch {
+    return null
+  }
+}
 
 /** `claude auth status --json`: who is signed in. */
 export function claudeAuthStatus(bin: string, dir: string | null): Promise<unknown> {

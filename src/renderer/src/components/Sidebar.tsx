@@ -1,4 +1,5 @@
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { createPortal } from 'react-dom'
 import { useShallow } from 'zustand/react/shallow'
 import { Archive, ArrowDownWideNarrow, ArrowRight, AtSign, Boxes, CandlestickChart, ChevronDown, ChevronRight, ChevronsDownUp, CircleAlert, Clock3, FolderClosed, FolderInput, FolderOpen, GitPullRequest, ListTodo, LibraryBig, Loader2, PanelLeft, PencilLine, Pin, Plus, ScrollText, Search, Settings as SettingsIcon, SquarePen, Trash2 } from 'lucide-react'
 import { useApp, useWorkspaceKind, type ChatListItem } from '../state/store'
@@ -861,7 +862,10 @@ export function ContextMenu({
   const anchor = useRef<HTMLDivElement>(null)
   return (
     <>
-      <div ref={anchor} style={{ position: 'fixed', left: x, top: y, width: 1, height: 1 }} />
+      {/* The point it opens from, at the page's top level: inside a frosted
+          panel (a glass terminal pane, a see-through sidebar) `fixed` would be
+          relative to that panel, and the menu opened a panel's offset away. */}
+      {createPortal(<div ref={anchor} style={{ position: 'fixed', left: x, top: y, width: 1, height: 1, pointerEvents: 'none' }} />, document.body)}
       <Popover anchor={anchor} open onClose={onClose} placement="bottom-start" offset={2} width={188}>
         {items.map((item) => (
           <MenuItem

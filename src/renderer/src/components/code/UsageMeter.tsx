@@ -199,7 +199,7 @@ function UsagePanel({ state, tool, setTool, close }: { state: CliAccountsState; 
 /** "6% · 78% wk", or why there is nothing to show. */
 function summary(usage: AccountUsage | undefined, now: number): string {
   if (!usage) return '…'
-  if (!usage.ok) return usage.reason === 'signed-out' ? 'signed out' : usage.reason === 'no-limits' ? 'no plan limits' : usage.reason === 'in-cli' ? 'see /usage' : 'unavailable'
+  if (!usage.ok) return usage.reason === 'signed-out' ? 'signed out' : usage.reason === 'no-limits' ? 'no plan limits' : usage.reason === 'in-cli' ? 'not checked yet' : 'unavailable'
   return liveWindows(usage, now).slice(0, 2).map((w) => `${w.percent}%${shortLabel(w)}`).join(' · ') || 'no limits reported'
 }
 
@@ -241,7 +241,9 @@ function ToolDetail({ state, tool, now }: { state: CliAccountsState; tool: CliTo
         </div>
       ))}
       <div className="usage-tool__foot">
-        {CLI_TOOL_SOURCE[tool]}’s own figures{usage ? ` · ${agoText(usage.at, now)}` : ''}
+        {usage?.ok && usage.asOf
+          ? `${CLI_TOOL_SOURCE[tool]}’s figures, as ${CLI_TOOL_NAME[tool]} last saw them · ${agoText(usage.asOf, now)}`
+          : `${CLI_TOOL_SOURCE[tool]}’s own figures${usage ? ` · ${agoText(usage.at, now)}` : ''}`}
       </div>
     </div>
   )

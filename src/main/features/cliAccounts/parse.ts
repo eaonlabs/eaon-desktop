@@ -27,6 +27,61 @@ export function claudeStatus(json: unknown): ClaudeStatus {
   return { loggedIn: s.loggedIn === true, email: str(s.email), plan: str(s.subscriptionType), method: str(s.authMethod) }
 }
 
+/** What Claude Code last saw of a plan's limits, and when it saw them. */
+export interface ClaudeCachedUsage {
+  /** When Claude Code fetched them (ms). */
+  asOf: number
+  windows: UsageWindow[]
+}
+
+const isoTime = (value: unknown): number | null => {
+  const time = typeof value === 'string' ? Date.parse(value) : NaN
+  return Number.isFinite(time) ? time : null
+}
+
+/**
+ * A plan's limits as Claude Code keeps them in its own settings file
+ * (`.claude.json`, `cachedUsageUtilization`): the figures its /usage showed
+ * when it last fetched them. Read from the file, so Eaon starts no Claude
+ * Code and sends nothing to Anthropic. Null when there are none, or they're
+ * another login's (Claude Code signed in as someone else since).
+ */
+export function claudeCachedUsage(config: unknown): ClaudeCachedUsage | null {
+  const c = obj(config)
+  const cache = obj(c?.cachedUsageUtilization)
+  const u = obj(cache?.utilization)
+  const asOf = num(cache?.fetchedAtMs)
+  if (!cache || !u || asOf === null) return null
+  const signedIn = str(obj(c?.oauthAccount)?.accountUuid)
+  const owner = str(cache.accountUuid)
+  if (signedIn && owner && signedIn !== owner) return null
+
+  const windows: UsageWindow[] = []
+  const add = (id: string, label: string, span: string, raw: unknown, keepEmpty: boolean): void => {
+    const row = obj(raw)
+    const percent = num(row?.utilization)
+    if (!row || percent === null || (!keepEmpty && percent < 1)) return
+    const used = num(row.used_dollars)
+    const limit = num(row.limit_dollars)
+    windows.push({
+      id,
+      label,
+      span,
+      percent: clampPercent(percent),
+      resetsAt: isoTime(row.resets_at),
+      severity: str(row.locked_reason) ? 'critical' : severityOf(percent),
+      ...(str(row.locked_reason) ? { reached: true } : {}),
+      ...(used !== null && limit !== null && limit > 0 ? { detail: `$${used.toFixed(2)} of $${limit.toFixed(2)}` } : {})
+    })
+  }
+  add('session', 'Session', '5 hours', u.five_hour, true)
+  add('week', 'Week', 'rolling 7 days', u.seven_day, true)
+  // A model's own week: only worth a row once some of it is used.
+  add('week:Opus', 'Opus week', 'rolling 7 days', u.seven_day_opus, false)
+  add('week:Sonnet', 'Sonnet week', 'rolling 7 days', u.seven_day_sonnet, false)
+  return windows.length ? { asOf, windows } : null
+}
+
 /* --------------------------------------------------------------------- Codex */
 
 /** What a Codex window is called, from how long it is. */

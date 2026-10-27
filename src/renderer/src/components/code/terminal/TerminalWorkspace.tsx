@@ -248,6 +248,25 @@ function TerminalGrid({
     if (save) saveSizes(cwd, shape, next)
   }
 
+  // A terminal being dragged puts "Swap with …" over the others until its drag
+  // ends. The pane hears that end itself (onDragEnd), but not when it was
+  // re-rendered away mid-drag or the drop landed elsewhere, and then the
+  // overlays stayed over every terminal, taking every click and drag after.
+  // So any end of a drag, anywhere, clears it (after the drop has been taken).
+  const dragging = useTerminals((s) => s.dragging)
+  useEffect(() => {
+    if (dragging === null) return
+    const done = (): void => useTerminals.getState().setDragging(null)
+    window.addEventListener('dragend', done)
+    window.addEventListener('drop', done)
+    window.addEventListener('pointerdown', done)
+    return () => {
+      window.removeEventListener('dragend', done)
+      window.removeEventListener('drop', done)
+      window.removeEventListener('pointerdown', done)
+    }
+  }, [dragging])
+
   const resize = (axis: Axis, k: number, deltaPx: number, base: Sizes, save: boolean): void => {
     const el = grid.current
     if (!el) return

@@ -7,6 +7,22 @@ All notable changes to Eaon are documented here. Format loosely follows
 
 The 2026.7 release: everything in the 2026.7.0 betas below, and this.
 
+### Fixed
+- **Claude's usage shows in the ADE again.** The ADE's usage meter and
+  Settings → Usage & limits said to type /usage in Claude Code instead of
+  showing a Claude plan's limits. They now show the session, weekly and
+  per-model limits Claude Code last saw, read from the settings it keeps on
+  this computer, with how long ago it checked. Eaon still starts no Claude
+  Code to ask and sends nothing to Anthropic.
+- **Menus open beside their button.** With the glass terminal theme or
+  see-through on, a terminal's ⋯ menu (and the ADE sidebar's, and other
+  right-click menus) opened somewhere else on the window, sometimes off it,
+  leaving an invisible layer that swallowed the next click or drag.
+- **Dragging terminals can't get stuck.** A terminal drag that ended without
+  the app hearing of it left "Swap with …" over the other terminals, taking
+  every click and drag after it. Any end of a drag, or the next press, now
+  clears it.
+
 ### Changed
 - **Warp's logo, and Grok CLI in the ADE.** Warp's terminal tile shows
   Warp's own logo instead of a "W". Grok CLI (xAI's Grok Build, `grok`) is

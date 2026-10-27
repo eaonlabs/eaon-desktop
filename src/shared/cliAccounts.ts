@@ -64,6 +64,8 @@ export type AccountUsage =
       at: number
       plan: string | null
       windows: UsageWindow[]
+      /** When the CLI itself last fetched these figures, when that was before Eaon read them (Claude Code's own copy). */
+      asOf?: number
       /** Codex's banked resets: credits that clear its rate-limit windows. */
       banked?: { available: number; nextExpiry: number | null }
     }
@@ -79,11 +81,12 @@ export type AccountUsage =
     }
 
 /**
- * What a Claude Code account shows in place of its plan's limits. Reading them
- * means starting Claude Code in print mode, and Eaon starts no Claude Code
- * work of its own; Claude Code shows them itself.
+ * What a Claude Code account shows when Claude Code hasn't kept its plan's
+ * limits yet. Eaon starts no Claude Code work of its own to fetch them; it
+ * reads the ones Claude Code keeps (main/features/cliAccounts/parse.ts,
+ * claudeCachedUsage), which come once Claude Code has shown them.
  */
-export const CLAUDE_LIMITS_NOTE = 'Claude Code shows this plan’s limits itself: type /usage in it.'
+export const CLAUDE_LIMITS_NOTE = 'Claude Code hasn’t checked this plan’s limits on this computer yet. They show here once it has: open Claude Code, or type /usage in it.'
 
 /** Signing in to a new account, run by the CLI's own login. */
 export type CliLogin =

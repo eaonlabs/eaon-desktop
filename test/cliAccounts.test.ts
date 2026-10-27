@@ -19,7 +19,7 @@ import {
   type LimitNotice,
   type UsageWindow
 } from '@shared/cliAccounts'
-import { claudeStatus, codexAccount, codexUsage } from '../src/main/features/cliAccounts/parse'
+import { claudeCachedUsage, claudeStatus, codexAccount, codexUsage } from '../src/main/features/cliAccounts/parse'
 import { hasRollout, prepareFolder, removeFolder, SHARED } from '../src/main/features/cliAccounts/folders'
 import { findCli } from '../src/main/features/cliAccounts/cli'
 import { CliAccounts, firstUrl, SLOW_FRESH_MS, stripAnsi, type CliRunner, type LoginProcess } from '../src/main/features/cliAccounts/service'
@@ -127,11 +127,65 @@ test('removing an account deletes its folder and nothing its links point at; onl
   }
 })
 
+/** Claude Code's `.claude.json`, cut to what matters: who is signed in, and the limits it last fetched. */
+const claudeConfigWith = (fetchedAtMs: number, accountUuid = 'acct-1') => ({
+  oauthAccount: { accountUuid, emailAddress: 'me@example.com' },
+  cachedUsageUtilization: {
+    fetchedAtMs,
+    accountUuid: 'acct-1',
+    utilization: {
+      five_hour: { utilization: 39, resets_at: '2026-10-07T20:19:59.595300+00:00', locked_reason: null },
+      seven_day: { utilization: 45, resets_at: '2026-10-11T22:59:59.595319+00:00', locked_reason: null },
+      seven_day_opus: null,
+      seven_day_sonnet: { utilization: 0.4, resets_at: '2026-10-11T22:59:59Z' },
+      extra_usage: { is_enabled: false }
+    }
+  }
+})
+
+test('a Claude plan’s limits are read from what Claude Code keeps, never from another login’s copy', () => {
+  const fetched = Date.parse('2026-10-07T17:45:00Z')
+  const cached = claudeCachedUsage(claudeConfigWith(fetched))
+  assert.ok(cached)
+  assert.equal(cached.asOf, fetched)
+  assert.deepEqual(
+    cached.windows.map((w) => [w.id, w.label, w.percent, w.resetsAt]),
+    [
+      ['session', 'Session', 39, Date.parse('2026-10-07T20:19:59.595Z')],
+      ['week', 'Week', 45, Date.parse('2026-10-11T22:59:59.595Z')]
+    ],
+    'a model’s week with nothing used gets no row'
+  )
+  assert.equal(claudeCachedUsage(claudeConfigWith(fetched, 'someone-else')), null, 'signed in as someone else since: not theirs')
+  assert.equal(claudeCachedUsage({ oauthAccount: { accountUuid: 'acct-1' } }), null, 'nothing kept yet')
+  assert.equal(claudeCachedUsage('not json at all'), null)
+  const locked = claudeCachedUsage({ cachedUsageUtilization: { fetchedAtMs: fetched, utilization: { five_hour: { utilization: 100, resets_at: null, locked_reason: 'rate_limited' } } } })
+  assert.ok(locked?.windows[0].reached && locked.windows[0].severity === 'critical', 'a limit Claude Code says is hit')
+})
+
+test('a Claude plan shows the limits Claude Code last saw, with when it saw them', async () => {
+  const h = harness()
+  try {
+    const fetched = h.clock() - 12 * 60_000
+    h.script.claude.set(null, { status: { loggedIn: true, authMethod: 'claude.ai', email: 'me@example.com', subscriptionType: 'max' }, config: claudeConfigWith(fetched) })
+    await h.service.refresh()
+    const claude = h.service.state().usage[usageKey('claude', DEFAULT_ACCOUNT_ID)]
+    assert.ok(claude?.ok, 'figures, not a pointer to /usage')
+    assert.equal(claude.at, h.clock(), 'read now')
+    assert.equal(claude.asOf, fetched, 'as Claude Code fetched them 12 minutes ago')
+    assert.equal(claude.plan, 'max')
+    assert.deepEqual(claude.windows.map((w) => `${w.label} ${w.percent}%`), ['Session 39%', 'Week 45%'])
+    assert.ok(!h.script.calls.some((c) => /usage|print/.test(c)), 'no Claude Code was started to ask')
+  } finally {
+    h.cleanup()
+  }
+})
+
 /* -------------------------------------------------------------------- service */
 
 interface Script {
-  /** Per folder (null = default): who is signed in. */
-  claude: Map<string | null, { status: unknown }>
+  /** Per folder (null = default): who is signed in, and what its .claude.json holds. */
+  claude: Map<string | null, { status: unknown; config?: unknown }>
   codex: Map<string | null, { account: unknown; limits: unknown }>
   calls: string[]
   loggedOut: string[]
@@ -150,6 +204,7 @@ function harness(installed: CliTool[] = ['claude', 'codex'], options: { autoSwit
       script.calls.push(`claude status ${dir ?? 'default'}`)
       return script.claude.get(dir)?.status ?? { loggedIn: false }
     },
+    claudeConfig: async (dir) => script.claude.get(dir)?.config ?? null,
     codexRead: async (_bin, dir) => {
       script.calls.push(`codex read ${dir ?? 'default'}`)
       return script.codex.get(dir) ?? { account: { account: null }, limits: null }

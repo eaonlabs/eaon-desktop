@@ -120,8 +120,8 @@ export function AccountsPage(): JSX.Element {
         </Card>
         <p className="accounts__fine">
           Codex&rsquo;s figures come from Codex itself, the same numbers its <code>/usage</code> shows: the account in use is read every few
-          minutes while Eaon is on screen, the others every half hour. A Claude plan&rsquo;s limits are shown only in Claude Code (its{' '}
-          <code>/usage</code>); Eaon only checks which account each one is signed in to. Nothing is sent to a model to read them.
+          minutes while Eaon is on screen, the others every half hour. A Claude plan&rsquo;s limits are the ones Claude Code last saw (its{' '}
+          <code>/usage</code>), read from the settings it keeps on this computer: Eaon starts no Claude Code to ask, and shows how long ago Claude Code checked. Nothing is sent to a model to read them.
         </p>
       </Section>
     </>

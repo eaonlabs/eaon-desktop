@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { accountName, liveWindow, usageKey, type CliAccountsState, type CliTool } from '@shared/cliAccounts'
+import { CLI_TOOL_NAME, accountName, liveWindow, usageKey, type CliAccountsState, type CliTool } from '@shared/cliAccounts'
 import {
   USAGE_PROVIDERS,
   usageProvider,
@@ -10,7 +10,7 @@ import {
   type UsageLine,
   type UsageProviderId
 } from '@shared/providerUsage'
-import { useCliAccounts } from './cliAccounts'
+import { agoText, useCliAccounts } from './cliAccounts'
 
 /**
  * Every coding tool's limits as one shape, for Settings → Usage & limits and
@@ -81,7 +81,8 @@ export function limitsView(id: UsageProviderId, cli: CliAccountsState | null, pr
       status: usage?.ok ? 'ok' : !usage ? 'loading' : usage.reason === 'no-limits' || usage.reason === 'in-cli' ? 'unsupported' : loading ? 'loading' : 'error',
       windows: usage?.ok ? usage.windows.map((w) => liveWindow(w, now)) : [],
       lines: [],
-      note: usage && !usage.ok ? usage.message : null,
+      // Claude Code's own copy of its limits can be hours old: say when it last looked.
+      note: usage && !usage.ok ? usage.message : usage?.ok && usage.asOf ? `As ${CLI_TOOL_NAME[tool]} last saw them, ${agoText(usage.asOf, now)}.` : null,
       banked: usage?.ok ? (usage.banked ?? null) : null,
       tokens
     }
