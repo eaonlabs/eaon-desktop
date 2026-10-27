@@ -3,6 +3,13 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [2026.7.1] — 2026-10-26
+
+2026.7.0's fixes for copies that installed it before them, as an update:
+Claude's usage in the ADE, menus that open beside their button, and terminal
+drags that can't get stuck (see 2026.7.0's Fixed, below). Nothing else
+changed.
+
 ## [2026.7.0] — 2026-10-26
 
 The 2026.7 release: everything in the 2026.7.0 betas below, and this.
