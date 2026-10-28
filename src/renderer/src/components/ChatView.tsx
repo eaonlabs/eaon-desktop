@@ -50,6 +50,7 @@ import { MessageActions } from './agent/MessageActions'
 import { ProviderErrorActions } from './composer/ProviderErrorActions'
 import { ApprovalRow } from './agent/ApprovalRow'
 import { ElsewhereAsk, elsewhereShown, subscribeElsewhere } from './agent/ElsewhereAsk'
+import { CompactedDivider, CompactionNotice } from './chat/Compaction'
 import { WorkerFace } from './workers/WorkerFace'
 import { ChannelLogo } from './channels/ChannelLogo'
 import { DockToggle, DrawerToggle } from './ide/Dock'
@@ -432,6 +433,8 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
         <div className="thread__inner">
           {chat.messages.map((message) => (
             <Fragment key={message.id}>
+              {/* Compacting before this reply: said where the reply is about to appear. */}
+              {message.role === 'assistant' && <CompactionNotice chatId={chat.id} messageId={message.id} />}
               <RowBoundary item={message}>
                 <MessageRow
                   message={message}
@@ -444,11 +447,7 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
                 />
               </RowBoundary>
               {/* Where the chat was last compacted: the model works from a summary of what's above. */}
-              {message.id === chat.summary?.throughMessageId && (
-                <div className="thread-compacted" role="note">
-                  <span>Auto-compacted · the model now sees a summary of the messages above</span>
-                </div>
-              )}
+              {message.id === chat.summary?.throughMessageId && <CompactedDivider summary={chat.summary.text} />}
             </Fragment>
           ))}
         </div>

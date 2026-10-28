@@ -6,7 +6,7 @@ All notable changes to Eaon are documented here. Format loosely follows
 ## [Unreleased]
 
 ### Added
-- **Auto-compact you can see.** When a chat nears its model's context limit, a strip above the message box shows Eaon summarising the older messages ("Auto-compacting", with a percentage and a bar), says when it's done, and a line in the conversation marks where the summary starts. Turn it off in Settings → General → Auto-compact long chats.
+- **Auto-compact you can see.** When a chat nears its model's context limit, the conversation says so where the reply is about to appear ("Compacting the conversation to make room…", with a percentage and a thin bar) while Eaon summarises the older messages. Afterwards a "Conversation compacted" line marks where the summary starts, and opens to show it. Turn it off in Settings → General → Auto-compact long chats.
 - **A request the model says is too long is compacted and sent again**, instead of ending the reply with an error. Eaon's own count is an estimate, so a long chat could reach the model's limit before Eaon expected.
 
 ## [2026.7.1] — 2026-10-26

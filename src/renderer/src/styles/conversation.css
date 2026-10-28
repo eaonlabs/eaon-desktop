@@ -203,91 +203,51 @@
   color: var(--text);
 }
 
-/* ---- Auto-compacting, above the message box (chat/CompactionStrip) ---- */
+/* ---- Compaction (chat/Compaction.tsx) --------------------------------
+   While it runs: a line in the conversation where the reply will appear,
+   in the same grey shimmer as "Thinking", with a hairline bar under it.
+   After: a rule where the summary starts, which opens to the summary. */
 
 .compaction {
-  --tone: var(--link);
-  width: 100%;
-  margin-bottom: 8px;
-  padding: 10px 12px 11px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-lg);
-  background: var(--surface-1);
+  max-width: 440px;
+  margin: 4px 0 18px;
   animation: ask-row-in 220ms var(--ease) both;
   transition:
-    opacity 180ms var(--ease),
-    transform 180ms var(--ease);
-}
-.compaction[data-state='done'] {
-  --tone: var(--diff-add-fg);
-}
-.compaction[data-state='failed'] {
-  --tone: var(--warn, #f0883e);
+    opacity 200ms var(--ease),
+    transform 200ms var(--ease);
 }
 .compaction[data-leaving] {
   opacity: 0;
-  transform: translateY(4px);
+  transform: translateY(-2px);
+}
+/* While it runs, the reply hasn't started: its empty "Working… Thinking" row waits. */
+.compaction[data-state='running'] + * {
+  display: none;
 }
 .compaction__line {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  min-width: 0;
-}
-.compaction__icon {
-  flex: none;
-  display: grid;
-  place-items: center;
-  width: 26px;
-  height: 26px;
-  border-radius: var(--r-sm);
-  background: color-mix(in srgb, var(--tone) 14%, transparent);
-  color: var(--tone);
-  transition:
-    background-color 240ms var(--ease),
-    color 240ms var(--ease);
-}
-/* A new state's glyph comes in from small and soft. */
-.compaction__icon > svg {
-  animation: compaction-glyph-in 300ms cubic-bezier(0.2, 0, 0, 1) both;
-}
-.compaction[data-state='running'] .compaction__icon > svg {
-  animation:
-    compaction-glyph-in 300ms cubic-bezier(0.2, 0, 0, 1) both,
-    compaction-squeeze 1.6s ease-in-out 300ms infinite;
-}
-.compaction__words {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  flex-direction: column;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
   font-size: var(--fs-sm);
-  line-height: 1.4;
+  line-height: 1.5;
 }
-.compaction__title {
-  color: var(--text);
-  font-weight: 500;
-}
-.compaction__detail {
-  color: var(--text-3);
-  font-size: var(--fs-xs);
+.compaction__label {
+  min-width: 0;
+  color: var(--text-2);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .compaction__percent {
   flex: none;
-  min-width: 4ch;
-  color: var(--text-2);
-  font-size: var(--fs-sm);
-  font-weight: 500;
+  color: var(--text-3);
   font-variant-numeric: tabular-nums;
-  text-align: right;
 }
 .compaction__bar {
   position: relative;
-  height: 4px;
-  margin-top: 9px;
+  height: 2px;
+  margin-top: 8px;
   overflow: hidden;
   border-radius: var(--r-pill);
   background: var(--hover-strong);
@@ -296,47 +256,17 @@
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: var(--tone);
+  background: var(--text-2);
   transform-origin: left center;
-  transition:
-    transform 320ms var(--ease),
-    background-color 240ms var(--ease);
+  transition: transform 360ms var(--ease);
 }
-/* A soft light moving along the filled part while the summary is written. */
-.compaction[data-state='running'] .compaction__bar > span::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(90deg, transparent, color-mix(in srgb, #fff 38%, transparent), transparent);
-  background-size: 40% 100%;
-  background-repeat: no-repeat;
-  animation: compaction-sheen 1.5s ease-in-out infinite;
-}
-@keyframes compaction-glyph-in {
-  from {
-    opacity: 0;
-    transform: scale(0.25);
-    filter: blur(4px);
-  }
-}
-@keyframes compaction-squeeze {
-  50% {
-    transform: scaleY(0.78);
-  }
-}
-@keyframes compaction-sheen {
-  from {
-    background-position: -40% 0;
-  }
-  to {
-    background-position: 140% 0;
-  }
+.compaction__detail {
+  margin: 2px 0 0;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
 }
 @media (prefers-reduced-motion: reduce) {
-  .compaction,
-  .compaction__icon > svg,
-  .compaction[data-state='running'] .compaction__icon > svg,
-  .compaction[data-state='running'] .compaction__bar > span::after {
+  .compaction {
     animation: none;
   }
   .compaction__bar > span {
@@ -344,26 +274,63 @@
   }
 }
 
-/* Where a chat was last compacted (ChatView): a rule with a note on it. */
 .thread-compacted {
+  margin: 10px 0 22px;
+}
+.thread-compacted__rule {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin: 6px 0 18px;
-  color: var(--text-3);
-  font-size: var(--fs-xs);
+  gap: 10px;
 }
-.thread-compacted::before,
-.thread-compacted::after {
+.thread-compacted__rule::before,
+.thread-compacted__rule::after {
   content: '';
   flex: 1;
   height: 1px;
   background: var(--border);
 }
-.thread-compacted > span {
-  flex: none;
-  max-width: 80%;
-  text-align: center;
+.thread-compacted__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: var(--r-pill);
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  transition:
+    color var(--dur) var(--ease),
+    background-color var(--dur) var(--ease);
+}
+.thread-compacted__toggle:hover {
+  color: var(--text-2);
+  background: var(--hover);
+}
+.thread-compacted__toggle > svg {
+  transition: transform var(--dur) var(--ease);
+}
+.thread-compacted[data-open] .thread-compacted__toggle > svg {
+  transform: rotate(180deg);
+}
+.thread-compacted__summary {
+  max-height: 280px;
+  overflow: auto;
+  margin-top: 10px;
+  padding: 12px 14px;
+  border-radius: var(--r-lg);
+  background: var(--hover);
+  box-shadow: 0 0 0 1px var(--border-soft);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  animation: ask-row-in 180ms var(--ease) both;
+}
+.thread-compacted__caption {
+  margin-bottom: 8px;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  white-space: normal;
 }
 
 /* ---- Editing a message -------------------------------------------- */
