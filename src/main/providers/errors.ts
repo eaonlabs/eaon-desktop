@@ -4,6 +4,7 @@ import { retryAfterFrom } from './adapters/types'
 import { redactSecrets } from './redact'
 import { RedirectRefusedError } from './safeFetch'
 import { goesToEaonGateway, hideEaonAddress } from '../eaonAddress'
+import { signsGatewayRequests } from '../gatewaySignature'
 
 /**
  * Provider failures as something a person can act on.
@@ -221,9 +222,12 @@ export function classifyProviderError(error: unknown, provider: ProviderLike, co
 
   // Eaon's gateway takes no key. Set to "Eaon apps only", it turns away a copy
   // of Eaon whose requests it can't verify (one from before signing, or one
-  // whose app was switched off on its dashboard): updating is the fix.
+  // whose app was switched off on its dashboard): updating is the fix. A
+  // build made without the app's credentials can't sign at all, however new,
+  // so it isn't told to update.
   if (goesToEaonGateway(provider) && /Eaon app|Eaon apps|signed request/i.test(text)) {
     if (/can.t be verified right now/i.test(text)) return issue(provider, 'outage', `${name} couldn’t check this copy of Eaon just now. Try again in a moment.`, 'retry', f)
+    if (!signsGatewayRequests()) return issue(provider, 'insufficient-scope', `${name} isn’t available in this copy of Eaon right now. Choose another model for now.`, 'choose-model', f)
     return issue(provider, 'insufficient-scope', `${name} only answers up-to-date copies of Eaon. Update Eaon in Settings → General, or choose another model.`, 'choose-model', f)
   }
 
