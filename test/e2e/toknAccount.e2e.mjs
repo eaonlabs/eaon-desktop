@@ -72,7 +72,9 @@ scenario('Account: sign in with Tokn from Settings, open the profile, see Claude
     const pick = (label) => page.click('.settings__inner .btn', { text: label })
     await pick('View on Tokn')
     await page.waitFor(async () => (await window.api.usage.account()).sync.state === 'idle', { message: 'the first sync to finish' })
-    const before = tokn.syncs.length
+    // Eaon's own uploads; the tokn command (linked at sign-in, as tracking the CLIs is on by default) sends its own.
+    const eaonSyncs = () => tokn.syncs.filter((body) => String(body.cliVersion).startsWith('eaon-desktop/'))
+    const before = eaonSyncs().length
     await pick('Sync now')
     const urls = await app.openedUrls()
     assert.ok(urls.some((url) => url.endsWith('/profile/alex')), `opened: ${urls.join(', ')}`)
@@ -100,8 +102,8 @@ scenario('Account: sign in with Tokn from Settings, open the profile, see Claude
 
     // Signing in synced once, and Sync now again; each carried the day's agents.
     await page.waitFor(async () => (await window.api.usage.account()).sync.state === 'idle', { message: 'Sync now to finish' })
-    assert.ok(before >= 1 && tokn.syncs.length > before, `Tokn got ${tokn.syncs.length} syncs`)
-    for (const body of tokn.syncs) {
+    assert.ok(before >= 1 && eaonSyncs().length > before, `Tokn got ${eaonSyncs().length} syncs from Eaon`)
+    for (const body of eaonSyncs()) {
       assert.ok(String(body.cliVersion).startsWith('eaon-desktop/'))
       assert.deepEqual(body.agents, [{ day: today, tool: 'eaon', runs: 2, totalMs: 300_000, longestMs: 200_000 }])
     }
