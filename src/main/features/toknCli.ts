@@ -99,6 +99,20 @@ export function toknCliLastSync(): { handle: string; at: string } | null {
   }
 }
 
+/**
+ * Whether tokn publishes on its own (`tokn autosync on`: a scheduler, and a
+ * Claude Code hook). Then Eaon's hourly sync only doubles it, and the second
+ * of two close syncs is turned away by Tokn as "syncing too often".
+ */
+function syncsItself(): boolean {
+  try {
+    const config = JSON.parse(readFileSync(configFile(), 'utf8')) as { autosync?: { enabled?: unknown } }
+    return config.autosync?.enabled === true
+  } catch {
+    return false
+  }
+}
+
 const syncedListeners = new Set<() => void>()
 /** Told after each `tokn sync` that went through, so Settings → Usage reads the profile again. */
 export function onToknCliSynced(listener: () => void): () => void {
@@ -241,8 +255,15 @@ export function toknCliStatus(): ToknCliStatus {
     // Only said when the shell could be asked: otherwise there's no knowing.
     needsPath: dir && terminal && !terminal.includes(dir) ? dir : null,
     linked: linkedAs(),
-    activity
+    // Idle, the last sync is whichever ran last: Eaon's, or tokn's own scheduled one.
+    activity: activity.state === 'idle' && !activity.error ? { ...activity, at: latestSync(activity.at) } : activity
   }
+}
+
+function latestSync(eaonAt: number | null): number | null {
+  const own = toknCliLastSync()
+  const at = own ? Date.parse(own.at) : 0
+  return Math.max(eaonAt ?? 0, at) || null
 }
 
 function changed(): void {
@@ -311,7 +332,8 @@ export async function syncToknCli(): Promise<ToknCliStatus> {
   changed()
   const result = await runTokn(['sync'], SYNC_TIMEOUT_MS)
   // "Nothing to sync" and "no sessions found" are not failures: there's just nothing yet.
-  const nothing = /nothing to sync|no claude sessions/i.test(result.output)
+  // Nor is "syncing too often": another sync (tokn's own, scheduled) has just published.
+  const nothing = /nothing to sync|no claude sessions|syncing too often/i.test(result.output)
   activity = { state: 'idle', at: Date.now(), error: result.code === 0 || nothing ? null : lastLine(result.output) || 'tokn sync didn’t finish.' }
   changed()
   if (!activity.error) syncedListeners.forEach((listener) => listener())
@@ -325,8 +347,12 @@ function schedule(): void {
   syncTimer = null
   firstSync = null
   if (!settings().sync) return
-  firstSync = setTimeout(() => void syncToknCli(), FIRST_SYNC_AFTER_MS)
-  syncTimer = setInterval(() => void syncToknCli(), SYNC_EVERY_MS)
+  // Checked each time, since `tokn autosync` can be turned on or off in a terminal at any time.
+  const run = (): void => {
+    if (!syncsItself()) void syncToknCli()
+  }
+  firstSync = setTimeout(run, FIRST_SYNC_AFTER_MS)
+  syncTimer = setInterval(run, SYNC_EVERY_MS)
 }
 
 /** Settings changed: install or remove the launcher, link, and (re)start the hourly sync. */

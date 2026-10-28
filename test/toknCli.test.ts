@@ -184,3 +184,11 @@ test('from an older Eaon: tracking goes on, except where Eaon is signed in to To
     await store.flushWrites()
   }
 })
+
+test('the last sync shown is whichever ran last, Eaon’s or tokn’s own scheduled one', () => {
+  mkdirSync(join(root, 'config'), { recursive: true })
+  assert.equal(toknCliStatus().activity.at, null)
+  const at = '2026-10-28T13:59:25.753Z'
+  writeFileSync(join(root, 'config', 'config.json'), JSON.stringify({ token: 't', user: { handle: 'alex' }, lastSyncAt: at, autosync: { enabled: true } }))
+  assert.equal(toknCliStatus().activity.at, Date.parse(at))
+})
