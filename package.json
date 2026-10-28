@@ -8,7 +8,7 @@
     "eaon": "bin/eaon.mjs"
   },
   "author": "Eaon",
-  "license": "MIT",
+  "license": "GPL-3.0-only",
   "type": "module",
   "repository": {
     "type": "git",
