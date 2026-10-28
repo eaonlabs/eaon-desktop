@@ -222,6 +222,28 @@ export async function requestLinkCode(): Promise<string | null> {
   return typeof body?.code === 'string' ? body.code : null
 }
 
+/** A day on the signed-in profile, every tool and computer counted: what toknhq.com draws. */
+export interface ToknProfileDay {
+  day: string
+  costUsd: number
+  tokens: number
+  requests: number
+}
+
+/** The signed-in profile's days (`GET /api/cli/profile`), so Settings → Usage shows what toknhq.com does. */
+export async function fetchProfileDays(): Promise<ToknProfileDay[]> {
+  const response = await authed('/api/cli/profile')
+  if (!response.ok) throw new ToknError(`Tokn’s profile couldn’t be loaded (${response.status})${tail(await reason(response))}`, response.status)
+  const body = (await response.json()) as { stats?: { byDay?: unknown } }
+  const byDay: unknown[] = Array.isArray(body.stats?.byDay) ? body.stats.byDay : []
+  const count = (value: unknown): number => (typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : 0)
+  return byDay.flatMap((entry) => {
+    const day = entry as { day?: unknown; cost?: unknown; tokens?: unknown; requests?: unknown } | null
+    if (typeof day?.day !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(day.day)) return []
+    return [{ day: day.day, costUsd: count(day.cost), tokens: count(day.tokens), requests: count(day.requests) }]
+  })
+}
+
 /** Tokn's price table. Public: no token needed. */
 export async function fetchPricing(): Promise<ToknPricing> {
   const response = await fetch(`${toknHost()}/api/cli/pricing`, {

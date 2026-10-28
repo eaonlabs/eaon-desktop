@@ -241,7 +241,8 @@ export const defaultSettings: Settings = {
   },
   toknCli: {
     install: true,
-    sync: false
+    // The coding CLIs are tracked once Eaon is signed in to Tokn; Settings → Usage turns it off.
+    sync: true
   },
   freeCredits: {
     claimed: false,

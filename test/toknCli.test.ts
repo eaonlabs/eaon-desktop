@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { app } from 'electron'
 import { store } from '../src/main/store'
-import { installLauncher, removeLauncher, toknCliStatus } from '../src/main/features/toknCli'
+import { installLauncher, removeLauncher, toknCliStatus, trackCodingClisByDefault } from '../src/main/features/toknCli'
+import { secrets } from '../src/main/secrets'
 import { noteFirstRun } from '../src/main/features/onboarding'
 
 /**
@@ -151,4 +152,43 @@ test('first run: when the setup finished is kept as a time', () => {
   const onboarding = store.getSettings().onboarding
   assert.equal(onboarding.setup, 'pending')
   assert.equal(onboarding.tour, 'done')
+})
+
+test('the coding CLIs are tracked by default', () => {
+  freshStore()
+  assert.equal(store.getSettings().toknCli.sync, true)
+})
+
+test('from an older Eaon: tracking goes on, except where Eaon is signed in to Tokn with it off', async () => {
+  const signedIn = { account: { id: 'u_1', handle: 'alex', name: 'Alex', profileUrl: 'https://tokn.test/alex' } }
+  try {
+    // Never signed in: off was only the old default (or a setup skipped without signing in).
+    freshStore({ 'settings.json': { toknCli: { install: true, sync: false } } })
+    trackCodingClisByDefault()
+    assert.equal(store.getSettings().toknCli.sync, true)
+    trackCodingClisByDefault()
+    assert.equal(store.getSettings().toknCli.sync, true, 'running it again changes nothing')
+
+    // Signed in with it off: that may have been the person's no, so it stays.
+    secrets.set('oauth::tokn', JSON.stringify(signedIn))
+    freshStore({ 'settings.json': { toknCli: { install: true, sync: false } } })
+    trackCodingClisByDefault()
+    assert.equal(store.getSettings().toknCli.sync, false)
+
+    // Signed in with it on: as it was.
+    freshStore({ 'settings.json': { toknCli: { install: false, sync: true } } })
+    trackCodingClisByDefault()
+    assert.deepEqual(store.getSettings().toknCli, { install: false, sync: true })
+  } finally {
+    secrets.set('oauth::tokn', '')
+    await store.flushWrites()
+  }
+})
+
+test('the last sync shown is whichever ran last, Eaon’s or tokn’s own scheduled one', () => {
+  mkdirSync(join(root, 'config'), { recursive: true })
+  assert.equal(toknCliStatus().activity.at, null)
+  const at = '2026-10-28T13:59:25.753Z'
+  writeFileSync(join(root, 'config', 'config.json'), JSON.stringify({ token: 't', user: { handle: 'alex' }, lastSyncAt: at, autosync: { enabled: true } }))
+  assert.equal(toknCliStatus().activity.at, Date.parse(at))
 })

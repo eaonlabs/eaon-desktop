@@ -48,8 +48,12 @@ export function ToknCommand({ signedIn }: { signedIn: boolean }): JSX.Element | 
           : `Version ${status.version} comes with Eaon.`
 
   const trackDescription = !signedIn
-    ? 'Sign in with Tokn above first. It links to the same account, with no second sign-in.'
-    : status.linked
+    ? settings.sync
+      ? 'When you sign in with Tokn above, tokn links to the same account and publishes Claude Code, Codex and the other CLIs’ usage every hour.'
+      : 'Off: signing in with Tokn tracks only what you use in Eaon.'
+    : !settings.sync
+      ? 'Off: only what you use in Eaon goes to your profile.'
+      : status.linked
       ? `Linked to @${status.linked.handle || 'your account'}. Publishes Claude Code, Codex and the other CLIs’ usage to your profile every hour.`
       : 'Links tokn to your Tokn account and publishes Claude Code, Codex and the other CLIs’ usage every hour.'
 
@@ -71,7 +75,7 @@ export function ToknCommand({ signedIn }: { signedIn: boolean }): JSX.Element | 
           <Switch checked={settings.install} onChange={(install) => change({ install })} label="Install the tokn command" />
         </Row>
         <Row title="Track the coding CLIs too" description={trackDescription}>
-          <Switch checked={settings.sync && signedIn} disabled={!signedIn} onChange={(sync) => change({ sync })} label="Track the coding CLIs too" />
+          <Switch checked={settings.sync} onChange={(sync) => change({ sync })} label="Track the coding CLIs too" />
         </Row>
         {signedIn && settings.sync && (
           <Row title={status.linked ? 'tokn sync' : 'Link tokn'} description={activity ?? undefined}>

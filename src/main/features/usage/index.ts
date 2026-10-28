@@ -1,11 +1,11 @@
 import { readFile } from 'node:fs/promises'
 import { app, dialog, shell } from 'electron'
-import type { Billing, CursorImport, UsageAccountState, UsageRange, UsageSignIn, UsageSummary, UsageSync } from '@shared/usage'
+import type { Billing, CursorImport, UsageAccountState, UsageDay, UsageRange, UsageSignIn, UsageSummary, UsageSync } from '@shared/usage'
 import { getProvider, onModelUsage } from '../../providers'
 import { LOCAL_PROVIDER_ID } from '../../llama/models'
 import { store } from '../../store'
 import type { Feature, FeatureContext } from '../types'
-import { afterToknSignIn } from '../toknCli'
+import { afterToknSignIn, onToknCliSynced, syncToknCli, toknCliLastSync, toknCliStatus } from '../toknCli'
 import { agentRunDays, flushAgentRuns, onAgentRun } from './agentRuns'
 import { flushLedger, ledgerDays, ledgerSources, onLedgerChange, recordUsage } from './ledger'
 import { cliLogs, flushCliLogs, importCursorCsv, onCliLogsChange } from './cliLogs'
@@ -24,7 +24,7 @@ import {
   type BillingOf,
   type ToknPricing
 } from './rows'
-import { fetchPricing, refreshAccount, signIn, signOut, submitCode, toknAccount, toknPageUrl, upload } from './tokn'
+import { fetchPricing, fetchProfileDays, refreshAccount, signIn, signOut, submitCode, toknAccount, toknPageUrl, upload, type ToknProfileDay } from './tokn'
 
 /**
  * Settings → Usage, and the Tokn account that is Eaon's account. Every model
@@ -39,6 +39,11 @@ import { fetchPricing, refreshAccount, signIn, signOut, submitCode, toknAccount,
 
 const PRICING_FILE = 'tokn-pricing.json'
 const SYNC_FILE = 'tokn-sync.json'
+const PROFILE_FILE = 'tokn-profile.json'
+/** The profile is read again when Settings → Usage asks and the last copy is older than this. */
+const PROFILE_MAX_AGE_MS = 5 * 60_000
+/** After a failed read, the next waits this long, so a page that refreshes often doesn't hammer Tokn. */
+const PROFILE_RETRY_MS = 60_000
 const PRICING_MAX_AGE_MS = 24 * 3_600_000
 /** New usage is uploaded this long after it happens, so a busy hour is one upload. */
 const SYNC_AFTER_USAGE_MS = 5 * 60_000
@@ -54,6 +59,70 @@ let sync: UsageSync = savedSync()
 let syncTimer: ReturnType<typeof setTimeout> | null = null
 let syncing: Promise<void> | null = null
 let changedTimer: ReturnType<typeof setTimeout> | null = null
+let profile: SavedProfile | null = savedProfile()
+let profileLoad: Promise<void> | null = null
+let profileTriedAt = 0
+
+/** The signed-in profile's days as last read from Tokn, and whose they are. */
+interface SavedProfile {
+  accountId: string
+  at: number
+  days: ToknProfileDay[]
+}
+
+function savedProfile(): SavedProfile | null {
+  const saved = store.getJson<Record<string, unknown>>(PROFILE_FILE, {})
+  if (typeof saved.accountId !== 'string' || typeof saved.at !== 'number' || !Array.isArray(saved.days)) return null
+  const days = (saved.days as Partial<ToknProfileDay>[]).filter(
+    (d): d is ToknProfileDay => typeof d?.day === 'string' && typeof d.costUsd === 'number' && typeof d.tokens === 'number' && typeof d.requests === 'number'
+  )
+  return { accountId: saved.accountId, at: saved.at, days }
+}
+
+/**
+ * Reads the profile from Tokn when the last copy is stale (or `force`). It is
+ * what toknhq.com draws: every computer and tool, Eaon's uploads and the tokn
+ * command's, priced by Tokn. Keeps the last copy when Tokn can't be reached.
+ */
+function loadProfile(force = false): Promise<void> {
+  const account = toknAccount()
+  if (!account) return Promise.resolve()
+  const fresh = profile?.accountId === account.id && Date.now() - profile.at < PROFILE_MAX_AGE_MS
+  if (profileLoad || (!force && (fresh || Date.now() - profileTriedAt < PROFILE_RETRY_MS))) return profileLoad ?? Promise.resolve()
+  profileTriedAt = Date.now()
+  profileLoad = fetchProfileDays()
+    .then((days) => {
+      if (toknAccount()?.id !== account.id) return
+      profile = { accountId: account.id, at: Date.now(), days }
+      store.setJson(PROFILE_FILE, profile)
+      changed()
+    })
+    .catch((error) => console.warn('[usage] Tokn profile:', error instanceof Error ? error.message : error))
+    .finally(() => {
+      profileLoad = null
+    })
+  return profileLoad
+}
+
+/** The profile's days the way the calendar and the streaks count them. */
+function profileByDay(days: ToknProfileDay[]): Map<string, UsageDay> {
+  const byDay = new Map<string, UsageDay>()
+  for (const d of days) if (d.requests > 0 || d.tokens > 0 || d.costUsd > 0) byDay.set(d.day, { day: d.day, costUsd: d.costUsd, tokens: d.tokens, requests: d.requests })
+  return byDay
+}
+
+/**
+ * The sync state to show: when the profile last took this computer's usage,
+ * from Eaon's own upload or the tokn command's (the CLIs), whichever is later.
+ * Eaon uploads only after its own use, so on a day spent in Claude Code the
+ * tokn command's sync is the recent one.
+ */
+function shownSync(): UsageSync {
+  const account = toknAccount()
+  const cli = toknCliLastSync()
+  if (!account || !cli || (cli.handle && cli.handle !== account.handle)) return sync
+  return !sync.at || Date.parse(cli.at) > Date.parse(sync.at) ? { ...sync, at: cli.at } : sync
+}
 
 /** Tokn's prices as last fetched; anything that isn't a price table counts as never fetched. */
 function savedPricing(): { fetchedAt: number; models: ToknPricing } {
@@ -152,10 +221,17 @@ function summary(range: UsageRange): UsageSummary {
   const cli = cliLogs()
   const everything = withCliDays(days, cli.days, cli.found.includes('codex'))
   const byDay = dailyTotals(everything, pricing.models, billingOf, true)
+  // Signed in, the calendar, the streaks and the all-time tiles are the
+  // profile's, so they match toknhq.com: every computer and tool, priced by
+  // Tokn. This computer's own counts stand in until it has been read.
+  const account = toknAccount()
+  void loadProfile()
+  const fromTokn = account && profile?.accountId === account.id ? profile : null
+  const activityDays = fromTokn ? profileByDay(fromTokn.days) : byDay
   return {
-    account: toknAccount(),
+    account,
     signIn: signInState,
-    sync,
+    sync: shownSync(),
     range,
     priced: pricing.fetchedAt > 0,
     ...shaped,
@@ -163,8 +239,9 @@ function summary(range: UsageRange): UsageSummary {
     chart: rangeDays(byDay, range),
     tools: summarizeTools(everything, range, pricing.models, billingOf),
     cliLogs: { reading: cli.reading, found: cli.found, cursorImported: cli.cursorImported },
-    calendar: calendar(byDay),
-    activity: activity(byDay, range),
+    calendar: calendar(activityDays),
+    activity: activity(activityDays, range),
+    activityFrom: fromTokn ? { source: 'tokn', at: fromTokn.at } : { source: 'local' },
     agents: agentStats(agentRunDays(), range)
   }
 }
@@ -176,8 +253,12 @@ function setSync(next: UsageSync): void {
   changed()
 }
 
-/** Uploads every day's totals now. One at a time; a second ask while one runs waits for it. */
-function syncNow(): Promise<void> {
+/**
+ * Uploads every day's totals now, then reads the profile again. With
+ * `withCli` (Sync now), the tokn command syncs the coding CLIs alongside.
+ * One at a time; a second ask while one runs waits for it.
+ */
+function syncNow(withCli = false): Promise<void> {
   if (syncTimer) {
     clearTimeout(syncTimer)
     syncTimer = null
@@ -185,14 +266,18 @@ function syncNow(): Promise<void> {
   if (!toknAccount()) return Promise.resolve()
   syncing ??= (async () => {
     setSync({ ...sync, state: 'syncing', error: undefined })
+    const cli = withCli && store.getSettings().toknCli.sync && toknCliStatus().linked ? syncToknCli() : null
     try {
       await loadPricing(Object.keys(pricing.models).length === 0)
       const rows = syncRows(ledgerDays(), pricing.models, billingLookup())
       const agents = syncAgents(agentRunDays())
       const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
       const result = rows.length > 0 || agents.length > 0 ? await upload(rows, timezone, agents) : { accepted: 0, rejected: 0, rank: null }
-      setSync({ state: 'idle', at: new Date().toISOString(), accepted: result.accepted, rejected: result.rejected, rank: result.rank })
+      await cli
+      await loadProfile(true)
+      setSync({ state: 'idle', at: new Date().toISOString(), accepted: result.accepted, rejected: result.rejected, rank: result.rank ?? sync.rank ?? null })
     } catch (error) {
+      await cli
       setSync({ ...sync, state: 'error', error: error instanceof Error ? error.message : String(error) })
     }
   })().finally(() => {
@@ -259,6 +344,8 @@ export const usageFeature: Feature = {
       if (source !== 'gateway') scheduleSync(SYNC_AFTER_USAGE_MS)
     })
     onCliLogsChange(changed)
+    // The tokn command published the CLIs: the profile has changed.
+    onToknCliSynced(() => void loadProfile(true))
     onAgentRun(() => {
       changed()
       scheduleSync(SYNC_AFTER_USAGE_MS)
@@ -266,7 +353,7 @@ export const usageFeature: Feature = {
 
     ipcMain.handle('usage:summary', (_e, range: UsageRange) => summary(range === 7 || range === 90 ? range : 30))
     // The account entry (sidebar, Settings) without the numbers, which it doesn't show.
-    ipcMain.handle('usage:account', (): UsageAccountState => ({ account: toknAccount(), signIn: signInState, sync }))
+    ipcMain.handle('usage:account', (): UsageAccountState => ({ account: toknAccount(), signIn: signInState, sync: shownSync() }))
     ipcMain.handle('usage:sign-in', () => startSignIn())
     ipcMain.handle('usage:cancel-sign-in', () => signInAbort?.abort())
     ipcMain.handle('usage:submit-code', (_e, input: string) => submitCode(String(input ?? '')))
@@ -274,9 +361,12 @@ export const usageFeature: Feature = {
       if (syncTimer) clearTimeout(syncTimer)
       syncTimer = null
       await signOut()
+      profile = null
+      store.setJson(PROFILE_FILE, {})
       setSync({ state: 'idle', at: null })
     })
-    ipcMain.handle('usage:sync', () => syncNow())
+    // Sync now: Eaon's own usage, the coding CLIs through the tokn command, then the profile.
+    ipcMain.handle('usage:sync', () => syncNow(true))
     ipcMain.handle('usage:import-cursor', () => chooseCursorCsv())
     ipcMain.handle('usage:open-profile', () => {
       const url = toknPageUrl('profile')

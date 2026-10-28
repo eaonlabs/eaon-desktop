@@ -353,8 +353,8 @@ function ToknStep({ onBack, onNext }: { onBack: () => void; onNext: () => void }
   const [arrives] = useState(() => state !== null && !state.account)
 
   const proceed = (): void => {
-    // The coding CLIs are tracked only with a Tokn account to publish to, and the person's yes.
-    void patchSettings({ toknCli: { sync: Boolean(account) && trackCli } }).then(() => window.api.toknCli.apply())
+    // The switch is the person's choice; it takes effect once there's a Tokn account to publish to.
+    void patchSettings({ toknCli: { sync: trackCli } }).then(() => window.api.toknCli.apply())
     onNext()
   }
 

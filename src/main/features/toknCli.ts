@@ -23,10 +23,12 @@ import { requestLinkCode, toknAccount, toknHost } from './usage/tokn'
  * launcher is rewritten when Eaon moves or updates, and removed when
  * Settings turns it off.
  *
- * Linking: with Eaon signed in to Tokn and the person's yes (the setup, or
- * Settings → Usage), Eaon asks Tokn for a one-time link code and runs
- * `tokn link --code`; the command gets its own token, as if it had been
- * linked by hand. Then `tokn sync` runs every hour while Eaon is open.
+ * Linking: once Eaon is signed in to Tokn, unless tracking the coding CLIs
+ * was turned off (the setup, or Settings → Usage), Eaon asks Tokn for a
+ * one-time link code and runs `tokn link --code`; the command gets its own
+ * token, as if it had been linked by hand. Then `tokn sync` runs every hour
+ * while Eaon is open. tokn reads the CLIs' own logs, so what they used while
+ * Eaon was closed is counted at the next sync.
  *
  * Channels (all `tokn-cli:`): `status`, `link`, `sync`, and the `changed` event.
  */
@@ -80,6 +82,42 @@ function linkedAs(): { handle: string } | null {
   } catch {
     return null
   }
+}
+
+/**
+ * When tokn last published, and as whom, from its own config. A tokn from
+ * npm shares the config, so its own scheduled syncs count too.
+ */
+export function toknCliLastSync(): { handle: string; at: string } | null {
+  try {
+    const config = JSON.parse(readFileSync(configFile(), 'utf8')) as { token?: unknown; user?: { handle?: unknown }; lastSyncAt?: unknown }
+    if (typeof config.token !== 'string' || !config.token) return null
+    if (typeof config.lastSyncAt !== 'string' || Number.isNaN(Date.parse(config.lastSyncAt))) return null
+    return { handle: typeof config.user?.handle === 'string' ? config.user.handle : '', at: config.lastSyncAt }
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Whether tokn publishes on its own (`tokn autosync on`: a scheduler, and a
+ * Claude Code hook). Then Eaon's hourly sync only doubles it, and the second
+ * of two close syncs is turned away by Tokn as "syncing too often".
+ */
+function syncsItself(): boolean {
+  try {
+    const config = JSON.parse(readFileSync(configFile(), 'utf8')) as { autosync?: { enabled?: unknown } }
+    return config.autosync?.enabled === true
+  } catch {
+    return false
+  }
+}
+
+const syncedListeners = new Set<() => void>()
+/** Told after each `tokn sync` that went through, so Settings → Usage reads the profile again. */
+export function onToknCliSynced(listener: () => void): () => void {
+  syncedListeners.add(listener)
+  return () => syncedListeners.delete(listener)
 }
 
 const windows = process.platform === 'win32'
@@ -217,8 +255,15 @@ export function toknCliStatus(): ToknCliStatus {
     // Only said when the shell could be asked: otherwise there's no knowing.
     needsPath: dir && terminal && !terminal.includes(dir) ? dir : null,
     linked: linkedAs(),
-    activity
+    // Idle, the last sync is whichever ran last: Eaon's, or tokn's own scheduled one.
+    activity: activity.state === 'idle' && !activity.error ? { ...activity, at: latestSync(activity.at) } : activity
   }
+}
+
+function latestSync(eaonAt: number | null): number | null {
+  const own = toknCliLastSync()
+  const at = own ? Date.parse(own.at) : 0
+  return Math.max(eaonAt ?? 0, at) || null
 }
 
 function changed(): void {
@@ -287,9 +332,11 @@ export async function syncToknCli(): Promise<ToknCliStatus> {
   changed()
   const result = await runTokn(['sync'], SYNC_TIMEOUT_MS)
   // "Nothing to sync" and "no sessions found" are not failures: there's just nothing yet.
-  const nothing = /nothing to sync|no claude sessions/i.test(result.output)
+  // Nor is "syncing too often": another sync (tokn's own, scheduled) has just published.
+  const nothing = /nothing to sync|no claude sessions|syncing too often/i.test(result.output)
   activity = { state: 'idle', at: Date.now(), error: result.code === 0 || nothing ? null : lastLine(result.output) || 'tokn sync didn’t finish.' }
   changed()
+  if (!activity.error) syncedListeners.forEach((listener) => listener())
   return toknCliStatus()
 }
 
@@ -300,8 +347,12 @@ function schedule(): void {
   syncTimer = null
   firstSync = null
   if (!settings().sync) return
-  firstSync = setTimeout(() => void syncToknCli(), FIRST_SYNC_AFTER_MS)
-  syncTimer = setInterval(() => void syncToknCli(), SYNC_EVERY_MS)
+  // Checked each time, since `tokn autosync` can be turned on or off in a terminal at any time.
+  const run = (): void => {
+    if (!syncsItself()) void syncToknCli()
+  }
+  firstSync = setTimeout(run, FIRST_SYNC_AFTER_MS)
+  syncTimer = setInterval(run, SYNC_EVERY_MS)
 }
 
 /** Settings changed: install or remove the launcher, link, and (re)start the hourly sync. */
@@ -316,9 +367,20 @@ export async function applyToknCliSettings(): Promise<ToknCliStatus> {
   return toknCliStatus()
 }
 
-/** Eaon just signed in to Tokn: link the command too, if the person said yes to that. */
+/** Eaon just signed in to Tokn: link the command too, unless tracking the coding CLIs is off. */
 export function afterToknSignIn(): void {
   if (settings().sync) void linkToknCli()
+}
+
+/**
+ * Migration 5: tracking the coding CLIs went from asked-for to on
+ * by default. A profile from before has it off unless the setup's switch was
+ * used while signed in, so it is turned on, except where Eaon is signed in
+ * to Tokn already: off there may have been the person's no, and stays.
+ */
+export function trackCodingClisByDefault(): void {
+  if (settings().sync || toknAccount()) return
+  store.patchSettings({ toknCli: { ...settings(), sync: true } })
 }
 
 export const toknCliFeature: Feature = {
@@ -330,6 +392,8 @@ export const toknCliFeature: Feature = {
     if (process.env.EAON_TOKN_CLI !== 'off') {
       installed = adoptLoginShellPath().then(() => {
         if (settings().install) installLauncher()
+        // Signed in, tracking on, and not linked yet (a link that failed last time): link now.
+        if (settings().sync && toknAccount() && !linkedAs()) void linkToknCli()
       })
       schedule()
     }

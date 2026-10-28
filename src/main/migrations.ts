@@ -3,6 +3,7 @@ import { store } from './store'
 import { backupDocs, readDoc, shapeOf, sweepTempFiles, writeDocSync } from './storeFiles'
 import { migrateScheduledRuns } from './features/scheduler/migrate'
 import { leaveFreeWeek } from './freeCredits'
+import { trackCodingClisByDefault } from './features/toknCli'
 
 /**
  * Versioned changes to the shape of saved data, run once each, in order, at
@@ -61,6 +62,13 @@ export const MIGRATIONS: Migration[] = [
     name: 'eaon-event',
     files: ['settings.json', 'workers.json', 'scheduled-tasks.json'],
     run: () => leaveFreeWeek()
+  },
+  {
+    // The coding CLIs are tracked by default once signed in to Tokn (features/toknCli.ts).
+    version: 5,
+    name: 'tokn-tracking',
+    files: ['settings.json'],
+    run: () => trackCodingClisByDefault()
   }
 ]
 
