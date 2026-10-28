@@ -632,6 +632,93 @@ test('the compaction request counts toward the turn\'s usage', async () => {
   assert.equal(last.usage.input, 750)
 })
 
+/** Four long exchanges and a new question: more than a small window takes. */
+function longHistory(): StreamRequest['history'] {
+  const long = 'word '.repeat(400)
+  const history: StreamRequest['history'] = [1, 2, 3, 4].flatMap((n) => [
+    { id: `u${n}`, role: 'user' as const, createdAt: 0, parts: [{ type: 'text' as const, text: `${n} ${long}` }] },
+    { id: `a${n}`, role: 'assistant' as const, createdAt: 0, parts: [{ type: 'text' as const, text: `reply ${n}` }] }
+  ])
+  history.push({ id: 'u5', role: 'user', createdAt: 0, parts: [{ type: 'text', text: 'and now?' }] })
+  return history
+}
+const isSummaryRequest = (body: Body): boolean => String(body.messages[0]?.content ?? '').startsWith('Summarise the conversation so far')
+const compacting = (events: StreamEvent[]): Extract<StreamEvent, { type: 'compacting' }>[] =>
+  events.filter((e): e is Extract<StreamEvent, { type: 'compacting' }> => e.type === 'compacting')
+
+test('auto-compacting reports how far the summary has got, then done, before the chat keeps the summary', async () => {
+  const server = await setup((body) =>
+    isSummaryRequest(body) ? ['Goals: ', 'answer the ', 'four questions. ', 'State: ', 'all answered.'].map((t, i, all) => chunk({ content: t }, i === all.length - 1 ? 'stop' : null)) : say('answer')
+  )
+  store.saveProviderConfig({
+    fake: { name: 'Fake', kind: 'openai-compatible', baseUrl: server.url, models: [{ id: 'fake-model', label: 'Fake', providerId: 'fake', contextWindow: 2000 }] }
+  })
+  const events: StreamEvent[] = []
+  await runAgent(request({ mode: 'chat', history: longHistory() }), (e) => events.push(e))
+  server.server.close()
+
+  const steps = compacting(events)
+  assert.ok(steps.length >= 3, `progress was told (${steps.length} events)`)
+  assert.equal(steps[0].state, 'running')
+  assert.ok(steps[0].progress < 0.11, 'it starts in the reading stretch')
+  const running = steps.filter((e) => e.state === 'running').map((e) => e.progress)
+  assert.deepEqual(running, [...running].sort((a, b) => a - b), 'progress only goes forwards')
+  assert.ok(running.some((p) => p > 0.1 && p <= 0.95), 'writing the summary moves the bar')
+  const last = steps.at(-1)!
+  assert.deepEqual([last.state, last.progress, last.covered], ['done', 1, 8])
+  const done = events.indexOf(last)
+  const kept = events.findIndex((e) => e.type === 'compacted')
+  assert.ok(kept > done, 'the strip says done, then the chat keeps the summary')
+  assert.equal((events[kept] as Extract<StreamEvent, { type: 'compacted' }>).throughMessageId, 'a4')
+})
+
+test('a request the model says is too long is compacted and sent once more', async () => {
+  const server = await setup((body, i) => {
+    if (i === 0) return { status: 400, body: JSON.stringify({ error: { message: "This model's maximum context length is 8192 tokens. However, your messages resulted in 9120 tokens." } }) }
+    return isSummaryRequest(body) ? say('Goals: four questions, all answered.') : say('answer')
+  })
+  const events: StreamEvent[] = []
+  const outcome = await runAgent(request({ mode: 'chat', history: longHistory() }), (e) => events.push(e))
+  server.server.close()
+
+  assert.equal(server.requests.length, 3, 'the turn, the summary, the turn again')
+  assert.equal(outcome.error, undefined)
+  assert.equal(outcome.text, 'answer')
+  assert.ok(!events.some((e) => e.type === 'error'), 'the overflow never reached the chat')
+  assert.equal(compacting(events).at(-1)?.state, 'done')
+  const resent = (server.requests[2] as unknown as Body).messages.map((m) => String(m.content))
+  assert.ok(resent.some((m) => m.includes('Summary of the conversation so far:\nGoals: four questions')), 'sent with the summary')
+  assert.ok(!resent.some((m) => m.includes('word word word')), 'and without the long messages')
+})
+
+test('with auto-compact off, a request that is too long fails as it is', async () => {
+  store.patchSettings({ context: { autoCompact: false } })
+  try {
+    const server = await setup(() => ({ status: 400, body: JSON.stringify({ error: { message: 'prompt is too long: 215000 tokens > 200000 maximum' } }) }))
+    const events: StreamEvent[] = []
+    const outcome = await runAgent(request({ mode: 'chat', history: longHistory() }), (e) => events.push(e))
+    server.server.close()
+    assert.equal(server.requests.length, 1)
+    assert.match(outcome.error ?? '', /too long/)
+    assert.equal(compacting(events).length, 0)
+  } finally {
+    store.patchSettings({ context: { autoCompact: true } })
+  }
+})
+
+test('a summary that fails leaves the conversation as it was and says so', async () => {
+  const server = await setup((body) => (isSummaryRequest(body) ? { status: 400, body: JSON.stringify({ error: { message: 'summary refused' } }) } : say('answer')))
+  store.saveProviderConfig({
+    fake: { name: 'Fake', kind: 'openai-compatible', baseUrl: server.url, models: [{ id: 'fake-model', label: 'Fake', providerId: 'fake', contextWindow: 2000 }] }
+  })
+  const events: StreamEvent[] = []
+  const outcome = await runAgent(request({ mode: 'chat', history: longHistory() }), (e) => events.push(e))
+  server.server.close()
+  assert.equal(compacting(events).at(-1)?.state, 'failed')
+  assert.ok(!events.some((e) => e.type === 'compacted'))
+  assert.equal(outcome.text, 'answer', 'the turn went on with the full conversation')
+})
+
 test('a repeated call id is made unique, so each result lands on its own call', async () => {
   // Several local runtimes number calls per response ("call_0") or derive
   // the id from the call itself, so the same call made twice repeats its id.

@@ -56,6 +56,7 @@ import { sentPrompts } from '../state/chatEdits'
 import { enqueue, holdQueue, watchQueue } from '../state/queue'
 import { QueuedMessages } from './chat/QueuedMessages'
 import { ContextMeter } from './chat/ContextMeter'
+import { CompactionStrip } from './chat/CompactionStrip'
 import { typingElsewhere, useHoldToTalk } from './composer/useHoldToTalk'
 import { SpeechSetup } from './composer/SpeechSetup'
 import { holdKeyLabel } from '@shared/holdKey'
@@ -646,6 +647,8 @@ export const Composer = memo(function Composer({ variant = 'home' }: { variant?:
       {dictation.needsSetup && <SpeechSetup holdKey={hold.enabled ? hold.key : null} onClose={dictation.dismissError} />}
       {/* Another chat stopped to ask: here, not in a dialog over this one. */}
       <ElsewhereAsk />
+      {/* This chat's older messages being summarised to make room. */}
+      {variant === 'chat' && draftId && <CompactionStrip chatId={draftId} />}
       {/* In a conversation the folder, branch and changes are in the workspace card beside it. */}
       {isAgent && variant !== 'chat' && (
         <div className="composer__above">

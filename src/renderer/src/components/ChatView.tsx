@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, memo, useMemo } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore, memo, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { useShallow } from 'zustand/react/shallow'
 import {
@@ -431,17 +431,25 @@ function Conversation({ chat }: { chat: Chat }): JSX.Element {
       >
         <div className="thread__inner">
           {chat.messages.map((message) => (
-            <RowBoundary key={message.id} item={message}>
-              <MessageRow
-                message={message}
-                streaming={message.id === streamingMessageId || remoteStreaming.includes(message.id)}
-                chatActions
-                last={message.id === lastReplyId}
-                canRetry={message.id === lastReplyId && !streaming}
-                canEdit={!streaming}
-                fresh={!opened.current.ids.has(message.id)}
-              />
-            </RowBoundary>
+            <Fragment key={message.id}>
+              <RowBoundary item={message}>
+                <MessageRow
+                  message={message}
+                  streaming={message.id === streamingMessageId || remoteStreaming.includes(message.id)}
+                  chatActions
+                  last={message.id === lastReplyId}
+                  canRetry={message.id === lastReplyId && !streaming}
+                  canEdit={!streaming}
+                  fresh={!opened.current.ids.has(message.id)}
+                />
+              </RowBoundary>
+              {/* Where the chat was last compacted: the model works from a summary of what's above. */}
+              {message.id === chat.summary?.throughMessageId && (
+                <div className="thread-compacted" role="note">
+                  <span>Auto-compacted · the model now sees a summary of the messages above</span>
+                </div>
+              )}
+            </Fragment>
           ))}
         </div>
       </div>

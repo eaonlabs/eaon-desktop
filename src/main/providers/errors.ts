@@ -128,6 +128,23 @@ export function isCertificateError(error: unknown): boolean {
   return (f.code !== undefined && CERT_CODE.test(f.code)) || (!f.status && CERT_TEXT.test(f.text))
 }
 
+/**
+ * The request was longer than the model takes. Eaon's own count is an
+ * estimate, so a long chat can still get here; the loop then summarises the
+ * older messages and sends it again. Each provider words it its own way:
+ * Anthropic "prompt is too long", OpenAI and OpenRouter "maximum context
+ * length is", Gemini "input token count … exceeds", Mistral "too large for
+ * model with … maximum context length", llama.cpp "exceeds the available
+ * context size", Ollama and LM Studio "context length/window … exceeded".
+ */
+const CONTEXT_OVERFLOW =
+  /context_length_exceeded|prompt is too long|maximum context length|input token count.{0,40}exceeds|too large for model with|exceeds? (the )?(available |model'?s? )?context (size|window|length)|context (window|length|size).{0,40}(exceeded|too (long|large|small))|reduce the length of the (messages|input|prompt)/i
+
+export function isContextOverflow(error: unknown): boolean {
+  const f = facts(error)
+  return (f.status === undefined || f.status === 400 || f.status === 413 || f.status === 422) && CONTEXT_OVERFLOW.test(f.text)
+}
+
 /** The host to name to an IT team: "api.openai.com". */
 const hostOf = (url: string): string => {
   try {
