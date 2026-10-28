@@ -170,7 +170,10 @@ export interface UsageModelRow extends UsageCounts {
 
 export interface UsageSync {
   state: 'idle' | 'syncing' | 'error'
-  /** When the last upload Tokn accepted finished. */
+  /**
+   * When the profile last took this computer's usage: Eaon's own upload, or
+   * the tokn command's sync of the coding CLIs, whichever was later.
+   */
   at: string | null
   accepted?: number
   /** Rows Tokn turned down (a model it has no price for yet). */
@@ -242,5 +245,11 @@ export interface UsageSummary {
   calendar: UsageDay[]
   /** Active days and streaks count Claude Code and Codex days too. */
   activity: UsageActivity
+  /**
+   * Where `calendar` and `activity` come from: signed in, the Tokn profile,
+   * as toknhq.com shows it (every computer and tool, priced by Tokn), read
+   * at `at`; otherwise this computer's own counts.
+   */
+  activityFrom: { source: 'tokn'; at: number } | { source: 'local' }
   agents: UsageAgents
 }

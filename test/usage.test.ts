@@ -1,4 +1,7 @@
 import { test } from 'node:test'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import type { Provider } from '@shared/types'
@@ -19,6 +22,9 @@ import { store } from '../src/main/store'
  */
 
 process.env.EAON_TOKN_HOST = 'https://tokn.test'
+// tokn's own config, which Sync now and the Synced time read: never this computer's real one.
+const toknConfigDir = mkdtempSync(join(tmpdir(), 'eaon-usage-tokn-'))
+process.env.TOKN_CONFIG_DIR = toknConfigDir
 
 const PRICING: ToknPricing = {
   'claude-opus-5': { input: 5, output: 25, cacheRead: 0.5, cacheWrite: 6.25 },
@@ -300,6 +306,7 @@ test('Settings → Usage: signing in uploads what was counted, and the summary s
     }
     if (url === 'https://tokn.test/api/cli/pricing') return json({ models: PRICING })
     if (url === 'https://tokn.test/api/cli/me') return json({ user: { id: 'u_3', handle: 'grace' } })
+    if (url === 'https://tokn.test/api/cli/profile') return json({ stats: { byDay: [] } })
     return undefined
   })
   const handlers = new Map<string, (...args: unknown[]) => unknown>()
@@ -337,6 +344,81 @@ test('Settings → Usage: signing in uploads what was counted, and the summary s
     assert.equal(((await handlers.get('usage:summary')!(null, 7)) as UsageSummary).account, null)
   } finally {
     restore()
+    delete hooks.__eaonOpenExternal
+    usageFeature.dispose?.()
+  }
+})
+
+test('signed in, the activity calendar and streaks are the Tokn profile’s, and Synced counts the tokn command’s sync', async () => {
+  await signOut()
+  resetLedgerForTests()
+  store.setJson('usage-ledger.json', {})
+  store.setJson('tokn-profile.json', {})
+  store.setJson('tokn-pricing.json', { fetchedAt: Date.now(), models: PRICING })
+  resetLedgerForTests()
+  const day = (back: number): string => localDay(new Date(Date.now() - back * 86_400_000))
+  // What toknhq.com has: Claude Code days from the tokn command, which this computer's Eaon never saw.
+  const byDay = [3, 2, 1].map((back) => ({ day: day(back), cost: 10 * back, tokens: 1_000_000 * back, requests: 100 * back }))
+  let profileReads = 0
+  const restore = withFetch((url) => {
+    if (url === 'https://tokn.test/api/oauth/token') return json({ access_token: 'tok_profile', user: { id: 'u_4', handle: 'ada' } })
+    if (url === 'https://tokn.test/api/cli/profile') {
+      profileReads++
+      return json({ user: { handle: 'ada' }, stats: { byDay, totals: {} } })
+    }
+    if (url === 'https://tokn.test/api/cli/sync') return json({ accepted: 0 })
+    if (url === 'https://tokn.test/api/cli/pricing') return json({ models: PRICING })
+    if (url === 'https://tokn.test/api/cli/me') return json({ user: { id: 'u_4', handle: 'ada' } })
+    return undefined
+  })
+  const handlers = new Map<string, (...args: unknown[]) => unknown>()
+  const hooks = globalThis as { __eaonOpenExternal?: (url: string) => void }
+  hooks.__eaonOpenExternal = approve('c-profile')
+  usageFeature.register({
+    ipcMain: { handle: (channel: string, handler: (...args: unknown[]) => unknown) => handlers.set(channel, handler) },
+    getWindow: () => null,
+    getWindows: () => [],
+    send: () => {},
+    emitStream: () => {}
+  } as unknown as FeatureContext)
+  const summary = async (): Promise<UsageSummary> => (await handlers.get('usage:summary')!(null, 7)) as UsageSummary
+  try {
+    await handlers.get('usage:sign-in')!()
+    // Signing in syncs, and a sync reads the profile again.
+    let shown = await summary()
+    for (let i = 0; i < 50 && shown.activityFrom.source !== 'tokn'; i++) {
+      await new Promise((r) => setTimeout(r, 20))
+      shown = await summary()
+    }
+    assert.equal(shown.activityFrom.source, 'tokn')
+    assert.equal(shown.activity.activeDays, 3)
+    assert.equal(shown.activity.currentStreak, 3, 'through yesterday: today isn’t over')
+    assert.equal(shown.activity.allTime.costUsd, 60)
+    assert.equal(shown.activity.busiest?.day, day(3))
+    assert.equal(shown.calendar.find((d) => d.day === day(2))?.tokens, 2_000_000)
+    assert.equal(shown.today.requests, 0, 'the tiles for the range stay this computer’s')
+
+    // A fresh copy isn't read again for every summary.
+    const reads = profileReads
+    await summary()
+    await summary()
+    assert.equal(profileReads, reads)
+
+    // The tokn command synced after Eaon did: that's when the profile last took this computer's use.
+    const eaonAt = shown.sync.at!
+    const later = new Date(Date.parse(eaonAt) + 60_000).toISOString()
+    writeFileSync(join(toknConfigDir, 'config.json'), JSON.stringify({ token: 'tokn_device', user: { handle: 'ada' }, lastSyncAt: later }))
+    assert.equal((await summary()).sync.at, later)
+    // Linked to someone else: not this profile's sync.
+    writeFileSync(join(toknConfigDir, 'config.json'), JSON.stringify({ token: 'tokn_device', user: { handle: 'someone-else' }, lastSyncAt: later }))
+    assert.equal((await summary()).sync.at, eaonAt)
+
+    // Signed out: this computer's own counts again.
+    await handlers.get('usage:sign-out')!()
+    assert.equal((await summary()).activityFrom.source, 'local')
+  } finally {
+    restore()
+    rmSync(join(toknConfigDir, 'config.json'), { force: true })
     delete hooks.__eaonOpenExternal
     usageFeature.dispose?.()
   }

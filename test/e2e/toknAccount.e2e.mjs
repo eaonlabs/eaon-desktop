@@ -86,6 +86,10 @@ scenario('Account: sign in with Tokn from Settings, open the profile, see Claude
     const summary = await page.eval(() => window.api.usage.summary(7))
     assert.equal(summary.chart.at(-1).tools['claude-code'].requests, 2)
     assert.ok(summary.activity.activeDays >= 1, 'a day of Claude Code is an active day')
+    // The calendar and streaks are the profile's, as toknhq.com shows them.
+    await page.waitFor(async () => (await window.api.usage.summary(7)).activityFrom.source === 'tokn', { message: 'the profile to be read from Tokn' })
+    assert.equal((await page.eval(() => window.api.usage.summary(7))).activity.allTime.requests, 9)
+    await page.find('.usage-heat__foot', { text: 'Your Tokn profile' })
     assert.equal(summary.totals.requests, 3, 'Eaon’s own tiles stay Eaon’s')
     assert.equal(summary.chart.at(-1).requests, 5, 'the chart has both')
     await page.eval(() => document.querySelector('.usage-chart__legend')?.scrollIntoView({ block: 'center' }))

@@ -76,7 +76,8 @@ export function UsageActivity({
   priced,
   range,
   money,
-  tokens
+  tokens,
+  fromTokn = false
 }: {
   days: UsageDay[]
   activity: Activity
@@ -85,6 +86,8 @@ export function UsageActivity({
   range: number
   money: (usd: number) => string
   tokens: (n: number) => string
+  /** The calendar and the tiles are the Tokn profile's (every computer and tool), not this computer's. */
+  fromTokn?: boolean
 }): JSX.Element {
   const [metric, setMetric] = useState<Metric>(() => savedMetric(priced))
   const [hover, setHover] = useState<number | null>(null)
@@ -179,7 +182,11 @@ export function UsageActivity({
         </div>
 
         <div className="usage-heat__foot">
-          <span>{activity.firstDay ? `Counting since ${shortDay(activity.firstDay)}` : 'Nothing counted yet'}</span>
+          <span>
+            {activity.firstDay
+              ? `${fromTokn ? 'Your Tokn profile, every computer and tool, since' : 'Counting since'} ${shortDay(activity.firstDay)}`
+              : 'Nothing counted yet'}
+          </span>
           <span className="usage-heat__legend" aria-hidden="true">
             Less
             {[0, 1, 2, 3, 4].map((level) => (

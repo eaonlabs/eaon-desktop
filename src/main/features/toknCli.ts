@@ -84,6 +84,28 @@ function linkedAs(): { handle: string } | null {
   }
 }
 
+/**
+ * When tokn last published, and as whom, from its own config. A tokn from
+ * npm shares the config, so its own scheduled syncs count too.
+ */
+export function toknCliLastSync(): { handle: string; at: string } | null {
+  try {
+    const config = JSON.parse(readFileSync(configFile(), 'utf8')) as { token?: unknown; user?: { handle?: unknown }; lastSyncAt?: unknown }
+    if (typeof config.token !== 'string' || !config.token) return null
+    if (typeof config.lastSyncAt !== 'string' || Number.isNaN(Date.parse(config.lastSyncAt))) return null
+    return { handle: typeof config.user?.handle === 'string' ? config.user.handle : '', at: config.lastSyncAt }
+  } catch {
+    return null
+  }
+}
+
+const syncedListeners = new Set<() => void>()
+/** Told after each `tokn sync` that went through, so Settings → Usage reads the profile again. */
+export function onToknCliSynced(listener: () => void): () => void {
+  syncedListeners.add(listener)
+  return () => syncedListeners.delete(listener)
+}
+
 const windows = process.platform === 'win32'
 const launcherName = windows ? 'tokn.cmd' : 'tokn'
 
@@ -292,6 +314,7 @@ export async function syncToknCli(): Promise<ToknCliStatus> {
   const nothing = /nothing to sync|no claude sessions/i.test(result.output)
   activity = { state: 'idle', at: Date.now(), error: result.code === 0 || nothing ? null : lastLine(result.output) || 'tokn sync didn’t finish.' }
   changed()
+  if (!activity.error) syncedListeners.forEach((listener) => listener())
   return toknCliStatus()
 }
 

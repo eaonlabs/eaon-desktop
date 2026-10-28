@@ -5,6 +5,10 @@ All notable changes to Eaon are documented here. Format loosely follows
 
 ## [Unreleased]
 
+### Fixed
+- **Settings → Usage matches your Tokn profile.** Signed in, the activity calendar, active days, streaks, busiest day and all-time total come from your Tokn profile, as toknhq.com draws them: every computer and tool, priced by Tokn. Before, they were this computer's own count, which left out other computers and Claude Desktop, Copilot CLI and opencode, and priced things differently.
+- **"Synced" no longer looks stuck.** It showed only Eaon's own upload, which happens after you use Eaon's models, so a day in Claude Code read "Synced 18 h ago" while the tokn command had published an hour before. It now shows whichever was later. Sync now also runs the tokn command's sync, then reads the profile again.
+
 ### Changed
 - **Tokn tracks the coding CLIs by default.** Once Eaon is signed in to Tokn, the tokn command that comes with Eaon links to the same account and publishes Claude Code, Claude Desktop, Codex, Copilot CLI and opencode usage every hour, wherever you signed in (before, only the setup's switch turned it on). Daily totals only, never prompts or code. Settings → Usage → Track the coding CLIs too turns it off. Anyone already signed in with it off keeps it off.
 
