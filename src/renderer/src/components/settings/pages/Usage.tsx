@@ -151,7 +151,8 @@ function SignedOut({ summary }: { summary: UsageSummary }): JSX.Element {
             <div className="usage-hero__title">Sign in with Tokn</div>
             <p className="usage-hero__body">
               Tokn tracks what AI coding costs across your tools, and your Tokn account is your Eaon account. Signing in shows
-              your Eaon usage here and keeps your profile on toknhq.com up to date.
+              your Eaon usage here and keeps your profile on toknhq.com up to date, with Claude Code, Codex and your other coding
+              CLIs counted too (turn that off below). Daily totals only, never your prompts or code.
             </p>
             <div className="usage-hero__actions">
               {pending ? (
@@ -215,6 +216,7 @@ function SignedOut({ summary }: { summary: UsageSummary }): JSX.Element {
 }
 
 function WhatIsSent(): JSX.Element {
+  const clis = useApp((s) => s.settings?.toknCli.sync ?? false)
   return (
     <Section label="What Tokn gets">
       <Card>
@@ -230,6 +232,12 @@ function WhatIsSent(): JSX.Element {
           title="Daily agent counts"
           description="How many agent runs Eaon made each day, how long they worked and the longest one. Never what they worked on."
         />
+        {clis && (
+          <Row
+            title="The coding CLIs’ daily totals"
+            description="From Claude Code, Claude Desktop, Codex, Copilot CLI and opencode’s own logs, through the tokn command: tokens and cost per model per day. Never prompts, code, file or project names."
+          />
+        )}
         <Row title="Nothing from models on this computer" description="Local models are free, so their requests and tokens stay here and are never uploaded." />
       </Card>
     </Section>

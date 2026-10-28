@@ -23,10 +23,12 @@ import { requestLinkCode, toknAccount, toknHost } from './usage/tokn'
  * launcher is rewritten when Eaon moves or updates, and removed when
  * Settings turns it off.
  *
- * Linking: with Eaon signed in to Tokn and the person's yes (the setup, or
- * Settings → Usage), Eaon asks Tokn for a one-time link code and runs
- * `tokn link --code`; the command gets its own token, as if it had been
- * linked by hand. Then `tokn sync` runs every hour while Eaon is open.
+ * Linking: once Eaon is signed in to Tokn, unless tracking the coding CLIs
+ * was turned off (the setup, or Settings → Usage), Eaon asks Tokn for a
+ * one-time link code and runs `tokn link --code`; the command gets its own
+ * token, as if it had been linked by hand. Then `tokn sync` runs every hour
+ * while Eaon is open. tokn reads the CLIs' own logs, so what they used while
+ * Eaon was closed is counted at the next sync.
  *
  * Channels (all `tokn-cli:`): `status`, `link`, `sync`, and the `changed` event.
  */
@@ -316,9 +318,20 @@ export async function applyToknCliSettings(): Promise<ToknCliStatus> {
   return toknCliStatus()
 }
 
-/** Eaon just signed in to Tokn: link the command too, if the person said yes to that. */
+/** Eaon just signed in to Tokn: link the command too, unless tracking the coding CLIs is off. */
 export function afterToknSignIn(): void {
   if (settings().sync) void linkToknCli()
+}
+
+/**
+ * Migration 5: tracking the coding CLIs went from asked-for to on
+ * by default. A profile from before has it off unless the setup's switch was
+ * used while signed in, so it is turned on, except where Eaon is signed in
+ * to Tokn already: off there may have been the person's no, and stays.
+ */
+export function trackCodingClisByDefault(): void {
+  if (settings().sync || toknAccount()) return
+  store.patchSettings({ toknCli: { ...settings(), sync: true } })
 }
 
 export const toknCliFeature: Feature = {
@@ -330,6 +343,8 @@ export const toknCliFeature: Feature = {
     if (process.env.EAON_TOKN_CLI !== 'off') {
       installed = adoptLoginShellPath().then(() => {
         if (settings().install) installLauncher()
+        // Signed in, tracking on, and not linked yet (a link that failed last time): link now.
+        if (settings().sync && toknAccount() && !linkedAs()) void linkToknCli()
       })
       schedule()
     }

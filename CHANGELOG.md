@@ -3,6 +3,11 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [Unreleased]
+
+### Changed
+- **Tokn tracks the coding CLIs by default.** Once Eaon is signed in to Tokn, the tokn command that comes with Eaon links to the same account and publishes Claude Code, Claude Desktop, Codex, Copilot CLI and opencode usage every hour, wherever you signed in (before, only the setup's switch turned it on). Daily totals only, never prompts or code. Settings → Usage → Track the coding CLIs too turns it off. Anyone already signed in with it off keeps it off.
+
 ## [2026.7.1] — 2026-10-26
 
 2026.7.0's fixes for copies that installed it before them, as an update:
