@@ -9,8 +9,9 @@
 # Unsigned unless asked for: run it by hand with "Sign with Azure" ticked to
 # sign with Azure Artifact Signing (account eaonsigning, profile eaon-public).
 # Off by default because an individual's certificate carries the signer's
-# city, state and country (CN=Vishnu Chada, L=San Ramon, S=ca, C=US), and
-# Windows shows them as the publisher. When on, the runner signs in to Azure
+# name, city, state and country, and Windows shows them as the publisher. The
+# name (the certificate's CN) is the secret EAON_WINDOWS_PUBLISHER, so it isn't
+# in this public file or the run's log. When on, the runner signs in to Azure
 # with GitHub's OIDC token through the app registration eaon-windows-signing,
 # whose federated credential trusts this repository's `windows-signing`
 # environment only; no secret is stored.
@@ -24,7 +25,7 @@ on:
   workflow_dispatch:
     inputs:
       sign:
-        description: Sign with Azure (the certificate shows Vishnu Chada, San Ramon, CA, US as the publisher)
+        description: Sign with Azure (Windows then shows the certificate's personal name and city as the publisher)
         type: boolean
         default: false
 
@@ -102,14 +103,18 @@ jobs:
         env:
           EAON_GATEWAY_APP_ID: ${{ secrets.EAON_GATEWAY_APP_ID }}
           EAON_GATEWAY_APP_SECRET: ${{ secrets.EAON_GATEWAY_APP_SECRET }}
+          PUBLISHER: ${{ secrets.EAON_WINDOWS_PUBLISHER }}
         shell: bash
         run: |
+          if [ "$SIGN" = "true" ] && [ -z "$PUBLISHER" ]; then
+            echo "::error::Signing needs the secret EAON_WINDOWS_PUBLISHER: the certificate's CN, its signer's name."; exit 1
+          fi
           npx electron-vite build
           node scripts/build-host.mjs
           if [ "$SIGN" = "true" ]; then
             npx electron-builder --win --publish never \
               -c.win.signAndEditExecutable=true \
-              -c.win.azureSignOptions.publisherName="Vishnu Chada" \
+              -c.win.azureSignOptions.publisherName="$PUBLISHER" \
               -c.win.azureSignOptions.endpoint=https://eus.codesigning.azure.net/ \
               -c.win.azureSignOptions.codeSigningAccountName=eaonsigning \
               -c.win.azureSignOptions.certificateProfileName=eaon-public
@@ -120,12 +125,15 @@ jobs:
       - name: Check the signature
         if: env.SIGN == 'true'
         shell: pwsh
+        env:
+          PUBLISHER: ${{ secrets.EAON_WINDOWS_PUBLISHER }}
         run: |
           foreach ($file in @((Get-ChildItem dist\*-setup.exe | Select-Object -First 1).FullName, 'dist\win-unpacked\Eaon.exe', 'dist\win-arm64-unpacked\Eaon.exe')) {
             if (-not (Test-Path $file)) { continue }
             $sig = Get-AuthenticodeSignature $file
-            Write-Host "$file : $($sig.Status) by $($sig.SignerCertificate.Subject)"
-            if ($sig.Status -ne 'Valid' -or $sig.SignerCertificate.Subject -notmatch 'CN=Vishnu Chada') { throw "$file is not signed by Vishnu Chada" }
+            # The status only: the certificate's subject names the signer's city.
+            Write-Host "$file : $($sig.Status)"
+            if ($sig.Status -ne 'Valid' -or -not $sig.SignerCertificate.Subject.StartsWith("CN=$env:PUBLISHER,")) { throw "$file is not signed by the expected certificate" }
           }
 
       # Like the Linux installers: onto the release for this version, once.

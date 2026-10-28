@@ -81,6 +81,12 @@ for patch in "$ROOT"/native/llama-patches/*.patch; do
 done
 revision="$(git -C "$SRC" rev-parse --short HEAD)"
 
+# Source paths baked into the binary (its assert and abort messages name
+# the file) start at the checkout, not at the builder's home folder.
+# Quoted inside the flag: CMake splits its flags at spaces, and the
+# checkout can be in a folder like "Eaon Desktop".
+prefix_map="-ffile-prefix-map=\"$SRC\"=."
+
 for arch in $archs; do
   platform=darwin
   osx=(-DCMAKE_OSX_DEPLOYMENT_TARGET=13.3)
@@ -99,6 +105,7 @@ for arch in $archs; do
   [ "$platform" = darwin ] && osx+=(-DCMAKE_OSX_ARCHITECTURES="$cmake_arch")
   cmake -S "$SRC" -B "$build" \
     -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_C_FLAGS="$prefix_map" -DCMAKE_CXX_FLAGS="$prefix_map" -DCMAKE_OBJC_FLAGS="$prefix_map" \
     ${osx[@]+"${osx[@]}"} \
     -DBUILD_SHARED_LIBS=OFF \
     -DGGML_NATIVE=OFF \
