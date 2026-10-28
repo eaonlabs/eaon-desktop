@@ -6,7 +6,8 @@ import { join } from 'node:path'
 import { app, powerSaveBlocker } from 'electron'
 import type { GoalState, ModelInfo, Provider, Settings, StreamEvent, StreamRequest, TokenUsage } from '@shared/types'
 import { adapterFor, getProvider, noteProviderHealth } from '../providers'
-import { classifyProviderError } from '../providers/errors'
+import { classifyProviderError, isContextOverflow } from '../providers/errors'
+import { compactionProgress, expectedSummaryChars } from '@shared/compaction'
 import { targetsPrivateNetwork } from '../netGuard'
 import { hideEaonAddress } from '../eaonAddress'
 import { findModel } from '@shared/modelSelection'
@@ -728,19 +729,51 @@ async function compact(
   params: Omit<LoopParams, 'system' | 'tools' | 'messages' | 'maxRounds' | 'goal'>,
   messages: NeutralMessage[],
   window: number,
-  usage: TokenUsage
+  usage: TokenUsage,
+  onProgress: (progress: number) => void = () => {}
 ): Promise<string> {
   const attempts = await credentialAttempts(params.provider)
   const transcript = transcriptText(messages, Math.floor(window * 0.5 * 3.6))
-  const result = await callModel(
-    { ...params, system: COMPACTION_PROMPT, tools: [], messages: [], maxRounds: 1, goal: null, onText: () => {}, onReasoning: () => {} } as LoopParams,
-    attempts,
-    [{ role: 'user', text: `${transcript}\n\n---\nWrite the summary now.` }],
-    () => {}
-  )
-  // The summary request reads up to half the window; it is part of what the turn cost.
-  addUsage(usage, result.usage)
-  return result.text.trim()
+  // Told in whole percents, and only forwards: a tick while the model reads,
+  // and each arriving piece of the summary (shared/compaction.ts).
+  const expected = expectedSummaryChars(transcript.length)
+  const started = Date.now()
+  let written = 0
+  let told = -1
+  const report = (): void => {
+    const percent = Math.floor(compactionProgress(Date.now() - started, written, expected) * 100)
+    if (percent > told) {
+      told = percent
+      onProgress(percent / 100)
+    }
+  }
+  report()
+  const ticker = setInterval(report, 250)
+  try {
+    const result = await callModel(
+      {
+        ...params,
+        system: COMPACTION_PROMPT,
+        tools: [],
+        messages: [],
+        maxRounds: 1,
+        goal: null,
+        onText: (delta: string) => {
+          written += delta.length
+          report()
+        },
+        onReasoning: () => {}
+      } as LoopParams,
+      attempts,
+      [{ role: 'user', text: `${transcript}\n\n---\nWrite the summary now.` }],
+      () => {}
+    )
+    // The summary request reads up to half the window; it is part of what the turn cost.
+    addUsage(usage, result.usage)
+    return result.text.trim()
+  } finally {
+    clearInterval(ticker)
+  }
 }
 
 /* ------------------------------------------------------------- entry point */
@@ -873,6 +906,13 @@ async function runOwnLoop(request: StreamRequest, emit: (event: StreamEvent) => 
   if (request.goal?.status === 'active' && request.goal.until) untilRuns.add(request.messageId)
   holdAwake()
   let text = ''
+  // Whether a tool has been called this turn: a turn sent again after
+  // compacting must not run a call twice.
+  let called = false
+  const emitTurn = (event: StreamEvent): void => {
+    if (event.type === 'tool-call') called = true
+    emit(event)
+  }
 
   try {
     // Stopped while the run was being set up: end it here, as cancelled.
@@ -918,7 +958,7 @@ async function runOwnLoop(request: StreamRequest, emit: (event: StreamEvent) => 
       readOnly,
       settings,
       signal: controller.signal,
-      emit,
+      emit: emitTurn,
       // A tool still finishing after Stop (see unlessAborted) may ask late;
       // the answer is no, and the dialog is never shown.
       // Interactive turns follow the permission picker as it changes; a
@@ -940,33 +980,59 @@ async function runOwnLoop(request: StreamRequest, emit: (event: StreamEvent) => 
       onReasoning: (delta: string) => emit({ type: 'reasoning', messageId: request.messageId, text: delta })
     }
 
-    // Compact before sending when this request would crowd the window.
-    const overhead = estimateTokens(system) + estimateTokens(JSON.stringify(tools.map(toSpec)))
-    if (
-      !raw &&
-      // A worker's thread never ends, so it always compacts whatever the
-      // chat setting says — otherwise it would outgrow the model and stop.
-      (settings.context.autoCompact || Boolean(request.workerId)) &&
-      messages.length >= 6 &&
-      overhead + estimateMessages(messages) > window * settings.context.compactAt
-    ) {
+    // A worker's thread never ends, so it always compacts whatever the chat
+    // setting says — otherwise it would outgrow the model and stop.
+    const mayCompact = !raw && (settings.context.autoCompact || Boolean(request.workerId))
+    let compacted = false
+    /**
+     * Replaces everything before the newest message with a summary, telling
+     * the strip above the message box how far it has got. A summary that
+     * fails leaves the conversation as it was; the turn goes on without it.
+     */
+    const compactNow = async (): Promise<boolean> => {
       const last = messages[messages.length - 1]
       const older = messages.slice(0, -1)
-      const throughIndex = built.sourceIds.length - 2
-      const throughMessageId = built.sourceIds[throughIndex]
-      base.onReasoning('\nCompacting earlier conversation to save tokens…\n')
-      const summary = await compact(base, older, window, usage)
-      if (summary && throughMessageId && throughMessageId !== 'summary' && throughMessageId !== 'placeholder') {
-        emit({ type: 'compacted', messageId: request.messageId, chatId: request.chatId, summary, throughMessageId })
-        messages = [{ role: 'user', text: `Summary of the conversation so far:\n${summary}` }, last]
+      const throughMessageId = built.sourceIds[built.sourceIds.length - 2]
+      const covered = Math.max(1, request.history.length - 1)
+      const tell = (progress: number, state: 'running' | 'done' | 'failed'): void =>
+        emit({ type: 'compacting', messageId: request.messageId, chatId: request.chatId, progress, state, covered })
+      let summary = ''
+      try {
+        summary = await compact(base, older, window, usage, (progress) => tell(progress, 'running'))
+      } catch (error) {
+        if (controller.signal.aborted) throw error
       }
+      if (!summary) {
+        tell(0, 'failed')
+        return false
+      }
+      tell(1, 'done')
+      if (throughMessageId && throughMessageId !== 'summary' && throughMessageId !== 'placeholder') {
+        emit({ type: 'compacted', messageId: request.messageId, chatId: request.chatId, summary, throughMessageId })
+      }
+      messages = [{ role: 'user', text: `Summary of the conversation so far:\n${summary}` }, last]
+      compacted = true
+      return true
     }
+
+    // Compact before sending when this request would crowd the window.
+    const overhead = estimateTokens(system) + estimateTokens(JSON.stringify(tools.map(toSpec)))
+    if (mayCompact && messages.length >= 6 && overhead + estimateMessages(messages) > window * settings.context.compactAt) await compactNow()
 
     // A goal with an end time is bounded by that time; the usual round cap would end it hours early.
     const runsUntil = request.goal?.status === 'active' && request.goal.until && request.goal.until > Date.now()
     const maxRounds = raw ? 1 : mode === 'chat' ? 8 : runsUntil ? 10_000 : Math.min(Math.max(settings.codeIndex.maxToolRounds || 40, 1), 200)
     // The loop adds into `usage` as it goes, so a stopped or failed run still reports what it spent.
-    const outcome = await runLoop({ ...base, system, tools, messages, maxRounds, goal: request.goal, usage })
+    let outcome: LoopOutcome
+    try {
+      outcome = await runLoop({ ...base, system, tools, messages, maxRounds, goal: request.goal, usage })
+    } catch (error) {
+      // Eaon's count is an estimate: when the model says the request is too
+      // long before any of the turn has happened, summarise and send it once more.
+      if (!mayCompact || compacted || text || called || controller.signal.aborted || messages.length < 2 || !isContextOverflow(error)) throw error
+      if (!(await compactNow())) throw error
+      outcome = await runLoop({ ...base, system, tools, messages, maxRounds, goal: request.goal, usage })
+    }
     // The provider answered: a failed check from before (a key since fixed) no longer applies.
     if (provider.health && !provider.health.ok) noteProviderHealth(provider.id, null)
     emit({ type: 'done', messageId: request.messageId })

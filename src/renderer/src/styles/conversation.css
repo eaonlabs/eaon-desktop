@@ -203,6 +203,135 @@
   color: var(--text);
 }
 
+/* ---- Compaction (chat/Compaction.tsx) --------------------------------
+   While it runs: a line in the conversation where the reply will appear,
+   in the same grey shimmer as "Thinking", with a hairline bar under it.
+   After: a rule where the summary starts, which opens to the summary. */
+
+.compaction {
+  max-width: 440px;
+  margin: 4px 0 18px;
+  animation: ask-row-in 220ms var(--ease) both;
+  transition:
+    opacity 200ms var(--ease),
+    transform 200ms var(--ease);
+}
+.compaction[data-leaving] {
+  opacity: 0;
+  transform: translateY(-2px);
+}
+/* While it runs, the reply hasn't started: its empty "Working… Thinking" row waits. */
+.compaction[data-state='running'] + * {
+  display: none;
+}
+.compaction__line {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  font-size: var(--fs-sm);
+  line-height: 1.5;
+}
+.compaction__label {
+  min-width: 0;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.compaction__percent {
+  flex: none;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.compaction__bar {
+  position: relative;
+  height: 2px;
+  margin-top: 8px;
+  overflow: hidden;
+  border-radius: var(--r-pill);
+  background: var(--hover-strong);
+}
+.compaction__bar > span {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: var(--text-2);
+  transform-origin: left center;
+  transition: transform 360ms var(--ease);
+}
+.compaction__detail {
+  margin: 2px 0 0;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+}
+@media (prefers-reduced-motion: reduce) {
+  .compaction {
+    animation: none;
+  }
+  .compaction__bar > span {
+    transition: none;
+  }
+}
+
+.thread-compacted {
+  margin: 10px 0 22px;
+}
+.thread-compacted__rule {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.thread-compacted__rule::before,
+.thread-compacted__rule::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+.thread-compacted__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: var(--r-pill);
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  transition:
+    color var(--dur) var(--ease),
+    background-color var(--dur) var(--ease);
+}
+.thread-compacted__toggle:hover {
+  color: var(--text-2);
+  background: var(--hover);
+}
+.thread-compacted__toggle > svg {
+  transition: transform var(--dur) var(--ease);
+}
+.thread-compacted[data-open] .thread-compacted__toggle > svg {
+  transform: rotate(180deg);
+}
+/* Opened on purpose, so shown whole: a box that scrolls inside the conversation's own scroll is fiddly. */
+.thread-compacted__summary {
+  margin-top: 10px;
+  padding: 12px 14px;
+  border-radius: var(--r-lg);
+  background: var(--hover);
+  box-shadow: 0 0 0 1px var(--border-soft);
+  color: var(--text-2);
+  font-size: var(--fs-sm);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  animation: ask-row-in 180ms var(--ease) both;
+}
+.thread-compacted__caption {
+  margin-bottom: 8px;
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  white-space: normal;
+}
+
 /* ---- Editing a message -------------------------------------------- */
 
 .composer-editing {

@@ -77,6 +77,12 @@ interface AppState {
    * when its run ends, or after a minute of silence (a window that missed the end).
    */
   remoteStreaming: string[]
+  /**
+   * Chats whose older messages are being summarised to make room, by chat
+   * id: the strip above the message box shows how far it has got. A finished
+   * one stays a moment to say so, then goes.
+   */
+  compactions: Record<string, ChatCompaction>
   /** The approval being asked now; `approvalQueue` holds any that arrived while it was open. */
   pendingApproval: PendingApproval | null
   approvalQueue: PendingApproval[]
@@ -493,9 +499,36 @@ function markUnfinished(chat: Chat): Chat {
   return { ...chat, messages: chat.messages.map((m) => (ownedRuns.has(m.id) ? { ...m, interrupted: true } : m)) }
 }
 
+export interface ChatCompaction {
+  messageId: string
+  /** 0–1, only ever forwards while it runs. */
+  progress: number
+  state: 'running' | 'done' | 'failed'
+  /** How many earlier messages the summary stands in for. */
+  covered: number
+}
+
+/** How long a finished compaction stays on screen to say how it went. */
+const COMPACTION_LINGER_MS = { done: 2400, failed: 5000 }
+
+/** Clears a chat's compaction, unless a newer one has taken its place. */
+function dropCompaction(chatId: string, entry: ChatCompaction): void {
+  useApp.setState((s) => {
+    if (s.compactions[chatId] !== entry) return {}
+    const { [chatId]: _gone, ...rest } = s.compactions
+    return { compactions: rest }
+  })
+}
+
 /** Applies one event from a running turn — the renderer's own, or a scheduled task's — to its message. */
 function applyStreamEvent(event: StreamEvent): void {
   const { getState: get, setState: set } = useApp
+  if (event.type === 'compacting') {
+    const entry: ChatCompaction = { messageId: event.messageId, progress: event.progress, state: event.state, covered: event.covered }
+    set((s) => ({ compactions: { ...s.compactions, [event.chatId]: entry } }))
+    if (event.state !== 'running') setTimeout(() => dropCompaction(event.chatId, entry), COMPACTION_LINGER_MS[event.state])
+    return
+  }
   // Approval requests carry no message content — they open the confirm
   // dialog and the main process blocks on the answer, so they must be
   // handled before the message-indexing path below (which would drop them).
@@ -529,6 +562,10 @@ function applyStreamEvent(event: StreamEvent): void {
   if (finished) {
     streamTargets.delete(event.messageId)
     ownedRuns.delete(event.messageId)
+    // Stopped part-way through a summary: nothing is left to show for it.
+    for (const [chatId, entry] of Object.entries(state.compactions)) {
+      if (entry.messageId === event.messageId && entry.state === 'running') dropCompaction(chatId, entry)
+    }
     if (event.type === 'error') toName.delete(event.messageId)
     else nameChat(event.messageId)
   }
@@ -692,6 +729,7 @@ export const useApp = create<AppState>((set, get) => ({
   browserOpen: false,
   runs: {},
   remoteStreaming: [],
+  compactions: {},
   pendingApproval: null,
   approvalQueue: [],
   composerDraft: null,
