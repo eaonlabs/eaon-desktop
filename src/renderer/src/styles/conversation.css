@@ -312,9 +312,8 @@
 .thread-compacted[data-open] .thread-compacted__toggle > svg {
   transform: rotate(180deg);
 }
+/* Opened on purpose, so shown whole: a box that scrolls inside the conversation's own scroll is fiddly. */
 .thread-compacted__summary {
-  max-height: 280px;
-  overflow: auto;
   margin-top: 10px;
   padding: 12px 14px;
   border-radius: var(--r-lg);
