@@ -887,6 +887,13 @@ export type StreamEvent =
   | { type: 'todos'; messageId: string; todos: TodoItem[] }
   | { type: 'goal'; messageId: string; chatId: string; goal: GoalState }
   | { type: 'compacted'; messageId: string; chatId: string; summary: string; throughMessageId: string }
+  /**
+   * A compaction under way, for the strip above the message box: how far the
+   * summary has got (0–1), and how many earlier messages it stands in for.
+   * Sent while it runs, then once with `done` (just before `compacted`) or
+   * `failed` (the turn goes on with the conversation as it was).
+   */
+  | { type: 'compacting'; messageId: string; chatId: string; progress: number; state: 'running' | 'done' | 'failed'; covered: number }
 
 export type UpdateStatus =
   | { state: 'idle' }

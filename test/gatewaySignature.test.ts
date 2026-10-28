@@ -134,6 +134,7 @@ test('Eaon Event’s code check with the gateway is signed too', async () => {
 
 test('turned away by an "Eaon apps only" gateway, the advice is to update, never to fix a key Eaon’s models don’t have', async () => {
   const { classifyProviderError } = await import('../src/main/providers/errors')
+  setGatewayAppForTests(APP)
   const { ProviderHttpError } = await import('../src/main/providers/adapters/types')
   const lite = { id: 'eaon-gateway', name: 'Eaon Lite', auth: 'none' as const, local: false, baseUrl: 'https://gateway.eaon.dev/v1' }
   const refused = (message: string): Error => new ProviderHttpError(401, JSON.stringify({ error: { message, type: 'authentication_error', code: 'eaon_apps_only' } }))
@@ -145,4 +146,11 @@ test('turned away by an "Eaon apps only" gateway, the advice is to update, never
   assert.equal(classifyProviderError(refused("This Eaon app can't be verified right now."), lite).action, 'retry')
   // Another provider's 401 is still about its key.
   assert.match(classifyProviderError(new ProviderHttpError(401, 'invalid_api_key'), { ...lite, id: 'openai', name: 'OpenAI', auth: 'key', baseUrl: 'https://api.openai.com/v1' }).message, /rejected the API key/)
+
+  // A build without the app's credentials can't sign however new it is: updating isn't the answer.
+  setGatewayAppForTests(null)
+  const unsigned = classifyProviderError(refused('This API only works inside Eaon apps: the Eaon desktop app and the Eaon CLIs.'), lite)
+  assert.doesNotMatch(unsigned.message, /Update Eaon/)
+  assert.match(unsigned.message, /isn’t available in this copy of Eaon right now/)
+  assert.equal(unsigned.action, 'choose-model')
 })

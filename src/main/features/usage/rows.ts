@@ -440,7 +440,8 @@ export function calendar(byDay: Map<string, UsageDay>, now: Date = new Date(), w
  * still stands if it reached yesterday, since today isn't over.
  */
 export function activity(byDay: Map<string, UsageDay>, range: UsageRange, now: Date = new Date()): UsageActivity {
-  const active = [...byDay.values()].filter((d) => d.requests > 0).sort((a, b) => a.day.localeCompare(b.day))
+  // Any use makes a day active, as on Tokn: a tool's day can come with tokens but no request count.
+  const active = [...byDay.values()].filter((d) => d.requests > 0 || d.tokens > 0 || d.costUsd > 0).sort((a, b) => a.day.localeCompare(b.day))
   const today = localDay(now)
   const rangeStart = shiftDay(today, -(range - 1))
 

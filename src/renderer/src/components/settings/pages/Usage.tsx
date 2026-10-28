@@ -151,7 +151,8 @@ function SignedOut({ summary }: { summary: UsageSummary }): JSX.Element {
             <div className="usage-hero__title">Sign in with Tokn</div>
             <p className="usage-hero__body">
               Tokn tracks what AI coding costs across your tools, and your Tokn account is your Eaon account. Signing in shows
-              your Eaon usage here and keeps your profile on toknhq.com up to date.
+              your Eaon usage here and keeps your profile on toknhq.com up to date, with Claude Code, Codex and your other coding
+              CLIs counted too (turn that off below). Daily totals only, never your prompts or code.
             </p>
             <div className="usage-hero__actions">
               {pending ? (
@@ -215,6 +216,7 @@ function SignedOut({ summary }: { summary: UsageSummary }): JSX.Element {
 }
 
 function WhatIsSent(): JSX.Element {
+  const clis = useApp((s) => s.settings?.toknCli.sync ?? false)
   return (
     <Section label="What Tokn gets">
       <Card>
@@ -230,6 +232,12 @@ function WhatIsSent(): JSX.Element {
           title="Daily agent counts"
           description="How many agent runs Eaon made each day, how long they worked and the longest one. Never what they worked on."
         />
+        {clis && (
+          <Row
+            title="The coding CLIs’ daily totals"
+            description="From Claude Code, Claude Desktop, Codex, Copilot CLI and opencode’s own logs, through the tokn command: tokens and cost per model per day. Never prompts, code, file or project names."
+          />
+        )}
         <Row title="Nothing from models on this computer" description="Local models are free, so their requests and tokens stay here and are never uploaded." />
       </Card>
     </Section>
@@ -240,6 +248,7 @@ function SignedIn({ summary, range, onRange }: { summary: UsageSummary; range: U
   const account = summary.account!
   const { sync } = summary
   const syncing = sync.state === 'syncing'
+  const tracksClis = useApp((s) => s.settings?.toknCli.sync ?? false)
 
   return (
     <>
@@ -251,7 +260,11 @@ function SignedIn({ summary, range, onRange }: { summary: UsageSummary; range: U
                 <ToknMark size={18} /> @{account.handle}
               </span>
             }
-            description="Eaon adds your daily totals to your Tokn profile a few minutes after you use it."
+            description={
+              tracksClis
+                ? 'Eaon adds its own use to your Tokn profile a few minutes after you use it, and the tokn command adds the coding CLIs every hour.'
+                : 'Eaon adds your daily totals to your Tokn profile a few minutes after you use it.'
+            }
           >
             <div className="usage-account__actions">
               <button className="btn" onClick={() => void window.api.usage.openProfile('profile')}>
@@ -293,6 +306,7 @@ function SignedIn({ summary, range, onRange }: { summary: UsageSummary; range: U
           range={range}
           money={money}
           tokens={tokens}
+          fromTokn={summary.activityFrom.source === 'tokn'}
         />
       </Section>
 
@@ -347,9 +361,10 @@ function SignedIn({ summary, range, onRange }: { summary: UsageSummary; range: U
       {summary.cliLogs.found.length > 0 && (
         <p className="usage-footnote">
           {listOf(summary.cliLogs.found.map((tool) => TOOL_LABEL[tool]))} {summary.cliLogs.found.length === 1 ? 'is' : 'are'} read from{' '}
-          {summary.cliLogs.found.length === 1 ? 'its' : 'their'} own records on this computer for the daily chart, the activity calendar and
-          your streaks, as ≈ what the use would cost at API rates. The spend and token tiles, the models and what Eaon uploads stay
-          Eaon’s own: the tokn command counts these tools on your Tokn profile itself.
+          {summary.cliLogs.found.length === 1 ? 'its' : 'their'} own records on this computer for the daily chart
+          {summary.activityFrom.source === 'tokn' ? '' : ', the activity calendar and your streaks'}, as ≈ what the use would cost at API
+          rates. The spend and token tiles, the models and what Eaon uploads stay Eaon’s own: the tokn command counts these tools on
+          your Tokn profile itself{summary.activityFrom.source === 'tokn' ? ', and the activity calendar and streaks above are that profile’s' : ''}.
         </p>
       )}
       <CursorImportNote imported={summary.cliLogs.cursorImported} />

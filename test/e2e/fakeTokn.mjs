@@ -25,6 +25,12 @@ export async function startFakeTokn() {
     if (path === '/api/oauth/revoke') return reply(200, {})
     if (path === '/api/cli/me') return reply(200, { user })
     if (path === '/api/cli/pricing') return reply(200, { models: {} })
+    // The profile as toknhq.com draws it: today, with what the tokn command published from Claude Code.
+    if (path === '/api/cli/profile') {
+      const now = new Date()
+      const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+      return reply(200, { user, stats: { byDay: [{ day: today, cost: 1.25, tokens: 48_000, requests: 9 }] } })
+    }
     if (path === '/api/cli/sync') {
       syncs.push(JSON.parse(body || '{}'))
       return reply(200, { accepted: 0, rank: 1 })

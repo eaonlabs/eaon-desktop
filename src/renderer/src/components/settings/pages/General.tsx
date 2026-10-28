@@ -89,6 +89,16 @@ export function GeneralPage(): JSX.Element {
               onChange={(on) => void patchSettings({ general: { preventSleep: on } })}
             />
           </Row>
+          <Row
+            title="Auto-compact long chats"
+            description="When a chat nears the model’s context limit, summarize its older messages so it can keep going. Nothing in the chat is removed."
+          >
+            <Switch
+              label="Auto-compact long chats"
+              checked={settings.context?.autoCompact !== false}
+              onChange={(on) => void patchSettings({ context: { autoCompact: on } })}
+            />
+          </Row>
           <Row title="Suggested prompts" description="Show starter prompts under the message box on the home screen">
             <Switch
               label="Suggested prompts"
