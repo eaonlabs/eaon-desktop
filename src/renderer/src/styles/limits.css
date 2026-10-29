@@ -186,6 +186,17 @@
 .limit__bar > span[data-tone='low'] {
   background: var(--limit-low);
 }
+/* Reset since the figures were seen: how much is used now isn't known. */
+.limit__dot[data-tone='unknown'] {
+  background: var(--text-3);
+}
+.limit__bar > span[data-tone='unknown'] {
+  background: repeating-linear-gradient(-45deg, var(--hover) 0 5px, transparent 5px 10px);
+  animation: none;
+}
+.limit[data-unknown] .limit__line {
+  color: var(--text-3);
+}
 @keyframes limit-grow {
   from {
     width: 0;

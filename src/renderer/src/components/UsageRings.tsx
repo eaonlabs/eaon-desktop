@@ -65,10 +65,12 @@ function Ring({ view, open, setOpen }: { view: LimitsView; open: boolean; setOpe
   const [details, setDetails] = useState(limits?.details ?? false)
   const { outer, inner } = pick(view.windows, limits?.ring ?? 'both')
   const left = (w?: ProviderWindow): number => (w ? Math.max(0, 100 - w.percent) : 0)
+  // Reset since the figures were seen (liveWindow): its use since isn't known, so it isn't "100% left".
+  const unseen = (w?: ProviderWindow): boolean => Boolean((w as { hasReset?: boolean } | undefined)?.hasReset)
   const label =
     [inner, outer]
       .filter((w): w is ProviderWindow => Boolean(w))
-      .map((w) => `${Math.round(left(w))}% of ${windowName(w)} left`)
+      .map((w) => (unseen(w) ? `${windowName(w)} started again, not seen since` : `${Math.round(left(w))}% of ${windowName(w)} left`))
       .join(', ') || (view.note ?? 'No limits reported')
 
   return (
@@ -89,8 +91,8 @@ function Ring({ view, open, setOpen }: { view: LimitsView; open: boolean; setOpe
         title={`${view.name} · ${label}`}
       >
         <svg className="usage-ring__svg" viewBox="0 0 40 40" aria-hidden="true">
-          {outer && <Arc r={17.5} left={left(outer)} tone={tone(outer, 'week')} />}
-          {inner && <Arc r={outer ? 12.5 : 16} left={left(inner)} tone={tone(inner, 'session')} />}
+          {outer && <Arc r={17.5} left={left(outer)} tone={unseen(outer) ? 'unknown' : tone(outer, 'week')} />}
+          {inner && <Arc r={outer ? 12.5 : 16} left={left(inner)} tone={unseen(inner) ? 'unknown' : tone(inner, 'session')} />}
           {!inner && !outer && <circle className="usage-ring__track" cx="20" cy="20" r="16" />}
         </svg>
         <span className="usage-ring__mark">
