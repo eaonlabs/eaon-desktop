@@ -9,6 +9,9 @@ All notable changes to Eaon are documented here. Format loosely follows
 - **Eaon Lite no longer says "Needs attention" after an update.** When Eaon's gateway had turned an older copy of Eaon away, the warning stayed after updating until you pressed Refresh. Eaon now drops what the gateway said to an older copy when it starts, checks Eaon Lite and Eaon Event as soon as it opens, and checks a refusal again every ten minutes instead of leaving it alone.
 - **Eaon Lite says when a network has used up its free requests.** Eaon's gateway limits Eaon Lite per network, so at a busy venue the day's requests can run out before you send anything. Setup, Settings and the model picker said "Ready" anyway. They now say the requests are used up and when they start again, and suggest an event code or another model; Eaon waits until then before asking the gateway again.
 - **An event code the gateway turned off is forgotten as soon as Eaon notices**, from the background model list as well as from a chat.
+- **A day's rate limit says so at once.** A provider that answered "429, try again in 18 hours" was retried three times, a minute apart, behind "Thinking", before the reply failed. A wait longer than a retry would ever wait now fails straight away.
+- **Retries are visible while they wait.** "The provider is busy (429) — retrying in 60s." showed only once the turn had ended, inside the "Thinking" line. It now shows in the conversation while Eaon waits, until the model answers.
+- **Eaon Lite and Eaon Event say why they stopped.** When Eaon Lite's free requests for the day are used up on your network, it says so, with the wait in hours and how to keep going (an event code in Settings → Model providers → Eaon Event, or another model), instead of "limiting how fast requests can be made. Try again in 1086 min". An event code's limit gives the code's own reason. Short limits read as before.
 
 ## [2026.7.2.1] — 2026-10-28
 
