@@ -33,6 +33,7 @@ import { remoteBrowserFrame, setRemoteBrowsers, type RemoteBrowsers } from './ag
 import { channelsHandle, type ChannelsData, type ChannelsHandle } from './channels'
 import { workersService } from './workers'
 import { pickPasswordsExport, type WorkersService } from './workers/service'
+import { EXPORT_FOLDERS, openPasswords, waitForPasswordsExport } from './workers/passwordsExport'
 import type { Feature, FeatureContext } from './types'
 
 /**
@@ -288,6 +289,7 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService, c
 
   /** The Passwords export last imported while the workers live there, for "Move it to the Trash". */
   let importedHere: string | null = null
+  let importWait: { stop: () => void } | null = null
   const proxy = async (channel: string, args: unknown[]): Promise<unknown> => {
     // Just opened, or back from sleep: the link is a moment away, so a change waits for it
     // rather than failing; what the tab only reads is shown from the cache meanwhile.
@@ -306,6 +308,30 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService, c
       const result = await hostIpc<object>('workers:vault-import-csv', [picked.text, args[0]])
       importedHere = picked.file
       return { ...result, file: picked.file }
+    }
+    // Waiting for a Passwords export: the file is saved here, so it's watched for here, and only its text goes over.
+    if (channel === 'workers:vault-import-watch') {
+      importWait?.stop()
+      importWait = waitForPasswordsExport((file, text) => {
+        importWait = null
+        void hostIpc<object>('workers:vault-import-csv', [text, args[0]])
+          .then(async (result) => {
+            const trashed = await shell.trashItem(file).then(
+              () => true,
+              () => false
+            )
+            if (!trashed) importedHere = file
+            ctx.send('workers:vault-import-found', { ...result, file, trashed })
+          })
+          .catch((error: unknown) => ctx.send('workers:vault-import-found', { error: errorText(error) }))
+      })
+      await openPasswords()
+      return { folders: EXPORT_FOLDERS() }
+    }
+    if (channel === 'workers:vault-import-stop') {
+      importWait?.stop()
+      importWait = null
+      return undefined
     }
     if (channel === 'workers:vault-trash-import') {
       if (!importedHere) return false

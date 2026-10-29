@@ -43,6 +43,8 @@ export const shell = {
 }
 
 export const dialog = { showMessageBox: async () => ({ response: -1 }) }
+/** Custom schemes: a test serves none (workers/cameraView.ts checks before it registers one). */
+export const protocol: { handle?: unknown; isProtocolHandled?: unknown; unhandle?: unknown } = {}
 export const crashReporter = { start: () => {} }
 export const nativeTheme = { shouldUseDarkColors: true, themeSource: 'system' }
 export const ipcMain = { handle: () => {}, on: () => {} }

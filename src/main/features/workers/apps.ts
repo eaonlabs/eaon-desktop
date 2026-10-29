@@ -3,6 +3,7 @@ import { isAbsolute, join, resolve } from 'node:path'
 import { MAIN_THREAD } from '@shared/workers'
 import { CARD_KINDS, normalizeCard } from '@shared/workerCards'
 import { normalizeUi, uiSummary, UI_BLOCK_TYPES } from '@shared/workerUi'
+import type { Shortcuts } from './shortcuts'
 import { findWorkerApp, needsSignIn, signInTarget, workerApp, workerAppsEnabled, type WorkerApp, type WorkerAppLink } from '@shared/workerApps'
 import type { AgentTool, ToolContext, ToolSource } from '../../agent/tools'
 import type { WorkersEngine } from './engine'
@@ -40,6 +41,8 @@ export interface AppsDeps {
   connectors?: Connectors
   /** The password vault (vault.ts); without it workers have no saved logins or passkeys. */
   vault?: Vault
+  /** The user's Shortcuts (shortcuts.ts), for a worker linked to the Shortcuts app on a Mac. */
+  shortcuts?: Shortcuts
   platform?: NodeJS.Platform
 }
 
@@ -94,7 +97,7 @@ export function cardTool(engine: WorkersEngine, browsers: WorkerBrowsers): Agent
 - route {from, to, duration, distance, traffic: light|moderate|heavy, via, leave_by, mode: drive|walk|transit|bike} — opens in Google Maps / Waze
 - payment {app, direction: send|request, to, amount, note, state: draft|needs-approval|sent|failed}
 - device {app, name, device: light|vacuum|car|lock|thermostat|camera|plug|speaker|other, state, on, level 0-100, stats:[{label, value}], actions${workerAppsEnabled() ? ", entity (a Home Assistant light/switch/fan's entity_id) or light (a Hue light or room's name): its switch then flips it at once" : ''}}
-- camera {app, title, at, caption, screenshot: true (your browser's page now) or image (a file path)}
+- camera {app, title, at, caption, screenshot: true (your browser's page now) or image (a file path)${workerAppsEnabled() ? ', entity: a Home Assistant camera (camera.front_door, a Ring doorbell too) — the card then shows its picture now and the user can watch it live' : ''}}
 - list {title, list_id (a shared list: the card stays live), items:[{text, done}]}
 - events {title, events:[{title, when, where}]}
 - options {title, options:[{title, detail, price, reply}]} — the user taps one and you get its reply
@@ -168,6 +171,34 @@ Keep it to what answers the question; say the one-line takeaway in your reply to
     if ('error' in result) return { text: result.error, isError: true }
     const skipped = result.skipped.length ? ` Left out, fix and show it again if they matter: ${result.skipped.join('; ')}.` : ''
     return `Shown to the user: ${uiSummary(result.ui)}, ${result.ui.blocks.length} block${result.ui.blocks.length === 1 ? '' : 's'}.${skipped}`
+  }
+}
+
+/**
+ * The user's Shortcuts (shortcuts.ts): the way a worker uses the apps on this
+ * Mac — Home, Messages, Music, Focus, and whatever actions other apps add.
+ * Running one changes things, so it's risky: asked about unless the worker
+ * is trusted to act on its own, and never a guest's to ask for.
+ */
+function shortcutsTool(shortcuts: Shortcuts): AgentTool {
+  return {
+    name: 'shortcuts',
+    description:
+      'The user’s Shortcuts on this Mac, which reach the apps on the device: list shows their names; run {name, input?} runs one (input is its text input) and returns what it outputs. Use it for what has no website: a Home scene or accessory, sending a Message, Music, a Focus, an app’s own actions. If no shortcut fits, say which one the user could make in the Shortcuts app.',
+    inputSchema: { type: 'object', properties: { action: { type: 'string', enum: ['list', 'run'] }, name: { type: 'string' }, input: { type: 'string' } }, required: ['action'] },
+    mutating: (input) => input.action === 'run',
+    risky: (input) => input.action === 'run',
+    describe: (input) => (input.action === 'run' ? `Run “${str(input.name)}”` : 'Your shortcuts'),
+    run: async (input) => {
+      if (input.action === 'run') {
+        const name = str(input.name)
+        if (!name) return { text: 'Give the shortcut’s name (list them first).', isError: true }
+        const output = await shortcuts.run(name, str(input.input) || undefined)
+        return output.trim() ? `Ran “${name}”. It output:\n${output.trim()}` : `Ran “${name}”.`
+      }
+      const names = await shortcuts.list()
+      return names.length ? names.map((n) => `- ${n}`).join('\n') : 'The user has no shortcuts yet.'
+    }
   }
 }
 
@@ -480,6 +511,7 @@ export function appsToolSource(deps: AppsDeps): ToolSource {
       if (apps.some((a) => a.via === 'hue')) tools.push(hueTool)
       if (apps.some((a) => a.via === 'lists')) tools.push(listsTool)
       if (platform === 'darwin' && apps.some((a) => a.via === 'mac-calendar' || a.via === 'mac-reminders')) tools.push(householdTool)
+      if (platform === 'darwin' && deps.shortcuts && apps.some((a) => a.via === 'mac-shortcuts')) tools.push(shortcutsTool(deps.shortcuts))
       if (deps.connectors) tools.push(...connectorTools(engine, deps.connectors, links))
       if (vault) {
         try {

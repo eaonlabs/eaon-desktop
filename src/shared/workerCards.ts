@@ -101,7 +101,17 @@ export type WorkerCard =
        */
       control?: { hue: string } | { entity: string }
     }
-  | { kind: 'camera'; app?: string; title: string; image?: string; at?: string; caption?: string; actions?: CardAction[] }
+  | {
+      kind: 'camera'
+      app?: string
+      title: string
+      image?: string
+      at?: string
+      caption?: string
+      actions?: CardAction[]
+      /** A Home Assistant camera (labs): the card shows its picture now and can play its live view. */
+      entity?: string
+    }
   | { kind: 'list'; title: string; listId?: string; items: { text: string; done?: boolean }[] }
   | { kind: 'events'; title?: string; events: { title: string; when: string; where?: string }[] }
   | { kind: 'options'; title: string; options: { title: string; detail?: string; price?: string; reply: string }[] }
@@ -314,7 +324,8 @@ export function normalizeCard(input: unknown): { card: WorkerCard } | { error: s
           ...(optional(raw.image, 2000) ? { image: optional(raw.image, 2000) } : {}),
           ...(optional(raw.at, 40) ? { at: optional(raw.at, 40) } : {}),
           ...(optional(raw.caption, 300) ? { caption: optional(raw.caption, 300) } : {}),
-          ...(cardActions(raw.actions) ? { actions: cardActions(raw.actions) } : {})
+          ...(cardActions(raw.actions) ? { actions: cardActions(raw.actions) } : {}),
+          ...(workerAppsEnabled() && /^camera\.[a-z0-9_]+$/.test(text(raw.entity ?? raw.entity_id, 120)) ? { entity: text(raw.entity ?? raw.entity_id, 120) } : {})
         }
       }
     }

@@ -5053,3 +5053,59 @@ body[data-reduce-motion='on'] .wui-plot--empty {
   opacity: 0.6;
   cursor: progress;
 }
+
+/* A Home Assistant camera on a card: its picture, and its live view on demand. */
+.wmedia--camera {
+  cursor: default;
+}
+.wmedia--camera:hover img {
+  transform: none;
+}
+.wmedia__watch {
+  flex: none;
+  margin-left: auto;
+  height: 26px;
+  padding: 0 11px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  background: oklch(1 0 0 / 0.16);
+  -webkit-backdrop-filter: blur(8px);
+  backdrop-filter: blur(8px);
+}
+.wmedia__watch:hover {
+  background: oklch(1 0 0 / 0.26);
+}
+.wmedia--camera .wmedia__at + .wmedia__watch {
+  margin-left: 8px;
+}
+.wmedia__problem {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  font-size: 13px;
+  color: oklch(1 0 0 / 0.75);
+  text-align: center;
+  background: #0b0c0e;
+}
+
+/* Waiting for Passwords' export: what to do there, and the ways out. */
+.vault-note--waiting {
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+.vault-note--waiting strong {
+  color: var(--text);
+  font-weight: 600;
+}
+.vault-note--waiting > span:not(.vault-note__actions) {
+  flex: 1 1 280px;
+}
+.vault-note__actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}

@@ -54,6 +54,9 @@ import { createHue, type HueBridge } from './hue'
 import { createLists } from './lists'
 import { createHousehold } from './household'
 import { createConnectors } from './connectors'
+import { serveCameras } from './cameraView'
+import { EXPORT_FOLDERS, openPasswords, waitForPasswordsExport } from './passwordsExport'
+import { createShortcuts } from './shortcuts'
 import { SWITCHABLE_DOMAINS } from '@shared/workerCards'
 import { createVault } from './vault'
 import { isSealed, openVault, sealVault, setVaultKey } from './vaultSeal'
@@ -447,6 +450,7 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
   }
   /** The export file last imported from Apple's Passwords app, which the user may move to the Trash. */
   let importedFile: string | null = null
+  let importWait: { stop: () => void } | null = null
   const importFor = (workers: unknown): string[] | 'all' => (workers === 'all' ? 'all' : Array.isArray(workers) ? workers.filter((x): x is string => typeof x === 'string') : 'all')
   // Services connected for the apps (connectors.ts): their keys stay in the vault.
   const connectors = createConnectors({
@@ -624,6 +628,33 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
         importedFile = picked.file
         return { ...result, file: picked.file }
       })
+      // "Bring them in from Passwords": Passwords opens, and the export is taken in, and put in
+      // the Trash, the moment it's saved (passwordsExport.ts). The page hears with vault-import-found.
+      ipcMain.handle('workers:vault-import-watch', async (_e, workers: unknown) => {
+        importWait?.stop()
+        importWait = waitForPasswordsExport((file, text) => {
+          importWait = null
+          void (async () => {
+            try {
+              const result = vault.importApple(text, importFor(workers))
+              const trashed = await shell.trashItem(file).then(
+                () => true,
+                () => false
+              )
+              if (!trashed) importedFile = file
+              ctx.send('workers:vault-import-found', { ...result, file, trashed })
+            } catch (error) {
+              ctx.send('workers:vault-import-found', { error: error instanceof Error ? error.message : String(error) })
+            }
+          })()
+        })
+        await openPasswords()
+        return { folders: EXPORT_FOLDERS() }
+      })
+      ipcMain.handle('workers:vault-import-stop', () => {
+        importWait?.stop()
+        importWait = null
+      })
       // The same export's text, read on the desktop: a worker computer has no screen to pick a file on (workerHost.ts).
       ipcMain.handle('workers:vault-import-csv', (_e, text: unknown, workers: unknown) => vault.importApple(str(text), importFor(workers)))
       ipcMain.handle('workers:vault-trash-import', async () => {
@@ -670,6 +701,8 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
       ipcMain.handle('workers:lists', () => lists.all())
       ipcMain.handle('workers:list-toggle', (_e, listId: unknown, itemId: unknown, done: unknown) => lists.toggle(str(listId), str(itemId), done === true))
       ipcMain.handle('workers:connections', () => connectors.statuses())
+      // A camera card's picture and live view (cameraView.ts).
+      serveCameras(connectors)
       ipcMain.handle('workers:connect', (_e, id: unknown, fields: unknown) =>
         connectors.connect(str(id) as ConnectorId, fields && typeof fields === 'object' ? (Object.fromEntries(Object.entries(fields).map(([k, v]) => [k, str(v)])) as Record<string, string>) : {})
       )
@@ -762,7 +795,7 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
       setLeaseNames((id) => engine.list().find((w) => w.id === id)?.name ?? null)
       registerToolSource(workersToolSource(engine))
       // Cards in a worker's thread, and its linked apps (workers/apps.ts).
-      registerToolSource(appsToolSource({ engine, browsers, hue, lists, household, connectors, vault }))
+      registerToolSource(appsToolSource({ engine, browsers, hue, lists, household, connectors, vault, shortcuts: createShortcuts() }))
       // Each worker's own choice of plugins (Edit → Plugins).
       setWorkerPluginFilter((id) => engine.pluginsOf(id))
       // The chat agent's way to start a team and talk to it.

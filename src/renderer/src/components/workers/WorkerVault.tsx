@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, type FormEvent, type JSX } from 'react'
-import { ArrowLeft, Eye, EyeOff, Fingerprint, KeyRound, Plus, ShieldCheck, Trash2, Upload } from 'lucide-react'
+import { ArrowLeft, Eye, EyeOff, Fingerprint, KeyRound, Loader2, Plus, ShieldCheck, Trash2, Upload } from 'lucide-react'
 import { findWorkerApp, WORKER_APPS, workerAppsEnabled } from '@shared/workerApps'
 import { domainsFrom, hostMatches, siteFrom, type FoundLogin, type VaultLogin, type VaultState } from '@shared/workerVault'
 import type { Worker } from '@shared/workers'
@@ -61,10 +61,39 @@ export function VaultPage(): JSX.Element {
   const [imported, setImported] = useState<{ added: number; updated: number; skipped: number } | null>(null)
   const [importError, setImportError] = useState<string | null>(null)
   const [trashed, setTrashed] = useState(false)
+  // Waiting for Passwords' export (main/features/workers/passwordsExport.ts): where it's looked for.
+  const [waiting, setWaiting] = useState<string[] | null>(null)
 
+  useEffect(
+    () =>
+      window.api.workers.onVaultImportFound((result) => {
+        setWaiting(null)
+        if ('error' in result) return setImportError(result.error)
+        setImported(result)
+        setTrashed(result.trashed)
+      }),
+    []
+  )
+  useEffect(() => () => void window.api.workers.vaultImportStop(), [])
+
+  /** Opens Passwords and takes its export in as soon as it's saved. */
+  const importFromPasswords = async (): Promise<void> => {
+    setImportError(null)
+    setImported(null)
+    setTrashed(false)
+    try {
+      const { folders } = await window.api.workers.vaultImportWatch('all')
+      setWaiting(folders.map((f) => f.split('/').pop() ?? f))
+    } catch (error) {
+      setImportError(errorText(error))
+    }
+  }
+  /** The file, picked by hand: one saved somewhere else, or an older export. */
   const importApple = async (): Promise<void> => {
     setImportError(null)
     setTrashed(false)
+    void window.api.workers.vaultImportStop()
+    setWaiting(null)
     try {
       const result = await window.api.workers.vaultImportApple('all')
       if (result) setImported(result)
@@ -85,7 +114,7 @@ export function VaultPage(): JSX.Element {
         }
         right={
           <div className="chat-header__actions">
-            <button className="header-btn" onClick={() => void importApple()} title="Import an export from Apple’s Passwords app">
+            <button className="header-btn" onClick={() => void importFromPasswords()} title="Bring in your logins and 2FA codes from Apple’s Passwords app">
               <Upload size={14} strokeWidth={2} />
               <span>Import from Passwords</span>
             </button>
@@ -110,7 +139,8 @@ export function VaultPage(): JSX.Element {
               <span>
                 Imported {imported.added} login{imported.added === 1 ? '' : 's'}
                 {imported.updated ? `, updated ${imported.updated}` : ''}
-                {imported.skipped ? `, skipped ${imported.skipped} without a website or password` : ''}. The export file isn’t encrypted: anyone who opens it sees every password.
+                {imported.skipped ? `, skipped ${imported.skipped} without a website or password` : ''}.
+                {trashed ? ' The export file is in the Trash; empty it when you’re ready.' : ' The export file isn’t encrypted: anyone who opens it sees every password.'}
               </span>
               {trashed ? (
                 <span className="vault-note__done">Moved to the Trash</span>
@@ -119,6 +149,29 @@ export function VaultPage(): JSX.Element {
                   Move it to the Trash
                 </button>
               )}
+            </div>
+          )}
+          {waiting && (
+            <div className="vault-note vault-note--waiting" role="status">
+              <Loader2 size={16} strokeWidth={1.9} className="spinner" />
+              <span>
+                Passwords is open. Choose <strong>File → Export All Passwords to File…</strong>, confirm with Touch ID, and save it in {waiting.join(', ')}. Eaon brings
+                your logins and 2FA codes in by itself and moves the file to the Trash.
+              </span>
+              <span className="vault-note__actions">
+                <button className="btn btn--sm" onClick={() => void importApple()}>
+                  Choose the file instead
+                </button>
+                <button
+                  className="btn btn--sm btn--ghost"
+                  onClick={() => {
+                    void window.api.workers.vaultImportStop()
+                    setWaiting(null)
+                  }}
+                >
+                  Cancel
+                </button>
+              </span>
             </div>
           )}
           {importError && <div className="msg__error">{importError}</div>}

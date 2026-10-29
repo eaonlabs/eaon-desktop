@@ -501,7 +501,7 @@ export function connectorTools(engine: WorkersEngine, connectors: Connectors, li
     tools.push({
       name: 'home',
       description:
-        'Home Assistant: the devices at home. devices {search?, domain?} lists them (vacuum, lock, climate, camera, light, cover, event…) with their state. state {entity}. do {domain, service, entity, data?} calls a service — vacuum.start / return_to_base, lock.lock, climate.set_temperature {temperature}, light.turn_on {brightness_pct}, cover.close_cover. snapshot {entity: camera.x} saves a picture to your folder to show with show_card kind camera. Opening locks, garages or gates and disarming alarms wait for the user.',
+        'Home Assistant: the devices at home. devices {search?, domain?} lists them (vacuum, lock, climate, camera, light, cover, event…) with their state. state {entity}. do {domain, service, entity, data?} calls a service — vacuum.start / return_to_base, lock.lock, climate.set_temperature {temperature}, light.turn_on {brightness_pct}, cover.close_cover. snapshot {entity: camera.x} saves a picture to your folder; to show a camera, show_card {kind: camera, entity: camera.x} draws its picture now and a live view the user can watch. Opening locks, garages or gates and disarming alarms wait for the user.',
       inputSchema: {
         type: 'object',
         properties: {

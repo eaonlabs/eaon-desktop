@@ -12,6 +12,7 @@
  *
  * - `hue`: the Philips Hue bridge's own local API, paired with its button.
  * - `mac-calendar` / `mac-reminders`: Calendar and Reminders on this Mac.
+ * - `mac-shortcuts`: the user's Shortcuts on this Mac, which reach the apps on the device.
  * - `lists`: shared lists Eaon keeps itself, which every worker and the user
  *   can read and tick off.
  * - `plugin`: no website can drive it (a car, a robot vacuum): the worker
@@ -45,7 +46,7 @@ export function workerAppsEnabled(): boolean {
 
 export type WorkerAppCategory = 'food' | 'rides' | 'navigation' | 'payments' | 'shopping' | 'pickup' | 'security' | 'devices' | 'household'
 
-export type WorkerAppVia = 'browser' | 'hue' | 'mac-calendar' | 'mac-reminders' | 'lists' | 'hub'
+export type WorkerAppVia = 'browser' | 'hue' | 'mac-calendar' | 'mac-reminders' | 'mac-shortcuts' | 'lists' | 'hub'
 
 export interface WorkerApp {
   id: string
@@ -453,6 +454,21 @@ export const WORKER_APPS: WorkerApp[] = [
     note: 'Uses Reminders on this Mac; macOS asks you once to allow it.'
   },
   {
+    id: 'shortcuts',
+    name: 'Shortcuts',
+    category: 'household',
+    color: '#3B5BDB',
+    mark: '⌘',
+    logo: 'shortcuts.png',
+    via: 'mac-shortcuts',
+    url: '',
+    signIn: null,
+    domains: [],
+    can: ['run your shortcuts', 'use the apps on this Mac that add actions to Shortcuts'],
+    platforms: ['darwin'],
+    note: 'Runs the shortcuts you make in the Shortcuts app: a Home scene, a Message, Music, a Focus, or any app’s own actions.'
+  },
+  {
     id: 'lists',
     name: 'Shared lists',
     category: 'household',
@@ -561,6 +577,8 @@ export function appLine(app: WorkerApp, link: WorkerAppLink, platform: string): 
         ? 'through the Hue bridge (hue tool)'
         : app.via === 'lists'
           ? 'shared lists (lists tool)'
+          : app.via === 'mac-shortcuts'
+            ? 'the user’s shortcuts on this Mac (shortcuts tool)'
           : app.via === 'hub'
             ? 'through its connection (see Connected services)'
             : 'on this Mac (household tool)'

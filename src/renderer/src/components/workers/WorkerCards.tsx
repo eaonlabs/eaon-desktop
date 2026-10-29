@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState, type FormEvent, type JSX, type ReactNode } from 'react'
+import { createContext, useContext, useEffect, useRef, useState, type FormEvent, type JSX, type ReactNode } from 'react'
 import {
   ArrowUpRight,
   BookOpen,
@@ -306,6 +306,15 @@ function renderCard(card: WorkerCard, image: string | null, app: WorkerApp | und
     case 'device':
       return <DeviceCard card={card} app={app} />
     case 'camera':
+      // A Home Assistant camera (labs): what it sees now, and its live view.
+      if (card.entity && workerAppsEnabled())
+        return (
+          <>
+            <CameraView entity={card.entity} title={card.title} at={card.at} image={image ?? card.image ?? null} />
+            {card.caption && <p className="wcard__body">{card.caption}</p>}
+            <Actions actions={card.actions} />
+          </>
+        )
       return (
         <>
           {(image ?? card.image) ? (
@@ -573,6 +582,74 @@ function Media({ path, label, at }: { path: string; label?: string; at?: string 
         </span>
       )}
     </button>
+  )
+}
+
+/** How often a camera that can't stream is asked for a fresh picture while it's watched. */
+const STILL_EVERY_MS = 2000
+
+/**
+ * A Home Assistant camera on a card (main/features/workers/cameraView.ts):
+ * the picture the worker attached, or what the camera sees now, and "Watch
+ * live" for its stream. A camera that can't stream (a Ring doorbell between
+ * events, often) is shown as a picture a couple of seconds fresh instead.
+ */
+function CameraView({ entity, title, at, image }: { entity: string; title: string; at?: string; image: string | null }): JSX.Element {
+  const [live, setLive] = useState(false)
+  const [stills, setStills] = useState(false)
+  const [tick, setTick] = useState(() => Date.now())
+  const [problem, setProblem] = useState<string | null>(null)
+  const picture = useRef<HTMLImageElement>(null)
+  // A live view is one long request: Chromium keeps loading a removed <img>'s, so
+  // leaving clears it, and Home Assistant's stream ends with it (cameraView.ts).
+  useEffect(() => {
+    const node = picture.current
+    return () => {
+      if (node) node.src = ''
+    }
+  }, [])
+  useEffect(() => {
+    if (!live || !stills) return
+    const timer = setInterval(() => setTick(Date.now()), STILL_EVERY_MS)
+    return () => clearInterval(timer)
+  }, [live, stills])
+  const src = live
+    ? stills
+      ? `eaon-camera://still/${entity}?t=${tick}`
+      : `eaon-camera://live/${entity}?t=${tick}`
+    : image
+      ? fileUrl(image)
+      : `eaon-camera://still/${entity}?t=${tick}`
+  const watch = (): void => {
+    setProblem(null)
+    setStills(false)
+    setTick(Date.now())
+    setLive(true)
+  }
+  return (
+    <div className="wmedia wmedia--camera" data-live={live || undefined}>
+      <img
+        ref={picture}
+        src={src}
+        alt={title}
+        onError={() => {
+          if (live && !stills) {
+            setStills(true)
+            setTick(Date.now())
+          } else if (!image) setProblem('The camera isn’t answering. Is Home Assistant reachable?')
+        }}
+        onLoad={() => setProblem(null)}
+      />
+      <span className="wmedia__caption">
+        {live && <span className="wmedia__live" />}
+        <span className="wmedia__label">{live ? `${title} · ${stills ? 'every 2 s' : 'live'}` : title}</span>
+        {!live && at && <span className="wmedia__at">{at}</span>}
+        <button type="button" className="wmedia__watch" onClick={live ? () => setLive(false) : watch}>
+          {live ? 'Stop' : 'Watch live'}
+        </button>
+      </span>
+      {problem && <span className="wmedia__problem">{problem}</span>}
+    </div>
   )
 }
 

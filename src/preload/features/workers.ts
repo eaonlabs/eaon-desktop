@@ -158,5 +158,13 @@ export const workersApi = {
   vaultImportApple: (workers: 'all' | string[]): Promise<{ added: number; updated: number; skipped: number; file: string } | null> => ipcRenderer.invoke('workers:vault-import-apple', workers),
   /** Moves the imported export file (unencrypted) to the Trash. */
   vaultTrashImport: (): Promise<boolean> => ipcRenderer.invoke('workers:vault-trash-import'),
+  /** Opens Passwords and waits for its export, which is imported and trashed the moment it's saved (onVaultImportFound). */
+  vaultImportWatch: (workers: 'all' | string[]): Promise<{ folders: string[] }> => ipcRenderer.invoke('workers:vault-import-watch', workers),
+  vaultImportStop: (): Promise<void> => ipcRenderer.invoke('workers:vault-import-stop'),
+  onVaultImportFound: (listener: (result: { added: number; updated: number; skipped: number; file: string; trashed: boolean } | { error: string }) => void): (() => void) => {
+    const handler = (_e: unknown, result: Parameters<typeof listener>[0]): void => listener(result)
+    ipcRenderer.on('workers:vault-import-found', handler)
+    return () => void ipcRenderer.removeListener('workers:vault-import-found', handler)
+  },
   onVaultChanged: (handler: (state: VaultState) => void): (() => void) => subscribe('workers:vault-changed', handler)
 }

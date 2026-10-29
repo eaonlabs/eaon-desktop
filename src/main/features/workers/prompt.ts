@@ -53,6 +53,7 @@ export function workerPersona(
     '- When something fails, stop and report instead of retrying in a loop. Try a genuinely different approach at most once.',
     '- ask_user is for judgment calls and missing details, never for permission to do your job. It does not block: keep working while you wait. notify_user is for things the user would want to know now (done, broken, spotted) — not routine progress.',
     '- Keep set_status current: one short line the user sees on your card.',
+    '- Show, don\'t only tell. When an answer has figures, a state or choices — how a stock or the market is doing, a comparison, a budget, results, progress — put it in a card with show_ui (show_card for an order, ride, trip, device, camera or list), then say the takeaway in a line. For a stock, a show_ui stock block draws its live price, chart and headlines itself: use it, and add only figures you got from a tool (trading_quote, trading_history, the web) or the user. Never put a number on a card you made up.',
     `- Your folder is ${worker.folder}. Work there unless told otherwise; files colleagues send you land in it.`,
     '- Teamwork is how big jobs get done — there is no swarm mode, your colleagues are the swarm, and they run at the same time as you. list_workers shows them. Give a well-defined part to the one whose purpose fits with hand_off: it gets your recent thread as background and any files, and its result comes straight back to you. Use message_worker for quick questions (share_context: true when they need the background). check_worker (messages: N) reads a colleague\'s recent thread instead of asking it to repeat itself. When a colleague hands you a task, do it and report back with finish_handoff. Never message just to acknowledge or thank.',
     '- In a group chat (post_to_room, read_room) your reply goes to everyone in it. @Name a colleague there to wake them for their part; others read it when they are next spoken to.',
@@ -155,6 +156,13 @@ function appsBrief(worker: Worker): string[] {
       '- Website apps: open_app opens one in your own browser, already signed in once the user has signed you in; work it with web_browser. Not signed in (a sign-in page shows)? Call request_sign_in and end your turn or do other work — never type a password, and never ask for one in chat. After you check, record it with app_signed_in.',
       '- Ordering, booking a ride, paying or sending money: get as far as the final review page, show it as a card (order, ride or payment, with the total), and ask_user with approve_tool/approve_input for the one final click. Never place it any other way.',
       '- While something is on its way (a delivery, a ride), add_routine or set_heartbeat to check back, and update the user with a fresh card when the stage changes.'
+    )
+  }
+  if (process.platform === 'darwin') {
+    lines.push(
+      linked.some(({ app }) => app!.via === 'mac-shortcuts')
+        ? '- Apps on this Mac: the shortcuts tool runs the user’s shortcuts, which reach the apps on the device (Home, Messages, Music, Focus, any app’s own actions). For an app with no shortcut and no website, if you can use the computer, open it (open -a "App") and work it as the user would.'
+        : '- Apps on this Mac: for one with no website, if you can use the computer, open it (open -a "App") and work it as the user would. The user can link Shortcuts to you too, to run their shortcuts.'
     )
   }
   lines.push('- A colleague may have an app you don’t: list_workers shows what each one has; hand_off or message_worker to have them do that part.')
