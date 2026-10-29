@@ -3,7 +3,9 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
-## [2026.7.3] — 2026-10-28
+## [2026.7.2.1] — 2026-10-28
+
+The app reports this release as 2026.7.3: an app's version has three numbers, and updates compare them.
 
 ### Added
 - **Watch a friend's shared terminal.** When a friend you've shared with on Eaon Remote opens a terminal, a panel on the right shows what they do as they do it. It's watch-only. Settings → Remote → Watch opens it again.
