@@ -110,21 +110,33 @@
 /* Spoken: each word rises out of a blur, one after another, then a glint
    passes over the line as it goes into the terminal. */
 .ade-dictation[data-phase='spoken'] {
-  padding: 9px 18px;
+  padding: 10px 18px;
+  /* Half the pill's height, so one line is still a pill and more lines make
+     a rounded box: a pill's ends would cut into the first and last lines. */
+  border-radius: 22px;
 }
+/* A long transcript shows its last lines (lines packed to the bottom spill
+   out of the top), faded where the rest is cut off (AdeDictation.tsx). */
 .ade-dictation__words {
   position: relative;
   margin: 0;
   display: flex;
   flex-wrap: wrap;
+  align-content: flex-end;
   gap: 0 0.3em;
   line-height: 1.45;
+  max-height: calc(4 * 1.45em);
   overflow: hidden;
+}
+.ade-dictation__words[data-cut] {
+  -webkit-mask-image: linear-gradient(to bottom, transparent, #000 1.45em);
+  mask-image: linear-gradient(to bottom, transparent, #000 1.45em);
 }
 .ade-dictation__word {
   display: inline-block;
   animation: ade-dictation-word 420ms var(--spring-moderate) both;
-  animation-delay: calc(var(--i) * 45ms);
+  /* The cascade starts at the first word that shows. */
+  animation-delay: calc(min(max(var(--i) - var(--skip, 0), 0), var(--cap)) * 45ms);
 }
 @keyframes ade-dictation-word {
   from {
