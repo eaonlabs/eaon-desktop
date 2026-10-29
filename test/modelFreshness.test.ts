@@ -1,6 +1,8 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { ModelInfo, Provider } from '@shared/types'
+import type { ProviderHealth } from '@shared/providers'
+import { FREE_PROVIDER_ID, GATEWAY_PROVIDER_ID } from '@shared/freeCredits'
 import { EVERY_MS, FIRST_CHECK_MS, MAX_AGE_MS, providersDue, refreshDueProviders, startModelFreshness } from '../src/main/providers/freshness'
 
 /*
@@ -71,31 +73,73 @@ test('refresh: a failure keeps the list; only a real change is reported', async 
   assert.equal(await refreshDueProviders(deps), true)
 })
 
-test('timer: first check soon after launch, then every few hours; stopping stops it', async (t) => {
+test('timer: Eaon’s gateway at launch, the rest soon after, then every few hours; stopping stops it', async (t) => {
   // Lets the finished check's promise settle, as real time would between ticks.
   const settle = (): Promise<void> => new Promise((r) => setImmediate(r))
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] })
   let checks = 0
+  const refreshed: string[] = []
   const stop = startModelFreshness(
     {
       list: () => {
         checks++
-        return []
+        return [provider('openai'), provider(GATEWAY_PROVIDER_ID, { auth: 'none', hasKey: false })]
       },
-      get: () => undefined,
-      refresh: async () => {}
+      get: (id) => provider(id),
+      refresh: async (id) => {
+        refreshed.push(id)
+      }
     },
     () => {}
   )
-  t.mock.timers.tick(FIRST_CHECK_MS - 1)
-  assert.equal(checks, 0)
-  t.mock.timers.tick(1)
-  assert.equal(checks, 1)
   await settle()
-  t.mock.timers.tick(EVERY_MS)
+  assert.equal(checks, 1, 'one look at launch')
+  assert.deepEqual(refreshed, [GATEWAY_PROVIDER_ID], 'at launch, only Eaon’s gateway is asked')
+  t.mock.timers.tick(FIRST_CHECK_MS - 1)
+  assert.equal(checks, 1)
+  t.mock.timers.tick(1)
   assert.equal(checks, 2)
+  await settle()
+  assert.ok(refreshed.includes('openai'), 'the others wait for the first check')
+  t.mock.timers.tick(EVERY_MS)
+  assert.equal(checks, 3)
   await settle()
   stop()
   t.mock.timers.tick(EVERY_MS * 3)
-  assert.equal(checks, 2)
+  assert.equal(checks, 3)
+})
+
+const refused = (message: string): ProviderHealth => ({ ok: false, issue: { kind: 'insufficient-scope', message, action: 'choose-model' }, checkedAt: 1 })
+
+test('due: Eaon’s gateway is asked again while it refuses, however fresh its list; a refused key is still left alone', () => {
+  const now = 10 * MAX_AGE_MS
+  const health = refused('Eaon Lite only answers up-to-date copies of Eaon.')
+  const due = providersDue(
+    [
+      provider(GATEWAY_PROVIDER_ID, { auth: 'none', hasKey: false, modelsListedAt: now - 1000, health }),
+      provider(FREE_PROVIDER_ID, { modelsListedAt: now - 1000, health }),
+      provider('openai', { modelsListedAt: now - MAX_AGE_MS, health: { ...health, issue: { kind: 'key-invalid', message: 'rejected', action: 'fix-key' } } }),
+      // Switched off by the user: left off.
+      provider(GATEWAY_PROVIDER_ID, { enabled: false, auth: 'none', hasKey: false, health })
+    ],
+    now
+  )
+  assert.deepEqual(
+    due.map((p) => p.id),
+    [GATEWAY_PROVIDER_ID, FREE_PROVIDER_ID]
+  )
+})
+
+test('refresh: a provider that stops needing attention is reported, though its list is the same', async () => {
+  let health: ProviderHealth | undefined = refused('Eaon Lite only answers up-to-date copies of Eaon.')
+  const lite = (): Provider => provider(GATEWAY_PROVIDER_ID, { auth: 'none', hasKey: false, ...(health ? { health } : {}) })
+  const deps = {
+    list: () => [lite()],
+    get: () => lite(),
+    refresh: async () => {
+      health = { ok: true, issue: null, checkedAt: 2 }
+    }
+  }
+  assert.equal(await refreshDueProviders(deps), true, 'the pages hear that Eaon Lite works again')
+  assert.equal(await refreshDueProviders({ ...deps, list: () => [{ ...lite(), modelsListedAt: Date.now() }] }), false, 'nothing new: nothing reported')
 })

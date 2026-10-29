@@ -3,6 +3,11 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [Unreleased]
+
+### Fixed
+- **Eaon Lite no longer says "Needs attention" after an update.** When Eaon's gateway had turned an older copy of Eaon away, the warning stayed after updating until you pressed Refresh. Eaon now drops what the gateway said to an older copy when it starts, checks Eaon Lite and Eaon Event as soon as it opens, and checks a refusal again every ten minutes instead of leaving it alone.
+
 ## [2026.7.2.1] — 2026-10-28
 
 The app reports this release as 2026.7.3: an app's version has three numbers, and updates compare them.

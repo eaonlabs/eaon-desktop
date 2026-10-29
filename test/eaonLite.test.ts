@@ -1,7 +1,8 @@
 import { after, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { GATEWAY_PROVIDER_ID } from '@shared/freeCredits'
-import { getProvider, refreshModels } from '../src/main/providers'
+import { providerReadiness } from '@shared/modelSelection'
+import { forgetOtherVersionsGatewayChecks, getProvider, refreshModels } from '../src/main/providers'
 import { EAON_MAX_AGE_MS, MAX_AGE_MS, providersDue } from '../src/main/providers/freshness'
 import { store } from '../src/main/store'
 
@@ -14,7 +15,13 @@ import { store } from '../src/main/store'
 
 const realFetch = globalThis.fetch
 let listing: unknown = { object: 'list', data: [] }
+/** The gateway set to "Eaon apps only", turning this copy away. */
+let appsOnly = false
 globalThis.fetch = (async (url: string | URL) => {
+  if (appsOnly) {
+    const error = { message: 'This API only works inside Eaon apps: the Eaon desktop app and the Eaon CLIs.', type: 'authentication_error', code: 'eaon_apps_only' }
+    return new Response(JSON.stringify({ error }), { status: 401, headers: { 'content-type': 'application/json' } })
+  }
   if (/\/models\/?$/.test(String(url))) return new Response(JSON.stringify(listing), { status: 200, headers: { 'content-type': 'application/json' } })
   return new Response('{}', { status: 404 })
 }) as typeof fetch
@@ -72,4 +79,45 @@ test('Eaon Lite’s list is asked for again every ten minutes; other providers e
     [GATEWAY_PROVIDER_ID]
   )
   assert.deepEqual(providersDue([{ ...eaon, modelsListedAt: now - EAON_MAX_AGE_MS + 1000 }], now), [], 'not before ten minutes')
+})
+
+test('a refusal Eaon Lite gave an older copy of Eaon is gone once Eaon is updated, without pressing Refresh', async () => {
+  store.saveProviderConfig({ [GATEWAY_PROVIDER_ID]: { enabled: true } })
+  listing = { object: 'list', data: [row('mimo-v2.6-flash-free', 'MiMo v2.6 Flash', 'Flash.')] }
+  appsOnly = true
+  await assert.rejects(refreshModels(GATEWAY_PROVIDER_ID))
+  appsOnly = false
+  assert.equal(providerReadiness(lite()).state, 'attention')
+  assert.equal(lite().health?.version, '0.0.0-test', 'the verdict says which copy of Eaon it was about')
+
+  // Launched again, the same copy: the verdict stands until the gateway is asked again.
+  forgetOtherVersionsGatewayChecks()
+  assert.equal(providerReadiness(lite()).state, 'attention')
+  const asked = providersDue([lite()], Date.now()).map((p) => p.id)
+  assert.deepEqual(asked, [GATEWAY_PROVIDER_ID], 'a refused Eaon Lite is asked again, not left alone')
+
+  // Updated: what the gateway said to the older copy no longer shows.
+  const config = store.getProviderConfig()
+  store.saveProviderConfig({ ...config, [GATEWAY_PROVIDER_ID]: { ...config[GATEWAY_PROVIDER_ID], health: { ...config[GATEWAY_PROVIDER_ID].health!, version: '2026.7.1' } } })
+  forgetOtherVersionsGatewayChecks()
+  assert.equal(lite().health, undefined)
+  assert.equal(providerReadiness(lite()).state, 'ready')
+
+  // A verdict stored before verdicts named their version goes too.
+  appsOnly = true
+  await assert.rejects(refreshModels(GATEWAY_PROVIDER_ID))
+  appsOnly = false
+  const stored = store.getProviderConfig()
+  const { version: _version, ...unversioned } = stored[GATEWAY_PROVIDER_ID].health!
+  store.saveProviderConfig({ ...stored, [GATEWAY_PROVIDER_ID]: { ...stored[GATEWAY_PROVIDER_ID], health: unversioned } })
+  forgetOtherVersionsGatewayChecks()
+  assert.equal(providerReadiness(lite()).state, 'ready')
+
+  // And when the gateway answers again, the refusal clears by itself.
+  appsOnly = true
+  await assert.rejects(refreshModels(GATEWAY_PROVIDER_ID))
+  appsOnly = false
+  await refreshModels(GATEWAY_PROVIDER_ID)
+  assert.equal(providerReadiness(lite()).state, 'ready')
+  store.saveProviderConfig({ [GATEWAY_PROVIDER_ID]: { enabled: true } })
 })

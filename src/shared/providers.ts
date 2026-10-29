@@ -237,6 +237,8 @@ export interface ProviderHealth {
   /** Why the check failed; null when it worked. */
   issue: ProviderIssue | null
   checkedAt: number
+  /** The version of Eaon whose check failed. Eaon's gateway refuses a copy of Eaon, and updating ends that. */
+  version?: string
 }
 
 /**

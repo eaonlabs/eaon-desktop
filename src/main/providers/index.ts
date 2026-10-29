@@ -26,6 +26,7 @@ import { oauthFlow } from './oauth'
 import { COPILOT_API_VERSION } from './oauth/copilot'
 import './oauth/flows'
 import { providerFetch, sdkFetch } from './safeFetch'
+import { appVersion } from '../gatewaySignature'
 import { providerAllowed } from '../enterprise/policy'
 import { GATEWAY_REFUSED, hideEaonAddress, isEaonGateway } from '../eaonAddress'
 import { targetsPrivateNetwork } from '../netGuard'
@@ -394,8 +395,9 @@ export function noteProviderHealth(id: string, issue: ProviderIssue | null, at =
     return true
   }
   if (!isLastingIssue(issue.kind)) return false
-  if (current && !current.ok && current.issue?.kind === issue.kind && current.issue.message === issue.message) return false
-  const health: ProviderHealth = { ok: false, issue, checkedAt: at }
+  const version = appVersion() ?? undefined
+  if (current && !current.ok && current.issue?.kind === issue.kind && current.issue.message === issue.message && current.version === version) return false
+  const health: ProviderHealth = { ok: false, issue, checkedAt: at, ...(version ? { version } : {}) }
   editOverride(id, (override) => ({ ...override, health }))
   return true
 }
@@ -407,6 +409,23 @@ export function clearProviderHealth(id: string): void {
     const { health: _health, ...rest } = override
     return rest
   })
+}
+
+/**
+ * At launch: what Eaon's gateway said to another version of Eaon no longer
+ * applies. Its refusal was about that copy ("only answers up-to-date
+ * copies"), and updating is the fix it asked for, but nothing else clears it:
+ * the gateway has no key to re-enter, and a provider that needs attention is
+ * left alone by the background refresh. So an update opened to Eaon Lite's
+ * "Needs attention" until someone pressed Refresh. The gateway is asked
+ * again as soon as Eaon starts (freshness.ts).
+ */
+export function forgetOtherVersionsGatewayChecks(): void {
+  const version = appVersion() ?? undefined
+  for (const id of [GATEWAY_PROVIDER_ID, FREE_PROVIDER_ID]) {
+    const health = store.getProviderConfig()[id]?.health
+    if (health && !health.ok && health.version !== version) clearProviderHealth(id)
+  }
 }
 
 /** A listing that failed: the kept list becomes "the last one that worked", and a lasting failure marks the provider. */
