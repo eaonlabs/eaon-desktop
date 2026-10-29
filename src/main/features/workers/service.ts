@@ -54,6 +54,7 @@ import { createHue, type HueBridge } from './hue'
 import { createLists } from './lists'
 import { createHousehold } from './household'
 import { createConnectors } from './connectors'
+import { SWITCHABLE_DOMAINS } from '@shared/workerCards'
 import { createVault } from './vault'
 import { isSealed, openVault, sealVault, setVaultKey } from './vaultSeal'
 import { readFile } from 'node:fs/promises'
@@ -649,6 +650,23 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
         return { ip: bridge.ip, lights: (await hue.lights().catch(() => [])).length }
       })
       ipcMain.handle('workers:hue-forget', () => hue.forget())
+      // A device card's switch (workerCards.ts, control): the light or plug itself, at once, as the
+      // user's own tap. Only on and off, and only what turns on and off: never a lock or a garage.
+      ipcMain.handle('workers:device-switch', async (_e, control: unknown, on: unknown) => {
+        const c = (control && typeof control === 'object' ? control : {}) as Record<string, unknown>
+        const turn = on === true
+        if (typeof c.entity === 'string' && c.entity) {
+          const domain = c.entity.split('.')[0]
+          if (!SWITCHABLE_DOMAINS.includes(domain)) throw new Error('That device is switched through its worker, not straight from the card.')
+          await connectors.ha.call(domain, turn ? 'turn_on' : 'turn_off', { entity_id: c.entity })
+          return true
+        }
+        if (typeof c.hue === 'string' && c.hue) {
+          await hue.set(c.hue, { on: turn })
+          return true
+        }
+        throw new Error('That card has nothing to switch.')
+      })
       ipcMain.handle('workers:lists', () => lists.all())
       ipcMain.handle('workers:list-toggle', (_e, listId: unknown, itemId: unknown, done: unknown) => lists.toggle(str(listId), str(itemId), done === true))
       ipcMain.handle('workers:connections', () => connectors.statuses())

@@ -166,6 +166,22 @@ test('cards: every kind normalises, bad ones say why, buttons keep only what the
   }
 })
 
+test('a device card’s switch flips a Hue light or a Home Assistant light by itself, never a lock, and only with linked apps', () => {
+  const card = (extra: Record<string, unknown>) => {
+    const result = normalizeCard({ kind: 'device', name: 'Porch light', device: 'light', on: false, ...extra })
+    return 'card' in result && result.card.kind === 'device' ? result.card.control : 'refused'
+  }
+  assert.deepEqual(card({ app: 'home-assistant', entity: 'light.porch' }), { entity: 'light.porch' })
+  assert.deepEqual(card({ app: 'hue' }), { hue: 'Porch light' }, 'a Hue card by its name')
+  assert.deepEqual(card({ app: 'hue', light: 'Office' }), { hue: 'Office' }, 'or the room it names')
+  assert.equal(card({ entity: 'lock.front_door' }), undefined, 'a lock is opened through the worker, with its approval')
+  assert.equal(card({ entity: 'cover.garage' }), undefined)
+  assert.equal(card({ app: 'hue', on: undefined }), undefined, 'no switch, nothing to flip')
+  delete g.__EAON_LABS__
+  assert.equal(card({ app: 'hue' }), undefined, 'without linked apps there is no Hue to reach')
+  g.__EAON_LABS__ = true
+})
+
 test('workLog lifts cards and events out of a worker’s runs, but not a failed one, and not in a chat', () => {
   const tool = (id: string, name: string, status: 'done' | 'error' | 'running' = 'done') => ({ type: 'tool' as const, id, name, input: {}, output: 'ok', status })
   const parts = [{ type: 'text' as const, text: 'Checking.' }, tool('a', 'web_browser'), tool('b', 'show_card'), tool('c', 'add_routine'), tool('d', 'show_card', 'error'), tool('e', 'react'), { type: 'text' as const, text: 'Done.' }]
@@ -540,5 +556,5 @@ test('appsToolSource offers nothing outside a worker’s own top-level turn', ()
   const q = query('nobody')
   assert.deepEqual(source.tools({ ...q, request: { ...q.request, workerId: undefined } as StreamRequest }), [])
   assert.deepEqual(source.tools({ ...q, depth: 1 }), [])
-  assert.deepEqual(names(source.tools(q)), ['show_card'], 'an unknown worker gets the card tool only')
+  assert.deepEqual(names(source.tools(q)), ['show_card', 'show_ui'], 'an unknown worker gets the card tools only')
 })

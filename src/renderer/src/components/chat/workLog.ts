@@ -25,7 +25,7 @@ export type LogItem =
 const SHOWN_ELSEWHERE = new Set(['update_plan', 'present_plan'])
 const OWN = new Set(['spawn_agents', 'generate_image'])
 /** In a worker's thread: calls drawn as cards rather than folded into a run. */
-export const CARD_TOOLS = new Set(['show_card', 'request_sign_in'])
+export const CARD_TOOLS = new Set(['show_card', 'show_ui', 'request_sign_in'])
 /** In a worker's thread: calls shown as a centred line ("Created routine ⏱ Overnight outbound"). */
 export const EVENT_TOOLS = new Set(['add_routine', 'remove_routine', 'create_worker', 'hand_off', 'message_worker', 'post_to_room', 'save_playbook', 'set_goal'])
 

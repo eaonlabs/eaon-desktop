@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs'
 import { isAbsolute, join, resolve } from 'node:path'
 import { MAIN_THREAD } from '@shared/workers'
 import { CARD_KINDS, normalizeCard } from '@shared/workerCards'
+import { normalizeUi, uiSummary, UI_BLOCK_TYPES } from '@shared/workerUi'
 import { findWorkerApp, needsSignIn, signInTarget, workerApp, workerAppsEnabled, type WorkerApp, type WorkerAppLink } from '@shared/workerApps'
 import type { AgentTool, ToolContext, ToolSource } from '../../agent/tools'
 import type { WorkersEngine } from './engine'
@@ -92,7 +93,7 @@ export function cardTool(engine: WorkersEngine, browsers: WorkerBrowsers): Agent
 - ride {app, from, to, eta, price, driver, car, plate, stage: quote|requesting|matched|arriving|on-trip|dropped-off|cancelled}
 - route {from, to, duration, distance, traffic: light|moderate|heavy, via, leave_by, mode: drive|walk|transit|bike} — opens in Google Maps / Waze
 - payment {app, direction: send|request, to, amount, note, state: draft|needs-approval|sent|failed}
-- device {app, name, device: light|vacuum|car|lock|thermostat|camera|plug|speaker|other, state, on, level 0-100, stats:[{label, value}], actions}
+- device {app, name, device: light|vacuum|car|lock|thermostat|camera|plug|speaker|other, state, on, level 0-100, stats:[{label, value}], actions${workerAppsEnabled() ? ", entity (a Home Assistant light/switch/fan's entity_id) or light (a Hue light or room's name): its switch then flips it at once" : ''}}
 - camera {app, title, at, caption, screenshot: true (your browser's page now) or image (a file path)}
 - list {title, list_id (a shared list: the card stays live), items:[{text, done}]}
 - events {title, events:[{title, when, where}]}
@@ -131,6 +132,42 @@ actions: up to 4 buttons [{label, reply (sent to you as the user's answer) | url
       }
       return `Shown to the user as a ${result.card.kind} card.${image ? ` [image: ${image}]` : ''}`
     }
+  }
+}
+
+/**
+ * show_ui: a card the worker lays out itself from blocks (shared/workerUi.ts)
+ * when no ready-made card fits — a stock's live chart and figures, a
+ * comparison, a plan with tabs. Drawn by Eaon; nothing the worker writes runs.
+ */
+export const uiTool: AgentTool = {
+  name: 'show_ui',
+  description: `Put a card you design in your thread, for answers that read better as a small app than as text: how a stock is doing, comparing options, a budget, a plan, results. Build it from blocks (each {type, …}):
+- heading {text, detail} · text {text} (short; **bold** works) · divider
+- stats {items:[{label, value, change: "+2.4%", tone: up|down|neutral|good|warn|bad}]} — 2 to 4 figures side by side
+- chart {style: line|area|bar, unit, series:[{name, points:[{x, y}]}]} or views:[{label: "1W", series}] for tabs over the same chart; the user can read any point
+- stock {symbol: "NVDA", range: 1d|5d|1mo|6mo|1y, news: true} — LIVE: Eaon draws the current price, today's move and a chart the user can switch between ranges (and headlines with news). Prefer it to typing prices yourself.
+- table {columns, rows:[[...]]} — the user can sort it · list {items:[{title, detail, value, tone}]}
+- progress {label, value, max} · badges {items:[{label, tone}]}
+- tabs {tabs:[{label, blocks}]} — two or more, one level deep
+- buttons {actions:[{label, reply (sent to you as the user's answer) | url}]}
+Keep it to what answers the question; say the one-line takeaway in your reply too. For a stock, use trading_quote/trading_history or the web for facts, then a stock block plus a few stats and a line of why.`,
+  inputSchema: {
+    type: 'object',
+    properties: {
+      title: { type: 'string' },
+      subtitle: { type: 'string' },
+      blocks: { type: 'array', items: { type: 'object', properties: { type: { type: 'string', enum: UI_BLOCK_TYPES } }, required: ['type'], additionalProperties: true } }
+    },
+    required: ['blocks']
+  },
+  mutating: false,
+  describe: (input) => str(input.title) || 'A card',
+  run: async (input) => {
+    const result = normalizeUi(input)
+    if ('error' in result) return { text: result.error, isError: true }
+    const skipped = result.skipped.length ? ` Left out, fix and show it again if they matter: ${result.skipped.join('; ')}.` : ''
+    return `Shown to the user: ${uiSummary(result.ui)}, ${result.ui.blocks.length} block${result.ui.blocks.length === 1 ? '' : 's'}.${skipped}`
   }
 }
 
@@ -435,7 +472,7 @@ export function appsToolSource(deps: AppsDeps): ToolSource {
     tools: (query) => {
       const workerId = query.request.workerId
       if (query.mode !== 'work' || query.depth !== 0 || !workerId) return []
-      const tools: AgentTool[] = [show]
+      const tools: AgentTool[] = [show, uiTool]
       if (!workerAppsEnabled()) return tools
       const links = linksOf(engine, workerId)
       const apps = links.map((l) => workerApp(l.id)).filter((a): a is WorkerApp => Boolean(a))

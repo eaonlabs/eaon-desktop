@@ -49,6 +49,7 @@ import { fileUrl } from '../../lib/files'
 import { Modal } from '../ui'
 import { appLogoFor } from '../plugins/PluginLogo'
 import { WorkerFace } from './WorkerFace'
+import { UiCard } from './WorkerUi'
 import { errorText, useWorkers } from './workersStore'
 
 /**
@@ -65,7 +66,7 @@ import { errorText, useWorkers } from './workersStore'
 export const WorkerThreadContext = createContext<{ workerId: string; threadId: string } | null>(null)
 
 /** The call a card came from, so what was answered on it is remembered (useCardAnswer). */
-const CardIdContext = createContext<string | null>(null)
+export const CardIdContext = createContext<string | null>(null)
 
 /**
  * What was answered on each card — the option picked, the button pressed, the
@@ -117,6 +118,12 @@ const TONE_LABEL: Record<CardTone, string> = {
 export function WorkerCardRow({ part }: { part: ChatToolPart }): JSX.Element | null {
   // A sign-in request is a linked app's (labs): a build without them has nothing to sign in with.
   if (part.name === 'request_sign_in') return workerAppsEnabled() ? <SignInCard part={part} /> : null
+  if (part.name === 'show_ui')
+    return (
+      <CardIdContext.Provider value={part.id}>
+        <UiCard input={part.input} />
+      </CardIdContext.Provider>
+    )
   const input = part.input.card && typeof part.input.card === 'object' ? part.input.card : part.input
   const result = normalizeCard(input)
   if ('error' in result) return null
@@ -399,15 +406,38 @@ const LEVEL_LABEL: Partial<Record<DeviceKind, string>> = { light: 'Brightness', 
 
 /**
  * A device, like a tile in a home app: its icon lit when it's on, its name
- * and state, a switch that asks the worker to flip it, a slim meter for its
- * level, its facts in a quiet grid, and any other actions.
+ * and state, a switch, a slim meter for its level, its facts in a quiet
+ * grid, and any other actions. The switch flips a Hue light or a Home
+ * Assistant light, switch or fan itself when the card names one (control);
+ * anything else it asks the worker to flip.
  */
 function DeviceCard({ card, app }: { card: Extract<WorkerCard, { kind: 'device' }>; app: WorkerApp | undefined }): JSX.Element {
   const act = useCardAction()
   const thread = useContext(WorkerThreadContext)
   const [flipped, setFlipped] = useCardAnswer('switch')
+  const [busy, setBusy] = useState(false)
+  const [note, setNote] = useState<{ text: string; failed?: boolean } | null>(null)
   const on = flipped === null ? card.on : flipped === 'on'
   const Icon = DEVICE_ICON[card.device]
+  const direct = workerAppsEnabled() && card.control ? card.control : null
+  const flip = (): void => {
+    const next = !on
+    if (!direct) {
+      setFlipped(next ? 'on' : 'off')
+      act({ label: next ? 'Turn on' : 'Turn off', reply: `Turn ${next ? 'on' : 'off'} the ${card.name}` })
+      return
+    }
+    setBusy(true)
+    setNote(null)
+    window.api.workers
+      .deviceSwitch(direct, next)
+      .then(() => {
+        setFlipped(next ? 'on' : 'off')
+        setNote({ text: `Turned ${next ? 'on' : 'off'}.` })
+      })
+      .catch((error: unknown) => setNote({ text: errorText(error), failed: true }))
+      .finally(() => setBusy(false))
+  }
   return (
     <>
       <Eyebrow app={app} label={app ? undefined : DEVICE_LABEL[card.device]} />
@@ -417,7 +447,8 @@ function DeviceCard({ card, app }: { card: Extract<WorkerCard, { kind: 'device' 
         </span>
         <span className="wdevice__text">
           <span className="wcard__title">{card.name}</span>
-          {card.state && <span className="whero__meta">{card.state}</span>}
+          {/* Flipped here since the worker drew it: what it is now, not what the worker saw. */}
+          {(flipped !== null || card.state) && <span className="whero__meta">{flipped !== null ? (on ? 'On' : 'Off') : card.state}</span>}
         </span>
         {on !== undefined && (
           <button
@@ -427,16 +458,27 @@ function DeviceCard({ card, app }: { card: Extract<WorkerCard, { kind: 'device' 
             aria-label={`${card.name}: ${on ? 'on' : 'off'}`}
             className="wswitch"
             data-device={card.device}
-            disabled={!thread}
-            onClick={() => {
-              setFlipped(on ? 'off' : 'on')
-              act({ label: on ? 'Turn off' : 'Turn on', reply: `Turn ${on ? 'off' : 'on'} the ${card.name}` })
-            }}
+            disabled={busy || (!thread && !direct)}
+            data-busy={busy || undefined}
+            onClick={flip}
           >
             <span className="wswitch__knob" />
           </button>
         )}
       </div>
+      {note && (
+        <span className="wdevice__note" data-failed={note.failed || undefined} role="status">
+          {note.text}
+          {note.failed && thread && (
+            <>
+              {' '}
+              <button type="button" className="link-btn" onClick={() => act({ label: 'Ask', reply: `Turn ${on ? 'off' : 'on'} the ${card.name}` })}>
+                Ask the worker instead
+              </button>
+            </>
+          )}
+        </span>
+      )}
       {card.level !== undefined && <Meter label={LEVEL_LABEL[card.device] ?? 'Level'} value={card.level} warm={card.device === 'light'} />}
       {card.stats && (
         <dl className="wfacts">
@@ -617,9 +659,9 @@ function useCardAction(): (action: CardAction) => void {
  * one) is solid; a reply, once sent, marks the chosen button and settles the
  * rest. Links out carry an arrow.
  */
-function Actions({ actions }: { actions?: CardAction[] }): JSX.Element | null {
+export function Actions({ actions, slot = 'actions' }: { actions?: CardAction[]; slot?: string }): JSX.Element | null {
   const act = useCardAction()
-  const [done, setDone] = useCardAnswer('actions')
+  const [done, setDone] = useCardAnswer(slot)
   if (!actions || actions.length === 0) return null
   return (
     <div className="wcard-actions">

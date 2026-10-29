@@ -9,8 +9,9 @@ All notable changes to Eaon are documented here. Format loosely follows
 - **Workers that look like themselves.** Ten shapes to pick from on the New worker page, and new faces: heart eyes, dizzy, thinking, laughing, worried and shades.
 - **Cards in a worker's thread.** A worker can show an order, a ride, a trip, a list, a calendar or a device as a card instead of a paragraph, and react to your message with an emoji instead of a reply that only says "OK".
 - **What a worker set up reads as a line of its own:** "Created routine Friday dinner", "Handed … to Chief". Messages from colleagues fold into one line that opens to show them, and colleagues' names show in their colours.
+- **Cards a worker designs itself.** Ask "How's NVDA doing?" and a worker can answer with a card it lays out: the stock's live price and chart (switch between 1D, 5D, 1M, 6M and 1Y, and read any point), its figures, the latest headlines, and buttons to act on it. Workers build these from charts, tables you can sort, tabs, lists, figures and buttons; Eaon draws them, and nothing the worker writes runs.
 - **Choose which plugins each worker can use**, from its settings.
-- **Labs builds only:** workers linked to everyday apps (DoorDash, Uber, Maps, Venmo, Amazon, Ring, Hue, Tesla, Calendar and more), real connections (Home Assistant, Tessie, SimpleFIN, Instacart, Google Routes), and a password vault with passkeys that workers sign in with without ever seeing a password. On a worker computer the vault is stored encrypted, with the key kept on your Mac.
+- **Labs builds only:** a light's or plug's card switch flips it straight away through Hue or Home Assistant, without waiting on the worker. Workers linked to everyday apps (DoorDash, Uber, Maps, Venmo, Amazon, Ring, Hue, Tesla, Calendar and more), real connections (Home Assistant, Tessie, SimpleFIN, Instacart, Google Routes), and a password vault with passkeys that workers sign in with without ever seeing a password. On a worker computer the vault is stored encrypted, with the key kept on your Mac.
 
 ## [2026.7.2.1] — 2026-10-28
 

@@ -86,9 +86,10 @@ const ACCOUNT_REFUSAL =
  * A worker's linked apps and connections (workers/apps.ts, connectors.ts):
  * the user's bank, calendar, home, car, lists and saved logins. Below "Same
  * as you" a guest gets the ones that reach nothing of the user's: a card
- * without a screenshot, a trip's time, a link the user confirms.
+ * without a screenshot, one the worker lays out, a trip's time, a link the
+ * user confirms.
  */
-const GUEST_APP_TOOLS = new Set(['show_card', 'route', 'app_link'])
+const GUEST_APP_TOOLS = new Set(['show_card', 'show_ui', 'route', 'app_link'])
 const APPS_REFUSAL =
   "You are answering a guest, and that reaches the user's own apps, home or saved logins, so a guest can't have you use it."
 

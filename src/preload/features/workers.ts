@@ -135,6 +135,8 @@ export const workersApi = {
   /** Pairs with the Hue bridge (its button pressed in the last 30 s); the first one found unless `ip` names one. */
   huePair: (ip?: string): Promise<{ ip: string; lights: number }> => ipcRenderer.invoke('workers:hue-pair', ip),
   hueForget: (): Promise<void> => ipcRenderer.invoke('workers:hue-forget'),
+  /** A device card's switch, straight to the light or plug (a Hue name, or a Home Assistant entity). */
+  deviceSwitch: (control: { hue: string } | { entity: string }, on: boolean): Promise<boolean> => ipcRenderer.invoke('workers:device-switch', control, on),
   lists: (): Promise<HouseholdList[]> => ipcRenderer.invoke('workers:lists'),
   listToggle: (listId: string, itemId: string, done: boolean): Promise<void> => ipcRenderer.invoke('workers:list-toggle', listId, itemId, done),
   listAdd: (listId: string, text: string): Promise<HouseholdList> => ipcRenderer.invoke('workers:list-add', listId, text),

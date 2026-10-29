@@ -94,6 +94,12 @@ export type WorkerCard =
       level?: number
       stats?: { label: string; value: string }[]
       actions?: CardAction[]
+      /**
+       * What its switch flips by itself, without asking the worker: a Hue
+       * light or room by name, or a Home Assistant entity (light, switch,
+       * fan, plug). Anything else, a lock or a garage, goes through the worker.
+       */
+      control?: { hue: string } | { entity: string }
     }
   | { kind: 'camera'; app?: string; title: string; image?: string; at?: string; caption?: string; actions?: CardAction[] }
   | { kind: 'list'; title: string; listId?: string; items: { text: string; done?: boolean }[] }
@@ -133,7 +139,7 @@ const rows = <T>(value: unknown, map: (row: Raw) => T | null): T[] =>
     .filter((row): row is T => row !== null)
     .slice(0, MAX_ROWS)
 
-function actions(value: unknown): CardAction[] | undefined {
+export function cardActions(value: unknown): CardAction[] | undefined {
   const list = rows(value, (a): CardAction | null => {
     const label = text(a.label, 40)
     if (!label) return null
@@ -157,6 +163,19 @@ function actions(value: unknown): CardAction[] | undefined {
  * The card a show_card call describes, or why it can't be shown. Field names
  * follow the tool's schema (snake_case from the model; camelCase accepted).
  */
+/** Home Assistant entities a card's switch may flip on its own: on and off is all they do. */
+export const SWITCHABLE_DOMAINS = ['light', 'switch', 'fan', 'input_boolean', 'media_player']
+
+/** A device card's direct control (labs: Hue and Home Assistant are linked apps), from what the worker gave. */
+function deviceControl(raw: Raw, name: string): { hue: string } | { entity: string } | undefined {
+  if (!workerAppsEnabled() || typeof raw.on !== 'boolean') return undefined
+  const entity = text(raw.entity ?? raw.entity_id, 120)
+  if (entity && SWITCHABLE_DOMAINS.includes(entity.split('.')[0])) return { entity }
+  if (entity) return undefined
+  if (raw.app === 'hue') return { hue: text(raw.light ?? raw.target, 80) || name }
+  return undefined
+}
+
 export function normalizeCard(input: unknown): { card: WorkerCard } | { error: string } {
   const raw = obj(input)
   if (!raw) return { error: 'card must be an object with a kind.' }
@@ -174,7 +193,7 @@ export function normalizeCard(input: unknown): { card: WorkerCard } | { error: s
           ...(optional(raw.body) ? { body: optional(raw.body) } : {}),
           ...(badgeLabel ? { badge: { label: badgeLabel, tone: oneOf(badge?.tone ?? raw.tone, TONES, 'info') } } : {}),
           ...(optional(raw.image, 2000) ? { image: optional(raw.image, 2000) } : {}),
-          ...(actions(raw.actions) ? { actions: actions(raw.actions) } : {})
+          ...(cardActions(raw.actions) ? { actions: cardActions(raw.actions) } : {})
         }
       }
     }
@@ -204,7 +223,7 @@ export function normalizeCard(input: unknown): { card: WorkerCard } | { error: s
           ...(optional(raw.total, 20) ? { total: optional(raw.total, 20) } : {}),
           ...(optional(raw.eta, 40) ? { eta: optional(raw.eta, 40) } : {}),
           stage: oneOf(raw.stage, ORDER_STAGES, 'placed'),
-          ...(actions(raw.actions) ? { actions: actions(raw.actions) } : {})
+          ...(cardActions(raw.actions) ? { actions: cardActions(raw.actions) } : {})
         }
       }
     }
@@ -225,7 +244,7 @@ export function normalizeCard(input: unknown): { card: WorkerCard } | { error: s
           to,
           ...extra,
           stage: oneOf(raw.stage, RIDE_STAGES, 'quote'),
-          ...(actions(raw.actions) ? { actions: actions(raw.actions) } : {})
+          ...(cardActions(raw.actions) ? { actions: cardActions(raw.actions) } : {})
         }
       }
     }
@@ -261,7 +280,7 @@ export function normalizeCard(input: unknown): { card: WorkerCard } | { error: s
           amount,
           ...(optional(raw.note, 200) ? { note: optional(raw.note, 200) } : {}),
           state: oneOf(raw.state, ['draft', 'needs-approval', 'sent', 'failed'] as const, 'draft'),
-          ...(actions(raw.actions) ? { actions: actions(raw.actions) } : {})
+          ...(cardActions(raw.actions) ? { actions: cardActions(raw.actions) } : {})
         }
       }
     }
@@ -280,7 +299,8 @@ export function normalizeCard(input: unknown): { card: WorkerCard } | { error: s
           ...(typeof raw.on === 'boolean' ? { on: raw.on } : {}),
           ...(level !== undefined ? { level } : {}),
           ...(stats.length > 0 ? { stats } : {}),
-          ...(actions(raw.actions) ? { actions: actions(raw.actions) } : {})
+          ...(cardActions(raw.actions) ? { actions: cardActions(raw.actions) } : {}),
+          ...(deviceControl(raw, name) ? { control: deviceControl(raw, name)! } : {})
         }
       }
     }
@@ -294,7 +314,7 @@ export function normalizeCard(input: unknown): { card: WorkerCard } | { error: s
           ...(optional(raw.image, 2000) ? { image: optional(raw.image, 2000) } : {}),
           ...(optional(raw.at, 40) ? { at: optional(raw.at, 40) } : {}),
           ...(optional(raw.caption, 300) ? { caption: optional(raw.caption, 300) } : {}),
-          ...(actions(raw.actions) ? { actions: actions(raw.actions) } : {})
+          ...(cardActions(raw.actions) ? { actions: cardActions(raw.actions) } : {})
         }
       }
     }

@@ -165,7 +165,7 @@ function summarise(name: string, input: Record<string, unknown>): string {
   if (name === 'home') return first('entity', 'search')
   if (name === 'household') return first('title')
   if (name === 'tesla') return input.action === 'command' ? first('command').replace(/_/g, ' ') : ''
-  if (name === 'show_card') return first('title', 'kind')
+  if (name === 'show_card' || name === 'show_ui') return first('title', 'kind')
   if (name === 'generate_image') return first('prompt')
   if (name === 'set_heartbeat') {
     if (input.stop === true) return 'stopped'
@@ -229,6 +229,7 @@ const LABELS: Record<string, string> = {
   send_chat_message: 'Posted',
   generate_image: 'Image',
   show_card: 'Card',
+  show_ui: 'Card',
   react: 'Reaction',
   saved_logins: 'Saved logins',
   sign_in_saved: 'Signed in',

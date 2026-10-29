@@ -4567,3 +4567,489 @@ button.vault-row:hover {
   font-size: var(--fs-sm);
   color: var(--text-2);
 }
+
+/* ---------------------------------------------------------------------------
+   A card the worker lays out itself (show_ui, WorkerUi.tsx): blocks in the
+   cards' own look, a little wider for charts and tables.
+   ------------------------------------------------------------------------- */
+.wui {
+  --wui-c1: var(--accent);
+  --wui-c2: #f0a92e;
+  --wui-c3: #b07cff;
+  --wui-c4: #30c48d;
+  --wui-up: var(--wc-ok);
+  --wui-down: var(--danger);
+  width: min(100%, 520px);
+  gap: 14px;
+}
+.wui__head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.wui__subtitle,
+.wui-heading__detail {
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+.wui-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.wui-heading__text {
+  font-size: 14px;
+  font-weight: 600;
+}
+.wui-text .md__p {
+  margin: 0;
+}
+.wui-text {
+  font-size: 13.5px;
+  color: var(--text-2);
+}
+.wui-change {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 12px;
+  font-weight: 560;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+}
+.wui-change[data-tone='up'],
+.wui-change[data-tone='good'],
+.wui-list__value[data-tone='up'],
+.wui-list__value[data-tone='good'] {
+  color: var(--wui-up);
+}
+.wui-change[data-tone='down'],
+.wui-change[data-tone='bad'],
+.wui-list__value[data-tone='down'],
+.wui-list__value[data-tone='bad'] {
+  color: var(--wui-down);
+}
+.wui-change[data-tone='warn'],
+.wui-list__value[data-tone='warn'] {
+  color: var(--wc-warn);
+}
+
+/* One quiet pill of choices: tabs, a chart's views, a stock's ranges. */
+.wui-segments {
+  align-self: flex-start;
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 9px;
+  background: var(--wc-inset);
+  box-shadow: inset 0 0 0 1px var(--wc-hair);
+}
+.wui-segment {
+  height: 26px;
+  padding: 0 10px;
+  border-radius: 7px;
+  font-size: 12px;
+  font-weight: 560;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+  transition:
+    background var(--dur, 160ms) var(--ease, ease),
+    color var(--dur, 160ms) var(--ease, ease);
+}
+.wui-segment:hover {
+  color: var(--text);
+}
+.wui-segment[data-on] {
+  color: var(--text);
+  background: var(--wc-inset-strong);
+  box-shadow: 0 1px 2px oklch(0 0 0 / 0.12);
+}
+.wui-segment:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.wui-tabs {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.wui-tabs__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Charts: the readout above, the plot as wide as the card. */
+.wui-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.wui-plot {
+  position: relative;
+  width: 100%;
+  min-height: 150px;
+}
+.wui-plot svg {
+  display: block;
+  overflow: visible;
+  cursor: crosshair;
+  touch-action: none;
+}
+.wui-plot svg:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 6px;
+}
+.wui-plot--empty {
+  border-radius: var(--wc-r-in);
+  background: linear-gradient(90deg, var(--wc-inset), var(--wc-inset-strong), var(--wc-inset));
+  background-size: 200% 100%;
+  animation: wui-shimmer 1.4s linear infinite;
+}
+@keyframes wui-shimmer {
+  to {
+    background-position: -200% 0;
+  }
+}
+.wui-readout {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-height: 18px;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+.wui-readout__x {
+  color: var(--text-3);
+}
+.wui-readout__v {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-weight: 600;
+  color: var(--text);
+}
+.wui-readout__dot,
+.wui-legend__item::before {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--c);
+}
+.wui-plot__line {
+  fill: none;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.wui-plot__base {
+  stroke: var(--wc-hair-strong);
+  stroke-width: 1;
+  stroke-dasharray: 3 4;
+}
+.wui-plot__cursor {
+  stroke: var(--wc-hair-strong);
+  stroke-width: 1;
+}
+.wui-plot__dot {
+  stroke: var(--canvas);
+  stroke-width: 2;
+}
+.wui-plot__label {
+  font-size: 10.5px;
+  fill: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.wui-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.wui-legend__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.wui-legend__item::before {
+  content: '';
+}
+
+/* Tables and lists */
+.wui-table {
+  overflow-x: auto;
+  border-radius: var(--wc-r-in);
+  box-shadow: inset 0 0 0 1px var(--wc-hair);
+}
+.wui-table table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.wui-table th {
+  padding: 0;
+  text-align: left;
+  font-weight: 560;
+  color: var(--text-3);
+  border-bottom: 1px solid var(--wc-hair);
+}
+.wui-table th button {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  width: 100%;
+  padding: 8px 12px;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+}
+.wui-table th button:hover {
+  color: var(--text);
+}
+.wui-table td {
+  padding: 8px 12px;
+  border-top: 1px solid var(--wc-hair);
+}
+.wui-table tbody tr:first-child td {
+  border-top: 0;
+}
+.wui-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.wui-list__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 0;
+  border-top: 1px solid var(--wc-hair);
+}
+.wui-list__row:first-child {
+  border-top: 0;
+  padding-top: 0;
+}
+.wui-list__text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.wui-list__title {
+  font-weight: 550;
+}
+.wui-list__detail {
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+.wui-list__value {
+  flex: none;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.wui-progress[data-tone='good'] .wmeter__fill {
+  background: var(--wui-up);
+}
+.wui-progress[data-tone='warn'] .wmeter__fill {
+  background: var(--wc-warn);
+}
+.wui-progress[data-tone='bad'] .wmeter__fill {
+  background: var(--wui-down);
+}
+.wui-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.wui-badge {
+  padding: 3px 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 550;
+  color: var(--text-2);
+  background: var(--wc-inset-strong);
+}
+.wui-badge[data-tone='up'],
+.wui-badge[data-tone='good'] {
+  color: var(--wui-up);
+  background: color-mix(in srgb, var(--wui-up) 14%, transparent);
+}
+.wui-badge[data-tone='down'],
+.wui-badge[data-tone='bad'] {
+  color: var(--wui-down);
+  background: color-mix(in srgb, var(--wui-down) 14%, transparent);
+}
+.wui-badge[data-tone='warn'] {
+  color: var(--wc-warn);
+  background: color-mix(in srgb, var(--wc-warn) 14%, transparent);
+}
+.wui-badge[data-tone='info'] {
+  color: var(--wc-live);
+  background: color-mix(in srgb, var(--wc-live) 14%, transparent);
+}
+.wui-divider {
+  height: 1px;
+  margin: 0;
+  border: 0;
+  background: var(--wc-hair);
+}
+
+/* A stock, live */
+.wui-stock {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.wui-stock__head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 12px;
+}
+.wui-stock__name {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.wui-stock__symbol {
+  font-size: 13px;
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  color: var(--text-2);
+}
+.wui-stock__company {
+  overflow: hidden;
+  font-size: 12.5px;
+  color: var(--text-3);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.wui-stock__price {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+}
+.wui-stock__now {
+  font-size: 28px;
+  font-weight: 620;
+  letter-spacing: -0.025em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.wui-stock__move {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-size: 12.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--wui-up);
+}
+.wui-stock[data-trend='down'] .wui-stock__move {
+  color: var(--wui-down);
+}
+.wui-stock__span {
+  font-weight: 450;
+  color: var(--text-3);
+}
+.wui-stock__loading {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+.wui-stock__loading span {
+  width: 96px;
+  height: 22px;
+  border-radius: 6px;
+  background: var(--wc-inset-strong);
+}
+.wui-stock__loading span + span {
+  width: 64px;
+  height: 12px;
+}
+.wui-stock__facts {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.wui-stock__facts > div:nth-child(n + 2) {
+  box-shadow: inset 1px 0 0 var(--wc-hair);
+}
+.wui-stock__facts > div:nth-child(n + 3) {
+  border-top: 0;
+}
+.wui-stock__source {
+  font-size: 11px;
+  color: var(--text-3);
+}
+.wui-stock--error {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.wui-news {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.wui-news li {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.wui-news__link {
+  display: inline;
+  padding: 0;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 550;
+  line-height: 1.35;
+  color: var(--text);
+  text-align: left;
+}
+.wui-news__link:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.wui-news__link svg {
+  display: inline;
+  margin-left: 3px;
+  vertical-align: -1px;
+  color: var(--text-3);
+}
+.wui-news__meta {
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+body[data-reduce-motion='on'] .wui-plot--empty {
+  animation: none;
+}
+
+/* What a device card's own switch did, or why it couldn't. */
+.wdevice__note {
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+.wdevice__note[data-failed] {
+  color: var(--danger);
+}
+.wdevice__note .link-btn {
+  color: var(--text-2);
+}
+.wswitch[data-busy] {
+  opacity: 0.6;
+  cursor: progress;
+}
