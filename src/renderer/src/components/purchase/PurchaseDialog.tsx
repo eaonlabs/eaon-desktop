@@ -252,14 +252,14 @@ export function PurchaseDialog(): JSX.Element | null {
             <span className="purchase__label">Who buys it</span>
             {routine ? (
               <span className="purchase__worker">
-                {worker && <WorkerFace color={worker.color} size={18} />}
+                {worker && <WorkerFace color={worker.color} shape={worker.shape} size={18} />}
                 {worker?.name ?? 'Its worker'}
               </span>
             ) : (
               <Select
                 value={workerId ?? ''}
                 onChange={(id) => setWorkerId(id)}
-                options={buyers.map((w) => ({ value: w.id, label: w.name, icon: <WorkerFace color={w.color} size={16} /> }))}
+                options={buyers.map((w) => ({ value: w.id, label: w.name, icon: <WorkerFace color={w.color} shape={w.shape} size={16} /> }))}
               />
             )}
           </div>

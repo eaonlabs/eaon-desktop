@@ -1,5 +1,6 @@
 import { TRADING_ROUTINE_NAME, watchText, type Worker, type WorkerDelegation, type WorkerThreadInfo } from '@shared/workers'
 import type { TradingVenue } from '../trading/access'
+import { appLine, workerApp, workerAppsEnabled } from '@shared/workerApps'
 
 /**
  * A worker's persona: the identity line the Work system prompt opens with
@@ -61,6 +62,7 @@ export function workerPersona(
     lines.push('', 'Your group chats:')
     for (const room of rooms) lines.push(`- "${room.name}": the user${room.members.length ? `, ${room.members.join(', ')}` : ''} and you`)
   }
+  if (workerAppsEnabled()) lines.push(...appsBrief(worker))
   if (thread) lines.push('', ...threadBrief(thread))
   if (worker.trading) lines.push('', ...tradingBrief(worker, venue))
   if (worker.goal.trim()) lines.push('', `Your goal: ${worker.goal.trim()}`)
@@ -136,3 +138,23 @@ function tradingBrief(worker: Worker, venue: TradingVenue | null): string[] {
   return lines
 }
 
+
+/**
+ * The everyday apps linked to this worker (shared/workerApps.ts) and how to
+ * use them: through its own browser, signed in by the user, with anything
+ * that spends money stopping for approval.
+ */
+function appsBrief(worker: Worker): string[] {
+  const linked = (worker.apps ?? []).map((link) => ({ link, app: workerApp(link.id) })).filter((a) => a.app)
+  if (linked.length === 0) return []
+  const lines = ['', 'Your apps (the user linked these to you):', ...linked.map(({ app, link }) => appLine(app!, link, process.platform))]
+  if (linked.some(({ app }) => app!.via === 'browser')) {
+    lines.push(
+      '- Website apps: open_app opens one in your own browser, already signed in once the user has signed you in; work it with web_browser. Not signed in (a sign-in page shows)? Call request_sign_in and end your turn or do other work — never type a password, and never ask for one in chat. After you check, record it with app_signed_in.',
+      '- Ordering, booking a ride, paying or sending money: get as far as the final review page, show it as a card (order, ride or payment, with the total), and ask_user with approve_tool/approve_input for the one final click. Never place it any other way.',
+      '- While something is on its way (a delivery, a ride), add_routine or set_heartbeat to check back, and update the user with a fresh card when the stage changes.'
+    )
+  }
+  lines.push('- A colleague may have an app you don’t: list_workers shows what each one has; hand_off or message_worker to have them do that part.')
+  return lines
+}

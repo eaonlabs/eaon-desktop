@@ -5,8 +5,9 @@ import { activitySummary, type ActivityCall } from '../agent/Activity'
  * A reply as a work log, the way Chat lays it out: its sentences, each
  * thought on a line of its own, and between them each run of tool calls
  * folded to one line of what it did — "Read 2 files and ran 1 command",
- * "Changed 1 file" — that opens into the calls. Kept free of React so the
- * test harness can run it.
+ * "Changed 1 file" — that opens into the calls. In a worker's thread its
+ * cards and events (a routine set up, a job handed on) are items of their
+ * own. Kept free of React so the test harness can run it.
  */
 
 export type LogItem =
@@ -15,17 +16,25 @@ export type LogItem =
   | { kind: 'tools'; key: string; parts: ChatToolPart[] }
   /** A call whose result is something to look at, not a line: a swarm's agents, a generated picture. */
   | { kind: 'own'; key: string; part: ChatToolPart }
+  /** A worker's card (show_card) or sign-in request, drawn as a card in its thread. */
+  | { kind: 'card'; key: string; part: ChatToolPart }
+  /** Something a worker did that reads as a line of its own: a routine created, a job handed to a colleague. */
+  | { kind: 'event'; key: string; part: ChatToolPart }
 
 /** Calls another part of the screen already shows: the Plan panel above the composer, the plan card. */
 const SHOWN_ELSEWHERE = new Set(['update_plan', 'present_plan'])
 const OWN = new Set(['spawn_agents', 'generate_image'])
+/** In a worker's thread: calls drawn as cards rather than folded into a run. */
+export const CARD_TOOLS = new Set(['show_card', 'request_sign_in'])
+/** In a worker's thread: calls shown as a centred line ("Created routine ⏱ Overnight outbound"). */
+export const EVENT_TOOLS = new Set(['add_routine', 'remove_routine', 'create_worker', 'hand_off', 'message_worker', 'post_to_room', 'save_playbook', 'set_goal'])
 
 /**
  * The parts in order. A run of calls stays one item until a sentence or a
  * thought comes between; whitespace doesn't split it. A run keeps its first
  * call's key as it grows, so whether it is open survives streaming.
  */
-export function workLog(parts: ChatMessage['parts']): LogItem[] {
+export function workLog(parts: ChatMessage['parts'], worker = false): LogItem[] {
   const items: LogItem[] = []
   parts.forEach((part, index) => {
     if (part.type === 'text') {
@@ -37,6 +46,13 @@ export function workLog(parts: ChatMessage['parts']): LogItem[] {
       return
     }
     if (part.type !== 'tool' || SHOWN_ELSEWHERE.has(part.name)) return
+    // A worker's reaction is drawn on the user's bubble, not as a step.
+    if (worker && part.name === 'react' && part.status !== 'error' && part.status !== 'denied') return
+    // A card or an event is only drawn once the call went through; a refused or failed one stays in the run, where its error shows.
+    if (worker && part.status !== 'error' && part.status !== 'denied' && (CARD_TOOLS.has(part.name) || EVENT_TOOLS.has(part.name))) {
+      items.push({ kind: CARD_TOOLS.has(part.name) ? 'card' : 'event', key: part.id, part })
+      return
+    }
     if (OWN.has(part.name)) {
       items.push({ kind: 'own', key: part.id, part })
       return

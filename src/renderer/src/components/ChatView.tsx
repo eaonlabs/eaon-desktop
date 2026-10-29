@@ -17,6 +17,7 @@ import {
   Globe,
   Hammer,
   HeartPulse,
+  KeyRound,
   MoreHorizontal,
   PanelRight,
   PencilLine,
@@ -52,6 +53,8 @@ import { ApprovalRow } from './agent/ApprovalRow'
 import { ElsewhereAsk, elsewhereShown, subscribeElsewhere } from './agent/ElsewhereAsk'
 import { CompactedDivider, CompactionNotice } from './chat/Compaction'
 import { WorkerFace } from './workers/WorkerFace'
+import { WorkerCardRow, WorkerEventLine } from './workers/WorkerCards'
+import { useWorkers } from './workers/workersStore'
 import { ChannelLogo } from './channels/ChannelLogo'
 import { DockToggle, DrawerToggle } from './ide/Dock'
 import { useIde } from './ide/ideStore'
@@ -648,12 +651,13 @@ export const MessageRow = memo(function MessageRow({
   // is what made a long reply quadratic.
   const body = useMemo(() => messageText(message), [message])
   // Sentences, thoughts and runs of calls in the order they happened; see chat/workLog.ts.
-  const items = useMemo(() => workLog(message.parts), [message.parts])
+  const items = useMemo(() => workLog(message.parts, bubbles), [message.parts, bubbles])
   // A turn that only thought or called tools and said nothing still has
   // content to show; testing the joined text alone would render it as "No response".
   const hasContent = items.length > 0
   // A turn that did work — thought, read, ran — gets the "Worked for" line over it; a plain answer doesn't.
-  const didWork = useMemo(() => items.some((item) => item.kind !== 'text'), [items])
+  // A worker's card or event line is something it said, not work.
+  const didWork = useMemo(() => items.some((item) => item.kind !== 'text' && item.kind !== 'card' && item.kind !== 'event'), [items])
   // What this turn is asking the user, in the conversation (a chat's own
   // replies only: a worker asks through its own card), and how many more wait.
   const ask = useApp((s) =>
@@ -700,21 +704,32 @@ export const MessageRow = memo(function MessageRow({
     // A worker's turn: each piece of mail is its own bubble, and a heartbeat
     // is a quiet marker rather than something the user seems to have said.
     if (message.mail || message.heartbeat) {
+      // In a worker's thread, colleagues' messages fold into one line —
+      // "Messages from ● Nova and ● Chief" — that opens to show them.
+      const colleagues = bubbles ? (message.mail ?? []).filter((m) => !m.event && m.from !== 'user' && !m.channel) : []
+      const rest = bubbles ? (message.mail ?? []).filter((m) => !colleagues.includes(m)) : (message.mail ?? [])
       return (
         <div className="msg-row msg-row--mail" data-fresh={fresh || undefined}>
+          {colleagues.length > 0 && <ColleagueMail mail={colleagues} />}
           {message.heartbeat && (
             <div className="msg__heartbeat">
               <HeartPulse size={13} strokeWidth={2} />
               <span>Heartbeat{message.heartbeat ? ` · ${message.heartbeat}` : ''}</span>
             </div>
           )}
-          {message.mail?.map((mail) =>
+          {rest.map((mail) =>
             mail.event ? (
               <MailEvent key={mail.id} event={mail.event} text={mail.text} />
             ) : mail.from === 'user' ? (
               <div key={mail.id} className="msg-user-block">
                 <Attachments paths={mail.files} />
                 {mail.text && <div className="msg--user">{mail.text}</div>}
+                {/* The worker's reaction (react), on the last thing the user said in this turn. */}
+                {bubbles && message.feedback?.reaction && mail === rest.filter((m) => m.from === 'user' && !m.event).at(-1) && (
+                  <span className="msg__reaction" role="img" aria-label={`Reacted ${message.feedback.reaction}`}>
+                    {message.feedback.reaction}
+                  </span>
+                )}
                 {mail.channel && (
                   <span className="msg__via">
                     <ChannelLogo kind={mail.channel.kind} size={13} />
@@ -784,7 +799,11 @@ export const MessageRow = memo(function MessageRow({
           // that led to it and the one that follows from its result.
           <div className="msg--assistant" data-streaming={streaming || undefined}>
             {(folded ? items.slice(answerFrom) : items).map((item, index) =>
-              item.kind === 'text' ? (
+              item.kind === 'card' ? (
+                <WorkerCardRow key={item.key} part={item.part} />
+              ) : item.kind === 'event' ? (
+                <WorkerEventLine key={item.key} part={item.part} />
+              ) : item.kind === 'text' ? (
                 bubbles ? (
                   <div key={item.key} className="msg-bubble">
                     <Markdown text={item.text} />
@@ -1031,7 +1050,49 @@ function initials(name: string): string {
   return ((words[0]?.[0] ?? '?') + (words.length > 1 ? words[words.length - 1][0] : '')).toUpperCase()
 }
 
-const EVENT_ICON = { job: Terminal, watch: Eye, goal: Target } as const
+const EVENT_ICON = { job: Terminal, watch: Eye, goal: Target, app: KeyRound } as const
+
+/**
+ * Colleagues' messages in a worker's thread, folded into one centred line
+ * with their faces and names in their colours; a click opens what they said.
+ */
+function ColleagueMail({ mail }: { mail: WorkerMail[] }): JSX.Element {
+  const [open, setOpen] = useState(false)
+  const workers = useWorkers((s) => s.workers)
+  const senders = [...new Map(mail.map((m) => [m.from, m])).values()]
+  const look = (m: WorkerMail): { color: string; shape?: (typeof workers)[number]['shape'] } => {
+    const w = workers.find((x) => x.id === m.from)
+    return { color: w?.color ?? m.fromColor ?? '#6B7280', shape: w?.shape }
+  }
+  return (
+    <div className="msg-from" data-open={open || undefined}>
+      <button className="msg-from__line" onClick={() => setOpen(!open)} aria-expanded={open}>
+        <span className="msg-from__label">Message{mail.length === 1 ? '' : 's'} from</span>
+        {senders.map((m, i) => (
+          <span key={m.from} className="msg-from__who-wrap">
+            {i > 0 && <span className="msg-from__and">{i === senders.length - 1 ? 'and' : ','}</span>}
+            <span className="msg-from__who">
+              <WorkerFace color={look(m).color} shape={look(m).shape} size={20} />
+              {m.fromName}
+            </span>
+          </span>
+        ))}
+        <ChevronDown size={13} strokeWidth={2} className="msg-from__chevron" />
+      </button>
+      {open &&
+        mail.map((m) => (
+          <div key={m.id} className="msg-mail">
+            <WorkerFace color={look(m).color} shape={look(m).shape} size={26} />
+            <div className="msg-mail__body">
+              <span className="msg-mail__from">{m.fromName}</span>
+              <div className="msg-mail__text">{m.text}</div>
+              <Attachments paths={m.files} align="start" />
+            </div>
+          </div>
+        ))}
+    </div>
+  )
+}
 
 /**
  * Something a worker set up reporting back — a job ending, a watch firing,

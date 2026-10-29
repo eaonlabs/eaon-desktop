@@ -52,6 +52,18 @@ type Kind =
   | 'trade'
   | 'session'
   | 'chatpost'
+  | 'vault'
+  | 'signin'
+  | 'app'
+  | 'applink'
+  | 'lights'
+  | 'smarthome'
+  | 'household'
+  | 'lists'
+  | 'shopping'
+  | 'trip'
+  | 'bank'
+  | 'car'
   | 'other'
 
 const KIND: Record<string, Kind> = {
@@ -113,7 +125,21 @@ const KIND: Record<string, Kind> = {
   trading_order: 'trade',
   trading_cancel: 'trade',
   trading_session: 'session',
-  send_chat_message: 'chatpost'
+  send_chat_message: 'chatpost',
+  // A worker's linked apps and connections (main/features/workers/apps.ts, connectors.ts).
+  saved_logins: 'vault',
+  sign_in_saved: 'signin',
+  open_app: 'app',
+  app_signed_in: 'app',
+  app_link: 'applink',
+  hue: 'lights',
+  home: 'smarthome',
+  household: 'household',
+  lists: 'lists',
+  instacart: 'shopping',
+  route: 'trip',
+  bank: 'bank',
+  tesla: 'car'
 }
 
 const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? '' : 's'}`
@@ -160,11 +186,23 @@ const PHRASE: Record<Kind, (n: number, targets: string[]) => string> = {
   trade: (n) => (n === 1 ? 'placed an order' : `placed ${n} orders`),
   session: () => 'set up trading',
   chatpost: (n) => (n === 1 ? 'posted in a chat' : `posted ${n} times in chats`),
+  vault: () => 'checked its saved logins',
+  signin: (n, targets) => (targets.length ? `signed in to ${names(targets)}` : 'signed in with a saved login'),
+  app: (n, targets) => (targets.length ? `used ${names(targets)}` : `used ${plural(n, 'app')}`),
+  applink: (n) => (n === 1 ? 'made a link for you to confirm' : `made ${n} links for you to confirm`),
+  lights: (n, targets) => (targets.length ? `changed ${names(targets)}` : 'checked the lights'),
+  smarthome: () => 'used your smart home',
+  household: () => 'used Calendar and Reminders',
+  lists: (n, targets) => (targets.length ? `updated ${names(targets)}` : 'checked the lists'),
+  shopping: (n) => (n === 1 ? 'made an Instacart list' : `made ${n} Instacart lists`),
+  trip: (n, targets) => (targets.length ? `checked the trip to ${names(targets)}` : 'checked a trip'),
+  bank: () => 'checked your accounts',
+  car: () => 'used your Tesla',
   other: (n) => `used ${plural(n, 'tool')}`
 }
 
 /** Kinds whose targets are worth counting distinctly (reading one file twice is still one file). */
-const BY_TARGET = new Set<Kind>(['read', 'list', 'find', 'page', 'edit', 'write', 'delete', 'move', 'skill', 'message', 'check'])
+const BY_TARGET = new Set<Kind>(['read', 'list', 'find', 'page', 'edit', 'write', 'delete', 'move', 'skill', 'message', 'check', 'signin', 'app', 'lights', 'lists', 'trip'])
 
 export function activitySummary(calls: ActivityCall[]): { text: string; failed: number; blocked: number } {
   const failed = calls.filter((call) => call.status === 'error').length

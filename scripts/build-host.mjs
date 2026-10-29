@@ -30,6 +30,9 @@ const pkgDir = join(out, 'pkg', 'eaon-host')
 const appPkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'))
 const electronVersion = JSON.parse(readFileSync(join(root, 'node_modules', 'electron', 'package.json'), 'utf8')).version
 const PLACEHOLDER = 'EAON_HOST_BUILD_0000000000'
+// Workers' linked apps (shared/workerApps.ts) follow the desktop build's rule: only with
+// EAON_LABS=1. A labs desktop needs a labs host, or its workers lose their apps when they move.
+const LABS = JSON.stringify(process.env.EAON_LABS === '1')
 
 rmSync(out, { recursive: true, force: true })
 mkdirSync(pkgDir, { recursive: true })
@@ -54,7 +57,7 @@ await build({
   outfile: join(pkgDir, 'eaon-host.mjs'),
   external: [...external, 'electron'],
   alias: { '@shared': join(root, 'src/shared'), '@main': join(root, 'src/main') },
-  define: { __EAON_HOST_RUNTIME__: '"electron"', __EAON_HOST_BUILD__: JSON.stringify(PLACEHOLDER), __EAON_APP_VERSION__: JSON.stringify(appPkg.version), ...gatewayApp }
+  define: { __EAON_HOST_RUNTIME__: '"electron"', __EAON_HOST_BUILD__: JSON.stringify(PLACEHOLDER), __EAON_APP_VERSION__: JSON.stringify(appPkg.version), __EAON_LABS__: LABS, ...gatewayApp }
 })
 await build({
   ...common,
@@ -66,6 +69,7 @@ await build({
     __EAON_APP_VERSION__: JSON.stringify(appPkg.version),
     __EAON_CLI_VERSION__: JSON.stringify(appPkg.version),
     __EAON_CLI_PACKAGE__: '"eaon-host"',
+    __EAON_LABS__: LABS,
     ...gatewayApp
   }
 })

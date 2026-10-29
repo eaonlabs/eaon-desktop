@@ -2,7 +2,8 @@ import { isAbsolute, resolve } from 'node:path'
 import { DEFAULT_WATCH_MINUTES, describeWorker, JOB_DEFAULT_HOURS, JOB_MAX_HOURS, MAIN_THREAD, MAX_SLEEP_MINUTES } from '@shared/workers'
 import { isCatastrophicCommand, isReadOnlyCommand, isRiskyCommand } from '../../agent/approvals'
 import type { AgentTool, ToolContext, ToolSource } from '../../agent/tools'
-import { HINT_MOODS, type TransferWatch, type WorkersEngine } from './engine'
+import { HINT_MOODS, REACTIONS, type TransferWatch, type WorkersEngine } from './engine'
+import { workerApp, workerAppsEnabled } from '@shared/workerApps'
 
 /**
  * The tools a worker gets on top of the Work agent's: see its colleagues,
@@ -75,7 +76,10 @@ export function workersToolSource(engine: WorkersEngine): ToolSource {
       const others = engine.colleagues(self(ctx))
       if (others.length === 0) return 'You have no colleagues yet.'
       return others
-        .map((w) => `- ${w.name}: ${w.purpose || 'no stated purpose'}\n  Status: ${describeWorker(w)}\n  Folder: ${w.folder}`)
+        .map((w) => {
+          const apps = workerAppsEnabled() ? (w.apps ?? []).map((a) => workerApp(a.id)?.name).filter(Boolean) : []
+          return `- ${w.name}: ${w.purpose || 'no stated purpose'}\n  Status: ${describeWorker(w)}\n  Folder: ${w.folder}${apps.length ? `\n  Apps: ${apps.join(', ')}` : ''}`
+        })
         .join('\n')
     }
   }
@@ -268,10 +272,21 @@ export function workersToolSource(engine: WorkersEngine): ToolSource {
     }
   }
 
+  const react: AgentTool = {
+    name: 'react',
+    description: 'React to the user’s latest message with an emoji, as in a messenger — 👍 to "send it", ❤️ to a thank-you — instead of a reply that only acknowledges.',
+    inputSchema: { type: 'object', properties: { emoji: { type: 'string', enum: REACTIONS } }, required: ['emoji'] },
+    mutating: false,
+    run: async (input, ctx) => {
+      engine.react(self(ctx), str(input.emoji), threadOf(ctx))
+      return 'Reacted.'
+    }
+  }
+
   const setStatus: AgentTool = {
     name: 'set_status',
     description:
-      'Set the one-line status the user sees on your card, and optionally the expression on your face for the next half hour: neutral, happy, excited, serious, curious, surprised, sad or angry. Pick one that fits how the work is going.',
+      'Set the one-line status the user sees on your card, and optionally the expression on your face for the next half hour: neutral, happy, excited, serious, curious, surprised, sad, angry, love (heart eyes), dizzy, thinking, laughing, worried or cool (shades). Pick one that fits how the work is going.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -560,6 +575,7 @@ export function workersToolSource(engine: WorkersEngine): ToolSource {
     savePlaybook,
     readPlaybook,
     setStatus,
+    react,
     setGoal,
     updateNotes,
     askUser,

@@ -1,13 +1,19 @@
-import { memo, useCallback, useEffect, useRef, useState, useSyncExternalStore, type JSX, type RefObject } from 'react'
+import { memo, useCallback, useEffect, useRef, useState, useSyncExternalStore, type JSX, type PointerEvent as ReactPointerEvent, type RefObject } from 'react'
 import type { WorkerMood } from '@shared/workers'
+import { shapeSpec, type WorkerShape } from '@shared/workerLook'
 
 /**
- * A worker's face: a flat circle in the colour the user picked, with two soft
+ * A worker's face: a flat body in the colour and shape the user picked
+ * (shared/workerLook.ts — a pebble, a ghost, a heart…), with two soft
  * rounded-rectangle eyes. Drawn on a 100×100 grid measured from the design
- * spec — eyes centred at x 33.3 / 66.7, y 40, 13.5 wide and 25 tall.
+ * spec — on the round body, eyes centred at x 33.3 / 66.7, y 40, 13.5 wide
+ * and 25 tall; each shape moves and scales them to sit right in it.
  *
- * The body never leaves its circle, so a face is always recognisably the same
- * face; it only breathes, a scale too small to notice except as "alive".
+ * The body keeps its outline, so a face is always recognisably the same
+ * face; it breathes, a scale too small to notice except as "alive", and only
+ * moves for a reason: it squishes while pressed, giggles when double-clicked,
+ * hops when a job lands, shakes when one fails, and now and then fidgets
+ * (a hop, a tilt, a peek) when it has nothing to do.
  * The eyes do the living (useLivingEyes): each face darts its gaze to a new
  * spot now and then and holds it for a varying while, and blinks at random
  * intervals, sometimes twice, often with a big glance — never in step with
@@ -31,8 +37,6 @@ import type { WorkerMood } from '@shared/workers'
 
 const reducedMotion = (): boolean => typeof document !== 'undefined' && document.body.dataset.reduceMotion === 'on'
 
-const EYE_X = [33.3, 66.7] as const
-const EYE_Y = 40
 
 /** The working ring: a circle just clear of the body (r 50), drawn with pathLength 100 so its dashes are percentages. */
 const RING_R = 57
@@ -53,7 +57,7 @@ const PILL = 'M -6.75 -5.85 A 6.75 6.75 0 0 1 6.75 -5.85 L 6.75 5.85 A 6.75 6.75
  * The right eye is the same shape mirrored, so slanted lids point the same
  * way on both sides. Excited, asleep and dead are strokes (eyeShape).
  */
-const SHAPES: Record<Exclude<WorkerMood, 'excited' | 'asleep' | 'dead'>, string> = {
+const SHAPES: Record<Exclude<WorkerMood, 'excited' | 'asleep' | 'dead' | 'love' | 'dizzy' | 'laughing' | 'cool'>, string> = {
   // A full pill: semicircles of radius 6.75 at y −5.85 and +5.85.
   neutral: PILL,
   // Rounded top, lower edge lifted into an arc — smiling eyes.
@@ -69,18 +73,36 @@ const SHAPES: Record<Exclude<WorkerMood, 'excited' | 'asleep' | 'dead'>, string>
   // Lid slanting down toward the nose, rounded bottom.
   angry: 'M -6.75 -7.6 L 6.75 -1.6 L 6.75 4.25 A 6.75 6.75 0 0 1 -6.75 4.25 Z',
   // Heavy lids: only the lower half of each eye open.
-  sleepy: 'M -6.75 0.6 L 6.75 0.6 L 6.75 4.25 A 6.75 6.75 0 0 1 -6.75 4.25 Z'
+  sleepy: 'M -6.75 0.6 L 6.75 0.6 L 6.75 4.25 A 6.75 6.75 0 0 1 -6.75 4.25 Z',
+  // Pondering: a lid tilted the other way to curious's, eyes up and aside (GAZE_BIAS).
+  thinking: 'M -6.75 -3.6 L 6.75 -6.6 L 6.75 4.6 A 6.75 6.75 0 0 1 -6.75 4.6 Z',
+  // Brows up in the middle: tall eyes whose lids slope down to the outside, steeper than sad.
+  worried: 'M -6.75 -2.2 L 6.75 -9.2 L 6.75 5.2 A 6.75 6.75 0 0 1 -6.75 5.2 Z'
 }
+/** A heart, for love: drawn with the eye's own colour, beating (wf-beat). */
+const HEART = 'M 0 7.6 C -10.4 0.6 -10 -8.4 -4.8 -8.8 C -2.2 -9 -0.6 -7.2 0 -5.4 C 0.6 -7.2 2.2 -9 4.8 -8.8 C 10 -8.4 10.4 0.6 0 7.6 Z'
+/** A spiral, for dizzy: a stroke that turns (wf-spin-eye). */
+const SPIRAL = 'M 0 0 m -1.2 0 a 1.2 1.2 0 1 1 2.4 0 a 2.7 2.7 0 1 1 -5.4 0 a 4.2 4.2 0 1 1 8.4 0 a 5.8 5.8 0 1 1 -11.6 0'
 const CURIOUS_RIGHT = 'M -6.75 -1.8 L 6.75 -1.8 L 6.75 4.25 A 6.75 6.75 0 0 1 -6.75 4.25 Z'
 
 /** Where each mood tends to look, added to every glance: down when sad or sleepy, up when curious. */
 const GAZE_BIAS: Partial<Record<WorkerMood, [number, number]>> = {
   sad: [0, 2.6],
   sleepy: [0, 1.6],
-  curious: [0.8, -1.6]
+  curious: [0.8, -1.6],
+  thinking: [-2.2, -2.6],
+  worried: [0, 1.2]
 }
 
-type Reaction = 'wink' | 'excited' | 'surprised'
+type Reaction = 'wink' | 'excited' | 'surprised' | 'laughing' | 'love'
+const REACTION_MS: Record<Reaction, number> = { wink: 1300, excited: 1300, surprised: 900, laughing: 1600, love: 2200 }
+
+/** Moods that show something beside the eyes on a big face: floating z's, thought dots, a bead of sweat, a heart. */
+const EXTRAS_MIN_SIZE = 56
+
+/** Things a face does now and then when it has nothing to do: a little hop, a tilt of the head, a peek to one side. */
+const FIDGETS = ['hop', 'tilt', 'peek'] as const
+type Fidget = (typeof FIDGETS)[number]
 /**
  * What a click on a face does, every time: a wink. It used to be a random
  * pick of three that never repeated, so the same click got a different face
@@ -91,6 +113,8 @@ const CLICK_REACTION: Reaction = 'wink'
 
 export interface WorkerFaceProps {
   color: string
+  /** The body's shape; the round pebble when absent. */
+  shape?: WorkerShape
   mood?: WorkerMood
   size?: number
   /** Eyes follow the pointer. For the big faces only — one listener per face. */
@@ -119,6 +143,7 @@ export interface WorkerFaceProps {
 
 export const WorkerFace = memo(function WorkerFace({
   color,
+  shape,
   mood = 'neutral',
   size = 40,
   follow = false,
@@ -138,6 +163,7 @@ export const WorkerFace = memo(function WorkerFace({
   const [reacting, react] = useReaction(nudge)
   // Finishing well is the happy pop's moment; no passing reaction talks over it.
   const reaction = ending === 'done' ? null : reacting
+  const spec = shapeSpec(shape)
   // Working is derived as "serious", whose flat-lidded eyes read as grumpy on
   // a busy face; at work the pills narrow into focus instead (see .wf-focus).
   // Keeping the same key also means starting work doesn't replay the blink.
@@ -145,11 +171,15 @@ export const WorkerFace = memo(function WorkerFace({
   const face: WorkerMood = reaction === 'wink' ? 'happy' : (reaction ?? base)
   const blink = useLivingEyes(gaze, focus, {
     gaze: size >= GAZE_MIN_SIZE && !busy,
-    blinks: face !== 'asleep' && face !== 'dead' && face !== 'angry',
+    blinks: face !== 'asleep' && face !== 'dead' && face !== 'angry' && face !== 'laughing' && face !== 'dizzy' && face !== 'cool',
     mood: face,
     busy,
     attention
   })
+  const alive = size >= RING_MIN_SIZE && face !== 'dead'
+  const fidget = useFidget(alive && !busy && reaction === null && (face === 'neutral' || face === 'happy' || face === 'curious'))
+  const [squish, setSquish] = useState(false)
+  const petting = usePetting(reactOnClick, () => react('love'))
   // A random phase per face, so a row of faces never breathes in step.
   const [breathDelay] = useState(() => `${(-Math.random() * 4.8).toFixed(2)}s`)
 
@@ -160,6 +190,7 @@ export const WorkerFace = memo(function WorkerFace({
   // Between 2 and 3px on screen whatever the size, within reason.
   const ringWidth = Math.min(4.5, Math.max(3, 280 / size))
 
+  const extras = size >= EXTRAS_MIN_SIZE
   return (
     <svg
       className={`wf ${className ?? ''}`}
@@ -167,14 +198,28 @@ export const WorkerFace = memo(function WorkerFace({
       height={size}
       viewBox="0 0 100 100"
       data-mood={face}
+      data-shape={spec.id}
       data-busy={busy || undefined}
       data-done={ending === 'done' || undefined}
       data-enter={enter || undefined}
-      data-alive={size >= RING_MIN_SIZE && face !== 'dead' ? 'true' : undefined}
+      data-alive={alive ? 'true' : undefined}
       data-small={size < GAZE_MIN_SIZE || undefined}
+      data-fidget={fidget ?? undefined}
+      data-squish={squish || undefined}
       style={{ ['--breath-delay' as string]: breathDelay }}
       onPointerEnter={follow ? () => blink() : undefined}
-      onPointerDown={reactOnClick ? () => react(CLICK_REACTION) : undefined}
+      onPointerMove={petting}
+      onPointerDown={
+        reactOnClick
+          ? () => {
+              setSquish(true)
+              react(CLICK_REACTION)
+            }
+          : undefined
+      }
+      onPointerUp={reactOnClick ? () => setSquish(false) : undefined}
+      onPointerLeave={reactOnClick ? () => setSquish(false) : undefined}
+      onDoubleClick={reactOnClick ? () => react('laughing') : undefined}
       role="img"
       aria-label={title ?? `${mood} face${busy ? ', working' : ''}${attention ? ', needs you' : ''}`}
     >
@@ -198,19 +243,26 @@ export const WorkerFace = memo(function WorkerFace({
         </g>
       )}
       <g className="wf-body">
-        <circle cx="50" cy="50" r="50" fill={color} />
-        <g ref={look} className="wf-look">
-          <g ref={gaze} className="wf-gaze">
-            <g ref={focus} className="wf-focus" data-wink={reaction === 'wink' || undefined}>
-              <g key={face} className="wf-eyes">
-                {EYE_X.map((x, side) => (
-                  <g key={side} transform={`translate(${x} ${EYE_Y})${side === 1 ? ' scale(-1 1)' : ''}`}>
-                    <g className="wf-eye">{eyeShape(face, side, eye, lineWidth)}</g>
+        <g className="wf-move">
+          {spec.id === 'pebble' ? <circle cx="50" cy="50" r="50" fill={color} /> : <path d={spec.path} fill={color} />}
+          <g ref={look} className="wf-look">
+            <g ref={gaze} className="wf-gaze">
+              <g ref={focus} className="wf-focus" data-wink={reaction === 'wink' || undefined}>
+                {face === 'cool' ? (
+                  <Shades key={face} spec={spec} />
+                ) : (
+                  <g key={face} className="wf-eyes">
+                    {spec.eyes.x.map((x, side) => (
+                      <g key={side} transform={`translate(${x} ${spec.eyes.y}) scale(${side === 1 ? -spec.eyes.scale : spec.eyes.scale} ${spec.eyes.scale})`}>
+                        <g className="wf-eye">{eyeShape(face, side, eye, lineWidth / spec.eyes.scale)}</g>
+                      </g>
+                    ))}
                   </g>
-                ))}
+                )}
               </g>
             </g>
           </g>
+          {extras && <Extras mood={face} spec={spec} eye={eye} color={color} />}
         </g>
       </g>
       {attention && <circle className="wf-attention" cx="12" cy="12" r="11" fill="#0A84FF" strokeWidth={3} />}
@@ -232,7 +284,7 @@ function useReaction(nudge: number): [Reaction | null, (reaction: Reaction) => v
     // instead of doing nothing (the state would already be "wink").
     setReaction(null)
     requestAnimationFrame(() => setReaction(next))
-    timer.current = setTimeout(() => setReaction(null), next === 'surprised' ? 900 : 1300)
+    timer.current = setTimeout(() => setReaction(null), REACTION_MS[next])
   }).current
   const lastNudge = useRef(nudge)
   useEffect(() => {
@@ -454,8 +506,142 @@ function eyeShape(mood: WorkerMood, side: number, fill: string, lineWidth: numbe
     // Delighted: eyes squeezed into upturned arcs, ^ ^.
     return <path d="M -7.4 4.6 Q 0 -9.4 7.4 4.6" fill="none" stroke={fill} strokeWidth={Math.max(4.4, lineWidth)} strokeLinecap="round" />
   }
+  if (mood === 'laughing') {
+    // Squeezed shut with laughter: > <, mirrored by the right eye's transform.
+    return <path d="M -5.6 -6.4 L 5.4 0 L -5.6 6.4" fill="none" stroke={fill} strokeWidth={Math.max(4.4, lineWidth)} strokeLinecap="round" strokeLinejoin="round" />
+  }
+  if (mood === 'love') return <path className="wf-heart" d={HEART} fill={fill} />
+  if (mood === 'dizzy') {
+    return <path className="wf-spiral" d={SPIRAL} fill="none" stroke={fill} strokeWidth={Math.max(2.6, lineWidth)} strokeLinecap="round" />
+  }
   if (mood === 'curious' && side === 1) return <path d={CURIOUS_RIGHT} fill={fill} />
-  return <path d={SHAPES[mood]} fill={fill} />
+  return <path d={SHAPES[mood as keyof typeof SHAPES] ?? PILL} fill={fill} />
+}
+
+/** Sunglasses across both eyes, for cool: two dark lenses on a bridge, with a glint that slides across. */
+function Shades({ spec }: { spec: ReturnType<typeof shapeSpec> }): JSX.Element {
+  const [lx, rx] = spec.eyes.x
+  const y = spec.eyes.y
+  const w = 19 * spec.eyes.scale
+  const h = 13 * spec.eyes.scale
+  const lens = (cx: number): string => `M ${cx - w / 2} ${y - h / 2} H ${cx + w / 2} V ${y + h * 0.1} Q ${cx + w / 2} ${y + h / 2} ${cx} ${y + h / 2} Q ${cx - w / 2} ${y + h / 2} ${cx - w / 2} ${y + h * 0.1} Z`
+  return (
+    <g className="wf-eyes wf-shades">
+      <path d={`M ${lx + w / 2 - 1} ${y - h * 0.3} Q ${(lx + rx) / 2} ${y - h * 0.62} ${rx - w / 2 + 1} ${y - h * 0.3}`} fill="none" stroke="#14161a" strokeWidth={2.6} />
+      <path d={lens(lx)} fill="#14161a" />
+      <path d={lens(rx)} fill="#14161a" />
+      <path className="wf-glint" d={`M ${lx - w * 0.3} ${y - h * 0.32} l ${w * 0.22} 0`} stroke="#ffffff" strokeOpacity={0.7} strokeWidth={2.2} strokeLinecap="round" />
+    </g>
+  )
+}
+
+/**
+ * What a mood shows beside the eyes, on a big face only: z's drifting up
+ * from a sleeper, three thought dots, a bead of sweat sliding down a worried
+ * face, a small heart rising from a smitten one. Placed from the body's eye
+ * line so they sit right on every shape.
+ */
+function Extras({ mood, spec, eye, color }: { mood: WorkerMood; spec: ReturnType<typeof shapeSpec>; eye: string; color: string }): JSX.Element | null {
+  const top = spec.eyes.y - 30
+  const right = spec.eyes.x[1] + 18
+  if (mood === 'asleep') {
+    return (
+      <g className="wf-extra wf-zzz" aria-hidden="true" fill={color} fontFamily="inherit" fontWeight={800}>
+        {[0, 1, 2].map((i) => (
+          <text key={i} x={right + i * 5} y={top + 14 - i * 9} fontSize={11 + i * 3} style={{ ['--z' as string]: i }}>
+            z
+          </text>
+        ))}
+      </g>
+    )
+  }
+  if (mood === 'thinking') {
+    return (
+      <g className="wf-extra wf-dots" aria-hidden="true" fill={color}>
+        {[0, 1, 2].map((i) => (
+          <circle key={i} cx={right - 4 + i * 7} cy={top + 6 - i * 6} r={2.6 + i * 1.2} style={{ ['--d' as string]: i }} />
+        ))}
+      </g>
+    )
+  }
+  if (mood === 'worried') {
+    return (
+      <path
+        className="wf-extra wf-sweat"
+        aria-hidden="true"
+        d={`M ${spec.eyes.x[1] + 13} ${spec.eyes.y - 16} q 4.6 7 0 9.6 q -4.6 -2.6 0 -9.6 Z`}
+        fill="#8fd3ff"
+        stroke={eye === '#ffffff' ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.25)'}
+        strokeWidth={1}
+      />
+    )
+  }
+  if (mood === 'love') {
+    return <path className="wf-extra wf-float-heart" aria-hidden="true" transform={`translate(${right - 2} ${top + 10}) scale(0.55)`} d={HEART} fill="#ff5c8a" />
+  }
+  return null
+}
+
+/**
+ * Now and then, a face with nothing to do fidgets: a hop, a tilt, a peek.
+ * Every 9–24 s at random, held for the length of its animation, and never
+ * while the window rests, under reduced motion, or for a face that isn't
+ * idle (busy, asleep, reacting).
+ */
+function useFidget(enabled: boolean): Fidget | null {
+  const [fidget, setFidget] = useState<Fidget | null>(null)
+  const resting = useWindowResting()
+  useEffect(() => {
+    if (!enabled || resting || reducedMotion()) {
+      setFidget(null)
+      return
+    }
+    let timer: ReturnType<typeof setTimeout>
+    const next = (): void => {
+      timer = setTimeout(
+        () => {
+          setFidget(FIDGETS[Math.floor(Math.random() * FIDGETS.length)])
+          timer = setTimeout(() => {
+            setFidget(null)
+            next()
+          }, 1100)
+        },
+        9000 + Math.random() * 15000
+      )
+    }
+    next()
+    return () => clearTimeout(timer)
+  }, [enabled, resting])
+  return fidget
+}
+
+/**
+ * Petting: the pointer rubbing back and forth over a face (a good distance
+ * in a second and a half) makes it fall in love for a moment. Returns the
+ * pointer-move handler, or undefined when the face doesn't react.
+ */
+function usePetting(enabled: boolean, onPet: () => void): ((event: ReactPointerEvent) => void) | undefined {
+  const track = useRef({ distance: 0, since: 0, last: null as { x: number; y: number } | null, cooldown: 0 })
+  const pet = useRef(onPet)
+  pet.current = onPet
+  const handler = useCallback((event: ReactPointerEvent): void => {
+    const t = track.current
+    const now = performance.now()
+    if (now < t.cooldown) return
+    if (!t.last || now - t.since > 1500) {
+      t.distance = 0
+      t.since = now
+    }
+    if (t.last) t.distance += Math.hypot(event.clientX - t.last.x, event.clientY - t.last.y)
+    t.last = { x: event.clientX, y: event.clientY }
+    if (t.distance > 700) {
+      t.distance = 0
+      t.last = null
+      t.cooldown = now + 4000
+      pet.current()
+    }
+  }, [])
+  return enabled ? handler : undefined
 }
 
 /** White eyes, unless the body is so light that white would disappear into it. */

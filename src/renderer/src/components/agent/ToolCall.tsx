@@ -45,6 +45,7 @@ import { ImageGeneration } from './ImageGeneration'
 import { PeekLine, rawCall } from './ToolPeek'
 import { CommandCard, EditCard } from './StepCards'
 import { SwarmCard, ToolImages } from './WorkBits'
+import { workerApp } from '@shared/workerApps'
 
 /**
  * One tool call in the transcript.
@@ -155,6 +156,16 @@ function summarise(name: string, input: Record<string, unknown>): string {
   }
   if (name === 'trading_session') return first('action')
   if (name === 'send_chat_message') return first('chat')
+  // A linked app by its name ("DoorDash"), not its id.
+  if (name === 'open_app' || name === 'app_signed_in' || name === 'request_sign_in') return workerApp(first('app'))?.name ?? first('app')
+  if (name === 'sign_in_saved') return first('site')
+  if (name === 'hue') return input.action === 'set' ? first('target') || 'the lights' : ''
+  if (name === 'lists') return input.action === 'all' || input.action === 'show' ? '' : first('list')
+  if (name === 'route') return first('to')
+  if (name === 'home') return first('entity', 'search')
+  if (name === 'household') return first('title')
+  if (name === 'tesla') return input.action === 'command' ? first('command').replace(/_/g, ' ') : ''
+  if (name === 'show_card') return first('title', 'kind')
   if (name === 'generate_image') return first('prompt')
   if (name === 'set_heartbeat') {
     if (input.stop === true) return 'stopped'
@@ -216,7 +227,23 @@ const LABELS: Record<string, string> = {
   trading_cancel: 'Cancelled order',
   trading_session: 'Trading session',
   send_chat_message: 'Posted',
-  generate_image: 'Image'
+  generate_image: 'Image',
+  show_card: 'Card',
+  react: 'Reaction',
+  saved_logins: 'Saved logins',
+  sign_in_saved: 'Signed in',
+  request_sign_in: 'Sign-in request',
+  app_signed_in: 'Checked sign-in',
+  open_app: 'Opened',
+  app_link: 'Link to confirm',
+  hue: 'Lights',
+  home: 'Smart home',
+  household: 'Calendar',
+  lists: 'List',
+  instacart: 'Instacart list',
+  route: 'Trip',
+  bank: 'Bank accounts',
+  tesla: 'Tesla'
 }
 
 /**
