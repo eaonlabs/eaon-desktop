@@ -3,6 +3,9 @@ import { Copy, ExternalLink, FolderLock, Github, Loader2 } from 'lucide-react'
 import { Card, Row, Section, Segmented, Select, Switch } from '../../ui'
 import type { LockedMode, LockedSupport, LockedTerminal, RcInfo, RcShare } from '@shared/rc'
 import type { TerminalAgent } from '@shared/terminals'
+import { useShallow } from 'zustand/react/shallow'
+import { useApp } from '../../../state/store'
+import { useGuestWatch } from '../../guestWatch/guestWatchStore'
 
 const errorText = (error: unknown): string => (error instanceof Error ? error.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '') : String(error))
 
@@ -189,8 +192,8 @@ const EXPIRY: { value: string; label: string }[] = [
  * Locked terminals: a terminal of their own for a friend, inside one folder.
  * The operating system's sandbox (main/features/terminals/guestSandbox.ts)
  * keeps them there: they can move around inside it, never above it, and
- * nothing else on this computer is readable, writable or runnable by them.
- * Either a shell (optionally offline) or one CLI and nothing else.
+ * nothing else of yours is readable or writable by them. Either a shell
+ * (optionally offline) or one CLI, which can run commands inside the same lock.
  */
 function LockedTerminals({ site }: { site: string }): JSX.Element | null {
   const [support, setSupport] = useState<LockedSupport | null>(null)
@@ -205,6 +208,8 @@ function LockedTerminals({ site }: { site: string }): JSX.Element | null {
   const [hours, setHours] = useState('24')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // The ones running this run, which you can watch beside your work.
+  const watchable = new Set(useGuestWatch(useShallow((s) => s.views.filter((v) => v.running).map((v) => v.paneId))))
   const [made, setMade] = useState<{ url: string; login: string } | null>(null)
   const [copied, setCopied] = useState(false)
 
@@ -291,16 +296,16 @@ function LockedTerminals({ site }: { site: string }): JSX.Element | null {
               {folder ? 'Change' : 'Choose…'}
             </button>
           </Row>
-          <Row title="What they get" description={mode === 'shell' ? 'A shell inside the folder.' : 'One CLI and nothing else. Quitting it ends their session; it can’t start a shell or any other program.'}>
-            <Segmented<LockedMode> value={mode} options={[{ value: 'shell', label: 'Shell' }, { value: 'cli', label: 'One CLI only' }]} onChange={setMode} />
+          <Row title="What they get" description={mode === 'shell' ? 'A shell inside the folder.' : 'One CLI. Quitting it ends their session. It can run commands in the folder, inside the same lock.'}>
+            <Segmented<LockedMode> value={mode} options={[{ value: 'shell', label: 'Shell' }, { value: 'cli', label: 'One CLI' }]} onChange={setMode} />
           </Row>
           {mode === 'cli' && (
-            <Row title="CLI" description={agents.length ? 'They sign in with their own account. Yours stays on your side.' : 'No coding CLIs are installed on this computer.'}>
+            <Row title="CLI" description={agents.length ? 'They sign in with their own account, and stay signed in for next time. Yours stays on your side.' : 'No coding CLIs are installed on this computer.'}>
               {agents.length > 0 && <Select value={agent} options={agents.map((a) => ({ value: a.id, label: a.label }))} onChange={setAgent} />}
             </Row>
           )}
           {mode === 'shell' && (
-            <Row title="Internet" description={network ? 'They can use git, npm, curl and the like.' : 'Off: nothing in the folder can be sent anywhere.'}>
+            <Row title="Internet" description={network ? 'They can use git, npm, curl and the like. Not this computer’s own services, like Eaon’s Local API Server.' : 'Off: nothing in the folder can be sent anywhere.'}>
               <Switch label="Let the shell use the internet" checked={network} onChange={setNetwork} />
             </Row>
           )}
@@ -347,6 +352,19 @@ function LockedTerminals({ site }: { site: string }): JSX.Element | null {
             .filter(Boolean)
             .join(' · ')}
         >
+          {watchable.has(`guest-${t.id}`) && (
+            <button
+              type="button"
+              className="btn btn--sm"
+              onClick={() => {
+                // Beside your work, where it opens on its own when they start it.
+                useApp.getState().setView('chat')
+                useGuestWatch.getState().show(`guest-${t.id}`)
+              }}
+            >
+              Watch
+            </button>
+          )}
           <button type="button" className="btn btn--sm btn--danger" disabled={busy} onClick={() => void revoke(t.id)}>
             Revoke
           </button>

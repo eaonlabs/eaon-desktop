@@ -1,5 +1,5 @@
 import { ipcRenderer } from 'electron'
-import type { LockedSupport, LockedTerminal, LockedTerminalDraft, RcInfo, RcShare } from '@shared/rc'
+import type { GuestTerminalSnapshot, GuestTerminalView, LockedSupport, LockedTerminal, LockedTerminalDraft, RcInfo, RcShare } from '@shared/rc'
 
 /** Renderer bridge for Eaon Remote (rc.eaon.dev). Exposed as `window.api.rc`. */
 export const rcApi = {
@@ -26,5 +26,16 @@ export const rcApi = {
     const listener = (_e: unknown, info: RcInfo): void => handler(info)
     ipcRenderer.on('rc:status', listener)
     return () => ipcRenderer.removeListener('rc:status', listener)
+  },
+  /** Friends' terminals started this run, to watch beside your own work. Their output comes as terminals' does. */
+  guestTerminals: (): Promise<GuestTerminalView[]> => ipcRenderer.invoke('rc:guest-terminals'),
+  /** What one shows now; null once it isn't a friend's terminal any more. */
+  guestSnapshot: (paneId: string): Promise<GuestTerminalSnapshot | null> => ipcRenderer.invoke('rc:guest-snapshot', paneId),
+  /** Ends a friend's terminal now; the share stays, so they can start it again. */
+  guestStop: (paneId: string): Promise<boolean> => ipcRenderer.invoke('rc:guest-stop', paneId),
+  onGuestTerminals: (handler: (views: GuestTerminalView[]) => void): (() => void) => {
+    const listener = (_e: unknown, views: GuestTerminalView[]): void => handler(views)
+    ipcRenderer.on('rc:guest-terminals', listener)
+    return () => ipcRenderer.removeListener('rc:guest-terminals', listener)
   }
 }

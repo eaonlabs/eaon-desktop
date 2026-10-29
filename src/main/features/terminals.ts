@@ -460,6 +460,9 @@ export function createTerminals(options: TerminalsOptions = {}): Feature & { tic
 
   /** Starts a pane's shell (its restore, the first time this run), or reattaches to the one it has. */
   const spawnPane = async (req: TerminalSpawnRequest): Promise<TerminalSpawnResult> => {
+      // A friend's terminal (rc/guestTerminals.ts) only ever runs in its sandbox,
+      // started by startGuest. One of yours under its id is a shell they could type into.
+      if (/^guest-/.test(req.paneId)) return { ok: false, error: 'That terminal is a friend’s. It only runs locked, in its own sandbox.' }
       // A session on another machine: the pane is `ssh` to its host, landing in its folder.
       const remote = remoteLocation(req.cwd)
       if (remote) {

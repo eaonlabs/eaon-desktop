@@ -22,6 +22,18 @@ const LINGER_MS = 1600
 const reduceMotion = (): boolean => window.matchMedia('(prefers-reduced-motion: reduce)').matches || document.body.dataset.reduceMotion === 'on'
 
 /**
+ * A transcript too long for the pill shows its last lines and loses the top
+ * (adeDictation.css). Marks it cut, and starts the words' cascade at the
+ * first one that shows rather than among the hidden ones.
+ */
+const showLastLines = (words: HTMLParagraphElement | null): void => {
+  if (!words) return
+  const first = Math.max(0, [...words.children].findIndex((word) => (word as HTMLElement).offsetTop >= 0))
+  words.style.setProperty('--skip', String(first))
+  words.toggleAttribute('data-cut', first > 0)
+}
+
+/**
  * Hold-to-talk for the ADE's terminals (composer/useHoldToTalk.ts). Holding
  * the key from Settings (Right Option on a Mac, Right Alt elsewhere) opens
  * the microphone; letting go transcribes what was said, with the model
@@ -113,9 +125,15 @@ export function AdeDictation(): JSX.Element | null {
         </>
       )}
       {phase === 'spoken' && spoken && (
-        <p className="ade-dictation__words" key={spoken.id} aria-label={spoken.words.join(' ')}>
+        <p
+          ref={showLastLines}
+          className="ade-dictation__words"
+          key={spoken.id}
+          aria-label={spoken.words.join(' ')}
+          style={{ '--cap': REVEAL_CAP_MS / WORD_STAGGER_MS } as CSSProperties}
+        >
           {spoken.words.map((word, i) => (
-            <span key={i} className="ade-dictation__word" style={{ '--i': Math.min(i, REVEAL_CAP_MS / WORD_STAGGER_MS) } as CSSProperties}>
+            <span key={i} className="ade-dictation__word" style={{ '--i': i } as CSSProperties}>
               {word}
             </span>
           ))}

@@ -1,0 +1,137 @@
+/* A friend's terminal beside your work (GuestWatch.tsx). The panel is a
+   .browser like the other right-hand panels; this is what's its own. */
+
+.guest-watch__tabs {
+  display: flex;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+  -webkit-app-region: no-drag;
+}
+.guest-watch__dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-3);
+}
+.guest-watch__dot[data-live] {
+  background: var(--danger);
+}
+
+.guest-watch__who {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.guest-watch__names {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.guest-watch__login {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text);
+}
+.guest-watch__where {
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.guest-watch__ended {
+  flex: none;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  background: var(--surface-2);
+  color: var(--text-3);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+
+.guest-watch__body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 14px;
+}
+/* Its height follows the scaled terminal (set from GuestScreen). */
+.guest-watch__screen {
+  overflow: hidden;
+  border-radius: var(--r-md);
+  box-shadow: 0 0 0 0.5px var(--border-strong);
+}
+.guest-watch__stage {
+  transform-origin: top left;
+}
+/* Watching only: no caret blinking at you as if you could type. */
+.guest-watch__screen .xterm-cursor-layer {
+  display: none;
+}
+
+.guest-watch__foot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border-soft);
+  font-size: var(--fs-xs);
+  color: var(--text-3);
+}
+.guest-watch__foot .btn {
+  flex: none;
+}
+
+/* While the panel is closed and a friend is in, on every screen. Top right,
+   under the title bar where the panel opens, clear of the composer and of the
+   computer-use pill at the bottom. */
+.guest-watch-pill {
+  position: fixed;
+  right: 16px;
+  top: calc(var(--titlebar-h) + 10px);
+  z-index: 140;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(420px, calc(100vw - 40px));
+  padding: 8px 8px 8px 12px;
+  border-radius: var(--r-pill);
+  background: var(--menu-bg);
+  backdrop-filter: var(--frost);
+  -webkit-backdrop-filter: var(--frost);
+  border: 0.5px solid var(--border-strong);
+  box-shadow: var(--shadow-menu);
+  animation: pop var(--dur-spring-slow) var(--spring-slow);
+  transform-origin: top right;
+}
+.guest-watch-pill__icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent), transparent 82%);
+  color: var(--accent);
+}
+.guest-watch-pill__title {
+  min-width: 0;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.guest-watch-pill .btn {
+  flex: none;
+}
