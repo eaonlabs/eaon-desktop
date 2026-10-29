@@ -82,6 +82,47 @@ export function claudeCachedUsage(config: unknown): ClaudeCachedUsage | null {
   return windows.length ? { asOf, windows } : null
 }
 
+/**
+ * A plan's limits as Claude Code reported them to the status line Eaon gives
+ * its terminals (usageReport.ts): the `rate_limits` of the JSON it passes a
+ * status line after each reply. Percentages are 0–100, resets are Unix
+ * seconds. A window whose reset has passed since has started again. `at` is
+ * when Claude Code wrote it. Null when there are none.
+ */
+export function claudeReportedUsage(input: unknown, at: number, now: number): ClaudeCachedUsage | null {
+  const limits = obj(obj(input)?.rate_limits)
+  if (!limits) return null
+  const windows: UsageWindow[] = []
+  const add = (id: string, label: string, span: string, raw: unknown, detail?: string): void => {
+    const row = obj(raw)
+    const percent = num(row?.used_percentage)
+    if (!row || percent === null) return
+    const seconds = num(row.resets_at)
+    const resetsAt = seconds !== null && seconds > 0 ? seconds * 1000 : null
+    const over = resetsAt !== null && resetsAt <= now
+    const shown = over ? 0 : clampPercent(percent)
+    windows.push({
+      id,
+      label,
+      span,
+      percent: shown,
+      resetsAt: over ? null : resetsAt,
+      severity: severityOf(shown),
+      ...(!over && percent >= 100 ? { reached: true } : {}),
+      ...(detail && !over ? { detail } : {})
+    })
+  }
+  add('session', 'Session', '5 hours', limits.five_hour)
+  add('week', 'Week', 'rolling 7 days', limits.seven_day)
+  // Behind a Claude gateway with a spend limit: its fullest one.
+  const spend = obj(limits.spend_limit)
+  const used = num(spend?.used_usd)
+  const cap = num(spend?.limit_usd)
+  const period = str(spend?.period)
+  add('spend', 'Spend limit', period ?? '', spend, used !== null && cap !== null && cap > 0 ? `$${used.toFixed(2)} of $${cap.toFixed(2)}` : undefined)
+  return windows.length ? { asOf: at, windows } : null
+}
+
 /* --------------------------------------------------------------------- Codex */
 
 /** What a Codex window is called, from how long it is. */

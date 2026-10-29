@@ -14,7 +14,8 @@ import { store } from '../store'
 import { buildChildEnv } from './eaonCode/env'
 import { findInstallerCopy } from './eaonCode/locate'
 import { eaonCliBinary, eaonCliEnv } from './eaonCli'
-import { cliAccountEnv, cliToolEnv } from './cliAccounts'
+import { cliAccountDirs, cliAccountEnv, cliToolEnv } from './cliAccounts'
+import { claudeFolder, claudeReportRoot, prepareClaudeReport } from './cliAccounts/usageReport'
 import { defaultDir, hasRollout } from './cliAccounts/folders'
 import { adeHistory } from './ade/history'
 import { sshHosts } from './ade'
@@ -118,6 +119,28 @@ const AGENT_FLAGS: Partial<Record<TerminalAgentId, string>> = { claude: '--dange
 export function agentCommand(id: TerminalAgentId, bin: string): string {
   const flags = AGENT_FLAGS[id]
   return flags ? `${bin} ${flags}` : bin
+}
+
+/** Whether a pane's line starts Claude Code: its first word is `claude`, bare or as a path. */
+const runsClaude = (command: string | null | undefined): boolean =>
+  path.basename((/^\S+/.exec(command ?? '')?.[0] ?? '').replace(/^['"]|['"]$/g, '')) === 'claude'
+
+/**
+ * A local pane's Claude Code, started with the status line that reports its
+ * plan's limits to the usage meter (cliAccounts/usageReport.ts) — your own
+ * status line still shows. Only here, not in an SSH pane (the file is on this
+ * computer) or a friend's (they get the bare binary). Any other line, or one
+ * that brings its own settings, is left as it is.
+ */
+export function withUsageReport(command: string | null, settings: string | null, kind: ShellKind): string | null {
+  if (!command || !settings || !runsClaude(command) || /\s--settings(?:\s|=)/.test(command)) return command
+  const first = /^\S+/.exec(command)?.[0] ?? ''
+  return `${first} --settings ${quoteArg(settings, kind)}${command.slice(first.length)}`
+}
+
+/** The settings file for that, made ready for every Claude Code account; null where it can't be used. */
+function usageReportSettings(): string | null {
+  return prepareClaudeReport(claudeReportRoot(app.getPath('userData')), cliAccountDirs('claude').map(claudeFolder))
 }
 
 /** The syntax a local pane's shell reads (shellQuote.ts): PowerShell on Windows, POSIX elsewhere. */
@@ -434,6 +457,13 @@ export function createTerminals(options: TerminalsOptions = {}): Feature & { tic
 
   /** A local shell started (not reattached) with `env`: its Codex account is noted. */
   const startLocal = (req: TerminalSpawnRequest, env: Record<string, string>, plan: RestorePlan | null = null): TerminalSpawnResult => {
+    // Claude Code's plan limits reach the usage meter after each reply (withUsageReport).
+    if (runsClaude(req.command) || runsClaude(plan?.command)) {
+      const settings = usageReportSettings()
+      const kind = paneShellKind()
+      if (req.command) req = { ...req, command: withUsageReport(req.command, settings, kind) }
+      if (plan) plan = { ...plan, command: withUsageReport(plan.command, settings, kind) }
+    }
     const result = manager.spawn(req, env, plan)
     if (result.ok && !result.reattached) codexHomes.set(req.paneId, env.CODEX_HOME ?? null)
     return result

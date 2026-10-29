@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import fs from 'node:fs'
 import os from 'node:os'
 import { app, Notification, shell } from 'electron'
 import { CLI_TOOLS, limitNoticeText, type CliAccountsState, type CliTool, type LimitNotice } from '@shared/cliAccounts'
@@ -8,8 +9,9 @@ import type { Feature } from '../types'
 import { claudeAuthStatus, claudeConfig, cliEnv, codexRead, findCli, loginArgs, logoutArgs } from './cli'
 import { setCliAccounts } from './current'
 import { accountsRoot, CliAccounts, type LoginProcess } from './service'
+import { claudeFolder, claudeReportRoot, readClaudeReport, reportsDir } from './usageReport'
 
-export { cliAccountEnv, cliToolEnv, onCliAccountChange } from './current'
+export { cliAccountDirs, cliAccountEnv, cliToolEnv, onCliAccountChange } from './current'
 
 /**
  * Settings → Accounts and the ADE's usage meter: which Claude Code and Codex
@@ -33,6 +35,7 @@ const LOGOUT_TIMEOUT_MS = 20_000
 
 let accounts: CliAccounts | null = null
 let timer: ReturnType<typeof setInterval> | null = null
+let reports: fs.FSWatcher | null = null
 /** Held until clicked or closed: a collected notification loses its handlers. */
 const notifications = new Set<Notification>()
 
@@ -65,8 +68,16 @@ export const cliAccountsFeature: Feature = {
   id: 'cli-accounts',
   register: ({ ipcMain, send, getWindows }) => {
     let changedTimer: ReturnType<typeof setTimeout> | null = null
+    const reportRoot = claudeReportRoot(app.getPath('userData'))
     const service = new CliAccounts({
-      runner: { find: (tool) => findCli(tool), claudeStatus: claudeAuthStatus, claudeConfig, codexRead, logout },
+      runner: {
+        find: (tool) => findCli(tool),
+        claudeStatus: claudeAuthStatus,
+        claudeConfig,
+        claudeReport: (dir) => readClaudeReport(reportRoot, claudeFolder(dir)),
+        codexRead,
+        logout
+      },
       root: accountsRoot(app.getPath('userData')),
       load: () => store.getJson(FILE, {}),
       save: (saved) => store.setJson(FILE, saved),
@@ -165,10 +176,29 @@ export const cliAccountsFeature: Feature = {
       else if (alerts || autoSwitchCodex) void service.refresh({ background: 'hidden' })
     }, BACKGROUND_MS)
     timer.unref?.()
+
+    // Claude Code reports its plan's limits after each reply in Eaon's panes
+    // (usageReport.ts): the meter follows within seconds, not at its next look.
+    let reported: ReturnType<typeof setTimeout> | null = null
+    try {
+      fs.mkdirSync(reportsDir(reportRoot), { recursive: true, mode: 0o700 })
+      reports = fs.watch(reportsDir(reportRoot), (_event, name) => {
+        if (!name?.toString().endsWith('.json') || reported) return
+        reported = setTimeout(() => {
+          reported = null
+          void service.refresh({ tool: 'claude', force: true })
+        }, 2000)
+      })
+      reports.on('error', () => undefined)
+    } catch (error) {
+      console.error('[cli-accounts] Claude Code’s reports can’t be watched:', error)
+    }
   },
   dispose: () => {
     if (timer) clearInterval(timer)
     timer = null
+    reports?.close()
+    reports = null
     accounts?.dispose()
     setCliAccounts(null)
     notifications.clear()
