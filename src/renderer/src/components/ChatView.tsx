@@ -54,6 +54,7 @@ import { ElsewhereAsk, elsewhereShown, subscribeElsewhere } from './agent/Elsewh
 import { CompactedDivider, CompactionNotice } from './chat/Compaction'
 import { WorkerFace } from './workers/WorkerFace'
 import { WorkerCardRow, WorkerEventLine } from './workers/WorkerCards'
+import { StockCards } from './workers/WorkerUi'
 import { useWorkers } from './workers/workersStore'
 import { ChannelLogo } from './channels/ChannelLogo'
 import { DockToggle, DrawerToggle } from './ide/Dock'
@@ -657,7 +658,7 @@ export const MessageRow = memo(function MessageRow({
   const hasContent = items.length > 0
   // A turn that did work — thought, read, ran — gets the "Worked for" line over it; a plain answer doesn't.
   // A worker's card or event line is something it said, not work.
-  const didWork = useMemo(() => items.some((item) => item.kind !== 'text' && item.kind !== 'card' && item.kind !== 'event'), [items])
+  const didWork = useMemo(() => items.some((item) => item.kind !== 'text' && item.kind !== 'card' && item.kind !== 'event' && item.kind !== 'stocks'), [items])
   // What this turn is asking the user, in the conversation (a chat's own
   // replies only: a worker asks through its own card), and how many more wait.
   const ask = useApp((s) =>
@@ -801,6 +802,8 @@ export const MessageRow = memo(function MessageRow({
             {(folded ? items.slice(answerFrom) : items).map((item, index) =>
               item.kind === 'card' ? (
                 <WorkerCardRow key={item.key} part={item.part} />
+              ) : item.kind === 'stocks' ? (
+                <StockCards key={item.key} symbols={item.symbols} range={item.range} />
               ) : item.kind === 'event' ? (
                 <WorkerEventLine key={item.key} part={item.part} />
               ) : item.kind === 'text' ? (

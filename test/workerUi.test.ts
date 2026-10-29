@@ -76,3 +76,18 @@ test('show_ui answers the worker with what was shown and what was left out, and 
   assert.deepEqual(workLog([part('done')], true).map((i) => i.kind), ['card'])
   assert.deepEqual(workLog([part('error')], true).map((i) => i.kind), ['tools'], 'a refused card stays in the run, with its reason')
 })
+
+test('a worker that looks a stock up shows it live, once, unless its own card already does', () => {
+  const tool = (id: string, name: string, input: Record<string, unknown>, status: 'done' | 'error' = 'done') => ({ type: 'tool' as const, id, name, input, output: 'ok', status })
+  const said = { type: 'text' as const, text: 'NVDA is at $212.93, down 1.14% today.' }
+  // A paragraph and no card, as a smaller model answered: the chart is there anyway.
+  const plain = workLog([tool('q', 'trading_quote', { symbols: ['nvda'] }), tool('h', 'trading_history', { symbols: ['NVDA'], range: '1mo' }), said], true)
+  assert.deepEqual(plain.map((i) => i.kind), ['tools', 'stocks', 'text'])
+  const stocks = plain.find((i) => i.kind === 'stocks')
+  assert.ok(stocks?.kind === 'stocks' && stocks.symbols.join() === 'NVDA' && stocks.range === '1d', 'once, at the first look')
+  // Its own card draws NVDA: no second one; AMD it didn't draw.
+  const drawn = workLog([tool('q', 'trading_quote', { symbols: ['NVDA', 'AMD'] }), tool('u', 'show_ui', { blocks: [{ type: 'tabs', tabs: [{ label: 'A', blocks: [{ type: 'stock', symbol: 'NVDA' }] }, { label: 'B', blocks: [{ type: 'text', text: 'x' }] }] }] }), said], true)
+  assert.deepEqual(drawn.filter((i) => i.kind === 'stocks').map((i) => (i.kind === 'stocks' ? i.symbols : [])), [['AMD']])
+  assert.deepEqual(workLog([tool('q', 'trading_quote', { symbols: ['NVDA'] }, 'error')], true).map((i) => i.kind), ['tools'], 'a failed look shows nothing')
+  assert.deepEqual(workLog([tool('q', 'trading_quote', { symbols: ['NVDA'] })], false).map((i) => i.kind), ['tools'], 'a chat is left as it was')
+})

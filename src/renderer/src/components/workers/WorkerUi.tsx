@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type JSX, type PointerEvent as ReactPointerEvent } from 'react'
+import { useEffect, useId, useMemo, useRef, useState, type JSX, type PointerEvent as ReactPointerEvent } from 'react'
 import { ArrowDown, ArrowUp, ArrowUpRight, ChevronDown, ChevronUp, RotateCw, TrendingDown, TrendingUp } from 'lucide-react'
 import type { Bar, BarRange, Quote, StockHeadline } from '@shared/trading'
 import { normalizeUi, STOCK_RANGES, type ChartStyle, type StockRange, type UiBlock, type UiSeries } from '@shared/workerUi'
@@ -203,6 +203,8 @@ function Plot({
   baseline?: number
 }): JSX.Element {
   const box = useRef<HTMLDivElement>(null)
+  // Its own: a second chart on the page with the same gradient id would be filled with the first one's.
+  const fill = `wui-fill-${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`
   const [width, setWidth] = useState(400)
   const [hover, setHover] = useState<number | null>(null)
   useEffect(() => {
@@ -217,7 +219,12 @@ function Plot({
   const height = 150
   const pad = { top: 10, bottom: 18, left: 2, right: 2 }
   const count = Math.max(...series.map((s) => s.values.length))
-  const all = series.flatMap((s) => s.values).concat(baseline !== undefined ? [baseline] : [])
+  const values = series.flatMap((s) => s.values)
+  // A previous close far outside the day (a 14% gap) would squash the day into a line at the top: it's left out then.
+  const lo = Math.min(...values)
+  const hi = Math.max(...values)
+  const mark = baseline !== undefined && baseline >= lo - (hi - lo) && baseline <= hi + (hi - lo) ? baseline : undefined
+  const all = values.concat(mark !== undefined ? [mark] : [])
   let min = Math.min(...all)
   let max = Math.max(...all)
   if (style === 'bar') min = Math.min(0, min)
@@ -268,13 +275,13 @@ function Plot({
       >
         <defs>
           {series.map((_, i) => (
-            <linearGradient key={i} id={`wui-fill-${i}`} x1="0" x2="0" y1="0" y2="1">
+            <linearGradient key={i} id={`${fill}-${i}`} x1="0" x2="0" y1="0" y2="1">
               <stop offset="0%" style={{ stopColor: colorOf(i), stopOpacity: 0.26 }} />
               <stop offset="100%" style={{ stopColor: colorOf(i), stopOpacity: 0 }} />
             </linearGradient>
           ))}
         </defs>
-        {baseline !== undefined && <line className="wui-plot__base" x1={pad.left} x2={width - pad.right} y1={y(baseline)} y2={y(baseline)} />}
+        {mark !== undefined && <line className="wui-plot__base" x1={pad.left} x2={width - pad.right} y1={y(mark)} y2={y(mark)} />}
         {style === 'bar'
           ? series.map((s, si) =>
               s.values.map((v, i) => {
@@ -298,7 +305,7 @@ function Plot({
               return (
                 <g key={si}>
                   {style === 'area' && si === 0 && (
-                    <path d={`${line}L${x(s.values.length - 1).toFixed(1)},${height - pad.bottom}L${x(0).toFixed(1)},${height - pad.bottom}Z`} style={{ fill: `url(#wui-fill-${si})` }} />
+                    <path d={`${line}L${x(s.values.length - 1).toFixed(1)},${height - pad.bottom}L${x(0).toFixed(1)},${height - pad.bottom}Z`} style={{ fill: `url(#${fill}-${si})` }} />
                   )}
                   <path d={line} className="wui-plot__line" style={{ stroke: colorOf(si) }} />
                 </g>
@@ -368,6 +375,24 @@ function TableBlock({ columns, rows }: { columns: string[]; rows: string[][] }):
 }
 
 /* ------------------------------------------------------------------ stocks */
+
+/**
+ * The stocks a worker looked up (chat/workLog.ts, `stocks`), each live on a
+ * card of its own: the price, today's move and a chart over the range it
+ * looked at, whatever the worker wrote about them.
+ */
+export function StockCards({ symbols, range }: { symbols: string[]; range: string }): JSX.Element {
+  const first = (STOCK_RANGES as string[]).includes(range) ? (range as StockRange) : '1d'
+  return (
+    <>
+      {symbols.map((symbol) => (
+        <article key={symbol} className="wcard wui" data-kind="ui">
+          <StockBlock symbol={symbol} range={first} news={symbols.length === 1} />
+        </article>
+      ))}
+    </>
+  )
+}
 
 const RANGE_LABEL: Record<StockRange, string> = { '1d': '1D', '5d': '5D', '1mo': '1M', '6mo': '6M', '1y': '1Y' }
 /** How often a stock card on screen asks again: its price, and its day's bars. */
