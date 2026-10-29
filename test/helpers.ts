@@ -3,7 +3,7 @@ import type { Provider } from '@shared/types'
 
 /** A throwaway HTTP server that answers every request with `handler`'s SSE lines. */
 export async function sseServer(
-  handler: (body: Record<string, unknown>, req: IncomingMessage) => string[] | { status: number; body: string }
+  handler: (body: Record<string, unknown>, req: IncomingMessage) => string[] | { status: number; body: string; headers?: Record<string, string> }
 ): Promise<{ url: string; server: Server; requests: Record<string, unknown>[] }> {
   const requests: Record<string, unknown>[] = []
   const server = createServer(async (req, res) => {
@@ -13,7 +13,7 @@ export async function sseServer(
     requests.push(body)
     const reply = handler(body, req)
     if (!Array.isArray(reply)) {
-      res.writeHead(reply.status, { 'Content-Type': 'application/json' })
+      res.writeHead(reply.status, { 'Content-Type': 'application/json', ...reply.headers })
       res.end(reply.body)
       return
     }

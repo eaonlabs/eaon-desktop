@@ -3,6 +3,13 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [Unreleased]
+
+### Fixed
+- **A day's rate limit says so at once.** A provider that answered "429, try again in 18 hours" was retried three times, a minute apart, behind "Thinking", before the reply failed. A wait longer than a retry would ever wait now fails straight away.
+- **Retries are visible while they wait.** "The provider is busy (429) — retrying in 60s." showed only once the turn had ended, inside the "Thinking" line. It now shows in the conversation while Eaon waits, until the model answers.
+- **Eaon Lite and Eaon Event say why they stopped.** A limit from Eaon's gateway gives its own reason ("Daily limit reached. This gateway allows 20 requests a day per user.") instead of "limiting how fast requests can be made. Try again in 1086 min". A day's limit is in hours and says how to keep going: an event code in Settings → Model providers → Eaon Event, or another model. Short limits read as before.
+
 ## [2026.7.2.1] — 2026-10-28
 
 The app reports this release as 2026.7.3: an app's version has three numbers, and updates compare them.
