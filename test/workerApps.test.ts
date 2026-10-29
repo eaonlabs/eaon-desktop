@@ -11,7 +11,7 @@ import type { RunAgent } from '../src/main/features/workers/runner'
 import type { FeatureContext } from '../src/main/features/types'
 import type { WorkerBrowsers } from '../src/main/features/workers/browser'
 import { appsToolSource, signInApp, signedInByHand } from '../src/main/features/workers/apps'
-import { createHue, stateBody, toXy, type HueBridge } from '../src/main/features/workers/hue'
+import { createHue, hostOf, stateBody, toXy, type HueBridge } from '../src/main/features/workers/hue'
 import { createLists, listText } from '../src/main/features/workers/lists'
 import { createHousehold } from '../src/main/features/workers/household'
 import { normalizeCard, routeLinks, CARD_IMAGE_MARK } from '@shared/workerCards'
@@ -180,6 +180,15 @@ test('a device card’s switch flips a Hue light or a Home Assistant light by it
   delete g.__EAON_LABS__
   assert.equal(card({ app: 'hue' }), undefined, 'without linked apps there is no Hue to reach')
   g.__EAON_LABS__ = true
+})
+
+test('Hue: off is sent as off alone (a colour with it is refused), and an IPv6 bridge is bracketed', () => {
+  assert.deepEqual(stateBody({ on: false, color: 'red' }), { on: false })
+  assert.deepEqual(stateBody({ brightness: 0, temperature: 'warm' }), { on: false })
+  assert.deepEqual(stateBody({ brightness: 50, temperature: 'warm' }).on, true)
+  assert.equal(hostOf('fe80::1'), '[fe80::1]')
+  assert.equal(hostOf('192.168.1.20'), '192.168.1.20')
+  assert.equal(hostOf('127.0.0.1:8080'), '127.0.0.1:8080', 'one colon is a port, not IPv6')
 })
 
 test('workLog lifts cards and events out of a worker’s runs, but not a failed one, and not in a chat', () => {

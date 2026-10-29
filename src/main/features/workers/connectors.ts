@@ -25,6 +25,17 @@ export interface ConnectorDeps {
 }
 
 const TIMEOUT_MS = 15_000
+/**
+ * A Tesla command or wake: Tessie wakes a sleeping car first and waits for the
+ * command to finish, which takes up to 90 seconds (its /wake gives up then).
+ */
+const TESLA_TIMEOUT_MS = 120_000
+/**
+ * SimpleFIN asks apps for 24 requests a day at most and disables the access
+ * token past that, so one reply (90 days of transactions, every balance) is
+ * kept this long and every question in that time is answered from it.
+ */
+const SIMPLEFIN_FRESH_MS = 60 * 60_000
 const str = (value: unknown): string => (typeof value === 'string' ? value.trim() : '')
 const num = (value: unknown): number | undefined => {
   const n = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value.replace(/[$,]/g, '')) : NaN
@@ -56,14 +67,14 @@ export function createConnectors(deps: ConnectorDeps) {
   }
 
   /** One JSON request, with a timeout and an error that says which service and what it said. */
-  const request = async (service: string, url: string, init: RequestInit = {}, raw = false): Promise<unknown> => {
+  const request = async (service: string, url: string, init: RequestInit = {}, raw = false, timeout: { ms: number; late?: string } = { ms: TIMEOUT_MS }): Promise<unknown> => {
     const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
+    const timer = setTimeout(() => controller.abort(), timeout.ms)
     let response: Response
     try {
       response = await http(url, { ...init, signal: controller.signal })
     } catch (error) {
-      throw new ConnectorError((error as Error)?.name === 'AbortError' ? `${service} didn’t answer in time.` : `Couldn’t reach ${service}: ${(error as Error)?.message ?? error}`)
+      throw new ConnectorError((error as Error)?.name === 'AbortError' ? (timeout.late ?? `${service} didn’t answer in time.`) : `Couldn’t reach ${service}: ${(error as Error)?.message ?? error}`)
     } finally {
       clearTimeout(timer)
     }
@@ -104,7 +115,7 @@ export function createConnectors(deps: ConnectorDeps) {
       return (await request('Home Assistant', `${url}/api/states/${encodeURIComponent(entity)}`, { headers })) as HaState
     },
     async call(domain: string, service: string, data: Record<string, unknown>): Promise<HaState[]> {
-      if (!/^[a-z_]+$/.test(domain) || !/^[a-z_]+$/.test(service)) throw new ConnectorError('domain and service are lower-case words, like light and turn_on.')
+      if (!/^[a-z0-9_]+$/.test(domain) || !/^[a-z0-9_]+$/.test(service)) throw new ConnectorError('domain and service are lower-case words, like light and turn_on.')
       const { url, headers } = ha.base()
       const changed = await request('Home Assistant', `${url}/api/services/${domain}/${service}`, { method: 'POST', headers, body: JSON.stringify(data) })
       return Array.isArray(changed) ? (changed as HaState[]) : []
@@ -130,7 +141,10 @@ export function createConnectors(deps: ConnectorDeps) {
       if (!/^[A-HJ-NPR-Z0-9]{17}$/i.test(vin)) throw new ConnectorError('That isn’t a VIN.')
       const path = command === 'wake' ? `/${vin}/wake` : `/${vin}/command/${command}`
       const query = command === 'set_charge_limit' ? `?percent=${Math.max(50, Math.min(100, Math.round(percent ?? 80)))}` : ''
-      const reply = (await request('Tessie', `${TESSIE}${path}${query}`, { method: 'POST', headers: tessie.headers() })) as { result?: boolean }
+      // Not known to have failed: the car may have done it as the wait ran out, and trying again could
+      // honk or unlock twice. The worker is told to look before it tries again.
+      const late = 'Tessie didn’t say in time whether the car did it (a sleeping car can take a minute and a half to wake). Check its status with tesla status before trying again.'
+      const reply = (await request('Tessie', `${TESSIE}${path}${query}`, { method: 'POST', headers: tessie.headers() }, false, { ms: TESLA_TIMEOUT_MS, late })) as { result?: boolean }
       return reply?.result !== false
     }
   }
@@ -145,6 +159,7 @@ export function createConnectors(deps: ConnectorDeps) {
     parsed.password = ''
     return { url: `${parsed.toString().replace(/\/+$/, '')}${path}`, headers: { Authorization: `Basic ${auth}` } }
   }
+  let sfinCache: { accessUrl: string; at: number; accounts: SimplefinAccount[]; problems: string[] } | null = null
   const simplefin = {
     async claim(setupToken: string): Promise<string> {
       let claimUrl: string
@@ -159,24 +174,48 @@ export function createConnectors(deps: ConnectorDeps) {
       if (!/^https:\/\/[^/\s]+:[^/\s]+@/.test(url)) throw new ConnectorError('SimpleFIN didn’t return an access address. The token may have been used already — make a new one.')
       return url
     },
-    async accounts(options: { days?: number; balancesOnly?: boolean } = {}): Promise<SimplefinAccount[]> {
+    /**
+     * The accounts, with their transactions from the last `days` (balances
+     * only, when `balancesOnly`), and what SimpleFIN said it couldn't get
+     * (a bank that needs signing in again). One request an hour at most:
+     * SIMPLEFIN_FRESH_MS.
+     */
+    async accounts(options: { days?: number; balancesOnly?: boolean } = {}): Promise<{ accounts: SimplefinAccount[]; problems: string[] }> {
       const { accessUrl } = need('simplefin')
-      const params = new URLSearchParams({ version: '2' })
-      if (options.balancesOnly) params.set('balances-only', '1')
-      else params.set('start-date', String(Math.floor(Date.now() / 1000) - Math.max(1, Math.min(90, options.days ?? 14)) * 86400))
-      const { url, headers } = sfin(accessUrl, `/accounts?${params.toString()}`)
-      const reply = (await request('SimpleFIN', url, { headers })) as SimplefinReply
-      const banks = new Map((reply?.connections ?? []).map((c) => [c.conn_id, c.name]))
-      return (reply?.accounts ?? []).map((a) => ({ ...a, bank: a.org?.name ?? (a.conn_id ? banks.get(a.conn_id) : undefined) ?? '' }))
+      const now = Date.now()
+      if (!sfinCache || sfinCache.accessUrl !== accessUrl || now - sfinCache.at > SIMPLEFIN_FRESH_MS) {
+        const params = new URLSearchParams({ version: '2', pending: '1', 'start-date': String(Math.floor(now / 1000) - 90 * 86400) })
+        const { url, headers } = sfin(accessUrl, `/accounts?${params.toString()}`)
+        const reply = (await request('SimpleFIN', url, { headers })) as SimplefinReply
+        const banks = new Map((reply?.connections ?? []).map((c) => [c.conn_id, c.name]))
+        sfinCache = {
+          accessUrl,
+          at: now,
+          accounts: (reply?.accounts ?? []).map((a) => ({ ...a, bank: a.org?.name ?? (a.conn_id ? banks.get(a.conn_id) : undefined) ?? '' })),
+          problems: [...(reply?.errlist ?? []).map((e) => e.msg).filter(Boolean), ...(reply?.errors ?? [])]
+        }
+      }
+      const since = Math.floor(now / 1000) - Math.max(1, Math.min(90, options.days ?? 14)) * 86400
+      const accounts = sfinCache.accounts.map((a) =>
+        options.balancesOnly ? { ...a, transactions: undefined } : { ...a, transactions: (a.transactions ?? []).filter((t) => (t.transacted_at ?? t.posted) >= since) }
+      )
+      return { accounts, problems: sfinCache.problems }
     }
   }
 
   /* ------------------------------------------------------------ Instacart */
 
+  /**
+   * Instacart's two hosts: a Production key works on the first only once
+   * Instacart has approved the app using it (weeks); a Development key works
+   * at once, on the second, and makes test pages. Which one a key answers on
+   * is found when it's connected and kept with it (`host`).
+   */
+  const INSTACART_HOSTS = { production: 'https://connect.instacart.com', development: 'https://connect.dev.instacart.tools' }
   const instacart = {
     async list(title: string, items: string[]): Promise<string> {
-      const { key } = need('instacart')
-      const reply = (await request('Instacart', 'https://connect.instacart.com/idp/v1/products/products_link', {
+      const { key, host } = need('instacart')
+      const reply = (await request('Instacart', `${host === 'development' ? INSTACART_HOSTS.development : INSTACART_HOSTS.production}/idp/v1/products/products_link`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${key}`, Accept: 'application/json', 'Content-Type': 'application/json' },
         body: JSON.stringify({ title: title.slice(0, 120) || 'Shopping list', link_type: 'shopping_list', line_items: items.slice(0, 100).map((name) => ({ name: name.slice(0, 120), display_text: name.slice(0, 120) })) })
@@ -280,7 +319,7 @@ export function createConnectors(deps: ConnectorDeps) {
         // The setup token works once; what is kept is the access address it turns into.
         const accessUrl = await simplefin.claim(value.setupToken)
         const stored: Saved = { accessUrl }
-        const accounts = await tryWith(stored, () => simplefin.accounts({ balancesOnly: true }))
+        const { accounts } = await tryWith(stored, () => simplefin.accounts({ balancesOnly: true }))
         const banks = [...new Set(accounts.map((a) => a.bank).filter(Boolean))]
         detail = `${accounts.length} account${accounts.length === 1 ? '' : 's'}${banks.length ? ` at ${banks.join(', ')}` : ''}`
         details.set(id, detail)
@@ -289,8 +328,21 @@ export function createConnectors(deps: ConnectorDeps) {
         return status(id)
       }
       case 'instacart': {
-        await tryWith(value, () => instacart.list('Eaon connection check', ['bananas']))
-        detail = 'Shopping-list pages'
+        try {
+          await tryWith({ ...value, host: 'production' }, () => instacart.list('Eaon connection check', ['bananas']))
+          value.host = 'production'
+          detail = 'Shopping-list pages'
+        } catch (error) {
+          // Refused there: a Development key, or a Production one Instacart hasn't approved yet.
+          if (!(error instanceof ConnectorError) || !/refused the key/.test(error.message)) throw error
+          try {
+            await tryWith({ ...value, host: 'development' }, () => instacart.list('Eaon connection check', ['bananas']))
+          } catch {
+            throw new ConnectorError('Instacart refused the key. A Production key only works once Instacart has approved your app; a Development key works straight away.')
+          }
+          value.host = 'development'
+          detail = 'Development key: test pages until a Production key is approved'
+        }
         break
       }
       case 'google-routes': {
@@ -560,12 +612,16 @@ export function connectorTools(engine: WorkersEngine, connectors: Connectors, li
       describe: (input) => `Bank ${str(input.action)}`,
       run: async (input, ctx) => {
         self(ctx)
-        const accounts = await connectors.simplefin.accounts(input.action === 'balances' ? { balancesOnly: true } : { days: num(input.days) ?? 14 })
-        if (accounts.length === 0) return 'No accounts are shared through SimpleFIN.'
+        const { accounts, problems } = await connectors.simplefin.accounts(input.action === 'balances' ? { balancesOnly: true } : { days: num(input.days) ?? 14 })
+        // A bank SimpleFIN couldn't reach (it wants signing in again on bridge.simplefin.org): said, not left out quietly.
+        const warning = problems.length ? `\n\nSimpleFIN couldn’t get everything: ${problems.join('; ')}. Tell the user; fixing it is on bridge.simplefin.org.` : ''
+        if (accounts.length === 0) return `No accounts are shared through SimpleFIN.${warning}`
         if (input.action === 'balances') {
-          return accounts
-            .map((a) => `- ${a.bank ? `${a.bank} · ` : ''}${a.name}: ${money(a.balance, a.currency)}${a['available-balance'] ? ` (available ${money(a['available-balance'], a.currency)})` : ''}, as of ${new Date(a['balance-date'] * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`)
-            .join('\n')
+          return (
+            accounts
+              .map((a) => `- ${a.bank ? `${a.bank} · ` : ''}${a.name}: ${money(a.balance, a.currency)}${a['available-balance'] ? ` (available ${money(a['available-balance'], a.currency)})` : ''}, as of ${new Date(a['balance-date'] * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`)
+              .join('\n') + warning
+          )
         }
         const wanted = str(input.account).toLowerCase()
         const rows = accounts
@@ -573,10 +629,12 @@ export function connectorTools(engine: WorkersEngine, connectors: Connectors, li
           .flatMap((a) => (a.transactions ?? []).map((t) => ({ ...t, account: a.name, currency: a.currency })))
           .sort((x, y) => (y.transacted_at ?? y.posted) - (x.transacted_at ?? x.posted))
           .slice(0, 120)
-        if (rows.length === 0) return 'No transactions in that time.'
-        return rows
-          .map((t) => `- ${new Date((t.transacted_at ?? t.posted) * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ${money(t.amount, t.currency)} ${t.description}${t.pending ? ' (pending)' : ''} — ${t.account}`)
-          .join('\n')
+        if (rows.length === 0) return `No transactions in that time.${warning}`
+        return (
+          rows
+            .map((t) => `- ${new Date((t.transacted_at ?? t.posted) * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ${money(t.amount, t.currency)} ${t.description}${t.pending ? ' (pending)' : ''} — ${t.account}`)
+            .join('\n') + warning
+        )
       }
     })
   }

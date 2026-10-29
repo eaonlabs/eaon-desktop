@@ -298,3 +298,49 @@ test('every logo an app or connection names is a bundled 128px app icon', async 
     assert.deepEqual([png.readUInt32BE(16), png.readUInt32BE(20)], [128, 128], `${logo} is 128px square`)
   }
 })
+
+/* ---------------------------------------------------------------- what the services' own rules ask for */
+
+test('SimpleFIN: one request an hour answers every question (it disables tokens past 24 a day), and a bank it couldn’t reach is said', async () => {
+  const claim = 'https://bridge.example/simplefin/claim/once'
+  const now = Math.floor(Date.now() / 1000)
+  const { fetch, calls } = fakeServices({
+    [`POST ${claim}`]: () => ({ text: 'https://user:pw@bridge.example/simplefin' }),
+    'GET https://bridge.example/simplefin/accounts': () => ({
+      json: {
+        errlist: [{ code: 'con.auth', msg: 'Wells Fargo needs you to sign in again' }],
+        accounts: [{ id: 'a1', name: 'Checking', currency: 'USD', balance: '10.00', 'balance-date': now, transactions: [{ id: 'old', posted: now - 30 * 86400, amount: '-1.00', description: 'OLD COFFEE' }, { id: 'new', posted: now - 3600, amount: '-2.00', description: 'NEW COFFEE', pending: true }] }]
+      }
+    })
+  })
+  const v = vault()
+  const connectors = createConnectors({ fetch, load: v.load, save: v.save })
+  await connectors.connect('simplefin', { setupToken: Buffer.from(claim).toString('base64') })
+  const e = engine()
+  const w = e.save({ name: 'Money', color: '#3E86C6', personality: '', purpose: 'x', apps: ['bank'] })
+  const bank = connectorTools(e, connectors, e.appsOf(w.id)).find((t) => t.name === 'bank')!
+  const week = String(await bank.run({ action: 'transactions', days: 7 }, ctxFor(w.id)))
+  const month = String(await bank.run({ action: 'transactions', days: 60 }, ctxFor(w.id)))
+  const balances = String(await bank.run({ action: 'balances' }, ctxFor(w.id)))
+  assert.equal(calls.filter((c) => c.url.includes('/accounts')).length, 1, 'connecting fetched it once; nothing since')
+  assert.match(calls.find((c) => c.url.includes('/accounts'))!.url, /pending=1/, 'pending ones asked for, so they are marked')
+  assert.ok(week.includes('NEW COFFEE (pending)') && !week.includes('OLD COFFEE'), 'a week is the last 7 days of what was fetched')
+  assert.ok(month.includes('OLD COFFEE'))
+  assert.match(balances, /Checking: \$10\.00/)
+  assert.match(balances, /SimpleFIN couldn’t get everything: Wells Fargo needs you to sign in again/)
+})
+
+test('Instacart: a key Production refuses is tried as a Development key, and kept with the host that took it', async () => {
+  const { fetch, calls } = fakeServices({
+    'POST https://connect.instacart.com/': () => ({ status: 401 }),
+    'POST https://connect.dev.instacart.tools/idp/v1/products/products_link': () => ({ json: { products_link_url: 'https://customers.dev.instacart.tools/store/list/9' } })
+  })
+  const v = vault()
+  const connectors = createConnectors({ fetch, load: v.load, save: v.save })
+  const status = await connectors.connect('instacart', { key: 'dev-key' })
+  assert.match(status.detail ?? '', /Development key: test pages/)
+  assert.match(await connectors.instacart.list('Groceries', ['milk']), /^https:\/\/customers\.dev\.instacart\.tools/)
+  assert.ok(calls.at(-1)!.url.startsWith('https://connect.dev.instacart.tools/'), 'later lists go to the host the key works on')
+  const refused = createConnectors({ fetch: fakeServices({}).fetch, load: vault().load, save: vault().save })
+  await assert.rejects(() => refused.connect('instacart', { key: 'nope' }), /Instacart|404/)
+})

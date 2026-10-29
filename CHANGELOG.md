@@ -13,6 +13,10 @@ All notable changes to Eaon are documented here. Format loosely follows
 - **Choose which plugins each worker can use**, from its settings.
 - **Labs builds only:** a light's or plug's card switch flips it straight away through Hue or Home Assistant, without waiting on the worker. Workers linked to everyday apps (DoorDash, Uber, Maps, Venmo, Amazon, Ring, Hue, Tesla, Calendar and more), real connections (Home Assistant, Tessie, SimpleFIN, Instacart, Google Routes), and a password vault with passkeys that workers sign in with without ever seeing a password. On a worker computer the vault is stored encrypted, with the key kept on your Mac.
 
+### Fixed
+- **Opening Terminal from Connect apps works in the installed app.** macOS refused Eaon's Apple events without asking, because the app didn't declare them; the same fix lets workers reach Calendar and Reminders (labs).
+- **Labs: the workers' connections follow each service's rules.** Tesla commands wait for a sleeping car to wake (up to two minutes) and never look failed when they may have run. SimpleFIN is asked once an hour at most (it disables tokens asked more than 24 times a day), says when a bank needs signing in again, and marks pending transactions. An Instacart Development key works (it was refused: only approved Production keys work on Instacart's main host). Home Assistant services with digits in their name work, turning a Hue light off while naming a colour no longer errors, and an IPv6 Hue bridge works.
+
 ## [2026.7.2.1] — 2026-10-28
 
 The app reports this release as 2026.7.3: an app's version has three numbers, and updates compare them.

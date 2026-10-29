@@ -97,6 +97,10 @@ mac:
   # Shown when dictation first asks for the microphone; Electron's own line is generic.
   extendInfo:
     NSMicrophoneUsageDescription: Eaon uses the microphone when you dictate a message.
+    # What macOS's Automation prompt says when Eaon first controls another app
+    # (Calendar and Reminders for workers, Terminal for Connect apps). Without
+    # it, and the apple-events entitlement, macOS refuses without asking.
+    NSAppleEventsUsageDescription: Eaon controls Calendar, Reminders and Terminal only when you or a worker ask it to.
     # What macOS's Files and Folders prompt says. The ADE's terminals and agents
     # are Eaon as far as macOS is concerned: refused here, nothing started in a
     # project in Downloads can read it (main/features/terminals.ts says so).

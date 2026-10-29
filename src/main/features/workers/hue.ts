@@ -96,6 +96,8 @@ export function stateBody(target: HueTarget): Record<string, unknown> {
       if (body.on === undefined) body.on = true
     }
   }
+  // Off is off: a colour or a white sent with it is refused by the bridge (error 201) though the light did go off.
+  if (body.on === false) return body
   if (target.color) {
     const xy = toXy(target.color)
     if (!xy) throw new Error(`"${target.color}" isn't a colour the lights know. Use a name (red, warm white…) or #rrggbb.`)
@@ -109,6 +111,9 @@ export function stateBody(target: HueTarget): Record<string, unknown> {
 }
 
 type Json = Record<string, unknown>
+
+/** A bridge's address in a URL: an IPv6 one in brackets (fe80::1 → [fe80::1]), anything else as it is. */
+export const hostOf = (ip: string): string => ((ip.match(/:/g) ?? []).length > 1 && !ip.startsWith('[') ? `[${ip}]` : ip)
 
 export function createHue(deps: HueDeps) {
   const http = deps.fetch ?? fetch
@@ -144,7 +149,7 @@ export function createHue(deps: HueDeps) {
     return saved
   }
 
-  const base = (b: HueBridge): string => `http://${b.ip}/api/${encodeURIComponent(b.username)}`
+  const base = (b: HueBridge): string => `http://${hostOf(b.ip)}/api/${encodeURIComponent(b.username)}`
 
   return {
     paired(): HueBridge | null {
@@ -174,7 +179,7 @@ export function createHue(deps: HueDeps) {
         id = found[0].id
       }
       if (!/^[0-9a-z.:-]+$/i.test(target)) throw new Error('That isn’t an IP address.')
-      const reply = await call(`http://${target}/api`, { method: 'POST', body: JSON.stringify({ devicetype: 'eaon#workers' }) })
+      const reply = await call(`http://${hostOf(target)}/api`, { method: 'POST', body: JSON.stringify({ devicetype: 'eaon#workers' }) })
       const first = Array.isArray(reply) ? (reply[0] as { success?: { username?: string }; error?: { type?: number } }) : null
       if (first?.error?.type === 101) throw new Error('Press the round button on top of the Hue bridge, then pair again within 30 seconds.')
       const username = first?.success?.username

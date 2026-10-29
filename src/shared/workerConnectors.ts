@@ -103,11 +103,11 @@ export const CONNECTORS: ConnectorSpec[] = [
     logo: 'instacart.png',
     name: 'Instacart Developer Platform',
     unlocks: 'Turns a grocery list into an Instacart shopping-list page you check out yourself.',
-    how: 'At dashboard.instacart.com → API Keys → Create New API Key (Production).',
+    how: 'At dashboard.instacart.com → API Keys → Create New API Key. A Development key works straight away with test pages; a Production key works once Instacart approves it (it can take weeks).',
     helpUrl: 'https://docs.instacart.com/developer_platform_api/get_started/api-keys',
     steps: [
       'Sign in to the Instacart Developer Dashboard at dashboard.instacart.com.',
-      'Open API Keys → Create New API Key, name it “Eaon”, choose Production, and Generate Key.',
+      'Open API Keys → Create New API Key, name it “Eaon” and Generate Key. Development works straight away, with test pages; Production makes real ones once Instacart has reviewed and approved it.',
       'Paste the key below.'
     ],
     site: { label: 'Open Instacart dashboard', url: 'https://dashboard.instacart.com/' },
