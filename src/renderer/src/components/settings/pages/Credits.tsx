@@ -31,7 +31,7 @@ export function CreditsSection(): JSX.Element {
           <Heart className="credits-heart" size={20} strokeWidth={0} fill="currentColor" role="img" aria-label="love" />
           in California and New York
         </p>
-        <p className="credits-hero__sub">Free software, under the GPL-3.0.</p>
+        <p className="credits-hero__sub">Free software, under the Apache License 2.0.</p>
       </div>
 
       <div className="credits-label">With thanks to</div>
