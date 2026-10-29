@@ -283,16 +283,20 @@ export function classifyProviderError(error: unknown, provider: ProviderLike, co
     const extra = wait ? { retryAfterMs: wait } : {}
     // Eaon's gateway says why in words of its own: pass them on, and when the
     // limit is the day's, say how to keep going rather than to wait for it.
+    // (Its words stay in the issue's detail, for Copy details.)
     const reason = goesToEaonGateway(provider) ? gatewayReason(text) : ''
     if (reason) {
       const long = (wait ?? 0) >= LONG_LIMIT_MS || /\b(daily|today|a day)\b/i.test(reason)
+      // Eaon Lite's day is counted per network (the gateway goes by IP), so its
+      // "20 requests a day per user" reads as nonsense at a venue to someone who
+      // sent two: say it as the model picker and Settings do.
+      if (long && provider.id !== FREE_PROVIDER_ID) {
+        const after = wait ? ` Try again in ${seconds(wait)}, or` : ' To keep going,'
+        return issue(provider, 'rate-limit', `${name}’s free requests are used up on this network for now.${after} redeem an event code in Settings → Model providers → Eaon Event, or choose another model.`, 'choose-model', f, extra)
+      }
+      // An event code's limits, and a minute's, are put well by the gateway itself.
       const when = wait && !/\b(try again|start over|resets?)\b/i.test(reason) ? ` Try again in ${seconds(wait)}` : ''
-      const way = !long
-        ? ''
-        : provider.id === FREE_PROVIDER_ID
-          ? 'choose another model'
-          : 'redeem an event code in Settings → Model providers → Eaon Event, or choose another model'
-      const after = when && way ? `${when}, or ${way}.` : when ? `${when}.` : way ? ` To keep going now, ${way}.` : ''
+      const after = long ? `${when ? `${when}, or` : ' To keep going now,'} choose another model.` : when ? `${when}.` : ''
       return issue(provider, 'rate-limit', `${reason}${after}`, long ? 'choose-model' : 'retry', f, extra)
     }
     return issue(provider, 'rate-limit', `${name} is limiting how fast requests can be made.${wait ? ` Try again in ${seconds(wait)}.` : ' Wait a moment and try again.'}`, 'retry', f, extra)

@@ -277,15 +277,15 @@ export interface LoopOutcome {
   stopped: 'done' | 'plan' | 'rounds' | 'goal-limit'
 }
 
+/** The longest a request waits before it is tried again. */
+const RETRY_WAIT_CAP_MS = 60_000
+
 /**
  * One model request, trying each credential in turn and retrying overloads
  * with a visible status line. A request is only retried if nothing from it has
  * reached the transcript yet — retrying after partial output would duplicate
  * the text the user already saw.
  */
-/** The longest a request waits before it is tried again. */
-const RETRY_WAIT_CAP_MS = 60_000
-
 async function callModel(
   params: LoopParams,
   attempts: Credentials[],
