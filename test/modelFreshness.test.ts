@@ -73,19 +73,22 @@ test('refresh: a failure keeps the list; only a real change is reported', async 
   assert.equal(await refreshDueProviders(deps), true)
 })
 
-test('timer: Eaon’s gateway at launch, the rest soon after, then every few hours; stopping stops it', async (t) => {
+const refused = (message: string): ProviderHealth => ({ ok: false, issue: { kind: 'insufficient-scope', message, action: 'choose-model' }, checkedAt: 1 })
+
+test('timer: a refusal from Eaon’s gateway at launch, the rest soon after, then every few hours; stopping stops it', async (t) => {
   // Lets the finished check's promise settle, as real time would between ticks.
   const settle = (): Promise<void> => new Promise((r) => setImmediate(r))
   t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] })
   let checks = 0
   const refreshed: string[] = []
+  const lite = provider(GATEWAY_PROVIDER_ID, { auth: 'none', hasKey: false, health: refused('Eaon Lite only answers up-to-date copies of Eaon.') })
   const stop = startModelFreshness(
     {
       list: () => {
         checks++
-        return [provider('openai'), provider(GATEWAY_PROVIDER_ID, { auth: 'none', hasKey: false })]
+        return [provider('openai'), lite]
       },
-      get: (id) => provider(id),
+      get: (id) => (id === GATEWAY_PROVIDER_ID ? lite : provider(id)),
       refresh: async (id) => {
         refreshed.push(id)
       }
@@ -94,7 +97,7 @@ test('timer: Eaon’s gateway at launch, the rest soon after, then every few hou
   )
   await settle()
   assert.equal(checks, 1, 'one look at launch')
-  assert.deepEqual(refreshed, [GATEWAY_PROVIDER_ID], 'at launch, only Eaon’s gateway is asked')
+  assert.deepEqual(refreshed, [GATEWAY_PROVIDER_ID], 'at launch, only the refused gateway is asked, once')
   t.mock.timers.tick(FIRST_CHECK_MS - 1)
   assert.equal(checks, 1)
   t.mock.timers.tick(1)
@@ -109,7 +112,46 @@ test('timer: Eaon’s gateway at launch, the rest soon after, then every few hou
   assert.equal(checks, 3)
 })
 
-const refused = (message: string): ProviderHealth => ({ ok: false, issue: { kind: 'insufficient-scope', message, action: 'choose-model' }, checkedAt: 1 })
+test('launch: a healthy Eaon Lite isn’t asked at once (its listing counts against the network’s limit); a slow launch check holds off the first one', async (t) => {
+  const settle = (): Promise<void> => new Promise((r) => setImmediate(r))
+  t.mock.timers.enable({ apis: ['setTimeout', 'setInterval'] })
+  const refreshed: string[] = []
+  const healthy = startModelFreshness(
+    {
+      list: () => [provider(GATEWAY_PROVIDER_ID, { auth: 'none', hasKey: false })],
+      get: (id) => provider(id),
+      refresh: async (id) => {
+        refreshed.push(id)
+      }
+    },
+    () => {}
+  )
+  await settle()
+  assert.deepEqual(refreshed, [])
+  healthy()
+
+  // A refusal whose answer takes longer than the first check's delay: not asked twice at once.
+  let answer: () => void = () => {}
+  const asked: string[] = []
+  const lite = provider(GATEWAY_PROVIDER_ID, { auth: 'none', hasKey: false, health: refused('refused') })
+  const slow = startModelFreshness(
+    {
+      list: () => [lite],
+      get: () => lite,
+      refresh: (id) => {
+        asked.push(id)
+        return new Promise<void>((r) => (answer = r))
+      }
+    },
+    () => {}
+  )
+  await settle()
+  t.mock.timers.tick(FIRST_CHECK_MS)
+  await settle()
+  assert.deepEqual(asked, [GATEWAY_PROVIDER_ID])
+  answer()
+  slow()
+})
 
 test('due: Eaon’s gateway is asked again while it refuses, however fresh its list; a refused key is still left alone', () => {
   const now = 10 * MAX_AGE_MS

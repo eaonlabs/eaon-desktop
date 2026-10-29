@@ -1,8 +1,8 @@
 import { after, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { GATEWAY_PROVIDER_ID } from '@shared/freeCredits'
+import { FREE_BASE_URL, GATEWAY_PROVIDER_ID } from '@shared/freeCredits'
 import { providerReadiness } from '@shared/modelSelection'
-import { forgetOtherVersionsGatewayChecks, getProvider, refreshModels } from '../src/main/providers'
+import { forgetOtherVersionsGatewayChecks, getProvider, noteProviderHealth, refreshModels } from '../src/main/providers'
 import { EAON_MAX_AGE_MS, MAX_AGE_MS, providersDue } from '../src/main/providers/freshness'
 import { store } from '../src/main/store'
 
@@ -17,7 +17,13 @@ const realFetch = globalThis.fetch
 let listing: unknown = { object: 'list', data: [] }
 /** The gateway set to "Eaon apps only", turning this copy away. */
 let appsOnly = false
+/** Seconds the gateway asks to wait: this network has used up its requests. */
+let limitedFor = 0
 globalThis.fetch = (async (url: string | URL) => {
+  if (limitedFor) {
+    const error = { message: 'Daily limit reached. This gateway allows 20 requests a day per user.', type: 'rate_limit_error', code: 'rate_limit_exceeded' }
+    return new Response(JSON.stringify({ error }), { status: 429, headers: { 'content-type': 'application/json', 'retry-after': String(limitedFor) } })
+  }
   if (appsOnly) {
     const error = { message: 'This API only works inside Eaon apps: the Eaon desktop app and the Eaon CLIs.', type: 'authentication_error', code: 'eaon_apps_only' }
     return new Response(JSON.stringify({ error }), { status: 401, headers: { 'content-type': 'application/json' } })
@@ -119,5 +125,47 @@ test('a refusal Eaon Lite gave an older copy of Eaon is gone once Eaon is update
   appsOnly = false
   await refreshModels(GATEWAY_PROVIDER_ID)
   assert.equal(providerReadiness(lite()).state, 'ready')
+  store.saveProviderConfig({ [GATEWAY_PROVIDER_ID]: { enabled: true } })
+})
+
+test('a network that has used up Eaon Lite’s day sees why, not “Ready”, and Eaon waits the limit out', async () => {
+  store.saveProviderConfig({ [GATEWAY_PROVIDER_ID]: { enabled: true } })
+  listing = { object: 'list', data: [row('mimo-v2.6-flash-free', 'MiMo v2.6 Flash', 'Flash.')] }
+  const now = Date.now()
+
+  // A limit for the minute passes by itself and marks nothing.
+  limitedFor = 20
+  await assert.rejects(refreshModels(GATEWAY_PROVIDER_ID))
+  assert.equal(providerReadiness(lite()).state, 'ready')
+
+  // One for the day does.
+  limitedFor = 65_410
+  await assert.rejects(refreshModels(GATEWAY_PROVIDER_ID))
+  limitedFor = 0
+  const readiness = providerReadiness(lite())
+  assert.equal(readiness.state, 'attention')
+  assert.equal(readiness.label, 'Limit reached')
+  assert.match(readiness.reason ?? '', /used up on this network.*start again in 18 h.*event code/)
+  assert.deepEqual(providersDue([lite()], now + 60_000), [], 'asking before the limit ends only gets the same answer')
+  assert.deepEqual(providersDue([lite()], now + 65_410_000 + 1000).map((p) => p.id), [GATEWAY_PROVIDER_ID], 'asked again once it ends')
+  assert.equal(providerReadiness(lite(), now + 65_410_000 + 1000).state, 'ready', 'no longer shown as limited once the time is up')
+
+  // The next answer clears it.
+  await refreshModels(GATEWAY_PROVIDER_ID)
+  assert.equal(providerReadiness(lite()).state, 'ready')
+  assert.equal(lite().health?.until, undefined)
+
+  // Only Eaon's gateway is waited out like this: another provider's 429 marks nothing.
+  assert.equal(noteProviderHealth('openai', { kind: 'rate-limit', message: 'slow down', action: 'retry', retryAfterMs: 3_600_000 }), false)
+  store.saveProviderConfig({ [GATEWAY_PROVIDER_ID]: { enabled: true } })
+})
+
+test('a provider an older Eaon pointed at the gateway by hand is treated as Eaon’s too', () => {
+  const health = { ok: false, issue: { kind: 'insufficient-scope' as const, message: 'only answers up-to-date copies', action: 'choose-model' as const }, checkedAt: 1 }
+  store.saveProviderConfig({ 'my-eaon': { name: 'My Eaon', kind: 'openai-compatible', baseUrl: FREE_BASE_URL, enabled: true, health } })
+  assert.equal(getProvider('my-eaon')?.health?.ok, false)
+  assert.deepEqual(providersDue([{ ...getProvider('my-eaon')!, hasKey: true, modelsListedAt: Date.now() }], Date.now()).map((p) => p.id), ['my-eaon'], 'asked again while it refuses')
+  forgetOtherVersionsGatewayChecks()
+  assert.equal(getProvider('my-eaon')?.health, undefined, 'the older copy’s verdict goes on launch')
   store.saveProviderConfig({ [GATEWAY_PROVIDER_ID]: { enabled: true } })
 })

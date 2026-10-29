@@ -7,6 +7,8 @@ All notable changes to Eaon are documented here. Format loosely follows
 
 ### Fixed
 - **Eaon Lite no longer says "Needs attention" after an update.** When Eaon's gateway had turned an older copy of Eaon away, the warning stayed after updating until you pressed Refresh. Eaon now drops what the gateway said to an older copy when it starts, checks Eaon Lite and Eaon Event as soon as it opens, and checks a refusal again every ten minutes instead of leaving it alone.
+- **Eaon Lite says when a network has used up its free requests.** Eaon's gateway limits Eaon Lite per network, so at a busy venue the day's requests can run out before you send anything. Setup, Settings and the model picker said "Ready" anyway. They now say the requests are used up and when they start again, and suggest an event code or another model; Eaon waits until then before asking the gateway again.
+- **An event code the gateway turned off is forgotten as soon as Eaon notices**, from the background model list as well as from a chat.
 
 ## [2026.7.2.1] — 2026-10-28
 

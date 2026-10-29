@@ -5,7 +5,7 @@ import { activeCode, addFreeTokens, forgetCode, freeCreditsStatus, freeDeviceId,
 import { chooseEventModel } from '../src/main/features/freeCredits'
 import { credentialAttempts } from '../src/main/providers/credentials'
 import { secrets } from '../src/main/secrets'
-import { adapterFor, getProvider, listProviders } from '../src/main/providers'
+import { adapterFor, getProvider, listProviders, refreshModels } from '../src/main/providers'
 import { providerReadiness } from '@shared/modelSelection'
 import { ProviderIssueError } from '../src/main/providers/errors'
 import { ProviderHttpError, type Adapter, type TurnRequest } from '../src/main/providers/adapters/types'
@@ -347,4 +347,22 @@ test('updating from Eaon Free: what was set to it goes back to the default, unle
   store.setJson('workers.json', [])
   store.setJson('scheduled-tasks.json', [])
   store.patchSettings({ selectedProviderId: null, selectedModelId: null })
+})
+
+test('a code the gateway turned off is forgotten by the background listing too, not asked about every ten minutes', async () => {
+  await withCode()
+  assert.ok(getProvider(FREE_PROVIDER_ID))
+  const realFetch = globalThis.fetch
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify({ error: { message: 'The code "Eaon Hack 2026" has been turned off.', type: 'authentication_error', code: 'code_ended' } }), {
+      status: 401,
+      headers: { 'content-type': 'application/json' }
+    })) as typeof fetch
+  try {
+    await assert.rejects(refreshModels(FREE_PROVIDER_ID))
+  } finally {
+    globalThis.fetch = realFetch
+  }
+  assert.equal(activeCode(), null)
+  assert.equal(getProvider(FREE_PROVIDER_ID), undefined, 'Eaon Event leaves the providers until a new code')
 })

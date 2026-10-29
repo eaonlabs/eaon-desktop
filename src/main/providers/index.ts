@@ -1,10 +1,10 @@
 import Anthropic from '@anthropic-ai/sdk'
 import type { ModelInfo, Provider, TokenUsage } from '@shared/types'
 import type { ModelSource } from '@shared/engines'
-import { isLastingIssue, type ModelEdit, type ModelEditFields, type ModelsRefresh, type ProviderHealth, type ProviderIssue } from '@shared/providers'
+import { isLastingIssue, isLongLimit, type ModelEdit, type ModelEditFields, type ModelsRefresh, type ProviderHealth, type ProviderIssue } from '@shared/providers'
 import { describeModelsRefresh, foldDatedAliases, hasCredentials } from '@shared/modelSelection'
 import { FREE_PROVIDER_ID, GATEWAY_PROVIDER_ID } from '@shared/freeCredits'
-import { activeCode, freeBaseUrl, freeHeaders, withFreeLimits } from '../freeCredits'
+import { activeCode, codeRefused, forgetCode, freeBaseUrl, freeHeaders, withFreeLimits } from '../freeCredits'
 import { secrets } from '../secrets'
 import { store, type ProviderOverride } from '../store'
 import { anthropicAdapter } from './adapters/anthropic'
@@ -28,7 +28,7 @@ import './oauth/flows'
 import { providerFetch, sdkFetch } from './safeFetch'
 import { appVersion } from '../gatewaySignature'
 import { providerAllowed } from '../enterprise/policy'
-import { GATEWAY_REFUSED, hideEaonAddress, isEaonGateway } from '../eaonAddress'
+import { GATEWAY_REFUSED, goesToEaonGateway, hideEaonAddress, isEaonGateway } from '../eaonAddress'
 import { targetsPrivateNetwork } from '../netGuard'
 
 /**
@@ -384,7 +384,10 @@ function setListed(id: string, models: ModelInfo[], at = Date.now()): void {
  * Records what a check of a provider found. A success clears a failed check;
  * a lasting failure (expired sign-in, rejected key, no credit, no models)
  * makes the provider "Needs attention" until something works again; a
- * passing one (offline, timeout, outage, rate limit) changes nothing.
+ * passing one (offline, timeout, outage, rate limit) changes nothing. Eaon's
+ * gateway's limit for the day is kept until it ends (`until`): on a shared
+ * network it can run out before anyone here sent a thing, and "Ready" then
+ * wasn't true.
  * Returns true when the stored state changed.
  */
 export function noteProviderHealth(id: string, issue: ProviderIssue | null, at = Date.now()): boolean {
@@ -394,10 +397,11 @@ export function noteProviderHealth(id: string, issue: ProviderIssue | null, at =
     editOverride(id, (override) => ({ ...override, health: { ok: true, issue: null, checkedAt: at } }))
     return true
   }
-  if (!isLastingIssue(issue.kind)) return false
+  const limit = isLongLimit(issue) && goesToEaonGateway(getProvider(id) ?? { id, baseUrl: '' })
+  if (!isLastingIssue(issue.kind) && !limit) return false
   const version = appVersion() ?? undefined
   if (current && !current.ok && current.issue?.kind === issue.kind && current.issue.message === issue.message && current.version === version) return false
-  const health: ProviderHealth = { ok: false, issue, checkedAt: at, ...(version ? { version } : {}) }
+  const health: ProviderHealth = { ok: false, issue, checkedAt: at, ...(version ? { version } : {}), ...(limit ? { until: at + issue.retryAfterMs! } : {}) }
   editOverride(id, (override) => ({ ...override, health }))
   return true
 }
@@ -422,9 +426,9 @@ export function clearProviderHealth(id: string): void {
  */
 export function forgetOtherVersionsGatewayChecks(): void {
   const version = appVersion() ?? undefined
-  for (const id of [GATEWAY_PROVIDER_ID, FREE_PROVIDER_ID]) {
-    const health = store.getProviderConfig()[id]?.health
-    if (health && !health.ok && health.version !== version) clearProviderHealth(id)
+  for (const provider of listProviders().filter(goesToEaonGateway)) {
+    const health = store.getProviderConfig()[provider.id]?.health
+    if (health && !health.ok && health.version !== version) clearProviderHealth(provider.id)
   }
 }
 
@@ -595,6 +599,8 @@ export async function refreshModels(providerId: string): Promise<ModelInfo[]> {
   try {
     models = await fetchListing(provider)
   } catch (error) {
+    // An event code the gateway ended is forgotten, as a chat forgets it (freeCredits.ts), rather than asked about every ten minutes.
+    if (providerId === FREE_PROVIDER_ID && codeRefused(error)) forgetCode()
     const issue = classifyProviderError(error, provider, 'listing')
     listingFailed(providerId, issue)
     throw new ProviderIssueError(issue)

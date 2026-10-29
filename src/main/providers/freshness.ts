@@ -1,6 +1,7 @@
 import type { ModelInfo, Provider } from '@shared/types'
 import { LOCAL_MODEL_PROVIDER, providerReadiness } from '@shared/modelSelection'
-import { FREE_PROVIDER_ID, GATEWAY_PROVIDER_ID } from '@shared/freeCredits'
+import { GATEWAY_PROVIDER_ID } from '@shared/freeCredits'
+import { goesToEaonGateway } from '../eaonAddress'
 import { providerMeta } from './catalog'
 
 /**
@@ -18,7 +19,10 @@ import { providerMeta } from './catalog'
  * refuses is this copy of Eaon or a code, which an update or a change on
  * gateway.eaon.dev ends without anyone touching Settings. So it is asked
  * again at every tick while it refuses, and first of all right at launch,
- * before anyone opens a model picker. A failed refresh keeps the last list
+ * before anyone opens a model picker; the gateway answers a refusal before
+ * counting anything against its limits, so asking costs nothing. (A healthy
+ * listing does count, per network, so it waits for the first check like the
+ * rest.) Its limit for the day is waited out. A failed refresh keeps the last list
  * that worked (`refreshModels` only replaces it on success) and the picker
  * never flickers: listeners hear about a change only when a list, or whether
  * a provider needs attention, actually changed.
@@ -31,9 +35,6 @@ export const EAON_MAX_AGE_MS = 10 * 60_000
 /** Several providers at once, but not sixty: some hosts rate-limit `/models`. */
 const CONCURRENCY = 3
 
-/** Eaon Lite and Eaon Event: the providers on Eaon's own gateway. */
-export const onEaonGateway = (p: Provider): boolean => p.id === GATEWAY_PROVIDER_ID || p.id === FREE_PROVIDER_ID
-
 const failed = (p: Provider): boolean => Boolean(p.health && !p.health.ok)
 
 /** The providers due for a background refresh at `now`. Pure, for tests. */
@@ -41,7 +42,9 @@ export function providersDue(providers: Provider[], now: number, maxAge = MAX_AG
   return providers.filter((p) => {
     if (p.local || p.id === LOCAL_MODEL_PROVIDER || !providerMeta(p.id).listsModels) return false
     if (!p.enabled || !(p.hasKey || p.signedIn || p.auth === 'none')) return false
-    if (onEaonGateway(p) && failed(p)) return true
+    // The gateway's limit for the day: asking before it ends only gets the same answer.
+    if (failed(p) && p.health?.until && p.health.until > now) return false
+    if (goesToEaonGateway(p) && failed(p)) return true
     if (providerReadiness(p).state === 'attention' && failed(p)) return false
     const age = p.id === GATEWAY_PROVIDER_ID ? Math.min(maxAge, EAON_MAX_AGE_MS) : maxAge
     return !p.modelsListedAt || now - p.modelsListedAt >= age
@@ -50,7 +53,7 @@ export function providersDue(providers: Provider[], now: number, maxAge = MAX_AG
 
 const fingerprint = (models: ModelInfo[]): string => models.map((m) => `${m.id}\u0000${m.label}`).join('\n')
 
-/** What the pages show of a provider: its list, and what needs attention. */
+/** What the pages show of a provider: what needs attention, then (after a separator no message contains) its list. */
 const shown = (p: Provider | undefined): string => `${p && failed(p) ? (p.health?.issue?.message ?? '') : ''}\u0001${fingerprint(p?.models ?? [])}`
 
 export interface FreshnessDeps {
@@ -83,19 +86,19 @@ export async function refreshDueProviders(deps: FreshnessDeps, only: (p: Provide
   return changed
 }
 
-/** Starts the background refresh, Eaon's gateway at once; returns a function that stops it. */
+/** Starts the background refresh, a refusal from Eaon's gateway at once; returns a function that stops it. */
 export function startModelFreshness(deps: FreshnessDeps, onChanged: () => void): () => void {
-  void refreshDueProviders(deps, onEaonGateway).then((changed) => changed && onChanged())
   let running = false
-  const tick = (): void => {
+  const tick = (only?: (p: Provider) => boolean): void => {
     if (running) return
     running = true
-    void refreshDueProviders(deps)
+    void refreshDueProviders(deps, only)
       .then((changed) => changed && onChanged())
       .finally(() => {
         running = false
       })
   }
+  tick((p) => goesToEaonGateway(p) && failed(p))
   const first = setTimeout(tick, FIRST_CHECK_MS)
   const timer = setInterval(tick, EVERY_MS)
   first.unref?.()
