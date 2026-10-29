@@ -429,7 +429,7 @@ export function WorkersSearch({ anchor, open, onClose }: { anchor: React.RefObje
     const has = (...texts: (string | null | undefined)[]): boolean => !q || texts.some((t) => t?.toLowerCase().includes(q))
     const out: Hit[] = []
     for (const w of workers) {
-      const face = <WorkerFace color={w.color} size={16} />
+      const face = <WorkerFace color={w.color} shape={w.shape} size={16} />
       if (has(w.name, w.purpose, w.activity, describeWorker(w, now), w.status === 'failed' ? 'failed error problem' : null, w.queued ? 'queued waiting' : null)) {
         out.push({ key: w.id, title: w.name, description: describeWorker(w, now), icon: face, open: () => go(w.id) })
       }

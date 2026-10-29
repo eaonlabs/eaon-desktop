@@ -14,7 +14,18 @@ import type { ChatMessage, ChatToolPart } from '@shared/types'
 /** One thing the agent did inside a run. */
 export type TurnStep = { kind: 'thought'; key: string; text: string } | { kind: 'tool'; key: string; part: ChatToolPart }
 
-export type TurnItem = { kind: 'text'; key: string; text: string } | { kind: 'steps'; key: string; steps: TurnStep[] }
+export type TurnItem =
+  | { kind: 'text'; key: string; text: string }
+  | { kind: 'steps'; key: string; steps: TurnStep[] }
+  /** A worker's card (show_card) or sign-in request, drawn as a card in its thread. */
+  | { kind: 'card'; key: string; part: ChatToolPart }
+  /** Something a worker did that reads as a line of its own: a routine created, a job handed to a colleague. */
+  | { kind: 'event'; key: string; part: ChatToolPart }
+
+/** In a worker's thread: calls drawn as cards rather than folded into a run. */
+export const CARD_TOOLS = new Set(['show_card', 'request_sign_in'])
+/** In a worker's thread: calls shown as a centred line ("Created routine ⏱ Overnight outbound"). */
+export const EVENT_TOOLS = new Set(['add_routine', 'remove_routine', 'create_worker', 'hand_off', 'message_worker', 'post_to_room', 'save_playbook', 'set_goal'])
 
 /**
  * Calls another part of the screen already shows: the Plan panel above the
@@ -37,7 +48,7 @@ const ownsRow = (item: TurnItem): boolean =>
  * Whitespace between two steps does not split a run. Keys are the first
  * step's, so a run keeps its identity (and its open/closed state) as it grows.
  */
-export function turnItems(parts: ChatMessage['parts']): TurnItem[] {
+export function turnItems(parts: ChatMessage['parts'], worker = false): TurnItem[] {
   const items: TurnItem[] = []
   const runFor = (key: string): TurnStep[] => {
     const last = items[items.length - 1]
@@ -56,6 +67,13 @@ export function turnItems(parts: ChatMessage['parts']): TurnItem[] {
       return
     }
     if (part.type !== 'tool' || SHOWN_ELSEWHERE.has(part.name)) return
+    // A worker's reaction is drawn on the user's bubble, not as a step.
+    if (worker && part.name === 'react' && part.status !== 'error' && part.status !== 'denied') return
+    // A card or an event is only drawn once the call went through; a refused or failed one stays in the run, where its error shows.
+    if (worker && part.status !== 'error' && part.status !== 'denied' && (CARD_TOOLS.has(part.name) || EVENT_TOOLS.has(part.name))) {
+      items.push({ kind: CARD_TOOLS.has(part.name) ? 'card' : 'event', key: part.id, part })
+      return
+    }
     if (OWN_ROW.has(part.name)) {
       items.push({ kind: 'steps', key: part.id, steps: [{ kind: 'tool', key: part.id, part }] })
       return

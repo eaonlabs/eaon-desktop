@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
 import {
   CandlestickChart,
@@ -10,6 +10,7 @@ import {
   FolderOpen,
   HeartPulse,
   History,
+  LayoutGrid,
   MessagesSquare,
   MonitorPlay,
   MoreHorizontal,
@@ -42,6 +43,12 @@ import type { McpServer } from '@shared/types'
 import { CHANNEL_LABEL } from '@shared/channels'
 import { ChannelLogo } from '../channels/ChannelLogo'
 import { useChannels } from '../channels/channelsStore'
+import { WorkerCreate } from './WorkerCreate'
+import { VaultPage } from './WorkerVault'
+import { SignInSheet, WorkerThreadContext } from './WorkerCards'
+import { AppFacts, WorkerAppsSheet } from './WorkerApps'
+import { MentionContext, mentionValue } from '../agent/Markdown'
+import { workerAppsEnabled } from '@shared/workerApps'
 
 /**
  * The Workers tab: the team at a glance, or one worker's page — its face, its
@@ -49,8 +56,10 @@ import { useChannels } from '../channels/channelsStore'
  * everything here is a view onto them.
  */
 export function WorkersView(): JSX.Element {
-  const { selectedId, selectedRoomId, editing, roomEditor, teamDialog, workers, rooms } = useWorkers(
+  const { selectedId, selectedRoomId, editing, roomEditor, teamDialog, workers, rooms, creating, vaultOpen } = useWorkers(
     useShallow((s) => ({
+      creating: s.creating,
+      vaultOpen: s.vaultOpen,
       selectedId: s.selectedId,
       selectedRoomId: s.selectedRoomId,
       editing: s.editing,
@@ -64,8 +73,10 @@ export function WorkersView(): JSX.Element {
   const room = rooms.find((r) => r.id === selectedRoomId) ?? null
   return (
     <>
-      {room ? <RoomPage key={room.id} room={room} /> : worker ? <WorkerPage key={worker.id} worker={worker} /> : <Team />}
+      {room ? <RoomPage key={room.id} room={room} /> : worker ? <WorkerPage key={worker.id} worker={worker} /> : creating ? <WorkerCreate /> : vaultOpen && workerAppsEnabled() ? <VaultPage /> : <Team />}
       {editing && <WorkerEditor workerId={editing.workerId} />}
+      <SignInSheet />
+      <WorkerAppsSheet />
       {roomEditor && <RoomEditor roomId={roomEditor.roomId} />}
       {teamDialog && <TeamDialog />}
     </>
@@ -158,9 +169,9 @@ function TeamEmpty({ onCreate, onTeam }: { onCreate: () => void; onTeam: () => v
   return (
     <div className="team-empty">
       <div className="team-empty__faces" aria-hidden="true">
-        <WorkerFace color="#8E5CE6" mood="happy" size={56} />
-        <WorkerFace color="#3E86C6" mood="neutral" size={84} follow reactOnClick />
-        <WorkerFace color="#EE8A36" mood="serious" size={56} />
+        <WorkerFace color="#8E5CE6" shape="ghost" mood="happy" size={56} />
+        <WorkerFace color="#3E86C6" shape="blob" mood="neutral" size={84} follow reactOnClick />
+        <WorkerFace color="#EE8A36" shape="gem" mood="thinking" size={56} />
       </div>
       <h1 className="team-empty__title">Meet Eaon Workers</h1>
       <p className="team-empty__text">
@@ -244,7 +255,7 @@ function WorkerCard({ worker, now, index, onOpen }: { worker: Worker; now: numbe
     <button className="worker-card" data-status={worker.status} onClick={onOpen} style={{ ['--i' as string]: index }}>
       <span className="worker-card__face">
         <WorkerFace
-          color={worker.color}
+          color={worker.color} shape={worker.shape}
           mood={mood}
           size={72}
           follow
@@ -310,6 +321,13 @@ function WorkerPage({ worker }: { worker: Worker }): JSX.Element {
   }, [thread?.messages, inbox.length, asks.length, working])
 
   const queued = inbox.filter((mail) => mail.from === 'user')
+  // Colleagues' names in its replies show in their colours, with their faces.
+  const team = useWorkers((s) => s.workers)
+  const mentions = useMemo(
+    () => mentionValue(team.filter((w) => w.id !== worker.id).map((w) => ({ name: w.name, color: w.color, shape: w.shape }))),
+    [team, worker.id]
+  )
+  const threadContext = useMemo(() => ({ workerId: worker.id, threadId: active === 'new' ? MAIN_THREAD : active }), [worker.id, active])
 
   // Scrolled off the top: Chat's veil of graded blur builds over what passes
   // under the top bar and the name pill (see ChatView).
@@ -357,6 +375,8 @@ function WorkerPage({ worker }: { worker: Worker }): JSX.Element {
           if (e.deltaY < 0) following.current = false
         }}
       >
+        <WorkerThreadContext.Provider value={threadContext}>
+        <MentionContext.Provider value={mentions}>
         <div className="thread__inner thread__inner--worker" style={{ ['--worker' as string]: worker.color }}>
           {isMain ? <WorkerProfile worker={worker} now={now} mood={mood} /> : <ThreadHeader worker={worker} info={info} />}
           {thread?.summary && (
@@ -415,6 +435,8 @@ function WorkerPage({ worker }: { worker: Worker }): JSX.Element {
           {/* Its questions sit in the thread, where it asked them, as cards to answer. */}
           <WorkerAsks worker={worker} />
         </div>
+        </MentionContext.Provider>
+        </WorkerThreadContext.Provider>
       </div>
 
       <div className="composer-dock">
@@ -438,7 +460,7 @@ function WorkerPill({ worker, mood, onClick }: { worker: Worker; mood: ReturnTyp
   return (
     <div className="worker-pill-bar">
       <button className="worker-pill" onClick={onClick} title={`${worker.name} — back to the top`}>
-        <WorkerFace color={worker.color} mood={mood} size={22} busy={worker.status === 'working'} />
+        <WorkerFace color={worker.color} shape={worker.shape} mood={mood} size={22} busy={worker.status === 'working'} />
         <span className="worker-pill__name">{worker.name}</span>
       </button>
     </div>
@@ -449,7 +471,7 @@ function WorkerPill({ worker, mood, onClick }: { worker: Worker; mood: ReturnTyp
 function WorkerWorking({ worker, mood, activity }: { worker: Worker; mood: ReturnType<typeof workerMood>; activity: string }): JSX.Element {
   return (
     <div className="worker-working" role="status">
-      <WorkerFace color={worker.color} mood={mood} size={22} busy />
+      <WorkerFace color={worker.color} shape={worker.shape} mood={mood} size={22} busy />
       <span className="worker-working__text">
         <span className="worker-working__name step-shimmer">{worker.name} is working</span>
         {activity && <span className="worker-working__activity"> · {activity}</span>}
@@ -529,7 +551,7 @@ function WorkerProfile({ worker, now, mood }: { worker: Worker; now: number; moo
   return (
     <div className="worker-profile">
       <WorkerFace
-        color={worker.color}
+        color={worker.color} shape={worker.shape}
         mood={mood}
         size={96}
         follow
@@ -576,11 +598,12 @@ function WorkerProfile({ worker, now, mood }: { worker: Worker; now: number; moo
         )}
         {creator && (
           <span className="worker-fact">
-            <WorkerFace color={creator.color} size={14} />
+            <WorkerFace color={creator.color} shape={creator.shape} size={14} />
             Created by {creator.name}
           </span>
         )}
         <ConnectedApps worker={worker} />
+        <AppFacts worker={worker} />
         <WorkerBrowserFact worker={worker} />
         <WorkerTeachFact worker={worker} />
       </div>
@@ -656,8 +679,9 @@ function statusLine(worker: Worker): string {
 }
 
 function WorkerActions({ worker }: { worker: Worker }): JSX.Element {
-  const { setPaused, wake, clear, remove, openEditor, browserOpen, setBrowser, activityOpen, setActivityOpen, openThread } = useWorkers(
+  const { setPaused, wake, clear, remove, openEditor, browserOpen, setBrowser, activityOpen, setActivityOpen, openThread, setAppsFor } = useWorkers(
     useShallow((s) => ({
+      setAppsFor: s.setAppsFor,
       setPaused: s.setPaused,
       wake: s.wake,
       clear: s.clear,
@@ -699,6 +723,12 @@ function WorkerActions({ worker }: { worker: Worker }): JSX.Element {
         <MonitorPlay size={14} strokeWidth={1.9} />
         <span>Browser</span>
       </button>
+      {workerAppsEnabled() && (
+        <button className="header-btn" aria-label="Apps" onClick={() => setAppsFor(worker.id)} title={`The apps ${worker.name} handles for you: link, sign in, unlink`}>
+          <LayoutGrid size={14} strokeWidth={1.9} />
+          <span>Apps</span>
+        </button>
+      )}
       {!worker.paused && !worker.runningMessageId && (
         <button className="header-btn" aria-label="Check in" onClick={() => void wake(worker.id)} title={`Wake ${worker.name} now and have it check in`}>
           <AlarmClock size={14} strokeWidth={1.9} />

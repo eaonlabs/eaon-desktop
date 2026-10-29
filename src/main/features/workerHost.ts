@@ -8,6 +8,8 @@ import type { ChannelLink, ChannelStatus } from '@shared/channels'
 import type { Worker, WorkerRoom } from '@shared/workers'
 import {
   credentialExpiry,
+  hasAppData,
+  hostOwnsSecret,
   WORKER_HOST_DEFAULT_PORT,
   WORKER_HOST_PROTOCOL,
   type HostHello,
@@ -15,12 +17,14 @@ import {
   type HostPairing,
   type LinkedHost,
   type SshInstallRequest,
+  type WorkerAppData,
   type WorkerHostState
 } from '@shared/workerHost'
 import { secrets } from '../secrets'
 import { store } from '../store'
 import { computerNames, lanAddresses } from '../remote'
 import { newHostSecret, type Peer } from '../workerHost/channel'
+import { newVaultKey } from './workers/vaultSeal'
 import { HostLink } from '../workerHost/client'
 import { installOverSsh, startPairingServer, type PairingServer } from '../workerHost/install'
 import { inside, listFolder, readChunks, readSnapshot, relocate, writeChunk, writeSnapshot, type FolderEntry, type WorkersSnapshot } from '../workerHost/move'
@@ -58,8 +62,16 @@ const CONFIG_FILE = 'worker-host.json'
 const BACKUP_FILE = 'worker-host-backup.json'
 const CACHE_FILE = 'worker-host-cache.json'
 const SECRET_KEY = 'worker-host:secret'
+/** The key a worker computer seals the workers' password vault with (workers/vaultSeal.ts). Never synced: it stays here. */
+const VAULT_KEY = 'worker-host:vault-key'
 /** Vault entries the host never gets on a sync: the link's own secret, and chat-app bot tokens (they move with the workers instead). */
-const PRIVATE_SECRETS = /^(worker-host:|channel:)/
+const PRIVATE_SECRETS = /^worker-host:/
+/**
+ * Never sent on a sync: the link's own secret, and what moves with the workers
+ * instead — chat apps' bot tokens and the workers' passwords, connection keys
+ * and Hue pairing, which they save to as they go wherever they run.
+ */
+const privateSecret = (id: string): boolean => PRIVATE_SECRETS.test(id) || hostOwnsSecret(id)
 const RESYNC_MS = 10 * 60_000
 const HELLO_MS = 30_000
 /** How long a change made while the link is still coming up waits for it. */
@@ -407,7 +419,7 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService, c
   /* ------------------------------------------------------ keeping it up */
 
   const syncPayload = (): Record<string, unknown> => ({
-    secrets: Object.fromEntries(Object.entries(secrets.entries()).filter(([id]) => !PRIVATE_SECRETS.test(id))),
+    secrets: Object.fromEntries(Object.entries(secrets.entries()).filter(([id]) => !privateSecret(id))),
     providers: store.getProviderConfig(),
     settings: store.getSettings(),
     mcpServers: store.getMcpServers().filter((server) => !server.official)
@@ -438,7 +450,7 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService, c
     const own = secrets.entries()
     const newer: Record<string, string> = {}
     for (const [id, value] of Object.entries(entries as Record<string, unknown>)) {
-      if (typeof value !== 'string' || PRIVATE_SECRETS.test(id) || !own[id]) continue
+      if (typeof value !== 'string' || privateSecret(id) || !own[id]) continue
       const theirs = credentialExpiry(value)
       const mine = credentialExpiry(own[id])
       if (theirs !== null && mine !== null && theirs > mine) newer[id] = value
@@ -500,6 +512,8 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService, c
       config.host = { ...config.host, name: hello.name }
       saveConfig()
     }
+    // First of all: its workers' passwords open only with this key, and they may be mid-task already.
+    await unlockHostVault().catch((error) => console.error('[worker-host] the vault key didn’t go over:', errorText(error)))
     try {
       await sync()
     } catch (error) {
@@ -601,6 +615,26 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService, c
     return run
   }
 
+  /** This computer's key to the vault a worker computer keeps sealed, made once. */
+  const vaultKey = (): string => {
+    const saved = secrets.get(VAULT_KEY)
+    if (saved) return saved
+    const made = newVaultKey()
+    secrets.set(VAULT_KEY, made)
+    return made
+  }
+  /** Hands the host the key, so its workers can open their passwords. A host from before sealing doesn't take one. */
+  const unlockHostVault = async (): Promise<void> => {
+    try {
+      await link.call('vault.key', { key: vaultKey() }, 30_000)
+    } catch (error) {
+      if (!unknownCall(error)) throw error
+    }
+  }
+
+  /** A call the host app doesn't know: one from before the call existed. */
+  const unknownCall = (error: unknown): boolean => /isn’t something the worker computer does/.test(errorText(error))
+
   const requireLink = async (): Promise<void> => {
     if (!config.host) throw new Error('Link a worker computer first.')
     link.start()
@@ -636,6 +670,12 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService, c
         await chats.suspend()
         await link.call('channels.import', { data: await chats.exportData() }, 120_000)
       }
+      // Their passwords, passkeys, app connections and shared lists: they save to these as they
+      // go, so these live where the workers do. What's here stays as the copy, like the workers'.
+      const apps = workers.exportAppData()
+      if (hasAppData(apps)) step('to-host', 'Moving their passwords and app connections')
+      await unlockHostVault()
+      await link.call('workers.apps-import', { data: apps }, 120_000)
       step('to-host', 'Starting them there')
       link.hello = await link.call<HostHello>('workers.resume')
     } catch (error) {
@@ -665,6 +705,8 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService, c
     let folders: { id: string; folder: string; files: FolderEntry[] }[] = []
     /** The chat apps on the host; with the copy, those here are already the ones to run. */
     let chatData: ChannelsData | null = null
+    /** Their passwords, connections and lists on the host; null keeps the copy here. */
+    let appData: WorkerAppData | null = null
     if (fromBackup) {
       const backup = store.getJson<{ snapshot?: WorkersSnapshot } | null>(BACKUP_FILE, null)
       if (!backup?.snapshot) throw new Error('There is no copy of the workers on this computer.')
@@ -680,6 +722,18 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService, c
         try {
           chatData = await link.call<ChannelsData>('channels.export', null, 120_000)
         } catch (error) {
+          await link.call('workers.resume').catch(() => undefined)
+          moving = null
+          pushState()
+          throw error
+        }
+      }
+      try {
+        await unlockHostVault()
+        appData = await link.call<WorkerAppData>('workers.apps-export', null, 120_000)
+      } catch (error) {
+        // A host app from before these moved has none of its own: the copy here is theirs.
+        if (!unknownCall(error)) {
           await link.call('workers.resume').catch(() => undefined)
           moving = null
           pushState()
@@ -702,6 +756,10 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService, c
         step('to-here', 'Bringing their chat apps back')
         await chats?.suspend()
         await chats?.importData(chatData)
+      }
+      if (appData) {
+        if (hasAppData(appData)) step('to-here', 'Bringing their passwords and app connections back')
+        workers.importAppData(appData)
       }
       if (!fromBackup) link.hello = await link.call<HostHello>('workers.release')
     } catch (error) {

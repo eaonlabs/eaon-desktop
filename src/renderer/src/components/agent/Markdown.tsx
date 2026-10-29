@@ -1,4 +1,6 @@
-import { memo, useMemo, useRef, type JSX, type ReactNode } from 'react'
+import { createContext, memo, useContext, useMemo, useRef, type JSX, type ReactNode } from 'react'
+import { WorkerFace } from '../workers/WorkerFace'
+import type { WorkerShape } from '@shared/workerLook'
 import { CodeBlock } from './CodeBlock'
 import { MarkdownTable } from './MarkdownTables'
 import { parseMarkdown, type Block, type ListItem, type ParsedMarkdown } from './markdownBlocks'
@@ -38,10 +40,57 @@ const INLINE = new RegExp(
   'g'
 )
 
+/**
+ * Names to pick out in the text — a worker's colleagues, in a worker's
+ * thread — each shown in its colour with a tiny face, so "Chief flagged the
+ * priority accounts" reads at a glance as who did what. Provided around a
+ * thread (MentionContext); a chat has none.
+ */
+export interface Mention {
+  name: string
+  color: string
+  shape?: WorkerShape
+}
+export const MentionContext = createContext<{ list: Mention[]; pattern: RegExp } | null>(null)
+
+/** The context value for a set of names: longest first, whole words only. */
+export function mentionValue(list: Mention[]): { list: Mention[]; pattern: RegExp } | null {
+  const named = list.filter((m) => m.name.trim().length > 1)
+  if (named.length === 0) return null
+  const sorted = [...named].sort((a, b) => b.name.length - a.name.length)
+  const escaped = sorted.map((m) => m.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  return { list: sorted, pattern: new RegExp(`(?<![\\w@])@?(${escaped.join('|')})(?![\\w])`, 'g') }
+}
+
+type Mentions = { list: Mention[]; pattern: RegExp } | null
+
+/** Plain text with the mentioned names picked out. */
+function decorate(text: string, mentions: Mentions, keyPrefix: string): ReactNode[] {
+  if (!mentions) return [text]
+  const out: ReactNode[] = []
+  let last = 0
+  let key = 0
+  for (const match of text.matchAll(mentions.pattern)) {
+    const at = match.index ?? 0
+    const who = mentions.list.find((m) => m.name === match[1])
+    if (!who) continue
+    if (at > last) out.push(text.slice(last, at))
+    out.push(
+      <span key={`${keyPrefix}-m${key++}`} className="md-mention" style={{ color: who.color }}>
+        <WorkerFace color={who.color} shape={who.shape} size={15} />
+        {who.name}
+      </span>
+    )
+    last = at + match[0].length
+  }
+  if (last < text.length) out.push(text.slice(last))
+  return out
+}
+
 /** Links open in the user's browser; anything but the web and mail is shown as text. */
 const OPENABLE = /^(https?:|mailto:)/i
 
-function renderInline(text: string, keyPrefix: string): ReactNode[] {
+function renderInline(text: string, keyPrefix: string, mentions: Mentions = null): ReactNode[] {
   const out: ReactNode[] = []
   let last = 0
   let key = 0
@@ -66,7 +115,7 @@ function renderInline(text: string, keyPrefix: string): ReactNode[] {
 
   for (const match of text.matchAll(INLINE)) {
     const at = match.index ?? 0
-    if (at > last) out.push(text.slice(last, at))
+    if (at > last) out.push(...decorate(text.slice(last, at), mentions, `${keyPrefix}-${key++}`))
     const g = match.groups ?? {}
 
     if (g.code !== undefined) {
@@ -76,11 +125,11 @@ function renderInline(text: string, keyPrefix: string): ReactNode[] {
         </code>
       )
     } else if (g.bold !== undefined || g.boldU !== undefined) {
-      out.push(<strong key={`${keyPrefix}-${key++}`}>{renderInline(g.bold ?? g.boldU, `${keyPrefix}-${key}`)}</strong>)
+      out.push(<strong key={`${keyPrefix}-${key++}`}>{renderInline(g.bold ?? g.boldU, `${keyPrefix}-${key}`, mentions)}</strong>)
     } else if (g.strike !== undefined) {
-      out.push(<del key={`${keyPrefix}-${key++}`}>{renderInline(g.strike, `${keyPrefix}-${key}`)}</del>)
+      out.push(<del key={`${keyPrefix}-${key++}`}>{renderInline(g.strike, `${keyPrefix}-${key}`, mentions)}</del>)
     } else if (g.italic !== undefined || g.italicU !== undefined) {
-      out.push(<em key={`${keyPrefix}-${key++}`}>{renderInline(g.italic ?? g.italicU, `${keyPrefix}-${key}`)}</em>)
+      out.push(<em key={`${keyPrefix}-${key++}`}>{renderInline(g.italic ?? g.italicU, `${keyPrefix}-${key}`, mentions)}</em>)
     } else if (g.href !== undefined) {
       out.push(link(g.href, g.linkText ? renderInline(g.linkText, `${keyPrefix}-${key}`) : g.href))
     } else if (g.angle !== undefined || g.bare !== undefined) {
@@ -90,7 +139,7 @@ function renderInline(text: string, keyPrefix: string): ReactNode[] {
     last = at + match[0].length
   }
 
-  if (last < text.length) out.push(text.slice(last))
+  if (last < text.length) out.push(...decorate(text.slice(last), mentions, `${keyPrefix}-${key++}`))
   return out
 }
 
@@ -119,12 +168,13 @@ export const Markdown = memo(function Markdown({ text }: { text: string }): JSX.
  * instead of the whole reply on every batch of tokens.
  */
 const MarkdownBlock = memo(function MarkdownBlock({ block, id }: { block: Block; id: string }): JSX.Element {
+  const mentions = useContext(MentionContext)
   switch (block.kind) {
     case 'code':
       return <CodeBlock lang={block.lang} code={block.code} streaming={block.streaming} />
     case 'heading': {
       const Tag = `h${Math.min(block.level + 2, 6)}` as 'h3'
-      return <Tag className="md__heading">{renderInline(block.text, id)}</Tag>
+      return <Tag className="md__heading">{renderInline(block.text, id, mentions)}</Tag>
     }
     case 'list': {
       const items = block.items.map((item, i) => <ListEntry key={i} item={item} id={`${id}-${i}`} />)
@@ -141,24 +191,25 @@ const MarkdownBlock = memo(function MarkdownBlock({ block, id }: { block: Block;
     }
     case 'table':
       // A comparison or a data table, depending on what the cells hold (MarkdownTables.tsx).
-      return <MarkdownTable header={block.header} rows={block.rows} align={block.align} renderCell={renderInline} id={id} />
+      return <MarkdownTable header={block.header} rows={block.rows} align={block.align} renderCell={(text, cell) => renderInline(text, cell, mentions)} id={id} />
     case 'quote':
-      return <blockquote className="md__quote">{renderInline(block.lines.join('\n'), id)}</blockquote>
+      return <blockquote className="md__quote">{renderInline(block.lines.join('\n'), id, mentions)}</blockquote>
     case 'rule':
       return <hr className="md__rule" />
     default:
-      return <p className="md__p">{renderInline(block.text, id)}</p>
+      return <p className="md__p">{renderInline(block.text, id, mentions)}</p>
   }
 })
 
 /** One list item: its own text, a task box if it is one, and whatever is nested under it. */
 function ListEntry({ item, id }: { item: ListItem; id: string }): JSX.Element {
+  const mentions = useContext(MentionContext)
   return (
     <li className={item.checked !== null ? 'md__task' : undefined}>
       {item.checked !== null && (
         <span className="md__check" data-checked={item.checked || undefined} aria-label={item.checked ? 'Done' : 'Not done'} role="img" />
       )}
-      {renderInline(item.text, id)}
+      {renderInline(item.text, id, mentions)}
       {item.children.map((child, c) => (
         <MarkdownBlock key={c} block={child} id={`${id}-c${c}`} />
       ))}

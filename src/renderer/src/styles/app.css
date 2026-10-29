@@ -308,6 +308,97 @@ a:hover {
   overflow-y: auto;
 }
 
+/* The Workers tab's menu (New worker … Settings) stays put above its list. */
+.sidebar__menu {
+  flex: none;
+  padding: 0 7px 2px;
+}
+
+/* The Workers list fades out at an edge with more of it past that edge, under
+   a graded blur. Sidebar.tsx's FadingBody sets --fade-top / --fade-bottom,
+   0 at the very end of the list to 1 once there's a row's worth beyond it. */
+.sidebar__fade {
+  --fade-top: 0;
+  --fade-bottom: 0;
+  --fade-top-h: 44px;
+  --fade-bottom-h: 72px;
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.sidebar__fade > .sidebar__body {
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    rgb(0 0 0 / calc(1 - 0.92 * var(--fade-top))) 0,
+    rgb(0 0 0 / calc(1 - 0.5 * var(--fade-top))) calc(var(--fade-top) * var(--fade-top-h) * 0.4),
+    #000 calc(var(--fade-top) * var(--fade-top-h)),
+    #000 calc(100% - var(--fade-bottom) * var(--fade-bottom-h)),
+    rgb(0 0 0 / calc(1 - 0.5 * var(--fade-bottom))) calc(100% - var(--fade-bottom) * var(--fade-bottom-h) * 0.4),
+    rgb(0 0 0 / calc(1 - 0.92 * var(--fade-bottom))) 100%
+  );
+  mask-image: linear-gradient(
+    to bottom,
+    rgb(0 0 0 / calc(1 - 0.92 * var(--fade-top))) 0,
+    rgb(0 0 0 / calc(1 - 0.5 * var(--fade-top))) calc(var(--fade-top) * var(--fade-top-h) * 0.4),
+    #000 calc(var(--fade-top) * var(--fade-top-h)),
+    #000 calc(100% - var(--fade-bottom) * var(--fade-bottom-h)),
+    rgb(0 0 0 / calc(1 - 0.5 * var(--fade-bottom))) calc(100% - var(--fade-bottom) * var(--fade-bottom-h) * 0.4),
+    rgb(0 0 0 / calc(1 - 0.92 * var(--fade-bottom))) 100%
+  );
+}
+.edge-veil {
+  position: absolute;
+  right: 0;
+  left: 0;
+  z-index: 2;
+  pointer-events: none;
+}
+.edge-veil[data-edge='top'] {
+  --fade: var(--fade-top);
+  --edge: to top;
+  top: 0;
+  height: var(--fade-top-h);
+}
+.edge-veil[data-edge='bottom'] {
+  --fade: var(--fade-bottom);
+  --edge: to bottom;
+  bottom: 0;
+  height: var(--fade-bottom-h);
+}
+.edge-veil > span {
+  position: absolute;
+  inset: 0;
+  /* 0.4, 0.8, 1.6, 3.2 px, each layer's band a quarter nearer the edge than the last. */
+  -webkit-backdrop-filter: blur(calc(0.4px * pow(2, var(--i)) * var(--fade)));
+  backdrop-filter: blur(calc(0.4px * pow(2, var(--i)) * var(--fade)));
+  -webkit-mask-image: linear-gradient(
+    var(--edge),
+    transparent calc(var(--i) * 25%),
+    #000 calc((var(--i) + 1) * 25%),
+    #000 calc((var(--i) + 2) * 25%),
+    transparent calc((var(--i) + 3) * 25%)
+  );
+  mask-image: linear-gradient(
+    var(--edge),
+    transparent calc(var(--i) * 25%),
+    #000 calc((var(--i) + 1) * 25%),
+    #000 calc((var(--i) + 2) * 25%),
+    transparent calc((var(--i) + 3) * 25%)
+  );
+}
+/* The strongest layer runs right to the edge rather than fading out there. */
+.edge-veil > span:last-child {
+  -webkit-mask-image: linear-gradient(var(--edge), transparent 50%, #000 90%);
+  mask-image: linear-gradient(var(--edge), transparent 50%, #000 90%);
+}
+@media (prefers-reduced-transparency: reduce) {
+  .edge-veil {
+    display: none;
+  }
+}
+
 /* ---------------- Top bar ----------------
    Every screen's top row: left content · the mode switch · right content. The
    side columns are equal, so the switch sits at the centre of the window's

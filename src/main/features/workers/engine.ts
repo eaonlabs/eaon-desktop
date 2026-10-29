@@ -41,6 +41,7 @@ import {
   mentionedWorkers,
   relativeTime,
   TRADING_ROUTINE_NAME,
+  TRADING_DESK,
   type Worker,
   type WorkerDraft,
   type WorkerRoutine,
@@ -86,6 +87,8 @@ import { copyTree, sizeOf, transferRefusal, type TransferProgress } from './tran
 import { approvalKey } from '../../agent/approvalKey'
 import { weakerAccess } from '@shared/channels'
 import { currentZone } from '../../timezone'
+import { DEFAULT_SHAPE, isWorkerShape, WORKER_SHAPES } from '@shared/workerLook'
+import { workerApp, type WorkerAppLink } from '@shared/workerApps'
 
 /** How a tool follows a file transfer: its stop button, and a line of progress. */
 export interface TransferWatch {
@@ -220,7 +223,7 @@ export interface RoomsFile {
 /** A new team: specialists to create (from templates or written out), colleagues to add, and a first message. */
 export interface TeamDraft {
   name: string
-  roles: (Pick<WorkerTemplate, 'role' | 'purpose' | 'personality'> & { color?: string; name?: string })[]
+  roles: (Pick<WorkerTemplate, 'role' | 'purpose' | 'personality'> & { color?: string; name?: string; shape?: Worker['shape'] })[]
   /** Existing workers to add to the team's group chat. */
   memberIds?: string[]
   kickoff?: string
@@ -301,9 +304,11 @@ export const MAX_ROOM_CHAIN = 8
 const CONTEXT_CHARS = 4000
 const POST_CHARS = 8000
 /** Moods a worker may pick with set_status. The rest (sleepy, asleep, dead) describe its state and are only derived. */
-export const HINT_MOODS: WorkerMood[] = ['neutral', 'happy', 'excited', 'serious', 'curious', 'surprised', 'sad', 'angry']
+export const HINT_MOODS: WorkerMood[] = ['neutral', 'happy', 'excited', 'serious', 'curious', 'surprised', 'sad', 'angry', 'love', 'dizzy', 'thinking', 'laughing', 'worried', 'cool']
 
 const clone = <T>(value: T): T => structuredClone(value)
+/** The emoji a worker may react to the user's message with. */
+export const REACTIONS = ['👍', '❤️', '😂', '🎉', '👀', '🙏', '✅', '🔥', '😮', '😢']
 const errorText = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 const str = (value: unknown): string => (typeof value === 'string' ? value.trim() : '')
 
@@ -475,6 +480,10 @@ function normalize(raw: Partial<Worker> & { id: string; name: string; handoffs?:
     id: raw.id,
     name: raw.name,
     color: typeof raw.color === 'string' ? raw.color : WORKER_COLORS[0],
+    shape: isWorkerShape(raw.shape) ? raw.shape : DEFAULT_SHAPE,
+    apps: normalizeAppLinks(raw.apps),
+    plugins: Array.isArray(raw.plugins) ? raw.plugins.filter((p): p is string => typeof p === 'string' && p.length > 0) : null,
+    preview: typeof raw.preview === 'string' ? raw.preview : '',
     personality: str(raw.personality),
     purpose: str(raw.purpose),
     createdAt: finite(raw.createdAt) ?? now,
@@ -518,6 +527,48 @@ function normalize(raw: Partial<Worker> & { id: string; name: string; handoffs?:
     queued: null,
     ...(legacy.length > 0 ? { legacyHandoffs: legacy } : {})
   }
+}
+
+/** Linked apps as saved: known apps only, each once. */
+function normalizeAppLinks(raw: unknown): WorkerAppLink[] {
+  if (!Array.isArray(raw)) return []
+  const seen = new Set<string>()
+  const out: WorkerAppLink[] = []
+  for (const item of raw) {
+    if (!item || typeof item !== 'object') continue
+    const link = item as Partial<WorkerAppLink>
+    const app = typeof link.id === 'string' ? workerApp(link.id) : undefined
+    if (!app || seen.has(app.id)) continue
+    seen.add(app.id)
+    out.push({
+      id: app.id,
+      linkedAt: finite(link.linkedAt) ?? 0,
+      signedIn: link.signedIn === 'yes' || link.signedIn === 'no' || link.signedIn === 'n/a' ? link.signedIn : 'no',
+      ...(typeof link.account === 'string' && link.account ? { account: link.account.slice(0, 120) } : {}),
+      ...(typeof link.url === 'string' && /^https:\/\//i.test(link.url) ? { url: link.url } : {}),
+      ...(finite(link.usedAt) ? { usedAt: finite(link.usedAt)! } : {})
+    })
+  }
+  return out
+}
+
+/** A new link for an app, before anyone has signed it in. */
+export function newAppLink(id: string, now: number): WorkerAppLink | null {
+  const app = workerApp(id)
+  if (!app) return null
+  const signs = app.via === 'browser' && (app.signIn !== null || app.id === 'bank')
+  return { id: app.id, linkedAt: now, signedIn: signs ? 'no' : 'n/a' }
+}
+
+/** One line of a reply, short, for the sidebar. */
+function previewOf(text: string): string {
+  const line = text
+    .replace(/```[\s\S]*?```/g, ' ')
+    .split('\n')
+    .map((l) => l.replace(/^[#>*\-\s]+/, '').replace(/[*_`]/g, '').trim())
+    .find(Boolean)
+  if (!line) return ''
+  return line.length > 140 ? `${line.slice(0, 139)}…` : line
 }
 
 /** Tool calls a quit or crash cut off would otherwise spin forever in the transcript. */
@@ -898,6 +949,20 @@ export class WorkersEngine {
     const personality = str(draft.personality).slice(0, 600)
     const purpose = str(draft.purpose).slice(0, 2000)
     const trading = draft.trading === undefined ? (existing?.trading ?? null) : draft.trading === null ? null : normalizeTrading(draft.trading, true)
+    const shape = isWorkerShape(draft.shape) ? draft.shape : (existing?.shape ?? this.freeShape())
+    const plugins =
+      draft.plugins === undefined
+        ? (existing?.plugins ?? null)
+        : Array.isArray(draft.plugins)
+          ? [...new Set(draft.plugins.filter((p): p is string => typeof p === 'string' && p.length > 0))]
+          : null
+    // Linking keeps what an app already knew (its sign-in); unlinking drops it.
+    const apps =
+      draft.apps === undefined
+        ? (existing?.apps ?? [])
+        : [...new Set(Array.isArray(draft.apps) ? draft.apps : [])]
+            .map((id) => existing?.apps.find((a) => a.id === id) ?? newAppLink(String(id), this.now()))
+            .filter((a): a is WorkerAppLink => a !== null)
 
     if (existing) {
       // Another engine can't continue this one's sessions.
@@ -905,7 +970,7 @@ export class WorkersEngine {
         existing.engineSession = null
         for (const t of existing.threads) t.engineSession = null
       }
-      Object.assign(existing, { name, color, personality, purpose, model, engine, effort, access, trading })
+      Object.assign(existing, { name, color, shape, apps, plugins, personality, purpose, model, engine, effort, access, trading })
       this.syncTradingRoutine(existing)
       this.commit()
       return clone(existing)
@@ -918,6 +983,10 @@ export class WorkersEngine {
       id: randomUUID(),
       name,
       color,
+      shape,
+      apps,
+      plugins,
+      preview: '',
       personality,
       purpose,
       createdAt: now,
@@ -1786,6 +1855,7 @@ export class WorkersEngine {
           this.save({
             name: names[i],
             color: role.color ?? '',
+            ...(role.shape ? { shape: role.shape } : {}),
             personality: str(role.personality),
             purpose: `${str(role.purpose)} Part of the "${name}" team.`,
             ...(draft.access ? { access: draft.access } : {}),
@@ -3022,6 +3092,81 @@ export class WorkersEngine {
     return scheduled ? 'idle' : 'asleep'
   }
 
+  /** The plugins a worker may use — its trading account's always among them — or null for every one. */
+  pluginsOf(id: string): string[] | null {
+    const worker = this.workers.find((w) => w.id === id)
+    if (!worker || worker.plugins === null) return null
+    return worker.trading && worker.trading.via !== TRADING_DESK ? [...worker.plugins, worker.trading.via] : [...worker.plugins]
+  }
+
+  /**
+   * The worker reacts to the user's latest message in a thread with an emoji
+   * (react): a thumbs-up to "send it", a heart to a thank-you. Kept on that
+   * message, as a chat keeps the user's reactions on replies.
+   */
+  react(id: string, emoji: string, threadId: string = MAIN_THREAD): void {
+    if (!REACTIONS.includes(emoji)) throw new Error(`React with one of ${REACTIONS.join(' ')}.`)
+    const worker = this.require(id)
+    const key = this.info(worker, threadId) ? threadId : MAIN_THREAD
+    const thread = this.thread(id, key)
+    const last = [...thread.messages].reverse().find((m) => m.role === 'user' && (!m.mail || m.mail.some((x) => x.from === 'user')))
+    if (!last) throw new Error('There is no message from the user here to react to.')
+    last.feedback = { ...(last.feedback ?? {}), reaction: emoji }
+    this.deps.saveThread(thread)
+    this.deps.onMessage?.(id, clone(last), key)
+  }
+
+  /** The apps linked to a worker. */
+  appsOf(id: string): WorkerAppLink[] {
+    return clone(this.require(id).apps)
+  }
+
+  /**
+   * Links an app to a worker, or changes what is known about one already
+   * linked (its sign-in, the account, a bank's sign-in page). The link is
+   * made when it isn't there yet.
+   */
+  updateApp(id: string, appId: string, patch: Partial<Pick<WorkerAppLink, 'signedIn' | 'account' | 'url' | 'usedAt'>> = {}): WorkerAppLink {
+    const worker = this.require(id)
+    // Checked before anything changes, so a refused address doesn't leave the app half-linked.
+    if (patch.url !== undefined && !/^https:\/\//i.test(str(patch.url))) throw new Error('Give the sign-in page’s full https:// address.')
+    let link = worker.apps.find((a) => a.id === appId)
+    if (!link) {
+      const made = newAppLink(appId, this.now())
+      if (!made) throw new Error(`There is no app called ${appId}.`)
+      link = made
+      worker.apps.push(link)
+    }
+    if (patch.signedIn && link.signedIn !== 'n/a') link.signedIn = patch.signedIn
+    if (patch.account !== undefined) {
+      const account = str(patch.account).slice(0, 120)
+      if (account) link.account = account
+      else delete link.account
+    }
+    if (patch.url !== undefined) link.url = str(patch.url)
+    if (patch.usedAt !== undefined) link.usedAt = patch.usedAt
+    this.commit()
+    return clone(link)
+  }
+
+  unlinkApp(id: string, appId: string): void {
+    const worker = this.require(id)
+    worker.apps = worker.apps.filter((a) => a.id !== appId)
+    this.commit()
+  }
+
+  /**
+   * Something happened with one of a worker's apps that it should know about
+   * (the user signed it in): an event in the thread that asked, which wakes it.
+   */
+  appEvent(id: string, title: string, text: string, threadId: string = MAIN_THREAD): void {
+    const worker = this.require(id)
+    const thread = this.info(worker, threadId) ? threadId : MAIN_THREAD
+    this.deliverMail(worker, { id: randomUUID(), from: 'eaon', fromName: 'Eaon', text, files: [], at: this.now(), event: { kind: 'app', title } }, thread)
+    this.commit()
+    this.tick()
+  }
+
   /** Puts mail in a thread's inbox (the main one by default). Writing to a closed thread opens it again. */
   private deliverMail(worker: Worker, mail: WorkerMail, threadId: string = MAIN_THREAD): void {
     const info = this.info(worker, threadId)
@@ -3044,6 +3189,12 @@ export class WorkersEngine {
     let folder = join(root, slug)
     for (let n = 2; taken.has(folder.toLowerCase()); n++) folder = join(root, `${slug}-${n}`)
     return folder
+  }
+
+  /** A shape no worker has yet, so a new team doesn't all look alike. */
+  private freeShape(): Worker['shape'] {
+    const taken = new Set(this.workers.map((w) => w.shape))
+    return WORKER_SHAPES.find((s) => !taken.has(s.id))?.id ?? DEFAULT_SHAPE
   }
 
   private freeColor(): string {
@@ -3216,7 +3367,7 @@ export class WorkersEngine {
       heartbeatSet: false,
       // Not for chat-app mail: the reply goes back to the chat it came from.
       // A timed goal's closing report is news too: the user left it working for hours.
-      userTriggered: woke || !!retry || mail.some((m) => (m.from === 'user' && !m.channel) || m.event?.kind === 'goal'),
+      userTriggered: woke || !!retry || mail.some((m) => (m.from === 'user' && !m.channel) || m.event?.kind === 'goal' || m.event?.kind === 'app'),
       stoppedByUser: false,
       postedRooms: new Set(),
       access,
@@ -3431,6 +3582,7 @@ export class WorkersEngine {
         worker.lastOutcome = { at: now, ok: true }
         worker.lastError = null
         if (!run.activitySet) worker.activity = summary
+        if (outcome.text) worker.preview = previewOf(outcome.text)
       }
     } else if (!run.activitySet && !outcome.error && !outcome.cancelled && summary) {
       worker.activity = summary

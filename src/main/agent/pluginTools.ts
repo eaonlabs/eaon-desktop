@@ -21,6 +21,16 @@ import { capOutput, registerToolSource, safeToolName, type AgentTool, type ToolC
 
 const DIRECT_LIMIT = 12
 
+/**
+ * The plugins (server ids) a worker may use, or null for all of them — set
+ * by the workers service from each worker's own choice (Edit → Plugins).
+ */
+let workerPlugins: (workerId: string) => string[] | null = () => null
+
+export function setWorkerPluginFilter(filter: (workerId: string) => string[] | null): void {
+  workerPlugins = filter
+}
+
 /** Server display names, read once per listing (each lookup would otherwise re-read mcp.json). */
 type Names = Map<string, string>
 const nameOf = (names: Names, tool: McpTool): string => names.get(tool.serverId) ?? tool.serverId
@@ -146,7 +156,8 @@ registerToolSource({
   id: 'plugins',
   tools: (query) => {
     if (query.mode !== 'work') return []
-    const all = getTools()
+    const allowed = query.request.workerId ? workerPlugins(query.request.workerId) : null
+    const all = allowed ? getTools().filter((t) => allowed.includes(t.serverId)) : getTools()
     if (all.length === 0) return []
     const usable = query.readOnly ? all.filter((t) => t.readOnly) : all
     if (usable.length === 0) return []

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useShallow } from 'zustand/react/shallow'
-import { AtSign, Clock3, HardDrive, Loader2, MessagesSquare, Plus, Settings as SettingsIcon, Users, UsersRound } from 'lucide-react'
+import { AtSign, Clock3, HardDrive, KeyRound, Loader2, MessagesSquare, Plus, Settings as SettingsIcon, Users, UsersRound } from 'lucide-react'
+import { workerAppsEnabled } from '@shared/workerApps'
 import { useApp } from '../../state/store'
 import { NavItem } from '../Sidebar'
 import { useWorkers } from './workersStore'
@@ -12,14 +13,18 @@ const ICON = { size: 16, strokeWidth: 1.9 } as const
 
 /**
  * The Workers tab's sidebar: the team, one row per worker with its face, plus
- * Scheduled — the other thing in the app that runs on its own.
+ * Scheduled — the other thing in the app that runs on its own. In two parts:
+ * the `menu` stays put at the top while the `list` of group chats and
+ * workers scrolls under it.
  */
-export function WorkersNav(): JSX.Element {
+export function WorkersNav({ part }: { part: 'menu' | 'list' }): JSX.Element {
   const { view, setView, setSettingsPage } = useApp(
     useShallow((s) => ({ view: s.view, setView: s.setView, setSettingsPage: s.setSettingsPage }))
   )
-  const { workers, selectedId, select, openEditor, now, rooms, selectedRoomId, selectRoom, openRoomEditor, openTeamDialog } = useWorkers(
+  const { workers, selectedId, select, openEditor, now, rooms, selectedRoomId, selectRoom, openRoomEditor, openTeamDialog, vaultOpen, setVaultOpen } = useWorkers(
     useShallow((s) => ({
+      vaultOpen: s.vaultOpen,
+      setVaultOpen: s.setVaultOpen,
       workers: s.workers,
       selectedId: s.selectedId,
       select: s.select,
@@ -35,7 +40,10 @@ export function WorkersNav(): JSX.Element {
   const full = workers.length >= MAX_WORKERS
   const show = (id: string | null): void => {
     select(id)
-    if (id === null) selectRoom(null)
+    if (id === null) {
+      selectRoom(null)
+      setVaultOpen(false)
+    }
     if (view !== 'chat') setView('chat')
   }
   const showRoom = (id: string): void => {
@@ -43,7 +51,7 @@ export function WorkersNav(): JSX.Element {
     if (view !== 'chat') setView('chat')
   }
 
-  return (
+  if (part === 'menu') return (
     <>
       <NavItem
         icon={<Plus {...ICON} />}
@@ -61,7 +69,7 @@ export function WorkersNav(): JSX.Element {
           openTeamDialog(true)
         }}
       />
-      <NavItem icon={<Users {...ICON} />} label="Team" active={view === 'chat' && selectedId === null && selectedRoomId === null} onClick={() => show(null)} />
+      <NavItem icon={<Users {...ICON} />} label="Team" active={view === 'chat' && selectedId === null && selectedRoomId === null && !vaultOpen} onClick={() => show(null)} />
       <NavItem icon={<Clock3 {...ICON} />} label="Automations" active={view === 'scheduled'} onClick={() => setView('scheduled')} />
       <NavItem
         icon={<AtSign {...ICON} />}
@@ -69,9 +77,24 @@ export function WorkersNav(): JSX.Element {
         active={view === 'plugins' || view === 'integrations'}
         onClick={() => setView('plugins')}
       />
+      {workerAppsEnabled() && (
+        <NavItem
+          icon={<KeyRound {...ICON} />}
+          label="Passwords"
+          active={view === 'chat' && vaultOpen}
+          onClick={() => {
+            if (view !== 'chat') setView('chat')
+            setVaultOpen(true)
+          }}
+        />
+      )}
       <NavItem icon={<SettingsIcon {...ICON} />} label="Settings" onClick={() => setSettingsPage('general')} />
       <WorkerHostRow onOpen={() => setSettingsPage('worker-computer')} />
+    </>
+  )
 
+  return (
+    <>
       {(rooms.length > 0 || workers.length > 1) && (
         <>
           <div className="sidebar__section sidebar__section--action">
@@ -85,23 +108,31 @@ export function WorkersNav(): JSX.Element {
           ) : (
             rooms.map((room) => {
               const answering = workers.some((w) => w.runningRooms?.includes(room.id))
+              const members = room.members.map((id) => workers.find((w) => w.id === id)).filter((w): w is Worker => Boolean(w))
               return (
                 <button
                   key={room.id}
-                  className="nav-item nav-item--worker"
+                  className="nav-item nav-item--worker worker-row worker-row--room"
                   data-active={(view === 'chat' && selectedRoomId === room.id) || undefined}
+                  data-unread={room.unread > 0 || undefined}
                   onClick={() => showRoom(room.id)}
                 >
-                  <span className="nav-item__icon">
-                    <MessagesSquare size={15} strokeWidth={1.9} />
+                  <span className="worker-row__face worker-row__cluster" data-count={Math.min(3, members.length)}>
+                    {members.length === 0 ? (
+                      <MessagesSquare size={18} strokeWidth={1.9} />
+                    ) : (
+                      members.slice(0, 3).map((m) => <WorkerFace key={m.id} color={m.color} shape={m.shape} mood={workerMood(m, now)} size={members.length === 1 ? 40 : 24} />)
+                    )}
                   </span>
-                  <span className="nav-item__label">{room.name}</span>
-                  <span className="nav-item__trail" data-always={answering || room.unread > 0 ? 'true' : undefined}>
-                    {answering ? (
-                      <Loader2 size={13} strokeWidth={2} className="spinner" />
-                    ) : room.unread > 0 ? (
-                      <span className="unread-badge">{room.unread > 9 ? '9+' : room.unread}</span>
-                    ) : null}
+                  <span className="worker-row__text">
+                    <span className="worker-row__top">
+                      <span className="worker-row__name">{room.name}</span>
+                      {room.lastAt > 0 && <span className="worker-row__time">{shortTime(room.lastAt, now)}</span>}
+                    </span>
+                    <span className="worker-row__bottom">
+                      <span className="worker-row__preview">{answering ? 'Answering…' : memberLine(members)}</span>
+                      {answering ? <Loader2 size={13} strokeWidth={2} className="spinner worker-row__trail" /> : room.unread > 0 ? <span className="worker-row__dot" aria-label={`${room.unread} unread`} /> : null}
+                    </span>
                   </span>
                 </button>
               )
@@ -133,7 +164,7 @@ export function WorkersNav(): JSX.Element {
               onClick={() => show(worker.id)}
             >
               <span className="worker-row__face">
-                <WorkerFace color={worker.color} mood={workerMood(worker, now)} size={30} attention={worker.asks.length > 0} />
+                <WorkerFace color={worker.color} shape={worker.shape} mood={workerMood(worker, now)} size={40} attention={worker.asks.length > 0} busy={worker.status === 'working'} />
               </span>
               <span className="worker-row__text">
                 <span className="worker-row__top">
@@ -141,11 +172,11 @@ export function WorkersNav(): JSX.Element {
                   {at !== null && <span className="worker-row__time">{shortTime(at, now)}</span>}
                 </span>
                 <span className="worker-row__bottom">
-                  <span className="worker-row__preview">{describeWorker(worker, now)}</span>
+                  <span className="worker-row__preview">{rowPreview(worker, now)}</span>
                   {worker.status === 'working' ? (
                     <Loader2 size={13} strokeWidth={2} className="spinner worker-row__trail" />
                   ) : worker.unread > 0 ? (
-                    <span className="unread-badge worker-row__trail">{worker.unread > 9 ? '9+' : worker.unread}</span>
+                    <span className="worker-row__dot" aria-label={`${worker.unread} unread`} />
                   ) : null}
                 </span>
               </span>
@@ -183,6 +214,23 @@ function WorkerHostRow({ onOpen }: { onOpen: () => void }): JSX.Element | null {
       </span>
     </button>
   )
+}
+
+/**
+ * The line under a worker's name, as in a messenger: the last thing it said,
+ * unless it is busy, waiting on the user or stopped — then that.
+ */
+function rowPreview(worker: Worker, now: number): string {
+  if (worker.paused || worker.status === 'working' || worker.status === 'failed' || worker.queued || worker.asks.length > 0 || !worker.preview) return describeWorker(worker, now)
+  return worker.preview
+}
+
+/** "Nova, Chief and Vega" for a group chat's row. */
+function memberLine(members: Worker[]): string {
+  const names = members.map((m) => m.name)
+  if (names.length === 0) return 'No members'
+  if (names.length <= 3) return names.length === 1 ? names[0] : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`
+  return `${names.slice(0, 2).join(', ')} and ${names.length - 2} more`
 }
 
 /** When it last did something: the end of its last turn, or its start while one runs. */

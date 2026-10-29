@@ -2,6 +2,8 @@ import type { ChannelKind, GuestAccess } from './channels'
 import type { ChatMessage, EffortLevel, GoalState, StreamEvent, TokenUsage } from './types'
 import type { EngineId } from './engines'
 import { nextRunAfter, WEEKDAYS, type OrderWatch, type PurchasePlan } from './scheduler'
+import type { WorkerShape } from './workerLook'
+import type { WorkerAppLink } from './workerApps'
 
 /**
  * Eaon Workers: independent agents that live on the user's computer and keep
@@ -22,10 +24,6 @@ import { nextRunAfter, WEEKDAYS, type OrderWatch, type PurchasePlan } from './sc
  */
 
 /**
- * The faces a worker can make — see `WorkerFace` in the renderer. Only the
- * eyes change; the round body never moves.
- */
-/**
  * A face's expression. Most are derived from what the worker is doing
  * (workerMood); a worker can also pick one for a while with set_status
  * (HINT_MOODS in the engine).
@@ -42,6 +40,18 @@ export type WorkerMood =
   | 'sleepy'
   | 'asleep'
   | 'dead'
+  /** Heart eyes: the user said something lovely, or a job it's proud of landed. */
+  | 'love'
+  /** Spiral eyes: overwhelmed, or something went round in circles. */
+  | 'dizzy'
+  /** Eyes up and to the side, pondering. */
+  | 'thinking'
+  /** Squeezed-shut eyes and a giggle. */
+  | 'laughing'
+  /** Brows up in the middle, a bead of sweat. */
+  | 'worried'
+  /** Shades on. */
+  | 'cool'
 
 export type WorkerStatus =
   /** Awake with nothing to do right now. */
@@ -191,7 +201,7 @@ export interface WorkerMail {
    * a background job that ended, a watch that fired, a timed goal running
    * out. `from` is 'eaon'; the thread shows it as an event, not a bubble.
    */
-  event?: { kind: 'job' | 'watch' | 'goal'; title: string }
+  event?: { kind: 'job' | 'watch' | 'goal' | 'app'; title: string }
 }
 
 /**
@@ -435,6 +445,7 @@ export interface WorkerTemplate {
   purpose: string
   personality: string
   color: string
+  shape?: WorkerShape
 }
 
 export const WORKER_TEMPLATES: WorkerTemplate[] = [
@@ -493,6 +504,122 @@ export const WORKER_TEMPLATES: WorkerTemplate[] = [
     purpose: 'Breaks a goal into tasks, hands them to the right colleagues, follows up, and pulls the results together for the user.',
     personality: 'Steady and organised. Keeps everyone moving and the user informed.',
     color: '#3FAE6A'
+  }
+]
+
+/**
+ * Ready-made workers the New worker page suggests: a name, a look and a job,
+ * plus the everyday apps that job needs (linked when it is created, signed in
+ * from its thread when it first needs them).
+ */
+export interface WorkerSuggestion {
+  id: string
+  name: string
+  blurb: string
+  color: string
+  shape: WorkerShape
+  purpose: string
+  personality: string
+  /** App ids (shared/workerApps.ts); only offered where linked apps are. */
+  apps: string[]
+}
+
+export const WORKER_SUGGESTIONS: WorkerSuggestion[] = [
+  {
+    id: 'errand-runner',
+    name: 'Errand Runner',
+    blurb: 'Orders dinner, books rides and reorders the essentials',
+    color: '#EE8A36',
+    shape: 'gumdrop',
+    purpose:
+      'Run the user’s errands through their apps: order food for delivery or pickup, price and book rides, reorder household essentials and track every order until it arrives. Show each order or ride as a card, and never pay for anything without the user’s approval.',
+    personality: 'Quick and cheerful. Confirms the details once, then gets it done.',
+    apps: ['doordash', 'ubereats', 'uber', 'amazon']
+  },
+  {
+    id: 'home-keeper',
+    name: 'Home Keeper',
+    blurb: 'Lights, the doorbell and the robot vacuum',
+    color: '#8E5CE6',
+    shape: 'ghost',
+    purpose:
+      'Look after the home: turn lights on and off on a schedule or when asked, check the Ring doorbell when something happens, and run the vacuum while nobody is home. Report anything unusual right away.',
+    personality: 'Calm and watchful. Speaks up only when it matters.',
+    apps: ['hue', 'ring', 'roborock']
+  },
+  {
+    id: 'commute-pilot',
+    name: 'Commute Pilot',
+    blurb: 'Leave-by times with live traffic',
+    color: '#3E86C6',
+    shape: 'capsule',
+    purpose:
+      'Plan the user’s trips: check live traffic before each event on their calendar, tell them when to leave and the fastest way, and send a route card they can open in Google Maps or Waze.',
+    personality: 'Punctual and plain-spoken. Gives the one number that matters first.',
+    apps: ['google-maps', 'waze', 'calendar']
+  },
+  {
+    id: 'money-buddy',
+    name: 'Money Buddy',
+    blurb: 'Balances, spending and who owes you',
+    color: '#3FAE6A',
+    shape: 'bun',
+    purpose:
+      'Keep an eye on the user’s money: check balances and recent spending, flag unusual charges, keep track of who owes whom, and draft Venmo or Cash App payments and requests for the user to approve.',
+    personality: 'Careful and discreet. Never moves money on its own.',
+    apps: ['venmo', 'cashapp', 'bank']
+  },
+  {
+    id: 'pantry-manager',
+    name: 'Pantry Manager',
+    blurb: 'Keeps the grocery list and restocks',
+    color: '#22A7A0',
+    shape: 'flower',
+    purpose:
+      'Keep the household’s grocery and supply lists current, notice what is running low, and when the user asks, fill a cart at Instacart, Walmart or Target from the list for their approval.',
+    personality: 'Organised and thrifty. Spots a deal.',
+    apps: ['lists', 'instacart', 'walmart', 'target']
+  },
+  {
+    id: 'coffee-run',
+    name: 'Coffee Run',
+    blurb: 'Your usual, ordered ahead',
+    color: '#9C6B3F',
+    shape: 'blob',
+    purpose: 'Order the user’s usual ahead for pickup at Starbucks or Chipotle, at the store and time they want, and say when it’s ready.',
+    personality: 'Upbeat and brief.',
+    apps: ['starbucks', 'chipotle', 'mcdonalds']
+  },
+  {
+    id: 'family-planner',
+    name: 'Family Planner',
+    blurb: 'Calendar, reminders and chores',
+    color: '#D6509B',
+    shape: 'heart',
+    purpose:
+      'Keep the household on track: what’s on today and this week, reminders for what’s due, a chores list everyone can tick off, and a heads-up the evening before anything that needs preparing.',
+    personality: 'Warm and organised. Keeps everyone in the loop.',
+    apps: ['calendar', 'reminders', 'lists']
+  },
+  {
+    id: 'night-shift',
+    name: 'Night Shift',
+    blurb: 'Works overnight and preps your morning digest',
+    color: '#E4574B',
+    shape: 'gem',
+    purpose: 'Work through the night on whatever is queued, then leave a short morning digest at 7:00: what got done, what needs the user, and what is on today.',
+    personality: 'Steady and thorough. Leaves things tidy.',
+    apps: []
+  },
+  {
+    id: 'inbox-triage',
+    name: 'Inbox Triage',
+    blurb: 'Sorts your email and drafts replies in your voice',
+    color: '#5B6CF0',
+    shape: 'star',
+    purpose: 'Sort the user’s email every morning: what needs them, what can wait, and draft replies in their voice for them to send.',
+    personality: 'Brisk and tactful.',
+    apps: []
   }
 ]
 
@@ -724,6 +851,17 @@ export interface Worker {
   name: string
   /** Body colour, any CSS hex colour. */
   color: string
+  /** Body shape (shared/workerLook.ts). */
+  shape: WorkerShape
+  /** Everyday apps linked to this worker (shared/workerApps.ts). */
+  apps: WorkerAppLink[]
+  /**
+   * The plugins (MCP server ids) this worker may use; null for every
+   * connected plugin, as before plugins could be chosen per worker.
+   */
+  plugins: string[] | null
+  /** The last thing it said, one short line, for the sidebar. */
+  preview: string
   personality: string
   purpose: string
   createdAt: number
@@ -815,6 +953,12 @@ export interface WorkerDraft {
   id?: string
   name: string
   color: string
+  /** Undefined keeps what is set. */
+  shape?: WorkerShape
+  /** App ids to link; undefined keeps what is linked. Linking an app here doesn't sign it in. */
+  apps?: string[]
+  /** Undefined keeps what is set; null allows every plugin. */
+  plugins?: string[] | null
   personality: string
   purpose: string
   model?: { providerId: string; modelId: string } | null

@@ -27,6 +27,25 @@
   color: var(--text-2);
 }
 
+/* An app's own icon (appLogoFor): its real colours, rounded as on a phone,
+   with a hairline edge so a white icon doesn't melt into a white surface. */
+.plugin-logo--art {
+  border-radius: 22.5%;
+  background: none;
+  box-shadow: none;
+}
+.plugin-logo--art > img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  outline: 1px solid oklch(1 0 0 / 0.1);
+  outline-offset: -1px;
+}
+[data-theme='light'] .plugin-logo--art > img {
+  outline-color: oklch(0 0 0 / 0.1);
+}
+
 /* The composer tray overlaps its tiles; a ring in the tray colour separates them. */
 .plugin-stack > .plugin-logo {
   box-shadow: 0 0 0 1.5px var(--surface-1);
@@ -196,4 +215,33 @@
   font-family: var(--font-mono);
   font-size: var(--fs-sm);
   resize: vertical;
+}
+
+/* For your workers' apps (AppConnections.tsx) */
+.app-conn__lede {
+  margin: 0 0 10px;
+}
+.app-conn__steps {
+  margin: 0;
+  padding-left: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  color: var(--text-2);
+  line-height: 1.5;
+}
+.app-conn__free {
+  cursor: default;
+}
+.app-conn__foot {
+  margin-top: 10px;
+}
+/* The no-setup apps' icons in two rows of three: overlapped, Uber's and
+   Lyft's wordmarks were cut off. */
+.app-conn__stack {
+  flex: none;
+  display: grid;
+  grid-template-columns: repeat(3, 24px);
+  gap: 5px;
 }

@@ -176,6 +176,10 @@ test('a worker moves to the worker computer, works there, survives the host rest
   chats.service.load()
   const userData = process.env.EAON_TEST_USERDATA!
   await writeAuthFiles(join(userData, 'channels', 'whatsapp-l-wa'), { 'creds.dat': '{"me":"nova"}' })
+  // And what it keeps for its apps: a saved login, a connection's key, a shared list.
+  const login = (password: string): string => JSON.stringify({ logins: [{ id: 'l-uber', site: 'Uber', domains: ['uber.com'], username: 'sam@example.com', password, workers: 'all', ask: false, createdAt: 1, usedAt: null }], passkeys: [] })
+  const groceries = { id: 'list-groceries', name: 'Groceries', items: [{ id: 'i-milk', text: 'Milk', done: false, by: 'You', at: 1 }], updatedAt: 1 }
+  service.importAppData({ secrets: { 'worker-vault': login('s3cret'), 'worker-apps:conn:tessie': '{"token":"tessie-token"}' }, lists: [groceries] })
 
   // Move it.
   const moved = await call<WorkerHostState>('worker-host:set-enabled', true)
@@ -208,6 +212,17 @@ test('a worker moves to the worker computer, works there, survives the host rest
   // A sync sends this computer's vault, which has its own copy of the token; the host keeps its own.
   await call('worker-host:sync')
   assert.equal(hostKeys()[`channel:${telegram.id}`], '123:telegram-token')
+  // The login and the key went with it: the login sealed (no keychain there), with nothing of the password on its disk.
+  const sealedThere = hostKeys()['worker-vault']
+  assert.match(sealedThere, /^sealed:v1:/)
+  assert.ok(!sealedThere.includes('s3cret') && !sealedThere.includes('sam@example.com') && !sealedThere.includes('uber.com'))
+  assert.equal(hostKeys()['worker-apps:conn:tessie'], '{"token":"tessie-token"}')
+  // And its key never went there to stay: it is not in the host's vault file.
+  assert.ok(!Object.values(hostKeys()).includes(secrets.get('worker-host:vault-key')!))
+  // A sync doesn't put this computer's older copy back over it.
+  secrets.set('worker-vault', login('stale-copy-here'))
+  await call('worker-host:sync')
+  assert.equal(hostKeys()['worker-vault'], sealedThere)
 
   // Talk to it, with a file from this computer: it thinks on the host with the synced model.
   const note = join(scratch, 'notes.txt')
@@ -254,6 +269,13 @@ test('a worker moves to the worker computer, works there, survives the host rest
   assert.equal(secrets.get(`channel:${telegram.id}`), '123:telegram-token')
   assert.deepEqual(await readAuthFiles(join(userData, 'channels', 'whatsapp-l-wa')), { 'creds.dat': '{"me":"nova"}' })
   assert.equal(hostKeys()[`channel:${telegram.id}`], undefined)
+  // The login (opened after the host restarted: the key went over again when the link came back), the key and the
+  // list came back as the host had them; none stays there.
+  assert.equal(secrets.get('worker-vault'), login('s3cret'))
+  assert.equal(secrets.get('worker-apps:conn:tessie'), '{"token":"tessie-token"}')
+  assert.deepEqual(service.exportAppData().lists, [groceries])
+  assert.equal(hostKeys()['worker-vault'], undefined)
+  assert.equal(hostKeys()['worker-apps:conn:tessie'], undefined)
   assert.equal(existsSync(join(hostAppHome, 'data', 'channels', 'whatsapp-l-wa')), false)
   // And the host runs none.
   await until(async () => (await state()).hello?.workers === 0 || ((await feature.link.call<{ workers: number }>('hello')).workers === 0), 10_000, 'the host to let go')

@@ -144,7 +144,7 @@ export function credentialExpiry(raw: string | undefined): number | null {
 
 /** Of a vault's entries, the sign-ins (those that expire), for keeping two computers' in step. */
 export function signInEntries(vault: Record<string, string>): Record<string, string> {
-  return Object.fromEntries(Object.entries(vault).filter(([, value]) => credentialExpiry(value) !== null))
+  return Object.fromEntries(Object.entries(vault).filter(([id, value]) => !hostOwnsSecret(id) && credentialExpiry(value) !== null))
 }
 
 /** Events the host forwards to the desktop. */
@@ -153,10 +153,45 @@ export function hostForwardsEvent(channel: string): boolean {
 }
 
 /**
+ * The workers' own entries in the vault for their apps: the password vault
+ * (logins, 2FA codes, passkeys), the connections' keys and the Hue bridge's
+ * pairing. Workers save to them as they go, so they live wherever the
+ * workers do.
+ */
+export function workerAppSecret(id: string): boolean {
+  return id === 'worker-vault' || id.startsWith('worker-apps:')
+}
+
+/**
+ * What moves with the workers for their apps, both ways: those vault entries,
+ * and the shared lists (groceries, chores) they keep.
+ */
+export interface WorkerAppData {
+  secrets: Record<string, string>
+  lists: unknown[]
+  /** Entries the other side couldn't send (a sealed vault it couldn't open): the receiver keeps its own. */
+  kept?: string[]
+}
+
+export function hasAppData(data: WorkerAppData): boolean {
+  return Object.keys(data.secrets).length > 0 || data.lists.length > 0
+}
+
+/** Sent data as WorkerAppData: only the workers' app entries, only text, only lists. */
+export function readAppData(raw: unknown): WorkerAppData {
+  const value = (raw && typeof raw === 'object' ? raw : {}) as { secrets?: unknown; lists?: unknown }
+  const sent = value.secrets && typeof value.secrets === 'object' ? (value.secrets as Record<string, unknown>) : {}
+  const secrets = Object.fromEntries(Object.entries(sent).filter((e): e is [string, string] => workerAppSecret(e[0]) && typeof e[1] === 'string' && e[1].length > 0))
+  const kept = Array.isArray((value as { kept?: unknown }).kept) ? ((value as { kept: unknown[] }).kept.filter((id): id is string => typeof id === 'string' && workerAppSecret(id))) : []
+  return { secrets, lists: Array.isArray(value.lists) ? value.lists : [], ...(kept.length ? { kept } : {}) }
+}
+
+/**
  * Vault entries a worker computer keeps as its own, whatever the desktop's
- * vault says: chat apps' bot tokens, which move there with the workers
- * rather than being copied on every sync.
+ * vault says: chat apps' bot tokens and the workers' app entries, which move
+ * there with the workers rather than being copied on every sync. A sync
+ * would put back the desktop's copy, losing a password saved there since.
  */
 export function hostOwnsSecret(id: string): boolean {
-  return id.startsWith('channel:')
+  return id.startsWith('channel:') || workerAppSecret(id)
 }

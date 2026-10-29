@@ -20,6 +20,9 @@ import { mcpCatalogEntry } from '@shared/mcpCatalog'
 import { GOAL_MAX_TURNS, MAIN_THREAD, mentionedWorkers, WORKER_ACCESS, type Worker, type WorkerAccess } from '@shared/workers'
 import type { McpServer } from '@shared/types'
 import { usePurchaseDialog } from '../purchase/purchaseStore'
+import { findLogin, type FoundLogin } from '@shared/workerVault'
+import { workerAppsEnabled } from '@shared/workerApps'
+import { SaveLoginDialog } from './WorkerVault'
 
 const ACCESS_ICON: Record<WorkerAccess, typeof Zap> = { autonomous: Zap, safe: ShieldCheck, 'read-only': Eye }
 
@@ -167,7 +170,7 @@ export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Wor
           keywords: `${w.purpose} worker`,
           description: w.purpose ? (w.purpose.length > 70 ? `${w.purpose.slice(0, 67)}…` : w.purpose) : undefined,
           section: 'Workers',
-          icon: <WorkerFace color={w.color} size={18} />,
+          icon: <WorkerFace color={w.color} shape={w.shape} size={18} />,
           hint: 'Gets it too',
           insert: `@${w.name}`
         })
@@ -189,14 +192,24 @@ export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Wor
 
   // The box empties only once main has the message: a refused send (the
   // worker removed, a bad file) leaves what was written there to try again.
-  const submit = async (): Promise<void> => {
+  // A password in the message is offered to the vault before anything is sent (see SaveLoginDialog).
+  const [pendingLogin, setPendingLogin] = useState<FoundLogin | null>(null)
+  const submit = async (override?: { text: string; checked: boolean }): Promise<void> => {
     if ((!text.trim() && files.length === 0) || sending) return
+    if (!override?.checked && workerAppsEnabled()) {
+      const found = findLogin(text)
+      if (found) {
+        setPendingLogin(found)
+        return
+      }
+    }
     const sent = text
+    const body = override?.text ?? text
     const sentFiles = files
     setSending(true)
     setSendError(null)
     try {
-      await send(worker.id, text.trim(), files, {
+      await send(worker.id, body.trim(), files, {
         ...(isMain && goalArmed && text.trim() ? { goal: true, until: goalEndAt(goalEnd) } : {}),
         ...(isMain ? {} : { threadId })
       })
@@ -229,6 +242,22 @@ export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Wor
         addFiles([...e.dataTransfer.files].map((file) => window.api.app.pathForFile(file)).filter(Boolean))
       }}
     >
+      {pendingLogin && (
+        <SaveLoginDialog
+          worker={worker}
+          found={pendingLogin}
+          onCancel={() => setPendingLogin(null)}
+          onSaved={() => {
+            const redacted = pendingLogin.redacted
+            setPendingLogin(null)
+            void submit({ text: redacted, checked: true })
+          }}
+          onSendAnyway={() => {
+            setPendingLogin(null)
+            void submit({ text, checked: true })
+          }}
+        />
+      )}
       <div className="composer composer--worker" data-variant="chat" data-goal={goalArmed || undefined}>
         {files.length > 0 && (
           <div className="composer__attachments">
@@ -372,7 +401,7 @@ export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Wor
             {copiedTo.map((w) => (
               <Chip
                 key={w.id}
-                icon={<WorkerFace color={w.color} size={14} />}
+                icon={<WorkerFace color={w.color} shape={w.shape} size={14} />}
                 label={w.name}
                 title={`${w.name} gets this message too`}
                 onClear={() => setText(removeMention(text, w.name))}

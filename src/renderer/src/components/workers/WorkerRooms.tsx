@@ -98,7 +98,7 @@ export function RoomPage({ room }: { room: WorkerRoom }): JSX.Element {
               {members.map((m, index) => (
                 <span key={m.id} className="room-intro__member" title={m.purpose} style={{ ['--i' as string]: index }}>
                   <WorkerFace
-                    color={m.color}
+                    color={m.color} shape={m.shape}
                     mood={workerMood(m, now)}
                     size={44}
                     enter
@@ -127,7 +127,7 @@ export function RoomPage({ room }: { room: WorkerRoom }): JSX.Element {
             <div className="room-typing" aria-live="polite">
               {answering.map((m) => (
                 <span key={m.id} className="room-typing__member">
-                  <WorkerFace color={m.color} mood="serious" size={16} busy />
+                  <WorkerFace color={m.color} shape={m.shape} mood="serious" size={16} busy />
                   {m.name}
                 </span>
               ))}
@@ -176,7 +176,7 @@ function RoomPostRow({ post, worker, grouped }: { post: RoomPost; worker: Worker
   }
   return (
     <div className="room-post" data-grouped={grouped || undefined}>
-      <span className="room-post__face">{!grouped && <WorkerFace color={worker?.color ?? post.fromColor ?? '#6B7280'} size={28} />}</span>
+      <span className="room-post__face">{!grouped && <WorkerFace color={worker?.color ?? post.fromColor ?? "#6B7280"} shape={worker?.shape} size={28} />}</span>
       <div className="room-post__body">
         {!grouped && (
           <div className="room-post__head">
@@ -215,7 +215,7 @@ function RoomComposer({ room, members }: { room: WorkerRoom; members: Worker[] }
             keywords: `${w.purpose} worker`,
             description: w.purpose ? (w.purpose.length > 70 ? `${w.purpose.slice(0, 67)}…` : w.purpose) : undefined,
             section: 'In this group chat',
-            icon: <WorkerFace color={w.color} size={18} />,
+            icon: <WorkerFace color={w.color} shape={w.shape} size={18} />,
             insert: `@${w.name}`
           })
         )
@@ -376,7 +376,7 @@ function MemberPicker({ workers, selected, onToggle, now }: { workers: Worker[];
         const on = selected.includes(w.id)
         return (
           <button key={w.id} type="button" className="member-pick" data-on={on || undefined} aria-pressed={on} onClick={() => onToggle(w.id)}>
-            <WorkerFace color={w.color} mood={workerMood(w, now)} size={26} />
+            <WorkerFace color={w.color} shape={w.shape} mood={workerMood(w, now)} size={26} />
             <span className="member-pick__text">
               <span className="member-pick__name">{w.name}</span>
               {w.purpose && <span className="member-pick__purpose">{w.purpose}</span>}
@@ -525,7 +525,7 @@ export function TeamDialog(): JSX.Element {
                   aria-pressed={on}
                   onClick={() => setPicked((p) => (on ? p.filter((x) => x !== t.id) : [...p, t.id]))}
                 >
-                  <WorkerFace color={t.color} mood={on ? 'happy' : 'neutral'} size={30} />
+                  <WorkerFace color={t.color} shape={t.shape} mood={on ? 'happy' : 'neutral'} size={30} />
                   <span className="template-card__role">{t.role}</span>
                   <span className="template-card__purpose">{t.purpose}</span>
                   <span className="member-pick__check">{on && <Check size={13} strokeWidth={2.6} />}</span>

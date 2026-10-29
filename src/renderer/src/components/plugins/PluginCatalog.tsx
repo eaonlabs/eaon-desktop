@@ -6,6 +6,7 @@ import { MCP_CATALOG, MCP_OAUTH_REDIRECT_URI, type McpCatalogEntry } from '@shar
 import type { McpServerStatus } from '@shared/types'
 import { PluginLogo } from './PluginLogo'
 import { pluginServerId, refreshServers, useConnectedPlugins, useMcpStatuses } from './usePlugins'
+import { AppConnections } from './AppConnections'
 
 /**
  * The built-in plugin catalog: each entry is a hosted MCP server the model can
@@ -73,6 +74,8 @@ export function PluginCatalog(): JSX.Element {
           <div className="plugin-list">{brokers.map(row)}</div>
         </Section>
       )}
+
+      {!q && <AppConnections />}
 
       <Section label={mine.length > 0 || brokers.length > 0 || q ? 'Available' : undefined}>
         {rest.length > 0 ? (

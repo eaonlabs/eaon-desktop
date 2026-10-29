@@ -17,6 +17,7 @@ import { pluginsFeature } from '@main/features/plugins'
 import { personalSkillsDir, skillsFeature } from '@main/features/skills'
 import { agentBrowserFeature } from '@main/features/agentBrowser'
 import { createWorkersService, type WorkersService } from '@main/features/workers/service'
+import { sealVaultAtRest } from '@main/features/workers/vaultSeal'
 import { createChannels } from '@main/features/channels'
 import { listen } from '@main/workerHost/channel'
 import { broadcast, ipc } from './ipc'
@@ -67,6 +68,8 @@ export async function bootHost(options: BootOptions): Promise<{ stop: () => Prom
     }
   }
 
+  // No keychain here: the workers' password vault is kept sealed with the desktop's key, which only ever sits in memory.
+  sealVaultAtRest(true)
   // A worker's news goes to the desktop, which shows it as its own notification.
   const service: WorkersService = createWorkersService(context, {
     notifier: {
