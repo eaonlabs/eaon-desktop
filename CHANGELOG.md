@@ -3,6 +3,16 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## [2026.7.3] — 2026-10-28
+
+### Added
+- **Watch a friend's shared terminal.** When a friend you've shared with on Eaon Remote opens a terminal, a panel on the right shows what they do as they do it. It's watch-only. Settings → Remote → Watch opens it again.
+
+### Fixed
+- **Shared terminals keep a friend's logins.** Each friend has one home that lasts across sessions, so they stay signed in to their CLIs, and signing in to Claude Code no longer fails with a Keychain error: their sign-in is kept in their own home, never in your Keychain. Shells, npm and a project's scripts now run there too, inside the same sandbox.
+- **A friend's terminal can't reach this computer's own services.** With the internet on, a shared terminal could reach services listening only on this computer, such as Eaon's Local API Server. It no longer can, on macOS or on Linux, where a friend's terminal with the internet now needs `pasta` (the passt package).
+- **Long dictation stays inside the pill.** In the ADE, a long hold-to-talk transcript ran past the pill's rounded ends. It now shows its last four lines inside a rounded box.
+
 ## [2026.7.2] — 2026-10-28
 
 ### Added
