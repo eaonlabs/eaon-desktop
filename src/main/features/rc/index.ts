@@ -8,7 +8,7 @@ import { computerNames, remoteApiDeps } from '../../remote'
 import { workersService } from '../workers'
 import { terminalsFeature } from '../terminals'
 import { adeForRemote } from '../ade'
-import { RC_DEFAULT_SERVER, type LockedSupport, type LockedTerminal, type LockedTerminalDraft, type RcConnection, type RcInfo, type RcShare } from '@shared/rc'
+import { RC_DEFAULT_SERVER, type GuestTerminalSnapshot, type GuestTerminalView, type LockedSupport, type LockedTerminal, type LockedTerminalDraft, type RcConnection, type RcInfo, type RcShare } from '@shared/rc'
 import { onPath } from '../../shellEnv'
 import { createGuestTerminals, type GuestTerminals } from './guestTerminals'
 import { RelayClient } from './client'
@@ -53,6 +53,7 @@ const server = (): string => (process.env.EAON_RC_URL || RC_DEFAULT_SERVER).repl
 let client: RelayClient | null = null
 let handler: ReturnType<typeof createRcHandler> | null = null
 let guestTerminals: GuestTerminals | null = null
+let untapGuestExits: (() => void) | null = null
 let sweepTimer: NodeJS.Timeout | null = null
 let connection: RcConnection = 'off'
 let problem: string | null = null
@@ -78,8 +79,14 @@ export const rcFeature: Feature = {
         store,
         homesDir: path.join(userData, 'guest-homes'),
         userData,
-        findBin: onPath
+        findBin: onPath,
+        onChange: () => ctx.send('rc:guest-terminals', guestTerminals?.watching() ?? [])
       }))
+    // A friend's terminal ending (they quit its CLI) changes what you watch too.
+    untapGuestExits = terminalsFeature.control.tap((channel, payload) => {
+      const paneId = (payload as { paneId?: unknown } | null)?.paneId
+      if (channel === 'terminal:exit' && typeof paneId === 'string' && guestTerminals?.watchable(paneId)) ctx.send('rc:guest-terminals', guestTerminals.watching())
+    })
     // Expired locked terminals stop on time, not the next time someone looks.
     sweepTimer = setInterval(() => {
       const gone = guestTerminals?.prune(null) ?? []
@@ -228,6 +235,8 @@ export const rcFeature: Feature = {
       const token = secrets.get(VAULT_KEY)
       if (!token) return []
       const { shares } = await api<{ shares: Omit<RcShare, 'online'>[] }>('/api/device/shares', { headers: { Authorization: `Bearer ${token}` } })
+      // A friend nothing is shared with any more: their home here goes, with what they signed in to.
+      guestsOf().prune(new Set(shares.map((s) => s.id)), new Set(shares.map((s) => s.login)))
       const online = new Set(handler?.guestsOnline() ?? [])
       return shares.map((s) => ({
         id: s.id,
@@ -251,6 +260,20 @@ export const rcFeature: Feature = {
       return true
     })
 
+    // Watching friends' terminals beside your own work (GuestWatch.tsx): what
+    // they show, never a way in. Their output reaches the window as every
+    // terminal's does (terminal:data); this is what was there before it opened.
+    ipcMain.handle('rc:guest-terminals', (): GuestTerminalView[] => guestsOf().watching())
+    ipcMain.handle('rc:guest-snapshot', (_e, paneId: unknown): GuestTerminalSnapshot | null => {
+      if (typeof paneId !== 'string' || !guestsOf().watchable(paneId)) return null
+      const snap = terminalsFeature.control.snapshot(paneId)
+      return { data: snap.data.slice(-768 * 1024), cols: snap.cols, rows: snap.rows, running: snap.running }
+    })
+    ipcMain.handle('rc:guest-stop', (_e, paneId: unknown) => {
+      if (typeof paneId === 'string' && guestsOf().watchable(paneId)) guestsOf().stop(paneId)
+      return true
+    })
+
     // Locked terminals: a terminal for a friend, sandboxed to one folder (guestTerminals.ts).
     ipcMain.handle('rc:locked-support', (): LockedSupport => guestsOf().support())
     ipcMain.handle('rc:locked-pick-folder', async (): Promise<string | null> => {
@@ -259,16 +282,17 @@ export const rcFeature: Feature = {
     })
     ipcMain.handle('rc:locked-list', async (): Promise<LockedTerminal[]> => {
       const token = secrets.get(VAULT_KEY)
-      let remote: { id: string; pending: boolean }[] | null = null
+      let remote: { id: string; login: string; pending: boolean }[] | null = null
       if (token) {
         try {
-          remote = (await api<{ shares: { id: string; pending: boolean }[] }>('/api/device/shares', { headers: { Authorization: `Bearer ${token}` } })).shares
+          remote = (await api<{ shares: { id: string; login: string; pending: boolean }[] }>('/api/device/shares', { headers: { Authorization: `Bearer ${token}` } })).shares
         } catch {
           remote = null
         }
       }
-      // Revoked on the website (or unlinked): the locked terminal goes too.
-      guestsOf().prune(remote ? new Set(remote.map((r) => r.id)) : null)
+      // Revoked on the website (or unlinked): the locked terminal goes too, and
+      // the home of a friend nothing is shared with any more.
+      guestsOf().prune(remote ? new Set(remote.map((r) => r.id)) : null, remote ? new Set(remote.map((r) => String(r.login ?? ''))) : undefined)
       const online = new Set(handler?.guestsOnline() ?? [])
       return guestsOf()
         .list()
@@ -307,6 +331,7 @@ export const rcFeature: Feature = {
     if (settings().enabled && secrets.has(VAULT_KEY)) connect()
   },
   dispose: () => {
+    untapGuestExits?.()
     if (pollTimer) clearTimeout(pollTimer)
     if (sweepTimer) clearInterval(sweepTimer)
     guestTerminals?.dispose()

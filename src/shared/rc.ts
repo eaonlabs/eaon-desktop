@@ -84,3 +84,32 @@ export interface LockedTerminalDraft {
 
 /** Whether this computer can share locked terminals, and why not. */
 export type LockedSupport = { ok: true } | { ok: false; reason: string }
+
+/**
+ * A friend's terminal as you watch it beside your own work: one they've
+ * started this run, a locked share's or one they opened in one of your
+ * sessions. Watching only; what they type is theirs.
+ */
+export interface GuestTerminalView {
+  paneId: string
+  /** Their GitHub login. */
+  login: string
+  /** The folder's name, or what you called the share. */
+  label: string
+  folder: string
+  /** The CLI it runs; null for a shell. */
+  agent: string | null
+  /** A share made in Settings, rather than a terminal they opened in one of your sessions. */
+  locked: boolean
+  /** When it started, this run. */
+  startedAt: number
+  running: boolean
+}
+
+/** What a friend's terminal shows now, to draw before its live output. */
+export interface GuestTerminalSnapshot {
+  data: string
+  cols: number
+  rows: number
+  running: boolean
+}

@@ -47,10 +47,10 @@ function fakeGuests(): GuestTerminals & { startedGuests: string[]; adhocOpened: 
     pane: (id: string) => (owners[id] ? { paneId: id, folder: '/work/app/shared', label: 'shared', login: owners[id], agent: null, locked: true } : null),
     owns: (id: string, login: string) => owners[id]?.toLowerCase() === login.toLowerCase(),
     start: async (id: string) => void startedGuests.push(id),
-    openAdhoc: async (folder: string, login: string) => {
-      adhocOpened.push(`${login}@${folder}`)
+    openAdhoc: async (folder: string, login: string, agent?: string | null) => {
+      adhocOpened.push(`${login}@${folder}:${agent}`)
       owners['guest-xnew'] = login
-      return { paneId: 'guest-xnew', folder, label: 'app', login, agent: null, locked: false }
+      return { paneId: 'guest-xnew', folder, label: 'app', login, agent: agent === 'shell' ? null : (agent ?? null), locked: false }
     }
   } as unknown as GuestTerminals & { startedGuests: string[]; adhocOpened: string[] }
 }
@@ -98,11 +98,15 @@ test('a guest can’t start the user’s terminals, reach Workers, or open the u
   await s.handler.handle({ t: 'req', from: 'g1', guest: 'ada', id: 'd', method: 'POST', path: '/ade/panes/guest-bob1/start' })
   assert.equal(s.res('d')?.status, 403)
 
-  // A new terminal from a guest is a locked shell in that session's folder.
+  // A new terminal from a guest is a locked one in that session's folder, running what they picked.
   await s.handler.handle({ t: 'req', from: 'g1', guest: 'ada', id: 'e', method: 'POST', path: '/ade/sessions/s1/panes', body: { agent: 'claude' } })
   assert.equal(s.res('e')?.status, 201)
-  assert.deepEqual(s.guests.adhocOpened, ['ada@/work/app'])
-  assert.equal((s.res('e')?.body as { pane: { id: string } }).pane.id, 'guest-xnew')
+  assert.equal((s.res('e')?.body as { pane: { id: string; agent: string } }).pane.id, 'guest-xnew')
+  assert.equal((s.res('e')?.body as { pane: { id: string; agent: string } }).pane.agent, 'claude')
+  // Anything that isn't a terminal Eaon knows is a shell.
+  await s.handler.handle({ t: 'req', from: 'g1', guest: 'ada', id: 'e2', method: 'POST', path: '/ade/sessions/s1/panes', body: { agent: 'rm -rf ~' } })
+  assert.equal(s.res('e2')?.status, 201)
+  assert.deepEqual(s.guests.adhocOpened, ['ada@/work/app:claude', 'ada@/work/app:shell'])
 
   // Anything else a guest asks for is refused.
   await s.handler.handle({ t: 'req', from: 'g1', guest: 'ada', id: 'f', method: 'DELETE', path: '/ade/panes/pane-owner' })
@@ -170,5 +174,106 @@ test('locked shares: checked when made, owned by one login, and gone when they e
     assert.equal(guests.list().length, 0)
   } finally {
     fs.rmSync(share, { recursive: true, force: true })
+  }
+})
+
+test('a friend’s terminals share one home, so what they sign in to carries over, until nothing is shared with them', async () => {
+  const t = fakeTerminals()
+  const homes: Record<string, string> = {}
+  const terminals = {
+    ...t.terminals,
+    startGuest: (id: string, launch: { home: string }) => {
+      homes[id] = launch.home
+      t.running.add(id)
+    }
+  } as unknown as TerminalsControl
+  const share = fs.mkdtempSync(path.join(os.homedir(), '.eaon-guest-test-'))
+  const homesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'guest-homes-'))
+  try {
+    const guests = createGuestTerminals({ terminals, store: memoryStore(), homesDir, findBin: () => null })
+    if (!guests.support().ok) return // no sandbox on this platform: nothing to start
+
+    const one = await guests.prepare({ folder: share, mode: 'shell', login: 'Ada' })
+    const two = await guests.prepare({ folder: share, mode: 'shell', login: 'ada' })
+    const bob = await guests.prepare({ folder: share, mode: 'shell', login: 'bob' })
+    guests.commit(one.saved, 's1')
+    guests.commit(two.saved, 's2')
+    guests.commit(bob.saved, 's3')
+    for (const p of [one, two, bob]) await guests.start(p.paneId)
+    assert.equal(homes[one.paneId], homes[two.paneId])
+    assert.notEqual(homes[one.paneId], homes[bob.paneId])
+
+    // Signed in from one terminal: signed in in the other.
+    fs.writeFileSync(path.join(homes[one.paneId], '.claude.json'), '{}')
+    assert.ok(fs.existsSync(path.join(homes[two.paneId], '.claude.json')))
+    // A terminal they open in one of your sessions (the whole computer shared) has it too.
+    const adhoc = await guests.openAdhoc(share, 'ADA')
+    assert.equal(homes[adhoc.paneId], homes[one.paneId])
+
+    // Revoking one share keeps the home; Eaon closing keeps it; revoking the last one deletes it.
+    guests.remove(one.saved.id)
+    guests.dispose()
+    assert.ok(fs.existsSync(path.join(homes[two.paneId], '.claude.json')))
+    guests.remove(two.saved.id)
+    assert.equal(fs.existsSync(homes[one.paneId]), false)
+    assert.ok(fs.existsSync(homes[bob.paneId]))
+
+    // A friend with only the whole computer keeps theirs while the website still lists a share for them.
+    const carol = await guests.openAdhoc(share, 'carol')
+    guests.dispose()
+    assert.deepEqual(guests.prune(new Set(['s3']), new Set(['bob', 'Carol'])), [])
+    assert.ok(fs.existsSync(homes[carol.paneId]))
+    // Revoked on the website: bob's share and home go, and carol's, now nothing is shared with her.
+    assert.deepEqual(guests.prune(new Set(), new Set()), ['s3'])
+    assert.equal(fs.existsSync(homes[bob.paneId]), false)
+    assert.equal(fs.existsSync(homes[carol.paneId]), false)
+  } finally {
+    fs.rmSync(share, { recursive: true, force: true })
+    fs.rmSync(homesDir, { recursive: true, force: true })
+  }
+})
+
+test('what you watch: the friends’ terminals started this run, told as they start and stop', async () => {
+  const t = fakeTerminals()
+  const terminals = { ...t.terminals, startGuest: (id: string) => void t.running.add(id) } as unknown as TerminalsControl
+  const share = fs.mkdtempSync(path.join(os.homedir(), '.eaon-guest-test-'))
+  const homesDir = fs.mkdtempSync(path.join(os.tmpdir(), 'guest-homes-'))
+  let changes = 0
+  try {
+    let clock = 1000
+    const guests = createGuestTerminals({ terminals, store: memoryStore(), homesDir, findBin: () => null, onChange: () => void changes++, now: () => clock })
+    if (!guests.support().ok) return // no sandbox on this platform: nothing to start
+
+    const shell = await guests.prepare({ folder: share, mode: 'shell', login: 'ada' })
+    guests.commit(shell.saved, 's1')
+    // Shared but not opened yet: nothing to watch.
+    assert.deepEqual(guests.watching(), [])
+    assert.equal(guests.watchable(shell.paneId), false)
+
+    await guests.start(shell.paneId)
+    clock += 10
+    const adhoc = await guests.openAdhoc(share, 'bob')
+    assert.equal(changes, 2)
+    assert.deepEqual(
+      guests.watching().map((v) => [v.paneId, v.login, v.locked, v.running]),
+      [
+        [adhoc.paneId, 'bob', false, true],
+        [shell.paneId, 'ada', true, true]
+      ],
+      'newest first'
+    )
+    assert.equal(guests.watchable(shell.paneId), true)
+    assert.equal(guests.watchable('pane-owner'), false, 'never one of yours')
+
+    // Stopped: still there to look back at, not running; the share stays.
+    guests.stop(shell.paneId)
+    assert.equal(guests.watching().find((v) => v.paneId === shell.paneId)?.running, false)
+    assert.equal(guests.list().length, 1)
+    // Revoked: gone.
+    guests.remove(shell.saved.id)
+    assert.deepEqual(guests.watching().map((v) => v.paneId), [adhoc.paneId])
+  } finally {
+    fs.rmSync(share, { recursive: true, force: true })
+    fs.rmSync(homesDir, { recursive: true, force: true })
   }
 })

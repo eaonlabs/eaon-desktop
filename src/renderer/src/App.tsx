@@ -31,6 +31,8 @@ import { useWorkers } from './components/workers/workersStore'
 import { DiscordPresence } from './components/discord/DiscordPresence'
 import { TradingDesk } from './components/trading/TradingDesk'
 import { useAgentBrowser } from './components/agentBrowser/agentBrowserStore'
+import { GuestWatchPanel, GuestWatchPill } from './components/guestWatch/GuestWatch'
+import { useGuestWatch } from './components/guestWatch/guestWatchStore'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { CrashPage, PaneError, PanelError, SidebarError } from './components/CrashScreen'
 import { THEMES } from './lib/themes'
@@ -68,6 +70,7 @@ export default function App(): JSX.Element {
     startProviderLogos()
     void useWorkers.getState().init()
     useAgentBrowser.getState().init(() => useApp.getState().activeChatId)
+    useGuestWatch.getState().init()
   }, [init])
 
   // What Eaon CLI asks of the window (tabs, ADE folders and terminals, settings).
@@ -104,12 +107,15 @@ export default function App(): JSX.Element {
   const browserWorker = useWorkers((s) => (s.browserFor && s.selectedId === s.browserFor && !s.selectedRoomId ? s.workers.find((w) => w.id === s.browserFor) ?? null : null))
   // A worker's run history beside its page.
   const activityWorker = useWorkers((s) => (s.activityOpen && s.selectedId && !s.selectedRoomId ? s.workers.find((w) => w.id === s.selectedId) ?? null : null))
+  // A friend's terminal, live, beside whatever is open (guestWatch/).
+  const guestWatchOpen = useGuestWatch((s) => s.open && s.views.length > 0)
   // The same conditions that render the side panels below.
   useRoomForSidePanel(
     (browserHere && browserOpen && !dockHere && !adeDockHere) ||
       (dockHere && dockOpen) ||
       (adeDockHere && adeDockOpen) ||
-      (view === 'chat' && kind === 'workers' && (Boolean(browserWorker) || Boolean(activityWorker)))
+      (view === 'chat' && kind === 'workers' && (Boolean(browserWorker) || Boolean(activityWorker))) ||
+      guestWatchOpen
   )
 
   useTheme()
@@ -247,6 +253,9 @@ export default function App(): JSX.Element {
               <WorkerActivityPanel worker={activityWorker} />
             </ErrorBoundary>
           )}
+          <ErrorBoundary area="shared terminal" fallback={() => <PanelError onClose={() => useGuestWatch.getState().hide()} />}>
+            <GuestWatchPanel />
+          </ErrorBoundary>
         </div>
       )}
       {/* Outside the view switch, so ⌘1–3 and ⇧⌘P work from Settings too. */}
@@ -262,6 +271,7 @@ export default function App(): JSX.Element {
       <UpdateToast />
       <StoreNotice />
       <ComputerLeaseIndicator />
+      <GuestWatchPill />
       <Notice />
       <StarPrompt />
       <ErrorBoundary area="purchase schedule" fallback={() => null}>

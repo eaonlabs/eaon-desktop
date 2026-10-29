@@ -38,7 +38,8 @@ import type { GuestTerminals } from './guestTerminals'
  *   a sandboxed one locked to a folder. The user's terminals are watch-only
  *   for guests, whatever the share says.
  * - A guest with control of the whole computer who opens a terminal gets a
- *   locked shell in that session's folder, not a new shell of the user's.
+ *   locked one in that session's folder (the CLI they picked, or a shell),
+ *   not a new terminal of the user's.
  * - Workers aren't reachable by guests at all: a Worker acts with the user's
  *   own access.
  */
@@ -236,7 +237,7 @@ export function createRcHandler(deps: RcHandlerDeps) {
   const forbidden = (message: string): { status: number; body: unknown } => ({ status: 403, body: errorBody('forbidden', message) })
 
   /** What a guest may ask: a narrower route, checked here as well as on the relay. */
-  async function guestRoute(login: string, method: string, rawPath: string): Promise<{ status: number; body: unknown }> {
+  async function guestRoute(login: string, method: string, rawPath: string, body: unknown): Promise<{ status: number; body: unknown }> {
     const path = rawPath.split('?')[0].replace(/\/+$/, '') || '/'
     if (path.startsWith('/remote/v1/')) return forbidden('Workers aren’t shared with guests.')
     if (method === 'GET' && (path === '/ade/sessions' || path === '/browsers')) return route(method, rawPath, null)
@@ -257,12 +258,14 @@ export function createRcHandler(deps: RcHandlerDeps) {
 
     const add = /^\/ade\/sessions\/([\w-]+)\/panes$/.exec(path)
     if (add && method === 'POST') {
-      // A new terminal from a guest is a locked shell in that folder, whatever was asked for.
+      // A new terminal from a guest is a locked one in that folder: the CLI they picked, or a shell.
       if (!deps.guests) return forbidden('Guests can watch terminals on this computer, not open them.')
       const session = deps.ade.list().find((s) => s.id === add[1])
       if (!session) return { status: 404, body: errorBody('not_found', 'That session isn’t in the ADE any more.') }
-      const made = await deps.guests.openAdhoc(session.cwd, login)
-      return { status: 201, body: { pane: await paneView(made.paneId, made.label, 'shell') } }
+      const agent = (body as { agent?: unknown } | null)?.agent
+      const picked = typeof agent === 'string' && (TERMINAL_AGENT_IDS as readonly string[]).includes(agent) ? agent : 'shell'
+      const made = await deps.guests.openAdhoc(session.cwd, login, picked)
+      return { status: 201, body: { pane: await paneView(made.paneId, made.label, (made.agent ?? 'shell') as TerminalAgentId) } }
     }
 
     return forbidden('That isn’t shared with you.')
@@ -283,7 +286,7 @@ export function createRcHandler(deps: RcHandlerDeps) {
           let res: { status: number; body: unknown }
           try {
             const method = String(m.method ?? 'GET').toUpperCase()
-            res = guest ? await guestRoute(guest, method, String(m.path ?? '/')) : await route(method, String(m.path ?? '/'), m.body)
+            res = guest ? await guestRoute(guest, method, String(m.path ?? '/'), m.body) : await route(method, String(m.path ?? '/'), m.body)
           } catch (error) {
             res =
               error instanceof ApiError
