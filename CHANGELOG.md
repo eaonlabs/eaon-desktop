@@ -6,7 +6,7 @@ All notable changes to Eaon are documented here. Format loosely follows
 ## Unreleased
 
 ### Fixed
-- **Claude's usage in the ADE keeps itself up to date.** The meter showed what Claude Code's /usage last fetched, so it went stale unless you typed /usage. Claude Code now reports its plan's 5-hour and weekly limits to Eaon after every reply in an Eaon terminal, and the meter follows within seconds. Your own Claude Code status line still shows. Eaon still never reads your Claude sign-in or asks Anthropic itself, as Anthropic's terms require. (macOS and Linux; on Windows the meter shows what /usage last fetched, as before.)
+- **Claude's usage in the ADE keeps itself up to date.** The meter showed what Claude Code's /usage last fetched, so it went stale unless you typed /usage. Claude Code now reports its plan's 5-hour and weekly limits, and when each resets, to Eaon after every reply — in any terminal on your Mac, not only Eaon's, for each of your Claude accounts — and the meter follows within seconds. Eaon adds its status line to Claude Code's settings for that, as Orca does; Settings → Accounts → Track every Claude Code session turns it off and puts your own back. Your own Claude Code status line still shows. Eaon still never reads your Claude sign-in or asks Anthropic itself, as Anthropic's terms require. (macOS and Linux; on Windows the meter shows what /usage last fetched, as before.)
 
 ## [2026.7.2.1] — 2026-10-28
 

@@ -5,7 +5,7 @@ import fs from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import { claudeReportedUsage } from '../src/main/features/cliAccounts/parse'
-import { prepareClaudeReport, readClaudeReport, reportKey } from '../src/main/features/cliAccounts/usageReport'
+import { claudeReportEverywhere, prepareClaudeReport, readClaudeReport, reportKey } from '../src/main/features/cliAccounts/usageReport'
 import { withUsageReport } from '../src/main/features/terminals'
 
 /**
@@ -104,4 +104,57 @@ test('only a local Claude Code is started with the status line, and only once', 
   assert.equal(withUsageReport('claude --settings mine.json', settings, 'posix'), 'claude --settings mine.json', 'one that brings its own')
   assert.equal(withUsageReport('claude', null, 'posix'), 'claude', 'nowhere to report (Windows)')
   assert.equal(prepareClaudeReport(scratch(), [null], 'win32'), null)
+})
+
+test('everywhere: Claude Code’s own settings get the status line, theirs still runs after it, and turning it off puts theirs back as it was', { skip: process.platform === 'win32' }, async () => {
+  const root = path.join(scratch(), 'claude-usage')
+  const home = scratch()
+  const main = path.join(home, '.claude')
+  const extra = path.join(home, 'extra account')
+  fs.mkdirSync(main, { recursive: true })
+  fs.mkdirSync(extra, { recursive: true })
+  // Like Orca's: a status line of their own, and other settings beside it.
+  const theirs = { type: 'command', command: 'cat >/dev/null; printf orca', padding: 1 }
+  const before = { model: 'opus', statusLine: theirs, permissions: { allow: ['Bash(ls)'] } }
+  fs.writeFileSync(path.join(main, 'settings.json'), JSON.stringify(before, null, 2))
+  // An extra account's settings is a link to the main one's (cliAccounts/folders.ts).
+  fs.symlinkSync(path.join(main, 'settings.json'), path.join(extra, 'settings.json'))
+
+  prepareClaudeReport(root, [main, extra])
+  assert.deepEqual(claudeReportEverywhere(root, [main, extra], true), [fs.realpathSync(path.join(main, 'settings.json'))], 'one file, written through the link')
+  assert.ok(fs.lstatSync(path.join(extra, 'settings.json')).isSymbolicLink(), 'the link is still a link')
+  const installed = JSON.parse(fs.readFileSync(path.join(main, 'settings.json'), 'utf8'))
+  assert.equal(installed.model, 'opus', 'the rest is untouched')
+  assert.deepEqual(installed.permissions, before.permissions)
+  assert.equal(installed.statusLine.padding, 1)
+  assert.match(installed.statusLine.command, /status-line\.sh/)
+  assert.deepEqual(claudeReportEverywhere(root, [main], true), [], 'already there: nothing to do')
+
+  // Claude Code runs it, in a session Eaon didn't start: the limits are kept, and theirs shows.
+  prepareClaudeReport(root, [main, extra])
+  const run = (configDir: string): string =>
+    execFileSync('sh', ['-c', installed.statusLine.command], { input: statusInput(33, 21), env: { ...process.env, CLAUDE_CONFIG_DIR: configDir }, encoding: 'utf8' })
+  assert.equal(run(main), 'orca', 'their status line still runs')
+  assert.equal(run(extra), 'orca', 'in every account')
+  assert.deepEqual(claudeReportedUsage((await readClaudeReport(root, extra))?.input, Date.now(), Date.now())?.windows.map((w) => w.percent), [33, 21])
+
+  // Eaon's files gone: Claude Code still shows theirs.
+  fs.rmSync(path.join(root, 'status-line.sh'))
+  assert.equal(run(main), 'orca')
+
+  assert.deepEqual(claudeReportEverywhere(root, [main, extra], false), [fs.realpathSync(path.join(main, 'settings.json'))])
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(main, 'settings.json'), 'utf8')), before, 'exactly as it was')
+
+  // Without one of their own: added, then taken away again.
+  const bare = path.join(scratch(), '.claude')
+  claudeReportEverywhere(root, [bare], true)
+  assert.match(JSON.parse(fs.readFileSync(path.join(bare, 'settings.json'), 'utf8')).statusLine.command, /status-line\.sh/)
+  claudeReportEverywhere(root, [bare], false)
+  assert.deepEqual(JSON.parse(fs.readFileSync(path.join(bare, 'settings.json'), 'utf8')), {})
+  // A settings file that isn't JSON is left alone.
+  const broken = path.join(scratch(), '.claude')
+  fs.mkdirSync(broken, { recursive: true })
+  fs.writeFileSync(path.join(broken, 'settings.json'), '{ not json')
+  assert.deepEqual(claudeReportEverywhere(root, [broken], true), [])
+  assert.equal(fs.readFileSync(path.join(broken, 'settings.json'), 'utf8'), '{ not json')
 })

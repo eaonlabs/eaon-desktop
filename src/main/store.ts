@@ -212,7 +212,8 @@ export const defaultSettings: Settings = {
     view: 'detailed',
     alerts: true,
     autoSwitchCodex: false,
-    style: 'rings'
+    style: 'rings',
+    claudeEverywhere: true
   },
   ade: {
     theme: 'eaon',

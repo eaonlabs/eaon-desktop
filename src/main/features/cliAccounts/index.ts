@@ -9,7 +9,7 @@ import type { Feature } from '../types'
 import { claudeAuthStatus, claudeConfig, cliEnv, codexRead, findCli, loginArgs, logoutArgs } from './cli'
 import { setCliAccounts } from './current'
 import { accountsRoot, CliAccounts, type LoginProcess } from './service'
-import { claudeFolder, claudeReportRoot, readClaudeReport, reportsDir } from './usageReport'
+import { claudeFolder, claudeReportEverywhere, claudeReportRoot, prepareClaudeReport, readClaudeReport, reportsDir } from './usageReport'
 
 export { cliAccountDirs, cliAccountEnv, cliToolEnv, onCliAccountChange } from './current'
 
@@ -64,11 +64,23 @@ function logout(tool: CliTool, bin: string, dir: string): Promise<void> {
   })
 }
 
+/**
+ * Claude Code's own settings get Eaon's status line, or lose it (Settings →
+ * Accounts, Track every Claude Code session), for every Claude account.
+ */
+export function applyClaudeEverywhere(on: boolean): void {
+  const root = claudeReportRoot()
+  const dirs = (accounts?.accountDirs('claude') ?? [null]).map(claudeFolder)
+  // The status line first, with what each folder showed before; then Claude Code's settings.
+  prepareClaudeReport(root, dirs)
+  claudeReportEverywhere(root, dirs, on)
+}
+
 export const cliAccountsFeature: Feature = {
   id: 'cli-accounts',
   register: ({ ipcMain, send, getWindows }) => {
     let changedTimer: ReturnType<typeof setTimeout> | null = null
-    const reportRoot = claudeReportRoot(app.getPath('userData'))
+    const reportRoot = claudeReportRoot()
     const service = new CliAccounts({
       runner: {
         find: (tool) => findCli(tool),
@@ -176,6 +188,13 @@ export const cliAccountsFeature: Feature = {
       else if (alerts || autoSwitchCodex) void service.refresh({ background: 'hidden' })
     }, BACKGROUND_MS)
     timer.unref?.()
+
+    // Every Claude Code session reports, as Orca's do (on unless turned off).
+    try {
+      applyClaudeEverywhere(store.getSettings().cliUsage.claudeEverywhere !== false)
+    } catch (error) {
+      console.error('[cli-accounts] Claude Code’s status line couldn’t be set up:', error)
+    }
 
     // Claude Code reports its plan's limits after each reply in Eaon's panes
     // (usageReport.ts): the meter follows within seconds, not at its next look.

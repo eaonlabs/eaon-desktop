@@ -12,7 +12,7 @@ import path from 'node:path'
  * Claude Code's sign-in or asks Anthropic anything itself (Anthropic's terms
  * for other apps), and nobody has to type /usage.
  *
- * Under `root` (userData/claude-code):
+ * Under `root` (~/.eaon/claude-usage, claudeReportRoot):
  *   status-line.sh       the status line
  *   settings.json        what `--settings` loads: just that status line
  *   limits/<key>.json    the last report from each Claude Code folder
@@ -20,6 +20,15 @@ import path from 'node:path'
  *
  * `<key>` names the folder Claude Code runs from (CLAUDE_CONFIG_DIR, or
  * "default"), so each account keeps its own figures.
+ *
+ * Everywhere (Settings → Accounts, on by default): the same status line goes
+ * in Claude Code's own settings (~/.claude/settings.json and each account's),
+ * as Orca puts its own there, so every Claude Code session on this computer
+ * reports — not only the ones Eaon starts. The status line that was there
+ * runs after it (an Orca hook, a statusline script), is kept in
+ *   previous-statuslines.json
+ * and goes back when the switch goes off. Should Eaon's files go, Claude
+ * Code's status line falls back to that one by itself.
  */
 
 const SCRIPT = `#!/bin/sh
@@ -63,15 +72,50 @@ function put(file: string, content: string, mode: number): void {
   fs.chmodSync(file, mode)
 }
 
-/** A Claude Code folder's own status line (its settings.json), if it has a command one. */
-function ownStatusLine(dir: string | null): { command: string; padding?: number } | null {
+type StatusLine = { type: 'command'; command: string; padding?: number }
+
+/** A Claude Code folder's settings file, through the link an extra account's is (cliAccounts/folders.ts SHARED). */
+function settingsFile(dir: string | null): string {
   const file = path.join(dir ?? path.join(os.homedir(), '.claude'), 'settings.json')
   try {
-    const line = JSON.parse(fs.readFileSync(file, 'utf8'))?.statusLine
-    if (line?.type !== 'command' || typeof line.command !== 'string' || !line.command.trim()) return null
-    return { command: line.command, ...(typeof line.padding === 'number' ? { padding: line.padding } : {}) }
+    return fs.realpathSync(file)
+  } catch {
+    return file
+  }
+}
+
+/** A Claude Code folder's own status line (its settings.json), if it has a command one. */
+function ownStatusLine(dir: string | null): StatusLine | null {
+  try {
+    return asStatusLine(JSON.parse(fs.readFileSync(settingsFile(dir), 'utf8'))?.statusLine)
   } catch {
     return null
+  }
+}
+
+function asStatusLine(line: unknown): StatusLine | null {
+  const l = line as Partial<StatusLine> | null
+  if (l?.type !== 'command' || typeof l.command !== 'string' || !l.command.trim()) return null
+  return { type: 'command', command: l.command, ...(typeof l.padding === 'number' ? { padding: l.padding } : {}) }
+}
+
+/** The status lines Eaon's took the place of, by settings file. */
+const previousFile = (root: string): string => path.join(root, 'previous-statuslines.json')
+function readPrevious(root: string): Record<string, StatusLine | null> {
+  try {
+    return JSON.parse(fs.readFileSync(previousFile(root), 'utf8')) ?? {}
+  } catch {
+    return {}
+  }
+}
+
+/** Ours, in Claude Code's own settings: Eaon's status line, or the one it replaced when Eaon's files are gone. */
+function everywhereLine(script: string, limits: string, previous: StatusLine | null): StatusLine {
+  const fallback = previous ? `/bin/sh -c ${sq(previous.command)}` : 'cat >/dev/null'
+  return {
+    type: 'command',
+    command: `if [ -r ${sq(script)} ]; then /bin/sh ${sq(script)} ${sq(limits)}; else ${fallback}; fi`,
+    ...(previous?.padding !== undefined ? { padding: previous.padding } : {})
   }
 }
 
@@ -89,10 +133,12 @@ export function prepareClaudeReport(root: string, dirs: (string | null)[], platf
     const script = path.join(root, 'status-line.sh')
     put(script, SCRIPT, 0o700)
     let padding: number | undefined
+    const previous = readPrevious(root)
     for (const dir of new Set(dirs.map((d) => d || null))) {
-      const own = ownStatusLine(dir)
+      const found = ownStatusLine(dir)
+      // Ours in their settings (everywhere): theirs is the one it replaced.
+      const own = found?.command.includes(script) ? (previous[settingsFile(dir)] ?? null) : found
       const cmd = path.join(limits, `${reportKey(dir)}.cmd`)
-      // Never our own line again, should it ever end up in theirs.
       if (own && !own.command.includes(script)) {
         put(cmd, own.command, 0o600)
         if (dir === null && own.padding !== undefined) padding = own.padding
@@ -106,6 +152,57 @@ export function prepareClaudeReport(root: string, dirs: (string | null)[], platf
     console.error('[cli-accounts] the Claude Code status line could not be set up:', error)
     return null
   }
+}
+
+/**
+ * Puts Eaon's status line in Claude Code's own settings for the folders in
+ * `dirs` (or takes it out, `on` false, putting back what was there), so every
+ * Claude Code session reports, as Orca's does. A settings file that isn't
+ * JSON is left alone. Returns the files it changed.
+ */
+export function claudeReportEverywhere(root: string, dirs: (string | null)[], on: boolean, platform: NodeJS.Platform = process.platform): string[] {
+  if (platform === 'win32') return []
+  const script = path.join(root, 'status-line.sh')
+  const limits = path.join(root, 'limits')
+  const previous = readPrevious(root)
+  const changed: string[] = []
+  for (const file of new Set(dirs.map((d) => settingsFile(d || null)))) {
+    let settings: Record<string, unknown> = {}
+    try {
+      settings = JSON.parse(fs.readFileSync(file, 'utf8')) ?? {}
+      if (typeof settings !== 'object' || Array.isArray(settings)) continue
+    } catch (error) {
+      // No settings yet is fine (turning it on makes one); one we can't read stays as it is.
+      if ((error as NodeJS.ErrnoException)?.code !== 'ENOENT' || !on) continue
+    }
+    const current = asStatusLine(settings.statusLine)
+    const ours = Boolean(current?.command.includes(script))
+    if (on === ours) continue
+    if (on) {
+      previous[file] = current
+      settings.statusLine = everywhereLine(script, limits, current)
+    } else {
+      const before = previous[file]
+      if (before) settings.statusLine = before
+      else delete settings.statusLine
+      delete previous[file]
+    }
+    try {
+      fs.mkdirSync(path.dirname(file), { recursive: true })
+      // Written in place: an extra account's settings is a link to the default's.
+      fs.writeFileSync(file, `${JSON.stringify(settings, null, 2)}\n`)
+      changed.push(file)
+    } catch (error) {
+      console.error('[cli-accounts] Claude Code’s settings couldn’t be changed:', error)
+    }
+  }
+  try {
+    fs.mkdirSync(root, { recursive: true, mode: 0o700 })
+    fs.writeFileSync(previousFile(root), JSON.stringify(previous, null, 2), { mode: 0o600 })
+  } catch {
+    /* kept in memory only for now */
+  }
+  return changed
 }
 
 /** The last report from a Claude Code folder: the JSON its status line got, and when that was written. */
@@ -122,8 +219,13 @@ export async function readClaudeReport(root: string, dir: string | null): Promis
 /** Where the reports land, for watching. */
 export const reportsDir = (root: string): string => path.join(root, 'limits')
 
-/** Its files' place in Eaon's data. */
-export const claudeReportRoot = (userData: string): string => path.join(userData, 'claude-code')
+/**
+ * Its files' place: one for the user, not one per Eaon profile, since Claude
+ * Code's settings (and so the status line in them) are the user's too, and a
+ * second copy of Eaon (a beta beside the release) reads the same reports.
+ * `EAON_CLAUDE_USAGE_DIR` moves it (tests, a scratch profile).
+ */
+export const claudeReportRoot = (): string => process.env.EAON_CLAUDE_USAGE_DIR || path.join(os.homedir(), '.eaon', 'claude-usage')
 
 /**
  * The folder Claude Code runs from for an account: its own, or for the

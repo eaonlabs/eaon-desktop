@@ -140,7 +140,7 @@ export function withUsageReport(command: string | null, settings: string | null,
 
 /** The settings file for that, made ready for every Claude Code account; null where it can't be used. */
 function usageReportSettings(): string | null {
-  return prepareClaudeReport(claudeReportRoot(app.getPath('userData')), cliAccountDirs('claude').map(claudeFolder))
+  return prepareClaudeReport(claudeReportRoot(), cliAccountDirs('claude').map(claudeFolder))
 }
 
 /** The syntax a local pane's shell reads (shellQuote.ts): PowerShell on Windows, POSIX elsewhere. */
