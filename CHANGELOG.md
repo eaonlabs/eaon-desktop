@@ -3,6 +3,15 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
+## Unreleased
+
+### Added
+- **Workers that look like themselves.** Ten shapes to pick from on the New worker page, and new faces: heart eyes, dizzy, thinking, laughing, worried and shades.
+- **Cards in a worker's thread.** A worker can show an order, a ride, a trip, a list, a calendar or a device as a card instead of a paragraph, and react to your message with an emoji instead of a reply that only says "OK".
+- **What a worker set up reads as a line of its own:** "Created routine Friday dinner", "Handed … to Chief". Messages from colleagues fold into one line that opens to show them, and colleagues' names show in their colours.
+- **Choose which plugins each worker can use**, from its settings.
+- **Labs builds only:** workers linked to everyday apps (DoorDash, Uber, Maps, Venmo, Amazon, Ring, Hue, Tesla, Calendar and more), real connections (Home Assistant, Tessie, SimpleFIN, Instacart, Google Routes), and a password vault with passkeys that workers sign in with without ever seeing a password. On a worker computer the vault is stored encrypted, with the key kept on your Mac.
+
 ## [2026.7.2.1] — 2026-10-28
 
 The app reports this release as 2026.7.3: an app's version has three numbers, and updates compare them.

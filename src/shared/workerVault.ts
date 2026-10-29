@@ -1,3 +1,4 @@
+import { baseDomain } from './siteDomain'
 import { WORKER_APPS } from './workerApps'
 
 /**
@@ -149,13 +150,8 @@ const TLDS = 'com|net|org|io|co|app|dev|me|us|uk|ca|de|fr|ai|so|tv|gov|edu|info|
 const DOMAIN = new RegExp(`\\b((?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\\.)+(?:${TLDS}))\\b`, 'i')
 const EMAIL = /[^\s@<>()"',;:]+@[^\s@<>()"',;:]+\.[a-z]{2,}/i
 
-/** The registrable part of a host: "secure.chase.com" → "chase.com" ("co.uk"-style suffixes kept whole). */
-export function baseDomain(host: string): string {
-  const parts = host.toLowerCase().replace(/^www\./, '').split('.').filter(Boolean)
-  if (parts.length <= 2) return parts.join('.')
-  const second = parts[parts.length - 2]
-  return (second.length <= 3 && ['co', 'com', 'org', 'net', 'gov', 'ac'].includes(second) ? parts.slice(-3) : parts.slice(-2)).join('.')
-}
+/** The registrable part of a host (siteDomain.ts): "secure.chase.com" → "chase.com", "co.uk"-style suffixes and shared hosts kept whole. */
+export { baseDomain }
 
 /**
  * Which website some text is about: a web address or domain in it, else the

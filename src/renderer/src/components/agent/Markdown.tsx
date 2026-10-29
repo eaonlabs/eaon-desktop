@@ -77,7 +77,7 @@ function decorate(text: string, mentions: Mentions, keyPrefix: string): ReactNod
     if (!who) continue
     if (at > last) out.push(text.slice(last, at))
     out.push(
-      <span key={`${keyPrefix}-m${key++}`} className="md-mention" style={{ color: who.color }}>
+      <span key={`${keyPrefix}-m${key++}`} className="md-mention" style={{ ['--who' as string]: who.color }}>
         <WorkerFace color={who.color} shape={who.shape} size={15} />
         {who.name}
       </span>

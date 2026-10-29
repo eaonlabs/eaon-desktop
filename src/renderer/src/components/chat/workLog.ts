@@ -48,9 +48,15 @@ export function workLog(parts: ChatMessage['parts'], worker = false): LogItem[] 
     if (part.type !== 'tool' || SHOWN_ELSEWHERE.has(part.name)) return
     // A worker's reaction is drawn on the user's bubble, not as a step.
     if (worker && part.name === 'react' && part.status !== 'error' && part.status !== 'denied') return
-    // A card or an event is only drawn once the call went through; a refused or failed one stays in the run, where its error shows.
-    if (worker && part.status !== 'error' && part.status !== 'denied' && (CARD_TOOLS.has(part.name) || EVENT_TOOLS.has(part.name))) {
-      items.push({ kind: CARD_TOOLS.has(part.name) ? 'card' : 'event', key: part.id, part })
+    // A card is drawn unless it was refused or failed; an event ("Created ● Vega") only once
+    // it has happened, since one can wait for an approval first. Until then, and when
+    // it fails, the call stays in the run, where its progress or error shows.
+    if (worker && CARD_TOOLS.has(part.name) && part.status !== 'error' && part.status !== 'denied') {
+      items.push({ kind: 'card', key: part.id, part })
+      return
+    }
+    if (worker && EVENT_TOOLS.has(part.name) && part.status === 'done') {
+      items.push({ kind: 'event', key: part.id, part })
       return
     }
     if (OWN.has(part.name)) {

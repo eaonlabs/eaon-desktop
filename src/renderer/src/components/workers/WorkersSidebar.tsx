@@ -20,9 +20,10 @@ export function WorkersNav({ part }: { part: 'menu' | 'list' }): JSX.Element {
   const { view, setView, setSettingsPage } = useApp(
     useShallow((s) => ({ view: s.view, setView: s.setView, setSettingsPage: s.setSettingsPage }))
   )
-  const { workers, selectedId, select, openEditor, now, rooms, selectedRoomId, selectRoom, openRoomEditor, openTeamDialog, vaultOpen, setVaultOpen } = useWorkers(
+  const { workers, selectedId, select, openEditor, now, rooms, selectedRoomId, selectRoom, openRoomEditor, openTeamDialog, vaultOpen, setVaultOpen, creating } = useWorkers(
     useShallow((s) => ({
       vaultOpen: s.vaultOpen,
+      creating: s.creating,
       setVaultOpen: s.setVaultOpen,
       workers: s.workers,
       selectedId: s.selectedId,
@@ -55,6 +56,7 @@ export function WorkersNav({ part }: { part: 'menu' | 'list' }): JSX.Element {
       <NavItem
         icon={<Plus {...ICON} />}
         label="New worker"
+        active={view === 'chat' && creating}
         onClick={() => {
           if (view !== 'chat') setView('chat')
           openEditor(null)
@@ -68,7 +70,7 @@ export function WorkersNav({ part }: { part: 'menu' | 'list' }): JSX.Element {
           openTeamDialog(true)
         }}
       />
-      <NavItem icon={<Users {...ICON} />} label="Team" active={view === 'chat' && selectedId === null && selectedRoomId === null && !vaultOpen} onClick={() => show(null)} />
+      <NavItem icon={<Users {...ICON} />} label="Team" active={view === 'chat' && selectedId === null && selectedRoomId === null && !vaultOpen && !creating} onClick={() => show(null)} />
       <NavItem icon={<Clock3 {...ICON} />} label="Automations" active={view === 'scheduled'} onClick={() => setView('scheduled')} />
       <NavItem
         icon={<AtSign {...ICON} />}
@@ -130,7 +132,7 @@ export function WorkersNav({ part }: { part: 'menu' | 'list' }): JSX.Element {
                     </span>
                     <span className="worker-row__bottom">
                       <span className="worker-row__preview">{answering ? 'Answering…' : memberLine(members)}</span>
-                      {answering ? <Loader2 size={13} strokeWidth={2} className="spinner worker-row__trail" /> : room.unread > 0 ? <span className="worker-row__dot" aria-label={`${room.unread} unread`} /> : null}
+                      {answering ? <Loader2 size={13} strokeWidth={2} className="spinner worker-row__trail" /> : room.unread > 0 ? <span className="worker-row__dot" role="img" aria-label={`${room.unread} unread`} /> : null}
                     </span>
                   </span>
                 </button>
@@ -175,7 +177,7 @@ export function WorkersNav({ part }: { part: 'menu' | 'list' }): JSX.Element {
                   {worker.status === 'working' ? (
                     <Loader2 size={13} strokeWidth={2} className="spinner worker-row__trail" />
                   ) : worker.unread > 0 ? (
-                    <span className="worker-row__dot" aria-label={`${worker.unread} unread`} />
+                    <span className="worker-row__dot" role="img" aria-label={`${worker.unread} unread`} />
                   ) : null}
                 </span>
               </span>

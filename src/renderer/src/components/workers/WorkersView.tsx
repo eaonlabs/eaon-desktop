@@ -288,6 +288,12 @@ function WorkerPage({ worker }: { worker: Worker }): JSX.Element {
   const active = openThread === 'new' ? 'new' : info ? info.id : MAIN_THREAD
   const isMain = active === MAIN_THREAD
   const thread = active === 'new' ? { workerId: worker.id, messages: [], summary: null } : threads[threadKey(worker.id, active)]
+  // What the thread already held when it was opened draws in place; only what arrives while it
+  // is open rises in (and its cards and reactions with it), as in a chat (ChatView's Conversation).
+  const opened = useRef<{ key: string; ids: Set<string> | null }>({ key: '', ids: null })
+  const openedKey = `${worker.id}#${active}`
+  if (opened.current.key !== openedKey) opened.current = { key: openedKey, ids: null }
+  if (opened.current.ids === null && thread) opened.current.ids = new Set(thread.messages.map((m) => m.id))
   const runningId = isMain ? worker.runningMessageId : (info?.runningMessageId ?? null)
   const inbox = isMain ? worker.inbox : (info?.inbox ?? [])
   const unread = isMain ? worker.unread - worker.threads.reduce((n, t) => n + t.unread, 0) : (info?.unread ?? 0)
@@ -322,11 +328,12 @@ function WorkerPage({ worker }: { worker: Worker }): JSX.Element {
 
   const queued = inbox.filter((mail) => mail.from === 'user')
   // Colleagues' names in its replies show in their colours, with their faces.
-  const team = useWorkers((s) => s.workers)
-  const mentions = useMemo(
-    () => mentionValue(team.filter((w) => w.id !== worker.id).map((w) => ({ name: w.name, color: w.color, shape: w.shape }))),
-    [team, worker.id]
+  // Keyed on what the names look like, not the workers: those change with every status update
+  // while a colleague runs, and a new context would redraw every block of the thread.
+  const looks = useWorkers((s) =>
+    JSON.stringify(s.workers.filter((w) => w.id !== worker.id).map((w) => ({ name: w.name, color: w.color, shape: w.shape })))
   )
+  const mentions = useMemo(() => mentionValue(JSON.parse(looks)), [looks])
   const threadContext = useMemo(() => ({ workerId: worker.id, threadId: active === 'new' ? MAIN_THREAD : active }), [worker.id, active])
 
   // Scrolled off the top: Chat's veil of graded blur builds over what passes
@@ -399,7 +406,7 @@ function WorkerPage({ worker }: { worker: Worker }): JSX.Element {
             return (
               <RowBoundary key={message.id} item={message}>
                 {stamp && <div className="thread-time">{stamp}</div>}
-                <MessageRow message={message} streaming={message.id === runningId} quietWhenEmpty bubbles />
+                <MessageRow message={message} streaming={message.id === runningId} quietWhenEmpty bubbles fresh={!opened.current.ids?.has(message.id)} />
               </RowBoundary>
             )
           })}

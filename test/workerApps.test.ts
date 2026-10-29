@@ -16,6 +16,7 @@ import { createLists, listText } from '../src/main/features/workers/lists'
 import { createHousehold } from '../src/main/features/workers/household'
 import { normalizeCard, routeLinks, CARD_IMAGE_MARK } from '@shared/workerCards'
 import { appLine, availableOn, findWorkerApp, onDomain, signInTarget, workerApp, WORKER_APPS, workerAppsEnabled } from '@shared/workerApps'
+import { baseDomain } from '@shared/siteDomain'
 import { DEFAULT_SHAPE, shapeSpec, WORKER_SHAPES } from '@shared/workerLook'
 import { TRADING_DESK, WORKER_SUGGESTIONS, type WorkerDraft } from '@shared/workers'
 import type { StreamRequest } from '@shared/types'
@@ -166,7 +167,7 @@ test('cards: every kind normalises, bad ones say why, buttons keep only what the
 })
 
 test('workLog lifts cards and events out of a worker’s runs, but not a failed one, and not in a chat', () => {
-  const tool = (id: string, name: string, status: 'done' | 'error' = 'done') => ({ type: 'tool' as const, id, name, input: {}, output: 'ok', status })
+  const tool = (id: string, name: string, status: 'done' | 'error' | 'running' = 'done') => ({ type: 'tool' as const, id, name, input: {}, output: 'ok', status })
   const parts = [{ type: 'text' as const, text: 'Checking.' }, tool('a', 'web_browser'), tool('b', 'show_card'), tool('c', 'add_routine'), tool('d', 'show_card', 'error'), tool('e', 'react'), { type: 'text' as const, text: 'Done.' }]
   assert.deepEqual(
     workLog(parts, true).map((i) => i.kind),
@@ -176,6 +177,11 @@ test('workLog lifts cards and events out of a worker’s runs, but not a failed 
     workLog(parts).map((i) => i.kind),
     ['text', 'tools', 'text'],
     'a chat folds every call into its run, as before'
+  )
+  assert.deepEqual(
+    workLog([tool('f', 'create_worker', 'running'), tool('g', 'show_card', 'running')], true).map((i) => i.kind),
+    ['tools', 'card'],
+    'a colleague waiting on its approval isn’t "Created" yet; a card shows as soon as it is called'
   )
 })
 
@@ -201,6 +207,20 @@ test('the app catalog: every user-named app is there, ids are unique, sign-in st
   const bank = workerApp('bank')!
   assert.equal(signInTarget(bank, {}), null)
   assert.deepEqual(signInTarget(bank, { url: 'https://www.chase.com/personal/login' }), { url: 'https://www.chase.com/personal/login', domains: ['chase.com'] })
+  // A bank abroad is its own name, never its country's suffix: a page on any .co.uk mustn't get its password.
+  assert.deepEqual(signInTarget(bank, { url: 'https://online.santander.co.uk/login' })?.domains, ['santander.co.uk'])
+  for (const [host, base] of [
+    ['secure.chase.com', 'chase.com'],
+    ['my.commbank.com.au', 'commbank.com.au'],
+    ['login.rakuten.ne.jp', 'rakuten.ne.jp'],
+    ['someone.github.io', 'someone.github.io'],
+    ['shop.acme.myshopify.com', 'acme.myshopify.com'],
+    ['bucket.s3.amazonaws.com', 'bucket.s3.amazonaws.com'],
+    ['github.io', 'github.io'],
+    ['www.netflix.com', 'netflix.com']
+  ]) {
+    assert.equal(baseDomain(host), base, host)
+  }
   // Suggestions only name real apps and shapes.
   for (const s of WORKER_SUGGESTIONS) {
     for (const id of s.apps) assert.ok(workerApp(id), `${s.name}: ${id}`)

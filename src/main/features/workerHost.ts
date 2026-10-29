@@ -1,4 +1,4 @@
-import { app, Notification } from 'electron'
+import { app, Notification, shell } from 'electron'
 import { createHash, randomUUID } from 'node:crypto'
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { basename, join } from 'node:path'
@@ -32,7 +32,7 @@ import { personalSkillsDir } from './skills'
 import { remoteBrowserFrame, setRemoteBrowsers, type RemoteBrowsers } from './agentBrowser'
 import { channelsHandle, type ChannelsData, type ChannelsHandle } from './channels'
 import { workersService } from './workers'
-import type { WorkersService } from './workers/service'
+import { pickPasswordsExport, type WorkersService } from './workers/service'
 import type { Feature, FeatureContext } from './types'
 
 /**
@@ -286,6 +286,8 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService, c
   /** The cache's key for a thread: the worker, and which of its threads (the main one when none is given). */
   const threadKey = (args: unknown[]): string => `${String(args[0])}#${typeof args[1] === 'string' && args[1] ? args[1] : 'main'}`
 
+  /** The Passwords export last imported while the workers live there, for "Move it to the Trash". */
+  let importedHere: string | null = null
   const proxy = async (channel: string, args: unknown[]): Promise<unknown> => {
     // Just opened, or back from sleep: the link is a moment away, so a change waits for it
     // rather than failing; what the tab only reads is shown from the cache meanwhile.
@@ -297,6 +299,20 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService, c
     if (!link.connected) return offlineAnswer(channel, args)
     // Its windows are on its own screen; the live view is how to see a worker's browser from here.
     if (channel === 'workers:show-browser') return false
+    // A Passwords export is a file on this computer, picked on this screen: its text goes over, the file stays here.
+    if (channel === 'workers:vault-import-apple') {
+      const picked = await pickPasswordsExport(ctx.getWindow())
+      if (!picked) return null
+      const result = await hostIpc<object>('workers:vault-import-csv', [picked.text, args[0]])
+      importedHere = picked.file
+      return { ...result, file: picked.file }
+    }
+    if (channel === 'workers:vault-trash-import') {
+      if (!importedHere) return false
+      await shell.trashItem(importedHere)
+      importedHere = null
+      return true
+    }
     if (channel === 'workers:send') args = [args[0], args[1], await uploadFiles(args[2]), args[3]]
     if (channel === 'workers:room-post') args = [args[0], args[1], await uploadFiles(args[2])]
     const value = await hostIpc(channel, args)
@@ -672,10 +688,14 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService, c
       }
       // Their passwords, passkeys, app connections and shared lists: they save to these as they
       // go, so these live where the workers do. What's here stays as the copy, like the workers'.
+      // With none (every build without labs), nothing is asked: a worker computer whose
+      // update didn't take, still on a release without apps, can have the workers all the same.
       const apps = workers.exportAppData()
-      if (hasAppData(apps)) step('to-host', 'Moving their passwords and app connections')
-      await unlockHostVault()
-      await link.call('workers.apps-import', { data: apps }, 120_000)
+      if (hasAppData(apps)) {
+        step('to-host', 'Moving their passwords and app connections')
+        await unlockHostVault()
+        await link.call('workers.apps-import', { data: apps }, 120_000)
+      }
       step('to-host', 'Starting them there')
       link.hello = await link.call<HostHello>('workers.resume')
     } catch (error) {

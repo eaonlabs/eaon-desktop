@@ -3139,7 +3139,8 @@ export class WorkersEngine {
     const worker = this.require(id)
     const key = this.info(worker, threadId) ? threadId : MAIN_THREAD
     const thread = this.thread(id, key)
-    const last = [...thread.messages].reverse().find((m) => m.role === 'user' && (!m.mail || m.mail.some((x) => x.from === 'user')))
+    // Something the user wrote: a heartbeat or a colleague's mail has nowhere for it to show.
+    const last = [...thread.messages].reverse().find((m) => m.role === 'user' && Boolean(m.mail?.some((x) => x.from === 'user' && !x.event)))
     if (!last) throw new Error('There is no message from the user here to react to.')
     last.feedback = { ...(last.feedback ?? {}), reaction: emoji }
     this.deps.saveThread(thread)
@@ -3613,7 +3614,7 @@ export class WorkersEngine {
         worker.lastOutcome = { at: now, ok: true }
         worker.lastError = null
         if (!run.activitySet) worker.activity = summary
-        if (outcome.text) worker.preview = previewOf(outcome.text)
+        if (outcome.text) worker.preview = previewOf(outcome.answer || outcome.text)
       }
     } else if (!run.activitySet && !outcome.error && !outcome.cancelled && summary) {
       worker.activity = summary

@@ -2589,6 +2589,13 @@ body[data-reduce-motion='on'] .worker-run .spinner {
   gap: 4px;
   font-weight: 560;
   white-space: nowrap;
+  color: var(--who, inherit);
+}
+/* A colleague's name in its colour, which on white can be too pale to read
+   (yellow is under 2:1): taken most of the way toward the text colour there. */
+[data-theme='light'] .md-mention,
+[data-theme='light'] .wevent__who {
+  color: color-mix(in oklab, var(--who, var(--text)) 55%, var(--text));
 }
 .md-mention > .wf {
   align-self: center;
@@ -2663,7 +2670,7 @@ body[data-reduce-motion='on'] .worker-run .spinner {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  color: var(--text);
+  color: var(--who, var(--text));
 }
 .wevent[data-running] {
   opacity: 0.6;
@@ -2712,6 +2719,16 @@ body[data-reduce-motion='on'] .worker-run .spinner {
   --wc-ring: 0 0 0 1px oklch(0 0 0 / 0.07);
   --wc-lift: 0 1px 2px -1px oklch(0 0 0 / 0.08), 0 10px 28px -16px oklch(0 0 0 / 0.16);
   background: linear-gradient(180deg, var(--bg), color-mix(in srgb, var(--fg) 1.5%, var(--bg)));
+}
+/* Already in the thread when it was opened: drawn in place, not dealt in again. */
+.msg-row:not([data-fresh]) .wcard,
+.msg-row:not([data-fresh]) .msg__reaction {
+  animation: none;
+}
+/* Main skips drawing rows far up the thread (chat.css), which clips past their
+   padding; a card's lift reaches further than that, so its row is drawn. */
+.thread--worker .thread__inner:not(.room) > .msg-row:has(.wcard) {
+  content-visibility: visible;
 }
 @keyframes wcard-in {
   from {
@@ -4219,7 +4236,8 @@ body[data-reduce-motion='on'] .wcard {
 .app-row__actions .btn svg {
   margin-right: 4px;
 }
-.link-btn {
+/* The apps' and the vault's text links; the app's own .link-btn (pages.css) stays as it is elsewhere. */
+:is(.app-row__conn, .app-row__note, .login-form) .link-btn {
   color: var(--link);
   text-decoration: underline;
   text-underline-offset: 2px;
@@ -4316,7 +4334,7 @@ body[data-reduce-motion='on'] .look-carousel__main {
   justify-content: flex-end;
   gap: 6px;
 }
-.link-btn svg {
+:is(.app-row__conn, .app-row__note, .login-form) .link-btn svg {
   display: inline;
   vertical-align: -1px;
 }

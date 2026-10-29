@@ -130,6 +130,8 @@ export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Wor
     setMentions((current) => (current.some((m) => m.id === server.id) ? current : [...current, { id: server.id, name: server.name, pluginId: server.pluginId }]))
   }
 
+  // Only what this worker may use: one limited to some plugins can't use the others (engine.pluginsOf), so "@" doesn't offer them.
+  const usablePlugins = worker.plugins === null || worker.plugins === undefined ? mcpServers : mcpServers.filter((m) => worker.plugins!.includes(m.id) || m.id === worker.trading?.via)
   const colleagues = workers.filter((w) => w.id !== worker.id)
   const sources: SuggestSources = {
     '/': () => [
@@ -187,7 +189,7 @@ export function WorkerComposer({ worker, threadId = MAIN_THREAD }: { worker: Wor
           insert: `@${w.name}`
         })
       ),
-      ...pluginItems(mcpServers, statuses, pullInPlugin),
+      ...pluginItems(usablePlugins, statuses, pullInPlugin),
       ...toolMentionItems({
         computerOn: Boolean(settings?.computerUse.enabled),
         onBrowser: hasBrowser ? showBrowser : undefined,

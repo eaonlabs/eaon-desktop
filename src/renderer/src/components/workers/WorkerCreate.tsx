@@ -65,7 +65,7 @@ export function WorkerCreate(): JSX.Element {
       <TopBar
         variant="page__bar"
         left={
-          <button className="header-btn worker-back" onClick={() => useWorkers.getState().setCreating(false)}>
+          <button className="header-btn worker-back" aria-label="Back to the team" onClick={() => useWorkers.getState().setCreating(false)}>
             <ArrowLeft size={14} strokeWidth={2} />
             <span>Team</span>
           </button>

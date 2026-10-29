@@ -15,6 +15,8 @@
  * link, or starts signing the worker in to one of its apps.
  */
 
+import { workerAppsEnabled } from './workerApps'
+
 export type CardTone = 'done' | 'action' | 'working' | 'failed' | 'info' | 'submitted'
 
 export interface CardAction {
@@ -142,7 +144,8 @@ function actions(value: unknown): CardAction[] | undefined {
     if (reply) action.reply = reply
     else if (url && /^https:\/\//i.test(url)) action.url = url
     else if (a.browser === true) action.browser = true
-    else if (signIn) action.signIn = signIn
+    // Signing in to a linked app is labs only (workerApps.ts): without it, nothing would answer the button.
+    else if (signIn && workerAppsEnabled()) action.signIn = signIn
     else return null
     if (a.primary === true) action.primary = true
     return action

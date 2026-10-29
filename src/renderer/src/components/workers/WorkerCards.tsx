@@ -64,6 +64,46 @@ import { errorText, useWorkers } from './workersStore'
 
 export const WorkerThreadContext = createContext<{ workerId: string; threadId: string } | null>(null)
 
+/** The call a card came from, so what was answered on it is remembered (useCardAnswer). */
+const CardIdContext = createContext<string | null>(null)
+
+/**
+ * What was answered on each card — the option picked, the button pressed, the
+ * switch flipped — by its call's id and which part of it. A card is drawn
+ * afresh each time its thread is opened, and an answer already sent must not
+ * be offered again. Kept on this computer, the latest few hundred.
+ */
+const ANSWERS_KEY = 'eaon.workers.cardAnswers'
+const MAX_ANSWERS = 400
+const answers: Map<string, string> = (() => {
+  try {
+    const saved = JSON.parse(localStorage.getItem(ANSWERS_KEY) ?? '[]')
+    return new Map(Array.isArray(saved) ? saved.filter((e): e is [string, string] => Array.isArray(e) && typeof e[0] === 'string' && typeof e[1] === 'string') : [])
+  } catch {
+    return new Map()
+  }
+})()
+
+function useCardAnswer(part: string): [string | null, (answer: string) => void] {
+  const card = useContext(CardIdContext)
+  const thread = useContext(WorkerThreadContext)
+  const key = card && thread ? `${thread.workerId}:${card}:${part}` : null
+  const [answer, setAnswer] = useState<string | null>(() => (key ? (answers.get(key) ?? null) : null))
+  const remember = (value: string): void => {
+    setAnswer(value)
+    if (!key) return
+    answers.delete(key)
+    answers.set(key, value)
+    while (answers.size > MAX_ANSWERS) answers.delete(answers.keys().next().value as string)
+    try {
+      localStorage.setItem(ANSWERS_KEY, JSON.stringify([...answers]))
+    } catch {
+      /* storage full or off: remembered until the app closes */
+    }
+  }
+  return [answer, remember]
+}
+
 const TONE_LABEL: Record<CardTone, string> = {
   done: 'Done',
   action: 'Action needed',
@@ -75,13 +115,18 @@ const TONE_LABEL: Record<CardTone, string> = {
 
 /** A card in the thread, from a show_card or request_sign_in call. */
 export function WorkerCardRow({ part }: { part: ChatToolPart }): JSX.Element | null {
-  if (part.name === 'request_sign_in') return <SignInCard part={part} />
+  // A sign-in request is a linked app's (labs): a build without them has nothing to sign in with.
+  if (part.name === 'request_sign_in') return workerAppsEnabled() ? <SignInCard part={part} /> : null
   const input = part.input.card && typeof part.input.card === 'object' ? part.input.card : part.input
   const result = normalizeCard(input)
   if ('error' in result) return null
   // The picture the tool resolved (a screenshot it took, a file in the worker's folder).
   const image = (part.output && CARD_IMAGE_MARK.exec(part.output)?.[1]) ?? null
-  return <CardView card={result.card} image={image} />
+  return (
+    <CardIdContext.Provider value={part.id}>
+      <CardView card={result.card} image={image} />
+    </CardIdContext.Provider>
+  )
 }
 
 export function CardView({ card, image }: { card: WorkerCard; image: string | null }): JSX.Element {
@@ -360,7 +405,8 @@ const LEVEL_LABEL: Partial<Record<DeviceKind, string>> = { light: 'Brightness', 
 function DeviceCard({ card, app }: { card: Extract<WorkerCard, { kind: 'device' }>; app: WorkerApp | undefined }): JSX.Element {
   const act = useCardAction()
   const thread = useContext(WorkerThreadContext)
-  const [on, setOn] = useState(card.on)
+  const [flipped, setFlipped] = useCardAnswer('switch')
+  const on = flipped === null ? card.on : flipped === 'on'
   const Icon = DEVICE_ICON[card.device]
   return (
     <>
@@ -383,7 +429,7 @@ function DeviceCard({ card, app }: { card: Extract<WorkerCard, { kind: 'device' 
             data-device={card.device}
             disabled={!thread}
             onClick={() => {
-              setOn(!on)
+              setFlipped(on ? 'off' : 'on')
               act({ label: on ? 'Turn off' : 'Turn on', reply: `Turn ${on ? 'off' : 'on'} the ${card.name}` })
             }}
           >
@@ -573,7 +619,7 @@ function useCardAction(): (action: CardAction) => void {
  */
 function Actions({ actions }: { actions?: CardAction[] }): JSX.Element | null {
   const act = useCardAction()
-  const [done, setDone] = useState<string | null>(null)
+  const [done, setDone] = useCardAnswer('actions')
   if (!actions || actions.length === 0) return null
   return (
     <div className="wcard-actions">
@@ -600,7 +646,8 @@ function Actions({ actions }: { actions?: CardAction[] }): JSX.Element | null {
 
 function OptionsCard({ card }: { card: Extract<WorkerCard, { kind: 'options' }> }): JSX.Element {
   const act = useCardAction()
-  const [picked, setPicked] = useState<number | null>(null)
+  const [answer, setAnswer] = useCardAnswer('options')
+  const picked = answer === null ? null : Number(answer)
   return (
     <>
       <div className="wcard__head">
@@ -617,7 +664,7 @@ function OptionsCard({ card }: { card: Extract<WorkerCard, { kind: 'options' }> 
             disabled={picked !== null && picked !== i}
             onClick={() => {
               if (picked !== null) return
-              setPicked(i)
+              setAnswer(String(i))
               act({ label: option.title, reply: option.reply })
             }}
           >
@@ -742,6 +789,10 @@ const hostName = (url: string): string => {
  * in themselves (the monitor button), then say they're done.
  */
 export function SignInSheet(): JSX.Element | null {
+  return workerAppsEnabled() ? <AppSignInSheet /> : null
+}
+
+function AppSignInSheet(): JSX.Element | null {
   const [target, setTarget] = useSignInSheet()
   const worker = useWorkers((s) => (target ? s.workers.find((w) => w.id === target.workerId) : undefined))
   const app = target ? workerApp(target.appId) : undefined
@@ -864,7 +915,7 @@ export function WorkerEventLine({ part }: { part: ChatToolPart }): JSX.Element |
     return name ? st.workers.find((w) => w.name.toLowerCase() === name) : undefined
   })
   const who = (name: string): JSX.Element => (
-    <span className="wevent__who" style={colleague ? { color: colleague.color } : undefined}>
+    <span className="wevent__who" style={colleague ? { ['--who' as string]: colleague.color } : undefined}>
       {colleague && <WorkerFace color={colleague.color} shape={colleague.shape} size={18} />}
       {colleague?.name ?? name}
     </span>
@@ -889,7 +940,7 @@ export function WorkerEventLine({ part }: { part: ChatToolPart }): JSX.Element |
       content = (
         <>
           Created{' '}
-          <span className="wevent__who" style={{ color: s('color') || undefined }}>
+          <span className="wevent__who" style={s('color') ? { ['--who' as string]: s('color') } : undefined}>
             <WorkerFace color={s('color') || '#6B7280'} size={18} mood="happy" />
             {s('name')}
           </span>

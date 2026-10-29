@@ -24,6 +24,7 @@
  * in 2026.7.0.
  */
 
+import { baseDomain } from './siteDomain'
 import type { ConnectorId } from './workerConnectors'
 
 declare const __EAON_LABS__: boolean | undefined
@@ -520,7 +521,8 @@ export function signInTarget(app: WorkerApp, link: Pick<WorkerAppLink, 'url'> | 
     const url = link?.url ?? ''
     try {
       const host = new URL(url).hostname.replace(/^www\./, '')
-      return { url, domains: [host.split('.').slice(-2).join('.')] }
+      // The bank's own name, never its country's suffix ("co.uk") or a shared host's.
+      return { url, domains: [baseDomain(host)] }
     } catch {
       return null
     }

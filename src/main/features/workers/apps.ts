@@ -98,7 +98,7 @@ export function cardTool(engine: WorkersEngine, browsers: WorkerBrowsers): Agent
 - events {title, events:[{title, when, where}]}
 - options {title, options:[{title, detail, price, reply}]} — the user taps one and you get its reply
 - stats {title, stats:[{label, value, trend: up|down}]}
-actions: up to 4 buttons [{label, reply (sent to you as the user's answer) | url | browser: true | sign_in: app}].`,
+actions: up to 4 buttons [{label, reply (sent to you as the user's answer) | url | browser: true${workerAppsEnabled() ? ' | sign_in: app' : ''}}].`,
     inputSchema: {
       type: 'object',
       properties: {
@@ -412,6 +412,12 @@ export function appsToolSource(deps: AppsDeps): ToolSource {
     description: 'Type the current 2FA code for the open page’s saved login into the page’s code field (the user saved its authenticator secret). You never see the code.',
     inputSchema: { type: 'object', properties: { site: { type: 'string' } } },
     mutating: true,
+    // A login the user asked to be asked about each time is asked about for its code too, as sign_in_saved is.
+    catastrophic: (input, ctx) => {
+      const workerId = ctx.request.workerId
+      return Boolean(workerId && vault!.match(workerId, browsers.url(workerId), str(input.site))?.ask)
+    },
+    describe: (input) => `Type the 2FA code${str(input.site) ? ` for ${str(input.site)}` : ''} from a saved login`,
     run: async (input, ctx) => {
       const workerId = self(ctx)
       const login = vault!.match(workerId, browsers.url(workerId), str(input.site))

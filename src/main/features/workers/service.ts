@@ -1,4 +1,4 @@
-import { app, dialog, Notification, powerMonitor, powerSaveBlocker, shell } from 'electron'
+import { app, dialog, Notification, powerMonitor, powerSaveBlocker, shell, type BrowserWindow } from 'electron'
 import { rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import type { ChatMessage, StreamEvent } from '@shared/types'
@@ -434,15 +434,19 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
       return fallback
     }
   }
-  browsers.setPasskeyStore({
-    credentials: (workerId) => (workerAppsEnabled() ? quietly(() => vault.passkeyCredentials(workerId), []) : []),
-    added: (workerId, credential) => {
-      if (workerAppsEnabled()) quietly(() => vault.addPasskey(workerId, credential), null)
-    },
-    asserted: (_workerId, credential) => quietly(() => vault.passkeyUsed(credential.credentialId, credential.signCount), undefined)
-  })
+  // Only where the vault is (labs): an armed authenticator says yes to every
+  // "Create a passkey?", and without a vault to keep it, the site would be left
+  // holding a passkey nobody has.
+  if (workerAppsEnabled()) {
+    browsers.setPasskeyStore({
+      credentials: (workerId) => quietly(() => vault.passkeyCredentials(workerId), []),
+      added: (workerId, credential) => void quietly(() => vault.addPasskey(workerId, credential), null),
+      asserted: (_workerId, credential) => quietly(() => vault.passkeyUsed(credential.credentialId, credential.signCount), undefined)
+    })
+  }
   /** The export file last imported from Apple's Passwords app, which the user may move to the Trash. */
   let importedFile: string | null = null
+  const importFor = (workers: unknown): string[] | 'all' => (workers === 'all' ? 'all' : Array.isArray(workers) ? workers.filter((x): x is string => typeof x === 'string') : 'all')
   // Services connected for the apps (connectors.ts): their keys stay in the vault.
   const connectors = createConnectors({
     load: (id) => secrets.get(`worker-apps:conn:${id}`),
@@ -613,15 +617,14 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
       })
       // Apple's Passwords app → File → Export All Passwords to File: read here, so the renderer never holds the file.
       ipcMain.handle('workers:vault-import-apple', async (_e, workers: unknown) => {
-        const window = ctx.getWindow()
-        const options = { title: 'Choose the file exported from Passwords', properties: ['openFile' as const], filters: [{ name: 'Passwords export', extensions: ['csv'] }] }
-        const picked = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options)
-        const file = picked.filePaths[0]
-        if (picked.canceled || !file) return null
-        const result = vault.importApple(await readFile(file, 'utf8'), workers === 'all' ? 'all' : Array.isArray(workers) ? workers.filter((x): x is string => typeof x === 'string') : 'all')
-        importedFile = file
-        return { ...result, file }
+        const picked = await pickPasswordsExport(ctx.getWindow())
+        if (!picked) return null
+        const result = vault.importApple(picked.text, importFor(workers))
+        importedFile = picked.file
+        return { ...result, file: picked.file }
       })
+      // The same export's text, read on the desktop: a worker computer has no screen to pick a file on (workerHost.ts).
+      ipcMain.handle('workers:vault-import-csv', (_e, text: unknown, workers: unknown) => vault.importApple(str(text), importFor(workers)))
       ipcMain.handle('workers:vault-trash-import', async () => {
         if (!importedFile) return false
         await shell.trashItem(importedFile)
@@ -760,4 +763,13 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
     stop: halt,
     openWorker
   }
+}
+
+/** The file exported from Apple's Passwords, picked on this computer's screen, and its text. Null when nothing was picked. */
+export async function pickPasswordsExport(window: BrowserWindow | null): Promise<{ file: string; text: string } | null> {
+  const options = { title: 'Choose the file exported from Passwords', properties: ['openFile' as const], filters: [{ name: 'Passwords export', extensions: ['csv'] }] }
+  const picked = window ? await dialog.showOpenDialog(window, options) : await dialog.showOpenDialog(options)
+  const file = picked.filePaths[0]
+  if (picked.canceled || !file) return null
+  return { file, text: await readFile(file, 'utf8') }
 }

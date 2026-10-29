@@ -1,6 +1,7 @@
 import { TRADING_ROUTINE_NAME, watchText, type Worker, type WorkerDelegation, type WorkerThreadInfo } from '@shared/workers'
 import type { TradingVenue } from '../trading/access'
 import { appLine, workerApp, workerAppsEnabled } from '@shared/workerApps'
+import { isCliEngine } from '@shared/engines'
 
 /**
  * A worker's persona: the identity line the Work system prompt opens with
@@ -62,7 +63,8 @@ export function workerPersona(
     lines.push('', 'Your group chats:')
     for (const room of rooms) lines.push(`- "${room.name}": the user${room.members.length ? `, ${room.members.join(', ')}` : ''} and you`)
   }
-  if (workerAppsEnabled()) lines.push(...appsBrief(worker))
+  // A CLI engine (Codex, Copilot, Gemini CLI) is given none of Eaon's tools, so none of the apps' either.
+  if (workerAppsEnabled() && !isCliEngine(worker.engine)) lines.push(...appsBrief(worker))
   if (thread) lines.push('', ...threadBrief(thread))
   if (worker.trading) lines.push('', ...tradingBrief(worker, venue))
   if (worker.goal.trim()) lines.push('', `Your goal: ${worker.goal.trim()}`)
