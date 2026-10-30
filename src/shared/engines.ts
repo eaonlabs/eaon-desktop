@@ -15,7 +15,7 @@ import type { EffortLevel } from './types'
  * status and model lists defined here.
  */
 
-export type EngineId = 'native' | 'codex' | 'copilot' | 'gemini'
+export type EngineId = 'native' | 'codex' | 'claude' | 'copilot' | 'gemini'
 
 /** An installed agent CLI: every engine but Eaon's own loop. */
 export type CliEngineId = Exclude<EngineId, 'native'>
@@ -23,6 +23,8 @@ export type CliEngineId = Exclude<EngineId, 'native'>
 export const ENGINE_LABEL: Record<EngineId, string> = {
   native: 'Eaon',
   codex: 'Codex',
+  // The Agent SDK's naming for apps built on it: "Claude Agent" in a menu, never "Claude Code".
+  claude: 'Claude Agent',
   copilot: 'GitHub Copilot',
   gemini: 'Gemini CLI'
 }
@@ -30,10 +32,11 @@ export const ENGINE_LABEL: Record<EngineId, string> = {
 /**
  * The agent CLIs, in the order pickers and Settings list them. Each runs as
  * the user's own install, signed in its own way, through the protocol its
- * maker documents for other apps: Codex's app-server, and the Agent Client
- * Protocol for GitHub Copilot CLI and Gemini CLI (main/engines/acp).
+ * maker documents for other apps: Codex's app-server, Anthropic's Agent SDK
+ * for Claude Code (main/engines/claude), and the Agent Client Protocol for
+ * GitHub Copilot CLI and Gemini CLI (main/engines/acp).
  */
-export const CLI_ENGINES: CliEngineId[] = ['codex', 'copilot', 'gemini']
+export const CLI_ENGINES: CliEngineId[] = ['codex', 'claude', 'copilot', 'gemini']
 
 export const isCliEngine = (value: unknown): value is CliEngineId => CLI_ENGINES.includes(value as CliEngineId)
 

@@ -24,6 +24,9 @@ files:
   # merge) and its patched Playwright.
   - '!**/node_modules/rookie-cookies*/**'
   - '!**/node_modules/patchright-core/**'
+  # The Agent SDK's own copies of Claude Code: Eaon's Claude engine runs the
+  # user's install (engines/claude), never one of its own.
+  - '!**/node_modules/@anthropic-ai/claude-agent-sdk-*/**'
 # Electron fuses, flipped in the binary at package time. Without them a local
 # process can run any script under Eaon's signature (NODE_OPTIONS, --inspect)
 # and inherit what macOS has granted Eaon: the microphone, Accessibility and

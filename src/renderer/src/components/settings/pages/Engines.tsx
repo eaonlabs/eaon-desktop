@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useState, type JSX } from 'react'
 import { Check, Copy, ExternalLink, Loader2, LogIn, RefreshCw, X } from 'lucide-react'
-import type { CliEngineId, EngineModel, EngineModels, EngineStatus } from '@shared/engines'
+import { ENGINE_LABEL, type CliEngineId, type EngineModel, type EngineModels, type EngineStatus } from '@shared/engines'
 import { EFFORT_LABEL } from '@shared/effort'
 import { useApp } from '../../../state/store'
 import { Card, Row, Section } from '../../ui'
 import codexLogo from '../../../assets/providers/codex.svg'
 import copilotLogo from '../../../assets/providers/githubcopilot.svg'
 import geminiCliLogo from '../../../assets/providers/geminicli.svg'
+import anthropicLogo from '../../../assets/providers/anthropic.png'
 import '../../../styles/engines.css'
 
 /**
@@ -315,6 +316,7 @@ export function EnginesPage(): JSX.Element {
         </Section>
       )}
 
+      <AcpEngineSection id="claude" status={statuses?.find((s) => s.id === 'claude') ?? null} now={now} />
       <AcpEngineSection id="copilot" status={statuses?.find((s) => s.id === 'copilot') ?? null} now={now} />
       <AcpEngineSection id="gemini" status={statuses?.find((s) => s.id === 'gemini') ?? null} now={now} />
 
@@ -464,32 +466,49 @@ function Freshness({ models, now, checking }: { models: EngineModels | null; now
   return <>Updated {models.retrievedAt ? ago(models.retrievedAt, now) : 'just now'} &middot; from Codex itself</>
 }
 
-/** What sets each ACP engine apart on this page: the rest is the same for both. */
-const ACP_ENGINE: Record<Extract<CliEngineId, 'copilot' | 'gemini'>, { logo: string; blurb: string; plan: string; signingIn: string; docs: string }> = {
+type SignInEngine = Extract<CliEngineId, 'claude' | 'copilot' | 'gemini'>
+
+/** What sets each of these engines apart on this page: the rest is the same for all three. */
+const ACP_ENGINE: Record<SignInEngine, { logo: string; app: string; blurb: string; plan: string; signingIn: string; how: string; docs: string }> = {
+  claude: {
+    logo: anthropicLogo,
+    // What Eaon finds and runs: its version is Claude Code's.
+    app: 'Claude Code',
+    blurb: 'Anthropic’s agent, run by Eaon through the Claude Code you installed, with Anthropic’s Agent SDK.',
+    plan: 'your Claude plan',
+    signingIn: 'Finish signing in in the Terminal window Eaon opened (claude auth login). This updates when you’re done.',
+    how: 'Eaon runs your own Claude Code through Anthropic’s Agent SDK, and Claude Code makes every request itself with your sign-in, against your own plan or key. Eaon doesn’t read your account or tokens, or change Claude Code’s instructions.',
+    docs: 'https://code.claude.com/docs/en/agent-sdk/overview'
+  },
   copilot: {
     logo: copilotLogo,
+    app: 'GitHub Copilot',
     blurb: 'GitHub’s coding agent, run by Eaon through the Copilot CLI you installed.',
     plan: 'your GitHub Copilot plan',
     signingIn: 'Finish signing in in the Terminal window Eaon opened (copilot login). This updates when you’re done.',
+    how: 'Eaon runs GitHub Copilot the way code editors do, through the mode it offers for them, and GitHub Copilot makes every request itself with your sign-in. Eaon doesn’t read your account or tokens, or change what GitHub Copilot is told.',
     docs: 'https://docs.github.com/en/copilot/reference/copilot-cli-reference/acp-server'
   },
   gemini: {
     logo: geminiCliLogo,
+    app: 'Gemini CLI',
     blurb: 'Google’s coding agent, run by Eaon through the Gemini CLI you installed.',
     plan: 'your Google account',
     signingIn: 'Finish signing in in your browser: Gemini CLI opened Google’s sign-in page. This updates when you’re done.',
+    how: 'Eaon runs Gemini CLI the way code editors do, through the mode it offers for them, and Gemini CLI makes every request itself with your sign-in. Eaon doesn’t read your account or tokens, or change what Gemini CLI is told.',
     docs: 'https://github.com/google-gemini/gemini-cli'
   }
 }
 
 /**
- * GitHub Copilot CLI or Gemini CLI: found on this computer or not, signed in
- * or not, and its models. Eaon drives each through its own ACP mode
- * (main/engines/acp); the CLI signs in and makes every request itself.
+ * Claude, GitHub Copilot CLI or Gemini CLI: found on this computer or not,
+ * signed in or not, and its models. Eaon drives Claude Code through the
+ * Agent SDK (main/engines/claude) and the other two through their own ACP
+ * mode (main/engines/acp); each signs in and makes every request itself.
  */
-function AcpEngineSection({ id, status, now }: { id: 'copilot' | 'gemini'; status: EngineStatus | null; now: number }): JSX.Element {
+function AcpEngineSection({ id, status, now }: { id: SignInEngine; status: EngineStatus | null; now: number }): JSX.Element {
   const meta = ACP_ENGINE[id]
-  const name = status?.name ?? (id === 'copilot' ? 'GitHub Copilot' : 'Gemini CLI')
+  const name = status?.name ?? ENGINE_LABEL[id]
   const state = stateOf(status)
   const [models, setModels] = useState<EngineModels | null>(null)
   const [checking, setChecking] = useState(false)
@@ -573,7 +592,7 @@ function AcpEngineSection({ id, status, now }: { id: 'copilot' | 'gemini'; statu
         ) : (
           <>
             <Row
-              title={status.version ? `${name} ${status.version}` : `${name} won’t start`}
+              title={status.version ? `${meta.app} ${status.version}` : `${meta.app} won’t start`}
               description={status.version ? <span title={status.path ?? undefined}>Found on this computer.</span> : <span className="eng-danger">{status.error ?? `Found at ${status.path}, but it didn’t start.`}</span>}
             />
             {status.version && (
@@ -583,7 +602,7 @@ function AcpEngineSection({ id, status, now }: { id: 'copilot' | 'gemini'; statu
                   signingIn
                     ? meta.signingIn
                     : status.auth.state === 'signed-in'
-                      ? `Signed in. Turns use ${meta.plan}.`
+                      ? `Signed in${status.auth.plan ? ` (${status.auth.plan})` : ''}. Turns use ${meta.plan}.`
                       : status.auth.state === 'signed-out'
                         ? `Not signed in. Sign in to use ${name} with ${meta.plan}.`
                         : (status.error ?? `Eaon couldn’t tell whether ${name} is signed in.`)
@@ -617,7 +636,7 @@ function AcpEngineSection({ id, status, now }: { id: 'copilot' | 'gemini'; statu
                   models?.note
                     ? models.note
                     : listed.length
-                      ? `${listed.map((m) => m.label).join(', ')}.${refused.length ? ` Not on your plan: ${refused.map((m) => m.label).join(', ')}.` : ''} Updated ${models?.retrievedAt ? ago(models.retrievedAt, now) : 'just now'}, from ${name} itself.`
+                      ? `${listed.map((m) => m.label).join(', ')}.${refused.length ? ` Not on your plan: ${refused.map((m) => m.label).join(', ')}.` : ''} Updated ${models?.retrievedAt ? ago(models.retrievedAt, now) : 'just now'}, from ${meta.app} itself.`
                       : `${name} picks its model itself; choose it in its own settings.`
                 }
               />
@@ -632,8 +651,7 @@ function AcpEngineSection({ id, status, now }: { id: 'copilot' | 'gemini'; statu
       )}
       {status?.installed && (
         <p className="settings__lede eng-fine">
-          Eaon runs {name} the way code editors do, through the mode {name} offers for them, and {name} makes every request
-          itself with your sign-in. Eaon doesn&rsquo;t read your account or tokens, or change what {name} is told.{' '}
+          {meta.how}{' '}
           <button className="link-btn" onClick={() => void window.api.app.openExternal(meta.docs)}>
             About it
           </button>

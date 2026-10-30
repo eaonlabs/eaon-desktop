@@ -44,7 +44,7 @@ function useEngines(): { statuses: EngineStatus[]; models: Partial<Record<Engine
 
 /** One line on whether an engine can run turns right now, what to do if it can't, and whether signing in here fixes it. */
 /** The account each agent CLI signs in with. */
-const ACCOUNT: Partial<Record<EngineId, string>> = { codex: 'ChatGPT account', copilot: 'GitHub account', gemini: 'Google account' }
+const ACCOUNT: Partial<Record<EngineId, string>> = { codex: 'ChatGPT account', claude: 'Claude account', copilot: 'GitHub account', gemini: 'Google account' }
 
 function engineNote(status: EngineStatus | undefined, name: string): { text: string; ok: boolean; signIn?: boolean } {
   if (!status) return { text: `Checking ${name}…`, ok: true }
