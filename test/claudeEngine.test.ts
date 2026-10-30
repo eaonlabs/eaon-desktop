@@ -148,6 +148,7 @@ test('a turn: Claude Code started as published, its stream drawn once, tools as 
   assert.equal(options.env?.CLAUDE_CONFIG_DIR, '/Users/me/.claude-work', 'the Claude account chosen in Settings → Accounts')
   assert.equal(options.env?.CLAUDE_AGENT_SDK_CLIENT_APP, 'eaon/2026.7.4', 'it says it is Eaon')
   assert.equal(options.permissionMode, 'default', 'Claude Code asks, and Eaon’s approval policy answers')
+  assert.deepEqual(options.thinking, { type: 'adaptive', display: 'summarized' }, 'its thinking comes as summaries the transcript can show')
   assert.equal(options.model, 'sonnet')
   assert.equal(options.effort, 'high')
   assert.equal(options.resume, undefined)
@@ -242,10 +243,10 @@ test('never charged: no key reaches Claude Code, a key sign-in is refused, and e
   const { engine: plain, calls } = engine(async function* () {
     yield init()
     yield result('ok')
-  }, { env: () => ({ PATH: '/usr/bin', ANTHROPIC_API_KEY: 'sk-ant-test', ANTHROPIC_AUTH_TOKEN: 't' }) })
+  }, { env: () => ({ PATH: '/usr/bin', ANTHROPIC_API_KEY: 'sk-ant-test', ANTHROPIC_AUTH_TOKEN: 't', CLAUDE_CODE_SIMPLE: '1', CLAUDE_CODE_EFFORT_LEVEL: 'max' }) })
   await plain.runTurn(turnInput().input)
-  assert.equal(calls[0].options.env?.ANTHROPIC_API_KEY, undefined)
-  assert.equal(calls[0].options.env?.ANTHROPIC_AUTH_TOKEN, undefined)
+  for (const name of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_SIMPLE', 'CLAUDE_CODE_EFFORT_LEVEL']) assert.equal(calls[0].options.env?.[name], undefined, name)
+  assert.equal(calls[0].options.env?.PATH, '/usr/bin', 'the rest of the user’s environment stays')
 
   // Claude Code signed in with a Console key: refused before it starts.
   const consoleLogin = engine(async function* () {

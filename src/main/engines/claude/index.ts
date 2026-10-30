@@ -164,14 +164,14 @@ export class ClaudeEngine implements EngineAdapter {
   }
 
   /**
-   * Claude Code's environment, without a key in it: a key there would win
-   * over the user's sign-in and be charged per use, and this engine is for
-   * their Claude plan.
+   * Claude Code's environment, without what would take it off the user's
+   * plan or over Eaon's choices: a key there would win over their sign-in and
+   * be charged per use, `CLAUDE_CODE_SIMPLE` skips the sign-in altogether, and
+   * a shell's `CLAUDE_CODE_EFFORT_LEVEL` would override the effort picked here.
    */
   private env(): Record<string, string | undefined> {
     const env: Record<string, string | undefined> = { ...this.deps.env(), CLAUDE_AGENT_SDK_CLIENT_APP: `eaon/${this.deps.clientVersion}` }
-    delete env.ANTHROPIC_API_KEY
-    delete env.ANTHROPIC_AUTH_TOKEN
+    for (const name of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_SIMPLE', 'CLAUDE_CODE_EFFORT_LEVEL']) delete env[name]
     return env
   }
 
@@ -364,6 +364,8 @@ export class ClaudeEngine implements EngineAdapter {
           pathToClaudeCodeExecutable: path,
           env: this.env(),
           includePartialMessages: true,
+          // Claude's thinking as summaries, so the transcript has reasoning to show as it does for other models.
+          thinking: { type: 'adaptive', display: 'summarized' },
           // Claude Code's own read-only mode for a plan; otherwise it asks, and Eaon's approval policy answers.
           permissionMode: input.access === 'read-only' ? 'plan' : 'default',
           canUseTool: (name, toolInput, options) => turn.permission(name, toolInput, options),
