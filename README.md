@@ -13,7 +13,7 @@
 <p align="center">
   <a href="https://github.com/eaonlabs/eaon-desktop/releases"><img alt="Latest release" src="https://img.shields.io/github/v/release/eaonlabs/eaon-desktop?include_prereleases&label=release"></a>
   <img alt="macOS, Windows, Linux" src="https://img.shields.io/badge/platforms-macOS%20%7C%20Windows%20%7C%20Linux-555">
-  <a href="LICENSE.md"><img alt="License" src="https://img.shields.io/badge/license-Apache--2.0-555"></a>
+  <a href="LICENSE.md"><img alt="License" src="https://img.shields.io/badge/license-GPL--3.0-555"></a>
 </p>
 
 <p align="center">
@@ -282,4 +282,4 @@ so give it its own `--user-data-dir`. It does nothing without the env var.
 
 ## License
 
-[Apache 2.0](LICENSE.md). Third-party notices are in [NOTICE](NOTICE).
+[GPL-3.0](LICENSE.md). Third-party notices are in [NOTICE](NOTICE).

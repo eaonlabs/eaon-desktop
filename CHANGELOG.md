@@ -3,11 +3,6 @@
 All notable changes to Eaon are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/) — newest release on top.
 
-## [Unreleased]
-
-### Changed
-- **Eaon is now under the Apache License 2.0**, instead of the GPL-3.0. Releases up to 2026.7.2.1 were published under the GPL-3.0.
-
 ## [2026.7.2.1] — 2026-10-28
 
 The app reports this release as 2026.7.3: an app's version has three numbers, and updates compare them.
