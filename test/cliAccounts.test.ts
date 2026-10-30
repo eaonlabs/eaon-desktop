@@ -19,7 +19,7 @@ import {
   type LimitNotice,
   type UsageWindow
 } from '@shared/cliAccounts'
-import { claudeCachedUsage, claudeStatus, codexAccount, codexUsage } from '../src/main/features/cliAccounts/parse'
+import { claudeCachedUsage, claudeLiveUsage, claudeStatus, codexAccount, codexUsage } from '../src/main/features/cliAccounts/parse'
 import { hasRollout, prepareFolder, removeFolder, SHARED } from '../src/main/features/cliAccounts/folders'
 import { findCli } from '../src/main/features/cliAccounts/cli'
 import { CliAccounts, firstUrl, SLOW_FRESH_MS, stripAnsi, type CliRunner, type LoginProcess } from '../src/main/features/cliAccounts/service'
@@ -163,7 +163,7 @@ test('a Claude plan’s limits are read from what Claude Code keeps, never from 
   assert.ok(locked?.windows[0].reached && locked.windows[0].severity === 'critical', 'a limit Claude Code says is hit')
 })
 
-test('a Claude plan shows the limits Claude Code last saw, with when it saw them', async () => {
+test('a Claude Code that can’t report its limits live: the ones it last saw, with when it saw them', async () => {
   const h = harness()
   try {
     const fetched = h.clock() - 12 * 60_000
@@ -175,7 +175,65 @@ test('a Claude plan shows the limits Claude Code last saw, with when it saw them
     assert.equal(claude.asOf, fetched, 'as Claude Code fetched them 12 minutes ago')
     assert.equal(claude.plan, 'max')
     assert.deepEqual(claude.windows.map((w) => `${w.label} ${w.percent}%`), ['Session 39%', 'Week 45%'])
-    assert.ok(!h.script.calls.some((c) => /usage|print/.test(c)), 'no Claude Code was started to ask')
+    assert.ok(!h.script.calls.some((c) => /usage|print/.test(c)), 'never a print-mode Claude Code, nor a /usage typed into one')
+  } finally {
+    h.cleanup()
+  }
+})
+
+/** Claude Code's answer to the Agent SDK's request for its /usage data, as a Max plan's came back. */
+const LIVE_LIMITS = {
+  subscription_type: 'max',
+  rate_limits_available: true,
+  rate_limits: {
+    five_hour: { utilization: 19, resets_at: '2026-10-07T20:20:00.300458+00:00', limit_dollars: null, used_dollars: null, locked_reason: null },
+    seven_day: { utilization: 72, resets_at: '2026-10-08T23:00:00+00:00', limit_dollars: null, used_dollars: null, locked_reason: null },
+    seven_day_oauth_apps: null,
+    seven_day_opus: null,
+    seven_day_sonnet: { utilization: 0, resets_at: null },
+    // Anthropic's own codenames: not windows the meter knows.
+    iguana_necktie: { utilization: 0, resets_at: '2026-11-05T07:59:00+00:00', limit_dollars: 250, used_dollars: 0, locked_reason: null },
+    model_scoped: [{ display_name: 'Fable', utilization: 31, resets_at: '2026-10-10T00:00:00Z' }],
+    extra_usage: { is_enabled: false, monthly_limit: null, used_credits: null, utilization: null }
+  }
+}
+
+test('a Claude plan’s limits as Claude Code reports them when asked: its windows, and nothing it calls by codename', () => {
+  const now = Date.parse('2026-10-07T18:00:00Z')
+  const live = claudeLiveUsage(LIVE_LIMITS, now)
+  assert.equal(live?.asOf, now, 'as of now: Claude Code fetched them for this answer')
+  assert.deepEqual(live?.windows.map((w) => `${w.label} ${w.percent}%`), ['Session 19%', 'Week 72%', 'Fable week 31%'])
+  assert.equal(live?.windows[0].resetsAt, Date.parse('2026-10-07T20:20:00.300458Z'))
+  assert.equal(claudeLiveUsage({ rate_limits_available: false, rate_limits: null, subscription_type: null }, now), null, 'a key: no plan limits')
+  assert.equal(claudeLiveUsage(null, now), null)
+  assert.equal(claudeLiveUsage({ some: 'other shape' }, now), null, 'an answer of another shape (the request is experimental)')
+})
+
+test('a Claude plan’s limits are asked of Claude Code, with no session open; when it can’t answer, what it last saw', async () => {
+  let answer: unknown = LIVE_LIMITS
+  const h = harness(['claude'], { claudeLimits: async () => answer })
+  try {
+    h.script.claude.set(null, { status: { loggedIn: true, authMethod: 'claude.ai', subscriptionType: 'max' }, config: claudeConfigWith(h.clock() - 3 * 3600_000) })
+    await h.service.refresh()
+    const live = h.service.state().usage[usageKey('claude', DEFAULT_ACCOUNT_ID)]
+    assert.ok(live?.ok)
+    assert.equal(live.asOf, h.clock(), 'just now, not three hours ago')
+    assert.deepEqual(live.windows.map((w) => `${w.label} ${w.percent}%`), ['Session 19%', 'Week 72%', 'Fable week 31%'])
+
+    // A Claude Code that can't answer (older, or the request changed): the figures it last kept.
+    h.tick(31 * 60_000)
+    answer = null
+    await h.service.refresh()
+    const kept = h.service.state().usage[usageKey('claude', DEFAULT_ACCOUNT_ID)]
+    assert.ok(kept?.ok)
+    assert.equal(kept.asOf, Date.parse('2026-10-07T18:00:00Z') - 3 * 3600_000, 'from its settings file, with when it saw them')
+
+    // Signed out or on a key: nothing is started to ask.
+    h.tick(31 * 60_000)
+    h.script.calls.length = 0
+    h.script.claude.set(null, { status: { loggedIn: true, authMethod: 'console_api_key' } })
+    await h.service.refresh()
+    assert.ok(!h.script.calls.some((c) => c.startsWith('claude limits')), 'a key has no plan limits to ask about')
   } finally {
     h.cleanup()
   }
@@ -191,7 +249,7 @@ interface Script {
   loggedOut: string[]
 }
 
-function harness(installed: CliTool[] = ['claude', 'codex'], options: { autoSwitch?: boolean } = {}) {
+function harness(installed: CliTool[] = ['claude', 'codex'], options: { autoSwitch?: boolean; claudeLimits?: (dir: string | null) => Promise<unknown> } = {}) {
   const { root, home, cleanup } = scratch()
   let clock = Date.parse('2026-10-07T18:00:00Z')
   let saved: unknown = {}
@@ -205,6 +263,14 @@ function harness(installed: CliTool[] = ['claude', 'codex'], options: { autoSwit
       return script.claude.get(dir)?.status ?? { loggedIn: false }
     },
     claudeConfig: async (dir) => script.claude.get(dir)?.config ?? null,
+    ...(options.claudeLimits
+      ? {
+          claudeLimits: async (_bin: string, dir: string | null) => {
+            script.calls.push(`claude limits ${dir ?? 'default'}`)
+            return options.claudeLimits!(dir)
+          }
+        }
+      : {}),
     codexRead: async (_bin, dir) => {
       script.calls.push(`codex read ${dir ?? 'default'}`)
       return script.codex.get(dir) ?? { account: { account: null }, limits: null }
@@ -287,7 +353,7 @@ test('the default accounts are read once, then not again until the figures go st
   }
 })
 
-test('signed out, an API key, a Claude plan and a missing CLI each say so; Claude Code is never started to read limits', async () => {
+test('signed out, an API key, a Claude plan with nothing to show and a missing CLI each say so; never a print-mode Claude Code', async () => {
   const h = harness(['claude'])
   try {
     h.script.claude.set(null, { status: { loggedIn: false } })

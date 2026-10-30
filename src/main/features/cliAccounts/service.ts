@@ -19,7 +19,7 @@ import {
   type CliToolAccounts,
   CLAUDE_LIMITS_NOTE
 } from '@shared/cliAccounts'
-import { claudeCachedUsage, claudeStatus, codexAccount, codexUsage } from './parse'
+import { claudeCachedUsage, claudeLiveUsage, claudeStatus, codexAccount, codexUsage } from './parse'
 import { DIR_VARIABLE } from './cli'
 import { prepareFolder, removeFolder } from './folders'
 
@@ -46,6 +46,8 @@ export interface CliRunner {
   claudeStatus: (bin: string, dir: string | null) => Promise<unknown>
   /** Claude Code's settings file for an account (cli.ts, claudeConfig): only read, for the limits it keeps there. */
   claudeConfig?: (dir: string | null) => Promise<unknown>
+  /** A plan's limits, asked of Claude Code itself (cli.ts, claudeLimits). */
+  claudeLimits?: (bin: string, dir: string | null) => Promise<unknown>
   codexRead: (bin: string, dir: string | null) => Promise<{ account: unknown; limits: unknown | null }>
   logout: (tool: CliTool, bin: string, dir: string) => Promise<void>
 }
@@ -264,10 +266,12 @@ export class CliAccounts {
         this.saved.usage[key] = { ok: false, at, reason: 'no-limits', message: 'Signed in with an API key: billed per use, no plan limits' }
         return
       }
-      // A Claude plan's limits come only from Claude Code: Eaon doesn't start it to
-      // ask (Anthropic's terms for other apps), but reads what it last saw from the
-      // settings file it keeps them in. With none there yet, it says where to look.
-      const cached = claudeCachedUsage(await this.deps.runner.claudeConfig?.(account.dir).catch(() => null))
+      // A Claude plan's limits come only from Claude Code, never from Anthropic with
+      // its token (Anthropic's terms for other apps): asked of Claude Code itself, which
+      // fetches them with its own sign-in, without a session open. When it can't
+      // answer, what it last saw, from the settings file it keeps them in.
+      const live = claudeLiveUsage(await this.deps.runner.claudeLimits?.(bin, account.dir).catch(() => null), at)
+      const cached = live ?? claudeCachedUsage(await this.deps.runner.claudeConfig?.(account.dir).catch(() => null))
       this.saved.usage[key] = cached
         ? { ok: true, at, asOf: cached.asOf, plan: status.plan, windows: cached.windows }
         : { ok: false, at, reason: 'in-cli', message: CLAUDE_LIMITS_NOTE }
