@@ -24,7 +24,7 @@ Apps that broke these rules lost their users' accounts. Google suspended account
 | ChatGPT (Plus, Pro, Business…) | Codex (on its own, or inside the ChatGPT app) | Codex's app-server, the protocol OpenAI's own IDE extension uses | Model picker → Codex; Settings → Agent engines |
 | GitHub Copilot | Copilot CLI (`npm install -g @github/copilot`) | Copilot CLI's ACP server, which GitHub documents for "custom frontends" | Model picker → GitHub Copilot; Settings → Agent engines |
 | Google account | Gemini CLI (`npm install -g @google/gemini-cli`) | Gemini CLI's ACP mode. Gemini CLI is Google's reference ACP agent, built with Zed | Model picker → Gemini CLI; Settings → Agent engines |
-| Claude (Pro, Max) | Claude Code (`npm install -g @anthropic-ai/claude-code`) | Anthropic's [Agent SDK](https://code.claude.com/docs/en/agent-sdk/overview), running your own Claude Code (see below) | Model picker → Claude Agent; Settings → Agent engines |
+| Claude (Pro, Max) | Claude Code (`npm install -g @anthropic-ai/claude-code`) | Anthropic's [Agent SDK](https://code.claude.com/docs/en/agent-sdk/overview), running your own Claude Code (see below) | Model picker → Claude Agent; Settings → Model providers → Claude Agent |
 
 ACP is the [Agent Client Protocol](https://agentclientprotocol.com), the open protocol that editors such as Zed and JetBrains use to run coding agents.
 
@@ -44,7 +44,14 @@ Tool calls the app makes, such as running a command or editing a file, go throug
 
 ## Claude plans
 
-Eaon runs your own Claude Code through Anthropic's Agent SDK, the library Anthropic publishes for running Claude Code from other apps. Claude Code signs in and makes every request itself, so a turn uses your Claude plan's limits (or your key, if Claude Code is set up with one).
+Eaon runs your own Claude Code through Anthropic's Agent SDK, the library Anthropic publishes for running Claude Code from other apps. Claude Code signs in and makes every request itself, so a turn uses your Claude plan's limits.
+
+There are two ways to use it:
+
+- **Claude Agent** (Model picker → Claude Agent). Claude models running Eaon's own agent: Eaon's tools, approvals, memory, workers and history, the same as any other model in Eaon, so you can switch models mid-chat. Claude Code supplies only the model. Its built-in tools, its settings, CLAUDE.md files, hooks and memory are switched off for these sessions, and Eaon's tools are offered to it as an MCP server inside Eaon. Eaon's instructions follow Claude Code's own system prompt, with a note that it is running in Eaon.
+- **The Claude engine** (Settings → Agent engines, and a worker's engine). Claude Code's own agent, with its own tools and your Claude Code settings, inside Eaon. Claude Code's system prompt is left as it is.
+
+A conversation keeps one Claude session for as long as it and Eaon's history agree, so follow-ups reuse Claude's prompt cache. After an edit, a compaction or another model's turns, Claude starts a new session that opens with the conversation so far. The Local API Server never offers Claude Agent: a Claude plan is yours alone, not for other apps through Eaon.
 
 Anthropic's rules, as of October 2026:
 
@@ -75,5 +82,6 @@ Other ways to use Claude in Eaon:
 ## For developers
 
 - The engines are in `src/main/engines/`: `codex/` for Codex, `claude/` for Claude Code through the Agent SDK, and `acp/` for Copilot and Gemini CLI.
+- Claude Agent, the provider, is in `src/main/providers/claudeAgent/`: `adapter.ts` keeps each conversation's session, `session.ts` runs Claude Code and holds each tool call for Eaon's loop, `tools.ts` is the MCP server, and `history.ts` decides when a session can go on.
 - An agent belongs in `acp/agents.ts` only when its maker documents ACP for other apps.
 - Before adding one, check the maker's terms for apps that run their agent with the user's own sign-in, and link the page in the agent's `docs`.

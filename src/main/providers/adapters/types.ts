@@ -90,6 +90,8 @@ export interface TurnRequest {
    * server asks (`max_tokens`). Lowers the adapter's own cap; never raises it.
    */
   outputCap?: number
+  /** The folder the agent works in, for an adapter that runs a program there (Claude Agent). */
+  cwd?: string
 }
 
 /** An adapter's output cap, lowered to the caller's `outputCap` when there is one. */

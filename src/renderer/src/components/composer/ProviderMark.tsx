@@ -57,6 +57,7 @@ const MARK: Record<string, string> = {
   'gemini-cli': 'geminicli',
   azure: 'azure',
   anthropic: 'anthropic',
+  'claude-agent': 'anthropic',
   openrouter: 'openrouter',
   mistral: 'mistral',
   groq: 'groq',

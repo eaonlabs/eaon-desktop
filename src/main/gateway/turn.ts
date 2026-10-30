@@ -61,6 +61,8 @@ export async function runGatewayTurn(turn: GatewayTurn): Promise<TurnResult> {
 async function attemptGatewayTurn(turn: GatewayTurn): Promise<TurnResult> {
   const provider = getProvider(turn.providerId)
   if (!provider) throw new Error(`Eaon has no provider "${turn.providerId}".`)
+  // A Claude plan is its owner's alone: never for other apps through the Local API Server (gateway/models.ts).
+  if (provider.kind === 'claude-agent') throw new Error('Claude Agent runs only inside Eaon, on your own Claude plan. Other apps can’t use it through the Local API Server.')
   const adapter = adapterFor(provider, { track: false })
   const model = provider.models.find((m) => m.id === turn.modelId)
   const attempts = await credentialAttempts(provider)

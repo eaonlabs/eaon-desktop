@@ -12,6 +12,7 @@ import { ollamaAdapter, ollamaHost } from './adapters/ollama'
 import { openaiChatAdapter } from './adapters/openaiChat'
 import { openaiResponsesAdapter } from './adapters/openaiResponses'
 import { routerAdapter } from './adapters/router'
+import { claudeAgentAdapter, listClaudeAgentModels } from './claudeAgent'
 import { describeErrorBody, ProviderHttpError, retryAfterFrom, type Adapter } from './adapters/types'
 import { BUILT_IN, LEGACY_DEFAULT_URLS, providerMeta } from './catalog'
 import { anthropicCompat, authHeaders, chatCompat, effortReaches, isMixedApiProvider, isOwnServerUrl, normalizeBaseUrl, requestBase, vendorOf } from './compat'
@@ -53,6 +54,7 @@ export function registerAdapter(kind: Provider['kind'], adapter: Adapter): void 
 
 registerAdapter('openai-responses', openaiResponsesAdapter)
 registerAdapter('ollama', ollamaAdapter)
+registerAdapter('claude-agent', claudeAgentAdapter)
 
 /** Anthropic-compatible hosts get the same adapter, minus server-side context clearing. */
 const anthropicCompatibleAdapter: Adapter = { ...anthropicAdapter, managesContext: false }
@@ -153,7 +155,7 @@ export function adapterFor(provider: Provider, options: { track?: boolean } = {}
  * policy turns off; the ChatGPT plan lists its own set), so once one exists
  * it bounds the catalog. Everywhere else a listing only adds to it.
  */
-const LISTING_IS_ENTITLEMENT = new Set(['github-copilot', 'chatgpt'])
+const LISTING_IS_ENTITLEMENT = new Set(['github-copilot', 'chatgpt', 'claude-agent'])
 
 /**
  * Of those, the plans whose list is kept apart from the catalog by marking,
@@ -594,6 +596,7 @@ export async function refreshModels(providerId: string): Promise<ModelInfo[]> {
 async function fetchListing(provider: Provider): Promise<ModelInfo[]> {
   const providerId = provider.id
   if (provider.kind === 'ollama') return listOllamaModels(provider)
+  if (provider.kind === 'claude-agent') return listClaudeAgentModels(providerId)
 
   const [credentials] = await credentialAttempts(provider)
   const vendor = vendorOf(provider, credentials.baseUrl ?? provider.baseUrl)

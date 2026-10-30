@@ -537,6 +537,7 @@ export const BRAND_ICONS: Record<string, (props: TileProps) => JSX.Element> = {
   'gemini-cli': LOGOS.geminiCli,
   azure: AzureIcon,
   anthropic: AnthropicIcon,
+  'claude-agent': AnthropicIcon,
   openrouter: OpenRouterIcon,
   mistral: MistralIcon,
   groq: GroqIcon,

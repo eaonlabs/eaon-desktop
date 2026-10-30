@@ -5,6 +5,8 @@ import type { EngineAuth, EngineModel, EngineModels, EngineStatus } from '@share
 import type { EffortLevel } from '@shared/types'
 import { EngineError, type EngineAdapter, type EngineTurnInput, type EngineTurnResult } from '../types'
 import { ClaudeTurn } from './turn'
+import { noteClaudeCodeStatus } from './status'
+import { claudeCodeEnv } from './env'
 
 /**
  * Claude as an Eaon engine: the user's own Claude Code, run through
@@ -60,7 +62,7 @@ export interface ClaudeEngineDeps {
 }
 
 /** Eaon's effort names and the Agent SDK's. */
-const TO_SDK: Partial<Record<EffortLevel, 'low' | 'medium' | 'high' | 'xhigh' | 'max'>> = {
+export const TO_SDK: Partial<Record<EffortLevel, 'low' | 'medium' | 'high' | 'xhigh' | 'max'>> = {
   minimal: 'low',
   light: 'low',
   medium: 'medium',
@@ -163,16 +165,8 @@ export class ClaudeEngine implements EngineAdapter {
     return this.deps.query ?? ((await import('@anthropic-ai/claude-agent-sdk')).query as QueryFn)
   }
 
-  /**
-   * Claude Code's environment, without what would take it off the user's
-   * plan or over Eaon's choices: a key there would win over their sign-in and
-   * be charged per use, `CLAUDE_CODE_SIMPLE` skips the sign-in altogether, and
-   * a shell's `CLAUDE_CODE_EFFORT_LEVEL` would override the effort picked here.
-   */
   private env(): Record<string, string | undefined> {
-    const env: Record<string, string | undefined> = { ...this.deps.env(), CLAUDE_AGENT_SDK_CLIENT_APP: `eaon/${this.deps.clientVersion}` }
-    for (const name of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_SIMPLE', 'CLAUDE_CODE_EFFORT_LEVEL']) delete env[name]
-    return env
+    return claudeCodeEnv(this.deps.env(), this.deps.clientVersion)
   }
 
   async detect(options: { force?: boolean } = {}): Promise<EngineStatus> {
@@ -194,14 +188,20 @@ export class ClaudeEngine implements EngineAdapter {
       error: null,
       checkedAt: this.now()
     }
-    if (!path) return (this.status = status)
+    if (!path) return this.noted(status)
     const env = this.env()
     const [version, auth] = await Promise.all([this.deps.run(path, ['--version'], env), this.deps.run(path, ['auth', 'status', '--json'], env)])
     status.version = /\d+\.\d+\.\d+/.exec(version.stdout)?.[0] ?? null
     if (!version.ok || !status.version) status.error = 'Claude Code didn’t start. Try running claude in a terminal.'
     // `auth status` exits non-zero when signed out, with the JSON still printed.
     else status.auth = authOf(auth.stdout)
-    return (this.status = status)
+    return this.noted(status)
+  }
+
+  private noted(status: EngineStatus): EngineStatus {
+    this.status = status
+    noteClaudeCodeStatus(status)
+    return status
   }
 
   async listModels(options: { force?: boolean } = {}): Promise<EngineModels> {
@@ -272,8 +272,8 @@ export class ClaudeEngine implements EngineAdapter {
   /** A turn found the sign-in gone: say so everywhere, not only in this turn's error. */
   private signedOut(): void {
     if (!this.status) return
-    this.status = { ...this.status, auth: { state: 'signed-out', method: null, plan: null }, checkedAt: this.now() }
-    for (const listener of this.listeners) listener(this.status)
+    this.noted({ ...this.status, auth: { state: 'signed-out', method: null, plan: null }, checkedAt: this.now() })
+    for (const listener of this.listeners) listener(this.status!)
   }
 
   async runTurn(input: EngineTurnInput): Promise<EngineTurnResult> {

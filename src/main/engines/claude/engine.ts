@@ -11,13 +11,8 @@ import { ClaudeEngine } from './index'
 export function claudeEngine(): ClaudeEngine {
   return new ClaudeEngine({
     which: onPath,
-    // The Claude account chosen in Settings → Accounts, as the ADE's Claude Code panes run. An Eaon
-    // started from inside a Claude Code session (a developer's terminal) doesn't pass that session on.
-    env: () => {
-      const env: Record<string, string | undefined> = { ...process.env, ...cliToolEnv('claude') }
-      for (const name of Object.keys(env)) if (name === 'CLAUDECODE' || name === 'CLAUDE_CODE_ENTRYPOINT' || name === 'CLAUDE_CODE_SSE_PORT') delete env[name]
-      return env
-    },
+    // The Claude account chosen in Settings → Accounts, as the ADE's Claude Code panes run (env.ts trims it).
+    env: () => ({ ...process.env, ...cliToolEnv('claude') }),
     run: (command, args, env) => {
       const spec = spawnSpec(command, args)
       return new Promise((resolve) => {

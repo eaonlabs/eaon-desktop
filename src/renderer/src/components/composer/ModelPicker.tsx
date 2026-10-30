@@ -90,7 +90,9 @@ export function ModelPicker({
       onPick
         ? []
         : cliEngines
-            .filter((e) => e.status && (e.id === 'codex' || e.status.installed))
+            // Claude's tab is Claude Agent's, the provider (Eaon's own agent on the Claude plan); the
+            // Claude engine, Claude Code's own agent, stays a choice for workers and in Settings.
+            .filter((e) => e.status && e.id !== 'claude' && (e.id === 'codex' || e.status.installed))
             .map((e) => ({
               id: e.id,
               tab: `${ENGINE_TAB}${e.id}`,
