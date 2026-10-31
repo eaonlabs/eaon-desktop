@@ -185,9 +185,8 @@ export function EnginesPage(): JSX.Element {
       <h1 className="settings__h1">Agent engines</h1>
       <p className="settings__lede">
         An engine runs a whole agent: its own tools, sandbox, sign-in and models. Eaon&rsquo;s own engine runs on the
-        providers in Model providers. Codex, GitHub Copilot and Gemini CLI run on the copy you have installed, each
-        signed in with your own account, so Chat and workers use your own plan with them. Eaon never sees those
-        sign-ins.
+        providers in Model providers. Codex, Claude Code, GitHub Copilot and Gemini CLI run on the copy you have
+        installed, each signed in with your own account, so they use your own plan. Eaon never sees those sign-ins.
       </p>
 
       {loadError && (
@@ -477,7 +476,7 @@ const ACP_ENGINE: Record<SignInEngine, { logo: string; app: string; blurb: strin
     blurb: 'Anthropic’s agent, run by Eaon through the Claude Code you installed, with Anthropic’s Agent SDK.',
     plan: 'your Claude plan',
     signingIn: 'Finish signing in in the Terminal window Eaon opened (claude auth login). This updates when you’re done.',
-    how: 'Eaon runs your own Claude Code through Anthropic’s Agent SDK, and Claude Code makes every request itself with your sign-in, against your own plan or key. Eaon doesn’t read your account or tokens, or change Claude Code’s instructions.',
+    how: 'Eaon runs your own Claude Code through Anthropic’s Agent SDK, and Claude Code makes every request itself with your sign-in, on your Claude plan: Eaon won’t run a Claude Code signed in with an API key, which Anthropic charges per use. Eaon doesn’t read your account or tokens, or change Claude Code’s instructions.',
     docs: 'https://code.claude.com/docs/en/agent-sdk/overview'
   },
   copilot: {
