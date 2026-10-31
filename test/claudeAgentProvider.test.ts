@@ -26,13 +26,15 @@ type Reply = (
 interface Started {
   options: Options
   said: string[]
+  /** Each message's content blocks, as sent. */
+  blocks: { type: string }[][]
 }
 
 function fakeClaude(reply: Reply) {
   const started: Started[] = []
   let sessionCount = 0
   const query = ({ prompt, options }: { prompt: AsyncIterable<SDKUserMessage>; options?: Options }) => {
-    const run: Started = { options: options!, said: [] }
+    const run: Started = { options: options!, said: [], blocks: [] }
     started.push(run)
     const session = options?.resume ?? `claude-session-${++sessionCount}`
     const out: SDKMessage[] = []
@@ -57,6 +59,7 @@ function fakeClaude(reply: Reply) {
         const content = (message.message as { content: { type: string; text?: string }[] }).content
         const text = content.filter((c) => c.type === 'text').map((c) => c.text).join('')
         run.said.push(text)
+        run.blocks.push(content)
         const id = `msg-${++n}`
         emit({ type: 'stream_event', parent_tool_use_id: null, event: { type: 'message_start', message: { id, usage: { input_tokens: 100, cache_read_input_tokens: 50 } } } })
         await reply(text, {
@@ -406,4 +409,20 @@ test('a request with no folder (Chat, a title) runs in Claude Agent’s own, nev
     started.map((s) => s.options.cwd),
     ['/tmp/eaon-claude-agent', '/tmp/eaon-claude-agent']
   )
+})
+
+test('without Claude Code on this computer, a turn says how to install it, and nothing starts', async () => {
+  const { adapter, started } = adapterWith(async (_said, claude) => claude.say('x'), { executable: () => null })
+  await assert.rejects(() => adapter.turn(request([{ role: 'user', text: 'hi' }])), /Claude Code isn’t installed\. Install it with npm install -g @anthropic-ai\/claude-code/)
+  assert.equal(started.length, 0)
+})
+
+test('an attached image goes to Claude with the message, as an image block', async () => {
+  const { adapter, started } = adapterWith(async (_said, claude) => claude.say('A red square.'))
+  const image = { mime: 'image/png', data: 'iVBORw0KGgo=' }
+  await adapter.turn(request([{ role: 'user', text: 'What is this?', images: [image] }]))
+  assert.deepEqual(started[0].blocks[0], [
+    { type: 'text', text: 'What is this?' },
+    { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0KGgo=' } }
+  ])
 })
