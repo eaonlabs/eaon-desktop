@@ -1,4 +1,5 @@
 import { protocol } from 'electron'
+import { CAMERA_LIVE_MS } from '@shared/workerCards'
 import type { Connectors } from './connectors'
 
 /**
@@ -18,7 +19,7 @@ import type { Connectors } from './connectors'
 export const CAMERA_SCHEME = 'eaon-camera'
 const ENTITY = /^camera\.[a-z0-9_]+$/
 /** A live view this long ends by itself; Watch live starts it again. */
-export const LIVE_MAX_MS = 5 * 60_000
+export const LIVE_MAX_MS = CAMERA_LIVE_MS
 
 export function cameraRequest(connectors: Connectors, url: string, signal?: AbortSignal, http: typeof fetch = fetch): Promise<Response> | Response {
   let parsed: URL

@@ -30,6 +30,7 @@ import {
 } from 'lucide-react'
 import type { ChatToolPart } from '@shared/types'
 import {
+  CAMERA_LIVE_MS,
   CARD_IMAGE_MARK,
   normalizeCard,
   ORDER_LABEL,
@@ -613,6 +614,16 @@ function CameraView({ entity, title, at, image }: { entity: string; title: strin
     const timer = setInterval(() => setTick(Date.now()), STILL_EVERY_MS)
     return () => clearInterval(timer)
   }, [live, stills])
+  // Main ends a live view after CAMERA_LIVE_MS, which would leave its last frame up still saying "live":
+  // the card goes back to a picture then, and Watch live starts it again.
+  useEffect(() => {
+    if (!live) return
+    const timer = setTimeout(() => {
+      setLive(false)
+      setTick(Date.now())
+    }, CAMERA_LIVE_MS)
+    return () => clearTimeout(timer)
+  }, [live])
   const src = live
     ? stills
       ? `eaon-camera://still/${entity}?t=${tick}`

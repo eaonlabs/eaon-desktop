@@ -173,6 +173,9 @@ export function cardActions(value: unknown): CardAction[] | undefined {
  * The card a show_card call describes, or why it can't be shown. Field names
  * follow the tool's schema (snake_case from the model; camelCase accepted).
  */
+/** A camera card's live view ends by itself after this long (main ends Home Assistant's stream, the card goes back to a picture); Watch live starts it again. */
+export const CAMERA_LIVE_MS = 5 * 60_000
+
 /** Home Assistant entities a card's switch may flip on its own: on and off is all they do. */
 export const SWITCHABLE_DOMAINS = ['light', 'switch', 'fan', 'input_boolean', 'media_player']
 
