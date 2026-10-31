@@ -114,11 +114,27 @@ export function createConnectors(deps: ConnectorDeps) {
       const { url, headers } = ha.base()
       return (await request('Home Assistant', `${url}/api/states/${encodeURIComponent(entity)}`, { headers })) as HaState
     },
-    async call(domain: string, service: string, data: Record<string, unknown>): Promise<HaState[]> {
+    /**
+     * Calls a service: the states it changed, and what it answered for one
+     * that returns data (todo.get_items, calendar.get_events,
+     * weather.get_forecasts). Home Assistant refuses those with a 400 unless
+     * the call asks for the answer (?return_response), and refuses that
+     * question from a service that has none, both before anything runs; so
+     * the call is made plainly, and again asking, only when it says to.
+     */
+    async call(domain: string, service: string, data: Record<string, unknown>): Promise<{ changed: HaState[]; response?: unknown }> {
       if (!/^[a-z0-9_]+$/.test(domain) || !/^[a-z0-9_]+$/.test(service)) throw new ConnectorError('domain and service are lower-case words, like light and turn_on.')
       const { url, headers } = ha.base()
-      const changed = await request('Home Assistant', `${url}/api/services/${domain}/${service}`, { method: 'POST', headers, body: JSON.stringify(data) })
-      return Array.isArray(changed) ? (changed as HaState[]) : []
+      const at = `${url}/api/services/${domain}/${service}`
+      const init = { method: 'POST', headers, body: JSON.stringify(data) }
+      try {
+        const changed = await request('Home Assistant', at, init)
+        return { changed: Array.isArray(changed) ? (changed as HaState[]) : [] }
+      } catch (error) {
+        if (!(error instanceof ConnectorError) || !/answered 400\b[\s\S]*(requires responses|return_response)/.test(error.message)) throw error
+        const reply = (await request('Home Assistant', `${at}?return_response`, init)) as { changed_states?: HaState[]; service_response?: unknown } | null
+        return { changed: Array.isArray(reply?.changed_states) ? reply.changed_states : [], response: reply?.service_response ?? null }
+      }
     },
     async snapshot(entity: string): Promise<{ bytes: Buffer; type: string }> {
       if (!/^camera\.[a-z0-9_]+$/.test(entity)) throw new ConnectorError('A snapshot needs a camera entity, like camera.front_door.')
@@ -456,10 +472,23 @@ const TESLA_OPENS = new Set<string>(['unlock', 'activate_front_trunk', 'activate
  * off — a lock opened, a garage or gate opened, an alarm disarmed: always
  * the user's call, however free the worker is otherwise.
  */
-export function opensTheHouse(domain: string, service: string, entity: string): boolean {
+export function opensTheHouse(domain: string, service: string, entity: string, data: Record<string, unknown> = {}): boolean {
   if (domain === 'lock' && (service === 'unlock' || service === 'open')) return true
   if (domain === 'alarm_control_panel' && service.startsWith('alarm_disarm')) return true
-  if (domain === 'cover' && (service === 'open_cover' || service === 'toggle') && /garage|gate|door/.test(entity)) return true
+  // Who the call is for: `entity`, and the entity_id the data names too (one, a list, or "all"),
+  // since that's what Home Assistant acts on. A call aimed by area, device or label can't be told.
+  const named = [entity, ...[data.entity_id].flat().flatMap((e) => (typeof e === 'string' ? e.split(',') : []))].map((e) => e.trim().toLowerCase()).filter(Boolean)
+  const unseen = named.length === 0 || named.includes('all') || ['area_id', 'device_id', 'floor_id', 'label_id'].some((k) => data[k] !== undefined)
+  const doorway = (e: string): boolean => /garage|gate|door/.test(e)
+  const opens =
+    service === 'open_cover' ||
+    service === 'toggle' ||
+    (service === 'set_cover_position' && !(Number(data.position) <= 0))
+  if (domain === 'cover' && opens) return unseen || named.some(doorway)
+  // homeassistant.turn_on and toggle open a cover as cover.open_cover would; a lock or an alarm named through it is asked about too.
+  if (domain === 'homeassistant' && (service === 'turn_on' || service === 'toggle' || service === 'turn_off')) {
+    return named.some((e) => /^(lock|alarm_control_panel)\./.test(e) || (e.startsWith('cover.') && service !== 'turn_off' && doorway(e)))
+  }
   return false
 }
 
@@ -501,7 +530,7 @@ export function connectorTools(engine: WorkersEngine, connectors: Connectors, li
     tools.push({
       name: 'home',
       description:
-        'Home Assistant: the devices at home. devices {search?, domain?} lists them (vacuum, lock, climate, camera, light, cover, event…) with their state. state {entity}. do {domain, service, entity, data?} calls a service — vacuum.start / return_to_base, lock.lock, climate.set_temperature {temperature}, light.turn_on {brightness_pct}, cover.close_cover. snapshot {entity: camera.x} saves a picture to your folder; to show a camera, show_card {kind: camera, entity: camera.x} draws its picture now and a live view the user can watch. Opening locks, garages or gates and disarming alarms wait for the user.',
+        'Home Assistant: the devices at home. devices {search?, domain?} lists them (vacuum, lock, climate, camera, light, cover, event…) with their state. state {entity}. do {domain, service, entity, data?} calls a service — vacuum.start / return_to_base, lock.lock, climate.set_temperature {temperature}, light.turn_on {brightness_pct}, cover.close_cover; services that answer with data (todo.get_items, calendar.get_events {duration: {hours}}, weather.get_forecasts {type: daily}) return it. snapshot {entity: camera.x} saves a picture to your folder; to show a camera, show_card {kind: camera, entity: camera.x} draws its picture now and a live view the user can watch. Opening locks, garages or gates and disarming alarms wait for the user.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -516,7 +545,8 @@ export function connectorTools(engine: WorkersEngine, connectors: Connectors, li
       },
       mutating: (input) => input.action === 'do',
       risky: (input) => input.action === 'do',
-      catastrophic: (input) => input.action === 'do' && opensTheHouse(str(input.domain), str(input.service), str(input.entity)),
+      catastrophic: (input) =>
+        input.action === 'do' && opensTheHouse(str(input.domain), str(input.service), str(input.entity), input.data && typeof input.data === 'object' && !Array.isArray(input.data) ? (input.data as Record<string, unknown>) : {}),
       describe: (input) => (input.action === 'do' ? `${str(input.domain)}.${str(input.service)} ${str(input.entity)}` : `${str(input.action)} ${str(input.search ?? input.entity)}`.trim()),
       run: async (input, ctx) => {
         self(ctx)
@@ -539,8 +569,9 @@ export function connectorTools(engine: WorkersEngine, connectors: Connectors, li
           case 'do': {
             const entity = str(input.entity)
             const data = input.data && typeof input.data === 'object' && !Array.isArray(input.data) ? (input.data as Record<string, unknown>) : {}
-            const changed = await connectors.ha.call(str(input.domain), str(input.service), entity ? { entity_id: entity, ...data } : data)
-            return changed.length ? `Done. Now:\n${changed.slice(0, 10).map(entityLine).join('\n')}` : `Called ${str(input.domain)}.${str(input.service)}.`
+            const { changed, response } = await connectors.ha.call(str(input.domain), str(input.service), entity ? { entity_id: entity, ...data } : data)
+            const answer = response === undefined ? '' : `\nIt answered:\n${JSON.stringify(response, null, 1).slice(0, 6000)}`
+            return changed.length ? `Done. Now:\n${changed.slice(0, 10).map(entityLine).join('\n')}${answer}` : `Called ${str(input.domain)}.${str(input.service)}.${answer}`
           }
           case 'snapshot': {
             const entity = str(input.entity)
