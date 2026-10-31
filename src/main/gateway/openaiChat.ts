@@ -2,7 +2,7 @@ import type { ServerResponse } from 'node:http'
 import type { EffortLevel, TokenUsage } from '@shared/types'
 import { toolInput, type NeutralImage, type NeutralMessage, type NeutralToolResult, type ToolSpec, type TurnResult } from '../providers/adapters/types'
 import type { GatewayScope } from '@shared/gateway'
-import { noModelMessage, resolveGatewayModel } from './models'
+import { noModelMessage, refusedGatewayModel, resolveGatewayModel } from './models'
 import { runGatewayTurn, statusFor } from './turn'
 import { argumentsJson, cap, clientToolId, dataUrlImage, errorMessage, newId, openaiEffort, sendJson, sseData, startSse, tidy } from './wire'
 
@@ -136,6 +136,11 @@ export async function serveChatCompletions(res: ServerResponse, body: Record<str
   const parsed = parseChatRequest(body)
   if ('error' in parsed) {
     sendJson(res, 400, { error: { message: parsed.error, type: 'invalid_request_error' } })
+    return
+  }
+  const refused = refusedGatewayModel(parsed.model)
+  if (refused) {
+    sendJson(res, 403, { error: { message: refused, type: 'permission_error' } })
     return
   }
   const resolved = resolveGatewayModel(parsed.model, scope)

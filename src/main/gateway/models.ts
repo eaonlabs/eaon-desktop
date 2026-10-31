@@ -25,6 +25,21 @@ export function gatewayProviders(scope: GatewayScope = 'all'): Provider[] {
   return listProviders().filter((p) => isProviderUsable(p) && !isOwnServerUrl(p.baseUrl) && p.kind !== 'claude-agent')
 }
 
+/** What an app is told when it asks for Claude Agent. */
+export const CLAUDE_AGENT_REFUSED = 'Claude Agent runs only inside Eaon, on your own Claude plan. Other apps can’t use it through the Local API Server.'
+
+/**
+ * A request naming a Claude Agent model (`claude-agent/haiku`): refused in
+ * words. Without this it was quietly given the default model instead, as an
+ * app's own names are, and answered as if Claude had.
+ */
+export function refusedGatewayModel(requested: string | undefined | null): string | null {
+  const name = requested?.trim().toLowerCase()
+  if (!name) return null
+  const claude = listProviders().filter((p) => p.kind === 'claude-agent')
+  return claude.some((p) => name.startsWith(`${p.id.toLowerCase()}/`)) ? CLAUDE_AGENT_REFUSED : null
+}
+
 export function gatewayModels(scope: GatewayScope = 'all'): GatewayModel[] {
   return gatewayProviders(scope).flatMap((provider) =>
     provider.models.map((model) => ({
