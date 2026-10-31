@@ -33,7 +33,7 @@ import { remoteBrowserFrame, setRemoteBrowsers, type RemoteBrowsers } from './ag
 import { channelsHandle, type ChannelsData, type ChannelsHandle } from './channels'
 import { workersService } from './workers'
 import { pickPasswordsExport, type WorkersService } from './workers/service'
-import { EXPORT_FOLDERS, openPasswords, waitForPasswordsExport } from './workers/passwordsExport'
+import { EXPORT_FOLDERS, EXPORT_WAIT_ENDED, openPasswords, waitForPasswordsExport } from './workers/passwordsExport'
 import type { Feature, FeatureContext } from './types'
 
 /**
@@ -324,6 +324,11 @@ export function createWorkerHost(ctx: FeatureContext, workers: WorkersService, c
             ctx.send('workers:vault-import-found', { ...result, file, trashed })
           })
           .catch((error: unknown) => ctx.send('workers:vault-import-found', { error: errorText(error) }))
+      }, {
+        gaveUp: () => {
+          importWait = null
+          ctx.send('workers:vault-import-found', { error: EXPORT_WAIT_ENDED })
+        }
       })
       await openPasswords()
       return { folders: EXPORT_FOLDERS() }

@@ -1,7 +1,11 @@
 import { afterEach, beforeEach, test } from 'node:test'
 import assert from 'node:assert/strict'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { createConnectors, opensTheHouse, unreachable } from '../src/main/features/workers/connectors'
 import { createHue, stateBody, type HueBridge } from '../src/main/features/workers/hue'
+import { waitForPasswordsExport, EXPORT_WAIT_ENDED } from '../src/main/features/workers/passwordsExport'
 import { uberLink } from '@shared/workerLinks'
 import type { ConnectorId } from '@shared/workerConnectors'
 
@@ -210,4 +214,21 @@ test('Hue: a bridge paired by its address keeps its id, and is followed to a new
   assert.deepEqual(stateBody({ color: 'Warm white', brightness: 40 }), { bri: 102, on: true, ct: 370 })
   assert.deepEqual(stateBody({ color: 'daylight' }), { ct: 153, on: true })
   assert.deepEqual(stateBody({ color: 'white' }).xy !== undefined, true, 'plain white is still the colour')
+})
+
+test('Passwords: a wait that sees no export says so when it gives up, so the page isn’t left waiting', async () => {
+  const folder = mkdtempSync(join(tmpdir(), 'eaon-passwords-wait-'))
+  let gaveUp = 0
+  const found: string[] = []
+  const wait = waitForPasswordsExport((file) => found.push(file), { folders: [folder], waitMs: 30, gaveUp: () => gaveUp++ })
+  for (let i = 0; i < 100 && gaveUp === 0; i++) await new Promise((r) => setTimeout(r, 20))
+  wait.stop()
+  assert.equal(gaveUp, 1)
+  assert.deepEqual(found, [])
+  assert.match(EXPORT_WAIT_ENDED, /stopped looking/)
+  let stoppedEarly = 0
+  const stopped = waitForPasswordsExport(() => {}, { folders: [folder], waitMs: 30, gaveUp: () => stoppedEarly++ })
+  stopped.stop()
+  await new Promise((r) => setTimeout(r, 1200))
+  assert.equal(stoppedEarly, 0, 'stopping it isn’t giving up')
 })

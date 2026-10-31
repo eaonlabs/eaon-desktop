@@ -55,7 +55,7 @@ import { createLists } from './lists'
 import { createHousehold } from './household'
 import { createConnectors } from './connectors'
 import { serveCameras } from './cameraView'
-import { EXPORT_FOLDERS, openPasswords, waitForPasswordsExport } from './passwordsExport'
+import { EXPORT_FOLDERS, EXPORT_WAIT_ENDED, openPasswords, waitForPasswordsExport } from './passwordsExport'
 import { createShortcuts } from './shortcuts'
 import { SWITCHABLE_DOMAINS } from '@shared/workerCards'
 import { createVault } from './vault'
@@ -647,6 +647,11 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
               ctx.send('workers:vault-import-found', { error: error instanceof Error ? error.message : String(error) })
             }
           })()
+        }, {
+          gaveUp: () => {
+            importWait = null
+            ctx.send('workers:vault-import-found', { error: EXPORT_WAIT_ENDED })
+          }
         })
         await openPasswords()
         return { folders: EXPORT_FOLDERS() }

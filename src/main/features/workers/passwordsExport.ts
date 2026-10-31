@@ -56,13 +56,21 @@ export async function findPasswordsExport(folders: string[], since: number): Pro
   return null
 }
 
+/** What the page is told when no export turned up in time (the wait shows a spinner until it hears). */
+export const EXPORT_WAIT_ENDED = 'No export from Passwords turned up in 10 minutes, so Eaon stopped looking. Import again, or choose the file.'
+
 /**
- * Waits for the export (WAIT_MS at most) and hands it to `found` once. One
- * wait at a time: starting again replaces the last.
+ * Waits for the export (WAIT_MS at most) and hands it to `found` once; or,
+ * if none turns up in that time, calls `gaveUp`. One wait at a time:
+ * starting again replaces the last.
  */
-export function waitForPasswordsExport(found: (file: string, text: string) => void, options: { folders?: string[]; since?: number } = {}): { stop: () => void } {
+export function waitForPasswordsExport(
+  found: (file: string, text: string) => void,
+  options: { folders?: string[]; since?: number; gaveUp?: () => void; waitMs?: number } = {}
+): { stop: () => void } {
   const folders = options.folders ?? EXPORT_FOLDERS()
   const since = options.since ?? Date.now() - 1000
+  const waitMs = options.waitMs ?? WAIT_MS
   const started = Date.now()
   let stopped = false
   let timer: ReturnType<typeof setTimeout> | null = null
@@ -75,8 +83,9 @@ export function waitForPasswordsExport(found: (file: string, text: string) => vo
       found(hit.file, hit.text)
       return
     }
-    if (Date.now() - started > WAIT_MS) {
+    if (Date.now() - started > waitMs) {
       stopped = true
+      options.gaveUp?.()
       return
     }
     timer = setTimeout(() => void look(), LOOK_EVERY_MS)
