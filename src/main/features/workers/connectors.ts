@@ -47,6 +47,22 @@ type Saved = Record<string, string> & { detail?: string }
 
 export class ConnectorError extends Error {}
 
+/**
+ * Why a request never got an answer, in words: Node's fetch only says
+ * "fetch failed" and keeps the reason (refused, no such name, a self-signed
+ * certificate) in its cause.
+ */
+export function unreachable(error: unknown): string {
+  const e = error as { message?: string; cause?: { code?: string; message?: string } } | undefined
+  const code = String(e?.cause?.code ?? '')
+  if (code === 'ECONNREFUSED') return 'nothing answered at that address and port'
+  if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') return 'that name isn’t found on this network'
+  if (code === 'EHOSTUNREACH' || code === 'ENETUNREACH' || code === 'EHOSTDOWN') return 'that address isn’t reachable from this computer'
+  if (code === 'ECONNRESET' || code === 'UND_ERR_SOCKET') return 'the connection was dropped'
+  if (/CERT|SELF_SIGNED|UNABLE_TO_VERIFY/.test(code)) return 'its HTTPS certificate isn’t one this computer trusts (self-signed?)'
+  return e?.cause?.message || e?.message || String(error)
+}
+
 export function createConnectors(deps: ConnectorDeps) {
   const http = deps.fetch ?? fetch
   const details = new Map<ConnectorId, string | null>()
@@ -74,7 +90,7 @@ export function createConnectors(deps: ConnectorDeps) {
     try {
       response = await http(url, { ...init, signal: controller.signal })
     } catch (error) {
-      throw new ConnectorError((error as Error)?.name === 'AbortError' ? (timeout.late ?? `${service} didn’t answer in time.`) : `Couldn’t reach ${service}: ${(error as Error)?.message ?? error}`)
+      throw new ConnectorError((error as Error)?.name === 'AbortError' ? (timeout.late ?? `${service} didn’t answer in time.`) : `Couldn’t reach ${service}: ${unreachable(error)}.`)
     } finally {
       clearTimeout(timer)
     }

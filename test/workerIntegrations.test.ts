@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, test } from 'node:test'
 import assert from 'node:assert/strict'
-import { createConnectors, opensTheHouse } from '../src/main/features/workers/connectors'
+import { createConnectors, opensTheHouse, unreachable } from '../src/main/features/workers/connectors'
 import type { ConnectorId } from '@shared/workerConnectors'
 
 /**
@@ -40,6 +40,9 @@ function vault() {
   const data = new Map<string, string>()
   return { load: (id: ConnectorId) => data.get(id), save: (id: ConnectorId, v: string | null) => (v ? data.set(id, v) : data.delete(id)), data }
 }
+
+/** Node's fetch failing to connect: "fetch failed", the reason in its cause. */
+const failed = (code: string): Error => Object.assign(new TypeError('fetch failed'), { cause: Object.assign(new Error(`connect ${code} 192.168.1.20:80`), { code }) })
 
 test('Home Assistant: a service that answers with data is asked for its answer, only when it says so', async () => {
   const { fetch, calls } = fake((call) => {
@@ -83,4 +86,12 @@ test('opening the house: the entity in the data counts, and so do covers opened 
   assert.ok(!opensTheHouse('cover', 'open_cover', 'cover.living_room_blinds'))
   assert.ok(!opensTheHouse('cover', 'close_cover', '', { area_id: 'garage' }))
   assert.ok(opensTheHouse('lock', 'unlock', ''))
+})
+
+test('a request that never got an answer says why, not “fetch failed”', async () => {
+  assert.equal(unreachable(failed('ECONNREFUSED')), 'nothing answered at that address and port')
+  assert.match(unreachable(failed('DEPTH_ZERO_SELF_SIGNED_CERT')), /certificate/)
+  assert.match(unreachable(failed('ENOTFOUND')), /name isn’t found/)
+  const connectors = createConnectors({ fetch: fake(() => failed('ECONNREFUSED')).fetch, ...vault() })
+  await assert.rejects(() => connectors.connect('home-assistant', { url: 'http://homeassistant.local:8123', token: 't' }), /Couldn’t reach Home Assistant: nothing answered at that address and port\./)
 })
