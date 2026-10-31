@@ -5,8 +5,14 @@ All notable changes to Eaon are documented here. Format loosely follows
 
 ## [Unreleased]
 
+### Added
+- **Tokn keeps tracking when Eaon is closed.** Once the tokn command that comes with Eaon is linked, your computer runs it on its own schedule, whether Eaon is open or not, so the coding CLIs' usage keeps reaching your Tokn profile. tokn publishes about every 90 minutes when a CLI was used, and again at 23:59 to close the day. On macOS it's listed as Eaon's in System Settings → General → Login Items; on Windows it's a scheduled task, removed when Eaon is uninstalled; on Linux it's a systemd user timer (not for the AppImage, which can only sync while Eaon is open). Turn it off in Settings → Usage → Keep syncing when Eaon is closed.
+
 ### Changed
 - **Eaon is now under the Apache License 2.0**, instead of the GPL-3.0. Releases up to 2026.7.2.1 were published under the GPL-3.0.
+
+### Fixed
+- **`tokn autosync on` no longer opens Eaon.** Run with the tokn that comes with Eaon (or chosen in `tokn setup`), its background job started the Eaon app every 90 minutes, and whenever a CLI wrote a session, instead of running tokn. Eaon repairs such a job when it next starts, or when the job next runs.
 
 ## [2026.7.2.1] — 2026-10-28
 

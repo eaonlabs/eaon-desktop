@@ -262,7 +262,7 @@ function SignedIn({ summary, range, onRange }: { summary: UsageSummary; range: U
             }
             description={
               tracksClis
-                ? 'Eaon adds its own use to your Tokn profile a few minutes after you use it, and the tokn command adds the coding CLIs every hour.'
+                ? 'Eaon adds its own use to your Tokn profile a few minutes after you use it, and the tokn command adds what the coding CLIs use.'
                 : 'Eaon adds your daily totals to your Tokn profile a few minutes after you use it.'
             }
           >

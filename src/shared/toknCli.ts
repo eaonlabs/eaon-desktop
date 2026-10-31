@@ -20,4 +20,18 @@ export interface ToknCliStatus {
   linked: { handle: string } | null
   /** Linking it, or its last hourly sync. */
   activity: { state: 'idle' | 'linking' | 'syncing'; at: number | null; error: string | null }
+  /**
+   * Syncing while Eaon is closed (main/features/toknJob.ts):
+   * - on: Eaon's job runs tokn on the computer's own schedule.
+   * - off: turned off, tracking the CLIs is off, or tokn isn't linked yet.
+   * - tokn: tokn already runs on its own schedule (`tokn autosync on`).
+   * - paused: `tokn autosync off` turned automatic syncing off in a terminal.
+   * - approval: macOS holds Eaon's background item until it's allowed in
+   *   System Settings → General → Login Items.
+   * - unavailable: not on this computer (the Linux AppImage).
+   * - failed: the operating system didn't take the job; `error` says how.
+   *
+   * `everyMinutes`: how often tokn publishes at most (its own setting, 90 unless changed).
+   */
+  background: { state: 'on' | 'off' | 'tokn' | 'paused' | 'approval' | 'unavailable' | 'failed'; error: string | null; everyMinutes: number }
 }

@@ -8,7 +8,7 @@ import { Card, Row, Section, Switch } from '../../ui'
  * Settings → Usage → The tokn command: the CLI that ships with Eaon
  * (main/features/toknCli.ts). It tracks what Claude Code, Codex and the
  * other coding CLIs use, which Eaon itself doesn't see, and publishes it to
- * the same Tokn profile.
+ * the same Tokn profile, also while Eaon is closed (main/features/toknJob.ts).
  */
 
 function ago(at: number | null): string {
@@ -32,8 +32,8 @@ export function ToknCommand({ signedIn }: { signedIn: boolean }): JSX.Element | 
 
   if (!settings || !status || !status.version) return null
 
-  const change = (patch: Partial<typeof settings>): void => {
-    void patchSettings({ toknCli: patch }).then(() => window.api.toknCli.apply().then(setStatus))
+  const change = (patch: Partial<typeof settings>, options?: { resume?: boolean }): void => {
+    void patchSettings({ toknCli: patch }).then(() => window.api.toknCli.apply(options).then(setStatus))
   }
   const busy = status.activity.state !== 'idle'
   const command = status.command
@@ -49,13 +49,38 @@ export function ToknCommand({ signedIn }: { signedIn: boolean }): JSX.Element | 
 
   const trackDescription = !signedIn
     ? settings.sync
-      ? 'When you sign in with Tokn above, tokn links to the same account and publishes Claude Code, Codex and the other CLIs’ usage every hour.'
+      ? 'When you sign in with Tokn above, tokn links to the same account and publishes Claude Code, Codex and the other CLIs’ usage.'
       : 'Off: signing in with Tokn tracks only what you use in Eaon.'
     : !settings.sync
       ? 'Off: only what you use in Eaon goes to your profile.'
       : status.linked
-      ? `Linked to @${status.linked.handle || 'your account'}. Publishes Claude Code, Codex and the other CLIs’ usage to your profile every hour.`
-      : 'Links tokn to your Tokn account and publishes Claude Code, Codex and the other CLIs’ usage every hour.'
+      ? `Linked to @${status.linked.handle || 'your account'}. Publishes Claude Code, Codex and the other CLIs’ usage to your profile.`
+      : 'Links tokn to your Tokn account and publishes Claude Code, Codex and the other CLIs’ usage.'
+
+  const background = status.background
+  const every =
+    background.everyMinutes % 60 === 0
+      ? background.everyMinutes === 60
+        ? 'every hour'
+        : `every ${background.everyMinutes / 60} hours`
+      : `every ${background.everyMinutes} minutes`
+  const backgroundChecked = background.state === 'tokn' || (settings.background && background.state !== 'paused' && background.state !== 'unavailable')
+  const backgroundDescription =
+    background.state === 'unavailable'
+      ? 'The AppImage can’t run tokn while Eaon is closed, so tokn publishes every hour while Eaon is open. The .deb package can.'
+      : background.state === 'tokn'
+        ? 'tokn already runs on its own schedule (tokn autosync), so Eaon leaves it to that.'
+        : background.state === 'paused'
+          ? 'Automatic syncing was turned off in a terminal (tokn autosync off). Turn this on to start it again.'
+          : !settings.background
+            ? 'Off: tokn publishes every hour while Eaon is open.'
+            : background.state === 'approval'
+              ? 'macOS is holding Eaon’s background item. Allow Eaon in System Settings → General → Login Items.'
+              : background.state === 'failed'
+                ? `${background.error ?? 'The background sync couldn’t be set up.'} Until then, tokn publishes every hour while Eaon is open.`
+                : background.state === 'on'
+                  ? `Your computer runs tokn about ${every} and at 23:59 to close the day, whether Eaon is open or not.`
+                  : `Once tokn is linked, your computer runs it about ${every} and at 23:59, whether Eaon is open or not.`
 
   const activity =
     status.activity.state === 'linking'
@@ -77,6 +102,21 @@ export function ToknCommand({ signedIn }: { signedIn: boolean }): JSX.Element | 
         <Row title="Track the coding CLIs too" description={trackDescription}>
           <Switch checked={settings.sync} onChange={(sync) => change({ sync })} label="Track the coding CLIs too" />
         </Row>
+        {settings.sync && (
+          <Row title="Keep syncing when Eaon is closed" description={backgroundDescription}>
+            {background.state === 'approval' && settings.background && (
+              <button className="btn btn--sm" onClick={() => void window.api.toknCli.openLoginItems()}>
+                Open Login Items
+              </button>
+            )}
+            <Switch
+              checked={backgroundChecked}
+              disabled={background.state === 'unavailable' || background.state === 'tokn'}
+              onChange={(on) => change({ background: on }, { resume: on })}
+              label="Keep syncing when Eaon is closed"
+            />
+          </Row>
+        )}
         {signedIn && settings.sync && (
           <Row title={status.linked ? 'tokn sync' : 'Link tokn'} description={activity ?? undefined}>
             <button

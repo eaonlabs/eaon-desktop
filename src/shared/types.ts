@@ -603,6 +603,11 @@ export interface Settings {
      * in the setup; off until the person says yes.
      */
     sync: boolean
+    /**
+     * Keep publishing while Eaon is closed: a job the operating system runs
+     * (main/features/toknJob.ts). On by default, with `sync`.
+     */
+    background: boolean
   }
   /**
    * Left from Eaon Free's free week, which Eaon Event (a code only) replaced:

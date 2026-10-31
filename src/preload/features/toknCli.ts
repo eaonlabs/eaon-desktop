@@ -8,8 +8,14 @@ export const toknCliApi = {
   link: (): Promise<ToknCliStatus> => ipcRenderer.invoke('tokn-cli:link'),
   /** `tokn sync` now. */
   sync: (): Promise<ToknCliStatus> => ipcRenderer.invoke('tokn-cli:sync'),
-  /** After `settings.toknCli` changed: install or remove the command, link, start or stop the hourly sync. */
-  apply: (): Promise<ToknCliStatus> => ipcRenderer.invoke('tokn-cli:apply'),
+  /**
+   * After `settings.toknCli` changed: install or remove the command, link,
+   * start or stop the hourly sync and the background job. `resume` when the
+   * background switch was just turned on.
+   */
+  apply: (options?: { resume?: boolean }): Promise<ToknCliStatus> => ipcRenderer.invoke('tokn-cli:apply', options),
+  /** Opens System Settings → General → Login Items (macOS), where Eaon's background items are allowed. */
+  openLoginItems: (): Promise<void> => ipcRenderer.invoke('tokn-cli:login-items'),
   onChanged: (callback: (status: ToknCliStatus) => void): (() => void) => {
     const listener = (_e: unknown, status: ToknCliStatus): void => callback(status)
     ipcRenderer.on('tokn-cli:changed', listener)
