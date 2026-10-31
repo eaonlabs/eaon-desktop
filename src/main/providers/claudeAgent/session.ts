@@ -192,6 +192,11 @@ export class ClaudeSession {
     void this.read()
   }
 
+  /** A step is under way: Claude is answering, and hasn't called a tool or finished yet. */
+  get stepping(): boolean {
+    return this.step !== null
+  }
+
   /** Sends a message and waits for the step it starts. */
   send(content: Record<string, unknown>[], handlers: StepHandlers): Promise<StepResult> {
     const step = this.begin(handlers)
@@ -220,6 +225,10 @@ export class ClaudeSession {
     this.pending?.answer({ isError: true, content: [{ type: 'text', text: 'Stopped.' }] })
     this.pending = null
     this.dead = true
+    // A step still waiting would wait forever: the process it waits on is going.
+    const step = this.step
+    this.step = null
+    step?.reject(new ClaudeAgentError('Claude Code stopped.', this.stderr))
     this.inbox.end()
     this.controller.abort()
     try {
@@ -239,6 +248,8 @@ export class ClaudeSession {
   private begin(handlers: StepHandlers): Promise<StepResult> {
     if (this.dead) return Promise.reject(new ClaudeAgentError('Claude Code stopped.', this.stderr))
     if (this.idle) clearTimeout(this.idle)
+    // Never two steps at once: the one before would never hear back.
+    this.step?.reject(new ClaudeAgentError('Claude was sent another message before it answered.'))
     return new Promise<StepResult>((resolve, reject) => {
       this.step = { ...handlers, text: '', resolve, reject }
     })

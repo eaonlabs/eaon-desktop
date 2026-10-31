@@ -301,3 +301,17 @@ test('history keys: what survives Eaon’s rebuild of a chat, and a checkpoint f
   assert.equal(shortName('read_file'), 'read_file')
   assert.ok(shortName('mcp:server/very-long-tool-name-'.repeat(4)).length <= 64 - 'mcp__eaon__'.length)
 })
+
+test('Stop while Claude is answering ends the step at once, even when Claude Code never says it stopped', async () => {
+  const { adapter } = adapterWith(async () => new Promise<void>(() => {}))
+  const controller = new AbortController()
+  const turn = adapter.turn(request([{ role: 'user', text: 'Think forever' }], { signal: controller.signal }))
+  setTimeout(() => controller.abort(), 30)
+  await assert.rejects(turn, /aborted/)
+
+  // A title cut off by its time limit: the same, not a promise that never settles.
+  const titleController = new AbortController()
+  const title = adapter.turn(request([{ role: 'user', text: 'Name this chat' }], { tools: [], signal: titleController.signal, cacheKey: 'eaon-chat-title' }))
+  setTimeout(() => titleController.abort(), 30)
+  await assert.rejects(title, /stopped/i)
+})
