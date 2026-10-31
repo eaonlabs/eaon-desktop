@@ -15,26 +15,27 @@ async function pickIn(page, trigger, label) {
   await page.click('.ms__row[role="option"]', { text: label })
 }
 
-scenario('a worker’s model is chosen when it is made, from its message box, and from Edit; a click on its face always winks', { timeout: 150_000 }, async (s) => {
+scenario('a worker made on its own page starts on Chat’s model; its own is chosen from its message box and from Edit; a click on its face always winks', { timeout: 150_000 }, async (s) => {
   const fake = await s.fake()
   fake.setModels(['fake-model', 'fake-model-two'])
   const app = await s.launch()
   const page = app.page
   await useFakeModel(page, fake)
 
-  // Made with a model of its own.
+  // Made on its own page (a name and what it's for): on Chat's model until it is given one.
   await page.click('.mode-switch__option', { text: 'Workers' })
   await page.click('[aria-label="New worker"]')
-  await page.fill('.worker-editor input.input[placeholder="Nova"]', 'Ada')
-  await page.fill('.worker-editor textarea.input[placeholder^="What it is for"]', 'Checks the edit flow')
-  await pickIn(page, '.worker-editor .ms__trigger', /two/i)
-  await page.click('.btn--primary', { text: 'Create worker' })
+  await page.fill('.worker-create__input[placeholder="New worker"]', 'Ada')
+  await page.fill('.worker-create__input--area', 'Checks the edit flow')
+  await page.click('.worker-create__go', { text: 'Get started' })
   await page.waitFor(() => document.querySelector('.worker-profile__name')?.textContent?.trim() === 'Ada', { message: "the new worker's page" })
   let ada = (await workers(page)).find((w) => w.name === 'Ada')
-  assert.deepEqual(ada?.model, { providerId: 'lm-studio', modelId: 'fake-model-two' })
+  assert.equal(ada?.model, null, 'Chat’s model until it is given one')
 
   // The message box shows its model, and changes it.
   const chip = '.composer-stack .ms__trigger.chip--model'
+  await pickIn(page, chip, /two/i)
+  await page.waitFor(async () => (await window.api.workers.list()).find((w) => w.name === 'Ada')?.model?.modelId === 'fake-model-two', { message: 'the chip’s first choice to be saved' })
   assert.match((await page.eval((sel) => document.querySelector(sel)?.textContent, chip)) ?? '', /fake model two/i)
   await s.shot(page, 'worker-model-chip')
   await pickIn(page, chip, /^fake model$/i)
