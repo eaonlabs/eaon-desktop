@@ -34,7 +34,7 @@ test('Windows looks in the usual install folders', () => {
   assert.ok(looked.every((path) => /AppData|Local/.test(path) || Boolean(process.env['LOCALAPPDATA'])), looked.join('\n'))
 })
 
-test('every account links through its provider\'s own route, and there is no Claude sign-in', () => {
+test('every account links through its provider\'s own route, and the only Claude sign-in is Claude Code\'s', () => {
   const ids = new Set(BUILT_IN.map((p) => p.id))
   for (const target of LINK_TARGETS) {
     assert.ok(ids.has(target.providerId), `${target.providerId} is a provider`)
@@ -45,6 +45,10 @@ test('every account links through its provider\'s own route, and there is no Cla
   }
   const byId = new Map(LINK_TARGETS.map((t) => [t.providerId, t]))
   assert.equal(byId.get('anthropic')?.method, 'key')
+  // Claude Agent signs in with the user's own Claude Code; never part of Link everything found.
+  assert.equal(byId.get('claude-agent')?.method, 'signin')
+  assert.equal(providerMeta('claude-agent').signInLabel, 'Sign in with Claude Code')
+  assert.deepEqual(byId.get('claude-agent')?.apps, [])
   assert.equal(byId.get('xai')?.method, 'key')
   assert.equal(byId.get('gemini')?.method, 'key')
   // The borrowed-client sign-ins are left out.
