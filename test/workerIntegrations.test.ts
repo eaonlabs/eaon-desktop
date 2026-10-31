@@ -88,6 +88,67 @@ test('opening the house: the entity in the data counts, and so do covers opened 
   assert.ok(opensTheHouse('lock', 'unlock', ''))
 })
 
+test('SimpleFIN: a pending transaction with no time yet is kept, as now; one problem said once; a failure isn’t asked again at once', async () => {
+  const claim = 'https://bridge.example/simplefin/claim/x'
+  const now = Math.floor(Date.now() / 1000)
+  let answer: 'ok' | 'down' = 'ok'
+  const { fetch, calls } = fake((call) => {
+    if (call.url === claim) return { text: 'https://u:p@bridge.example/simplefin' }
+    if (!call.url.includes('/accounts')) return { status: 404, text: '' }
+    if (answer === 'down') return { status: 500, text: 'bridge trouble' }
+    return {
+      json: {
+        errlist: [{ code: 'con.auth', msg: 'Chase needs you to sign in again' }],
+        errors: ['Chase needs you to sign in again'],
+        connections: [{ conn_id: 'c1', name: 'Chase' }],
+        accounts: [
+          {
+            id: 'a1',
+            name: 'Checking',
+            conn_id: 'c1',
+            currency: 'USD',
+            balance: '50.00',
+            'balance-date': now,
+            transactions: [
+              { id: 'p', posted: 0, amount: '-7.25', description: 'TACO TRUCK', pending: true },
+              { id: 'd', posted: now - 2 * 86400, amount: '-3.00', description: 'BAKERY' }
+            ]
+          }
+        ]
+      }
+    }
+  })
+  const v = vault()
+  const connectors = createConnectors({ fetch, load: v.load, save: v.save })
+  await connectors.connect('simplefin', { setupToken: Buffer.from(claim).toString('base64') })
+  const { accounts, problems } = await connectors.simplefin.accounts({ days: 7 })
+  const tx = accounts[0].transactions ?? []
+  assert.deepEqual(tx.map((t) => t.id), ['p', 'd'], 'the pending one is in the last 7 days, not dated 1970')
+  assert.ok(Math.abs((tx[0].at ?? 0) - now) < 120)
+  assert.deepEqual(problems, ['Chase needs you to sign in again'], 'errlist and the older errors say the same thing once')
+
+  // A fresh connection whose /accounts is failing: the token is spent, so the access is kept, and says so.
+  answer = 'down'
+  const other = vault()
+  const again = createConnectors({ fetch, load: other.load, save: other.save })
+  const status = await again.connect('simplefin', { setupToken: Buffer.from(claim).toString('base64') })
+  assert.equal(status.connected, true)
+  assert.match(status.detail ?? '', /^Connected; accounts not read yet: SimpleFIN answered 500/)
+  const asked = calls.filter((c) => c.url.includes('/accounts')).length
+  await assert.rejects(() => again.simplefin.accounts(), /answered 500.*asks again in a few minutes/)
+  assert.equal(calls.filter((c) => c.url.includes('/accounts')).length, asked, 'not asked again within minutes (24 a day)')
+})
+
+test('SimpleFIN: a setup token used already says so in SimpleFIN’s words; a refused access isn’t kept', async () => {
+  const claim = 'https://bridge.example/simplefin/claim/used'
+  const used = createConnectors({ fetch: fake(() => ({ status: 403, text: 'Forbidden' })).fetch, ...vault() })
+  await assert.rejects(() => used.connect('simplefin', { setupToken: Buffer.from(claim).toString('base64') }), /used already.*someone else may have/)
+  const v = vault()
+  const refused = createConnectors({ fetch: fake((c) => (c.url === claim ? { text: 'https://u:p@bridge.example/s' } : { status: 403, text: '' })).fetch, load: v.load, save: v.save })
+  await assert.rejects(() => refused.connect('simplefin', { setupToken: Buffer.from(claim).toString('base64') }), /refused the key/)
+  assert.equal(refused.connected('simplefin'), false)
+})
+
 test('a request that never got an answer says why, not “fetch failed”', async () => {
   assert.equal(unreachable(failed('ECONNREFUSED')), 'nothing answered at that address and port')
   assert.match(unreachable(failed('DEPTH_ZERO_SELF_SIGNED_CERT')), /certificate/)

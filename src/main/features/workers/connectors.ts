@@ -36,6 +36,10 @@ const TESLA_TIMEOUT_MS = 120_000
  * kept this long and every question in that time is answered from it.
  */
 const SIMPLEFIN_FRESH_MS = 60 * 60_000
+/** SimpleFIN's /accounts gathers from every bank before it answers, which can take well past TIMEOUT_MS. */
+const SIMPLEFIN_TIMEOUT_MS = 60_000
+/** After a failed /accounts, how long the failure stands before SimpleFIN is asked again (see SIMPLEFIN_FRESH_MS). */
+const SIMPLEFIN_RETRY_MS = 5 * 60_000
 const str = (value: unknown): string => (typeof value === 'string' ? value.trim() : '')
 const num = (value: unknown): number | undefined => {
   const n = typeof value === 'number' ? value : typeof value === 'string' && value.trim() ? Number(value.replace(/[$,]/g, '')) : NaN
@@ -46,6 +50,14 @@ const num = (value: unknown): number | undefined => {
 type Saved = Record<string, string> & { detail?: string }
 
 export class ConnectorError extends Error {}
+
+/** A SimpleFIN connection's status line: its accounts and their banks. */
+const sfinDetail = (accounts: { bank?: string }[]): string => {
+  const banks = [...new Set(accounts.map((a) => a.bank).filter(Boolean))]
+  return `${accounts.length} account${accounts.length === 1 ? '' : 's'}${banks.length ? ` at ${banks.join(', ')}` : ''}`
+}
+/** How a SimpleFIN connection whose first read failed starts its status line. */
+const SFIN_UNREAD = 'Connected; accounts not read yet'
 
 /**
  * Why a request never got an answer, in words: Node's fetch only says
@@ -192,6 +204,8 @@ export function createConnectors(deps: ConnectorDeps) {
     return { url: `${parsed.toString().replace(/\/+$/, '')}${path}`, headers: { Authorization: `Basic ${auth}` } }
   }
   let sfinCache: { accessUrl: string; at: number; accounts: SimplefinAccount[]; problems: string[] } | null = null
+  /** The last /accounts that failed: asked again only after SIMPLEFIN_RETRY_MS, so a worker trying again and again can't use up the day's 24. */
+  let sfinFailed: { accessUrl: string; at: number; message: string } | null = null
   const simplefin = {
     async claim(setupToken: string): Promise<string> {
       let claimUrl: string
@@ -201,7 +215,16 @@ export function createConnectors(deps: ConnectorDeps) {
       } catch {
         throw new ConnectorError('That isn’t a SimpleFIN setup token. Copy the whole token from bridge.simplefin.org.')
       }
-      const access = await request('SimpleFIN', claimUrl, { method: 'POST', headers: { 'Content-Length': '0' } })
+      let access: unknown
+      try {
+        access = await request('SimpleFIN', claimUrl, { method: 'POST', headers: { 'Content-Length': '0' } })
+      } catch (error) {
+        // SimpleFIN's own words for a 403 here: the token doesn't exist or was claimed already, perhaps by someone else.
+        if (error instanceof ConnectorError && /\(403\)/.test(error.message)) {
+          throw new ConnectorError('SimpleFIN says that setup token was used already (or doesn’t exist). Make a new one on bridge.simplefin.org. If you didn’t use it yourself, someone else may have: remove that app connection there.')
+        }
+        throw error
+      }
       const url = typeof access === 'string' ? access.trim() : ''
       if (!/^https:\/\/[^/\s]+:[^/\s]+@/.test(url)) throw new ConnectorError('SimpleFIN didn’t return an access address. The token may have been used already — make a new one.')
       return url
@@ -216,20 +239,45 @@ export function createConnectors(deps: ConnectorDeps) {
       const { accessUrl } = need('simplefin')
       const now = Date.now()
       if (!sfinCache || sfinCache.accessUrl !== accessUrl || now - sfinCache.at > SIMPLEFIN_FRESH_MS) {
+        if (sfinFailed?.accessUrl === accessUrl && now - sfinFailed.at < SIMPLEFIN_RETRY_MS) {
+          throw new ConnectorError(`${sfinFailed.message} (SimpleFIN allows 24 requests a day, so Eaon asks again in a few minutes.)`)
+        }
         const params = new URLSearchParams({ version: '2', pending: '1', 'start-date': String(Math.floor(now / 1000) - 90 * 86400) })
         const { url, headers } = sfin(accessUrl, `/accounts?${params.toString()}`)
-        const reply = (await request('SimpleFIN', url, { headers })) as SimplefinReply
+        let reply: SimplefinReply
+        try {
+          reply = (await request('SimpleFIN', url, { headers }, false, { ms: SIMPLEFIN_TIMEOUT_MS, late: 'SimpleFIN didn’t answer in a minute (it asks every bank first).' })) as SimplefinReply
+        } catch (error) {
+          sfinFailed = { accessUrl, at: now, message: error instanceof Error ? error.message : String(error) }
+          throw error
+        }
+        sfinFailed = null
         const banks = new Map((reply?.connections ?? []).map((c) => [c.conn_id, c.name]))
+        const fetched = Math.floor(now / 1000)
         sfinCache = {
           accessUrl,
           at: now,
-          accounts: (reply?.accounts ?? []).map((a) => ({ ...a, bank: a.org?.name ?? (a.conn_id ? banks.get(a.conn_id) : undefined) ?? '' })),
-          problems: [...(reply?.errlist ?? []).map((e) => e.msg).filter(Boolean), ...(reply?.errors ?? [])]
+          accounts: (reply?.accounts ?? []).map((a) => ({
+            ...a,
+            bank: a.org?.name ?? (a.conn_id ? banks.get(a.conn_id) : undefined) ?? '',
+            // When it happened: a pending one can have no time at all (posted 0), so it's now.
+            transactions: (a.transactions ?? []).map((t) => ({ ...t, at: t.transacted_at || t.posted || fetched }))
+          })),
+          // errlist is the protocol's own, errors the older strings: the same problem is often in both.
+          problems: [...new Set([...(reply?.errlist ?? []).map((e) => e.msg), ...(reply?.errors ?? [])].filter(Boolean))]
+        }
+        // Connected while SimpleFIN couldn't answer: the status says what it has now.
+        const kept = saved('simplefin')
+        if (kept?.detail?.startsWith(SFIN_UNREAD)) {
+          const detail = sfinDetail(sfinCache.accounts)
+          details.set('simplefin', detail)
+          deps.save('simplefin', JSON.stringify({ ...kept, detail }))
+          changed()
         }
       }
       const since = Math.floor(now / 1000) - Math.max(1, Math.min(90, options.days ?? 14)) * 86400
       const accounts = sfinCache.accounts.map((a) =>
-        options.balancesOnly ? { ...a, transactions: undefined } : { ...a, transactions: (a.transactions ?? []).filter((t) => (t.transacted_at ?? t.posted) >= since) }
+        options.balancesOnly ? { ...a, transactions: undefined } : { ...a, transactions: (a.transactions ?? []).filter((t) => (t.at ?? t.posted) >= since) }
       )
       return { accounts, problems: sfinCache.problems }
     }
@@ -351,9 +399,14 @@ export function createConnectors(deps: ConnectorDeps) {
         // The setup token works once; what is kept is the access address it turns into.
         const accessUrl = await simplefin.claim(value.setupToken)
         const stored: Saved = { accessUrl }
-        const { accounts } = await tryWith(stored, () => simplefin.accounts({ balancesOnly: true }))
-        const banks = [...new Set(accounts.map((a) => a.bank).filter(Boolean))]
-        detail = `${accounts.length} account${accounts.length === 1 ? '' : 's'}${banks.length ? ` at ${banks.join(', ')}` : ''}`
+        try {
+          detail = sfinDetail((await tryWith(stored, () => simplefin.accounts({ balancesOnly: true }))).accounts)
+        } catch (error) {
+          // The setup token is spent now. Unless SimpleFIN refused the access it became, that access is
+          // kept — a slow or failing first read would otherwise cost the user a new token to try again.
+          if (!(error instanceof ConnectorError) || /refused the key/.test(error.message)) throw error
+          detail = `${SFIN_UNREAD}: ${error.message.replace(/\s*\(SimpleFIN allows[^)]*\)\s*$/, '')}`
+        }
         details.set(id, detail)
         deps.save(id, JSON.stringify({ ...stored, detail }))
         changed()
@@ -430,7 +483,8 @@ interface SimplefinAccount {
   'balance-date': number
   conn_id?: string
   org?: { name?: string }
-  transactions?: { id: string; posted: number; amount: string; description: string; pending?: boolean; transacted_at?: number }[]
+  /** `at`: when it happened (transacted_at, else posted, else when fetched), set as they're read. */
+  transactions?: { id: string; posted: number; amount: string; description: string; pending?: boolean; transacted_at?: number; at?: number }[]
   bank?: string
 }
 interface SimplefinReply {
@@ -674,12 +728,12 @@ export function connectorTools(engine: WorkersEngine, connectors: Connectors, li
         const rows = accounts
           .filter((a) => !wanted || a.name.toLowerCase().includes(wanted) || a.id === wanted)
           .flatMap((a) => (a.transactions ?? []).map((t) => ({ ...t, account: a.name, currency: a.currency })))
-          .sort((x, y) => (y.transacted_at ?? y.posted) - (x.transacted_at ?? x.posted))
+          .sort((x, y) => (y.at ?? y.posted) - (x.at ?? x.posted))
           .slice(0, 120)
         if (rows.length === 0) return `No transactions in that time.${warning}`
         return (
           rows
-            .map((t) => `- ${new Date((t.transacted_at ?? t.posted) * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ${money(t.amount, t.currency)} ${t.description}${t.pending ? ' (pending)' : ''} — ${t.account}`)
+            .map((t) => `- ${new Date((t.at ?? t.posted) * 1000).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })} ${money(t.amount, t.currency)} ${t.description}${t.pending ? ' (pending)' : ''} — ${t.account}`)
             .join('\n') + warning
         )
       }
