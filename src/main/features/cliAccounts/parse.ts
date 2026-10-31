@@ -55,7 +55,27 @@ export function claudeCachedUsage(config: unknown): ClaudeCachedUsage | null {
   const signedIn = str(obj(c?.oauthAccount)?.accountUuid)
   const owner = str(cache.accountUuid)
   if (signedIn && owner && signedIn !== owner) return null
+  const windows = claudeWindows(u)
+  return windows.length ? { asOf, windows } : null
+}
 
+/**
+ * A plan's limits as Claude Code reports them when asked (the Agent SDK's
+ * request for its /usage data): Claude Code fetches them from Anthropic
+ * itself, with its own sign-in, the same figures its /usage shows. Null for a
+ * key or a cloud provider, where no plan limits apply, or an answer of
+ * another shape (the request is marked experimental).
+ */
+export function claudeLiveUsage(answer: unknown, now: number): ClaudeCachedUsage | null {
+  const a = obj(answer)
+  const u = a?.rate_limits_available === true ? obj(a.rate_limits) : null
+  if (!u) return null
+  const windows = claudeWindows(u)
+  return windows.length ? { asOf: now, windows } : null
+}
+
+/** The windows in Claude Code's limits, as the meter shows them: the same fields in its cache and its live answer. */
+function claudeWindows(u: Record<string, unknown>): UsageWindow[] {
   const windows: UsageWindow[] = []
   const add = (id: string, label: string, span: string, raw: unknown, keepEmpty: boolean): void => {
     const row = obj(raw)
@@ -79,7 +99,14 @@ export function claudeCachedUsage(config: unknown): ClaudeCachedUsage | null {
   // A model's own week: only worth a row once some of it is used.
   add('week:Opus', 'Opus week', 'rolling 7 days', u.seven_day_opus, false)
   add('week:Sonnet', 'Sonnet week', 'rolling 7 days', u.seven_day_sonnet, false)
-  return windows.length ? { asOf, windows } : null
+  // The live answer's other per-model weeks, named by Anthropic ("Fable").
+  if (Array.isArray(u.model_scoped)) {
+    for (const row of u.model_scoped) {
+      const name = str(obj(row)?.display_name)
+      if (name && !windows.some((w) => w.id === `week:${name}`)) add(`week:${name}`, `${name} week`, 'rolling 7 days', row, false)
+    }
+  }
+  return windows
 }
 
 /* --------------------------------------------------------------------- Codex */

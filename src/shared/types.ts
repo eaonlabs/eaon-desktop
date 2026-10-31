@@ -9,7 +9,8 @@ import type { EngineId, ModelSource } from './engines'
  * (also what ChatGPT/Codex subscriptions are served over); everything else that
  * is not Anthropic speaks chat-completions.
  */
-export type ProviderKind = 'openai' | 'anthropic' | 'openai-compatible' | 'ollama' | 'openai-responses'
+/** `claude-agent`: Claude through the user's own Claude Code (main/providers/claudeAgent), not an HTTP API. */
+export type ProviderKind = 'openai' | 'anthropic' | 'openai-compatible' | 'ollama' | 'openai-responses' | 'claude-agent'
 
 /** How a provider authenticates: a pasted key, a browser sign-in, or nothing (local runtimes). */
 export type ProviderAuth = 'key' | 'oauth' | 'none'

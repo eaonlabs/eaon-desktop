@@ -305,6 +305,7 @@ async function callModel(
         signal: params.signal,
         cacheKey: params.request.chatId,
         agentic: params.request.mode === 'work',
+        cwd: params.cwd,
         onText: (delta) => {
           streamed = true
           params.onText(delta)

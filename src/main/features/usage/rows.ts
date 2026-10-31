@@ -333,19 +333,21 @@ export function toolOf(providerId: string): UsageTool {
   return CLI_TOOLS.has(tool) ? (tool as CliUsageTool) : 'eaon'
 }
 
-/** Eaon's turns on its Codex engine, which Codex logs as well: `codex`, `codex:api`, `codex:provider`. */
-const codexEngine = (providerId: string): boolean => providerId === 'codex' || providerId.startsWith('codex:')
+/** Eaon's turns on an engine its CLI logs as well: `codex`, `codex:api`, `codex:provider`, and Claude's the same way. */
+const engineTurn = (engine: 'codex' | 'claude', providerId: string): boolean => providerId === engine || providerId.startsWith(`${engine}:`)
 
 /**
  * Eaon's days and the CLIs' logs together. When Codex's logs were read,
  * Eaon's own turns on the Codex engine are left to them: Codex wrote those
- * turns to its logs too, and they'd otherwise count twice.
+ * turns to its logs too, and they'd otherwise count twice. Claude Code keeps
+ * the Claude engine's sessions in its logs the same way.
  */
-export function withCliDays(eaon: LedgerDays, cli: LedgerDays, codexLogged: boolean): LedgerDays {
+export function withCliDays(eaon: LedgerDays, cli: LedgerDays, codexLogged: boolean, claudeLogged = false): LedgerDays {
   const days: LedgerDays = {}
   for (const [day, providers] of Object.entries(eaon)) {
     for (const [providerId, models] of Object.entries(providers)) {
-      if (codexLogged && codexEngine(providerId)) continue
+      if (codexLogged && engineTurn('codex', providerId)) continue
+      if (claudeLogged && engineTurn('claude', providerId)) continue
       ;(days[day] ??= {})[providerId] = models
     }
   }

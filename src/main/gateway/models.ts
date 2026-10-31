@@ -20,7 +20,9 @@ import { secrets } from '../secrets'
  */
 export function gatewayProviders(scope: GatewayScope = 'all'): Provider[] {
   if (scope === 'local') return listProviders().filter((p) => p.id === LOCAL_PROVIDER_ID)
-  return listProviders().filter((p) => isProviderUsable(p) && !isOwnServerUrl(p.baseUrl))
+  // Never Claude Agent: Anthropic forbids routing others' requests through a Claude plan, and an app
+  // using the Local API Server would be doing that through Eaon.
+  return listProviders().filter((p) => isProviderUsable(p) && !isOwnServerUrl(p.baseUrl) && p.kind !== 'claude-agent')
 }
 
 export function gatewayModels(scope: GatewayScope = 'all'): GatewayModel[] {

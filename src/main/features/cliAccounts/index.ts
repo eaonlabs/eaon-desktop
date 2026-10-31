@@ -5,7 +5,7 @@ import { CLI_TOOLS, limitNoticeText, type CliAccountsState, type CliTool, type L
 import { store } from '../../store'
 import { loadPty } from '../terminals/ptyManager'
 import type { Feature } from '../types'
-import { claudeAuthStatus, claudeConfig, cliEnv, codexRead, findCli, loginArgs, logoutArgs } from './cli'
+import { claudeAuthStatus, claudeConfig, claudeLimits, cliEnv, codexRead, findCli, loginArgs, logoutArgs } from './cli'
 import { setCliAccounts } from './current'
 import { accountsRoot, CliAccounts, type LoginProcess } from './service'
 
@@ -66,7 +66,7 @@ export const cliAccountsFeature: Feature = {
   register: ({ ipcMain, send, getWindows }) => {
     let changedTimer: ReturnType<typeof setTimeout> | null = null
     const service = new CliAccounts({
-      runner: { find: (tool) => findCli(tool), claudeStatus: claudeAuthStatus, claudeConfig, codexRead, logout },
+      runner: { find: (tool) => findCli(tool), claudeStatus: claudeAuthStatus, claudeConfig, claudeLimits: (bin, dir) => claudeLimits(bin, dir, app.getVersion()), codexRead, logout },
       root: accountsRoot(app.getPath('userData')),
       load: () => store.getJson(FILE, {}),
       save: (saved) => store.setJson(FILE, saved),

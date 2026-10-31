@@ -3,6 +3,7 @@ import fs from 'node:fs'
 import { readFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
+import { claudeCodeEnv } from '../../engines/claude/env'
 import type { CliTool } from '@shared/cliAccounts'
 import { onPath } from '../../shellEnv'
 import { launcherEnv } from '../terminals/ptyManager'
@@ -148,6 +149,49 @@ export async function claudeConfig(dir: string | null): Promise<unknown> {
     return JSON.parse(await readFile(file, 'utf8'))
   } catch {
     return null
+  }
+}
+
+/**
+ * A plan's limits, asked of Claude Code itself: Eaon starts it for a moment
+ * through the Agent SDK, sends it no message (so no model is asked and
+ * nothing is used), and requests the data behind its /usage. Claude Code
+ * fetches that from Anthropic with its own sign-in; Eaon never sees the
+ * token. Null when this Claude Code can't answer: the request is marked
+ * experimental in the SDK, so an older or newer one may not have it.
+ */
+export async function claudeLimits(bin: string, dir: string | null, clientVersion: string): Promise<unknown> {
+  const { query } = await import('@anthropic-ai/claude-agent-sdk')
+  const controller = new AbortController()
+  // A session with nothing in it: Claude Code starts, answers control requests, and is stopped.
+  const idle: AsyncIterable<never> = {
+    [Symbol.asyncIterator]: () => ({ next: () => new Promise((resolve) => controller.signal.addEventListener('abort', () => resolve({ done: true, value: undefined as never }), { once: true })) })
+  }
+  const session = query({
+    prompt: idle,
+    options: {
+      cwd: quietCwd(),
+      pathToClaudeCodeExecutable: bin,
+      env: claudeCodeEnv(cliEnv('claude', dir), clientVersion),
+      persistSession: false,
+      // Nothing of the user's to load for this: no settings, hooks, MCP servers or tools.
+      settingSources: [],
+      strictMcpConfig: true,
+      tools: [],
+      abortController: controller
+    }
+  })
+  try {
+    const ask = (session as unknown as { usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET?: (o: { skipBehaviors: boolean }) => Promise<unknown> })
+      .usage_EXPERIMENTAL_MAY_CHANGE_DO_NOT_RELY_ON_THIS_API_YET
+    if (typeof ask !== 'function') return null
+    return await Promise.race([
+      ask.call(session, { skipBehaviors: true }),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Claude Code didn’t report its limits in time')), TIMEOUT_MS).unref?.())
+    ])
+  } finally {
+    controller.abort()
+    session.close()
   }
 }
 

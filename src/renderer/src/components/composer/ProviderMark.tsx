@@ -4,7 +4,8 @@ import { providerLogoNow, useProviderLogo } from '../../state/providerLogos'
 import type { CliEngineId, EngineId } from '@shared/engines'
 
 /** Each agent CLI's logo key for ProviderMark: plain `gemini` is the Gemini API provider's. */
-export const ENGINE_MARK: Record<CliEngineId, string> = { codex: 'codex', copilot: 'github-copilot', gemini: 'gemini-cli' }
+// Claude's is Anthropic's mark: the Agent SDK's branding rules keep apps built on it from looking like Claude Code.
+export const ENGINE_MARK: Record<CliEngineId, string> = { codex: 'codex', claude: 'anthropic', copilot: 'github-copilot', gemini: 'gemini-cli' }
 
 /** The logo key for a model picker row: its engine's own for an agent CLI's model, else its provider's. */
 export const optionMark = (option: { engine: EngineId; groupId: string }): string => (option.engine === 'native' ? option.groupId : ENGINE_MARK[option.engine])
@@ -56,6 +57,7 @@ const MARK: Record<string, string> = {
   'gemini-cli': 'geminicli',
   azure: 'azure',
   anthropic: 'anthropic',
+  'claude-agent': 'anthropic',
   openrouter: 'openrouter',
   mistral: 'mistral',
   groq: 'groq',

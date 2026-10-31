@@ -155,7 +155,7 @@ export function ModelNotice({ selection, onChooseModel }: { selection: ResolvedS
 }
 
 /** Whose plan Chat runs on with each agent CLI. */
-const ENGINE_PLAN: Record<CliEngineId, string> = { codex: 'ChatGPT plan', copilot: 'GitHub Copilot plan', gemini: 'Google account' }
+const ENGINE_PLAN: Record<CliEngineId, string> = { codex: 'ChatGPT plan', claude: 'Claude plan', copilot: 'GitHub Copilot plan', gemini: 'Google account' }
 
 /**
  * What can be found on this computer without asking anyone: a signed-in
