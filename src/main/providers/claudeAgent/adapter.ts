@@ -40,7 +40,7 @@ export interface ClaudeAgentDeps {
   env: () => Record<string, string | undefined>
   /** How Claude Code is signed in; `force` asks again. */
   auth: (force: boolean) => Promise<{ auth: EngineAuth; checkedAt: number }>
-  /** The folder sessions run in when the request names none. */
+  /** The folder sessions run in when the request names none; it must exist, or Claude Code can't start. */
   defaultCwd: () => string
   query: () => Promise<QueryFn>
   now?: () => number
@@ -99,7 +99,8 @@ export function createClaudeAgentAdapter(deps: ClaudeAgentDeps): Adapter & { end
   function specOf(request: TurnRequest, executable: string): { spec: Omit<SessionSpec, 'resume' | 'persist'>; signature: string } {
     const model = request.modelId && request.modelId !== 'default' ? request.modelId : undefined
     const effort = request.model?.efforts?.includes(request.effort) ? TO_SDK[request.effort] : undefined
-    const cwd = request.cwd ?? deps.defaultCwd()
+    // Chat's turns have no folder (''), nor do titles: Claude Code still needs one to start in.
+    const cwd = request.cwd || deps.defaultCwd()
     const spec = { executable, env: deps.env(), cwd, model, effort, system: request.system, tools: request.tools }
     const signature = createHash('sha256')
       .update(JSON.stringify([model, effort, cwd, request.system, request.tools]))

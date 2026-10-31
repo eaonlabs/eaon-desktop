@@ -1,3 +1,4 @@
+import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { app } from 'electron'
 import type { EngineModel } from '@shared/engines'
@@ -23,7 +24,12 @@ export const claudeAgentAdapter = createClaudeAgentAdapter({
     const status = force || !claudeCodeStatus() ? await (await claudeEngine())?.detect({ force }) : claudeCodeStatus()
     return { auth: status?.auth ?? { state: 'unknown', method: null, plan: null }, checkedAt: status?.checkedAt ?? 0 }
   },
-  defaultCwd: () => join(app.getPath('userData'), 'claude-agent'),
+  defaultCwd: () => {
+    // Made here: Claude Code fails to start in a folder that isn't there.
+    const dir = join(app.getPath('userData'), 'claude-agent')
+    mkdirSync(dir, { recursive: true })
+    return dir
+  },
   // Loaded on first use: most launches never start Claude.
   query: async () => (await import('@anthropic-ai/claude-agent-sdk')).query as QueryFn
 })

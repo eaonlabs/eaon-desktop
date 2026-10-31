@@ -397,3 +397,13 @@ test('the sign-in is checked when a turn starts, not again for each step inside 
   await adapter.turn(request(messages))
   assert.equal(checks, atStart, 'the step that hands back a result starts no check')
 })
+
+test('a request with no folder (Chat, a title) runs in Claude Agent’s own, never in no folder at all', async () => {
+  const { adapter, started } = adapterWith(async (_said, claude) => claude.say('Hi.'))
+  await adapter.turn(request([{ role: 'user', text: 'hello' }], { cwd: '' }))
+  await adapter.turn(request([{ role: 'user', text: 'Name this chat' }], { tools: [], cwd: undefined, cacheKey: 'eaon-chat-title' }))
+  assert.deepEqual(
+    started.map((s) => s.options.cwd),
+    ['/tmp/eaon-claude-agent', '/tmp/eaon-claude-agent']
+  )
+})
