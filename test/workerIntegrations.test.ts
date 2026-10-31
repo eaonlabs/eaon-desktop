@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createConnectors, opensTheHouse, unreachable } from '../src/main/features/workers/connectors'
+import { uberLink } from '@shared/workerLinks'
 import type { ConnectorId } from '@shared/workerConnectors'
 
 /**
@@ -155,4 +156,15 @@ test('a request that never got an answer says why, not “fetch failed”', asyn
   assert.match(unreachable(failed('ENOTFOUND')), /name isn’t found/)
   const connectors = createConnectors({ fetch: fake(() => failed('ECONNREFUSED')).fetch, ...vault() })
   await assert.rejects(() => connectors.connect('home-assistant', { url: 'http://homeassistant.local:8123', token: 't' }), /Couldn’t reach Home Assistant: nothing answered at that address and port\./)
+})
+
+test('Uber: the universal link Uber documents, places as JSON, so a computer’s browser keeps the destination', () => {
+  const link = uberLink({ to: 'SFO Terminal 2', toAt: { latitude: 37.6168, longitude: -122.3839 } })
+  const url = new URL(link)
+  assert.equal(`${url.origin}${url.pathname}`, 'https://m.uber.com/looking')
+  assert.deepEqual(JSON.parse(url.searchParams.get('drop[0]')!), { latitude: 37.6168, longitude: -122.3839, addressLine1: 'SFO Terminal 2' })
+  assert.equal(url.searchParams.get('pickup'), null, 'pickup left to Uber: where the user is')
+  const from = new URL(uberLink({ to: 'SFO', from: '1 Market St', fromAt: { latitude: 37.79, longitude: -122.39 } }))
+  assert.deepEqual(JSON.parse(from.searchParams.get('pickup')!), { latitude: 37.79, longitude: -122.39, addressLine1: '1 Market St' })
+  assert.deepEqual(JSON.parse(from.searchParams.get('drop[0]')!), { addressLine1: 'SFO' }, 'no coordinates: the address alone')
 })

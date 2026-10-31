@@ -102,7 +102,7 @@ test('links: Venmo, Cash App, Uber, Lyft, Maps and Waze, filled in and checked',
   assert.equal(cashAppLink({ to: 'samlee' }), 'https://cash.app/$samlee')
   assert.throws(() => cashAppLink({ to: '$1sam' }), /Cashtag/)
   const uber = uberLink({ to: 'SFO Terminal 2', toAt: { latitude: 37.6, longitude: -122.38 } })
-  assert.match(uber, /^https:\/\/m\.uber\.com\/ul\/\?action=setPickup&pickup=my_location&dropoff%5Bformatted_address%5D=SFO%20Terminal%202&dropoff%5Blatitude%5D=37\.6/)
+  assert.equal(uber, `https://m.uber.com/looking?drop%5B0%5D=${encodeURIComponent(JSON.stringify({ latitude: 37.6, longitude: -122.38, addressLine1: 'SFO Terminal 2' }))}`)
   assert.equal(lyftLink({}), 'https://ride.lyft.com/')
   assert.match(lyftLink({ toAt: { latitude: 1, longitude: 2 } }), /destination\[latitude\]=1&destination\[longitude\]=2/)
   assert.match(googleMapsLink({ to: 'Work', mode: 'transit' }), /destination=Work&travelmode=transit$/)
@@ -259,7 +259,7 @@ test('Instacart list pages, live traffic routes with Uber and Waze links, and ap
   const route = String(await tools[1].run({ from: '1 Market St', to: 'SFO', mode: 'drive' }, ctxFor(w.id)))
   assert.match(route, /^30 min \(usually 22\) · 14 mi · via US-101 S · moderate traffic/)
   assert.match(route, /Waze: https:\/\/waze\.com\/ul\?ll=37\.62,-122\.38/)
-  assert.match(route, /Uber: https:\/\/m\.uber\.com\/ul\/.*dropoff%5Blatitude%5D=37\.62/)
+  assert.match(route, /Uber: https:\/\/m\.uber\.com\/looking\?pickup=.*&drop%5B0%5D=%7B%22latitude%22%3A37\.62/)
   const sent = JSON.parse(calls.filter((c) => c.url.includes('routes')).at(-1)!.body!)
   assert.equal(sent.routingPreference, 'TRAFFIC_AWARE')
 

@@ -7,8 +7,8 @@
  * moves money or sends a car.
  *
  * Formats: Venmo's payment links (venmo.com/<user>?txn=pay|charge&amount&note),
- * Cash App's ($cashtag/amount), Uber's universal link (m.uber.com/ul,
- * action=setPickup), Lyft's ride link (needs coordinates), Google Maps URLs
+ * Cash App's ($cashtag/amount), Uber's universal link (m.uber.com/looking,
+ * places as JSON), Lyft's ride link (needs coordinates), Google Maps URLs
  * (api=1) and Waze's (waze.com/ul).
  */
 
@@ -35,15 +35,23 @@ export function cashAppLink(input: { to: string; amount?: number }): string {
   return `https://cash.app/$${encodeURIComponent(tag)}${input.amount ? `/${amountText(input.amount)}` : ''}`
 }
 
-/** An Uber to `to` from where the user is (or `from`), with coordinates when they are known. */
+/**
+ * An Uber to `to` from where the user is (or `from`), as Uber's universal
+ * link: m.uber.com/looking, with each place a JSON Location (latitude,
+ * longitude, addressLine1). It opens the Uber app on a phone and Uber's own
+ * booking page on a computer, the place filled in either way. The older
+ * m.uber.com/ul/?action=setPickup link only works where the app is: on a Mac
+ * it ends on uber.com's front page with the destination gone. Without
+ * coordinates the place goes by its address alone; the pickup is left to
+ * Uber (where the user is) unless `from` has coordinates.
+ */
 export function uberLink(input: { to: string; toAt?: LatLng | null; from?: string; fromAt?: LatLng | null }): string {
-  const parts: [string, string][] = [['action', 'setPickup']]
-  if (input.from?.trim() && input.fromAt) {
-    parts.push(['pickup[formatted_address]', input.from.trim()], ['pickup[latitude]', String(input.fromAt.latitude)], ['pickup[longitude]', String(input.fromAt.longitude)])
-  } else parts.push(['pickup', 'my_location'])
-  parts.push(['dropoff[formatted_address]', input.to.trim()])
-  if (input.toAt) parts.push(['dropoff[latitude]', String(input.toAt.latitude)], ['dropoff[longitude]', String(input.toAt.longitude)])
-  return `https://m.uber.com/ul/?${parts.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&')}`
+  const place = (address: string | undefined, at: LatLng | null | undefined): string =>
+    JSON.stringify({ ...(at ? { latitude: at.latitude, longitude: at.longitude } : {}), ...(address?.trim() ? { addressLine1: address.trim() } : {}) })
+  const parts: [string, string][] = []
+  if (input.fromAt) parts.push(['pickup', place(input.from, input.fromAt)])
+  parts.push(['drop[0]', place(input.to, input.toAt)])
+  return `https://m.uber.com/looking?${parts.map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join('&')}`
 }
 
 /** Lyft's ride link wants coordinates; without them it opens Lyft to choose the destination there. */
