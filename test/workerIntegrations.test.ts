@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, test } from 'node:test'
 import assert from 'node:assert/strict'
 import { createConnectors, opensTheHouse, unreachable } from '../src/main/features/workers/connectors'
+import { createHue, stateBody, type HueBridge } from '../src/main/features/workers/hue'
 import { uberLink } from '@shared/workerLinks'
 import type { ConnectorId } from '@shared/workerConnectors'
 
@@ -167,4 +168,46 @@ test('Uber: the universal link Uber documents, places as JSON, so a computer’s
   const from = new URL(uberLink({ to: 'SFO', from: '1 Market St', fromAt: { latitude: 37.79, longitude: -122.39 } }))
   assert.deepEqual(JSON.parse(from.searchParams.get('pickup')!), { latitude: 37.79, longitude: -122.39, addressLine1: '1 Market St' })
   assert.deepEqual(JSON.parse(from.searchParams.get('drop[0]')!), { addressLine1: 'SFO' }, 'no coordinates: the address alone')
+})
+
+/** A Hue bridge that can move: `at` is where it answers now. */
+function movingBridge() {
+  let at = '192.168.1.20'
+  let finder: 'ok' | 'limited' = 'ok'
+  const asked: string[] = []
+  const fetch = (async (url: string, init?: RequestInit) => {
+    asked.push(`${init?.method ?? 'GET'} ${url}`)
+    const json = (value: unknown) => ({ ok: true, status: 200, json: async () => value })
+    if (url === 'https://discovery.meethue.com/') return finder === 'ok' ? json([{ id: '001788fffe1234ab', internalipaddress: at }]) : { ok: false, status: 429, json: async () => ({}) }
+    const host = new URL(url).hostname
+    if (host !== at) throw failed('EHOSTUNREACH')
+    if (url.endsWith('/api') && init?.method === 'POST') return json([{ success: { username: 'KEY' } }])
+    if (url.endsWith('/api/config')) return json({ name: 'Hue Bridge', bridgeid: '001788FFFE1234AB' })
+    if (url.endsWith('/lights')) return json({ '1': { name: 'Desk lamp', state: { on: false, bri: 254, reachable: true } } })
+    if (url.endsWith('/groups')) return json({})
+    if (init?.method === 'PUT') return json([{ success: {} }])
+    return { ok: false, status: 404, json: async () => ({}) }
+  }) as unknown as typeof fetch
+  let saved: HueBridge | null = null
+  const hue = createHue({ fetch, load: () => saved, save: (b) => (saved = b) })
+  return { hue, asked, saved: () => saved, move: (ip: string) => (at = ip), limit: () => (finder = 'limited') }
+}
+
+test('Hue: a bridge paired by its address keeps its id, and is followed to a new address; whites by name are whites', async () => {
+  const bridge = movingBridge()
+  bridge.limit()
+  await assert.rejects(() => bridge.hue.pair(), /bridge finder answered 429\. Type the bridge’s IP address instead/)
+  assert.deepEqual(await bridge.hue.pair('http://192.168.1.20/'), { ip: '192.168.1.20', id: '001788fffe1234ab', username: 'KEY' }, 'typed with http:// and a slash, and its id read')
+
+  bridge.move('192.168.1.31')
+  await assert.rejects(() => bridge.hue.lights(), /Couldn’t reach the Hue bridge at 192\.168\.1\.20: that address isn’t reachable/, 'the finder is limited: nothing to follow')
+  const finderOk = movingBridge()
+  await finderOk.hue.pair('192.168.1.20')
+  finderOk.move('192.168.1.31')
+  assert.equal((await finderOk.hue.lights())[0].name, 'Desk lamp', 'found again where it went')
+  assert.equal(finderOk.saved()?.ip, '192.168.1.31', 'and kept there')
+  assert.equal(await finderOk.hue.set('desk', { color: 'warm white' }), 'Desk lamp: on, warm white')
+  assert.deepEqual(stateBody({ color: 'Warm white', brightness: 40 }), { bri: 102, on: true, ct: 370 })
+  assert.deepEqual(stateBody({ color: 'daylight' }), { ct: 153, on: true })
+  assert.deepEqual(stateBody({ color: 'white' }).xy !== undefined, true, 'plain white is still the colour')
 })

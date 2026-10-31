@@ -1,3 +1,5 @@
+import { unreachable } from './connectors'
+
 /**
  * Philips Hue, through the bridge's own local API (v1, on the home network):
  * find the bridge, pair with it by pressing its button, then list and set
@@ -41,6 +43,9 @@ export interface HueTarget {
 }
 
 const TIMEOUT_MS = 8000
+
+/** The bridge (or Philips' bridge finder) never answered: not on, not on this network, or moved to another address. */
+class Unreachable extends Error {}
 
 /** Colour names a model is likely to say, as sRGB. */
 const NAMED: Record<string, [number, number, number]> = {
@@ -86,6 +91,12 @@ const MIREDS = { warm: 370, neutral: 250, cool: 153 } as const
 
 /** The state body a light (or a room's action) is sent. */
 export function stateBody(target: HueTarget): Record<string, unknown> {
+  // "warm white" and the like are whites: colour temperatures, not colours.
+  const white = target.color ? /^(warm|soft|neutral|cool|cold|daylight)(\s+white)?$/i.exec(target.color.trim()) : null
+  if (white) {
+    const word = white[1].toLowerCase()
+    target = { ...target, color: undefined, temperature: word === 'warm' || word === 'soft' ? 'warm' : word === 'neutral' ? 'neutral' : 'cool' }
+  }
   const body: Record<string, unknown> = {}
   if (typeof target.on === 'boolean') body.on = target.on
   if (typeof target.brightness === 'number' && Number.isFinite(target.brightness)) {
@@ -118,18 +129,30 @@ export const hostOf = (ip: string): string => ((ip.match(/:/g) ?? []).length > 1
 export function createHue(deps: HueDeps) {
   const http = deps.fetch ?? fetch
 
-  const call = async (url: string, init: RequestInit = {}): Promise<unknown> => {
+  const call = async (url: string, init: RequestInit = {}, who = 'The Hue bridge'): Promise<unknown> => {
     const controller = new AbortController()
     const timer = setTimeout(() => controller.abort(), TIMEOUT_MS)
+    let response: Response
     try {
-      const response = await http(url, { ...init, signal: controller.signal, headers: { 'content-type': 'application/json' } })
-      if (!response.ok) throw new Error(`The bridge answered ${response.status}.`)
-      return await response.json()
+      response = await http(url, { ...init, signal: controller.signal, headers: { 'content-type': 'application/json' } })
     } catch (error) {
-      if ((error as Error)?.name === 'AbortError') throw new Error('The Hue bridge didn’t answer. Is it on, and on the same network as this computer?')
-      throw error
+      const at = (() => {
+        try {
+          return new URL(url).host
+        } catch {
+          return url
+        }
+      })()
+      if ((error as Error)?.name === 'AbortError') throw new Unreachable(`${who} at ${at} didn’t answer. Is it on, and on the same network as this computer?`)
+      throw new Unreachable(`Couldn’t reach ${who.replace(/^The /, 'the ')} at ${at}: ${unreachable(error)}. Is it on, and on the same network as this computer?`)
     } finally {
       clearTimeout(timer)
+    }
+    if (!response.ok) throw new Error(`${who} answered ${response.status}.`)
+    try {
+      return await response.json()
+    } catch {
+      throw new Error(`${who} answered with something that isn’t the Hue API. Is that the bridge’s address?`)
     }
   }
 
@@ -151,18 +174,48 @@ export function createHue(deps: HueDeps) {
 
   const base = (b: HueBridge): string => `http://${hostOf(b.ip)}/api/${encodeURIComponent(b.username)}`
 
+  /** Bridges on this network, from Philips' discovery service. */
+  const discover = async (): Promise<{ id: string; ip: string }[]> => {
+    let reply: unknown
+    try {
+      reply = await call('https://discovery.meethue.com/', {}, 'Philips’ bridge finder')
+    } catch (error) {
+      // It allows few requests from one address (429), and needs the internet: the address typed in works without it.
+      throw new Error(`${(error as Error).message} Type the bridge’s IP address instead (in the Hue app: Settings → My Hue System → your bridge).`)
+    }
+    return (Array.isArray(reply) ? reply : [])
+      .map((b: Json) => ({ id: String(b.id ?? ''), ip: String(b.internalipaddress ?? '') }))
+      .filter((b) => /^[0-9.]+$/.test(b.ip) || /^[0-9a-f:]+$/i.test(b.ip))
+  }
+
+  /**
+   * `work` with the paired bridge. A home network hands addresses out again,
+   * so a bridge that doesn't answer where it was is looked for by its id and,
+   * found somewhere new, kept there and asked again — as Philips' own apps do.
+   */
+  const withBridge = async <T>(work: (b: HueBridge) => Promise<T>): Promise<T> => {
+    const b = bridge()
+    try {
+      return await work(b)
+    } catch (error) {
+      if (!(error instanceof Unreachable) || !b.id) throw error
+      const moved = await discover().then(
+        (found) => found.find((f) => f.id.toLowerCase() === b.id.toLowerCase() && f.ip !== b.ip),
+        () => undefined
+      )
+      if (!moved) throw error
+      const next = { ...b, ip: moved.ip }
+      deps.save(next)
+      return await work(next)
+    }
+  }
+
   return {
     paired(): HueBridge | null {
       return deps.load()
     },
 
-    /** Bridges on this network, from Philips' discovery service. */
-    async discover(): Promise<{ id: string; ip: string }[]> {
-      const reply = await call('https://discovery.meethue.com/')
-      return (Array.isArray(reply) ? reply : [])
-        .map((b: Json) => ({ id: String(b.id ?? ''), ip: String(b.internalipaddress ?? '') }))
-        .filter((b) => /^[0-9.]+$/.test(b.ip) || /^[0-9a-f:]+$/i.test(b.ip))
-    },
+    discover,
 
     /**
      * Pairs with a bridge (the first one found, unless `ip` names one). The
@@ -174,16 +227,23 @@ export function createHue(deps: HueDeps) {
       let id = ''
       if (!target) {
         const found = await this.discover()
-        if (found.length === 0) throw new Error('No Hue bridge was found on this network. Give its IP address (in the Hue app: Settings → My Hue System).')
+        if (found.length === 0) throw new Error('No Hue bridge was found on this network. Type its IP address (in the Hue app: Settings → My Hue System → your bridge) and pair again.')
         target = found[0].ip
         id = found[0].id
       }
-      if (!/^[0-9a-z.:-]+$/i.test(target)) throw new Error('That isn’t an IP address.')
+      target = target.replace(/^https?:\/\//i, '').replace(/\/.*$/, '')
+      if (!/^[0-9a-z.:\[\]-]+$/i.test(target)) throw new Error('That isn’t an IP address.')
+      target = target.replace(/^\[(.*)\]$/, '$1')
       const reply = await call(`http://${hostOf(target)}/api`, { method: 'POST', body: JSON.stringify({ devicetype: 'eaon#workers' }) })
       const first = Array.isArray(reply) ? (reply[0] as { success?: { username?: string }; error?: { type?: number } }) : null
       if (first?.error?.type === 101) throw new Error('Press the round button on top of the Hue bridge, then pair again within 30 seconds.')
       const username = first?.success?.username
       if (!username) throw new Error(bridgeError(reply) ?? 'The bridge didn’t give Eaon a key.')
+      // Its id, so it can be found again if its address changes (the config answers without a key).
+      if (!id) {
+        const config = (await call(`http://${hostOf(target)}/api/config`).catch(() => null)) as { bridgeid?: unknown } | null
+        id = typeof config?.bridgeid === 'string' ? config.bridgeid.toLowerCase() : ''
+      }
       const paired = { ip: target, id, username }
       deps.save(paired)
       return paired
@@ -194,8 +254,7 @@ export function createHue(deps: HueDeps) {
     },
 
     async lights(): Promise<HueLight[]> {
-      const b = bridge()
-      const [lights, groups] = (await Promise.all([call(`${base(b)}/lights`), call(`${base(b)}/groups`)])) as [Json, Json]
+      const [lights, groups] = (await withBridge((b) => Promise.all([call(`${base(b)}/lights`), call(`${base(b)}/groups`)]))) as [Json, Json]
       const failed = bridgeError(lights)
       if (failed) throw new Error(failed)
       const roomOf = new Map<string, string>()
@@ -221,36 +280,36 @@ export function createHue(deps: HueDeps) {
      * case; a room wins over a light of the same name. Says what changed.
      */
     async set(target: string, state: HueTarget): Promise<string> {
-      const b = bridge()
+      bridge()
       const body = stateBody(state)
       if (Object.keys(body).length === 0) throw new Error('Say what to change: on, brightness, color or temperature.')
       const wanted = target.trim().toLowerCase()
-      let url: string
+      let path: string
       let label: string
       if (!wanted || wanted === 'all' || wanted === 'everything') {
-        url = `${base(b)}/groups/0/action`
+        path = '/groups/0/action'
         label = 'every light'
       } else {
-        const groups = (await call(`${base(b)}/groups`)) as Json
+        const groups = (await withBridge((b) => call(`${base(b)}/groups`))) as Json
         const group = Object.entries(groups ?? {}).find(([, g]) => String((g as Json)?.name ?? '').toLowerCase() === wanted)
         if (group) {
-          url = `${base(b)}/groups/${group[0]}/action`
+          path = `/groups/${group[0]}/action`
           label = String((group[1] as Json).name)
         } else {
           const lights = await this.lights()
           const light = lights.find((l) => l.name.toLowerCase() === wanted) ?? lights.find((l) => l.name.toLowerCase().includes(wanted))
           if (!light) throw new Error(`No light or room called "${target}". Lights: ${lights.map((l) => l.name).join(', ') || 'none'}.`)
-          url = `${base(b)}/lights/${light.id}/state`
+          path = `/lights/${light.id}/state`
           label = light.name
         }
       }
-      const reply = await call(url, { method: 'PUT', body: JSON.stringify(body) })
+      const reply = await withBridge((b) => call(`${base(b)}${path}`, { method: 'PUT', body: JSON.stringify(body) }))
       const failed = bridgeError(reply)
       if (failed) throw new Error(failed)
       const parts = [
         body.on === false ? 'off' : body.on === true ? 'on' : null,
         typeof body.bri === 'number' ? `${Math.round((body.bri / 254) * 100)}%` : null,
-        state.color ? state.color : state.temperature ? `${state.temperature} white` : null
+        body.xy && state.color ? state.color : body.ct ? `${Object.entries(MIREDS).find(([, m]) => m === body.ct)?.[0] ?? 'white'} white` : null
       ].filter(Boolean)
       return `${label}: ${parts.join(', ')}`
     }

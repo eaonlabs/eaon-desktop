@@ -4227,6 +4227,19 @@ body[data-reduce-motion='on'] .wcard {
   gap: 6px;
   margin-top: 2px;
 }
+.app-row__hue-pair {
+  align-self: stretch;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.app-row__hue-pair .app-row__hue-ip {
+  flex: 0 1 220px;
+  width: 220px;
+  min-width: 0;
+  height: 30px;
+}
 .app-row__actions {
   flex: none;
   display: flex;

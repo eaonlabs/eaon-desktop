@@ -242,15 +242,20 @@ export function HuePair(): JSX.Element {
   const [paired, setPaired] = useState<{ ip: string } | null | undefined>(undefined)
   const [busy, setBusy] = useState(false)
   const [note, setNote] = useState<string | null>(null)
+  // The bridge's address, for when Philips' bridge finder can't find it (no internet, or asked too often).
+  const [ip, setIp] = useState('')
   useEffect(() => {
-    void window.api.workers.hueStatus().then((s) => setPaired(s.paired))
+    void window.api.workers
+      .hueStatus()
+      .then((s) => setPaired(s.paired))
+      .catch(() => setPaired(null))
   }, [])
   if (paired === undefined) return <span className="app-row__note">Checking the Hue bridge…</span>
   if (paired) {
     return (
       <span className="app-row__note">
-        Paired with the bridge at {paired.ip}.{' '}
-        <button className="link-btn" onClick={() => void window.api.workers.hueForget().then(() => setPaired(null))}>
+        Paired with the bridge at {paired.ip}.{note ? ` ${note}` : ''}{' '}
+        <button className="link-btn" onClick={() => void window.api.workers.hueForget().then(() => (setPaired(null), setNote(null)))}>
           Forget it
         </button>
       </span>
@@ -259,24 +264,35 @@ export function HuePair(): JSX.Element {
   return (
     <span className="app-row__hue">
       <span className="app-row__note">Press the round button on top of your Hue bridge, then pair within 30 seconds.</span>
-      <button
-        className="btn btn--sm"
-        disabled={busy}
-        onClick={() => {
-          setBusy(true)
-          setNote(null)
-          window.api.workers
-            .huePair()
-            .then((r) => {
-              setPaired({ ip: r.ip })
-              setNote(`Found ${r.lights} light${r.lights === 1 ? '' : 's'}.`)
-            })
-            .catch((e: unknown) => setNote(errorText(e)))
-            .finally(() => setBusy(false))
-        }}
-      >
-        {busy ? 'Pairing…' : 'Pair bridge'}
-      </button>
+      <span className="app-row__hue-pair">
+        <input
+          className="input app-row__hue-ip"
+          aria-label="Bridge IP address (optional)"
+          placeholder="IP address, if it isn’t found"
+          spellCheck={false}
+          autoComplete="off"
+          value={ip}
+          onChange={(e) => setIp(e.target.value)}
+        />
+        <button
+          className="btn btn--sm"
+          disabled={busy}
+          onClick={() => {
+            setBusy(true)
+            setNote(null)
+            window.api.workers
+              .huePair(ip.trim() || undefined)
+              .then((r) => {
+                setPaired({ ip: r.ip })
+                setNote(`Found ${r.lights} light${r.lights === 1 ? '' : 's'}.`)
+              })
+              .catch((e: unknown) => setNote(errorText(e)))
+              .finally(() => setBusy(false))
+          }}
+        >
+          {busy ? 'Pairing…' : 'Pair bridge'}
+        </button>
+      </span>
       {note && <span className="app-row__note">{note}</span>}
     </span>
   )
