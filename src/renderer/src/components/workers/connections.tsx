@@ -11,24 +11,39 @@ import { errorText } from './workersStore'
  */
 
 
-/** The connection statuses, kept current. Null until the first answer. */
+/**
+ * The connection statuses, kept current. Null until the first answer. Every
+ * row of the Apps sheet asks, so they share one subscription and one
+ * question: one listener each was thirty on the same IPC channel (Electron
+ * warns past ten).
+ */
 export function useConnections(): ConnectorStatuses | null {
   const [statuses, setStatuses] = useState<ConnectorStatuses | null>(cachedStatuses)
   useEffect(() => {
     // A release build has no connections, nor the handlers that answer for them.
     if (!workerAppsEnabled()) return
-    void window.api.workers.connections().then((s) => {
-      cachedStatuses = s
-      setStatuses(s)
-    })
-    return window.api.workers.onConnectionsChanged((s) => {
-      cachedStatuses = s
-      setStatuses(s)
-    })
+    watchers.add(setStatuses)
+    if (!unsubscribe) {
+      unsubscribe = window.api.workers.onConnectionsChanged(publish)
+      void window.api.workers.connections().then(publish, () => undefined)
+    } else if (cachedStatuses) setStatuses(cachedStatuses)
+    return () => {
+      watchers.delete(setStatuses)
+      if (watchers.size === 0) {
+        unsubscribe?.()
+        unsubscribe = null
+      }
+    }
   }, [])
   return statuses
 }
 let cachedStatuses: ConnectorStatuses | null = null
+const watchers = new Set<(statuses: ConnectorStatuses) => void>()
+let unsubscribe: (() => void) | null = null
+function publish(statuses: ConnectorStatuses): void {
+  cachedStatuses = statuses
+  for (const watcher of watchers) watcher(statuses)
+}
 
 /** "Connect Home Assistant" from an app's row opens its form in the Connections list above. */
 export const openListeners = new Set<(id: ConnectorId) => void>()
