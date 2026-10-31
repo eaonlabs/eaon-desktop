@@ -5,7 +5,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { app, powerSaveBlocker } from 'electron'
 import type { GoalState, ModelInfo, Provider, Settings, StreamEvent, StreamRequest, TokenUsage } from '@shared/types'
-import { adapterFor, getProvider, noteProviderHealth } from '../providers'
+import { adapterFor, endAgentTurn, getProvider, noteProviderHealth } from '../providers'
 import { classifyProviderError, isContextOverflow } from '../providers/errors'
 import { compactionProgress, expectedSummaryChars } from '@shared/compaction'
 import { targetsPrivateNetwork } from '../netGuard'
@@ -306,6 +306,7 @@ async function callModel(
         cacheKey: params.request.chatId,
         agentic: params.request.mode === 'work',
         cwd: params.cwd,
+        turnId: params.request.messageId,
         onText: (delta) => {
           streamed = true
           params.onText(delta)
@@ -1055,6 +1056,8 @@ async function runOwnLoop(request: StreamRequest, emit: (event: StreamEvent) => 
     return { text, error: message, usage }
   } finally {
     options.signal?.removeEventListener('abort', forwardAbort)
+    // A session still waiting on one of this turn's calls (Claude Agent's, after a Stop, a plan or a worker's sleep) is let go.
+    endAgentTurn(request.messageId)
     activeRuns.delete(request.messageId)
     untilRuns.delete(request.messageId)
     pausedGoals.delete(request.messageId)

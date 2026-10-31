@@ -315,3 +315,85 @@ test('Stop while Claude is answering ends the step at once, even when Claude Cod
   setTimeout(() => titleController.abort(), 30)
   await assert.rejects(title, /stopped/i)
 })
+
+test('a turn stopped while its tool ran lets the waiting session go, and the next turn is the chat’s own, not a subagent’s', async () => {
+  let answered = ''
+  const { adapter, started } = adapterWith(async (said, claude) => {
+    if (said === 'List the folder') answered = await claude.call('read_file', { path: '.' })
+    else claude.say('Hello again.')
+  })
+  const first = await adapter.turn(request([{ role: 'user', text: 'List the folder' }], { turnId: 'reply-1' }))
+  assert.equal(first.stop, 'tool_use')
+  // Stopped before the call reached the transcript: the loop ends the turn.
+  adapter.endTurn('reply-1')
+  await new Promise((resolve) => setTimeout(resolve, 10))
+  assert.equal(answered, 'Stopped.', 'the held call was answered, so Claude Code isn’t left waiting')
+
+  // The message sent again (a retry): its history doesn't hold that call.
+  const retry = await adapter.turn(request([{ role: 'user', text: 'Say hello' }], { turnId: 'reply-2' }))
+  assert.equal(retry.text, 'Hello again.')
+  assert.equal(started.length, 2)
+  assert.equal(started[1].options.persistSession, true, 'the chat’s session, kept in Claude Code’s history')
+  await adapter.turn(request([{ role: 'user', text: 'Say hello' }, { role: 'assistant', text: 'Hello again.', calls: [] }, { role: 'user', text: 'Once more' }], { turnId: 'reply-3' }))
+  assert.equal(started.length, 2, 'and the next turn goes on in it')
+})
+
+test('a turn that ended on a held call (a plan, a worker’s sleep) doesn’t make the next turn a subagent', async () => {
+  const { adapter, started } = adapterWith(async (said, claude) => {
+    if (said === 'Plan it') await claude.call('read_file', { path: 'plan.md' })
+    else claude.say('Done.')
+  })
+  const plan = await adapter.turn(request([{ role: 'user', text: 'Plan it' }], { turnId: 'reply-1' }))
+  assert.equal(plan.stop, 'tool_use')
+  // No endTurn from this caller: the next turn (an edit, so the call isn't in its history) tells on its own.
+  await adapter.turn(request([{ role: 'user', text: 'Plan it differently' }], { turnId: 'reply-2' }))
+  assert.equal(started.length, 2)
+  assert.equal(started[1].options.persistSession, true, 'the chat’s own session')
+  await adapter.turn(request([{ role: 'user', text: 'Plan it differently' }, { role: 'assistant', text: 'Done.', calls: [] }, { role: 'user', text: 'Thanks' }], { turnId: 'reply-3' }))
+  assert.equal(started.length, 2, 'which the next turn continues')
+})
+
+test('a subagent is told by its turn; the turn’s end closes its process', async () => {
+  const { adapter, started } = adapterWith(async (said, claude) => {
+    if (said === 'Plan the trip') {
+      const answer = await claude.call('web_browser', { task: 'find flights' })
+      claude.say(`Found: ${answer}`)
+    } else claude.say('Two flights.')
+  })
+  const parent: NeutralMessage[] = [{ role: 'user', text: 'Plan the trip' }]
+  const step = await adapter.turn(request(parent, { turnId: 'reply-1' }))
+  // The subagent's history happens to match nothing of the parent's: its turn id is what tells.
+  const sub = await adapter.turn(request([{ role: 'user', text: 'find flights' }], { turnId: 'reply-1', system: 'You are a subagent.' }))
+  assert.equal(sub.text, 'Two flights.')
+  assert.equal(started[1].options.persistSession, false)
+  parent.push({ role: 'assistant', text: '', calls: step.calls }, { role: 'tool', results: [{ id: step.calls[0].id, name: 'web_browser', output: 'Two flights.' }] })
+  assert.equal((await adapter.turn(request(parent, { turnId: 'reply-1' }))).text, 'Found: Two flights.')
+  const subAbort = started[1].options.abortController!
+  assert.equal(subAbort.signal.aborted, false)
+  adapter.endTurn('reply-1')
+  assert.equal(subAbort.signal.aborted, true, 'the subagent’s Claude Code is stopped with its turn')
+  assert.equal(started[0].options.abortController!.signal.aborted, false, 'the chat’s session stays for the next turn')
+})
+
+test('the sign-in is checked when a turn starts, not again for each step inside it', async () => {
+  let checks = 0
+  const { adapter } = adapterWith(
+    async (said, claude) => {
+      const seen = await claude.call('read_file', { path: 'a.txt' })
+      claude.say(seen)
+    },
+    {
+      auth: async () => {
+        checks++
+        return { auth: { state: 'signed-in', method: 'Claude account', plan: 'Max' }, checkedAt: 0 }
+      }
+    }
+  )
+  const messages: NeutralMessage[] = [{ role: 'user', text: 'Read a.txt' }]
+  const first = await adapter.turn(request(messages))
+  const atStart = checks
+  assert.ok(atStart > 0)
+  messages.push({ role: 'assistant', text: first.text, calls: first.calls }, { role: 'tool', results: [{ id: first.calls[0].id, name: 'read_file', output: 'hi' }] })
+  await adapter.turn(request(messages))
+  assert.equal(checks, atStart, 'the step that hands back a result starts no check')
+})

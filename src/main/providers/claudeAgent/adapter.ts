@@ -30,6 +30,8 @@ const IDLE_MS = 10 * 60_000
 const WAITING_MS = 60 * 60_000
 /** How old a sign-in check may be before a turn checks again that nothing would be charged. */
 const CHARGE_CHECK_MS = 60_000
+/** A subagent's session, once it has answered: kept only for the loop's own nudge right after. */
+const LOOSE_IDLE_MS = 60_000
 
 export interface ClaudeAgentDeps {
   /** The user's `claude`, or null when it isn't installed. */
@@ -50,6 +52,8 @@ interface Live {
   seen: number
   /** The chat this session is the record of, or null for one of its own (a subagent's). */
   chat: string | null
+  /** The agent turn it is a step of (TurnRequest `turnId`), when the caller says. */
+  turnId: string | null
 }
 
 interface ChatRecord {
@@ -59,15 +63,29 @@ interface ChatRecord {
   keys: string[]
 }
 
-export function createClaudeAgentAdapter(deps: ClaudeAgentDeps): Adapter & { dispose(): void } {
+export function createClaudeAgentAdapter(deps: ClaudeAgentDeps): Adapter & { endTurn(turnId: string): void; dispose(): void } {
   const now = (): number => deps.now?.() ?? Date.now()
   const byMessages = new WeakMap<NeutralMessage[], Live>()
   const chats = new Map<string, ChatRecord>()
   const sessions = new Set<ClaudeSession>()
+  /** Sessions outside any chat's record (subagents', a busy chat's second request), until they close. */
+  const loose = new Set<Live>()
   let extraUsageUntil = 0
 
-  /** Nothing that could be charged: signed in with a Claude account, the plan not on extra usage. */
-  async function checkPlan(): Promise<void> {
+  /** The plan isn't on extra usage: checked before every step, as it costs nothing. */
+  function checkExtraUsage(): void {
+    if (now() < extraUsageUntil) {
+      const at = new Date(extraUsageUntil).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })
+      throw new ClaudeAgentError(`Your Claude plan’s limit is used up, and going on would use extra usage, which Anthropic charges for. Try again after ${at}.`)
+    }
+  }
+
+  /**
+   * Signed in with a Claude account, so nothing is charged: checked before a
+   * new process or a new turn, not for each step of one (that process was
+   * checked when it started: `apiKeySource`).
+   */
+  async function checkSignIn(): Promise<void> {
     let { auth, checkedAt } = await deps.auth(false)
     if (now() - checkedAt > CHARGE_CHECK_MS || auth.state !== 'signed-in') ({ auth } = await deps.auth(true))
     if (auth.state === 'signed-out' || auth.state === 'expired') {
@@ -75,10 +93,6 @@ export function createClaudeAgentAdapter(deps: ClaudeAgentDeps): Adapter & { dis
     }
     if (auth.state === 'signed-in' && auth.method !== 'Claude account') {
       throw new ClaudeAgentError('Claude Code is signed in with an API key, which Anthropic charges per use. To use your Claude plan, sign in with your Claude account: claude auth login.')
-    }
-    if (now() < extraUsageUntil) {
-      const at = new Date(extraUsageUntil).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })
-      throw new ClaudeAgentError(`Your Claude plan’s limit is used up, and going on would use extra usage, which Anthropic charges for. Try again after ${at}.`)
     }
   }
 
@@ -103,14 +117,27 @@ export function createClaudeAgentAdapter(deps: ClaudeAgentDeps): Adapter & { dis
   function retire(live: Live): void {
     live.session.close()
     sessions.delete(live.session)
+    loose.delete(live)
   }
 
   /** Closes a session that can't go on (it failed, or was stopped), and forgets it as the chat's record. */
-  function forget(live: Live | undefined, messages: NeutralMessage[]): void {
-    byMessages.delete(messages)
+  function forget(live: Live | undefined, messages?: NeutralMessage[]): void {
+    if (messages) byMessages.delete(messages)
     if (!live) return
     retire(live)
     if (live.chat && chats.get(live.chat)?.live === live) chats.delete(live.chat)
+  }
+
+  /** A session of its own, outside the chat's record, caught up on what its request holds. */
+  function apart(request: TurnRequest, base: Omit<SessionSpec, 'resume' | 'persist'>, signature: string, query: QueryFn): { live: Live; step: Promise<StepResult> } {
+    const last = request.messages[request.messages.length - 1]
+    const asked = last?.role === 'user' ? last : null
+    const earlier = asked ? request.messages.slice(0, -1) : request.messages
+    const session = open(signature, { ...base, persist: false }, query)
+    const live: Live = { session, seen: 0, chat: null, turnId: request.turnId ?? null }
+    loose.add(live)
+    const handlers = { onText: request.onText, onReasoning: request.onReasoning }
+    return { live, step: session.send(userContent(asked ?? { role: 'user', text: '' }, withCheckpoint(earlier, asked?.text ?? 'Continue.')), handlers) }
   }
 
   /** The step that continues a session within a turn, when the loop's messages pick up where it left off. */
@@ -136,22 +163,24 @@ export function createClaudeAgentAdapter(deps: ClaudeAgentDeps): Adapter & { dis
   function starting(request: TurnRequest, base: Omit<SessionSpec, 'resume' | 'persist'>, signature: string, query: QueryFn): { live: Live; step: Promise<StepResult> } {
     const { messages, cacheKey } = request
     const handlers = { onText: request.onText, onReasoning: request.onReasoning }
+    const turnId = request.turnId ?? null
     const last = messages[messages.length - 1]
     const asked = last?.role === 'user' ? last : null
     const earlier = asked ? messages.slice(0, -1) : messages
     const keys = fingerprint(earlier)
     let record = chats.get(cacheKey)
 
-    const busy = record?.live && !record.live.session.dead ? record.live.session.pending : null
-    if (busy) {
-      if (!keys.includes(`c:${busy.call.id}`)) {
-        // A subagent while its parent waits on it: a session of its own, outside the chat's record.
-        const session = open(signature, { ...base, persist: false }, query)
-        const live: Live = { session, seen: 0, chat: null }
-        return { live, step: session.send(userContent(asked ?? { role: 'user', text: '' }, withCheckpoint(earlier, asked?.text ?? 'Continue.')), handlers) }
-      }
-      // The turn that call belonged to was stopped while it ran: that session can't go on.
-      forget(record!.live!, [])
+    const held = record?.live && !record.live.session.dead ? record.live : null
+    // Another request of the chat's while its session is answering one: kept apart, so neither is lost.
+    if (held?.session.stepping) return apart(request, base, signature, query)
+    const waiting = held?.session.pending
+    if (held && waiting) {
+      // A subagent while its parent waits on it: a session of its own, outside the chat's record.
+      // Its turn says so; a caller that doesn't name turns is told by the call's absence from the history.
+      const subagent = request.turnId !== undefined ? held.turnId === request.turnId : !keys.includes(`c:${waiting.call.id}`)
+      if (subagent) return apart(request, base, signature, query)
+      // The turn that call belonged to is over (stopped, or it ended on a plan or a worker's sleep): nothing will answer it.
+      forget(held)
       record = undefined
     }
 
@@ -162,7 +191,7 @@ export function createClaudeAgentAdapter(deps: ClaudeAgentDeps): Adapter & { dis
         if (record.live) retire(record.live)
         session = open(signature, { ...base, persist: true, resume: record.claudeSessionId }, query)
       }
-      const live: Live = { session, seen: 0, chat: cacheKey }
+      const live: Live = { session, seen: 0, chat: cacheKey, turnId }
       record.live = live
       record.keys = [...keys, userKey(asked.text)]
       return { live, step: session.send(userContent(asked), handlers) }
@@ -170,7 +199,7 @@ export function createClaudeAgentAdapter(deps: ClaudeAgentDeps): Adapter & { dis
 
     if (record?.live) retire(record.live)
     const session = open(signature, { ...base, persist: true }, query)
-    const live: Live = { session, seen: 0, chat: cacheKey }
+    const live: Live = { session, seen: 0, chat: cacheKey, turnId }
     chats.set(cacheKey, { live, claudeSessionId: null, keys: asked ? [...keys, userKey(asked.text)] : keys })
     const text = asked ? withCheckpoint(earlier, asked.text) : withCheckpoint(messages, 'Continue from where this left off.')
     return { live, step: session.send(userContent(asked ?? { role: 'user', text: '' }, text), handlers) }
@@ -203,18 +232,23 @@ export function createClaudeAgentAdapter(deps: ClaudeAgentDeps): Adapter & { dis
     managesContext: true,
 
     async turn(request: TurnRequest): Promise<TurnResult> {
-      await checkPlan()
+      checkExtraUsage()
       const executable = deps.executable()
       if (!executable) throw new ClaudeAgentError('Claude Code isn’t installed. Install it with npm install -g @anthropic-ai/claude-code, then sign in with claude auth login.')
       if (request.signal.aborted) throw new Error('aborted')
       const query = await deps.query()
       const { spec, signature } = specOf(request, executable)
-      if (request.tools.length === 0) return oneOff(request, spec, signature, query)
+      if (request.tools.length === 0) {
+        await checkSignIn()
+        return oneOff(request, spec, signature, query)
+      }
 
       let live = byMessages.get(request.messages)
       let step = live ? continuing(live, request) : null
       if (!step) {
         if (live) forget(live, request.messages)
+        await checkSignIn()
+        if (request.signal.aborted) throw new Error('aborted')
         ;({ live, step } = starting(request, spec, signature, query))
       }
       const current = live!
@@ -243,13 +277,24 @@ export function createClaudeAgentAdapter(deps: ClaudeAgentDeps): Adapter & { dis
         record.claudeSessionId = current.session.claudeSessionId ?? record.claudeSessionId
         for (const call of result.calls) record.keys.push(`c:${call.id}`)
       }
-      current.session.closeWhenIdle(result.stop === 'tool_use' ? WAITING_MS : IDLE_MS)
+      current.session.closeWhenIdle(result.stop === 'tool_use' ? WAITING_MS : current.chat ? IDLE_MS : LOOSE_IDLE_MS)
       return { text: result.text, calls: result.calls, stop: result.stop, usage: result.usage }
+    },
+
+    endTurn(turnId: string): void {
+      // The chat's session waiting on a call of that turn: nothing will answer it now.
+      for (const record of chats.values()) {
+        const live = record.live
+        if (live && live.turnId === turnId && live.session.pending) forget(live)
+      }
+      // The turn's subagents, and whatever else it ran apart, are done with it.
+      for (const live of [...loose]) if (live.turnId === turnId) retire(live)
     },
 
     dispose(): void {
       for (const session of sessions) session.close()
       sessions.clear()
+      loose.clear()
       chats.clear()
     }
   }

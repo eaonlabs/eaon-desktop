@@ -92,6 +92,12 @@ export interface TurnRequest {
   outputCap?: number
   /** The folder the agent works in, for an adapter that runs a program there (Claude Agent). */
   cwd?: string
+  /**
+   * The agent turn this request is a step of (its reply's message id), the
+   * same for its subagents. For an adapter that keeps a session open across
+   * steps (Claude Agent), so it can tell a subagent's request from a new turn.
+   */
+  turnId?: string
 }
 
 /** An adapter's output cap, lowered to the caller's `outputCap` when there is one. */
@@ -119,6 +125,12 @@ export interface Adapter {
    */
   managesContext: boolean
   turn(request: TurnRequest): Promise<TurnResult>
+  /**
+   * The agent turn `turnId` is over, finished or stopped: an adapter holding
+   * a session that waits on one of its tool calls (Claude Agent) lets it go,
+   * as nothing will answer that call now.
+   */
+  endTurn?(turnId: string): void
 }
 
 export const emptyUsage = (): TokenUsage => ({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0 })

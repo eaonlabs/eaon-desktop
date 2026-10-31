@@ -52,6 +52,20 @@ export function registerAdapter(kind: Provider['kind'], adapter: Adapter): void 
   extraAdapters.set(kind, adapter)
 }
 
+/**
+ * An agent turn is over: every adapter that keeps sessions across steps
+ * hears it, whichever provider the turn's subagents used.
+ */
+export function endAgentTurn(turnId: string): void {
+  for (const adapter of extraAdapters.values()) {
+    try {
+      adapter.endTurn?.(turnId)
+    } catch (error) {
+      console.error('[providers] endTurn failed:', error)
+    }
+  }
+}
+
 registerAdapter('openai-responses', openaiResponsesAdapter)
 registerAdapter('ollama', ollamaAdapter)
 registerAdapter('claude-agent', claudeAgentAdapter)
