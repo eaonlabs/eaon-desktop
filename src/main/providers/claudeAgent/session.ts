@@ -154,7 +154,9 @@ export class ClaudeSession {
   constructor(
     readonly signature: string,
     spec: SessionSpec,
-    query: QueryFn
+    query: QueryFn,
+    /** Told once, when the process is closed for whatever reason (Stop, a failure, the idle timer). */
+    private readonly onClose?: () => void
   ) {
     const tools = spec.tools.length > 0
     const options: Options = {
@@ -222,6 +224,7 @@ export class ClaudeSession {
 
   close(): void {
     if (this.idle) clearTimeout(this.idle)
+    const first = !this.dead
     this.pending?.answer({ isError: true, content: [{ type: 'text', text: 'Stopped.' }] })
     this.pending = null
     this.dead = true
@@ -236,6 +239,7 @@ export class ClaudeSession {
     } catch {
       /* already gone */
     }
+    if (first) this.onClose?.()
   }
 
   /** Closes the process after `ms` of nothing to do; the session itself can be resumed later. */

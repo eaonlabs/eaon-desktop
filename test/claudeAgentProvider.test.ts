@@ -1,4 +1,4 @@
-import { test } from 'node:test'
+import { mock, test } from 'node:test'
 import assert from 'node:assert/strict'
 import type { Options, SDKMessage, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
@@ -425,4 +425,21 @@ test('an attached image goes to Claude with the message, as an image block', asy
     { type: 'text', text: 'What is this?' },
     { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0KGgo=' } }
   ])
+})
+
+test('an idle session’s process closes, and the adapter lets it go; the chat resumes it in a new one', async () => {
+  mock.timers.enable({ apis: ['setTimeout'] })
+  try {
+    const { adapter, started } = adapterWith(async (_said, claude) => claude.say('ok'))
+    await adapter.turn(request([{ role: 'user', text: 'one' }]))
+    assert.equal(adapter.openSessions(), 1)
+    mock.timers.tick(10 * 60_000)
+    assert.equal(started[0].options.abortController!.signal.aborted, true, 'Claude Code stopped after ten idle minutes')
+    assert.equal(adapter.openSessions(), 0, 'nothing holds the closed session')
+    await adapter.turn(request([{ role: 'user', text: 'one' }, { role: 'assistant', text: 'ok', calls: [] }, { role: 'user', text: 'two' }]))
+    assert.equal(started[1].options.resume, 'claude-session-1', 'the next turn resumes the session')
+    assert.equal(adapter.openSessions(), 1)
+  } finally {
+    mock.timers.reset()
+  }
 })

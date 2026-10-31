@@ -63,7 +63,12 @@ interface ChatRecord {
   keys: string[]
 }
 
-export function createClaudeAgentAdapter(deps: ClaudeAgentDeps): Adapter & { endTurn(turnId: string): void; dispose(): void } {
+export function createClaudeAgentAdapter(deps: ClaudeAgentDeps): Adapter & {
+  endTurn(turnId: string): void
+  /** How many Claude Code processes are open, for tests and diagnostics. */
+  openSessions(): number
+  dispose(): void
+} {
   const now = (): number => deps.now?.() ?? Date.now()
   const byMessages = new WeakMap<NeutralMessage[], Live>()
   const chats = new Map<string, ChatRecord>()
@@ -109,7 +114,12 @@ export function createClaudeAgentAdapter(deps: ClaudeAgentDeps): Adapter & { end
   }
 
   function open(signature: string, spec: SessionSpec, query: QueryFn): ClaudeSession {
-    const session = new ClaudeSession(signature, spec, query)
+    // However it closes (the idle timer too), nothing goes on holding it: a chat's record keeps only the session's id.
+    const session: ClaudeSession = new ClaudeSession(signature, spec, query, () => {
+      sessions.delete(session)
+      for (const record of chats.values()) if (record.live?.session === session) record.live = null
+      for (const live of loose) if (live.session === session) loose.delete(live)
+    })
     sessions.add(session)
     return session
   }
@@ -125,8 +135,9 @@ export function createClaudeAgentAdapter(deps: ClaudeAgentDeps): Adapter & { end
   function forget(live: Live | undefined, messages?: NeutralMessage[]): void {
     if (messages) byMessages.delete(messages)
     if (!live) return
+    const record = live.chat ? chats.get(live.chat) : undefined
+    if (record?.live === live) chats.delete(live.chat!)
     retire(live)
-    if (live.chat && chats.get(live.chat)?.live === live) chats.delete(live.chat)
   }
 
   /** A session of its own, outside the chat's record, caught up on what its request holds. */
@@ -291,6 +302,8 @@ export function createClaudeAgentAdapter(deps: ClaudeAgentDeps): Adapter & { end
       // The turn's subagents, and whatever else it ran apart, are done with it.
       for (const live of [...loose]) if (live.turnId === turnId) retire(live)
     },
+
+    openSessions: () => sessions.size,
 
     dispose(): void {
       for (const session of sessions) session.close()
