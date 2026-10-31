@@ -305,10 +305,17 @@ test('Stop: the waiting approval is answered at once and the turn ends as cancel
 })
 
 test('Usage: a Claude engine turn counts once, left to Claude Code’s own logs when they were read', () => {
-  const eaon = { '2026-10-30': { claude: { 'claude-sonnet-5-5': { input: 1, output: 1 } }, anthropic: { 'claude-haiku-5-5': { input: 2, output: 2 } } } } as never
+  const eaon = {
+    '2026-10-30': {
+      claude: { 'claude-sonnet-5-5': { input: 1, output: 1 } },
+      'claude-agent': { haiku: { input: 3, output: 3 } },
+      anthropic: { 'claude-haiku-5-5': { input: 2, output: 2 } }
+    }
+  } as never
   const cli = { '2026-10-30': { 'cli:claude-code': { 'claude-sonnet-5-5': { input: 1, output: 1 } } } } as never
   const merged = withCliDays(eaon, cli, false, true)
   assert.equal(merged['2026-10-30'].claude, undefined)
+  assert.equal(merged['2026-10-30']['claude-agent'], undefined, 'Claude Agent’s sessions are in Claude Code’s logs too')
   assert.ok(merged['2026-10-30'].anthropic, 'Eaon’s own Anthropic turns stay')
   assert.ok(withCliDays(eaon, cli, false)['2026-10-30'].claude, 'kept when Claude Code’s logs weren’t read')
 })
