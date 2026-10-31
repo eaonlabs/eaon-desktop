@@ -167,6 +167,7 @@ test('a turn: Claude Code started as published, its stream drawn once, tools as 
   assert.equal(out.sessionId, 's-9')
   assert.equal(out.text, 'Looking at the test. Fixed.')
   assert.deepEqual(out.usage, { input: 120, output: 30, cacheRead: 400, cacheWrite: 10 })
+  assert.deepEqual((events.find((e) => e.type === 'usage') as { usage: unknown }).usage, out.usage, 'the reply shows what it used')
   assert.equal(out.billing, 'plan')
   assert.equal(out.sideEffects, false, 'reading changes nothing')
   assert.equal(out.error, undefined)

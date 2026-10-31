@@ -178,6 +178,8 @@ export class ClaudeTurn {
         this.sessionId = message.session_id
         const u = message.usage
         this.usage = { input: u.input_tokens ?? 0, output: u.output_tokens ?? 0, cacheRead: u.cache_read_input_tokens ?? 0, cacheWrite: u.cache_creation_input_tokens ?? 0 }
+        // The reply's usage line and the context meter, as for Codex and Eaon's own loop.
+        this.emit({ type: 'usage', messageId: this.messageId, usage: { ...this.usage } })
         if (message.subtype === 'success' && !message.is_error) {
           this.answer = message.result
           return
