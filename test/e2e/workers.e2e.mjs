@@ -42,11 +42,12 @@ scenario('workers: create one in the UI, message it and get a reply', { timeout:
 
   await openWorkersTab(page)
   await s.shot(page, 'workers-empty')
+  // A new worker is made on a page of its own: a name and what it's for.
   await page.click('[aria-label="New worker"]')
-  await page.fill('.worker-editor input.input[placeholder="Nova"]', 'Ada')
-  await page.fill('.worker-editor textarea.input[placeholder^="What it is for"]', 'Answers questions from the end-to-end suite')
-  await s.shot(page, 'worker-editor')
-  await page.click('.btn--primary', { text: 'Create worker' })
+  await page.fill('.worker-create__input[placeholder="New worker"]', 'Ada')
+  await page.fill('.worker-create__input--area', 'Answers questions from the end-to-end suite')
+  await s.shot(page, 'worker-create')
+  await page.click('.worker-create__go', { text: 'Get started' })
   await page.waitFor(() => document.querySelector('.worker-profile__name')?.textContent?.trim() === 'Ada', { message: "the new worker's page" })
   const created = (await workers(page)).find((w) => w.name === 'Ada')
   assert.ok(created, 'the worker was saved in main')
