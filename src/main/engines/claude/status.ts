@@ -25,3 +25,18 @@ export function onClaudeCodeStatus(listener: (status: EngineStatus) => void): ()
 
 /** Signed in with a Claude account: on a Claude plan, which is what Eaon uses Claude Code for. */
 export const onClaudePlan = (status: EngineStatus | null): boolean => status?.auth.state === 'signed-in' && status.auth.method === 'Claude account'
+
+/**
+ * Calls `listener` whenever being on a Claude plan changes: the first check
+ * comes a few seconds after launch, and until then Claude Agent reads as
+ * signed out, so the model pickers need to hear when it isn't.
+ */
+export function onClaudePlanChange(listener: (onPlan: boolean) => void): () => void {
+  let last = onClaudePlan(latest)
+  return onClaudeCodeStatus((status) => {
+    const now = onClaudePlan(status)
+    if (now === last) return
+    last = now
+    listener(now)
+  })
+}

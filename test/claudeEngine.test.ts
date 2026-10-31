@@ -8,6 +8,7 @@ import type { StreamEvent } from '@shared/types'
 import { authOf, ClaudeEngine, modelsOf, type ClaudeEngineDeps } from '../src/main/engines/claude'
 import type { EngineApprovalRequest, EngineTurnInput } from '../src/main/engines/types'
 import { withCliDays } from '../src/main/features/usage/rows'
+import { onClaudePlanChange } from '../src/main/engines/claude/status'
 
 /**
  * Claude as an engine: the user's own Claude Code through the Agent SDK. A
@@ -309,4 +310,25 @@ test('Usage: a Claude engine turn counts once, left to Claude Code’s own logs 
   assert.equal(merged['2026-10-30'].claude, undefined)
   assert.ok(merged['2026-10-30'].anthropic, 'Eaon’s own Anthropic turns stay')
   assert.ok(withCliDays(eaon, cli, false)['2026-10-30'].claude, 'kept when Claude Code’s logs weren’t read')
+})
+
+test('the model pickers hear when the Claude engine’s check finds the plan, which comes after they first ask', async () => {
+  let signedIn = false
+  const { engine: claude } = engine(async function* () {}, {
+    run: async (_command, args) =>
+      args[0] === '--version'
+        ? { ok: true, stdout: '2.1.304 (Claude Code)\n', stderr: '' }
+        : { ok: true, stdout: JSON.stringify(signedIn ? { loggedIn: true, authMethod: 'claude.ai', subscriptionType: 'max' } : { loggedIn: false }), stderr: '' }
+  })
+  await claude.detect({ force: true })
+  const heard: boolean[] = []
+  const stop = onClaudePlanChange((onPlan) => heard.push(onPlan))
+  signedIn = true
+  await claude.detect({ force: true })
+  await claude.detect({ force: true })
+  assert.deepEqual(heard, [true], 'said once, when it changed')
+  signedIn = false
+  await claude.detect({ force: true })
+  assert.deepEqual(heard, [true, false])
+  stop()
 })

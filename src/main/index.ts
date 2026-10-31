@@ -59,6 +59,7 @@ import { assertFeature, featureAllowed, providerAllowed, PolicyError } from './e
 import { POLICY_GATED_FEATURES } from './features/enterprise'
 import { devServerUrl, guardIpc, guardWebviews, installSessionPolicy, isAppUrl } from './security/hardening'
 import { trustSystemNetwork } from './netTrust'
+import { onClaudePlanChange } from './engines/claude/status'
 
 const here = join(fileURLToPath(import.meta.url), '..')
 app.setName('Eaon')
@@ -1086,6 +1087,8 @@ app.whenReady().then(async () => {
   })
   // Connected providers' own model lists, soon after launch and every few hours.
   startModelFreshness({ list: listProviders, get: getProvider, refresh: refreshModels }, () => broadcast('providers:changed'))
+  // Claude Agent's sign-in is known only once the Claude engine has checked, after the window has its providers.
+  onClaudePlanChange(() => broadcast('providers:changed'))
 
   app.on('activate', () => {
     // Only Eaon's own windows count. The computer-use pill is a window too, and
