@@ -401,7 +401,17 @@ function labelFor(providers: Provider[], providerId: string | null, modelId: str
   return modelId
 }
 
-/** The model a user who never chose gets: a ready favorite, then a recent one, then the first ready provider's first model. */
+/**
+ * Used only once the user picks it, never as the default: Claude Agent runs on
+ * their Claude plan through their own Claude Code, and is ready whenever
+ * Claude Code is signed in, asked for or not.
+ */
+const pickedOnly = (provider: Provider): boolean => provider.kind === 'claude-agent'
+
+/**
+ * The model a user who never chose gets: a ready favorite, then a recent one,
+ * then the first ready provider's first model (not a `pickedOnly` one's).
+ */
 export function defaultModel(providers: Provider[], prefs: SelectionPrefs = {}): { model: ModelInfo; provider: Provider } | null {
   const ready = providers.filter((p) => isProviderUsable(p) && providerReadiness(p).state === 'ready')
   const byKey = (key: string): { model: ModelInfo; provider: Provider } | null => {
@@ -414,7 +424,7 @@ export function defaultModel(providers: Provider[], prefs: SelectionPrefs = {}):
     const hit = byKey(key)
     if (hit) return hit
   }
-  const provider = ready.find((p) => p.models.length > 0)
+  const provider = ready.find((p) => p.models.length > 0 && !pickedOnly(p))
   return provider ? { model: provider.models[0], provider } : null
 }
 
@@ -437,6 +447,14 @@ export function resolveSelection(selection: Selection, providers: Provider[], pr
     if (broken) {
       const readiness = providerReadiness(broken)
       return result({ status: 'none', provider: broken, reason: readiness.reason, action: readiness.action })
+    }
+    const plan = providers.find((p) => pickedOnly(p) && isProviderUsable(p) && providerReadiness(p).state === 'ready')
+    if (plan) {
+      return result({
+        status: 'none',
+        reason: `Choose a model to start. ${plan.name} uses your Claude plan, so Eaon doesn’t pick it for you.`,
+        action: 'choose-model'
+      })
     }
     return result({
       status: 'none',
