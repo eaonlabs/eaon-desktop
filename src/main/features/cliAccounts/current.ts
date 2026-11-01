@@ -38,6 +38,11 @@ export function cliToolEnv(tool: CliTool): Record<string, string> {
   return service?.toolEnv(tool) ?? {}
 }
 
+/** Every account's folder for a CLI (null for its default one); just the default before the accounts load. */
+export function cliAccountDirs(tool: CliTool): (string | null)[] {
+  return service?.accountDirs(tool) ?? [null]
+}
+
 /** Told when a CLI's active account changes. */
 export function onCliAccountChange(listener: (tool: CliTool) => void): () => void {
   listeners.add(listener)

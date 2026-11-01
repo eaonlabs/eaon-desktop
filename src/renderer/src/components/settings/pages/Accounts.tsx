@@ -41,7 +41,8 @@ export function AccountsPage(): JSX.Element {
     view: 'detailed' as const,
     alerts: true,
     autoSwitchCodex: false,
-    style: 'rings' as const
+    style: 'rings' as const,
+    claudeEverywhere: true
   }
   const severalCodex = (state?.tools.codex.accounts.length ?? 0) > 1
 
@@ -59,6 +60,12 @@ export function AccountsPage(): JSX.Element {
         <Card>
           <Row title="Show the usage meter" description="In the ADE’s header: your session and week at a glance, with every limit and when it resets one click away.">
             <Switch label="Show the usage meter" checked={meter.meter} onChange={(on) => void patchSettings({ cliUsage: { ...meter, meter: on } })} />
+          </Row>
+          <Row
+            title="Track every Claude Code session"
+            description="Claude Code reports its plan’s limits after each reply, in any terminal on this Mac, not only Eaon’s. Eaon adds its status line to Claude Code’s settings and keeps yours showing; turning this off puts yours back."
+          >
+            <Switch label="Track every Claude Code session" checked={meter.claudeEverywhere !== false} onChange={(on) => void patchSettings({ cliUsage: { ...meter, claudeEverywhere: on } })} />
           </Row>
           <Row title="Limit alerts" description="A notification when the account in use reaches 90% of a limit, or hits it, with when it resets. Once per limit until it resets.">
             <Switch label="Limit alerts" checked={meter.alerts} onChange={(on) => void patchSettings({ cliUsage: { ...meter, alerts: on } })} />

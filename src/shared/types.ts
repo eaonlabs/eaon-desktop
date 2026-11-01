@@ -538,6 +538,12 @@ export interface Settings {
     autoSwitchCodex: boolean
     /** What it looks like: a ring per CLI, or a bar with the figures. */
     style: 'rings' | 'bar'
+    /**
+     * Every Claude Code session on this computer reports its plan's limits,
+     * not only those Eaon starts: Eaon's status line in Claude Code's own
+     * settings, the one there before still showing (main/features/cliAccounts/usageReport.ts).
+     */
+    claudeEverywhere: boolean
   }
   /** Settings → Usage. */
   /** The ADE's terminals: their theme (`/theme` in a pane, or the header's Theme button). */

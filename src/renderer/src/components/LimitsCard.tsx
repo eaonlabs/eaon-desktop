@@ -31,13 +31,34 @@ export function useNow(every = 30_000): number {
   return now
 }
 
-export function LimitRow({ w, now }: { w: ProviderWindow; now: number }): JSX.Element {
+/** A reading older than this has no pace: how far ahead or behind it is, it was then, not now. */
+const PACE_FRESH_MS = 15 * 60_000
+
+export function LimitRow({ w, now, asOf = null }: { w: ProviderWindow & { hasReset?: boolean }; now: number; asOf?: number | null }): JSX.Element {
   const left = Math.max(0, Math.round(100 - w.percent))
   const until = untilText(w.resetsAt, now)
-  const pace = usagePace(w, now)
+  const pace = asOf === null || now - asOf <= PACE_FRESH_MS ? usagePace(w, now) : null
+  const label = windowName(w)
+  // It reset after the figures were seen: what's used of it since isn't known (claude.ai counts too), so no "100% left".
+  if (w.hasReset) {
+    return (
+      <div className="limit" data-unknown>
+        <div className="limit__name">
+          {label}
+          <i className="limit__dot" data-tone="unknown" />
+        </div>
+        <div className="limit__bar" role="meter" aria-label={`${label}: started again, not seen since`}>
+          <span data-tone="unknown" style={{ width: '100%' }} />
+        </div>
+        <div className="limit__line">
+          <span>Started again</span>
+          <span>Not seen since it reset</span>
+        </div>
+      </div>
+    )
+  }
   // Where an even spend would have the bar by now, as a share left.
   const expectedLeft = pace ? Math.max(0, Math.min(100, left - pace.reserve)) : null
-  const label = windowName(w)
   return (
     <div className="limit">
       <div className="limit__name">
@@ -143,7 +164,7 @@ export function LimitsCard({
       {view.windows.length > 0 ? (
         <div className="limits-card__limits">
           {view.windows.map((w) => (
-            <LimitRow key={w.id} w={w} now={now} />
+            <LimitRow key={w.id} w={w} now={now} asOf={view.asOf} />
           ))}
         </div>
       ) : (

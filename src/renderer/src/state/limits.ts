@@ -55,6 +55,8 @@ export interface LimitsView {
   note: string | null
   banked: BankedResets | null
   tokens: ProviderTokens | null
+  /** When the figures were seen (ms): a window that reset since is unknown, and a pace from them would be stale. */
+  asOf: number | null
 }
 
 const CLI: Partial<Record<UsageProviderId, CliTool>> = { claude: 'claude', codex: 'codex' }
@@ -84,7 +86,8 @@ export function limitsView(id: UsageProviderId, cli: CliAccountsState | null, pr
       // Claude Code's own copy of its limits can be hours old: say when it last looked.
       note: usage && !usage.ok ? usage.message : usage?.ok && usage.asOf ? `As ${CLI_TOOL_NAME[tool]} last saw them, ${agoText(usage.asOf, now)}.` : null,
       banked: usage?.ok ? (usage.banked ?? null) : null,
-      tokens
+      tokens,
+      asOf: usage?.ok ? (usage.asOf ?? usage.at) : null
     }
   }
   const read = provider?.providers.find((p) => p.id === id)
@@ -100,7 +103,8 @@ export function limitsView(id: UsageProviderId, cli: CliAccountsState | null, pr
     lines: read.lines,
     note: read.note ?? null,
     banked: read.banked ?? null,
-    tokens
+    tokens,
+    asOf: null
   }
 }
 

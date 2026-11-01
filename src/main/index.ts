@@ -26,6 +26,7 @@ import { writeChatTitle, type ChatTitleRequest } from './agent/chatTitle'
 import './agent/sources'
 import { killBackgroundProcesses } from './localTools'
 import { adoptLoginShellPath } from './shellEnv'
+import { applyClaudeEverywhere } from './features/cliAccounts'
 import { noteFirstRun } from './features/onboarding'
 import { userTookLocalServer } from './features/connectApps'
 import { FEATURES } from './features'
@@ -598,6 +599,7 @@ function registerIpc(): void {
     if (patch.localServer?.autoStart !== undefined) userTookLocalServer()
     if (patch.appearance) applyWindowAppearance(next)
     if (patch.appearance?.appIcon) applyAppIcon(next.appearance.appIcon, appWindows)
+    if (patch.cliUsage && patch.cliUsage.claudeEverywhere !== undefined) applyClaudeEverywhere(next.cliUsage.claudeEverywhere)
     broadcast('settings:changed', forRenderer(next), e.sender)
     return forRenderer(next)
   })
