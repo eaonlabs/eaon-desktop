@@ -67,6 +67,23 @@ test('the status line keeps each Claude Code folder’s limits apart, and shows 
   assert.equal(runStatusLine(settings, statusInput(13, 7), work), '')
 })
 
+test('a report left half-written by a stopped status line is cleared; one being written now is not', { skip: process.platform === 'win32' }, () => {
+  const root = scratch()
+  const limits = path.join(root, 'limits')
+  fs.mkdirSync(limits, { recursive: true })
+  const old = path.join(limits, '.default.48372')
+  const now = path.join(limits, '.default.51000')
+  const report = path.join(limits, 'default.json')
+  for (const file of [old, now, report]) fs.writeFileSync(file, '{}')
+  const hourAgo = new Date(Date.now() - 3_600_000)
+  fs.utimesSync(old, hourAgo, hourAgo)
+  fs.utimesSync(report, hourAgo, hourAgo)
+  assert.ok(prepareClaudeReport(root, [null]))
+  assert.equal(fs.existsSync(old), false)
+  assert.equal(fs.existsSync(now), true, 'a write in progress is left alone')
+  assert.equal(fs.existsSync(report), true, 'the last report stays, however old')
+})
+
 test('reported limits: percentages and Unix-second resets, a reset window starts again, and a gateway’s spend limit', () => {
   const now = Date.parse('2026-10-28T20:00:00Z')
   const usage = claudeReportedUsage(

@@ -120,6 +120,23 @@ function everywhereLine(script: string, limits: string, previous: StatusLine | n
 }
 
 /**
+ * A status line Claude Code stopped between writing its report and renaming
+ * it into place (a newer one starting cancels it) leaves `.<key>.<pid>`
+ * behind. Ones older than a minute are no write in progress.
+ */
+function sweepStale(limits: string, now = Date.now()): void {
+  for (const name of fs.readdirSync(limits)) {
+    if (!/^\..+\.\d+$/.test(name)) continue
+    const file = path.join(limits, name)
+    try {
+      if (now - fs.statSync(file).mtimeMs > 60_000) fs.rmSync(file, { force: true })
+    } catch {
+      // Renamed or removed meanwhile.
+    }
+  }
+}
+
+/**
  * Makes the status line ready for the Claude Code folders in `dirs` (null is
  * the default one) and returns the settings file to start Claude Code with.
  * Null where it can't be used: on Windows, whose panes have no POSIX shell to
@@ -130,6 +147,7 @@ export function prepareClaudeReport(root: string, dirs: (string | null)[], platf
   try {
     const limits = path.join(root, 'limits')
     fs.mkdirSync(limits, { recursive: true, mode: 0o700 })
+    sweepStale(limits)
     const script = path.join(root, 'status-line.sh')
     put(script, SCRIPT, 0o700)
     let padding: number | undefined
