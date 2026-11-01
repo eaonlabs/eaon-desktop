@@ -192,3 +192,39 @@
 .agentp-tool__more .btn {
   align-self: flex-start;
 }
+
+/* A row's permissions picker, and the one for all agents: full access in
+   the orange of Chat's permission menu (chat.css), which sets it there. */
+.agentp-perm {
+  --warn: #f0883e;
+}
+[data-theme='light'] .agentp-perm {
+  --warn: #c2570c;
+}
+.agentp-perm {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: none;
+  max-width: 210px;
+}
+.agentp-perm__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.btn.agentp-perm[data-tone='warn'] {
+  color: var(--warn);
+}
+.agentp-perm__flags {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-4);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  overflow-wrap: anywhere;
+}
+/* Every choice in view at once, full access last, without scrolling. */
+.menu.agentp-perm-menu {
+  max-height: min(560px, calc(100vh - 24px));
+}

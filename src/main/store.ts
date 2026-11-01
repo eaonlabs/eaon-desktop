@@ -205,7 +205,9 @@ export const defaultSettings: Settings = {
     hidden: [],
     order: [],
     lowPriority: false,
-    updateChecks: true
+    updateChecks: true,
+    permissions: 'own',
+    agentPermissions: { claude: 'full' }
   },
   cliUsage: {
     meter: true,
