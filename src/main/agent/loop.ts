@@ -5,7 +5,7 @@ import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { app, powerSaveBlocker } from 'electron'
 import type { GoalState, ModelInfo, Provider, Settings, StreamEvent, StreamRequest, TokenUsage } from '@shared/types'
-import { adapterFor, getProvider, noteProviderHealth } from '../providers'
+import { adapterFor, endAgentTurn, getProvider, noteProviderHealth } from '../providers'
 import { classifyProviderError, isContextOverflow } from '../providers/errors'
 import { compactionProgress, expectedSummaryChars } from '@shared/compaction'
 import { targetsPrivateNetwork } from '../netGuard'
@@ -200,6 +200,8 @@ export function resetTextOnlyModels(): void {
 
 function isRetryable(error: unknown): boolean {
   if (error instanceof ProviderHttpError) return [408, 409, 425, 429, 500, 502, 503, 504, 520, 522, 524, 529].includes(error.status)
+  // Claude Code has retried for itself by the time it gives up; again here would start a new session each time.
+  if (error instanceof Error && error.name === 'ClaudeAgentError') return false
   const message = error instanceof Error ? `${error.name} ${error.message} ${String((error as { cause?: unknown }).cause ?? '')}` : String(error)
   return /fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|socket hang up|terminated|network|overloaded|Connection error|stream ended before/i.test(message)
 }
@@ -305,6 +307,8 @@ async function callModel(
         signal: params.signal,
         cacheKey: params.request.chatId,
         agentic: params.request.mode === 'work',
+        cwd: params.cwd,
+        turnId: params.request.messageId,
         onText: (delta) => {
           streamed = true
           params.onText(delta)
@@ -1054,6 +1058,8 @@ async function runOwnLoop(request: StreamRequest, emit: (event: StreamEvent) => 
     return { text, error: message, usage }
   } finally {
     options.signal?.removeEventListener('abort', forwardAbort)
+    // A session still waiting on one of this turn's calls (Claude Agent's, after a Stop, a plan or a worker's sleep) is let go.
+    endAgentTurn(request.messageId)
     activeRuns.delete(request.messageId)
     untilRuns.delete(request.messageId)
     pausedGoals.delete(request.messageId)

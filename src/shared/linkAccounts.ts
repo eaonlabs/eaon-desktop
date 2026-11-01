@@ -28,7 +28,8 @@ export interface DetectedApp {
 /**
  * How a provider links:
  * - `signin`: the provider's own sanctioned browser sign-in (Sign in with
- *   ChatGPT, OpenRouter, Hugging Face, Poe);
+ *   ChatGPT, OpenRouter, Hugging Face, Poe), or Claude Code's own for Claude
+ *   Agent;
  * - `key`: an API key from the provider's console;
  * - `local`: a runtime on this computer, turned on with no account at all.
  */
@@ -50,11 +51,19 @@ export interface LinkTarget {
 export const LINK_TARGETS: LinkTarget[] = [
   { providerId: 'chatgpt', method: 'signin', apps: ['chatgpt', 'codex'], blurb: 'Your ChatGPT plan, through OpenAI\'s official Sign in with ChatGPT.' },
   {
+    // No apps: Link everything found would wait on a Terminal sign-in (claude auth login).
+    providerId: 'claude-agent',
+    method: 'signin',
+    apps: [],
+    blurb: 'Your Claude plan, through the Claude Code you installed. It signs in with claude auth login.',
+    why: 'Anthropic doesn\'t allow other apps their own Claude sign-in, so every request is made by your Claude Code, signed in to your account.'
+  },
+  {
     providerId: 'anthropic',
     method: 'key',
     apps: ['claude', 'claude-code'],
     blurb: 'Claude models with an API key from the Claude Console.',
-    why: 'Anthropic doesn\'t allow other apps to sign in with a Claude plan, so Eaon uses an API key. Your plan keeps working in Claude Code, which you can run in the ADE.'
+    why: 'For your Claude plan instead, use Claude Agent, which runs through your own Claude Code.'
   },
   {
     providerId: 'xai',

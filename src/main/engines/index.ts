@@ -3,6 +3,7 @@ import type { EngineAdapter } from './types'
 import { nativeEngine } from './native'
 import { codexEngine } from './codex'
 import { acpEngines } from './acp/engines'
+import { claudeEngine } from './claude/engine'
 
 /**
  * The engines Eaon can run agents on, and what it last learned about each.
@@ -32,6 +33,7 @@ export function registerEngine(adapter: EngineAdapter): void {
 
 registerEngine(nativeEngine)
 registerEngine(codexEngine)
+registerEngine(claudeEngine())
 for (const adapter of acpEngines()) registerEngine(adapter)
 
 export function engine(id: EngineId): EngineAdapter | undefined {

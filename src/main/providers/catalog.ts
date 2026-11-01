@@ -153,6 +153,23 @@ const PROVIDERS: SeedProvider[] = [
     models: []
   },
   {
+    // Claude models running Eaon's own agent, through the user's own Claude
+    // Code and its sign-in (providers/claudeAgent): so on their Claude plan.
+    // Its list is Claude Code's for the account, read once signed in; Default
+    // (whatever Claude Code is set to use) is there before that.
+    id: 'claude-agent',
+    name: 'Claude Agent',
+    kind: 'claude-agent',
+    baseUrl: 'claude-code://local',
+    enabled: true,
+    builtIn: true,
+    auth: 'oauth',
+    oauthFlow: 'claude-code',
+    category: 'subscription',
+    description: 'Your Claude plan, through the Claude Code you installed',
+    models: [m('claude-agent', 'default', 'Default', { contextWindow: 200_000, vision: true, reasoning: true })]
+  },
+  {
     id: 'github-copilot',
     name: 'GitHub Copilot',
     kind: 'openai-compatible',
@@ -408,6 +425,7 @@ export const PROVIDER_META: Record<string, ProviderMeta> = {
   [GATEWAY_PROVIDER_ID]: { id: GATEWAY_PROVIDER_ID, listsModels: true },
   chatgpt: { id: 'chatgpt', listsModels: true, signInLabel: 'Sign in with ChatGPT' },
   'openai-codex': { id: 'openai-codex', listsModels: false, signInLabel: 'Sign in with ChatGPT (Codex)' },
+  'claude-agent': { id: 'claude-agent', listsModels: true, signInLabel: 'Sign in with Claude Code' },
   // Account sign-in next to the key field; both need a registered OAuth client (oauth/appClients.ts).
   huggingface: { id: 'huggingface', listsModels: true, signInLabel: 'Sign in with Hugging Face', keyFlow: 'huggingface', accountSignIn: true },
   poe: { id: 'poe', listsModels: true, signInLabel: 'Sign in with Poe', keyFlow: 'poe' },
@@ -419,7 +437,7 @@ export const PROVIDER_META: Record<string, ProviderMeta> = {
     // in third-party products without its approval — API keys instead. Max and Team plans now include
     // monthly API credits (support.claude.com/en/articles/17154008), which reach Eaon through such a key.
     noSignInReason:
-      'Anthropic doesn’t allow other apps to sign in with a Claude account or to use your plan’s usage limits, so Claude in Eaon uses an API key. Your plan’s limits still work in Claude Code itself, which you can run in the ADE.',
+      'Anthropic doesn’t allow other apps to sign in with a Claude account or to use your plan’s usage limits, so this provider uses an API key. To use your Claude plan, pick Claude Agent instead: it runs your own Claude Code, signed in with your plan.',
     planInAde: 'claude',
     planCredits: {
       title: 'Use your Claude plan’s monthly API credits',

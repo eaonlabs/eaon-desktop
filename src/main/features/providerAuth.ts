@@ -82,7 +82,8 @@ async function signIn(providerId: string): Promise<ProviderAuthStatus> {
     // A device code has to be read before the page is useful, so that page
     // opens from the settings UI once the user has seen the code. A plain
     // authorization page opens straight away.
-    if (!prompt.code) openInBrowser(prompt.url)
+    // A sign-in that runs elsewhere (Claude Code's, in a terminal) has no page to open.
+    if (!prompt.code && prompt.url) openInBrowser(prompt.url)
   }
 
   try {

@@ -4,6 +4,7 @@ import { credentialAttempts, isAuthError } from '../providers/credentials'
 import { ProviderHttpError, type NeutralMessage, type ToolSpec, type TurnResult } from '../providers/adapters/types'
 import { store } from '../store'
 import { recordGatewayUsage } from '../features/usage/ledger'
+import { CLAUDE_AGENT_REFUSED } from './models'
 
 /**
  * One model request on behalf of an app using the gateway. The app runs its
@@ -61,6 +62,8 @@ export async function runGatewayTurn(turn: GatewayTurn): Promise<TurnResult> {
 async function attemptGatewayTurn(turn: GatewayTurn): Promise<TurnResult> {
   const provider = getProvider(turn.providerId)
   if (!provider) throw new Error(`Eaon has no provider "${turn.providerId}".`)
+  // A Claude plan is its owner's alone: never for other apps through the Local API Server (gateway/models.ts).
+  if (provider.kind === 'claude-agent') throw new Error(CLAUDE_AGENT_REFUSED)
   const adapter = adapterFor(provider, { track: false })
   const model = provider.models.find((m) => m.id === turn.modelId)
   const attempts = await credentialAttempts(provider)

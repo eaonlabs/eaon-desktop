@@ -2,7 +2,7 @@ import type { ServerResponse } from 'node:http'
 import type { EffortLevel, TokenUsage } from '@shared/types'
 import { estimateRequestTokens, type NeutralImage, type NeutralMessage, type NeutralToolResult, type ToolSpec, type TurnResult } from '../providers/adapters/types'
 import type { GatewayScope } from '@shared/gateway'
-import { gatewayModels, noModelMessage, resolveGatewayModel } from './models'
+import { gatewayModels, noModelMessage, refusedGatewayModel, resolveGatewayModel } from './models'
 import { runGatewayTurn, statusFor } from './turn'
 import { anthropicEffort, cap, clientToolId, errorMessage, newId, sendJson, sseEvent, startSse, tidy } from './wire'
 
@@ -167,6 +167,11 @@ export async function serveMessages(res: ServerResponse, body: Record<string, un
   const parsed = parseMessagesRequest(body)
   if ('error' in parsed) {
     sendJson(res, 400, anthropicError(parsed.error, 'invalid_request_error'))
+    return
+  }
+  const refused = refusedGatewayModel(parsed.model)
+  if (refused) {
+    sendJson(res, 403, anthropicError(refused, 'permission_error'))
     return
   }
   const resolved = resolveGatewayModel(parsed.model, scope)

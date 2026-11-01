@@ -161,8 +161,18 @@ function billingLookup(): BillingOf {
       // can't price.
       // Claude Code and Codex in a terminal (their own logs) are taken as on
       // a plan: at API rates, what the use stands for, never spend.
-      const engineBilling =
-        providerId === 'codex' || providerId.startsWith('cli:') ? 'plan' : providerId === 'codex:api' ? 'api' : providerId === 'codex:provider' ? 'local' : null
+      // Codex and Claude both, as engines: neither id is a provider's.
+      const [engineId, paidFor] = providerId.split(':')
+      const engineTurn = engineId === 'codex' || engineId === 'claude'
+      const engineBilling = providerId.startsWith('cli:')
+        ? 'plan'
+        : engineTurn && paidFor === undefined
+          ? 'plan'
+          : engineTurn && paidFor === 'api'
+            ? 'api'
+            : engineTurn && paidFor === 'provider'
+              ? 'local'
+              : null
       const provider = engineBilling || providerId === LOCAL_PROVIDER_ID ? null : getProvider(providerId)
       billing = engineBilling ?? (providerId === LOCAL_PROVIDER_ID || provider?.local ? 'local' : provider?.category === 'subscription' ? 'plan' : 'api')
       known.set(providerId, billing)
@@ -219,7 +229,7 @@ function summary(range: UsageRange): UsageSummary {
   // The chart, the calendar and the streaks count Claude Code and Codex too;
   // the tiles, the models and the upload stay Eaon's own.
   const cli = cliLogs()
-  const everything = withCliDays(days, cli.days, cli.found.includes('codex'))
+  const everything = withCliDays(days, cli.days, cli.found.includes('codex'), cli.found.includes('claude-code'))
   const byDay = dailyTotals(everything, pricing.models, billingOf, true)
   // Signed in, the calendar, the streaks and the all-time tiles are the
   // profile's, so they match toknhq.com: every computer and tool, priced by

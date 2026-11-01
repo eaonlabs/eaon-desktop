@@ -45,6 +45,8 @@ test('every built-in provider says how to set it up, and its auth kind matches',
     } else {
       assert.ok(https(provider.keyUrl), `${seed.id}: has an https page to get a key (${provider.keyUrl})`)
     }
+    // Claude Agent has no endpoint: Claude Code, the user's own program, makes its requests.
+    if (provider.kind === 'claude-agent') continue
     // A remote endpoint is https, a template the page fills in, or the user's own resource (Azure).
     const endpoint = provider.baseUrl || meta.baseUrlPlaceholder
     assert.ok(https(endpoint?.replace(/\{[a-z_]+\}/g, 'x')), `${seed.id}: endpoint ${provider.baseUrl}`)

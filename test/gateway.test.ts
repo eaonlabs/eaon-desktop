@@ -433,3 +433,18 @@ test('what the gateway can’t do is refused, not quietly done without: stored r
   assert.equal(upstream.requests.length, before, 'nothing went upstream')
   assert.equal((await post('/v1/chat/completions', { model: 'big-model', n: 1, messages: [{ role: 'user', content: 'hi' }] })).status, 200)
 })
+
+test('Claude Agent is never served to other apps: named, it is refused in each API’s shape, not given another model', async () => {
+  const before = upstream.requests.length
+  const chat = await post('/v1/chat/completions', { model: 'claude-agent/haiku', messages: [{ role: 'user', content: 'hi' }] })
+  assert.equal(chat.status, 403)
+  assert.match(String((chat.json().error as { message: string }).message), /Claude Agent runs only inside Eaon/)
+  const messages = await post('/v1/messages', { model: 'claude-agent/sonnet', max_tokens: 10, messages: [{ role: 'user', content: 'hi' }] })
+  assert.equal(messages.status, 403)
+  assert.equal((messages.json().error as { type: string }).type, 'permission_error')
+  const responses = await post('/v1/responses', { model: 'Claude-Agent/default', input: 'hi' })
+  assert.equal(responses.status, 403)
+  assert.equal(upstream.requests.length, before, 'no other model answered in its place')
+  const listed = await fetch(`${base}/v1/models`).then((r) => r.json() as Promise<{ data: { id: string }[] }>)
+  assert.ok(!listed.data.some((m) => m.id.startsWith('claude-agent/')))
+})

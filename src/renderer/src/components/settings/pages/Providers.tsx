@@ -820,7 +820,8 @@ function SignInProgress({ provider, auth }: { provider: Provider; auth: Provider
             : 'Starting sign-in…'}
       </div>
       <div className="provider-actions" style={{ marginTop: 0 }}>
-        {prompt && (
+        {/* No page to open again when the sign-in runs in a terminal (Claude Agent's). */}
+        {prompt && (prompt.url || prompt.code) && (
           <button className="btn btn--provider" onClick={() => void copyAndOpen()}>
             {prompt.code ? 'Copy code and open GitHub' : 'Open the sign-in page again'}
             <ExternalLink size={13} strokeWidth={2} />
