@@ -5,7 +5,7 @@ import type { EngineAuth, EngineModel, EngineModels, EngineStatus } from '@share
 import type { EffortLevel } from '@shared/types'
 import { EngineError, type EngineAdapter, type EngineTurnInput, type EngineTurnResult } from '../types'
 import { ClaudeTurn } from './turn'
-import { noteClaudeCodeStatus } from './status'
+import { noteClaudeCodeStatus, onClaudePlan } from './status'
 import { claudeCodeEnv } from './env'
 
 /**
@@ -214,6 +214,8 @@ export class ClaudeEngine implements EngineAdapter {
       staleBecause: why
     })
     if (!path) return fallback('Claude Code isn’t installed.')
+    // The list is the account's: signed out (or on a key), there's none to read, so Claude Code isn't started for it.
+    if (this.status && !onClaudePlan(this.status)) return fallback('Sign in to Claude Code with your Claude account to see its models.')
     const probe = this.deps.probeDir()
     mkdirSync(probe, { recursive: true })
     const controller = new AbortController()

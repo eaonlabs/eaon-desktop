@@ -140,6 +140,8 @@ else { process.stderr.write('unexpected: ' + args.join(' ')); process.exit(1) }
 const fs = require('fs')
 // The app asks who is signed in (Settings → Accounts, the usage meter): not a run.
 if (process.argv[2] === 'auth') { process.stdout.write('{"loggedIn":false}'); process.exit(0) }
+// The Claude engine asks which version is installed: not a run either.
+if (process.argv[2] === '--version') { console.log('2.1.300 (Claude Code)'); process.exit(0) }
 fs.appendFileSync(${JSON.stringify(claudeLog)}, JSON.stringify({ cwd: process.cwd(), args: process.argv.slice(2) }) + '\\n')
 if (fs.existsSync('.eaon/review-task.md')) {
   fs.writeFileSync('.eaon/review.json', JSON.stringify({ summary: 'Three retries hides a real outage.', event: 'REQUEST_CHANGES', comments: [{ path: 'login.ts', line: 1, body: 'Back off between retries.' }] }))

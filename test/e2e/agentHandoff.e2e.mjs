@@ -33,6 +33,8 @@ scenario('ADE: hand off from Claude Code to Codex, and to an agent that takes it
       'claude',
       `const fs = require('fs'), path = require('path')
 if (process.argv[2] === 'auth') { process.stdout.write('{"loggedIn":false}'); process.exit(0) }
+// The Claude engine asks which version is installed: not a start.
+if (process.argv[2] === '--version') { console.log('2.1.300 (Claude Code)'); process.exit(0) }
 fs.appendFileSync(${JSON.stringify(logs.claude)}, JSON.stringify(process.argv.slice(2)) + '\\n')
 const dir = process.env.CLAUDE_CONFIG_DIR, cwd = process.cwd(), id = ${JSON.stringify(SESSION)}
 fs.mkdirSync(path.join(dir, 'sessions'), { recursive: true })
@@ -129,7 +131,8 @@ process.stdin.on('data', (d) => fs.appendFileSync(${JSON.stringify(logs.amp)}, '
     assert.match(handoff, /## Where Claude Code stopped\n\n[\s\S]*the rounding test still fails/)
     assert.match(handoff, /- edited src\/cart\.ts\n- ran `npm test -- cart`/)
     assert.equal(git('status', '--porcelain'), '', 'the handoff stays out of git')
-    assert.equal(readFileSync(logs.claude, 'utf8').trim().split('\n').length, 1, 'Claude Code was not restarted')
+    const claudeStarts = readFileSync(logs.claude, 'utf8').trim().split('\n')
+    assert.equal(claudeStarts.length, 1, `Claude Code was not restarted: ${claudeStarts.join(' ')}`)
     await s.shot(page, 'handed-off-to-codex')
 
     // Amp takes no task on its command line: it starts bare, and the same line is typed in once it is up.

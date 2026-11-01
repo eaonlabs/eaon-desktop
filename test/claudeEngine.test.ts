@@ -125,6 +125,30 @@ test('the model list is Claude Code’s own for this account, its default first,
   assert.equal(modelsOf([], 1)[0].isDefault, true)
 })
 
+test('signed out, the model list doesn’t start Claude Code; signed in again, it does', async () => {
+  let loggedIn = false
+  let started = 0
+  const { engine: claude } = engine(async function* () {}, {
+    run: async (_command, args) =>
+      args[0] === '--version'
+        ? { ok: true, stdout: '2.1.304 (Claude Code)\n', stderr: '' }
+        : { ok: true, stdout: JSON.stringify(loggedIn ? { loggedIn: true, authMethod: 'claude.ai', subscriptionType: 'max' } : { loggedIn: false }), stderr: '' },
+    query: () => {
+      started++
+      return Object.assign((async function* () {})(), { supportedModels: async () => [], close: () => {} }) as never
+    }
+  })
+  await claude.detect({ force: true })
+  const out = await claude.listModels({ force: true })
+  assert.equal(started, 0, 'no Claude Code process for a signed-out list')
+  assert.match(out.staleBecause ?? '', /Sign in to Claude Code/)
+  assert.ok(out.models.length > 0, 'the shipped list stays')
+  loggedIn = true
+  await claude.detect({ force: true })
+  await claude.listModels({ force: true })
+  assert.equal(started, 1)
+})
+
 test('a turn: Claude Code started as published, its stream drawn once, tools as Eaon’s, usage and plan billing', async () => {
   const { engine: claude, calls } = engine(async function* () {
     yield init('s-9')
