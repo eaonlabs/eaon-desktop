@@ -12,6 +12,7 @@ import { errorText, explainUpdateError } from '../../../lib/errors'
 import { CreditsSection } from './Credits'
 import { HoldToTalkRows } from './HoldToTalk'
 import { SpeechModelRow } from './SpeechModelRow'
+import { versionLabel } from '@shared/version'
 
 export function GeneralPage(): JSX.Element {
   const { settings, patchSettings } = useApp(useShallow((s) => ({ settings: s.settings, patchSettings: s.patchSettings })))
@@ -27,7 +28,7 @@ export function GeneralPage(): JSX.Element {
   const [linking, setLinking] = useState(false)
 
   useEffect(() => {
-    void window.api.app.version().then(setVersion)
+    void window.api.app.version().then((v) => setVersion(versionLabel(v)))
     void window.api.app.background().then(setBackground)
   }, [])
 
@@ -163,10 +164,10 @@ export function GeneralPage(): JSX.Element {
             <Row title="Up to date" description="You have the latest version installed" />
           )}
           {update.state === 'available' && (
-            <Row title="Update available" description={`Version ${update.version} is downloading in the background`} />
+            <Row title="Update available" description={`Version ${versionLabel(update.version)} is downloading in the background`} />
           )}
           {update.state === 'downloaded' && (
-            <Row title="Update ready" description={`Version ${update.version} is ready. Restart Eaon to install it.`}>
+            <Row title="Update ready" description={`Version ${versionLabel(update.version)} is ready. Restart Eaon to install it.`}>
               <button className="btn" onClick={() => void window.api.updater.install()}>
                 Restart & install
               </button>
@@ -337,7 +338,7 @@ function BetaUpdates({ version }: { version: string }): JSX.Element {
             </Row>
             {enabled && beta.state === 'checking' && <Row title="Looking for a beta…" />}
             {enabled && beta.state === 'available' && (
-              <Row title={`Beta ${beta.version} is out`} description="Download it now, then restart Eaon to switch to it.">
+              <Row title={`Beta ${versionLabel(beta.version)} is out`} description="Download it now, then restart Eaon to switch to it.">
                 <button className="btn btn--accent" onClick={() => void window.api.updater.downloadBeta()}>
                   Download beta
                 </button>
@@ -347,7 +348,7 @@ function BetaUpdates({ version }: { version: string }): JSX.Element {
               <Row title="Downloading the beta…" description={`${beta.percent}% — keep using Eaon, this runs in the background`} />
             )}
             {enabled && beta.state === 'downloaded' && (
-              <Row title="Beta ready" description={`Version ${beta.version} installs when you restart`}>
+              <Row title="Beta ready" description={`Version ${versionLabel(beta.version)} installs when you restart`}>
                 <button className="btn btn--accent" onClick={() => void window.api.updater.install()}>
                   Restart & install
                 </button>

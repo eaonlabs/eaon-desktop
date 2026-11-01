@@ -45,6 +45,7 @@ import { look, type WatchReading } from './watch'
 import { isReadOnlyCommand } from '../../agent/approvals'
 import { refreshBrowserStatus, reportBrowserStep, setWorkerBrowsers } from '../agentBrowser'
 import { workerBrowserTarget } from '@shared/agentBrowser'
+import { mayHaveBoughtSince } from '../payments/plans'
 
 /**
  * Glue between the workers engine and the app: files, the renderer, IPC and
@@ -296,6 +297,7 @@ export function createWorkersService(ctx: FeatureContext, overrides: WorkersOver
     now: overrides.now
   })
   const engine = new WorkersEngine({
+    mayHaveBought: (chatId, routineId, since) => mayHaveBoughtSince(chatId, routineId, since),
     // Everything a worker's run asks of a model — its loop, sub-agents,
     // compaction — is counted as the workers' (Settings → Usage).
     runAgent: overrides.runAgent ?? ((request, emit, options) => withUsageSource('worker', () => runAgent(request, emit, options))),

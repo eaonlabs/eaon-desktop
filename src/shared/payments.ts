@@ -103,6 +103,8 @@ export interface PurchaseRecord {
    * asks first, so one approval can't become two orders.
    */
   submittedAt?: number
+  /** When the card was first typed into the checkout for it: from then on, the order may have gone through. */
+  typedAt?: number
   completedAt?: number
   /** The merchant charged more than was authorized (tax or shipping added at checkout). */
   overAuthorized?: boolean

@@ -7,6 +7,11 @@ All notable changes to Eaon are documented here. Format loosely follows
 
 ### Changed
 - **Eaon is now under the Apache License 2.0**, instead of the GPL-3.0. Releases up to 2026.7.2.1 were published under the GPL-3.0.
+- **Eaon says its release's name.** Settings, About Eaon, update notices and the release-notes link say 2026.7.2.1 (its name on GitHub) instead of the 2026.7.3 that updates compare.
+
+### Fixed
+- **Automatic purchases carry on through a restart.** When Eaon closes in the middle of a purchase (an update, or the computer restarting for one), an order whose card was never typed and whose order button was never pressed is cancelled and no longer uses up the day's or month's limit, so later automatic purchases aren't sent to you for approval. One that may have gone through says "Needs attention" in Settings → Payments, keeps counting, and is never bought again. A purchase schedule (made with /purchase, or kept in Scheduled tasks) whose order was cut off before anything was bought makes it once when Eaon is back, within a day.
+- **Payments suggests running in the background** when automatic purchases or a purchase schedule are on, so Eaon starts again after the computer restarts for an update.
 
 ## [2026.7.2.1] — 2026-10-28
 

@@ -10,7 +10,7 @@ import {
   type PaymentsStatus,
   type PurchaseRecord
 } from '@shared/payments'
-import { Card, Modal, Row, Section, Segmented } from '../../ui'
+import { Card, Modal, Row, Section, Segmented, Switch } from '../../ui'
 import '../../../styles/payments.css'
 
 /**
@@ -233,6 +233,8 @@ const STATUS_LABEL: Record<PurchaseRecord['status'], string> = {
 }
 
 function PurchaseRow({ purchase }: { purchase: PurchaseRecord }): JSX.Element {
+  // Cut off mid-checkout (Eaon closed after the card was typed): it may have gone through, so the user checks.
+  const unsure = purchase.status === 'authorized' && purchase.tracking?.stage === 'problem'
   const when = new Date(purchase.createdAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
   return (
     <div className="row pay-purchase">
@@ -247,6 +249,7 @@ function PurchaseRow({ purchase }: { purchase: PurchaseRecord }): JSX.Element {
           {purchase.site ? ` · ${purchase.site}` : ''}
           {purchase.overAuthorized ? ` · Charged more than the ${formatMoney(purchase.amount, purchase.currency)} approved` : ''}
           {purchase.note ? ` · ${purchase.note}` : ''}
+          {unsure && purchase.tracking?.note ? ` · ${purchase.tracking.note}` : ''}
         </div>
         {purchase.orderId && (
           <div className="row__desc pay-purchase__order">
@@ -264,7 +267,9 @@ function PurchaseRow({ purchase }: { purchase: PurchaseRecord }): JSX.Element {
       </div>
       <div className="row__trail">
         <span className="pay-mono pay-purchase__amount">{money(purchase.charged ?? purchase.amount, purchase.currency)}</span>
-        <span className={`badge${purchase.status === 'paid' ? ' badge--ok' : purchase.status === 'failed' ? ' badge--warn' : ''}`}>{STATUS_LABEL[purchase.status]}</span>
+        <span className={`badge${purchase.status === 'paid' ? ' badge--ok' : purchase.status === 'failed' || unsure ? ' badge--warn' : ''}`}>
+          {unsure ? ORDER_STAGE_LABEL.problem : STATUS_LABEL[purchase.status]}
+        </span>
       </div>
     </div>
   )
@@ -275,10 +280,32 @@ export function PaymentsPage(): JSX.Element {
   const [replacing, setReplacing] = useState(false)
   const [waiverOpen, setWaiverOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // Whether Eaon starts again by itself after a restart, and whether any purchase schedule needs it to.
+  const [background, setBackground] = useState<{ supported: boolean; enabled: boolean } | null>(null)
+  const [hasPurchaseSchedule, setHasPurchaseSchedule] = useState(false)
 
   useEffect(() => {
     void window.api.payments.status().then(setStatus)
-    return window.api.payments.onChanged(setStatus)
+    void window.api.app.background().then(setBackground, () => undefined)
+    // Purchase schedules are routines on workers now; ones made as scheduled tasks before that still run too.
+    let tasks = false
+    let routines = false
+    const update = (): void => setHasPurchaseSchedule(tasks || routines)
+    const fromWorkers = (workers: { routines: { purchase?: unknown }[] }[]): void => {
+      routines = workers.some((w) => w.routines.some((r) => Boolean(r.purchase)))
+      update()
+    }
+    void window.api.scheduler.list().then((list) => {
+      tasks = list.some((t) => Boolean(t.purchase) && t.enabled)
+      update()
+    }, () => undefined)
+    void window.api.workers.list().then(fromWorkers, () => undefined)
+    const offWorkers = window.api.workers.onChanged(fromWorkers)
+    const offStatus = window.api.payments.onChanged(setStatus)
+    return () => {
+      offWorkers()
+      offStatus()
+    }
   }, [])
 
   const act = useCallback(async (fn: () => Promise<PaymentsStatus>): Promise<void> => {
@@ -292,6 +319,9 @@ export function PaymentsPage(): JSX.Element {
 
   if (!status) return <></>
   const { card, currency, limits, spent } = status
+  // Purchases happen only while Eaon runs: after a restart (a computer update) it has to start again by itself.
+  // A purchase schedule's free orders need no card, so payments being off doesn't stop them.
+  const keepsBuying = status.effectiveMode === 'auto' || hasPurchaseSchedule
 
   const pickMode = (mode: PaymentsMode): void => {
     // Automatic goes through the waiver unless the current one is already accepted.
@@ -374,6 +404,18 @@ export function PaymentsPage(): JSX.Element {
             </Row>
           )}
           {!card && <Row title="Add a card first" description="Payments stay off until there is a card to pay with." />}
+          {keepsBuying && background?.supported && !background.enabled && (
+            <Row
+              title="Keep buying after a restart"
+              description="Automatic and scheduled purchases happen only while Eaon is running. Turn this on and Eaon starts in the background when you log in, so a computer update or restart doesn’t stop them. A purchase cut off by a restart is never made twice."
+            >
+              <Switch
+                label="Keep buying after a restart"
+                checked={false}
+                onChange={(enabled) => void window.api.app.setBackground(enabled).then(setBackground, (e: unknown) => setError(errorText(e)))}
+              />
+            </Row>
+          )}
         </Card>
         {error && <p className="pay-error pay-error--page">{error}</p>}
       </Section>

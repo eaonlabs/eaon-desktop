@@ -320,6 +320,8 @@ export function paymentTool(engine: () => PaymentsEngine | null, fillers: Paymen
             }
             const missing = fields.filter((f) => !f.ref)
             if (missing.length) return { text: `Each browser field needs a ref from your latest snapshot (missing for ${missing.map((f) => f.field).join(', ')}).`, isError: true }
+            // Before the first keystroke: a run cut off after this may have paid (engine.ts, settleAbandoned).
+            e.markTyped(record.id)
             try {
               for (const f of fields) {
                 if (ctx.signal.aborted) throw new Error('Stopped by the user.')
@@ -332,6 +334,7 @@ export function paymentTool(engine: () => PaymentsEngine | null, fillers: Paymen
           }
           if (target !== 'screen') return { text: 'target is "browser" or "screen".', isError: true }
           const tabBetween = input.tab_between !== false
+          e.markTyped(record.id)
           let app: string
           try {
             app = await fillers.screen(

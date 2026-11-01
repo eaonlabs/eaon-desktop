@@ -115,6 +115,13 @@ export interface TransferWatch {
  */
 
 export interface WorkersDeps {
+  /**
+   * Whether a run in this chat, or of this purchase schedule, may have bought
+   * something since `since` (payments/plans.ts mayHaveBoughtSince); null when
+   * that can't be told. Lets a purchase schedule's cut-off run go again only
+   * when it can't have paid.
+   */
+  mayHaveBought?: (chatId: string, routineId: string, since: number) => boolean | null
   runAgent: RunAgent
   /** Runs a turn on an agent engine (Codex) instead of Eaon's own loop. */
   runEngineTurn?: RunEngineTurn
@@ -610,6 +617,8 @@ export class WorkersEngine {
   private readonly wakes = new Map<string, number>()
   /** Runs cut off by a quit with nothing to undo, to pick up again: slotKey → the interrupted receipt. */
   private readonly resumes = new Map<string, WorkerExecution>()
+  /** Purchase schedules' runs a quit cut off after they acted, waiting for `start()` to ask whether they bought anything. */
+  private purchaseResumes: { key: string; execution: WorkerExecution; chatId: string; routineId: string }[] = []
   /** Retries the user asked for: slotKey → the receipt being retried. */
   private readonly retries = new Map<string, WorkerExecution>()
   /** Start times of budgeted turns, per worker. */
@@ -694,11 +703,20 @@ export class WorkersEngine {
       // Retry; one from long ago is left alone rather than surprising anyone.
       for (const { threadId } of this.slotsOf(worker, true)) {
         const latest = this.runs.latest(worker.id, threadId)
-        if (!latest || latest.state !== 'interrupted' || latest.sideEffects || latest.trigger.kind === 'resume') continue
+        if (!latest || latest.state !== 'interrupted' || latest.trigger.kind === 'resume') continue
         // Aged from when it started: recovery stamps `endedAt` with this
         // launch, which would make a run cut off weeks ago look a moment old.
         if (now - (latest.startedAt ?? latest.queuedAt) > DAY) continue
-        this.resumes.set(slotKey(worker.id, threadId), latest)
+        if (!latest.sideEffects) {
+          this.resumes.set(slotKey(worker.id, threadId), latest)
+          continue
+        }
+        // A purchase schedule's run has acted (it browsed the store) before it
+        // pays. Whether it may have bought anything is the payments engine's
+        // to say, and it starts after this: decided at `start()`.
+        const routineId = latest.trigger.kind === 'routine' ? latest.trigger.routineId : undefined
+        const routine = routineId ? worker.routines.find((r) => r.id === routineId && r.purchase) : undefined
+        if (routine) this.purchaseResumes.push({ key: slotKey(worker.id, threadId), execution: latest, chatId: `worker:${threadKey(worker.id, threadId)}`, routineId: routine.id })
       }
       if (worker.paused) worker.status = 'paused'
       else if (worker.status === 'working') worker.status = 'idle'
@@ -742,6 +760,12 @@ export class WorkersEngine {
     if (this.started) return
     this.started = true
     this.disposed = false
+    // A purchase schedule's run a quit cut off goes again, once, only if nothing in it may have been bought
+    // (no card typed, no order placed): a restart for an update doesn't skip the order, and never buys it twice.
+    for (const { key, execution, chatId, routineId } of this.purchaseResumes.splice(0)) {
+      if (this.resumes.has(key)) continue
+      if (this.deps.mayHaveBought?.(chatId, routineId, execution.startedAt ?? execution.queuedAt) === false) this.resumes.set(key, execution)
+    }
     this.interval = setInterval(() => this.tick(), TICK_MS)
     // Electron keeps the process alive on its own; unref only matters to tests.
     this.interval.unref?.()
