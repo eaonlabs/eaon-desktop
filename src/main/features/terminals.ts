@@ -24,6 +24,7 @@ import { remoteLocation } from '@shared/adeRemote'
 import type { CodexPane } from '@shared/cliAccounts'
 import { currentPane, OTHER_AGENT_IDS, PANE_NAMES, PROMPT_ARG, privacyBlockedMessage, type HandoffRequest, type HandoffResult, type OtherAgentId, type TerminalAgent, type TerminalAgentId, type TerminalLayout, type TerminalPaneSpec, type TerminalSpawnRequest, type TerminalSpawnResult } from '@shared/terminals'
 import { noteOutput, quietActivity, wentQuiet, type Activity } from '@shared/terminalActivity'
+import { effectivePermission, permissionArgs, permissionEnv, type PermissionPrefs } from '@shared/agentPermissions'
 import { taskFromTerminalTitle } from '@shared/adeSessions'
 import { randomUUID } from 'node:crypto'
 import { gitSummary, handoffDocument, handoffFileName, handoffPrompt, transcriptTurns, writeHandoff } from './terminals/handoff'
@@ -106,17 +107,16 @@ const AGENTS: { id: TerminalAgentId; label: string; bin: string | null; installH
 ]
 
 /**
- * Flags an agent always starts with in the ADE. Claude Code runs with bypass
- * permissions, never stopping to ask before it edits or runs something. A
- * resume, `--continue`, a first task and a handoff all build on this command,
- * so they keep the flag; the session watch knows the agent by the first word,
- * which is still `claude`.
+ * How a pane starts an agent found on PATH: its binary, then the flags for
+ * what Settings → Agent providers lets it do without asking
+ * (shared/agentPermissions.ts). Out of the box that is Claude Code on full
+ * access (`--dangerously-skip-permissions`), as the ADE has always run it, and
+ * every other agent on its own settings. A resume, `--continue`, a first task
+ * and a handoff all build on this command, so they keep the flags; the session
+ * watch knows the agent by the first word, which is still its binary.
  */
-const AGENT_FLAGS: Partial<Record<TerminalAgentId, string>> = { claude: '--dangerously-skip-permissions' }
-
-/** How a pane starts an agent found on PATH: its binary, then any flags it always takes here. */
-export function agentCommand(id: TerminalAgentId, bin: string): string {
-  const flags = AGENT_FLAGS[id]
+export function agentCommand(id: TerminalAgentId, bin: string, prefs: PermissionPrefs | undefined = store.getSettings().agentProviders): string {
+  const flags = permissionArgs(id, effectivePermission(id, prefs))
   return flags ? `${bin} ${flags}` : bin
 }
 
@@ -185,7 +185,7 @@ function agents(): TerminalAgent[] {
  */
 async function agentEnv(agent: TerminalAgentId | undefined): Promise<Record<string, string>> {
   // Every pane runs `claude` and `codex` as the accounts chosen in Settings → Accounts.
-  return { ...cliAccountEnv(), ...(await toolEnv(agent)) }
+  return { ...cliAccountEnv(), ...(await toolEnv(agent)), ...(agent ? permissionEnv(agent, effectivePermission(agent, store.getSettings().agentProviders)) : {}) }
 }
 
 async function toolEnv(agent: TerminalAgentId | undefined): Promise<Record<string, string>> {

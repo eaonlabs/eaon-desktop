@@ -1,5 +1,6 @@
 import type { AppIcon, ApprovalMode, Chat, ChatMessage, EffortLevel, LaunchMode, McpServer, Project, Settings, ThemeMode, Workspace } from '@shared/types'
 import type { Repaired } from './storeFiles'
+import type { AgentPermission } from '@shared/agentPermissions'
 
 /**
  * Checks for each of the store's own documents, run on every read of the file
@@ -60,6 +61,7 @@ const SETTINGS_ENUMS: Record<string, readonly string[]> = {
   'appearance.appIcon': values<AppIcon>({ default: true, agent: true, light: true, ocean: true, sunset: true, forest: true, grape: true, aurora: true, peaks: true }),
   effort: values<EffortLevel>({ none: true, minimal: true, light: true, medium: true, high: true, 'extra-high': true, ultra: true }),
   approvalMode: values<ApprovalMode>({ ask: true, auto: true, full: true }),
+  'agentProviders.permissions': values<AgentPermission>({ own: true, ask: true, edits: true, auto: true, full: true }),
   'computerUse.quality': values<Settings['computerUse']['quality']>({ balanced: true, sharp: true }),
   'onboarding.setup': values<Settings['onboarding']['setup']>({ pending: true, done: true, skipped: true }),
   'onboarding.tour': values<Settings['onboarding']['tour']>({ pending: true, done: true, skipped: true })
