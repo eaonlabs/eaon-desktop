@@ -172,8 +172,10 @@ export class YahooMarketData implements PriceFeed {
     const result = await this.chart(symbol, range, RANGE_INTERVAL[range])
     const bars = toBars(result)
     this.barCache.set(key, { bars, at: this.now() })
-    // A fresh chart carries a fresh quote too; no need to ask again.
-    if (result.meta) this.quotes.set(symbol, { quote: toQuote(symbol, result.meta, this.now()), at: this.now() })
+    // A fresh day's chart carries a fresh quote too; no need to ask again. Only the day's: over a
+    // longer range Yahoo's previous close is the one before the whole range, and a quote made from
+    // a month's chart read "+14% today" for a stock that was flat.
+    if (result.meta && range === '1d') this.quotes.set(symbol, { quote: toQuote(symbol, result.meta, this.now()), at: this.now() })
     return bars.map((b) => ({ ...b }))
   }
 

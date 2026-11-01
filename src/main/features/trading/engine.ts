@@ -1638,7 +1638,7 @@ export class TradingEngine {
   /** A stock's latest headlines. */
   news(symbol: string, count: number): Promise<Headline[]> {
     if (!this.deps.prices.news) return Promise.reject(new Error('News isn’t available with this price feed.'))
-    return this.deps.prices.news(symbol, count)
+    return this.deps.prices.news(normalizeSymbol(symbol), count)
   }
 
   bars(symbol: string, range: BarRange): Promise<Bar[]> {

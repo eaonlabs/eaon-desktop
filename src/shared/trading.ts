@@ -444,6 +444,14 @@ export interface Bar {
 
 export type BarRange = '1d' | '5d' | '1mo' | '6mo' | '1y'
 
+/** A recent headline about one stock (main/features/trading/marketData.ts, Headline). */
+export interface StockHeadline {
+  title: string
+  publisher: string | null
+  at: number
+  url: string | null
+}
+
 /** Typed to confirm real-money trading. */
 export const LIVE_CONFIRMATION = 'I understand this trades real money'
 

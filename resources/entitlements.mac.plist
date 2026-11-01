@@ -5,5 +5,9 @@
     <key>com.apple.security.cs.allow-jit</key><true/>
     <key>com.apple.security.cs.allow-unsigned-executable-memory</key><true/>
     <key>com.apple.security.device.audio-input</key><true/>
+    <!-- Hardened runtime refuses Apple events without it, silently: Calendar and
+         Reminders for workers (workers/household.ts) and opening Terminal
+         (connectApps/launch.ts) then fail with -1743 and macOS never asks. -->
+    <key>com.apple.security.automation.apple-events</key><true/>
   </dict>
 </plist>

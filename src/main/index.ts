@@ -100,7 +100,10 @@ protocol.registerSchemesAsPrivileged([
   // A video wallpaper (features/wallpaper.ts): a standard scheme, which is what
   // lets a video seek and loop by byte ranges, with CORS so the page can draw
   // its frames into the wallpaper's styles. It serves only Eaon's own copies.
-  { scheme: WALLPAPER_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true, bypassCSP: true } }
+  { scheme: WALLPAPER_SCHEME, privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true, bypassCSP: true } },
+  // A worker's camera card (workers/cameraView.ts): a Home Assistant camera's
+  // picture or live stream, fetched by main so its token never reaches the page.
+  { scheme: 'eaon-camera', privileges: { secure: true, supportFetchAPI: true, stream: true, bypassCSP: true } }
 ])
 // Media only — images, and videos so the Library and attachments can preview them.
 const SERVABLE_IMAGES = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.heic', '.avif', '.mp4', '.m4v', '.mov', '.webm'])

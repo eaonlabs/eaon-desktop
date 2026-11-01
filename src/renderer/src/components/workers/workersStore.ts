@@ -14,6 +14,8 @@ import {
   type WorkerThread
 } from '@shared/workers'
 import { reportError } from '../ErrorBoundary'
+import { workerAppsEnabled } from '@shared/workerApps'
+import type { HouseholdList } from '@shared/workerLists'
 
 /** An IPC failure as the sentence main threw, without Electron's "Error invoking remote method …" prefix. */
 export const errorText = (error: unknown): string =>
@@ -61,6 +63,14 @@ interface WorkersState {
   browserDismissed: Set<string>
   /** The worker the user is showing a task in its browser (Teach); null when none. */
   teaching: string | null
+  /** The shared household lists (linked apps, labs builds), once a card or the Apps page asked for them. */
+  lists: HouseholdList[]
+  /** The New worker page (rather than the team) is open. */
+  creating: boolean
+  /** The worker whose Apps sheet is open; null when none. */
+  appsFor: string | null
+  /** The password vault's page is open instead of the team. */
+  vaultOpen: boolean
 
   init: () => Promise<void>
   select: (id: string | null) => void
@@ -95,6 +105,11 @@ interface WorkersState {
   /** Ends Teach: with a task the steps go to the worker; null cancels. Resolves to how many steps were sent. */
   finishTeaching: (task: string | null) => Promise<number>
   createTeam: (draft: TeamDraftInput) => Promise<WorkerRoom>
+  loadLists: () => Promise<void>
+  /** Opens the New worker page (true) or leaves it. */
+  setCreating: (open: boolean) => void
+  setAppsFor: (workerId: string | null) => void
+  setVaultOpen: (open: boolean) => void
 }
 
 let bound = false
@@ -123,6 +138,10 @@ export const useWorkers = create<WorkersState>((set, get) => ({
   browserFor: null,
   browserDismissed: new Set(),
   teaching: null,
+  lists: [],
+  creating: false,
+  appsFor: null,
+  vaultOpen: false,
 
   init() {
     if (get().ready) return Promise.resolve()
@@ -136,7 +155,7 @@ export const useWorkers = create<WorkersState>((set, get) => ({
   },
 
   select(id) {
-    set({ selectedId: id, ...(id ? { selectedRoomId: null } : {}) })
+    set({ selectedId: id, creating: false, vaultOpen: false, ...(id ? { selectedRoomId: null } : {}) })
     if (id) void get().loadThread(id, get().openThread[id] ?? MAIN_THREAD)
   },
   selectThread(id, threadId) {
@@ -167,7 +186,7 @@ export const useWorkers = create<WorkersState>((set, get) => ({
     set(open ? { activityOpen: true, browserFor: null } : { activityOpen: false })
   },
   selectRoom(id) {
-    set({ selectedRoomId: id, ...(id ? { selectedId: null } : {}) })
+    set({ selectedRoomId: id, ...(id ? { selectedId: null, creating: false, vaultOpen: false } : {}) })
     if (!id) return
     void window.api.workers.roomPosts(id).then((posts) => set((s) => ({ roomPosts: { ...s.roomPosts, [id]: posts } })))
     void window.api.workers.markRoomRead(id)
@@ -225,7 +244,23 @@ export const useWorkers = create<WorkersState>((set, get) => ({
     return room
   },
   openEditor(workerId = null) {
-    set({ editing: { workerId } })
+    // A new worker is made on its own page; editing one stays a dialog.
+    if (workerId === null) set({ creating: true, selectedId: null, selectedRoomId: null, vaultOpen: false })
+    else set({ editing: { workerId } })
+  },
+  setCreating(open) {
+    set({ creating: open, ...(open ? { selectedId: null, selectedRoomId: null, vaultOpen: false } : {}) })
+  },
+  setAppsFor(workerId) {
+    set({ appsFor: workerId })
+  },
+  setVaultOpen(open) {
+    set({ vaultOpen: open, ...(open ? { selectedId: null, selectedRoomId: null, creating: false } : {}) })
+  },
+  async loadLists() {
+    if (!workerAppsEnabled()) return
+    const lists = await window.api.workers.lists()
+    set({ lists })
   },
   closeEditor() {
     set({ editing: null })
@@ -365,6 +400,7 @@ function listen(): void {
     })
   })
   api.onDelegations((delegations) => set({ delegations }))
+  if (workerAppsEnabled()) api.onListsChanged((lists) => set({ lists }))
   api.onOpen((workerId) => {
     set({ selectedId: workerId })
     void import('../../state/store').then(({ useApp }) => {

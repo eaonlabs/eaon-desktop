@@ -76,6 +76,8 @@ interface Session {
   chooser: { backendNodeId: number; multiple: boolean } | null
   /** Whether the file-picker interception is set up on this window's debugger. */
   intercepting: boolean
+  /** Its passkey authenticator, once armed (see `armPasskeys`); null until then and after a crash. */
+  passkeys: { authenticatorId: string; scriptId: string | null } | null
   /** Undoes the listeners added to the window's session, which outlives the window. */
   unhook: () => void
   /** Steps queued or running (and opens and backs): a live view is pictured while there are any. */
@@ -569,7 +571,8 @@ export class WorkerBrowsers {
       inputAt: 0,
       parkTimer: null,
       parked: null,
-      recording: null
+      recording: null,
+      passkeys: null
     }
     // There are no tabs. A link with target=_blank or a window.open() would
     // otherwise become a real, visible window on the user's screen, in this
@@ -610,6 +613,14 @@ export class WorkerBrowsers {
     contents.debugger.on('message', (_event, method, params, sessionId) => {
       if (method === 'Page.fileChooserOpened' && !sessionId) {
         fresh.chooser = { backendNodeId: Number(params.backendNodeId), multiple: params.mode === 'selectMultiple' }
+      }
+      // The worker's own passkeys: one made on a website is kept in the vault, one used has its counter moved on.
+      if (!sessionId && method === 'WebAuthn.credentialAdded' && params.credential) {
+        this.passkeyStore?.added(workerId, params.credential as PasskeyCredentialLike)
+        void this.updatePasskeyScript(fresh)
+      }
+      if (!sessionId && method === 'WebAuthn.credentialAsserted' && params.credential) {
+        this.passkeyStore?.asserted(workerId, params.credential as PasskeyCredentialLike)
       }
     })
     await contents.loadURL('about:blank')
@@ -666,6 +677,7 @@ export class WorkerBrowsers {
     const browser = session.browser
     session.browser = null
     session.intercepting = false
+    session.passkeys = null
     session.refs = new Map()
     session.cursor = null
     // The page first: closing the old connection sends commands to the dead
@@ -750,8 +762,115 @@ export class WorkerBrowsers {
     return this.enqueue(workerId, session, async (browser) => {
       const out = resultText(await browser.run(code))
       if (!session.intercepting) await this.intercept(session)
+      if (!session.passkeys && this.passkeyStore) await this.armPasskeys(workerId, session)
       return out
     })
+  }
+
+  /** Where the workers' passkeys are kept (the vault); without it a worker's browser has no authenticator. */
+  private passkeyStore: PasskeyStore | null = null
+  setPasskeyStore(store: PasskeyStore): void {
+    this.passkeyStore = store
+  }
+
+  /**
+   * Gives the worker's browser a passkey authenticator of its own: Chromium's
+   * virtual authenticator (CDP WebAuthn), holding the passkeys this worker
+   * made before. A website's "create a passkey" makes one there — kept in
+   * the vault as it is made (credentialAdded) — and a website's "sign in with
+   * a passkey" is answered by it, with no prompt (nobody is at this hidden
+   * window to touch a sensor). WebAuthn ties a passkey to the website that
+   * made it, so no other page can use it.
+   *
+   * Electron has no account picker, so a sign-in that leaves the choice of
+   * passkey to the browser (no allowCredentials, or the autofill kind) gets
+   * nothing on its own; a small script on every page names this worker's
+   * passkeys for that website when a page asks that way.
+   */
+  private async armPasskeys(workerId: string, session: Session): Promise<void> {
+    const dbg = session.window.webContents.debugger
+    if (session.window.isDestroyed()) return
+    try {
+      if (!dbg.isAttached()) dbg.attach('1.3')
+      await dbg.sendCommand('WebAuthn.enable', { enableUI: false })
+      const { authenticatorId } = (await dbg.sendCommand('WebAuthn.addVirtualAuthenticator', {
+        options: { protocol: 'ctap2', transport: 'internal', hasResidentKey: true, hasUserVerification: true, isUserVerified: true, automaticPresenceSimulation: true }
+      })) as { authenticatorId: string }
+      session.passkeys = { authenticatorId, scriptId: null }
+      for (const credential of this.passkeyStore?.credentials(workerId) ?? []) {
+        await dbg.sendCommand('WebAuthn.addCredential', { authenticatorId, credential }).catch(() => {})
+      }
+      await this.updatePasskeyScript(session)
+    } catch {
+      // A browser without WebAuthn here just can't use passkeys; nothing else depends on it.
+      session.passkeys = session.passkeys ?? { authenticatorId: '', scriptId: null }
+    }
+  }
+
+  /** The page script naming this worker's passkeys per website (see `armPasskeys`), replaced when they change. */
+  private async updatePasskeyScript(session: Session): Promise<void> {
+    if (!session.passkeys?.authenticatorId || session.window.isDestroyed()) return
+    const dbg = session.window.webContents.debugger
+    let ids: Record<string, string[]> = {}
+    try {
+      const { credentials } = (await dbg.sendCommand('WebAuthn.getCredentials', { authenticatorId: session.passkeys.authenticatorId })) as { credentials: PasskeyCredentialLike[] }
+      for (const c of credentials) (ids[c.rpId] ??= []).push(c.credentialId)
+    } catch {
+      ids = {}
+    }
+    try {
+      await dbg.sendCommand('Page.enable')
+      if (session.passkeys.scriptId) await dbg.sendCommand('Page.removeScriptToEvaluateOnNewDocument', { identifier: session.passkeys.scriptId }).catch(() => {})
+      session.passkeys.scriptId = null
+      // Installed even with no passkeys: it also keeps a sign-in page's autofill request from blocking the browser's authenticator.
+      const { identifier } = (await dbg.sendCommand('Page.addScriptToEvaluateOnNewDocument', { source: passkeyShim(ids) })) as { identifier: string }
+      session.passkeys.scriptId = identifier
+    } catch {
+      /* the passkeys still work for sites that name them */
+    }
+  }
+
+  /**
+   * The vault changed this worker's passkeys from outside the browser (one
+   * removed): its authenticator is rebuilt on the next step.
+   */
+  async resetPasskeys(workerId: string): Promise<void> {
+    const session = this.sessions.get(workerId)
+    if (!session?.passkeys || session.window.isDestroyed()) return
+    const dbg = session.window.webContents.debugger
+    const { authenticatorId, scriptId } = session.passkeys
+    session.passkeys = null
+    if (authenticatorId) await dbg.sendCommand('WebAuthn.removeVirtualAuthenticator', { authenticatorId }).catch(() => {})
+    if (scriptId) await dbg.sendCommand('Page.removeScriptToEvaluateOnNewDocument', { identifier: scriptId }).catch(() => {})
+  }
+
+  /**
+   * Types a one-time code (a 2FA code from the vault) into the page's code
+   * field — only on `domains`, over https — and submits. The code never
+   * comes back in a result. Fields split into one box per digit are filled
+   * box by box.
+   */
+  async fillCode(workerId: string, code: string, domains: string[]): Promise<{ filled: boolean } | { refused: string }> {
+    if (!this.window(workerId)) throw new Error('The worker’s browser has no page open.')
+    const out = await this.run(
+      workerId,
+      `const allowed = ${JSON.stringify(domains.map((d) => d.toLowerCase()))};` +
+        ` const u = new URL(page.url()); const h = u.hostname.toLowerCase();` +
+        ` if (u.protocol !== 'https:' || !allowed.some((d) => h === d || h.endsWith('.' + d))) return JSON.stringify({ refused: page.url() });` +
+        ` const code = ${js(code)};` +
+        ` const one = page.locator('input[autocomplete="one-time-code"]:visible, input[name*="otp" i]:visible, input[name*="code" i]:visible, input[id*="otp" i]:visible, input[id*="code" i]:visible, input[inputmode="numeric"]:visible').first();` +
+        ` const boxes = page.locator('input[maxlength="1"]:visible');` +
+        ` const n = await boxes.count().catch(() => 0);` +
+        ` if (n >= code.length) { for (let i = 0; i < code.length; i++) await boxes.nth(i).fill(code[i], { timeout: 5000 }); await boxes.nth(code.length - 1).press('Enter').catch(() => {}); return JSON.stringify({ filled: true }) }` +
+        ` if (!(await one.count().catch(() => 0))) return JSON.stringify({ filled: false });` +
+        ` await one.fill(code, { timeout: 10000 }); await one.press('Enter', { timeout: 5000 }).catch(() => {});` +
+        ` await page.waitForLoadState('domcontentloaded', { timeout: 15000 }).catch(() => {}); return JSON.stringify({ filled: true })`
+    ).catch((error: unknown) => {
+      throw new Error(`Couldn’t type the code: ${String((error as Error)?.message ?? error).split(code).join('••••••').split('\n')[0]}`)
+    })
+    let parsed: unknown = JSON.parse(out)
+    if (typeof parsed === 'string') parsed = JSON.parse(parsed)
+    return parsed as { filled: boolean } | { refused: string }
   }
 
   /** `work` in its turn on the browser's queue: a crashed page reopened, connected, and a parked page brought back first. */
@@ -1348,6 +1467,54 @@ export class WorkerBrowsers {
       const message = String((error as Error)?.message ?? error)
       throw new Error(`Could not type into ${ref}: ${value ? message.split(value).join('••••') : message}`)
     }
+  }
+
+  /**
+   * Signs the browser in for the user from Eaon's sign-in sheet: on the page
+   * it is on (open the sign-in page first), types the username and password
+   * the user gave and submits, following a sign-in that asks for the address
+   * first and the password on the next page. Only while the page is on one
+   * of `domains` over https — a page anywhere else is refused before a
+   * character is typed, and checked again before the password goes in.
+   * Neither value comes back, in the result or in an error, and the model
+   * never sees them.
+   */
+  async fillLogin(
+    workerId: string,
+    login: { username: string; password: string; domains: string[] }
+  ): Promise<{ url: string; filled: ('username' | 'password')[]; stillOnSignIn: boolean } | { refused: string }> {
+    if (!this.window(workerId)) throw new Error('The worker’s browser has no page open.')
+    if (this.controlled(workerId)) throw new Error('You have control of the worker’s browser right now; sign in there, or hand it back first.')
+    const code =
+      `const allowed = ${JSON.stringify(login.domains.map((d) => d.toLowerCase()))};` +
+      ` const onSite = () => { try { const u = new URL(page.url()); const h = u.hostname.toLowerCase(); return u.protocol === 'https:' && allowed.some((d) => h === d || h.endsWith('.' + d)) } catch { return false } };` +
+      ` if (!onSite()) return JSON.stringify({ refused: page.url() });` +
+      ` const user = ${js(login.username)}; const pass = ${js(login.password)}; const filled = [];` +
+      ` const pick = async (selectors) => { for (const s of selectors) { const l = page.locator(s).first(); if (await l.count().catch(() => 0)) return l } return null };` +
+      ` const idField = () => pick(['input[autocomplete~="username"]:visible', 'input[type="email"]:visible', 'input[autocomplete="email"]:visible', 'input[name*="email" i]:visible', 'input[name*="user" i]:visible', 'input[name*="login" i]:visible', 'input[id*="email" i]:visible', 'input[id*="user" i]:visible', 'input[type="tel"]:visible', 'form input[type="text"]:visible']);` +
+      ` const passField = () => pick(['input[type="password"]:visible']);` +
+      ` let id = user ? await idField() : null;` +
+      ` if (id) { await id.fill(user, { timeout: 10000 }); filled.push('username') }` +
+      ` let pw = pass ? await passField() : null;` +
+      ` if (pass && !pw && id) { await id.press('Enter', { timeout: 5000 }).catch(() => {}); await page.locator('input[type="password"]:visible').first().waitFor({ state: 'visible', timeout: 15000 }).catch(() => {}); if (!onSite()) return JSON.stringify({ refused: page.url() }); pw = await passField() }` +
+      ` if (pw) { await pw.fill(pass, { timeout: 10000 }); filled.push('password'); await pw.press('Enter', { timeout: 5000 }).catch(() => {}) }` +
+      ` else if (id && !pass) await id.press('Enter', { timeout: 5000 }).catch(() => {});` +
+      ` await page.waitForLoadState('domcontentloaded', { timeout: 15000 }).catch(() => {}); await page.waitForTimeout(2000);` +
+      ` const still = (await page.locator('input[type="password"]:visible').count().catch(() => 0)) > 0;` +
+      ` return JSON.stringify({ url: page.url(), filled, still })`
+    let out: string
+    try {
+      out = await this.run(workerId, code)
+    } catch (error) {
+      let message = String((error as Error)?.message ?? error)
+      for (const secret of [login.password, login.username]) if (secret) message = message.split(secret).join('••••')
+      throw new Error(`Couldn’t sign in: ${message.split('\n')[0]}`)
+    }
+    let parsed: unknown = JSON.parse(out)
+    if (typeof parsed === 'string') parsed = JSON.parse(parsed)
+    const result = parsed as { refused?: string; url?: string; filled?: ('username' | 'password')[]; still?: boolean }
+    if (typeof result.refused === 'string') return { refused: result.refused }
+    return { url: result.url ?? '', filled: result.filled ?? [], stillOnSignIn: result.still === true }
   }
 
   /** What the latest snapshot says a ref is, for judging a step before it runs. */
@@ -2645,4 +2812,46 @@ export function workerBrowserToolSource(browsers: WorkerBrowsers, onStep?: Brows
         ? 'web_browser is your own browser: open a page, act on refs from the latest snapshot, read text with read. Prefer web search for finding pages; use the browser to act on them.'
         : null
   }
+}
+
+
+/** A WebAuthn credential as CDP's WebAuthn domain reports it. */
+export interface PasskeyCredentialLike {
+  credentialId: string
+  isResidentCredential: boolean
+  rpId: string
+  privateKey: string
+  userHandle?: string
+  signCount: number
+  userName?: string
+  userDisplayName?: string
+}
+
+/** Where a worker's browser keeps its passkeys (the vault, through the workers service). */
+export interface PasskeyStore {
+  credentials: (workerId: string) => PasskeyCredentialLike[]
+  added: (workerId: string, credential: PasskeyCredentialLike) => void
+  asserted: (workerId: string, credential: PasskeyCredentialLike) => void
+}
+
+/**
+ * The page script that fills in what Electron's missing passkey UI would
+ * do. A sign-in that leaves the choice of passkey to the browser is given
+ * this worker's passkeys for the website. And an autofill-style request
+ * (mediation "conditional", which sign-in pages start as they load) is never
+ * left pending in the browser: with a passkey for the site it becomes an
+ * ordinary request, and without one it waits in the page — until the site
+ * aborts it — so it can't hold up the next passkey request the way a
+ * conditional request with no UI to answer it does. Credential ids are
+ * public; nothing secret is in it.
+ */
+export function passkeyShim(ids: Record<string, string[]>): string {
+  return `(() => { const known = ${JSON.stringify(ids)}; const creds = navigator.credentials; if (!creds || !creds.get) return; const orig = creds.get.bind(creds);
+  const bytes = (s) => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/')), (c) => c.charCodeAt(0));
+  const mine = (pk) => known[(pk && pk.rpId) || location.hostname] || [];
+  creds.get = function (opts) { try { const pk = opts && opts.publicKey;
+    if (pk && !(pk.allowCredentials && pk.allowCredentials.length)) { const ids = mine(pk);
+      if (ids.length) opts = Object.assign({}, opts, { mediation: opts.mediation === 'conditional' ? 'optional' : opts.mediation, publicKey: Object.assign({}, pk, { allowCredentials: ids.map((i) => ({ type: 'public-key', id: bytes(i) })) }) });
+      else if (opts.mediation === 'conditional') return new Promise((resolve, reject) => { const signal = opts.signal; if (signal) { if (signal.aborted) return reject(signal.reason || new DOMException('Aborted', 'AbortError')); signal.addEventListener('abort', () => reject(signal.reason || new DOMException('Aborted', 'AbortError')), { once: true }) } }) }
+  } catch (e) {} return orig(opts) } })()`
 }
